@@ -4,6 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { makeDocument, build, settle, Node } = require('./fake_dom.js');
+const { parts, prepare } = require('./password_form_dom.js');
+
+prepare(Node);
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
@@ -37,48 +40,52 @@ function cancelled(doc) {
   });
 }
 
+const GOOD = 'Copper lantern 41';
 const row = { id: 7, username: 'vic', role: 'viewer', email: null };
 
-function page({ users = [], reauth = (f) => f() } = {}) {
+// `timers` takes what waits for a time, for the test to run.
+function page({ users = [], reauth = (f) => f(), timers } = {}) {
   const doc = makeDocument();
   doc.documentElement.clientHeight = 600;
   doc.body.appendChild(build(doc, ['main', {},
-    ['button', { id: 'btn-add-user' }], ['button', { id: 'btn-cancel-add-user' }], ['input', { id: 'elsewhere' }],
-    ['form', { id: 'add-user-form' },
-      ['input', { id: 'new-username' }], ['span', { id: 'new-username-why', class: 'fld-why' }],
-      ['input', { id: 'new-user-password' }], ['span', { id: 'new-user-password-why', class: 'fld-why' }],
-      ['button', { id: 'btn-submit-add-user' }], ['span', { id: 'create-user-result' }]]]));
+    ['button', { id: 'btn-add-user' }], ['input', { id: 'elsewhere' }], ['span', { id: 'add-user-live' }],
+    ['div', { id: 'add-user-fold', class: 'setg-fold is-shut' }, ['div', {}, ['form', { id: 'add-user-form' }, ...parts({ user: 'new-username',
+      fresh: 'new-user-password', submit: 'btn-submit-add-user', cancel: 'btn-cancel-add-user', result: 'create-user-result', words: 'Create user' })]]]]));
   doc.querySelector('main').appendChild(build(doc, ['div', { id: 'user-list' }]));
   const $ = (id) => doc.getElementById(id);
+  $('add-user-fold').hidden = true;
+  ['new-username', 'new-user-password'].forEach((id) => { $(id).value = ''; });
   const toasts = [];
   const UIFeedback = { confirm: () => Promise.resolve(true), success() {}, error: (text) => toasts.push(text) };
   const MM = { reauth: { run: (f) => reauth(f, doc) } };
-  const ctx = vm.createContext({ document: doc, MM, UIFeedback, getComputedStyle: () => ({}), setTimeout: (fn) => setTimeout(fn, 0), matchMedia: () => ({ matches: true }) });
+  const ctx = vm.createContext({ document: doc, MM, UIFeedback, getComputedStyle: () => ({}), TextEncoder, addEventListener() {}, clearTimeout, setTimeout: (fn) => (timers ? timers.push(fn) : setTimeout(fn, 0)), matchMedia: () => ({ matches: true }) });
   ctx.window = ctx;
-  ['core/api.js', 'core/dom.js', 'settings/rows.js', 'settings/users.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
+  ['core/api.js', 'core/dom.js', 'settings/rows.js', 'password-form.js', 'settings/users.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   MM.api.get = () => Promise.resolve({ current: 'admin', users });
-  const refusal = (error) => new MM.api.APIError('x', 'No', error.status, error.issues, { message: 'No' });
+  const refusal = (error) => new MM.api.APIError('x', 'No', error.status, error.issues, { message: 'No', rules: error.rules });
   MM.settings.users.init();
-  const fire = (el, type) => el.listeners[type].forEach((fn) => fn({ preventDefault() {}, key: '' }));
-  return { doc, $, MM, toasts, refusal, fire, focused: () => doc.activeElement.id || doc.activeElement.dataset.userAction || 'body' };
+  const fire = (el, type) => el.listeners[type].forEach((fn) => fn({ target: el, preventDefault() {}, stopPropagation() {}, key: '' }));
+  const type = (id, value) => { $(id).value = value; $('add-user-form').listeners.input.forEach((fn) => fn({ target: $(id) })); };
+  return { type, doc, $, MM, toasts, refusal, fire, focused: () => doc.activeElement.id || doc.activeElement.dataset.userAction || 'body' };
 }
 
-async function refuse({ name = 'riley', password = 'a-long-enough-password', error, focus = 'btn-submit-add-user', top = 300, without }) {
-  const { doc, $, MM, refusal, fire } = page();
-  MM.api.post = () => Promise.reject(refusal(error));
-  if (without) $(without).remove();
+async function refuse({ name = 'riley', password = GOOD, error, focus = 'btn-submit-add-user', top = 300 }) {
+  const { doc, $, MM, refusal, fire, type } = page();
+  let sends = 0;
+  MM.api.post = () => { sends += 1; return Promise.reject(refusal(error)); };
   $('new-username').value = name;
   $('new-user-password').value = password;
   $('btn-submit-add-user').focus();
   revealed.length = 0;
   fire($('add-user-form'), 'submit');
-  $('create-user-result').getBoundingClientRect = box(top);
+  $('btn-submit-add-user').getBoundingClientRect = box(top);
   if (focus !== 'btn-submit-add-user') $(focus).focus();
   const sent = revealed.length;
   await settle();
   const texts = () => ['new-username-why', 'new-user-password-why', 'create-user-result'].filter((id) => $(id) && $(id).textContent);
-  const out = { said: texts(), words: texts().map((id) => $(id).textContent).join(), focused: doc.activeElement.id || 'body', last: revealed.slice(-2), late: revealed.slice(sent) };
-  fire($('add-user-form'), 'input');
+  const out = { said: texts(), words: texts().map((id) => $(id).textContent).join(), focused: doc.activeElement.id || 'body', last: revealed.slice(-2), late: revealed.slice(sent), sends, kept: $('new-user-password').value === password, red: doc.querySelectorAll('.pwd-rule').filter((r) => r.classList.contains('is-bad')).map((r) => r.getAttribute('data-rule')) };
+  type('new-username', name + 'x');
+  type('new-user-password', password + 'x');
   return { ...out, typed: texts() };
 }
 
@@ -86,7 +93,7 @@ async function refuse({ name = 'riley', password = 'a-long-enough-password', err
 async function cancel() {
   const { $, fire, focused } = page({ reauth: (f, doc) => cancelled(doc) });
   $('new-username').value = 'riley';
-  $('new-user-password').value = 'a-long-enough-password';
+  $('new-user-password').value = GOOD;
   $('btn-submit-add-user').focus();
   fire($('add-user-form'), 'submit');
   await settle();
@@ -94,17 +101,48 @@ async function cancel() {
 }
 
 async function sending() {
-  const { $, MM, fire, focused } = page();
+  const { doc, $, MM, fire, focused } = page();
   let posts = 0;
   MM.api.post = () => { posts += 1; return new Promise(() => {}); };
   $('new-username').value = 'riley';
-  $('new-user-password').value = 'a-long-enough-password';
+  $('new-user-password').value = GOOD;
+  fire($('btn-add-user'), 'click');
   $('btn-submit-add-user').focus();
   ['submit', 'submit', 'input'].forEach((type) => fire($('add-user-form'), type));
   fire($('btn-add-user'), 'click');
   fire($('btn-cancel-add-user'), 'click');
   await settle();
-  return { posts, focused: focused(), open: !$('add-user-form').hidden, said: $('create-user-result').textContent };
+  return { posts, focused: focused(), open: !$('add-user-fold').hidden, said: doc.querySelector('.pwd-said').textContent };
+}
+
+// A user is made: what is drawn and said, then the form gone, empty, with the row in the list.
+async function made() {
+  const timers = [];
+  const { doc, $, MM, fire, focused } = page({ timers });
+  const posts = [];
+  MM.api.post = (url, body) => { posts.push([url, body]); return Promise.resolve({ ok: true }); };
+  MM.api.get = () => Promise.resolve({ current: 'admin', users: [row] });
+  fire($('btn-add-user'), 'click');
+  $('new-username').value = ' <b>vic ';
+  $('new-user-password').value = GOOD;
+  $('btn-submit-add-user').focus();
+  $('add-user-form').reset = () => ['new-username', 'new-user-password'].forEach((id) => { $(id).value = ''; });
+  fire($('add-user-form'), 'submit');
+  await settle();
+  const during = { drawn: doc.querySelector('.pwd-done-s').textContent, live: $('add-user-live').textContent, open: !$('add-user-fold').hidden };
+  for (let i = 0; i < 6; i += 1) { timers.splice(0).forEach((fn) => fn()); await settle(); }
+  return { posts, during, after: { open: !$('add-user-fold').hidden, drawn: Boolean(doc.querySelector('.pwd-done')), left: [$('new-username').value, $('new-user-password').value], rows: doc.querySelectorAll('.usr-row').length, focused: focused(), busy: $('add-user-form').getAttribute('aria-busy') } };
+}
+
+// Escape folds it away, empty, and a form on its way stays.
+async function escape() {
+  const { $, fire, focused } = page();
+  fire($('btn-add-user'), 'click');
+  $('new-user-password').value = 'typed';
+  $('add-user-form').reset = () => { $('new-user-password').value = ''; };
+  $('add-user-form').listeners.keydown.forEach((fn) => fn({ key: 'Escape' }));
+  await settle();
+  return { open: !$('add-user-fold').hidden, left: $('new-user-password').value, focused: focused() };
 }
 
 // A refused change of a row, with the reader where they pressed, gone elsewhere, or scrolled away with the focus nowhere.
@@ -139,23 +177,24 @@ const places = async (action) => ({
   scrolled: await refuseRow(action, { focus: null, top: 700 }),
 });
 
-const api = (status, issues) => ({ status, issues });
+const api = (status, issues, rules) => ({ status, issues, rules });
 
 (async () => {
   const out = {
     shortName: await refuse({ name: 'ab' }),
     shortPassword: await refuse({ password: 'short' }),
-    weakPassword: await refuse({ error: api(400, ['Add a digit']) }),
+    weakPassword: await refuse({ error: api(400, ['Add a digit'], ['common']) }),
+    unnamedRule: await refuse({ error: api(400, ['Add a digit', 'And a hat']) }),
+    usernameInIt: await refuse({ password: 'riley was Here 1' }),
     takenName: await refuse({ error: api(409) }),
     limit: await refuse({ error: api(429) }),
     offline: await refuse({ error: api(0) }),
     serverError: await refuse({ error: api(500) }),
     takenElsewhere: await refuse({ error: api(409), focus: 'elsewhere' }),
     takenScrolled: await refuse({ error: api(409), top: 700 }),
-    noPlace: await refuse({ name: 'ab', without: 'new-username-why' }),
     limitElsewhere: await refuse({ error: api(429), focus: 'elsewhere' }),
   };
   const rows = { role: await places('role'), delete: await places('delete'), email: await places('email') };
-  process.stdout.write(JSON.stringify({ add: out, cancel: await cancel(), sending: await sending(), rows }));
+  process.stdout.write(JSON.stringify({ add: out, cancel: await cancel(), sending: await sending(), made: await made(), escape: await escape(), rows }));
   process.exit(0);
 })();

@@ -5,8 +5,13 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { makeDocument, build, settle, Node } = require('./fake_dom.js');
+const { parts, prepare } = require('./password_form_dom.js');
+
+prepare(Node);
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
+const OLD = 'the-old-Password-1';
+const NEW = 'Copper lantern 41';
 const NOW = Date.UTC(2026, 5, 1, 12);
 const at = (hours) => new Date(NOW + hours * 3600e3).toISOString();
 let ids = 0;
@@ -29,16 +34,17 @@ Node.prototype.scrollIntoView = function (how) { revealed.push([this.id, how && 
 Node.prototype.getBoundingClientRect = () => ({ top: 300, bottom: 320 });
 
 // `ai` adds the AI section, `tvs` the lists of TVs of a role, and `yes` answers a question.
-function page(api, { ai = false, yes = true, tvs = '' } = {}) {
+function page(api, { ai = false, yes = true, tvs = '', changed = '' } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.documentElement.clientHeight = 600;
   doc.body.appendChild(build(doc, ['main', { id: 'main-content' },
+    ['div', { id: 'account-password-sub' }, ...(changed ? [['time', { id: 'account-password-changed', datetime: changed }, 'long ago']] : []), ['span', {}, 'It signs out the others.']],
     ['button', { id: 'account-open-password', 'aria-expanded': 'false' }],
-    ['form', { id: 'account-password-form', class: 'setg-fold is-shut' },
-      ...['old', 'new', 'confirm'].flatMap((f) => [['input', { id: 'account-' + f + '-password' }], ['span', { id: 'account-' + f + '-password-why', class: 'fld-why' }]]),
-      ['span', { id: 'account-new-strength-label' }, 'At least 12 characters'],
-      ['button', { id: 'account-submit-password' }, 'Update password'], ['button', { id: 'account-cancel-password' }], ['span', { id: 'account-password-result' }]],
+    ['div', { id: 'account-password-fold', class: 'setg-fold is-shut' }, ['div', { id: 'stage' },
+      ['form', { id: 'account-password-form' }, ...parts({ old: 'account-old-password', fresh: 'account-new-password', submit: 'account-submit-password',
+        cancel: 'account-cancel-password', result: 'account-password-result', words: 'Save new password' })]]],
+    ['span', { id: 'account-password-live' }],
     ['form', { id: 'account-email-form' },
       ['input', { id: 'account-email' }], ['div', { id: 'account-email-fold', class: 'setg-fold is-shut' }, ['button', { id: 'account-cancel-email' }], ['button', { id: 'account-submit-email' }, 'Save'], ['span', { id: 'account-email-result' }]]],
     ['ul', { id: 'account-sessions' }, ['li', {}, 'Loading']],
@@ -58,10 +64,10 @@ function page(api, { ai = false, yes = true, tvs = '' } = {}) {
   }
   const $ = (id) => doc.getElementById(id);
   let resets = 0;
-  $('account-password-form').reset = () => { resets += 1; ['old', 'new', 'confirm'].forEach((f) => { $('account-' + f + '-password').value = ''; }); };
-  ['account-password-form', 'account-email-fold'].forEach((id) => { $(id).hidden = true; });
+  $('account-password-form').reset = () => { resets += 1; ['old', 'new'].forEach((f) => { $('account-' + f + '-password').value = ''; }); };
+  ['account-password-fold', 'account-email-fold'].forEach((id) => { $(id).hidden = true; });
   $('account-email').value = $('account-email').defaultValue = 'was@example.com';
-  ['old', 'new', 'confirm'].forEach((f) => { $('account-' + f + '-password').value = ''; });
+  ['old', 'new'].forEach((f) => { $('account-' + f + '-password').value = ''; });
   const MM = { api: { messageOf: (e, d) => (e instanceof Error && e.message) || d, ...api }, reauth: { run: (f, words) => { asked.push(words); return f(); } } };
   const dropped = [];
   MM.tvRemote = { drop: (id) => dropped.push(id) };
@@ -76,15 +82,24 @@ function page(api, { ai = false, yes = true, tvs = '' } = {}) {
   const told = [];
   const session = { 'mm.watch.ask': 'a question', other: 'x' };
   doc.dispatchEvent = (e) => { told.push(e.type); };
-  const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, window: { MM, matchMedia: () => ({ matches: true }), sessionStorage: { removeItem: (k) => { delete session[k]; } } }, Date: FixedDate, Event, getComputedStyle });
-  ['core/dom.js', 'settings/rows.js', 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
+  const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, clearTimeout() {}, TextEncoder, window: { MM, addEventListener() {}, matchMedia: () => ({ matches: true }), sessionStorage: { removeItem: (k) => { delete session[k]; } } }, Date: FixedDate, Event, getComputedStyle });
+  ['core/dom.js', 'settings/rows.js', 'password-form.js', 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   return {
     $, dropped, told, asked, toasts, session,
     wait: () => timers.splice(0).forEach((fn) => fn()),
     resets: () => resets,
     key: (id, key) => $(id).listeners.keydown.forEach((fn) => fn({ key })),
     button: (n) => $('account-sessions').children[n].querySelector('button'),
-    fire: (id, type) => $(id).listeners[type].forEach((fn) => fn({ preventDefault() {} })),
+    // a timer, and what it sets going, until nothing is left
+    async rest() {
+      for (let i = 0; i < 8; i += 1) { timers.splice(0).forEach((fn) => fn()); await settle(); }
+    },
+    fill: (old, fresh) => { $('account-old-password').value = old; $('account-new-password').value = fresh; },
+    fire: (id, type) => $(id).listeners[type].forEach((fn) => fn({ target: $(id), preventDefault() {}, stopPropagation() {} })),
+    type(id, value) { $(id).value = value; $('account-password-form').listeners.input.forEach((fn) => fn({ target: $(id) })); },
+    says: () => ['account-old-password-why', 'account-new-password-why', 'account-password-result'].filter((id) => $(id).textContent),
+    line: () => doc.querySelector('.pwd-line').lastElementChild.textContent,
+    sub: () => $('account-password-sub').children.filter((n) => !n.hidden).map((n) => n.textContent).join(' '),
     focused: () => doc.activeElement.id || 'body',
     active: () => doc.activeElement,
     press: (id) => {
@@ -224,9 +239,10 @@ const scenarios = {
     const gives = [];
     const here = session(9, { current: true });
     const p = page({ get: () => new Promise((give, fail) => gives.push({ give, fail })), post: () => Promise.resolve({ ok: true }) });
-    ['old', 'new', 'confirm'].forEach((f) => { p.$('account-' + f + '-password').value = 'a-long-enough-password'; });
+    p.fill(OLD, NEW);
     p.fire('account-password-form', 'submit');
     await settle();
+    await p.rest();
     gives[1].give({ sessions: [here] });
     await settle();
     gives[0].give({ sessions: [here, session(5), session(5)] });
@@ -255,7 +271,7 @@ const scenarios = {
   async passwordFold() {
     const p = page({ get: () => Promise.resolve({ sessions: [] }) });
     await settle();
-    const state = () => [p.$('account-password-form').hidden, p.$('account-open-password').getAttribute('aria-expanded'), p.focused()];
+    const state = () => [p.$('account-password-fold').hidden, p.$('account-open-password').getAttribute('aria-expanded'), p.focused()];
     const shut = state();
     p.press('account-open-password');
     const open = state();
@@ -263,23 +279,68 @@ const scenarios = {
     p.press('account-cancel-password');
     const cancelled = state().concat(p.$('account-old-password').value);
     p.press('account-open-password');
-    p.key('account-password-form', 'Escape');
+    p.key('account-password-fold', 'Escape');
     return { shut, open, cancelled, escaped: state() };
   },
   async passwordRule() {
     const p = page({ get: () => Promise.resolve({ sessions: [] }) });
     await settle();
-    p.$('account-new-strength-label').textContent = ' ';
-    p.fire('account-password-form', 'input');
-    const emptied = p.$('account-new-strength-label').textContent;
-    p.$('account-new-password').value = 'abc';
-    p.$('account-new-strength-label').textContent = 'Too simple so far';
-    p.fire('account-password-form', 'input');
-    const typed = p.$('account-new-strength-label').textContent;
+    const says = () => p.$('account-password-form').querySelector('.pwd-rule-w').textContent + p.$('account-password-form').querySelector('.pwd-rule-n').textContent;
+    const out = [says()];
+    p.type('account-new-password', 'abc');
+    out.push(says());
+    p.type('account-new-password', '');
+    out.push(says());
+    p.type('account-new-password', 'abcd');
     p.press('account-cancel-password');
-    p.$('account-new-strength-label').textContent = ' '; // as password-strength.js leaves it
-    p.wait();
-    return [emptied, typed, p.$('account-new-strength-label').textContent];
+    out.push(says());
+    return out;
+  },
+  // when it was changed last, shut and open
+  async passwordChanged() {
+    const out = [];
+    for (const changed of ['', '2026-03-14T09:26:53+00:00', '2025-03-14T09:26:53+00:00']) {
+      const p = page({ get: () => Promise.resolve({ sessions: [] }) }, { changed });
+      await settle();
+      const shut = p.sub();
+      p.press('account-open-password');
+      const open = p.sub();
+      p.press('account-cancel-password');
+      out.push([shut, open, p.sub() === shut]);
+    }
+    return out;
+  },
+  // what the line by the buttons says of so many other sign-ins and TVs; null lists did not load
+  async devicesLine() {
+    const says = async (others, tvs) => {
+      const list = (n, make) => (n === null ? () => Promise.reject(new Error('x')) : () => Promise.resolve(make(n)));
+      const answers = { '/api/users/sessions': list(others, (n) => ({ sessions: [session(9, { current: true })].concat(Array.from({ length: n }, () => session(5))) })), '/api/tvs': list(tvs, (n) => ({ tvs: Array.from({ length: n }, (_x, i) => tvOf(i + 1, 'TV')) })) };
+      const p = page({ get: (url) => answers[url]() }, { tvs: 'viewer' });
+      await settle();
+      return p.line();
+    };
+    return [await says(0, 0), await says(1, 0), await says(2, 1), await says(0, 3), await says(null, 1), await says(1, null)];
+  },
+  // what is drawn and said once it is saved, and what the row keeps of it
+  async passwordDone() {
+    const out = [];
+    for (const [others, tvs, answer] of [[2, 1, { signed_out: 2, unpaired: ['<b>Den'] }], [0, 0, { signed_out: 0, unpaired: [] }], [7, 3, { signed_out: 7, unpaired: ['a', 'b', 'c'] }], [1, 2, {}]]) {
+      const api = tvApi(Array.from({ length: tvs }, (_x, i) => tvOf(i + 1, 'TV')), [], { post: () => Promise.resolve(answer) });
+      const signIns = [session(9, { current: true, device_label: 'Safari on macOS' })].concat(Array.from({ length: others }, () => session(5, { device_label: 'Safari on iPhone' })));
+      const get = (url) => (url === '/api/users/sessions' ? Promise.resolve({ sessions: signIns }) : api.get(url));
+      const p = page({ ...api, get }, { tvs: 'viewer', changed: '2026-03-14T09:26:53+00:00' });
+      await settle();
+      p.press('account-open-password');
+      p.fill(OLD, NEW);
+      p.fire('account-password-form', 'submit');
+      await settle();
+      const done = p.$('stage').querySelector('.pwd-done');
+      const row = done.querySelector('.pwd-dev-row');
+      const during = { says: done.querySelector('.pwd-done-s').textContent, live: p.$('account-password-live').textContent, sub: p.sub(), icons: row ? row.querySelectorAll('use').map((u) => u.getAttribute('href').slice(3)).join(' ') : '', more: row && row.querySelector('.pwd-dev-n') ? row.querySelector('.pwd-dev-n').textContent : '' };
+      await p.rest();
+      out.push({ ...during, after: p.$('account-password-sub').textContent, left: Boolean(p.$('stage').querySelector('.pwd-done')) });
+    }
+    return out;
   },
   async emailFold() {
     const p = page({ get: () => Promise.resolve({ sessions: [] }), patch: () => { throw new Error('sent'); } });
@@ -306,32 +367,48 @@ const scenarios = {
   },
   async password() {
     let list = [session(5), session(9)];
-    let posts = 0;
+    const sent = [];
     const p = page({
       get: () => Promise.resolve({ sessions: list }),
-      post: () => { posts += 1; list = [session(9)]; return Promise.resolve({ ok: true }); },
+      post: (_url, body) => { sent.push(body); list = [session(9)]; return Promise.resolve({ ok: true }); },
     });
     await settle();
     p.press('account-open-password');
-    ['old', 'new', 'confirm'].forEach((f) => { p.$('account-' + f + '-password').value = 'a-long-enough-password'; });
+    p.fill(OLD, NEW);
     p.$('account-submit-password').focus();
     p.fire('account-password-form', 'submit');
     p.fire('account-password-form', 'submit');
     const whileSending = p.focused();
-    p.fire('account-password-form', 'input');
-    const working = p.say('account-password-result').concat(p.$('account-submit-password').textContent);
+    p.type('account-new-password', NEW);
+    p.press('account-cancel-password');
+    p.key('account-password-fold', 'Escape');
+    const working = [p.$('account-password-form').querySelector('.pwd-said').textContent, p.$('account-submit-password').textContent, p.$('account-password-fold').hidden];
     const revealedSending = revealed.splice(0);
     await settle();
-    const out = { posts, whileSending, working, focused: p.focused(), rows: p.rows().length, toasts: p.toasts, shut: p.$('account-password-form').hidden, resets: p.resets() };
-    out.revealed = revealed.splice(0);
+    // a cancel does not shut what was just saved
+    p.press('account-cancel-password');
+    const drawn = p.$('account-password-fold').hidden;
+    await p.rest();
+    const out = { sent, whileSending, working, drawn, focused: p.focused(), rows: p.rows().length, toasts: p.toasts, shut: p.$('account-password-fold').hidden, resets: p.resets(), left: [p.$('account-old-password').value, p.$('account-new-password').value], says: p.$('account-submit-password').textContent };
     p.press('account-open-password');
     revealed.splice(0);
-    p.$('account-old-password').value = 'x';
-    p.$('account-new-password').value = 'short';
+    p.fill('x', 'short');
     p.fire('account-password-form', 'submit');
     out.revealedRefusal = revealed.splice(0);
-    p.fire('account-password-form', 'input');
+    p.type('account-new-password', 'shorter');
     return { ...out, revealedSending, revealedEmptied: revealed.splice(0) };
+  },
+  // one who went to another field while it was drawn keeps their place
+  async passwordLeft() {
+    const p = page({ get: () => Promise.resolve({ sessions: [] }), post: () => Promise.resolve({ ok: true }) });
+    await settle();
+    p.press('account-open-password');
+    p.fill(OLD, NEW);
+    p.fire('account-password-form', 'submit');
+    await settle();
+    p.$('account-email').focus();
+    await p.rest();
+    return [p.focused(), p.$('account-password-fold').hidden];
   },
   // for each form, what an answer brings into view when the reader is still there (with the keyboard on what is around
   // the button too, as Safari leaves a clicked one), has scrolled its status out of view or under a bar, or has the keyboard in something else
@@ -343,10 +420,11 @@ const scenarios = {
       const pending = () => new Promise((resolve, reject) => { give = refused ? () => reject(Object.assign(new Error('No'), { error: 'wrong_password' })) : () => resolve({ ok: true }); });
       const p = page({ get: () => Promise.resolve({ sessions: [session(5), session(9)] }), patch: pending, post: pending });
       await settle();
+      if (which === 'password') p.press('account-open-password');
       p.$('account-email').value = 'vic@example.com';
       p.fire('account-email-form', 'input');
       revealed.splice(0);
-      ['old', 'new', 'confirm'].forEach((f) => { p.$('account-' + f + '-password').value = 'a-long-enough-password'; });
+      p.fill(OLD, NEW);
       if (which === 'sessions') p.press(ids.sessions);
       else { p.$(ids[which]).focus(); p.fire('account-' + which + '-form', 'submit'); }
       const onPress = revealed.splice(0).map(([id]) => id).join() === ids[which];
@@ -355,11 +433,12 @@ const scenarios = {
       else if (focus) p.$(which === 'email' ? 'account-old-password' : 'account-email').focus();
       give();
       await settle();
+      await p.rest();
       const field = refused && { email: 'account-email', password: 'account-old-password' }[which];
       const shown = field ? [field, which === 'email' ? results[which] : field + '-why'].join() : results[which];
       const answered = revealed.splice(0).map(([id]) => id).join();
       const moved = answered === '' ? false : answered === shown || answered;
-      return [onPress, moved, refused ? (field && p.focused() === field) || false : p.focused(), Boolean(p.$(field === 'account-old-password' ? field + '-why' : results[which]).textContent) || p.toasts.length > 0];
+      return [onPress, moved, refused ? (field && p.focused() === field) || false : p.focused(), Boolean(p.$(field === 'account-old-password' ? field + '-why' : results[which]).textContent) || p.toasts.length > 0 || Boolean(p.$('account-password-live').textContent)];
     };
     const each = async (which, refused) => ({
       there: await late(which, refused),
@@ -378,12 +457,11 @@ const scenarios = {
   },
   // where each refusal of a new password is said, and where the cursor goes
   async passwordRefusals() {
-    const refuse = async (fill, error, { without, again } = {}) => {
+    const refuse = async (fill, error, { again } = {}) => {
       const p = page({ get: () => Promise.resolve({ sessions: [] }), post: () => Promise.reject(error) });
       await settle();
-      Object.entries(fill).forEach(([f, v]) => { p.$('account-' + f + '-password').value = v; });
+      p.fill(fill.old, fill.new);
       p.$('account-submit-password').focus();
-      if (without) p.$(without).remove();
       if (again) {
         p.fire('account-password-form', 'submit');
         await settle();
@@ -392,22 +470,25 @@ const scenarios = {
       revealed.splice(0);
       p.fire('account-password-form', 'submit');
       await settle();
-      const said = () => ['account-old-password-why', 'account-new-password-why', 'account-confirm-password-why', 'account-password-result'].filter((id) => p.$(id) && p.$(id).textContent);
-      const out = { said: said(), words: said().map((id) => p.$(id).textContent).join(), focused: p.focused(), last: revealed.splice(0).slice(-2).map(([id]) => id) };
-      p.fire('account-password-form', 'input');
-      return { ...out, typed: said() };
+      const said = p.says();
+      const red = p.$('account-password-form').querySelectorAll('.pwd-rule').filter((r) => r.classList.contains('is-bad')).map((r) => r.getAttribute('data-rule'));
+      const out = { said, red, words: said.map((id) => p.$(id).textContent).join(), focused: p.focused(), kept: p.$('account-new-password').value === fill.new, busy: p.$('account-password-form').getAttribute('aria-busy'), last: revealed.splice(0).slice(-2).map(([id]) => id) };
+      p.type('account-old-password', 'typed');
+      p.type('account-new-password', 'typed');
+      return { ...out, typed: p.says() };
     };
-    const failure = (error, issues) => Object.assign(new Error('No'), { error, issues });
-    const good = { old: 'x', new: 'a-long-enough-password', confirm: 'a-long-enough-password' };
+    const failure = (error, issues, rules) => Object.assign(new Error('No'), { error, issues, data: { rules } });
+    const good = { old: OLD, new: NEW };
     return {
-      old: await refuse({ ...good, old: '' }), new: await refuse({ ...good, new: 'short' }), confirm: await refuse({ ...good, confirm: 'other' }),
+      old: await refuse({ ...good, old: '' }), new: await refuse({ ...good, new: 'short' }), known: await refuse({ old: NEW, new: NEW }),
       wrong: await refuse(good, failure('wrong_password')),
-      weak: await refuse(good, failure('weak_password', ['a digit'])),
-      same: await refuse(good, failure('same_password')),
+      weak: await refuse(good, failure('weak_password', ['a digit'], ['common'])),
+      same: await refuse(good, failure('same_password', undefined, ['same'])),
       limit: await refuse(good, failure('too_many_requests')),
+      unknown: await refuse(good, failure('forbidden')),
+      cancelled: await refuse(good, failure('reauth_cancelled')),
       // the status still says the limit, and the field was emptied by what fires no input event
       afterLimit: await refuse(good, failure('too_many_requests'), { again: true }),
-      noPlace: await refuse({ ...good, old: '' }, null, { without: 'account-old-password-why' }),
     };
   },
   // how the focus goes to the list of sign-ins once the others are signed out
@@ -423,34 +504,6 @@ const scenarios = {
     p.press('account-revoke-others');
     await settle();
     return how;
-  },
-  async strength() {
-    const doc = makeDocument();
-    doc.body.appendChild(build(doc, ['form', { id: 'form' },
-      ['input', { id: 'pw', 'data-strength': 'pw-strength' }],
-      ['span', { id: 'pw-strength-meter' }], ['span', { id: 'pw-strength-label' }],
-      ['input', { id: 'again', 'data-match': 'pw' }], ['span', { id: 'again-match' }]]));
-    const $ = (id) => doc.getElementById(id);
-    const timers = [];
-    ['pw', 'again'].forEach((id) => { $(id).value = ''; $(id).form = $('form'); });
-    vm.runInContext(fs.readFileSync(path.join(JS, 'password-strength.js'), 'utf8'),
-      vm.createContext({ document: doc, setTimeout: (fn) => timers.push(fn) }));
-    const type = (id, value) => {
-      $(id).value = value;
-      $(id).listeners.input.forEach((fn) => fn());
-      return { meter: $('pw-strength-meter').style.width, tone: $('pw-strength-label').className, match: $('again-match').className, says: $('again-match').textContent };
-    };
-    const out = {
-      weak: type('pw', 'abc'), ok: type('pw', 'abcdefghijK1lmno'), strong: type('pw', 'abcdefghijK1-xyz'),
-      differs: type('again', 'abc'), matches: type('again', 'abcdefghijK1-xyz'),
-      changed: type('pw', 'abcdefghijK1-xyzz'), emptied: type('again', ''),
-    };
-    type('again', 'x');
-    $('form').listeners.reset.forEach((fn) => fn());
-    ['pw', 'again'].forEach((id) => { $(id).value = ''; });
-    timers.forEach((fn) => fn());
-    out.reset = { meter: $('pw-strength-meter').style.width, tone: $('pw-strength-label').className, match: $('again-match').className };
-    return out;
   },
   async toldOfPassword() {
     const out = [];

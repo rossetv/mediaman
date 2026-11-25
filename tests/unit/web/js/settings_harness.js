@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
+const { parts } = require('./password_form_dom.js');
+
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
 // One compound selector: tag, #id, .class, [attr], [attr="value"].
@@ -110,7 +112,7 @@ class El {
     for (let n = this; n; n = n.parentNode) (n.listeners[e.type] || []).forEach((f) => f.call(n, e));
     top.filter((f) => !this.doc.capturing.has(f)).forEach((f) => f(e));
   }
-  fire(t, extra) { this.dispatchEvent(Object.assign({ type: t, target: this, detail: 1, preventDefault() {} }, extra)); }
+  fire(t, extra) { this.dispatchEvent(Object.assign({ type: t, target: this, detail: 1, preventDefault() {}, stopPropagation() {} }, extra)); }
   focus(opts) { this.doc.activeElement = this; this.lastFocusOpts = opts; }
   // What was scrolled into view, and how. A test that scrolls gives an element its place.
   scrollIntoView(how) { this.doc.revealed.push([this.id || this.className, how.block, how.behavior || 'auto']); }
@@ -118,6 +120,9 @@ class El {
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   querySelectorAll(sel) { return this.all().filter((e) => matches(e, sel)); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  get firstElementChild() { return this.children[0] || null; }
+  get lastElementChild() { return this.children[this.children.length - 1] || null; }
+  select() {}
   reset() { this.all().forEach((e) => { if (e.tagName === 'INPUT') e.value = e.defaultValue; }); }
 }
 
@@ -135,7 +140,7 @@ function build() {
     listeners: docListeners,
     capturing: new Set(),
     revealed: [],
-    documentElement: { clientHeight: 844 },
+    documentElement: { clientHeight: 844, classList: { add() {} } },
     dispatchEvent: (e) => { (docListeners[e.type] || []).forEach((fn) => fn(e)); },
     addEventListener: (t, fn, capture) => {
       (docListeners[t] = docListeners[t] || []).push(fn);
@@ -145,7 +150,7 @@ function build() {
   const body = new El('body', doc);
   doc.body = body;
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise, Set, Event: class { constructor(t) { this.type = t; } },
+    document: doc, console, JSON, Array, Object, String, Math, Promise, Set, TextEncoder, Event: class { constructor(t) { this.type = t; } },
     setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
     clearTimeout: (t) => { if (timers.includes(t)) timers.splice(timers.indexOf(t), 1); }, MM: {}, UIFeedback: {},
     matchMedia: () => ({ matches: false }),
@@ -169,6 +174,38 @@ function build() {
   // Runs every timer due so far, and those they set in turn.
   const drain = () => { while (timers.length) timers.shift().fn(); };
   return { ctx, doc, body, load, add, timers, flush, drain, docListeners };
+}
+
+// Markup from [tag, attrs, ...children] arrays.
+function plant(h, spec, parent) {
+  const [tag, attrs, ...kids] = spec;
+  const { class: className = '', ...rest } = attrs;
+  const el = h.add(tag, { className }, parent);
+  Object.entries(rest).forEach(([k, v]) => el.setAttribute(k, v));
+  kids.forEach((kid) => { if (typeof kid === 'string') el.textContent = kid; else plant(h, kid, el); });
+  return el;
+}
+
+const GOOD = 'Copper lantern 41';
+
+// The form that adds a user, folded away, with its button. `load` the scripts it needs.
+function userForm(h) {
+  const add = h.doc.getElementById('btn-add-user') || h.add('button', { id: 'btn-add-user' });
+  const fold = h.add('div', { id: 'add-user-fold', className: 'setg-fold is-shut', hidden: true });
+  const stage = h.add('div', {}, fold);
+  const form = plant(h, ['form', { id: 'add-user-form' }, ...parts({ user: 'new-username', fresh: 'new-user-password', submit: 'btn-submit-add-user', cancel: 'btn-cancel-add-user', result: 'create-user-result' })], stage);
+  h.add('span', { id: 'add-user-live' });
+  const $ = (id) => h.doc.getElementById(id);
+  h.load('core/dom.js'); h.load('password-form.js');
+  return {
+    add, fold, form, name: $('new-username'), pw: $('new-user-password'), submit: $('btn-submit-add-user'), cancel: $('btn-cancel-add-user'),
+    send: (name) => { $('new-username').value = name; $('new-user-password').value = GOOD; form.fire('submit'); },
+    // the tick is drawn, and stands for a while
+    async drawn() {
+      for (const ms of [140, 230, 260]) { h.timers.filter((t) => t.ms === ms).forEach((t) => t.fn()); await h.flush(); }
+    },
+    stood: async () => { h.timers.splice(0).filter((t) => t.ms === 2000).forEach((t) => t.fn()); await h.flush(); },
+  };
 }
 
 // The libraries part of the settings page, with a save bar and a server that answers as `reply` says.
@@ -603,11 +640,7 @@ const scenarios = {
     const subInput = h.add('input', { id: 'new-subscriber-email', value: 'x@x' });
     const subBtn = h.add('button', { id: 'btn-add-subscriber' });
     const userList = h.add('div', { id: 'user-list' });
-    const addForm = h.add('form', { id: 'add-user-form' });
-    h.add('input', { id: 'new-username', value: 'dan' }, addForm);
-    h.add('input', { id: 'new-user-password', value: 'a-long-password-1' }, addForm);
-    h.add('button', { id: 'btn-submit-add-user' }, addForm);
-    h.add('span', { id: 'create-user-result' }, addForm);
+    const adding = userForm(h);
     let subs = [[1, 'a'], [3, 'c']];
     let users = [[1, 'ann'], [3, 'cat'], [5, 'eve']];
     h.ctx.MM.api = {
@@ -625,9 +658,11 @@ const scenarios = {
     subs = [[1, 'a'], [2, 'b'], [3, 'c'], [4, 'd']];
     subBtn.fire('click');
     users = [[1, 'ann'], [2, 'bob'], [3, 'cat'], [4, 'dan'], [5, 'eve']];
-    addForm.fire('submit');
+    adding.send('dan');
     await h.flush();
     // the new rows come in once the form has closed
+    await adding.drawn();
+    await adding.stood();
     h.drain();
     await h.flush();
     const roleBtn = userList.querySelector('[data-user-action="role"]');
@@ -640,26 +675,19 @@ const scenarios = {
     const h = build();
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
     h.add('div', { id: 'user-list' });
-    const btnAdd = h.add('button', { id: 'btn-add-user' });
-    const form = h.add('form', { id: 'add-user-form', hidden: true });
-    const name = h.add('input', { id: 'new-username', value: '', defaultValue: '' }, form);
-    const pw = h.add('input', { id: 'new-user-password', value: '' }, form);
-    h.add('button', { id: 'btn-submit-add-user' }, form);
-    h.add('span', { id: 'create-user-result' }, form);
-    const cancel = h.add('button', { id: 'btn-cancel-add-user' }, form);
+    const adding = userForm(h);
     h.ctx.MM.api = { get: () => Promise.resolve({ current: 'me', users: [] }), post: () => new Promise(() => {}), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
     h.ctx.MM.settings.users.init();
     await h.flush();
-    btnAdd.fire('click');
-    name.value = 'casey';
-    pw.value = 'a-long-new-password';
-    form.fire('submit');
-    name.value = 'typed';
-    btnAdd.fire('click');
-    cancel.fire('click');
+    adding.add.fire('click');
+    adding.send('casey');
+    adding.name.value = 'typed';
+    adding.add.fire('click');
+    adding.cancel.fire('click');
+    adding.form.fire('keydown', { key: 'Escape' });
     h.drain();
-    return { hidden: form.hidden, value: name.value };
+    return { hidden: adding.fold.hidden, value: adding.name.value };
   },
 
   // A new user's row comes in only once the add form has folded away.
@@ -667,12 +695,8 @@ const scenarios = {
     const h = build();
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
     const userList = h.add('div', { id: 'user-list' });
-    const btnAdd = h.add('button', { id: 'btn-add-user' });
-    const form = h.add('form', { id: 'add-user-form', hidden: true });
-    h.add('input', { id: 'new-username' }, form);
-    h.add('input', { id: 'new-user-password' }, form);
-    const submit = h.add('button', { id: 'btn-submit-add-user' }, form);
-    h.add('span', { id: 'create-user-result' }, form);
+    const adding = userForm(h);
+    const btnAdd = adding.add;
     let users = [[1, 'ann']];
     h.ctx.MM.api = {
       get: () => Promise.resolve({ current: 'ann', users: users.map(([id, username]) => ({ id, username, role: 'viewer' })) }),
@@ -683,24 +707,22 @@ const scenarios = {
     h.ctx.MM.settings.users.init();
     await h.flush();
     btnAdd.fire('click');
-    h.doc.getElementById('new-username').value = 'bob';
-    h.doc.getElementById('new-user-password').value = 'a-long-password-1';
     users = [[1, 'ann'], [2, 'bob']];
-    form.fire('submit');
+    adding.send('bob');
     await h.flush();
     const rowsNow = () => names(userList, 'usr-row').length;
-    const afterCreate = { rows: rowsNow(), open: !form.hidden };
+    await adding.drawn();
+    const afterCreate = { rows: rowsNow(), open: !adding.fold.hidden };
     btnAdd.scrollCalls = [];
     btnAdd.scrollIntoView = function (o) { this.scrollCalls.push(o); };
-    h.timers.splice(0).filter((t) => t.ms === 700).forEach((t) => t.fn());
-    await h.flush();
+    await adding.stood();
     const scrollWhileClosing = btnAdd.scrollCalls.length;
-    const whileClosing = { rows: rowsNow(), shut: form.classList.contains('is-shut'), hidden: form.hidden };
-    form.fire('transitionend', { propertyName: 'grid-template-rows' });
+    const whileClosing = { rows: rowsNow(), shut: adding.fold.classList.contains('is-shut'), hidden: adding.fold.hidden };
+    adding.fold.fire('transitionend', { propertyName: 'grid-template-rows' });
     await h.flush();
     return {
       scrollWhileClosing, scrollAfterClose: btnAdd.scrollCalls,
-      afterCreate, whileClosing, afterClose: { rows: rowsNow(), hidden: form.hidden, submitDisabled: submit.disabled },
+      afterCreate, whileClosing, afterClose: { rows: rowsNow(), hidden: adding.fold.hidden, submitDisabled: adding.submit.getAttribute('aria-disabled') === 'true' },
       // handing focus back to the button must not scroll the page to it
       refocus: { onButton: h.doc.activeElement === btnAdd, preventScroll: !!(btnAdd.lastFocusOpts && btnAdd.lastFocusOpts.preventScroll) },
     };
@@ -712,13 +734,9 @@ const scenarios = {
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js'); h.load('settings/newsletter.js');
     h.add('div', { id: 'user-list' });
     h.add('div', { id: 'subscriber-list' });
-    const btnAdd = h.add('button', { id: 'btn-add-user' });
-    const form = h.add('form', { id: 'add-user-form', hidden: true });
-    const name = h.add('input', { id: 'new-username' }, form);
-    const msg = h.add('span', { id: 'new-username-why', className: 'fld-why' }, form);
-    h.add('input', { id: 'new-user-password' }, form);
-    h.add('button', { id: 'btn-submit-add-user' }, form);
-    h.add('span', { id: 'create-user-result' }, form);
+    const adding = userForm(h);
+    const { add: btnAdd, form, name } = adding;
+    const msg = h.doc.getElementById('new-username-why');
     const panel = h.add('div', { id: 'newsletter-send-panel', hidden: true });
     const recipients = h.add('div', { id: 'newsletter-recipient-list' }, panel);
     const confirm = h.add('button', { id: 'btn-confirm-newsletter' }, panel);
@@ -754,32 +772,25 @@ const scenarios = {
   // The account page's message goes once any field is edited, but not while the form is sending.
   async accountClearOnInput() {
     const h = build();
-    const form = h.add('form', { id: 'account-password-form' });
-    const oldPw = h.add('input', { id: 'account-old-password', type: 'password' }, form);
-    const why = h.add('span', { id: 'account-old-password-why', className: 'fld-why' }, form);
-    h.add('input', { id: 'account-new-password', type: 'password' }, form);
-    h.add('input', { id: 'account-confirm-password', type: 'password' }, form);
-    const submit = h.add('button', { id: 'account-submit-password' }, form);
-    ['account-open-password', 'account-cancel-password', 'account-new-strength-label'].forEach((id) => h.add('button', { id }, form));
-    const msg = h.add('span', { id: 'account-password-result' }, form);
-    let finish;
-    h.ctx.MM.api = { post: () => new Promise((r) => { finish = r; }), messageOf: () => 'x' };
+    const form = plant(h, ['form', { id: 'account-password-form' }, ...parts({ old: 'account-old-password', fresh: 'account-new-password', submit: 'account-submit-password', cancel: 'account-cancel-password', result: 'account-password-result' })], h.add('div', { id: 'account-password-fold' }));
+    ['account-open-password', 'account-password-live'].forEach((id) => h.add('button', { id }));
+    h.add('span', {}, h.add('div', { id: 'account-password-sub' }));
+    const $ = (id) => h.doc.getElementById(id);
+    const submit = $('account-submit-password');
+    h.ctx.MM.api = { post: () => new Promise(() => {}), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
-    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('account.js');
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('password-form.js'); h.load('account.js');
     form.fire('submit');
+    const why = $('account-old-password-why');
     const shown = why.textContent;
-    oldPw.value = 'a';
-    oldPw.fire('input');
+    $('account-old-password').value = 'a';
+    $('account-old-password').fire('input');
     const afterInput = why.textContent;
     // a send under way keeps its message
-    h.doc.getElementById('account-old-password').value = 'old';
-    h.doc.getElementById('account-new-password').value = 'a-long-enough-password';
-    h.doc.getElementById('account-confirm-password').value = 'a-long-enough-password';
+    $('account-new-password').value = GOOD;
     form.fire('submit');
-    oldPw.fire('input');
-    const whileSending = { text: msg.textContent, disabled: submit.getAttribute('aria-disabled') === 'true' };
-    finish({});
-    await h.flush();
+    $('account-old-password').fire('input');
+    const whileSending = { text: submit.textContent, disabled: submit.getAttribute('aria-disabled') === 'true' };
     return { shown, afterInput, whileSending };
   },
 
@@ -870,9 +881,7 @@ const scenarios = {
     const confirm = h.add('button', { id: 'btn-confirm-newsletter' }, panel);
     const cancel = h.add('button', { id: 'btn-cancel-newsletter' }, panel);
     h.add('span', { id: 'newsletter-send-status' }, panel);
-    const add = h.add('button', { id: 'btn-add-user' });
-    const addForm = h.add('form', { id: 'add-user-form', hidden: true });
-    h.add('input', { id: 'new-username', value: '' }, addForm);
+    const { add } = userForm(h);
     let finish;
     h.ctx.MM.api = {
       get: () => Promise.resolve({ current: 'ann', users: [], subscribers: [{ id: 1, email: 'a@x', active: true }] }),
@@ -1074,13 +1083,9 @@ const scenarios = {
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
     const userList = h.add('div', { id: 'user-list' });
     const main = h.add('main', { id: 'main' });
-    const add = h.add('button', { id: 'btn-add-user' });
     const dialog = h.add('input', { id: 'dialog' });
-    const form = h.add('form', { id: 'add-user-form', hidden: true });
-    h.add('input', { id: 'new-username', value: '' }, form);
-    h.add('input', { id: 'new-user-password', value: '' }, form);
-    const submit = h.add('button', { id: 'btn-submit-add-user' }, form);
-    h.add('span', { id: 'create-user-result' }, form);
+    const adding = userForm(h);
+    const { add, submit } = adding;
     h.ctx.MM.api = {
       get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer', email: '' }] }),
       patch: () => Promise.resolve({ email: 'new@x.example' }),
@@ -1115,10 +1120,8 @@ const scenarios = {
     await h.flush(); h.drain();
     out.delete = h.doc.activeElement === add;
     add.fire('click');
-    h.doc.getElementById('new-username').value = 'casey';
-    h.doc.getElementById('new-user-password').value = 'a-long-new-password';
     main.focus();
-    form.fire('submit');
+    adding.send('casey');
     await h.flush();
     out.addUser = h.doc.activeElement === submit;
     return out;
@@ -1210,10 +1213,7 @@ const scenarios = {
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
     const userList = h.add('div', { id: 'user-list' });
     const main = h.add('main', { id: 'main' });
-    const add = h.add('button', { id: 'btn-add-user' });
-    const addForm = h.add('form', { id: 'add-user-form', hidden: true });
-    h.add('input', { id: 'new-username', value: '' }, addForm);
-    const addCancel = h.add('button', { id: 'btn-cancel-add-user' }, addForm);
+    const { add, cancel: addCancel } = userForm(h);
     h.ctx.MM.api = { get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer', email: '' }] }) };
     h.ctx.MM.settings.users.init();
     await h.flush();
@@ -2149,21 +2149,20 @@ const scenarios = {
       const page = {};
       const add = (tag, id, parent, more) => { page[id] = h.add(tag, Object.assign({ id }, more), parent); return page[id]; };
       add('input', 'elsewhere'); add('div', 'user-list'); add('div', 'subscriber-list');
-      add('button', 'btn-add-user');
-      const form = add('form', 'add-user-form', null, { hidden: true });
-      add('input', 'new-username', form, { value: '' }); add('span', 'new-username-why', form, { className: 'fld-why' }); add('input', 'new-user-password', form, { value: 'a-long-password-1' });
-      add('button', 'btn-submit-add-user', form); add('span', 'create-user-result', form);
+      const adding = userForm(h);
+      ['add', 'form', 'name', 'submit', 'pw'].forEach((k) => { page[adding[k].id] = adding[k]; });
+      adding.pw.value = adding.pw.defaultValue = GOOD;
       add('button', 'btn-send-newsletter');
       const panel = add('div', 'newsletter-send-panel', null, { hidden: true });
       add('div', 'newsletter-recipient-list', panel); add('button', 'btn-confirm-newsletter', panel); add('span', 'newsletter-send-status', panel);
-      const p = { h, page, answer: () => Promise.reject({ message: 'no' }), subscribers: () => Promise.resolve({ subscribers: [{ id: 1, email: 'a@x', active: true }] }) };
+      const p = { h, page, answer: () => Promise.reject({ message: 'no', status: 400 }), subscribers: () => Promise.resolve({ subscribers: [{ id: 1, email: 'a@x', active: true }] }) };
       h.ctx.MM.api = {
         get: (u) => (u === '/api/users' ? Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }) : p.subscribers()),
         patch: () => p.answer(), post: () => p.answer(), messageOf: (e) => e.message,
       };
       h.ctx.MM.reauth = { run: (f) => f() };
       Object.assign(h.ctx.UIFeedback, { confirm: () => Promise.resolve(true), success: () => {}, error: () => {} });
-      ['core/dom.js', 'settings/rows.js', 'settings/users.js', 'settings/newsletter.js'].forEach((f) => h.load(f));
+      ['settings/rows.js', 'settings/users.js', 'settings/newsletter.js'].forEach((f) => h.load(f));
       h.ctx.MM.settings.users.init(); h.ctx.MM.settings.newsletter.init();
       await h.flush();
       p.taken = () => h.doc.revealed.splice(0);
@@ -2205,7 +2204,7 @@ const scenarios = {
       q.answer = late;
       q.page['add-user-form'].fire('submit');
       q.taken();
-      away(q, 'create-user-result');
+      away(q, 'btn-submit-add-user');
       give({});
       await q.h.flush();
       const created = q.taken().length;

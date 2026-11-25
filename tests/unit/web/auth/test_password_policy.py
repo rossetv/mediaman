@@ -303,7 +303,7 @@ class TestForcePasswordChangePage:
         client.cookies.set("session_token", token)
         resp = client.get("/force-password-change")
         assert resp.status_code == 200
-        assert "Update password" in resp.text or "stronger password" in resp.text
+        assert "Choose a new password" in resp.text and "Save and continue" in resp.text
 
     def test_force_change_rejects_weak_new_password(self, tmp_path, secret_key, monkeypatch):
         client, conn = self._client(tmp_path, secret_key=secret_key, monkeypatch=monkeypatch)

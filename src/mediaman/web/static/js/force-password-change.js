@@ -1,190 +1,19 @@
 /**
- * Force-password-change page — client-side password meter, the check that no
- * field is empty and the two new passwords match, and sign-out wire.
+ * Forced password change page: the form (password-form.js) and the way out.
  *
- * Lives in an external file so the page-level CSP needs no
- * 'unsafe-inline'.
- *
- * Requires: core/api.js (MM.api), core/dom.js (MM.dom).
- *
- * The current username is read from a JSON island (#fpc-bootstrap) so
- * no server-side string is interpolated into JavaScript.
+ * Requires: password-form.js (MM.password), core/api.js (MM.api).
  */
 (function () {
   'use strict';
 
-  var newPw     = document.getElementById('new_password');
-  var confirmPw = document.getElementById('confirm_password');
-  var fill      = document.getElementById('pw-meter-fill');
-  var label     = document.getElementById('pw-strength-label');
-  var matchEl   = document.getElementById('pw-match');
-  if (!newPw || !confirmPw || !fill || !label || !matchEl) return;
-
-  var ckLength   = MM.dom.q('.fpc-checklist li[data-rule="length"]');
-  var ckClasses  = MM.dom.q('.fpc-checklist li[data-rule="classes"]');
-  var ckUsername = MM.dom.q('.fpc-checklist li[data-rule="username"]');
-  var ckUnique   = MM.dom.q('.fpc-checklist li[data-rule="unique"]');
-
-  // Read the current username from the server-rendered JSON island so
-  // nothing is interpolated into a script tag.
-  var username = '';
-  try {
-    var bootNode = document.getElementById('fpc-bootstrap');
-    if (bootNode && bootNode.textContent) {
-      var parsed = JSON.parse(bootNode.textContent);
-      if (parsed && typeof parsed.username === 'string') username = parsed.username;
-    }
-  } catch (_err) { username = ''; }
-
-  function uniqueCount(s) { return new Set(s).size; }
-  function classCount(s) {
-    var n = 0;
-    if (/[a-z]/.test(s)) n++;
-    if (/[A-Z]/.test(s)) n++;
-    if (/\d/.test(s))    n++;
-    if (/[^A-Za-z0-9\s]/.test(s)) n++;
-    return n;
-  }
-  function evaluate(pw) {
-    var len = pw.length;
-    var uniq = uniqueCount(pw);
-    var cls = classCount(pw);
-    var passphrase = len >= 20 && uniq >= 12;
-    var u = (username || '').toLowerCase();
-    var p = pw.toLowerCase();
-    var hasUser = !!u && pw.length > 0 && (p.includes(u) || (u.length > 3 && u.includes(p)));
-    return {
-      length:   len >= 12,
-      classes:  passphrase || cls >= 3,
-      username: !hasUser,
-      unique:   uniq >= 6,
-    };
-  }
-  function score(pw, r) {
-    if (!pw) return 0;
-    var s = 0;
-    if (r.length)  s += 1;
-    if (r.classes) s += 1;
-    if (r.unique)  s += 1;
-    if (pw.length >= 16) s += 1;
-    if (pw.length >= 20 || classCount(pw) >= 4) s += 1;
-    return s;
-  }
-  function setOk(el, ok) {
-    if (!el) return;
-    el.classList.toggle('is-ok', ok);
-  }
-
-  function updateMatch() {
-    var pw = newPw.value;
-    var cp = confirmPw.value;
-    if (!cp || !pw) {
-      matchEl.textContent = ' ';
-      matchEl.className = 'fpc-caption';
-      return;
-    }
-    if (cp === pw) {
-      matchEl.textContent = 'Passwords match';
-      matchEl.className = 'fpc-caption fpc-caption-strong';
-    } else {
-      matchEl.textContent = 'Passwords don’t match yet';
-      matchEl.className = 'fpc-caption fpc-caption-weak';
-    }
-  }
-
-  function render() {
-    var pw = newPw.value;
-    if (!pw) {
-      fill.style.width = '0%';
-      fill.className = 'fpc-meter-fill';
-      label.textContent = 'Pick something you’ll remember.';
-      label.className = '';
-      [ckLength, ckClasses, ckUsername, ckUnique].forEach(function (el) { setOk(el, false); });
-      updateMatch();
-      return;
-    }
-    var r = evaluate(pw);
-    setOk(ckLength,   r.length);
-    setOk(ckClasses,  r.classes);
-    setOk(ckUsername, r.username);
-    setOk(ckUnique,   r.unique);
-
-    var s = score(pw, r);
-    var allOk = r.length && r.classes && r.username && r.unique;
-    var pct = Math.min(100, (s / 5) * 100);
-    fill.style.width = pct + '%';
-    var tone = 'weak';
-    var text = 'Too simple so far';
-    if (s >= 5 && allOk) { tone = 'strong'; text = 'Looks good so far'; }
-    else if (s >= 3) { tone = 'ok';     text = 'Getting there'; }
-    fill.className = 'fpc-meter-fill ' + tone;
-    label.textContent = text;
-    label.className = 'fpc-caption-' + tone;
-    updateMatch();
-  }
-
-  // A rejected submit re-renders the page with the old password empty: put the
-  // cursor on the first empty field, or on the new password when all are filled.
-  if (MM.dom.q('.policy-issues') || MM.dom.q('.error-msg')) {
-    var target = [document.getElementById('old_password'), newPw, confirmPw].filter(function (el) {
-      return el && !el.value;
-    })[0] || newPw;
-    target.focus();
-  }
-
-  newPw.addEventListener('input', render);
-  confirmPw.addEventListener('input', updateMatch);
-
-  // The server answers an empty field, or two passwords that differ, with the
-  // page again and every field empty: keep what was typed and put the cursor
-  // where the fix is. The submit guard, on the document, must not see this
-  // submit, or it holds the next.
   var form = document.getElementById('fpc-form');
-  var oldPw = document.getElementById('old_password');
-
-  function sayError(text) {
-    var box = MM.dom.q('.error-msg');
-    if (!box) {
-      if (!text) return;
-      box = document.createElement('div');
-      box.className = 'error-msg';
-      box.setAttribute('role', 'alert');
-      form.parentNode.insertBefore(box, form);
-    }
-    box.textContent = text;
-    box.hidden = !text;
-  }
-
-  // A field just in view takes the focus without a scroll, its label and the line
-  // that says what is wrong still out of view.
-  function goTo(field, line) {
-    field.focus();
-    field.closest('.login-field').scrollIntoView({ block: 'nearest' });
-    line.scrollIntoView({ block: 'nearest' });
-  }
-
   if (form) {
-    form.addEventListener('submit', function (e) {
-      var empty = [oldPw, newPw, confirmPw].filter(function (el) { return el && !el.value; })[0];
-      if (!empty && newPw.value === confirmPw.value) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (empty) {
-        sayError('Please fill in every field.');
-        // Only the first field has the error box beside it.
-        var line = empty === newPw ? label : empty === confirmPw ? matchEl : null;
-        if (line) {
-          line.textContent = 'Please fill in this field.';
-          line.classList.add('fpc-caption-weak');
-        }
-        goTo(empty, line || MM.dom.q('.error-msg'));
-        return;
-      }
-      sayError('');
-      matchEl.textContent = 'Passwords don’t match';
-      matchEl.className = 'fpc-caption fpc-caption-weak';
-      goTo(confirmPw, matchEl);
-      confirmPw.select();
+    MM.password.form(form, { same: true });
+    // A password manager is to see one new password.
+    var again = document.getElementById('confirm_password');
+    again.type = 'hidden';
+    form.addEventListener('submit', function () {
+      again.value = document.getElementById('new_password').value;
     });
   }
 

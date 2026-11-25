@@ -25,9 +25,9 @@ class _Form(HTMLParser):
         a = dict(attrs)
         if tag == "form":
             self._in = a.get("id") == self._id
-        if self._in and tag == "input":
+        if self._in and tag == "input" and a.get("autocomplete") != "username":
             self.fields[a["id"]] = a.get("aria-describedby", "")
-        if self._in and a.get("role") == "status":
+        if self._in and a.get("role") == "status" and "id" in a:
             self.statuses.add(a["id"])
 
     def handle_endtag(self, tag):
@@ -38,7 +38,7 @@ class _Form(HTMLParser):
 @pytest.mark.parametrize(
     ("router", "path", "form", "fields"),
     [
-        (account_router, "/account", "account-password-form", 3),
+        (account_router, "/account", "account-password-form", 2),
         (settings_router, "/settings", "add-user-form", 2),
     ],
 )

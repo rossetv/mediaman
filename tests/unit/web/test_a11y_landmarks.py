@@ -160,13 +160,14 @@ def test_title_detail_labelled_by_visible_title():
     assert 'class="sr-only">Details</h2>' not in detail
 
 
-def test_force_password_change_policy_issues_announce_each_item():
-    """Role=alert alone often only announces the container's
-    first text node. aria-live=polite + role=list on the <ul> guarantees
-    every issue line is announced to AT."""
-    fpc = _tpl("force_password_change.html")
-    assert 'class="policy-issues" role="alert" aria-live="polite"' in fpc
-    assert '<ul role="list">' in fpc
+def test_a_refused_password_announces_its_reason_and_each_item_of_it():
+    """The reason is an alert the field is described by, its items keep their list
+    semantics, and a rule that was broken says so in words, not in colour alone."""
+    parts = _tpl("_password.html")
+    assert """id="{{ id }}-why" role="{{ 'alert' if text else 'status' }}\"""" in parts
+    assert 'aria-describedby="{{ id }}-why' in parts
+    assert '<ul role="list">' in parts
+    assert "{% if bad %}, not met{% endif %}" in parts
 
 
 def test_keep_page_does_not_offer_forever_button():
