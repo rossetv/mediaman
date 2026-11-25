@@ -101,6 +101,23 @@ def test_the_button_comes_before_the_summary_and_the_cast() -> None:
     assert html.index('id="btn-download"') < html.index("Salt.") < html.index("Ada Vale")
 
 
+def test_a_failure_stands_after_its_button_and_is_read_out() -> None:
+    html = _page()
+
+    for part in ("try-again", "refused"):
+        answer = re.search(rf'<template data-part="{part}">(.*?)</template>', html, re.S)[1]
+        button = re.search(r'<(?:button|a) [^>]*aria-describedby="dl-failed"', answer)
+        message = answer.index('id="dl-failed" role="alert"')
+        assert button and button.start() < message
+    assert re.search(r'<span class="sr-only" role="status" data-said>', html)
+
+
+def test_a_long_word_wraps_inside_the_page_body() -> None:
+    rule = re.search(r"\.share-body \{([^}]*)\}", _css("_download_page.css"))
+
+    assert rule and "overflow-wrap: anywhere" in rule[1]
+
+
 def _queued_card(**context: object) -> str:
     item = {"id": "radarr:Ember Coast", "title": "Ember Coast", "media_type": "movie"}
     item.update(state="searching", state_label="Searching", progress=0, **context.pop("item", {}))

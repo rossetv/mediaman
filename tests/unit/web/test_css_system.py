@@ -108,6 +108,7 @@ def test_every_control_of_a_shared_link_s_page_is_44px_at_every_width() -> None:
         ("_share.css", ".share-act .btn"),
         ("_share.css", ".share-note .btn"),
         ("_share.css", ".share-bar .brand"),
+        ("_share.css", ".share-bar .btn"),
         ("_keep.css", ".share-keep .btn"),
         ("_download_page.css", ".share-eps summary"),
     ):
