@@ -521,7 +521,7 @@ class TestWatched:
 class TestOnItsWay:
     @pytest.mark.parametrize(
         ("waits_for", "day"),
-        [("released", 100), ("inCinemas", 10), ("announced", 10), (None, 100)],
+        [("released", 100), ("inCinemas", 10), ("announced", 10), (None, 10)],
     )
     def test_a_film_comes_on_the_date_radarr_waits_for(self, aoife, conn, radarr, waits_for, day):
         dates = {
