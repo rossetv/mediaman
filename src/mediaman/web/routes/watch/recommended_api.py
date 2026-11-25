@@ -22,11 +22,12 @@ from mediaman.services.openai.recommendations.throttle import refresh_cooldown_r
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import watch_library as lib
-from mediaman.web.repository.ratings import find_user_id, levels_for
 from mediaman.web.repository.recommended import fetch_recommendations, group_into_batches
+from mediaman.web.repository.seen_titles import person_marks
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.recommended.own import my_refresh
 from mediaman.web.routes.recommended.refresh import _refresh_thread_alive
+from mediaman.web.routes.watch.card_marks import CardMarks, card_marks, title_key
 from mediaman.web.routes.watch.catalog_api import held_fields
 
 router = APIRouter()
@@ -62,6 +63,7 @@ def _card(
     index: catalog.LibraryIndex,
     arr: catalog.ArrView,
     held: Callable[[str | None], dict[str, object]],
+    marks: CardMarks,
 ) -> dict[str, object]:
     own = bool(row["own"])
     pick_ref = f"{'pick' if own else 'rec'}-{row['id']}"
@@ -90,9 +92,11 @@ def _card(
         download_state=state if isinstance(state, str) else None,
         download_pct=pct if isinstance(pct, int) else None,
     )
+    fields = held(library_ref)
     return {
         **card,
-        **held(library_ref),
+        **fields,
+        **marks(title_key(kind, tmdb_id), library_ref, bool(fields["watched"])),
         "tmdb_id": tmdb_id if isinstance(tmdb_id, int) and tmdb_id > 0 else None,
         "rec_id": None if own else row["id"],
         "pick_ref": pick_ref,
@@ -150,8 +154,8 @@ def api_watch_recommended(
     *batch* names another), the list of batches, whether they may have their own made again, and for
     an admin the cooldown of the shared ones. No title comes twice: *start* names
     the batch the row began with, and what the batches from it to this one hold is left
-    out. No title they rated a strong no is among them, and one rated down comes last in
-    its batch. ``next_batch`` is the older batch to go on with, or None when the picks are
+    out. No title they rated a strong no or marked watched is among them, and one rated down
+    comes last in its batch. ``next_batch`` is the older batch to go on with, or None when the picks are
     finished."""
     conn = get_db()
     is_admin = get_user_role(conn, username) == "admin"
@@ -164,16 +168,17 @@ def api_watch_recommended(
     if not enabled:
         return respond_ok(payload)
 
-    user_id = find_user_id(conn, username)
-    levels = levels_for(conn, user_id) if user_id is not None else {}
-    batches = group_into_batches(fetch_recommendations(conn, username), date.today(), levels)
+    own = person_marks(conn, username)
+    batches = group_into_batches(
+        fetch_recommendations(conn, username), date.today(), own.levels, own.seen
+    )
     places = {b["id"]: place for place, b in enumerate(batches)}
     if any(b is not None and b not in places for b in (batch, start)):
         return respond_err("not_found", status=404)
     payload["batches"] = [
         {k: b[k] for k in ("id", "label", "date_label")} for b in batches if b["items"]
     ]
-    # A batch whose every title the person said a strong no to gives way to the next older one.
+    # A batch with every title rated a strong no or marked watched gives way to the next older one.
     chosen = next(
         (
             p
@@ -191,14 +196,10 @@ def api_watch_recommended(
     arr = catalog.arr_view(conn, request.app.state.config.secret_key)
     _attach_states(conn, rows, arr, username)
     libraries = lib.scanned_library_ids(conn)
-    index = catalog.library_index(
-        conn,
-        TmdbClient.from_db(conn, request.app.state.config.secret_key),
-        libraries,
-        lib.library_movies,
-        lib.library_shows,
-    )
+    client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
+    index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
     payload["batch"] = batches[chosen]["id"]
     held = held_fields(conn, username, libraries)
-    payload["items"] = [_card(row, index, arr, held) for row in rows]
+    marks = card_marks(own, client)
+    payload["items"] = [_card(row, index, arr, held, marks) for row in rows]
     return respond_ok(payload)

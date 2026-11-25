@@ -188,6 +188,15 @@ def _rate(conn, tmdb_id, level, title="X", user="amy-secret"):
     conn.commit()
 
 
+def _mark_seen(conn, tmdb_id, user="amy-secret"):
+    conn.execute(
+        "INSERT INTO user_seen_titles (user_id, media_type, tmdb_id, seen_at)"
+        " VALUES (?, 'movie', ?, '2026')",
+        (_id(conn, user), tmdb_id),
+    )
+    conn.commit()
+
+
 def _own(conn, *tmdb_ids):
     names = {1: "Nine Locks", 2: "Alibi", 3: "Train Job", 5: "Harbour", 6: "Orchard"}
     for tmdb_id in tmdb_ids:
@@ -425,6 +434,16 @@ class TestAsk:
         _rate(conn, 4, -1)
         assert [t["title"] for t in _ask(amy)["others"]] == ["Orchard", "Kestrel"]
         assert len(model.prompts) == 1
+
+    def test_a_title_says_what_it_is_rated_and_whether_it_is_marked(self, amy, model, conn):
+        model.items = [_title("Alibi"), _title("Orchard")]
+        _rate(conn, 6, 2)
+        _mark_seen(conn, 2)
+        cards = {t["title"]: (t["tmdb_ref"], t["level"], t["watched"]) for t in _ask(amy)["others"]}
+        assert cards == {
+            "Alibi": ("tmdb-movie-2", None, True),
+            "Orchard": ("tmdb-movie-6", 2, False),
+        }
 
     def test_the_same_question_is_answered_from_what_was_kept(self, people, model):
         model.items = [_title("Alibi")]
@@ -896,6 +915,19 @@ class TestTonight:
 
         assert self._titles(people["amy"], 120) == {"Train Job"}
         assert self._titles(people["bob"], 120) == {"Nine Locks", "Alibi", "Train Job"}
+
+    def test_what_this_person_marked_watched_as_a_title_is_left_out(self, people, conn):
+        _own(conn, 1, 2)
+        _mark_seen(conn, 1)
+
+        assert self._titles(people["amy"], 120) == {"Alibi"}
+        assert self._titles(people["bob"], 120) == {"Nine Locks", "Alibi"}
+
+    def test_a_title_carries_what_it_is_rated_by(self, amy, conn):
+        _own(conn, 1)
+        _rate(conn, 1, 1)
+        [item] = self._get(amy, 120)["items"]
+        assert (item["tmdb_ref"], item["level"]) == ("tmdb-movie-1", 1)
 
     def test_when_none_fits_the_shortest_is_named(self, amy, conn):
         _own(conn, 1, 2)
