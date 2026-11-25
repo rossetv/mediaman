@@ -1161,6 +1161,8 @@
       // What its preview says of it stays.
       toArray(body.children).slice(1).concat(toArray(body.querySelectorAll('.ttl__ratings-wait, .ttl__credit'))).forEach(function (n) { n.remove(); });
       body.appendChild(failedBox(err));
+      cur.failed = true;
+      waitOnDownload();
       if (hasFacts(cur)) loadFacts(cur);
       return;
     }
@@ -1191,6 +1193,8 @@
       if (cur.data && cur.data.draft) {
         box.remove();
         sectionsToCome(cur.data.in_library);
+        cur.failed = false;
+        waitOnDownload();
       } else renderLoading();
       titleEl.focus({ preventScroll: true });
       load(cur);
@@ -1913,6 +1917,11 @@
     dl.addEventListener('click', submitDownload);
     actions.appendChild(dl);
     if (!k.busy) labelDownload(dl, d);
+    if (d.draft && seasonPickable(d)) {
+      // Which seasons are out is the page's to say.
+      dl.setAttribute('aria-disabled', 'true');
+      if (!cur.failed) dl.setAttribute('aria-busy', 'true');
+    }
     if (k.error) {
       var err = el('p', 'ttl__error');
       err.setAttribute('role', 'alert');
@@ -1924,6 +1933,14 @@
       err.appendChild(again);
       under.appendChild(err);
     }
+  }
+
+  /* A drawn page's Download whose seasons are not known yet waits for them, or for a try again. */
+  function waitOnDownload() {
+    var dl = byAct('primary');
+    if (!dl || !cur.data.draft || !seasonPickable(cur.data)) return;
+    if (cur.failed) dl.removeAttribute('aria-busy');
+    else dl.setAttribute('aria-busy', 'true');
   }
 
   function labelDownload(dl, d) {

@@ -431,6 +431,27 @@ const scenarios = {
     return out;
   },
 
+  // A show whose seasons are picked, drawn from its preview: Download waits for the page, through a failed try.
+  async drawnDownloadWaits() {
+    let down = true;
+    const late = {};
+    const p = carried({ data: TV_DL, preview: { seasons: TV_DL.seasons }, routes: { '/api/watch/title/tmdb-tv-90': () => (down ? Promise.reject(new APIError(502, 'x')) : new Promise((r) => { late.come = () => r(TV_DL); })) } });
+    const look = () => { const b = p.q('[data-ttl-act="primary"]'); return [b.getAttribute('aria-disabled'), b.getAttribute('aria-busy')]; };
+    const press = () => { click(p.doc, p.q('[data-ttl-act="primary"]')); return p.posts.length; };
+    p.draw();
+    const drawn = look();
+    p.detail.openDrawn();
+    await settle();
+    const failed = [...look(), press()];
+    down = false;
+    click(p.doc, p.q('.ttl__failed-actions').children[0]);
+    await settle();
+    const again = look();
+    late.come();
+    await settle();
+    return { drawn, failed, again, came: [...look(), press()] };
+  },
+
   // What is asked for before it is opened: once, one at a time, few a minute, and not once it has gone stale.
   async askedAhead() {
     const never = {};

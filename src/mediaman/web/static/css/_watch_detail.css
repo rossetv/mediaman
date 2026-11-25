@@ -352,6 +352,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__actions > :is(.watch-btn--play, .skel--pill):has(+ .ttl__play-on:not([hidden])) { flex-basis: calc(100% - 54px); }
 }
 .ttl__download[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.ttl__download[aria-busy="true"] { cursor: progress; }
 .ttl__download .btn-spinner { margin-right: 0; }
 .ttl__share { --share-icon: 16px; --share-gap: 7px; display: inline-grid; place-items: center; }
 .ttl__share-group { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: var(--share-gap); }

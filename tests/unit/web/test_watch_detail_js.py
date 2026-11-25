@@ -1458,6 +1458,15 @@ def test_a_page_drawn_from_an_early_reply_opens_up_to_date_after_a_change_made_w
     }
 
 
+def test_a_drawn_shows_download_waits_for_its_seasons_through_a_failed_try_and_then_works() -> None:
+    assert _run("drawnDownloadWaits") == {
+        "drawn": ["true", "true"],
+        "failed": ["true", None, 0],
+        "again": ["true", "true"],
+        "came": [None, None, 1],
+    }
+
+
 def test_a_title_is_asked_for_ahead_once_one_at_a_time_few_a_minute_and_again_when_it_changes() -> (
     None
 ):
