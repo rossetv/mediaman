@@ -105,6 +105,7 @@ from mediaman.web.routes.settings.testers import (
 from mediaman.web.routes.settings.testers import (
     invalidate_test_cache_for_keys as _invalidate_test_cache_for_keys,
 )
+from mediaman.web.routes.users.rate_limits import too_many
 
 logger = logging.getLogger(__name__)
 
@@ -153,9 +154,7 @@ def _settings_write_throttled(
         ip=get_client_ip(request),
         detail={"keys": sorted(k for k in body_dict if k in _ALL_KEYS)},
     )
-    return respond_err(
-        "too_many_requests", status=429, message="Too many settings changes — slow down"
-    )
+    return too_many(_SETTINGS_WRITE_LIMITER, admin, "Too many settings changes.")
 
 
 def _settings_reauth_required(
@@ -378,11 +377,7 @@ def _resolve_tester_dispatch(
     limiter = _SETTINGS_AUTO_TEST_LIMITER if auto else _SETTINGS_TEST_LIMITER
     if not limiter.check(admin):
         logger.warning("rate_limit.throttled scope=actor actor=%s", _sanitise_log_field(admin))
-        return None, respond_err(
-            "too_many_requests",
-            status=429,
-            message="Too many requests — slow down",
-        )
+        return None, too_many(limiter, admin, "Too many tests.")
     return tester, None
 
 

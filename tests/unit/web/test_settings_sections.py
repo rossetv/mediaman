@@ -124,6 +124,16 @@ def test_automatic_checks_are_limited_too(client) -> None:
     assert codes[-1] == 429
 
 
+def test_a_test_or_save_over_its_limit_says_how_long_to_wait(client) -> None:
+    for _ in range(11):
+        test = client.post("/api/settings/test/openai")
+    for _ in range(21):
+        save = client.put("/api/settings", json={"scan_time": "10:00"})
+    for refused in (test, save):
+        assert refused.status_code == 429
+        assert re.search(r"Try again in \d+ (second|minute)s?\.$", refused.json()["message"])
+
+
 def test_a_folder_the_page_may_not_read_is_not_called_missing(
     client, tmp_path, monkeypatch
 ) -> None:
