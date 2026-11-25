@@ -112,7 +112,10 @@
              {"value": "gpt-6.2-astra", "label": "GPT-6.2 Astra"},
              {"value": "gpt-6.1-terra", "label": "GPT-6.1 Terra"},
              {"value": "gpt-6-luna", "label": "GPT-6 Luna"},
-           ]},
+           ] + ([{"value": settings.openai_model, "label": settings.openai_model}]
+                if settings and settings.openai_model
+                and settings.openai_model not in ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra", "gpt-6-luna"]
+                else [])},
         ],
       ],
       settings=settings) }}
