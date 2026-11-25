@@ -352,6 +352,10 @@ function boot(html, reduced, saved, serverPlays, came) {
       calls.push({ url: url, body: body });
       return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve({ media_type: 'movie', tmdb_id: 5 });
     },
+    delete(url) {
+      calls.push({ url: url, gone: true });
+      return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve({ media_type: 'movie', tmdb_id: 5 });
+    },
     messageOf(err, fallback) { return fallback; },
   };
 
@@ -4329,6 +4333,7 @@ const scenarios = {
     if (what === 'saving' || what === 'backWhileAsked') p.held.save = [];
     if (what === 'saving') { p.video.paused = true; fire(p.video, 'pause'); p.video.paused = false; }
     if (what === 'native') { p.video.webkitPresentationMode = 'fullscreen'; p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; }; }
+    if (what === 'picture') doc.pictureInPictureElement = p.video;
     const out = { before: look() };
     endsNow(p);
     if (p.held.save) {
@@ -4356,6 +4361,18 @@ const scenarios = {
     if (what === 'escape') key('Escape');
     if (what === 'escapeInCard') { thumb().focus(); key('Escape'); }
     if (what === 'leave') { p.held.put = 'silent'; click(thumb()); p.leave(); out.kept = p.held.kept; }
+    if (what === 'leaveTakenBack') { click(thumb()); await settle(); p.held.put = 'silent'; click(thumb()); p.leave(); out.kept = p.held.kept; }
+    if (what === 'leaveSaved') { click(thumb()); await settle(); p.leave(); out.kept = p.held.kept || null; }
+    if (what === 'takenBack') { click(thumb()); await settle(); click(thumb()); await settle(); p.tick(3000); await settle(); out.stays = look(); }
+    if (what === 'clicked') { p.held.put = 'silent'; press(thumb()); p.tick(29000); await settle(); out.early = look(); p.tick(2000); }
+    if (what === 'clickedTakenBack') { press(thumb()); await settle(); press(thumb()); await settle(); p.tick(29000); out.early = look(); p.tick(2000); }
+    if (what === 'keyed') { p.held.put = 'silent'; tabTo(thumb()); key('Enter'); p.tick(29000); out.early = look(); p.tick(2000); }
+    if (what === 'tabbed') { tabTo(thumb()); p.tick(70000); await settle(); out.stays = look(); }
+    if (what === 'message') {
+      p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { error: 'replaced' }));
+      await settle();
+      out.message = messageState(p);
+    }
     if (what === 'rated') { click(thumb()); await settle(); p.tick(1000); await settle(); out.early = look(); p.tick(1000); }
     if (what === 'ignored') { p.tick(29000); await settle(); fire(p.root, 'pointermove', { bubbles: true, pointerType: 'mouse' }); p.tick(29000); await settle(); out.early = look(); p.tick(2000); }
     if (what === 'next') { click(p.q('[data-upnext-play]')); out.pressed = look(); }

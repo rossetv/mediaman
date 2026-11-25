@@ -2944,7 +2944,8 @@
     ignoredTimer = null;
     if (!goOnAfter) return;
     ignoredTimer = setTimeout(function () {
-      if (els.rate.contains(document.activeElement) || menuOpen()) waitForRating();
+      /* The keyboard in the card is somebody; a click leaves the focus behind. */
+      if (!focusByPointer && !unsavedRating && els.rate.contains(document.activeElement)) waitForRating();
       else endRating();
     }, RATE_IGNORED_MS);
   }
@@ -2955,14 +2956,8 @@
     else if (said.phase !== 'read') unsavedRating = null;
     if (!rating || said.from !== rating.node) return;
     clearTimeout(ratedTimer);
-    if (said.phase === 'pending') {
-      clearTimeout(ignoredTimer);
-      ignoredTimer = null;
-    } else if (said.phase === 'saved' && said.level !== null) {
-      ratedTimer = setTimeout(endRating, RATED_MS);
-    } else {
-      waitForRating();
-    }
+    if (said.phase === 'saved' && said.level !== null) ratedTimer = setTimeout(endRating, RATED_MS);
+    else waitForRating();
   });
 
   q('[data-rate-close]').addEventListener('click', endRating);

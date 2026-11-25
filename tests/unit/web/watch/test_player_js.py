@@ -1877,7 +1877,9 @@ def test_a_seek_back_before_the_save_is_taken_asks_nothing(film):
     assert (out["ended"]["card"], out["ended"]["asks"], out["late"]) == (False, 0, "/watch/play/1")
 
 
-@pytest.mark.parametrize("what", ["close", "escape", "rated", "ignored"])
+@pytest.mark.parametrize(
+    "what", ["close", "escape", "rated", "ignored", "clicked", "clickedTakenBack", "keyed"]
+)
 def test_done_with_the_question_the_film_leads_back(film, what):
     out = rating(film, what)
     assert out.get("early", out["ended"])["at"] == "/watch/play/1"
@@ -1905,6 +1907,31 @@ def test_the_next_episode_comes_as_soon_with_the_question_beside_its_card(markup
         assert (seen["card"], seen["upnext"]) == (True, True)
     assert out["went"] is True
     assert out["after"]["card"] is False
+
+
+def test_a_rating_taken_back_on_its_way_out_is_taken_back_past_the_page(film):
+    kept = rating(film, "leaveTakenBack")["kept"]
+    assert (kept["method"], kept["keepalive"], kept.get("body")) == ("DELETE", True, None)
+
+
+def test_a_rating_that_is_saved_is_not_sent_again_on_leaving(film):
+    assert rating(film, "leaveSaved")["kept"] is None
+
+
+@pytest.mark.parametrize("what", ["takenBack", "tabbed"])
+def test_the_question_stays_for_a_rating_taken_back_and_for_the_keyboard_in_it(film, what):
+    out = rating(film, what)["stays"]
+    assert (out["card"], out["at"]) == (True, "/watch/play/1")
+
+
+def test_a_message_takes_the_place_of_the_question_and_the_page_stays(film):
+    out = rating(film, "message")
+    assert out["message"]["text"] == "Playing somewhere else."
+    assert (out["after"]["card"], out["late"]) == (False, "/watch/play/1")
+
+
+def test_the_next_episode_s_question_is_not_asked_behind_picture_in_picture(markup):
+    assert rating(markup, "picture")["ended"]["asks"] == 0
 
 
 @pytest.mark.parametrize("what", ["next", "native"])
