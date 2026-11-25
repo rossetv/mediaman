@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import queue
 import signal
 import sys
 import threading
@@ -241,17 +242,17 @@ def _when_told_to_end(act: Callable[[], None]) -> Callable[[], None]:
     """
     if threading.current_thread() is not threading.main_thread():
         return lambda: None
-    told, undone = threading.Event(), threading.Event()
+    # True to act. Its put, unlike an event's set, may interrupt itself.
+    told: queue.SimpleQueue[bool] = queue.SimpleQueue()
     before = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT)}
 
     def wait() -> None:
-        told.wait()
-        if not undone.is_set():
+        if told.get():
             act()
 
     def hear(number: int, frame: FrameType | None) -> None:
         # Nothing more: it may have interrupted whatever holds a lock.
-        told.set()
+        told.put(True)
         was = before[signal.Signals(number)]
         if callable(was):
             was(number, frame)
@@ -265,8 +266,7 @@ def _when_told_to_end(act: Callable[[], None]) -> Callable[[], None]:
         for number in heard:
             if signal.getsignal(number) is hear:
                 signal.signal(number, before[number])
-        undone.set()
-        told.set()
+        told.put(False)
 
     return undo
 
