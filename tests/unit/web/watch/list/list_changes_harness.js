@@ -10,8 +10,9 @@ const file = path.resolve(__dirname, '../../js/watch_list_harness.js');
 const shared = new Module(file);
 shared.filename = file;
 const [source] = fs.readFileSync(file, 'utf8').split('const name = process.argv[2];');
-const linked = source.replace("{ class: 'title-cell' }, r.title]",
-  "{ class: 'title-cell' }, r.plain ? r.title : ['a', { class: 'wl-title', href: '#' }, r.title]]");
+/* Every row's title a link, unless it is plain. */
+const linked = source.replace('r.ref ? [', '!r.plain ? [');
+if (linked === source) throw new Error('watch_list_harness.js no longer draws a title as it did');
 shared._compile(linked + '\nmodule.exports = { load, click, keepOption, ROWS, settle, deferred };', file);
 const { load, click, keepOption, ROWS, settle, deferred } = shared.exports;
 
