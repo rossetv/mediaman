@@ -1016,6 +1016,22 @@ def test_a_start_made_by_itself_is_answered_replaced_where_another_page_was_aske
     assert {r.json().get("by") for r in _three_calls(alice, tv)} == {"phone-page-1"}
 
 
+def test_a_start_asked_before_another_page_s_is_refused_however_long_plex_took_over_the_title(
+    alice, clock, monkeypatch
+):
+    _start_from(alice, "tv-page-0001")
+    clock.now += 1
+
+    def slow_item(self, key, marks):
+        clock.now += 10
+        return _item(key)
+
+    monkeypatch.setattr(PlexWatch, "get_item", slow_item)
+    refused = _start_from(alice, "phone-page-1", asked_s=2)
+
+    assert (refused.status_code, refused.json().get("by")) == (410, "tv-page-0001")
+
+
 @pytest.mark.parametrize(
     "extra", [{"page": "a b"}, {"page": "x" * 65}, {"page": "phone-page-1", "asked_s": -1}]
 )

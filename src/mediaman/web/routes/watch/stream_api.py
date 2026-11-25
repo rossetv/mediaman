@@ -13,7 +13,6 @@ import asyncio
 import contextlib
 import logging
 import sqlite3
-import time
 from collections import Counter
 from collections.abc import Callable, Coroutine
 from dataclasses import asdict
@@ -186,7 +185,8 @@ def start_stream(
     A start the player made by itself is answered 410 ``replaced`` where the person has asked
     another page to play the title since.
     """
-    began = time.monotonic()
+    manager = get_stream_manager()
+    began = manager.now()
     if not _START_LIMITER.check(username):
         return respond_err("rate_limited", status=429)
     conn = get_db()
@@ -219,7 +219,6 @@ def start_stream(
                 "part_size": item.media.part_size,
                 "count": item.preview_count,
             }
-        manager = get_stream_manager()
         rows = quality_rows(item, original=_may_play_original(manager, item, username))
         quality = resolve_quality(rows, body.quality)
         stream_id = manager.start(
@@ -231,7 +230,7 @@ def start_stream(
             fallback=resolve_quality(without_original(rows), ORIGINAL),
             page=body.page,
             # Plex was asked about the title first, and that may have taken long.
-            asked_ago=body.asked_s + time.monotonic() - began,
+            asked_ago=body.asked_s + manager.now() - began,
         )
     except TooManyStreams:
         return respond_err("too_many_streams", status=429)
