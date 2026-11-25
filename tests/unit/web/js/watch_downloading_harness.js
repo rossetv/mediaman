@@ -417,6 +417,21 @@ const scenarios = {
     await p.step(5000);
     return { now, cards: p.cards() };
   },
+  async drawnIdle() {
+    const p = load([answer([item('New')])], { drawn: answer([]) });
+    const asks = p.asks;
+    await p.step(1500);
+    return { asks, cards: p.cards() };
+  },
+  async heldIdle() {
+    const p = load([{ ...answer([]), age_ms: 2500 }, answer([item('New')])], { drawn: answer([]) });
+    await p.step(3000);
+    const fresh = load([answer([])], { drawn: answer([]) });
+    await fresh.step(20000);
+    const down = load([{ ...answer([], "Can't check downloads"), age_ms: 60000 }], { drawn: answer([]) });
+    await down.step(20000);
+    return { cards: p.cards(), asks: fresh.asks, down: down.asks };
+  },
   async readers() {
     const p = load([answer([item('A')]), answer([item('A'), item('B')])]);
     await p.step(10);

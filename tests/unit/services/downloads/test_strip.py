@@ -237,6 +237,10 @@ def test_a_long_list_is_cut_and_still_counted():
     assert out["summary"]["total"] == strip.MAX_ITEMS + 5
 
 
+def test_a_page_is_told_how_old_the_answer_is():
+    assert payload(Answer(Strip(), 2.5))["age_ms"] == 2500
+
+
 def test_an_answer_held_too_long_says_it_is_how_things_were_and_drops_what_was_ready():
     items = (
         _item("a", "downloading", 10),

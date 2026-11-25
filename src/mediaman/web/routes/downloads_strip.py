@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import replace
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -19,6 +21,8 @@ from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.poster.title_art import title_art
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -59,20 +63,26 @@ def _with_titles(
         lib.library_shows,
     )
     arr = catalog.arr_view(conn, secret_key)
-    return [_with_title(item, index, arr) for item in items]
+    return [
+        _with_title(item, index, arr, shown=n < strip.MAX_ITEMS) for n, item in enumerate(items)
+    ]
 
 
-def _with_title(item: StripItem, index: catalog.LibraryIndex, arr: catalog.ArrView) -> StripItem:
+def _with_title(
+    item: StripItem, index: catalog.LibraryIndex, arr: catalog.ArrView, *, shown: bool
+) -> StripItem:
     poster = catalog.tmdb_image_url(item.poster_url, "w342") or item.poster_url
     if item.tmdb_id is None or item.tmdb_id > _MAX_TMDB_ID:
         return replace(item, poster_url=poster)
     kind = "movie" if item.kind == "movie" else "tv"
     held = index.library_ref(kind, item.tmdb_id, item.title, arr)
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
-    # What TMDB told before: nobody waits on it here.
-    known = catalog.held_details(kind, item.tmdb_id) or {}
-    poster = poster or known.get("poster_url") or ""
-    art = _fanart(item, arr) or known.get("backdrop_url") or item.art_url
+    art = _fanart(item, arr)
+    if shown and not (poster and art):
+        known = _held(kind, item.tmdb_id)
+        poster = poster or known.get("poster_url") or ""
+        art = art or known.get("backdrop_url") or ""
+    art = art or item.art_url
     if held is not None:
         own = title_art(held.partition("-")[2])
         poster = poster or own["poster_url"]
@@ -84,6 +94,15 @@ def _with_title(item: StripItem, index: catalog.LibraryIndex, arr: catalog.ArrVi
         poster_url=poster,
         art_url=art,
     )
+
+
+def _held(kind: str, tmdb_id: int) -> dict[str, Any]:
+    """What TMDB told of a title before: nobody waits on it here."""
+    try:
+        return catalog.held_details(kind, tmdb_id) or {}
+    except Exception:  # whatever its last ask failed with, kept for a while
+        logger.warning("Failed to read what is held of %s %s", kind, tmdb_id, exc_info=True)
+        return {}
 
 
 def _fanart(item: StripItem, arr: catalog.ArrView) -> str:
