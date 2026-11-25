@@ -549,6 +549,11 @@ const scenarios = {
     const fields = h.rows()[0].querySelectorAll('.hist-field').map((f) => f.querySelector('dt').textContent + ': ' + f.querySelector('dd').textContent);
     return { fields, utc: h.rows()[0].querySelector('.hist-field dd').getAttribute('title') };
   },
+  unreadableTime: () => {
+    const h = open({ items: [item(1, { fields: [{ ...at('not a time'), value: 'stored as sent' }] })] });
+    const dd = h.rows()[0].querySelector('.hist-field dd');
+    return { text: dd.textContent, title: dd.getAttribute('title') };
+  },
   who: () => {
     const h = open({ items: [item(1, { actor: 'bob', avatar: null }), item(2, { actor: null, avatar: null })] });
     const only = h.rows().map((r) => { const b = r.querySelector('[data-user]'); return b && b.getAttribute('data-user'); });

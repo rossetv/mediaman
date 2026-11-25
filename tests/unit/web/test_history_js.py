@@ -254,6 +254,10 @@ def test_the_details_are_what_was_recorded_in_the_readers_time_with_the_record_l
     }
 
 
+def test_a_time_that_cannot_be_read_stays_as_the_page_sent_it() -> None:
+    assert _run("unreadableTime") == {"text": "stored as sent", "title": None}
+
+
 def test_a_former_user_and_mediaman_are_filtered_by_as_themselves() -> None:
     out = _run("who")
     assert out["only"] == ["~former:bob", None]
