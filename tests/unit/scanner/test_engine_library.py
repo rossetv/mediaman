@@ -1041,6 +1041,17 @@ class TestTwinInAGoneLibrary:
         assert len(said) == 1
         assert "until that is certain" in said[0][0]
 
+    def test_one_that_shares_a_file_spelled_another_way_waits(self, conn, mock_plex):
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = '10'",
+            (json.dumps([{"path": f"{self.due.parent}/./film.mkv", "size": 4}]),),
+        )
+        conn.commit()
+
+        self._scan(conn, mock_plex)
+
+        assert self.due.exists()
+
     def test_the_wait_is_told_once(self, conn, mock_plex):
         self._twins(conn, "ids")
 
@@ -1284,6 +1295,19 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
         self._scan_four_times(conn, mock_plex, freezer)
 
         assert shared.exists() is kept
+
+    def test_a_kept_film_stays_beside_one_that_has_its_file_spelled_another_way(
+        self, conn, mock_plex, freezer
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(conn, "10", 1, own, [own, shared])
+        self._store(conn, "20", 2, other, [other, f"{self.folder}/./b.mkv"])
+        self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
 
     def test_a_kept_film_listed_again_as_the_same_film_goes_and_gives_it_its_keep(
         self, conn, mock_plex, freezer

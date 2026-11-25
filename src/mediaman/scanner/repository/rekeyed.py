@@ -20,6 +20,7 @@ removes the title.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from collections.abc import Callable, Collection, Iterable, Mapping
 from datetime import timedelta
@@ -463,7 +464,8 @@ def held_beside_another_title(
             continue
         if tracking is None:
             tracking = _ids_by_tracked_file(conn)
-        others = set().union(*(tracking.get(file, ()) for file in title_files(title)))
+        files = map(os.path.normpath, title_files(title))
+        others = set().union(*(tracking.get(file, ()) for file in files))
         others.difference_update(media_ids)
         if others and others - {other["id"] for other in other_keys(conn, media_id, media_ids)}:
             staying.add(media_id)
@@ -471,11 +473,11 @@ def held_beside_another_title(
 
 
 def _ids_by_tracked_file(conn: sqlite3.Connection) -> dict[str, set[str]]:
-    """Return the ids of the library's titles that track each file."""
+    """Return the ids of the library's titles that track each file, however its path is spelled."""
     tracking: dict[str, set[str]] = {}
     for row in conn.execute("SELECT id, tracked_files FROM media_items WHERE tracked_files != ''"):
         for file in title_files({"tracked_files": row["tracked_files"], "episode_keys": None}):
-            tracking.setdefault(file, set()).add(row["id"])
+            tracking.setdefault(os.path.normpath(file), set()).add(row["id"])
     return tracking
 
 
@@ -511,7 +513,7 @@ def files_held_for_gone_titles(conn: sqlite3.Connection, inactivity_days: int) -
     title has taken; False for one held only by a watch that would keep its
     title from being scheduled today. A title listed with such a file may be
     one the keep or the watch is never given to: of another season, or a film
-    at another path.
+    at another path. The paths are normalised.
     """
     now = now_iso()
     # rationale: the interpolated conditions are fixed strings; every value is bound
@@ -532,7 +534,7 @@ def files_held_for_gone_titles(conn: sqlite3.Connection, inactivity_days: int) -
         kept = row["watched"] is None
         if kept or _is_lately(row["watched"], inactivity_days):
             for file in pruned_files(row):
-                held[file] = kept or held.get(file, False)
+                held[os.path.normpath(file)] = kept or held.get(os.path.normpath(file), False)
     return held
 
 

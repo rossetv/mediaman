@@ -1177,7 +1177,7 @@ def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: 
 
 
 class _Title(NamedTuple):
-    """What tells whether two items are one title."""
+    """What tells whether two items are one title; its files as normalised paths."""
 
     is_film: bool
     ids: Ids
@@ -1198,7 +1198,7 @@ def _title(conn: sqlite3.Connection, media_id: str, inactivity_days: int) -> _Ti
     return _Title(
         title["media_type"] == "movie",
         title_ids(title),
-        title_files(title),
+        set(map(os.path.normpath, title_files(title))),
         repository.is_protected(conn, media_id)
         or repository.is_show_kept_pure(conn, title["show_rating_key"]),
         is_watched_lately(conn, media_id, inactivity_days),
@@ -1415,9 +1415,8 @@ class DeletionExecutor:
 
         True for a keep, False for a late watch alone, None when nothing does.
         """
-        holds = [
-            self._held_files[file] for file in tracked_paths(row) or [] if file in self._held_files
-        ]
+        files = map(os.path.normpath, tracked_paths(row) or [])
+        holds = [self._held_files[file] for file in files if file in self._held_files]
         return any(holds) if holds else None
 
     def _gone_twins(self, row: DeletionRow) -> list[_Title]:
@@ -1435,7 +1434,7 @@ class DeletionExecutor:
                 "it may be a kept title of a library Plex does not list now; the deletion "
                 "waits while that one is kept"
             )
-        files = set(tracked_paths(row) or [])
+        files = set(map(os.path.normpath, tracked_paths(row) or []))
         # Only a file of its own makes a watch hold: the watch of a copy with other files does not.
         if any(gone.is_watched_lately and not gone.files.isdisjoint(files) for gone in twins):
             return (

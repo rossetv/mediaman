@@ -224,6 +224,17 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother:
 
         assert (film.exists(), episode.exists()) == (True, True)
 
+    def test_a_file_spelled_another_way_is_held_too(self):
+        a, b, d = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._gone(a, [a, b])
+        self._keep()
+        self._scan_until_pruned()
+        self._list("20", 2, d, [d, f"{self.folder}/./b.mkv"])
+
+        self._scan_until_due("20")
+
+        assert b.exists()
+
     def test_a_title_with_none_of_its_files_is_deleted_as_before(self):
         own, other = self._file("a.mkv"), self._file("d.mkv")
         self._gone(own, [own])
