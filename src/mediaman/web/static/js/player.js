@@ -7,26 +7,31 @@
  * person out.
  *
  * Requests:
- *   POST /api/watch/stream            {rating_key, quality} → {stream_id, playlist,
- *                                     quality, qualities, previews, markers, chapters}
+ *   POST /api/watch/stream            {rating_key, quality, page, asked_s} → {stream_id,
+ *                                     playlist, quality, qualities, previews, markers, chapters}
  *   GET  <playlist> and its segments  (made by hls.js)
  *   GET  /api/watch/stream/<id>/preview/<n>  (a frame for the play bar)
  *   POST /api/watch/progress          {stream_id, position_s, played_s}
  *   POST /api/watch/stream/<id>/stop  {position_s, played_s} or nothing to save (a beacon,
  *                                     or a fetch where the next episode waits for it)
  *   POST /api/watch/keep              {media_item_id, days}
+ *   GET  /healthz                     (whether mediaman is reached where something went unanswered)
  *
  * A 410 from any stream URL means the server has dropped the stream (a
  * long pause, a restart): a new one is started at the current position,
- * which is also how a quality change works. One that says the stream was
- * replaced means that the person plays the title elsewhere now: this player
- * stops until they press Play here. What answers 429 is asked again when it
+ * which is also how a quality change works. A title plays where its person
+ * last asked for it: every start says which page asks and how long ago the
+ * person pressed for it there, and the server starts none asked for before
+ * another page's. A 410 that says the stream was replaced by another page
+ * means that the person plays the title there now: this player stops until
+ * they press Play here. What answers 429 is asked again when it
  * says. If the server refuses the stream of a new quality, the quality that
  * was playing comes back.
  * Automatic steps the quality down when playback keeps stalling, and
  * slowly up again when it no longer does.
  * While a new stream replaces the old one, the last frame stays on screen.
- * A connection that drops is tried again for a while before it is an error.
+ * A connection that drops, with an error or in silence, is tried again for a
+ * while before it is an error.
  *
  * The next episode takes over in this same page, from what its own page
  * (GET /watch/play/<key>) says, so that full screen, picture in picture and
@@ -78,6 +83,19 @@
   var LOST_FOR_MS = 60000;
   /* And where the server refuses, or refuses and is lost by turns, for this long. */
   var NONE_FOR_MS = 2 * LOST_FOR_MS;
+  /* How long a light request may go unanswered before the connection counts as lost. It needs
+     neither Plex nor, sent with no session, the database. */
+  var LIGHT_URL = '/healthz';
+  var LIGHT_WAIT_MS = 5000;
+  /* Under the message about it the server is asked for this often: it may come back with no word
+     from the browser. */
+  var LIGHT_EVERY_MS = 30000;
+  /* A server found again so, with nothing played since, is tried this often before the message
+     stays for a press: each time it comes up it takes the focus and is said. */
+  var BACK_ROUNDS = 3;
+  /* How long the picture waits before it is said why: a drop, and a busy server or a slow start. */
+  var LOST_NOTICE_MS = 300;
+  var SLOW_NOTICE_MS = 8000;
   /* The longest a busy server may ask for before it is asked again. */
   var BUSY_MAX_S = 30;
   /* Automatic steps down when playback stalls twice within this much of the
@@ -112,6 +130,10 @@
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
   var MSG_LOST = "Can't reach mediaman. Check your connection.";
+  var MSG_BUSY = 'The server is busy right now. Try again in a moment.';
+  var NOTICE_LOST = 'Connection lost. Trying again…';
+  var NOTICE_BUSY = 'The server is busy. Trying again…';
+  var NOTICE_STARTING = 'Still starting…';
   var MSG_REPLACED = 'Playing somewhere else.';
   var MSG_NEXT_UNREACHED = "Can't reach the next episode right now.";
   var MSG_NEXT_UNKNOWN = "Can't find the next episode right now.";
@@ -140,6 +162,7 @@
   var cameFrom;              // the page the history's last entry holds, when it opened the player
   var showHref;
   var startS;
+  var placeS;                // the place last known to be saved by other than this tab
 
   function readPage(el) {
     item = readJSON(el, 'data-item') || {};
@@ -148,6 +171,7 @@
     backHref = el.getAttribute('data-back-href') || '/watch';
     showHref = el.getAttribute('data-show-href') || '';
     startS = parseFloat(el.getAttribute('data-start-s')) || 0;
+    placeS = parseFloat(el.getAttribute('data-place-s'));
     readNext(el);
   }
 
@@ -241,10 +265,17 @@
   var streamId = null;
   var generation = 0;        // bumps on every new stream; stale replies are dropped
   var starting = false;
-  var startsOpen = 0;        // starts not answered yet, dropped ones included
-  var ownRival = false;      // one of them may have replaced the stream now playing
+  /* This page's name among the person's players. No secret: it opens nothing. */
+  var pageId = Array.prototype.map.call(window.crypto.getRandomValues(new Uint8Array(12)), function (b) {
+    return (b < 16 ? '0' : '') + b.toString(16);
+  }).join('');
+  var pressedAt = Date.now(); // when the person last asked this page to play
+  function pressedPlay() { pressedAt = Date.now(); }
   var noneSince = null;      // the first refusal since a request was taken, with nothing left to play
   var stalled = false;       // the buffer ran dry and playback has not gone on since
+  var startedAt = null;      // when the stream that has not played yet was asked for
+  var waitingSince = null;   // when the picture began to wait
+  var bytesAt = -Infinity;   // when a segment last brought any
   var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
   var dragging = false;
@@ -259,6 +290,7 @@
   var hasPlayed;
   var playedS;
   var savedAs;               // the last save the server took, to make none twice
+  var sent;                  // the places this tab has sent to be saved
   var lastTime;
   var override;              // the quality to ask for in place of the choice, or null
   var good;                  // the choice and override that last played, or the video started with
@@ -296,6 +328,7 @@
     hasPlayed = false;
     playedS = 0;
     savedAs = null;
+    sent = {};
     lastTime = null;
     override = null;
     good = choice();
@@ -496,17 +529,19 @@
 
   function chooseQuality(value) {
     var same = value === quality && !override;
+    pressedPlay();
     /* Even the same one: a saved choice the server does not know may stand in its place. */
     setQuality(value);
+    var stopped = shown(els.message) && tryAgain;
     if (same) {
-      if (shown(els.message) && (tryAgain === retry || tryAgain === tryLost)) tryAgain();
+      if (stopped === retry || stopped === tryLost || stopped === playHere) tryAgain();
       return;
     }
     reverts = 0;
     swapNotice = null;
     override = null;
     stalls = 0;
-    clearTimeout(stallTimer);
+    stopWatching();
     if (value === playing && streamId) {
       /* It already plays, as what Automatic picked. */
       streamChoice = choice();
@@ -514,7 +549,8 @@
       showQuality();
       return;
     }
-    restartStream(true);
+    if (stopped === playHere || hereGeneration === generation) playHere();
+    else restartStream(true);
   }
 
   /* A new quality cannot play: go back to the one that did. */
@@ -558,25 +594,55 @@
 
   /* ---- automatic quality ---------------------------------------------- */
 
-  var stallTimer = null;
+  var waitTimer = null;
+
+  function stopWatching() {
+    clearTimeout(waitTimer);
+    waitTimer = null;
+  }
 
   function stopRolling() {
     rolling = false;
-    clearTimeout(stallTimer);
+    stopWatching();
     stalled = false;
   }
 
   /* The buffer ran dry while the video was playing on its own: a seek or a
      start that has to wait says nothing about the quality. */
   function noteStall() {
-    if (!rolling || swapping) return;
+    if (swapping) return;
+    if (!rolling) {
+      if (waitTimer === null) watchWait();
+      return;
+    }
     stopRolling();
     /* What was loaded before is all played. */
     if (lost) countLost();
     if (noneSince !== null) noneSince = Date.now();
     stalled = true;
     if (lost || noneSince !== null) return;
-    if (quality === 'auto' && !countSlow()) stallTimer = setTimeout(stepDown, STALL_MS);
+    if (quality !== 'auto' || !countSlow()) watchWait();
+  }
+
+  /* While the picture waits it is looked at every so often: a connection may be slow, or drop
+     and say nothing. */
+  function watchWait() {
+    stopWatching();
+    if (lost || noneSince !== null) return;
+    waitTimer = setTimeout(lookAtWait, STALL_MS);
+  }
+
+  function lookAtWait() {
+    var h = hls;
+    var since = waitingSince;
+    var waits = function () { return h && h === hls && since !== null && since === waitingSince && !swapping; };
+    waitTimer = null;
+    if (!waits()) return;
+    ifReached(function () {
+      if (waits() && !(stalled && stepDown())) watchWait();
+    }, function () {
+      if (waits()) loseLoads(h, 'segment');
+    });
   }
 
   /* Whether this sign of a slow connection, with the last, made for a step down. */
@@ -631,7 +697,9 @@
 
   function setLoading(on) {
     root.classList.toggle('is-loading', on);
-    showLost();
+    if (!on) waitingSince = null;
+    else if (waitingSince === null) waitingSince = Date.now();
+    showNotice();
     showPlayState();
   }
 
@@ -690,6 +758,7 @@
     els.retry.textContent = again === playHere ? 'Play here' : 'Try again';
     els.play.disabled = !again;
     show(els.message);
+    showPlayState();
     showSkip();
     swapNotice = null;
     showControls();
@@ -698,33 +767,42 @@
 
   function hideMessage() {
     els.play.disabled = false;
+    if (!shown(els.message)) return;
     if (els.message.contains(document.activeElement)) els.play.focus();
     leave(els.message);
+    showPlayState();
   }
 
   /* ---- a lost connection ----------------------------------------------- */
 
   /* While mediaman cannot be reached: since when (`at`), what asks `again`, what
      tidies up once it `gaveUp`, the next `wait`, and whether the message is up
-     (`over`). What asks again drops a try still under way. */
+     (`over`). What asks again drops a try still under way; one that is better left
+     under way has a `look` instead, which the timer makes. */
   var lost = null;
+  var backRounds = 0;        // times the server was found again with nothing played since
 
-  function waitOut(again, gaveUp) {
+  function waitOut(again, gaveUp, look) {
     if (!lost) {
-      lost = { at: Date.now(), gaveUp: gaveUp, wait: LOST_FIRST_MS, over: false };
+      lost = { at: Date.now(), gaveUp: gaveUp, wait: LOST_FIRST_MS, over: false, tryTimer: null };
       countLost();
-      showLost();
+      showNotice();
     }
-    clearTimeout(stallTimer);
+    stopWatching();
     if (lost.over) return;
     lost.again = again;
     clearTimeout(lost.tryTimer);
-    lost.tryTimer = setTimeout(tryUnattended, lost.wait);
+    lost.tryTimer = setTimeout(function () {
+      lost.tryTimer = null;
+      if (look && !lostLong()) look();
+      else tryUnattended();
+    }, lost.wait);
     lost.wait = Math.min(lost.wait * 2, LOST_MAX_MS);
   }
 
   function askAgain() {
     clearTimeout(lost.tryTimer);
+    lost.tryTimer = null;
     lost.again();
   }
 
@@ -734,6 +812,46 @@
   function tryUnattended() {
     if (lostLong()) giveUp();
     else askAgain();
+  }
+
+  /* The person moved, in a drop. */
+  function tryAtOnce() {
+    if (!lost || lost.over) return;
+    lost.at = Date.now();
+    lost.wait = LOST_FIRST_MS;
+    askAgain();
+  }
+
+  /* Something went unanswered: a server that answers a light request is only slow. Neither
+     is called where a drop was found meanwhile and is being tried again. */
+  function ifReached(yes, no) {
+    var asked = Date.now();
+    askLight(function (answered) {
+      if (lost && (lost.over || lost.tryTimer !== null)) return;
+      if (!answered && bytesAt < asked) { no(); return; }
+      reached();
+      yes();
+    });
+  }
+
+  function askLight(then) {
+    var abort = new AbortController();
+    var timer = setTimeout(function () { abort.abort(); }, LIGHT_WAIT_MS);
+    /* A login page in front of mediaman may answer with its address: an answer too. */
+    fetch(LIGHT_URL, { credentials: 'omit', cache: 'no-store', redirect: 'manual', signal: abort.signal })
+      .then(function (resp) { return !fromProxy(resp.status); }, function () { return false; })
+      .then(function (answered) {
+        clearTimeout(timer);
+        then(answered);
+      });
+  }
+
+  /* While `open` says so nothing has come: the server may be slow, or the connection lost. */
+  function watchSlow(open, unreached) {
+    setTimeout(function () {
+      if (!open()) return;
+      ifReached(function () { watchSlow(open, unreached); }, function () { if (open()) unreached(); });
+    }, SLOW_NOTICE_MS);
   }
 
   /* What was loaded before may still play for long. */
@@ -753,9 +871,30 @@
     if (lost.gaveUp) lost.gaveUp();
     leaveNative();
     showMessage(MSG_LOST, tryLost);
+    if (backRounds < BACK_ROUNDS) watchBack();
+  }
+
+  function watchBack() {
+    var mine = lost;
+    var again = function () { if (mine === lost && lost.over) watchBack(); };
+    clearTimeout(lost.backTimer);
+    lost.backTimer = setTimeout(function () {
+      if (lostLong()) return;
+      if (document.visibilityState === 'hidden') { again(); return; }
+      askLight(function (answered) {
+        if (mine !== lost || !lost.over) return;
+        if (answered && document.visibilityState !== 'hidden') {
+          backRounds++;
+          cameBack();
+        } else {
+          again();
+        }
+      });
+    }, LIGHT_EVERY_MS);
   }
 
   function goOnTrying() {
+    clearTimeout(lost.backTimer);
     lost.over = false;
     lost.wait = LOST_FIRST_MS;
     countLost();
@@ -766,6 +905,8 @@
 
   /* Try again. */
   function tryLost() {
+    pressedPlay();
+    backRounds = 0;
     lost.at = Date.now();
     wantPlaying = true;
     if (streamId && video.paused && !video.ended) play();
@@ -776,8 +917,9 @@
     if (!lost) return;
     clearTimeout(lost.tryTimer);
     clearTimeout(lost.endTimer);
+    clearTimeout(lost.backTimer);
     lost = null;
-    showLost();
+    showNotice();
   }
 
   function reached() {
@@ -788,25 +930,62 @@
       video.pause();
     }
     endLost();
+    watchWait();
   }
 
-  /* Said only where the picture waits for it. */
-  function showLost() {
-    if (lost && !lost.over && root.classList.contains('is-loading')) show(els.lost);
-    else leave(els.lost);
+  /* What the picture has waited for long enough to be told; asks again when it will have. */
+  var noticeTimer = null;
+  function noticeDue() {
+    var text = null;
+    var since;
+    var after = SLOW_NOTICE_MS;
+    if (waitingSince === null) {
+      return null;
+    } else if (lost) {
+      if (!lost.over) text = NOTICE_LOST;
+      since = waitingSince;
+      after = LOST_NOTICE_MS;
+    } else if (noneSince !== null) {
+      text = NOTICE_BUSY;
+      since = noneSince;
+    } else if (startedAt !== null) {
+      text = NOTICE_STARTING;
+      since = startedAt;
+    }
+    if (!text) return null;
+    var left = Math.max(since, waitingSince) + after - Date.now();
+    if (left <= 0) return text;
+    noticeTimer = setTimeout(showNotice, left);
+    return null;
   }
 
-  window.addEventListener('online', function () {
+  function showNotice() {
+    clearTimeout(noticeTimer);
+    var text = noticeDue();
+    if (!text) {
+      leave(els.lost);
+      return;
+    }
+    if (shown(els.lost) && els.lost.textContent === text) return;
+    els.lost.textContent = text;
+    show(els.lost);
+  }
+
+  function cameBack() {
     if (!lost) return;
     if (lost.over && lostLong()) return;
     if (lost.over) goOnTrying();
     else tryUnattended();
-  });
+  }
+
+  window.addEventListener('online', cameBack);
 
   /* A request was taken; from now on a wait is the connection's. */
   function taken() {
-    if (noneSince !== null && stalled) stallTimer = setTimeout(stepDown, STALL_MS);
+    var refused = noneSince !== null;
     noneSince = null;
+    if (refused) watchWait();
+    showNotice();
   }
 
   function noneTooLong() {
@@ -816,6 +995,7 @@
       if (b.start(i) <= video.currentTime && b.end(i) - video.currentTime > 1) noneSince = null;
     }
     if (noneSince === null) noneSince = Date.now();
+    showNotice();
     return Date.now() - noneSince >= NONE_FOR_MS;
   }
 
@@ -840,11 +1020,19 @@
     }
   }
 
+  /* A start that hangs in a drop holds a connection, and presses could pile them up. */
+  var lastStart = null;
+  function endHungStart() {
+    if (lastStart) lastStart.abort();
+  }
+
   /* Start a stream at `pos`; one retry before the error is shown. */
   function startStream(pos) {
     var gen = ++generation;
+    if (lost) endHungStart();
     endLost();
     noneSince = null;
+    startedAt = Date.now();
     dropAim();
     starting = true;
     pendingStart = pos;
@@ -865,6 +1053,7 @@
       var again = function () {
         starting = true;
         swapping = true;
+        endHungStart();
         attempt(tries);
       };
       /* The connection that dropped has not come back, or the server hangs. */
@@ -872,10 +1061,15 @@
         if (lost) waitOut(again, gaveUp);
         else fail();
       };
-      startsOpen++;
       var open = true;
+      var waits = function () { return open && !dropped(); };
+      /* It may still be answered: asked again only once the server is there. */
+      var look = function () {
+        if (!waits()) return;
+        ifReached(function () { if (waits()) again(); }, function () { if (waits()) waitOut(again, gaveUp, look); });
+      };
+      watchSlow(waits, function () { waitOut(again, gaveUp, look); });
       var answered = function () {
-        if (open) startsOpen--;
         open = false;
         clearTimeout(limit);
       };
@@ -885,7 +1079,13 @@
         attempts++;
         unanswered();
       }, START_WAIT_MS);
-      var start = MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: asked() });
+      var abort = lastStart = new AbortController();
+      var start = MM.api.post('/api/watch/stream', {
+        rating_key: item.rating_key,
+        quality: asked(),
+        page: pageId,
+        asked_s: Math.max(0, Date.now() - pressedAt) / 1000,
+      }, { signal: abort.signal });
       start.then(answered, answered);
       return start
         .then(function (data) {
@@ -895,7 +1095,6 @@
           }
           starting = false;
           reached();
-          ownRival = startsOpen > 0;
           streamId = data.stream_id;
           streamChoice = choice();
           takeQualities(data);
@@ -913,6 +1112,8 @@
             return;
           }
           reached();
+          /* Asked for by itself, after the person asked another page. */
+          if (status === 410 && code === 'replaced') { streamReplaced(); return; }
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
           if (status === 422 && quality !== 'auto' && !hasPlayed) {
             /* A saved choice the server does not know. It stays saved. */
@@ -947,24 +1148,29 @@
       xhrSetup: function (xhr, url) {
         if (!/\/seg\//.test(url)) return;
         xhr.addEventListener('readystatechange', function () {
-          if (h === hls && xhr.readyState === 2 && xhr.status === 200) taken();
+          if (h !== hls || xhr.status !== 200) return;
+          bytesAt = Date.now();
+          if (xhr.readyState === 2) taken();
         });
       },
     });
     hls = h;
-    h.on(Hls.Events.ERROR, function (event, data) { if (h === hls) onHlsError(data); });
+    var waits = true;        // for the playlist
+    watchSlow(function () { return waits && h === hls; }, function () { loseLoads(h, 'manifest'); });
+    h.on(Hls.Events.ERROR, function (event, data) {
+      waits = false;
+      if (h === hls) onHlsError(data);
+    });
     h.on(Hls.Events.MANIFEST_PARSED, function () {
+      waits = false;
       if (h !== hls) return;
       reached();
       swapping = false;
       if (wantPlaying) play();
       else setLoading(false);
     });
-    var askedAlone = false;  // the segment now loading was asked for with no start open
-    h.on(Hls.Events.FRAG_LOADING, function () { askedAlone = startsOpen === 0; });
     h.on(Hls.Events.FRAG_LOADED, function () {
       if (h !== hls) return;
-      if (askedAlone) ownRival = false;
       taken();
       reached();
     });
@@ -977,6 +1183,14 @@
     if (h !== hls) return;
     if (/^manifest/.test(details)) attach(playlistUrl, position());
     else h.startLoad(pendingStart === null ? -1 : pendingStart);
+  }
+
+  /* Nothing is heard of what it loads: stop, and ask again later. */
+  function loseLoads(h, details) {
+    var id = streamId;
+    h.stopLoad();
+    /* A try for the playlist is a new hls.js. */
+    waitOut(function () { if (id === streamId) loadAgain(hls, details); });
   }
 
   /* hls.js empties the video and fills it again, but says nothing of its place or of play. */
@@ -1030,11 +1244,16 @@
     restartStream(false);
   }
 
+  /* A 410 of the stream's. Replaced by a start of this page's own, one that reached the
+     server late, it goes on as after any other. */
+  function streamEnded(answer) {
+    if (answer && answer.error === 'replaced' && answer.by !== pageId) streamReplaced();
+    else streamGone();
+  }
+
   /* The same title was started somewhere else. This stream's place is no longer
      the one to save. */
   function streamReplaced() {
-    /* By an earlier start of this page that reached the server after this one's. */
-    if (ownRival) { streamGone(); return; }
     wantPlaying = false;
     swapping = true;
     leaveNative();
@@ -1046,29 +1265,42 @@
     showMessage(MSG_REPLACED, playHere);
   }
 
-  /* Go on from where the other one got to, where the server can say. */
+  /* Go on from where the other one got to, where it has saved that. */
+  var hereGeneration = null; // the generation that is asking it
   function playHere() {
-    var gen = ++generation;
+    var gen = hereGeneration = ++generation;
+    pressedPlay();
+    swapping = true;         // a press starts nothing from this place meanwhile
     hideMessage();
     setLoading(true);
     fetchPage(window.location.href)
       .then(function (page) {
         var el = page.getElementById('player');
-        if (gen === generation && el) pendingStart = parseFloat(el.getAttribute('data-start-s')) || 0;
+        var place = el ? parseFloat(el.getAttribute('data-place-s')) : NaN;
+        if (gen !== generation || !(place >= 0) || place === placeS || sent[place]) return;
+        placeS = place;
+        /* Ended there with nothing to follow, it would end here at once and leave the player. */
+        if (!next && !nextUnknown && place >= duration() - 1) return;
+        pendingStart = within(place);
       })
       .catch(function () { /* from where this one stands */ })
       .then(function () { if (gen === generation) retry(); });
   }
 
-  /* The code of the server's own in a failed answer; null where it has none. */
-  function codeOf(data) {
+  /* The server's own failed answer; null where it is none of its own. */
+  function answerOf(data) {
     var xhr = data.networkDetails;
     try {
       var text = xhr.responseType === 'arraybuffer' ? new TextDecoder().decode(xhr.response) : xhr.responseText;
-      return JSON.parse(text).error || null;
+      return JSON.parse(text);
     } catch (e) {
       return null;
     }
+  }
+
+  function codeOf(data) {
+    var answer = answerOf(data);
+    return answer && answer.error || null;
   }
 
   function retryAfterMs(data) {
@@ -1080,29 +1312,39 @@
     var h = hls;
     var status = data.response ? data.response.code : undefined;
     if (status === 410) {
-      if (codeOf(data) === 'replaced') streamReplaced();
-      else streamGone();
+      streamEnded(answerOf(data));
       return;
     }
     /* hls.js would ask for a refused segment again at once, six times over, before it
        calls the error fatal; for one the network lost, after waits of its own. */
     if (status === 429) {
       reached();
-      clearTimeout(stallTimer);
-      if (noneTooLong()) { fail(START_ERRORS.rate_limited.text); return; }
+      stopWatching();
+      if (noneTooLong()) { fail(MSG_BUSY); return; }
       h.stopLoad();
       setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
       return;
     }
     /* Leaving the page cancels its requests too, before it says that it is left. */
     if (status === 0 || (fromProxy(status) && !codeOf(data))) {
-      h.stopLoad();
-      waitOut(function () { loadAgain(h, data.details); });
+      loseLoads(h, data.details);
       return;
     }
-    /* Also how a connection too slow to start at all shows. */
-    if (quality === 'auto' && data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT && countSlow()) return;
-    if (!data.fatal) return;
+    if (/TimeOut$/.test(data.details)) {
+      ifReached(function () {
+        if (h !== hls) return;
+        /* Also how a connection too slow to start at all shows. */
+        if (quality === 'auto' && data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT && countSlow()) return;
+        if (data.fatal) fatalError(data);
+      }, function () {
+        if (h === hls) loseLoads(h, data.details);
+      });
+      return;
+    }
+    if (data.fatal) fatalError(data);
+  }
+
+  function fatalError(data) {
     /* An original that has played is one this browser can play: only the picture
        itself failing says otherwise. */
     var unplayable = data.type === Hls.ErrorTypes.MEDIA_ERROR || !originalPlayed;
@@ -1147,6 +1389,7 @@
     streamId = null;
     generation++;
     starting = false;
+    startedAt = null;
     endLost();
     dropAim();
     stopRolling();
@@ -1169,7 +1412,9 @@
   function unsaved(at) {
     if (!streamId || !hasPlayed) return null;
     var body = { position_s: Math.round((at === undefined ? position() : at) * 10) / 10, played_s: Math.round(playedS) };
-    return JSON.stringify(body) === savedAs ? null : body;
+    if (JSON.stringify(body) === savedAs) return null;
+    sent[body.position_s] = true;
+    return body;
   }
 
   function withStream(body) {
@@ -1180,15 +1425,11 @@
     var body = unsaved();
     if (!body) return;
     var id = streamId;
-    var alone = startsOpen === 0;
     MM.api.post('/api/watch/progress', withStream(body)).then(function () {
-      if (id !== streamId) return;
-      savedAs = JSON.stringify(body);
-      if (alone) ownRival = false;
+      if (id === streamId) savedAs = JSON.stringify(body);
     }).catch(function (err) {
       if (!err || err.status !== 410 || id !== streamId) return;
-      if (err.error === 'replaced') streamReplaced();
-      else streamGone();
+      streamEnded({ error: err.error, by: err.data && err.data.by });
     });
   }
 
@@ -1219,7 +1460,8 @@
   }
 
   setInterval(function () {
-    if (!video.paused && !video.ended && !swapping) saveProgress();
+    /* In a drop saves would only pile up, unanswered. */
+    if (!video.paused && !video.ended && !swapping && !lost) saveProgress();
   }, SAVE_EVERY_MS);
 
   /* ---- playback ------------------------------------------------------- */
@@ -1243,6 +1485,7 @@
 
   /* Try again after an error. */
   function retry() {
+    pressedPlay();
     unstopped.forEach(sendStop);
     clearTrouble();
     wantPlaying = true;
@@ -1269,7 +1512,7 @@
       return;
     }
     if (video.paused || video.ended) {
-      if (!streamId && !starting) { wantPlaying = true; restartStream(false); return; }
+      if (!streamId && !starting) { wantPlaying = true; pressedPlay(); restartStream(false); return; }
       play();
     } else {
       wantPlaying = false;
@@ -1311,6 +1554,7 @@
         hls.config.startPosition = t;
         hls.startLoad(t);
       }
+      tryAtOnce();
     }
     render();
   }
@@ -1349,7 +1593,7 @@
      that has nothing to pause yet; pressing it still means "don't play". */
   function showPlayState() {
     var busy = wantPlaying && root.classList.contains('is-loading');
-    var paused = (video.paused || video.ended) && !busy && countdownTimer === null;
+    var paused = shown(els.message) || ((video.paused || video.ended) && !busy && countdownTimer === null);
     setName(els.play, paused ? 'Play' : 'Pause', 'Space');
     if (busy) els.play.setAttribute('aria-busy', 'true');
     else els.play.removeAttribute('aria-busy');
@@ -1369,7 +1613,8 @@
 
   video.addEventListener('playing', function () {
     hasPlayed = true;
-    clearTimeout(stallTimer);
+    startedAt = null;
+    stopWatching();
     stalled = false;
     if (streamId) {
       good = streamChoice;
@@ -1418,6 +1663,7 @@
     stopRolling();
     /* What is wanted now may not be what was refused. */
     noneSince = null;
+    showNotice();
     /* A message over a video that can be played is about its end. */
     if (streamId && !starting) {
       if (lost && lost.over) {
@@ -1425,8 +1671,11 @@
         goOnTrying();
       } else {
         hideMessage();
+        tryAtOnce();
       }
     }
+    /* A wait that a seek begins again may not be said again. */
+    watchWait();
   });
   video.addEventListener('seeked', function () {
     settleStart();
@@ -1451,6 +1700,7 @@
       if (delta > 0 && delta < 2) {
         playedS += delta;
         rolling = true;
+        backRounds = 0;
       }
     }
     /* Emptied for a new stream the video stands at 0: from there to its start is no jump. */
@@ -2138,10 +2388,12 @@
     }
     if (els.ask && els.ask.open) return;
     showControls();
+    /* Option and Tab is how Safari reaches the buttons. */
+    if (e.key === 'Tab') focusByPointer = false;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var tag = e.target && e.target.tagName;
     var onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT';
-    if (e.key === 'Tab' || menuOpen()) focusByPointer = false;
+    if (menuOpen()) focusByPointer = false;
     if (e.key === 'Escape') {
       if (menuOpen()) closeMenus(true);
       else hideUpnext();
@@ -2274,6 +2526,7 @@
     if (!next || switching) return;
     var href = next.href;
     if (byItself) sitting.count++;
+    else pressedPlay();
     switching = true;
     swapping = true;
     wantPlaying = true;
@@ -2621,6 +2874,7 @@
     /* Playing somewhere else it stays so. */
     if (shown(els.message) && tryAgain === playHere) return;
     wantPlaying = false;
+    pressedPlay();
     startStream(pendingStart || 0);
   });
 

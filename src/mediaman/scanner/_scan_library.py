@@ -388,6 +388,7 @@ def scan_tv_library(
     # Before any season is evaluated: one that shows its show to be a kept one
     # under a new key may come after the others.
     engine._listed_keys.update(fetched.listed_keys)
+    begin_write(conn)
     repository.carry_show_keeps(conn, fetched.seasons, engine._listed_keys)
 
     stored = store_items(

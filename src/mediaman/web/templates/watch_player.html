@@ -16,6 +16,7 @@
      data-item='{{ item|tojson }}'
      data-qualities='{{ (qualities or [])|tojson }}'
      data-start-s="{{ start_s or 0 }}"
+     data-place-s="{{ place_s if place_s is number else '' }}"
      data-back-href="{{ back_href }}"
      data-next='{{ next|tojson }}'
      data-next-state="{{ next_state or '' }}"
@@ -43,7 +44,7 @@
     <div class="player-menu-wrap player-keep" data-keep>
       <button type="button" class="player-pill player-keep-btn" data-menu-trigger
               aria-haspopup="menu" aria-expanded="false">
-        {% if leaving.days <= 0 %}Leaving today{% elif leaving.days == 1 %}Leaving in 1 day{% else %}Leaving in {{ leaving.days }} days{% endif %}
+        {% if leaving.days < 0 %}Leaving any day{% elif leaving.days == 0 %}Leaving today{% elif leaving.days == 1 %}Leaving in 1 day{% else %}Leaving in {{ leaving.days }} days{% endif %}
         · Keep <span aria-hidden="true">▾</span>
       </button>
       <div class="player-menu player-menu--down" role="menu" hidden>
@@ -153,7 +154,7 @@
 
   <p class="sr-only" role="status" data-upnext-status></p>
 
-  <div class="player-lost" role="status"><p class="player-lost-text" data-lost hidden>Connection lost. Trying again…</p></div>
+  <div class="player-lost" role="status"><p class="player-lost-text" data-lost hidden></p></div>
 
   {% if show_href %}
   <dialog class="player-card player-ask" data-ask aria-labelledby="player-ask-title" aria-describedby="player-ask-line">

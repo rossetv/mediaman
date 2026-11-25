@@ -90,23 +90,30 @@ _DATED_BEFORE_SEEN = timedelta(minutes=15)
 # The cards each of Radarr and Sonarr last answered with, to know a download by while it is down.
 _last_cards: list[ArrCard] = []
 
-# What there is of each show by its title, as Sonarr last told, and when it was last asked: an
-# open page polls every two seconds, and need not read them each time.
+# What there is of each show by its title, as Sonarr last told, and until when that stands: an
+# open page polls every two seconds, and need not read them each time. A read that fails is
+# asked again sooner.
 _READINESS_KEPT_SECONDS = 30.0
+_READINESS_RETRY_SECONDS = 5.0
 _show_readiness: dict[str, str] = {}
-_readiness_read_at: float | None = None
+_readiness_kept_until: float | None = None
 
 _state_lock = threading.Lock()
 
 
 def _reset_previous_queue() -> None:
-    global _previous_queue, _previous_initialised, _last_cards, _show_readiness, _readiness_read_at
+    global \
+        _previous_queue, \
+        _previous_initialised, \
+        _last_cards, \
+        _show_readiness, \
+        _readiness_kept_until
     with _state_lock:
         _previous_queue = {}
         _previous_initialised = False
         _last_cards = []
         _show_readiness = {}
-        _readiness_read_at = None
+        _readiness_kept_until = None
     _reset_unchecked()
 
 
@@ -268,15 +275,14 @@ def _read_show_readiness(
     """
     from mediaman.services.arr.build import build_sonarr_from_db
 
-    global _show_readiness, _readiness_read_at
+    global _show_readiness, _readiness_kept_until
     now = time.monotonic()
     with _state_lock:
-        known, read_at = _show_readiness, _readiness_read_at
-        if "Sonarr" in unreachable or (
-            read_at is not None and now - read_at < _READINESS_KEPT_SECONDS
-        ):
+        known, kept_until = _show_readiness, _readiness_kept_until
+        if "Sonarr" in unreachable or (kept_until is not None and now < kept_until):
             return known
-        _readiness_read_at = now
+        # Held for the short wait while it is read, so a read that fails is soon asked again.
+        _readiness_kept_until = now + _READINESS_RETRY_SECONDS
     try:
         client = build_sonarr_from_db(conn, secret_key)
         series = client.get_series() if client else []
@@ -289,6 +295,7 @@ def _read_show_readiness(
         read[title] = readiness if read.get(title, readiness) == readiness else "unknown"
     with _state_lock:
         _show_readiness = read
+        _readiness_kept_until = now + _READINESS_KEPT_SECONDS
     return read
 
 
@@ -301,7 +308,11 @@ def _mark_readiness(
     """Say of each recent item whether it is "ready", there in "part" (a show lacking episodes)
     or "unknown" (a show Sonarr has not told of, or has no file of).
     """
-    shows = [item for item in recent if item["media_type"] == "series"]
+    shows = [
+        item
+        for item in recent
+        if item["media_type"] == "series" and str(item["id"]).startswith("sonarr:")
+    ]
     readiness = _read_show_readiness(conn, secret_key, unreachable) if shows else {}
     for item in recent:
         item["readiness"] = "ready"

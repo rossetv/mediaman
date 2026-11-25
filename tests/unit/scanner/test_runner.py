@@ -283,12 +283,49 @@ class TestDiskThresholdFiltering:
 
     def test_a_library_left_out_again_after_it_was_scanned_is_told_again(self, conn):
         for left_out in (["1"], ["1", "2"], [], ["2"]):
-            runner._audit_left_out(conn, left_out, {"1": "Movies", "2": "TV"})
+            runner._audit_left_out(
+                conn, "k", dict.fromkeys(left_out, "why"), {"1": "Movies", "2": "TV"}
+            )
 
         told = conn.execute(
             "SELECT media_item_id FROM audit_log WHERE action = 'library_left_out' ORDER BY id"
         )
         assert [row[0] for row in told] == ["_library:1", "_library:2", "_library:2"]
+
+    def test_a_library_left_out_for_another_reason_is_told_again(self, conn):
+        for reason in ("one", "one", "two"):
+            runner._audit_left_out(conn, "k", {"1": reason}, {"1": "Movies"})
+
+        told = conn.execute("SELECT COUNT(*) FROM audit_log WHERE action = 'library_left_out'")
+        assert told.fetchone()[0] == 2
+
+    @pytest.mark.parametrize("stored", ["", "not json", "5", "null", '["1"]'])
+    def test_a_record_of_what_was_left_out_that_cannot_be_read_is_none(self, conn, stored):
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('k', ?, '2026')", (stored,)
+        )
+        for _ in range(2):
+            runner._audit_left_out(conn, "k", {"1": "why"}, {})
+
+        told = conn.execute("SELECT COUNT(*) FROM audit_log WHERE action = 'library_left_out'")
+        assert told.fetchone()[0] == 1
+
+    def test_a_ticked_library_plex_does_not_list_is_handed_to_the_scan_however_full_its_disk(
+        self, conn
+    ):
+        _seed_plex_settings(conn, ["1", "2"])
+        _set_setting(conn, "disk_thresholds", {"1": {"path": "/", "threshold": 100}})
+        plex = _make_plex_mock([{"id": "2", "title": "TV", "type": "show"}])
+
+        with (
+            patch("mediaman.services.media_meta.plex.PlexClient", return_value=plex),
+            patch("mediaman.scanner.engine.ScanEngine", return_value=_make_engine_mock()) as made,
+            patch("mediaman.scanner.runner.shutil.disk_usage", return_value=_DiskUsage(9, 1, 8)),
+            patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
+        ):
+            runner.run_scan_from_db(conn, "test-secret")
+
+        assert set(made.call_args.kwargs["library_ids"]) == {"1", "2"}
 
     def test_a_library_named_anime_holds_anime_whatever_the_case_of_its_name(self, conn):
         _seed_plex_settings(conn, ["1"])
@@ -403,3 +440,104 @@ class TestPlexClientUnbuildable:
 
         MockEngine.assert_not_called()
         assert result == {"skipped_reason": "Plex could not be reached"}
+
+
+class TestLibraryPlexDidNotAnswerFor:
+    def _scan(self, conn, left_out, ids=("1", "2"), *, skip_disk_check=True, listed=None):
+        """Scan the ticked libraries *ids*, of which Plex lists *listed*: all, unless given."""
+        _seed_plex_settings(conn, list(ids))
+        listed = ids if listed is None else listed
+        plex = _make_plex_mock(
+            [{"id": i, "title": f"Library {i}", "type": "movie"} for i in listed]
+        )
+        engine = MagicMock()
+        engine.run_scan.return_value = {"scanned": 0, "left_out": left_out}
+        with (
+            patch("mediaman.services.media_meta.plex.PlexClient", return_value=plex),
+            patch("mediaman.scanner.engine.ScanEngine", return_value=engine),
+            patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
+        ):
+            return runner.run_scan_from_db(conn, "test-secret", skip_disk_check=skip_disk_check)
+
+    @staticmethod
+    def _told(conn):
+        rows = conn.execute("SELECT detail FROM audit_log WHERE action = 'library_left_out'")
+        return [row[0] for row in rows]
+
+    def test_is_told_in_the_history_once_per_change_and_in_how_the_scan_ended(self, conn):
+        for _ in range(2):
+            summary = self._scan(conn, {"1": "Plex failed to answer for it"})
+
+        note = "Plex library 'Library 1' was not scanned: Plex failed to answer for it"
+        assert self._told(conn) == [note]
+        assert runner.scan_end(summary) == ("done", note)
+
+        assert runner.scan_end(self._scan(conn, {})) == ("done", None)
+        self._scan(conn, {"1": "Plex failed to answer for it"})
+        assert len(self._told(conn)) == 2
+
+    def test_a_scan_that_read_none_failed(self, conn):
+        summary = self._scan(conn, {"1": "Plex does not list it", "2": "Plex does not list it"})
+
+        assert runner.scan_end(summary) == ("error", runner.SCAN_FAILED_NO_LIBRARY)
+
+    def test_a_scan_of_no_library_did_not_fail(self, conn):
+        assert runner.scan_end(self._scan(conn, {}, ids=())) == ("done", None)
+
+    def _scan_with_limits(self, conn, limits, ids=("1", "2"), left_out=None, **kwargs):
+        _set_setting(conn, "disk_thresholds", limits)
+        return self._scan(conn, left_out or {}, ids=ids, skip_disk_check=False, **kwargs)
+
+    def test_one_with_an_unreadable_disk_limit_is_in_how_the_scan_ended(self, conn):
+        summary = self._scan_with_limits(
+            conn, {"1": "x"}, ("1", "2", "3"), {"3": "Plex failed to answer for it"}
+        )
+
+        status, said = runner.scan_end(summary)
+        assert status == "done"
+        assert "'Library 1' was not scanned: its disk limit in Settings cannot be read" in said
+        assert "'Library 3' was not scanned: Plex failed to answer for it" in said
+
+    def test_a_scan_with_only_unreadable_disk_limits_failed_and_points_to_settings(self, conn):
+        status, said = runner.scan_end(self._scan_with_limits(conn, {"1": "x"}, ("1",)))
+
+        assert status == "error"
+        assert "Settings" in said
+        assert "Plex" not in said
+
+    def test_a_scan_whose_libraries_are_all_below_their_disk_limit_did_not_fail(self, conn):
+        below = {"1": {"path": "/", "threshold": 1000}}
+
+        assert runner.scan_end(self._scan_with_limits(conn, below, ("1",))) == ("done", None)
+
+    _STALE = {"9": "Plex does not list it"}
+
+    def test_a_scan_with_nothing_over_its_limit_and_a_ticked_library_plex_lists_no_more_did_not_fail(
+        self, conn
+    ):
+        below = {"1": {"path": "/", "threshold": 1000}}
+
+        summary = self._scan_with_limits(conn, below, ("1", "9"), self._STALE, listed=("1",))
+
+        note = "Plex library '9' was not scanned: Plex does not list it"
+        assert runner.scan_end(summary) == ("done", note)
+
+    def test_a_scan_with_an_unreadable_disk_limit_and_a_ticked_library_plex_lists_no_more_points_to_settings(
+        self, conn
+    ):
+        summary = self._scan_with_limits(conn, {"1": "x"}, ("1", "9"), self._STALE, listed=("1",))
+
+        assert runner.scan_end(summary) == ("error", runner.SCAN_FAILED_DISK_LIMITS)
+
+    def test_a_scan_whose_ticked_libraries_plex_lists_none_of_failed(self, conn):
+        summary = self._scan_with_limits(conn, {}, ("9",), self._STALE, listed=())
+
+        assert runner.scan_end(summary) == ("error", runner.SCAN_FAILED_NO_LIBRARY)
+
+    def test_a_disk_limit_left_out_is_not_told_again_for_a_scan_that_does_not_ask(self, conn):
+        runner._audit_left_out(conn, "libraries_left_out", {"1": "why"}, {})
+
+        self._scan(conn, {})
+        runner._audit_left_out(conn, "libraries_left_out", {"1": "why"}, {})
+
+        assert len(self._told(conn)) == 1

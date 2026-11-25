@@ -69,6 +69,8 @@ def upsert_media_item(
     or NULL when Plex reported no files. ``episode_count`` is NULL for a
     movie and where Plex names no episode. ``last_tmdb_id`` and
     ``last_tvdb_id`` outlive an id Plex no longer has. ``first_listed_at`` stays as first stored.
+    An ``unlisted`` of 2, listed with none of its files there, stays until the
+    disk is next looked at: the run that lists it does that only later.
     """
     now = now_iso()
     tracked = item.get("tracked_files")
@@ -115,7 +117,7 @@ def upsert_media_item(
             episode_count = excluded.episode_count,
             episode_keys = excluded.episode_keys,
             year = excluded.year,
-            unlisted = 0,
+            unlisted = CASE WHEN media_items.unlisted = 2 THEN 2 ELSE 0 END,
             last_tmdb_id = COALESCE(
                 excluded.tmdb_id, media_items.tmdb_id, media_items.last_tmdb_id
             ),

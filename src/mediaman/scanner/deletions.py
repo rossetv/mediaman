@@ -35,9 +35,18 @@ from mediaman.core.delete_root_state import read_delete_root_state, write_delete
 from mediaman.core.time import now_utc
 from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
-from mediaman.scanner.repository.rekeyed import cancel_kept_deletion, is_kept_deletion
+from mediaman.scanner.repository.rekeyed import (
+    Ids,
+    cancel_kept_deletion,
+    fetch_title,
+    ids_match,
+    is_kept_deletion,
+    title_files,
+    title_ids,
+)
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
+    audit_lost_removal,
     await_rescan,
     book_deletion,
     book_removed_files,
@@ -301,15 +310,19 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
 
     for row in rows:
         settled = _settle_intent(conn, row, allowed_roots)
+        # Before the disk is read again, so a hung mount cannot hold the write lock.
+        conn.commit()
         if settled is None:
-            conn.commit()
             continue
         row = settled
         paths = tracked_paths(row)
         # A file this deletion removed is expected to be gone, whatever became of its
         # root since, and the folder walk after it may have emptied the folder above.
         unrecorded = [p for p in paths or () if str(Path(p)) not in row.removed_paths]
-        if paths is None:
+        if row.removal_intent and (paths is None or unrecorded):
+            # Still not settled: the pass says why it waits.
+            repository.mark_delete_status(conn, row.id, "pending")
+        elif paths is None:
             logger.warning(
                 "engine.delete.recover id=%s — no tracked files recorded, reverting "
                 "status to 'pending'",
@@ -387,6 +400,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.id,
                 row.file_path,
             )
+            audit_lost_removal(conn, row, booked=True)
             book_deletion(
                 conn, row, "Deleted (recovered)", row.removed_bytes or None, unmonitor=True
             )
@@ -1007,6 +1021,16 @@ def _audit_files_unrecorded(conn: sqlite3.Connection, row: DeletionRow) -> None:
     )
 
 
+def _audit_unsettled(conn: sqlite3.Connection, row: DeletionRow) -> None:
+    _audit_once(
+        conn,
+        row,
+        "delete_awaiting_scan",
+        f"Not deleted yet: {row.title} — its removal was cut off and what it took is not known "
+        "yet; the deletion waits for a scan to record where its files are",
+    )
+
+
 def _files(count: int) -> str:
     return f"{count} file" if count == 1 else f"{count} files"
 
@@ -1150,6 +1174,33 @@ def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: 
     _audit_once(conn, row, "delete_root_unavailable", detail)
 
 
+class _Title(NamedTuple):
+    """What tells whether two items are one title."""
+
+    is_film: bool
+    ids: Ids
+    files: set[str]
+    is_kept: bool
+
+    def may_be(self, other: _Title) -> bool:
+        return self.is_film == other.is_film and (
+            ids_match(self.ids, other.ids) or not self.files.isdisjoint(other.files)
+        )
+
+
+def _title(conn: sqlite3.Connection, media_id: str) -> _Title | None:
+    title = fetch_title(conn, media_id)
+    if title is None:
+        return None
+    return _Title(
+        title["media_type"] == "movie",
+        title_ids(title),
+        title_files(title),
+        repository.is_protected(conn, media_id)
+        or repository.is_show_kept_pure(conn, title["show_rating_key"]),
+    )
+
+
 class DeletionExecutor:
     """Executes pending deletions whose grace period has elapsed.
 
@@ -1192,10 +1243,18 @@ class DeletionExecutor:
         # Action row id -> the folder found missing or empty that holds it back.
         self._waiting: dict[int, str] = {}
         self._unread_libraries: Collection[str] = ()
+        # The titles of the libraries Plex does not list now.
+        self._gone_titles: list[_Title] = []
         self._turn = ArrTurn()
 
-    def execute(self, *, unread_libraries: Collection[str] = ()) -> DeletionResult:
+    def execute(
+        self, *, unread_libraries: Collection[str] = (), gone_libraries: Collection[int] = ()
+    ) -> DeletionResult:
         """Run the deletion pass; the items of *unread_libraries* (Plex ids) wait.
+
+        So does an item that may be one of *gone_libraries*, those with items stored
+        that Plex does not list: until their items are removed, what keeps them
+        has not come to it.
 
         Returns a dict with ``deleted`` count and ``reclaimed_bytes``
         total. Cleans up expired snoozes before returning unless
@@ -1214,6 +1273,11 @@ class DeletionExecutor:
         """
         now = now_utc()
         self._unread_libraries = unread_libraries
+        self._gone_titles = [
+            title
+            for media_id in repository.fetch_ids_in_libraries(self._conn, list(gone_libraries))
+            if (title := _title(self._conn, media_id)) is not None
+        ]
         self._turn = ArrTurn()
         rows = self._recover_then_fetch_pending(now)
         if self._dry_run:
@@ -1241,7 +1305,7 @@ class DeletionExecutor:
             row
             for row in rows
             if row.library_selected
-            and row.library_id not in self._unread_libraries
+            and not self._must_wait(row)
             and not is_kept_deletion(self._conn, row.id, now.isoformat())
         ]
         # Read the disk before writing anything, so a hung mount cannot hold the lock.
@@ -1311,14 +1375,6 @@ class DeletionExecutor:
                 )
         else:
             for row in rows:
-                if row.library_id in self._unread_libraries:
-                    logger.info(
-                        "engine.delete.library_unread id=%s media_id=%s — Plex failed to answer "
-                        "for its library; leaving the row pending",
-                        row.id,
-                        row.media_item_id,
-                    )
-                    continue
                 closed, freed = self._delete_one(row, allowed_roots, now.isoformat())
                 deleted_count += len(closed)
                 reclaimed_bytes += freed
@@ -1330,6 +1386,17 @@ class DeletionExecutor:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
         self._conn.commit()
         return {"deleted": deleted_count, "reclaimed_bytes": reclaimed_bytes}
+
+    def _must_wait(self, row: DeletionRow) -> bool:
+        """Return True while what Plex answered does not tell whether *row*'s item may go."""
+        return row.library_id in self._unread_libraries or bool(self._gone_twins(row))
+
+    def _gone_twins(self, row: DeletionRow) -> list[_Title]:
+        """Return the titles of libraries Plex does not list that *row*'s item may be."""
+        if not self._gone_titles:
+            return []
+        own = _title(self._conn, row.media_item_id)
+        return [gone for gone in self._gone_titles if own is not None and own.may_be(gone)]
 
     def _book_over(
         self, rows: list[DeletionRow], allowed_roots: list[str], now_iso: str
@@ -1368,6 +1435,7 @@ class DeletionExecutor:
                         f"Not deleted: {row.title} — a new copy is on disk, so only the removal "
                         "of the old one is recorded",
                     )
+                audit_lost_removal(self._conn, row, booked=True)
                 book_deletion(
                     self._conn,
                     row,
@@ -1386,6 +1454,7 @@ class DeletionExecutor:
         files = tracked_paths(row)
         return is_fully_removed(row) and (
             not row.library_selected
+            or self._must_wait(row)
             or files is None
             or not all(path_within_delete_roots(file, allowed_roots) for file in files)
             or not path.strip()
@@ -1466,6 +1535,31 @@ class DeletionExecutor:
         row = claimed_row
         path = row.file_path or ""
 
+        if self._must_wait(row):
+            logger.info(
+                "engine.delete.library_unread id=%s media_id=%s — its library, or one it may "
+                "have moved from, was not read from Plex; leaving the row pending",
+                row.id,
+                row.media_item_id,
+            )
+            repository.mark_delete_status(self._conn, row.id, "pending")
+            if row.library_id not in self._unread_libraries:
+                waits = (
+                    "a kept title of a library Plex does not list now; the deletion waits "
+                    "while that one is kept"
+                    if any(gone.is_kept for gone in self._gone_twins(row))
+                    else "a title of a library Plex does not list now; the deletion waits "
+                    "until that is certain"
+                )
+                _audit_once(
+                    self._conn,
+                    row,
+                    "delete_awaiting_scan",
+                    f"Not deleted yet: {row.title} — it may be {waits}",
+                )
+            self._conn.commit()
+            return [], 0
+
         if not path.strip():
             logger.error(
                 "engine.delete.empty_path id=%s media_id=%s — scheduled deletion "
@@ -1480,6 +1574,7 @@ class DeletionExecutor:
                 "delete_failed_permanent",
                 f"Permanent delete error: {row.title} — empty file_path, action parked",
             )
+            audit_lost_removal(self._conn, row, booked=False)
             repository.delete_scheduled_action(self._conn, row.id)
             self._conn.commit()
             return [], 0
@@ -1493,7 +1588,10 @@ class DeletionExecutor:
             )
             repository.mark_delete_status(self._conn, row.id, "pending")
             if unavailable is not None:
+                _audit_root_unavailable(self._conn, row, unavailable)
                 self._waiting[row.id] = unavailable
+            else:
+                _audit_unsettled(self._conn, row)
             self._conn.commit()
             return [], 0
 
@@ -1525,11 +1623,9 @@ class DeletionExecutor:
         # A co-located row whose files are not recorded stays claimed through
         # the removal, so a keep on it is still refused, but it cannot close.
         closing = [row, *(other for other in co_located if tracked_paths(other) is not None)]
-        unsettled = any(
-            other.removal_intent or other.library_id in self._unread_libraries
-            for other in co_located
-        )
-        for done in closing if not unsettled else []:
+        # Their own files must not go now, nor their record be written over.
+        waiting = [other for other in co_located if other.removal_intent or self._must_wait(other)]
+        for done in closing if not waiting else []:
             intent = {
                 str(Path(file)): stamps.get(str(Path(file))) for file in tracked_paths(done) or []
             }
@@ -1555,17 +1651,35 @@ class DeletionExecutor:
                 path,
                 replaced,
             )
+        # A file put there since the claim read the disk is not in its intent.
+        changed = [file for file, stamp in _stamps(closing).items() if stamp != stamps.get(file)]
+        if waiting:
+            self._hold_with(row, waiting)
+        elif changed and not replaced:
+            logger.warning(
+                "engine.delete.files_changed_after_claim id=%s path=%r files=%r — put there or "
+                "changed since the claim; leaving the files",
+                row.id,
+                path,
+                changed,
+            )
+            _audit_once(
+                self._conn,
+                row,
+                "delete_incomplete",
+                f"Not deleted yet: {row.title} — {changed[0]} was put there or changed as it was "
+                "about to be removed; the next pass tries again",
+            )
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
         if (
-            unsettled
+            waiting
             or replaced
-            # A file put there since the claim read the disk is not in its intent.
-            or any(stamp != stamps.get(file) for file, stamp in _stamps(closing).items())
+            or changed
             or not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable)
         ):
             for claimed in (row, *co_located):
-                if not unsettled:
+                if not waiting:
                     clear_removal_intent(self._conn, claimed.id)
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
@@ -1710,6 +1824,24 @@ class DeletionExecutor:
                 repository.mark_delete_status(self._conn, other.id, "pending")
         return closed
 
+    def _hold_with(self, row: DeletionRow, waiting: list[DeletionRow]) -> None:
+        """Log and audit that *row* waits, as the rows *waiting* under its path must."""
+        logger.warning(
+            "engine.delete.held_with id=%s media_id=%s path=%r waiting_rows=%s — leaving the files",
+            row.id,
+            row.media_item_id,
+            row.file_path,
+            [other.id for other in waiting],
+        )
+        names = ", ".join(str(other.title) for other in waiting)
+        _audit_once(
+            self._conn,
+            row,
+            "delete_awaiting_scan",
+            f"Not deleted yet: {row.title} — its folder also holds media whose own deletion "
+            f"waits ({names})",
+        )
+
     def _refuse_unselected(self, row: DeletionRow) -> None:
         """Cancel a claimed row whose library is not ticked, booking what it removed.
 
@@ -1721,6 +1853,7 @@ class DeletionExecutor:
             row.id,
             row.media_item_id,
         )
+        audit_lost_removal(self._conn, row)
         finished = is_fully_removed(row)
         if row.removed_paths:
             book_deletion(self._conn, row, "Deleted", row.removed_bytes or None, unmonitor=finished)
@@ -1742,6 +1875,7 @@ class DeletionExecutor:
         """
         if not cancel_kept_deletion(self._conn, row.id, now_iso):
             return False
+        audit_lost_removal(self._conn, row)
         if row.removed_paths:
             book_deletion(self._conn, row, "Deleted", row.removed_bytes or None)
         if is_fully_removed(row):

@@ -128,6 +128,11 @@ _ADDED_COLUMNS = (
     ("media_items", "first_listed_at", "TEXT"),
     ("media_items", "unlisted", "INTEGER NOT NULL DEFAULT 0"),
     ("pruned_watches", "last_tvdb_id", "INTEGER"),
+    ("pruned_keeps", "given_to", "TEXT"),
+    ("pruned_show_seasons", "given_to", "TEXT"),
+    ("pruned_keeps", "tracked_files", "TEXT"),
+    ("pruned_show_seasons", "tracked_files", "TEXT"),
+    ("pruned_watches", "tracked_files", "TEXT"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.
@@ -148,6 +153,16 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
         existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+
+
+def _fill_first_listed(conn: sqlite3.Connection) -> None:
+    """Take an item stored without it as first listed when it was last seen.
+
+    At every start: an older version that runs again stores items without it.
+    """
+    conn.execute(
+        "UPDATE media_items SET first_listed_at = last_scanned_at WHERE first_listed_at IS NULL"
+    )
 
 
 def _take_over_plays(conn: sqlite3.Connection) -> None:
@@ -190,6 +205,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         conn.executescript(SCHEMA)
         _add_missing_columns(conn)
         conn.executescript(_ADDED_INDEXES)
+        _fill_first_listed(conn)
         _take_over_plays(conn)
         conn.commit()
     except Exception:

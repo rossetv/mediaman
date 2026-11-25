@@ -504,11 +504,9 @@ def _continue_watching(
     movies: dict[str, lib.LibraryMovie],
     shows: dict[str, lib.LibraryShow],
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    """This person's Continue watching cards, and the banner: for the most recent item in
-    progress, else the next episode of the show they played last."""
+    """This person's Continue watching cards, and the banner, which stands for the first."""
     cards: list[dict[str, Any]] = []
     banner: dict[str, Any] | None = None
-    next_banner: dict[str, Any] | None = None
     for entry in continue_watching(conn, username):
         if len(cards) >= _CONTINUE_LIMIT:
             break
@@ -560,13 +558,13 @@ def _continue_watching(
                     dismiss_ref=f"show-{show.key}",
                 )
             )
-            if next_banner is None:
+            if banner is None:
                 line = _episode_line(episode.season_index, episode.index, episode.title)
-                next_banner = _banner(show.title, line, None, href, show.key, "show")
-                _mark_banner(next_banner, cards[-1])
-                next_banner["primary"]["label"] = "Play"
-                next_banner["line_short"] = label
-                next_banner["episodes_href"] = _episodes_href(show.key, episode.season_index)
+                banner = _banner(show.title, line, None, href, show.key, "show")
+                _mark_banner(banner, cards[-1])
+                banner["primary"]["label"] = "Play"
+                banner["line_short"] = label
+                banner["episodes_href"] = _episodes_href(show.key, episode.season_index)
             continue
 
         item = plex.call(_get_item, key)
@@ -608,7 +606,7 @@ def _continue_watching(
             _mark_banner(banner, cards[-1])
             banner["line_short"] = line_short
             banner["episodes_href"] = episodes_href
-    return cards, banner or next_banner
+    return cards, banner
 
 
 def _episode_line(season: int | None, episode: int | None, title: str) -> str:
@@ -1237,6 +1235,8 @@ def play_page(
         if progress is not None and not progress.watched and (resume == "1" or resumable(progress))
         else 0
     )
+    # Where the title plays somewhere else it is gone on with from there, however far that is.
+    place_s = progress.position_s if progress is not None and progress.played else None
     return _render(
         request,
         "watch_player.html",
@@ -1250,6 +1250,7 @@ def play_page(
             },
             "qualities": quality_rows(item),
             "start_s": start_s,
+            "place_s": place_s,
             "back_href": back_href,
             "next": next_episode,
             "next_state": next_state,

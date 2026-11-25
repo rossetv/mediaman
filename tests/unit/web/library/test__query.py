@@ -805,7 +805,7 @@ class TestPendingDeletion:
         items, _ = fetch_library(conn)
 
         assert items[0]["deletion_at"] is not None
-        assert items[0]["deletion_days"] == 0
+        assert items[0]["deletion_days"] == -2
 
     def test_used_and_deleting_actions_do_not_count(self, db_path):
         conn = init_db(str(db_path))

@@ -276,13 +276,16 @@ def cleanup_expired_snoozes(conn: sqlite3.Connection, now_iso: str) -> None:
     expired more than one deletion-pass ago would be re-scheduled with
     ``is_reentry = False`` and a normal grace period instead of being
     flagged as a re-entry. Unconsumed expired snoozes carry no re-entry
-    meaning and are still swept so they cannot mask a fresh evaluation.
+    meaning and are still swept so they cannot mask a fresh evaluation. One
+    written over a deletion whose removal was cut off is told in the history.
     """
-    conn.execute(
-        "DELETE FROM scheduled_actions "
-        "WHERE action = 'snoozed' AND token_used = 0 AND execute_at < ?",
-        (now_iso,),
-    )
+    # Not at the top: that module imports this one.
+    from mediaman.scanner.repository.scheduled_actions import audit_lost_removals
+
+    where = "action = 'snoozed' AND token_used = 0 AND execute_at < ?"
+    audit_lost_removals(conn, where, (now_iso,))
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    conn.execute(f"DELETE FROM scheduled_actions WHERE {where}", (now_iso,))  # nosec B608
 
 
 _KEEP_COLUMNS = "action, scheduled_at, execute_at, token_used, snoozed_at, snooze_duration"

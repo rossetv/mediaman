@@ -66,7 +66,7 @@ function thereAndBack(widths, view) {
 
 /* A row of *count* cards, three whole in view; each has a link, More and (*keep*) a Keep. The focus
    moves as a browser's does, and says so to the row. */
-function row(count, { keep = false, skeleton = false } = {}) {
+function row(count, { keep = false, skeleton = false, reduced = true } = {}) {
   const doc = makeDocument();
   const card = (n) => build(doc, ['article', { class: 'watch-card' },
     ['a', { class: 'watch-card__link', href: '/watch/movie/' + n }, 'Film ' + n],
@@ -82,12 +82,19 @@ function row(count, { keep = false, skeleton = false } = {}) {
       Object.defineProperty(c, 'offsetWidth', { configurable: true, value: 100 });
     });
     scroller.scrollWidth = 2 * PAD + scroller.children.length * STEP - GAP;
+    scroller.scrollLeft = Math.max(0, Math.min(scroller.scrollLeft, scroller.scrollWidth - scroller.clientWidth));
   };
   const add = (from, to) => { for (let n = from; n <= to; n++) scroller.appendChild(card(n)); place(); };
-  add(1, count);
   scroller.clientWidth = 2 * PAD + 3 * STEP - GAP;
   scroller.scrollLeft = 0;
-  scroller.scrollTo = (o) => { scroller.scrollLeft = o.left; };
+  add(1, count);
+  // A smooth scroll is under way until run() lets it, and the timers, get on.
+  let going = null;
+  let timers = [];
+  scroller.scrollTo = (o) => {
+    going = o.behavior === 'smooth' ? o.left : null;
+    if (going === null) scroller.scrollLeft = o.left;
+  };
   const fire = (node, type, extra) => {
     const e = { target: node, key: '', defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
     for (let a = node; a; a = a.parentNode) (a.listeners[type] || []).forEach((fn) => fn(e));
@@ -100,13 +107,19 @@ function row(count, { keep = false, skeleton = false } = {}) {
     if (was !== doc.body) fire(was, 'focusout', { relatedTarget: node });
     fire(node, 'focusin', { relatedTarget: was });
   };
-  const wire = () => doc.documentElement.querySelectorAll('div, a, button').forEach((n) => { n.focus = () => focusOn(n); });
+  let pressed = false; // what has the focus got it from the pointer
+  const wire = () => doc.documentElement.querySelectorAll('div, a, button').forEach((n) => {
+    n.focus = () => focusOn(n);
+    n.matches = (selector) => (selector === ':focus-visible' ? !pressed : Object.getPrototypeOf(n).matches.call(n, selector));
+  });
   wire();
   const observers = [];
   const ctx = {
-    document: doc, Array, Math, WeakMap, WeakSet, parseFloat, clearTimeout() {}, setTimeout: () => 1,
+    document: doc, Array, Math, WeakMap, WeakSet, parseFloat,
+    clearTimeout: (id) => { timers = timers.filter((t) => t.id !== id); },
+    setTimeout: (fn) => { const id = {}; timers.push({ id, fn }); return id; },
     getComputedStyle: () => ({ paddingLeft: PAD + 'px', paddingRight: PAD + 'px' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: () => ({ matches: reduced }),
     requestAnimationFrame: (fn) => fn(),
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe(node) { if (node === scroller) observers.push(this.fn); } },
     addEventListener() {},
@@ -116,6 +129,12 @@ function row(count, { keep = false, skeleton = false } = {}) {
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(JS, 'watch-rows.js'), 'utf8'), ctx);
+  // Chrome: a row scrolled to its end is snapped to the card with the focus, and follows it as cards come.
+  const resnap = (wasAtEnd) => {
+    const held = scroller.children.find((c) => c.contains(doc.activeElement));
+    if (!wasAtEnd || !held || scroller.style.scrollSnapType === 'none') return;
+    scroller.scrollLeft = Math.min(held.offsetLeft - PAD, scroller.scrollWidth - scroller.clientWidth);
+  };
   const changed = () => { wire(); place(); observers.forEach((fn) => fn([])); };
   const name = (n) => (n === scroller ? 'row' : n.id || (n.closest('.watch-card') ?
     n.className.replace('watch-card__', '').replace('watch-', '') + ' ' + n.closest('.watch-card').textContent.slice(5) : n.tagName));
@@ -129,7 +148,29 @@ function row(count, { keep = false, skeleton = false } = {}) {
     leave: () => focusOn(doc.getElementById('after')),
     press: (key, extra) => fire(doc.activeElement, 'keydown', { key, ...extra }).defaultPrevented,
     keys(...keys) { return keys.map((k) => { this.press(k); return this.at(); }); },
-    load: (from, to) => { add(from, to); changed(); },
+    load: (from, to) => {
+      const atEnd = scroller.scrollLeft >= scroller.scrollWidth - scroller.clientWidth;
+      add(from, to);
+      resnap(atEnd);
+      changed();
+    },
+    going: () => going,
+    touch: (type) => fire(scroller, type),
+    run() {
+      if (going !== null) {
+        scroller.scrollLeft = going;
+        going = null;
+        fire(scroller, 'scroll');
+      }
+      timers.splice(0).forEach((t) => t.fn());
+    },
+    blur: () => fire(doc.activeElement, 'focusout', { relatedTarget: null }),
+    snaps: () => scroller.style.scrollSnapType !== 'none',
+    click: (n) => {
+      pressed = true;
+      focusOn(scroller.children[n - 1].querySelector('a'));
+      pressed = false;
+    },
     // A browser gives what is taken out no focusout.
     take: (card) => { const held = card.contains(doc.activeElement); card.remove(); if (held) doc.activeElement = doc.body; changed(); },
   };
@@ -177,6 +218,67 @@ const scenarios = {
     const taken = r.stops();
     r.enter();
     return { loaded, taken, again: r.at() };
+  },
+
+  steady() {
+    const r = row(8);
+    r.enter();
+    r.keys('End');
+    const before = r.scroller.scrollLeft;
+    r.load(9, 14);
+    const held = { at: r.at(), moved: r.scroller.scrollLeft - before, snaps: r.snaps() };
+    r.leave();
+    const left = r.snaps();
+    r.enter();
+    const back = r.snaps();
+    r.take(r.active().closest('.watch-card'));
+    const taken = r.snaps();
+    r.click(2);
+    const pressed = r.snaps();
+    r.keys('End');
+    return { held, left, back, taken, pressed, keys: r.snaps() };
+  },
+
+  letGo() {
+    // At the end of 8 cards, off a card's start once more have loaded.
+    const at = (reduced) => {
+      const r = row(8, { reduced });
+      r.enter();
+      r.keys('End');
+      while (r.going() !== null) r.run();
+      r.scroller.scrollLeft -= 40;
+      r.load(9, 14);
+      return r;
+    };
+    const look = (r) => ({ left: r.scroller.scrollLeft, to: r.going(), snaps: r.snaps() });
+    const calm = at(false);
+    calm.leave();
+    const out = { leaving: look(calm) };
+    calm.run();
+    out.settled = look(calm);
+    const still = at(true);
+    still.leave();
+    out.reduced = look(still);
+    const back = at(false);
+    back.leave();
+    back.click(6);
+    back.run();
+    out.back = look(back);
+    const away = at(false);
+    away.blur();
+    out.away = look(away);
+    const finger = at(false);
+    finger.leave();
+    finger.touch('touchstart');
+    finger.run();
+    out.held = finger.snaps();
+    finger.scroller.scrollLeft = 333;
+    finger.touch('touchend');
+    finger.run();
+    out.lifted = look(finger);
+    finger.run();
+    out.after = look(finger);
+    return out;
   },
 
   seasons: () => ({

@@ -539,7 +539,8 @@ def add_or_remonitor_movie(
     double-click does not churn it. An unmonitored one is the residue of an
     abandon: re-monitoring it (which also searches) is what pressing Download
     again means. An entry with no usable id is ``"bad_entry"``. With
-    *keep_filed* an entry that already has its file is left alone too.
+    *keep_filed* an entry that already has its file is left alone too. A search that got
+    no answer, and may be running, still counts as ``"remonitored"``.
 
     Raises:
         SafeHTTPError: On a non-2xx response to the add only.
@@ -567,7 +568,8 @@ def add_or_remonitor_movie(
     try:
         radarr_client.remonitor_movie(movie_id)
     except SearchUnanswered:
-        raise
+        # Monitored, and the search may be running: as good as asked, so left monitored.
+        logger.warning("radarr search for tmdb=%s got no answer", tmdb_id)
     except (SafeHTTPError, requests.RequestException, ArrError) as exc:
         # The monitor may have landed before the search failed. Left monitored the
         # movie would read as already tracked, and the same press could never search it.

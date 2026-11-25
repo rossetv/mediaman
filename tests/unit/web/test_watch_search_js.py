@@ -589,8 +589,13 @@ def test_a_library_result_carries_its_mark_and_more_beside_its_keep() -> None:
     assert _run("marks") == [["movie/1", True, 1, 1], [None, False, 0, 0]]
 
 
-def test_a_result_that_leaves_today_or_tomorrow_is_marked_urgent_and_a_later_one_is_not() -> None:
-    assert _run("leaving") == [True, True, False]
+def test_a_result_says_when_it_leaves_and_only_by_tomorrow_is_urgent() -> None:
+    assert _run("leaving") == [
+        [["Leaving any day", "Leaving any day", "Any day"], True],
+        [["Leaving today", "Leaving today", "Today"], True],
+        [["Leaving in 1 day", "1 day left"], True],
+        [["Leaving in 2 days", "2 days left"], False],
+    ]
 
 
 def test_a_search_before_the_categories_are_in_waits_for_them_and_lists_its_own() -> None:
@@ -737,6 +742,21 @@ def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None
 def test_a_search_emptied_by_a_step_back_that_is_never_made_leaves_the_search_usable() -> None:
     out = _run("emptiedStepLost")
     assert out["next"] == [["/watch?q=lantern", "results", "/api/watch/search?q=lantern"]] * 2
+
+
+def test_what_is_typed_before_a_slow_step_back_is_made_stays_and_is_searched_for() -> None:
+    searched = ["lantern", "/watch?q=lantern", "results", "/api/watch/search?q=lantern"]
+    assert _run("emptiedStepLate") == [searched, searched]
+
+
+def test_a_back_long_after_a_step_that_was_never_made_closes_the_search() -> None:
+    assert _run("emptiedLongAgo") == ["/watch?all=movies", "", "browse"]
+
+
+def test_a_search_emptied_twice_during_a_slow_step_back_goes_back_once() -> None:
+    # The second time before, then after, the step is given up on.
+    back = [1, "/watch?all=movies", "", "browse"]
+    assert _run("emptiedTwice") == [back, back]
 
 
 def test_a_search_typed_over_a_category_opened_during_a_lost_step_is_sent() -> None:

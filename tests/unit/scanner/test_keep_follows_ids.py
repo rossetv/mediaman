@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import sqlite3
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,8 +14,9 @@ from mediaman.db import init_db
 from mediaman.scanner.phases import delete
 from mediaman.scanner.repository import rekeyed
 from mediaman.scanner.repository.watch_credit import carry_last_watched
+from mediaman.services.infra.storage import disk_reads
 from mediaman.web.repository.watch_progress import save_progress
-from tests.helpers.factories import insert_kept_show
+from tests.helpers.factories import insert_kept_show, insert_scheduled_action
 from tests.unit.scanner.test_keep_beside_new_key import (
     _NOW,
     _actions,
@@ -344,6 +346,102 @@ class TestKeptTitleMoves:
         assert _is_kept(conn, kept, "new")
 
 
+@_season("season new")
+class TestSeasonOfAKeptShowMoves:
+    """One season goes to another library, under a new key of its show; another stays."""
+
+    @pytest.fixture
+    def show(self, conn, library):
+        library.places["stays"] = "stays"
+        library.folder("stays").mkdir()
+        library.file("stays").write_bytes(b"data")
+        library.ids["stays"] = library.ids["old"] | {
+            "show_rating_key": "show-old",
+            "season_number": 2,
+        }
+        return library
+
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @pytest.mark.parametrize("lists", [[], [["stays"]]], ids=str)
+    def test_its_files_stay_and_its_new_show_gets_no_keep(self, conn, freezer, show, lists, run):
+        show.sync("old", "stays")
+        _keep_show(conn)
+        for keys in lists:
+            freezer.tick(60)
+            show.sync(*keys)
+        show.file("old").unlink()
+
+        for days in (0, 1, 40, 1, 0):
+            freezer.tick(timedelta(days=days, seconds=60))
+            getattr(show, "scan" if not days else run)("stays", "new")
+            assert "scheduled_deletion" not in _actions(conn, "new")
+
+        assert show.file("new").exists()
+        assert not _is_kept(conn, "show", "new")
+
+    def test_one_already_due_is_not_deleted_once_plex_lists_the_old_one_no_more(
+        self, conn, freezer, show, not_removed
+    ):
+        show.sync("old", "stays", "new")
+        _keep_show(conn)
+        _schedule(conn, "new")
+
+        freezer.tick(60)
+        show.scan("stays", "new")
+
+        assert show.file("new").exists()
+
+    def test_one_listed_beside_the_old_one_is_scheduled(self, conn, freezer, show):
+        show.sync("old", "stays")
+        _keep_show(conn)
+
+        for _ in range(2):
+            freezer.tick(60)
+            show.scan("old", "stays", "new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    def test_another_season_of_its_new_show_is_scheduled(self, conn, freezer, show):
+        show.elsewhere.add("newer")
+        show.ids["newer"] |= {"show_rating_key": "show-new", "season_number": 3}
+        show.sync("old", "stays")
+        _keep_show(conn)
+
+        for _ in range(2):
+            freezer.tick(60)
+            show.scan("stays", "new", "newer")
+
+        assert _actions(conn, "new") == []
+        assert _actions(conn, "newer") == ["scheduled_deletion"]
+
+    def test_it_is_scheduled_once_the_old_one_is_back_in_its_library(self, conn, freezer, show):
+        show.sync("old", "stays")
+        _keep_show(conn)
+        freezer.tick(60)
+        show.scan("stays", "new")
+        show.ids["newer"] |= {"show_rating_key": "show-old"}
+
+        for _ in range(2):
+            freezer.tick(60)
+            show.scan("newer", "stays", "new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    def test_it_is_scheduled_once_the_shows_keep_is_removed(self, conn, freezer, show):
+        show.sync("old", "stays")
+        _keep_show(conn)
+        freezer.tick(60)
+        show.scan("stays", "new")
+        with conn:
+            conn.execute("DELETE FROM kept_shows")
+            log_audit(conn, "show-old", "removed_show_keep", "removed", actor="admin")
+
+        freezer.tick(60)
+        show.scan("stays", "new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+
 class TestRemovedKeep:
     @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
     @_season("season", "film new", "season new")
@@ -385,6 +483,91 @@ class TestRemovedKeep:
 
         assert _actions(conn, "new") == ["scheduled_deletion"]
         assert _actions(conn, "newer") == ["scheduled_deletion"]
+
+    @pytest.mark.parametrize("beside", [True, False])
+    @pytest.mark.parametrize("still_listed", [True, False])
+    @_season("film new", "season new")
+    def test_one_removed_from_a_copy_in_another_library_is_still_given_in_its_own(
+        self, conn, freezer, library, monkeypatch, beside, still_listed
+    ):
+        library.sync("old", *(["new"] if beside else []))
+        _keep(conn, "old")
+        for _ in range(2):
+            freezer.tick(60)
+            library.sync("new")
+        assert _actions(conn, "new") == ["protected_forever"]
+        _remove_keep(conn, "new", monkeypatch)
+
+        for days in (0, 1, 40, 1, 1):
+            freezer.tick(timedelta(days=days, seconds=60))
+            library.scan(*(["new"] if still_listed else []), "newer")
+
+        assert _actions(conn, "newer") == ["protected_forever"]
+        assert library.file("newer").exists()
+
+    @pytest.mark.parametrize("removed", [True, False])
+    @_season("film new", "season new")
+    def test_one_removed_from_the_key_it_was_given_to_is_given_to_none_in_a_third_library(
+        self, conn, freezer, library, monkeypatch, removed
+    ):
+        library.sync("old")
+        _keep(conn, "old")
+        freezer.tick(60)
+        library.scan("new")
+        with conn:
+            # As if the kept title had been in a library that is neither of the two.
+            conn.execute("UPDATE pruned_keeps SET plex_library_id = 5")
+        if removed:
+            _remove_keep(conn, "new", monkeypatch)
+
+        for _ in range(2):
+            freezer.tick(60)
+            library.scan("newer")
+
+        assert ("protected_forever" not in _actions(conn, "newer")) is removed
+
+    @pytest.mark.parametrize("still_listed", [True, False])
+    @_season("season new")
+    def test_a_whole_show_keep_removed_from_a_copy_in_another_library_is_still_given_in_its_own(
+        self, conn, freezer, library, still_listed
+    ):
+        library.sync("old")
+        _keep_show(conn)
+        freezer.tick(60)
+        library.scan("new")
+        assert _is_kept(conn, "show", "new")
+        with conn:
+            conn.execute("DELETE FROM kept_shows WHERE show_rating_key = 'show-new'")
+            log_audit(conn, "show-new", "removed_show_keep", "removed", actor="admin")
+
+        for days in (0, 1, 40, 1, 1):
+            freezer.tick(timedelta(days=days, seconds=60))
+            library.scan(*(["new"] if still_listed else []), "newer")
+
+        assert _is_kept(conn, "show", "newer")
+        assert library.file("newer").exists()
+
+    @pytest.mark.parametrize("removed", [True, False])
+    @_season("season new")
+    def test_a_whole_show_keep_removed_from_the_key_it_was_given_to_is_given_to_none_in_a_third_library(
+        self, conn, freezer, library, removed
+    ):
+        library.sync("old")
+        _keep_show(conn)
+        freezer.tick(60)
+        library.scan("new")
+        with conn:
+            # As if the kept show had been in a library that is neither of the two.
+            conn.execute("UPDATE pruned_show_seasons SET plex_library_id = 5")
+            if removed:
+                conn.execute("DELETE FROM kept_shows WHERE show_rating_key = 'show-new'")
+                log_audit(conn, "show-new", "removed_show_keep", "removed", actor="admin")
+
+        for _ in range(2):
+            freezer.tick(60)
+            library.scan("newer")
+
+        assert _is_kept(conn, "show", "newer") is not removed
 
     @_season("season")
     def test_nobody_can_remove_it_while_it_is_given(
@@ -750,10 +933,36 @@ class TestLibraryNotRead:
         assert library.file("new").exists()
 
 
+@pytest.mark.parametrize(
+    ("library", "kept_in"), [("film new", "1"), ("season new", "2")], indirect=["library"]
+)
+def test_one_an_older_version_stored_is_not_deleted_while_the_kept_ones_library_is_not_read(
+    conn, db_path, freezer, library, kept_in
+):
+    library.sync("old")
+    _keep(conn, "old")
+    library.down = {kept_in}
+    freezer.tick(60)
+    library.scan("new")
+    with conn:
+        conn.execute("UPDATE media_items SET first_listed_at = NULL")
+    _schedule(conn, "new")
+    init_db(str(db_path)).close()
+
+    freezer.tick(60)
+    library.scan("new")
+
+    assert library.file("new").exists()
+
+
 @pytest.fixture
-def not_removed(monkeypatch):
-    """No list is trusted enough to remove what it lacks."""
-    monkeypatch.setattr(delete, "_resolve_prune_libs", lambda *_: set())
+def not_removed(conn, monkeypatch):
+    """What a list lacks stays, as an item does whose deletion is not booked yet."""
+    monkeypatch.setattr(
+        delete.repository,
+        "fetch_unbooked_media_ids",
+        lambda _: {row["id"] for row in conn.execute("SELECT id FROM media_items")},
+    )
 
 
 class TestUnlistedButNotRemoved:
@@ -766,18 +975,6 @@ class TestUnlistedButNotRemoved:
 
         freezer.tick(60)
         library.scan("old", "new")
-
-        assert _actions(conn, "new") == ["scheduled_deletion"]
-
-    @_season("season new")
-    def test_a_kept_show_with_a_season_listed_is_listed(self, conn, freezer, library, not_removed):
-        library.ids["newer"] |= {"show_rating_key": "show-old", "season_number": 2}
-        library.sync("old", "newer", "new")
-        _keep_show(conn)
-
-        for _ in range(2):
-            freezer.tick(60)
-            library.scan("newer", "new")
 
         assert _actions(conn, "new") == ["scheduled_deletion"]
 
@@ -818,6 +1015,18 @@ class TestUnlistedButNotRemoved:
 
         assert not rekeyed.is_kept_under_another_key(conn, "new")
 
+    @_season("film new")
+    def test_a_list_too_short_to_trust_tells_of_no_title_that_plex_lists_it_no_more(
+        self, conn, freezer, library
+    ):
+        library.sync("old", "new")
+        _keep(conn, "old")
+        freezer.tick(60)
+
+        delete.remove_orphans(conn, set(), {1}, listed_since=datetime.now(UTC).isoformat())
+
+        assert not rekeyed.is_kept_under_another_key(conn, "new")
+
     @_season("film new", "season new")
     def test_a_deletion_of_an_earlier_scan_stays_scheduled(self, conn, freezer, library):
         library.scan("old", "new")
@@ -850,6 +1059,343 @@ def test_a_copy_new_beside_it_in_another_library_is_scheduled_by_the_scan_that_f
     library.scan("old", "new")
 
     assert _actions(conn, "new") == ["scheduled_deletion"]
+
+
+_TWO_LIBRARIES = ("film new", "film old", "season new", "season old")
+
+
+class TestListedWithoutItsFiles:
+    """Plex still lists the title where it was, with none of its files there."""
+
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @pytest.mark.parametrize("why", ["kept", "watched"])
+    @_season(*_TWO_LIBRARIES)
+    def test_what_it_moved_to_in_another_library_is_not_scheduled_and_takes_no_keep(
+        self, conn, freezer, library, why, run
+    ):
+        library.watched = {"old": _NOW - timedelta(days=1)} if why == "watched" else {}
+        library.sync("old")
+        if why == "kept":
+            _keep(conn, "old")
+        library.file("old").unlink()
+
+        for days in (0, 1, 40, 1) if why == "kept" else (0, 1, 1):
+            freezer.tick(timedelta(days=days, seconds=60))
+            getattr(library, run if days else "scan")("old", "new")
+            assert _actions(conn, "new") == []
+
+        assert library.file("new").exists()
+        assert _actions(conn, "old") == (["protected_forever"] if why == "kept" else [])
+        # Only the scan that found the files gone took it for one of two.
+        scheduled = conn.execute(
+            "SELECT COUNT(*) FROM audit_log "
+            "WHERE media_item_id = 'new' AND action = 'scheduled_deletion'"
+        ).fetchone()[0]
+        assert scheduled == 1
+
+    @_season(*_TWO_LIBRARIES)
+    def test_a_copy_already_due_is_not_deleted(self, conn, freezer, library):
+        library.sync("old", "new")
+        _keep(conn, "old")
+        _schedule(conn, "new")
+        library.file("old").unlink()
+
+        freezer.tick(60)
+        library.scan("old", "new")
+
+        assert library.file("new").exists()
+
+    @_season("film new", "season new")
+    def test_the_copy_is_scheduled_by_the_second_scan_after_a_file_is_back(
+        self, conn, freezer, library
+    ):
+        """The scan that sees the file again tells that there are two; the next acts on it."""
+        library.sync("old")
+        _keep(conn, "old")
+        library.file("old").unlink()
+        freezer.tick(60)
+        library.scan("old", "new")
+        library.file("old").write_bytes(b"data")
+
+        scheduled = []
+        for _ in range(2):
+            freezer.tick(60)
+            library.scan("old", "new")
+            scheduled.append(_actions(conn, "new"))
+
+        assert scheduled == [[], ["scheduled_deletion"]]
+        assert _actions(conn, "old") == ["protected_forever"]
+
+    @_season("film new", "season new")
+    def test_files_outside_the_folders_mediaman_deletes_from_count_as_there(
+        self, conn, freezer, library, monkeypatch
+    ):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(library.folder("new")))
+        library.sync("old")
+        _keep(conn, "old")
+        library.file("old").unlink()
+
+        for _ in range(2):
+            freezer.tick(60)
+            library.scan("old", "new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    @pytest.mark.parametrize("read", ["fails", "hangs"])
+    @_season("film new", "season new")
+    def test_a_disk_that_does_not_answer_keeps_the_copy(
+        self, conn, freezer, library, monkeypatch, read
+    ):
+        library.sync("old")
+        _keep(conn, "old")
+        freezer.tick(60)
+        library.scan("old", "new")
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+        answered = threading.Event()
+
+        def is_there(*_):
+            if read == "fails":
+                raise OSError
+            return answered.wait(5)
+
+        monkeypatch.setattr(delete, "_is_there", is_there)
+        monkeypatch.setattr(disk_reads, "_DEADLINE_SECONDS", 0.05)
+        _schedule_due(conn, "new")
+
+        freezer.tick(60)
+        library.scan("old", "new")
+        answered.set()
+
+        assert library.file("new").exists()
+
+    @_season("film new")
+    def test_after_three_titles_the_disk_does_not_answer_for_no_other_is_looked_for(
+        self, conn, freezer, library, monkeypatch
+    ):
+        twins = [f"{where}{n}" for n in range(5) for where in ("here", "there")]
+        for n, key in enumerate(twins):
+            library.places[key] = key
+            library.folder(key).mkdir()
+            library.file(key).write_bytes(b"data")
+            library.ids[key] = {"tmdb_id": 100 + n // 2}
+        library.elsewhere = {key for key in twins if key.startswith("there")}
+        library.sync(*twins)
+        answered = threading.Event()
+        asked = []
+
+        def is_there(path, _):
+            asked.append(path)
+            return answered.wait(5)
+
+        monkeypatch.setattr(delete, "_is_there", is_there)
+        monkeypatch.setattr(disk_reads, "_DEADLINE_SECONDS", 0.05)
+
+        delete.remove_orphans(conn, set(twins), {1})
+        answered.set()
+
+        assert len(asked) == 3
+        without = conn.execute("SELECT id FROM media_items WHERE unlisted = 2 ORDER BY id")
+        assert [row["id"] for row in without] == [f"here{n}" for n in range(5)]
+
+    @_season("film new", "season new")
+    def test_the_disk_is_read_while_anyone_may_write(self, conn, db_path, library, monkeypatch):
+        written = []
+
+        def is_there(*_):
+            other = sqlite3.connect(db_path, timeout=0)
+            other.execute("BEGIN IMMEDIATE")
+            other.rollback()
+            other.close()
+            written.append(True)
+            return True
+
+        monkeypatch.setattr(delete, "_is_there", is_there)
+
+        library.sync("old", "new")
+
+        assert written
+
+    @pytest.mark.parametrize(
+        ("watched_days_ago", "left"),
+        [(10, []), (2, ["scheduled_deletion"]), (45, ["scheduled_deletion"])],
+    )
+    @pytest.mark.parametrize("gone", ["unlisted", "without files"])
+    @_season("film new", "season new")
+    def test_an_older_deletion_of_the_copy_is_cancelled_only_for_a_watch_before_it_that_still_counts(
+        self, conn, freezer, library, watched_days_ago, left, gone
+    ):
+        library.watched = {"old": _NOW - timedelta(days=watched_days_ago)}
+        library.sync("old", "new")
+        insert_scheduled_action(
+            conn,
+            media_item_id="new",
+            action="scheduled_deletion",
+            token="t",
+            token_used=False,
+            scheduled_at=(_NOW - timedelta(days=5)).isoformat(),
+            execute_at=(_NOW + timedelta(days=9)).isoformat(),
+        )
+        if gone == "without files":
+            library.file("old").unlink()
+
+        freezer.tick(60)
+        library.sync(*(["old"] if gone == "without files" else []), "new")
+
+        assert _actions(conn, "new") == left
+
+
+def _schedule_due(conn, media_id):
+    with conn:
+        conn.execute(
+            "UPDATE scheduled_actions SET execute_at = '2020-01-01' WHERE media_item_id = ?",
+            (media_id,),
+        )
+
+
+@pytest.fixture
+def same_files(library):
+    """Two files that each key lists in another order, so under another path, with no id."""
+    one, two = library.file("old"), library.file("new")
+    for key, files in (("old", [one, two]), ("new", [two, one])):
+        library.ids[key] = {
+            "file_path": str(files[0] if library.kind == "film" else files[0].parent),
+            "tracked_files": [{"path": str(file), "size": 4} for file in files],
+            "tmdb_id": None,
+            "tvdb_id": None,
+        }
+    return library
+
+
+def _both_files_exist(library):
+    return library.file("old").exists() and library.file("new").exists()
+
+
+class TestSameFilesUnderAnotherPath:
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @_SEQUENCES
+    @_season(*_MOVES, *_FILM_MOVES)
+    def test_a_kept_title_is_kept_under_its_new_key(self, conn, freezer, same_files, lists, run):
+        same_files.sync("old")
+        _keep(conn, "old")
+        for keys in lists:
+            freezer.tick(60)
+            same_files.sync(*keys)
+
+        _run_until_settled(conn, freezer, same_files, run)
+
+        assert _both_files_exist(same_files)
+        assert _actions(conn, "new") == ["protected_forever"]
+
+    @pytest.mark.parametrize("gone", ["removed", "unlisted"])
+    @_season("season new", "film new")
+    def test_one_already_due_is_not_deleted(self, conn, freezer, same_files, gone, request):
+        if gone == "unlisted":
+            request.getfixturevalue("not_removed")
+        same_files.sync("old", "new")
+        _keep(conn, "old")
+        _schedule(conn, "new")
+
+        freezer.tick(60)
+        same_files.scan("new")
+
+        assert _both_files_exist(same_files)
+
+    @_season("season new", "film new")
+    def test_one_listed_beside_the_kept_one_is_not_scheduled(self, conn, freezer, same_files):
+        same_files.sync("old")
+        _keep(conn, "old")
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("old", "new")
+
+        assert _actions(conn, "new") == []
+
+    @_SEQUENCES
+    @_season("season", "season new")
+    def test_a_kept_shows_season_is_kept_under_its_new_key(self, conn, freezer, same_files, lists):
+        same_files.sync("old")
+        _keep_show(conn)
+        for keys in lists:
+            freezer.tick(60)
+            same_files.sync(*keys)
+
+        _run_until_settled(conn, freezer, same_files, "scan")
+
+        assert _both_files_exist(same_files)
+        assert _is_kept(conn, "show", "new")
+
+    @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+    @_season(*_MOVES, *_FILM_MOVES)
+    def test_one_watched_lately_is_not_scheduled(self, conn, freezer, same_files, lists):
+        same_files.watched = {"old": _NOW - timedelta(days=1)}
+        same_files.sync("old")
+        for keys in lists:
+            freezer.tick(60)
+            same_files.sync(*keys)
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("new")
+
+        assert _actions(conn, "new") == []
+
+    @pytest.mark.parametrize("why", ["kept", "watched"])
+    @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+    @_season("season", "season new")
+    def test_another_season_with_one_of_its_files_is_scheduled(
+        self, conn, freezer, same_files, lists, why
+    ):
+        same_files.ids["new"]["season_number"] = 2
+        same_files.watched = {"old": _NOW - timedelta(days=1)} if why == "watched" else {}
+        same_files.sync("old")
+        if why == "kept":
+            _keep(conn, "old")
+        for keys in lists:
+            freezer.tick(60)
+            same_files.sync(*keys)
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    @pytest.mark.parametrize("gone_first", [True, False])
+    @pytest.mark.parametrize("like", ["old", "new"])
+    @_season("film new", "season new")
+    def test_a_keep_removed_from_the_new_key_is_not_given_to_the_next(
+        self, conn, freezer, same_files, monkeypatch, gone_first, like
+    ):
+        same_files.ids["newer"] = dict(same_files.ids[like])
+        same_files.sync("old")
+        _keep(conn, "old")
+        if gone_first:
+            freezer.tick(60)
+            same_files.sync()
+        freezer.tick(60)
+        same_files.scan("new")
+        assert _actions(conn, "new") == ["protected_forever"]
+        _remove_keep(conn, "new", monkeypatch)
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("newer")
+
+        assert _actions(conn, "newer") == ["scheduled_deletion"]
+
+    @_season("season", "season new")
+    def test_a_kept_shows_season_listed_beside_its_old_key_is_not_scheduled(
+        self, conn, freezer, same_files
+    ):
+        same_files.sync("old")
+        _keep_show(conn)
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("old", "new")
+
+        assert _actions(conn, "new") == []
 
 
 class TestWatchedLately:

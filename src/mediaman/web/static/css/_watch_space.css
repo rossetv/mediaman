@@ -212,7 +212,7 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 .space__scan-status--ok { color: var(--success); }
 .space__scan-status--error { color: var(--danger-text); }
 .space__scan-status a { position: relative; color: var(--accent); }
-.space__scan-status a::after { content: ""; position: absolute; inset: -14px -6px; }
+.space__scan-status a::after { content: ""; position: absolute; inset: -15px -6px; }
 .space__scan { min-width: 10.5em; }
 .space__scan[aria-disabled="true"] { opacity: 1; cursor: default; }
 .space__scan.is-busy { background: var(--rgba-accent-bg); color: var(--accent); }

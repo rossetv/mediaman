@@ -20,7 +20,8 @@ _NOW = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
         (timedelta(hours=12), 1),
         (timedelta(days=1, hours=2), 1),
         (timedelta(0), 0),
-        (timedelta(days=-2), 0),
+        (timedelta(days=-2), -2),
+        (timedelta(hours=-1), -1),
     ],
 )
 def test_the_count_is_calendar_days_so_it_agrees_with_the_date_shown(remaining, expected):

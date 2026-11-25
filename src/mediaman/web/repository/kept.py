@@ -15,6 +15,7 @@ from typing import cast
 
 from mediaman.core.time import now_iso
 from mediaman.scanner.repository import (
+    audit_lost_removals,
     book_removed_files,
     book_removed_files_where,
     fetch_protected_media_ids,
@@ -305,13 +306,15 @@ def delete_protections(conn: sqlite3.Connection, media_item_id: str) -> int:
     """Delete every keep (forever or snoozed) on the item and return how many went.
 
     Scheduled-deletion rows, and any row the deletion pass is working on, are left alone.
-    What a keep's row records as removed is booked first.
+    What a keep's row records as removed is booked first, and a removal it
+    began with no outcome is audited.
     """
     where = (
         "media_item_id = ? AND action IN ('protected_forever', 'snoozed') "
         "AND delete_status IS NOT 'deleting'"
     )
     book_removed_files_where(conn, where, (media_item_id,))
+    audit_lost_removals(conn, where, (media_item_id,))
     # rationale: the interpolated condition is a fixed string; every value is bound
     return conn.execute(  # nosec B608
         f"DELETE FROM scheduled_actions WHERE {where}", (media_item_id,)
@@ -381,6 +384,12 @@ def set_protected_state(
             to_update,
         )
     if to_delete:
+        # rationale: only "?" placeholders are interpolated; every value is bound
+        audit_lost_removals(
+            conn,
+            f"id IN ({','.join('?' * len(to_delete))}) AND delete_status IS NOT 'deleting'",
+            list(to_delete),
+        )
         conn.executemany(
             "DELETE FROM scheduled_actions WHERE id = ? AND delete_status IS NOT 'deleting'",
             [(row_id,) for row_id in to_delete],

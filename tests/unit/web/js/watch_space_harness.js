@@ -346,6 +346,13 @@ const scenarios = {
     await p.fire(body, 'pointerleave'); await p.run(260); note();
     return trail;
   },
+  async heavyLeaving() {
+    const p = await page();
+    p.server.library.movie = [-3, 0, 1, 2].map((d) => title('In ' + d, 40 * GB, { deletion_days: d }));
+    await p.click(p.$('meter'));
+    await p.click(p.seg('movies'));
+    return p.all('.space-tag--leaving').map((n) => n.textContent);
+  },
   async pinned() {
     const p = await page();
     await p.click(p.$('meter'));
@@ -496,7 +503,7 @@ const scenarios = {
     return { storage: p.text('storage'), bar: p.one('.space-bar') !== null, scheduled: p.text('scheduled'), link: p.one('#space-scheduled a').href, foot: p.one('.space__foot').hidden };
   },
   async scheduled() {
-    const p = await page([row('1', { state: 'overdue', countdown: 'Deletes today', days_left: 0 }), row('2', { state: 'deleting' }),
+    const p = await page([row('1', { state: 'overdue', countdown: 'Due, the next scan will try', days_left: -3 }), row('2', { state: 'deleting' }),
       row('3', { media_type: 'tv_season', title: 'Show', season_number: 2, days_left: 1, countdown: 'Deletes tomorrow' }), row('4', { title: '<b>"Hi"</b>', ref: null })]);
     await p.open();
     const li = p.all('#space-scheduled .space-item');
@@ -506,12 +513,12 @@ const scenarios = {
   },
   async overdue() {
     const of = async (extra) => {
-      const p = await page([row('1', { state: 'overdue', waiting_folder: '/media/tv' }), row('2', { state: 'overdue', waiting_folder: null })], (s) => { s.extra = extra; });
+      const due = { days_left: -3, waiting_folder: null, countdown: 'Leaving any day, the next scan will try' };
+      const p = await page([row('1', due), row('2', { ...due, state: 'overdue', countdown: 'Due, but a folder was missing' })], (s) => { s.extra = extra; });
       await p.open();
       return p.all('#space-scheduled .space-item__when').map((n) => n.textContent);
     };
-    const missing = { unavailable_roots: [{ path: '/media/tv', waiting: 1 }] };
-    return { missing: await of(missing), dry: await of({ ...missing, dry_run: true }), off: await of({ ...missing, dry_run: true, deletions_off: true }) };
+    return { plain: await of({}), dry: await of({ dry_run: true }), off: await of({ deletions_off: true }) };
   },
   async keepAndUndo() {
     const p = await page();
@@ -893,7 +900,7 @@ const scenarios = {
     const look = () => ({ rows: p.all('#space-scheduled .space-item__when').map((n) => n.textContent), late: li.map((n) => n.querySelector('.watch-keep').hasAttribute('data-keep-late')),
       head: p.one('#space-scheduled .space-list-head small').textContent, notices: p.all('#space-scheduled .space-notice').map((n) => n.textContent), storage: p.all('#space-storage .space-notice').length });
     const was = look();
-    p.server.rows = [row('1', { state: 'overdue', waiting_folder: '/media/tv' }), row('2', { countdown: 'Deletes tomorrow', days_left: 1 })];
+    p.server.rows = [row('1', { state: 'overdue', countdown: 'Due, but a folder was missing', waiting_folder: '/media/tv' }), row('2', { countdown: 'Deletes tomorrow', days_left: 1 })];
     p.server.extra = { unavailable_roots: [{ path: '/media/tv', waiting: 2 }], deletions_off: false };
     await p.refresh();
     const now = look();
@@ -1151,6 +1158,8 @@ const scenarios = {
     };
     return {
       done: await of({ running: false }),
+      leftOut: await of({ running: false, status: 'done', reason: 'Left out: <b>TV</b> could not be read.' }),
+      leftOutMany: await of({ running: false, status: 'done', reason: ['TV; Kids', 'Films', 'Anime'].map((n) => `Plex library '${n}' was not scanned: Plex failed to answer for it`).join('; ') }),
       stale: await of({ running: false }, null, { '/api/dashboard': 'down' }),
       skipped: await of({ running: false, status: 'skipped', reason: 'Plex not configured' }),
       error: await of({ running: false, status: 'error', reason: 'see the server log' }),
@@ -1172,6 +1181,9 @@ const scenarios = {
         link: p.one('#space-scan-status a') ? p.one('#space-scan-status a').href : null, toasts: p.toasts.length, enabled: !b.hasAttribute('aria-disabled'), focused: p.doc.activeElement === b };
     };
     return {
+      leftOut: await of({ running: false, status: 'done', reason: 'Left out: <b>TV</b> could not be read.' }),
+      leftOutMany: await of({ running: false, status: 'done', reason: ['TV; Kids', 'Films', 'Anime'].map((n) => `Plex library '${n}' was not scanned: Plex failed to answer for it`).join('; ') }),
+      leftOutManyLate: await of({ running: false, status: 'done', reason: ['TV; Kids', 'Films', 'Anime'].map((n) => `Plex library '${n}' was not scanned: Plex failed to answer for it`).join('; ') }, { '/api/dashboard': 'down' }),
       skipped: await of({ running: false, status: 'skipped', reason: 'Plex not configured' }),
       error: await of({ running: false, status: 'error', reason: 'see the server log for details' }),
       notStarted: await of({}, { 'scan/trigger': 'Too many scan triggers' }),

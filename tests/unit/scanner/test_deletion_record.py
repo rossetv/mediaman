@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mediaman.db import init_db
+from mediaman.db import init_db, start_scan_run
 from mediaman.scanner import deletions
 from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from mediaman.scanner.engine import ScanEngine
@@ -18,7 +18,11 @@ from mediaman.scanner.repository import clear_pending_deletions, delete_show_sch
 from mediaman.services.infra import DeletionRefused
 from mediaman.services.infra.storage import deletion as storage
 from mediaman.web.repository.kept import delete_protections, set_protected_state
-from mediaman.web.repository.library_api import apply_keep_in_tx
+from mediaman.web.repository.library_api import (
+    MediaDeleteSnapshot,
+    apply_keep_in_tx,
+    finalise_delete_in_tx,
+)
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 _ADDED = datetime(2020, 1, 1, tzinfo=UTC)
@@ -273,6 +277,21 @@ def _die_at_the_removal(conn, monkeypatch):
     conn.rollback()
 
 
+def _lost(conn):
+    return conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE media_item_id = 'm1' "
+        "AND action = 'delete_incomplete' AND detail LIKE '%cut off%'"
+    ).fetchone()[0]
+
+
+def _cut_off(conn):
+    """Return how each history line of a cut-off removal of the film begins."""
+    said = conn.execute(
+        "SELECT detail FROM audit_log WHERE media_item_id = 'm1' AND detail LIKE '%cut off%'"
+    )
+    return [row[0].partition(":")[0] for row in said]
+
+
 class TestRemovalWithNoRecordedOutcome:
     @pytest.mark.parametrize("recovered_at_startup", [True, False])
     @pytest.mark.parametrize("name", ["film.mkv", "Film 2160p.mkv"])
@@ -510,6 +529,248 @@ class TestRemovalWithNoRecordedOutcome:
         DeletionExecutor(conn=conn).execute()
 
         assert conn.execute("SELECT removed_files FROM scheduled_actions").fetchone()[0] is None
+
+    def test_recovery_reads_the_disk_with_no_write_lock(self, conn, film, monkeypatch):
+        _lose_the_record(conn, monkeypatch)
+        files = [{"path": str(film.with_name(name)), "size": 4} for name in (film.name, "cd2.mkv")]
+        conn.execute("UPDATE media_items SET tracked_files = ?", (json.dumps(files),))
+        conn.commit()
+        locked = []
+
+        def reading(read):
+            real = getattr(deletions, read)
+            monkeypatch.setattr(
+                deletions, read, lambda *args: locked.append(conn.in_transaction) or real(*args)
+            )
+
+        reading("path_within_delete_roots")
+        reading("_first_unavailable")
+        recover_stuck_deletions(conn)
+
+        assert len(locked) >= 3
+        assert not any(locked)
+
+    @pytest.mark.parametrize(
+        "lost", ["pruned", "cleared", "show kept", "unticked", "kept", "parked"]
+    )
+    def test_one_dropped_with_its_row_is_told(self, conn, root, film, monkeypatch, lost):
+        _die_at_the_removal(conn, monkeypatch)
+        film.unlink()
+        film.parent.rmdir()
+        recover_stuck_deletions(conn)
+        if lost == "pruned":
+            _scan(conn, root).sync_library()
+        elif lost == "cleared":
+            clear_pending_deletions(conn)
+        elif lost == "show kept":
+            conn.execute("UPDATE media_items SET show_rating_key = 'show'")
+            delete_show_scheduled_deletions(conn, "show")
+        else:
+            if lost == "parked":
+                conn.execute("UPDATE media_items SET file_path = ''")
+            elif lost == "unticked":
+                conn.execute("DELETE FROM settings WHERE key = 'plex_libraries'")
+            else:
+                conn.execute("UPDATE media_items SET show_rating_key = 'show'")
+                insert_kept_show(conn, show_rating_key="show", action="protected_forever")
+            conn.commit()
+            DeletionExecutor(conn=conn).execute()
+
+        assert _action(conn) is None
+        assert _lost(conn) == 1
+
+    @pytest.mark.parametrize(
+        "lost", ["keep removed", "keep replaced", "snooze ran out", "deleted by a person"]
+    )
+    def test_one_dropped_with_the_row_of_a_keep_or_of_a_title_a_person_deletes_is_told(
+        self, conn, film, monkeypatch, lost
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        film.unlink()
+        film.parent.rmdir()
+        recover_stuck_deletions(conn)
+        if lost == "deleted by a person":
+            snapshot = MediaDeleteSnapshot(
+                title="Film",
+                media_type="movie",
+                file_path=str(film),
+                file_size_bytes=4,
+                radarr_id=None,
+                sonarr_id=None,
+                season_number=None,
+                plex_rating_key="m1",
+                show_rating_key=None,
+                tmdb_id=10,
+                tvdb_id=None,
+                tracked_files=None,
+            )
+            intent = conn.execute(
+                "INSERT INTO delete_intents (media_item_id, target_kind, target_id, started_at) "
+                "VALUES ('m1', 'radarr', '1', '2026')"
+            )
+            conn.commit()
+            finalise_delete_in_tx(
+                conn,
+                snapshot,
+                media_id="m1",
+                intent_id=intent.lastrowid,
+                audit_detail="Deleted: Film",
+                actor="admin",
+            )
+        elif lost == "snooze ran out":
+            conn.execute("UPDATE scheduled_actions SET action = 'snoozed', token_used = 0")
+            conn.commit()
+            DeletionExecutor(conn=conn).execute()
+        else:
+            _keep_item(conn)
+            action_id = conn.execute("SELECT id FROM scheduled_actions").fetchone()[0]
+            with conn:
+                if lost == "keep removed":
+                    delete_protections(conn, "m1")
+                else:
+                    set_protected_state(conn, to_update=[], to_insert=[], to_delete=[action_id])
+
+        assert _action(conn) is None
+        assert _lost(conn) == 1
+        if lost == "deleted by a person":
+            assert _cut_off(conn) == ["Removal cut off"]
+
+    @pytest.mark.parametrize("copy_back", [False, True])
+    def test_one_booked_with_what_went_before_is_told(self, conn, two_parts, copy_back):
+        cd1, cd2 = two_parts
+        record = {"paths": [str(cd1)], "bytes": 4, "intent": {str(cd2): [1, 1, 1]}}
+        conn.execute("UPDATE scheduled_actions SET removed_files = ?", (json.dumps(record),))
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": str(cd2 if copy_back else cd1), "size": 4}]),),
+        )
+        conn.commit()
+        cd2.unlink()
+        cd2.parent.rmdir()
+        if not copy_back:
+            cd1.unlink()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [4]
+        assert _lost(conn) == 1
+        said = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = 'm1' AND detail LIKE '%cut off%'"
+        ).fetchone()
+        assert not said[0].startswith("Not deleted")
+
+    def test_a_show_keep_leaves_a_removal_begun_untold_with_its_row(self, conn, film, monkeypatch):
+        _die_at_the_removal(conn, monkeypatch)
+        conn.execute("UPDATE media_items SET show_rating_key = 'show'")
+        conn.commit()
+
+        with conn:
+            delete_show_scheduled_deletions(conn, "show")
+
+        assert _action(conn) is not None
+        assert _lost(conn) == 0
+
+    def test_one_dropped_for_an_unticked_library_is_not_told_as_not_deleted_beside_what_it_removed(
+        self, conn, two_parts
+    ):
+        cd1, cd2 = two_parts
+        record = {"paths": [str(cd1)], "bytes": 4, "intent": {str(cd2): [1, 1, 1]}}
+        conn.execute("UPDATE scheduled_actions SET removed_files = ?", (json.dumps(record),))
+        conn.execute("DELETE FROM settings WHERE key = 'plex_libraries'")
+        conn.commit()
+        cd1.unlink()
+        cd2.unlink()
+        cd2.parent.rmdir()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [4]
+        assert _cut_off(conn) == ["Removal cut off"]
+
+    def test_one_whose_record_goes_as_what_went_before_is_booked_is_told(self, conn, two_parts):
+        cd1, cd2 = two_parts
+        record = {"paths": [str(cd1)], "bytes": 4, "intent": {str(cd2): [1, 1, 1]}}
+        conn.execute("UPDATE scheduled_actions SET removed_files = ?", (json.dumps(record),))
+        conn.execute("UPDATE media_items SET show_rating_key = 'show'")
+        conn.commit()
+
+        with conn:
+            delete_show_scheduled_deletions(conn, "show")
+
+        assert _booked(conn) == [4]
+        assert _cut_off(conn) == ["Removal cut off"]
+
+    @pytest.mark.parametrize("ticked", [True, False])
+    def test_a_row_dropped_with_no_removal_begun_is_not_told(self, conn, film, ticked):
+        if ticked:
+            clear_pending_deletions(conn)
+        else:
+            conn.execute("DELETE FROM settings WHERE key = 'plex_libraries'")
+            conn.commit()
+            DeletionExecutor(conn=conn).execute()
+
+        assert _action(conn) is None
+        assert _lost(conn) == 0
+
+    @pytest.mark.parametrize("scan", ["running", "died", "none"])
+    def test_a_removal_cleared_as_it_began_is_told_as_lost_unless_a_scan_is_running(
+        self, conn, film, monkeypatch, scan
+    ):
+        if scan != "none":
+            assert start_scan_run(conn)
+        _die_at_the_removal(conn, monkeypatch)
+        if scan == "died":
+            conn.execute("UPDATE scan_runs SET heartbeat_at = '2020-01-01T00:00:00+00:00'")
+            conn.commit()
+
+        clear_pending_deletions(conn)
+
+        assert _action(conn) is None
+        assert _lost(conn) == (0 if scan == "running" else 1)
+
+    @pytest.mark.parametrize(
+        ("mount_down", "action"),
+        [(False, "delete_awaiting_scan"), (True, "delete_root_unavailable")],
+    )
+    def test_one_not_settled_is_told_once(
+        self, conn, root, film, monkeypatch, caplog, mount_down, action
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        if mount_down:
+            root.rename(root.with_name("away"))
+        else:
+            film.unlink()
+            film.parent.rmdir()
+
+        for _ in range(2):
+            caplog.clear()
+            DeletionExecutor(conn=conn).execute()
+
+        about = [r for r in caplog.records if r.getMessage().startswith("engine.delete")]
+        assert len(about) == 1
+        told = conn.execute("SELECT action FROM audit_log WHERE media_item_id = 'm1'").fetchall()
+        assert [row[0] for row in told] == [action]
+
+
+def test_a_file_changed_after_the_claim_is_left_and_told_once(conn, film, monkeypatch, caplog):
+    real = deletions._stamps
+    calls = []
+
+    def stamps(rows):
+        calls.append(rows)
+        found = real(rows)
+        return found if len(calls) % 2 else {path: [0, 0, 0] for path in found}
+
+    monkeypatch.setattr(deletions, "_stamps", stamps)
+    for _ in range(2):
+        caplog.clear()
+        DeletionExecutor(conn=conn).execute()
+
+    assert film.exists()
+    assert _action(conn) == ("scheduled_deletion", "pending")
+    assert sum("files_changed_after_claim" in r.getMessage() for r in caplog.records) == 1
+    told = conn.execute("SELECT action FROM audit_log WHERE media_item_id = 'm1'").fetchall()
+    assert [row[0] for row in told] == ["delete_incomplete"]
 
 
 class TestNothingLeftToRemove:

@@ -29,7 +29,7 @@
     <details class="hist" id="event-{{ item.id }}" data-event="{{ item.id }}"{% if item.id == open_id %} open{% endif %}>
       <summary class="hist-sum">
         {% if time %}<time class="hist-date" data-hist-at="line" datetime="{{ time.at }}" title="{{ time.value }}">{{ time.value[:16] }} UTC</time>{% else %}<span class="hist-date">{{ item.created_at[:16] }}</span>{% endif %}
-        <span class="hist-msg"><b>{{ item.line_title }}</b>{% if item.summary %}<span class="hist-type"> · {{ item.summary }}</span>{% endif %}</span>
+        <span class="hist-msg{% if item.action == 'library_left_out' %} hist-msg--wrap{% endif %}">{% if item.action == 'library_left_out' %}<span class="hist-name"><b>{{ item.line_title }}</b></span>{% if item.summary %} <span class="hist-type">·&nbsp;{{ item.summary }}</span>{% endif %}{% else %}<b>{{ item.line_title }}</b>{% if item.summary %}<span class="hist-type"> · {{ item.summary }}</span>{% endif %}{% endif %}</span>
         <span class="hist-type hist-pill">
           {% set _variant = {'badge-action-deleted': 'stale', 'badge-action-protected': 'kept'}.get(item.badge_class, 'neutral') %}
           {{ c.pill(item.action_label, variant=_variant) }}

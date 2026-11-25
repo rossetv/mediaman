@@ -424,7 +424,7 @@ def test_space_presses_the_control_tab_reached(markup):
 
 
 def test_controls_hide_after_a_mouse_press_and_a_key_but_stay_for_tab(markup):
-    assert run(markup, "idle") == {"afterMouse": True, "afterTab": False}
+    assert run(markup, "idle") == {"afterMouse": True, "afterTab": False, "afterOptionTab": False}
 
 
 def test_a_seek_while_the_playlist_loads_moves_where_the_video_starts(markup):
@@ -764,7 +764,7 @@ def test_the_next_episode_takes_over_in_the_same_page_and_video(in_place):
         0.4,
         True,
     )
-    assert in_place["start"] == {"rating_key": "502", "quality": "low"}
+    assert (in_place["start"]["rating_key"], in_place["start"]["quality"]) == ("502", "low")
 
 
 def test_the_old_stream_is_saved_and_stopped_before_the_new_one_starts(in_place):
@@ -880,7 +880,7 @@ def test_the_card_and_the_question_carry_a_picture_of_the_next_episode_where_the
 
 def test_a_page_that_never_opens_leaves_this_episode_as_it_was(markup):
     out = run(markup, "next_never_opens")
-    assert out["start"] == {"rating_key": "501", "quality": "low"}
+    assert (out["start"]["rating_key"], out["start"]["quality"]) == ("501", "low")
 
 
 def test_a_next_episode_that_is_gone_is_not_offered_again(markup):
@@ -1200,6 +1200,8 @@ def test_a_film_that_ends_on_a_page_that_came_by_a_link_stays_in_the_app(tmp_pat
 
 
 LOST = {"text": "Can't reach mediaman. Check your connection.", "button": "Try again"}
+BUSY = "The server is busy right now. Try again in a moment."
+NOTICE_LOST = "Connection lost. Trying again…"
 REPLACED = {"text": "Playing somewhere else.", "button": "Play here"}
 
 
@@ -1280,7 +1282,7 @@ def test_a_short_drop_keeps_the_stream_and_is_tried_again_with_longer_waits(mark
 
 def test_a_drop_is_said_only_once_the_picture_waits_for_it_and_to_a_screen_reader(markup):
     out = run(markup, "dropped", plays="offline")
-    assert (out["whilePlaying"], out["waiting"]) == (False, True)
+    assert (out["whilePlaying"], out["atFirst"], out["waiting"]) == (False, False, True)
     assert (out["role"], "Connection lost" in out["text"]) == ("status", True)
 
 
@@ -1380,27 +1382,101 @@ def test_a_title_started_somewhere_else_stops_here_for_good(markup, way):
 
 
 def test_play_here_goes_on_from_where_the_other_one_got_to(markup, tmp_path_factory):
-    elsewhere = _markup(tmp_path_factory, {**EPISODE, "start_s": 900.5})
+    # Played there for less than is resumed, or past the watched mark, it has no start of its own.
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "start_s": 0, "place_s": 900.5})
     out = run(markup, "replaced", plays="fragLoadError", pages={"/elsewhere": elsewhere})
     assert out["here"] == {"starts": 1, "at": 900.5, "message": None}
+
+
+def test_play_here_goes_on_from_this_tab_s_place_where_none_is_saved(markup, tmp_path_factory):
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "start_s": 0, "place_s": None})
+    out = run(markup, "replaced", plays="fragLoadError", pages={"/elsewhere": elsewhere})
+    assert out["here"] == {"starts": 1, "at": 105, "message": None}
+
+
+@pytest.mark.parametrize(
+    ("way", "place", "at"),
+    [
+        # What the page loaded with is of an older viewing, and what this tab saved is its own.
+        ("save", 2900.5, [110]),
+        ("save", 105.0, [110]),
+        ("beacon", 105.0, [115]),
+        ("beacon", 110.0, [115]),
+        ("save", 900.5, [900.5]),
+        # Finished there, past what this one can start at.
+        ("save", 3000.0, [2999]),
+        ("twice", 900.5, [900.5, 905.5]),
+    ],
+)
+def test_play_here_takes_only_a_place_the_other_one_saved(tmp_path_factory, way, place, at):
+    here = _markup(tmp_path_factory, {**EPISODE, "place_s": 2900.5})
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "place_s": place})
+    out = run(here, "replaced_after_save", plays=way, pages={"/elsewhere": elsewhere})
+    assert out == at
+
+
+@pytest.mark.parametrize(
+    ("follows", "place", "at"),
+    [
+        # Nothing follows: from the end it would leave the player at once.
+        (None, 3000.0, 110),
+        (None, 2999.5, 110),
+        (None, 2990.0, 2990),
+        ({"href": "/watch/play/502", "label": "S2 · E5"}, 3000.0, 2999),
+    ],
+)
+def test_play_here_keeps_this_tab_s_place_where_the_title_ended_there_and_nothing_follows(
+    tmp_path_factory, follows, place, at
+):
+    here = _markup(tmp_path_factory, {**EPISODE, "next": follows})
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "next": follows, "place_s": place})
+    out = run(here, "replaced_after_save", plays="save", pages={"/elsewhere": elsewhere})
+    assert out == [at]
+
+
+def test_a_press_as_play_here_asks_for_the_place_starts_nothing_from_this_one(
+    markup, tmp_path_factory
+):
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "place_s": 900.5})
+    out = run(markup, "replaced_pick", plays="pressed", pages={"/elsewhere": elsewhere})
+    assert (len(out["starts"]), out["at"]) == (1, 900.5)
+
+
+@pytest.mark.parametrize(
+    ("picked", "started"), [("same", ["best"]), ("once", ["medium"]), ("twice", ["low"])]
+)
+def test_a_quality_picked_under_playing_somewhere_else_is_play_here_with_it(
+    markup, tmp_path_factory, picked, started
+):
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "place_s": 900.5})
+    saved = {"mediaman.watch.quality": "best"}
+    out = run(markup, "replaced_pick", plays=picked, saved=saved, pages={"/elsewhere": elsewhere})
+    assert out == {"starts": started, "at": 900.5, "message": None}
 
 
 def test_a_stream_this_page_replaced_is_never_taken_for_another_page_s(markup):
     assert run(markup, "replaced_by_itself", plays="save") == {"message": None, "starts": 2}
     out = run(markup, "replaced_by_itself", plays="start")
     assert (out["message"], out["starts"]) == (None, 4)
-    assert (out["later"], out["after"]) == (REPLACED["text"], 4)
+    assert out["muchLater"] == {"message": None, "starts": 5}
+    assert (out["later"], out["after"]) == (REPLACED["text"], 5)
 
 
-@pytest.mark.parametrize("way", ["segment", "save", "never"])
-def test_a_title_started_somewhere_else_long_after_a_quick_pick_stops_here(markup, way):
+@pytest.mark.parametrize("way", ["segment", "save", "never", "asked before"])
+def test_a_title_started_somewhere_else_after_a_quick_pick_stops_here_at_any_moment(markup, way):
     out = run(markup, "replaced_long_after", plays=way)
     assert out == {"message": REPLACED, "starts": 0}
 
 
-def test_a_segment_asked_for_before_the_other_start_was_answered_settles_nothing(markup):
-    out = run(markup, "replaced_long_after", plays="asked before")
-    assert out == {"message": None, "starts": 1}
+@pytest.mark.parametrize(("way", "asked"), [("idle", [0, 20]), ("drop", [0, 20, 21, 21])])
+def test_what_the_page_starts_by_itself_says_when_it_was_asked_and_stops_where_refused(
+    markup, way, asked
+):
+    out = run(markup, "start_refused", plays=way)
+    assert (out["message"], out["frame"], out["loading"]) == (REPLACED, True, False)
+    assert (out["pages"], out["asked"]) == ([True] * len(asked), asked)
+    # Nothing more by itself; the person's press is asked for now, and plays here.
+    assert (out["byItself"], out["here"]) == (0, {"asked": 0, "at": 105, "message": None})
 
 
 def test_a_start_that_is_never_answered_ends_in_a_message_and_its_late_answer_is_stopped(markup):
@@ -1411,10 +1487,11 @@ def test_a_start_that_is_never_answered_ends_in_a_message_and_its_late_answer_is
 
 
 @pytest.mark.parametrize("way", ["pressed", "unpressed"])
-def test_a_try_never_answered_in_a_drop_is_stopped_when_it_is_answered_after_all(markup, way):
+def test_a_try_never_answered_in_a_drop_is_stopped_or_ended_and_never_plays(markup, way):
     out = run(markup, "start_unanswered_in_drop", plays=way)
-    assert out["message"] == LOST
-    assert out["after"] == {"streams": 0, "stopped": True}
+    ended = way == "pressed"
+    assert (out["message"], out["ended"]) == (LOST, 1 if ended else 0)
+    assert out["after"] == {"streams": 0, "stopped": not ended}
 
 
 @pytest.mark.parametrize("way", ["press", "online", "early"])
@@ -1422,15 +1499,20 @@ def test_a_try_never_answered_in_a_drop_is_stopped_when_it_is_answered_after_all
 def test_a_press_or_coming_online_drops_a_start_that_hangs_and_tries_afresh(markup, way, then):
     out = run(markup, "start_hangs_in_drop", plays=f"{way} {then}")
     assert (out["message"], out["asked"]) == (None if way == "early" else LOST, 1)
-    stopped = then == "answered"
-    assert out["after"] == {"streams": 0, "starts": 1, "stopped": stopped, "message": None}
+    assert out["after"] == {"streams": 0, "starts": 1, "ended": 1, "message": None}
+
+
+def test_tries_that_hang_never_pile_up_and_one_ended_is_not_taken_for_another_page_s(markup):
+    out = run(markup, "starts_hang")
+    assert (out["pressed"], out["picked"], out["notice"]) == (1, 1, NOTICE_LOST)
+    assert (out["replaced"], out["starts"]) == (None, 1)
 
 
 @pytest.mark.parametrize("details", ["fragLoadError", "manifestLoadError"])
 def test_a_server_too_busy_for_good_is_said_once_there_is_nothing_left_to_play(markup, details):
     out = run(markup, "busy_for_good", plays=details)
     assert (out["playing"], out["early"]) == (None, None)
-    busy = {"text": "Too many tries. Wait a moment and try again.", "button": "Try again"}
+    busy = {"text": BUSY, "button": "Try again"}
     assert (out["message"], out["after"]) == (busy, [0, 1])
     assert (out["again"]["message"], out["again"]["starts"]) == (None, 2)
 
@@ -1464,16 +1546,166 @@ def test_refusals_on_either_side_of_a_drop_are_not_one_long_one(markup):
 @pytest.mark.parametrize("status", [0, 502, 504])
 def test_a_drop_and_a_refusal_by_turns_end_in_a_message(markup, first, status):
     out = run(markup, "busy_and_lost", plays=f"{first} {status}")
-    busy = {"text": "Too many tries. Wait a moment and try again.", "button": "Try again"}
+    busy = {"text": BUSY, "button": "Try again"}
     assert out["message"] in (LOST, busy)
     assert 115 <= out["at"] <= 125
     assert (out["byItself"], out["again"]) == (0, None)
 
 
+@pytest.mark.parametrize("light", ["silent", "gateway"])
+def test_a_drop_that_says_nothing_is_a_lost_connection_and_comes_back(markup, light):
+    out = run(markup, "silent", plays=light, saved={"mediaman.watch.quality": "auto"})
+    assert (out["whilePlaying"], out["waiting"]) == (None, NOTICE_LOST)
+    # The stream and what it has loaded stay, and Automatic blames no quality.
+    assert (out["starts"], out["startsAtEnd"], out["destroyed"]) == (1, 1, False)
+    assert (out["message"], out["play"]) == (LOST, "Play")
+    assert out["saves"] == 0
+    assert 50 <= out["at"] <= 75
+    assert out["online"] == {"tried": 1, "message": None}
+    assert out["back"] is None
+
+
+def test_a_server_that_answers_light_requests_is_slow_and_not_lost(markup):
+    out = run(markup, "silent_then_slow", saved={"mediaman.watch.quality": "auto"})
+    assert out == {"lost": NOTICE_LOST, "slow": None, "starts": 2}
+
+
+@pytest.mark.parametrize("chosen", ["auto", "1080p-8000"])
+@pytest.mark.parametrize("light", ["answered", "silent", "silent bytes"])
+def test_a_long_stall_is_a_drop_only_where_nothing_at_all_comes(markup, chosen, light):
+    plays = light if "bytes" in light else f"{light} none"
+    saved = {"mediaman.watch.quality": chosen}
+    out = run(markup, "stalled_silent", plays=f"{plays} 0", saved=saved)
+    if light == "silent":
+        assert out == {"starts": 1, "destroyed": False, "notice": NOTICE_LOST}
+        return
+    steps = chosen == "auto"
+    assert (out["starts"], out["destroyed"], out["notice"]) == (2 if steps else 1, steps, None)
+
+
+@pytest.mark.parametrize(
+    "chosen", ["1080p-8000", "original", pytest.param("auto", id="lowest step")]
+)
+@pytest.mark.parametrize("after", [12000, 41000])
+def test_a_silence_that_begins_late_in_a_stall_is_a_drop(markup, chosen, after):
+    saved = {"mediaman.watch.quality": chosen}
+    for light, notice in (("silent", NOTICE_LOST), ("answered", None)):
+        out = run(markup, "stalled_silent", plays=f"{light} none {after}", saved=saved)
+        assert out == {"starts": 1, "destroyed": False, "notice": notice}
+
+
+@pytest.mark.parametrize("chosen", ["auto", "1080p-8000"])
+@pytest.mark.parametrize("after", ["0 seek", "21000 seek", "0 seeks"])
+def test_a_wait_after_a_seek_is_a_drop_only_where_nothing_at_all_comes(markup, chosen, after):
+    saved = {"mediaman.watch.quality": chosen}
+    for light, notice in (("silent", NOTICE_LOST), ("silent bytes", None), ("answered", None)):
+        plays = light if "bytes" in light else f"{light} none"
+        out = run(markup, "stalled_silent", plays=f"{plays} {after}", saved=saved)
+        # It says nothing of the quality, whichever way.
+        assert out == {"starts": 1, "destroyed": False, "notice": notice}
+
+
+@pytest.mark.parametrize("way", ["refused", "lost"])
+def test_a_wait_gone_silent_once_a_refusal_or_a_drop_is_over_is_a_drop(markup, way):
+    out = run(markup, "seek_then_silent", plays=way)
+    assert out == {"before": None, "notice": NOTICE_LOST, "starts": 1}
+
+
+def test_a_wait_that_begins_before_the_video_has_moved_on_is_looked_at_too(markup):
+    assert run(markup, "waits_unmoved") == {"notice": NOTICE_LOST, "starts": 1}
+
+
+def test_the_light_request_carries_no_session(markup):
+    assert run(markup, "light_request") == ["omit"]
+
+
+@pytest.mark.parametrize(
+    ("way", "then"),
+    [
+        ("seen", {"tried": 1, "message": None}),
+        ("hidden", {"tried": 0, "message": LOST}),
+        ("left", {"tried": 0, "message": LOST}),
+        # Nobody may be there after hours.
+        ("asleep", {"tried": 0, "message": LOST}),
+    ],
+)
+def test_a_server_that_comes_back_unsaid_is_found_while_the_message_is_seen(markup, way, then):
+    out = run(markup, "back_unsaid", plays=way)
+    assert (out["message"], out["asked"]) == (LOST, 3)
+    assert out["then"] == then
+    if way == "hidden":
+        assert (out["askedThen"], out["seen"]) == (0, {"tried": 1, "message": None})
+    if way in ("left", "asleep"):
+        assert out["askedThen"] == 0
+
+
+def test_a_server_that_answers_and_still_plays_nothing_is_left_to_a_press_after_three_rounds(
+    markup,
+):
+    out = run(markup, "back_but_failing")
+    assert (out["rounds"], out["message"]) == (3, LOST)
+    # Neither asked nor tried any more, until the person says so: then three rounds again.
+    assert out["later"] == [0, 0, 0]
+    assert (out["pressed"], out["after"]) == ({"tried": 1, "message": None}, 4)
+
+
+def test_once_tried_again_by_hand_the_server_is_not_asked_for_any_more(markup):
+    out = run(markup, "back_unsaid", plays="again")
+    assert (out["then"]["tried"], out["askedThen"]) == (1, 0)
+
+
+@pytest.mark.parametrize("what", ["start", "playlist"])
+def test_a_slow_start_is_said_and_waited_for(markup, what):
+    out = run(markup, "hung", plays=f"{what} answered")
+    assert (out["early"], out["slow"]) == (None, "Still starting…")
+    assert (out["later"], out["message"]) == ("Still starting…", None)
+    assert out["played"] == {"notice": None, "message": None, "starts": 2}
+
+
+@pytest.mark.parametrize("what", ["start", "playlist"])
+def test_a_start_that_hangs_in_a_drop_is_said_soon_and_comes_back_online(markup, what):
+    out = run(markup, "hung", plays=f"{what} silent")
+    assert (out["early"], out["later"]) == (None, NOTICE_LOST)
+    assert out["message"] == LOST
+    assert 60 <= out["at"] <= 80
+    # Nothing is asked to start again and again of a server that does not answer.
+    assert out["unattended"] == 0
+    assert out["online"] == {"tried": True, "message": None}
+    assert out["back"] is None
+
+
+def test_a_start_that_hung_is_taken_when_answered_and_else_asked_for_again(markup):
+    out = run(markup, "hung_back", plays="answers")
+    assert out == {
+        "lost": NOTICE_LOST,
+        "starts": 2,
+        "stream": True,
+        "message": None,
+        "ended": 0,
+    }
+    out = run(markup, "hung_back", plays="never")
+    assert (out["starts"], out["stream"], out["message"], out["ended"]) == (3, True, None, 1)
+
+
+def test_a_move_in_a_drop_tries_at_once_and_with_short_waits_again(markup):
+    assert run(markup, "seek_in_drop") == {"atOnce": 1, "next": 1}
+
+
+def test_a_move_in_a_start_that_does_not_come_through_tries_at_once_from_there(markup):
+    assert run(markup, "seek_in_lost_start") == {"atOnce": 1, "at": [10]}
+
+
+def test_a_busy_server_is_said_once_the_picture_has_waited_for_it_a_while(markup):
+    out = run(markup, "busy_said")
+    assert (out["playing"], out["early"]) == (None, None)
+    assert (out["busy"], out["role"]) == ("The server is busy. Trying again…", "status")
+    assert (out["taken"], out["message"]) == (None, None)
+
+
 def test_a_refusal_with_much_loaded_counts_only_from_when_that_has_played(markup):
     out = run(markup, "busy_then_dry")
     assert (out["dry"], out["starts"]) == (None, 1)
-    assert out["late"] == "Too many tries. Wait a moment and try again."
+    assert out["late"] == BUSY
 
 
 def test_a_try_taken_and_lost_again_in_a_drop_steps_nowhere(markup):

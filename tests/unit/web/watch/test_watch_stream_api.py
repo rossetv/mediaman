@@ -984,6 +984,47 @@ def test_every_call_of_a_stream_a_newer_start_replaced_says_so(alice):
     assert [r.status_code for r in _three_calls(alice, new)] == [200] * 3
 
 
+def _start_from(client, page: str, asked_s: float | None = None):
+    body = {"rating_key": "101", "quality": "best", "page": page}
+    if asked_s is not None:
+        body["asked_s"] = asked_s
+    return client.post("/api/watch/stream", json=body)
+
+
+def test_a_replaced_stream_says_which_page_plays_the_title_now(alice):
+    old = _start_from(alice, "phone-page-1").json()["stream_id"]
+    _start_from(alice, "tv-page-0001")
+
+    assert {r.json().get("by") for r in _three_calls(alice, old)} == {"tv-page-0001"}
+
+
+def test_a_start_made_by_itself_is_answered_replaced_where_another_page_was_asked_since(
+    alice, clock
+):
+    _start_from(alice, "phone-page-1")
+    clock.now += 10
+    tv = _start_from(alice, "tv-page-0001").json()["stream_id"]
+    clock.now += 5
+
+    refused = _start_from(alice, "phone-page-1", asked_s=15)
+
+    assert (refused.status_code, refused.headers["cache-control"]) == (410, NO_STORE)
+    assert refused.json() == {"ok": False, "error": "replaced", "by": "tv-page-0001"}
+    assert [r.status_code for r in _three_calls(alice, tv)] == [200] * 3
+    # A press there plays there.
+    assert _start_from(alice, "phone-page-1", asked_s=0).status_code == 200
+    assert {r.json().get("by") for r in _three_calls(alice, tv)} == {"phone-page-1"}
+
+
+@pytest.mark.parametrize(
+    "extra", [{"page": "a b"}, {"page": "x" * 65}, {"page": "phone-page-1", "asked_s": -1}]
+)
+def test_start_refuses_a_malformed_page_or_time(alice, plex, extra):
+    body = {"rating_key": "101", "quality": "best"} | extra
+    assert alice.post("/api/watch/stream", json=body).status_code == 422
+    assert plex.calls == []
+
+
 def test_a_start_replaces_nothing_of_another_title_or_another_person(alice, bob):
     film, bobs = _stream(alice), _stream(bob)
     _stream(alice, "102")

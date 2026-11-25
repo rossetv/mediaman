@@ -77,13 +77,17 @@ def _days_until(execute_at: datetime | None, now: datetime) -> str:
     )
 
 
-def _due_label(deletions_off: bool, dry_run: bool, waiting_folder: str | None) -> str:
+def _due_label(
+    deletions_off: bool, dry_run: bool, waiting_folder: str | None, leaving: bool
+) -> str:
     """Say why a deletion whose date has passed is still to come."""
     if deletions_off:
         return "Due, but deletions are off"
     if dry_run:
         return "Due, but dry run is on"
-    return "Due, but a folder was missing" if waiting_folder else "Due, the next scan will try"
+    if waiting_folder:
+        return "Due, but a folder was missing"
+    return ("Leaving any day" if leaving else "Due") + ", the next scan will try"
 
 
 def _waiting_folders(conn: sqlite3.Connection) -> dict[int, str]:
@@ -137,8 +141,8 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
                 ),
                 "season_number": None if is_movie else row.season_number,
                 "countdown": (
-                    _due_label(deletions_off, dry_run, waiting.get(row.sa_id))
-                    if execute_at is not None and execute_at < now
+                    _due_label(deletions_off, dry_run, waiting.get(row.sa_id), state == "leaving")
+                    if state == "overdue" or (execute_at is not None and execute_at < now)
                     else _days_until(execute_at, now)
                 ),
                 "days_left": days_left(execute_at, now) if execute_at else None,

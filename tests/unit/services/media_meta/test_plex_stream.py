@@ -1176,18 +1176,187 @@ def _wait_until(condition) -> None:
     pytest.fail("never came true")
 
 
-def test_a_stopped_or_reaped_stream_is_gone_and_not_replaced(manager, clock):
-    stopped, idle = _start(manager), _start(manager, rating_key="7")
+def test_a_start_held_open_past_the_beginning_of_a_later_one_makes_way_for_it(manager, plex):
+    real_open = manager._open_session
+    outer, inner = [], []
+    second_opens, first_stored = threading.Event(), threading.Event()
+
+    def open_in_turn(*args):
+        if not outer:
+            outer.append(True)
+            later.start()
+            assert second_opens.wait(5)
+        else:
+            second_opens.set()
+            assert first_stored.wait(5)
+        return real_open(*args)
+
+    later = threading.Thread(target=lambda: inner.append(_start(manager)), daemon=True)
+    manager._open_session = open_in_turn
+
+    first = _start(manager)
+    assert manager.get(first, "alice")
+    first_stored.set()
+    later.join(5)
+
+    assert manager.get(inner[0], "alice")
+    with pytest.raises(StreamReplaced):
+        manager.get(first, "alice")
+    sessions = [c["params"]["session"] for c in plex.calls_to("start.m3u8")]
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [sessions[0]]
+    assert len(manager._streams) == 1
+
+
+def test_a_stopped_stream_is_gone_and_not_replaced(manager):
+    stopped = _start(manager)
     manager.stop(stopped, "alice")
+    _start(manager)
+
+    assert not _is_replaced(manager, stopped)
+
+
+def _is_replaced(manager, stream_id, user="alice") -> bool:
+    with pytest.raises(StreamGone) as caught:
+        manager.get(stream_id, user)
+    return isinstance(caught.value, StreamReplaced)
+
+
+def _reap_one_idle(manager, clock) -> None:
     clock.now += plex_stream.IDLE_TIMEOUT_SECONDS + 1
+    assert manager.reap() == 1
+
+
+def test_a_reaped_stream_is_replaced_once_the_item_was_started_anew(manager, clock):
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    clock.now += plex_stream.REAPED_KEEP_SECONDS + 1
+    manager.reap()
+    later = _start(manager)
+
+    assert _is_replaced(manager, idle)
+    manager.stop(later, "alice")
+    assert _is_replaced(manager, idle)
+    assert not _is_replaced(manager, idle, "bob")
+
+
+def test_a_reaped_stream_is_only_gone_where_its_person_has_not_started_the_item_since(
+    manager, clock
+):
+    _start(manager)
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    _start(manager, rating_key="7")
+    _start(manager, user="bob")
+
+    assert not _is_replaced(manager, idle)
+
+
+def test_a_reaped_stream_is_only_gone_while_a_start_of_the_item_opens_and_after_it_failed(
+    manager, plex, clock
+):
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    seen = []
+
+    def look_then_fail(*args):
+        seen.append(_is_replaced(manager, idle))
+        raise RuntimeError("failed")
+
+    manager._open_session = look_then_fail
+    with pytest.raises(RuntimeError):
+        _start(manager)
+
+    assert seen == [False]
+    assert not _is_replaced(manager, idle)
+
+
+def test_a_reaped_stream_is_forgotten_once_its_viewing_is_over(manager, clock):
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    clock.now += plex_stream.VIEWING_KEEP_SECONDS + 1
     manager.reap()
     _start(manager)
-    _start(manager, rating_key="7")
 
-    for stream_id in (stopped, idle):
-        with pytest.raises(StreamGone) as caught:
-            manager.get(stream_id, "alice")
-        assert not isinstance(caught.value, StreamReplaced)
+    assert not _is_replaced(manager, idle)
+    assert not manager._reaped
+
+
+def _replaced_by(manager, stream_id, user="alice") -> str | None:
+    with pytest.raises(StreamReplaced) as caught:
+        manager.get(stream_id, user)
+    return caught.value.by
+
+
+def test_a_start_a_page_makes_by_itself_leaves_the_title_to_the_page_asked_later(
+    manager, plex, clock
+):
+    phone = _start(manager, page="phone-page")
+    clock.now += 10
+    tv = _start(manager, page="tv-page")
+    clock.now += 5
+    stops = len(plex.calls_to("stop"))
+
+    with pytest.raises(StreamReplaced) as refused:
+        _start(manager, page="phone-page", asked_ago=15.0)
+
+    assert (refused.value.by, _replaced_by(manager, phone)) == ("tv-page", "tv-page")
+    assert manager.get(tv, "alice")
+    assert len(plex.calls_to("stop")) == stops
+    assert len(plex.calls_to("start.m3u8")) == 2
+
+
+def test_a_press_always_takes_the_title_and_so_does_a_try_of_a_press_made_later(manager, clock):
+    tv = _start(manager, page="tv-page")
+    clock.now += 10
+    # Pressed five seconds ago on the phone, after the television: only now does it get through.
+    phone = _start(manager, page="phone-page", asked_ago=5.0)
+    assert (_replaced_by(manager, tv), bool(manager.get(phone, "alice"))) == ("phone-page", True)
+
+    again = _start(manager, page="tv-page")
+    assert (_replaced_by(manager, phone), bool(manager.get(again, "alice"))) == ("tv-page", True)
+
+
+def test_a_page_s_own_later_start_and_a_start_with_no_page_replace_as_before(manager, clock):
+    first = _start(manager, page="phone-page")
+    clock.now += 60
+    second = _start(manager, page="phone-page", asked_ago=60.0)
+    assert _replaced_by(manager, first) == "phone-page"
+
+    clock.now += 60
+    third = _start(manager)
+    assert _replaced_by(manager, second) is None
+    # What has no page was asked for as it came: later than the phone's own press.
+    with pytest.raises(StreamReplaced):
+        _start(manager, page="phone-page", asked_ago=120.0)
+    assert manager.get(third, "alice")
+
+
+def test_a_start_made_by_itself_makes_way_for_a_later_press_that_is_still_opening(manager, clock):
+    _start(manager, page="phone-page")
+    clock.now += 30
+    real_open = manager._open_session
+    refused = []
+
+    def phone_tries_meanwhile(*args):
+        manager._open_session = real_open
+        with pytest.raises(StreamReplaced) as caught:
+            _start(manager, page="phone-page", asked_ago=30.0)
+        refused.append(caught.value.by)
+        return real_open(*args)
+
+    manager._open_session = phone_tries_meanwhile
+    tv = _start(manager, page="tv-page")
+
+    assert refused == ["tv-page"]
+    assert manager.get(tv, "alice")
+
+
+def test_a_reaped_stream_names_the_page_that_started_the_item_since(manager, clock):
+    idle = _start(manager, page="phone-page")
+    _reap_one_idle(manager, clock)
+    _start(manager, page="tv-page")
+
+    assert _replaced_by(manager, idle) == "tv-page"
 
 
 class SlowPlex:

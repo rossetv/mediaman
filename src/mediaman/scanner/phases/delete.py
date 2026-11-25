@@ -14,13 +14,25 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 
 from mediaman.core.time import now_iso
 from mediaman.scanner import repository
-from mediaman.scanner.repository.rekeyed import note_listing
+from mediaman.scanner.repository.rekeyed import (
+    fetch_titles_in_two_libraries,
+    held_beside_another_title,
+    note_listing,
+    title_files,
+)
+from mediaman.services.infra.storage import path_within_delete_roots
+from mediaman.services.infra.storage.disk_reads import DiskReads
 
 logger = logging.getLogger(__name__)
+
+_file_reads: DiskReads[bool] = DiskReads(8)
+# After this many titles whose disk did not answer, no other is looked for in this pass.
+_UNANSWERED_LIMIT = 3
 
 # Fail-closed safeguard thresholds for orphan detection.
 # If the current scan found fewer items than this floor and the previous
@@ -133,6 +145,43 @@ def _resolve_prune_libs(
     return confirmed
 
 
+def _is_there(path: str, roots: list[str]) -> bool:
+    """Return True if the file is on the disk, or where mediaman deletes nothing and so sees nothing."""
+    return not path_within_delete_roots(path, roots) or os.path.lexists(path)
+
+
+def _listed_without_files(
+    conn: sqlite3.Connection, library_ids: set[int], listed: set[str]
+) -> set[str]:
+    """Return the listed titles of the libraries, each with a copy in another, with no file there.
+
+    A title moved to another library may stay listed where it was. A disk that
+    does not answer in time counts as holding none of its files: then the copy
+    is kept, not deleted as one of two.
+    """
+    roots = repository.read_delete_allowed_roots_setting(conn, quiet=True)
+    without: set[str] = set()
+    unanswered = 0
+    for row in fetch_titles_in_two_libraries(conn, library_ids):
+        files = sorted(title_files(row))
+        if row["id"] not in listed or not files:
+            continue
+        found: dict[str, bool | None] = dict.fromkeys(files)
+        if unanswered < _UNANSWERED_LIMIT:
+            found = _file_reads.read_all(files, lambda path: _is_there(path, roots))
+            unanswered += None in found.values()
+        if not any(found.values()):
+            without.add(row["id"])
+    return without
+
+
+def _inactivity_days(conn: sqlite3.Connection) -> int:
+    # Not at the top: the runner imports the engine, which imports this module.
+    from mediaman.scanner.runner import DAY_SETTING_DEFAULTS, get_day_setting
+
+    return get_day_setting(conn, "inactivity_days", default=DAY_SETTING_DEFAULTS["inactivity_days"])
+
+
 def remove_orphans(
     conn: sqlite3.Connection,
     seen_keys: set[str],
@@ -162,10 +211,16 @@ def remove_orphans(
     An item whose deletion removed files that are not booked yet stays until
     that is done: its rows are the only record of them.
 
-    Which items are listed is noted whether or not any is removed.
+    Which items are listed is noted whether or not any is removed; that one is
+    listed no more, only from a list trusted enough to remove it. So is which
+    listed item, with a copy in another library, has none of its files on the
+    disk: the caller's transaction is committed first.
 
     An item another run saw, or anyone scheduled or kept, after the run began
-    stays too: the run's list may be from before the item came to Plex.
+    stays too: the run's list may be from before the item came to Plex. So does,
+    where *confirmed*, an item kept or watched lately with a file that another
+    title has too and takes no keep or watch for: while it is there, the file
+    is not removed.
 
     Args:
         conn: Open SQLite connection.
@@ -173,7 +228,8 @@ def remove_orphans(
         scanned_libs: Integer library IDs that were successfully fetched.
         listed_since: When the run began, before it listed anything.
         confirmed: Whether an earlier run already found the same, so that no
-            drop is suspicious.
+            drop is suspicious: the libraries are gone from Plex, which read
+            nothing of them, so no deletion of their items is carried out.
 
     Returns:
         Number of rows deleted.
@@ -181,19 +237,32 @@ def remove_orphans(
     if not scanned_libs:
         return 0
 
-    with conn:
-        if not conn.in_transaction:
-            conn.execute("BEGIN IMMEDIATE")
-        since = listed_since or now_iso()
-        touched = repository.fetch_ids_touched_since(conn, since)
-        for library_id in scanned_libs:
-            note_listing(conn, library_id, seen_keys, touched, since)
+    # The disk is read with no write lock held, which a mount that hangs would keep.
+    conn.commit()
+    without_files = _listed_without_files(conn, scanned_libs, seen_keys)
+    inactivity_days = _inactivity_days(conn)
 
     previous_count = repository.count_items_in_libraries(conn, list(scanned_libs))
     current_count = len(seen_keys)
 
     reason = None if confirmed else _suspicious_reason(current_count, previous_count)
     prune_libs = _resolve_prune_libs(conn, scanned_libs, reason, current_count, previous_count)
+    with conn:
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        since = listed_since or now_iso()
+        touched = repository.fetch_ids_touched_since(conn, since)
+        for library_id in scanned_libs:
+            note_listing(
+                conn,
+                library_id,
+                seen_keys,
+                touched,
+                since,
+                trusted=library_id in prune_libs,
+                without_files=without_files,
+                inactivity_days=inactivity_days,
+            )
     if not prune_libs:
         return 0
 
@@ -218,6 +287,9 @@ def remove_orphans(
         unbooked = repository.fetch_unbooked_media_ids(conn)
         repository.forget_unremoved_files(conn, unbooked.intersection(unlisted))
         orphan_ids = [i for i in unlisted if i not in unbooked]
+        if confirmed:
+            staying = held_beside_another_title(conn, set(orphan_ids), inactivity_days)
+            orphan_ids = [i for i in orphan_ids if i not in staying]
         repository.save_pruned_keeps(conn, orphan_ids)
         repository.carry_pruned_keeps(conn, set(orphan_ids))
         repository.save_pruned_show_seasons(conn, set(orphan_ids))

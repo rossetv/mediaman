@@ -606,7 +606,7 @@
   function seasonName(s) { return s.season_number != null ? 'Season ' + s.season_number : s.title; }
 
   function leavesText(days) {
-    return days <= 0 ? 'leaves today' : days === 1 ? 'leaves tomorrow' : 'leaves in ' + days + ' days';
+    return days < 0 ? 'leaves any day' : days === 0 ? 'leaves today' : days === 1 ? 'leaves tomorrow' : 'leaves in ' + days + ' days';
   }
 
   function seasonDetails(s) {

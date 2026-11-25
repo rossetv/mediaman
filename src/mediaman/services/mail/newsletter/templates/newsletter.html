@@ -92,7 +92,7 @@
 
 {%- macro added_text(n) -%}{% if n <= 0 %}Added today{% else %}Added {{ n }} day{{ 's' if n != 1 else '' }} ago{% endif %}{%- endmacro -%}
 
-{%- macro days_left_text(n) -%}{% if n <= 0 %}Due today{% else %}{{ n }} day{{ 's' if n != 1 else '' }} left{% endif %}{%- endmacro -%}
+{%- macro days_left_text(n) -%}{% if n < 0 %}Leaving any day{% elif n == 0 %}Due today{% else %}{{ n }} day{{ 's' if n != 1 else '' }} left{% endif %}{%- endmacro -%}
 
 {%- macro rec_section(label, items) -%}
 <tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">

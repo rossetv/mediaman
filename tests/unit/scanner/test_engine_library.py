@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 from xml.etree.ElementTree import ParseError
@@ -12,6 +13,7 @@ import requests
 from plexapi.exceptions import PlexApiException
 
 from mediaman.db import init_db
+from mediaman.scanner import engine as engine_module
 from mediaman.scanner.engine import ScanEngine
 from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
@@ -630,11 +632,101 @@ class TestScanWithOneBadLibrary:
         assert self._scheduled(conn) == {"10", "20"}
 
 
+class TestScanWithAnUnreadableLibrary:
+    """Library 1 is ticked, but Plex does not list it now, or lists it as another type."""
+
+    @pytest.fixture(autouse=True, params=[{}, {"1": "photo"}], ids=["missing", "unsupported"])
+    def _types(self, request, conn, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "mediaman.scanner.engine._refresh_recommendations", lambda *a, **k: None
+        )
+        monkeypatch.setattr("mediaman.scanner.engine._send_newsletter", lambda **k: None)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            """VALUES ('plex_libraries', '["1", "2"]', '2026')"""
+        )
+        conn.commit()
+        self.types = {**request.param, "2": "movie"}
+
+    def _engine(self, conn, mock_plex, listed=()):
+        mock_plex.get_movie_items.side_effect = lambda lib: list(listed) if lib == "2" else []
+        return ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1", "2"],
+            library_types=self.types,
+            secret_key="test-key",
+        )
+
+    def test_its_due_deletions_wait_and_the_others_run(self, conn, mock_plex, tmp_path):
+        own, other = tmp_path / "own" / "own.mkv", tmp_path / "other" / "other.mkv"
+        TestScanWithOneBadLibrary._due(conn, "10", own, 1)
+        TestScanWithOneBadLibrary._due(conn, "20", other, 2)
+
+        summary = self._engine(
+            conn, mock_plex, [TestScanWithOneBadLibrary._item("20", other)]
+        ).run_scan()
+
+        assert (own.exists(), other.exists()) == (True, False)
+        assert TestScanWithOneBadLibrary._scheduled(conn) == {"10"}
+        assert (summary["errors"], list(summary["left_out"])) == (1, ["1"])
+
+    def test_an_item_at_the_place_of_one_of_its_own_is_not_scheduled(self, conn, mock_plex):
+        insert_media_item(
+            conn, id="10", plex_rating_key="10", plex_library_id=1, file_path="/media/film.mkv"
+        )
+        conn.commit()
+
+        self._engine(
+            conn,
+            mock_plex,
+            [
+                TestScanWithOneBadLibrary._item("20", "/media/film.mkv"),
+                TestScanWithOneBadLibrary._item("21", "/media/other.mkv"),
+            ],
+        ).run_scan()
+
+        assert TestScanWithOneBadLibrary._scheduled(conn) == {"21"}
+
+    def test_a_sync_does_not_read_it_as_films(self, conn, mock_plex):
+        insert_media_item(conn, id="10", plex_rating_key="10", plex_library_id=1)
+        conn.commit()
+
+        summary = self._engine(conn, mock_plex).sync_library()
+
+        assert [call.args for call in mock_plex.get_movie_items.call_args_list] == [("2",)]
+        assert summary["errors"] == 1
+
+    def test_a_removal_it_finished_is_booked_and_removes_nothing_more(
+        self, conn, mock_plex, tmp_path
+    ):
+        film = tmp_path / "own" / "own.mkv"
+        TestScanWithOneBadLibrary._due(conn, "10", film, 1)
+        film.unlink()
+        sidecar = film.with_suffix(".srt")
+        sidecar.write_bytes(b"s")
+        conn.execute(
+            "UPDATE scheduled_actions SET removed_files = ?",
+            (json.dumps({"paths": [str(film)], "bytes": 4}),),
+        )
+        conn.commit()
+
+        self._engine(conn, mock_plex).run_scan()
+
+        assert TestScanWithOneBadLibrary._scheduled(conn) == set()
+        assert sidecar.exists()
+
+
+_HOUR = timedelta(hours=1)
+
+
 class TestGoneLibrary:
     """Plex library 1 was removed and made again as 2, the only one ticked."""
 
     @pytest.fixture(autouse=True)
-    def _library(self, conn, tmp_path, monkeypatch):
+    def _library(self, conn, tmp_path, monkeypatch, freezer):
+        freezer.move_to(datetime(2026, 11, 24, 12, tzinfo=UTC))
         monkeypatch.setattr(
             "mediaman.scanner.engine._refresh_recommendations", lambda *a, **k: None
         )
@@ -666,8 +758,8 @@ class TestGoneLibrary:
     def _ids(conn):
         return {r[0] for r in conn.execute("SELECT id FROM media_items")}
 
-    def test_its_items_go_and_hold_no_deletion_back_once_a_second_run_finds_it_gone_too(
-        self, conn, mock_plex
+    def test_its_items_go_and_hold_no_deletion_back_once_a_run_an_hour_later_finds_it_gone_too(
+        self, conn, mock_plex, freezer
     ):
         first = self._engine(conn, mock_plex, ["2"]).run_scan()
 
@@ -675,32 +767,119 @@ class TestGoneLibrary:
         assert self._ids(conn) == {"10", "20"}
         assert self.film.exists()
 
+        freezer.tick(_HOUR)
         second = self._engine(conn, mock_plex, ["2"]).run_scan()
 
         assert (second["removed"], second["deleted"]) == (1, 1)
         assert not self.film.exists()
 
-    def test_its_items_go_with_a_second_sync_too(self, conn, mock_plex):
+    def test_its_items_go_with_a_sync_an_hour_later_too(self, conn, mock_plex, freezer):
         assert self._engine(conn, mock_plex, ["2"]).sync_library()["removed"] == 0
+        freezer.tick(_HOUR)
         assert self._engine(conn, mock_plex, ["2"]).sync_library()["removed"] == 1
 
         assert self._ids(conn) == {"20"}
 
-    def test_one_listed_again_in_between_starts_over(self, conn, mock_plex):
-        for listed in (["2"], ["1", "2"], ["2"]):
-            self._engine(conn, mock_plex, listed).run_scan()
+    @pytest.mark.parametrize("run", ["sync_library", "run_scan"])
+    def test_its_items_stay_however_many_runs_find_it_gone_within_the_hour(
+        self, conn, mock_plex, freezer, run
+    ):
+        for _ in range(3):
+            getattr(self._engine(conn, mock_plex, ["2"]), run)()
+            freezer.tick(timedelta(minutes=29))
 
         assert self._ids(conn) == {"10", "20"}
         assert self.film.exists()
 
-    def test_an_empty_list_in_between_is_not_a_run_that_finds_it_gone(self, conn, mock_plex):
+    def test_a_run_begun_within_the_hour_does_not_confirm_it_however_long_it_takes(
+        self, conn, mock_plex, freezer
+    ):
         self._engine(conn, mock_plex, ["2"]).run_scan()
+        freezer.tick(timedelta(minutes=30))
+        engine = self._engine(conn, mock_plex, ["2"])
+        mock_plex.get_watch_history.side_effect = lambda key: freezer.tick(_HOUR) and []
+
+        engine.run_scan()
+
+        assert self._ids(conn) == {"10", "20"}
+
+    def test_the_hour_begins_when_the_run_that_first_found_it_gone_says_so(
+        self, conn, mock_plex, freezer
+    ):
+        engine = self._engine(conn, mock_plex, ["2"])
+        mock_plex.get_watch_history.side_effect = lambda key: freezer.tick(_HOUR) and []
+        engine.run_scan()
+        mock_plex.get_watch_history.side_effect = None
+
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+
+        assert self._ids(conn) == {"10", "20"}
+
+    @pytest.mark.parametrize(
+        "stored",
+        [
+            "",
+            "not json",
+            "5",
+            "[1]",
+            "{}",
+            '{"1": 5}',
+            '{"x": "2020-01-01"}',
+            '{"1": "2099-01-01"}',
+        ],
+    )
+    def test_a_record_that_cannot_be_read_is_a_first_look(self, conn, mock_plex, freezer, stored):
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('gone_libraries', ?, '2026')",
+            (stored,),
+        )
+        conn.commit()
+
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+        assert self._ids(conn) == {"10", "20"}
+
+        freezer.tick(_HOUR)
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+        assert self._ids(conn) == {"20"}
+
+    def test_nobody_can_write_between_the_read_and_the_write_of_when_it_was_found_gone(
+        self, conn, db_path, mock_plex, monkeypatch
+    ):
+        other = sqlite3.connect(db_path, timeout=0, isolation_level=None)
+        real, refused = engine_module.fetch_gone_library_ids, []
+
+        def reading(*args):
+            try:
+                other.execute("DELETE FROM settings WHERE key = 'gone_libraries'")
+            except sqlite3.OperationalError as exc:
+                refused.append(str(exc))
+            return real(*args)
+
+        monkeypatch.setattr(engine_module, "fetch_gone_library_ids", reading)
+
+        self._engine(conn, mock_plex, ["2"]).sync_library()
+
+        assert refused == ["database is locked"]
+
+    def test_one_listed_again_in_between_starts_over(self, conn, mock_plex, freezer):
+        for listed in (["2"], ["1", "2"], ["2"]):
+            self._engine(conn, mock_plex, listed).run_scan()
+            freezer.tick(_HOUR)
+
+        assert self._ids(conn) == {"10", "20"}
+        assert self.film.exists()
+
+    def test_an_empty_list_in_between_is_not_a_run_that_finds_it_gone(
+        self, conn, mock_plex, freezer
+    ):
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+        freezer.tick(_HOUR)
         self._engine(conn, mock_plex, []).run_scan()
 
         assert self._ids(conn) == {"10", "20"}
         assert self.film.exists()
 
-    def test_a_keep_of_its_item_still_keeps_the_file(self, conn, mock_plex):
+    def test_a_keep_of_its_item_still_keeps_the_file(self, conn, mock_plex, freezer):
         insert_scheduled_action(
             conn,
             media_item_id="10",
@@ -713,13 +892,17 @@ class TestGoneLibrary:
 
         for _ in range(2):
             self._engine(conn, mock_plex, ["2"]).run_scan()
+            freezer.tick(_HOUR)
 
         assert self._ids(conn) == {"20"}
         assert self.film.exists()
 
-    def test_a_library_plex_still_lists_keeps_its_hold_though_unticked(self, conn, mock_plex):
+    def test_a_library_plex_still_lists_keeps_its_hold_though_unticked(
+        self, conn, mock_plex, freezer
+    ):
         for _ in range(2):
             self._engine(conn, mock_plex, ["1", "2"]).run_scan()
+            freezer.tick(_HOUR)
 
         assert self._ids(conn) == {"10", "20"}
         assert self.film.exists()
@@ -733,13 +916,16 @@ class TestGoneLibrary:
         assert "10" in self._ids(conn)
         assert self.film.exists()
 
-    def test_a_dry_run_prunes_nothing(self, conn, mock_plex):
+    def test_a_dry_run_prunes_nothing(self, conn, mock_plex, freezer):
         for _ in range(2):
             self._engine(conn, mock_plex, ["2"], dry_run=True).run_scan()
+            freezer.tick(_HOUR)
 
         assert self._ids(conn) == {"10", "20"}
 
-    def test_a_large_one_goes_only_when_a_second_run_finds_it_gone_too(self, conn, mock_plex):
+    def test_a_large_one_goes_only_when_a_run_an_hour_later_finds_it_gone_too(
+        self, conn, mock_plex, freezer
+    ):
         for n in range(11, 20):
             insert_media_item(conn, id=f"{n}", plex_rating_key=f"{n}", plex_library_id=1)
         conn.commit()
@@ -748,6 +934,377 @@ class TestGoneLibrary:
         assert len(self._ids(conn)) == 11
         assert self.film.exists()
 
+        freezer.tick(_HOUR)
         self._engine(conn, mock_plex, ["2"]).run_scan()
         assert "10" not in self._ids(conn)
         assert not self.film.exists()
+
+
+class TestTwinInAGoneLibrary:
+    """A due title of library 2 and a kept one of library 1 may be one; Plex lists 1 no more."""
+
+    @pytest.fixture(autouse=True)
+    def _library(self, conn, tmp_path, monkeypatch, freezer):
+        freezer.move_to(datetime(2026, 11, 24, 12, tzinfo=UTC))
+        monkeypatch.setattr(
+            "mediaman.scanner.engine._refresh_recommendations", lambda *a, **k: None
+        )
+        monkeypatch.setattr("mediaman.scanner.engine._send_newsletter", lambda **k: None)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            """VALUES ('plex_libraries', '["1", "2"]', '2026')"""
+        )
+        self.due, self.twin = tmp_path / "Two" / "film.mkv", tmp_path / "One" / "film.mkv"
+        TestScanWithOneBadLibrary._due(conn, "20", self.due, 2)
+        insert_media_item(
+            conn, id="10", plex_rating_key="10", plex_library_id=1, file_path=str(self.twin)
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="10",
+            action="protected_forever",
+            token="tok-10",
+            execute_at=None,
+            token_used=True,
+        )
+        conn.commit()
+
+    def _twins(self, conn, by):
+        if by == "ids":
+            conn.execute("UPDATE media_items SET tmdb_id = 7")
+        elif by == "file":
+            conn.execute(
+                "UPDATE media_items SET tracked_files = ? WHERE id = '10'",
+                (json.dumps([{"path": str(self.due), "size": 4}]),),
+            )
+        elif by == "film and season":
+            conn.execute("UPDATE media_items SET tmdb_id = 7")
+            conn.execute("UPDATE media_items SET media_type = 'tv_season' WHERE id = '10'")
+        conn.commit()
+
+    def _scan(self, conn, mock_plex, listed=("2",), library_ids=("2",), **kwargs):
+        item = TestScanWithOneBadLibrary._item("20", self.due)
+        tmdb_id = conn.execute("SELECT tmdb_id FROM media_items WHERE id = '20'").fetchone()
+        item["tmdb_id"] = tmdb_id[0] if tmdb_id else None
+        own = {**item, "plex_rating_key": "10", "file_path": str(self.twin), "tracked_files": []}
+        mock_plex.get_movie_items.side_effect = lambda lib: [item if lib == "2" else own]
+        return ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=list(library_ids),
+            library_types=dict.fromkeys(listed, "movie"),
+            secret_key="test-key",
+            **kwargs,
+        ).run_scan()
+
+    @pytest.mark.parametrize("library_ids", [["2"], ["1", "2"]], ids=["unticked", "ticked"])
+    def test_it_waits_and_is_kept_once_the_library_is_confirmed_gone(
+        self, conn, mock_plex, freezer, library_ids
+    ):
+        self._twins(conn, "ids")
+
+        self._scan(conn, mock_plex, library_ids=library_ids)
+        assert TestScanWithOneBadLibrary._scheduled(conn) == {"20"}
+        freezer.tick(_HOUR)
+        self._scan(conn, mock_plex, library_ids=library_ids)
+
+        assert self.due.exists()
+        assert TestScanWithOneBadLibrary._scheduled(conn) == set()
+
+    def test_one_that_shares_a_file_waits(self, conn, mock_plex):
+        self._twins(conn, "file")
+
+        self._scan(conn, mock_plex)
+
+        waits = conn.execute(
+            "SELECT action FROM audit_log WHERE media_item_id = '20' ORDER BY id"
+        ).fetchall()
+        assert [row[0] for row in waits] == ["delete_awaiting_scan"]
+
+    def test_the_wait_is_told_once(self, conn, mock_plex):
+        self._twins(conn, "ids")
+
+        for _ in range(2):
+            self._scan(conn, mock_plex)
+
+        told = conn.execute(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'delete_awaiting_scan'"
+        ).fetchone()
+        assert told[0] == 1
+
+    def test_a_dry_run_does_not_list_it(self, conn, mock_plex):
+        self._twins(conn, "ids")
+
+        self._scan(conn, mock_plex, dry_run=True)
+
+        assert not conn.execute("SELECT 1 FROM audit_log WHERE action = 'dry_run_skip'").fetchone()
+
+    @pytest.mark.parametrize("by", ["nothing", "film and season"])
+    def test_one_that_is_another_title_is_deleted(self, conn, mock_plex, by):
+        self._twins(conn, by)
+
+        self._scan(conn, mock_plex)
+
+        assert not self.due.exists()
+
+    def test_it_is_deleted_once_the_library_is_listed_again(self, conn, mock_plex, freezer):
+        self._twins(conn, "ids")
+        both = ["1", "2"]
+        self._scan(conn, mock_plex, listed=both, library_ids=both, dry_run=True)
+        self._scan(conn, mock_plex)
+        assert self.due.exists()
+
+        freezer.tick(60)
+        self._scan(conn, mock_plex, listed=both, library_ids=both)
+
+        assert not self.due.exists()
+
+    def test_a_folder_that_holds_it_waits_too(self, conn, mock_plex, tmp_path):
+        self._twins(conn, "ids")
+        outer = self.due.parent / "other.mkv"
+        TestScanWithOneBadLibrary._due(conn, "21", outer, 2)
+        conn.execute("UPDATE media_items SET file_path = ? WHERE id = '21'", (str(outer.parent),))
+        conn.commit()
+
+        from mediaman.scanner.deletions import DeletionExecutor
+
+        DeletionExecutor(conn=conn).execute(gone_libraries=[1])
+
+        assert (self.due.exists(), outer.exists()) == (True, True)
+        told = conn.execute("SELECT action FROM audit_log WHERE media_item_id = '21'").fetchall()
+        assert [row[0] for row in told] == ["delete_awaiting_scan"]
+
+
+class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
+    """Plex lists library 1 no more; a due title of 2 or 4 has a file of a kept one of 1."""
+
+    @pytest.fixture(autouse=True)
+    def _library(self, conn, tmp_path, monkeypatch, freezer):
+        freezer.move_to(datetime(2026, 11, 24, 12, tzinfo=UTC))
+        monkeypatch.setattr(
+            "mediaman.scanner.engine._refresh_recommendations", lambda *a, **k: None
+        )
+        monkeypatch.setattr("mediaman.scanner.engine._send_newsletter", lambda **k: None)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            """VALUES ('plex_libraries', '["2", "4"]', '2026')"""
+        )
+        conn.commit()
+        self.folder = tmp_path / "Title"
+        self.folder.mkdir()
+        self.listed = {"2": [], "4": []}
+
+    def _file(self, name):
+        file = self.folder / name
+        file.write_bytes(b"data")
+        return file
+
+    def _store(self, conn, key, library, path, files, **fields):
+        """Store what Plex listed as *key*; in library 1 it is kept, elsewhere due and still listed."""
+        tracked = [{"path": str(file), "size": 4} for file in files]
+        insert_media_item(
+            conn,
+            id=key,
+            plex_rating_key=key,
+            plex_library_id=library,
+            file_path=str(path),
+            **fields,
+        )
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = ?", (json.dumps(tracked), key)
+        )
+        if library == 1:
+            return
+        insert_scheduled_action(
+            conn,
+            media_item_id=key,
+            action="scheduled_deletion",
+            token=f"tok-{key}",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="pending",
+        )
+        item = TestScanWithOneBadLibrary._item(key, path) | {"tracked_files": tracked}
+        if "season_number" in fields:
+            item |= {"show_title": key, **fields}
+            del item["media_type"]
+        self.listed[str(library)].append(item)
+
+    @staticmethod
+    def _keep(conn, key):
+        insert_scheduled_action(
+            conn,
+            media_item_id=key,
+            action="protected_forever",
+            token=f"keep-{key}",
+            execute_at=None,
+            token_used=True,
+        )
+
+    def _scan_four_times(self, conn, mock_plex, freezer, *, ticked=("2", "4"), lists_1=False):
+        """Scan the *ticked* libraries; Plex lists 2 and 4, and 1 with no title if *lists_1*."""
+        mock_plex.get_movie_items.side_effect = lambda library: self.listed.get(library, [])
+        mock_plex.get_show_seasons.side_effect = self.listed.__getitem__
+        conn.execute(
+            "UPDATE settings SET value = ? WHERE key = 'plex_libraries'", (json.dumps(ticked),)
+        )
+        conn.commit()
+        for _ in range(4):
+            ScanEngine(
+                conn=conn,
+                plex_client=mock_plex,
+                library_ids=list(ticked),
+                library_types={"2": "movie", "4": "show"} | ({"1": "movie"} if lists_1 else {}),
+                secret_key="test-key",
+            ).run_scan()
+            freezer.tick(timedelta(hours=2))
+
+    @staticmethod
+    def _schedule(conn, key):
+        insert_scheduled_action(
+            conn,
+            media_item_id=key,
+            action="scheduled_deletion",
+            token=f"due-{key}",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="pending",
+        )
+
+    def test_the_own_due_deletion_of_one_plex_lists_no_more_in_a_listed_library_is_not_carried_out(
+        self, conn, mock_plex, freezer
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(
+            conn, "10", 1, own, [own, shared], last_watched_at=datetime.now(UTC) - timedelta(days=1)
+        )
+        self._schedule(conn, "10")
+        self._store(conn, "20", 2, other, [other, shared])
+        conn.commit()
+        freezer.tick(60)
+
+        self._scan_four_times(conn, mock_plex, freezer, ticked=("1", "2", "4"), lists_1=True)
+
+        assert own.exists()
+        assert not conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
+
+    @pytest.mark.parametrize("ticked", [("2", "4"), ("1", "2", "4")], ids=["unticked", "ticked"])
+    @pytest.mark.parametrize("held_by", ["keep", "watch"])
+    def test_the_own_due_deletion_of_one_held_in_a_gone_library_is_not_carried_out(
+        self, conn, mock_plex, freezer, ticked, held_by
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        watched = datetime.now(UTC) - timedelta(days=1) if held_by == "watch" else None
+        self._store(conn, "10", 1, own, [own, shared], last_watched_at=watched)
+        self._schedule(conn, "10")
+        if held_by == "keep":
+            insert_kept_show(
+                conn, show_rating_key="s1", show_title="Title", action="protected_forever"
+            )
+            conn.execute("UPDATE media_items SET show_rating_key = 's1' WHERE id = '10'")
+        self._store(conn, "20", 2, other, [other, shared])
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer, ticked=ticked)
+
+        assert conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
+        assert (own.exists(), shared.exists()) == (True, True)
+
+    def test_a_deletion_that_waits_for_a_kept_title_of_a_gone_library_says_so(
+        self, conn, mock_plex, freezer
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(conn, "10", 1, own, [own, shared])
+        self._store(conn, "20", 2, other, [other, shared])
+        self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        said = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = '20' "
+            "AND action = 'delete_awaiting_scan'"
+        ).fetchall()
+        assert len(said) == 1
+        assert "is kept" in said[0][0]
+        assert "certain" not in said[0][0]
+
+    @pytest.mark.parametrize("kept", [True, False])
+    def test_a_file_of_a_kept_film_stays_though_a_film_with_other_files_has_it_too(
+        self, conn, mock_plex, freezer, kept
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(conn, "10", 1, own, [own, shared])
+        self._store(conn, "20", 2, other, [other, shared])
+        if kept:
+            self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert shared.exists() is kept
+
+    def test_a_file_of_a_film_watched_lately_stays_until_the_watch_is_too_long_ago(
+        self, conn, mock_plex, freezer
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(
+            conn, "10", 1, own, [own, shared], last_watched_at=datetime.now(UTC) - timedelta(days=1)
+        )
+        self._store(conn, "20", 2, other, [other, shared])
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+        assert shared.exists()
+
+        freezer.tick(timedelta(days=40))
+        self._scan_four_times(conn, mock_plex, freezer)
+        assert not shared.exists()
+
+    @pytest.mark.parametrize("kept", ["season", "show"])
+    def test_the_files_of_a_kept_season_stay_though_listed_as_another_season(
+        self, conn, mock_plex, freezer, kept
+    ):
+        episode = self._file("E1.mkv")
+        season = {"media_type": "tv_season", "show_title": "Title"}
+        self._store(
+            conn, "10", 1, self.folder, [episode], season_number=1, show_rating_key="s1", **season
+        )
+        self._store(
+            conn, "20", 4, self.folder, [episode], season_number=2, show_rating_key="s2", **season
+        )
+        if kept == "show":
+            insert_kept_show(
+                conn, show_rating_key="s1", show_title="Title", action="protected_forever"
+            )
+        else:
+            self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert episode.exists()
+
+    def test_the_file_of_a_kept_film_stays_though_listed_as_a_season(
+        self, conn, mock_plex, freezer
+    ):
+        film = self._file("film.mkv")
+        self._store(conn, "10", 1, film, [film])
+        self._store(
+            conn,
+            "20",
+            4,
+            self.folder,
+            [film],
+            media_type="tv_season",
+            season_number=1,
+            show_rating_key="s2",
+        )
+        self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert film.exists()

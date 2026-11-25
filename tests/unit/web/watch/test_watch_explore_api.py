@@ -165,8 +165,8 @@ class TestExplore:
         ]
 
     def test_films_and_tv_in_an_order_go_on_from_where_a_page_ended(self, viewer, tmdb):
-        tmdb["/discover/movie"] = _movies(*range(1, 26))
-        tmdb["/discover/tv"] = _movies(30)
+        tmdb["/discover/movie"] = _movies(*range(1, 46))
+        tmdb["/discover/tv"] = _movies(90)
 
         def page(sort, **at):
             params = {"genre": "action", "sort": sort, **at}
@@ -176,8 +176,8 @@ class TestExplore:
         first, next_page, after = page("newest", after="")
         rest, *end = page("newest", after=after)
 
-        assert (len(first), next_page) == (20, None)
-        assert len({c["ref"] for c in first + rest}) == 26
+        assert (len(first), next_page) == (40, None)
+        assert len({c["ref"] for c in first + rest}) == 46
         assert end == [None, None]
         # As long a place as there is.
         assert viewer.get(
@@ -189,7 +189,7 @@ class TestExplore:
             },
         ).is_success
         # By page, and where there is no order to keep, as ever.
-        assert len(page("newest")[0]) == len(page("popular", after="")[0]) == 26
+        assert len(page("newest")[0]) == len(page("popular", after="")[0]) == 46
         assert page("popular", after="")[2] is None
 
     @pytest.mark.parametrize(
