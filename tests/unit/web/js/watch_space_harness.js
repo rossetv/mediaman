@@ -1158,6 +1158,7 @@ const scenarios = {
     };
     return {
       done: await of({ running: false }),
+      leftOut: await of({ running: false, status: 'done', reason: 'Left out: <b>TV</b> could not be read.' }),
       stale: await of({ running: false }, null, { '/api/dashboard': 'down' }),
       skipped: await of({ running: false, status: 'skipped', reason: 'Plex not configured' }),
       error: await of({ running: false, status: 'error', reason: 'see the server log' }),
@@ -1179,6 +1180,7 @@ const scenarios = {
         link: p.one('#space-scan-status a') ? p.one('#space-scan-status a').href : null, toasts: p.toasts.length, enabled: !b.hasAttribute('aria-disabled'), focused: p.doc.activeElement === b };
     };
     return {
+      leftOut: await of({ running: false, status: 'done', reason: 'Left out: <b>TV</b> could not be read.' }),
       skipped: await of({ running: false, status: 'skipped', reason: 'Plex not configured' }),
       error: await of({ running: false, status: 'error', reason: 'see the server log for details' }),
       notStarted: await of({}, { 'scan/trigger': 'Too many scan triggers' }),

@@ -1689,21 +1689,24 @@
     tellClosed(reason, opts.retry ? 'error' : undefined);
   }
 
-  function scanDone() {
-    var took = 'Finished in ' + elapsed();
+  /* *reason*: what the scan left out, if anything; that stays until the next one. */
+  function scanDone(reason) {
+    var took = 'Finished in ' + elapsed() + (reason ? '. ' + String(reason).replace(/\.$/, '') : '');
+    var look = reason ? '' : 'success';
     scanBusy(false);
     scan.classList.add('is-success');
     scanLabel('Scan complete', 'i-check');
-    scanSays(took, 'ok');
-    live.textContent = 'Scan ' + took.toLowerCase();
+    scanSays(took, reason ? '' : 'ok');
+    var said = 'Scan ' + took.replace('F', 'f');
+    live.textContent = said;
     tellList();
     refresh().then(function () {
-      tellClosed('Scan ' + took.toLowerCase(), 'success');
-      lingerTimer = setTimeout(function () { scanSays(IDLE); }, STATUS_LINGER_MS);
+      tellClosed(said, look);
+      if (!reason) lingerTimer = setTimeout(function () { scanSays(IDLE); }, STATUS_LINGER_MS);
     }, function () {
       var late = '. Refresh the page to see the results.';
-      tellClosed('Scan ' + took.toLowerCase() + late, 'success');
-      scanSays(took + late, 'ok');
+      tellClosed(said + late, look);
+      scanSays(took + late, reason ? '' : 'ok');
     }).then(function () {
       setTimeout(function () {
         scan.classList.remove('is-success');
@@ -1731,7 +1734,7 @@
         } else if (data.status === 'error') {
           scanStopped('Scan failed: ' + (data.reason || 'unknown error'), { retry: true });
         } else {
-          scanDone();
+          scanDone(data.reason);
         }
       }).catch(function () {
         fails += 1;

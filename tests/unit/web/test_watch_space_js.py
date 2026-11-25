@@ -4,6 +4,7 @@ panel, with what it keeps, clears, scans and downloads again."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from functools import cache
 from pathlib import Path
@@ -632,10 +633,17 @@ class TestScan:
         assert out["live"] == said
         assert (out["toasts"], out["enabled"], out["focused"]) == (0, True, True)
 
+    def test_a_scan_that_left_a_library_out_says_which_as_text_until_the_next_one(self):
+        out = _run("scanEnds")["leftOut"]
+        said = "inished in 3s. Left out: <b>TV</b> could not be read"
+        assert re.sub(r"\d+s", "3s", out["said"]) == "F" + said
+        assert re.sub(r"\d+s", "3s", out["live"]) == "Scan f" + said
+
     @pytest.mark.parametrize(
         ("end", "said", "look"),
         [
             ("done", "Scan finished in Ns", "success"),
+            ("leftOut", "Scan finished in Ns. Left out: <b>TV</b> could not be read", ""),
             ("stale", "Scan finished in Ns. Refresh the page to see the results.", "success"),
             ("skipped", "Scan skipped: Plex is not configured", ""),
             ("error", "Scan failed: see the server log", "error"),
