@@ -267,3 +267,30 @@ def test_a_category_tile_s_drawing_takes_the_system_colour_in_forced_colours() -
     ):
         rules = _of(selector, FORCED, search)
         assert "color: CanvasText" in rules and "forced-color-adjust: auto" in rules
+
+
+BAR = SHEET.with_name("_watch_search.css")
+CONTROLS = ":is(a, button, input, select, textarea, [tabindex])"
+
+
+def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scroll_it() -> None:
+    css = BAR.read_text(encoding="utf-8")
+    rules = re.findall(r"([^{}]*)\{ scroll-margin-top: [^}]*\}", css)
+    page = [r.strip() for r in rules if CONTROLS in r]
+    assert len(page) == 2
+    for selector in page:
+        assert selector.endswith(':not(.watch-all__head *, [role="menu"] *)')
+    sticky = {
+        head.strip()
+        for sheet in SHEET.parent.glob("_watch*.css")
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", sheet.read_text(encoding="utf-8"))
+        if "position: sticky" in body
+    }
+    # The bar of a title's overlay is in #watch-detail, which the rule leaves out.
+    assert sticky == {".watch-all__head", ".ttl__bar"}
+
+
+def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
+    assert "scroll-margin-top: var(--nav-h)" in _of("#main-content", sheet=BAR)
+    narrow = _of("#main-content", "(max-width: 1099.98px)", BAR)
+    assert "scroll-margin-top: calc(var(--nav-h) + 54px)" in narrow

@@ -46,6 +46,9 @@
 .wbar .profile-btn-name { display: none; }
 .wbar .watch-viewtoggle__btn { min-height: 40px; padding: 0 14px; }
 
+/* Where the skip link goes. */
+#main-content { scroll-margin-top: var(--nav-h); }
+
 /* The field stands in the middle and grows over the page: a little under the pointer, wide
    and tall with the focus. It is drawn at its full size and cut down to the one it has:
    --dl, --dr and --db are what is cut off its left, right and bottom. */
@@ -215,8 +218,9 @@
   .wbar.is-tucked::before { clip-path: inset(0 0 var(--line)); }
   .wbar.is-tucked .watch-search { opacity: 0; transform: translateY(-14px); }
   .wbar.is-tucked .watch-search * { pointer-events: none; }
+  #main-content { scroll-margin-top: calc(var(--nav-h) + 54px); }
   /* On the page alone: padding on the whole would scroll it for the focus in the bar too. */
-  .watch-page > :not(#watch-detail) :is(a, button, input, select, textarea, [tabindex]) { scroll-margin-top: 114px; }
+  .watch-page > :not(#watch-detail) :is(a, button, input, select, textarea, [tabindex]):not(.watch-all__head *, [role="menu"] *) { scroll-margin-top: 114px; }
 }
 @media (max-width: 699.98px) {
   .wbar { --nav-h: 48px; display: flex; gap: 4px; }
@@ -234,7 +238,8 @@
 /* Little height: the bar goes with the page. */
 @media (max-height: 500px) {
   .wbar { position: relative; }
-  .watch-page > :not(#watch-detail) :is(a, button, input, select, textarea, [tabindex]) { scroll-margin-top: 0; }
+  #main-content { scroll-margin-top: 0; }
+  .watch-page > :not(#watch-detail) :is(a, button, input, select, textarea, [tabindex]):not(.watch-all__head *, [role="menu"] *) { scroll-margin-top: 0; }
   .watch-page .watch-all { min-height: 100vh; min-height: 100dvh; }
   .watch-page .watch-all__head { top: 0; }
 }
