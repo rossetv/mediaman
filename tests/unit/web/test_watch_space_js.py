@@ -151,6 +151,10 @@ class TestStorage:
         assert out["focused"].startswith("TV Shows, ")
         assert out["pressed"] == "false"
 
+    def test_a_heavy_title_says_when_it_leaves_past_its_date_any_day(self):
+        said = ["Leaving any day", "Leaving today", "1 day left", "2 days left"]
+        assert _run("heavyLeaving") == said
+
     def test_a_pinned_list_stays_whatever_the_pointer_does_until_pressed_again(self):
         assert _run("pinned") == {"held": "Big", "left": "list", "again": ALL}
 
@@ -294,12 +298,9 @@ class TestScheduled:
         assert out["links"] == ["movie-1", "movie-2", "movie-3", None]
         assert out["name"] == "Keep Show, Season 2"
 
-    def test_an_overdue_row_says_what_holds_it_and_no_other_row_s_reason(self):
-        assert _run("overdue") == {
-            "missing": ["Due, but a folder was missing", "Due, the next scan will try"],
-            "dry": ["Due, but dry run is on"] * 2,
-            "off": ["Due, but deletions are off"] * 2,
-        }
+    def test_a_row_past_its_date_says_the_words_the_server_gave_it(self):
+        said = ["Leaving any day, the next scan will try", "Due, but a folder was missing"]
+        assert _run("overdue") == {"plain": said, "dry": said, "off": said}
 
     def test_a_keep_takes_the_row_off_everywhere_moves_to_the_next_and_undo_puts_it_back(self):
         out = _run("keepAndUndo")

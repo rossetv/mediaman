@@ -495,6 +495,8 @@ class TestScheduled:
             "4": "deleting",
             "6": "overdue",
         }
+        # Being carried out, not merely due: no keep can save it, so it is not "leaving".
+        assert next(i for i in items if i["media_item_id"] == "6")["countdown"].startswith("Due")
         row = pending_deletions(conn, scanned_library_ids(conn))
         assert summary == {
             "total": 5,
@@ -519,7 +521,7 @@ class TestScheduled:
         items = get("/api/dashboard/scheduled")["items"]
 
         assert [(i["ref"], i["season_number"], i["days_left"]) for i in items] == [
-            ("movie-10", None, 0),
+            ("movie-10", None, -1),
             ("show-900", 3, 5),
             (None, 3, 6),
             (None, None, 7),
@@ -546,7 +548,11 @@ class TestScheduled:
         [
             ({}, "", {"Due, but deletions are off"}),
             ({"dry_run": "true"}, "/media", {"Due, but dry run is on"}),
-            ({}, "/media", {"Due, but a folder was missing", "Due, the next scan will try"}),
+            (
+                {},
+                "/media",
+                {"Due, but a folder was missing", "Leaving any day, the next scan will try"},
+            ),
         ],
     )
     def test_a_title_past_its_date_says_what_holds_it(

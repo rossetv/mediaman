@@ -102,7 +102,7 @@
     return plural(Math.floor(days / by[0]), by[1]) + ' ago';
   }
 
-  function daysLeft(n) { return n <= 0 ? 'Leaving today' : n === 1 ? '1 day left' : n + ' days left'; }
+  function daysLeft(n) { return n < 0 ? 'Leaving any day' : n === 0 ? 'Leaving today' : n === 1 ? '1 day left' : n + ' days left'; }
 
   function withSeason(title, season) {
     if (season === null || season === undefined) return title;
@@ -1198,13 +1198,7 @@
 
   var KINDS = { movie: 'Movie', anime: 'Anime', anime_season: 'Anime' };
 
-  function whenOf(item) {
-    if (item.state === 'deleting') return 'Being deleted now';
-    if (item.state !== 'overdue') return item.countdown;
-    return stats.deletions_off ? 'Due, but deletions are off'
-      : stats.dry_run ? 'Due, but dry run is on'
-      : item.waiting_folder ? 'Due, but a folder was missing' : 'Due, the next scan will try';
-  }
+  function whenOf(item) { return item.state === 'deleting' ? 'Being deleted now' : item.countdown; }
 
   function scheduledRow(item) {
     var li = el('li', 'space-item');
