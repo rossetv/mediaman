@@ -321,6 +321,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .cry-ghost { position: absolute !important; z-index: 4; margin: 0; opacity: 1 !important; transform: none !important; pointer-events: none; }
 .cry-move { transform-origin: 0 0 !important; will-change: transform, opacity; }
 .cry-mark { display: inline-block; }
+/* Its pieces go each their own way: none is cut by the line, and their dots come after them. */
+.ttl.is-carried .ttl__meta { clip-path: none; }
+.ttl.is-carried .ttl__meta > span::before { opacity: var(--cry-dot, 1); }
+.ttl.is-carried .ttl__meta > span:first-child::before { visibility: hidden; }
 .cry-word { display: inline-block; transform-origin: 0 0; white-space: pre; }
 /* Open: the preview's picture shows through the hero until the page's own comes over it. */
 .ttl.is-film .ttl__sheet { background: linear-gradient(var(--s1), var(--s1)) 0 var(--ttl-hero) / 100% 100% no-repeat; }

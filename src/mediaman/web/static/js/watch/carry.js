@@ -124,22 +124,47 @@
     return range.getBoundingClientRect();
   }
 
+  /* The first of *n*'s words that are not blank, or null. */
+  function firstWords(n) {
+    var walk = document.createTreeWalker(n, NodeFilter.SHOW_TEXT);
+    for (var t = walk.nextNode(); t; t = walk.nextNode()) if (/\S/.test(t.data)) return t;
+    return null;
+  }
+
+  /* Where the words of *n* start, past an icon and the room beside it. */
+  function wordsLeft(n) {
+    var t = firstWords(n);
+    if (!t) return insideOf(n).left;
+    var range = document.createRange();
+    range.setStart(t, t.data.search(/\S/));
+    range.setEnd(t, t.data.length);
+    return range.getBoundingClientRect().left;
+  }
+
   /* Something that stands on the first line of *n*. */
   function markLine(n) { return n.insertBefore(el('span', 'cry-mark'), n.firstChild); }
 
   /* How far below its top that line is. */
   function baseline(n) { return n.firstChild.getBoundingClientRect().bottom - n.getBoundingClientRect().top; }
 
-  /* Each word of *n* in a box of its own. */
-  function splitWords(n) {
+  /* Each word of *n* in a box of its own; *cls*, if given, for one that stays in the line. */
+  function splitWords(n, cls) {
     var out = [];
     var parts = n.textContent.split(/(\s+)/);
     n.textContent = '';
     parts.forEach(function (s) {
       if (/^\s*$/.test(s)) n.appendChild(document.createTextNode(s));
-      else out.push(n.appendChild(el('span', 'cry-word', s)));
+      else out.push(n.appendChild(el('span', cls || 'cry-word', s)));
     });
     return out;
+  }
+
+  /* Where word *i* of the boxes *pb* stands at the card, scaled by *s*: as far from the word before it
+     on its line as on the page, else where its line is, *home*. *at*: where those before it stand. */
+  function after(pb, onB, at, i, s, home) {
+    var j = i - 1;
+    if (j < 0 || onB[j] !== onB[i]) return home;
+    return { x: pb[j].x + at[j].x + (pb[i].x - pb[j].x) * s - pb[i].x, y: at[j].y + pb[j].y - pb[i].y };
   }
 
   /* The line each box is on. */
@@ -164,6 +189,7 @@
     var o = null;
     var moves = [];
     var undo = [];
+    var late = []; // the page's pieces under its title whose dots come after them
 
     function rect(n) {
       var r = n.getBoundingClientRect();
@@ -191,7 +217,27 @@
     var low = veil.appendChild(el('i'));
     var lines = [[ghost.querySelector('.pv__title'), root.querySelector('.ttl__title')], [ghost.querySelector('.pv__meta'), root.querySelector('.ttl__meta')]];
     lines.forEach(function (q) { q.push(q[0].textContent === q[1].textContent); });
-    var marks = lines[0].slice(0, 2).concat(lines[1].slice(0, 2)).map(markLine);
+    var titleWords = null;
+    var titleSaid = null;
+    if (lines[0][2]) {
+      var named = lines[0][1].textContent;
+      undo.push(function () { lines[0][1].textContent = named; });
+      titleWords = splitWords(lines[0][1]);
+      titleSaid = splitWords(lines[0][0], 'cry-said'); // inline, so that the card's ellipsis stays
+    }
+    var marks = titleWords ? [] : lines[0].slice(0, 2).map(markLine);
+    // Each piece of what the card says under its title in a box of its own, to be found on the page by its words.
+    var metas = toArray(ghost.querySelectorAll('.pv__meta'));
+    metas.forEach(function (line) {
+      toArray(line.querySelectorAll('.pv__grow')).forEach(function (n) {
+        var said = n.textContent.split(' · ');
+        n.textContent = '';
+        said.forEach(function (words, i) {
+          if (i) n.appendChild(el('span', 'cry-piece', ' · '));
+          n.appendChild(el('span', 'cry-piece', words));
+        });
+      });
+    });
     var texts = [['.pv__reason > p', '.ttl__reason > p:not(.ttl__reason-head, .ttl__because)'], ['.pv__text', '.ttl__overview']].map(function (sels) {
       var a = ghost.querySelector(sels[0]);
       var b = root.querySelector(sels[1]);
@@ -236,19 +282,109 @@
     /* It goes between the places *to* and *from*. */
     function out(n, from, to, d) { move(n, Object.assign({ fade: [from, to] }, d)); }
 
-    /* A line of text into the page's: both for a while, if one says more, is cut short or wraps. */
-    function pairText(a, b, alike, inset) {
+    /* Where the line *b*, *inset* px in, stands at the card: on the line *a*, at its size; by
+       their middles for a row of pieces, else by their first lines. */
+    function lineTo(a, b, inset, row) {
+      var s = fontSize(a) / fontSize(b);
       var ra = rect(a);
       var rb = rect(b);
+      var y = row ? ra.y + ra.h / 2 - rb.y - rb.h * s / 2 : ra.y + baseline(a) - baseline(b) * s - rb.y;
+      return { x: ra.x - rb.x - inset * s, y: y, s: s };
+    }
+
+    /* A line of text into the page's that says something else: one after the other. */
+    function pairText(a, b) {
+      var at = lineTo(a, b, 0);
+      move(b, { x: at.x, y: at.y, sx: at.s, sy: at.s, fade: [0.12, 0.32] });
+      move(a, { x1: -at.x, y1: -at.y, s1x: 1 / at.s, s1y: 1 / at.s, fade: [0.12, 0] });
+      return at;
+    }
+
+    /* The title, word by word: those the card shows go where they are on the page at once; one it
+       cuts short comes after, and a line the page has more comes once what is under it has gone by. */
+    function pairWords(a, wa, b, wb) {
+      var frame = rect(a);
       var s = fontSize(a) / fontSize(b);
-      var same = alike && a.scrollWidth <= a.clientWidth + 1 && rb.h < lineHeight(b) * 1.5;
-      var sx = same ? insideOf(a).width / insideOf(b).width : s;
-      var x = ra.x - rb.x - inset * s;
-      var up = baseline(a) - baseline(b) * s;
-      var y = ra.y + up - rb.y;
-      move(b, { x: x, y: y, sx: sx, sy: s, fade: same ? null : alike ? [0.04, 0.18] : [0.1, 0.32] });
-      move(a, { x1: rb.x + inset - ra.x, y1: rb.y - ra.y - up / s, s1x: 1 / sx, s1y: 1 / s, fade: same ? 'gone' : alike ? [0.24, 0.1] : [0.22, 0.02] });
-      return { x: x, y: y };
+      var pa = wa.map(rect);
+      var pb = wb.map(rect);
+      var onB = linesOf(pb);
+      var lhA = lineHeight(a);
+      var lhB = lineHeight(b);
+      var dx = pa[0].x - pb[0].x;
+      var dy = pa[0].y + (pa[0].h - pb[0].h * s) / 2 - pb[0].y;
+      var meta = { from: rect(metas[0]).y, to: rect(lines[1][1]).y };
+      var at = [];
+      var cut = false;
+      pb.forEach(function (r, i) {
+        var q = pa[i];
+        if (q && !onB[i] && q.x + q.w <= frame.x + frame.w + 1) {
+          at[i] = { x: q.x - r.x, y: q.y + (q.h - r.h * s) / 2 - r.y };
+          move(wb[i], { x: at[i].x, y: at[i].y, sx: s, sy: s });
+          move(wa[i], { fade: 'gone', word: true });
+          return;
+        }
+        if (wa[i]) out(wa[i], 0.08, 0, { word: true });
+        cut = true;
+        at[i] = after(pb, onB, at, i, s, { x: dx + (r.x - pb[0].x) * (s - 1), y: dy + onB[i] * (lhA - lhB) });
+        var y = at[i].y;
+        var wait = 0.24;
+        // Not on what is under the title, wherever that is on its way.
+        for (var t = 0; onB[i] && t < 1; t += 0.02) {
+          wait = t + 0.04;
+          if (mix(r.y + y + lhA, r.y + r.h, t) <= mix(meta.from, meta.to, t)) break;
+        }
+        move(wb[i], { x: at[i].x, y: y, sx: s, sy: s, fade: [wait, wait + 0.2], word: true });
+      });
+      // Its ellipsis is the line's.
+      if (cut) out(a, 0.08, 0);
+      return { x: dx, y: dy };
+    }
+
+    /* What is said under the title, piece by piece: a piece the card says too comes from where it
+       says it, in its place; the rest of the card's go, and the rest of the page's come after them. */
+    function pairPieces(b, line) {
+      var had = [];
+      metas.forEach(function (m) {
+        toArray(m.children).forEach(function (n) {
+          if (n.classList.contains('pv__grow')) had = had.concat(toArray(n.children));
+          else had.push(n);
+        });
+      });
+      had = had.filter(shown);
+      var pieces = toArray(b.children).filter(shown);
+      var rows = linesOf(pieces.map(rect));
+      var next = 0;
+      pieces.forEach(function (n, k) {
+        var words = n.textContent.trim();
+        // In the card's order on the same row, from the first: one out of it would cross the rest on its way.
+        var a = next >= 0 ? had.filter(function (h, i) { return i >= next && h.textContent.trim() === words && words && metas.indexOf(h.closest('.pv__meta')) === rows[k]; })[0] : null;
+        if (words && !a) next = -1;
+        if (!a) {
+          move(n, { x: line.x, y: line.y, fade: [0.3, 0.6] });
+          return;
+        }
+        next = had.indexOf(a);
+        had.splice(next, 1);
+        // Its dot is there at once where the card's was, else it comes after.
+        if (!dotted(a)) late.push(n);
+        var ia = insideOf(a);
+        var ib = insideOf(n);
+        var rb = rect(n);
+        var s = fontSize(a) / fontSize(n);
+        var ax = ia.left - o.left;
+        var bx = ib.left - o.left;
+        var ay = ia.top - o.top + ia.height / 2;
+        var by = ib.top - o.top + ib.height / 2;
+        move(n, { x: ax - rb.x - (bx - rb.x) * s, y: ay - rb.y - (by - rb.y) * s, sx: s, sy: s });
+        move(a, { fade: 'gone' });
+      });
+      had.forEach(function (n) { if (n.textContent === ' · ') move(n, { fade: 'gone' }); else out(n, 0.03, 0); });
+    }
+
+    /* Whether a piece of what the card says has a dot before it. */
+    function dotted(a) {
+      if (a.classList.contains('cry-piece')) return !!a.previousElementSibling || !!a.parentNode.previousElementSibling;
+      return !!a.previousElementSibling && !a.classList.contains('pv__cert');
     }
 
     /* How far inside *b*, moved by *x* and *y* and scaled, *a* stands: top, right, foot and left. */
@@ -261,8 +397,8 @@
     function growPill(a, b) {
       var ra = rect(a);
       var rb = rect(b);
-      var inA = insideOf(a).left - o.left;
-      var inB = insideOf(b).left - o.left;
+      var inA = wordsLeft(a) - o.left;
+      var inB = wordsLeft(b) - o.left;
       var s = fontSize(a) / fontSize(b);
       var x = inA - rb.x - (inB - rb.x) * s;
       var y = ra.y + ra.h / 2 - rb.y - rb.h * s / 2;
@@ -272,24 +408,23 @@
     }
 
     /* A button into the page's: round their middles, so that its words are never squeezed. */
-    function pairPill(a, b, fadeA, fadeB) {
+    function pairPill(a, b, fadeA, fadeB, open) {
       if (!a || !b) return null;
       var ra = rect(a);
       var rb = rect(b);
       var s = ra.h / rb.h;
       var x = ra.x + ra.w / 2 - rb.x - rb.w * s / 2;
       var y = ra.y - rb.y;
-      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), fade: fadeB });
+      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), fade: fadeB, open: open || 0.6 });
       move(a, { x1: rb.x + rb.w / 2 - ra.x - ra.w / s / 2, y1: rb.y - ra.y, s1x: 1 / s, s1y: 1 / s, fade: fadeA });
       return { x: x, y: y };
     }
 
-    var title = pairText(lines[0][0], lines[0][1], lines[0][2], 0);
+    var line = lineTo(lines[1][0], lines[1][1], 17, true);
+    var title = titleWords ? pairWords(lines[0][0], titleSaid, lines[0][1], titleWords) : pairText(lines[0][0], lines[0][1]);
     move(page('.ttl__kind'), { x: title.x, y: title.y, fade: [0.4, 0.85] });
-    var metas = ghost.querySelectorAll('.pv__meta');
-    var line = pairText(lines[1][0], lines[1][1], false, 17);
+    pairPieces(lines[1][1], line);
     move(page('.ttl__tagline'), { x: line.x + 17, y: line.y, fade: [0.65, 0.95] });
-    out(metas[1], 0.25, 0, { x1: -line.x, y1: -line.y });
 
     // With no wide picture, the poster: the card's, on a blur of itself, is the page's, beside the title.
     var poster = page('.ttl__poster.is-loaded');
@@ -309,7 +444,7 @@
       var a = own(sel);
       var by = pairPill(a, b, fadeA, fadeB);
       if (by) paired.push(b);
-      else if (a) out(a, 0.22, 0);
+      else if (a) out(a, 0.04, 0); // gone before the page's pass over it
       return by;
     }
     function act(name) { return page('.ttl__actions > [data-ttl-act="' + name + '"]'); }
@@ -317,33 +452,35 @@
     var go = own('.pv__first');
     var solid = go && !go.matches('.watch-btn--grey, .skel'); // what is under it does not show
     var first;
-    if (solid && main && main.textContent.indexOf(go.textContent) === 0) {
+    if (go && main && !go.matches('.skel') && main.textContent.trim().indexOf(go.textContent.trim()) === 0) {
       paired.push(main);
       first = growPill(go, main);
     } else first = pair('.pv__first', main, solid ? [0.2, 0.1] : [0.25, 0.05], solid ? null : [0.05, 0.25]) || line;
     // Those on its row come out of the card's; the rest keep their places by it.
     var spot = main && go ? { to: rect(main), from: rect(go) } : null;
     function level(b) { return b && (!spot || Math.abs(rect(b).y - spot.to.y) < spot.to.h / 2) ? b : null; }
-    pair('[data-play-on]', level(page('.ttl__actions > .ttl__play-on')), [0.4, 0.15], [0.15, 0.4]);
-    pair('.pv__trailerbtn', level(act('trailer')), [0.45, 0.12], [0.2, 0.5]);
-    pair('.pv__eye', level(act('mark')), [0.45, 0.12], [0.2, 0.5]);
+    // One after the other: the page's words are never under the card's button.
+    pair('[data-play-on]', level(page('.ttl__actions > .ttl__play-on')), [0.2, 0.08], [0.2, 0.45]);
+    pair('.pv__trailerbtn', level(act('trailer')), [0.2, 0.08], [0.2, 0.45]);
+    pair('.pv__eye', level(act('mark')), [0.2, 0.08], [0.2, 0.45]);
     acts.forEach(function (b) {
       if (paired.indexOf(b) >= 0) return;
       var r = rect(b);
       var s = spot ? spot.from.h / spot.to.h : 0.9;
       move(b, {
         x: spot ? spot.from.x + (r.x - spot.to.x) * s - r.x : first.x, y: spot ? spot.from.y + (r.y - spot.to.y) * s - r.y : first.y,
-        sx: s, sy: s, fade: level(b) ? [0.75, 1] : [0.45, 0.8]
+        sx: s, sy: s, fade: level(b) ? [0.9, 1] : [0.45, 0.8] // on its row, once those coming by it have passed
       });
     });
     var set = page('.rate > .rate__set') || page('.ttl__rate-skel > .skel');
-    var rated = pairPill(own('.pv__rate'), set, [0.45, 0.12], [0.2, 0.55]);
+    // One after the other, the page's whole when it is seen: its thumbs are never cut.
+    var rated = pairPill(own('.pv__rate'), set, [0.3, 0.12], [0.3, 0.5], 0.3);
     if (!rated) {
       out(own('.pv__rate'), 0.22, 0);
       move(set, { y: 20, fade: [0.5, 0.85] });
     }
     move(page('.ttl__main .rate__line'), { x: rated ? rated.x : 0, y: rated ? rated.y : 20, fade: [0.5, 0.85] });
-    out(own('[data-preview-more]'), 0.22, 0, { x1: 60, y1: -first.y });
+    out(own('[data-preview-more]'), 0.04, 0); // gone before the rating passes over it
     out(own('.pv__said'), 0.22, 0, { x1: -first.x, y1: -first.y });
     out(own('.pv__progress'), 0.22, 0);
     out(own('.pv__hint'), 0.1, 0, { y1: 10 });
@@ -399,18 +536,21 @@
       var dy = pa[0].y + (pa[0].h - pb[0].h * s) / 2 - pb[0].y;
       by = { x: dx, y: dy };
       var end = frame.y + frame.h + 2;
+      var at = [];
       pb.forEach(function (r, i) {
         function inSight(k) { return pa[k].y + pa[k].h <= end; }
         var seen = inSight(i);
-        var cut = seen && (i === pa.length - 1 || !inSight(i + 1)); // the ellipsis is on it
+        var cut = seen && !t.fits && (i === pa.length - 1 || !inSight(i + 1)); // the ellipsis is on it
         if (seen && !cut && onA[i] === onB[i] && Math.abs(pa[i].x - pa[0].x - (r.x - pb[0].x) * s) < 30) {
-          later.push([wb[i], { x: pa[i].x - r.x, y: pa[i].y + (pa[i].h - r.h * s) / 2 - r.y, sx: s, sy: s }]);
+          at[i] = { x: pa[i].x - r.x, y: pa[i].y + (pa[i].h - r.h * s) / 2 - r.y };
+          later.push([wb[i], { x: at[i].x, y: at[i].y, sx: s, sy: s }]);
           later.push([wa[i], { fade: 'gone', word: true }]);
           return;
         }
         // It changes line: it goes where it was and comes where it will be.
         var wait = seen ? 0.24 : 0.2 + Math.min(0.2, onB[i] * 0.05);
-        later.push([wb[i], { x: dx + (r.x - pb[0].x) * (s - 1), y: dy + onB[i] * (lhA - lhB), sx: s, sy: s, fade: [wait, wait + (seen ? 0.26 : 0.4)], word: true }]);
+        at[i] = after(pb, onB, at, i, s, { x: dx + (r.x - pb[0].x) * (s - 1), y: dy + onB[i] * (lhA - lhB) });
+        later.push([wb[i], { x: at[i].x, y: at[i].y, sx: s, sy: s, fade: [wait, wait + (seen ? 0.26 : 0.4)], word: true }]);
       });
       later.push([a, { x1: pb[0].x - pa[0].x, y1: pb[0].y - pa[0].y, fade: [0.34, 0.1] }]);
     });
@@ -432,7 +572,13 @@
         var to = rect(read).y + rise.y;
         y = from + (to - from) * (r.y - foot) / (rect(read).y - foot) - r.y;
       }
-      move(n, { x: rise.x, y: y, fade: [0.55, 0.9] });
+      // Seen once it is clear of what is read, wherever that is on its way.
+      var wait = 0.55;
+      for (var t = wait; read && t < 1; t += 0.02) {
+        wait = t;
+        if (r.y + r.h + (1 - t) * y <= rect(read).y + (1 - t) * rise.y - 2) break;
+      }
+      move(n, { x: rise.x, y: y, fade: [wait, Math.max(wait + 0.2, 0.9)] });
     });
     move(page('.ttl__main > .ttl-skel-lines'), { x: rise.x, y: rise.y, fade: [0.35, 0.75] });
     move(page('.ttl__credit'), { x: rise.x, y: rise.y + 40, fade: [0.5, 0.85] });
@@ -450,6 +596,7 @@
       sheet.style.setProperty('--cry-clip', 'inset(' + y + 'px ' + (o.width - x - w) + 'px ' + (o.height - y - ht) + 'px ' + x + 'px round 12px)');
       Object.assign(plate.style, { width: w + 'px', height: ht + 'px', transform: 'translate(' + (o.left + x) + 'px,' + (o.top + y) + 'px)' });
       plate.style.setProperty('--cry-at', at);
+      late.forEach(function (n) { n.style.setProperty('--cry-dot', ramp(at, 0.05, 0.3)); });
       dim.style.opacity = at;
       veil.style.opacity = ramp(at, 0.1, 0.9);
 
@@ -485,6 +632,7 @@
     function end(at) {
       root.classList.remove('is-carried');
       sheet.style.removeProperty('--cry-clip');
+      late.forEach(function (n) { n.style.removeProperty('--cry-dot'); });
       dim.style.opacity = '';
       [ghost, plate, shade].concat(marks, underNode || []).forEach(function (n) { n.remove(); });
       moves.forEach(function (q) {
