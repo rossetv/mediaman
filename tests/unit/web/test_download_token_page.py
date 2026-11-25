@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token, validate_poll_token
+from mediaman.services.arr import ArrError
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.media_meta import item_enrichment
 from mediaman.web.routes.download import _tokens as _download_tokens
@@ -1128,6 +1129,51 @@ class TestDownloadPageOfAnOwnPick:
         page = TestClient(_app_with_real_templates(app_factory, conn)).get(f"/download/{token}")
         assert "Dune" in page.text
         assert "AI pick" not in page.text
+
+
+class TestUsedLink:
+    """A used link whose title cannot be read offers no download."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
+        _download_tokens.reset_used_tokens()
+        _download_confirm._reset_arr_cache_for_tests()
+
+    def _page(self, app_factory, conn, token, **radarr):
+        client = TestClient(_app_with_real_templates(app_factory, conn))
+        with patch.object(_download_confirm, "_get_radarr_cache_cached", **radarr):
+            return client.get(f"/download/{token}").text
+
+    def _used(self, app_factory, conn, secret_key):
+        app_factory(download_router, conn=conn)
+        token = _valid_token(secret_key)
+        assert _download_tokens._mark_token_used(token, 4102444800)
+        # As after a restart.
+        _download_tokens.reset_used_tokens()
+        return token
+
+    @pytest.mark.parametrize("radarr", [{"side_effect": ArrError("down")}, {"return_value": {}}])
+    def test_a_used_link_says_so_and_has_no_button(self, app_factory, conn, secret_key, radarr):
+        page = self._page(app_factory, conn, self._used(app_factory, conn, secret_key), **radarr)
+
+        assert "data-dl" not in page.split("<template")[0]
+        assert "used already" in page
+
+    def test_a_used_link_still_shows_what_the_title_is_doing(self, app_factory, conn, secret_key):
+        token = self._used(app_factory, conn, secret_key)
+        held = {"radarr_movies": {42: {"hasFile": False, "monitored": True}}}
+        page = self._page(app_factory, conn, token, return_value=held)
+
+        assert "is-searching" in page and "used already" not in page
+
+    def test_a_link_that_failed_and_was_given_back_offers_its_button(
+        self, app_factory, conn, secret_key
+    ):
+        token = self._used(app_factory, conn, secret_key)
+        _download_tokens._unmark_token_used(token)
+        page = self._page(app_factory, conn, token, side_effect=ArrError("down"))
+
+        assert 'id="btn-download"' in page and "used already" not in page
 
 
 class TestRateLimitedPage:

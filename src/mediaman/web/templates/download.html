@@ -83,6 +83,16 @@
 </div>
 {% endmacro %}
 
+{% macro used() %}
+<div class="share-stack">
+  <div class="watch-actions">
+    <a class="btn btn--lg watch-btn--grey" href="" aria-describedby="dl-used">{{ icon("i-rotate-right") }}Reload this page</a>
+    {% if item.trailer_key %}{{ trailer_button() }}{% endif %}
+  </div>
+  <p class="share-say" id="dl-used">This link has been used already. Reload the page to see where the download is.</p>
+</div>
+{% endmacro %}
+
 {% macro in_library(trailer=False) %}{{ there("Already in the library", "Nothing to download.", trailer=trailer) }}{% endmacro %}
 {% macro tracked(trailer=False) %}{{ there("Already on the list", "There is nothing to download for it right now.", watch=False, trailer=trailer) }}{% endmacro %}
 
@@ -118,6 +128,7 @@
         {% if item.download_state == "in_library" %}{{ in_library(trailer=item.trailer_key) }}
         {% elif item.download_state == "tracked" %}{{ tracked(trailer=item.trailer_key) }}
         {% elif item.download_state == "queued" %}{{ on_its_way(item.notify_by_email) }}
+        {% elif item.download_state == "used" %}{{ used() }}
         {% else %}
         <div class="watch-actions">
           <button type="button" class="btn btn--lg btn--primary" id="btn-download" data-dl>{{ icon("i-download") }}Download{% if season %} {{ season | lower }}{% endif %}</button>
@@ -125,7 +136,7 @@
         </div>
         {% endif %}
       </div>
-      {% if item.download_state not in ("in_library", "tracked", "queued") %}<noscript><p class="share-say">Downloading from this page needs JavaScript, which is switched off here.</p></noscript>{% endif %}
+      {% if item.download_state not in ("in_library", "tracked", "queued", "used") %}<noscript><p class="share-say">Downloading from this page needs JavaScript, which is switched off here.</p></noscript>{% endif %}
       <span class="sr-only" role="status" data-said></span>
     </div></div>
   </section>
@@ -159,7 +170,7 @@
   {% endif %}
 </div>
 
-{% if item.download_state not in ("in_library", "tracked") %}
+{% if item.download_state not in ("in_library", "tracked", "used") %}
 <template data-part="ready">{{ there("Ready to watch", "It shows in the library in a few minutes.") }}</template>
 {% if item.download_state != "queued" %}
 <template data-part="on-its-way">{{ on_its_way(item.notify_by_email) }}</template>
