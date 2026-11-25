@@ -437,10 +437,20 @@ def test_viewing_time_starts_over_after_a_long_gap(manager, clock):
     assert manager.get(second, "alice").elapsed_s == 5
 
 
-def test_tidy_orphans_reports_zero_when_plex_is_down(manager, plex):
+def test_tidy_orphans_reports_zero_when_plex_is_down(manager, plex, caplog):
     plex.unreachable = True
 
-    assert manager.tidy_orphans() == 0
+    with caplog.at_level(logging.WARNING, logger=plex_stream.__name__):
+        assert manager.tidy_orphans() == 0
+    assert caplog.records
+
+
+def test_tidy_orphans_asks_nothing_and_warns_of_nothing_while_plex_is_not_set(plex, caplog):
+    manager = StreamManager(lambda: None, session=plex)
+
+    with caplog.at_level(logging.WARNING, logger=plex_stream.__name__):
+        assert manager.tidy_orphans() == 0
+    assert (caplog.records, plex.calls) == ([], [])
 
 
 def test_whole_lifecycle_writes_nothing_and_sends_the_token_only_in_a_header(manager, plex, clock):

@@ -966,10 +966,14 @@ class StreamManager:
     def tidy_orphans(self) -> int:
         """Stop Plex transcode sessions mediaman started but no longer tracks; return how many.
 
-        Meant for startup, so Plex trouble is logged and reported as 0 rather than raised.
+        Meant for startup, so Plex trouble is logged and reported as 0 rather than raised; while
+        Plex is not set up there is nothing to tidy, and nothing is said.
         """
         try:
             base, token = self._creds()
+        except PlexNotConfigured:
+            return 0
+        try:
             raw = self._get(
                 base,
                 token,
