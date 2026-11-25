@@ -19,6 +19,10 @@
   var PUT_AGAIN_MS = 1500;
   var GIVE_UP_MS = 4000;
   var BROKEN_MS = 45000;
+  var PAUSED_DIM_MS = 300000;
+  var IDLE_DIM_MS = 600000;
+  var MOVE_MS = 60000;
+  var LIT_MS = 500;
 
   var body = document.body;
   var stage = document.getElementById('s');
@@ -510,6 +514,7 @@
     if (mode === 'conn' || mode === 'unpair' || mode === 'taken' || mode === 'code' || mode === 'restarted') mode = 'idle';
     if (!was || was.play_id !== next.play_id) {
       unload();
+      rouse();
       asked = null;
       askNote = stopping = '';
       wanted = !next.paused;
@@ -572,7 +577,7 @@
       if (!play || loaded !== play.play_id) continue;
       try { carryOut(c); } catch (e) { /* This browser cannot. */ }
     }
-    if (did) tell();
+    if (did) { rouse(); tell(); }
   }
   function carryOut(c) {
     if (c.kind === 'play') go();
@@ -853,6 +858,7 @@
       else put('in', nextLine());
     }
     if (play) bar();
+    rest();
   }
   setInterval(tick, 500);
 
@@ -1060,6 +1066,7 @@
     }
     if (name !== shown) {
       shown = name;
+      rouse();
       if (name === 'play' || name === 'pause') wake();
     }
     if (pending) put('cd', codeLine());
@@ -1103,6 +1110,28 @@
     if (node) node.className = hidden && shown === 'play' ? 'ov hide' : 'ov';
   }
 
+  // What plays, waits for a film or counts down; the rest are still pictures.
+  var BRIGHT = { play: 1, buf: 1, load: 1, soon: 1, next: 1, still: 1 };
+  // Where a press meant for the light would start a film, ask for a code, unpair or leave the page.
+  var LIGHT_FIRST = { idle: 1, code: 1, unpair: 1, ended: 1, err: 1, out: 1, press: 1, old: 1, conn: 1 };
+  var stirredAt = now();
+  var litUntil = 0;          // a click until then belongs to the pointer's move that woke the page
+  var litByDown = false;
+
+  /* A page nobody does anything at dims, and its words move a little: a bright still picture marks some screens. */
+  function rest() {
+    var over = now() - stirredAt - (shown === 'pause' ? PAUSED_DIM_MS : IDLE_DIM_MS);
+    var look = over < 0 || BRIGHT[shown] ? '' : 'dim d' + Math.floor(over / MOVE_MS) % 4;
+    if (body.className !== look) body.className = look;
+  }
+  /* Whether the page was dimmed. */
+  function rouse() {
+    var dimmed = body.className !== '';
+    stirredAt = now();
+    rest();
+    return dimmed;
+  }
+
   /* ── keys ── */
 
   function act(what) {
@@ -1130,9 +1159,16 @@
     show();
   }
 
+  /* Whether the press was for the light alone. */
   function pressed() {
     active = true;
     if (codes > 1) codes = 1;
+    return lights();
+  }
+  function lights() { return rouse() && Boolean(LIGHT_FIRST[shown]); }
+  /* A pointer tells of its move before its press. */
+  function pointed() {
+    if (lights()) litUntil = now() + LIT_MS;
   }
 
   function back() {
@@ -1155,8 +1191,8 @@
   }
 
   document.onkeydown = function (e) {
-    var key = e.keyCode, used = true;
-    pressed();
+    var key = e.keyCode, used = true, light = pressed();
+    if (light && (key === 13 || key === 32)) { e.preventDefault(); return; }
     if (shown === 'restarted') act('i');
     else if (MEDIA[key]) media(MEDIA[key]);
     else if (key === 10009 || key === 461 || key === 27 || key === 8) used = back();
@@ -1165,11 +1201,16 @@
       if (buttons.length) focus = Math.max(0, Math.min(buttons.length - 1, focus + (key === 39 ? 1 : -1)));
       paint();
       if (shown === 'play') wake();
-    } else if (key === 13) {
+    } else if (key === 13 || key === 32) {
       if (shown === 'play') wake();
       if (buttons[focus] && !e.repeat) act(buttons[focus][1]);
     } else used = key === 38 || key === 40;
     if (used) e.preventDefault();
+  };
+
+  // Some browsers click at this, whatever became of the press.
+  document.onkeyup = function (e) {
+    if (e.keyCode === 32) e.preventDefault();
   };
 
   function buttonAt(node) {
@@ -1187,9 +1228,15 @@
   }
 
   // A remote that points, or a mouse.
+  document.onmousedown = function () {
+    litByDown = lights() || now() < litUntil;
+  };
   document.onclick = function (e) {
-    pressed();
+    var light = pressed() || litByDown || now() < litUntil;
+    litByDown = false;
+    litUntil = 0;
     if (shown === 'play' && hidden) { wake(); return; }
+    if (light) return;
     var n = buttonAt(e.target);
     if (n < 0) return;
     moveTo(n);
@@ -1201,9 +1248,11 @@
     var at = e.clientX + ' ' + e.clientY;
     if (at === pointedAt) return;
     pointedAt = at;
+    pointed();
     if (shown === 'play') wake();
     moveTo(buttonAt(e.target));
   };
+  document.onwheel = document.onmousewheel = pointed;
   // Tab.
   document.addEventListener('focus', function (e) {
     var n = buttonAt(e.target);

@@ -137,7 +137,24 @@ function tv({ kept = null, plays = true } = {}) {
     left: () => nodes.o.innerHTML,
     leaving: () => nodes.o.held.map((n) => [n.id, n.style]),
     entering: () => nodes.s.className,
+    wheel: () => document.onwheel && document.onwheel({}),
     key: (code) => document.onkeydown({ keyCode: code, preventDefault() {} }),
+    // A browser clicks the button that has the focus as Space is let go, if its press was not prevented.
+    space(repeats = 0) {
+      const at = document.activeElement;
+      let clicks = false;
+      for (let i = 0; i <= repeats; i += 1) document.onkeydown({ keyCode: 32, repeat: i > 0, preventDefault() { clicks = true; } });
+      if (!clicks && at) document.onclick({ target: at });
+    },
+    // A press of a pointer that brings its own move, held for `ms`.
+    async tap(id, x, ms = 0) {
+      const target = document.getElementById(id);
+      document.onmousemove({ target, clientX: x, clientY: 0 });
+      if (document.onmousedown) document.onmousedown({ target });
+      await this.step(ms);
+      document.onclick({ target });
+    },
+    look: () => body.className,
     html: () => nodes.s.innerHTML,
     says: () => nodes.s.innerHTML.replace(/<svg[^>]* aria-label="([^"]*)"[^>]*>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     text: (id) => document.getElementById(id).innerHTML,
@@ -166,7 +183,132 @@ async function playing(more) {
   return t;
 }
 
+const MINUTE = 60000;
+
+// a page nothing is done at, up to `short` of when it dims
+async function left(name, short) {
+  const t = name === 'pause' || name === 'ended' || name === 'err' ? await playing() : tv({ kept: ['code', 'conn', 'press'].includes(name) ? null : 'old', plays: name !== 'old' });
+  if (name === 'code') {
+    t.answers.code = () => ({ ok: true, code: '482916', token: 'fresh', expires_in_s: 300 });
+    t.answers.poll = { ok: true, state: 'pairing', expires_in_s: 290, poll_ms: 2000 };
+    t.run();
+  } else if (name === 'idle') { t.answers.poll = ready({ poll_ms: 2000 }); t.run(); }
+  else if (name === 'unpair') { t.answers.poll = ready({ poll_ms: 2000 }); t.run(); await t.step(100); t.key(RIGHT); t.key(OK); t.key(RIGHT); }
+  else if (name === 'conn') {
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.answers.poll = ready({ poll_ms: 2000 });
+    t.run();
+    await t.step(2500);
+  } else if (name === 'press') {
+    t.answers.code = () => ({ ok: true, code: '111111', token: 'tok', expires_in_s: 300 });
+    t.answers.poll = { ok: true, state: 'pairing', expires_in_s: 1, poll_ms: 60000 };
+    t.run();
+    await t.step(100 * MINUTE);
+  } else if (name === 'old') t.run();
+  else if (name === 'out') { t.answers.poll = GONE; t.run(); }
+  else if (name === 'pause') { t.key(OK); t.video.fire('pause'); }
+  else { t.now = film({ state: name === 'err' ? 'failed' : 'ended', error: 'tv', url: null }); await t.step(1000); }
+  await t.step((name === 'pause' ? 5 : 10) * MINUTE - short);
+  return t;
+}
+
 const scenarios = {
+  async rests(name) {
+    const t = await left(name, 2000);
+    const before = t.look();
+    await t.step(4000);
+    const looks = [];
+    for (let i = 0; i < 5; i += 1) { looks.push(t.look()); await t.step(MINUTE); }
+    return { before, looks };
+  },
+  async neverRests(name) {
+    const t = await playing({ duration_s: 9000 });
+    t.video.duration = 9000;
+    if (name !== 'play') t.now = film({ state: name, url: null });
+    const looks = [];
+    for (let i = 0; i < 50; i += 1) {
+      await t.step(MINUTE / 2);
+      if (t.look()) looks.push(t.says());
+    }
+    return { looks, says: t.says() };
+  },
+  async wakes(by) {
+    const t = await left(by === 'command' || by === 'plays' ? 'pause' : by === 'closed' ? 'ended' : 'idle', -2000);
+    const dimmed = t.look();
+    if (by === 'key') t.key(RIGHT);
+    else if (by === 'pointer') t.point('b1', 5);
+    else if (by === 'click') t.click('none');
+    else if (by === 'wheel') t.wheel();
+    else if (by === 'command') t.answers.poll = () => ready({ play: t.now, commands: [{ id: 8, kind: 'volume', level: 0.5 }] });
+    else if (by === 'plays') t.answers.poll = () => ready({ play: t.now, commands: [{ id: 8, kind: 'play' }] });
+    else if (by === 'closed') t.now = null;
+    else t.answers.poll = () => ready({ play: film({ state: 'starting', url: null }) });
+    if (!['key', 'pointer', 'click', 'wheel'].includes(by)) await t.step(2500);
+    const woken = t.look();
+    if (by === 'film') return { dimmed, woken };
+    await t.step(4 * MINUTE);
+    return { dimmed, woken, later: t.look() };
+  },
+  // the words that move bring a pointer that lies still to another place on them
+  async pointerLiesStill() {
+    const t = await left('idle', 1000);
+    t.point('b1', 5);
+    await t.step(10 * MINUTE + 1000);
+    const dimmed = t.look();
+    t.point('b1', 5);
+    return [dimmed, t.look()];
+  },
+  async failsAgain() {
+    const t = await left('err', -2000);
+    const dimmed = t.look();
+    t.now = film({ play_id: 'p2', state: 'failed', error: 'tv', url: null });
+    await t.step(1200);
+    return [dimmed, t.look()];
+  },
+  async wakesWith(what) {
+    const name = what === 'code' ? 'code' : what === 'pausedClick' ? 'pause' : what;
+    const t = await left(name, -2000);
+    t.answers.ask = { ok: true };
+    t.answers.code = { ok: true, code: '111111', token: 'newer', expires_in_s: 300 };
+    const asked = () => [t.paths('code').length, t.paths('ask').length];
+    const before = asked();
+    t.video.calls.length = 0;
+    if (what === 'idle') t.click('b0');
+    else if (what === 'pausedClick') t.click('b1');
+    else t.key(OK);
+    await t.step(100);
+    const first = [asked().join() !== before.join(), t.video.calls.slice()];
+    t.key(OK);
+    await t.step(100);
+    return { first, then: asked().join() !== before.join(), awake: t.look() };
+  },
+  // the same press twice on a dimmed page: what it did the first time, and the second
+  async pressesTwice(page, how) {
+    const t = await left(page, -2000);
+    t.answers.ask = { ok: true };
+    t.answers.code = { ok: true, code: '111111', token: 'newer', expires_in_s: 300 };
+    const button = page === 'unpair' || page === 'pause' ? 'b1' : 'b0';
+    const press = () => (how === 'key' ? t.key(OK) : how === 'space' ? t.space() : how === 'heldSpace' ? t.space(3) : t.tap(button, 5, how === 'heldTap' ? 900 : 0));
+    const state = () => [t.sent.filter((c) => c.path !== 'poll').length, page === 'pause' ? '' : t.says().replace(/[0-9:]+/g, '')].join();
+    const dimmed = t.look();
+    const before = state();
+    t.video.calls.length = 0;
+    await press();
+    const first = state() !== before;
+    const calls = t.video.calls.slice();
+    const woken = t.look();
+    await t.step(50);
+    await press();
+    return { dimmed, woken, first, calls, then: state() !== before };
+  },
+  async pointsThenClicks() {
+    const t = await left('ended', -2000);
+    t.answers.ask = { ok: true };
+    t.point('b0', 5);
+    await t.step(1500);
+    t.click('b0');
+    return t.paths('ask').length;
+  },
   async pairs() {
     const t = tv();
     t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
@@ -188,6 +330,7 @@ const scenarios = {
     await t.step(100 * 60000);
     const asked = t.paths('code').length;
     const said = t.says();
+    t.key(OK); // for the light
     t.key(OK);
     await t.step(1000);
     return { asked, said, after: t.paths('code').length, now: t.says() };
@@ -838,6 +981,6 @@ const scenarios = {
   },
 };
 
-scenarios[process.argv[2]](process.argv[3]).then((out) => {
+scenarios[process.argv[2]](...process.argv.slice(3)).then((out) => {
   process.stdout.write(JSON.stringify(out));
 }, (e) => { console.error(e); process.exit(1); });

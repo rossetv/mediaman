@@ -77,9 +77,22 @@ video::-webkit-media-controls { display: none !important; }
 @keyframes a2 { 0% { stroke-dashoffset: 43.9px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -43.9px; opacity: 1; } 100% { stroke-dashoffset: -43.9px; opacity: 0; } }
 @keyframes pu { 50% { opacity: .4; } }
 .idle .brand { opacity: .9; }
+
+/* Over all, and not there at all while a film plays. Light comes back at once. */
+body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; background: #000; forced-color-adjust: none; visibility: hidden; opacity: 0; transition: opacity .2s, visibility .2s; }
+.dim:after { visibility: visible; opacity: .6; transition: opacity 12s ease-in-out; }
+.mid, .code, .top > div, .bot > div { transition: transform .2s; }
+.dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: transform 4s ease-in-out; }
+.d1 .mid, .d1 .code, .d1 .top > div, .d1 .bot > div { -webkit-transform: translate(24px, -14px); transform: translate(24px, -14px); }
+.d2 .mid, .d2 .code, .d2 .top > div, .d2 .bot > div { -webkit-transform: translate(10px, 16px); transform: translate(10px, 16px); }
+.d3 .mid, .d3 .code, .d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-24px, -4px); transform: translate(-24px, -4px); }
+/* These lie nearer the edge, and stay 5% clear of it. */
+.d1 .top > div, .d1 .bot > div { -webkit-transform: translate(14px, -14px); transform: translate(14px, -14px); }
+.d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-14px, -4px); transform: translate(-14px, -4px); }
 @media (prefers-reduced-motion: reduce) {
   .b, .ov { transition: none; }
   .in > div, #o > div { animation: none; }
+  .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
   #o { display: none; }
   .spin { animation: pu 1.6s ease-in-out infinite; }
   .spin--mark, .mark path { animation: none; }
