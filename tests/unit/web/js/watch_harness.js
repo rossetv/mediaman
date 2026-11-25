@@ -334,6 +334,41 @@ const scenarios = {
     return out;
   },
 
+  // The toasts still there after a keep in the admin's menus, and as the card's keep of that title and of another starts.
+  async oneToastAcross() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.doc.dispatchEvent = (e) => (page.doc.listeners[e.type] || []).forEach((fn) => fn(e));
+    page.run();
+    vm.runInContext(fs.readFileSync(path.join(JS, 'watch/admin.js'), 'utf8'), page.ctx);
+    const left = () => page.toasts.filter((t) => !t.dismissed).map((t) => t.message);
+    const out = [];
+    const start = (id) => {
+      page.ctx.MM.api.post = () => new Promise(() => {});
+      click(page.doc, page.doc.querySelectorAll('[data-watch-keep]').find((b) => b.getAttribute('data-watch-keep') === id));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      out.push(left());
+    };
+    await page.ctx.MMWatch.admin.keep({ id: '1100', title: 'Leaving Film', deletion: true }, '30 days');
+    start('1101');
+    start('1100');
+    return out;
+  },
+
+  // A change of a whole show, announced with its seasons, takes away the toast of each.
+  async showChanged() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.run();
+    for (const id of ['1100', '1101']) {
+      click(page.doc, page.doc.querySelectorAll('[data-watch-keep]').find((b) => b.getAttribute('data-watch-keep') === id));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+    }
+    (page.doc.listeners['mm:watch-admin'] || []).forEach((fn) => fn({ detail: { phase: 'busy', id: '', ids: ['1100', '1101'], showRk: '77' } }));
+    return page.toasts.map((t) => !!t.dismissed);
+  },
+
   // The grid-stack fade: both nodes share one cell while it runs, then only the new one is left.
   async swap() {
     const page = load({ motion: true });

@@ -154,6 +154,14 @@ def test_a_row_in_a_group_with_no_box_of_its_own_folds_the_gap_of_the_rows_with_
     assert _run("foldInGroup") == [["0px", "-30px"], ["-30px", "0px"]]
 
 
+def test_a_keep_from_a_card_takes_away_the_toast_of_an_admin_s_keep_of_that_title() -> None:
+    assert _run("oneToastAcross") == [["Kept Leaving Film for 30 days."], []]
+
+
+def test_a_change_of_a_whole_show_takes_away_the_toast_of_every_season_of_it() -> None:
+    assert _run("showChanged") == [True, True]
+
+
 def test_only_the_last_keep_or_undo_of_a_title_has_a_toast() -> None:
     assert _run("oneToast") == [
         ["Kept Leaving Film for 7 days."],

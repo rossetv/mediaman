@@ -1564,6 +1564,26 @@ const scenarios = {
   },
 
   // A film's keep changed, removed and kept again: the toasts still up after each.
+  /* The seasons each change made in a show's dialog is announced to start with: of some, its Undo, of the whole show, and
+     the end of every keep. */
+  async seasonsAnnounced() {
+    const announced = async (opts, act) => {
+      const d = await keepDialog(opts);
+      const ids = [];
+      d.doc.addEventListener('mm:watch-admin', (e) => { if (e.detail.phase === 'busy') ids.push(e.detail.ids); });
+      await act(d);
+      await settle();
+      return ids;
+    };
+    const none = { seasons: seasonsOf(null, null), seasonId: '' };
+    return {
+      some: await announced(none, async (d) => { d.tick('s2', true); await d.confirm(); d.toasts[0].action.onClick(); }),
+      show: await announced(none, async (d) => { d.tick('all', true); await d.confirm(); }),
+      end: await announced({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, null), seasonId: '' },
+        async (d) => { click(d.doc, d.button('keep-dialog-remove')); }),
+    };
+  },
+
   async oneKeepToast() {
     const p = load({ list: true, rows: ROWS });
     const up = () => p.toasts.filter((t) => !t.dismissed).map((t) => t.message);

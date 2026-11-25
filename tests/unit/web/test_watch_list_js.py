@@ -178,7 +178,7 @@ def test_keeping_a_show_from_its_dialog_closes_it_and_updates_the_row_in_place()
 
 def test_the_detail_can_keep_and_delete_with_a_plain_wrapper_and_no_list_on_the_page() -> None:
     out = _run("detailCalls")
-    assert out["keys"] == ["confirmDelete", "keep", "pickSeasonDelete", "removeKeep"]
+    assert out["keys"] == ["confirmDelete", "keep", "pickSeasonDelete", "removeKeep", "retireToast"]
     assert out["calls"] == [
         ["postForm", "/api/media/42/keep", {"duration": "7 days", "read_action": "none"}],
         ["post", "/api/media/42/delete", None],
@@ -816,6 +816,11 @@ def test_a_dialog_button_clicked_without_the_focus_keeps_the_focus_in_the_dialog
         "asked": "keep-season-list",
         "cancelled": "keep-dialog-remove",
     }
+
+
+def test_a_change_in_a_show_s_dialog_names_the_seasons_it_changes_as_it_starts() -> None:
+    both = ["s1", "s2"]
+    assert _run("seasonsAnnounced") == {"some": [["s2"], ["s2"]], "show": [both], "end": [both]}
 
 
 def test_only_the_last_keep_change_of_a_title_has_a_toast() -> None:

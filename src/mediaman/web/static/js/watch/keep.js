@@ -678,11 +678,13 @@
   }
 
   document.addEventListener('mm:watch-admin', function (e) {
-    if (e.detail.phase === 'busy') retireToast(e.detail.id);
+    if (e.detail.phase === 'busy') (e.detail.ids || [e.detail.id]).forEach(retireToast);
   });
 
   function started(id) {
     retireToast(id);
+    var admin = window.MMWatch.admin; // on an admin's page
+    if (admin) admin.retireToast(id);
     setBusy(id, true);
     if (panel) panel.started();
   }
