@@ -55,8 +55,8 @@ _generation = [0]
 # The build in progress for each generation; a caller of the same generation waits for
 # it rather than pulling both libraries again.
 _building: dict[int, Future[ArrView]] = {}
-# Whether a build is in progress that no caller waits out.
-_background = [False]
+# The last build begun that no caller waits out.
+_background: list[Future[ArrView]] = []
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,10 +217,11 @@ def arr_view(
         future = _building.get(generation)
         owner = future is None
         if future is None:
-            if wait_s is not None and _background[0]:
+            if wait_s is not None and any(not behind.done() for behind in _background):
                 return ArrView({**build_radarr_cache(None), **build_sonarr_cache(None)})
             future = _building[generation] = Future()
-            _background[0] = _background[0] or wait_s is not None
+            if wait_s is not None:
+                _background[:] = [future]
     if owner:
         try:
             # Built here: the connection is this thread's own.
@@ -230,30 +231,13 @@ def arr_view(
             if wait_s is None:
                 _build(*args)
             else:
-                threading.Thread(
-                    target=_build_behind, args=args, name="watch-arr", daemon=True
-                ).start()
+                threading.Thread(target=_build, args=args, name="watch-arr", daemon=True).start()
         except BaseException as exc:
-            if wait_s is not None:
-                _background[0] = False
             _failed(future, generation, exc)
     try:
         return future.result(wait_s)
     except TimeoutError:
         return ArrView({**build_radarr_cache(None), **build_sonarr_cache(None)})
-
-
-def _build_behind(
-    future: Future[ArrView],
-    generation: int,
-    radarr_client: ArrClient | None,
-    sonarr_client: ArrClient | None,
-    clock: Callable[[], float],
-) -> None:
-    try:
-        _build(future, generation, radarr_client, sonarr_client, clock)
-    finally:
-        _background[0] = False
 
 
 def _build(
@@ -276,15 +260,17 @@ def _build(
         {**radarr, **sonarr.caches}, answering, generation, sonarr.queue, sonarr.odd_shows
     )
     with _lock:
-        if _generation[0] == generation:
-            _memo["arr"] = (clock() + TTL_S, view)
-        _building.pop(generation, None)
+        if _building.get(generation) is future:
+            del _building[generation]
+            if _generation[0] == generation:
+                _memo["arr"] = (clock() + TTL_S, view)
     future.set_result(view)
 
 
 def _failed(future: Future[ArrView], generation: int, exc: BaseException) -> None:
     with _lock:
-        _building.pop(generation, None)
+        if _building.get(generation) is future:
+            del _building[generation]
     future.set_exception(exc)
 
 
