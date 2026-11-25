@@ -289,6 +289,25 @@ class TestKeepPageRoute:
         payload = validate_poster_token(query, SECRET)
         assert payload is not None and payload["rk"] == "rk1"
 
+    def test_the_picture_keeps_its_address_for_the_day_and_lives_no_longer(self, conn, freezer):
+        freezer.move_to("2026-11-25T00:00:00+00:00")
+        _insert_media_item(conn)
+        token = _make_keep_token(conn, "mi1", _insert_action(conn))
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        client = TestClient(app)
+
+        def picture(at: str) -> str:
+            freezer.move_to(at)
+            return _pictures(client.get(f"/keep/{token}").text)[-1]
+
+        first = picture("2026-11-25T00:00:01+00:00")
+        assert picture("2026-11-25T23:59:59+00:00") == first
+        payload = validate_poster_token(first.split("?sig=")[1], SECRET)
+        left = payload["exp"] - datetime.now(UTC).timestamp()
+        assert payload["rk"] == "rk1" and 179 * 86400 <= left <= 180 * 86400
+        assert picture("2026-11-26T00:00:01+00:00") != first
+
     def test_an_expired_link_still_shows_the_pictures_without_colour(self, conn, freezer):
         freezer.move_to("2026-05-10T12:00:00+00:00")
         _insert_media_item(conn)

@@ -226,7 +226,7 @@ def _keep_context(
 
     # The page is opened logged out from an email, so the poster needs a signed URL.
     rating_key = row.plex_rating_key
-    poster_url = sign_poster_url(rating_key, secret_key) if rating_key else ""
+    poster_url = sign_poster_url(rating_key, secret_key, whole_days=True) if rating_key else ""
 
     return {
         "state": state,

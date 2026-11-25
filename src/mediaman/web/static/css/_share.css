@@ -53,6 +53,7 @@
 @keyframes share-art { from { transform: scale(1.04); } }
 /* The same page again, kept: only its date turns. */
 .share-page.is-just .share-info > *, .share-page.is-just .watch-banner__bg--art { animation: none; }
+.share-page.is-just .watch-banner__bg:not([data-retrying]) { opacity: 1; transition: none; }
 
 @media (min-width: 600px) and (max-width: 1279.98px) {
   /* The dark is the words' own box, faded in from above, and the rest of the picture stays clear. */
@@ -164,6 +165,8 @@
 @media (forced-colors: active) {
   /* The picture is gone, and the bar still stands over the hero's top. */
   .share-page .share-hero { padding-top: 88px !important; }
+  /* No poster either where it stands over the words' place. */
+  @media (max-width: 699.98px) { .share-page .watch-banner__poster { display: none; } }
   .share-tick, .share-note__mark, .share-note__mark.is-good { stroke: CanvasText; }
 }
 
