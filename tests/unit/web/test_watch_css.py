@@ -225,6 +225,15 @@ def test_a_rows_offer_covers_no_heading_on_a_narrow_phone() -> None:
     assert "position: absolute" in text and "clip-path: inset(50%)" in text
 
 
+def test_a_person_s_photo_stays_in_the_strip_while_their_card_is_open() -> None:
+    cast = SHEET.with_name("_watch_cast.css")
+    for media in (None, "prefers-reduced-motion"):
+        for part in (" .cast-face", " > .ttl-cast__avatar"):
+            rules = _of(f".ttl-cast__item.is-out{part}", media, cast)
+            assert "hidden" not in rules and "opacity" not in rules
+    assert not _of(".ttl-cast__avatar::before", sheet=cast)
+
+
 def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
     browse = SHEET.with_name("_watch_browse.css")
     under = (
