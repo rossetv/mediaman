@@ -127,7 +127,8 @@
   function about() { return play() || (gone && gone.last) || seen; }
   function name() { return (tv && tv.name) || (gone && gone.tv.name) || 'the TV'; }
   function duration() { var p = about(); return (p && p.duration_s) || 0; }
-  function setHidden(el, off) { if (el.hidden !== off) el.hidden = off; }
+  // By the attribute: an SVG icon has no such property.
+  function setHidden(el, off) { if (el.hasAttribute('hidden') !== off) el.toggleAttribute('hidden', off); }
   function attr(el, key, value) { if (el.getAttribute(key) !== value) el.setAttribute(key, value); }
   function say(text) { global.UIFeedback.toast(text); }
 

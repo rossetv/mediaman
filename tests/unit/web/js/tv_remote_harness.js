@@ -21,7 +21,10 @@ function parse(doc, html, into) {
     else if (hit[2]) {
       const el = doc.createElement(hit[2]);
       for (const [, k, v] of hit[3].matchAll(/([\w-]+)(?:="([^"]*)")?/g)) el.setAttribute(k, v || '');
-      el.hidden = el.hasAttribute('hidden');
+      // Of an HTML element alone the property is the attribute; on an SVG one it does nothing.
+      if (!['svg', 'use'].includes(hit[2])) {
+        Object.defineProperty(el, 'hidden', { get: () => el.hasAttribute('hidden'), set: (on) => el.toggleAttribute('hidden', on) });
+      }
       el.style.setProperty = () => {};
       top.appendChild(el);
       if (!hit[4] && !VOID.includes(hit[2])) stack.push(el);
@@ -595,6 +598,17 @@ const scenarios = {
     p.doc.listeners.visibilitychange.forEach((fn) => fn());
     await settle();
     out.after = !p.$('[data-other]').hidden;
+    return out;
+  },
+  async waiting() {
+    const p = await page({ tvs: [aTv({ play: aPlay({ state: 'starting' }) })] });
+    await p.open();
+    const drawn = () => ['[data-mini-play]', '[data-play]'].map((sel) => p.$(sel).querySelectorAll('.ico, .player-btn-ring')
+      .filter((n) => !n.hasAttribute('hidden')).map((n) => n.getAttribute('class')));
+    const out = { waits: drawn() };
+    p.api.tvs[0].play.state = 'playing';
+    await p.pass(1100);
+    out.plays = drawn();
     return out;
   },
   async two() {

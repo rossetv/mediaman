@@ -276,6 +276,12 @@ def test_a_tv_lost_under_the_open_remote_still_finds_another_that_began_meanwhil
     assert _run("beganMeanwhile") == "1/2"
 
 
+def test_a_play_button_draws_its_ring_or_its_icon_and_never_both() -> None:
+    out = _run("waiting")
+    assert out["waits"] == [["player-btn-ring"], ["player-btn-ring"]]
+    assert out["plays"] == [["ico"], ["ico"]]
+
+
 def test_with_two_tvs_the_bar_goes_to_the_other_and_steers_that_one() -> None:
     out = _run("two")
     assert out["says"] == ["Playing on Living room", "Playing on Bedroom TV"]
