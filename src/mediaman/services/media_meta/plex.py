@@ -39,6 +39,7 @@ with _warnings.catch_warnings():
     )
     defusedxml.defuse_stdlib()
 
+from mediaman.core.format import log_snippet
 from mediaman.core.scrub_filter import ScrubFilter, register_secret
 from mediaman.services.infra import (
     SafeHTTPClient,
@@ -195,7 +196,9 @@ class PlexClient:
                 # distinguish them from generic errors. PlexResponseTooLarge
                 # inherits from ValueError, preserving compatibility with any
                 # catcher that already uses ``except ValueError``.
-                raise PlexResponseTooLarge(_scrub_plex_token(exc.body_snippet)) from exc
+                raise PlexResponseTooLarge(
+                    log_snippet(_scrub_plex_token(exc.body_snippet))
+                ) from exc
             raise http_requests.HTTPError(
                 _scrub_plex_token(f"Plex history returned {exc.status_code}")
             ) from exc
@@ -239,16 +242,17 @@ class PlexClient:
         for ep in season.episodes():
             try:
                 ep_history = self.get_watch_history(str(ep.ratingKey))
-            except (PlexResponseTooLarge, http_requests.RequestException, PlexApiException):
+            except (PlexResponseTooLarge, http_requests.RequestException, PlexApiException) as exc:
                 # One bad episode must not crash the aggregation loop, but a
                 # partial season history is unsafe — abort the whole season so
                 # fetch.py marks it skipped (conservative; never misclassify).
                 logger.debug(
                     "plex.season_history.episode_fetch_failed season=%s episode=%s — "
-                    "aborting season aggregation to avoid a partial history",
+                    "aborting season aggregation to avoid a partial history: %s: %s",
                     season_rating_key,
                     getattr(ep, "ratingKey", "?"),
-                    exc_info=True,
+                    type(exc).__name__,
+                    log_snippet(_scrub_plex_token(str(exc))),
                 )
                 raise
             for h in ep_history:

@@ -174,6 +174,33 @@ class TestPlexClient:
             client.get_watch_history("123")
 
     @patch("mediaman.services.media_meta.plex.PlexServer")
+    def test_the_body_of_a_failed_history_is_one_short_printable_line(self, mock_cls):
+        mock_cls.return_value._baseurl = "http://plex:32400"
+        mock_cls.return_value._token = "test-token"
+        client = PlexClient("http://plex:32400", "test-token")
+        error = SafeHTTPError(0, "too large\n\x1b[2Jforged" + "x" * 500, "http://plex")
+        with patch.object(client._http, "get", side_effect=error):
+            with pytest.raises(PlexResponseTooLarge) as raised:
+                client.get_watch_history("123")
+        assert str(raised.value).isprintable()
+        assert len(str(raised.value)) <= 200
+
+    @patch("mediaman.services.media_meta.plex.PlexServer")
+    def test_a_failed_episode_is_logged_without_the_body_plex_sent(self, mock_cls, caplog):
+        client = PlexClient("http://plex:32400", "test-token")
+        mock_cls.return_value.fetchItem.return_value.episodes.return_value = [
+            MagicMock(ratingKey=1)
+        ]
+        caplog.set_level("DEBUG", logger="mediaman.services.media_meta.plex")
+        failed = PlexResponseTooLarge("a\nforged")
+        with patch.object(client, "get_watch_history", side_effect=failed):
+            with pytest.raises(PlexResponseTooLarge):
+                client.get_season_watch_history("5")
+        (record,) = [r for r in caplog.records if "episode_fetch_failed" in r.getMessage()]
+        assert record.exc_info is None
+        assert record.getMessage().isprintable()
+
+    @patch("mediaman.services.media_meta.plex.PlexServer")
     def test_get_watch_history_body_cap_raises_plex_response_too_large(
         self, mock_cls, fake_http, fake_response
     ):
