@@ -623,6 +623,17 @@ const scenarios = {
   },
 
   // The row opened as a grid: the card is in both, and an Undo brings it back to both.
+  // The last card of Continue watching goes; after its row stand an anchor, a placeholder and the next row.
+  async dismissLast() {
+    const strip = (id, spec) => ['section', { id }, ['div', { class: 'watch-row__scroll', ...spec }]];
+    const run = async (after) => {
+      const p = load(watchPage([row('continue', [CONTINUE[0]]), ['div', { id: 'watch-asked', hidden: '' }], strip('skel', {}), ...after]));
+      await p.pick(p.cards()[0], 'dismiss');
+      const at = p.doc.activeElement;
+      return at.id || at.closest('section').id;
+    };
+    return { next: await run([strip('leaving', { tabindex: '0' })]), none: await run([]) };
+  },
   async dismissInGrid() {
     const p = load(watchPage([row('cont', CONTINUE), ['div', { class: 'watch-grid', id: 'grid' }, ...CONTINUE]]));
     await p.pick(p.cards('grid')[1], 'dismiss');
