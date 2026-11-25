@@ -13,42 +13,42 @@
 {%- macro added(n) -%}{% if n <= 0 %}added today{% else %}added {{ n }} day{{ "s" if n != 1 else "" }} ago{% endif %}{%- endmacro -%}
 {%- macro left(n) -%}{% if n<0 %}Leaving any day{% elif n==0 %}Leaving today{% elif n==1 %}Leaving tomorrow{% else %}Leaving in {{ n }} days{% endif %}{%- endmacro -%}
 {%- macro sec(title,sub="") -%}
-<tr><td class="pad" style="padding:30px 32px 18px;{{ m.ff }}"><div class="t1" style="font-size:22px;font-weight:700;letter-spacing:-.4px;line-height:28px;color:#1d1d1f;">{{ title }}</div>{% if sub %}<div class="t2" style="margin-top:2px;font-size:15px;line-height:21px;color:#5f5f66;">{{ sub }}</div>{% endif %}</td></tr>
+<tr><td class="pad" style="padding:30px 32px 18px;{{ m.ff }}"><div class="t1" style="font-size:22px;font-weight:700;letter-spacing:-.4px;line-height:28px;color:#1d1d1f">{{ title }}</div>{% if sub %}<div class="t2" style="margin-top:2px;font-size:15px;line-height:21px;color:#5f5f66">{{ sub }}</div>{% endif %}</td></tr>
 {%- endmacro -%}
-{%- macro state(label,cls,bg,fg) -%}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;"><tr><td class="{{ cls }}" align="center" bgcolor="{{ bg }}" style="background:{{ bg }};border-radius:23px;padding:13px 6px;color:{{ fg }};font-size:14px;font-weight:600;line-height:20px;white-space:nowrap;{{ m.ff }}">{{ label }}</td></tr></table>{%- endmacro -%}
+{%- macro state(label,cls,bg,fg) -%}<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td class="{{ cls }}" align="center" bgcolor="{{ bg }}" style="background:{{ bg }};border-radius:23px;padding:13px 6px;color:{{ fg }};font-size:14px;font-weight:600;line-height:20px;white-space:nowrap;{{ m.ff }}">{{ label }}</td></tr></table>{%- endmacro -%}
 {%- macro picks(title,sub,items) -%}
 {{ sec(title,sub) }}
-<tr><td class="pk" style="padding:0 26px 4px;"><table role="presentation" class="picks" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;"><tbody class="pb">
-{%- for row in items|batch(3,'') %}<tr class="row">{% for i in row %}{% if i %}<td class="cell" width="33.33%" valign="top" style="padding:0 6px 26px;{{ m.ff }}">
+<tr><td class="pk" style="padding:0 26px 4px"><table role="presentation" class="picks" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed"><tbody class="pb">
+{%- for row in items|batch(3,'') %}<tr class="row" valign="top">{% for i in row %}{% if i %}<td class="cell" width="33.33%" style="padding:0 6px 26px;font-size:13px;{{ m.wrap }}{{ m.ff }}">
 {{ m.pic(i.poster_url,i.title,170,255) }}
-<div class="t1" style="margin-top:10px;font-size:15px;font-weight:600;line-height:20px;color:#1d1d1f;{{ m.wrap }}">{{ i.title }}</div>
-<div class="t2" style="margin-top:2px;font-size:13px;line-height:18px;color:#5f5f66;">{{ "Movie" if i.media_type=="movie" else "TV" }}{% if i.rating %} &middot; &#9733; {{ i.rating }}{% endif %}</div>
-{% if i.reason %}<div class="t2" style="margin-top:6px;font-size:13px;line-height:19px;color:#5f5f66;{{ m.wrap }}">{{ i.reason }}</div>{% endif %}
-<div style="margin-top:12px;">{% if i.download_state=="in_library" %}{{ state("In the library","okb","#e6f5ea","#1a7f37") }}{% elif i.download_state=="downloading" %}{{ state("Downloading","b-dl","#e3eefc","#0060c7") }}{% elif i.download_state=="queued" %}{{ state("On its way","b-wait","#fbf3d6","#6b5200") }}{% elif i.download_url %}{{ m.btn(i.download_url,"Download",0,true) }}{% endif %}</div>
-</td>{% else %}<td class="gap" width="33.33%" style="font-size:0;line-height:0;">&nbsp;</td>{% endif %}{% endfor %}</tr>{% endfor %}
+<div class="t1" style="margin-top:10px;font-size:15px;font-weight:600;line-height:20px;color:#1d1d1f">{{ i.title }}</div>
+<div class="t2" style="margin-top:2px;line-height:18px;color:#5f5f66">{{ "Movie" if i.media_type=="movie" else "TV" }}{% if i.rating %} · ★ {{ i.rating }}{% endif %}</div>
+{% if i.reason %}<div class="t2" style="margin-top:6px;line-height:19px;color:#5f5f66">{{ i.reason }}</div>{% endif %}
+<div style="margin-top:12px">{% if i.download_state=="in_library" %}{{ state("In the library","okb","#e6f5ea","#1a7f37") }}{% elif i.download_state=="downloading" %}{{ state("Downloading","b-dl","#e3eefc","#0060c7") }}{% elif i.download_state=="queued" %}{{ state("On its way","b-wait","#fbf3d6","#6b5200") }}{% elif i.download_url %}{{ m.btn(i.download_url,"Download",0,true) }}{% endif %}</div>
+</td>{% else %}<td class="gap" width="33.33%" style="font-size:0;line-height:0">&nbsp;</td>{% endif %}{% endfor %}</tr>{% endfor %}
 </tbody></table></td></tr>
 {%- endmacro -%}
 {%- macro rowitem(poster,title,lines,act,pw=72,ph=108) -%}
-<tr><td class="pad" style="padding:0 32px;"><table role="presentation" class="item" width="100%" cellpadding="0" cellspacing="0" border="0"><tbody class="ib"><tr class="r">
-<td class="lead" width="{{ pw }}" valign="top" style="width:{{ pw }}px;padding:0 0 20px;">{{ m.pic(poster,title,pw,ph) }}</td>
-<td class="txt" valign="top" style="padding:0 16px 20px;{{ m.ff }}"><div class="t1" style="font-size:17px;font-weight:600;line-height:22px;color:#1d1d1f;{{ m.wrap }}">{{ title }}</div>{{ lines }}</td>
-{% if act %}<td class="act" valign="top" align="right" style="padding:0 0 20px;">{{ act }}</td>{% endif %}
+<tr><td class="pad" style="padding:0 32px"><table role="presentation" class="item" width="100%" cellpadding="0" cellspacing="0"><tbody class="ib"><tr class="r" valign="top">
+<td class="lead" width="{{ pw }}" style="padding:0 0 20px">{{ m.pic(poster,title,pw,ph) }}</td>
+<td class="txt" style="padding:0 16px 20px;font-size:14px;line-height:20px;{{ m.ff }}"><div class="t1" style="font-size:17px;font-weight:600;line-height:22px;color:#1d1d1f;{{ m.wrap }}">{{ title }}</div>{{ lines }}</td>
+{%- if act %}<td class="act" align="right" style="padding:0 0 20px">{{ act }}</td>{% endif %}
 </tr></tbody></table></td></tr>
 {%- endmacro -%}
 {{ m.head("Mediaman weekly report") }}
-<body class="bg" style="margin:0;padding:0;background:#f2f2f4;">
+<body class="bg" style="margin:0;padding:0;background:#f2f2f4">
 {%- set n=scheduled_items|length %}
 {{ m.pre((n ~ (" title is" if n==1 else " titles are") ~ " leaving. Keep what you want to stay." if n else "New picks for the week.")) }}
-<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f2f2f4" style="background:#f2f2f4;"><tr><td class="wrap" align="center" style="padding:20px 12px 32px;">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;{{ m.ff }}">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f2f2f4" style="background:#f2f2f4"><tr><td class="wrap" align="center" style="padding:20px 12px 32px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:separate;{{ m.ff }}">
 {%- if dry_run %}<tr><td class="warn" align="center" bgcolor="#fff2d6" style="background:#fff2d6;border-radius:12px;padding:12px 20px;color:#7a4b00;font-size:14px;font-weight:600;line-height:20px;{{ m.ff }}">A trial run: nothing will really be deleted.</td></tr>{% endif %}
 {{ m.brand(report_date) }}
-<tr><td class="card" bgcolor="#ffffff" style="background:#ffffff;border-radius:16px;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+<tr><td class="card" bgcolor="#ffffff" style="background:#ffffff;border-radius:16px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed">
 {%- if scheduled_items %}
 {{ sec("Leaving soon","Press Keep on anything you want to stay.") }}
 {%- for i in scheduled_items %}
-{%- set lines %}<div class="bad" style="margin-top:3px;font-size:14px;font-weight:600;line-height:20px;color:#b3261e;">{{ left(i.days_left) }}</div><div class="t2" style="margin-top:2px;font-size:14px;line-height:20px;color:#5f5f66;">{{ i.type_label }} &middot; {{ by(i.file_size_bytes) }}<br>{% if i.last_watched_info %}{{ i.last_watched_info }}{% else %}<span style="white-space:nowrap;">Never&nbsp;watched</span>{% endif %}{% if i.added_days_ago is not none %} &middot; {{ added(i.added_days_ago) }}{% endif %}</div>{% if i.is_reentry %}<div class="t2" style="margin-top:4px;font-size:13px;line-height:18px;color:#5f5f66;">It was kept before, and that time is up.</div>{% endif %}{% endset %}
+{%- set lines %}<div class="bad" style="margin-top:3px;font-weight:600;color:#b3261e">{{ left(i.days_left) }}</div><div class="t2" style="margin-top:2px;color:#5f5f66">{{ i.type_label }} · {{ by(i.file_size_bytes) }}<br>{% if i.last_watched_info %}{{ i.last_watched_info }}{% else %}Never&nbsp;watched{% endif %}{% if i.added_days_ago is not none %} · {{ added(i.added_days_ago) }}{% endif %}</div>{% if i.is_reentry %}<div class="t2" style="margin-top:4px;font-size:13px;line-height:18px;color:#5f5f66">It was kept before, and that time is up.</div>{% endif %}{% endset %}
 {%- set act %}{% if i.keep_url %}{{ m.btn(i.keep_url,"Keep") }}{% endif %}{% endset %}
 {{ rowitem(i.poster_url,i.title,lines,act) }}
 {%- endfor %}
@@ -59,19 +59,23 @@
 {%- if deleted_items %}
 {{ sec("Gone since the last mail") }}
 {%- for i in deleted_items %}
-{%- set lines %}<div class="t2" style="margin-top:3px;font-size:14px;line-height:20px;color:#5f5f66;">{% if i.season_number is number %}{{ "Specials" if i.season_number==0 else "Season " ~ i.season_number }} &middot; {% endif %}{% if i.deleted_date %}deleted {{ i.deleted_date }} &middot; {% endif %}{{ by(i.file_size_bytes) }}</div>{% endset %}
+{%- set lines %}<div class="t2" style="margin-top:3px;color:#5f5f66">{% if i.season_number is number %}{{ "Specials" if i.season_number==0 else "Season " ~ i.season_number }} · {% endif %}{% if i.deleted_date %}deleted {{ i.deleted_date }} · {% endif %}{{ by(i.file_size_bytes) }}</div>{% endset %}
 {%- set act %}{% if i.redownload_url %}{{ m.ghost(i.redownload_url,"Download again") }}{% endif %}{% endset %}
 {{ rowitem(i.poster_url,i.title,lines,act,48,72) }}
 {%- endfor %}
 {%- endif %}
 {%- set t=storage.total_bytes or 1 %}{%- set pct=[(storage.used_bytes/t*100)|round|int,100]|min %}
 <tr><td class="pad hair" style="padding:24px 32px 28px;border-top:1px solid #e3e3e8;{{ m.ff }}">
-<div class="t1" style="font-size:15px;font-weight:600;line-height:20px;color:#1d1d1f;">{{ by(storage.free_bytes) }} free <span class="t2" style="font-weight:400;color:#5f5f66;">of {{ by(storage.total_bytes) }}</span></div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="track" bgcolor="#e3e3e8" style="margin:10px 0;background:#e3e3e8;border-radius:4px;"><tr><td width="{{ pct }}%" height="8" bgcolor="#0071e3" style="width:{{ pct }}%;height:8px;background:#0071e3;border-radius:4px;font-size:0;line-height:0;">&nbsp;</td><td height="8" style="height:8px;font-size:0;line-height:0;">&nbsp;</td></tr></table>
-<div class="t2" style="font-size:14px;line-height:20px;color:#5f5f66;">{% for size, what in [(storage.by_type.movie, "movies"), (storage.by_type.show, "TV"), (storage.by_type.anime, "anime")] if size %}{{ by(size) }} {{ what }}{% if not loop.last %} &middot; {% else %}<br>{% endif %}{% endfor %}Made free: {{ by(reclaimed_week) }} this week, {{ by(reclaimed_month) }} this month, {{ by(reclaimed_total) }} in all.</div>
+{#- With the disk unreadable there is no figure but the titles' own sizes. -#}
+{%- set sizes = [storage.by_type.movie or 0, storage.by_type.show or 0, storage.by_type.anime or 0] %}
+{%- if storage.free_bytes or sizes|sum != storage.total_bytes %}
+<div class="t1" style="font-size:15px;font-weight:600;line-height:20px;color:#1d1d1f">{{ by(storage.free_bytes) }} free <span class="t2" style="font-weight:400;color:#5f5f66">of {{ by(storage.total_bytes) }}</span></div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="track" bgcolor="#e3e3e8" style="margin:10px 0;background:#e3e3e8;border-radius:4px"><tr><td width="{{ pct }}%" height="8" bgcolor="#0071e3" style="width:{{ pct }}%;height:8px;background:#0071e3;border-radius:4px;font-size:0;line-height:0">&nbsp;</td><td height="8" style="height:8px;font-size:0;line-height:0">&nbsp;</td></tr></table>
+{%- endif %}
+<div class="t2" style="font-size:14px;line-height:20px;color:#5f5f66">{% for size, what in [(storage.by_type.movie, "movies"), (storage.by_type.show, "TV"), (storage.by_type.anime, "anime")] if size %}{{ by(size) }} {{ what }}{% if not loop.last %} · {% else %}<br>{% endif %}{% endfor %}Made free: {{ by(reclaimed_week) }} this week, {{ by(reclaimed_month) }} this month, {{ by(reclaimed_total) }} in all.</div>
 </td></tr>
 </table></td></tr>
-<tr><td align="center" style="padding:26px 24px 8px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td>{{ m.ghost(dashboard_url,"Open mediaman") }}</td></tr></table></td></tr>
-<tr><td class="pad t2" align="center" style="padding:10px 32px 8px;font-size:13px;line-height:20px;color:#5f5f66;{{ m.ff }}">You get this because you are subscribed to mediaman.{% if unsubscribe_url %}<br><a class="link" href="{{ unsubscribe_url }}" style="display:inline-block;padding:12px 16px;line-height:20px;color:#0060c7;text-decoration:underline;">Unsubscribe</a>{% endif %}</td></tr>
+<tr><td align="center" style="padding:26px 24px 8px"><table role="presentation" cellpadding="0" cellspacing="0" align="center"><tr><td>{{ m.ghost(dashboard_url,"Open mediaman") }}</td></tr></table></td></tr>
+<tr><td class="pad t2" align="center" style="padding:10px 32px 8px;font-size:13px;line-height:20px;color:#5f5f66;{{ m.ff }}">You get this because you are subscribed to mediaman.{% if unsubscribe_url %}<br><a class="link" href="{{ unsubscribe_url }}" style="display:inline-block;padding:12px 16px;line-height:20px;color:#0060c7;text-decoration:underline">Unsubscribe</a>{% endif %}</td></tr>
 </table></td></tr></table>
 </body></html>

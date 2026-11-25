@@ -1,28 +1,28 @@
 {%- import "_mail_base.html" as m -%}
 {{ m.head(title ~ " is ready to watch") }}
-<body class="bg" style="margin:0;padding:0;background:#f2f2f4;">
+<body class="bg" style="margin:0;padding:0;background:#f2f2f4">
 {{ m.pre((season_label ~ " of " if season_label else "") ~ title ~ (" are" if season_label == "Specials" else " is") ~ " in the library. Press play when you are.") }}
-<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f2f2f4" style="background:#f2f2f4;"><tr><td class="wrap" align="center" style="padding:20px 12px 32px;">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;{{ m.ff }}">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f2f2f4" style="background:#f2f2f4"><tr><td class="wrap" align="center" style="padding:20px 12px 32px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;{{ m.ff }}">
 {{ m.brand() }}
-<tr><td class="card" bgcolor="#ffffff" style="background:#ffffff;border-radius:16px;overflow:hidden;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+<tr><td class="card" bgcolor="#ffffff" style="background:#ffffff;border-radius:16px;overflow:hidden">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed">
 {%- if backdrop_src %}
 <tr><td><img class="pic" src="{{ backdrop_src }}" alt="A picture from {{ title }}" width="600" height="338" style="display:block;border:0;width:100%;max-width:600px;height:auto;background:#e3e3e8;color:#1d1d1f;font-size:16px;font-weight:600;line-height:40px;text-align:center;{{ m.ff }}"></td></tr>
 {%- endif %}
 <tr><td class="pad" style="padding:28px 32px 34px;{{ m.ff }}">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-{%- if poster_src and not backdrop_src %}<td class="stack" width="170" valign="top" style="padding:0 24px 20px 0;">{{ m.pic(poster_src,title,170,255) }}</td>{% endif -%}
+{%- if poster_src and not backdrop_src %}<td class="stack" width="170" valign="top" style="padding:0 24px 20px 0">{{ m.pic(poster_src,title,170,255) }}</td>{% endif -%}
 <td class="stack" valign="top" style="{{ m.ff }}">
-<div class="ok" style="font-size:14px;font-weight:700;line-height:20px;color:#1a7f37;">&#10003;&nbsp; Ready to watch</div>
+<div class="ok" style="font-size:14px;font-weight:700;line-height:20px;color:#1a7f37">&#10003;&nbsp; Ready to watch</div>
 <div class="t1 h1" style="margin-top:8px;font-size:32px;font-weight:700;letter-spacing:-.6px;line-height:1.12;color:#1d1d1f;{{ m.wrap }}">{{ title }}</div>
-{%- if season_label %}<div class="t1" style="margin-top:6px;font-size:18px;font-weight:600;color:#1d1d1f;">{{ season_label }}</div>{% endif -%}
+{%- if season_label %}<div class="t1" style="margin-top:6px;font-size:18px;font-weight:600;color:#1d1d1f">{{ season_label }}</div>{% endif -%}
 {%- set mins = meta.runtime|int %}
 {%- set length = "" if mins <= 0 else mins ~ " min" if mins < 60 else (mins // 60) ~ " h" ~ (" " ~ mins % 60 ~ " min" if mins % 60 else "") %}
 <div class="t2" style="margin-top:8px;font-size:15px;line-height:22px;color:#5f5f66;{{ m.wrap }}">{% for p in (meta.year, meta.media_label, length) if p %}{% if not loop.first %} &middot; {% endif %}{{ p }}{% endfor %}</div>
-{%- macro chip() -%}<span class="chip" style="display:inline-block;margin:0 6px 6px 0;padding:5px 11px;border-radius:14px;background:#ececf0;color:#3a3a40;font-size:13px;font-weight:600;line-height:18px;white-space:nowrap;">{{ caller() }}</span> {% endmacro -%}
+{%- macro chip() -%}<span class="chip" style="display:inline-block;margin:0 6px 6px 0;padding:5px 11px;border-radius:14px;background:#ececf0;color:#3a3a40;font-size:13px;font-weight:600;line-height:18px;white-space:nowrap">{{ caller() }}</span> {% endmacro -%}
 {%- if ratings.rating or ratings.imdb_rating or ratings.rt_rating %}
-<div style="margin-top:12px;font-size:0;line-height:0;">
+<div style="margin-top:12px;font-size:0;line-height:0">
 {%- if ratings.rating %}{% call chip() %}&#9733; {{ ratings.rating }}{% endcall %}{% endif %}
 {%- if ratings.imdb_rating %}{% call chip() %}IMDb {{ ratings.imdb_rating }}{% endcall %}{% endif %}
 {%- if ratings.rt_rating %}{% call chip() %}Rotten Tomatoes {{ ratings.rt_rating }}{% endcall %}{% endif -%}
@@ -32,10 +32,10 @@
 <div class="t2" style="margin-top:14px;font-size:16px;line-height:1.55;color:#4a4a50;{{ m.wrap }}">{{ description }}</div>
 {%- endif %}
 {%- if meta.director %}
-<div class="t2" style="margin-top:12px;font-size:14px;color:#5f5f66;">{#- What is stored for a show is its creator. -#}
-{{ "Directed" if meta.media_label == "Movie" else "Created" }} by <span class="t1" style="color:#1d1d1f;">{{ meta.director }}</span></div>
+<div class="t2" style="margin-top:12px;font-size:14px;color:#5f5f66">{#- What is stored for a show is its creator. -#}
+{{ "Directed" if meta.media_label == "Movie" else "Created" }} by <span class="t1" style="color:#1d1d1f">{{ meta.director }}</span></div>
 {%- endif %}
-{% if watch_url %}<div style="margin-top:26px;">{{ m.btn(watch_url,"Watch now",110) }}</div>{% endif %}
+{% if watch_url %}<div style="margin-top:26px">{{ m.btn(watch_url,"Watch now",110) }}</div>{% endif %}
 </td></tr></table>
 </td></tr></table>
 </td></tr>

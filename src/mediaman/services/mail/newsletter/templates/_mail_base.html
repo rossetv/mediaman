@@ -2,8 +2,9 @@
     the dark ones override them where the reader's mail is dark. Solid hex only, since Outlook on
     Windows ignores rgba(), and never the tokens of static/css/_tokens.css, since mail clients drop
     custom properties: if the palette changes, change it here by hand. -#}
-{#- No quotes, so that it can sit inside a style attribute. -#}
-{%- set ff="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;" -%}
+{#- No quotes, so that it can sit inside a style attribute; short, as each cell repeats it and Gmail
+    cuts a mail at 102 KB. A picture's alt text inherits it from the table. -#}
+{%- set ff="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif" -%}
 {#- Long words (a release name with no spaces) break rather than widen the mail. -#}
 {%- set wrap="overflow-wrap:anywhere;word-break:break-word;" -%}
 {%- macro head(title) -%}
@@ -41,19 +42,19 @@
 </style>
 </head>
 {%- endmacro -%}
-{%- macro pre(text) -%}<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f2f2f4;">{{ text }}</div>{%- endmacro -%}
+{%- macro pre(text) -%}<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f2f2f4">{{ text }}</div>{%- endmacro -%}
 {#- A button every client draws: the cell holds the colour, the link the padding. White on #0071e3 is
     4.7:1, and the link is at least 44px tall so a thumb finds it. -#}
 {%- macro btn(url,label,w=0,full=false) -%}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0"{% if full %} width="100%"{% endif %} style="border-collapse:separate;"><tr><td align="center" bgcolor="#0071e3" style="background:#0071e3;border-radius:23px;"><a href="{{ url }}" style="display:block;padding:13px {{ 8 if full else 28 }}px;{% if w %}min-width:{{ w }}px;{% endif %}color:#ffffff;font-size:15px;font-weight:600;line-height:20px;text-align:center;text-decoration:none;white-space:nowrap;border-radius:23px;">{{ label }}</a></td></tr></table>
+<table role="presentation" cellpadding="0" cellspacing="0"{% if full %} width="100%"{% endif %}><tr><td align="center" bgcolor="#0071e3" style="background:#0071e3;border-radius:23px"><a href="{{ url }}" style="display:block;padding:13px {{ 8 if full else 28 }}px;{% if w %}min-width:{{ w }}px;{% endif %}color:#ffffff;font-size:15px;font-weight:600;line-height:20px;text-decoration:none;white-space:nowrap">{{ label }}</a></td></tr></table>
 {%- endmacro -%}
 {%- macro ghost(url,label,full=false) -%}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0"{% if full %} width="100%"{% endif %} style="border-collapse:separate;"><tr><td class="ghost" align="center" style="border:1px solid #c9ccd3;border-radius:23px;"><a class="link" href="{{ url }}" style="display:block;padding:12px {{ 8 if full else 22 }}px;color:#0060c7;font-size:14px;font-weight:600;line-height:20px;text-align:center;text-decoration:none;white-space:nowrap;">{{ label }}</a></td></tr></table>
+<table role="presentation" cellpadding="0" cellspacing="0"{% if full %} width="100%"{% endif %}><tr><td class="ghost" align="center" style="border:1px solid #c9ccd3;border-radius:23px"><a class="link" href="{{ url }}" style="display:block;padding:12px {{ 8 if full else 22 }}px;color:#0060c7;font-size:14px;font-weight:600;line-height:20px;text-decoration:none;white-space:nowrap">{{ label }}</a></td></tr></table>
 {%- endmacro -%}
 {%- macro brand(line="") -%}
-<tr><td class="pad" style="padding:30px 32px 22px;{{ ff }}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="t1" style="font-size:22px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f;{{ ff }}">media<span class="man" style="color:#0071e3;">man</span></td><td class="t2" align="right" style="font-size:13px;color:#5f5f66;{{ ff }}">{{ line }}</td></tr></table></td></tr>
+<tr><td class="pad" style="padding:30px 32px 22px;{{ ff }}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td class="t1" style="font-size:22px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f;{{ ff }}">media<span class="man" style="color:#0071e3">man</span></td><td class="t2" align="right" style="font-size:13px;color:#5f5f66;{{ ff }}">{{ line }}</td></tr></table></td></tr>
 {%- endmacro -%}
 {%- macro pic(src,title,w,h) -%}
-{%- if src -%}<img class="pic" src="{{ src }}" alt="{{ title }}" width="{{ w }}" height="{{ h }}" style="display:block;border:0;width:100%;max-width:{{ w }}px;height:auto;border-radius:8px;background:#e3e3e8;color:#1d1d1f;font-size:14px;font-weight:600;line-height:18px;text-align:center;{{ ff }}">
-{%- else -%}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:{{ w }}px;"><tr><td class="pic" aria-hidden="true" height="{{ h }}" align="center" valign="middle" bgcolor="#e3e3e8" style="height:{{ h }}px;padding:6px;border-radius:8px;background:#e3e3e8;color:#1d1d1f;font-size:{{ 10 if w<100 else 14 }}px;font-weight:600;line-height:1.25;{{ wrap }}{{ ff }}">{{ title|truncate(40 if w<100 else 80) }}</td></tr></table>{%- endif -%}
+{%- if src -%}<img class="pic" src="{{ src }}" alt="{{ title }}" width="{{ w }}" height="{{ h }}" style="display:block;width:100%;max-width:{{ w }}px;height:auto;border-radius:8px;background:#e3e3e8;color:#1d1d1f;font-size:14px;font-weight:600;line-height:18px;text-align:center">
+{%- else -%}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:{{ w }}px"><tr><td class="pic" aria-hidden="true" height="{{ h }}" align="center" valign="middle" bgcolor="#e3e3e8" style="height:{{ h }}px;padding:6px;border-radius:8px;background:#e3e3e8;color:#1d1d1f;font-size:{{ 10 if w<100 else 14 }}px;font-weight:600;line-height:1.25;{{ wrap }}{{ ff }}">{{ title|truncate(40 if w<100 else 80) }}</td></tr></table>{%- endif -%}
 {%- endmacro -%}

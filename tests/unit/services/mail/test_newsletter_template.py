@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
+from mediaman.crypto import generate_download_token, generate_unsubscribe_token, sign_poster_url
+from mediaman.crypto.tokens import generate_keep_token
 from mediaman.services.mail.plaintext import html_to_text
 
 
@@ -173,7 +175,7 @@ def test_a_deleted_season_zero_is_called_specials(env: Environment) -> None:
 
     html = env.get_template("newsletter.html").render(**ctx)
 
-    assert ">Specials &middot; deleted 3 days ago" in html
+    assert ">Specials · deleted 3 days ago" in html
     assert "Season 0" not in html
 
 
@@ -319,7 +321,7 @@ def test_only_the_types_that_take_space_are_named(env: Environment) -> None:
 def test_never_watched_cannot_wrap(env: Environment) -> None:
     html = env.get_template("newsletter.html").render(**_full_context())
 
-    assert re.search(r"white-space:nowrap[^>]*>Never(&nbsp;| )watched<", html)
+    assert "Never&nbsp;watched" in html
     assert "Never watched" not in html
 
 
@@ -517,7 +519,7 @@ def test_sizes_hand_over_to_the_next_unit_before_they_read_1024(
     html = env.get_template("newsletter.html").render(**ctx)
 
     card = html[html.index(">Ad Astra</div>") : html.index("keep/tok1")]
-    assert f"Movie &middot; {shown}<br>" in card
+    assert f"Movie · {shown}<br>" in card
 
 
 @pytest.mark.parametrize(
@@ -534,3 +536,76 @@ def test_a_scheduled_card_says_how_long_ago_it_was_added(
 
     card = html[html.index(">Ad Astra</div>") : html.index("keep/tok1")]
     assert shown in card
+
+
+def test_with_the_disk_unreadable_it_says_nothing_of_free_space(env: Environment) -> None:
+    ctx = _full_context()
+    ctx["storage"].update(used_bytes=18 * 1024**4, total_bytes=18 * 1024**4, free_bytes=0)
+
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    assert " free" not in html_to_text(html).replace("Made free", "")
+    assert 'class="track"' not in html
+    assert "8.0 TB movies · 7.0 TB TV · 3.0 TB anime\nMade free: 420.0 GB" in html_to_text(html)
+
+
+def test_a_full_disk_still_says_nothing_is_free(env: Environment) -> None:
+    ctx = _full_context()
+    ctx["storage"].update(used_bytes=22 * 1024**4, total_bytes=22 * 1024**4, free_bytes=0)
+
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    assert "0 B free of 22.0 TB" in html_to_text(html)
+    assert 'class="track"' in html
+
+
+def test_a_long_mail_is_not_cut_short(env: Environment) -> None:
+    """Gmail cuts a mail at 102 KB, and the unsubscribe link is at its end."""
+    key, site = "k" * 64, "https://mediaman.home.example"
+
+    def link(action: str, title: str) -> str:
+        token = generate_download_token(
+            email="a.long.name@example.com",
+            action=action,
+            title=title,
+            media_type="movie",
+            tmdb_id=1234567,
+            recommendation_id=12345,
+            secret_key=key,
+        )
+        return f"{site}/download/{token}"
+
+    ctx = _full_context()
+    leaving, gone, pick = (
+        ctx[k][0] for k in ("scheduled_items", "deleted_items", "this_week_items")
+    )
+    poster = site + sign_poster_url("123456", key)
+    title = "A Title That Is Forty Characters Long Ok"
+    keep = generate_keep_token(
+        media_item_id="123456", action_id=12345, expires_at=1893456000, secret_key=key
+    )
+    unsubscribe = generate_unsubscribe_token(email="a.long.name@example.com", secret_key=key)
+    ctx["scheduled_items"] = [
+        leaving | {"title": title, "poster_url": poster, "keep_url": f"{site}/keep/{keep}"}
+    ] * 24
+    ctx["deleted_items"] = [
+        gone | {"title": title, "poster_url": poster, "redownload_url": link("redownload", title)}
+    ] * 10
+    ctx["this_week_items"] = [
+        pick
+        | {
+            "title": title,
+            "category": category,
+            "reason": "r" * 160,
+            "poster_url": f"https://image.tmdb.org/t/p/w300/{'p' * 27}.jpg",
+            "download_url": link("download", title),
+        }
+        for category in ("trending", "personal")
+    ] * 9
+    ctx["dashboard_url"] = site
+    ctx["unsubscribe_url"] = f"{site}/unsubscribe?token={unsubscribe}"
+
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    assert html.count("<img") == 52
+    assert len(html.encode()) < 100_000
