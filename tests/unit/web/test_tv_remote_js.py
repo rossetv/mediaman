@@ -383,6 +383,61 @@ def test_with_two_tvs_the_bar_goes_to_the_other_and_steers_that_one() -> None:
     assert out["stays"].endswith("Bedroom TV")
 
 
+def test_a_chromecast_has_the_bar_and_a_remote_of_what_it_can_do_without_a_request() -> None:
+    out = _run("cast")
+    assert out["bar"] == {"shown": True, "says": "Playing on Den"}
+    assert out["title"] == "Glass Orchard · S1 E4"
+    assert out["asks"] == 0
+    assert out["hint"] == "You can leave this page. The TV carries on."
+    assert out["subtitle"] == "S1 · E4 · The Grafting Knife"
+    assert (out["shown"], out["hidden"]) == (6, [])
+    assert out["paused"] == "Paused on Den"
+    assert out["byItsOwnRemote"] == "Playing on Den"
+    assert (out["at"], out["follows"]) == ("20:20", "21:40")
+    assert out["did"] == ["toggle", ["seek", 1220]]
+    assert out["sent"] == []
+
+
+def test_a_chromecast_is_stopped_from_the_bar_and_brought_here_from_the_remote() -> None:
+    out = _run("castStop")
+    assert out["bar"] is False
+    assert len(out["toasts"]) == 1
+    assert "20:00" in out["toasts"][0]
+    assert out["did"] == [["stop"], ["stop"]]
+    assert out["href"] == "/watch/play/9001?resume=1"
+    assert out["said"] == []
+
+
+def test_a_lost_chromecast_may_come_back_and_past_that_is_offered_here() -> None:
+    out = _run("castLost")
+    assert (out["card"], out["dead"]) == ("Den stopped answering", True)
+    assert out["acts"] == ["Bring it here", "Stop"]
+    assert out["back"] is None
+    title, line, acts = out["over"]
+    assert title == "Den stopped answering"
+    assert "20:00" in line
+    assert acts == ["Bring it here", "Close"]
+
+
+def test_a_chromecast_that_ended_is_said_and_one_another_tab_follows_is_not() -> None:
+    out = _run("castOver")
+    assert out["ended"] == {
+        "open": False,
+        "bar": False,
+        "toasts": ["Nothing is playing on Den now."],
+    }
+    assert out["elsewhere"] == {"open": False, "bar": False, "toasts": []}
+
+
+def test_a_chromecast_is_found_later_beside_a_tv_and_with_mediaman_out_of_reach() -> None:
+    out = _run("castBeside")
+    assert out["late"] == [False, {"shown": True, "says": "Playing on Den"}]
+    assert out["says"] == ["Playing on Living room", "Playing on Den", "Playing on Den"]
+    assert out["after"] == ["Playing on Living room"] * 2
+    assert out["did"] == ["toggle"]
+    assert out["alone"] is False
+
+
 def test_a_tv_that_cannot_set_its_volume_gets_words_and_no_slider() -> None:
     assert _run("noVolume") == {"slider": False, "words": True}
 

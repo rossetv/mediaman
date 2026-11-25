@@ -44,6 +44,10 @@ function aTv(more) {
   return { id: 7, name: 'Living room', on: true, lost_s: null, acked: 0, volume: 0.4, muted: false, can_volume: true, play: aPlay(), last: null, ...more };
 }
 
+function aCast(more) {
+  return { name: 'Den', rating_key: '9001', title: 'Glass Orchard', subtitle: 'S1 · E4 — The Grafting Knife', position_s: 1200, duration_s: 2880, paused: false, lost: false, ...more };
+}
+
 async function page(opts = {}) {
   const doc = makeDocument();
   if (opts.player) parse(doc, '<div id="player"></div>', doc.body);
@@ -110,6 +114,18 @@ async function page(opts = {}) {
     ModalA11y: { register() {}, onOpened() {}, onClosed() {} },
     MM: { api: { get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
   };
+  // What cast-sender.js tells and does; the tab that follows the play is another with `away`.
+  const cast = { now: null, did: [], away: false, change() {}, ...opts.cast };
+  if (opts.cast) {
+    win.MM.castSender = {
+      now: () => cast.now && { ...cast.now },
+      on(fn) { cast.change = fn; },
+      toggle() { cast.did.push('toggle'); cast.now.paused = !cast.now.paused; },
+      seek(s) { cast.did.push(['seek', Math.round(s)]); cast.now.position_s = s; },
+      stop() { cast.did.push('stop'); cast.now = null; cast.change(); return Promise.resolve(); },
+      holds: () => cast.away,
+    };
+  }
   const $ = (sel) => doc.querySelector(sel);
   const ctx = vm.createContext({
     window: win, document: doc, AbortController,
@@ -125,7 +141,7 @@ async function page(opts = {}) {
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
-    $, doc, win, api, toasts, history, heardByPage,
+    $, doc, win, api, toasts, history, heardByPage, cast,
     async step(by) { history.go(by); await p.pass(20); },
     trail: () => ({ at: history.index, entries: history.entries.length, open: p.isOpen(), menu: p.seen('[data-po]') }),
     seen: (sel) => !p.$(sel).hidden && !p.$(sel).classList.contains('is-leaving'),
@@ -830,6 +846,107 @@ const scenarios = {
     await p.press('[data-mini-play]');
     await p.pass(6000);
     return { says: out, to: p.api.calls.find((c) => c.method === 'POST').url, stays: p.bar().says };
+  },
+  // A Chromecast beside no TV of mediaman's.
+  async cast() {
+    const p = await page({ tvs: [], cast: { now: aCast() } });
+    const reads = p.reads().length;
+    const out = { bar: p.bar(), title: p.$('[data-mini-title]').textContent };
+    await p.pass(30000);
+    out.asks = p.reads().length - reads;
+    await p.open();
+    out.hint = p.$('[data-hint]').textContent;
+    out.subtitle = p.$('[data-subtitle]').textContent;
+    out.shown = ['[data-play]', '[data-back10]', '[data-seek-row]', '[data-bring]', '[data-stop]', '[data-no-volume]'].filter((s) => p.seen(s)).length;
+    out.hidden = ['[data-volume]', '[data-mute]', '[data-menu="quality"]', '[data-menu="subtitles"]', '[data-menu="chapters"]', '[data-next]'].filter((s) => p.seen(s));
+    await p.press('[data-play]');
+    out.paused = p.$('[data-on]').textContent;
+    p.cast.now.paused = false;
+    await p.pass(600);
+    out.byItsOwnRemote = p.$('[data-on]').textContent;
+    await p.press('[data-fwd10]');
+    await p.press('[data-fwd10]');
+    await p.pass(400);
+    out.at = p.at();
+    p.cast.now.position_s = 1300;
+    await p.pass(600);
+    out.follows = p.at();
+    out.did = p.cast.did;
+    out.sent = p.sent();
+    return out;
+  },
+  async castStop() {
+    const p = await page({ tvs: [], cast: { now: aCast() } });
+    await p.press('[data-mini-stop]');
+    await p.pass(600);
+    const q = await page({ tvs: [], cast: { now: aCast() } });
+    await q.open();
+    await q.press('[data-bring]');
+    await q.pass(600);
+    return { bar: p.bar().shown, toasts: p.toasts, did: [p.cast.did, q.cast.did], href: q.win.location.href, said: q.toasts };
+  },
+  async castLost() {
+    const p = await page({ tvs: [], cast: { now: aCast() } });
+    await p.open();
+    p.cast.now.lost = true;
+    p.cast.change();
+    const acts = () => p.$('[data-card-actions]').querySelectorAll('button').map((b) => b.textContent);
+    const out = { card: p.card(), acts: acts(), dead: p.$('[data-play]').inert };
+    p.cast.now.lost = false;
+    p.cast.change();
+    out.back = p.card();
+    p.cast.now.lost = true;
+    p.cast.change();
+    p.cast.now = null;
+    p.cast.change();
+    await settle();
+    out.over = [p.card(), p.$('[data-card-line]').textContent, acts()];
+    return out;
+  },
+  // It ends by itself, or a tab of its own goes on with it.
+  async castOver() {
+    const over = async (away) => {
+      const p = await page({ tvs: [], cast: { now: aCast(), away } });
+      await p.open();
+      p.cast.now = null;
+      p.cast.change();
+      await p.pass(600);
+      return { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts };
+    };
+    return { ended: await over(false), elsewhere: await over(true) };
+  },
+  // What begins later than the page, beside a TV, and with mediaman out of reach.
+  async castBeside() {
+    const late = await page({ tvs: [], cast: {} });
+    const before = late.bar().shown;
+    late.cast.now = aCast();
+    late.cast.change();
+    // It ends while the list of TVs is on its way.
+    const left = await page({ cast: { now: aCast() } });
+    await left.press('[data-other]');
+    const held = [];
+    const get = left.win.MM.api.get;
+    left.win.MM.api.get = async (...a) => { const r = await get(...a); await new Promise((go) => held.push(go)); return r; };
+    await left.pass(8000);
+    left.cast.now = null;
+    left.cast.change();
+    held.forEach((go) => go());
+    await settle();
+    const ended = await page({ cast: { now: aCast() } });
+    await ended.press('[data-other]');
+    await ended.pass(1000);
+    ended.cast.now = null;
+    ended.cast.change();
+    await settle();
+    const two = await page({ cast: { now: aCast() } });
+    const says = [two.bar().says];
+    await two.press('[data-other]');
+    says.push(two.bar().says);
+    two.api.fail = ['down', 502];
+    await two.pass(20000);
+    says.push(two.bar().says);
+    await two.press('[data-mini-play]');
+    return { late: [before, late.bar()], says, after: [left.bar().says, ended.bar().says], did: two.cast.did, alone: (await page({ tvs: [], cast: {} })).bar().shown };
   },
   async noVolume() {
     const p = await page({ tvs: [aTv({ can_volume: false })] });
