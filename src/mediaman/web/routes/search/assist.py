@@ -120,12 +120,16 @@ def _forget(user_id: int) -> None:
 
 def _sweep(conn: sqlite3.Connection) -> None:
     """Forget what is past its time, or of an account that is gone with its runs."""
-    if not _asked:
+    # Before the ids are read: a run begun meanwhile is in neither.
+    with _asked_lock:
+        held = dict(_asked)
+    if not held:
         return
     there, since = repo.runs_there(conn), now_utc() - _ASKED_FOR
     with _asked_lock:
-        for run_id in [r for r, a in _asked.items() if r not in there or a.at < since]:
-            del _asked[run_id]
+        for run_id, asked in held.items():
+            if run_id not in there or asked.at < since:
+                _asked.pop(run_id, None)
 
 
 def _fetch(conn: sqlite3.Connection, user_id: int, kind: str, key: str) -> dict[str, Any] | None:

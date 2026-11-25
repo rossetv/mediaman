@@ -674,6 +674,22 @@ class TestKept:
             people["bob"].get(BASE)
         assert assist._asked == {}
 
+    def test_a_run_begun_while_memory_is_swept_stays(self, people, model, monkeypatch):
+        model.items = [_title("Alibi")]
+        _ask(people["amy"])
+        real, begun = repo.runs_there, []
+
+        def begun_meanwhile(conn):
+            there = real(conn)
+            if not begun:
+                begun.append(None)
+                begun[0] = people["bob"].post(f"{BASE}/ask", json={"q": Q}).json()["run_id"]
+            return there
+
+        monkeypatch.setattr(repo, "runs_there", begun_meanwhile)
+        people["amy"].get(BASE)
+        assert people["bob"].get(f"{BASE}/runs/{begun[0]}").json()["status"] == "done"
+
 
 class TestWords:
     @pytest.mark.parametrize(
