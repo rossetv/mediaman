@@ -424,7 +424,7 @@
       p.item.removeAttribute('aria-describedby');
     });
     live = folding = shown = null;
-    still(function () { card.classList.remove('is-open', 'is-passing'); });
+    if (!card.hidden) still(function () { card.classList.remove('is-open', 'is-passing'); });
     card.hidden = true;
     shell.textContent = '';
   }

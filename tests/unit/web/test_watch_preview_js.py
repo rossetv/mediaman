@@ -603,3 +603,86 @@ def test_the_preview_stays_under_its_sheet_and_leaves_the_remote_its_escape() ->
 
 def test_the_levels_fold_as_the_server_says_the_title_cannot_be_rated() -> None:
     assert _run("stripNotRateable") == [False, True]
+
+
+def test_a_short_scroll_is_followed_and_goes_back_and_a_longer_one_opens_the_page() -> None:
+    out = _run("scrolledOpen")
+    assert out["back"] == {
+        "steps": ["ahead movie-1", "draw movie-1", "end", "undraw"],
+        "kept": True,
+        "followed": True,
+        "under": "Fieldwork",
+        "open": "Fieldwork",
+        "hint": True,
+        "still": 0,
+    }
+    assert out["early"] == ["draw movie-1"]
+    assert out["steps"][:3] == ["draw movie-1", "end", "open"]
+    assert (out["live"], out["hint"]) == ("Orbit", False)
+
+
+def test_a_scroll_opens_a_preview_by_itself_at_140_pixels() -> None:
+    assert _run("scrollOpens") == {"139": False, "140": True, "byItself": True}
+
+
+def test_a_scroll_up_too_soon_under_way_beside_it_or_with_a_menu_open_is_the_pages() -> None:
+    assert set(map(tuple, _run("pagesScroll").values())) == {(False, False)}
+
+
+def test_a_sideways_scroll_over_a_preview_moves_its_row_by_every_small_step() -> None:
+    assert _run("scrolledSideways") == {
+        "left": 115,
+        "kept": True,
+        "snaps": ["none"],
+        "after": "",
+        "drawn": False,
+        "open": None,
+    }
+
+
+def test_what_is_left_of_the_push_that_opened_a_page_does_not_scroll_it_and_a_fresh_one_does() -> (
+    None
+):
+    assert _run("momentum") == {"left": [0, True, 0], "reads": True, "fresh": [0, False, 0]}
+
+
+def test_a_preview_on_its_way_is_taken_back_by_the_hand_and_escape_and_ended_at_once_by_the_rest() -> (
+    None
+):
+    out = _run("scrolledBack")
+    assert out["stopped"] is True
+    assert out["hand"] == out["escape"] == ["draw movie-1,end,undraw", "Fieldwork"]
+    for how in ("back", "resize", "hidden", "card"):
+        assert out[how] == ["draw movie-1,end,undraw", None], how
+    assert out["scroll"][0] == "draw movie-1,end,open"
+
+
+def test_a_press_takes_a_preview_the_rest_of_its_way_and_presses_nothing_else() -> None:
+    assert _run("pressedOnItsWay") == {"open": True, "swallowed": True, "next": False}
+
+
+def test_with_less_motion_or_forced_colours_a_scroll_opens_the_page_as_a_press_does() -> None:
+    assert _run("scrolledPlainly") == [[True, 0, ["movie-1"], False]] * 2
+
+
+def test_a_trailer_plays_on_over_the_page_until_the_person_scrolls_presses_or_leaves() -> None:
+    assert _run("trailerGoesOn") == {
+        "on": {"same": True, "film": True, "muted": False},
+        "scrolled": [True, False, False],
+        "pressed": [True, False, False],
+        "ended": [False, False, False],
+        "left": [False, False],
+    }
+
+
+def test_no_trailer_begins_while_a_preview_is_on_its_way() -> None:
+    assert _run("noTrailerOnTheWay") == [False, True, False]
+
+
+def test_a_films_page_is_asked_for_once_its_preview_stands_open_and_a_shows_is_not() -> None:
+    assert _run("askedAhead") == {
+        "film": ["ahead movie-1"],
+        "passing": [],
+        "show": [],
+        "saving": [],
+    }

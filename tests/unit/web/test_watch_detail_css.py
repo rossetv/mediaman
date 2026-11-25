@@ -213,3 +213,10 @@ def test_the_ratings_still_to_come_hold_one_line() -> None:
     line = _of(".ttl__ratings-wait")
     assert "height: calc(1lh + 8px)" in line
     assert "overflow: hidden" in line
+
+
+def test_a_page_opened_over_a_playing_trailer_never_shows_its_own_picture_first() -> None:
+    film = ".ttl.is-film:not(.is-melting) .ttl__hero > :is(.ttl__art, .ttl__fill)"
+    rules = [body for selectors, body in _rules() if ", ".join(selectors) == film]
+    assert len(rules) == 1
+    assert "opacity: 0" in rules[0] and "transition: none" in rules[0]

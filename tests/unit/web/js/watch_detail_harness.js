@@ -322,7 +322,121 @@ function chipsOf(p) {
   return p.ttl().querySelectorAll('.season-chip').map((c) => [c.getAttribute('data-season'), c.querySelector('.season-chip__sub').textContent, c.getAttribute('aria-disabled') !== 'true']);
 }
 
+/* What a preview says of *data*. */
+function previewOf(data, over) {
+  const keys = ['ref', 'kind', 'in_library', 'library_ref', 'title', 'year', 'runtime_min', 'season_count', 'genres', 'certificate', 'tagline', 'overview',
+    'backdrop_url', 'ratings', 'trailer_key', 'reason', 'play', 'leaving', 'leaving_seasons', 'keep_allowed', 'download'];
+  return Object.assign(Object.fromEntries(keys.map((k) => [k, data[k]])), { seasons: [] }, over);
+}
+
+/* A film on the way from its card: the page, its card's link, and what it has been drawn with. */
+function carried(opts = {}) {
+  const data = opts.data || LIB_MOVIE;
+  const p = load({ films: ['120'], clock: true, ...opts, routes: { ['/api/watch/title/' + data.ref]: data, ...opts.routes } });
+  p.run();
+  p.detail = p.ctx.MMWatch.detail;
+  p.link = p.doc.querySelector('[data-title-ref="' + data.ref + '"]');
+  p.draw = () => p.detail.draw(data.ref, { origin: p.link, title: data.title, kind: data.kind, preview: previewOf(data, opts.preview), poster: null, watched: false });
+  p.look = () => ({ hidden: p.ttl().hidden, locked: p.doc.documentElement.classList.contains('has-ttl'), hash: p.loc.hash, pushes: p.history.length,
+    focus: p.doc.activeElement === p.q('#ttl-title'), inert: p.doc.getElementById('watch-search').inert, title: p.text('#ttl-title'), words: p.text('.ttl__overview') });
+  return p;
+}
+
 const scenarios = {
+  // Drawn at the first of a scroll, taken back, drawn again and opened, then closed.
+  async drawnThenOpened() {
+    const p = carried();
+    p.draw();
+    const drawn = p.look();
+    p.detail.undraw();
+    const back = { ...p.look(), empty: p.q('[data-ttl-part="body"]').children.length };
+    p.key('Escape');
+    const untouched = p.history.length;
+    p.draw();
+    p.detail.openDrawn();
+    await settle();
+    const open = { ...p.look(), busy: p.ttl().getAttribute('aria-busy') };
+    const gets = p.gets.filter((u) => /title\/movie-120$/.test(u)).length;
+    p.key('Escape');
+    return { drawn, back, untouched, open, gets, closed: [p.ttl().classList.contains('is-leaving'), p.doc.activeElement === p.link] };
+  },
+
+  // Its whole page has come before it is drawn: it is drawn with it, and asks for the rest once open.
+  async drawnInFull() {
+    const full = Object.assign({}, LIB_MOVIE, { ratings_pending: true });
+    const p = carried({ data: full });
+    p.detail.ahead('movie-120');
+    await settle();
+    p.draw();
+    const drawn = { director: p.text('.ttl__credit'), cast: p.ttl().querySelectorAll('.ttl-cast__item').length, gets: p.gets.length };
+    const face = p.q('.ttl-cast__item');
+    p.detail.openDrawn();
+    await settle();
+    return { drawn, kept: p.q('.ttl-cast__item') === face, gets: p.gets };
+  },
+
+  // The page has other words than the preview it was read by, and a longer wait: they stay as they were.
+  async wordsGoOn() {
+    const late = {};
+    const data = Object.assign({}, LIB_MOVIE, { overview: 'What Plex says.' });
+    const p = carried({ data, preview: { overview: 'What was read.' }, routes: { '/api/watch/title/movie-120': () => new Promise((r) => { late.come = () => r(data); }) } });
+    p.draw();
+    p.detail.openDrawn();
+    await settle();
+    const before = { words: p.text('.ttl__overview'), play: primary(p).text, skels: p.ttl().querySelectorAll('.ttl__credit .skel').length, busy: p.ttl().getAttribute('aria-busy') };
+    late.come();
+    await settle();
+    const after = { words: p.text('.ttl__overview'), director: p.text('.ttl__credit'), busy: p.ttl().getAttribute('aria-busy'),
+      faded: p.ttl().querySelectorAll('.ttl__main .fade-in').map((n) => n.className.split(' ')[0]), swapped: p.q('.ttl__overview').classList.contains('is-swapping-in') };
+    return { before, after };
+  },
+
+  // The title's page cannot be had: what its preview said stays, and a second try brings the rest.
+  async drawnThenFailed() {
+    let down = true;
+    const p = carried({ routes: { '/api/watch/title/movie-120': () => (down ? Promise.reject(new APIError(502, 'x')) : Promise.resolve(LIB_MOVIE)) } });
+    p.draw();
+    p.detail.openDrawn();
+    await settle();
+    const failed = { line: p.text('.ttl__failed-line'), words: p.text('.ttl__overview'), play: primary(p).text, skels: p.q('.ttl__main').querySelectorAll('.skel').length };
+    down = false;
+    click(p.doc, p.q('.ttl__failed-actions').children[0]);
+    await settle();
+    return { failed, then: { line: p.text('.ttl__failed-line'), director: p.text('.ttl__credit') } };
+  },
+
+  // What is asked for before it is opened: once, one at a time, few a minute, and not once it has gone stale.
+  async askedAhead() {
+    const never = {};
+    const routes = {};
+    for (let i = 1; i <= 30; i++) routes['/api/watch/title/movie-' + i] = Object.assign({}, LIB_MOVIE, { ref: 'movie-' + i, library_ref: 'movie-' + i });
+    routes['/api/watch/title/movie-900'] = () => new Promise(() => {});
+    const p = carried({ routes });
+    const asked = () => p.gets.filter((u) => /^\/api\/watch\/title\/movie-\d+$/.test(u)).map((u) => u.split('-')[1]);
+    p.detail.ahead('movie-900');
+    p.detail.ahead('movie-1');
+    const oneAtATime = asked();
+    p.clock.now += 61000;
+    p.gets.length = 0;
+    p.detail.ahead('movie-1');
+    await settle();
+    p.detail.ahead('movie-1');
+    p.detail.open('movie-1', {});
+    await settle();
+    const once = asked();
+    p.gets.length = 0;
+    p.clock.now += 61000;
+    for (let i = 2; i <= 30; i++) { p.detail.ahead('movie-' + i); await settle(); }
+    const most = asked().length;
+    p.gets.length = 0;
+    p.clock.now += 61000;
+    p.detail.ahead('movie-2');
+    await settle();
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-2' } });
+    p.detail.ahead('movie-2');
+    return { oneAtATime, once, most, changed: asked() };
+  },
+
   // Another part of the page queued the film on show.
   async queuedElsewhere() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });

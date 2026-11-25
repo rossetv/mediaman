@@ -1385,3 +1385,74 @@ def test_a_film_queued_elsewhere_on_the_page_is_queued_in_its_panel() -> None:
         "polls": True,
         "events": 1,
     }
+
+
+def test_a_page_drawn_on_its_way_leaves_no_trace_until_it_opens_as_a_press_would_open_it() -> None:
+    out = _run("drawnThenOpened")
+    drawn = {
+        "hidden": False,
+        "locked": True,
+        "hash": "",
+        "pushes": 0,
+        "focus": False,
+        "inert": False,
+        "title": "Glass Harbour",
+        "words": "A survey crew maps a drifting station.",
+    }
+    assert out["drawn"] == drawn
+    assert out["back"] == {**drawn, "hidden": True, "locked": False, "words": None, "empty": 0}
+    assert out["untouched"] == 0
+    assert out["open"] == {
+        **drawn,
+        "hash": "#title=movie-120",
+        "pushes": 1,
+        "focus": True,
+        "inert": True,
+        "busy": None,
+    }
+    assert out["gets"] == 1
+    assert out["closed"] == [True, True]
+
+
+def test_a_page_drawn_in_full_is_not_drawn_again_and_asks_for_the_rest_only_once_open() -> None:
+    assert _run("drawnInFull") == {
+        "drawn": {"director": "DirectorAda Rimmington", "cast": 1, "gets": 1},
+        "kept": True,
+        "gets": ["/api/watch/title/movie-120", "/api/watch/title/movie-120/ratings"],
+    }
+
+
+def test_the_words_a_preview_was_read_by_stay_as_its_page_fills_in() -> None:
+    out = _run("wordsGoOn")
+    assert out["before"] == {"words": "What was read.", "play": "Play", "skels": 1, "busy": "true"}
+    assert out["after"] == {
+        "words": "What was read.",
+        "director": "DirectorAda Rimmington",
+        "busy": None,
+        "faded": ["ttl__credit"],
+        "swapped": False,
+    }
+
+
+def test_a_drawn_page_that_cannot_be_had_keeps_what_its_preview_said_and_can_be_tried_again() -> (
+    None
+):
+    out = _run("drawnThenFailed")
+    assert out["failed"] == {
+        "line": "Couldn't load details",
+        "words": "A survey crew maps a drifting station.",
+        "play": "Play",
+        "skels": 0,
+    }
+    assert out["then"] == {"line": None, "director": "DirectorAda Rimmington"}
+
+
+def test_a_title_is_asked_for_ahead_once_one_at_a_time_few_a_minute_and_again_when_it_changes() -> (
+    None
+):
+    assert _run("askedAhead") == {
+        "oneAtATime": ["900"],
+        "once": ["1"],
+        "most": 10,
+        "changed": ["2", "2"],
+    }

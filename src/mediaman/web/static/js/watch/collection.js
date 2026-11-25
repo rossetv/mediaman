@@ -99,9 +99,9 @@
     holder.appendChild(skel);
   }
 
-  /* What holds the row's place while the film *ref* loads; null for one not known to be in a collection. */
-  function skeleton(ref) {
-    if (without[ref] || !collOf(ref)) return null;
+  /* What holds the row's place while the film *ref* loads; null for one not *expected* or known to be in a collection. */
+  function skeleton(ref, expected) {
+    if (without[ref] || !(expected || collOf(ref))) return null;
     var holder = el('div', 'ttl__collsec');
     holdPlace(holder);
     return holder;
