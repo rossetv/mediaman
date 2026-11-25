@@ -578,6 +578,24 @@ def test_a_library_left_out_is_named_with_what_to_check(
     assert item["badge_class"] == "badge-action-deleted"
 
 
+def test_only_the_line_of_a_library_left_out_may_wrap(app_factory, authed_client, conn):
+    from mediaman.scanner.runner import _audit_left_out
+
+    _audit_left_out(conn, "k", {"1": "Plex failed to answer for it"}, {"1": "Films"})
+    _insert_audit_row(conn)
+    app = app_factory(
+        history_router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+    )
+
+    html = authed_client(app, conn).get("/history").text
+
+    assert html.count('class="hist-msg"') == 1
+    [wrapped] = re.findall(r'class="hist-msg hist-msg--wrap"><b>([^<]*)', html)
+    assert wrapped == "Films"
+
+
 def test_history_delete_root_prefix_matches_the_scanner_writer():
     from mediaman.scanner.deletions import _FOLDER_AUDIT_ID
     from mediaman.web.routes.history import _DELETE_ROOT_PREFIX
