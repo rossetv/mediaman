@@ -343,6 +343,11 @@ def trailer() -> dict:
     return _run("trailer")
 
 
+@pytest.fixture(scope="module")
+def twice() -> dict:
+    return _run("twice")
+
+
 def test_youtube_is_not_asked_until_the_trailer_is_pressed(trailer: dict) -> None:
     assert trailer["before"]["frames"] == [] and trailer["newTab"]["frames"] == []
 
@@ -414,4 +419,20 @@ def test_the_video_fades_out_before_it_goes(trailer: dict) -> None:
 
 
 def test_a_reload_under_a_trailer_leaves_no_trailer_s_entry(trailer: dict) -> None:
-    assert trailer["reloaded"]["state"] is None
+    assert trailer["reloaded"] == {"state": None, "on": False, "left": True}
+
+
+@pytest.mark.parametrize("way", ["close", "button", "escape", "end"])
+def test_closing_the_trailer_twice_at_once_never_leaves_the_page(way: str, twice: dict) -> None:
+    assert twice[way] == {
+        "left": False,
+        "on": False,
+        "barHeld": "none",
+        "barAfter": "",
+        "opens": True,
+        "back": [False, False],
+    }
+
+
+def test_enter_held_on_close_does_not_go_on_to_the_trailer_button(twice: dict) -> None:
+    assert twice["enter"] == {"held": True, "typed": False}

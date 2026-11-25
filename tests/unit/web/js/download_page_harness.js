@@ -22,6 +22,8 @@ Object.defineProperty(Node.prototype, 'offsetWidth', { get() { return this.getAt
 
 function page() {
   const doc = makeDocument();
+  const bar = doc.body.appendChild(doc.createElement('header'));
+  bar.className = 'share-bar';
   SPEC.forEach((s) => doc.body.appendChild(build(doc, s)));
   const inTemplate = (n) => !!n.parentNode && !!n.parentNode.closest('template');
   // A template's parts are not in the page until they are cloned.
@@ -55,9 +57,14 @@ function page() {
   ctx.location = { origin: 'https://mediaman.example' };
   // Two entries of one page, as a browser's history has them.
   const entries = [null];
+  // Going back is asked for now and done later.
+  const asked = [];
+  p.went = () => { asked.splice(0).forEach(go); return !!p.left; };
+  p.now = 1e6;
+  ctx.Date = { now: () => p.now };
   let at = 0;
-  const go = (by) => { if (entries[at + by] !== undefined) { at += by; p.hear('popstate', { state: entries[at] }); } };
-  ctx.history = { get state() { return entries[at]; }, back: () => go(-1),
+  const go = (by) => { if (at + by < 0) p.left = true; else if (entries[at + by] !== undefined) { at += by; p.hear('popstate', { state: entries[at] }); } };
+  ctx.history = { get state() { return entries[at]; }, back: () => { asked.push(-1); },
     pushState: (s) => { entries.splice(++at, entries.length, s); }, replaceState: (s) => { entries[at] = s; } };
   p.back = () => go(-1); p.forward = () => go(1); p.entries = () => entries.length; p.history = ctx.history;
   Node.prototype.scrollIntoView = function (how) { p.scrolled = [this.className, how.block, how.behavior]; };
@@ -288,16 +295,18 @@ const SCENARIOS = {
     p.resized();
     out.sideways = now();
     (p.doc.listeners.keydown || []).forEach((fn) => fn({ key: 'Escape' }));
+    p.went();
     out.off = now();
     p.resized();
     out.offResized = now();
     out.scrolled = p.scrolled;
     out.told = p.told.map((m) => m.func || m.event);
     out.entries = p.entries();
-    click(p.doc, link);
-    click(p.doc, link);
+    const press = (el) => { p.now += 1000; click(p.doc, el || link); p.went(); };
+    press();
+    press();
     out.again = now();
-    click(p.doc, link);
+    press();
     p.back();
     out.back = now();
     p.forward();
@@ -310,12 +319,13 @@ const SCENARIOS = {
     ended(0, win, 'https://elsewhere.example');
     out.played = now();
     ended(0, win);
+    p.went();
     out.ended = now();
     p.still = false;
-    click(p.doc, link);
+    press();
     // Safari leaves the focus of a clicked button on the page around it.
     p.one('main').focus();
-    click(p.doc, p.one('.ttl__close'));
+    press(p.one('.ttl__close'));
     out.fading = now();
     p.later();
     out.faded = now();
@@ -323,11 +333,58 @@ const SCENARIOS = {
     const reloaded = page();
     reloaded.history.pushState({ trailer: 'dQw4w9WgXcQ' });
     reloaded.trailer();
-    out.reloaded = { state: reloaded.history.state };
-    click(p.doc, link);
+    reloaded.hear('load');
+    reloaded.went();
+    out.reloaded = { state: reloaded.history.state, on: reloaded.one('.share-hero').classList.contains('is-trailer') };
+    reloaded.back();
+    out.reloaded.left = reloaded.left;
+    press();
     p.act().replaceChildren();
     click(p.doc, p.one('.ttl__close'));
     out.gone = { ...now(), tag: p.doc.activeElement.tagName };
+    return out;
+  },
+  // Each way to close the trailer, twice before the browser has gone back once.
+  async twice() {
+    const key = (p, e) => p.doc.listeners.keydown.forEach((fn) => fn(e));
+    const ends = (p, event, info) => p.hear('message', { source: p.one('iframe').contentWindow,
+      origin: 'https://www.youtube-nocookie.com', data: JSON.stringify({ event, info }) });
+    const WAYS = {
+      close: (p, again) => click(p.doc, p.one('.ttl__close'), { detail: again ? 2 : 1 }),
+      button: (p, again) => click(p.doc, p.one('[data-trailer]'), { detail: again ? 2 : 1 }),
+      escape: (p, again) => key(p, { key: 'Escape', repeat: !!again }),
+      end: (p, again) => (again ? ends(p, 'infoDelivery', { playerState: 0 }) : ends(p, 'onStateChange', 0)),
+    };
+    const out = {};
+    for (const way of Object.keys(WAYS)) {
+      const p = page();
+      p.still = false;
+      p.start();
+      p.trailer();
+      click(p.doc, p.one('[data-trailer]'));
+      p.now += 1000;
+      WAYS[way](p);
+      WAYS[way](p, true);
+      const barHeld = p.one('.share-bar').style.pointerEvents;
+      const left = p.went();
+      WAYS[way](p, true);
+      out[way] = { left: left || p.went(), on: p.one('.share-hero').classList.contains('is-trailer'), barHeld };
+      p.later();
+      out[way].barAfter = p.one('.share-bar').style.pointerEvents;
+      p.now += 1000;
+      click(p.doc, p.one('[data-trailer]'));
+      out[way].opens = p.one('.share-hero').classList.contains('is-trailer');
+      p.back();
+      out[way].back = [p.one('.share-hero').classList.contains('is-trailer'), !!p.left];
+    }
+    const p = page();
+    p.start();
+    p.trailer();
+    const held = { key: 'Enter', repeat: true, target: p.one('[data-trailer]'), preventDefault() { this.stopped = true; } };
+    key(p, held);
+    const typed = { ...held, repeat: false, stopped: false };
+    key(p, typed);
+    out.enter = { held: !!held.stopped, typed: !!typed.stopped };
     return out;
   },
 };
