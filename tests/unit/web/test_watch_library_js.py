@@ -653,6 +653,7 @@ def test_an_undo_takes_the_focus_to_its_card_and_from_nothing_that_has_it() -> N
         "typing": "watch-search",
         "details": "Undo",
         "dialog": "Undo",
+        "far": "card",
     }
 
 

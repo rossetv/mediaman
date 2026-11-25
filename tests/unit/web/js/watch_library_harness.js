@@ -1572,6 +1572,8 @@ const scenarios = {
       typing: await go((p) => p.doc.getElementById('watch-search').focus()),
       details: await go((p) => p.doc.documentElement.classList.add('has-ttl')),
       dialog: await go((p) => p.doc.body.appendChild(build(p.doc, ['div', { class: 'wl-dialog active' }]))),
+      // Its card a screen or more out of sight in a big grid, with a mouse, which hides its buttons.
+      far: await go((p) => { p.doc.mouse = true; p.row('id:m2').classList.add('is-far'); }),
     };
   },
 
