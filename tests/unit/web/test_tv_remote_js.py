@@ -27,6 +27,7 @@ def _run(scenario: str):
         capture_output=True,
         text=True,
         check=False,
+        timeout=30,
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -110,11 +111,11 @@ def test_a_dismissed_tv_that_comes_back_is_shown_again() -> None:
     assert _run("dismissed") == {"shown": False, "back": True}
 
 
-def test_a_tv_someone_else_took_is_said_and_asked_for_no_more() -> None:
+def test_a_tv_someone_else_took_is_said() -> None:
     out = _run("taken")
     assert out["card"] == "Someone else is using Living room"
     assert "21:08" in out["hint"]
-    assert out["asksOn"] == 0
+    assert out["asksOn"] == 12  # whether something else plays, as slowly as the bar
     assert out["href"] == "/watch/play/9001?resume=1"
 
 
@@ -223,6 +224,52 @@ def test_bringing_it_here_puts_the_player_in_the_place_of_the_remotes_entry() ->
 
 def test_a_tv_that_is_not_answering_stands_still_and_takes_no_presses() -> None:
     assert _run("stands") == {"stands": True, "sent": 0, "inert": True}
+
+
+def test_a_request_that_never_ends_is_said_stops_the_clock_and_is_asked_again() -> None:
+    out = _run("hang")
+    assert out == {"card": "mediaman isn’t answering", "stands": True, "back": None}
+
+
+def test_an_answer_cut_off_in_its_body_takes_nothing_away() -> None:
+    assert _run("cutOff") == {"bar": [True, True], "open": True, "card": None}
+
+
+def test_at_the_end_what_follows_is_offered_and_never_the_last_second_again() -> None:
+    out = _run("atTheEnd")
+    on = [{"rating_key": "9002", "position_s": 0}]
+    for case, label in (
+        ("still", "Continue watching"),
+        ("lost", "Play next episode"),
+        ("unseen", "Play next episode"),
+    ):
+        assert out[case]["labels"] == [label, "Bring it here", "Close"], case
+        assert out[case]["sent"] == on, case
+        assert out[case]["href"] == "/watch/play/9002?resume=1", case
+    for case in ("none", "unknown"):
+        assert out[case] == {"labels": ["Close"], "sent": [], "open": False}, case
+
+
+def test_a_play_lost_midway_goes_on_from_its_place() -> None:
+    assert _run("midway") == [{"rating_key": "9001", "position_s": 1268}]
+
+
+def test_a_lost_tv_leaves_the_way_to_another_that_plays() -> None:
+    out = _run("lostOfTwo")
+    assert out["says"][0].startswith("Stopped on Living room")
+    assert out["other"] == "1/2"
+    assert out["asks"] == 3
+    assert out["says"][1:] == ["Playing on Bedroom TV", "Playing on Bedroom TV"]
+
+
+def test_a_dismissed_tv_gives_the_bar_to_another_that_plays() -> None:
+    out = _run("dismissedOfTwo")
+    assert out["live"] == "Playing on Bedroom TV"
+    assert out["ended"] == {"shown": True, "says": "Playing on Bedroom TV"}
+
+
+def test_a_tv_that_starts_after_another_was_lost_is_found() -> None:
+    assert _run("anotherStarts") == {"before": False, "after": True}
 
 
 def test_with_two_tvs_the_bar_goes_to_the_other_and_steers_that_one() -> None:

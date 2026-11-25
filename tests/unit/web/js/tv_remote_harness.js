@@ -54,8 +54,15 @@ async function page(opts = {}) {
     constructor(error, status, data) { super(error); this.error = error; this.status = status; this.data = data || {}; }
   }
   const copy = (x) => JSON.parse(JSON.stringify(x));
-  async function call(method, url, body) {
+  async function call(method, url, body, o) {
     api.calls.push({ method, url, body: body && copy(body), at: clock });
+    if (api.hang) {
+      await new Promise((_r, no) => {
+        if (o && o.signal) o.signal.addEventListener('abort', () => no(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      });
+    }
+    // What api.js makes of an answer whose body is cut off.
+    if (api.empty) return {};
     if (api.fail) throw new APIError(...api.fail);
     if (method === 'POST' && api.hold) await new Promise((r) => { api.hold.push(r); });
     if (url === '/api/tvs') return { tvs: copy(api.tvs) };
@@ -98,7 +105,7 @@ async function page(opts = {}) {
     addEventListener(t, fn) { win.listeners[t] = fn; },
     UIFeedback: { toast: (t) => toasts.push(t), error: (t) => toasts.push('! ' + t) },
     ModalA11y: { register() {}, onOpened() {}, onClosed() {} },
-    MM: { api: { get: (u) => call('GET', u), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
+    MM: { api: { get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
   };
   const $ = (sel) => doc.querySelector(sel);
   const ctx = vm.createContext({
@@ -483,6 +490,102 @@ const scenarios = {
     p.api.fail = ['network_error', 0];
     await p.pass(2000);
     return { stands: p.at() === at, sent: p.sent().length, inert: p.$('[data-seek]').inert };
+  },
+  async hang() {
+    const p = await page();
+    await p.open();
+    await p.pass(1100);
+    p.api.hang = true;
+    await p.pass(11500);
+    const out = { card: p.card() };
+    const at = p.at();
+    await p.pass(20000);
+    out.stands = p.at() === at;
+    p.api.hang = false;
+    await p.pass(14000);
+    out.back = p.card();
+    return out;
+  },
+  async cutOff() {
+    const p = await page();
+    p.api.empty = true;
+    await p.pass(6000);
+    const out = [p.bar().shown];
+    await p.open();
+    await p.pass(5000);
+    p.api.empty = false;
+    await p.pass(5000);
+    return { bar: out.concat(p.bar().shown), open: p.isOpen(), card: p.card() };
+  },
+  async atTheEnd() {
+    const out = {};
+    const next = { rating_key: '9002', season: 1, episode: 5, title: 'Windfall' };
+    const cases = { still: ['still', 'still', next], lost: ['upnext', 'lost', next], none: ['ended', 'lost', null], unknown: ['still', 'still', { season: null, episode: null, title: null }], unseen: ['playing', 'lost', next] };
+    for (const [name, [state, reason, following]] of Object.entries(cases)) {
+      const p = await page();
+      await p.open();
+      const what = aPlay({ state, next: following, position_s: 2880 });
+      p.api.tvs[0].play = what;
+      await p.pass(1100);
+      Object.assign(p.api.tvs[0], { play: null, last: { reason, rating_key: '9001', title: 'x', position_s: name === 'still' ? 2870 : 2880, duration_s: 2880 } });
+      await p.pass(1100);
+      const labels = p.doc.querySelectorAll('[data-card-actions] button').map((b) => b.textContent);
+      p.api.calls.length = 0;
+      await p.pressText(labels[0]);
+      out[name] = { labels, sent: p.sent(), open: p.isOpen() };
+      if (labels.length > 1) { await p.pressText('Bring it here'); out[name].href = p.win.location.href; }
+    }
+    return out;
+  },
+  async midway() {
+    const p = await page();
+    await p.open();
+    Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay({ position_s: 1268 }), reason: 'lost' } });
+    await p.pass(1100);
+    await p.pressText('Try again');
+    return p.sent();
+  },
+  async lostOfTwo() {
+    const p = await page({ tvs: [aTv(), aTv({ id: 8, name: 'Bedroom TV' })] });
+    p.api.tvs.shift();
+    p.api.gone = { reason: 'taken', last: aPlay({ position_s: 1268 }) };
+    await p.pass(5100);
+    const out = { says: [p.bar().says], other: !p.$('[data-other]').hidden && p.$('[data-other]').textContent };
+    const n = p.reads().length;
+    await p.pass(15500);
+    out.asks = p.reads().length - n;
+    await p.press('[data-other]');
+    out.says.push(p.bar().says);
+    await p.pass(6000);
+    out.says.push(p.bar().says);
+    return out;
+  },
+  async dismissedOfTwo() {
+    const p = await page({ tvs: [aTv(), aTv({ id: 8, name: 'Bedroom TV', play: aPlay({ play_id: 'p8' }) })] });
+    Object.assign(p.api.tvs[0], { on: false, lost_s: 11 });
+    await p.pass(5100);
+    await p.press('[data-dismiss]');
+    await p.pass(100);
+    const out = { live: p.bar().says };
+    const q = await page();
+    Object.assign(q.api.tvs[0], { on: false, lost_s: 11 });
+    await q.pass(5100);
+    await q.press('[data-dismiss]');
+    Object.assign(q.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'lost' } });
+    q.api.tvs.push(aTv({ id: 8, name: 'Bedroom TV', play: aPlay({ play_id: 'p8' }) }));
+    await q.pass(5100);
+    out.ended = q.bar();
+    return out;
+  },
+  async anotherStarts() {
+    const p = await page();
+    Object.assign(p.api.tvs[0], { on: false, play: null, last: { ...aPlay(), reason: 'lost' } });
+    await p.pass(5100);
+    const out = { before: !p.$('[data-other]').hidden };
+    p.api.tvs.push(aTv({ id: 8, name: 'Bedroom TV' }));
+    await p.pass(5100);
+    out.after = !p.$('[data-other]').hidden;
+    return out;
   },
   async two() {
     const p = await page({ tvs: [aTv(), aTv({ id: 8, name: 'Bedroom TV' })] });

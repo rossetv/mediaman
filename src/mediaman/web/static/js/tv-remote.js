@@ -153,7 +153,7 @@
     if (!p) return gone && gone.last ? gone.last.position_s || 0 : 0;
     var t = place.s;
     // What was heard of a TV that no longer answers does not run on.
-    if (p.state === 'playing' && tv.on && shown('state', 'play') === 'play') t += (now() - place.at) / 1000;
+    if (p.state === 'playing' && tv.on && shown('state', 'play') === 'play') t += Math.min(now() - place.at, ANSWER_MS) / 1000;
     var d = duration();
     return Math.max(0, d ? Math.min(d, t) : t);
   }
@@ -193,7 +193,7 @@
     if (reason === 'stopped' && isOpen) {
       say(place_kept('Stopped.', last));
       close();
-    } else if (reason && reason !== 'stopped' && (isOpen || reason !== 'moved')) {
+    } else if (reason && reason !== 'stopped' && (isOpen || reason !== 'moved' && !(seen && seen.play_id === dismissed))) {
       gone = was;
     } else if (isOpen) {
       say('Nothing is playing on ' + name() + ' now.');
@@ -220,26 +220,43 @@
 
   function isGone(err) { return err.status === 404 && err.error === 'not_found' || err.status === 410 && err.error !== 'replaced'; }
 
+  /* An answer cut off in its body comes as an empty one. */
+  function get(path, key) {
+    var stopper = new AbortController();
+    var late = setTimeout(function () { stopper.abort(); }, ANSWER_MS);
+    return MM.api.get(LIST + path, { signal: stopper.signal }).then(function (data) {
+      clearTimeout(late);
+      if (!data[key]) throw new Error('no answer');
+      return data[key];
+    }, function (err) {
+      clearTimeout(late);
+      throw err;
+    });
+  }
+  function getOne(id) { return get('/' + encodeURIComponent(id), 'tv'); }
+
   function askOne() {
     var id = tv.id;
     var at = now();
-    return MM.api.get(LIST + '/' + encodeURIComponent(id)).then(function (data) {
-      if (tv && tv.id === id) hear(data.tv, at);
+    return getOne(id).then(function (heard) {
+      if (tv && tv.id === id) hear(heard, at);
     }, function (err) {
       if (!isGone(err)) throw err;
       if (tv && tv.id === id) lostTv(err);
     });
   }
 
+  /* Whether what is shown is a lost play the person has dismissed. */
+  function putAway() { return !isOpen && isLost() && play().play_id === dismissed; }
+
   function askAll() {
     var at = now();
-    return MM.api.get(LIST).then(function (data) {
-      var all = data.tvs || [];
+    return get('', 'tvs').then(function (all) {
       others = all.filter(function (t) { return t.play; });
       var mine = tv && all.filter(function (t) { return t.id === tv.id; })[0];
       if (play() && !mine) return askOne();
       if (play() || (mine && mine.play)) hear(mine, at);
-      if (play() || gone) return;
+      if (gone || play() && !(putAway() && others.some(function (t) { return t.on && t.id !== tv.id; }))) return;
       tv = null;
       var next = others.filter(function (t) { return t.on; })[0] || others[0];
       if (next) hear(next, at);
@@ -256,9 +273,9 @@
       offline = false;
       return 0;
     }, function (err) {
-      if (err.name === 'AbortError') return 0;
       if (err.status === 401 || err.status === 403) { ended = true; return 0; }
-      fails += 1;
+      // Seconds without a word are not one lost request.
+      fails += err.name === 'AbortError' ? FAILS : 1;
       if (fails >= FAILS && err.error !== 'rate_limited' && err.status !== 429) offline = true;
       return err.status === 429 ? LIMITED_MS : RETRY_MS;
     }).then(function (wait) {
@@ -272,8 +289,8 @@
     clearTimeout(timer);
     timer = null;
     if (asking || ended) return;
-    if (!play() || !(isOpen || hasBar)) return;
-    var every = isOpen ? OPEN_MS : BAR_MS;
+    if (!play() && !gone || !(isOpen || hasBar)) return;
+    var every = isOpen && !gone ? OPEN_MS : BAR_MS;
     timer = setTimeout(tick, isHidden() ? HIDDEN_MS : Math.max(every, wait || 0));
   }
 
@@ -353,13 +370,13 @@
   }
 
   function playAgain() {
-    var last = gone && gone.last;
-    if (!last || busy()) return;
+    var on = gone && onward(gone.last);
+    if (!on || busy()) return;
     var id = tv.id;
     var at = now();
     starting[id] = true;
     render();
-    MM.api.post(LIST + '/' + encodeURIComponent(id) + '/play', { rating_key: last.rating_key, position_s: last.position_s || 0 })
+    MM.api.post(LIST + '/' + encodeURIComponent(id) + '/play', { rating_key: on.rating_key, position_s: on.position_s })
       .then(function (data) { if (tv && tv.id === id) hear(data.tv, at); }, refuse)
       .then(function () {
         delete starting[id];
@@ -401,9 +418,20 @@
       else global.location.href = to;
     });
   }
+  /* What goes on from a play: the title at its place or, past its end, what follows it, if anything. */
+  function onward(what) {
+    if (!what || !what.rating_key) return null;
+    var same = seen && seen.rating_key === what.rating_key;
+    var d = what.duration_s || 0;
+    var over = same && ['ended', 'upnext', 'still'].indexOf(seen.state) !== -1 || d && what.position_s >= d - 1;
+    if (!over) return { rating_key: what.rating_key, position_s: what.position_s || 0 };
+    var next = same && seen.next;
+    return next && next.rating_key ? { rating_key: next.rating_key, position_s: 0, next: true } : null;
+  }
   function bring() {
-    if (play()) stop(watchHere);
-    else if (gone && gone.last) watchHere(gone.last);
+    function go(what) { watchHere(onward(what) || what); }
+    if (play()) stop(go);
+    else if (gone && gone.last) go(gone.last);
   }
 
   function busy() { return !!tv && !!starting[tv.id]; }
@@ -525,11 +553,12 @@
     setHidden(m('[data-mini-stop]'), bad);
     setHidden(m('[data-dismiss]'), !bad);
     var more = m('[data-other]');
-    var at = others.map(function (t) { return t.id; }).indexOf(tv.id);
-    setHidden(more, at === -1 || others.length < 2);
+    var all = [tv].concat(elsewhere());
+    var order = others.map(function (t) { return t.id; }).indexOf(tv.id);
+    setHidden(more, all.length < 2);
     if (!more.hidden) {
-      MM.dom.setText(more, (at + 1) + '/' + others.length);
-      attr(more, 'aria-label', 'Show the next TV, ' + others[(at + 1) % others.length].name);
+      MM.dom.setText(more, (Math.max(0, order) + 1) + '/' + all.length);
+      attr(more, 'aria-label', 'Show the next TV, ' + all[1].name);
     }
   }
 
@@ -695,9 +724,10 @@
         signed_out: [n + ' stopped', 'You signed out everywhere, which ends what plays on a TV.'],
       }[gone.reason] || [n + ' stopped', 'Yours stopped' + after + '.'];
       var mine = ['lost', 'still'].indexOf(gone.reason) !== -1;
-      var acts = mine ? [[gone.reason === 'lost' ? 'Try again' : 'Continue watching', playAgain], here, ['Close', dismiss]]
+      var on = onward(last);
+      var acts = mine ? [[gone.reason === 'still' ? 'Continue watching' : on && on.next ? 'Play next episode' : 'Try again', playAgain], here, ['Close', dismiss]]
         : gone.reason === 'moved' ? [['Close', dismiss], here] : [here, ['Close', dismiss]];
-      if (!last || !last.rating_key) acts = [['Close', dismiss]];
+      if (!on) acts = [['Close', dismiss]];
       return { key: 'gone' + gone.reason, title: card[0], line: card[1], acts: acts };
     }
     if (offline) {
@@ -709,7 +739,7 @@
     if (isLost()) {
       return { key: 'lost', title: n + ' stopped answering',
         line: 'It may be off, asleep or away from its browser. If it comes back within 2 minutes, it carries on by itself.',
-        acts: [['Try again', tryTv], here, ['Stop', function () { stop(); }]] };
+        acts: [['Try again', tryTv]].concat(onward(p) ? [here] : [], [['Stop', function () { stop(); }]]) };
     }
     // A press that was just made is being carried out.
     if (busy()) return null;
@@ -749,7 +779,7 @@
     if (gone) { gone = null; tv = null; }
     close();
     render();
-    if (!tv) tick();
+    tick();
   }
 
   function renderCard(p) {
@@ -1017,13 +1047,19 @@
   });
   // Over a title's page, which takes the focus back from what is no part of it.
   mini.addEventListener('focusin', function (e) { e.stopPropagation(); });
-  function nextTv() {
+  /* The other TVs with something playing, from the one after this round to it. */
+  function elsewhere() {
     var at = others.map(function (t) { return t.id; }).indexOf(tv && tv.id);
+    return others.slice(at + 1).concat(others.slice(0, Math.max(0, at)));
+  }
+  function nextTv() {
+    var next = elsewhere()[0];
+    if (!next) return;
     tv = null;
     heardAt = 0;
     wants = {};
     line = [];
-    hear(others[(at + 1) % others.length], now());
+    hear(next, now());
     render();
     tick();
   }
@@ -1090,9 +1126,9 @@
   /* Forward leads to the remote: open where its TV still plays, else no longer there. */
   function reopen() {
     var id = mine().id;
-    MM.api.get(LIST + '/' + encodeURIComponent(id)).then(function (data) {
+    getOne(id).then(function (heard) {
       if (!level() || isOpen) return;
-      if (data.tv.play) open(data.tv);
+      if (heard.play) open(heard);
     }, function () {}).then(function () {
       follow();
       if (!isOpen) tick();
@@ -1114,7 +1150,7 @@
     if (typeof which === 'object' && which !== tv) {
       hear(which, now());
     } else if (!tv) {
-      MM.api.get(LIST + '/' + encodeURIComponent(id)).then(function (data) { open(data.tv); }, refuseOpen);
+      getOne(id).then(open, refuseOpen);
       return;
     }
     if (!play() && !gone) { say('Nothing is playing on ' + name() + ' now.'); return; }
