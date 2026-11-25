@@ -76,6 +76,7 @@ class Media {
     Promise.resolve().then(() => { if (this.tv.refuses) fail({ code: 'timeout' }); else { then(); ok(); } });
   }
   play(_, ok, fail) { this._do('play', () => this.say('PLAYING'), ok, fail); }
+  stop(_, ok, fail) { this._do('stop', () => this.say('IDLE', { idleReason: 'CANCELLED' }), ok, fail); }
   pause(_, ok, fail) { this._do('pause', () => this.say('PAUSED'), ok, fail); }
   seek(request, ok, fail) {
     this._do('seek ' + request.currentTime, () => { this.currentTime = request.currentTime; this.at = this.tv.clock.now(); this.say(this.playerState); }, ok, fail);
@@ -535,6 +536,13 @@ const scenarios = {
     await w.clock.advance(2000);
     return { before, after: page.gone, kept: RECORD in w.storage };
   },
+  async stopLost() {
+    const w = world();
+    const page = await casting(w);
+    page.context.over('disconnected');
+    await page.play.stop();
+    return { ended: w.tv.ended, kept: RECORD in w.storage, timers: w.clock.waiting() };
+  },
   async backToAnother() {
     const w = world();
     const page = await casting(w);
@@ -623,16 +631,20 @@ const scenarios = {
   // "Play here", whatever became of the TV.
   async released() {
     const w = world();
-    (await casting(w)).close();
+    const first = await casting(w);
+    first.play.keep({ played_s: 50 });
+    await w.clock.advance(12000);
+    first.close();
     const page = await open(w, { player: true, joins: false });
     const asked = refused(page.way.again('101'));
     await w.clock.advance(11000);
     await asked;
-    page.way.release('999');
+    const none = page.way.release('999');
     const other = RECORD in w.storage;
-    page.way.release('101');
+    const place = page.way.release('101');
+    const twice = page.way.release('101');
     const again = await open(w, { player: true });
-    return { other, kept: Object.keys(w.storage), found: again.way.again('101'), holds: again.sender.holds('101'), ended: w.tv.ended };
+    return { none, place, twice, other, kept: Object.keys(w.storage), found: again.way.again('101'), holds: again.sender.holds('101'), ended: w.tv.ended };
   },
   async releasedMeanwhile() {
     const w = world();
@@ -708,6 +720,37 @@ const scenarios = {
     p.context.session = c.session;
     out.back = await back;
     await settle();
+    // The first is taken after all while the second waits, and the player stops it.
+    for (const ends of ['plays', 'fails', 'alone']) {
+      const w = world();
+      const page = await open(w, { player: true });
+      page.way.look();
+      await settle();
+      const play = await page.way.start(what(1));
+      w.tv.media[0].say('PLAYING');
+      let b;
+      const two = ends !== 'alone' && refused(page.way.start({ title: TITLE, open: () => new Promise((resolve, reject) => { b = { resolve, reject }; }) }));
+      await settle();
+      await play.stop();
+      await settle();
+      const stopped = { ended: w.tv.ended.slice(), calls: w.tv.calls.slice() };
+      if (ends === 'plays') b.resolve(stream(2));
+      else if (ends === 'fails') b.reject(Object.assign(new Error('x'), { code: 'unreachable' }));
+      out['stale ' + ends] = { stopped, two: await two, ended: w.tv.ended, loads: w.tv.loads.length };
+    }
+    // A TV found after "Play here" is not ended under a start that waits.
+    const f = world();
+    (await casting(f)).close();
+    const q = await open(f, { player: true, joins: false });
+    q.way.again('101');
+    await settle();
+    q.way.release('101');
+    q.context.session = f.session;
+    const on = refused(q.way.start({ title: TITLE, open: () => new Promise(() => {}) }));
+    await settle();
+    q.context.resume();
+    await settle();
+    out.found = f.tv.ended;
     // The TV that is taken from here by someone else is not ended by a start that fails later.
     const w = world();
     const page = await casting(w);

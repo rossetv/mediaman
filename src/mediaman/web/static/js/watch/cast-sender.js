@@ -554,18 +554,31 @@
   /* It ended by itself, or by another's hand. */
   function goneBy(p, reason, end) {
     var followed = p.followed;
+    var ms = p.ms;
     drop(p);
-    if (end && p.lost === null) p.session.endSession(true);
+    if (end) endOn(p.session, ms, p.lost);
     if (followed) p.gone.forEach(function (fn) { fn(reason); });
     else stopOnServer(p.stream.stream_id, body(p));
     changed();
   }
 
+  /* Nothing of `ms` plays on the TV any more. The session is left to a start that waits on it. */
+  function endOn(session, ms, lost) {
+    if (lost !== null) return;
+    if (!pending) {
+      session.endSession(true);
+      return;
+    }
+    opened = session;
+    if (ms) ms.stop(null, function () {}, function () {});
+  }
+
   /* End it on the TV; `served` saves the place and stops the stream as well. */
   function finish(p, served) {
     if (p.done) return Promise.resolve();
+    var ms = p.ms;
     drop(p);
-    if (p.lost === null) p.session.endSession(true);
+    endOn(p.session, ms, p.lost);
     changed();
     return served ? stopOnServer(p.stream.stream_id, body(p)) : Promise.resolve();
   }
@@ -666,7 +679,7 @@
       if (current) return current;
       if (!readRecord()) {
         /* The person plays it here meanwhile. */
-        if (found.ms && !found.ms.idleReason) found.session.endSession(true);
+        if (found.ms && !found.ms.idleReason) endOn(found.session, found.ms, null);
         return null;
       }
       return takeUp(rec, found.session, found.ms, followed);
@@ -878,10 +891,17 @@
     });
   }
 
-  /* The person plays `key` here after all: what plays on the TV is looked for no more. */
+  /* The person plays `key` here after all: what plays on the TV is looked for no more. Returns the
+     place it was at and how long ago that was, or null. */
   function release(key) {
     var rec = readRecord();
-    if (rec && String(rec.key) === String(key)) forgetStored();
+    if (!rec || String(rec.key) !== String(key)) return null;
+    forgetStored();
+    return {
+      position_s: tenths(rec.place),
+      played_s: Math.round(rec.played || 0),
+      age_s: (now() - rec.at) / 1000,
+    };
   }
 
   if (playOn && supported) {

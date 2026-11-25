@@ -218,6 +218,10 @@ def test_a_tv_lost_for_two_minutes_is_over() -> None:
     assert _run("lostForGood") == {"before": [], "after": ["lost"], "kept": False}
 
 
+def test_stopping_while_the_tv_is_lost_asks_nothing_of_a_session_that_is_gone() -> None:
+    assert _run("stopLost") == {"ended": [], "kept": False, "timers": 0}
+
+
 def test_a_tv_that_is_back_with_something_else_was_taken() -> None:
     assert _run("backToAnother") == ["taken"]
 
@@ -266,6 +270,9 @@ def test_a_tv_that_plays_nothing_is_over_and_its_stream_stopped_at_the_last_plac
 
 def test_a_title_the_person_plays_here_after_all_is_not_looked_for_again() -> None:
     assert _run("released") == {
+        "none": None,
+        "place": {"position_s": 112, "played_s": 62, "age_s": 11},
+        "twice": None,
         "other": True,
         "kept": [],
         "found": None,
@@ -322,6 +329,16 @@ def test_a_start_that_comes_after_a_later_one_takes_nothing_from_it() -> None:
 def test_a_second_press_called_back_leaves_the_first_start_to_play() -> None:
     out = _run("chosenAgain")
     assert (out["back"]["code"], out["kept"]) == ("cancelled", 1)
+
+
+def test_stopping_a_start_called_back_leaves_the_session_to_the_one_that_waits_on_it() -> None:
+    out = _run("chosenAgain")
+    stopped = {"ended": [], "calls": ["stop"]}
+    assert out["stale plays"] == {"stopped": stopped, "two": "taken", "ended": [], "loads": 2}
+    # Where that one plays nothing either, the session is ended with it.
+    assert (out["stale fails"]["stopped"], out["stale fails"]["ended"]) == (stopped, [True])
+    assert out["stale alone"]["ended"] == [True]
+    assert out["found"] == []
 
 
 def test_a_tv_someone_else_took_is_not_ended_by_a_start_that_fails() -> None:
