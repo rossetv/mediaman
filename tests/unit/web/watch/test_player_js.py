@@ -2561,6 +2561,61 @@ def test_back_to_a_title_that_may_be_on_a_tv_the_way_is_asked_again_and_nothing_
     assert (out["after"]["starts"], out["after"]["says"]) == (0, "Playing on Den")
 
 
+@pytest.mark.parametrize(
+    ("how", "place"),
+    [
+        # What plays it here said its place a moment ago.
+        ("way", 900),
+        # It said it long ago, or never: what the server has now.
+        ("old", 640),
+        ("none", 640),
+        # The person chose another one meanwhile.
+        ("sought", 10),
+    ],
+)
+def test_played_here_after_all_it_goes_on_from_its_newest_place(markup, how, place):
+    out = elsewhere(markup, "away_again_place", how)
+    assert (out["starts"], out["from"], out["message"]) == (1, place, None)
+
+
+def test_played_here_after_all_it_does_not_start_from_a_place_it_cannot_know(markup):
+    out = elsewhere(markup, "away_again_place", "offline")
+    assert (out["starts"], out["message"]["button"], out["again"]) == (0, "Play here", 640)
+
+
+def test_what_ended_on_a_tv_goes_on_from_where_it_was_taken_since(markup):
+    assert elsewhere(markup, "away_gone_place") == 800
+
+
+@pytest.mark.parametrize("how", ["fails", "failsFirst"])
+def test_a_play_a_way_finds_is_followed_where_the_tvs_cannot_be_looked_at(markup, how):
+    out = elsewhere(markup, "away_again_and_tv", how)
+    assert (out["left"], out["starts"], out["says"]) == (0, 0, "Playing on Den")
+    assert out["after"] is None
+
+
+def test_where_neither_is_known_nothing_starts_by_itself(markup):
+    out = elsewhere(markup, "away_again_and_tv", "failsNull")
+    assert (out["starts"], out["after"]["button"]) == (0, "Play here")
+
+
+@pytest.mark.parametrize("how", ["tv", "tvFirst"])
+def test_a_play_a_way_finds_is_left_where_a_tv_has_the_title(markup, how):
+    out = elsewhere(markup, "away_again_and_tv", how)
+    assert (out["left"], out["starts"], out["says"]) == (1, 0, "Playing on Living room")
+
+
+def test_a_play_found_before_the_next_episode_was_asked_for_is_left(markup):
+    out = elsewhere(markup, "away_again_and_tv", "nextFirst")
+    assert (out["left"], out["starts"]) == (1, 0)
+
+
+@pytest.mark.parametrize("how", ["pressed", "pressedFirst"])
+def test_paused_while_it_is_looked_for_it_is_paused_where_it_plays(markup, how):
+    out = elsewhere(markup, "away_again_and_tv", how)
+    assert (out["says"], out["paused"]) == ("Paused on Den", True)
+
+
 def test_a_title_that_another_tab_plays_on_a_tv_says_so_at_once(markup):
     out = elsewhere(markup, "away_again_slow", "elsewhere")
     assert (out["told"]["button"], out["early"], out["starts"]) == ("Play here", 0, 0)

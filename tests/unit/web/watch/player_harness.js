@@ -5327,6 +5327,71 @@ const scenarios = {
     return { starts: p.starts().length - starts, says: awayState(p).says };
   },
 
+  /* "Play here" of a title that may be on a TV; `serverPlays` says who knows its place. */
+  async away_again_place(p) {
+    const how = p.win.serverPlays;
+    const way = castWay(true);
+    const ms = 10 * 60 * 1000;
+    const opened = p.reopen((win) => {
+      way.again = () => Promise.reject(Object.assign(new Error(), { code: 'lost' }));
+      way.release = () => (how === 'none' ? null : { position_s: 900, played_s: 60, age_s: how === 'way' || how === 'sought' ? 20 : 300 });
+      win.MM.playOn.register(way);
+    });
+    await settle();
+    opened.tick(ms);
+    if (how === 'sought') { key('ArrowRight'); opened.tick(300); }
+    /* Saved meanwhile by what plays it elsewhere, as the page now says. */
+    const pages = opened.pages;
+    pages['/watch/play/1'] = how === 'offline' ? 'offline' : { html: '<div id="player" data-place-s="' + (how === 'same' ? '' : 640) + '"></div>' };
+    await settle();
+    click(opened.q('[data-retry]'));
+    await settle();
+    const out = { starts: opened.starts().length, from: opened.hlsList.length ? opened.hlsList[0].config.startPosition : null, message: messageState(opened) };
+    if (how === 'offline') {
+      pages['/watch/play/1'] = { html: '<div id="player" data-place-s="640"></div>' };
+      click(opened.q('[data-retry]'));
+      await settle();
+      out.again = opened.hlsList[0].config.startPosition;
+    }
+    return out;
+  },
+
+  /* The place of a title that ended on a TV has moved on elsewhere by the press. */
+  async away_gone_place(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.currentTime = 120;
+    way.gone('lost');
+    await settle();
+    p.pages['/watch/play/1'] = { html: '<div id="player" data-place-s="800"></div>' };
+    click(p.q('[data-retry]'));
+    await settle();
+    return p.hlsList[p.hlsList.length - 1].config.startPosition;
+  },
+
+  /* What a way finds while the look at the TVs is out, or fails. */
+  async away_again_and_tv(p) {
+    const how = p.win.serverPlays;
+    const way = castWay(true);
+    way.media.readyState = 4; way.media.paused = false; way.media.currentTime = 300;
+    let hear;
+    const pending = new Promise((yes, no) => { hear = { tv: () => yes({ tvs: [Object.assign({}, LIVING, { play: { rating_key: '501', state: 'playing', position_s: 400 } })] }), fails: () => no({ status: 0, error: 'network_error' }) }; });
+    let found;
+    const opened = p.reopen((win) => { way.again = () => new Promise((yes) => { found = yes; }); win.MM.playOn.register(way); },
+      { gets: [() => pending] }, { 'mediaman.watch.onTv': '1' });
+    const play = { play: way.play, stream: { stream_id: 'k1', position_s: 300, paused: false, rating_key: '501', keep: null } };
+    if (/First$/.test(how)) found(play);
+    await settle();
+    if (/pressed/.test(how)) { key(' '); await settle(); }
+    if (/^next/.test(how)) { Object.assign(opened.pages, p.pages); click(opened.q('[data-next-btn]')); await settle(); }
+    else if (/^tv/.test(how)) hear.tv();
+    else hear.fails();
+    await settle();
+    const out = { message: messageState(opened) };
+    if (!/First$/.test(how)) { found(how === 'failsNull' ? null : play); await settle(); }
+    return Object.assign(out, { left: way.left, starts: opened.starts().length, says: awayState(opened).says, paused: way.media.paused, after: messageState(opened) });
+  },
+
   /* It may be on a TV, and another TV that is picked does not start. */
   async away_again_refused(p) {
     const way = castWay(true);

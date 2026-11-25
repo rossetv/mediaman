@@ -176,6 +176,7 @@
   ];
   var LOOK_WAIT_MS = 1500;
   var AGAIN_WAIT_MS = 4000;
+  var PLACE_AGE_S = 90;
   var KEEP_EVERY_MS = 60000;
   var TV_EVERY_MS = 5000;
   var TV_BEGINS_MS = 1000;
@@ -864,7 +865,7 @@
     setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !again;
-    els.retry.textContent = again === playHere || again === resumeHere || again === playAnyway ? 'Play here' : 'Try again';
+    els.retry.textContent = again === playHere || again === playAnyway ? 'Play here' : 'Try again';
     els.play.disabled = !again;
     show(els.message);
     showPlayState();
@@ -1398,15 +1399,15 @@
 
   /* Go on from where the other one got to, where it has saved that. */
   var hereGeneration = null; // the generation that is asking it
-  function playHere() {
+  function playHere(known, unreached) {
     var gen = hereGeneration = ++generation;
     pressedPlay();
     swapping = true;         // a press starts nothing from this place meanwhile
     hideMessage();
     setLoading(true);
-    fetchPage(window.location.href)
+    (known === true ? Promise.resolve(null) : fetchPage(window.location.href))
       .then(function (page) {
-        var el = page.getElementById('player');
+        var el = page && page.getElementById('player');
         var place = el ? parseFloat(el.getAttribute('data-place-s')) : NaN;
         if (gen !== generation || !(place >= 0) || place === placeS || sent[place]) return;
         placeS = place;
@@ -1414,7 +1415,12 @@
         if (!next && !nextUnknown && place >= duration() - 1) return;
         pendingStart = within(place);
       })
-      .catch(function () { /* from where this one stands */ })
+      .catch(function (err) {
+        /* From where this one stands, where that may not be newer than the server's. */
+        if (gen !== generation || !unreached || !err.lost) return;
+        generation++;
+        unreached();
+      })
       .then(function () { if (gen === generation) startOver(); });
   }
 
@@ -1653,6 +1659,7 @@
     if (swapping) {
       /* No video to pause yet: the new stream starts the way this leaves it. */
       wantPlaying = !wantPlaying;
+      if (holding) holding.pressed = true;
       if (wantPlaying) pressedPlay();
       showPlayState();
       return;
@@ -2732,7 +2739,7 @@
 
   function openNext(byItself, savedAt) {
     var href = next.href;
-    holding = null;
+    dropHold();
     switching = true;
     swapping = true;
     wantPlaying = true;
@@ -3409,7 +3416,7 @@
   function stopHere() {
     var at = video.ended ? 0 : position();
     var was = away;
-    holding = null;
+    dropHold();
     leaveNative();
     dropRating();
     hideMessage();
@@ -3638,7 +3645,7 @@
       return;
     }
     restHere();
-    if (why !== 'back') showMessage(name + (MSG_LEFT_TV[why] || ' stopped playing.'), resumeHere);
+    if (why !== 'back') showMessage(name + (MSG_LEFT_TV[why] || ' stopped playing.'), playHere);
   }
 
   /* Nothing plays, here or elsewhere, until a press. */
@@ -3648,11 +3655,6 @@
     setLoading(false);
     render();
     showPlayState();
-  }
-
-  function resumeHere() {
-    pressedPlay();
-    startOver();
   }
 
   function bringHere() {
@@ -3780,7 +3782,7 @@
       return;
     }
     restHere();
-    showMessage(why === 'moved' ? MSG_REPLACED : name + (MSG_LEFT_TV[why] || ' stopped playing.'), resumeHere);
+    showMessage(why === 'moved' ? MSG_REPLACED : name + (MSG_LEFT_TV[why] || ' stopped playing.'), playHere);
   }
 
   document.addEventListener('visibilitychange', function () { if (onTv() && !pageHidden()) watchTv(); });
@@ -3940,7 +3942,7 @@
         release();
       }
       attempt = null;
-      holding = null;
+      dropHold();
       followTv(tv);
       if (MM.tvRemote) MM.tvRemote.open(tv);
     },
@@ -3978,9 +3980,21 @@
       return;
     }
     /* Asked again behind the message that says so, it stays until there is something to follow. */
-    var mine = holding = { way: asked ? asked.way : null, told: !!holding, heard: false };
+    var mine = holding = {
+      way: asked ? asked.way : null,
+      told: !!holding,
+      heard: false,
+      at: position(),
+      pressed: false,
+      drop: function () {
+        clearTimeout(timer);
+        if (got) got.play.leave();
+        got = null;
+      },
+    };
     var still = mine.told;
     var timer = null;
+    var got = null;            // what the way has found
     if (!still) {
       swapping = true;
       setLoading(true);
@@ -3999,15 +4013,30 @@
     }
 
     function endHold() {
-      clearTimeout(timer);
-      holding = null;
-      if (mine.told) hideMessage();
+      var told = mine.told;
+      dropHold();
+      if (told) hideMessage();
+    }
+
+    function startHere() {
+      mine.heard = true;
+      if (mine.told && (still || asked)) return;
+      endHold();
+      startStream(position());
     }
 
     var found = asked ? asked.found : Promise.resolve(null);
-    found.then(function (f) { if (f && mine !== holding) f.play.leave(); }, function () { /* said below */ });
+    found.then(function (f) {
+      got = f;
+      if (f && mine !== holding) mine.drop();
+    }, function () { /* said below */ });
     tellAfter(LOOK_WAIT_MS);
-    (look ? playOn.onTv(key) : Promise.resolve(null)).then(function (tv) {
+    (look ? playOn.onTv(key) : Promise.resolve(null)).catch(function (err) {
+      if (!asked) throw err;
+      /* A way may still find it; that it does not says nothing of the TVs. */
+      tell();
+      return null;
+    }).then(function (tv) {
       if (mine !== holding) return undefined;
       if (tv) {
         endHold();
@@ -4015,25 +4044,19 @@
         return undefined;
       }
       if (!asked) {
-        mine.heard = true;
-        if (still) return undefined;
-        endHold();
-        startStream(position());
+        startHere();
         return undefined;
       }
       tellAfter(AGAIN_WAIT_MS);
       return found.then(function (f) {
         if (mine !== holding) return;
-        if (f && isThis(f.stream)) {
-          endHold();
-          followAgain(asked.way, f);
+        if (!f || !isThis(f.stream)) {
+          startHere();
           return;
         }
-        if (f) f.play.leave();
-        mine.heard = true;
-        if (mine.told) return;
+        got = null;
         endHold();
-        startStream(position());
+        followAgain(asked.way, f, mine.pressed ? wantPlaying : null);
       });
     }).catch(function (err) {
       mine.heard = true;
@@ -4041,20 +4064,44 @@
     });
   }
 
-  function playAnyway() {
+  /* It is known, or no longer asked, where it plays; what a way has found is left to its TV. */
+  function dropHold() {
     var was = holding;
     holding = null;
-    if (was && was.way && was.way.release) was.way.release(String(item.rating_key));
-    resumeHere();
+    if (was) was.drop();
   }
 
-  function followAgain(way, found) {
+  /* From the newest place there is: where it stood on a TV a moment ago, or what the server has. */
+  function playAnyway() {
+    var was = holding;
+    var chosen = Math.abs(position() - was.at) > 1;
+    var place = was.way && was.way.release ? was.way.release(String(item.rating_key)) : null;
+    if (place && place.age_s < PLACE_AGE_S) was.place = place.position_s;
+    dropHold();
+    if (!chosen && was.place !== undefined) pendingStart = within(was.place);
+    playHere(chosen || was.place !== undefined, function () {
+      holding = was;
+      was.heard = true;
+      showMessage(MSG_LOST, playAnyway);
+    });
+  }
+
+  /* `wants`: what was pressed for while it was looked for, or null. */
+  function followAgain(way, found, wants) {
     var kept = found.stream.keep || {};
     hasPlayed = true;
     playedS = kept.played_s || 0;
     subtitle = kept.subtitle || null;
     takeMarks({ markers: kept.markers, chapters: kept.chapters });
     follow(way, found.play, found.stream, Object.assign({ quality: kept.quality }, kept.given));
+    if (wants === null || wants === wantPlaying) return;
+    wantPlaying = wants;
+    if (wants) {
+      play();
+    } else {
+      pausedHere = true;
+      video.pause();
+    }
   }
 
   function followTv(tv) {
@@ -4112,7 +4159,7 @@
     if (!e.persisted || away || (els.ask && els.ask.open)) return;
     if (holding && !holding.heard) return;
     /* Playing somewhere else it stays so. */
-    if (shown(els.message) && (tryAgain === playHere || tryAgain === resumeHere)) return;
+    if (shown(els.message) && tryAgain === playHere) return;
     wantPlaying = false;
     begin();
   });
