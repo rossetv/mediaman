@@ -324,3 +324,25 @@ def test_titles_that_did_not_load_can_be_tried_again_without_losing_the_focus() 
 
 def test_on_a_low_screen_a_menu_is_not_held_to_the_room_under_its_filter() -> None:
     assert _run("lowScreen") == {"low": "", "high": "440px"}
+
+
+def test_tab_stays_in_a_title_menu_that_has_no_titles() -> None:
+    assert _run("tabInEmpty") == {"loading": True, "empty": True, "says": "No titles yet."}
+
+
+def test_a_former_user_whose_name_is_hidden_is_said_to_be_one_and_told_apart_by_count() -> None:
+    assert _run("hiddenName") == {
+        "line": "A former user downloaded Film 1",
+        "acts": ["Copy details", "Only this title"],
+        "rows": ["A former user 3", "A former user 8"],
+        "chip": "A former user",
+        "typed": "A former user",
+    }
+
+
+def test_only_the_spaces_round_a_title_are_left_out() -> None:
+    assert _run("outerSpace") == "/api/history?title=%09Film"
+
+
+def test_a_menu_whose_screen_turns_low_is_let_go_of_its_height_and_stays_open() -> None:
+    assert _run("resized") == {"before": "440px", "low": ["", True], "on": False}

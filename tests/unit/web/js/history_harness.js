@@ -55,7 +55,7 @@ function open(opts) {
     setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
     clearTimeout: (t) => { if (t) t.fn = () => {}; },
     requestAnimationFrame: (fn) => timers.push({ fn, ms: 16 }),
-    getComputedStyle: () => ({ animationDuration: '0.2s', animationTimingFunction: 'ease', top: '52px' }),
+    getComputedStyle: (n) => ({ visibility: n.matches('.hx-x') && !n.parentNode.matches('.has-q') ? 'hidden' : 'visible', animationDuration: '0.2s', animationTimingFunction: 'ease', top: '52px' }),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     scrollTo() {}, AbortController,
     UIFeedback: { toast: (m) => toasts.push(m), error: (m) => toasts.push('error: ' + m) },
@@ -100,6 +100,7 @@ function open(opts) {
     ids: () => root.querySelectorAll('.hist').map((r) => r.getAttribute('data-event')),
     tick: (max) => timers.splice(0).filter((t) => (t.ms <= (max || 1e9) ? (t.fn(), false) : true)).forEach((t) => timers.push(t)),
     type: (text) => { input.value = text; fire(input, 'input'); },
+    resize: () => listeners.resize.forEach((fn) => fn()),
     scroll: () => { far = false; (listeners.scroll || []).forEach((fn) => fn()); far = true; },
     back: (search) => { win.location.href = 'http://mm.test/history' + search; listeners.popstate.forEach((fn) => fn()); },
     pick: (k, v) => {
@@ -399,6 +400,54 @@ const scenarios = {
     h.win.innerHeight = 900;
     h.press('[data-menu="action"]');
     return { low, high: h.q('.hx-menu').style.maxHeight };
+  },
+  tabInEmpty: async () => {
+    const h = open({});
+    h.press('[data-menu="title"]');
+    const menu = h.q('.hx-menu');
+    const find = menu.querySelector('input');
+    const tab = () => {
+      find.focus();
+      let held = false;
+      h.fire(menu, 'keydown', { key: 'Tab', preventDefault() { held = true; } });
+      return held && menu.contains(h.doc.activeElement);
+    };
+    const loading = tab();
+    h.menus[0].resolve({ options: [], more: false });
+    await settle();
+    return { loading, empty: tab(), says: menu.querySelector('.hx-none').textContent };
+  },
+  hiddenName: async () => {
+    const hidden = (id, n) => item(id, { actor: n, avatar: null, who: { value: '~former:' + n, name: '[hidden]', kind: 'former' } });
+    const p = (n) => ({ value: '~former:' + n, username: '[hidden]', kind: 'former', avatar: null });
+    PEOPLE.push(p('a@x.org'), p('b@x.org'));
+    const h = open({ items: [hidden(1, 'a@x.org')] });
+    const line = h.line(0);
+    const acts = h.rows()[0].querySelectorAll('button').map((b) => b.textContent);
+    h.press('[data-menu="user"]');
+    h.menus[0].resolve({ options: [{ value: '~former:a@x.org', count: 3 }, { value: '~former:b@x.org', count: 8 }] });
+    await settle();
+    const rows = h.q('.hx-menu').querySelectorAll('.hx-opt').slice(-2).map((o) => o.querySelector('.n').textContent + ' ' + o.querySelector('small').textContent);
+    click(h.doc, h.q('.hx-menu').querySelector('[data-v="~former:b@x.org"]'));
+    const chip = h.q('[data-menu="user"]').children[1].textContent;
+    h.back('?user=~former:gone@x.org');
+    return { line, acts, rows, chip, typed: h.q('[data-menu="user"]').children[1].textContent };
+  },
+  outerSpace: () => {
+    const h = open({});
+    h.back('?title=%20%09Film%20');
+    return h.asked[0].url;
+  },
+  resized: () => {
+    const h = open({});
+    h.press('[data-menu="action"]');
+    const before = h.q('.hx-menu').style.maxHeight;
+    h.win.innerHeight = 390;
+    h.resize();
+    const low = [h.q('.hx-menu').style.maxHeight, h.q('.hx-menu').classList.contains('on')];
+    h.win.innerHeight = 900;
+    h.resize();
+    return { before, low, on: h.q('.hx-menu').classList.contains('on') };
   },
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });

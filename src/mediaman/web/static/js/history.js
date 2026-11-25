@@ -223,7 +223,11 @@
     function readAddress() {
       var unread = false;
       var p = new URL(window.location.href).searchParams;
-      KEYS.forEach(function (k) { F[k] = (p.get(k) || '').trim().slice(0, MAX[k] || 200); });
+      KEYS.forEach(function (k) {
+        var text = p.get(k) || '';
+        /* A stored title may begin or end with a tab. */
+        F[k] = (k === 'title' ? text.replace(/^ +| +$/g, '') : text.trim()).slice(0, MAX[k] || 200);
+      });
       if (!data.admin) F.user = '';
       if (F.date && !moments(F.date, new Date())) F.date = '';
       /* A date named in the address stands for both ends. */
@@ -294,11 +298,14 @@
       return span;
     }
 
+    /* A former user's name, unless it is an address. */
+    function formerName(name) { return name === '[hidden]' || name.indexOf('@') >= 0 ? '' : name; }
+
     /* Who a line names. A name typed or an address is never on it. */
     function whoOf(item) {
       var who = item.who;
       if (who.kind === 'account') return { name: who.name };
-      if (who.kind === 'former') return { name: who.name.indexOf('@') >= 0 ? '' : who.name, gone: true };
+      if (who.kind === 'former') return { name: formerName(who.name), gone: true };
       if (item.action === 'sec:login.failed') return { name: '', unsigned: true };
       if (item.action === 'sec:subscriber.opted_out') return { name: 'a subscriber', unsigned: true };
       if (item.action === 'sec:user.unlocked' && item.actor) return { name: 'the command line', unsigned: true };
@@ -310,9 +317,15 @@
       return people[value] || { value: value, username: value.replace(/^~former:/, ''), kind: 'former', avatar: null };
     }
 
-    function nameOf(p) { return p.username + (p.kind === 'former' ? ' (former)' : ''); }
+    function nameOf(p) {
+      if (p.kind !== 'former') return p.username;
+      var name = formerName(p.username);
+      return name ? name + ' (former)' : 'A former user';
+    }
 
-    function faceOf(p) { return face(p.kind === 'system' ? '' : p.username, p.avatar); }
+    function faceOf(p) {
+      return face(p.kind === 'system' ? '' : p.kind === 'former' ? formerName(p.username) || '?' : p.username, p.avatar);
+    }
 
     function deedOf(item) {
       var out = { verb: item.action_label, object: item.line_title, sub: item.summary, kind: 'scan', icon: 'i-gear' };
@@ -1025,7 +1038,9 @@
     function menuKeys(e) {
       if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); return; }
       if (e.key === 'Tab') {
-        var stops = MM.dom.qa('button, input', menu).filter(function (n) { return n.getClientRects().length; });
+        var stops = MM.dom.qa('button, input', menu).filter(function (n) {
+          return n.getClientRects().length && window.getComputedStyle(n).visibility !== 'hidden';
+        });
         var last = e.shiftKey ? stops[0] : stops[stops.length - 1];
         if (document.activeElement === last || document.activeElement === menu) {
           e.preventDefault();
