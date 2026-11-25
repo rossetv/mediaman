@@ -1476,3 +1476,10 @@ def test_a_title_is_asked_for_ahead_once_one_at_a_time_few_a_minute_and_again_wh
         "most": 10,
         "changed": ["2", "2"],
     }
+
+
+def test_a_title_opened_while_it_downloads_shows_its_sizes_and_time_left_at_the_first_poll() -> None:
+    before, after, events = _run("downloadingSizes")
+    assert before == ""
+    assert "3.1 GB of 7.4 GB" in after and "about 6 min left" in after
+    assert events == 1  # the share did not move, so nothing else is told

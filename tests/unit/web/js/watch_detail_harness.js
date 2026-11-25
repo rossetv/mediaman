@@ -1098,6 +1098,20 @@ const scenarios = {
     return p.ttl().querySelectorAll('.ttl__failed button').map((b) => b.textContent.trim());
   },
 
+  // Opened while it downloads, its status says no other share than the title did: the sizes and time left still come.
+  async downloadingSizes() {
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'downloading', pct: 42 }) }),
+      '/api/download/status?service=radarr&tmdb_id=77': { state: 'downloading', progress: 42, size_done: '3.1 GB', size_total: '7.4 GB', eta: '~6 min remaining' },
+    } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const before = p.text('.dl-progress__line');
+    p.tick();
+    await settle();
+    return [before, p.text('.dl-progress__line'), p.events.length];
+  },
+
   async downloadMovie() {
     let status = { state: 'downloading', progress: 42, size_done: '3.1 GB', size_total: '7.4 GB', eta: '~6 min remaining' };
     const p = load({ routes: {

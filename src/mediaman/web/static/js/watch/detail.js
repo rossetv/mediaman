@@ -2643,6 +2643,7 @@
     MM.api.get(url).then(function (r) {
       var k = stateOf(ref);
       var was = k.state + ':' + k.pct;
+      var sizes = k.sizeDone + k.sizeTotal + k.eta;
       // 'unknown' is an Arr that did not answer: no news, so nothing changes.
       if (r.state === 'ready') {
         k.state = 'in_library';
@@ -2668,7 +2669,7 @@
         } else {
           redrawActions(ref);
         }
-      }
+      } else if (k.sizeDone + k.sizeTotal + k.eta !== sizes) redrawActions(ref);
       if (c !== cur || c.ref !== ref) return;
       if (r.state === 'searching') recheck(c);
       schedulePoll(r.state === 'unknown' ? POLL_SLOW_MS : nextPoll());
