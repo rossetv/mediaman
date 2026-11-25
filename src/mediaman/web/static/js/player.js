@@ -3659,7 +3659,6 @@
       useVideo(local);
       if (stop) was.play.stop();
       buildQualityMenu();
-      showVolume();
     }
     here = null;
     subtitle = subtitleGood = null;

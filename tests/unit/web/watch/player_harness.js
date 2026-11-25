@@ -5339,6 +5339,7 @@ const scenarios = {
     const out = { key: b.getAttribute('data-play-on-key'), label: b.getAttribute('aria-label'), isOn: b.classList.contains('is-on') };
     if (how === 'refused') p.elsewhere.castFails.push(() => p.elsewhere.refuse(429, 'too_many_streams'));
     if (how === 'noTake') { const open = way.start; way.start = (what) => open(what).then(() => { throw Object.assign(new Error(), { code: 'failed', say: { title: 'The TV didn’t start', line: 'Choose it again.' } }); }); }
+    p.tick(5000);
     await settle();
     if (how === 'here' || how === 'otherTab') now = how === 'here' ? { rating_key: '501' } : null;
     click(b);
