@@ -21,6 +21,7 @@
 
   var body = document.body;
   var stage = document.getElementById('s');
+  var leaving = document.getElementById('o');
   var video = document.getElementById('v');
   var base = body.getAttribute('data-base') || (location.protocol + '//' + location.host);
 
@@ -1019,6 +1020,7 @@
     return mode;
   }
 
+  var leftTimer = null;
   var shown = '', drawn = '', dressed = '', focus = 0, hideTimer = null, hidden = false;
 
   function show() {
@@ -1028,6 +1030,7 @@
       var kept = name === shown ? focus : FOCUS[name] || 0;
       // The overlay of a film that pauses or plays on is the same place.
       if (FOCUS[name] && FOCUS[shown]) kept = focus;
+      swap(name !== shown && !(FOCUS[name] && FOCUS[shown]));
       stage.innerHTML = html;
       drawn = html;
       dressed = '';
@@ -1043,10 +1046,28 @@
     hush();
   }
 
+  /* The page before fades out under the new one, which fades in. */
+  function swap(moves) {
+    clearTimeout(leftTimer);
+    leaving.innerHTML = '';
+    stage.className = '';
+    if (!moves || !shown) return;
+    stage.className = 'in';
+    leaving.innerHTML = stage.innerHTML.replace(/ (id|style)="[^"]*"/g, '');
+    if (dressed) {
+      var picture = leaving.getElementsByTagName('div')[0];
+      if (picture) picture.style.backgroundImage = dressed;
+    }
+    leftTimer = setTimeout(function () { leaving.innerHTML = ''; }, 250);
+  }
+
   function paint() {
     for (var i = 0; i < buttons.length; i++) {
       var node = document.getElementById('b' + i);
-      if (node) node.className = i === focus ? 'b f' : 'b';
+      if (!node) continue;
+      node.className = i === focus ? 'b f' : 'b';
+      // For what reads the page aloud.
+      if (i === focus) node.focus();
     }
   }
 
@@ -1118,7 +1139,7 @@
     pressed();
     if (MEDIA[key]) media(MEDIA[key]);
     else if (key === 10009 || key === 461 || key === 27 || key === 8) used = back();
-    else if (shown === 'play' && hidden && key >= 13 && key <= 40) wake();
+    else if (shown === 'play' && hidden && (key === 9 || (key >= 13 && key <= 40))) wake();
     else if (key === 37 || key === 39) {
       if (buttons.length) focus = Math.max(0, Math.min(buttons.length - 1, focus + (key === 39 ? 1 : -1)));
       paint();
@@ -1130,29 +1151,53 @@
     if (used) e.preventDefault();
   };
 
+  function buttonAt(node) {
+    while (node && node.nodeType !== 9) {
+      var id = /^b(\d)$/.exec(node.id || '');
+      if (id && buttons[Number(id[1])]) return Number(id[1]);
+      node = node.parentNode;
+    }
+    return -1;
+  }
+  function moveTo(n) {
+    if (n < 0 || n === focus) return;
+    focus = n;
+    paint();
+  }
+
   // A remote that points, or a mouse.
   document.onclick = function (e) {
     pressed();
     if (shown === 'play' && hidden) { wake(); return; }
-    var node = e.target;
-    while (node && node.nodeType === 1) {
-      var id = /^b(\d)$/.exec(node.id || '');
-      if (id && buttons[Number(id[1])]) {
-        focus = Number(id[1]);
-        paint();
-        act(buttons[focus][1]);
-        return;
-      }
-      node = node.parentNode;
-    }
+    var n = buttonAt(e.target);
+    if (n < 0) return;
+    moveTo(n);
+    act(buttons[n][1]);
   };
-  document.onmousemove = function () { if (shown === 'play') wake(); };
+  var pointedAt = '';
+  document.onmousemove = function (e) {
+    // A page that changes under a pointer that lies still tells of a move too.
+    var at = e.clientX + ' ' + e.clientY;
+    if (at === pointedAt) return;
+    pointedAt = at;
+    if (shown === 'play') wake();
+    moveTo(buttonAt(e.target));
+  };
+  // Tab.
+  document.addEventListener('focus', function (e) {
+    var n = buttonAt(e.target);
+    if (n < 0 || n === focus) return;
+    moveTo(n);
+    if (shown === 'play') wake();
+  }, true);
 
   function fit() {
     var scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
     var move = 'translate(' + (window.innerWidth - 1920 * scale) / 2 + 'px,' + (window.innerHeight - 1080 * scale) / 2 + 'px) scale(' + scale + ')';
     stage.style.webkitTransform = move;
     stage.style.transform = move;
+    leaving.style.webkitTransform = move;
+    leaving.style.transform = move;
   }
   window.onresize = fit;
   fit();

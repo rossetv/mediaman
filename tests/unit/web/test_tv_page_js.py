@@ -155,6 +155,39 @@ def test_a_film_that_says_it_plays_only_while_it_seeks_is_shown(off: str) -> Non
     assert out["sets"] <= 3 and min(out["reported"]) > 1180
 
 
+def test_a_page_gives_way_to_the_next_and_a_page_that_stays_does_not_move() -> None:
+    out = _run("pages")
+    assert out["toPlay"] == ["in", False]
+    assert out["cleared"] == ""
+    # the controls of a film that is paused are the same place
+    assert out["paused"] == ["", ""]
+    assert out["idle"] == ["in", "in", True, False]
+    assert out["renamed"] == [True, "", ""]
+
+
+def test_the_one_focus_follows_a_pointer_a_key_and_tab() -> None:
+    out = _run("pointer")
+    assert out["first"] == ["b f", "b", "b0"]
+    assert out["over"] == ["b", "b f", "b1"]
+    assert out["still"] == ["b f", "b", "b0"]
+    assert "Unpair this TV?" in out["asks"]
+    assert out["keyed"] == "b1"
+    assert out["tabbed"] == ["b f", "b", "b0"]
+    assert "is ready" in out["kept"]
+
+
+def test_the_motion_is_off_under_reduced_motion_and_colours_forced_keep_the_focus() -> None:
+    css = (STATIC / "css/tv.css").read_text()
+    reduced = css[css.index("prefers-reduced-motion") :]
+    for mover in (".in > div", "#o > div"):
+        assert re.search(re.escape(mover) + r"[^}]*\{[^}]*animation:", css), mover
+        assert mover in reduced
+    forced = css[css.index("forced-colors: active") :]
+    assert re.search(
+        r"\.b\.f, \.bar \.p \{ forced-color-adjust: none; background: Highlight", forced
+    )
+
+
 def test_a_code_shown_before_counts_for_as_long_as_it_is_good() -> None:
     out = _run("usedCodeSeenLate", "used")
     assert min(out["count"]) > 20

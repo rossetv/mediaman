@@ -24,6 +24,7 @@ function tv({ kept = null, plays = true } = {}) {
     removeAttribute(k) { delete this.attrs[k]; if (k === 'src') this.gone = true; },
     addEventListener(k, fn) { (this.on[k] = this.on[k] || []).push(fn); },
     appendChild(n) { this.children.push(n); return n; },
+    getElementsByTagName: () => [],
   });
   const video = Object.assign(element(), {
     paused: true, ended: false, volume: 1, muted: false, seeking: false, duration: 2880, calls: [], refuse: false,
@@ -43,14 +44,16 @@ function tv({ kept = null, plays = true } = {}) {
   Object.defineProperty(video, 'src', { get() { return this.attrs.src; }, set(v) { this.attrs.src = v; } });
   nodes.v = video;
   nodes.s = element();
+  nodes.o = element();
   const body = Object.assign(element(), { attrs: { 'data-base': 'https://mediaman.example', 'data-hls': '/hls.js' } });
   // What is drawn on the page is found by its id while it is drawn.
   const document = {
-    body, createElement: element,
+    body, createElement: element, on: {},
+    addEventListener(k, fn) { (this.on[k] = this.on[k] || []).push(fn); },
     getElementById(id) {
-      if (nodes[id] && (id === 'v' || id === 's')) return nodes[id];
+      if (nodes[id] && (id === 'v' || id === 's' || id === 'o')) return nodes[id];
       if (!nodes.s.innerHTML.includes('id="' + id + '"')) return null;
-      return (nodes[id] = nodes[id] || element());
+      return (nodes[id] = nodes[id] || Object.assign(element(), { id, nodeType: 1, focus() { if (document.activeElement === this) return; document.activeElement = this; (document.on.focus || []).forEach((fn) => fn({ target: this })); } }));
     },
   };
   class XMLHttpRequest {
@@ -104,6 +107,12 @@ function tv({ kept = null, plays = true } = {}) {
     },
     jump(ms) { skew += ms; },
     style: (id) => (document.getElementById(id) || {}).style,
+    node: (id) => document.getElementById(id),
+    held: () => (document.activeElement || {}).id,
+    point: (id, x) => document.onmousemove({ target: { nodeType: 3, parentNode: document.getElementById(id) }, clientX: x, clientY: 0 }),
+    click: (id) => document.onclick({ target: document.getElementById(id) }),
+    left: () => nodes.o.innerHTML,
+    entering: () => nodes.s.className,
     key: (code) => document.onkeydown({ keyCode: code, preventDefault() {} }),
     html: () => nodes.s.innerHTML,
     says: () => nodes.s.innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
@@ -342,6 +351,50 @@ const scenarios = {
     t.video.fire('playing');
     await t.step(9000);
     return { report: t.last('poll').body.report, said: t.says(), sets: t.video.sets.length, reported: t.paths('poll').map((c) => c.body.report).filter(Boolean).map((b) => b.position_s) };
+  },
+  async pages() {
+    const t = await playing();
+    const out = { toPlay: [t.left().includes('is starting it') || t.entering(), /\b(id|style)=/.test(t.left())] };
+    await t.step(1000);
+    out.cleared = t.left();
+    t.key(OK);
+    out.paused = [t.left(), t.entering()];
+    t.key(OK);
+    t.now = film({ state: 'upnext', url: null, upnext_in_s: 9, next: { season: 1, episode: 5, title: 'Windfall' } });
+    await t.step(1020);
+    const at = t.entering();
+    let left = t.left();
+    t.now = null;
+    for (let i = 0; i < 12 && !t.says().includes('is ready'); i += 1) await t.step(100);
+    left = t.left();
+    out.idle = [at, t.entering(), left.includes('Windfall'), /\b(id|style)=/.test(left)];
+    t.answers.poll = ready({ name: 'Den' });
+    await t.step(3500);
+    out.renamed = [t.says().includes('Den is ready'), t.left(), t.entering()];
+    return out;
+  },
+  async pointer() {
+    const t = tv({ kept: 'old' });
+    t.answers.poll = ready();
+    t.run();
+    await t.step(50);
+    const look = () => [t.node('b0').className, t.node('b1').className, t.held()];
+    const first = look();
+    t.point('b1', 5);
+    const over = look();
+    // the page moves under a pointer that lies still
+    t.key(LEFT);
+    t.point('b1', 5);
+    const still = look();
+    t.point('b1', 6);
+    t.click('b1');
+    const asks = t.says();
+    t.key(RIGHT);
+    const keyed = t.held();
+    t.node('b0').focus();
+    const tabbed = look();
+    t.key(OK);
+    return { first, over, still, asks, keyed, tabbed, kept: t.says() };
   },
   async usedCodeSeenLate(what) {
     const t = tv();
