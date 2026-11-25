@@ -1561,6 +1561,14 @@ def test_a_start_that_hung_is_taken_when_answered_and_else_asked_for_again(marku
     assert (out["starts"], out["stream"], out["message"], out["late"]) == (3, True, None, True)
 
 
+def test_a_move_in_a_drop_tries_at_once_and_with_short_waits_again(markup):
+    assert run(markup, "seek_in_drop") == {"atOnce": 1, "next": 1}
+
+
+def test_a_move_in_a_start_that_does_not_come_through_tries_at_once_from_there(markup):
+    assert run(markup, "seek_in_lost_start") == {"atOnce": 1, "at": [10]}
+
+
 def test_a_busy_server_is_said_once_the_picture_has_waited_for_it_a_while(markup):
     out = run(markup, "busy_said")
     assert (out["playing"], out["early"]) == (None, None)

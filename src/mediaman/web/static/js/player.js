@@ -775,6 +775,14 @@
     else askAgain();
   }
 
+  /* The person moved, in a drop. */
+  function tryAtOnce() {
+    if (!lost || lost.over) return;
+    lost.at = Date.now();
+    lost.wait = LOST_FIRST_MS;
+    askAgain();
+  }
+
   /* Something went unanswered: a server that answers a light request is only slow. Neither
      is called where a drop was found meanwhile and is being tried again. */
   function ifReached(yes, no) {
@@ -1450,6 +1458,7 @@
         hls.config.startPosition = t;
         hls.startLoad(t);
       }
+      tryAtOnce();
     }
     render();
   }
@@ -1566,6 +1575,7 @@
         goOnTrying();
       } else {
         hideMessage();
+        tryAtOnce();
       }
     }
   });

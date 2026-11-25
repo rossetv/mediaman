@@ -1664,6 +1664,37 @@ const scenarios = {
     return Object.assign(out, { message: messageState(p), late: p.calls.some((c) => c.url === '/api/watch/stream/late/stop') });
   },
 
+  /* A move in a drop, between two tries. */
+  async seek_in_drop(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const lose = () => h.emit('hlsError', loadError('fragLoadError', 0));
+    lose();
+    await failFor(p, 20000, failingLoads(h, lose));
+    const loads = h.loads.length;
+    p.video.currentTime = 2000;
+    fire(p.video, 'seeking');
+    const atOnce = h.loads.length - loads;
+    lose();
+    p.tick(1000);
+    return { atOnce: atOnce, next: h.loads.length - loads - atOnce };
+  },
+
+  /* The same where it is the start that does not come through. */
+  async seek_in_lost_start(p) {
+    p.replies[0] = NET;
+    await settle();
+    p.held.answer = () => NET;
+    await pass(p, 20000);
+    const starts = p.starts().length;
+    p.held.answer = () => answer('1080p-8000');
+    key('ArrowRight');
+    p.tick(300);
+    await settle();
+    return { atOnce: p.starts().length - starts, at: p.hlsList.map((h) => h.config.startPosition) };
+  },
+
   /* The server refuses for a while, the picture waiting, and then takes a request. */
   async busy_said(p) {
     await streamPlays(p, 100);
