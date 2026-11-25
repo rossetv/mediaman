@@ -501,7 +501,6 @@
   var BLOCKS = '.watch-banner, .watch-notice, .watch-group-label, .watch-row, .watch-empty, [data-grid-block]';
 
   var html = document.documentElement;
-  var topBar = page.querySelector('.watch-top');
   var dom = null; // the layer's own nodes
   var now = null; // what it holds: { opts, list, value }
   var move = null; // what moves: { to, gridY, tracks, token }
@@ -764,9 +763,8 @@
   }
 
   /* Put the layer *to* in the page's flow at the scroll *y* says, the other fixed
-     where it stands. Returns where the search bar was. */
+     where it stands. */
   function swapLayers(to, y) {
-    var bar = topBar ? topBar.getBoundingClientRect() : null;
     // Too short for its scroll, even for a moment, Safari places what is fixed by the scroll it had.
     page.style.minHeight = page.offsetHeight + 'px';
     var from = to === 'grid' ? browse : dom.all;
@@ -786,22 +784,6 @@
       dom.head.style.top = '0px';
       dom.head.style.top = headAt - dom.head.getBoundingClientRect().top + 'px';
     }
-    return bar;
-  }
-
-  /* The search bar leaves softly when the new scroll takes it off the screen. */
-  function ghost(was) {
-    if (!was) return;
-    var edge = core.clearArea().top;
-    if (was.bottom < edge + 10 || topBar.getBoundingClientRect().bottom >= edge) return;
-    var twin = topBar.cloneNode(true);
-    [twin].concat(toArray(twin.querySelectorAll('[id]'))).forEach(function (n) { n.removeAttribute('id'); });
-    twin.classList.add('is-ghost');
-    twin.setAttribute('inert', '');
-    twin.style.top = was.top + 'px';
-    page.appendChild(twin);
-    animate(twin, [{ opacity: 1 }, { opacity: 0 }], { duration: OUT_MS, fill: 'forwards' })
-      .onfinish = function () { twin.remove(); };
   }
 
   /* ── Where the rows were ── */
@@ -1153,7 +1135,7 @@
     dom.sortMenu.close(false);
     if (move && now && now.opts.id === opts.id && !resorted(opts)) {
       if (move.to === 'grid') return true;
-      ghost(swapLayers('grid', function () { return move.gridY; }));
+      swapLayers('grid', function () { return move.gridY; });
       play('grid');
       announce();
       return true;
@@ -1181,9 +1163,8 @@
       return !back;
     }
     now.list.hold(true);
-    var bar = swapLayers('grid', function () { return back ? back.y : Math.min(y, headScroll()); });
+    swapLayers('grid', function () { return back ? back.y : Math.min(y, headScroll()); });
     aim(first);
-    ghost(bar);
     lastY = window.scrollY;
     dom.head.classList.remove('is-stuck');
     move = { to: 'grid', gridY: window.scrollY, tracks: null, token: null };
@@ -1200,7 +1181,7 @@
       if (move.to === 'rows') return;
       move.gridY = window.scrollY;
       restoreLefts();
-      ghost(swapLayers('rows', function () { return place.y; }));
+      swapLayers('rows', function () { return place.y; });
       play('rows');
       focusRows(now.opts, null);
       return;
@@ -1225,7 +1206,7 @@
     restoreLefts();
     pin(browse, 0);
     scrollPage(y);
-    ghost(swapLayers('rows', function () { return place.y; }));
+    swapLayers('rows', function () { return place.y; });
     move = { to: 'rows', gridY: y, tracks: null, token: null };
     move.tracks = measure(opts);
     play('rows');

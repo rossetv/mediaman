@@ -90,60 +90,85 @@ def test_recommendations_off_hide_the_row_from_viewers_and_point_admins_to_setti
     assert out["adminTools"] == 0
 
 
-def test_no_picks_says_so_and_only_admins_get_the_refresh_hint() -> None:
+def test_no_picks_says_who_the_first_are_for_and_sends_an_admin_to_make_them() -> None:
     out = _run("noPicks")
-    assert out["viewer"] == "No recommendations yet."
-    assert out["admin"].startswith("No recommendations yet.")
-    assert "Refresh" in out["admin"]
+    words = "No picks yet. The first ones are for everyone, until your own are made."
+    assert out["viewer"] == [words, None]
+    assert out["admin"] == [words, "/settings#setg-integrations"]
+    assert out["noKey"] == [words, None]
 
 
-def test_viewers_can_switch_batches_but_only_admins_can_refresh() -> None:
-    out = _run("tools")
-    assert out["viewer"] == ["picks"]
-    assert out["admin"] == ["picks", "refresh"]
+def test_the_row_has_one_refresh_the_person_s_own_for_everyone_and_asks_for_no_other() -> None:
+    assert _run("tools") == [[[True], ["Refresh my picks"], []]] * 3
 
 
-def test_choosing_an_earlier_batch_swaps_the_picks_in_the_same_row() -> None:
-    out = _run("batch")
-    assert out["open"]["keepMenuLook"] is True
-    assert out["open"]["items"] == [["Latest · 21 Nov", "true"], ["14 Nov", "false"]]
-    assert out["open"]["focus"] is True
-    assert out["sameRow"] is True
-    assert out["cards"] == ["rec-9"]
-    assert out["checked"] == ["14 Nov"]
-    assert "14 Nov" in out["pill"]
+def test_the_picks_button_names_the_batch_at_the_row_s_left_as_it_is_scrolled() -> None:
+    out = _run("follows")
+    assert (out["start"], out["refs"]) == ([["Latest picks · 21 Nov", "Latest"]], 15)
+    # Most of three cards from the left: 1.6 of one batch and 1.4 of the other, then the turn.
+    assert out["halfway"] == [["Latest picks · 21 Nov", "Latest"]]
+    assert out["over"] == [["Picks of 14 Nov", "14 Nov"]]
+    assert out["last"] == [["Picks of 7 Nov", "7 Nov"]]
+    assert out["checked"] == ["Picks of 7 Nov"]
+    assert out["back"] == [["Latest picks · 21 Nov", "Latest"]]
+    assert out["asked"] == 0
+    assert (out["label"], out["live"]) == ("Picks: Picks of 7 Nov. Choose another batch", False)
+
+
+def test_the_picks_button_is_as_wide_as_its_widest_name_and_fades_between_them() -> None:
+    assert _run("follows")["sizers"] == [
+        "Latest picks · 21 Nov",
+        "Picks of 14 Nov",
+        "Picks of 7 Nov",
+    ]
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    assert ".picks-name > * { grid-area: 1 / 1; }" in css
+    assert ".picks-name__one { opacity: 0; transition: opacity var(--dur)" in css
+    out = _run("follows")
+    assert out["still"] == out["fading"]  # nothing is drawn again for the same name
+    assert out["faded"] == 1
+
+
+def test_choosing_a_date_scrolls_the_same_row_to_it_and_back_to_the_latest() -> None:
+    out = _run("chooses")
+    assert out["before"] == 40
+    assert (out["loaded"], out["unique"]) == (120, 120)
+    assert (out["at"], out["name"], out["busy"]) == (80, [["Picks of 7 Nov", "7 Nov"]], None)
+    assert out["onTheWay"] == [["Picks of 7 Nov", "7 Nov"]]
+    assert out["theirs"] == [["Latest picks · 21 Nov", "Latest"]]
+    assert out["latest"] == [0, [["Latest picks · 21 Nov", "Latest"]], 0, True, True]
+
+
+def test_a_date_that_cannot_be_loaded_says_so_and_leaves_the_row_where_it_was() -> None:
+    for lost in _run("choosesLost"):
+        assert lost == {
+            "name": [["Latest picks · 21 Nov", "Latest"]],
+            "left": 0,
+            "busy": None,
+            "toasts": ["Couldn’t load those picks. Try again."],
+        }
+
+
+def test_a_date_whose_titles_are_all_elsewhere_goes_to_the_next_older_one() -> None:
+    assert _run("choosesEmptied") == {"name": [["Picks of 7 Nov", "7 Nov"]], "at": "rec-180"}
+
+
+def test_a_row_scrolled_while_a_chosen_date_is_on_its_way_stays_with_the_person() -> None:
+    assert _run("choosesLeft") == {
+        "busy": "true",
+        "after": None,
+        "left": 5,
+        "name": [["Latest picks · 21 Nov", "Latest"]],
+    }
 
 
 def test_a_first_batch_without_a_date_says_latest_with_no_dangling_separator() -> None:
     out = _run("undatedFirstBatch")
-    assert out["items"] == ["Latest", "14 Nov"]
+    assert out["items"] == ["Latest picks", "Picks of 14 Nov"]
     assert out["pill"] == "Latest picks"
     # A phone does not show the long part.
     assert out["phone"] == "Latest"
     assert out["label"] == "Picks: Latest picks. Choose another batch"
-
-
-def test_refresh_during_the_cooldown_shows_the_time_left_and_no_error() -> None:
-    out = _run("refreshCooldown")
-    assert out["label"] == "Refresh in 14 h"
-    assert out["disabled"] == "true"
-    assert out["error"] is False
-    assert out["note"] == "Shared picks can be fetched again in 14 h."
-
-
-def test_a_cooling_refresh_says_how_long_when_pressed_and_keeps_its_width() -> None:
-    out = _run("refreshCooldown")
-    assert out["pressed"] == ["Shared picks can be fetched again in 14\u00a0h."]
-    assert out["widest"] == "Refresh in 59\u00a0min"
-    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
-    assert re.search(r"\.row-tool--refresh::before \{ content: attr\(data-widest\)", css)
-
-
-def test_a_refused_refresh_says_why_without_moving_the_row_and_can_be_tried_again() -> None:
-    out = _run("refreshFailed")
-    assert out["toasts"] == [["Plex not configured", "error"]]
-    assert out["moved"] == 0
-    assert (out["label"], out["disabled"]) == ("Refresh shared", None)
 
 
 def test_a_session_lost_before_the_rows_load_goes_to_login_not_an_error() -> None:
@@ -159,18 +184,6 @@ def test_a_long_picks_menu_stays_on_screen_and_scrolls_to_the_focused_batch() ->
     assert out["lastFocused"] is True
     assert out["menuTop"] <= out["lastTop"]
     assert out["lastBottom"] <= out["menuBottom"]
-
-
-def test_a_session_lost_while_refreshing_goes_to_login() -> None:
-    assert _run("refreshLoggedOut")["href"] == "/login"
-
-
-def test_a_finished_refresh_puts_the_new_picks_in_the_same_row_and_starts_the_cooldown() -> None:
-    out = _run("refreshDone")
-    assert out["busy"] == {"label": "Refreshing…", "spinning": True}
-    assert out["sameRow"] is True
-    assert out["cards"] == ["rec-20"]
-    assert out["after"] == "Refresh in 24 h"
 
 
 def test_a_person_s_own_picks_open_by_their_own_refs_marked_as_ai_picks() -> None:
@@ -192,10 +205,10 @@ def test_the_line_says_why_there_are_no_new_picks_to_be_had() -> None:
     assert (out["limit"]["button"], out["limit"]["off"]) == ("Refresh in 5 h", True)
     assert out["limit"]["text"] == "That’s all the refreshes for now."
     assert (out["few"]["text"], out["few"]["button"]) == (
-        "Play five titles and these become yours.",
+        "For everyone. Play five titles and these become yours.",
         None,
     )
-    assert (out["noKeyViewer"]["text"], out["noKeyViewer"]["button"]) == ("New and popular.", None)
+    assert (out["noKeyViewer"]["text"], out["noKeyViewer"]["button"]) == ("For everyone.", None)
     assert "OpenAI key" in out["noKeyAdmin"]["text"]
     assert {v["posts"] for k, v in out.items() if k != "off"} == {0}
     assert out["off"] is False
@@ -223,11 +236,15 @@ def test_own_picks_that_could_not_be_made_leave_the_row_and_can_be_tried_again()
 def test_a_refused_refresh_of_own_picks_says_why_and_keeps_the_focus() -> None:
     out = _run("ownRefused")
     assert (out["wait"]["button"], out["wait"]["focus"]) == ("Refresh in 6 days", "row-tool")
-    assert out["few"]["text"] == "Play five titles and these become yours."
+    assert out["few"]["text"] == "For everyone. Play five titles and these become yours."
     assert (out["few"]["button"], out["few"]["focus"]) == (None, "watch-row__scroll")
     assert out["running"]["button"] == "Refreshing…"
     assert (out["broken"]["button"], out["broken"]["toasts"]) == ("Refresh my picks", 1)
     assert out["out"]["href"] == "/login"
+
+
+def test_a_session_lost_while_own_picks_are_made_goes_to_login() -> None:
+    assert _run("ownLoggedOut") == [["/login", 0, 0]] * 2
 
 
 def test_own_picks_being_made_when_the_page_loads_are_followed_to_their_end() -> None:
@@ -293,16 +310,15 @@ def test_the_day_s_limit_is_no_longer_told_once_its_wait_is_over() -> None:
     assert out["posts"] == 1
 
 
-def test_on_a_phone_the_own_refresh_has_a_word_the_shared_one_has_not() -> None:
-    out = _run("ownNarrow")
-    assert {k: v["own"] for k, v in out.items()} == {
+def test_on_a_phone_refresh_says_its_state_in_fewer_words_and_keeps_its_width() -> None:
+    assert _run("ownNarrow") == {
         "ready": "My picks",
-        "wait": "6\u00a0days",
+        "wait": "In 6\u00a0days",
         "busy": "Making…",
     }
-    assert {v["shared"] for v in out.values()} == {None}
     css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
     assert ".row-tool__face[data-narrow]::after { content: attr(data-narrow)" in css
+    assert re.search(r"\.row-tool--refresh::before \{ content: attr\(data-widest\)", css)
 
 
 def test_the_own_refresh_stands_before_the_text_that_changes_from_700px() -> None:
@@ -424,9 +440,7 @@ def test_posters_far_off_the_screen_are_unloaded_and_come_back() -> None:
 def test_the_picks_go_on_to_older_batches_from_the_one_the_row_starts_at() -> None:
     out = _run("olderPicks")
     # rec-10 is rec-7 again and rec-13 rec-9; the batch between them is gone.
-    assert out["first"] == {"refs": ["rec-7", "rec-8", "rec-9", "rec-12"], "more": False}
-    assert out["chosen"] == ["rec-9", "rec-11"]
-    assert "14 Nov" in out["pill"]
+    assert out == {"refs": ["rec-7", "rec-8", "rec-9", "rec-12"], "more": False}
 
 
 def test_a_row_whose_first_batch_is_gone_starts_at_the_older_one_it_goes_on_to() -> None:
@@ -435,7 +449,7 @@ def test_a_row_whose_first_batch_is_gone_starts_at_the_older_one_it_goes_on_to()
 
 def test_the_date_on_the_picks_button_is_in_one_box_with_its_name() -> None:
     # Two boxes would take the button's gap between them, after the dot alone.
-    assert _run("picksPill") == ["Latest picks · 21 Nov", ""]
+    assert _run("picksPill") == ["picks-name", "ico row-tool__chev"]
 
 
 def test_a_row_whose_older_batches_are_gone_ends() -> None:
@@ -452,7 +466,7 @@ def test_picks_of_one_name_kind_and_year_are_told_apart_by_their_tmdb_id() -> No
 
 
 def test_an_older_batch_on_its_way_when_the_row_starts_again_is_not_added() -> None:
-    assert _run("refreshedWhileLoading") == {"old": ["rec-7", "rec-8"], "now": ["rec-30"]}
+    assert _run("refreshedWhileLoading") == {"old": ["rec-7", "rec-8"], "now": ["pick-30"]}
 
 
 def test_focus_moves_into_the_row_that_try_again_brought_back() -> None:
@@ -489,16 +503,6 @@ def test_a_discover_card_has_a_mark_and_more_only_for_a_title_of_the_library() -
 
 def test_the_discover_rows_keep_their_scroll_when_they_take_the_skeletons_place() -> None:
     assert _run("rowsMovedIn") == {"before": True, "after": False, "left": 300}
-
-
-def test_refresh_of_the_shared_picks_is_off_without_a_key_and_says_why() -> None:
-    out = _run("sharedWithoutAKey")
-    for case in (out["ready"], out["cooling"]):
-        assert (case["label"], case["disabled"], case["posts"]) == ("Refresh shared", "true", 0)
-        assert case["why"] == "New ones need an OpenAI key, set in Settings."
-        assert case["toasts"] == [case["why"]]
-    assert "fetch the first ones" not in out["none"]
-    assert (out["withKey"]["posts"], out["withKey"]["why"]) == (1, None)
 
 
 def test_the_page_is_held_before_the_discover_rows_fade_in_and_before_they_settle() -> None:

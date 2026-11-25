@@ -1,0 +1,120 @@
+/* The picture dialog of the Profile page. */
+.modal-backdrop.pic-back { align-items: center; padding: 20px; }
+.pic { max-width: 480px; max-height: calc(100dvh - 40px); margin: auto; overflow-y: auto; scroll-padding-top: 70px; border: 1px solid var(--hair-strong); color-scheme: dark; }
+/* Stays, with Close, where the rest of a tall dialog scrolls. */
+.pic-hd { position: sticky; top: 0; z-index: 1; background: var(--s2); display: flex; align-items: center; gap: 12px; padding: 18px 16px 0 24px; }
+.pic-hd h2 { flex: 1; font-size: 18px; }
+.pic-hd h2:focus { outline: none; }
+.pic-bd { padding: 14px 24px 24px; }
+.pic-pane { animation: pic-in var(--dur-slow) var(--ease-out); }
+@keyframes pic-in { from { opacity: 0; transform: translateY(4px); } }
+.pic-err {
+  display: flex; align-items: flex-start; gap: 10px;
+  margin: 0 0 16px; padding: 10px 14px;
+  border-radius: var(--r-sm); background: var(--rgba-danger-bg);
+  color: var(--danger-text); font-size: 13px; line-height: 1.45;
+  animation: fade-in var(--dur) var(--ease-out);
+}
+.pic-err .ico { flex: none; margin-top: 2px; font-size: 14px; }
+.pic-now { display: flex; align-items: center; gap: 18px; padding-bottom: 20px; }
+.pic-now .avatar { overflow: hidden; width: 88px; height: 88px; }
+.pic-now-txt { min-width: 0; }
+.pic-now-txt .me-acts { margin-top: 10px; }
+.pic-now-kind { font-size: 14px; font-weight: 500; }
+.pic .link-danger {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px;
+  border-radius: var(--r-pill); font-size: 12px; color: var(--danger-text);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.pic .link-danger:hover:enabled { background: var(--rgba-danger-bg-soft); }
+.pic .link-danger:disabled { opacity: .45; cursor: default; }
+.pic-drawn { min-width: 0; border: 0; }
+.pic-drawn legend { padding: 0 0 10px; font-size: 13px; color: var(--t2); }
+.pic-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.pic-grid label {
+  position: relative; display: block; aspect-ratio: 1; border-radius: 50%; cursor: pointer;
+  outline: 2px solid transparent; outline-offset: 3px;
+  transition: outline-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.pic-grid label:hover { transform: scale(1.04); }
+.pic-grid label:active { transform: scale(.97); }
+.pic-grid label:has(:disabled) { pointer-events: none; }
+.pic-grid :disabled ~ img { opacity: .45; }
+.pic-grid label:has(:checked) { outline-color: var(--accent); }
+.pic-grid label:has(:focus-visible) { outline-color: var(--t1); }
+.pic-grid img { width: 100%; height: 100%; border-radius: 50%; transition: opacity var(--dur) var(--ease-out); }
+.pic-grid input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.pic-tick {
+  position: absolute; right: -2px; bottom: -2px; width: 22px; height: 22px;
+  display: grid; place-items: center;
+  border-radius: 50%; border: 2px solid var(--s2);
+  background: var(--accent-cta); color: var(--t1); font-size: 10px;
+  opacity: 0; transform: scale(.4); pointer-events: none;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.pic-grid :checked ~ .pic-tick { opacity: 1; transform: none; }
+.pic-ft { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+
+.pic-crop {
+  position: relative; width: min(320px, 100%); aspect-ratio: 1; margin: 4px auto 0;
+  overflow: hidden; border-radius: var(--r-lg); background: var(--bg);
+  touch-action: none; cursor: grab;
+}
+.pic-crop:active { cursor: grabbing; }
+.pic-crop:focus-visible { outline-offset: 3px; border-radius: var(--r-lg); }
+.pic-crop canvas { display: block; width: 100%; height: 100%; }
+/* 5% is the room around the circle that profile-picture.js draws with. */
+.pic-crop::before, .pic-crop::after { content: ""; position: absolute; pointer-events: none; }
+.pic-crop::before { inset: 0; background: radial-gradient(closest-side, transparent 90%, color-mix(in srgb, var(--scrim) 62%, transparent) 90.4%); }
+.pic-crop::after { inset: 5%; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.85); }
+.pic-zoom { display: flex; align-items: center; gap: 12px; width: min(320px, 100%); margin: 16px auto 0; font-size: 13px; color: var(--t3); }
+.pic-zoom input { -webkit-appearance: none; appearance: none; flex: 1; min-width: 0; height: 44px; margin: 0; background: none; cursor: pointer; }
+/* The line is full up to the middle of the thumb, which is 20px wide. */
+.pic-zoom input::-webkit-slider-runnable-track {
+  height: 4px; border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--accent-cta) calc(10px + (100% - 20px) * var(--at, 0)), var(--s5) 0);
+}
+.pic-zoom input::-moz-range-track { height: 4px; border-radius: var(--r-pill); background: var(--s5); }
+.pic-zoom input::-moz-range-progress { height: 4px; border-radius: var(--r-pill); background: var(--accent-cta); }
+.pic-zoom input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%; background: var(--t1); }
+.pic-zoom input::-moz-range-thumb { width: 20px; height: 20px; border: 0; border-radius: 50%; background: var(--t1); }
+.pic-hint { text-align: center; font-size: 13px; color: var(--t3); }
+
+@media (max-width: 639.98px) {
+  .modal-backdrop.pic-back { align-items: flex-end; padding: 20px 0 0; }
+  .pic { margin: auto 0 0; max-height: calc(100dvh - 20px); border-width: 1px 0 0; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .pic-hd { padding: 16px 10px 0 20px; }
+  .pic-bd { padding: 12px 20px calc(20px + env(safe-area-inset-bottom, 0px)); }
+  .pic-now { gap: 14px; }
+  .pic-now .avatar { width: 76px; height: 76px; }
+  .pic-ft .btn { flex: 1; }
+}
+/* On a short screen the controls stand beside the photo. */
+@media (max-height: 640px) and (min-width: 480px) {
+  .pic { max-width: 640px; }
+  .pic-grid { max-width: 432px; margin-inline: auto; }
+  #pic-place:not([hidden]) { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto 1fr; gap: 0 24px; }
+  .pic-crop { grid-row: 1 / 4; width: clamp(150px, 100dvh - 150px, 320px); margin: 4px; }
+  .pic-zoom { width: 100%; margin-top: 4px; }
+  #pic-place .pic-hint { text-align: left; }
+  #pic-place .pic-ft { align-self: end; }
+}
+@media (max-width: 699.98px), (pointer: coarse) {
+  .pic .btn--icon { width: 44px; height: 44px; }
+  .pic .link-danger { min-height: 44px; }
+}
+@media (max-width: 359px) {
+  .pic-grid { gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pic-pane { animation: none; }
+  .pic-grid label:hover { transform: none; }
+}
+@media (forced-colors: active) {
+  .pic-zoom input { -webkit-appearance: auto; appearance: auto; }
+  .pic-zoom input::-webkit-slider-runnable-track { -webkit-appearance: auto; height: auto; }
+  .pic-zoom input::-webkit-slider-thumb { -webkit-appearance: auto; appearance: auto; width: auto; height: auto; margin-top: 0; }
+  .pic-grid label:has(:checked) { outline-color: Highlight; }
+  .pic-tick { border-color: Highlight; }
+  .pic-crop { border: 1px solid CanvasText; }
+}

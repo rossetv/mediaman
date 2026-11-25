@@ -97,6 +97,13 @@
       ],
       settings=settings) }}
 
+  {% set shared_picks %}
+  <div class="fld-row fld-row--full">
+    {% call c.fld("Shared picks", sub="New and popular titles on Watch, for everyone until their own picks are made. They can be refreshed once in 24 hours.") %}
+      <div><button type="button" class="btn-test" id="btn-refresh-picks">Refresh shared picks for everyone</button></div>
+    {% endcall %}
+  </div>
+  {% endset %}
   {{ c.service_card("openai", "AI", "openai", "OpenAI",
       "Powers AI media recommendations.",
       fields=[
@@ -118,7 +125,7 @@
                 else [])},
         ],
       ],
-      settings=settings) }}
+      settings=settings, extra=shared_picks) }}
 
   {{ c.service_card("tmdb", "T", "tmdb", "TMDB",
       "Poster images for media recommendations.",

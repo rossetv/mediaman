@@ -1,7 +1,7 @@
 /* Watch page: the Discover rows (Recommended for you, Trending this week,
  * Popular movies, Popular TV) that load after the page in place of their
- * skeleton, the badges on their posters, the menu of earlier picks, each
- * person's Refresh of their own picks and an admin's of the shared ones; the rest of the library rows as they are scrolled;
+ * skeleton, the badges on their posters, the menu of earlier picks, which
+ * follows the row, and each person's Refresh of their own picks; the rest of the library rows as they are scrolled;
  * and what each of these rows holds when it is opened as a grid.
  * Needs watch/core.js, watch/address.js, watch/keep.js, watch/search.js, watch/rows-load.js and watch/expand.js.
  */
@@ -20,10 +20,9 @@
   var DISCOVER_URL = '/api/watch/discover';
   var RECOMMENDED_URL = '/api/watch/recommended';
   var LIBRARY_URL = '/api/watch/library/';
-  var REFRESH_URL = '/api/recommended/refresh';
-  var STATUS_URL = '/api/recommended/refresh/status';
   var OWN_URL = '/api/watch/picks/refresh';
   var SETTINGS_HREF = '/settings#setg-general';
+  var SHARED_HREF = '/settings#setg-integrations';
   var NO_KEY = 'New ones need an OpenAI key, set in Settings.';
   var REC_TITLE = 'Recommended for you';
   var DISCOVER_ROWS = [
@@ -38,7 +37,8 @@
   var POLL_MS = 3000;
   var POLL_MAX_MS = 30000;
   var MAX_FAILURES = 8;
-  var IDLE_LIMIT = 2; // "idle" twice running: the worker died without a result
+  var LEFT_CARDS = 3; // at the row's left, whose batch is the one named
+  var FADE_MS = 220; // past --dur
   var SWAP_FALLBACK_MS = 400; // past the slowest motion token, for an animation that never runs
 
   function toLogin() {
@@ -381,11 +381,13 @@
 
   var isAdmin = false;
   var rec = null; // { section, tools, body, payload }
+  var shown = null; // the batch the picks button names
+  var held = false; // it was chosen, and stays until the person moves the row
+  var sought = null; // the batch chosen, while the row loads on to it
   var recLoader = null;
   var picksMenu = null;
   var picksMenuNode = null;
-  var timers = {}; // of the Refresh buttons that count down, by kind
-  var polling = false;
+  var timer = null; // of the Refresh that counts down
   var ownBusy = false;
   var ownFailed = false; // the last refresh of the person's own picks made none
   var ownRefs = ''; // the person's own picks in the latest batch
@@ -399,121 +401,219 @@
     return Math.max(1, Math.ceil(ms / 60000)) + '\u00a0min';
   }
 
-  function againText(left) { return 'Shared picks can be fetched again in ' + left + '.'; }
-
   function batchName(batch, first) {
     if (!batch.date_label) return first ? 'Latest' : '';
     return first ? 'Latest · ' + batch.date_label : batch.date_label;
   }
 
+  function batchLabel(batch, first) {
+    if (!batch.date_label) return first ? 'Latest picks' : batch.label;
+    return first ? 'Latest picks · ' + batch.date_label : 'Picks of ' + batch.date_label;
+  }
+
+  /* A batch's name, and the fewer words of it a phone has room for. */
+  function batchWords(batch, first) {
+    var words = el('span');
+    words.appendChild(el('span', 'row-tool__long', batchLabel(batch, first)));
+    words.appendChild(el('span', 'picks-name__short', first ? 'Latest' : batch.date_label || batch.label));
+    return words;
+  }
+
+  function placeOf(id) {
+    return rec.payload.batches.map(function (b) { return b.id; }).indexOf(id);
+  }
+
   function picksButton(payload) {
-    var batches = payload.batches || [];
-    var chosen = batches.filter(function (b) { return b.id === payload.batch; })[0] || batches[0];
     var button = el('button', 'row-tool');
     button.type = 'button';
     button.setAttribute('data-picks-menu', '');
     button.setAttribute('aria-haspopup', 'menu');
     button.setAttribute('aria-expanded', 'false');
     button.setAttribute('aria-controls', 'watch-picks-menu');
-    button.setAttribute('aria-label', 'Picks: ' + chosen.label + (chosen.date_label ? ', ' + chosen.date_label : '') + '. Choose another batch');
-    // One box: the space between its two parts would be lost between flex items.
-    var name = el('span');
-    if (chosen.date_label) {
-      name.appendChild(el('span', 'row-tool__long', chosen.label + ' · '));
-      name.appendChild(document.createTextNode(chosen.date_label));
-    } else {
-      name.textContent = chosen.label.replace(/ picks$/, '');
-      name.appendChild(el('span', 'row-tool__long', chosen.label.slice(name.textContent.length)));
-    }
+    var name = el('span', 'picks-name');
+    // As wide as the widest name, so what is beside it stays put.
+    payload.batches.forEach(function (b, i) {
+      var sizer = batchWords(b, i === 0);
+      sizer.className = 'picks-name__sizer';
+      name.appendChild(sizer);
+    });
     button.appendChild(name);
     button.appendChild(icon('i-chevron-down', 'row-tool__chev'));
     return button;
   }
 
-  /* The one menu of batches, the Keep menu's component and look. */
-  function fillPicksMenu(payload) {
-    if (!picksMenuNode) {
-      picksMenuNode = el('div', 'watch-keep-menu rec-menu');
-      picksMenuNode.setAttribute('id', 'watch-picks-menu');
-      picksMenuNode.setAttribute('role', 'menu');
-      picksMenuNode.setAttribute('aria-label', 'Batches of picks');
-      picksMenuNode.hidden = true;
-      (byId('watch-page') || document.body).appendChild(picksMenuNode);
-      picksMenu = watch.keep.menu(picksMenuNode, {
-        trigger: '[data-picks-menu]',
-        choose: function (trigger, item) { chooseBatch(item.getAttribute('data-batch')); },
-        spare: function () { return byId('watch-search'); }
+  /* Name batch *id* on the picks button, the old name fading out under the new. */
+  function showBatch(id) {
+    var at = placeOf(id);
+    var button = rec.tools.querySelector('[data-picks-menu]');
+    if (at < 0 || !button) return;
+    var name = button.querySelector('.picks-name');
+    var old = toArray(name.children).filter(function (n) { return n.classList.contains('is-on'); });
+    if (id === shown && old.length) return;
+    shown = id;
+    var batch = rec.payload.batches[at];
+    button.setAttribute('aria-label', 'Picks: ' + batchLabel(batch, at === 0) + '. Choose another batch');
+    var fresh = batchWords(batch, at === 0);
+    fresh.className = 'picks-name__one';
+    name.appendChild(fresh);
+    if (old.length) void fresh.offsetWidth; // start the fade from nothing
+    old.forEach(function (n) {
+      n.classList.remove('is-on');
+      if (core.reduceMotion()) n.remove();
+      else setTimeout(function () { n.remove(); }, FADE_MS);
+    });
+    fresh.classList.add('is-on');
+  }
+
+  /* ── The picks button follows the row ── */
+
+  function rowCards(scroller) {
+    return toArray(scroller.children).filter(function (n) { return n.classList.contains('watch-card'); });
+  }
+
+  /* The batch that holds most of the row's first cards from the left, or null with no layout. */
+  function leftBatch(scroller) {
+    var cards = rowCards(scroller);
+    if (!cards.length) return null;
+    if (cards.length === 1) return cards[0].getAttribute('data-batch');
+    var step = cards[1].offsetLeft - cards[0].offsetLeft;
+    if (!(step > 0)) return null;
+    var left = Math.max(0, scroller.scrollLeft);
+    var right = left + LEFT_CARDS * step;
+    var from = Math.floor(left / step);
+    var widths = new Map();
+    cards.slice(from, from + LEFT_CARDS + 1).forEach(function (card, i) {
+      var start = (from + i) * step;
+      var width = Math.min(right, start + card.offsetWidth) - Math.max(left, start);
+      var id = card.getAttribute('data-batch');
+      if (width > 0) widths.set(id, (widths.get(id) || 0) + width);
+    });
+    var most = null;
+    widths.forEach(function (width, id) { if (most === null || width > widths.get(most)) most = id; });
+    return most;
+  }
+
+  function followRow(viewport) {
+    var scroller = viewport.querySelector('.watch-row__scroll');
+    var queued = false;
+    scroller.addEventListener('scroll', function () {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(function () {
+        queued = false;
+        if (held || !rec || rec.body !== viewport) return;
+        var id = leftBatch(scroller);
+        if (id !== null) showBatch(id);
       });
+    }, { passive: true });
+    ['wheel', 'pointerdown', 'touchstart', 'keydown'].forEach(function (type) {
+      viewport.addEventListener(type, function () {
+        held = false;
+        stopSeeking();
+      }, { passive: true, capture: true });
+    });
+  }
+
+  function stopSeeking() {
+    sought = null;
+    if (rec) rec.body.removeAttribute('aria-busy');
+  }
+
+  /* Scroll the row to batch *id*, loading on to it. Its titles may all stand
+     earlier in the row: then to the next older batch that has some. */
+  function seek() {
+    if (sought === null) return;
+    var scroller = rec.body.querySelector('.watch-row__scroll');
+    var cards = rowCards(scroller);
+    var at = placeOf(sought);
+    var card = cards.filter(function (c) { return placeOf(c.getAttribute('data-batch')) >= at; })[0];
+    if (!card && recLoader.next() !== null) {
+      if (!recLoader.more()) seekFailed(false);
+      return;
     }
+    if (!card) {
+      var last = cards[cards.length - 1].getAttribute('data-batch');
+      card = cards.filter(function (c) { return c.getAttribute('data-batch') === last; })[0];
+    }
+    stopSeeking();
+    held = true;
+    showBatch(card.getAttribute('data-batch'));
+    scroller.scrollTo({ left: card.offsetLeft - cards[0].offsetLeft, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+  }
+
+  function seekFailed(told) {
+    if (sought === null) return;
+    stopSeeking();
+    if (!told) core.toast('Couldn’t load those picks. Try again.', { variant: 'error' });
+  }
+
+  /* The one menu of batches, the Keep menu's component and look. */
+  function startPicksMenu() {
+    if (picksMenu) return;
+    picksMenuNode = el('div', 'watch-keep-menu rec-menu');
+    picksMenuNode.setAttribute('id', 'watch-picks-menu');
+    picksMenuNode.setAttribute('role', 'menu');
+    picksMenuNode.setAttribute('aria-label', 'Batches of picks');
+    picksMenuNode.hidden = true;
+    (byId('watch-page') || document.body).appendChild(picksMenuNode);
+    picksMenu = watch.keep.menu(picksMenuNode, {
+      trigger: '[data-picks-menu]',
+      fill: fillPicksMenu,
+      choose: function (trigger, item) { chooseBatch(item.getAttribute('data-batch')); },
+      spare: function () { return byId('watch-search'); }
+    });
+  }
+
+  function fillPicksMenu() {
     picksMenuNode.textContent = '';
-    (payload.batches || []).forEach(function (b, i) {
+    rec.payload.batches.forEach(function (b, i) {
       var item = el('button', 'watch-keep-menu__item');
       item.type = 'button';
       item.setAttribute('role', 'menuitemradio');
       item.setAttribute('tabindex', '-1');
       item.setAttribute('data-batch', b.id);
-      item.setAttribute('aria-checked', b.id === payload.batch ? 'true' : 'false');
+      item.setAttribute('aria-checked', b.id === shown ? 'true' : 'false');
       item.appendChild(icon('i-check'));
-      item.appendChild(document.createTextNode(batchName(b, i === 0)));
+      item.appendChild(document.createTextNode(batchLabel(b, i === 0)));
       picksMenuNode.appendChild(item);
     });
-    var refresh = payload.refresh;
-    if (refresh && !refresh.available && refresh.next_available_at && waitText(refresh.next_available_at)) {
-      picksMenuNode.appendChild(el('p', 'rec-menu__note', againText(waitText(refresh.next_available_at))));
-    }
   }
 
-  /* The two Refresh buttons: the person's own picks, and the shared ones. */
-  var REFRESH = {
-    own: { attr: 'data-own-refresh', name: 'Refresh my picks', busy: 'Making your picks', narrow: { ready: 'My picks', busy: 'Making…' } },
-    shared: { attr: 'data-picks-refresh', name: 'Refresh shared', busy: 'Refreshing shared picks' }
-  };
-
-  /* Ready, busy (spinner) or cooling down ("Refresh in 14 h"). It is as wide as
+  /* Ready, busy (spinner) or cooling down ("Refresh in 6 days"). It is as wide as
      its widest label in every state, so what is beside it stays put. */
-  function refreshButton(kind) {
+  function refreshButton() {
     var button = el('button', 'row-tool row-tool--refresh');
     button.type = 'button';
-    button.setAttribute(REFRESH[kind].attr, '');
-    button.setAttribute('data-widest', 'Refresh in 59\u00a0min');
-    if (REFRESH[kind].narrow) button.setAttribute('data-narrow', REFRESH[kind].narrow.busy);
+    button.setAttribute('data-own-refresh', '');
+    button.setAttribute('data-widest', 'Refresh in 59 min');
+    button.setAttribute('data-narrow', 'In 59 min');
     return button;
   }
 
   function noKey(payload) { return payload.my_refresh.reason === 'not_configured'; }
 
-  function refreshOf(kind) { return rec && rec.section.querySelector('[' + REFRESH[kind].attr + ']'); }
+  function ownButton() { return rec && rec.section.querySelector('[data-own-refresh]'); }
 
-  function setRefresh(kind, state, nextAt) {
-    var button = refreshOf(kind);
+  function setRefresh(state) {
+    var button = ownButton();
     if (!button) return;
-    var words = REFRESH[kind];
-    clearTimeout(timers[kind]);
-    var off = kind === 'shared' && state !== 'busy' && noKey(rec.payload);
-    var left = state === 'cooldown' && !off ? waitText(nextAt) : '';
-    if (state === 'cooldown' && !left) state = 'ready';
-    var face = { ready: ['i-rotate-right', words.name], busy: ['i-rotate-right', 'Refreshing…'],
-      cooldown: ['i-clock-regular', 'Refresh in ' + left] }[state];
+    clearTimeout(timer);
+    var left = state === 'cooldown' ? waitText(rec.payload.my_refresh.next_available_at) : '';
+    var face = { ready: ['i-rotate-right', 'Refresh my picks', 'My picks', 'Refresh my picks'],
+      busy: ['i-rotate-right', 'Refreshing…', 'Making…', 'Making your picks'],
+      cooldown: ['i-clock-regular', 'Refresh in ' + left, 'In ' + left, 'Refresh my picks, available in ' + left] }[state];
     button.textContent = '';
     button.classList.toggle('is-busy', state === 'busy');
-    if (state === 'ready' && !off) button.removeAttribute('aria-disabled');
+    if (state === 'ready') button.removeAttribute('aria-disabled');
     else button.setAttribute('aria-disabled', 'true');
-    if (off) button.setAttribute('title', NO_KEY);
-    else button.removeAttribute('title');
-    button.setAttribute('aria-label', { ready: words.name, busy: words.busy,
-      cooldown: words.name + ', available in ' + left }[state]);
-    var shown = el('span', 'row-tool__face');
-    shown.appendChild(icon(face[0]));
-    shown.appendChild(el('span', 'row-tool__long', face[1]));
-    if (words.narrow) shown.setAttribute('data-narrow', words.narrow[state] || left);
-    button.appendChild(shown);
+    button.setAttribute('aria-label', face[3]);
+    var drawn = el('span', 'row-tool__face');
+    drawn.appendChild(icon(face[0]));
+    drawn.appendChild(el('span', 'row-tool__long', face[1]));
+    drawn.setAttribute('data-narrow', face[2]);
+    button.appendChild(drawn);
     // The clock counts down by itself; once it runs out Refresh is back.
-    if (state === 'cooldown') timers[kind] = setTimeout(function () { if (kind === 'own') drawOwn(); else setRefresh(kind, 'cooldown', nextAt); }, 60000);
-  }
-
-  function refreshState(refresh) {
-    if (refresh.running) return 'busy';
-    return !refresh.available && refresh.next_available_at ? 'cooldown' : 'ready';
+    if (state === 'cooldown') timer = setTimeout(drawOwn, 60000);
   }
 
   /* A batch's cards, each with the batch it is of. */
@@ -557,12 +657,15 @@
   function recBody(payload) {
     if (recLoader) recLoader.stop();
     recLoader = null;
+    held = false;
+    sought = null;
     var body = payload.enabled ? strip(REC_TITLE, payload.items) : null;
     if (body) {
       tagged(toArray(body.querySelectorAll('.watch-card')), payload.batch);
       recLoader = watch.rowsLoad.start(body, {
-        title: REC_TITLE, next: payload.next_batch, fetchPage: olderPicks(payload)
+        title: REC_TITLE, next: payload.next_batch, fetchPage: olderPicks(payload), took: seek, lost: seekFailed
       });
+      followRow(body);
       return body;
     }
     if (!payload.enabled) {
@@ -570,9 +673,12 @@
       link.setAttribute('href', SETTINGS_HREF);
       return note('Recommendations are switched off.', link);
     }
-    var empty = note('No recommendations yet.');
-    if (payload.refresh && !noKey(payload)) empty.appendChild(el('span', 'watch-row__hint', 'Refresh shared to fetch the first ones.'));
-    return empty;
+    var make = null;
+    if (payload.refresh && !noKey(payload)) {
+      make = el('a', 'watch-row__link', 'Refresh shared picks in Settings');
+      make.setAttribute('href', SHARED_HREF);
+    }
+    return note('No picks yet. The first ones are for everyone, until your own are made.', make);
   }
 
   /* Recommended's grid: each batch under its date, from the one the row starts at. */
@@ -626,23 +732,20 @@
 
   function batchLine(id, payload) {
     var at = payload.batches.map(function (b) { return b.id; }).indexOf(id);
-    var date = at < 0 ? '' : payload.batches[at].date_label;
-    var line = watch.grid.group(id, at === 0 ? (date ? 'Latest picks · ' + date : 'Latest picks') : 'Picks of ' + date);
+    var line = watch.grid.group(id, at < 0 ? 'Picks of ' : batchLabel(payload.batches[at], at === 0));
     line.insertBefore(core.aiLabel('AI picks'), line.firstChild);
     return line;
   }
 
   watch.expand.source('recommended', recGrid);
 
-  function fillTools(tools, payload) {
-    var keepRefresh = tools.querySelector('[data-picks-refresh]');
-    tools.textContent = '';
-    if (!payload.enabled) return;
-    if ((payload.batches || []).length) {
-      tools.appendChild(picksButton(payload));
-      fillPicksMenu(payload);
-    }
-    if (payload.refresh) tools.appendChild(keepRefresh || refreshButton('shared'));
+  function fillTools() {
+    rec.tools.textContent = '';
+    shown = null;
+    if (!rec.payload.batches.length) return;
+    rec.tools.appendChild(picksButton(rec.payload));
+    startPicksMenu();
+    showBatch(rec.payload.batch);
   }
 
   /* ── A person's own picks ── */
@@ -652,10 +755,6 @@
   }
 
   function latestOf(payload) { return payload.batches.length ? payload.batches[0].id : null; }
-
-  function noteOwn(payload) {
-    if (!payload.batches.length || payload.batch === latestOf(payload)) ownRefs = ownOf(payload);
-  }
 
   /* Whether the person may have their picks made: ready, busy, cooldown, or none
      (nothing they do here would change it). */
@@ -670,15 +769,16 @@
     var mine = payload.my_refresh;
     if (state === 'busy') return 'Making yours. It can take a minute or two.';
     if (mine.reason === 'daily_limit' && state === 'cooldown') return 'That’s all the refreshes for now.';
-    if (mine.reason === 'not_enough_plays') return 'Play five titles and these become yours.';
+    if (mine.reason === 'not_enough_plays') return ((payload.items || []).length && !ownOf(payload) ? 'For everyone. ' : '') + 'Play five titles and these become yours.';
     if (mine.reason === 'not_configured' && isAdmin) return NO_KEY;
     if (ownFailed) return 'Couldn’t make new ones.' + (state === 'ready' ? ' Try again.' : '');
     var items = payload.items || [];
     if (ownOf(payload)) {
       return items.every(function (i) { return i.own; }) ? 'From your plays.' : 'From your plays, then new and popular.';
     }
-    if (state === 'ready' && !ownRefs) return (items.length ? 'New and popular. ' : '') + 'Refresh for your own.';
-    return items.length ? 'New and popular.' : '';
+    if (!items.length) return state === 'ready' ? 'Refresh for your own.' : '';
+    if (state === 'ready') return 'For everyone, until you refresh.';
+    return state === 'cooldown' ? 'For everyone, until yours are made.' : 'For everyone.';
   }
 
   /* The line under the heading: what these are, and the person's own Refresh. */
@@ -695,7 +795,7 @@
     var line = rec && rec.section.querySelector('.rec-line');
     if (!line) return;
     var state = ownState(rec.payload.my_refresh);
-    var button = refreshOf('own');
+    var button = ownButton();
     var said = line.querySelector('.rec-line__text');
     var says = ownText(rec.payload, state);
     if (said.textContent !== says) said.textContent = says;
@@ -706,8 +806,8 @@
       if (row) core.focusSoftly(row);
       return;
     }
-    if (!button) line.appendChild(refreshButton('own'));
-    setRefresh('own', state, rec.payload.my_refresh.next_available_at);
+    if (!button) line.appendChild(refreshButton());
+    setRefresh(state);
     if (!ownBusy && rec.payload.my_refresh.running) followOwn(false);
   }
 
@@ -780,13 +880,9 @@
     var body = recBody(payload);
     section.appendChild(body);
     rec = { section: section, tools: tools, body: body, payload: payload };
-    fillTools(tools, payload);
     if (!payload.enabled) return section;
-    noteOwn(payload);
-    if (payload.refresh) {
-      setRefresh('shared', refreshState(payload.refresh), payload.refresh.next_available_at);
-      if (payload.refresh.running) poll();
-    }
+    fillTools();
+    ownRefs = ownOf(payload);
     drawOwn();
     return section;
   }
@@ -813,8 +909,8 @@
     if (picksMenu) picksMenu.close(false);
     var refocus = rec.tools.contains(document.activeElement) && document.activeElement.hasAttribute('data-picks-menu');
     rec.payload = payload;
-    noteOwn(payload);
-    fillTools(rec.tools, payload);
+    ownRefs = ownOf(payload);
+    fillTools();
     drawOwn();
     if (refocus) {
       var pill = rec.tools.querySelector('[data-picks-menu]');
@@ -828,13 +924,11 @@
   }
 
   function chooseBatch(id) {
-    if (!rec || !id || id === rec.payload.batch) return;
+    if (!recLoader || !id) return;
+    stopSeeking();
+    sought = id;
     rec.body.setAttribute('aria-busy', 'true');
-    fetchRec(id).then(updateRec, function (err) {
-      if (loggedOut(err)) return;
-      rec.body.removeAttribute('aria-busy');
-      core.toast(MM.api.messageOf(err, 'Couldn’t load those picks. Try again.'), { variant: 'error' });
-    });
+    seek();
   }
 
   function retryRec(button) {
@@ -855,40 +949,6 @@
       button.removeAttribute('aria-disabled');
       button.setAttribute('aria-busy', 'false');
       core.toast('Still couldn’t load your picks. Try again in a moment.', { variant: 'error' });
-    });
-  }
-
-  function refreshFailed(message) {
-    polling = false;
-    setRefresh('shared', 'ready');
-    core.toast(message, { variant: 'error' });
-  }
-
-  /* Ask for new picks; the server says no while the last refresh cools down. */
-  function refresh(button) {
-    if (polling || button.getAttribute('aria-disabled') === 'true') {
-      // On a phone the button is its icon alone, so it says how long when pressed.
-      var left = rec.payload.refresh && waitText(rec.payload.refresh.next_available_at);
-      if (!polling && noKey(rec.payload)) core.toast(NO_KEY);
-      else if (!polling && left) core.toast(againText(left));
-      return;
-    }
-    setRefresh('shared', 'busy');
-    MM.api.post(REFRESH_URL).then(function (data) {
-      if (data && (data.status === 'started' || data.status === 'already_running')) { poll(); return; }
-      refreshFailed('Couldn’t refresh picks. Try again.');
-    }).catch(function (err) {
-      if (err && err.status === 401) { toLogin(); return; }
-      if (err && (err.status === 429 || err.status === 409)) {
-        var data = err.data || {};
-        var next = data.next_available_at ||
-          new Date(Date.now() + (data.cooldown_seconds || 0) * 1000).toISOString();
-        rec.payload.refresh = { available: false, next_available_at: next, running: false };
-        fillPicksMenu(rec.payload);
-        setRefresh('shared', 'cooldown', next);
-        return;
-      }
-      refreshFailed(MM.api.messageOf(err, 'Couldn’t refresh picks. Try again.'));
     });
   }
 
@@ -913,36 +973,6 @@
       });
     }
     later(POLL_MS);
-  }
-
-  /* Follow a running refresh of the shared picks to its end, then show them in place. */
-  function poll() {
-    if (polling) return;
-    polling = true;
-    setRefresh('shared', 'busy');
-    var idle = 0;
-    follow(STATUS_URL, function (st) {
-      if (st.status === 'done') {
-        if (!(st.result && st.result.ok)) {
-          refreshFailed((st.result && st.result.error) || 'Couldn’t refresh picks. Try again.');
-          return true;
-        }
-        fetchRec(null).then(function (payload) {
-          polling = false;
-          updateRec(payload);
-          setRefresh('shared', payload.refresh ? refreshState(payload.refresh) : 'ready',
-            payload.refresh && payload.refresh.next_available_at);
-          core.toast('New picks are in.', { variant: 'success' });
-        }, function () {
-          refreshFailed('New picks are ready, but they didn’t load. Reload the page to see them.');
-        });
-        return true;
-      }
-      idle = st.status === 'idle' ? idle + 1 : 0;
-      if (idle < IDLE_LIMIT) return false;
-      refreshFailed('The refresh stopped before it finished. Try again.');
-      return true;
-    }, refreshFailed);
   }
 
   /* ── Landing on Recommended ── */
@@ -1035,8 +1065,6 @@
       if (retry.getAttribute('data-discover-retry') === 'recommended') retryRec(retry); else retryDiscover(retry);
       return;
     }
-    var button = target.closest('[data-picks-refresh]');
-    if (button && isAdmin) { refresh(button); return; }
     var own = target.closest('[data-own-refresh]');
     if (own) refreshOwn(own);
   });

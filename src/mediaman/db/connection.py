@@ -133,6 +133,10 @@ _ADDED_COLUMNS = (
     ("pruned_keeps", "tracked_files", "TEXT"),
     ("pruned_show_seasons", "tracked_files", "TEXT"),
     ("pruned_watches", "tracked_files", "TEXT"),
+    ("admin_users", "ai_history", "INTEGER NOT NULL DEFAULT 1"),
+    ("admin_sessions", "device_label", "TEXT"),
+    ("admin_sessions", "public_id", "TEXT"),
+    ("audit_log", "actor_id", "INTEGER"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.
@@ -145,6 +149,12 @@ CREATE INDEX IF NOT EXISTS idx_pruned_watches_tvdb_id
     ON pruned_watches(COALESCE(tvdb_id, last_tvdb_id));
 CREATE INDEX IF NOT EXISTS idx_pruned_watches_tmdb_id
     ON pruned_watches(COALESCE(tmdb_id, last_tmdb_id));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_sessions_public_id
+    ON admin_sessions(public_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor_id_created
+    ON audit_log(actor_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action_created
+    ON audit_log(action, created_at);
 """
 
 
@@ -162,6 +172,13 @@ def _fill_first_listed(conn: sqlite3.Connection) -> None:
     """
     conn.execute(
         "UPDATE media_items SET first_listed_at = last_scanned_at WHERE first_listed_at IS NULL"
+    )
+
+
+def _fill_session_ids(conn: sqlite3.Connection) -> None:
+    """Give each session stored without a public id one, at every start, as above."""
+    conn.execute(
+        "UPDATE admin_sessions SET public_id = lower(hex(randomblob(16))) WHERE public_id IS NULL"
     )
 
 
@@ -206,6 +223,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         _add_missing_columns(conn)
         conn.executescript(_ADDED_INDEXES)
         _fill_first_listed(conn)
+        _fill_session_ids(conn)
         _take_over_plays(conn)
         conn.commit()
     except Exception:

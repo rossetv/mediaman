@@ -108,6 +108,19 @@
     }
   }
 
+  /* A group of radios is one stop, at the one with the keyboard, else the checked one, else the first. */
+  function oneRadioEach(stops, active) {
+    function group(el) { return el.matches('input[type="radio"]') && el.getAttribute('name'); }
+    return stops.filter(function (el) {
+      var name = group(el);
+      if (!name) return true;
+      var mates = stops.filter(function (other) { return group(other) === name; });
+      var stop = mates.indexOf(active) !== -1 ? active
+        : mates.filter(function (other) { return other.checked; })[0] || mates[0];
+      return el === stop;
+    });
+  }
+
   /* Safari's own step passes over buttons and checkboxes, and out of the modal, so every
      step is made here. From what is no tab stop itself, such as a heading, it goes on from
      where that stands. */
@@ -115,7 +128,7 @@
     if (e.key !== 'Tab' || e.defaultPrevented) return;
     e.preventDefault();
     var active = document.activeElement;
-    var focusables = getFocusable(modal);
+    var focusables = oneRadioEach(getFocusable(modal), active);
     var stops = Array.prototype.filter.call(modal.querySelectorAll('*'), function (el) {
       return el === active || focusables.indexOf(el) !== -1;
     });

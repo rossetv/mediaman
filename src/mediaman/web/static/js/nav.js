@@ -58,7 +58,7 @@
     // CSS keeps the menu visible for the fade, so only this keeps it out of focus and the tree.
     menu.inert = true;
     opener.setAttribute('aria-expanded', 'false');
-    if (returnFocus) opener.focus();
+    if (returnFocus) opener.focus({ preventScroll: true });
   }
 
   document.addEventListener('click', function (e) {
@@ -115,7 +115,26 @@
     if (!isOpen()) return;
     close(false);
     var shown = buttons().filter(function (b) { return b.getClientRects().length; })[0];
-    if (shown) shown.focus();
+    if (shown) shown.focus({ preventScroll: true });
+  });
+
+  // A changed picture is loaded before it takes the place of the one on show; the last change wins.
+  var newest = null;
+  document.addEventListener('mm:avatar', function (e) {
+    var picture = newest = new Image();
+    picture.onload = function () {
+      if (picture !== newest) return;
+      document.querySelectorAll('.profile-btn .avatar, .profile-who .avatar').forEach(function (avatar) {
+        var img = document.createElement('img');
+        img.alt = '';
+        img.src = picture.src;
+        img.className = 'is-new';
+        avatar.className = 'avatar avatar--pic';
+        avatar.textContent = '';
+        avatar.appendChild(img);
+      });
+    };
+    picture.src = e.detail.url;
   });
 
   // Back brings the page as it was left, open menu and all.

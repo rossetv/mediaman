@@ -28,10 +28,11 @@
 .nav-links {
   display: flex;
   gap: 4px;
-  margin-left: 4px;
+  margin-left: 1px;
   flex: 1;
-  /* overflow-x also clips vertically: fill the bar's height so a link's
-     focus ring has room above and below. */
+  /* overflow-x clips on every side: the padding, and filling the bar's height,
+     give a link's focus ring its room. */
+  padding: 0 3px;
   align-self: stretch;
   align-items: center;
   overflow-x: auto;
@@ -39,6 +40,15 @@
   list-style: none;
 }
 .nav-links::-webkit-scrollbar { display: none; }
+
+/* Watch's bar draws its own glass and has a smaller gap: its brand and links still stand
+   where every other page has them. */
+.nav-glass.wbar { border-bottom: 1px solid transparent; }
+.nav-glass.wbar::before { bottom: -1px; }
+@media (min-width: 700px) {
+  .nav-glass.wbar .brand { margin-right: 24px; }
+  .nav-glass.wbar .nav-links { margin-left: -3px; }
+}
 
 .nav-btn,
 .nav-links a,
@@ -127,6 +137,11 @@
 .avatar--3 { background: color-mix(in srgb, var(--orange) 55%, var(--scrim)); }
 .avatar--4 { background: color-mix(in srgb, var(--warning) 45%, var(--scrim)); }
 .avatar--5 { background: var(--hero-hi); }
+
+.avatar--pic { border: 0; background: var(--s3); }
+.avatar--pic img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.avatar--pic img.is-new { animation: avatar-in var(--dur-slow) var(--ease-out); }
+@keyframes avatar-in { from { opacity: 0; transform: scale(.92); } }
 
 /* Mobile top bar (brand + page title) — visible < 700 px */
 .nav-topbar {
@@ -316,6 +331,7 @@
   .profile-btn > .ico { transition: none; }
   .profile-menu,
   .profile-panel { transform: none; }
+  .avatar--pic img.is-new { animation: none; }
 }
 
 /* Forced colours drop the backgrounds that mark the current page. */

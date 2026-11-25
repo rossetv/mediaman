@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% import "_components.html" as c %}
-{% from "_avatar.html" import avatar %}
 
 {% block title %}Profile · Mediaman{% endblock %}
 
@@ -10,82 +9,118 @@
 <script src="/static/js/core/reauth.js?v={{ static_v }}" defer></script>
 <script src="/static/js/show-password.js?v={{ static_v }}" defer></script>
 <script src="/static/js/password-strength.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/rows.js?v={{ static_v }}" defer></script>
 <script src="/static/js/account.js?v={{ static_v }}" defer></script>
+<script src="/static/js/profile-picture.js?v={{ static_v }}" defer></script>
 <script src="/static/js/profile-plex.js?v={{ static_v }}" defer></script>
 {% endblock %}
 
 {% block content %}
 <div class="setg-pg profile-pg">
   <div class="container">
-    <div class="ph">
-      <h1>Profile</h1>
+    <div class="me-head">
+      <button type="button" class="me-pic" id="pic-open" aria-label="Change your picture">
+        <span class="avatar avatar--pic" aria-hidden="true"><img src="{{ picture.url }}" alt=""></span>
+        <span class="me-pic-badge">{{ c.icon("i-camera") }}</span>
+      </button>
+      <div class="me-id">
+        <h1>{{ username }}</h1>
+        <p class="me-role">{{ "Admin" if role == "admin" else "Viewer" }}</p>
+      </div>
     </div>
 
-    {% call c.setg_card(title="Your account", sub="The account you're signed in with.", pad=True) %}
-      <div class="usr-self-head">
-        {{ avatar(username) }}
-        <div class="usr-meta">
-          <div class="usr-name">{{ username }}</div>
-          <div class="usr-sub">{{ "Admin" if role == "admin" else "Viewer" }} · signed in</div>
+    <section class="me-sec" aria-labelledby="me-account">
+      <h2 id="me-account">Account</h2>
+      <div class="me-card">
+        <form class="me-row" id="account-email-form" novalidate>
+          <div class="me-line me-line--stack">
+            <div class="me-txt">
+              <label class="me-lbl" for="account-email">Email</label>
+              <div class="me-sub" id="account-email-sub">Where download alerts go. Leave empty to turn them off.</div>
+            </div>
+            <div class="me-end">
+              <input class="inp" type="email" id="account-email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="{{ email or '' }}" aria-describedby="account-email-sub account-email-result">
+            </div>
+          </div>
+          <div class="setg-fold is-shut" id="account-email-fold" hidden>
+            <div class="setg-fold-inner">
+              <div class="me-acts me-acts--end">
+                <span class="me-msg" id="account-email-result" role="status"></span>
+                <button class="btn btn--ghost btn--sm" type="button" id="account-cancel-email">Cancel</button>
+                <button class="btn btn--primary btn--sm" type="submit" id="account-submit-email">Save</button>
+              </div>
+            </div>
+          </div>
+        </form>
+        <div class="me-row">
+          <div class="me-line">
+            <div class="me-txt">
+              <div class="me-lbl">Password</div>
+              <div class="me-sub">A new one signs out your other devices.</div>
+            </div>
+            <div class="me-end">
+              <button class="btn btn--ghost btn--sm" type="button" id="account-open-password" aria-expanded="false" aria-controls="account-password-form">Change password</button>
+            </div>
+          </div>
+          <form class="me-pw setg-fold is-shut" id="account-password-form" hidden novalidate>
+            <div class="setg-fold-inner">
+              <div class="me-pw-in">
+                <div class="fld">
+                  <label class="fld-lbl" for="account-old-password">Current password</label>
+                  <input class="inp" type="password" id="account-old-password" autocomplete="current-password" required aria-describedby="account-old-password-why" data-show-password>
+                  <span class="fld-why" id="account-old-password-why" role="status"></span>
+                </div>
+                <div class="fld">
+                  <label class="fld-lbl" for="account-new-password">New password</label>
+                  <input class="inp" type="password" id="account-new-password" aria-describedby="account-new-password-why account-new-strength-label" autocomplete="new-password" minlength="12" required data-strength="account-new-strength" data-show-password>
+                  <div class="fpc-meter" aria-hidden="true"><span class="fpc-meter-fill" id="account-new-strength-meter"></span></div>
+                  <span class="fld-why fld-why--caption" id="account-new-password-why" role="status"></span>
+                  <span class="fpc-caption" id="account-new-strength-label" aria-live="polite">At least 12 characters</span>
+                </div>
+                <div class="fld">
+                  <label class="fld-lbl" for="account-confirm-password">Confirm new password</label>
+                  <input class="inp" type="password" id="account-confirm-password" aria-describedby="account-confirm-password-why" autocomplete="new-password" minlength="12" required data-match="account-new-password" data-show-password>
+                  <span class="fld-why fld-why--caption" id="account-confirm-password-why" role="status"></span>
+                  <span class="fpc-caption" id="account-confirm-password-match" aria-live="polite">&nbsp;</span>
+                </div>
+                <div class="me-acts">
+                  <button class="btn btn--primary btn--sm" type="submit" id="account-submit-password">Update password</button>
+                  <button class="btn btn--ghost btn--sm" type="button" id="account-cancel-password">Cancel</button>
+                  <span class="me-msg" id="account-password-result" role="status"></span>
+                </div>
+              </div>
+            </div>
+          </form>
         </div>
       </div>
-    {% endcall %}
+    </section>
 
-    {% call c.setg_card(title="Email", sub="Where download-ready alerts go.", pad=True) %}
-      <form class="inline-form" id="account-email-form" novalidate>
-        <label class="fld">
-          <span class="fld-lbl">Notification email</span>
-          <input class="inp" type="email" id="account-email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="{{ email or '' }}">
-          <span class="fld-sub">Leave empty to turn alerts off.</span>
-        </label>
-        <div class="inline-form-actions">
-          <button class="btn btn--primary" type="submit" id="account-submit-email">Save email</button>
-          <span class="inline-form-msg" id="account-email-result" role="status"></span>
-        </div>
-      </form>
-    {% endcall %}
-
-    {% call c.setg_card(title="Change password", pad=True) %}
-      <form class="inline-form" id="account-password-form" novalidate>
-        <div class="inline-form-grid">
-          <div class="fld">
-            <label class="fld-lbl" for="account-old-password">Current password</label>
-            <input class="inp" type="password" id="account-old-password" autocomplete="current-password" required aria-describedby="account-old-password-why" data-show-password>
-            <span class="fld-why" id="account-old-password-why" role="status"></span>
-          </div>
-          <div class="fld">
-            <label class="fld-lbl" for="account-new-password">New password</label>
-            <input class="inp" type="password" id="account-new-password" aria-describedby="account-new-password-why" autocomplete="new-password" minlength="12" required data-strength="account-new-strength" data-show-password>
-            <div class="fpc-meter" aria-hidden="true"><span class="fpc-meter-fill" id="account-new-strength-meter"></span></div>
-            <span class="fld-why fld-why--caption" id="account-new-password-why" role="status"></span>
-            <span class="fpc-caption" id="account-new-strength-label" aria-live="polite">&nbsp;</span>
-          </div>
-          <div class="fld">
-            <label class="fld-lbl" for="account-confirm-password">Confirm new password</label>
-            <input class="inp" type="password" id="account-confirm-password" aria-describedby="account-confirm-password-why" autocomplete="new-password" minlength="12" required data-match="account-new-password" data-show-password>
-            <span class="fld-why fld-why--caption" id="account-confirm-password-why" role="status"></span>
-            <span class="fpc-caption" id="account-confirm-password-match" aria-live="polite">&nbsp;</span>
-          </div>
-        </div>
-        <div class="inline-form-actions">
-          <button class="btn btn--primary" type="submit" id="account-submit-password">Update password</button>
-          <span class="inline-form-msg" id="account-password-result" role="status"></span>
-        </div>
-      </form>
-    {% endcall %}
-
-    {% call c.setg_card(title="Where you're signed in", pad=True) %}
-      <ul class="profile-sessions" id="account-sessions" role="list" aria-label="Your sign-ins" tabindex="-1" aria-busy="true"><li>Loading…</li></ul>
-      <div class="inline-form-actions">
-        <button class="btn btn--secondary" type="button" id="account-revoke-others" aria-describedby="account-revoke-why" disabled>Sign out other devices</button>
-        <span class="profile-why" id="account-revoke-why" hidden>This is your only sign-in.</span>
-        <span class="inline-form-msg" id="account-revoke-result" role="status"></span>
+    <section class="me-sec" id="plex" aria-labelledby="me-plex" tabindex="-1">
+      <h2 id="me-plex">Plex account</h2>
+      <div class="me-card">
+        <div class="me-row">{% include "_profile_plex.html" %}</div>
       </div>
-    {% endcall %}
+    </section>
 
-    <section class="profile-plex" id="plex" aria-label="Plex account" tabindex="-1">
-      {% include "_profile_plex.html" %}
+    <section class="me-sec" aria-labelledby="me-devices">
+      <h2 id="me-devices">Where you’re signed in</h2>
+      <div class="me-card">
+        <ul class="dev-list" id="account-sessions" role="list" aria-label="Your sign-ins" tabindex="-1" aria-busy="true">
+          {% for _ in range(2) %}
+          <li class="dev"><span class="dev-ico"></span><div class="me-txt"><div class="dev-skel"></div><div class="dev-skel dev-skel--long"></div></div></li>
+          {% endfor %}
+        </ul>
+        <div class="dev-foot">
+          <button class="btn btn--secondary btn--sm" type="button" id="account-revoke-others" aria-describedby="account-revoke-why" disabled>Sign out other devices</button>
+          <span class="me-msg" id="account-revoke-why" hidden>This is your only sign-in.</span>
+          <span class="me-msg" id="account-revoke-result" role="status"></span>
+        </div>
+      </div>
     </section>
   </div>
 </div>
+{% endblock %}
+
+{% block overlays %}
+{% include "_profile_picture.html" %}
 {% endblock %}

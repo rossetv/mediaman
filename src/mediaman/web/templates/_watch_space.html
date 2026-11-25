@@ -4,10 +4,9 @@
    watch/space.js fills both once the page has loaded. #}
 {% from "_components.html" import icon %}
 
-{# Opens the panel. It stands twice on the page, in the Watch header and in the
-   phone's top bar (phone=true); CSS shows one of them. #}
-{% macro meter(phone=false) -%}
-<button type="button" class="space-meter{% if phone %} space-meter--phone{% endif %}" data-space-open="storage" aria-haspopup="dialog" aria-expanded="false" aria-controls="space" aria-busy="true" aria-label="Storage, loading"><span class="skel space-meter__skel"></span></button>
+{# Opens the panel. #}
+{% macro meter() -%}
+<button type="button" class="space-meter" data-space-open="storage" aria-haspopup="dialog" aria-expanded="false" aria-controls="space" aria-busy="true" aria-label="Storage, loading"><span class="skel space-meter__skel"></span></button>
 {%- endmacro %}
 
 {% macro tab(id, label, name="") -%}

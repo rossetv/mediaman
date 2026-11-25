@@ -10,11 +10,14 @@ requests so it can short-circuit mid-flight.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 
 from starlette.requests import ClientDisconnect
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from mediaman.services.avatars import photo
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +29,24 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_REQUEST_BYTES = 8 * 1024 * 1024
 
 
-def _resolve_max_request_bytes() -> int:
-    """Return the configured per-request body-size cap in bytes.
+# The one route that takes more than the default, unless a lower cap was set.
+_PHOTO_ROUTE = ("PUT", "/api/account/avatar/photo")
 
-    Reads ``MEDIAMAN_MAX_REQUEST_BYTES`` from the environment.  Falls
-    back to `_DEFAULT_MAX_REQUEST_BYTES` when unset, blank, or
-    unparseable; logs a warning if the value parses but is negative
-    (which would silently disable the limit).
+
+def _is_photo_upload(scope: Scope) -> bool:
+    return (scope.get("method"), scope.get("path")) == _PHOTO_ROUTE
+
+
+def _resolve_max_request_bytes() -> int | None:
+    """Return the per-request body-size cap the operator set, in bytes.
+
+    Reads ``MEDIAMAN_MAX_REQUEST_BYTES`` from the environment.  Returns
+    ``None`` when unset, blank, or unparseable; logs a warning if the
+    value parses but is negative (which would silently disable the limit).
     """
     raw = (os.environ.get("MEDIAMAN_MAX_REQUEST_BYTES") or "").strip()
     if not raw:
-        return _DEFAULT_MAX_REQUEST_BYTES
+        return None
     try:
         value = int(raw)
     except ValueError:
@@ -45,14 +55,14 @@ def _resolve_max_request_bytes() -> int:
             raw,
             _DEFAULT_MAX_REQUEST_BYTES,
         )
-        return _DEFAULT_MAX_REQUEST_BYTES
+        return None
     if value < 0:
         logger.warning(
             "MEDIAMAN_MAX_REQUEST_BYTES=%d is negative; using default of %d bytes",
             value,
             _DEFAULT_MAX_REQUEST_BYTES,
         )
-        return _DEFAULT_MAX_REQUEST_BYTES
+        return None
     return value
 
 
@@ -75,13 +85,21 @@ def _declared_length_over_cap(scope: Scope, max_bytes: int) -> bool:
     return False
 
 
-async def _send_413(send: Send) -> None:
+async def _send_413(scope: Scope, send: Send, max_bytes: int) -> None:
+    content_type, body = b"text/plain; charset=utf-8", b"Payload too large"
+    if _is_photo_upload(scope):
+        refusal = {
+            "ok": False,
+            "error": "too_big",
+            "message": photo.too_big_message(max_bytes),
+        }
+        content_type, body = b"application/json", json.dumps(refusal).encode()
     await send(
         {
             "type": "http.response.start",
             "status": 413,
             "headers": [
-                (b"content-type", b"text/plain; charset=utf-8"),
+                (b"content-type", content_type),
                 (b"connection", b"close"),
             ],
         }
@@ -89,7 +107,7 @@ async def _send_413(send: Send) -> None:
     await send(
         {
             "type": "http.response.body",
-            "body": b"Payload too large",
+            "body": body,
             "more_body": False,
         }
     )
@@ -121,14 +139,16 @@ class BodySizeLimitMiddleware:
         # see the new value.  Cache after the first lookup so we don't
         # re-parse on every request.
         self._configured_max = max_bytes
-        self._cached_max: int | None = None
+        self._resolved = max_bytes is not None
 
-    def _max_bytes(self) -> int:
-        if self._configured_max is not None:
-            return self._configured_max
-        if self._cached_max is None:
-            self._cached_max = _resolve_max_request_bytes()
-        return self._cached_max
+    def _max_bytes(self, scope: Scope) -> int:
+        if not self._resolved:
+            self._configured_max = _resolve_max_request_bytes()
+            self._resolved = True
+        configured = self._configured_max
+        if _is_photo_upload(scope):
+            return photo.MAX_BYTES if configured is None else min(configured, photo.MAX_BYTES)
+        return _DEFAULT_MAX_REQUEST_BYTES if configured is None else configured
 
     # rationale: the streaming-wrapper closures below
     # (``_streaming_receive`` / ``_watching_send``) share three pieces of
@@ -145,7 +165,7 @@ class BodySizeLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        max_bytes = self._max_bytes()
+        max_bytes = self._max_bytes(scope)
         # ``max_bytes == 0`` would block every request — treat as
         # "unlimited" instead, matching the spirit of "operator opt-out".
         if max_bytes <= 0:
@@ -154,7 +174,7 @@ class BodySizeLimitMiddleware:
 
         # Fast path: declared Content-Length over the cap.
         if _declared_length_over_cap(scope, max_bytes):
-            await _send_413(send)
+            await _send_413(scope, send, max_bytes)
             return
 
         # Read the first request message up front so we can short-
@@ -173,7 +193,7 @@ class BodySizeLimitMiddleware:
 
         bytes_received = len(first_message.get("body", b"") or b"")
         if bytes_received > max_bytes:
-            await _send_413(send)
+            await _send_413(scope, send, max_bytes)
             return
 
         # Wrap ``receive`` so subsequent chunks are size-checked as they
@@ -216,7 +236,7 @@ class BodySizeLimitMiddleware:
                 if not replaced:
                     replaced = True
                     response_started = True
-                    await _send_413(send)
+                    await _send_413(scope, send, max_bytes)
                 return
             if message["type"] == "http.response.start":
                 response_started = True
@@ -247,4 +267,4 @@ class BodySizeLimitMiddleware:
         if oversize and not response_started:
             # The handler gave up on the forced disconnect (returned or
             # raised ClientDisconnect) without answering: reply 413.
-            await _send_413(send)
+            await _send_413(scope, send, max_bytes)

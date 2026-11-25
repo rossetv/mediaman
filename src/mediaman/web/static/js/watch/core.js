@@ -78,7 +78,8 @@
       if (getComputedStyle(bar).display === 'none') return;
       var r = bar.getBoundingClientRect();
       if (bar.classList.contains('nav-tabs')) area.bottom = Math.min(area.bottom, r.top);
-      else area.top = Math.max(area.top, r.bottom);
+      // Tucked away, the bar's second line covers nothing.
+      else area.top = Math.max(area.top, r.bottom - (bar.classList.contains('is-tucked') ? parseFloat(getComputedStyle(bar).paddingBottom) : 0));
     });
     return area;
   }

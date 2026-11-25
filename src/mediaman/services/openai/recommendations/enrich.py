@@ -53,6 +53,9 @@ class _Budget:
         self._ends_at = clock() + seconds
         self._failures = 0
 
+    def give(self, seconds: float) -> None:
+        self._ends_at += seconds
+
     def has_time(self) -> bool:
         return self._clock() < self._ends_at
 
@@ -74,6 +77,7 @@ def enrich_recommendations(
     *,
     accept: Callable[[RecommendationItem], bool] = _accept_all,
     limit: int | None = None,
+    choose: Callable[[list[RecommendationItem]], list[RecommendationItem]] | None = None,
     seconds: float = ENRICH_SECONDS,
     clock: Callable[[], float] = time.monotonic,
 ) -> None:
@@ -83,6 +87,8 @@ def enrich_recommendations(
     A title TMDB answered it does not know, or whose details say it is an adult one, is
     dropped, as is one *accept* refuses once its
     TMDB id and year are known, and any past *limit*; TMDB not answering drops nothing.
+    *choose* picks from those left, once each is known to be real, before their details are
+    looked up; its time is not counted.
     After *seconds*, or two calls TMDB did not answer, what is left stays as it is.
 
     Quirks kept from earlier versions: when TMDB finds a year, trailer_url is refreshed to
@@ -101,6 +107,10 @@ def enrich_recommendations(
             break
         if (client is None or _find_on_tmdb(client, s, budget)) and accept(s):
             kept.append(s)
+    if choose is not None:
+        began = clock()
+        kept = choose(kept)
+        budget.give(clock() - began)
     recommendations[:] = [s for s in kept if _fill_details(client, s, conn, secret_key, budget)]
 
 

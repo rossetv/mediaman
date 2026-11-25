@@ -1,87 +1,81 @@
 {% extends "base.html" %}
 {% import "_components.html" as c %}
+{% from "_avatar.html" import avatar %}
 
 {% block title %}History · Mediaman{% endblock %}
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
+{% set chosen = {} %}
+{% for key in ("q", "user", "action", "title", "since", "until") if filters[key] %}{% set _ = chosen.update({key: filters[key]}) %}{% endfor %}
+{% if request.query_params.date %}{% set _ = chosen.update({"date": request.query_params.date}) %}{% endif %}
+{% macro page_href(n) %}/history?{{ (dict(chosen, page=n) | urlencode) }}{% endmacro %}
+
 {% block content %}
 <div class="container">
-
+<div class="hx{% if not is_admin %} is-mine{% endif %}" data-hist>
   <div class="ph">
     <h1>History</h1>
-    <p>Audit log of scans, deletions, keeps, and newsletter sends.</p>
+    <p>{% if is_admin %}What everyone played, downloaded and kept, and what Mediaman did.{% else %}What you played, downloaded and kept, and your sign-ins.{% endif %}</p>
   </div>
 
-  <div class="pill-row hist-filters u-mb-24">
-    {{ c.fpill("All events", on=(not action_filter), tag="a", href="/history") }}
-    {% for at, at_label in action_types %}
-    {{ c.fpill(at_label, on=(pill_on == at), tag="a", href="/history?action=" ~ at) }}
-    {% endfor %}
-    {% if total > 0 %}
-    <span class="hist-count u-ml-auto u-as-center">{{ total }} event{{ 's' if total != 1 }}</span>
-    {% endif %}
-  </div>
-
-  {% if items %}
-  <div class="card card--bordered card--hist">
-    {% for item in items %}
-    {% set time = item.fields | selectattr("at", "defined") | first %}
-    <details class="hist" id="event-{{ item.id }}" data-event="{{ item.id }}"{% if item.id == open_id %} open{% endif %}>
-      <summary class="hist-sum">
-        {% if time %}<time class="hist-date" data-hist-at="line" datetime="{{ time.at }}" title="{{ time.value }}">{{ time.value[:16] }} UTC</time>{% else %}<span class="hist-date">{{ item.created_at[:16] }}</span>{% endif %}
-        <span class="hist-msg{% if item.action == 'library_left_out' %} hist-msg--wrap{% endif %}">{% if item.action == 'library_left_out' %}<span class="hist-name"><b>{{ item.line_title }}</b></span>{% if item.summary %} <span class="hist-type">·&nbsp;{{ item.summary }}</span>{% endif %}{% else %}<b>{{ item.line_title }}</b>{% if item.summary %}<span class="hist-type"> · {{ item.summary }}</span>{% endif %}{% endif %}</span>
-        <span class="hist-type hist-pill">
-          {% set _variant = {'badge-action-deleted': 'stale', 'badge-action-protected': 'kept'}.get(item.badge_class, 'neutral') %}
-          {{ c.pill(item.action_label, variant=_variant) }}
-        </span>
-        <span class="hist-chev">{{ c.icon("i-chevron-down") }}</span>
-      </summary>
-      <div class="hist-body">
-        <dl class="hist-fields">
-          {% for f in item.fields %}
-          <div class="hist-field"><dt>{{ f.label }}</dt><dd{% if f.empty %} class="is-empty"{% endif %}>{% if f.at %}<time data-hist-at="full" datetime="{{ f.at }}">{{ f.value }}</time>{% else %}{{ f.value }}{% endif %}</dd></div>
-          {% endfor %}
-        </dl>
-        <button type="button" class="btn btn--ghost btn--sm" data-hist-copy>Copy details</button>
+  <div class="hx-tools">
+    <form class="hx-line" role="search" action="/history">
+      <div class="hx-search{% if filters.q %} has-q{% endif %}">
+        {{ c.icon("i-magnifying-glass") }}
+        <input type="search" name="q" value="{{ filters.q }}" maxlength="200" placeholder="{% if is_admin %}Search people, titles and events{% else %}Search your history{% endif %}" aria-label="Search history" autocomplete="off">
+        <button type="button" class="hx-x" aria-label="Clear search">{{ c.icon("i-xmark") }}</button>
       </div>
-    </details>
-    {% endfor %}
+      <div class="hx-chips"></div>
+    </form>
   </div>
+  <div class="hx-sum"><span role="status">{% if total %}{{ "{:,}".format(total) }} event{{ "s" if total != 1 }}{% endif %}</span><button type="button" data-hist-clear hidden>Clear all</button>{% if page > 1 %}<a class="hx-newest" href="{{ page_href(1) }}">Show the newest</a>{% endif %}</div>
 
-  {% if total_pages > 1 %}
-  <nav class="pagination hist-pager" aria-label="History pages">
-    {% if page > 1 %}
-    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page - 1 }}" class="page-btn" rel="prev" aria-label="Previous page">‹</a>
+  {# What shows should the script not load: it replaces all of this. #}
+  <div class="hx-list" tabindex="-1">
+    <div class="pill-row hx-plain">
+      {{ c.fpill("All events", on=(not action_filter), tag="a", href="/history") }}
+      {% for at, at_label in action_types %}{{ c.fpill(at_label, on=(pill_on == at), tag="a", href="/history?action=" ~ at) }}{% endfor %}
+    </div>
+    {% if items %}
+    <div class="card card--bordered card--hist hx-card hx-plain">
+      {% for item in items %}
+      {% set time = item.fields | selectattr("at", "defined") | first %}
+      <details class="hist" id="event-{{ item.id }}" data-event="{{ item.id }}"{% if item.id == open_id %} open{% endif %}>
+        <summary class="hist-sum">
+          <span class="hx-who">{{ avatar(item.who.name, item.avatar) }}</span>
+          <span class="hist-msg"><span class="hx-l1"><b>{{ item.line_title }}</b>{% if not item.is_security %} {{ item.action_label }}{% endif %}</span>{% if item.summary %}<span class="hx-l2">{{ item.summary }}</span>{% endif %}</span>
+          {% if time %}<time class="hist-date" datetime="{{ time.at }}" title="{{ time.value }}">{{ time.value[:16] }} UTC</time>{% else %}<span class="hist-date">{{ item.created_at[:16] }}</span>{% endif %}
+          <span class="hist-chev">{{ c.icon("i-chevron-down") }}</span>
+        </summary>
+        <div class="hist-body">
+          <dl class="hist-fields">
+            {% for f in item.fields %}
+            <div class="hist-field"><dt>{{ f.label }}</dt><dd{% if f.empty %} class="is-empty"{% endif %}>{% if f.at %}<time datetime="{{ f.at }}">{{ f.value }}</time>{% else %}{{ f.value }}{% endif %}</dd></div>
+            {% endfor %}
+          </dl>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
     {% else %}
-    <span class="page-btn disabled" role="link" aria-label="Previous page" aria-disabled="true">‹</span>
+    <div class="hx-plain">{{ c.empty("Nothing matches" if chosen else "No history yet", sub=(("No “" ~ filter_label ~ "” events on record.") if action_filter else "")) }}</div>
     {% endif %}
-
-    {% for p in range(1, total_pages + 1) %}
-      {% if p == page %}
-      <span class="page-btn page-btn--num active" role="link" aria-current="page" aria-label="Page {{ p }}">{{ p }}</span>
-      {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-      <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ p }}" class="page-btn page-btn--num" aria-label="Page {{ p }}">{{ p }}</a>
-      {% elif p == page - 3 or p == page + 3 %}
-      <span class="page-btn page-btn--num page-btn--ellipsis" aria-hidden="true">…</span>
-      {% endif %}
-    {% endfor %}
-
-    {% if page < total_pages %}
-    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page + 1 }}" class="page-btn page-next" rel="next" aria-label="Next page">›</a>
-    {% else %}
-    <span class="page-btn page-next disabled" role="link" aria-label="Next page" aria-disabled="true">›</span>
-    {% endif %}
-
-    <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
-  </nav>
-  {% endif %}
-
-  {% else %}
-  {% set _hist_sub %}{% if action_filter %}No "{{ filter_label }}" events on record.{% else %}The audit log is empty — actions will appear here as Mediaman runs.{% endif %}{% endset %}
-  {{ c.empty("No events yet", sub=_hist_sub) }}
-  {% endif %}
-
+  </div>
+  <div class="hx-more">
+    {% if page < total_pages %}<p class="hx-end hx-plain"><a class="btn btn--secondary" rel="next" href="{{ page_href(page + 1) }}">Show earlier events</a></p>{% endif %}
+  </div>
+  <span class="sr-only" role="status" data-hist-said></span>
   <div class="page-bottom-spacer"></div>
 </div>
+</div>
+<script type="application/json" id="history-data">{{ {
+  "admin": is_admin, "me": username, "people": people, "actions": action_types, "filters": filters, "filterLabel": filter_label,
+  "items": items, "cursor": next_cursor, "total": total, "page": page, "openId": open_id,
+} | tojson }}</script>
 <script src="/static/js/history.js?v={{ static_v }}" defer></script>
+{% endblock %}
+
+{% block overlays %}
+<div class="hx-veil"></div>
+<div class="hx-menu" role="dialog" aria-modal="true" tabindex="-1"></div>
 {% endblock %}

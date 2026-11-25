@@ -103,6 +103,12 @@ def test_the_phone_sheet_has_a_button_that_closes_it() -> None:
     }
 
 
+def test_giving_the_focus_back_to_a_button_in_the_bar_never_scrolls_the_page() -> None:
+    assert _run("focusBack") == {
+        key: [True] for key in ("escape", "tab", "close", "button", "resize")
+    }
+
+
 def test_outgrowing_the_phone_layout_closes_the_sheet_and_moves_to_the_other_avatar() -> None:
     assert _run("resize") == {
         "open": False,
@@ -119,6 +125,15 @@ def test_a_closed_menu_is_inert_while_it_fades_and_reopening_undoes_it_at_once()
         "closed": {"inert": True, "focused": "desktop"},
         "reopened": {"inert": False, "focused": "account"},
         "sheet": {"inert": True, "focused": "phone"},
+    }
+
+
+def test_a_changed_avatar_takes_the_old_one_s_place_once_loaded_and_the_last_change_wins() -> None:
+    assert _run("avatar") == {
+        "loading": [None, None, None],
+        "stale": [None, None, None],
+        "shown": ["/new", "/new", "/new"],
+        "initials": "",
     }
 
 

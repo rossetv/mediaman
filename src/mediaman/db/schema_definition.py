@@ -24,7 +24,23 @@ CREATE TABLE IF NOT EXISTS admin_users (
     created_at TEXT NOT NULL,
     must_change_password INTEGER NOT NULL DEFAULT 0,
     email TEXT,
-    role TEXT NOT NULL DEFAULT 'admin'
+    role TEXT NOT NULL DEFAULT 'admin',
+    -- 1 while this person lets their searches, ratings, requests and how their plays went go
+    -- to the AI. The titles they played, their earlier picks and, of the server's owner, the
+    -- stars in Plex go for their picks either way.
+    ai_history INTEGER NOT NULL DEFAULT 1
+);
+
+-- The avatar a person set; without a row they have a default one. kind is "drawn" (choice) or
+-- "upload" (file_name, in the data folder).
+CREATE TABLE IF NOT EXISTS user_avatars (
+    user_id INTEGER PRIMARY KEY REFERENCES admin_users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    choice INTEGER,
+    file_name TEXT UNIQUE,
+    updated_at TEXT NOT NULL,
+    CHECK ((kind = 'drawn' AND choice IS NOT NULL AND choice >= 1 AND file_name IS NULL)
+        OR (kind = 'upload' AND file_name IS NOT NULL AND choice IS NULL))
 );
 
 CREATE TABLE IF NOT EXISTS admin_sessions (
@@ -39,7 +55,10 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
     token_hash TEXT,
     last_used_at TEXT,
     fingerprint TEXT,
-    issued_ip TEXT
+    issued_ip TEXT,
+    device_label TEXT,
+    -- Names the session to its owner without its token; random, never derived from it.
+    public_id TEXT
 );
 
 -- Per-person playback position for the Watch player. rating_key is the movie
@@ -255,7 +274,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail TEXT,
     space_reclaimed_bytes INTEGER,
     created_at TEXT NOT NULL,
-    actor TEXT
+    actor TEXT,
+    -- admin_users.id, which is never reused. No foreign key: rows outlive the account.
+    actor_id INTEGER
 );
 
 -- === Newsletter (subscribers, delivery tracking) ===
@@ -389,6 +410,84 @@ CREATE TABLE IF NOT EXISTS plex_plays (
     PRIMARY KEY (username, history_key)
 );
 CREATE INDEX IF NOT EXISTS idx_plex_plays_user_viewed ON plex_plays(username, viewed_at);
+
+-- How a person rated a title: -2, -1, 1 or 2. The title's name is for the AI, which knows no ids.
+CREATE TABLE IF NOT EXISTS user_ratings (
+    user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+    tmdb_id INTEGER NOT NULL,
+    level INTEGER NOT NULL CHECK (level IN (-2, -1, 1, 2)),
+    title TEXT,
+    year INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, media_type, tmdb_id)
+);
+
+-- The films and seasons a person was asked to rate at the end, each once. season_number is 0
+-- for a film: a NULL would let it be stored twice.
+CREATE TABLE IF NOT EXISTS user_rating_asks (
+    user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+    tmdb_id INTEGER NOT NULL,
+    season_number INTEGER NOT NULL DEFAULT 0,
+    asked_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, media_type, tmdb_id, season_number)
+);
+
+-- === AI in search (recent searches, phrases, answers) ===
+-- phrase_key is the phrase trimmed and case-folded, so a search made again moves up.
+CREATE TABLE IF NOT EXISTS user_searches (
+    user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    phrase_key TEXT NOT NULL,
+    phrase TEXT NOT NULL CHECK (length(phrase) BETWEEN 1 AND 200),
+    searched_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, phrase_key)
+);
+CREATE INDEX IF NOT EXISTS idx_user_searches_user_searched ON user_searches(user_id, searched_at);
+CREATE TRIGGER IF NOT EXISTS user_searches_bound
+AFTER INSERT ON user_searches
+BEGIN
+    DELETE FROM user_searches WHERE user_id = NEW.user_id AND phrase_key NOT IN (
+        SELECT phrase_key FROM user_searches WHERE user_id = NEW.user_id
+        ORDER BY searched_at DESC, rowid DESC LIMIT 50);
+END;
+
+-- The search phrases suggested to a person: a JSON list.
+CREATE TABLE IF NOT EXISTS user_ai_phrases (
+    user_id INTEGER PRIMARY KEY REFERENCES admin_users(id) ON DELETE CASCADE,
+    phrases TEXT NOT NULL,
+    made_at TEXT NOT NULL
+);
+
+-- Answers kept as JSON. kind says what was asked for; query_key is the request, normalised.
+CREATE TABLE IF NOT EXISTS user_ai_answers (
+    user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    query_key TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    made_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, kind, query_key)
+);
+CREATE INDEX IF NOT EXISTS idx_user_ai_answers_user_made ON user_ai_answers(user_id, made_at);
+CREATE TRIGGER IF NOT EXISTS user_ai_answers_bound
+AFTER INSERT ON user_ai_answers
+BEGIN
+    DELETE FROM user_ai_answers WHERE user_id = NEW.user_id AND rowid NOT IN (
+        SELECT rowid FROM user_ai_answers WHERE user_id = NEW.user_id
+        ORDER BY made_at DESC, rowid DESC LIMIT 100);
+END;
+
+-- Each try at an AI call for a person's search, for the limits per person and for everyone.
+CREATE TABLE IF NOT EXISTS user_ai_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_user_ai_runs_user ON user_ai_runs(user_id, kind, started_at);
+CREATE INDEX IF NOT EXISTS idx_user_ai_runs_started ON user_ai_runs(started_at);
 
 CREATE TABLE IF NOT EXISTS ratings_cache (
     tmdb_id INTEGER NOT NULL,

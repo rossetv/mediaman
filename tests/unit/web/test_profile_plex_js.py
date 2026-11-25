@@ -78,16 +78,16 @@ def test_unlinking_asks_first() -> None:
     assert out["deleted"] is True
 
 
-def test_an_admin_unlinks_another_person_by_a_named_button() -> None:
-    out = _run("others")
-    assert out["name"] == "<i>bob</i>"
-    assert "<i>bob</i>" in out["label"]
-    assert out["deleted"] is True
-    assert out["next"]["focus"] == "Unlink the Plex account of cat"
-    assert "bob" in out["next"]["said"][-1]
-    assert out["focus"] == "plex-others"
-    assert "cat" in out["said"][-1]
-    assert "Nobody else" in out["left"]
+def test_more_about_linking_opens_and_shuts_by_its_height() -> None:
+    out = _run("more")
+    assert out["held"] is True and out["opened"] is True
+    # shown until it has shut, and opened again before that it stays
+    assert out["shutting"] == [True, True]
+    assert out["reopened"] == [True, False]
+    assert out["shut"] == [False, False]
+    assert out["steps"][:2] == [["44px", "175px", 250], ["175px", "44px", 250]]
+    # with reduced motion the browser opens it by itself
+    assert out["calm"] == [False, 4]
 
 
 def test_a_move_from_another_person_is_said_before_it_is_made() -> None:

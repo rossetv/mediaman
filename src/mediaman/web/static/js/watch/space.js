@@ -288,11 +288,10 @@
   function renderMeters() {
     var busy = scan.classList.contains('is-busy');
     toArray(document.querySelectorAll('.space-meter')).forEach(function (b) {
-      var base = 'space-meter' + (b.classList.contains('space-meter--phone') ? ' space-meter--phone' : '');
       if (!stats && !failed.stats) return;
       b.removeAttribute('aria-busy');
       b.textContent = '';
-      b.className = base + (busy ? ' space-meter--scanning' : '');
+      b.className = 'space-meter' + (busy ? ' space-meter--scanning' : '');
       if (busy) b.setAttribute('aria-busy', 'true');
       if (!stats || !stats.storage.readable) {
         var text = !stats || !stats.show_storage ? 'Storage' : 'Can’t read storage';

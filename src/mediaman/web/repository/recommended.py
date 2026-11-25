@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import sqlite3
 from collections import OrderedDict
+from collections.abc import Mapping
 from datetime import date, datetime
 
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
 from mediaman.services.openai.recommendations.user_picks import PICKS_LAST, fetch_picks
+from mediaman.web.repository.ratings import suggestible
 
 _SUGGESTIONS_COLS = (
     "id, title, year, media_type, category, tmdb_id, description, reason, "
@@ -97,7 +99,9 @@ def _date_label(batch_id: str) -> str:
 
 
 def group_into_batches(
-    recommendations: list[dict[str, object]], today: date
+    recommendations: list[dict[str, object]],
+    today: date,
+    levels: Mapping[tuple[str, int], int] | None = None,
 ) -> list[dict[str, object]]:
     """Group recommendations by batch, newest first, every batch kept.
 
@@ -106,6 +110,10 @@ def group_into_batches(
     both, unless old, also where one is from an earlier batch, which has them too.
     The first batch's date is that of its picks, or empty when its own and shared picks
     are from different days. A row without a ``batch_id`` falls back to the date of its ``created_at``.
+
+    *levels* are the person's ratings. The grouping does not depend on them, so that a row
+    read in parts stays whole when a title is rated in between: a batch may be left with
+    no items, and the first with some is named as the latest.
     """
     groups: OrderedDict[str, dict[str, list[dict[str, object]]]] = OrderedDict()
     for row in recommendations:
@@ -113,37 +121,32 @@ def group_into_batches(
         group["trending" if row.get("category") == "trending" else "personal"].append(row)
 
     oldest = (today - PICKS_LAST).isoformat()
-    first_id = next(iter(groups), "")
-    taken_from: set[str] = set()
     for latest in list(groups.values())[:1]:
         for kind in latest:
-            if latest[kind]:
-                taken_from.add(first_id)
-                continue
-            for bid, g in groups.items():
-                if bid >= oldest and g[kind]:
-                    latest[kind] = g[kind]
-                    taken_from.add(bid)
-                    break
+            if not latest[kind]:
+                latest[kind] = next(
+                    (g[kind] for bid, g in groups.items() if bid >= oldest and g[kind]), []
+                )
 
     batches: list[dict[str, object]] = []
+    place = 0
     for index, (bid, group) in enumerate(groups.items()):
         try:
             batch_date: date | None = datetime.strptime(bid, "%Y-%m-%d").date()
         except ValueError:
             batch_date = None
+        items = suggestible(group["personal"] + group["trending"], levels or {})
         # The first batch may hold picks of two dates: then it names none.
-        shown = bid
-        if index == 0:
-            shown = next(iter(taken_from)) if len(taken_from) == 1 else ""
+        dates = {_batch_of(row) for row in items} if index == 0 else {bid}
         batches.append(
             {
                 "id": bid,
-                "label": _relative_label(batch_date, index, today),
-                "date_label": _date_label(shown),
-                "items": group["personal"] + group["trending"],
+                "label": _relative_label(batch_date, place, today),
+                "date_label": _date_label(next(iter(dates)) if len(dates) == 1 else ""),
+                "items": items,
             }
         )
+        place += bool(items)
     return batches
 
 

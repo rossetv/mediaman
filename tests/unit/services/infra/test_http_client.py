@@ -759,6 +759,8 @@ class TestDNSPinning:
 
         # Tamper with the resolver — replace it with a no-op stub.
         original_patched = _dns_pinning._patched_getaddrinfo
+        # The re-install keeps the stub as its resolver; set here, it is put back at the end.
+        monkeypatch.setattr(_dns_pinning, "_ORIG_GETADDRINFO", _dns_pinning._ORIG_GETADDRINFO)
         rogue = lambda *a, **kw: []  # noqa: E731
         socket.getaddrinfo = rogue
         try:

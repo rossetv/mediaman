@@ -6,6 +6,7 @@
  *   - Manual test buttons (<button data-test-service="…">), which test the saved settings
  *   - Auto-test configured services on page load, and those a save has changed
  *   - Plex library sync button (#btn-sync-library), with the server's reason on failure
+ *   - Refresh of the shared picks (#btn-refresh-picks), with how long until the next
  *   - Rail badge counting the services whose check failed
  *
  * Cross-module dependencies:
@@ -87,6 +88,154 @@
     });
   }
 
+  /* ── Shared picks ── */
+
+  var PICKS_URL = '/api/recommended/refresh';
+  var POLL_MS = 3000;
+  var POLL_MAX_MS = 30000;
+  var MAX_FAILURES = 8;
+  var IDLE_LIMIT = 2; // "idle" twice running: the worker died without a result
+  var picks = { known: false, running: false, nextAt: null, hasKey: false, on: false };
+  var picksTimer = null;
+
+  /* "14 h" or "25 min": how long until *iso*. */
+  function waitText(iso) {
+    var minutes = Math.ceil((new Date(iso).getTime() - Date.now()) / 60000);
+    if (!(minutes > 0)) return '';
+    return (minutes >= 60 ? Math.ceil(minutes / 60) + '\u00a0h' : minutes + '\u00a0min');
+  }
+
+  function picksButton() { return document.getElementById('btn-refresh-picks'); }
+
+  /* Why the shared picks cannot be refreshed now, in words; empty when they can. */
+  function picksWhy() {
+    if (!picks.on) return 'AI recommendations are switched off.';
+    if (!picks.hasKey) return 'Save an OpenAI key first.';
+    var left = picks.nextAt && waitText(picks.nextAt);
+    return left ? 'The shared picks can be refreshed again in ' + left + '.' : '';
+  }
+
+  function drawPicks() {
+    var btn = picksButton();
+    if (!btn) return;
+    var name = 'Refresh shared picks for everyone';
+    var left = picks.on && picks.hasKey && picks.nextAt ? waitText(picks.nextAt) : '';
+    var why = picks.running ? '' : picksWhy();
+    btn.textContent = '';
+    if (picks.running) {
+      var spinner = document.createElement('span');
+      spinner.className = 'btn-spinner';
+      spinner.setAttribute('aria-hidden', 'true');
+      btn.appendChild(spinner);
+    }
+    btn.appendChild(document.createTextNode(picks.running ? 'Refreshing shared picks…' : left ? 'Refresh shared picks in ' + left : name));
+    if (picks.running || !picks.known || why) btn.setAttribute('aria-disabled', 'true');
+    else btn.removeAttribute('aria-disabled');
+    btn.setAttribute('aria-label', picks.running ? 'Refreshing shared picks for everyone' : left ? name + ', available in ' + left : name);
+    if (why) btn.setAttribute('title', why);
+    else btn.removeAttribute('title');
+    clearTimeout(picksTimer);
+    if (left && !picks.running) picksTimer = setTimeout(drawPicks, 60000);
+  }
+
+  function takePicks(st) {
+    picks.known = true;
+    picks.nextAt = st.next_available_at || null;
+  }
+
+  function picksFailed(message) {
+    picks.running = false;
+    drawPicks();
+    window.UIFeedback.error(message);
+  }
+
+  /* The session ended, or is no admin's any more: to sign-in, unless that would lose
+     edits. A 401 gets here only then, and MM.api has told the person. */
+  function picksLoggedOut(err) {
+    if (!err || (err.status !== 401 && err.status !== 403)) return false;
+    if (MM.api.hasUnsavedChanges()) {
+      picks.running = false;
+      drawPicks();
+      if (err.status === 403) window.UIFeedback.error('You are no longer signed in as an admin.');
+    } else {
+      window.location.href = '/login?next=%2Fsettings' + (window.location.hash || '');
+    }
+    return true;
+  }
+
+  /* Follow a running refresh to its end. */
+  function followPicks() {
+    var failures = 0;
+    var idle = 0;
+    picks.running = true;
+    drawPicks();
+    function later(ms) { setTimeout(tick, ms); }
+    function tick() {
+      if (document.hidden) { later(POLL_MS); return; }
+      MM.api.get(PICKS_URL + '/status').then(function (st) {
+        failures = 0;
+        idle = st.status === 'idle' ? idle + 1 : 0;
+        if (st.status === 'running' || (st.status === 'idle' && idle < IDLE_LIMIT)) { later(POLL_MS); return; }
+        takePicks(st);
+        if (st.status === 'done' && st.result && st.result.ok) {
+          picks.running = false;
+          drawPicks();
+          window.UIFeedback.success('New shared picks are on Watch.');
+          return;
+        }
+        picksFailed((st.result && st.result.error) || 'The refresh stopped before it finished. Try again.');
+      }).catch(function (err) {
+        if (picksLoggedOut(err)) return;
+        failures += 1;
+        if (failures < MAX_FAILURES) { later(Math.min(POLL_MS * Math.pow(2, failures), POLL_MAX_MS)); return; }
+        picksFailed('Couldn’t reach the server. Check your connection and try again.');
+      });
+    }
+    later(POLL_MS);
+  }
+
+  function refreshPicks() {
+    if (picks.running || !picks.known) return;
+    var why = picksWhy();
+    if (why) { window.UIFeedback.toast(why); return; }
+    picks.running = true;
+    drawPicks();
+    MM.api.post(PICKS_URL).then(followPicks, function (err) {
+      if (picksLoggedOut(err)) return;
+      var next = err && err.status === 429 && err.data && err.data.next_available_at;
+      if (next) {
+        picks.running = false;
+        picks.nextAt = next;
+        drawPicks();
+        return;
+      }
+      picksFailed(MM.api.messageOf(err, 'Couldn’t refresh the shared picks. Try again.'));
+    });
+  }
+
+  /* What the refresh needs, as the settings are stored. */
+  function readPicksSettings(valueOf) {
+    picks.hasKey = !!valueOf('openai_api_key');
+    picks.on = [false, 'false'].indexOf(valueOf('suggestions_enabled')) === -1;
+  }
+
+  function startPicks() {
+    var btn = picksButton();
+    if (!btn) return;
+    readPicksSettings(fieldValue);
+    drawPicks();
+    btn.addEventListener('click', refreshPicks);
+    MM.api.get(PICKS_URL + '/status').then(function (st) {
+      takePicks(st);
+      if (st.status === 'running') followPicks();
+      else drawPicks();
+    }, function () {
+      // Not known: the server says so when it is pressed.
+      picks.known = true;
+      drawPicks();
+    });
+  }
+
   MM.settings.integrations = {
 
     setConnStatus: function (service, tone, label) {
@@ -157,6 +306,8 @@
     /* Checks each service that reads one of `keys`. `values` are the settings as now stored:
        a field may hold a newer edit. */
     recheck: function (keys, values) {
+      readPicksSettings(function (id) { return values[id]; });
+      drawPicks();
       autoTest(AUTO_CHECKS.filter(function (c) {
         return c.fields.concat(c.also || []).some(function (key) { return keys.indexOf(key) !== -1; });
       }), function (id) { return values[id]; });
@@ -210,6 +361,7 @@
       });
 
       autoTest(AUTO_CHECKS, fieldValue);
+      startPicks();
 
       var syncBtn = document.getElementById('btn-sync-library');
       if (syncBtn) syncBtn.addEventListener('click', function () {

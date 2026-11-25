@@ -10,6 +10,7 @@ from starlette.responses import Response
 
 from mediaman.core.audit import security_event
 from mediaman.db import get_db
+from mediaman.services.plex_link import repository as plex_links
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
@@ -29,6 +30,7 @@ from mediaman.web.auth.password_policy import password_issues
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
+from mediaman.web.repository.avatars import avatar_urls
 from mediaman.web.responses import respond_err, respond_failure, respond_ok
 from mediaman.web.routes.users.rate_limits import (
     _UNTICKETED_LIMITER,
@@ -105,7 +107,18 @@ def _reserve(
 @router.get("/api/users")
 def api_list_users(admin: str = Depends(get_current_admin)) -> dict[str, object]:
     conn = get_db()
-    return {"users": list_users(conn), "current": admin}
+    linked = {link["username"]: link["linked_at"] for link in plex_links.linked_users(conn)}
+    people = list_users(conn)
+    pictures = avatar_urls(conn, [user["id"] for user in people])
+    users = [
+        {
+            **user,
+            "plex_linked_at": linked.get(user["username"]),
+            "avatar_url": pictures[user["id"]],
+        }
+        for user in people
+    ]
+    return {"users": users, "current": admin}
 
 
 @router.post("/api/users")

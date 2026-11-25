@@ -23,7 +23,7 @@ Node.prototype.scrollIntoView = function () {};
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
-function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, every = () => 0, stored = {} } = {}) {
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {} } = {}) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -31,6 +31,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   const on = {};
   const urls = [];
   const grids = [];
+  const mutated = [];
   const tab = { entries: [{ url: at || '/watch' + (opened ? '?q=' + opened : ''), state: null }], index: 0 };
   const here = () => new URL(tab.entries[tab.index].url, 'http://mm');
   const fire = (type, e) => (on[type] || []).slice().forEach((fn) => fn(e || {}));
@@ -50,7 +51,18 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     Image: class {},
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', opacity: '1' }),
-    matchMedia: () => ({ matches: still }),
+    matchMedia: (q) => {
+      const min = /min-width: ([\d.]+)/.exec(q);
+      const max = /max-width: ([\d.]+)/.exec(q);
+      return {
+        get matches() { return min || max ? (!min || ctx.innerWidth >= +min[1]) && (!max || ctx.innerWidth <= +max[1]) : still; },
+        addEventListener: (_t, fn) => { (on.width = on.width || []).push(fn); },
+      };
+    },
+    innerWidth: width,
+    requestAnimationFrame: (fn) => fn(),
+    MutationObserver: class { constructor(fn) { mutated.push(fn); } observe() {} disconnect() {} },
+    ResizeObserver: class { constructor(fn) { this.fn = fn; } observe() { observed.push(this.fn); } disconnect() {} },
     innerHeight: 800,
     categories,
     scrollY: 0,
@@ -83,20 +95,25 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  doc.body.appendChild(build(doc, ['div', { id: 'watch-page' },
+  doc.body.appendChild(build(doc, ['header', { class: 'nav-glass wbar' },
+    ['nav', { class: 'nav-links', id: 'nav-links' }],
     ['div', { class: 'watch-search' },
       ['span', { id: 'watch-search-token', hidden: '' }],
       ['span', { class: 'watch-search__field' }, ['span', { id: 'watch-search-hint' }, 'Search films and shows'],
         ['input', { id: 'watch-search', class: 'watch-search__input', value: opened, role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': 'watch-sheet' }]],
       ['button', { id: 'watch-search-clear', 'aria-label': 'Clear search' }]],
-    ['nav', { id: 'watch-viewtoggle' }, ['a', { href: '/watch', 'data-view': 'rows' }, 'Browse']],
     ['div', { id: 'watch-sheet' }],
     ['span', { id: 'watch-search-status' }],
+    ['button', { class: 'space-meter', id: 'meter' }],
+    ['nav', { id: 'watch-viewtoggle' }, ['a', { href: '/watch', 'data-view': 'rows' }, 'Browse']],
+    ['button', { class: 'profile-btn', id: 'profile' }]]));
+  doc.body.appendChild(build(doc, ['div', { id: 'watch-page' },
     ['div', { id: 'watch-veil' }],
     ['div', { id: 'watch-browse' }],
     ['section', { id: 'watch-results' }],
     ['script', { id: 'watch-page-data' }, JSON.stringify(data)]]));
   const $ = (id) => doc.getElementById(id);
+  doc.querySelector('.wbar').style.setProperty = () => {};
   // The server opens on the results when the address has a search; otherwise the rows are on view.
   $('watch-results').hidden = !opened && !/genre=|person=/.test(at || '');
   $('watch-browse').hidden = !$('watch-results').hidden;
@@ -154,6 +171,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   ctx.MMWatch.search.init();
   ctx.MMWatch.address.start();
   return {
+    mutate: () => mutated.forEach((fn) => fn([])),
     ctx, doc, input, calls, events, urls, timers, tab, grids, $, fire,
     results: $('watch-results'), browse: $('watch-browse'), status: $('watch-search-status'), sheet: $('watch-sheet'),
     url: () => tab.entries[tab.index].url,
@@ -900,7 +918,7 @@ const scenarios = {
     dialog.setAttribute('aria-modal', 'true');
     out.dialog = press({});
     dialog.remove();
-    p.$('watch-page').setAttribute('inert', '');
+    p.doc.querySelector('.wbar').setAttribute('inert', '');
     out.inert = press({});
     return out;
   },
@@ -1117,13 +1135,15 @@ const scenarios = {
     return p.doc.querySelector('.explore-facts').textContent;
   },
 
-  // A name of one long word takes its room from the posters beside it.
-  async longName() {
-    const p = load(ADMIN, '', null, { tmdb_configured: true, genres: [{ ...GENRES[0], id: 'documentary', name: 'Documentary' }, { ...GENRES[0], id: 'science-fiction', name: 'Science Fiction' }], decades: [], people: [] });
+  // Every category has its own drawing and no picture, whatever posters came with it.
+  async categoryTiles() {
+    const genre = (id, name, urls) => ({ ...GENRES[0], id, name, poster_urls: urls });
+    const p = load(ADMIN, '', null, { tmdb_configured: true, genres: [genre('action', 'Action', ['/api/watch/img/tmdb/a.jpg']), genre('war', 'War', []), genre('made-up', 'Made up', [])], decades: [], people: [] });
     await settle();
     p.press();
     await settle();
-    return p.sheet.querySelectorAll('.watch-tile').map((n) => [n.textContent, n.classList.contains('is-long')]).sort();
+    return p.sheet.querySelectorAll('.watch-tile').map((n) => [n.textContent, n.querySelectorAll('img').length, n.children[0].getAttribute('class'),
+      n.querySelector('path') && n.querySelector('path').getAttribute('d')]);
   },
 
   // Less: cut short only once what stands below has closed over the text, unless More is pressed first.
@@ -1982,6 +2002,185 @@ const scenarios = {
     out.times = e.calls.length;
     return out;
   },
+};
+
+// The field's line of the bar, below 1100px.
+const tucked = (p) => p.doc.querySelector('.wbar').classList.contains('is-tucked');
+function scrollTo(p, y) { p.ctx.scrollY = y; p.fire('scroll'); return tucked(p); }
+
+scenarios.barTucks = async () => {
+  const p = load(ADMIN, '', null, undefined, { width: 768 });
+  const out = [0, 60, 300, 298, 296, 293, 200, 40, 600].map((y) => scrollTo(p, y));
+  const to = (y, what) => { const was = scrollTo(p, y); return [what, was]; };
+  const bar = p.doc.querySelector('.wbar');
+  bar.listeners.focusin.forEach((fn) => fn({ target: p.input }));
+  return { out, focused: tucked(p), again: to(900, 'down'), wide: [300, 600].map((y) => scrollTo(load(ADMIN), y)) };
+};
+scenarios.barTucksOverSeeAll = async () => {
+  const p = load(ADMIN, '', null, undefined, { width: 768 });
+  p.$('watch-page').appendChild(build(p.doc, ['section', { id: 'watch-all' }]));
+  return [0, 400, 200, 60, 4].map((y) => scrollTo(p, y));
+};
+// Whatever brought the field's line there, See all scrolled down has none over its header.
+scenarios.barLeavesSeeAllFree = async () => {
+  const seeAll = async (y, width = 390) => {
+    const p = await ready(ADMIN, '', null, undefined, { width });
+    const all = p.$('watch-page').appendChild(build(p.doc, ['section', { id: 'watch-all' }]));
+    if (y) scrollTo(p, y);
+    return [p, all];
+  };
+  const out = {};
+  const [a] = await seeAll(400);
+  const bar = a.doc.querySelector('.wbar');
+  a.input.focus();
+  bar.listeners.focusin.forEach((fn) => fn({ target: a.input }));
+  out.focused = tucked(a);
+  a.input.blur();
+  (bar.listeners.focusout || []).forEach((fn) => fn({ target: a.input }));
+  await settle();
+  out.left = tucked(a);
+  const [b] = await seeAll(400);
+  b.ctx.innerWidth = 768;
+  b.fire('width');
+  out.turned = tucked(b);
+  // Forward: the rows had the line, and the grid opens where it was scrolled.
+  const c = await ready(ADMIN, '', null, undefined, { width: 390 });
+  scrollTo(c, 600);
+  scrollTo(c, 500);
+  out.rows = tucked(c);
+  c.$('watch-page').appendChild(build(c.doc, ['section', { id: 'watch-all' }]));
+  out.forward = scrollTo(c, 300);
+  const d = await ready(ADMIN, '', null, undefined, { width: 390 });
+  scrollTo(d, 600);
+  scrollTo(d, 500);
+  d.$('watch-page').appendChild(build(d.doc, ['section', { id: 'watch-all' }]));
+  d.mutate();
+  out.opened = tucked(d);
+  return out;
+};
+// Less than a person means: a pixel or two down, one event after another in a frame.
+scenarios.barTucksOnPurpose = async () => {
+  const p = load(ADMIN, '', null, undefined, { width: 768 });
+  const out = [300, 100, 101, 106, 107].map((y) => scrollTo(p, y));
+  let frames = 0;
+  let run = null;
+  p.ctx.requestAnimationFrame = (fn) => { frames++; run = fn; };
+  [500, 600, 700].forEach((y) => { p.ctx.scrollY = y; p.fire('scroll'); });
+  if (run) run();
+  return { out, frames, after: tucked(p) };
+};
+scenarios.barSheetHolds = async () => {
+  const p = await ready(ADMIN, '', null, undefined, { width: 768 });
+  scrollTo(p, 400);
+  const away = tucked(p);
+  p.press();
+  return [away, tucked(p), scrollTo(p, 700)];
+};
+scenarios.barOrder = async () => {
+  const kids = (p) => p.doc.querySelector('.wbar').children.map((n) => n.id || 'search').filter((id) => id !== 'watch-search-status');
+  const out = [1280, 768, 390].map((width) => kids(load(ADMIN, '', null, undefined, { width })));
+  const p = load(ADMIN, '', null, undefined, { width: 390 });
+  p.input.focus();
+  p.ctx.innerWidth = 1280;
+  p.fire('width');
+  return { out, back: kids(p), focused: p.doc.activeElement === p.input };
+};
+scenarios.barMakesRoom = async () => {
+  const at = async (meterLeft, width, grown) => {
+    const left = { meter: meterLeft };
+    const observed = [];
+    const p = await ready(ADMIN, '', null, undefined, { width, observed });
+    const box = p.doc.querySelector('.watch-search');
+    Object.defineProperty(box, 'offsetLeft', { value: 300 });
+    Object.defineProperty(box, 'offsetWidth', { value: 500 });
+    Object.defineProperty(p.$('meter'), 'offsetLeft', { get: () => left.meter });
+    const covers = () => p.doc.querySelector('.wbar').classList.contains('is-wide-open');
+    const out = [covers()];
+    p.input.focus();
+    out.push(covers());
+    if (grown) { left.meter = grown; observed.forEach((fn) => fn()); out.push(covers()); }
+    p.input.blur();
+    return out.concat(covers());
+  };
+  return { covered: await at(780, 1280), clear: await at(900, 1280), narrow: await at(780, 768), grows: await at(900, 1280, 780) };
+};
+scenarios.barCovers = async () => {
+  const p = await ready(ADMIN, '', null, undefined, { width: 768 });
+  p.doc.querySelector('.wbar').getBoundingClientRect = () => ({ top: 0, bottom: 106 });
+  p.ctx.getComputedStyle = () => ({ display: 'flex', paddingBottom: '54px', getPropertyValue: () => '' });
+  return [0, 400].map((y) => { scrollTo(p, y); return p.ctx.MMWatch.core.clearArea().top; });
+};
+// What the open field covers comes back with the focus, which it can have.
+scenarios.barGivesBack = async () => {
+  const at = async (width, of) => {
+    const p = await ready(ADMIN, '', null, undefined, { width });
+    const bar = p.doc.querySelector('.wbar');
+    const box = p.doc.querySelector('.watch-search');
+    Object.defineProperty(box, 'offsetLeft', { value: 300 });
+    Object.defineProperty(box, 'offsetWidth', { value: 500 });
+    Object.defineProperty(p.$('meter'), 'offsetLeft', { value: 780 });
+    p.type('har');
+    p.input.focus();
+    const open = () => [box.classList.contains('is-open'), bar.classList.contains('is-wide-open')];
+    const out = [open()];
+    const node = of(p);
+    node.focus();
+    bar.listeners.focusin.forEach((fn) => fn({ target: node }));
+    out.push(open());
+    node.blur();
+    bar.listeners.focusout.forEach((fn) => fn({ target: node }));
+    await settle();
+    return out.concat([open()]);
+  };
+  const meter = (p) => p.$('meter');
+  const list = (p) => p.doc.querySelector('#watch-viewtoggle a');
+  return { wide: await at(1280, meter), phone: await at(390, list), clear: await at(1280, list) };
+};
+// Between the links and the meter, whatever size their words are.
+scenarios.barBetween = async () => {
+  const observed = [];
+  const p = await ready(ADMIN, '', null, undefined, { width: 1280, observed });
+  const bar = p.doc.querySelector('.wbar');
+  const set = {};
+  bar.style.setProperty = (name, value) => { set[name] = value; };
+  const at = (end, meter) => {
+    Object.defineProperty(p.$('nav-links'), 'offsetLeft', { value: 150, configurable: true });
+    Object.defineProperty(p.$('nav-links'), 'offsetWidth', { value: end - 150, configurable: true });
+    Object.defineProperty(p.$('meter'), 'offsetLeft', { value: meter, configurable: true });
+    observed.forEach((fn) => fn());
+    return [set['--l'], set['--r'], bar.classList.contains('is-tight')];
+  };
+  const out = [at(310, 880), at(520, 640)];
+  // The room the meter's words leave does not bring them back.
+  out.push(at(520, 800));
+  at(310, 880);
+  p.fire('resize');
+  out.push([bar.classList.contains('is-tight')]);
+  return out;
+};
+// On a phone a figure cut short would say another one.
+scenarios.barCutFigure = async () => {
+  const at = (needs, has) => {
+    const observed = [];
+    const p = load(ADMIN, '', null, undefined, { width: 320, observed });
+    const free = p.$('meter').appendChild(build(p.doc, ['span', { class: 'space-meter__free' }, '278 GB']));
+    Object.defineProperty(free, 'scrollWidth', { value: needs });
+    Object.defineProperty(free, 'clientWidth', { value: has });
+    observed.forEach((fn) => fn());
+    return p.doc.querySelector('.wbar').classList.contains('is-tight');
+  };
+  return [at(90, 90), at(90, 20)];
+};
+// "/" finds the field where the page stands, unless the bar has gone with it.
+scenarios.slashKeepsThePlace = async () => {
+  const at = async (top) => {
+    const p = await ready(ADMIN);
+    p.ctx.scrollY = 400;
+    p.doc.querySelector('.watch-search').getBoundingClientRect = () => ({ top, right: 0, left: 0 });
+    p.doc.listeners.keydown.forEach((fn) => fn({ key: '/', preventDefault() {} }));
+    return [p.ctx.scrollY, p.doc.activeElement === p.input];
+  };
+  return { sticky: await at(6), gone: await at(-380) };
 };
 
 // Motion on: every move runs until finish() ends it.

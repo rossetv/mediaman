@@ -1,7 +1,6 @@
 {# Nav surfaces.
    - .nav-glass    — desktop sticky top, link rail and profile button (>= 700 px)
-   - .nav-topbar   — mobile sticky top, brand, page title (on Watch, an admin's storage
-                     meter in its place) and profile button (< 700 px)
+   - .nav-topbar   — mobile sticky top, brand, page title and profile button (< 700 px)
    - .nav-tabs     — mobile fixed bottom tab bar (< 700 px)
    - .profile-menu — what either profile button opens: a menu under it on desktop,
                      a bottom sheet on phones
@@ -10,12 +9,17 @@
      watch | downloads | history | settings | account
    /watch pages need not set it: the path decides.
 
+   `avatar_url` in the context is the signed-in person's picture.
+
+   A page with more in its desktop bar includes a template that extends this one and fills
+   `nav_center` and `nav_end` (a block cannot be filled through a plain include). One whose
+   bar serves phones too leaves `nav_phone` empty.
+
    The links follow the role on the request (`request.state.user_role`). A viewer
    sees only what the viewer role may open; a missing role gets the admin links.
 #}
 {% from "_components.html" import icon %}
 {% from "_avatar.html" import avatar %}
-{% import "_watch_space.html" as space %}
 
 {% set state = request.state if request is defined else none %}
 {% set is_viewer = (state.user_role if state else none) | default('admin', true) != 'admin' %}
@@ -36,30 +40,32 @@
 
 {% macro profile_button() %}
 <button type="button" class="profile-btn{% if in_menu %} on{% endif %}" aria-haspopup="menu" aria-expanded="false" aria-controls="profile-menu-items" aria-label="Profile menu, {{ who }}{% if in_menu %}, {{ titles[active] }} is open{% endif %}">
-  {{ avatar(who) }}
+  {{ avatar(who, avatar_url) }}
   <span class="profile-btn-name">{{ who }}</span>
   {{ icon("i-chevron-down") }}
 </button>
 {% endmacro %}
 
 {# Desktop top nav — hidden below 700 px #}
-<header class="nav-glass">
+<header class="nav-glass{% block nav_class %}{% endblock %}">
   <a class="brand" href="/watch">media<b>man</b></a>
   <nav class="nav-links" aria-label="Primary">
     <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}"{{ current('watch') }}>Watch</a>
     <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}"{{ current('downloads') }}>Downloads</a>
   </nav>
+  {% block nav_center %}{% endblock %}
+  {% block nav_end %}{% endblock %}
   {{ profile_button() }}
 </header>
 
-{# Mobile top bar — brand, current page title or storage meter, profile button #}
+{# Mobile top bar — brand, current page title, profile button #}
+{% block nav_phone %}
 <div class="nav-topbar">
   <a class="brand" href="/watch">media<b>man</b></a>
-  {% if is_admin and path == '/watch' %}{{ space.meter(phone=true) }}
-  {% else %}<span class="nav-topbar-title">{{ titles.get(active, '') }}</span>
-  {% endif %}
+  <span class="nav-topbar-title">{{ titles.get(active, '') }}</span>
   {{ profile_button() }}
 </div>
+{% endblock %}
 
 {# Mobile bottom tab bar #}
 <nav class="nav-tabs" aria-label="Primary">
@@ -78,7 +84,7 @@
   <div class="profile-panel">
     <div class="profile-handle" aria-hidden="true"></div>
     <div class="profile-who">
-      {{ avatar(who) }}
+      {{ avatar(who, avatar_url) }}
       <div class="profile-who-text">
         <div class="profile-who-name">{{ who }}</div>
         <div class="profile-who-role">{{ "Viewer" if is_viewer else "Admin" }}</div>
@@ -88,9 +94,8 @@
     </div>
     <div id="profile-menu-items" role="menu" aria-label="Profile menu">
       <a class="profile-item" role="menuitem" tabindex="-1" href="/account"{{ current('account') }}>{{ icon("i-user") }}Profile</a>
-      <a class="profile-item" role="menuitem" tabindex="-1" href="/account#plex">{{ icon("i-plug") }}Plex account</a>
-      {% if not is_viewer %}
       <a class="profile-item" role="menuitem" tabindex="-1" href="/history"{{ current('history') }}>{{ icon("i-clock-rotate-left") }}History</a>
+      {% if not is_viewer %}
       <a class="profile-item" role="menuitem" tabindex="-1" href="/settings"{{ current('settings') }}>{{ icon("i-gear") }}Settings</a>
       {% endif %}
       <div class="profile-sep" role="separator"></div>

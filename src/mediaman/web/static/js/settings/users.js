@@ -7,6 +7,7 @@
  *   - Add user form (#add-user-form, #btn-add-user) with its Viewer/Admin switch
  *   - Role change per user (PATCH /api/users/{id}/role + MM.reauth.run)
  *   - Email per user, in a form in their row (PATCH /api/users/{id}/email + MM.reauth.run)
+ *   - Plex link state per user, with Unlink (DELETE /api/users/{id}/plex-link)
  *   - Delete user flow (UIFeedback.confirm + MM.reauth.run)
  *
  * Cross-module dependencies:
@@ -106,19 +107,15 @@
         });
       }
 
-      // The same initials and colour as _avatar.html gives the name.
-      function avatar(name) {
-        var words = name.split('@')[0].split(/[\s._-]+/).filter(Boolean);
-        var first = Array.from(words[0] || name || '?')[0];
-        var last = words.length > 1 ? Array.from(words[words.length - 1])[0] : '';
-        var n = 0;
-        Array.from(name.toLowerCase()).forEach(function (ch) {
-          n = (n * 31 + 'abcdefghijklmnopqrstuvwxyz0123456789._-@'.indexOf(ch) + 2) % 9973;
-        });
+      function avatar(user) {
         var el = document.createElement('span');
-        el.className = 'avatar avatar--' + (n % 6);
+        el.className = 'avatar avatar--pic';
         el.setAttribute('aria-hidden', 'true');
-        el.textContent = (first + last).toUpperCase();
+        var img = document.createElement('img');
+        img.alt = '';
+        img.src = user.avatar_url;
+        img.setAttribute('data-broken-on-error', '');
+        el.appendChild(img);
         return el;
       }
 
@@ -127,7 +124,7 @@
         row.className = 'usr-row';
         row.dataset.userId = user.id;
 
-        row.appendChild(avatar(user.username || ''));
+        row.appendChild(avatar(user));
 
         var meta = document.createElement('div');
         meta.className = 'usr-meta';
@@ -146,6 +143,7 @@
         sub.className = 'usr-sub';
         paintSub(user, sub);
         meta.appendChild(sub);
+        if (user.plex_linked_at) meta.appendChild(buildPlex(user, row));
         row.appendChild(meta);
 
         var roleLabel = document.createElement('span');
@@ -199,8 +197,60 @@
       function paintSub(user, sub) {
         var emailPart = user.email ? user.email : 'No email';
         var joined = new Date(user.created_at || NaN);
-        sub.textContent = isNaN(joined) ? emailPart : emailPart + ' · joined ' +
-          joined.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        sub.textContent = isNaN(joined) ? emailPart : emailPart + ' · joined ' + dayOf(joined);
+      }
+
+      function dayOf(date) {
+        return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+
+      // Your own account is unlinked on Profile, so it shows the state alone.
+      function buildPlex(user, row) {
+        var own = user.username === currentUser;
+        var linked = new Date(user.plex_linked_at);
+        var el = document.createElement('div');
+        el.className = 'usr-plex';
+        var state = document.createElement('span');
+        state.appendChild(MM.dom.icon('i-plug'));
+        state.appendChild(document.createTextNode(
+          own || isNaN(linked) ? 'Plex linked' : 'Plex linked ' + dayOf(linked)));
+        el.appendChild(state);
+        if (own) return el;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'link-danger';
+        btn.dataset.userAction = 'unlink';
+        btn.textContent = 'Unlink';
+        btn.setAttribute('aria-label', 'Unlink the Plex account of ' + user.username);
+        btn.addEventListener('click', function () { unlinkFlow(user, row, el, btn); });
+        el.appendChild(btn);
+        return el;
+      }
+
+      function unlinkFlow(user, row, el, btn) {
+        if (isBusy(btn)) return;
+        holdFocus(btn);
+        window.UIFeedback.confirm({
+          title: 'Unlink ' + user.username + '’s Plex account?',
+          body: 'The plays copied here and the recommendations made from them are deleted. They can link again.',
+          confirmLabel: 'Unlink',
+          confirmVariant: 'danger',
+        }).then(function (ok) {
+          if (!ok) return;
+          setBusy(btn, true);
+          function gone() {
+            rows.leave(el, { fallback: row.querySelector('[data-user-action="email"]') });
+            window.UIFeedback.success('Unlinked ' + user.username + '’s Plex account.');
+          }
+          MM.api.delete('/api/users/' + user.id + '/plex-link').then(gone, function (err) {
+            // Already unlinked elsewhere.
+            if (err && err.status === 404) { gone(); return; }
+            var there = rows.stillAt(btn, btn);
+            setBusy(btn, false);
+            if (there) btn.focus({ preventScroll: true });
+            window.UIFeedback.error(MM.api.messageOf(err, 'Could not unlink. Try again.'));
+          });
+        });
       }
 
       function buildEmailForm(user, opener, sub) {

@@ -341,9 +341,18 @@
 .setg-pg .usr-row:last-child { border-bottom: 0; }
 .setg-pg .usr-row .avatar { width: 38px; height: 38px; font-size: 14px; }
 .setg-pg .usr-row .usr-meta { flex: 1; min-width: 0; }
-.setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; overflow-wrap: anywhere; }
 .setg-pg .usr-row .usr-sub { font-size: 11.5px; color: var(--t3); margin-top: 3px; overflow-wrap: anywhere; }
 .setg-pg .usr-row .usr-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; flex-shrink: 0; white-space: nowrap; }
+.usr-plex { display: flex; width: fit-content; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-top: 5px; font-size: 12px; color: var(--t2); }
+.usr-plex > span { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: var(--r-pill); background: var(--rgba-overlay-md); font-weight: 500; }
+.usr-plex .ico { font-size: 10px; color: var(--t3); }
+.usr-plex.is-leaving {
+  overflow: hidden; opacity: 0; margin-top: 0;
+  transition: height var(--dur) var(--ease-out),
+              opacity var(--dur-fast) var(--ease-out),
+              margin var(--dur) var(--ease-out);
+}
 /* Wide enough for the longest label each button shows, so a pending label never moves what sits beside it. */
 .setg-pg .usr-row [data-user-action="role"] { min-width: 8.2em; }
 .setg-pg .usr-row [data-user-action="delete"] { min-width: 6.75em; }
@@ -444,6 +453,7 @@
   transition: background var(--dur-fast) var(--ease-out);
 }
 .setg-pg .link-danger:hover { background: var(--rgba-danger-bg-soft); }
+.setg-pg .usr-plex .link-danger { position: relative; min-height: 26px; padding: 0 9px; }
 
 /* A pressed button that is working keeps the focus, so it is dimmed instead of disabled. */
 .setg-pg .usr-row [aria-disabled="true"] { opacity: .55; cursor: progress; }
@@ -501,6 +511,9 @@
   .setg-pg .link-danger,
   .setg-pg .sub-row .link-danger,
   .setg-pg .usr-actions .btn { min-height: 44px; }
+  /* The target is 44px tall; the row need not be. */
+  .setg-pg .usr-plex .link-danger { min-height: 28px; }
+  .usr-plex .link-danger::after { content: ""; position: absolute; inset: -8px -4px; }
 }
 
 /* Wide enough for "Test saved" and "Select recipients", so the label changing moves nothing. */

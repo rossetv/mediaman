@@ -56,8 +56,9 @@
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .btn-test:hover { background: var(--rgba-overlay-xs); border-color: var(--hair-hover); }
-.btn-test:active:not(:disabled) { background: var(--rgba-overlay-md); }
-.btn-test:disabled { opacity: .6; cursor: default; }
+.btn-test:active:not(:disabled, [aria-disabled="true"]) { background: var(--rgba-overlay-md); }
+.btn-test:disabled,
+.btn-test[aria-disabled="true"] { opacity: .6; cursor: default; }
 @media (max-width: 699.98px), (pointer: coarse) {
   .btn-test { min-height: 44px; }
 }

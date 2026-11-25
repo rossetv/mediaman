@@ -123,7 +123,7 @@ function markup() {
   const pane = (id) => ['div', { class: 'space-pane', id: 'space-' + id, role: 'tabpanel' }];
   const tab = (id) => ['button', { class: 'space-tab', id: 'space-tab-' + id, 'data-space-tab': id }, id, ['span', { class: 'space-tab__count' }]];
   return [
-    ['header', { id: 'nav' }, ['button', { class: 'space-meter space-meter--phone', 'data-space-open': 'storage', id: 'phone-meter' }]],
+    ['header', { id: 'nav' }],
     ['main', { id: 'main' },
       ['button', { class: 'space-meter', 'data-space-open': 'storage', id: 'meter', 'aria-busy': 'true' }],
       ['div', { class: 'watch-rows' }, leavingSection('1', '2'), recentSection()],
@@ -518,7 +518,7 @@ const scenarios = {
   async meter() {
     const p = await page();
     return { askedBeforeLoad: p.before, text: p.meter(), label: p.$('meter').getAttribute('aria-label'), busy: p.$('meter').hasAttribute('aria-busy'),
-      phone: p.$('phone-meter').textContent, link: p.one('.space-row-link').textContent, asked: p.server.calls.map((c) => c[1]) };
+      link: p.one('.space-row-link').textContent, asked: p.server.calls.map((c) => c[1]) };
   },
   async meterStates() {
     const of = async (setup) => {
@@ -1426,7 +1426,7 @@ const scenarios = {
       await p.click(p.$('space-scan'));
       await p.key('Escape');
       const label = () => p.$('meter').getAttribute('aria-label');
-      const busy = () => ['meter', 'phone-meter'].map((id) => p.$(id).getAttribute('aria-busy'));
+      const busy = () => ['meter'].map((id) => p.$(id).getAttribute('aria-busy'));
       await p.refresh(); // drawn again meanwhile
       const during = { busy: busy(), says: label().includes('scanning') };
       if (late) p.server.fail = late;

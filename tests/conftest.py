@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import socket
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -70,20 +72,83 @@ def _reset_rate_limiters():
     clear_cache()
 
 
-@pytest.fixture(autouse=True)
-def _fake_dns_ok(monkeypatch):
-    """Make every hostname resolve to a benign public IP by default.
+def _fake_getaddrinfo(host, port, *args, **kwargs):
+    """Every hostname resolves to a benign public IP.
 
-    The SSRF guard now refuses hostnames that fail DNS resolution.
-    Unit tests run without network, so every URL would be refused
-    unless we stub resolution. Tests that want to check the guard's
-    resolution logic itself override this via their own monkeypatch.
+    The SSRF guard refuses hostnames that fail DNS resolution, and tests run without network.
+    Tests that want to check the guard's resolution logic itself monkeypatch this.
     """
+    return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
 
-    def fake_getaddrinfo(host, port, *args, **kwargs):
-        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
 
-    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+#: Connections and datagrams out of this machine that were refused and no test was failed for yet.
+_tried_network: list[object] = []
+
+
+def _is_outside(sock: socket.socket, address: object) -> bool:
+    if sock.family not in (socket.AF_INET, socket.AF_INET6) or not isinstance(address, tuple):
+        return False
+    host = str(address[0])
+    if host in ("", "localhost"):
+        return False
+    try:
+        return not ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return True
+
+
+def _guarded(real):
+    def send(self, *args):
+        # The address is the last argument of each of them, or left out of sendmsg.
+        if args and _is_outside(self, args[-1]):
+            _tried_network.append(args[-1])
+            raise ConnectionRefusedError(f"the network is off in tests: {args[-1]}")
+        return real(self, *args)
+
+    return send
+
+
+# Once, here, and not by a fixture: no thread that outlives its test, fixture of a wider scope or
+# monkeypatch.undo() runs without it.
+socket.getaddrinfo = _fake_getaddrinfo
+for _name in ("connect", "connect_ex", "sendto", "sendmsg"):
+    setattr(socket.socket, _name, _guarded(getattr(socket.socket, _name)))
+# It connects without Python's sockets; without it uvicorn and asyncio use those.
+sys.modules["uvloop"] = None
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """Give every test the fake DNS, whatever the one before it left: the app's DNS pin keeps a
+    resolver it finds in place of its own."""
+    pinning = sys.modules.get("mediaman.services.infra.http.dns_pinning")
+    if pinning is None:
+        socket.getaddrinfo = _fake_getaddrinfo
+        return
+    pinning._ORIG_GETADDRINFO = _fake_getaddrinfo
+    socket.getaddrinfo = pinning._patched_getaddrinfo
+
+
+def _fail_if_tried() -> None:
+    tried = []
+    # One at a time, so that what a thread adds meanwhile is not lost.
+    while _tried_network:
+        tried.append(_tried_network.pop(0))
+    if tried:
+        pytest.fail(f"a test tried the network: {tried}")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_network_after_the_last_test():
+    yield
+    _fail_if_tried()
+
+
+@pytest.fixture(autouse=True)
+def _no_network():
+    """Fail the test that tried the network: code under test may swallow the refusal."""
+    yield _tried_network
+    _fail_if_tried()
 
 
 @pytest.fixture(autouse=True)

@@ -9,8 +9,10 @@
  * where to go on from (null: the row is complete) and fetchPage(next) a promise
  * of { cards, next }: card nodes, each with its data-title-ref link, and where
  * to go on from after them. Returns { stop }, for a row that is taken away,
- * with next(), where it is to go on from, more(), which loads it now, and
- * check(), for a view the loader cannot see moving.
+ * with next(), where it is to go on from, more(), which loads it now and says
+ * whether a page is on its way, and check(), for a view the loader cannot see
+ * moving. opts.took() is called after each page, opts.lost(told) when one could
+ * not be had; told: the person was told.
  *
  * Cards laid out otherwise than in a sideways strip come with opts.view:
  *   scroller        the node that holds the cards
@@ -233,6 +235,7 @@
       settle(next === null ? 'done' : 'idle');
       if (next !== null && shown() && near()) load();
       else clearTail();
+      if (opts.took) opts.took();
     }
 
     /* Each card takes the place of what stood after the last one, in order. */
@@ -260,10 +263,12 @@
           if (shown() && near()) load();
           else { settle('idle'); clearTail(); }
         }, BACKOFF_MS[waits++]);
+        if (opts.lost) opts.lost(false);
         return;
       }
       waits = 0;
       settle('failed');
+      if (opts.lost) opts.lost(!!retryButton);
       if (!retryButton) { showFailed(); return; }
       retryButton.removeAttribute('aria-disabled');
       retryButton.setAttribute('aria-busy', 'false');
@@ -335,6 +340,7 @@
       next: function () { return next; },
       more: function () {
         if (state === 'idle') load();
+        return state === 'loading';
       },
       check: schedule
     };

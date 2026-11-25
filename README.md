@@ -63,7 +63,13 @@ Watch plays the Plex libraries mediaman scans. Plex sends the video, converted w
 
 Rest the pointer on a card and it grows into a preview that plays its trailer from youtube-nocookie.com. Play trailers on hover, in the preview's More menu, turns trailers off in that browser.
 
-An admin can do everything, and has the storage meter: what fills the disks, what is scheduled for deletion and what was deleted. A viewer can watch, search and request films and series, see recommendations and Downloads, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password, sign out their other devices and link their Plex account, so what they play in Plex apps shapes their recommendations. With an OpenAI key, the titles each person played are sent to OpenAI, names are not; AI recommendations in Settings turns that off. A viewer has no settings, library tools, history or way to cancel downloads.
+An admin can do everything, and has the storage meter: what fills the disks, what is scheduled for deletion and what was deleted. A viewer can watch, search and request films and series, see recommendations and Downloads, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password, sign out their other devices and link their Plex account, so what they play in Plex apps shapes their recommendations. History shows a viewer only what they did and played; an admin sees everyone's. A viewer has no settings, library tools or way to cancel downloads.
+
+With an OpenAI key, these go to OpenAI, never with a name:
+
+- For recommendations: the titles each person played, the picks they had before and the Plex stars of the server's owner. AI recommendations in Settings turns this off.
+- Unless the person turns off the use of their history: their searches, ratings, requests and how their plays went, for their recommendations, the suggestions in search and the answers there.
+- When someone asks the AI in search: the question, whatever their switch says.
 
 Add a viewer in Settings under Team: Add user, pick Viewer, Create user; they choose their own password at first sign-in. Or from the command line:
 

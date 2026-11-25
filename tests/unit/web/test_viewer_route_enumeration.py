@@ -8,7 +8,12 @@ from __future__ import annotations
 
 import re
 
+import pytest
 from fastapi.routing import iter_route_contexts
+from fastapi.testclient import TestClient
+
+from mediaman.db import set_connection
+from mediaman.main import create_app
 
 #: What a viewer may reach, written out independently of the guard.
 _VIEWER_MAY_REACH = {
@@ -44,11 +49,25 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/watch/explore"),
     ("GET", "/api/watch/person/{person_id}"),
     ("GET", "/api/watch/preview/{ref}"),
+    ("GET", "/api/watch/ratings"),
+    ("PUT", "/api/watch/ratings/{ref}"),
+    ("DELETE", "/api/watch/ratings/{ref}"),
+    ("POST", "/api/watch/ratings/ask/{rating_key}"),
     ("GET", "/search"),
     ("GET", "/api/search"),
     ("GET", "/api/search/discover"),
     ("GET", "/api/search/detail/{media_type}/{tmdb_id}"),
     ("POST", "/api/search/download"),
+    ("GET", "/api/search/assist"),
+    ("POST", "/api/search/assist/searches"),
+    ("DELETE", "/api/search/assist/searches"),
+    ("GET", "/api/search/assist/history"),
+    ("PUT", "/api/search/assist/history"),
+    ("POST", "/api/search/assist/ask"),
+    ("POST", "/api/search/assist/like"),
+    ("GET", "/api/search/assist/runs/{run_id}"),
+    ("DELETE", "/api/search/assist/runs/{run_id}"),
+    ("GET", "/api/search/assist/tonight"),
     ("GET", "/downloads"),
     ("GET", "/api/downloads"),
     ("GET", "/api/download/status"),
@@ -56,6 +75,9 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/recommended"),
     ("POST", "/api/recommended/{recommendation_id}/download"),
     ("GET", "/api/poster/{rating_key}"),
+    ("GET", "/history"),
+    ("GET", "/api/history"),
+    ("GET", "/api/history/menu"),
     ("GET", "/account"),
     ("GET", "/api/account/plex"),
     ("POST", "/api/account/plex"),
@@ -63,10 +85,16 @@ _VIEWER_MAY_REACH = {
     ("POST", "/api/account/plex/check"),
     ("POST", "/api/account/plex/cancel"),
     ("DELETE", "/api/account/plex/notice"),
+    ("GET", "/api/account/avatar"),
+    ("PUT", "/api/account/avatar"),
+    ("DELETE", "/api/account/avatar"),
+    ("PUT", "/api/account/avatar/photo"),
+    ("GET", "/api/avatars/{user_id}"),
     ("POST", "/api/users/change-password"),
     ("PATCH", "/api/users/me/email"),
     ("GET", "/api/users/sessions"),
     ("POST", "/api/users/sessions/revoke-others"),
+    ("DELETE", "/api/users/sessions/{public_id}"),
     ("POST", "/api/auth/reauth"),
     ("GET", "/login"),
     ("POST", "/login"),
@@ -144,3 +172,31 @@ def test_an_admin_reaches_every_route(guarded_app, conn, authed_client):
             blocked.append((method, template, resp.status_code))
 
     assert blocked == []
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "/api/account/avatar",
+        "/api/avatars/",
+        "/api/watch/ratings",
+        "/api/search/assist",
+        "/api/history",
+        "/api/history/menu",
+        "/api/security-events",
+    ],
+)
+def test_a_persons_own_data_is_not_answered_signed_out(conn, prefix):
+    set_connection(conn)
+    app = create_app()
+    client = TestClient(app)
+    routes = [r for r in _routes(app) if r[1].startswith(prefix)]
+    assert routes
+
+    answered = [
+        (method, template)
+        for method, template in routes
+        if client.request(method, _concrete(template), headers=_ORIGIN).status_code != 401
+    ]
+
+    assert answered == []

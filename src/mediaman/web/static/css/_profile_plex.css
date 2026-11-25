@@ -1,7 +1,6 @@
 /* Plex account card of the Profile page. */
 .plex-link p,
-.plex-link li,
-#plex-others p { font-size: 14px; line-height: 1.5; color: var(--t2); max-width: 64ch; }
+.plex-link li { font-size: 14px; line-height: 1.5; color: var(--t2); max-width: 64ch; }
 .plex-link-more { margin-top: 4px; }
 .plex-link-more > summary {
   display: inline-flex; align-items: center; gap: 6px;
@@ -14,26 +13,39 @@
 .plex-link-more > summary::-webkit-details-marker { display: none; }
 .plex-link-more > summary > .ico { color: var(--t3); transition: transform var(--dur) var(--ease-out); }
 .plex-link-more > summary:hover > .ico { color: var(--t1); }
-.plex-link-more[open] > summary > .ico { transform: rotate(180deg); }
+.plex-link-more[open]:not(.is-shutting) > summary > .ico { transform: rotate(180deg); }
 .plex-link-more[open] > .plex-link-terms { animation: plex-panel-in var(--dur) var(--ease-out); }
-.plex-link-terms { margin: 4px 0 12px; padding-left: 18px; list-style: disc; }
+.plex-link-terms { margin: 10px 0 4px; padding-left: 18px; list-style: disc; }
+.plex-link .plex-link-terms li { max-width: none; }
+.plex-link-more > .plex-link-terms { margin-bottom: 0; padding-bottom: 4px; }
 .plex-link-terms li + li { margin-top: 4px; }
-.plex-link .plex-link-fine { font-size: 12px; color: var(--t3); margin-top: 8px; }
+.plex-link .plex-link-fine { font-size: 13px; color: var(--t3); margin-top: 10px; }
+.plex-link-more + .plex-link-fine { margin-top: 0; }
 .plex-link-name { color: var(--t1); font-weight: 600; overflow-wrap: anywhere; }
-.plex-link-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.plex-link-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .plex-link #plex-start, .plex-link #plex-retry { min-width: 12em; }
+.plex-skel { width: 190px; margin: 6px 0; }
+.plex-skel--long { width: 70%; margin: 10px 0 6px; }
+.plex-link .me-end .btn--danger { min-width: 72px; }
+/* Cancel keeps its place before the button it stands beside, so its coming moves nothing. */
+.plex-link-go { flex-direction: row-reverse; }
+@media (min-width: 640px) {
+  .plex-link-go > [hidden] { display: inline-flex !important; visibility: hidden; }
+}
+@media (max-width: 639.98px) {
+  .plex-link-go { flex-direction: row; }
+}
 .plex-link .plex-link-lead { display: flex; align-items: flex-start; gap: 10px; color: var(--t1); }
 .plex-link-lead .btn-spinner { flex: none; width: 14px; height: 14px; margin: 4px 0 0; }
 .plex-link .plex-link-wait { margin-top: 4px; padding-left: 24px; font-size: 13px; color: var(--t3); }
-.plex-link #plex-note { flex: 1 1 5em; align-self: center; margin-top: 0; }
 .plex-link #plex-note:empty { display: none; }
 @media (max-width: 359px) {
   /* Room for Cancel beside it. */
   .plex-link #plex-start, .plex-link #plex-retry { min-width: 143px; padding-inline: 10px; }
   .plex-link #plex-start-stop, .plex-link #plex-retry-stop { padding-inline: 10px; }
 }
-.plex-link .plex-link-done { display: flex; align-items: flex-start; gap: 10px; font-size: 16px; color: var(--t1); }
-.plex-link-done .ico { flex: none; margin-top: 2px; font-size: 20px; color: var(--success); }
+.plex-link .plex-link-done { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; font-size: 15px; color: var(--t1); }
+.plex-link-done .ico { flex: none; font-size: 20px; color: var(--success); }
 .plex-link-done:not([hidden]) .ico { animation: plex-done-in var(--dur-slow) var(--ease-out); }
 .plex-link .plex-link-msg { margin-top: 12px; font-size: 13px; color: var(--danger-text); }
 .plex-link .plex-link-msg:empty { margin-top: 0; }
@@ -47,7 +59,6 @@
   .plex-link-more > summary > .ico { transition: none; }
 }
 .setg-pg .link-danger[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
-#plex-others:focus { outline: none; }
 #plex-moves { margin-top: 8px; color: var(--t1); }
-.plex-link-moved { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--hair-strong); border-radius: var(--r-md); }
+.plex-link-moved { margin-bottom: 14px; padding: 14px 16px; border: 1px solid var(--hair-strong); border-radius: var(--r-md); }
 .plex-link-moved .plex-link-actions { margin-top: 10px; }

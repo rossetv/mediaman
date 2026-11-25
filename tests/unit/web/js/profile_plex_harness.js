@@ -22,9 +22,6 @@ for (const m of template.matchAll(/data-plex-panel="(\w+)"|\bid="([\w-]+)"/g)) {
   if (m[1]) {
     el.setAttribute('data-plex-panel', m[1]);
     panel = card.appendChild(el);
-  } else if (m[2] === 'plex-others') {
-    el.setAttribute('id', m[2]);
-    doc.body.appendChild(el);
   } else if (m[2] !== 'plex-link') {
     el.setAttribute('id', m[2]);
     panel.appendChild(el);
@@ -116,11 +113,9 @@ const flush = async () => {
   for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r));
   for (const t of timers.filter((x) => x.live && x.ms === 100)) {
     t.live = false;
-    const before = ['plex-status', 'plex-others-status'].map((id) => at(id).textContent);
+    const before = at('plex-status').textContent;
     t.fn();
-    ['plex-status', 'plex-others-status'].forEach((id, i) => {
-      if (at(id).textContent !== before[i]) said.push(at(id).textContent);
-    });
+    if (at('plex-status').textContent !== before) said.push(at('plex-status').textContent);
   }
 };
 const press = (fn) => { inPress = true; try { return fn(); } finally { inPress = false; } };
@@ -769,6 +764,35 @@ const scenarios = {
     await tick();
     return { shown: shown(), wait: at('plex-wait').textContent, waits: waits() };
   },
+  async more() {
+    await load(NONE);
+    const more = at('plex-more');
+    const toggle = at('plex-more-toggle');
+    Object.defineProperty(more, 'offsetHeight', { get: () => (more.open ? 175 : 44) });
+    Object.defineProperty(toggle, 'offsetHeight', { get: () => 44 });
+    const ran = [];
+    more.animate = (frames, how) => { const run = { cancel() {} }; ran.push({ from: frames[0].height, to: frames[1].height, ms: how.duration, run }); return run; };
+    const push = () => {
+      let held = false;
+      toggle.listeners.click.forEach((f) => f.call(toggle, { preventDefault() { held = true; } }));
+      return held;
+    };
+    const end = () => ran[ran.length - 1].run.onfinish();
+    const held = push();
+    end();
+    const opened = more.open;
+    push();
+    const shutting = [more.open, more.classList.contains('is-shutting')];
+    push(); // open again before it has shut
+    ran[1].run.onfinish();
+    end();
+    const reopened = [more.open, more.classList.contains('is-shutting')];
+    push();
+    end();
+    const shut = [more.open, more.classList.contains('is-shutting')];
+    calm = true;
+    return { held, opened, shutting, reopened, shut, steps: ran.map((r) => [r.from, r.to, r.ms]), calm: [push(), ran.length] };
+  },
   async unlink() {
     await load({ configured: true, link: { ...LINK, reading: false }, attempt: null });
     answers['DELETE /api/account/plex'] = [{}];
@@ -779,24 +803,6 @@ const scenarios = {
     confirmed = true;
     await click('plex-unlink');
     return { kept, after: shown(), deleted: calls.includes('DELETE /api/account/plex') };
-  },
-  async others() {
-    answers['GET /api/users/plex-links'] = [
-      { links: [BOB, CAT] }, { links: [CAT] }, { links: [] },
-    ];
-    answers['DELETE /api/users/3/plex-link'] = [{}];
-    answers['DELETE /api/users/4/plex-link'] = [{}];
-    await load(NONE);
-    const box = at('plex-others');
-    const name = box.querySelector('.usr-name').textContent;
-    const button = box.querySelector('.link-danger');
-    button.focus();
-    button.listeners.click.forEach((f) => f());
-    await flush();
-    const next = { focus: doc.activeElement.getAttribute('aria-label'), said: said.slice() };
-    box.querySelector('.link-danger').listeners.click.forEach((f) => f());
-    await flush();
-    return { next, focus: doc.activeElement.id, said,  name, label: button.getAttribute('aria-label'), left: box.textContent, deleted: calls.includes('DELETE /api/users/3/plex-link') };
   },
 };
 

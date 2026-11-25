@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
+from mediaman.core.audit import log_audit, security_event
 from mediaman.scanner.repository.audit import (
     AuditRow,
     fetch_media_audit_rows,
@@ -17,6 +19,7 @@ from mediaman.scanner.repository.audit import (
 )
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
+from mediaman.web.repository.history import GROUPS
 from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX, ACTION_BADGE_CLASS
 from mediaman.web.routes.history import router as history_router
 from tests.helpers.factories import insert_audit_log, insert_kept_show, insert_media_item
@@ -493,41 +496,6 @@ def _bodies(html: str) -> list[str]:
 _TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
 
 
-class TestHistoryPillColour:
-    """The pill colour follows the action's badge class, not words in its label."""
-
-    @pytest.mark.parametrize(
-        ("action", "variant"),
-        [
-            ("deleted", "stale"),
-            ("delete_failed_permanent", "stale"),
-            ("delete_root_unavailable", "stale"),
-            ("delete_folders_failed", "stale"),
-            ("delete_awaiting_scan", "neutral"),
-            ("delete_root_available", "neutral"),
-            ("kept", "kept"),
-            ("downloaded", "neutral"),
-            ("scanned", "neutral"),
-            ("sec:login.failed", "neutral"),
-            ("sec:user.deleted", "neutral"),
-            ("some_future_action", "neutral"),
-        ],
-    )
-    def test_pill_variant_comes_from_badge_class(
-        self, app_factory, authed_client, conn, action, variant
-    ):
-        _insert_audit_row(conn, action=action)
-        app = app_factory(
-            history_router,
-            conn=conn,
-            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
-        )
-        resp = authed_client(app, conn).get("/history")
-        assert resp.status_code == 200
-        pills = re.findall(r'<span class="pill pill--(\w+)">', resp.text)
-        assert pills == [variant]
-
-
 class TestMergedKeepFilters:
     def _actions(self, app_factory, authed_client, conn, action):
         if not hasattr(self, "_client"):
@@ -558,21 +526,20 @@ class TestMergedKeepFilters:
             "removed_show_keep"
         }
 
-    def test_pills_show_one_kept_and_one_keep_removed(self, app_factory, authed_client, conn):
+    def test_one_filter_is_offered_for_every_keep(self, app_factory, authed_client, conn):
         app = app_factory(
             history_router,
             conn=conn,
             state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
         )
         html = authed_client(app, conn).get("/history").text
-        assert html.count(">Kept<") == 1
-        assert html.count(">Keep removed<") == 1
+        assert html.count(">Keeps<") == 1
         assert "?action=snoozed" not in html
         assert "?action=removed_show_keep" not in html
 
 
 class TestHistoryFilterButtons:
-    def test_redownloaded_filter_button_is_hyphenated(self, app_factory, authed_client, conn):
+    def test_the_filters_are_the_groups(self, app_factory, authed_client, conn):
         app = app_factory(
             history_router,
             conn=conn,
@@ -580,9 +547,9 @@ class TestHistoryFilterButtons:
         )
         resp = authed_client(app, conn).get("/history")
         assert resp.status_code == 200
-        assert "Re-downloaded" in resp.text
-        assert "Re Downloaded" not in resp.text
-        assert "Delete failed" in resp.text
+        offered = re.findall(r'href="/history\?action=(\w+)"', resp.text)
+        assert offered == list(GROUPS)
+        assert ">Sign-ins<" in resp.text
 
 
 @pytest.mark.parametrize(
@@ -611,27 +578,12 @@ def test_a_library_left_out_is_named_with_what_to_check(
     assert item["badge_class"] == "badge-action-deleted"
 
 
-def test_only_the_line_of_a_library_left_out_may_wrap(app_factory, authed_client, conn):
-    from mediaman.scanner.runner import _audit_left_out
-
-    _audit_left_out(conn, "k", {"1": "Plex failed to answer for it"}, {"1": "Films"})
-    _insert_audit_row(conn)
-    app = app_factory(
-        history_router,
-        conn=conn,
-        state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
-    )
-
-    html = authed_client(app, conn).get("/history").text
-
-    assert html.count('class="hist-msg"') == 1
-    [wrapped] = re.findall(r'class="hist-msg hist-msg--wrap">.*?<b>([^<]*)', html)
-    assert wrapped == "Films"
+def test_what_a_fault_needs_is_not_cut():
+    css = (_TEMPLATE_DIR.parent / "static/css/_history.css").read_text(encoding="utf-8")
+    assert "white-space: normal" in re.search(r"\.hx-l2\.is-bad \{([^}]*)\}", css)[1]
 
 
-def test_a_long_library_name_is_cut_by_itself_and_is_whole_in_the_details(
-    app_factory, authed_client, conn
-):
+def test_a_long_library_name_is_whole_in_the_details(app_factory, authed_client, conn):
     from mediaman.scanner.runner import _audit_left_out
 
     name = "Very long name " * 40
@@ -644,22 +596,15 @@ def test_a_long_library_name_is_cut_by_itself_and_is_whole_in_the_details(
 
     html = authed_client(app, conn).get("/history").text
 
-    cut, hint = re.search(
-        r'<span class="hist-name">(.*?)</span>\s*<span class="hist-type">(.*?)</span>', html
-    ).groups()
-    assert name in cut and "Plex failed" not in cut and "·" not in cut
-    assert hint == "·&nbsp;Plex failed to answer for it"
     assert re.search(rf"<dt>Title</dt><dd>{name}</dd>", html)
-    css = (_TEMPLATE_DIR.parent / "static/css/_history.css").read_text(encoding="utf-8")
-    assert "text-overflow: ellipsis" in re.search(r"\.hist-name b \{([^}]*)\}", css)[1]
-    assert "line-clamp" not in css
+    assert '<span class="hx-l2">Plex failed to answer for it</span>' in html
 
 
 def test_history_delete_root_prefix_matches_the_scanner_writer():
     from mediaman.scanner.deletions import _FOLDER_AUDIT_ID
-    from mediaman.web.routes.history import _DELETE_ROOT_PREFIX
+    from mediaman.web.history_text import DELETE_ROOT_PREFIX
 
-    assert _DELETE_ROOT_PREFIX == _FOLDER_AUDIT_ID
+    assert DELETE_ROOT_PREFIX == _FOLDER_AUDIT_ID
 
 
 class TestScannerAuditTitles:
@@ -718,9 +663,7 @@ class TestHistoryBadgesAndSecurityRows:
         assert resp.status_code == 200
         return resp.text
 
-    def test_keep_rows_are_badged_kept_and_removal_as_keep_removed(
-        self, app_factory, authed_client, conn
-    ):
+    def test_keep_rows_read_kept_and_removal_keep_removed(self, app_factory, authed_client, conn):
         insert_audit_log(
             conn, media_item_id="m1", action="snoozed", detail="Kept for 30 days by admin (a)"
         )
@@ -728,10 +671,9 @@ class TestHistoryBadgesAndSecurityRows:
             conn, media_item_id="m2", action="unprotected", detail="Protection removed by a"
         )
         html = self._page(app_factory, authed_client, conn)
-        assert re.findall(r'<span class="pill pill--(\w+)">\s*([^<]+?)\s*</span>', html) == [
-            ("neutral", "keep removed"),
-            ("kept", "kept"),
-        ]
+        lines = [re.sub(r"<[^>]+>", " ", line) for line in _summaries(html)]
+        assert "keep removed" in lines[0]
+        assert "kept" in lines[1]
 
     def test_security_rows_show_readable_label_and_no_raw_json(
         self, app_factory, authed_client, conn
@@ -768,7 +710,7 @@ class TestHistoryBadgesAndSecurityRows:
 
     def test_filter_pills_use_row_labels(self, app_factory, authed_client, conn):
         html = self._page(app_factory, authed_client, conn)
-        assert ">Keep removed<" in html
+        assert ">Keeps<" in html
         assert "Unprotected" not in html
         assert "Removed Show Keep" not in html
 
@@ -784,73 +726,240 @@ class TestHistoryPageMarkup:
         assert resp.status_code == 200
         return resp.text
 
-    def test_the_pager_names_its_buttons_and_marks_the_current_page(
+    def test_without_the_script_a_link_leads_to_the_earlier_events_under_the_filter(
         self, app_factory, authed_client, conn
     ):
         for i in range(_PER_PAGE_DEFAULT * 2 + 1):
             insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
-        html = self._page(app_factory, authed_client, conn, "?page=2")
-        nav = re.search(
-            r'<nav class="pagination hist-pager" aria-label="([^"]+)">(.*?)</nav>', html, re.S
-        )
-        assert nav
-        buttons = nav.group(2)
-        assert 'aria-label="Previous page"' in buttons
-        assert 'aria-label="Next page"' in buttons
-        assert re.search(r'role="link" aria-current="page"[^>]*>2<', buttons)
-        assert 'aria-label="Page 1"' in buttons
+        html = self._page(app_factory, authed_client, conn, "?action=deleted&page=2&date=week")
+        assert 'rel="next" href="/history?action=deleted&amp;date=week&amp;page=3"' in html
+        assert 'class="hx-newest" href="/history?action=deleted&amp;date=week&amp;page=1"' in html
 
-    def test_a_disabled_arrow_is_a_link_role_so_its_name_and_state_are_read(
-        self, app_factory, authed_client, conn
-    ):
-        for i in range(_PER_PAGE_DEFAULT + 1):
-            insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
+    def test_a_title_cannot_end_the_data_the_script_reads(self, app_factory, authed_client, conn):
+        title = "</script><b>&'"
+        insert_media_item(conn, id="m1", title=title, plex_rating_key="m1")
+        insert_audit_log(conn, media_item_id="m1", action="deleted")
         html = self._page(app_factory, authed_client, conn, "")
-        assert 'role="link" aria-label="Previous page" aria-disabled="true"' in html
-
-    def test_on_a_phone_only_the_arrows_and_the_page_count_remain(
-        self, app_factory, authed_client, conn
-    ):
-        for i in range(_PER_PAGE_DEFAULT * 9):
-            insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
-        html = self._page(app_factory, authed_client, conn, "?page=5")
-        nav = re.search(r'<nav class="pagination hist-pager".*?</nav>', html, re.S)[0]
-        classes = re.findall(r'<(?:a|span)[^>]*class="(page-btn[^"]*)"', nav)
-        shown_on_phone = [c for c in classes if "page-btn--num" not in c]
-        assert [("page-next" in c) for c in shown_on_phone] == [False, True]
-        assert len(classes) > 6  # numbers and an ellipsis are in the page, for wider screens
-        css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
-        assert re.search(
-            r"max-width: 699\.98px\)\s*\{[^@]*\.hist-pager \.page-btn--num \{ display: none", css
+        island = re.search(
+            r'<script type="application/json" id="history-data">(.*?)</script>', html
         )
-
-    def test_pills_by_touch_keep_rows_apart_by_twice_their_reach_band(self):
-        css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
-        block = re.search(
-            r"@media \(pointer: coarse\) and \(min-width: 700px\) \{(.*?)\n\}", css, re.S
-        )[1]
-        band = float(
-            re.search(r"\.hist-filters \.fpill::after \{[^}]*inset: -([\d.]+)px", block)[1]
-        )
-        gap = float(re.search(r"\.pill-row\.hist-filters \{ row-gap: ([\d.]+)px", block)[1])
-        assert gap >= 2 * band
+        assert json.loads(island[1])["items"][0]["line_title"] == title
+        assert "<b>&'" not in html
 
     def test_the_last_row_does_not_double_the_card_border(self):
         css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
         assert re.search(r"\.hist:last-child\s*\{\s*border-bottom:\s*0", css)
 
-    def test_the_event_count_is_styled_as_a_quiet_count(self, app_factory, authed_client, conn):
+    def test_the_events_are_counted(self, app_factory, authed_client, conn):
         insert_audit_log(conn, media_item_id="m1", action="deleted")
         html = self._page(app_factory, authed_client, conn, "")
-        assert 'class="hist-count ' in html
+        assert '<span role="status">1 event</span>' in html
 
-    def test_an_old_link_to_a_show_keep_removal_lights_the_keep_removed_pill(
+    def test_an_old_link_to_a_show_keep_removal_lights_the_keeps_filter(
         self, app_factory, authed_client, conn
     ):
         insert_audit_log(conn, media_item_id="m1", action="deleted")
         html = self._page(app_factory, authed_client, conn, "?action=removed_show_keep")
         assert re.search(
-            r'class="fpill on" href="/history\?action=unkept" aria-current="page"', html
+            r'class="fpill on" href="/history\?action=keeps" aria-current="page"', html
         )
-        assert 'No "keep removed" events on record.' in html
-        assert "removed show keep" not in html
+        assert "No “keep removed” events on record." in html
+        assert '"filterLabel": "keep removed"' in html
+
+
+class TestWhoReadsWhat:
+    """Everyone's rows for an admin; only their own for anyone else."""
+
+    @pytest.fixture
+    def app(self, app_factory, conn):
+        return app_factory(
+            history_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+
+    @pytest.fixture
+    def clients(self, app, conn, authed_client, viewer_client):
+        admin, ana = authed_client(app, conn), viewer_client(app, conn, username="ana")
+        viewer_client(app, conn, username="bob")
+        conn.execute("DELETE FROM audit_log")
+        insert_media_item(conn, id="m1", title="Ana Film", plex_rating_key="m1")
+        insert_media_item(conn, id="m2", title="Bob Film", plex_rating_key="m2")
+        log_audit(conn, "m1", "snoozed", "Kept for 30 days by ana", actor="ana")
+        log_audit(conn, "m2", "snoozed", "Kept for 30 days by bob", actor="bob")
+        security_event(conn, event="login.success", actor="bob", ip="192.0.2.9")
+        conn.execute(
+            "INSERT INTO played_titles (username, media_type, title, played_at)"
+            " VALUES ('bob', 'movie', 'Bob Film', '2026-03-01T12:00:00+00:00')"
+        )
+        conn.commit()
+        return admin, ana
+
+    def _titles(self, client, **params):
+        body = client.get("/api/history", params=params).json()
+        return [i["title"] for i in body["items"]]
+
+    def test_an_admin_reads_everyones_rows_and_plays(self, clients):
+        assert self._titles(clients[0]) == ["Signed in", "Bob Film", "Ana Film", "Bob Film"]
+
+    @pytest.mark.parametrize(
+        "params",
+        [{}, {"user": "bob"}, {"q": "film"}, {"per_page": 1}, {"action": "kept"}, {"page": 1}],
+    )
+    def test_a_viewer_reads_only_their_own(self, clients, params):
+        assert self._titles(clients[1], **params) == ["Ana Film"]
+
+    def test_a_viewers_page_holds_nothing_of_anyone_else(self, clients, conn):
+        other = conn.execute("SELECT id FROM audit_log WHERE actor = 'bob'").fetchone()[0]
+
+        html = clients[1].get(f"/history?event={other}&user=bob").text
+
+        assert "Ana Film" in html
+        assert "Bob Film" not in html
+        assert "bob" not in html
+        assert "192.0.2.9" not in html
+        assert " open>" not in html
+
+    def test_a_viewer_reads_no_stored_record_media_id_or_name_of_another(self, clients, conn):
+        security_event(
+            conn, event="user.created", actor="ana", detail={"new_username": "target-name"}
+        )
+        conn.execute("UPDATE media_items SET plex_rating_key = 'plex-9' WHERE id = 'm1'")
+        conn.commit()
+
+        page, api = clients[1].get("/history").text, clients[1].get("/api/history").text
+
+        island = json.loads(re.search(r'id="history-data">(.*?)</script>', page, re.S)[1])
+        for items in (island["items"], json.loads(api)["items"]):
+            assert [i["title"] for i in items] == ["User created", "Ana Film"]
+            for item in items:
+                shown = {f["key"] for f in item["fields"]}
+                assert shown <= {"who", "when", "event", "address", "title", "space", "id"}
+                values = {f["value"] for f in item["fields"]}
+                assert not {"m1", "plex-9", "snoozed", "sec:user.created"} & values
+        for text in (page, api):
+            assert "target-name" not in text
+            for label in ("Stored record", "Library number", "Plex number", "Recorded as"):
+                assert label not in text
+
+    def test_a_viewers_filters_are_those_of_what_they_can_do(self, clients):
+        own, every = (
+            re.findall(r'href="/history\?action=(\w+)"', c.get("/history").text)
+            for c in reversed(clients)
+        )
+        assert own == ["plays", "downloads", "keeps", "sign_ins"]
+        assert "deletions" in every
+
+    def test_the_security_events_stay_with_admins(self, clients):
+        assert clients[1].get("/api/security-events").status_code == 403
+
+    @pytest.mark.parametrize(
+        ("params", "titles"),
+        [
+            ({"user": "bob", "action": "kept"}, ["Bob Film"]),
+            ({"action": "plays"}, ["Bob Film"]),
+            ({"title": "ana film"}, ["Ana Film"]),
+            ({"q": "ana"}, ["Ana Film"]),
+            ({"until": "2026-03-01"}, ["Bob Film"]),
+            ({"since": "2026-03-02", "action": "plays"}, []),
+        ],
+    )
+    def test_an_admin_searches_and_filters(self, clients, params, titles):
+        assert self._titles(clients[0], **params) == titles
+
+    def test_the_menus_count_everyones_for_an_admin_and_ones_own_for_others(self, clients):
+        def menu(client, name, **params):
+            body = client.get("/api/history/menu", params={"menu": name, **params}).json()
+            return [(o["value"], o["count"]) for o in body["options"]]
+
+        admin, ana = clients
+        assert menu(admin, "user") == [
+            ("admin", 0),
+            ("ana", 1),
+            ("bob", 3),
+            ("~mediaman", 0),
+        ]
+        assert menu(admin, "title", find="film") == [("Bob Film", 2), ("Ana Film", 1)]
+        assert menu(ana, "user", user="bob") == [("ana", 1)]
+        assert menu(ana, "title") == [("Ana Film", 1)]
+        assert menu(ana, "action") == [
+            ("plays", 0),
+            ("downloads", 0),
+            ("keeps", 1),
+            ("sign_ins", 0),
+        ]
+        assert admin.get("/api/history/menu", params={"menu": "x"}).status_code == 422
+
+    def test_a_former_users_rows_say_so_and_wear_no_later_accounts_picture(self, clients, conn):
+        insert_audit_log(
+            conn, action="snoozed", actor="ana", created_at="2020-01-01T00:00:00+00:00"
+        )
+        page = clients[0].get("/history").text
+        assert '"~former:ana"' in page
+        (item,) = clients[0].get("/api/history", params={"user": "~former:ana"}).json()["items"]
+        assert item["who"] == {"value": "~former:ana", "name": "ana", "kind": "former"}
+        assert item["avatar"] is None
+        assert item["fields"][0]["value"] == "ana (no longer has an account)"
+
+    def test_a_former_users_email_is_hidden_wherever_their_name_is_listed(self, clients, conn):
+        insert_audit_log(conn, action="snoozed", actor="gone@mail.example")
+        admin = clients[0]
+        island = re.search(r'id="history-data">(.*?)</script>', admin.get("/history").text, re.S)[1]
+        menu = admin.get("/api/history/menu", params={"menu": "user"}).json()["options"]
+        for people in (json.loads(island)["people"], menu):
+            (former,) = [p for p in people if p["kind"] == "former"]
+            assert former["username"] == "[hidden]"
+        body = admin.get("/api/history", params={"user": former["value"]}).json()
+        assert (body["total"], former["count"]) == (1, 1)
+        assert body["items"][0]["who"]["name"] == "[hidden]"
+
+    def test_the_cursor_leads_on_to_the_end(self, clients):
+        first = clients[0].get("/api/history", params={"per_page": 3}).json()
+        rest = clients[0].get("/api/history", params={"cursor": first["next_cursor"]}).json()
+
+        assert (first["total"], len(first["items"])) == (4, 3)
+        assert len(rest["items"]) == 1
+        assert rest["next_cursor"] is None
+
+    def test_a_cursor_never_made_here_is_refused(self, clients):
+        resp = clients[1].get("/api/history", params={"cursor": "nonsense"})
+        assert (resp.status_code, resp.json()["error"]) == (400, "bad_cursor")
+
+    def test_numbered_pages_follow_each_other_past_the_second(self, clients):
+        seen = [self._titles(clients[0], per_page=1, page=n) for n in range(1, 6)]
+        assert seen == [["Signed in"], ["Bob Film"], ["Ana Film"], ["Bob Film"], []]
+
+    def test_a_far_page_starts_where_the_one_before_it_ended(self, clients, conn):
+        conn.executemany(
+            "INSERT INTO audit_log (media_item_id, action, created_at)"
+            " VALUES ('m1', 'deleted', '2026-04-01T12:00:00+00:00')",
+            [()] * 301,
+        )
+        conn.commit()
+        params = {"action": "deleted", "per_page": 100, "page": 4}
+        assert self._titles(clients[0], **params) == ["Ana Film"]
+
+    def test_an_event_is_found_on_its_page_among_others_of_its_moment(self, clients, conn):
+        for _ in range(3):
+            insert_audit_log(
+                conn, media_item_id="m1", action="deleted", created_at="2026-04-01T12:00:00+00:00"
+            )
+        for [event_id] in conn.execute("SELECT id FROM audit_log").fetchall():
+            body = clients[0].get("/api/history", params={"event": event_id, "per_page": 1}).json()
+            assert body["open_id"] == event_id
+            assert [i["id"] for i in body["items"]] == [event_id]
+
+    def test_an_event_the_filter_hides_is_not_opened(self, clients, conn):
+        [kept] = conn.execute("SELECT id FROM audit_log WHERE actor = 'ana'").fetchone()
+        params = {"event": kept, "action": "plays"}
+        assert clients[0].get("/api/history", params=params).json()["open_id"] is None
+
+    def test_an_account_has_its_avatar_and_a_name_typed_at_sign_in_has_none(self, clients, conn):
+        security_event(conn, event="login.failed", actor="bob")
+        failed, signed_in = clients[0].get("/api/history").json()["items"][:2]
+        assert failed["avatar"] is None
+        assert signed_in["avatar"]
+
+    def test_one_device_signed_out_has_its_label(self, clients, conn):
+        security_event(conn, event="session.revoke_one", actor="ana")
+        assert self._titles(clients[1])[0] == "Device signed out"

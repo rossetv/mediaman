@@ -9,7 +9,9 @@ import pytest
 from fastapi.templating import Jinja2Templates
 
 from mediaman.app_factory import _TEMPLATE_DIR
+from mediaman.services.avatars import drawn
 from mediaman.web.auth.reauth import grant_recent_reauth
+from mediaman.web.repository import avatars
 from mediaman.web.routes.account import router as account_router
 from mediaman.web.routes.settings import router as settings_router
 
@@ -123,10 +125,13 @@ def test_what_the_ai_service_and_admins_get_is_in_sight_before_linking(
     app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
     html = authed_client(app, conn).get("/account").text
 
-    panel = html.split('data-plex-panel="unlinked"')[1].split('id="plex-start"')[0]
+    panel = html.split('data-plex-panel="unlinked"')[1].split("data-plex-panel")[0]
     in_sight = re.sub(r"<details.*?</details>", "", panel, flags=re.S)
     assert "AI service" in in_sight
     assert "Admins can see" in in_sight
+    # said with the button too, which comes first
+    terms = re.search(r'id="plex-start" aria-describedby="([\w-]+)"', panel)
+    assert terms and "AI service" in panel.split(f'id="{terms[1]}"')[1].split("</ul>")[0]
     assert panel.count("AI service") == panel.count("Admins can see") == 1
 
 
@@ -160,3 +165,32 @@ def test_what_the_plex_card_waits_for_is_announced(app_factory, authed_client, c
     html = authed_client(app, conn).get("/account").text
 
     assert re.search(r'<p [^>]*id="plex-wait"[^>]*aria-live="polite"', html)
+
+
+def test_the_page_shows_the_person_s_own_picture_and_the_ten_to_pick_from(
+    app_factory, authed_client, conn
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    client = authed_client(app, conn)
+    user_id = conn.execute("SELECT id FROM admin_users").fetchone()["id"]
+
+    def shown() -> tuple[str, str, bool]:
+        html = client.get("/account").text
+        head = re.search(r'id="pic-open".*?<img src="([^"]+)"', html, re.S)
+        dialog = re.search(r'<div[^>]*id="pic-dialog"[^>]*>', html)
+        choice = re.search(r'data-choice="(\d*)"', dialog[0])
+        assert len(re.findall(r'type="radio" name="picture"', html)) == drawn.COUNT
+        assert f'data-default="{drawn.default_choice(user_id)}"' in dialog[0]
+        return head[1], choice[1], "data-photo" in dialog[0]
+
+    assert shown() == (drawn.url(drawn.default_choice(user_id)), "", False)
+    avatars.set_drawn(conn, user_id, 3)
+    assert shown() == (drawn.url(3), "3", False)
+    avatars.set_upload(conn, user_id, "0123456789abcdef.png")
+    assert shown() == (f"/api/avatars/{user_id}?v=0123456789ab", "", True)
+
+
+def test_other_peoples_plex_links_are_not_on_an_admins_profile(app_factory, authed_client, conn):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+
+    assert "Linked Plex accounts" not in authed_client(app, conn).get("/account").text

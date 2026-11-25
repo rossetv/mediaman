@@ -31,7 +31,6 @@ class TestMeter:
         assert out["askedBeforeLoad"] == 0
         assert out["asked"] == ["/api/dashboard/stats"]
         assert out["text"] == "1.4 TB free3 leaving"
-        assert out["phone"].startswith("1.4 TB free")
         assert out["label"] == ("Storage: 1.4 TB free of 8 TB. 3 titles scheduled for deletion")
         assert out["busy"] is False
 
@@ -683,9 +682,9 @@ class TestScan:
         self, end, said, look
     ):
         out = _run("scanEndsClosed")[end]
-        assert out["during"] == {"busy": ["true", "true"], "says": True}
+        assert out["during"] == {"busy": ["true"], "says": True}
         assert out["toasts"] == [[said, look]]
-        assert (out["busy"], out["says"]) == ([None, None], False)
+        assert (out["busy"], out["says"]) == ([None], False)
 
 
 class TestDeleted:

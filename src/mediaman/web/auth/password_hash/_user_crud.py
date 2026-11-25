@@ -22,6 +22,7 @@ import bcrypt
 
 from mediaman.core.time import now_iso
 from mediaman.scanner.repository.watch_credit import keep_credited_plays
+from mediaman.services.avatars import files as avatar_files
 from mediaman.web.auth._password_hash_helpers import (
     BCRYPT_ROUNDS,
     _LastUser,
@@ -29,6 +30,7 @@ from mediaman.web.auth._password_hash_helpers import (
     _sanitise_log_field,
 )
 from mediaman.web.auth.login_lockout import admin_unlock
+from mediaman.web.repository.avatars import get_avatar
 
 logger = logging.getLogger(__name__)
 
@@ -397,6 +399,7 @@ def delete_user(
                 "UPDATE download_notifications SET username = NULL WHERE username = ?",
                 (target_username,),
             )
+            photo = get_avatar(conn, user_id).file_name
             cursor = conn.execute(
                 "DELETE FROM admin_users WHERE id = ? AND (role != 'admin' "
                 "OR (SELECT COUNT(*) FROM admin_users WHERE role = 'admin') > 1)",
@@ -416,6 +419,8 @@ def delete_user(
                 )
     except _LastUser:
         return False
+    if photo is not None:
+        avatar_files.remove(avatar_files.folder(conn), photo)
     # Best-effort cleanup of any reauth tickets the deleted user held —
     # done outside the transaction so a tickets-table hiccup never
     # blocks a successful delete.

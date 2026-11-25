@@ -4,6 +4,7 @@ node against a fake DOM."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -512,8 +513,12 @@ def test_a_persons_story_is_cut_only_once_it_has_closed() -> None:
     assert _run("storyCloses") == [[True, False], [False, True], [True, False], [False, False]]
 
 
-def test_only_a_name_with_a_long_word_takes_room_from_its_posters() -> None:
-    assert _run("longName") == [["Documentary", True], ["Science Fiction", False]]
+def test_every_category_has_its_own_drawing_and_no_picture() -> None:
+    tiles = _run("categoryTiles")
+    assert [t[:3] for t in tiles] == [
+        [name, 0, "watch-line"] for name in ("Action", "War", "Made up")
+    ]
+    assert len({t[3] for t in tiles}) == 3
 
 
 def test_people_lead_where_no_title_matches() -> None:
@@ -917,3 +922,91 @@ def test_a_filter_whose_titles_could_not_be_had_is_asked_for_once() -> None:
     assert out["filter"] == ["Too many requests, trying again shortly.", 2, [5000]]
     assert out["changed"] == []
     assert out["broken"] == ["Couldn’t load the titles.", 3, []]
+
+
+def test_the_field_s_line_goes_on_the_way_down_and_comes_back_on_the_way_up() -> None:
+    out = _run("barTucks")
+    # 0, 60, 300, then up by too little to mean it until it adds up, up, and at the top.
+    assert out["out"] == [False, False, True, True, True, False, False, False, True]
+    assert (out["focused"], out["again"]) == (False, ["down", True])
+    assert out["wide"] == [False, False]
+
+
+def test_over_see_all_the_field_s_line_comes_back_at_the_top_alone() -> None:
+    assert _run("barTucksOverSeeAll") == [False, True, True, True, False]
+
+
+def test_the_open_sheet_keeps_the_field_s_line() -> None:
+    assert _run("barSheetHolds") == [True, False, False]
+
+
+def test_the_bar_s_elements_stand_in_the_order_they_are_read_at_every_width() -> None:
+    out = _run("barOrder")
+    wide = ["nav-links", "search", "watch-sheet", "meter", "watch-viewtoggle", "profile"]
+    assert out["out"] == [
+        wide,
+        ["nav-links", "meter", "watch-viewtoggle", "profile", "search", "watch-sheet"],
+        ["nav-links", "meter", "profile", "search", "watch-sheet", "watch-viewtoggle"],
+    ]
+    assert (out["back"], out["focused"]) == (wide, True)
+
+
+def test_the_meter_makes_room_only_where_the_open_field_would_cover_it() -> None:
+    out = _run("barMakesRoom")
+    assert out["covered"] == [False, True, False]
+    for free in ("clear", "narrow"):
+        assert out[free] == [False, False, False]
+    # Its words came while the field was open.
+    assert out["grows"] == [False, False, True, False]
+
+
+def test_what_the_open_field_covers_comes_back_with_the_focus() -> None:
+    out = _run("barGivesBack")
+    assert out["wide"] == [[True, True], [False, False], [True, True]]
+    assert out["phone"] == [[True, False], [False, False], [True, False]]
+    # Nothing covers the switch there.
+    assert out["clear"] == [[True, True], [True, True], [True, True]]
+
+
+def test_what_the_open_field_covers_can_have_the_focus() -> None:
+    sheet = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_search.css"
+    rules = re.findall(r"([^{}]*(?:space-meter|viewtoggle)) \{([^}]*)\}", sheet.read_text())
+    hidden = [body for _, body in rules if "opacity: 0" in body]
+    assert hidden
+    for body in hidden:
+        assert "pointer-events: none" in body and "visibility" not in body
+
+
+def test_the_field_stays_between_the_links_and_the_meter_which_drops_its_words_for_it() -> None:
+    assert _run("barBetween") == [
+        ["312px", "878px", False],
+        ["522px", "638px", True],
+        ["522px", "798px", True],
+        [False],
+    ]
+
+
+def test_a_phone_s_meter_drops_a_figure_that_would_be_cut() -> None:
+    assert _run("barCutFigure") == [False, True]
+
+
+def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
+    out = _run("slashKeepsThePlace")
+    assert out == {"sticky": [400, True], "gone": [0, True]}
+
+
+def test_what_the_bar_covers_is_one_line_once_the_field_s_is_away() -> None:
+    assert _run("barCovers") == [106, 52]
+
+
+def test_nothing_leaves_the_field_s_line_over_the_header_of_see_all() -> None:
+    out = _run("barLeavesSeeAllFree")
+    assert (out.pop("focused"), out.pop("rows")) == (False, False)
+    assert out == {"left": True, "turned": True, "forward": True, "opened": True}
+
+
+def test_the_field_s_line_goes_only_for_more_than_six_pixels_and_once_a_frame() -> None:
+    out = _run("barTucksOnPurpose")
+    # Far down, back up, then by 1, 6 and 7 in all.
+    assert out["out"] == [True, False, False, False, True]
+    assert (out["frames"], out["after"]) == (1, True)

@@ -1,29 +1,121 @@
 /* Profile page. */
-.profile-plex:has(.setg-card) { margin-top: 24px; }
-.profile-sessions { list-style: none; font-size: 14px; color: var(--t2); }
-.profile-sessions li { padding: 12px 0; border-bottom: 1px solid var(--hair); }
-.profile-sessions li:first-child { padding-top: 0; }
-.profile-sessions li:last-child { border-bottom: 0; }
-.profile-session-when {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
-  color: var(--t1); font-weight: 500;
+.setg-pg.profile-pg .container { max-width: calc(720px + 2 * var(--pad)); }
+/* Below 700px the bottom bar's own room does this. */
+@media (min-width: 700px) {
+  .setg-pg.profile-pg .container { padding-bottom: 72px; }
 }
-.profile-session-here {
+
+.me-head { display: flex; align-items: center; gap: 24px; padding: 48px 0 36px; }
+.me-pic { position: relative; flex: none; border-radius: 50%; }
+.me-pic .avatar { position: relative; overflow: hidden; width: 104px; height: 104px; }
+.me-pic .avatar::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: var(--scrim); opacity: 0;
+  transition: opacity var(--dur) var(--ease-out);
+}
+.me-pic:hover .avatar::after { opacity: .25; }
+.me-pic:focus-visible { border-radius: 50%; outline-offset: 4px; }
+.me-pic-badge {
+  position: absolute; right: 0; bottom: 0;
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border-radius: 50%; border: 3px solid var(--bg);
+  background: var(--s4); color: var(--t1); font-size: 13px;
+  transition: background var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.me-pic:hover .me-pic-badge { background: var(--accent-cta); transform: scale(1.06); }
+.me-id { min-width: 0; }
+.me-id h1 { font-size: clamp(28px, 4.4vw, 38px); letter-spacing: -.03em; line-height: 1.1; overflow-wrap: anywhere; text-wrap: balance; }
+.me-role { margin-top: 8px; font-size: 14px; color: var(--t2); }
+
+.me-sec { margin-top: 32px; }
+.me-sec:first-of-type { margin-top: 0; }
+.me-sec:focus { outline: none; }
+.me-sec > h2 { font-family: var(--font-text); font-size: 15px; letter-spacing: -.01em; margin: 0 0 10px 4px; }
+.me-card { background: var(--s1); border: 1px solid var(--hair); border-radius: var(--r-lg); padding: 0 20px; }
+.me-row { padding: 16px 0; border-bottom: 1px solid var(--hair); }
+.me-row:last-child { border-bottom: 0; }
+.me-line { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; min-height: 40px; }
+/* What stands beside the words goes under them where they would have a few letters a line. */
+.me-txt { flex: 1 1 8.5em; min-width: 0; }
+.me-lbl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 14px; font-weight: 500; letter-spacing: -.005em; overflow-wrap: anywhere; }
+.me-sub { font-size: 13px; line-height: 1.45; color: var(--t3); margin-top: 2px; overflow-wrap: anywhere; }
+.me-end { flex: none; max-width: 100%; margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.me-end .inp { width: 300px; }
+.profile-pg .inp[aria-invalid="true"] { border-color: var(--danger-text); }
+.me-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.me-acts--end { justify-content: flex-end; padding-top: 10px; }
+/* Under the field, whose width it has; brought into view it brings the buttons below it. */
+.me-msg { font-size: 13px; line-height: 1.4; color: var(--t3); scroll-margin-bottom: 20px; }
+.me-msg:not(:empty) { animation: fade-in var(--dur) var(--ease-out); }
+.me-msg.ok { color: var(--success); }
+.me-msg.err { color: var(--danger-text); }
+.me-msg ul { margin: 6px 0 0 16px; font-size: 12px; }
+.me-acts--end .me-msg { flex: 0 0 100%; padding-left: calc(100% - 300px); }
+/* Out of the layout while empty but kept in the tree, or its first words are not announced. */
+.me-msg:empty { position: absolute; }
+
+.setg-pg.profile-pg .setg-fold { scroll-margin-block: 80px 24px; }
+/* Clipped at all times, so nothing shows outside while it folds, with room for the focus rings. */
+.setg-pg.profile-pg .setg-fold-inner,
+.setg-pg.profile-pg .setg-fold.is-moving > .setg-fold-inner { overflow: clip; padding-inline: 6px; margin-inline: -6px; }
+#account-email-fold { margin-bottom: -6px; }
+.me-acts--end { padding-bottom: 6px; }
+#account-open-password { transition: opacity var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+#account-open-password.is-gone { opacity: 0; visibility: hidden; }
+.me-pw-in { display: grid; gap: 16px; max-width: 400px; padding: 14px 0 6px; }
+.setg-pg .me-pw .fld { gap: 5px; }
+.setg-pg .me-pw .fld-lbl { font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.setg-pg .me-pw .fld-why { min-height: 1.1em; }
+.setg-pg .me-pw .fld-why--caption:empty { min-height: 0; margin-top: -5px; }
+
+.dev-list { list-style: none; }
+.dev-list:focus { outline: none; }
+.dev { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--hair); }
+.dev.is-leaving {
+  overflow: hidden; pointer-events: none;
+  opacity: 0; padding-block: 0; border-bottom-width: 0;
+  transition: height var(--dur-slow) var(--ease-out), padding var(--dur-slow) var(--ease-out),
+              border-width var(--dur-slow) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+.dev--note { font-size: 14px; color: var(--t2); }
+.dev-ico { flex: none; width: 38px; height: 38px; display: grid; place-items: center; border-radius: var(--r-md); background: var(--s3); color: var(--t2); }
+.dev-ico .ico { width: 20px; height: 20px; }
+.dev.here .dev-ico { background: var(--rgba-accent-bg); color: var(--accent-text); }
+.dev-here {
   padding: 2px 8px; border-radius: var(--r-pill);
   background: var(--rgba-accent-bg); color: var(--accent);
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
-.profile-session-used { font-size: 12px; color: var(--t3); margin-top: 3px; }
-/* The card is frame enough for the one form in it. */
-.setg-pg.profile-pg .inline-form { margin: 0; padding: 0; background: none; border: 0; border-radius: 0; }
-/* Beside the button, where two lines fit without moving what is below. Brought into view, it
-   brings the rest of the button, taller than one line of it, and its focus ring. */
-.setg-pg.profile-pg .inline-form-actions .inline-form-msg { flex: 1 1 8em; min-height: 0; scroll-margin-bottom: 20px; }
-.setg-pg.profile-pg .inline-form-actions .inline-form-msg:has(ul) { flex-basis: 100%; }
-.profile-why { flex: 1 1 8em; font-size: 13px; line-height: 1.4; color: var(--t3); }
-.profile-why:not([hidden]) + .inline-form-msg:empty { display: none; }
-.setg-pg .usr-self-head .avatar { width: 44px; height: 44px; font-size: 15px; }
-/* Below 700px the bottom bar's own room does this. */
-@media (min-width: 700px) {
-  .setg-pg.profile-pg .container { padding-bottom: 64px; }
+.dev-sub { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.dev-date { white-space: nowrap; }
+.dev .btn { flex: none; min-width: 84px; margin-left: auto; }
+.dev .btn-spinner { margin-right: 0; }
+.dev-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 0; }
+.dev-skel { width: 150px; height: 12px; border-radius: var(--r-xxs); background: var(--s3); animation: loading-pulse 1.6s ease-in-out infinite; }
+.dev-skel--long { width: 220px; max-width: 90%; margin-top: 9px; }
+
+@media (max-width: 639.98px) {
+  .me-head { gap: 18px; padding: 28px 0; }
+  .me-pic .avatar { width: 84px; height: 84px; }
+  .me-id h1 { font-size: 26px; }
+  .me-sec { margin-top: 28px; }
+  .me-card { padding: 0 16px; }
+  .me-line--stack { flex-flow: column nowrap; align-items: stretch; }
+  .me-line--stack .me-end { margin-left: 0; }
+  .me-line--stack .me-txt { flex: none; }
+  .me-line--stack .me-end .inp { width: 100%; }
+  .me-acts--end .btn { flex: 1; }
+  .me-acts--end .me-msg { padding-left: 0; }
+  .dev { gap: 12px; }
+  .dev .btn { min-width: 0; padding: 0 12px; }
+}
+@media (max-width: 359px) {
+  .me-head { flex-direction: column; align-items: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .me-pic:hover .me-pic-badge { transform: none; }
+}
+@media (forced-colors: active) {
+  .me-pic-badge, .dev-ico, .dev-here { border: 1px solid CanvasText; }
 }

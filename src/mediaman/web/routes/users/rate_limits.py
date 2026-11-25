@@ -27,8 +27,8 @@ anywhere and a per-actor bucket alone does not cover that fan-out.
 _SESSIONS_LIST_LIMITER: per-actor cap (30/min) on GET /api/users/sessions, so a cookie thief
 cannot poll it to detect the moment the legitimate user signs in.
 
-_SESSIONS_REVOKE_LIMITER: per-actor cap (10/min) on POST /api/users/sessions/revoke-others,
-which writes sessions and an audit row on each call.
+_SESSIONS_REVOKE_LIMITER: per-actor cap (10/min) on POST /api/users/sessions/revoke-others and
+DELETE /api/users/sessions/{public_id} together, which write sessions and an audit row.
 """
 
 from __future__ import annotations

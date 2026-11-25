@@ -5,11 +5,12 @@ persisted and validated" concern; password hashing lives in
 `mediaman.web.auth.password_hash`.
 
 The public surface — ``create_session``,
-``validate_session``, ``destroy_session``, ``destroy_all_sessions_for``,
+``validate_session``, ``destroy_session``, ``end_other_session``,
+``destroy_all_sessions_for``,
 ``list_sessions_for`` and the `SessionMetadata` projection — plus
 the constants tests read directly (``_SESSION_TOKEN_RE``,
 ``_HARD_EXPIRY_DAYS``) stay in this barrel. The private helpers live in
-two responsibility modules:
+three responsibility modules:
 
 * `._writes` — the write-transaction helpers (``_exec_with_commit``,
   ``_delete_session_with_commit``, ``_refresh_last_used_with_commit``,
@@ -18,6 +19,7 @@ two responsibility modules:
   (``_fetch_session_row``, ``_idle_expired``, ``_fingerprint_mismatch``,
   ``_maybe_refresh_last_used``, ``_maybe_sweep_expired``) and the
   process-wide expired-row-sweep throttle state.
+* `._device` — ``device_label``, the browser and system named by a User-Agent.
 
 Every module binds its ``logger`` to ``mediaman.web.auth.session_store``
 so the package reads as one logging unit.
@@ -38,9 +40,10 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
 import sqlite3
 from datetime import datetime, timedelta
-from typing import TypedDict, cast
+from typing import Literal, TypedDict, cast
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.crypto import generate_session_token
@@ -50,6 +53,7 @@ from mediaman.web.auth._session_fingerprint import (
     _fingerprint_mode,
 )
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
+from mediaman.web.auth.session_store._device import device_label
 from mediaman.web.auth.session_store._validate import (
     _fetch_session_row,
     _fingerprint_mismatch,
@@ -128,8 +132,8 @@ def create_session(
         conn.execute(
             "INSERT INTO admin_sessions "
             "(token, token_hash, username, created_at, expires_at, last_used_at, "
-            " fingerprint, issued_ip) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " fingerprint, issued_ip, device_label, public_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 token_hash,
                 token_hash,
@@ -139,6 +143,8 @@ def create_session(
                 now_iso,
                 fingerprint,
                 client_ip or "",
+                device_label(user_agent),
+                secrets.token_hex(16),
             ),
         )
     logger.info("session.created user=%s ip=%s", _sanitise_log_field(username), client_ip or "-")
@@ -277,6 +283,49 @@ def destroy_session(
     logger.info("session.destroyed user=%s ip=%s", _sanitise_log_field(username or "-"), ip or "-")
 
 
+def end_other_session(
+    conn: sqlite3.Connection,
+    username: str,
+    public_id: str,
+    *,
+    current_token: str,
+    ip: str = "",
+) -> Literal["ended", "current", "unknown"]:
+    """End *username*'s session *public_id*, with its reauth ticket and an audit row.
+
+    Never the session of *current_token*. A session that has gone already and one of another
+    person are both ``unknown``. The audit row is written in the same transaction, as in
+    `destroy_session`.
+    """
+    # Local import to avoid the session_store -> reauth -> session
+    # cycle at module load.
+    from mediaman.core.audit import security_event_or_raise
+    from mediaman.web.auth.reauth import revoke_reauth_by_hash_in_tx
+
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT token_hash, device_label FROM admin_sessions"
+            " WHERE public_id = ? AND username = ?",
+            (public_id, username),
+        ).fetchone()
+        if row is None:
+            return "unknown"
+        if row["token_hash"] == _hash_token(current_token):
+            return "current"
+        conn.execute("DELETE FROM admin_sessions WHERE public_id = ?", (public_id,))
+        revoke_reauth_by_hash_in_tx(conn, row["token_hash"])
+        security_event_or_raise(
+            conn,
+            event="session.revoke_one",
+            actor=username,
+            ip=ip,
+            detail={"device": row["device_label"]} if row["device_label"] else None,
+        )
+    logger.info("session.revoke_one user=%s ip=%s", _sanitise_log_field(username), ip or "-")
+    return "ended"
+
+
 def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
     """Delete every session belonging to *username*. Returns rows affected.
 
@@ -333,6 +382,11 @@ class SessionMetadata(TypedDict):
         client context was available at creation time.
     current:
         Whether this is the session of the token the list was asked for with.
+    device_label:
+        Browser and system at sign-in, such as ``Safari on iPhone``; None for
+        older rows.
+    public_id:
+        Random id the owner may end the session by; never the token or its hash.
     """
 
     created_at: str | None
@@ -341,6 +395,8 @@ class SessionMetadata(TypedDict):
     issued_ip: str | None
     fingerprint: str | None
     current: bool
+    device_label: str | None
+    public_id: str | None
 
 
 def list_sessions_for(
@@ -348,7 +404,8 @@ def list_sessions_for(
 ) -> list[SessionMetadata]:
     current_hash = _hash_token(current_token) if current_token else None
     rows = conn.execute(
-        "SELECT created_at, expires_at, last_used_at, issued_ip, fingerprint, token_hash "
+        "SELECT created_at, expires_at, last_used_at, issued_ip, fingerprint, token_hash, "
+        "device_label, public_id "
         "FROM admin_sessions WHERE username = ? ORDER BY created_at DESC",
         (username,),
     ).fetchall()
@@ -365,6 +422,8 @@ def list_sessions_for(
             issued_ip=r["issued_ip"],
             fingerprint=r["fingerprint"],
             current=current_hash is not None and r["token_hash"] == current_hash,
+            device_label=r["device_label"],
+            public_id=r["public_id"],
         )
         for r in rows
     ]
