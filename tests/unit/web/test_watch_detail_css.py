@@ -34,7 +34,52 @@ def _of(selector: str, media: str | None = None) -> str:
 
 def test_a_phone_shows_which_episodes_are_watched_or_in_progress() -> None:
     assert "display: none" not in _of(".ttl .watch-ep__state", PHONE)
-    assert '". thumb state"' in _of(".ttl .watch-ep", PHONE)
+    assert "display: none" not in _of(".watch-ep__tick", PHONE)
+
+
+def test_a_phone_gives_an_episodes_description_the_width_under_its_picture() -> None:
+    assert '"about about about"' in _of(".ttl .watch-ep", PHONE)
+
+
+def test_a_cut_off_description_opens_by_more_with_every_pointer_and_by_nothing_else() -> None:
+    assert "display: none" in _of(".ttl-more")
+    assert "display: block" in _of(".watch-eprow:has(> .watch-ep.is-long) > .ttl-more")
+    opens = [
+        selector
+        for media in (None, "hover")
+        for selectors, body in _rules(media)
+        for selector in selectors
+        if ".ttl-clamp" in selector and "max-height: var(--full" in body
+    ]
+    assert opens == [".is-open > .ttl-clamp", ".is-open > .watch-ep > .ttl-clamp"]
+
+
+def test_a_text_that_closes_is_not_masked_under_its_second_line() -> None:
+    assert "0 2.9em / 100% calc(100% - 2.9em)" in _of(".is-long > .ttl-clamp")
+    assert "mask: none" not in _of(".is-open > .watch-ep > .ttl-clamp")
+    assert "--ttl-tail" in _of(".ttl-clamp").partition("transition:")[2]
+
+
+def test_what_stands_in_for_a_season_stands_where_its_parts_do() -> None:
+    assert "grid-row: 3" in _of(".ttl__season > .watch-episodes")
+    assert "grid-area: 3 / 1" in _of(".ttl__season > .ttl-epskels")
+
+
+def test_a_season_pill_changes_its_words_half_way_through_its_ground() -> None:
+    assert "color 0s calc(var(--dur-fast) / 2)" in _of(".ttl .watch-pill")
+
+
+def test_the_buttons_of_a_title_held_never_stand_beside_the_thumbs_below_820() -> None:
+    thumbs = ".ttl__main > :is(.rate"
+    assert not any(h.startswith(thumbs) for hs, _ in _rules("(min-width: 700px)") for h in hs)
+    assert any(h.startswith(thumbs) for hs, _ in _rules("(min-width: 820px)") for h in hs)
+
+
+def test_a_phone_has_the_collections_button_on_its_headings_line() -> None:
+    css = (STYLES / "_watch_collection.css").read_text(encoding="utf-8")
+    phone = css.partition(f"@media {PHONE}")[2].partition("/* ── The dialog")[0]
+    assert "grid-template-columns: minmax(0, 1fr) auto" in phone
+    assert ".coll__get-full { display: none; }" in phone
 
 
 def test_a_long_season_name_wraps_inside_its_chip() -> None:
@@ -117,6 +162,16 @@ def test_a_button_s_label_never_wraps_on_a_phone() -> None:
     assert "white-space" not in _of(".ttl__actions .watch-mark-btn", PHONE)
 
 
+def test_the_thumbs_stand_out_of_the_flow_so_their_words_move_nothing() -> None:
+    wide = {", ".join(heads): body for heads, body in _rules("(min-width: 820px)")}
+    thumbs = wide[".ttl__main > :is(.rate, .ttl__rate-skel)"]
+    beside = ":is(.ttl__actions, .ttl__under, .ttl__ratings)"
+    room = wide[f".ttl__main:has(> :is(.rate, .ttl__rate-skel)) > {beside}"]
+    assert "position: absolute" in thumbs
+    held, kept = (int(re.findall(r"(?:width|right): ([1-9]\d*)px", b)[0]) for b in (thumbs, room))
+    assert kept > held
+
+
 def test_the_facts_labels_take_the_room_there_is_where_the_panel_is_wide() -> None:
     wide = "(min-width: 360px) and (max-width: 899.98px)"
     assert "grid-template-columns: max-content" in _of(".ttl-facts__list", wide)
@@ -153,3 +208,15 @@ def test_the_ratings_still_to_come_hold_one_line() -> None:
     line = _of(".ttl__ratings-wait")
     assert "height: calc(1lh + 8px)" in line
     assert "overflow: hidden" in line
+
+
+def test_keep_has_the_room_beside_a_shows_wider_words_and_a_films_row_stays_as_it_is() -> None:
+    row = ".ttl__actions:has(> .ttl__play-on)"
+    wide = "(min-width: 700px)"
+    films = [s for selectors, body in _rules(wide) if "max-width: 500px" in body for s in selectors]
+    shows = [s for selectors, body in _rules(wide) if "max-width: 530px" in body for s in selectors]
+    assert films and not any("show" in s for s in films)
+    assert shows == [
+        f'{row}:has(> .watch-btn--keep):has(> [data-mark-toggle^="show/"])',
+        f"{row}:has(> .ttl__keep-skel--show)",
+    ]

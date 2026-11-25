@@ -61,6 +61,8 @@
     });
   }
 
+  function continues(ref) { return continueCards(document, ref).length > 0; }
+
   /* The row of *root* that Continue watching is in. */
   function continueRow(root) {
     var card = toArray(root.querySelectorAll('.watch-card[data-dismiss-ref]'))
@@ -230,8 +232,13 @@
   /* An Undo puts the old nodes back only where they still belong: what another
      change has replaced or taken out since is drawn from the server's page. */
 
+  function tellContinue(ref) {
+    document.dispatchEvent(new CustomEvent('mm:watch-continue', { detail: { ref: ref } }));
+  }
+
   function leaveContinue(ref, done) {
-    continueCards(document, ref).forEach(function (card) {
+    var cards = continueCards(document, ref);
+    cards.forEach(function (card) {
       closeMenu(card);
       var lost = focusLost(card);
       var row = card.closest('.watch-row');
@@ -250,6 +257,7 @@
       // From the banner, the one that takes its place gets the focus.
       if (lost && taken.focus && !done.fromBanner) core.focusSoftly(taken.focus);
     });
+    if (cards.length) tellContinue(ref);
   }
 
   /* The card moves on to what the server now has in its place. */
@@ -288,6 +296,7 @@
     core.fadeIn(fresh);
     var grid = window.MMWatch.grid;
     if (grid && grid.bring) grid.bring(row ? fresh : continueCards(fresh, now.getAttribute('data-dismiss-ref'))[0]);
+    tellContinue(now.getAttribute('data-dismiss-ref'));
   }
 
   function playOf(banner) { return banner.querySelector('.watch-btn--play').getAttribute('href'); }
@@ -540,6 +549,7 @@
   function putBack(ref, done, part) {
     changes += 1;
     done.undos.splice(0).reverse().forEach(function (fn) { fn(); });
+    if (done.rows) tellContinue(ref);
     if (focusLost(null)) refocus(controlOf(ref, done, !done.rows));
     return { undos: [], part: part, undone: true, redraw: done.rows, fromBanner: done.fromBanner, card: done.card, seek: focusLost(null) };
   }
@@ -942,5 +952,5 @@
     if (button) dismiss(button.getAttribute('data-watch-dismiss'), button.getAttribute('data-mark-name'), !!button.closest('.watch-banner'));
   });
 
-  window.MMWatch.marks = { paint: paint, showInRow: showInRow, menuRating: menuRating, canRate: canRate, likeRef: likeRef };
+  window.MMWatch.marks = { paint: paint, continues: continues, showInRow: showInRow, menuRating: menuRating, canRate: canRate, likeRef: likeRef };
 })();

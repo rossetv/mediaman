@@ -18,7 +18,7 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_the_row_comes_last_once_it_is_known_with_the_film_on_show_marked() -> None:
+def test_the_row_comes_once_it_is_known_with_the_film_on_show_marked() -> None:
     out = _run("row")
     assert out["waiting"] is True
     assert out["gets"] == ["/api/watch/title/tmdb-movie-2/collection"]
@@ -27,11 +27,24 @@ def test_the_row_comes_last_once_it_is_known_with_the_film_on_show_marked() -> N
     assert (out["here"], out["current"]) == (["Film 2"], "true")
     assert out["name"] == "The Saga · 7 films · 1 in the library"
     assert out["stops"] == [-1, 0, -1, -1, -1, -1, -1]
-    assert out["get"] == "Download the missing 3"
+    assert (out["get"], out["brief"]) == ("Download the missing 3", "Get 3 missing")
 
 
 def test_there_is_no_row_where_there_is_nothing_to_show() -> None:
     assert _run("nothing") == {"none": False, "alone": False, "failed": False, "show": 0}
+
+
+def test_the_place_of_the_films_is_held_until_they_are_known() -> None:
+    out = _run("expected")
+    for got in out.values():
+        assert (got["before"], got["held"], got["again"]) == (False, [True, True, "true"], True)
+        assert got["skeleton"] is False
+    assert [(g["films"], g["shown"], g["next"]) for g in out.values()] == [
+        # Only a film known to be in one has its place held the next time, while it loads.
+        (7, True, True),
+        (0, False, False),
+        (0, False, False),
+    ]
 
 
 def test_a_film_opens_its_page_and_back_finds_its_card() -> None:

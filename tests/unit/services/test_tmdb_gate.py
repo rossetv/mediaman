@@ -15,6 +15,7 @@ from mediaman.services.watch_catalog import _gate, _library
 ASKS = {
     "explore": lambda c: catalog.explore_page(c, catalog.GENRES["horror"]),
     "person": lambda c: catalog.person(c, 7),
+    "season": lambda c: catalog.season(c, 7, 1),
     "search": lambda c: catalog.search(c, "glass"),
     "rows": catalog.discover_shelves,
     "page": lambda c: catalog.discover_page(c, "trending", 2),
@@ -32,7 +33,12 @@ class Tmdb(TmdbClient):
         self.asked += 1
         if self.status:
             raise SafeHTTPError(status_code=self.status, body_snippet="", url="https://t.invalid")
-        return {"name": "Mara", "title": "Glass", "results": [{"id": 1, "media_type": "movie"}]}
+        return {
+            "name": "Mara",
+            "title": "Glass",
+            "results": [{"id": 1, "media_type": "movie"}],
+            "episodes": [],
+        }
 
 
 @pytest.fixture
@@ -227,3 +233,24 @@ def test_the_job_that_fills_the_library_neither_waits_its_turn_nor_pauses_anyone
 
     _fail_twice(tmdb)
     assert catalog.details(tmdb, "movie", 9, background=True)["title"] == "Glass"
+
+
+def test_a_season_not_waited_for_is_asked_for_in_the_background(tmdb, clock):
+    with pytest.raises(disk_cache.Refused):
+        catalog.season(tmdb, 7, 1, wait=False)
+
+    assert catalog.season(tmdb, 7, 1, wait=False)["episodes"] == {}
+    assert tmdb.asked == 1
+
+
+def test_a_season_not_waited_for_asks_nothing_of_a_tmdb_that_is_down(tmdb, clock):
+    tmdb.status = 500
+    for n in (1, 2):
+        with pytest.raises(catalog.TmdbDown):
+            catalog.details(tmdb, "movie", n)
+    asked = tmdb.asked
+
+    with pytest.raises(disk_cache.Refused):
+        catalog.season(tmdb, 7, 1, wait=False)
+
+    assert tmdb.asked == asked

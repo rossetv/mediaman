@@ -15,6 +15,7 @@ from mediaman.services.downloads.download_format._classify import (
     map_arr_status,
     map_episode_state,
     map_state,
+    next_movie_release,
 )
 from mediaman.services.downloads.download_format._parsing import (
     format_episode_label,
@@ -50,6 +51,7 @@ __all__ = [
     "map_arr_status",
     "map_episode_state",
     "map_state",
+    "next_movie_release",
     "normalise_for_match",
     # Parsing
     "parse_clean_title",

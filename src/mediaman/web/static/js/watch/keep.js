@@ -431,8 +431,12 @@
   }
 
   function focusAfterRow(row) {
-    var other = row.nextElementSibling || row.previousElementSibling;
-    return (other && other.querySelector('.watch-row__scroll')) || byId('watch-search');
+    function other(step) {
+      var found = null;
+      for (var n = row[step]; n && !found; n = n[step]) found = n.querySelector('.watch-row__scroll[tabindex]');
+      return found;
+    }
+    return other('nextElementSibling') || other('previousElementSibling') || byId('watch-search');
   }
 
   /* A kept Leaving soon card waits on the cancel of its own collapse. The one

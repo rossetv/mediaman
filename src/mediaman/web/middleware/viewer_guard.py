@@ -46,6 +46,7 @@ _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/watch/title/{ref}/collection"),
         ("GET", "/api/watch/title/{ref}/season/{number}"),
         ("GET", "/api/watch/recommended"),
+        ("GET", "/api/watch/asked"),
         ("POST", "/api/watch/stream"),
         ("GET", "/api/watch/stream/{stream_id}/index.m3u8"),
         ("GET", "/api/watch/stream/{stream_id}/seg/{name}"),

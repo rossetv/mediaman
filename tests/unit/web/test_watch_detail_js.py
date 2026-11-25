@@ -402,6 +402,16 @@ def test_the_loading_view_names_the_kind_of_title() -> None:
     assert _run("loadingKind") == {"movie": "Movie", "show": "TV series"}
 
 
+def test_a_films_collection_stands_above_its_cast_and_its_place_is_held() -> None:
+    out = _run("collectionPlace")
+    held = ["ttl__lead", "ttl__collsec", "ttl__castsec"]
+    bare = ["ttl__lead", "ttl__castsec"]
+    assert out["film"] == {"loading": bare, "drawn": held}
+    assert out["lone"] == {"loading": bare, "drawn": bare}
+    show = ["ttl__lead", "ttl__seasonsec", "ttl__castsec"]
+    assert out["show"] == {"loading": show, "drawn": show}
+
+
 def test_a_series_shows_no_director() -> None:
     assert _run("showDirector") == {"credit": None}
 
@@ -617,6 +627,115 @@ def test_a_season_pill_swaps_the_episodes_in_place_and_keeps_focus() -> None:
     assert out["resume"]["text"] == "Resume S2 · E4"
     assert out["progress"] is True
     assert out["keep"] == "3010"
+
+
+def test_an_episode_says_what_it_is_about_when_it_aired_and_what_was_seen_of_it() -> None:
+    watched, begun, other, unaired = _run("seasonTexts")["rows"]
+    assert (watched["about"], watched["meta"]) == ("It <i>begins</i>.", "50 min · 4 May 2019")
+    assert (watched["tick"], watched["state"]) == (True, None)
+    assert (begun["state"], begun["meta"]) == ("Continue", "50 min · 30 min left")
+    # Only the episode Play plays is the one to continue.
+    assert (other["state"], other["about"], other["more"]) == ("In progress", None, 0)
+    assert (unaired["state"], unaired["meta"]) == (None, "50 min · Airs 2 Jan 2999")
+
+
+def test_a_row_is_one_link_whose_description_is_not_in_its_name() -> None:
+    for row in _run("seasonTexts")["rows"][:2]:
+        assert (row["describes"], row["inName"], row["more"]) == (True, False, 1)
+        assert row["controlsInLink"] == 0
+
+
+def test_a_season_says_its_year_its_episodes_and_its_own_words() -> None:
+    out = _run("seasonTexts")
+    assert out["opened"] == {"facts": "2019 · 4 episodes", "text": "Its <b>second</b> year."}
+    told = {"facts": "2017 · 1 episode", "text": "Told by another."}
+    assert out["picked"] == told
+    # Told by the season's own answer alone, not by the title loaded again.
+    assert out["marked"] == {"season": told, "about": "Nine."}
+    assert (out["older"], out["bare"]) == ({"facts": "1 episode", "text": None}, 0)
+
+
+def test_the_rest_of_a_seasons_words_opens_and_closes_by_a_press() -> None:
+    closed = [False, "More", "false", "More about Season 2"]
+    opened = [True, "Less", "true", "Less about Season 2"]
+    assert _run("seasonTexts")["press"] == [closed, opened, closed]
+
+
+def test_a_text_opened_stays_open_as_its_season_is_drawn_again_and_no_longer() -> None:
+    out = _run("openedTexts")
+    assert out["pressed"] == [True, False, True]
+    assert out["marked"] == [[True, False, True], True, True, "Less", "true"]
+    assert out["closed"] == [True, False, False]
+    assert out["other"] == [False, False, False]
+
+
+def test_a_seasons_words_come_into_the_rows_on_show_and_leave_the_focus() -> None:
+    out = _run("lateWords")
+    said = [["50 min · 4 May 2019", "About one.", 1], ["50 min", None, 0]]
+    assert (out["before"]["text"], out["before"]["rows"][0]) == (None, ["50 min", None, 0])
+    assert out["came"] == {"facts": "2017 · 2 episodes", "text": "Words on 2", "rows": said}
+    assert out["same"] == [True, True, 1]
+    assert out["picked"] == [None, [2, 1]]
+    assert out["pickedCame"] == {"facts": "2016 · 2 episodes", "text": "Words on 1", "rows": said}
+
+
+def test_a_seasons_words_wait_for_a_press_to_end() -> None:
+    out = _run("lateWords")
+    assert (out["held"], out["letGo"]) == (None, "Words on 2")
+
+
+def test_a_press_whose_end_never_comes_holds_a_seasons_words_back_only_so_long() -> None:
+    assert _run("lateWords")["unended"] == [None, "Words on 2", 0]
+
+
+def test_a_mark_made_while_a_seasons_words_come_outlives_them() -> None:
+    held = {
+        "eye": "true",
+        "about": "About it.",
+        "season": "Told.",
+        "facts": "2017 · 2 episodes",
+        "left": "50 min · 10 min left",
+    }
+    assert _run("markBeforeWords") == {"own": [held, held], "picked": [held, held]}
+
+
+def test_words_of_a_season_left_or_that_never_come_change_nothing() -> None:
+    out = _run("lateWords")
+    assert out["left"] is None
+    assert out["failed"] == {
+        "facts": "2 episodes",
+        "text": None,
+        "rows": [["50 min", None, 0], ["50 min", None, 0]],
+    }
+
+
+def test_the_places_of_an_admin_s_facts_and_of_the_progress_are_held_while_a_title_loads() -> None:
+    out = _run("loadingPlaces")
+    places = {"admin": [5, 1], "viewer": [0, 0], "elsewhere": [0, 0]}
+    assert {who: out[who] for who in places} == places
+
+
+def test_a_leaving_show_holds_the_places_of_its_own_wider_words() -> None:
+    leaving = _run("loadingPlaces")["leaving"]
+    assert leaving["film"] == ["Leaving", 0, "200px"]
+    assert leaving["show"] == ["Season 1 leaves", 1, "234px"]
+
+
+def test_a_title_its_card_says_is_in_the_library_loads_as_one() -> None:
+    held, not_held, leaving, admins = _run("loadingPlaces")["trending"]
+    # The admin's facts, the buttons, a Keep of the viewer's own, the line that says it leaves.
+    assert (held, not_held) == ([5, 3, 0, 0], [0, 2, 0, 0])
+    assert (leaving, admins) == ([0, 4, 1, 1], [5, 3, 0, 1])
+
+
+def test_rows_to_come_stand_in_until_a_season_loads_or_fails() -> None:
+    out = _run("seasonTexts")
+    # Nor is what they stand over pressed or reached by Tab.
+    assert out["wait"] == [True, True, "true", True, True]
+    assert out["failed"] == {
+        "waits": [False, False, "false", False, False],
+        "season": {"facts": "2019 · 4 episodes", "text": "Its <b>second</b> year."},
+    }
 
 
 def test_loading_a_title_again_keeps_the_season_the_person_picked_until_it_is_gone() -> None:
@@ -853,7 +972,7 @@ def test_the_named_season_takes_over_when_it_comes_late_and_focus_stays() -> Non
 
 def test_a_late_season_does_not_take_over_from_what_the_person_began() -> None:
     out = _run("openOnSlowSeason")
-    for case in ("pressed", "reading"):
+    for case in ("pressed", "reading", "facts"):
         assert out[case]["came"] == out[case]["arrived"]
         assert out[case]["focusKept"] is True
 
@@ -1159,6 +1278,14 @@ def test_a_thumb_pressed_stays_on_and_keeps_the_focus_when_the_title_is_drawn_ag
         [{"url": "/api/watch/ratings/movie-120", "body": {"level": 2}}],
     ]
     assert out["redrawn"] == [True, True, loved]
+
+
+def test_the_thumbs_place_is_held_where_they_will_be_while_a_title_loads() -> None:
+    assert _run("thumbsWait") == {
+        "admin": {"columns": True, "buttons": 3},
+        "viewer": {"columns": False, "buttons": 3},
+        "tmdb": {"columns": False, "buttons": 2},
+    }
 
 
 def test_thumbs_go_with_their_title() -> None:
