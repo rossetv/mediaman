@@ -1094,6 +1094,29 @@ def test_a_question_of_another_tab_is_stopped_only_by_the_person() -> None:
     assert out["taken"] == 2
 
 
+def test_taking_the_place_of_another_tab_s_question_can_be_stopped_and_is_asked_once() -> None:
+    out = _run("askTakeover")
+    assert out["stop"].startswith("Ask AI")
+    assert out["stopped"][0] == [Q] and out["stopped"][1].startswith("Ask AI")
+    assert out["twice"] == 2  # as asked the first time, and once more
+
+
+def test_another_question_asked_meanwhile_is_the_one_that_goes_on() -> None:
+    newer = "a much newer question"
+    for asked, head, runs in _run("askTakeover")["other"]:
+        assert asked == [Q, newer]
+        assert head.startswith(f"“{newer}” | Looking")
+        assert runs == []  # nor is it stopped
+
+
+def test_a_question_asked_straight_after_stop_waits_till_the_server_was_told() -> None:
+    out = _run("askAfterStop")
+    for waits, head, stopped in out["same"] + out["other"]:
+        assert waits == [1, 1, 2]
+        assert head.endswith("2 titles, 1 already here")
+        assert stopped == ["/runs/7"]
+
+
 def test_a_limit_names_the_number_in_force_and_when_it_ends() -> None:
     out = _run("askRefused")
     assert out["limit"]["head"].startswith("You’ve asked 12 questions today")

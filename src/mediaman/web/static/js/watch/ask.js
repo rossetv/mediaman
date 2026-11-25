@@ -21,6 +21,7 @@
   var SLOW_MS = 12000;
   var STOPPING_MS = 1500; // between tries while the call of a stopped question ends
   var STOPPING_TRIES = 60;
+  var LEAVING_MS = 8000; // how long a question waits at most for the server to be told of one given up
   var POLL_TRIES = 5; // polls in a row that may fail
   var KEPT = 30; // questions this page remembers
   var RECENT = 6;
@@ -95,6 +96,7 @@
 
   var items = new Map(); // by key, the one asked last at the end
   var going = null; // the one being asked: { item, left, timer, posted, run }
+  var leaving = Promise.resolve(); // the last one given up, till the server was told
   var views = [];
 
   /* The question of *kind* ("ask" or "like") about *value*: the words, or a title's ref. It is
@@ -123,19 +125,33 @@
     views.forEach(function (v) { if (v.item === item) v.draw(); });
   }
 
-  /* Give up what is being asked. Returns once the server has been told. */
+  /* Give up what is being asked. */
   function leave() {
     var g = going;
-    if (!g) return Promise.resolve();
+    if (!g) return;
     going = null;
     g.left = true;
     clearTimeout(g.timer);
     clearTimeout(g.slow);
     if (g.wake) g.wake();
+    leaving = g.posted.then(function (run) { return run ? endRun(run) : null; });
     rest(g.item);
     changed(g.item);
-    return g.posted.then(function (run) {
-      return run ? MM.api.delete(URL + '/runs/' + run).catch(function () { /* it ends by itself */ }) : null;
+  }
+
+  function endRun(run) {
+    return MM.api.delete(URL + '/runs/' + run).catch(function () { /* it has ended, or does by itself */ });
+  }
+
+  /* Once *told* settles, or takes too long. */
+  function inTime(told) {
+    return new Promise(function (resolve) {
+      var timer = setTimeout(resolve, LEAVING_MS);
+      function go() {
+        clearTimeout(timer);
+        resolve();
+      }
+      told.then(go, go);
     });
   }
 
@@ -155,12 +171,16 @@
     });
   }
 
-  /* Ask it, or for it narrowed by *chip*, which is words of its own answer. */
-  function start(item, chip) {
+  /* Ask it, or for it narrowed by *chip*, which is words of its own answer. *over* is the run
+     of another tab whose place it takes. */
+  function start(item, chip, over) {
     chip = chip || '';
     remember(item);
-    var before = leave();
+    leave();
     var g = going = { item: item, chip: chip, left: false, timer: null, slow: null, wake: null };
+    g.posted = inTime(leaving).then(function () {
+      return over && !g.left ? inTime(endRun(over)) : null;
+    }).then(function () { return post(g, STOPPING_TRIES); });
     item.pressed = chip;
     item.note = '';
     item.refused = null;
@@ -171,7 +191,6 @@
       item.slow = true;
       changed(item);
     }, SLOW_MS);
-    g.posted = before.then(function () { return post(g, STOPPING_TRIES); });
   }
 
   /* The run begun last in this tab, which another page of it may have left going. */
@@ -194,7 +213,8 @@
         if (!g.left) done(g, data);
         return null;
       }
-      keepRun(data.run_id);
+      // Not over the newer one's.
+      if (!going || going === g) keepRun(data.run_id);
       if (!g.left) poll(g, data.run_id, POLL_TRIES);
       return data.run_id;
     }, function (err) {
@@ -202,7 +222,7 @@
       var left = err && err.error === 'running' && err.data && err.data.run_id;
       if (left && left === keptRun()) {
         keepRun(0);
-        return MM.api.delete(URL + '/runs/' + left).catch(function () { /* it has ended */ }).then(function () { return post(g, tries); });
+        return inTime(endRun(left)).then(function () { return post(g, tries); });
       }
       if (err && err.error === 'stopping' && tries > 0) {
         if (!item.waiting) {
@@ -339,15 +359,7 @@
     changed(item);
   }
 
-  function again(item) {
-    var run = item.refused && item.refused.run;
-    if (!run) { start(item); return; }
-    item.state = 'thinking';
-    changed(item);
-    MM.api.delete(URL + '/runs/' + run).catch(function () { /* it has ended */ }).then(function () {
-      if (item.state === 'thinking' && !(going && going.item === item)) start(item);
-    });
-  }
+  function again(item) { start(item, '', item.refused && item.refused.run); }
 
   /* ── Pieces ── */
 

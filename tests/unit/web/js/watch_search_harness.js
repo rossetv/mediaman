@@ -2334,6 +2334,66 @@ scenarios.askReloaded = async () => {
   return out;
 };
 
+// "Stop it and ask this", while the other question is being stopped.
+scenarios.askTakeover = async () => {
+  const taking = async () => {
+    const p = await asking();
+    await p.ask(Q);
+    await p.fail('/ask', 'running', { run_id: 8 }, 409);
+    click(p.doc, p.doc.querySelector('.ask__row .chip')); await settle();
+    return p;
+  };
+  const asked = (p) => p.sent('/ask').map((c) => c[2].q);
+  const stopped = await taking();
+  click(stopped.doc, stopped.doc.querySelector('.ask__stop')); await settle();
+  const out = { stop: stopped.head() };
+  await stopped.reply('DELETE', '/runs/8', {});
+  out.stopped = [asked(stopped), stopped.head()];
+  const twice = await taking();
+  click(twice.doc, twice.doc.querySelector('.ask__stop')); await settle();
+  twice.key('Enter'); await settle();
+  await twice.reply('DELETE', '/runs/8', {});
+  out.twice = asked(twice).length;
+  // Another is asked meanwhile: the stop is answered before it is sent, or long after.
+  const other = async (late) => {
+    const p = await taking();
+    await p.ask('a much newer question');
+    if (late) { p.wait(8000); await settle(); }
+    else await p.reply('DELETE', '/runs/8', {});
+    await p.reply('POST', '/ask', { status: 'running', run_id: 9 });
+    if (late) await p.reply('DELETE', '/runs/8', {});
+    return [asked(p), p.head(), p.sent('/runs/9').map((c) => c[0])];
+  };
+  out.other = [await other(false), await other(true)];
+  return out;
+};
+
+// Asked again, or another asked, straight after Stop.
+scenarios.askAfterStop = async () => {
+  const after = async (next, order) => {
+    const p = await asking();
+    await p.ask(Q);
+    const run = () => p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+    if (order !== 'unknown') await run();
+    click(p.doc, p.doc.querySelector('.ask__stop')); await settle();
+    await p.ask(next);
+    const waits = [p.sent('/ask').length];
+    if (order === 'unknown') await run();
+    waits.push(p.sent('/ask').length);
+    if (order === 'hung') { p.wait(8000); await settle(); }
+    else await p.reply('DELETE', '/runs/7', {});
+    waits.push(p.sent('/ask').length);
+    await p.reply('POST', '/ask', { status: 'running', run_id: 8 });
+    if (order === 'hung') await p.reply('DELETE', '/runs/7', {});
+    await p.poll(ANSWER);
+    return [waits, p.head(), p.sent('/runs/').filter((c) => c[0] === 'DELETE').map((c) => c[1])];
+  };
+  return {
+    same: [await after(Q, 'known'), await after(Q, 'unknown'), await after(Q, 'hung')],
+    other: [await after('a much newer question', 'known'), await after('a much newer question', 'unknown')],
+  };
+};
+
 scenarios.askRefused = async () => {
   const say = async (error, data, status) => {
     const p = await asking();
