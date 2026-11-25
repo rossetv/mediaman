@@ -509,9 +509,9 @@ def test_discard_after_a_failed_save_goes_back_to_what_the_server_has() -> None:
 
 def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_back() -> None:
     out = _run("unansweredSecret")
-    ((told,), puts) = out["putBack"]
+    (told, puts) = out["putBack"]
     assert "Plex token" in told and puts == 0
-    assert out["savedAgain"] == [{"plex_token": "new"}, []]
+    assert out["savedAgain"] == [{"plex_token": "new"}, ""]
     assert out["discarded"][0] == "****" and "Plex token" in out["discarded"][1][0]
     assert out["gone"] == ["", 1]
 
@@ -530,12 +530,16 @@ def test_a_save_that_left_an_undo_out_says_so_in_the_bar() -> None:
     out = _run("keptWords")
     kept = out["kept"]
     assert kept["button"] == "Save Settings"
-    assert "except what is shown as mediaman has it" in kept["status"]
+    # the bar names it, and no toast says it again
+    assert kept["status"] == "Saved. Grace days was left as it was stored."
     # with the class by which phones show it
     assert (kept["msg"], kept["partial"]) == ("No unsaved changes", True)
-    assert (kept["on"], kept["told"]) == (True, 1)
+    assert (kept["on"], kept["told"]) == (True, 0)
     assert out["gone"] == [False, False]
-    assert "since" in out["edited"] and "as mediaman has it" in out["edited"]
+    assert "since" in out["edited"] and "Grace days was left" in out["edited"]
+    # where the save then failed, the bar says that and the toast names it
+    assert "try again" in out["failed"]["status"].lower()
+    assert len(out["failed"]["told"]) == 1 and "Grace days" in out["failed"]["told"][0]
     assert out["still"] is True
 
 
@@ -564,6 +568,49 @@ def test_an_emptied_secret_is_removed_only_after_confirming() -> None:
         "disabled": False,
     }
     assert out["then"] == {"base_url": "b"}
+
+
+def test_removing_several_secrets_names_them_and_what_stops_in_one_sentence_each() -> None:
+    assert _run("clearSecret")["several"] == (
+        "mediaman will delete the saved Plex Token and OMDB API Key. "
+        "What uses them stops working until you enter them again."
+    )
+
+
+def test_the_bar_does_not_answer_while_a_confirmed_removal_is_sent() -> None:
+    assert _run("clearSecret")["removing"] == {
+        "sent": 1,
+        "save": True,
+        "discard": True,
+        "label": "Saving…",
+        "labelAfterEdit": "Saving…",
+    }
+
+
+def test_keeping_a_secret_the_server_still_has_ends_the_doubt_of_its_lost_removal() -> None:
+    out = _run("clearSecret")
+    assert out["keptAfterLost"] == {"field": "****", "on": False, "sent": 0}
+    # but what a lost replacement stored is as unknown as before
+    assert out["keptAfterLostReplacement"] == {"field": "****", "on": True, "sent": 0}
+
+
+def test_an_edit_inside_the_mask_never_replaces_the_saved_secret() -> None:
+    out = _run("secretMask")
+    for typed, after in out["sent"].items():
+        assert (after["sent"], after["field"], after["on"]) == ([], "****", False), typed
+        assert "Nothing new was entered for Plex Token" in after["says"], typed
+    rest = out["rest"]
+    assert (rest["sent"], rest["field"], rest["on"]) == ([{"base_url": "b"}], "****", False)
+    assert "Plex Token" in rest["says"]
+    assert out["real"] == [{"plex_token": "a*b*"}]
+
+
+def test_the_mask_of_a_secret_is_selected_as_a_whole() -> None:
+    out = _run("secretMask")
+    assert out["focused"] == out["moved"] == [0, 4]
+    # it selects nothing that is selected already, and leaves what was typed alone
+    assert out["again"] == 0
+    assert out["typed"] == [3, 3]
 
 
 def test_a_secret_of_only_spaces_counts_as_emptied() -> None:
@@ -605,6 +652,16 @@ def test_a_service_whose_lost_save_is_settled_is_checked_again() -> None:
     out = _run("recheck")
     assert out["lost"] == [[], ["plex?auto=1"]]
     assert out["discarded"] == ["plex?auto=1"]
+
+
+def test_a_service_is_checked_once_a_lost_save_is_known_and_the_rest_is_dropped() -> None:
+    out = _run("recheck")
+    assert out["refusedThenDiscarded"] == ["plex?auto=1"]
+    assert out["refusedThenUndone"] == ["plex?auto=1"]
+
+
+def test_a_check_that_a_newer_one_has_replaced_is_not_made() -> None:
+    assert _run("recheck")["twice"] == ["plex?auto=1"]
 
 
 def test_a_late_check_of_the_old_settings_does_not_replace_the_new_ones() -> None:

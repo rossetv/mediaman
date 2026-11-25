@@ -179,7 +179,7 @@ async function openLibraries(answer, opts) {
   const status = h.add('span', { id: 'save-status' }, bar);
   const discard = h.add('button', { id: 'btn-discard' }, bar);
   const save = h.add('button', { id: 'btn-save', textContent: 'Save Settings' }, bar);
-  const p = { h, page, saveBtn: save, discardBtn: discard, rows, field, days, bar, status, sent: [], toasts: [], reply: () => Promise.resolve({ status: 'saved' }), stored: () => Promise.reject({}) };
+  const p = { h, page, saveBtn: save, discardBtn: discard, rows, field, days, bar, status, sent: [], toasts: [], said: [], reply: () => Promise.resolve({ status: 'saved' }), stored: () => Promise.reject({}) };
   h.ctx.MM.api = {
     get: (u) => (u === '/api/plex/libraries' ? answer() : u === '/api/settings' ? p.stored() : Promise.reject({})),
     put: (u, b) => { p.sent.push(JSON.parse(JSON.stringify(b))); return p.reply(b); },
@@ -206,7 +206,15 @@ async function openLibraries(answer, opts) {
     pills: () => pills.children.filter((c) => c.classList.contains('on')).map((c) => c.dataset.libId),
     pill: (id) => pills.querySelector('[data-lib-id="' + id + '"]').fire('click'),
     press: () => save.fire('click'),
-    save: async () => { save.fire('click'); await h.flush(); h.drain(); await h.flush(); return p.sent[p.sent.length - 1]; },
+    // every sentence about what was left as it was, from the bar and the toasts alike
+    told: () => p.toasts.concat(p.said).join(),
+    save: async () => {
+      save.fire('click');
+      await h.flush();
+      if (status.textContent.includes('as it was stored') || status.textContent.includes('as they were stored')) p.said.push(status.textContent);
+      h.drain(); await h.flush();
+      return p.sent[p.sent.length - 1];
+    },
     discard: async () => { discard.fire('click'); await h.flush(); },
   });
 }
@@ -1458,7 +1466,7 @@ const scenarios = {
       const p = await openLibraries(plexLists(1, 2, 3, 4), Object.assign({ selectedLibs: ['4'], diskThresholds: {} }, opts));
       const set = (server) => { p.stored = () => Promise.resolve(Object.assign({ plex_libraries: ['4'], disk_thresholds: {} }, server)); };
       const lose = async () => { p.reply = () => Promise.reject({ status: 0 }); await p.save(); p.reply = () => Promise.resolve({ status: 'saved' }); p.sent.length = 0; };
-      const look = () => ({ sent: p.sent.slice(), pills: p.pills().sort(), limit: p.shows(1), days: ['min_age_days', 'inactivity_days', 'grace_days'].map((id) => p.days[id].value), url: p.field.value, told: p.toasts.join(), on: p.on() });
+      const look = () => ({ sent: p.sent.slice(), pills: p.pills().sort(), limit: p.shows(1), days: ['min_age_days', 'inactivity_days', 'grace_days'].map((id) => p.days[id].value), url: p.field.value, told: p.told(), on: p.on() });
       lost(p);
       await lose();
       return Object.assign(p, { set, lose, look });
@@ -1616,9 +1624,9 @@ const scenarios = {
     p.type('****');
     const puts = p.sent.length;
     await p.save();
-    out.putBack = [p.toasts, p.sent.length - puts];
+    out.putBack = [p.told(), p.sent.length - puts];
     p = await open();
-    out.savedAgain = [(await p.save()), p.toasts];
+    out.savedAgain = [(await p.save()), p.told()];
     p = await open();
     await p.discard();
     out.discarded = [p.token.value, p.toasts];
@@ -1678,6 +1686,13 @@ const scenarios = {
     await p.h.flush();
     out.edited = p.says().status;
     out.still = p.on();
+    // and one that then fails
+    p = await start();
+    p.edit('b');
+    p.reply = () => Promise.reject({ status: 422, data: {} });
+    p.press();
+    await p.h.flush();
+    out.failed = { status: p.says().status, told: p.toasts };
     return out;
   },
 
@@ -1688,10 +1703,12 @@ const scenarios = {
       const token = p.page.querySelector('#plex_token');
       token.setAttribute('aria-label', 'Plex Token');
       p.asked = [];
+      p.bodies = [];
       const dialog = p.h.add('button', {});
       // as the real one, it gives the focus back to what had it, if that can take it
       p.h.ctx.UIFeedback.confirm = (o) => {
         p.asked.push(o.title);
+        p.bodies.push(o.body);
         p.atAsk = { button: p.saveBtn.textContent, sent: p.sent.length };
         const opener = p.h.doc.activeElement;
         const gone = !opener || opener.disabled;
@@ -1745,7 +1762,97 @@ const scenarios = {
     p.empty('****');
     p.sent.length = 0;
     await p.save();
-    out.lost = { sent: p.sent.slice(), field: p.token.value, told: p.toasts.join() };
+    out.lost = { sent: p.sent.slice(), field: p.token.value, told: p.told() };
+
+    // several in one save
+    p = await open(true);
+    const key = p.h.add('input', { id: 'omdb_api_key', value: '****', type: 'password' }, p.page);
+    key.setAttribute('aria-label', 'OMDB API Key');
+    p.h.add('button', { className: 'inp-reveal' }, p.page).setAttribute('data-reveal-target', 'omdb_api_key');
+    key.value = 'mine'; key.fire('input');
+    await p.save();
+    key.value = ''; key.fire('input');
+    p.empty('');
+    await p.save();
+    out.several = p.bodies[0];
+
+    // nothing in the bar answers while the removal is being sent
+    p = await open(true);
+    let answer;
+    p.reply = () => new Promise((r) => { answer = () => r({ status: 'saved' }); });
+    p.empty('');
+    p.press();
+    await p.h.flush();
+    out.removing = { sent: p.sent.length, save: p.saveBtn.disabled, discard: p.discardBtn.disabled, label: p.saveBtn.textContent };
+    p.edit('typed');
+    out.removing.labelAfterEdit = p.saveBtn.textContent;
+    answer();
+    await p.h.flush();
+
+    // 'Keep it' once the server has shown that a lost removal was not stored
+    const lose = async (...values) => {
+      const q = await open(false);
+      let ok = true;
+      const ask = q.h.ctx.UIFeedback.confirm;
+      q.h.ctx.UIFeedback.confirm = (o) => ask(o).then(() => ok);
+      q.reply = () => Promise.reject({ status: 0 });
+      q.stored = () => Promise.resolve({ plex_token: '****', plex_libraries: ['1'], disk_thresholds: {} });
+      for (const v of values) { q.empty(v); await q.save(); }
+      ok = false;
+      q.sent.length = 0;
+      await q.save();
+      return { field: q.token.value, on: q.on(), sent: q.sent.length };
+    };
+    out.keptAfterLost = await lose('');
+    out.keptAfterLostReplacement = await lose('new', '');
+    return out;
+  },
+
+  // A secret field that holds the mask, or an edit made inside it.
+  async secretMask() {
+    const open = async () => {
+      const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
+      const token = p.page.querySelector('#plex_token');
+      token.setAttribute('aria-label', 'Plex Token');
+      token.selected = 0;
+      token.select = () => { token.selected += 1; token.selectionStart = 0; token.selectionEnd = token.value.length; };
+      const caret = (from, to) => { token.selectionStart = from; token.selectionEnd = to; };
+      const type = (v) => { token.value = v; token.fire('input'); };
+      caret(2, 2);
+      return Object.assign(p, { token, caret, type });
+    };
+    const out = { sent: {} };
+    let p;
+    for (const typed of ['***', '*****', '****x', ' ****x', 'x****']) {
+      p = await open();
+      p.type(typed);
+      await p.save();
+      out.sent[typed] = { sent: p.sent.slice(), field: p.token.value, on: p.on(), says: p.toasts.join() };
+    }
+    p = await open();
+    p.edit('b');
+    p.type('****x');
+    await p.save();
+    out.rest = { sent: p.sent.slice(), field: p.token.value, on: p.on(), says: p.toasts.join() };
+    p = await open();
+    p.type('a*b*');
+    await p.save();
+    out.real = p.sent.slice();
+
+    p = await open();
+    p.token.focus();
+    p.token.fire('focusin');
+    out.focused = [p.token.selectionStart, p.token.selectionEnd];
+    p.caret(4, 4);
+    (p.h.doc.listeners.selectionchange || []).forEach((f) => f({}));
+    out.moved = [p.token.selectionStart, p.token.selectionEnd];
+    const selected = p.token.selected;
+    (p.h.doc.listeners.selectionchange || []).forEach((f) => f({}));
+    out.again = p.token.selected - selected;
+    p.type('secret');
+    p.caret(3, 3);
+    (p.h.doc.listeners.selectionchange || []).forEach((f) => f({}));
+    out.typed = [p.token.selectionStart, p.token.selectionEnd];
     return out;
   },
 
@@ -1833,6 +1940,32 @@ const scenarios = {
     put = () => Promise.reject({ status: 422, data: {} });
     edit('plex_url', 'bad');
     out.refused = await saveNow();
+
+    // a lost save that landed, then one that is refused, then nothing of it is kept
+    const landed = async (undo) => {
+      const was = f.plex_url.value === 'p1' ? 'p2' : 'p1';
+      put = () => Promise.reject({ status: 0 });
+      edit('plex_url', was);
+      await saveNow();
+      h.ctx.MM.api.get = () => Promise.resolve({ plex_url: was });
+      put = () => Promise.reject({ status: 422, data: {} });
+      edit('base_url', 'refused');
+      await saveNow();
+      checks = [];
+      await undo();
+      await h.flush(); h.drain(); await h.flush();
+      return checks;
+    };
+    out.refusedThenDiscarded = await landed(() => discard.fire('click'));
+    const base = f.base_url.value;
+    out.refusedThenUndone = await landed(() => edit('base_url', base));
+
+    // two checks of one service set up before either is made
+    put = () => Promise.resolve({ status: 'saved' });
+    checks = [];
+    for (const v of ['t1', 't2']) { edit('plex_token', v); save.fire('click'); await h.flush(); }
+    h.drain(); await h.flush();
+    out.twice = checks;
     return out;
   },
 

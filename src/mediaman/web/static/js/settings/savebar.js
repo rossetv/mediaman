@@ -268,6 +268,12 @@
     return part[1] === 'lib' ? 'scanning of ' + title : 'disk threshold of ' + title;
   }
 
+  function leftAsStored(keys) {
+    var names = inWords(keys.map(thingLabel));
+    return names.charAt(0).toUpperCase() + names.slice(1) +
+      (keys.length > 1 ? ' were left as they were stored.' : ' was left as it was stored.');
+  }
+
   function askToCheck(keys) {
     if (!keys.length) return;
     window.UIFeedback.toast(
@@ -306,7 +312,7 @@
 
   // What to send of `now` once the server has told what is stored: a thing put back is sent only
   // where a save with no answer did change it and the undo lets no more be deleted. Otherwise it
-  // is taken from the server, where another page may have set it since; `kept` says whether one was.
+  // is taken from the server, where another page may have set it since; `kept` are those that were.
   function settle(now, data) {
     var stored = storedFrom(data);
     var was = things(saved);
@@ -324,12 +330,11 @@
     var notPutBack = unexpected(stored, Object.keys(unsure).filter(function (key) {
       return putBack(key) && !undone(key);
     }));
-    askToCheck(notPutBack);
     saved = stored;
     var next = things(sent);
     Object.keys(unsure).forEach(function (key) { if (next[key] === has[key]) delete unsure[key]; });
     show(sent, now);
-    return { sent: sent, kept: notPutBack.length > 0 };
+    return { sent: sent, kept: notPutBack };
   }
 
   function put(values) {
@@ -531,7 +536,7 @@
       saveBtn.textContent = 'Saving…';
       emptyBlankSecrets();
       var now = snapshot();
-      if (!isUnsure()) { send(now, fromKeyboard, hadFocus); return; }
+      if (!isUnsure()) { send(now, fromKeyboard, hadFocus, false, []); return; }
       askStored(hadFocus, 'saved', function (data) {
         var settled = settle(now, data);
         send(settled.sent, fromKeyboard, hadFocus, !changedKeys(saved, settled.sent).length, settled.kept);
@@ -559,14 +564,15 @@
           if (unsure[key] && unsure[key].sent.every(function (value) { return value === ''; })) delete unsure[key];
         });
         put(back);
+        askToCheck(kept);
         markDirty();
         if (!savebar.classList.contains('on')) settleAfterHide(fromKeyboard);
       });
     }
 
     // Routes through MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
-    // flow are applied consistently. With `done` the server has it all; with `kept` it has what it
-    // has of something the person put back.
+    // flow are applied consistently. With `done` the server has it all; of `kept`, which the person
+    // put back, it has what it had.
     function deliver(sent, fromKeyboard, hadFocus, done, kept) {
       // Only what was changed is sent: the rest may be a default nobody chose, or older than what another tab saved.
       var all = getPayload(sent, saved);
@@ -594,20 +600,18 @@
             recheck(Object.keys(payload));
             refreshOverviewHero();
             var edited = changedKeys(saved, snapshot()).length > 0;
-            var leftOut = [];
-            if (edited) leftOut.push('what you changed since');
-            if (kept) leftOut.push('what is shown as mediaman has it');
-            saveBtn.textContent = leftOut.length ? SAVE_LABEL : 'Saved ✓';
-            savebar.classList.add(leftOut.length ? 'is-partial' : 'is-saved');
+            var partial = edited || kept.length > 0;
+            saveBtn.textContent = partial ? SAVE_LABEL : 'Saved ✓';
+            savebar.classList.add(partial ? 'is-partial' : 'is-saved');
             if (statusEl) {
-              statusEl.textContent = leftOut.length
-                ? 'Saved, except ' + leftOut.join(' and ') + '.'
+              statusEl.textContent = partial
+                ? (edited ? 'Saved, except what you changed since.' : 'Saved.') + (kept.length ? ' ' + leftAsStored(kept) : '')
                 : ignored.length ? 'Saved · ignored unknown: ' + ignored.join(', ') : 'Settings saved';
             }
             if (edited) { reenable(hadFocus); return; }
             if (msgEl) msgEl.textContent = 'No unsaved changes';
-            // What was left out takes longer to read.
-            var hideAfter = kept ? 3000 : 600;
+            // What was left out takes as long to read as a toast that names it.
+            var hideAfter = kept.length ? 8000 : 600;
             successTimers = [
               setTimeout(function () { settleAfterHide(fromKeyboard); }, hideAfter),
               setTimeout(function () {
@@ -619,11 +623,13 @@
           }
 
           // Unexpected envelope — surface as a save error.
+          askToCheck(kept);
           setSaveError(summariseSaveError(data, 200));
           reenable(hadFocus);
         })
         .catch(function (err) {
           saving = false;
+          askToCheck(kept);
           // MM.reauth.run() rejects with 'reauth_cancelled' when the user
           // dismisses the modal — show a polite message rather than a server
           // error. All other rejections are APIError instances from MM.api.
