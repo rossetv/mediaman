@@ -313,6 +313,29 @@ const scenarios = {
     return out;
   },
 
+  // Where the focus goes once a title Watch cannot open is read again: after an Undo from its toast, and after it is deleted.
+  async unheldFocus() {
+    const card = { ref: null, key: 'id:900', title: 'Orchard Elsewhere', href: null, subtitle: 'Movie', admin: { id: '900', title: 'Orchard Elsewhere', kept: false } };
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB, card], total: 2 });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+    const of = (key) => p.doc.querySelectorAll('.watch-card').filter((c) => c.getAttribute('data-key') === key)[0];
+    const emit = (action) => p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { id: '900', showRk: '', phase: 'done', action } }));
+    const focused = () => { const at = p.doc.activeElement.isConnected && p.doc.activeElement.closest('.watch-card'); return at ? at.querySelector('.watch-card__title').textContent : null; };
+    const toast = p.doc.body.appendChild(build(p.doc, ['div', { class: 'ui-toast ui-toast--undo is-leaving' }, ['button', { class: 'ui-toast__action' }, 'Undo']]));
+    toast.querySelector('button').focus();
+    emit('unkeep');
+    await p.answer('/api/watch/search?', { items: [LIB, card], total: 2 });
+    const out = { afterUndo: focused() };
+    toast.remove();
+    of('id:900').querySelector('[data-watch-more]').focus();
+    emit('delete');
+    await p.answer('/api/watch/search?', { items: [LIB], total: 1 });
+    out.afterDelete = [p.titles('.watch-card'), focused()];
+    return out;
+  },
+
   // A reply for an older query never reaches the page.
   async staleReply() {
     const p = load(ADMIN);

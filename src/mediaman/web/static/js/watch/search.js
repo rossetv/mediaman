@@ -1791,6 +1791,17 @@
       })[0] || null;
     }
 
+    function cardFrom(node, step) {
+      for (var n = node[step]; n; n = n[step]) if (n.classList.contains('watch-card')) return n;
+      return null;
+    }
+
+    function focusIsFree() {
+      var active = document.activeElement;
+      if (document.documentElement.classList.contains('has-ttl') || document.querySelector('.wl-dialog.active')) return false;
+      return !active || active === document.body || !document.body.contains(active) || !!active.closest('.ui-toast.is-leaving');
+    }
+
     /* An admin's change to a title Watch cannot open is read again where it was found. */
     document.addEventListener('mm:watch-admin', function (e) {
       var d = e.detail;
@@ -1803,12 +1814,14 @@
         else more.removeAttribute('aria-disabled');
       });
       if (d.phase !== 'done') return;
-      var next = card.nextElementSibling || card.previousElementSibling;
+      var after = cardFrom(card, 'nextElementSibling');
+      var before = cardFrom(card, 'previousElementSibling');
+      // The one beside it in its group, before one past a heading.
+      var next = after && after === card.nextElementSibling ? after : (before && before === card.previousElementSibling ? before : after || before);
       current.afterLib = function () {
         var to = cardOf(key) || next;
-        var active = document.activeElement;
-        // The menu or the dialog gave the focus back to a button that is gone.
-        if (active && active !== document.body && document.body.contains(active)) return;
+        // The menu or the dialog gave the focus back to a button that is gone, or to an Undo that is going.
+        if (!focusIsFree()) return;
         var control = to && live.grid.contains(to) && core.controlIn(to, '[data-watch-more]');
         if (control) control.focus({ preventScroll: true });
       };

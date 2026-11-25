@@ -70,6 +70,16 @@ def test_a_change_to_a_title_watch_cannot_open_shows_where_it_was_found() -> Non
     assert out["other"] == 0
 
 
+def test_an_undo_from_a_leaving_toast_gives_the_focus_to_its_title() -> None:
+    assert _run("unheldFocus")["afterUndo"] == "Orchard Elsewhere"
+
+
+def test_the_last_library_title_deleted_gives_the_focus_to_a_card_not_a_heading() -> None:
+    titles, focused = _run("unheldFocus")["afterDelete"]
+    assert "Orchard Elsewhere" not in titles
+    assert focused in {"Orchard Keepers", "Orchard Road"}
+
+
 def test_a_reply_to_an_older_or_shorter_query_is_dropped() -> None:
     out = _run("staleReply")
     assert out["afterOlder"] == ["New"]
