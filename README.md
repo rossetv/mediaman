@@ -92,6 +92,8 @@ location ~ ^/api/(watch/stream|cast)/ {
 
 The proxy's own access log keeps the addresses TVs read streams at, which play without signing in for up to 6 hours. To leave them out, add `access_log off;` to the block, or turn off the log for `/api/cast/` in another proxy.
 
+Older TVs added by address need mediaman on a container network of its own, as `docker run` gives it. With `--network host`, macvlan on the home network or no container, mediaman refuses every TV on that network.
+
 Limits: iPhone and iPad need iOS 17.1 or later. In the browser there is no audio or subtitle choice: Plex's saved choice per item is used, and a selected subtitle is burned in. Quality is Automatic, Original for plain H.264 up to 1080p, or a step from 1080p down to 480p.
 
 ## Environment
