@@ -172,6 +172,11 @@ def test_the_tv_s_icon_stands_still_and_whole_under_reduced_motion():
     assert ".spin--mark, .mark path { animation: none; }" in _tv_css("@media (prefers-reduced")
 
 
+def test_the_tv_s_qr_code_stays_black_on_white_where_colours_are_forced():
+    forced = _tv_css("@media (forced-colors")
+    assert re.search(r"\.qr\b[^{}]*\{[^}]*forced-color-adjust: none;", forced)
+
+
 def test_the_second_half_keeps_the_page_s_blue_and_takes_the_text_colour_where_colours_are_forced():
     tokens = (_WEB / "static" / "css" / "_tokens.css").read_text()
     blue = re.search(r"--accent:\s*(#\w+);", tokens)[1]
