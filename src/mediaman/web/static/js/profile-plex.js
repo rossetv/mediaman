@@ -61,9 +61,10 @@
   function byId(id) { return document.getElementById(id); }
 
   function when(iso) {
-    return new Date(iso).toLocaleString('en-GB', {
-      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-    });
+    var at = new Date(iso);
+    /* Safari puts "at" between a date and its time made in one. */
+    return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' +
+      at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
 
   /* Opened by the press itself, before the server has answered, or a pop-up blocker stops it. */
@@ -367,7 +368,7 @@
         byId('plex-name').textContent = link.name;
         byId('plex-done-name').textContent = link.name;
         byId('plex-done').hidden = !justLinked;
-        byId('plex-linked').hidden = justLinked;
+        byId('plex-linked').hidden = byId('plex-linked-when').hidden = justLinked;
         byId('plex-since').textContent = when(link.linked_at);
         byId('plex-read').textContent = link.reading
           ? 'Reading your plays…'
@@ -634,96 +635,6 @@
     load(true);
   }
 
-  function initOthers() {
-    var box = byId('plex-others');
-    if (!box) return;
-
-    function note(text) {
-      box.textContent = '';
-      var p = document.createElement('p');
-      p.className = 'plex-link-fine';
-      p.textContent = text;
-      box.appendChild(p);
-    }
-
-    function row(link) {
-      var el = document.createElement('div');
-      el.className = 'usr-row';
-      var meta = document.createElement('div');
-      meta.className = 'usr-meta';
-      var name = document.createElement('div');
-      name.className = 'usr-name';
-      name.textContent = link.username;
-      var since = document.createElement('div');
-      since.className = 'usr-sub';
-      since.textContent = 'Linked ' + when(link.linked_at);
-      meta.appendChild(name);
-      meta.appendChild(since);
-      var actions = document.createElement('div');
-      actions.className = 'usr-actions';
-      var button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'link-danger';
-      button.setAttribute('data-user-id', link.id);
-      button.textContent = 'Unlink';
-      button.setAttribute('aria-label', 'Unlink the Plex account of ' + link.username);
-      button.addEventListener('click', function () { unlink(link, button); });
-      actions.appendChild(button);
-      el.appendChild(meta);
-      el.appendChild(actions);
-      return el;
-    }
-
-    function unlink(link, button) {
-      if (isBusy(button)) return;
-      window.UIFeedback.confirm({
-        title: 'Unlink ' + link.username + '’s Plex account?',
-        body: 'The plays copied here and the recommendations made from them are deleted. They can link again.',
-        confirmLabel: 'Unlink',
-        confirmVariant: 'danger',
-      }).then(function (ok) {
-        if (!ok) return;
-        busy(button, true);
-        var rows = MM.dom.qa('.link-danger', box);
-        var next = rows[rows.indexOf(button) + 1];
-        function gone() {
-          var held = MM.dom.focusStillIn(box);
-          return load().then(function () {
-            announce(byId('plex-others-status'), 'Unlinked ' + link.username + '.');
-            if (!held) return;
-            var id = next && next.getAttribute('data-user-id');
-            var to = MM.dom.qa('.link-danger', box).filter(function (b) {
-              return b.getAttribute('data-user-id') === id;
-            })[0];
-            (to || box).focus();
-          });
-        }
-        MM.api.delete('/api/users/' + link.id + '/plex-link').then(gone, function (err) {
-          if (err.status === 404) return gone();
-          busy(button, false);
-          window.UIFeedback.error(MM.api.messageOf(err, 'Could not unlink. Try again.'));
-        });
-      });
-    }
-
-    function load() {
-      return MM.api.get('/api/users/plex-links').then(function (data) {
-        box.textContent = '';
-        data.links.forEach(function (link) { box.appendChild(row(link)); });
-        if (!data.links.length) note('Nobody else has linked a Plex account.');
-      }, function () {
-        note('Could not load the linked accounts. Reload the page to try again.');
-      }).then(function () { box.removeAttribute('aria-busy'); });
-    }
-
-    load();
-  }
-
-  function init() {
-    initOwn();
-    initOthers();
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initOwn);
+  else initOwn();
 })();

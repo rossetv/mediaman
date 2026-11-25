@@ -78,18 +78,6 @@ def test_unlinking_asks_first() -> None:
     assert out["deleted"] is True
 
 
-def test_an_admin_unlinks_another_person_by_a_named_button() -> None:
-    out = _run("others")
-    assert out["name"] == "<i>bob</i>"
-    assert "<i>bob</i>" in out["label"]
-    assert out["deleted"] is True
-    assert out["next"]["focus"] == "Unlink the Plex account of cat"
-    assert "bob" in out["next"]["said"][-1]
-    assert out["focus"] == "plex-others"
-    assert "cat" in out["said"][-1]
-    assert "Nobody else" in out["left"]
-
-
 def test_a_move_from_another_person_is_said_before_it_is_made() -> None:
     out = _run("moves")
     assert out["untold"] is False

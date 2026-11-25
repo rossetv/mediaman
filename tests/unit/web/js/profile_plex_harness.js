@@ -22,9 +22,6 @@ for (const m of template.matchAll(/data-plex-panel="(\w+)"|\bid="([\w-]+)"/g)) {
   if (m[1]) {
     el.setAttribute('data-plex-panel', m[1]);
     panel = card.appendChild(el);
-  } else if (m[2] === 'plex-others') {
-    el.setAttribute('id', m[2]);
-    doc.body.appendChild(el);
   } else if (m[2] !== 'plex-link') {
     el.setAttribute('id', m[2]);
     panel.appendChild(el);
@@ -116,11 +113,9 @@ const flush = async () => {
   for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r));
   for (const t of timers.filter((x) => x.live && x.ms === 100)) {
     t.live = false;
-    const before = ['plex-status', 'plex-others-status'].map((id) => at(id).textContent);
+    const before = at('plex-status').textContent;
     t.fn();
-    ['plex-status', 'plex-others-status'].forEach((id, i) => {
-      if (at(id).textContent !== before[i]) said.push(at(id).textContent);
-    });
+    if (at('plex-status').textContent !== before) said.push(at('plex-status').textContent);
   }
 };
 const press = (fn) => { inPress = true; try { return fn(); } finally { inPress = false; } };
@@ -779,24 +774,6 @@ const scenarios = {
     confirmed = true;
     await click('plex-unlink');
     return { kept, after: shown(), deleted: calls.includes('DELETE /api/account/plex') };
-  },
-  async others() {
-    answers['GET /api/users/plex-links'] = [
-      { links: [BOB, CAT] }, { links: [CAT] }, { links: [] },
-    ];
-    answers['DELETE /api/users/3/plex-link'] = [{}];
-    answers['DELETE /api/users/4/plex-link'] = [{}];
-    await load(NONE);
-    const box = at('plex-others');
-    const name = box.querySelector('.usr-name').textContent;
-    const button = box.querySelector('.link-danger');
-    button.focus();
-    button.listeners.click.forEach((f) => f());
-    await flush();
-    const next = { focus: doc.activeElement.getAttribute('aria-label'), said: said.slice() };
-    box.querySelector('.link-danger').listeners.click.forEach((f) => f());
-    await flush();
-    return { next, focus: doc.activeElement.id, said,  name, label: button.getAttribute('aria-label'), left: box.textContent, deleted: calls.includes('DELETE /api/users/3/plex-link') };
   },
 };
 

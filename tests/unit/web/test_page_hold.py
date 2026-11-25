@@ -66,6 +66,7 @@ def test_one_rule_holds_the_page_for_every_dialog_and_leaves_a_held_html_alone()
         "> .ui-confirm-overlay:not(.is-leaving)",
         '> .reauth-backdrop:not([aria-hidden="true"])',
         "> .keep-dialog-overlay.active:not(.is-closing)",
+        '> .pic-back:not([aria-hidden="true"])',
         '#abandon-modal[aria-hidden="false"]',
     ):
         assert dialog in head

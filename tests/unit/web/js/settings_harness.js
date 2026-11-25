@@ -760,11 +760,12 @@ const scenarios = {
     h.add('input', { id: 'account-new-password', type: 'password' }, form);
     h.add('input', { id: 'account-confirm-password', type: 'password' }, form);
     const submit = h.add('button', { id: 'account-submit-password' }, form);
+    ['account-open-password', 'account-cancel-password', 'account-new-strength-label'].forEach((id) => h.add('button', { id }, form));
     const msg = h.add('span', { id: 'account-password-result' }, form);
     let finish;
     h.ctx.MM.api = { post: () => new Promise((r) => { finish = r; }), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
-    h.load('core/dom.js'); h.load('account.js');
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('account.js');
     form.fire('submit');
     const shown = why.textContent;
     oldPw.value = 'a';

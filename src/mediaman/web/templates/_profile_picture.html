@@ -1,0 +1,48 @@
+{# The dialog of a person's picture: pick a drawn one or a photo, then place the photo. profile-picture.js runs it. #}
+{% import "_components.html" as c %}
+<div class="modal-backdrop pic-back" id="pic-dialog" role="dialog" aria-modal="true" aria-labelledby="pic-title" aria-hidden="true" hidden
+     data-choice="{{ picture.choice or '' }}" data-default="{{ picture.default }}"{% if picture.photo %} data-photo="{{ picture.url }}"{% endif %}>
+  <div class="modal-sheet pic">
+    <div class="pic-hd">
+      <h2 id="pic-title" tabindex="-1" data-modal-focus>Your picture</h2>
+      <button type="button" class="btn btn--icon" aria-label="Close" id="pic-close">{{ c.icon("i-xmark") }}</button>
+    </div>
+    <div class="pic-bd">
+      <div class="pic-pane" id="pic-pick">
+        <div id="pic-error" role="alert"></div>
+        <div class="pic-now">
+          <span class="avatar avatar--pic" aria-hidden="true"><img src="{{ picture.url }}" alt="" id="pic-now"></span>
+          <div class="pic-now-txt">
+            <div class="pic-now-kind" id="pic-kind"></div>
+            <div class="me-acts">
+              <button type="button" class="btn btn--secondary btn--sm" id="pic-upload">{{ c.icon("i-image") }}Upload a photo</button>
+              <button type="button" class="link-danger" id="pic-remove" hidden>Remove</button>
+            </div>
+          </div>
+        </div>
+        <fieldset class="pic-drawn">
+          <legend>Or pick one</legend>
+          <div class="pic-grid">
+            {% for url, face in picture.drawn %}
+            <label><input type="radio" name="picture" value="{{ loop.index }}" aria-label="{{ face }}"><img alt="" src="{{ url }}"><span class="pic-tick">{{ c.icon("i-check") }}</span></label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <div class="pic-ft">
+          <button type="button" class="btn btn--ghost" id="pic-cancel">Cancel</button>
+          <button type="button" class="btn btn--primary" id="pic-save" disabled>Save</button>
+        </div>
+      </div>
+      <div class="pic-pane" id="pic-place" hidden>
+        <div class="pic-crop" id="pic-crop" tabindex="0" role="application" aria-label="Your photo in its circle. Arrow keys move it, plus and minus zoom."><canvas width="640" height="640"></canvas></div>
+        <label class="pic-zoom"><span>Zoom</span><input type="range" min="100" max="400" value="100" id="pic-zoom"></label>
+        <p class="pic-hint">Drag to move it.</p>
+        <div class="pic-ft">
+          <button type="button" class="btn btn--ghost" id="pic-back">Back</button>
+          <button type="button" class="btn btn--primary" id="pic-use">Use photo</button>
+        </div>
+      </div>
+    </div>
+    <input type="file" hidden id="pic-file" accept="image/jpeg,image/png,image/webp">
+  </div>
+</div>

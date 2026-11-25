@@ -1,88 +1,86 @@
-{# Plex account card of the Profile page; profile-plex.js shows one panel at a time. #}
+{# Plex account card's body on the Profile page; profile-plex.js shows one panel at a time. #}
 {% import "_components.html" as c %}
-{% call c.setg_card(title="Plex account", sub="Let what you play in Plex apps help choose your recommendations.", pad=True) %}
-  <div class="plex-link" id="plex-link" data-password-good-for="{{ password_good_for | default(0) }}" aria-busy="true">
-    <div data-plex-panel="loading"><p>Loading…</p></div>
-
-    <div data-plex-panel="unset" hidden><p>Plex is not set up on this Mediaman yet.</p></div>
-
-    <div data-plex-panel="unlinked" hidden>
-      <p>Your plays in Plex apps can help choose your recommendations. Continue watching and watched marks stay separate.</p>
-      <ul class="plex-link-terms">
-        <li>Titles you played may be sent to the AI service that suggests what to watch.</li>
-        <li>Admins can see that you linked an account and can unlink it. They are not shown your plays.</li>
-      </ul>
-      <details class="plex-link-more">
-        <summary>More about linking {{ c.icon("i-chevron-down") }}</summary>
-        <ul class="plex-link-terms">
-          <li>Plex will ask you to sign in. Mediaman never sees your password, and signs out as soon as it knows who you are.</li>
-          <li>Mediaman keeps your Plex account number and name, and your plays on this server.</li>
-          <li>You can unlink at any time, which deletes the plays copied here.</li>
-          <li>Plays in Plex count for clean-up for everyone, linked or not.</li>
-        </ul>
-      </details>
-      <p class="plex-link-fine">A managed Plex Home user, with no Plex sign-in of their own, cannot be linked.</p>
-      <div class="plex-link-actions">
-        {{ c.btn("Link Plex account", variant="primary", id="plex-start") }}
-        <button type="button" class="btn btn--ghost" id="plex-start-stop" hidden>Cancel</button>
-        <p class="plex-link-fine" id="plex-note"></p>
-      </div>
+<div class="plex-link" id="plex-link" data-password-good-for="{{ password_good_for | default(0) }}" aria-busy="true">
+  <div class="plex-link-moved" id="plex-moved" hidden>
+    <p>Someone else here signed in to the Plex account you had linked, on <span id="plex-moved-when"></span>, and it moved to them. If it is yours, link it again to take it back.</p>
+    <div class="plex-link-actions">
+      {{ c.btn("Dismiss", variant="ghost", size="sm", id="plex-moved-dismiss") }}
     </div>
-
-    <div data-plex-panel="waiting" hidden>
-      <p class="plex-link-lead"><span class="btn-spinner" aria-hidden="true"></span><span id="plex-lead"></span></p>
-      <p class="plex-link-wait" id="plex-wait" aria-live="polite">Waiting for Plex…</p>
-      <p class="plex-link-fine">Plex will name the app “<span id="plex-app">Mediaman</span>”. Only approve a sign-in you started yourself.</p>
-      <div class="plex-link-actions">
-        <a class="btn btn--secondary" id="plex-open" target="_blank" rel="noopener noreferrer">Open Plex again</a>
-        {{ c.btn("Cancel", variant="ghost", id="plex-cancel") }}
-      </div>
-    </div>
-
-    <div data-plex-panel="confirm" hidden>
-      <p>You signed in to Plex as <strong class="plex-link-name" id="plex-found"></strong>. Is this you?</p>
-      <p id="plex-moves" tabindex="-1" hidden>This Plex account is linked to another person here; linking moves it to you.</p>
-      <p class="plex-link-fine">Only confirm a sign-in you started yourself.</p>
-      <div class="plex-link-actions">
-        {{ c.btn("Yes, link it", variant="primary", id="plex-confirm") }}
-        {{ c.btn("No, cancel", variant="ghost", id="plex-decline") }}
-      </div>
-    </div>
-
-    <div data-plex-panel="failed" hidden>
-      <p id="plex-failed"></p>
-      <div class="plex-link-actions">
-        {{ c.btn("Try again", variant="primary", id="plex-retry") }}
-        <button type="button" class="btn btn--ghost" id="plex-retry-stop" hidden>Cancel</button>
-      </div>
-    </div>
-
-    <div data-plex-panel="linked" hidden>
-      <p class="plex-link-done" id="plex-done" hidden>{{ c.icon("i-circle-check") }}<span>Your Plex account <strong class="plex-link-name" id="plex-done-name"></strong> is linked.</span></p>
-      <p id="plex-linked">Linked to <strong class="plex-link-name" id="plex-name"></strong> since <span id="plex-since"></span>.</p>
-      <p class="plex-link-fine" id="plex-read"></p>
-      <p class="plex-link-fine">Your plays in Plex apps, in the libraries Mediaman looks after, help choose your recommendations. Continue watching and watched marks stay separate. Plays in Plex count for clean-up for everyone, linked or not.</p>
-      <div class="plex-link-actions">
-        {{ c.btn("Unlink", variant="danger", id="plex-unlink") }}
-      </div>
-    </div>
-
-    <div class="plex-link-moved" id="plex-moved" hidden>
-      <p>Someone else here signed in to the Plex account you had linked, on <span id="plex-moved-when"></span>, and it moved to them. If it is yours, link it again to take it back.</p>
-      <div class="plex-link-actions">
-        {{ c.btn("Dismiss", variant="ghost", id="plex-moved-dismiss") }}
-      </div>
-    </div>
-
-    <p class="plex-link-fine" id="plex-signout-note" hidden>Mediaman may still be signed in at Plex. You can remove it yourself under Authorized Devices in your Plex account.</p>
-    <p class="plex-link-msg" id="plex-error" role="alert"></p>
-    <p class="sr-only" id="plex-status" role="status"></p>
   </div>
-{% endcall %}
 
-{% if role == "admin" %}
-{% call c.setg_card(title="Linked Plex accounts", sub="Who else has linked a Plex account. Their plays are not shown.", pad=True) %}
-  <p class="sr-only" id="plex-others-status" role="status"></p>
-  <div id="plex-others" aria-busy="true" tabindex="-1"><p class="plex-link-fine">Loading…</p></div>
-{% endcall %}
-{% endif %}
+  <div data-plex-panel="loading"><p class="sr-only">Loading…</p><div class="dev-skel plex-skel"></div><div class="dev-skel plex-skel plex-skel--long"></div></div>
+
+  <div data-plex-panel="unset" hidden><p>Plex is not set up on this Mediaman yet.</p></div>
+
+  <div data-plex-panel="unlinked" hidden>
+    <div class="me-line me-line--stack">
+      <div class="me-txt">
+        <div class="me-lbl">Not linked</div>
+        <div class="me-sub">Your plays in Plex apps can help choose your recommendations. Continue watching and watched marks stay separate.</div>
+      </div>
+      <div class="me-end plex-link-go">
+        <button type="button" class="btn btn--primary btn--sm" id="plex-start" aria-describedby="plex-terms">Link Plex account</button>
+        <button type="button" class="btn btn--ghost btn--sm" id="plex-start-stop" hidden>Cancel</button>
+      </div>
+    </div>
+    <p class="plex-link-fine" id="plex-note"></p>
+    <ul class="plex-link-terms" id="plex-terms">
+      <li>Titles you played may be sent to the AI service that suggests what to watch.</li>
+      <li>Admins can see that you linked an account and can unlink it. They are not shown your plays.</li>
+    </ul>
+    <details class="plex-link-more">
+      <summary>More about linking {{ c.icon("i-chevron-down") }}</summary>
+      <ul class="plex-link-terms">
+        <li>Plex will ask you to sign in. Mediaman never sees your password, and signs out as soon as it knows who you are.</li>
+        <li>Mediaman keeps your Plex account number and name, and your plays on this server.</li>
+        <li>You can unlink at any time, which deletes the plays copied here.</li>
+        <li>Plays in Plex count for clean-up for everyone, linked or not.</li>
+      </ul>
+    </details>
+    <p class="plex-link-fine">A managed Plex Home user, with no Plex sign-in of their own, cannot be linked.</p>
+  </div>
+
+  <div data-plex-panel="waiting" hidden>
+    <p class="plex-link-lead"><span class="btn-spinner" aria-hidden="true"></span><span id="plex-lead"></span></p>
+    <p class="plex-link-wait" id="plex-wait" aria-live="polite">Waiting for Plex…</p>
+    <p class="plex-link-fine">Plex will name the app “<span id="plex-app">Mediaman</span>”. Only approve a sign-in you started yourself.</p>
+    <div class="plex-link-actions">
+      <a class="btn btn--secondary btn--sm" id="plex-open" target="_blank" rel="noopener noreferrer">Open Plex again</a>
+      {{ c.btn("Cancel", variant="ghost", size="sm", id="plex-cancel") }}
+    </div>
+  </div>
+
+  <div data-plex-panel="confirm" hidden>
+    <p>You signed in to Plex as <strong class="plex-link-name" id="plex-found"></strong>. Is this you?</p>
+    <p id="plex-moves" tabindex="-1" hidden>This Plex account is linked to another person here; linking moves it to you.</p>
+    <p class="plex-link-fine">Only confirm a sign-in you started yourself.</p>
+    <div class="plex-link-actions">
+      {{ c.btn("Yes, link it", variant="primary", size="sm", id="plex-confirm") }}
+      {{ c.btn("No, cancel", variant="ghost", size="sm", id="plex-decline") }}
+    </div>
+  </div>
+
+  <div data-plex-panel="failed" hidden>
+    <p id="plex-failed"></p>
+    <div class="plex-link-actions">
+      {{ c.btn("Try again", variant="primary", size="sm", id="plex-retry") }}
+      <button type="button" class="btn btn--ghost btn--sm" id="plex-retry-stop" hidden>Cancel</button>
+    </div>
+  </div>
+
+  <div data-plex-panel="linked" hidden>
+    <p class="plex-link-done" id="plex-done" hidden>{{ c.icon("i-circle-check") }}<span>Your Plex account <strong class="plex-link-name" id="plex-done-name"></strong> is linked.</span></p>
+    <div class="me-line">
+      <div class="me-txt">
+        <div class="me-lbl" id="plex-linked"><span>Linked to <strong class="plex-link-name" id="plex-name"></strong></span></div>
+        <div class="me-sub"><span id="plex-linked-when">Since <span id="plex-since"></span>. </span><span id="plex-read"></span></div>
+      </div>
+      <div class="me-end">{{ c.btn("Unlink", variant="danger", size="sm", id="plex-unlink") }}</div>
+    </div>
+    <p class="plex-link-fine">Your plays in Plex apps, in the libraries Mediaman looks after, help choose your recommendations. Continue watching and watched marks stay separate. Plays in Plex count for clean-up for everyone, linked or not.</p>
+  </div>
+
+  <p class="plex-link-fine" id="plex-signout-note" hidden>Mediaman may still be signed in at Plex. You can remove it yourself under Authorized Devices in your Plex account.</p>
+  <p class="plex-link-msg" id="plex-error" role="alert"></p>
+  <p class="sr-only" id="plex-status" role="status"></p>
+</div>

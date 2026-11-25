@@ -21,15 +21,89 @@ def _run(scenario: str) -> dict:
 def test_live_sign_ins_are_listed_and_the_others_can_be_signed_out() -> None:
     out = _run("sessions")
     assert (out["first"]["rows"], out["first"]["disabled"]) == (2, False)
-    assert "30 May 2026" in out["first"]["text"] and "1 Jun 2026" in out["first"]["text"]
+    assert "30 May," in out["first"]["text"] and "1 Jun," in out["first"]["text"]
     assert out["posts"] == 1
     assert (out["after"]["rows"], out["after"]["disabled"]) == (1, True)
     assert out["after"]["say"][0].endswith(" ok")
 
 
 def test_the_sign_in_of_this_device_is_told_from_the_others() -> None:
-    marked = [("This device" in row) for row in _run("thisDevice")]
-    assert marked == [False, True]
+    rows = _run("thisDevice")
+    assert [("This device" in row) for row in rows] == [True, False, False]
+
+
+def test_a_sign_in_names_its_device_as_text_or_has_its_dates_alone() -> None:
+    here, unnamed, old = _run("thisDevice")
+    assert here.startswith("Chrome on macOS") and "Signed in 30 May," in here
+    assert unnamed.startswith("Signed in 30 May,") and unnamed.count("Signed in") == 1
+    assert old.startswith("<b>Safari on iPhone")
+
+
+def test_a_date_of_another_year_has_its_year() -> None:
+    here, _unnamed, old = _run("thisDevice")
+    assert "2026" not in here and "Nov 2025," in old
+
+
+def test_one_device_is_signed_out_by_its_own_button() -> None:
+    out = _run("signOutOne")
+    assert (out["own"], out["label"]) == (False, "Sign out: Safari on iPhone")
+    # one request for each press, however often it is pressed meanwhile
+    assert out["sent"] == ["/api/users/sessions/a%2Fb"] * 3 + ["/api/users/sessions/id3"]
+    assert out["busy"] == "Signing out…"
+    assert out["words"] == {
+        "title": "Confirm it’s you",
+        "descText": "Enter your Mediaman password to sign out a device.",
+        "confirmLabel": "Continue",
+    }
+
+
+def test_a_device_that_would_not_sign_out_stays_and_says_so() -> None:
+    out = _run("signOutOne")
+    assert out["refused"] == {
+        "rows": 3,
+        "says": "Sign out",
+        "toasts": ["error: No luck"],
+        "focusKept": True,
+    }
+    assert out["cancelled"] == {"rows": 3, "toasts": []}
+
+
+def test_a_device_signed_out_leaves_the_list_and_hands_the_focus_on() -> None:
+    out = _run("signOutOne")
+    assert out["gone"] == {
+        "rows": 2,
+        "toasts": ["Signed out Safari on iPhone."],
+        "onNext": True,
+        "why": False,
+    }
+    assert out["last"] == {
+        "rows": 1,
+        "focused": "account-sessions",
+        "disabled": True,
+        "why": True,
+    }
+
+
+def test_the_password_form_opens_at_its_first_field_and_forgets_what_was_typed_when_shut() -> None:
+    out = _run("passwordFold")
+    assert out["shut"][:2] == [True, "false"]
+    assert out["open"] == [False, "true", "account-old-password"]
+    assert out["cancelled"] == [True, "false", "account-open-password", ""]
+    assert out["escaped"] == [True, "false", "account-open-password"]
+
+
+def test_the_rule_for_a_new_password_is_back_when_its_field_is_emptied() -> None:
+    rule = "At least 12 characters"
+    assert _run("passwordRule") == [rule, "Too simple so far", rule]
+
+
+def test_email_is_saved_only_when_it_differs_and_a_wrong_one_is_refused_unsent() -> None:
+    out = _run("emailFold")
+    assert out["out"] == [False, True, False, True]
+    (tone, words), invalid, focused = out["bad"]
+    assert tone == "me-msg err" and words
+    assert (invalid, focused) == ("true", "account-email")
+    assert out["undone"] == ["was@example.com", False, ""]
 
 
 def test_why_the_others_cannot_be_signed_out_is_said_while_there_are_none() -> None:
@@ -46,7 +120,7 @@ def test_sign_ins_that_cannot_be_listed_can_still_be_ended_and_a_failure_is_said
     assert out["after"] == {
         "focused": "account-revoke-others",
         "disabled": False,
-        "say": ["inline-form-msg err", "No luck"],
+        "say": ["me-msg err", "No luck"],
     }
 
 
@@ -59,14 +133,16 @@ def test_signing_out_the_others_keeps_the_focus_and_ends_it_on_the_list() -> Non
 def test_a_new_password_is_sent_once_keeps_the_focus_and_reloads_the_sign_ins() -> None:
     out = _run("password")
     assert out["posts"] == 1
-    assert out["whileSending"] == out["focused"] == "account-submit-password"
-    assert out["say"][0].endswith(" ok")
+    assert out["whileSending"] == "account-submit-password"
+    # the form is shut, emptied
+    assert (out["shut"], out["resets"], out["focused"]) == (True, 1, "account-open-password")
+    assert out["toasts"] == ["Password updated. Your other devices are signed out."]
     assert out["rows"] == 1
 
 
 def test_a_new_password_on_its_way_is_said_and_typing_meanwhile_leaves_the_words() -> None:
-    tone, words = _run("password")["working"]
-    assert tone == "inline-form-msg" and words
+    _tone, said, shown = _run("password")["working"]
+    assert said and shown == "Updating…"
 
 
 def test_a_refused_new_password_is_explained_beside_the_field_to_put_right() -> None:
@@ -96,8 +172,6 @@ def test_a_limit_on_new_passwords_is_said_at_the_button_pressed() -> None:
 def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_way() -> None:
     # on a narrow phone the words wrap under the button, where the bottom bar may cover them
     out = _run("password")
-    words = ["account-password-result", "nearest"]
-    assert out["revealed"] == [words, words]  # being sent, then updated
     field = "account-new-password"
     assert out["revealedRefusal"] == [[field, "nearest"], [field + "-why", "nearest"]]
     assert out["revealedEmptied"] == []
@@ -105,17 +179,27 @@ def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_wa
 
 def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
     css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
-    rule = css.split(".profile-pg .inline-form-actions .inline-form-msg {")[1].split("}")[0]
-    margin = re.search(r"scroll-margin-bottom: (\d+)px", rule)
+    margin = re.search(r"\.me-msg \{[^}]*scroll-margin-bottom: (\d+)px", css)
     # a 44px button centred on one 18px line reaches 13px below it
     assert margin and int(margin.group(1)) >= 13
 
 
 def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_status() -> None:
     out = _run("lateAnswer")
-    for which in ("email", "password", "sessions", "sessionsRefused"):
-        assert {where for where, seen in out[which].items() if seen[0]} == set(out[which])
+    for which in out:
+        assert {where for where, seen in out[which].items() if seen[0]} == set(out[which]), which
+    for which in ("sessions", "sessionsRefused"):
         assert [where for where, seen in out[which].items() if seen[1]] == ["there", "around"]
+
+
+def test_a_late_success_shuts_its_form_without_moving_a_reader_elsewhere() -> None:
+    out = _run("lateAnswer")
+    for which, field, home in (
+        ("email", "account-old-password", "account-email"),
+        ("password", "account-email", "account-open-password"),
+    ):
+        assert out[which]["elsewhere"] == [True, False, field, True]
+        assert out[which]["there"] == [True, False, home, True]
 
 
 def test_a_late_refusal_moves_the_cursor_and_the_page_only_for_a_reader_still_at_its_status() -> (
@@ -148,17 +232,17 @@ def test_email_is_sent_once_trimmed_and_each_outcome_is_said() -> None:
     assert [body["email"] for _url, body in out["sent"]] == [
         "vic@example.com",
         "",
-        "nope",
+        "nope@example.com",
         "vic@example.com",
     ]
-    button = "account-submit-email"
-    # the pressed button keeps the focus, and only a refusal moves it, to the field
-    assert out["focus"] == [button, button, button, button, button, "account-email", button, button]
-    assert out["saved"][0].endswith(" ok")
+    button, field = "account-submit-email", "account-email"
+    # folding away hands the focus to the field, as does a refusal; a cancelled password keeps it
+    assert out["focus"] == [button, field, button, field, button, field, button, button]
+    assert out["saved"] == ["me-msg", "", "Email saved.", True]
     assert out["typed"] == ""
-    assert out["removed"][0].endswith(" ok") and "off" in out["removed"][1]
-    assert out["refused"] == ["inline-form-msg err", "Not an email address"]
-    assert out["cancelled"] == ["inline-form-msg", ""]
+    assert out["removed"][2] == "Email removed. Alerts are off."
+    assert out["refused"] == ["me-msg err", "Not an email address", False]
+    assert out["cancelled"] == ["me-msg", "", False]
 
 
 def test_the_meter_and_the_match_hint_follow_the_typing_and_clear_on_reset() -> None:

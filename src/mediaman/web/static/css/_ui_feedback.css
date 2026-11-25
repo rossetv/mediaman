@@ -123,11 +123,12 @@
 .ui-confirm-overlay.is-visible { opacity: 1; }
 
 /* The page does not scroll behind an open dialog (confirm, password, keep and season,
-   abandon). A title's page and the storage panel hold the html already. */
+   abandon, picture). A title's page and the storage panel hold the html already. */
 html:not(.has-space, .has-ttl) body:has(
   > .ui-confirm-overlay:not(.is-leaving),
   > .reauth-backdrop:not([aria-hidden="true"]),
   > .keep-dialog-overlay.active:not(.is-closing),
+  > .pic-back:not([aria-hidden="true"]),
   #abandon-modal[aria-hidden="false"]
 ) {
   overflow: hidden;
