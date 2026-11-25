@@ -16,6 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from mediaman.core.audit import CLI_UNLOCK, UNSIGNED_ACTIONS
+from mediaman.core.time import parse_iso_strict_utc
 from mediaman.scanner.repository.audit import _FILTER_MAP, SHOW_ACTIONS, AuditRow
 
 PLAYS = "plays"
@@ -26,6 +27,8 @@ _CURSOR_MAX = 300
 _ID_MAX = 2**63 - 1
 #: Plays of one title further apart than this are two sittings.
 _SITTING_DAYS = 4 / 24
+_WINDOW_MARGIN = timedelta(hours=5)
+_WINDOW_DAYS = (30, 180)
 
 # At the same moment an event is listed before a play.
 _EVENT, _PLAY = 1, 0
@@ -356,7 +359,7 @@ WITH raw AS (
   FROM watch_progress wp
   JOIN admin_users u ON u.username = wp.username
   LEFT JOIN media_items mi ON mi.id = wp.media_item_id
-  WHERE wp.updated_at > '1971' AND {wp_user}
+  WHERE wp.updated_at > '1971' AND {wp_user} AND {wp_window}
     AND (wp.position_s > 0 OR wp.watched = 1 OR wp.credited_at IS NOT NULL)
   UNION ALL
   SELECT p.username, CASE p.media_type WHEN 'movie' THEN 'movie' ELSE 'tv' END,
@@ -367,16 +370,18 @@ WITH raw AS (
   FROM plex_plays p
   JOIN admin_users u ON u.username = p.username
   JOIN plex_links l ON l.username = p.username
-  WHERE p.media_type IN ('movie', 'episode') AND {p_user}
+  WHERE p.media_type IN ('movie', 'episode') AND {p_user} AND {p_window}
   UNION ALL
   SELECT t.username, t.media_type, t.title, NULL, t.played_at, 't:' || t.rowid, NULL, NULL, NULL,
          NULL, NULL, 0
   FROM played_titles t
   JOIN admin_users u ON u.username = t.username
-  WHERE {t_user}
+  WHERE {t_user} AND {t_window}
 ),
 marked AS (
-  SELECT *, julianday(at) - julianday(LAG(at) OVER one_title) > {gap} AS starts
+  SELECT *, julianday(at) - julianday(LAG(at) OVER one_title) > {gap} AS starts,
+         LEAD(at) OVER one_title IS NULL
+           OR COALESCE(julianday(LEAD(at) OVER one_title) - julianday(at), 0) > {gap} AS ends
   FROM raw WHERE TRIM(title) != ''
   WINDOW one_title AS (PARTITION BY username, media_type, LOWER(title) ORDER BY at, ref)
 ),
@@ -395,7 +400,13 @@ sittings AS (
 """
 
 
-def _plays_query(viewer: Viewer, filters: Filters) -> tuple[str, dict[str, object], _Where] | None:
+def _plays_query(
+    viewer: Viewer, filters: Filters, window: tuple[str, str] | None = None
+) -> tuple[str, dict[str, object], _Where] | None:
+    """The statement's start, what it binds and what its sittings must match.
+
+    With *window*, only plays stored between its two moments are read.
+    """
     if filters.action not in ("", PLAYS):
         return None
     names = {viewer.username} if not viewer.is_admin else set()
@@ -405,16 +416,23 @@ def _plays_query(viewer: Viewer, filters: Filters) -> tuple[str, dict[str, objec
         names = {filters.user}
     user = next(iter(names), None)
     scoped = "{0}.username = :user" if user is not None else "1"
+    windowed = "{0} >= :low AND {0} <= :high" if window else "1"
     sql = _PLAYS_SQL.format(
         wp_user=scoped.format("wp"),
         p_user=scoped.format("p"),
         t_user=scoped.format("t"),
+        wp_window=windowed.format("wp.updated_at"),
+        p_window=windowed.format("p.viewed_at"),
+        t_window=windowed.format("t.played_at"),
         gap=_SITTING_DAYS,
     )
+    params: dict[str, object] = {"user": user}
+    if window:
+        params |= {"low": window[0], "high": window[1]}
     where = _Where()
     _add_text(where, filters, ["title"], ["username"] if viewer.is_admin else [])
     _dates(where, "at", filters)
-    return sql, {"user": user}, where
+    return sql, params, where
 
 
 def _bind(where: _Where, params: dict[str, object]) -> tuple[str, dict[str, object]]:
@@ -426,6 +444,36 @@ def _bind(where: _Where, params: dict[str, object]) -> tuple[str, dict[str, obje
     return sql, params
 
 
+def _windows(
+    conn: sqlite3.Connection, filters: Filters, cursor: _Cursor | None
+) -> list[tuple[str, str] | None]:
+    """Ever longer spans to look for a page's sittings in, the last one all time.
+
+    Each reaches past its newest sitting by more than a sitting's gap, so a play that a later
+    one follows is never taken for the end of its sitting.
+    """
+    if filters.q or filters.title:
+        return [None]
+    newest = cursor.at if cursor else None
+    if newest is None:
+        newest = conn.execute(
+            "SELECT MAX(at) FROM (SELECT MAX(updated_at) AS at FROM watch_progress"
+            " UNION ALL SELECT MAX(viewed_at) FROM plex_plays"
+            " UNION ALL SELECT MAX(played_at) FROM played_titles)"
+        ).fetchone()[0]
+    end = parse_iso_strict_utc(newest)
+    if end and filters.until:
+        end = min(end, filters.until)
+    if end is None:
+        return [None]
+    try:
+        high = (end + _WINDOW_MARGIN).isoformat()
+        spans = [((end - timedelta(days=d)).isoformat(), high) for d in _WINDOW_DAYS]
+    except OverflowError:
+        return [None]
+    return [*spans, None]
+
+
 def _read_plays(
     conn: sqlite3.Connection,
     viewer: Viewer,
@@ -433,7 +481,27 @@ def _read_plays(
     cursor: _Cursor | None,
     limit: int,
 ) -> list[Play]:
-    query = _plays_query(viewer, filters)
+    plays: list[Play] = []
+    for window in _windows(conn, filters, cursor):
+        plays = _read_window(conn, viewer, filters, cursor, limit, window)
+        if window is None or len(plays) < limit:
+            continue
+        # A sitting that reaches the start of the span may have begun before it.
+        edge = (datetime.fromisoformat(window[0]) + _WINDOW_MARGIN).isoformat()
+        if all(p.started_at > edge for p in plays):
+            break
+    return plays
+
+
+def _read_window(
+    conn: sqlite3.Connection,
+    viewer: Viewer,
+    filters: Filters,
+    cursor: _Cursor | None,
+    limit: int,
+    window: tuple[str, str] | None,
+) -> list[Play]:
+    query = _plays_query(viewer, filters, window)
     if query is None:
         return []
     sql, params, where = query
@@ -530,7 +598,7 @@ def _count(conn: sqlite3.Connection, viewer: Viewer, filters: Filters) -> int:
         condition, params = _bind(query[2], query[1])
         # rationale: *condition* is made of fixed fragments; every value is bound
         total += conn.execute(  # nosec B608
-            f"{query[0]} SELECT COUNT(*) FROM sittings WHERE {condition}", params
+            f"{query[0]} SELECT COUNT(*) FROM marked WHERE ends AND {condition}", params
         ).fetchone()[0]
     return total
 
@@ -545,7 +613,9 @@ def history_page(
 ) -> Page:
     """A page of what *viewer* may see, the newest first.
 
-    Raises BadCursor. New rows sort before every cursor, so they move no row between pages.
+    Raises BadCursor. New rows sort before every cursor, so they move no row between pages. A
+    title played again between two pages moves to its new time, before the cursor: if its page
+    was still to come, it is not in this walk, only in the next.
     """
     after = _decode(cursor) if cursor else None
     per_page = max(1, min(per_page, PER_PAGE_MAX))
