@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Iterable, Sequence
 
 from mediaman.services.openai.client import DOMAIN_RE
@@ -61,6 +62,9 @@ _NUMBER_WORD_RE = re.compile(rf"\b(?:{'|'.join(_NUMBER_WORDS)})\b")
 _SENTENCE_START_RE = re.compile(r"(?:^|[.!?…][\"”')]?\s)\s*$")
 _SENTENCE_END_RE = re.compile(r"[.!?][\"”')]?(?=\s|$)")
 
+#: How many reasons of one set may have each shape.
+SHAPE_MAX = {"like": 1, "here": 3, "shares": 3, "turn": 4}
+
 
 def checked_reason(
     reason: str,
@@ -94,6 +98,32 @@ def is_tied(reason: str, own_titles: Iterable[str]) -> bool:
     """Whether *reason* names one of the titles that led to the pick."""
     spellings = _spellings(reason)
     return any(_without(text, [title]) != text for title in own_titles for text in spellings)
+
+
+_LIKE_RE = re.compile(
+    r"(?:much |just |rather )?(?:like|as (?:in|with|on)|similar to|in the (?:vein|spirit) of)\b",
+    re.IGNORECASE,
+)
+_HERE_RE = re.compile(r"\bhere\b", re.IGNORECASE)
+_TURN_RE = re.compile(r"[,;] (?:but|only|though|while|yet)\b", re.IGNORECASE)
+_SHARES_RE = re.compile(r"(?:it |this )?(?:shares|has)\b", re.IGNORECASE)
+
+
+def shape_of(reason: str) -> str | None:
+    """The template *reason* is built on, if one of those a set soon repeats."""
+    if _LIKE_RE.match(reason):
+        return "like"
+    if _HERE_RE.search(reason):
+        return "here"
+    if _SHARES_RE.match(reason):
+        return "shares"
+    return "turn" if _TURN_RE.search(reason) else None
+
+
+def repeated_shapes(reasons: Iterable[str]) -> set[str]:
+    """The shapes that more of *reasons* have than a set can take."""
+    counts = Counter(shape for reason in reasons if (shape := shape_of(reason)))
+    return {shape for shape, count in counts.items() if count > SHAPE_MAX[shape]}
 
 
 def _without(text: str, titles: Sequence[str]) -> str:

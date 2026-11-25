@@ -113,7 +113,7 @@ _CHOOSING = """How to choose:
 
 _WORDING = """- One or two short sentences, at most 180 characters in total.
 - Concrete and true of this title alone: its maker, setting, form, tone or situation. A sentence that would fit ten other titles is wrong.
-- Never retell the plot, and no twists, deaths or endings. Do not copy a description.
+- Never retell the plot. No twists, deaths or endings, and nothing a viewer is meant to find out: if the surprise is what the title is, how its puzzle works or who someone proves to be, write of its maker, setting, form or tone instead. Do not copy a description.
 - Plain British English. No hype and no popularity talk. Do not use: must-see, gripping, mind-bending, compelling, captivating, thought-provoking, heart-warming, hidden gem, buzz, acclaimed, perfect for, similar themes, expected to.
 - No awards, scores, box office, dates or streaming service.
 - Never write "you", "your", "we" or "because", and no ids.
@@ -123,10 +123,14 @@ _WORDING = """- One or two short sentences, at most 180 characters in total.
 PERSONAL_WORDING = f"""How to write "reason":
 - Name one title from because_of, spelled as in the list, and the concrete thing this pick shares with it. Then say what is different here. Name no other title.
 {_WORDING}
+- Vary the shape across the set: where the title is named, what kind of fact links them, one sentence or two. At most three in the whole set may set one title against the other with "here", and at most one may open with "Like", "As in" or the like.
 
-Good: "Shares The Lantern Clerk's director and slow coastal nights, but here the suspect runs the case."
-Bad: "A gripping thriller with similar themes."
-The good example is invented. Copy its manner, not its words."""
+Good, each a shape of its own:
+"The director of The Lantern Clerk left the coast for a hotel kitchen and kept the long silences."
+"Five strangers, one locked room and no music: the stage-play feel of Tessera Station in a third of the time."
+"Filmed in one harbour over a winter, with the dry humour of The Lantern Clerk."
+Bad: "Like The Lantern Clerk, it is a gripping thriller with similar themes."
+The good examples are invented. Copy their manner, not their words."""
 
 #: How a reason everyone sees is written.
 SHARED_WORDING = f"""How to write "reason":
@@ -500,9 +504,10 @@ def generate_personal(
         "proportion the person plays them.\n"
         "Do not guess the person's age, sex, family, beliefs or health.\n\n"
         'Each item also has "because_of": an array of one or two History ids that most directly '
-        "led to the pick, of titles the person did not dislike. The link must be concrete: shared "
-        "maker, subject, setting, structure or tone. Use only ids in the list. If no link is "
-        "honest, leave the title out.\n"
+        "led to the pick, of titles the person did not dislike. The link must be concrete and "
+        "close: shared maker, setting, form, tone or the same particular subject. A genre, a job "
+        "or an idea in common is too little. Use only ids in the list. If no link is honest, or "
+        "it needs explaining, leave the title out.\n"
         'Example: "because_of":["H3","H11"]\n\n'
         f"Return {_ASK_FOR} items.\n\n{_CHOOSING}\n{PERSONAL_WORDING}\n\n{_ANSWER}"
     )

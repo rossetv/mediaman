@@ -129,3 +129,52 @@ def test_a_title_called_you_may_be_named(model):
     reason = "Has the narration of You, but the victim tells it."
     [item] = choose_mix([_pick("P", reason, ("You",))], 1, None, portrait=portrait)
     assert item["reason"] == reason
+
+
+def _alike(n, shape="Alpha's nights are slow; here they are loud at pier {}."):
+    return [_pick(f"P{i}", shape.format(i)) for i in range(n)]
+
+
+@pytest.mark.parametrize(("count", "calls"), [(3, 0), (4, 1)])
+def test_a_set_with_one_shape_too_often_is_rewritten_in_the_one_second_pass(
+    model, portrait, count, calls
+):
+    model.answer = []
+    choose_mix(_alike(count), 14, None, portrait=portrait)
+    assert len(model.sent) == calls
+    if calls:
+        assert "built alike, so rebuild most of them: C1, C2, C3, C4" in model.sent[0]
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "Like Alpha, with pier {} at night.",
+        "As in Alpha, pier {} is a trap.",
+        "Shares Alpha's pier {}.",
+        "Alpha's pier {}, but by day.",
+    ],
+)
+def test_other_templates_are_seen_too(model, portrait, shape):
+    model.answer = []
+    choose_mix(_alike(5, shape), 14, None, portrait=portrait)
+    assert len(model.sent) == 1
+
+
+def test_a_rewrite_that_is_one_too_many_of_a_shape_leaves_a_draft_of_another(model, portrait):
+    draft = "The piers of Alpha under snow, number {}."
+    again = "Alpha is slow; here pier {} is loud."
+    model.answer = [{"id": f"C{i + 1}", "reason": again.format(i)} for i in range(5)]
+    found = choose_mix([*_alike(5, draft), _pick("X", "")], 6, None, portrait=portrait)
+    assert [i["reason"] for i in found if i["title"] != "X"] == [
+        *(again.format(i) for i in range(3)),
+        *(draft.format(i) for i in (3, 4)),
+    ]
+
+
+def test_a_pick_dropped_for_a_strained_link_is_left_out_while_enough_remain(model, portrait):
+    items = [_pick(t, "", ("Alpha" if t < "D" else "Beta",)) for t in "ABCDEF"]
+    model.answer = [{"id": "C1", "drop": True}, {"id": "C2", "drop": True}]
+    assert _titles(choose_mix(items, 6, None, portrait=portrait)) == ["C", "D", "E", "F"]
+    model.answer = [{"id": f"C{n}", "drop": True} for n in range(1, 7)]
+    assert _titles(choose_mix(items, 6, None, portrait=portrait)) == ["A", "B", "C"]
