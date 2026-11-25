@@ -43,7 +43,7 @@
     <div class="player-menu-wrap player-keep" data-keep>
       <button type="button" class="player-pill player-keep-btn" data-menu-trigger
               aria-haspopup="menu" aria-expanded="false">
-        {% if leaving.days <= 0 %}Leaving today{% elif leaving.days == 1 %}Leaving in 1 day{% else %}Leaving in {{ leaving.days }} days{% endif %}
+        {% if leaving.days < 0 %}Leaving any day{% elif leaving.days == 0 %}Leaving today{% elif leaving.days == 1 %}Leaving in 1 day{% else %}Leaving in {{ leaving.days }} days{% endif %}
         · Keep <span aria-hidden="true">▾</span>
       </button>
       <div class="player-menu player-menu--down" role="menu" hidden>

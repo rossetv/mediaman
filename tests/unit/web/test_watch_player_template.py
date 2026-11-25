@@ -111,6 +111,12 @@ def test_data_attributes_carry_the_context(name):
     assert json.loads(root["data-leaving"]) == ctx["leaving"]
 
 
+@pytest.mark.parametrize(("days", "says"), [(-1, "Leaving any day"), (0, "Leaving today")])
+def test_a_date_that_has_passed_is_not_called_today(days, says):
+    _, page = _render({**EPISODE, "leaving": {"days": days, "keep_id": "88"}})
+    assert any(c.startswith(f"{says} · Keep") for c in page.controls())
+
+
 @pytest.mark.parametrize("state", ["next", "end", "unknown"])
 def test_the_page_says_whether_the_next_episode_is_known(state):
     _, page = _render({**EPISODE, "next_state": state})
