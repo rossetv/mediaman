@@ -467,6 +467,32 @@ const scenarios = {
     };
     return { left: await go(false), late: await go(false, 'late'), hidden: await go('hidden'), own: await go(true), ownLate: await go(true, 'late') };
   },
+  /* Forward to a list read again for a delete answered after Back left it: its rows are still drawn, and the focus is on
+     a title of one, *deleted* that one, *held* on the list itself, as it comes. */
+  async forwardToStale() {
+    const go = async (on) => {
+      const rows = [{ id: 'm9', title: 'Big', ref: 'movie-9' }, { id: 'm1', title: 'Copperline', ref: 'movie-1' }, { id: 'm2', title: 'Dune', ref: 'movie-2' }];
+      const wait = deferred();
+      const g = going({ list: true, rows, state: { said: '3 titles' } });
+      g.p.serve('/watch/list', { said: '2 titles' }, [rows[0], rows[2]], wait);
+      const tell = (phase) => g.p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase, action: 'delete', id: 'm1' } });
+      tell('busy');
+      g.p.popstate('');
+      await settle();
+      tell('done');
+      await settle();
+      // address.js puts the focus back where it was.
+      if (on !== 'held') g.p.row('id:' + (on === 'deleted' ? 'm1' : 'm2')).querySelector('a.wl-title').focus();
+      else g.p.doc.activeElement.blur();
+      g.p.popstate('?view=list');
+      await settle();
+      const waiting = g.now().focus;
+      wait.resolve();
+      await settle();
+      return { waiting: on === 'held' ? g.now().on : waiting, after: [g.p.doc.activeElement.textContent, g.p.doc.body.contains(g.p.doc.activeElement), !!g.p.doc.activeElement.closest('tr')] };
+    };
+    return { deleted: await go('deleted'), other: await go('other'), held: await go('held') };
+  },
   /* Called off when what it asked for has already been replaced by another list. */
   async goReplaced() {
     const g = going({ list: true });
@@ -2276,6 +2302,19 @@ const scenarios = {
     slow.resolve();
     await settle();
     return { keys: p.rowKeys(), summary: p.part('summary'), history: p.history };
+  },
+
+  // The last row leaves with the focus, which as in a browser drops to the page with it.
+  async lastRowFocus() {
+    const p = load({ list: true, rows: ROWS.slice(0, 1) });
+    const own = Node.prototype.remove;
+    Node.prototype.remove = function () { own.call(this); if (this.contains(p.doc.activeElement)) p.doc.activeElement = p.doc.body; };
+    p.replies['post /api/media/m1/delete'] = () => Promise.resolve({ ok: true });
+    p.serve('/watch/list', { label: 'all' }, []);
+    click(p.doc, p.row('id:m1').querySelector('[data-action="confirm-delete"]'));
+    await settle();
+    await settle();
+    return { keys: p.rowKeys(), on: p.doc.activeElement.className, there: p.doc.body.contains(p.doc.activeElement) };
   },
 
   // A sort header pressed with motion on: focus lands on the header in the rows coming in, not the
