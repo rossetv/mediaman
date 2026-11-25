@@ -361,13 +361,42 @@ def test_what_the_tv_says_is_over_is_forgotten(since: str) -> None:
     }
 
 
-def test_a_tv_that_plays_nothing_is_over_and_its_stream_stopped_at_the_last_place() -> None:
+def test_a_tv_that_says_nothing_may_play_still_and_nothing_of_it_is_ended() -> None:
     assert _run("empty") == {
-        "found": None,
-        "kept": False,
-        "posts": [["stream/st1/stop", 112, 62]],
-        "ended": [True],
+        "found": {"code": "lost", "says": False},
+        "kept": True,
+        "posts": [],
+        "ended": [],
     }
+
+
+@pytest.mark.parametrize("page", ["player", "bar"])
+def test_a_tv_that_names_what_it_plays_seconds_after_it_was_joined_is_gone_on_with(
+    page: str,
+) -> None:
+    assert _run("saysLate")[page] == {
+        "early": {"ended": [], "kept": True, "posts": []},
+        "plays": True,
+        "ended": [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("how", "gone", "lost", "at"),
+    [
+        ("back", [], False, 110),
+        ("another", ["taken"], False, 105),
+        # It may play on for as long as it says nothing; away again, for two minutes.
+        ("never", [], True, 105),
+        ("lostAgain", ["lost"], False, 105),
+    ],
+)
+def test_a_lost_tv_that_is_back_and_silent_is_no_tv_that_stopped(
+    how: str, gone: list[str], lost: bool, at: int
+) -> None:
+    out = _run("saysLate")[how]
+    assert out["early"] == {"gone": [], "lost": True}
+    assert (out["gone"], out["lost"], out["at"], out["ended"]) == (gone, lost, at, [])
 
 
 def test_a_title_the_person_plays_here_after_all_is_not_looked_for_again() -> None:
@@ -845,6 +874,14 @@ def test_stop_answers_on_a_page_that_took_the_wait_over(kind: str, state: str, r
 def test_a_question_nobody_answered_is_over_on_the_next_page_too() -> None:
     out = _run("waits")["asked"]
     assert (out["now"], out["ended"]) == (None, [True])
+
+
+def test_a_question_that_is_over_ends_nothing_on_a_tv_that_has_said_nothing() -> None:
+    assert _run("waits")["askedSilent"] == {"now": None, "ended": []}
+
+
+def test_the_count_is_over_as_the_tv_says_it_plays_something_else() -> None:
+    assert _run("waits")["takenLate"] == {"now": None, "ended": [], "loads": 1}
 
 
 def test_the_sitting_is_counted_on_across_pages() -> None:

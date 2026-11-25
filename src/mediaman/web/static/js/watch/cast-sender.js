@@ -28,8 +28,6 @@
   var SDK_WAIT_MS = 15000;
   var LOAD_WAIT_MS = 45000;
   var REJOIN_WAIT_MS = 10000;
-  /* How long a TV that was joined may take to say what it plays. */
-  var SAY_WAIT_MS = 3000;
   /* A TV that was lost may come back for this long. */
   var LOST_MS = 120000;
   var TICK_MS = 500;
@@ -283,6 +281,7 @@
       cut: false,        // the page before was left as it changed its stream
       changing: false,   // another stream is on its way
       wait: null,        // at its end: 'upnext' or 'still', and when that is over
+      silent: false,     // joined at its end, the TV having named nothing
       auto: 0,           // episodes that began by themselves
       sign: now(),       // when somebody last pressed
       gone: [],
@@ -447,6 +446,7 @@
 
     function attach(ms) {
       p.ms = ms;
+      p.silent = false;
       p.updated = function (alive) { if (ms === p.ms) update(alive); };
       ms.addUpdateListener(p.updated);
     }
@@ -459,20 +459,22 @@
     p.update = update;
 
     function volumeChanged() { emit('volumechange'); }
-    function otherMedia(e) {
-      if (p.ms && !p.done && e.mediaSession && !isOurs(e.mediaSession, p.stream)) goneBy(p, 'taken');
+    function mediaSaid(e) {
+      if (p.done) return;
+      if (p.lost !== null) find(p, p.session);
+      else if ((p.ms || p.wait) && e.mediaSession && !isOurs(e.mediaSession, p.stream)) goneBy(p, 'taken');
     }
     p.join = function (joined) {
       var types = global.cast.framework.SessionEventType;
       p.leaveSession();
       p.session = joined;
       joined.addEventListener(types.VOLUME_CHANGED, volumeChanged);
-      joined.addEventListener(types.MEDIA_SESSION, otherMedia);
+      joined.addEventListener(types.MEDIA_SESSION, mediaSaid);
     };
     p.leaveSession = function () {
       var types = global.cast.framework.SessionEventType;
       p.session.removeEventListener(types.VOLUME_CHANGED, volumeChanged);
-      p.session.removeEventListener(types.MEDIA_SESSION, otherMedia);
+      p.session.removeEventListener(types.MEDIA_SESSION, mediaSaid);
     };
     p.join(session);
 
@@ -531,9 +533,11 @@
       !!stream.url && info.contentId === stream.url;
   }
 
+  /* What the TV has named so far: nothing, where it has not spoken. */
+  function mediaOn(session) { return session.getSessionObj().media || []; }
+
   function mediaOf(session, stream) {
-    var all = session.getSessionObj().media || [];
-    return all.filter(function (ms) { return isOurs(ms, stream); })[0] || null;
+    return mediaOn(session).filter(function (ms) { return isOurs(ms, stream); })[0] || null;
   }
 
   /* The player's count of the played time takes the place of the one made here. */
@@ -692,22 +696,25 @@
   }
 
   function lose(p) {
-    if (p.lost !== null) return;
-    p.at();
-    p.lost = now();
-    p.aim = p.asked = null;
-    p.was = '';
-    p.ready = 1;
-    p.emit('waiting');
+    clearTimeout(p.timers.lost);
+    if (p.lost === null) {
+      p.at();
+      p.lost = now();
+      p.aim = p.asked = null;
+      p.was = '';
+      p.ready = 1;
+      p.emit('waiting');
+    }
     p.timers.lost = setTimeout(function () { goneBy(p, 'lost'); }, LOST_MS);
   }
 
-  /* The TV is back. */
+  /* The TV is back. Until it names what it has it may play on all the same. */
   function find(p, session) {
     clearTimeout(p.timers.lost);
+    if (session !== p.session) p.join(session);
+    if (!mediaOn(session).length) return;
     p.lost = null;
     p.detach();
-    p.join(session);
     var ms = mediaOf(session, p.stream);
     if (!ms) {
       goneBy(p, session.getMediaSession() ? 'taken' : 'stopped');
@@ -723,33 +730,35 @@
   });
 
   /* The session a record names and the media there, once this page has joined it and the TV has
-     said what it plays, or nothing; null where it is not joined in time. */
+     named what it has; null where it is not joined, or does not, in time. */
   function waitForTv(rec) {
     return new Promise(function (resolve) {
       var framework = global.cast.framework;
       var type = framework.CastContextEventType.SESSION_STATE_CHANGED;
       var heard = null;
-      var quiet = null;
-      var timer = setTimeout(function () { over(null); }, REJOIN_WAIT_MS);
+      var timer;
+      function wait() {
+        clearTimeout(timer);
+        timer = setTimeout(function () { over(null); }, REJOIN_WAIT_MS);
+      }
       function over(found) {
         clearTimeout(timer);
         context.removeEventListener(type, look);
-        clearTimeout(quiet);
         if (heard) heard.removeEventListener(framework.SessionEventType.MEDIA_SESSION, look);
         resolve(found);
       }
       function look() {
         var session = context.getCurrentSession();
         if (!session || session.getSessionId() !== rec.session) return;
-        if ((session.getSessionObj().media || []).length || rec.wait) {
+        if (mediaOn(session).length || rec.wait) {
           over({ session: session, ms: mediaOf(session, { stream_id: rec.stream }) });
         } else if (heard !== session) {
           heard = session;
-          clearTimeout(timer);
           session.addEventListener(framework.SessionEventType.MEDIA_SESSION, look);
-          quiet = setTimeout(function () { over({ session: session, ms: null }); }, SAY_WAIT_MS);
+          wait();
         }
       }
+      wait();
       context.addEventListener(type, look);
       look();
     });
@@ -804,7 +813,7 @@
       if (livesElsewhere(rec)) return null;
       forget(rec.stream);
       /* A session that plays nothing is no TV to play on unasked. */
-      if (!other) endOn(session, null, null);
+      if (!other && mediaOn(session).length) endOn(session, null, null);
       /* It ended while no page was open: where it was last, unless the TV says it played to the end. */
       stopOnServer(rec.stream, { position_s: end || tenths(rec.place), played_s: Math.round(rec.played || 0) });
       return null;
@@ -821,6 +830,7 @@
     if (waits) {
       p.place = p.duration = rec.wait ? rec.place : end;
       p.paused = p.ended = p.mine = true;
+      p.silent = !mediaOn(session).length;
       /* A count that ran out with no page open begins nothing. */
       var stale = waits.kind === 'upnext' && now() - waits.until > COUNT_OLD_MS;
       p.wait = stale ? { kind: 'upnext', until: null } : waits;
@@ -958,7 +968,7 @@
 
   function waitOver(p) {
     if (p.wait.kind === 'still') {
-      goneBy(p, 'stopped', true);
+      goneBy(p, 'stopped', !p.silent);
       return;
     }
     p.auto++;
