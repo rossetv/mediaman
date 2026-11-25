@@ -149,6 +149,17 @@ def test_the_system_s_colours_keep_the_eye_and_the_button_drawn() -> None:
     assert "border: 1px solid transparent" in _rule(login, ".login-btn")
 
 
+def test_the_brand_breaks_between_its_parts_where_it_is_too_wide() -> None:
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    assert "display: inline-block" in _rule(login, ".login-brand b")
+
+
+def test_an_open_form_s_fold_follows_its_height_in_safari() -> None:
+    password = (WEB / "static" / "css" / "_password.css").read_text()
+    fold = ".setg-pg .setg-fold:has(.pwd):not(.is-shut, .is-moving, [hidden])"
+    assert "display: flow-root" in _rule(password, fold)
+
+
 def _page(**context) -> str:
     from fastapi.templating import Jinja2Templates
     from starlette.requests import Request

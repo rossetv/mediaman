@@ -338,7 +338,7 @@ const scenarios = {
       const row = done.querySelector('.pwd-dev-row');
       const during = { says: done.querySelector('.pwd-done-s').textContent, live: p.$('account-password-live').textContent, sub: p.sub(), icons: row ? row.querySelectorAll('use').map((u) => u.getAttribute('href').slice(3)).join(' ') : '', more: row && row.querySelector('.pwd-dev-n') ? row.querySelector('.pwd-dev-n').textContent : '' };
       await p.rest();
-      out.push({ ...during, after: p.$('account-password-sub').textContent, left: Boolean(p.$('stage').querySelector('.pwd-done')) });
+      out.push({ ...during, after: p.$('account-password-sub').textContent, faded: p.$('account-password-sub').children.filter((n) => n.tagName === 'SPAN' && !n.classList.contains('is-fresh')).map((n) => n.textContent), left: Boolean(p.$('stage').querySelector('.pwd-done')) });
     }
     return out;
   },
@@ -441,10 +441,12 @@ const scenarios = {
     line.style = { get marginBottom() { return shown; }, set marginBottom(v) { shown = v; set.push(v); } };
     const sub = p.$('account-password-sub');
     line.querySelector('.me-end').offsetTop = 33;
+    sub.getBoundingClientRect = () => ({ width: 164.5 });
     p.press('account-open-password');
+    const width = [sub.style.maxWidth];
     const open = [set.splice(0), sub.classList.contains('is-new'), line.querySelector('.me-end').style.top];
     p.press('account-cancel-password');
-    return { open, shut: [set.splice(0), sub.classList.contains('is-new')] };
+    return { open, shut: [set.splice(0), sub.classList.contains('is-new')], width: [...width, sub.style.maxWidth] };
   },
   // the form's script did not load: the rest of the page stands
   async passwordWithout() {

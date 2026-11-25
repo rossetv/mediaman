@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
+WEB = Path(__file__).parents[3] / "src" / "mediaman" / "web"
 HARNESS = Path(__file__).parent / "js" / "account_harness.js"
 
 
@@ -122,6 +123,18 @@ def test_the_form_says_how_many_devices_and_tvs_a_new_password_signs_out() -> No
     assert both == "Signs out your 2 other devices and your TV."
     assert tvs == "Signs out your 3 TVs."
     assert no_list == no_tvs == "Signs out your other devices and your TVs."
+
+
+def test_the_words_that_stay_are_apart_from_what_fades_beside_them() -> None:
+    css = (WEB / "static" / "css" / "_profile.css").read_text()
+    assert "#account-password-sub.is-new > span:not(.is-fresh) { animation: fade-in" in css
+    assert "#account-password-sub.is-new {" not in css
+    for out in _run("passwordDone"):
+        assert out["faded"] == [out["says"]]
+
+
+def test_when_it_was_changed_keeps_its_lines_while_the_form_is_open() -> None:
+    assert _run("passwordEased")["width"] == ["164.5px", ""]
 
 
 def test_what_a_new_password_signed_out_is_drawn_said_and_kept_in_the_row() -> None:

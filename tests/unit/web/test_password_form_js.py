@@ -147,6 +147,12 @@ def test_what_is_still_needed_is_said_once_the_typing_pauses() -> None:
     assert out["emptied"] == ["", ""]
 
 
+def test_what_only_the_server_can_judge_is_not_said_to_be_still_needed() -> None:
+    out = _run("said")
+    assert "kinds of character" in out["mix"][1]
+    assert out["rare"][1] == out["newer"][1] == ""
+
+
 def test_an_eye_shows_its_own_field_and_keeps_the_cursor_where_it_was() -> None:
     out = _run("eye")
     assert out["first"] == ["password", "password", ["false", "false"]]

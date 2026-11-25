@@ -141,6 +141,10 @@ def test_settings_keeps_the_team_and_no_second_account_form(settings_html):
     assert set(page.forms) == {"add-user-form", None}
 
 
+def test_a_new_username_can_be_no_longer_than_the_server_takes(settings_html):
+    assert re.search(r'<input [^>]*id="new-username" maxlength="64"', settings_html)
+
+
 def test_settings_users_links_to_profile(settings_html):
     section = settings_html.split('id="setg-users"', 1)[1].split('id="user-list"', 1)[0]
 

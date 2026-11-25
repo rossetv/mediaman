@@ -44,6 +44,8 @@
   margin-bottom: 4px;
 }
 .login-brand a { text-decoration: none; color: inherit; overflow-wrap: anywhere; }
+/* Too wide for the card, it breaks between its two parts. */
+.login-brand b { display: inline-block; }
 .login-brand b, .login-brand span { color: var(--accent); }
 .login-sub { color: var(--t3); font-size: 14px; margin-bottom: 28px; }
 .login-title {

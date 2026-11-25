@@ -218,8 +218,9 @@
       var r = x.r, miss = [];
       if (r.tooLong) miss.push('fewer characters');
       else if (!r.ok.length) miss.push(many(MIN - r.length, 'one more character', 'more characters'));
-      if (!r.ok.mix) miss.push(r.length >= PHRASE ? 'a third kind of character' : many(3 - r.count, 'one more kind of character', 'more kinds of character'));
-      if (!r.ok.guess) miss.push('something harder to guess');
+      // What only the server can judge is not asked for.
+      if (!r.ok.mix && !r.unsure.mix) miss.push(r.length >= PHRASE ? 'a third kind of character' : many(3 - r.count, 'one more kind of character', 'more kinds of character'));
+      if (!r.ok.guess && !r.unsure.guess) miss.push('something harder to guess');
       if (x.same) miss.push('one you do not have now');
       return miss;
     }

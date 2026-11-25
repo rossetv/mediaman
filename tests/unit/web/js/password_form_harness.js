@@ -95,7 +95,7 @@ const scenarios = {
     const p = page();
     const said = (text) => { p.type('new_password', text); const now = p.said(); p.run(900); p.timers.length = 0; return [now, p.said()]; };
     p.type('old_password', 'the old one');
-    return { short: said('Copper'), huge: said('Aa1!' + 'é'.repeat(600)), good: said(GOOD), emptied: said('') };
+    return { short: said('Copper'), huge: said('Aa1!' + 'é'.repeat(600)), good: said(GOOD), mix: said('copper lanternab'), rare: said('copper lantern٣᠐'), newer: said('AAAAAAAAAAA1\u{1ccd6}\u{1ccd7}\u{1ccd8}\u{1ccd9}\u{1ccda}\u{1ccdb}'), emptied: said('') };
   },
   eye() {
     const p = page();

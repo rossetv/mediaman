@@ -19,8 +19,8 @@
             <div class="pwd-in">
               <div class="pwd-fld pwd-fld--user">
                 <label class="pwd-lbl" for="new-username">Username</label>
-                <div class="pwd-box"><input class="inp" type="text" id="new-username" placeholder="e.g. casey" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="new-username-why"></div>
-                {{ pw.why("new-username", "Username must be between 3 and 64 characters.") }}
+                <div class="pwd-box"><input class="inp" type="text" id="new-username" maxlength="64" placeholder="e.g. casey" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="new-username-why"></div>
+                {{ pw.why("new-username", "Username must be at least 3 characters.") }}
               </div>
               <div class="pwd-role">
                 <span class="pwd-lbl" id="new-user-role-lbl">Role</span>

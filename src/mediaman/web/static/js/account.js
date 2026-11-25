@@ -147,12 +147,16 @@
     function show() {
       if (pw.isBusy()) return;
       opener.setAttribute('aria-expanded', 'true');
+      var width = sub.getBoundingClientRect().width;
       ease(function () {
         // Where the button leaves its room to the words, it fades where it was.
         end.style.top = end.offsetTop + 'px';
         opener.classList.add('is-gone');
         // The line by the buttons says it, with the numbers.
-        if (changed && !fresh) effect.hidden = true;
+        if (!changed || fresh) return;
+        // On the lines it had beside the button.
+        sub.style.maxWidth = width + 'px';
+        effect.hidden = true;
       });
       sayDevices();
       fold.openInView(panel);
@@ -163,8 +167,11 @@
       opener.setAttribute('aria-expanded', 'false');
       ease(function () {
         opener.classList.remove('is-gone');
+        sub.style.maxWidth = '';
         if (!fresh) effect.hidden = false;
-        if (words) sub.appendChild(document.createTextNode(' ' + words));
+        if (!words) return;
+        sub.appendChild(document.createTextNode(' '));
+        sub.appendChild(el('span', '', words));
       });
       fold.close(panel, then || pw.reset);
       if (held) opener.focus({ preventScroll: true });
@@ -195,7 +202,7 @@
       fresh = true;
       live.textContent = 'Password changed. ' + words;
       ease(function () {
-        sub.textContent = '';
+        sub.textContent = sub.style.maxWidth = '';
         var now = sub.appendChild(el('span', 'is-fresh'));
         now.appendChild(MM.dom.icon('i-check'));
         now.appendChild(document.createTextNode('Changed just now.'));
