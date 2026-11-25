@@ -26,7 +26,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -55,13 +55,26 @@ _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _KEPT = "public, max-age=31536000, immutable"
 
 
-def _static_version(static_dir: Path) -> str:
+class _StaticVersion(NamedTuple):
+    """The digest of the static files, and what it was read from."""
+
+    digest: str
+    read_at: float
+    files: dict[str, tuple[int, int]]
+    """Each file's real path, with its size and mtime in nanoseconds."""
+
+
+def _static_version(static_dir: Path) -> _StaticVersion:
     """A short digest of every file under *static_dir*, so a changed asset gets a new URL."""
+    read_at = time.time()
     digest = hashlib.sha256()
+    files = {}
     for path in sorted(p for p in static_dir.rglob("*") if p.is_file()):
+        stat_result = path.stat()
+        files[os.path.realpath(path)] = (stat_result.st_size, stat_result.st_mtime_ns)
         digest.update(path.relative_to(static_dir).as_posix().encode())
         digest.update(path.read_bytes())
-    return digest.hexdigest()[:12]
+    return _StaticVersion(digest.hexdigest()[:12], read_at, files)
 
 
 class _RevalidatedStaticFiles(StaticFiles):
@@ -73,10 +86,9 @@ class _RevalidatedStaticFiles(StaticFiles):
     request is checked.
     """
 
-    def __init__(self, *, version: str = "", **kwargs: Any) -> None:
+    def __init__(self, *, version: _StaticVersion | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._versioned_query = f"v={version}".encode() if version else None
-        self._versioned_at = time.time()
+        self._version = version
 
     def file_response(
         self,
@@ -86,10 +98,15 @@ class _RevalidatedStaticFiles(StaticFiles):
         status_code: int = 200,
     ) -> Response:
         response = super().file_response(full_path, stat_result, scope, status_code)
+        version = self._version
         # The version was read at startup; a file changed on disk since is not what it names.
+        # The time tells a change made in the same tick of the file's clock as the read.
         current = (
-            scope.get("query_string", b"") == self._versioned_query
-            and stat_result.st_mtime <= self._versioned_at
+            version is not None
+            and scope.get("query_string", b"") == f"v={version.digest}".encode()
+            and stat_result.st_mtime <= version.read_at
+            and version.files.get(os.fspath(full_path))
+            == (stat_result.st_size, stat_result.st_mtime_ns)
         )
         response.headers["Cache-Control"] = _KEPT if current else "no-cache"
         return response
@@ -492,17 +509,17 @@ def create_app() -> FastAPI:
     register_security_middleware(app)
     register_error_pages(app)
 
-    static_v = _static_version(_STATIC_DIR) if _STATIC_DIR.is_dir() else ""
-    if static_v:
+    version = _static_version(_STATIC_DIR) if _STATIC_DIR.is_dir() else None
+    if version:
         app.mount(
             "/static",
-            _RevalidatedStaticFiles(directory=str(_STATIC_DIR), version=static_v),
+            _RevalidatedStaticFiles(directory=str(_STATIC_DIR), version=version),
             name="static",
         )
 
     app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
     # Templates link assets as ``?v={{ static_v }}``; computed once, not per request.
-    app.state.templates.env.globals["static_v"] = static_v
+    app.state.templates.env.globals["static_v"] = version.digest if version else ""
 
     _register_routers(app)
     _register_probes(app)
