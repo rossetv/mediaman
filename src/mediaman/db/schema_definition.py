@@ -182,7 +182,9 @@ CREATE TABLE IF NOT EXISTS pruned_keeps (
     plex_library_id INTEGER,
     tvdb_id INTEGER,
     -- JSON list of the other libraries where a title with these ids was given the keep.
-    given_libraries TEXT
+    given_libraries TEXT,
+    -- JSON list of the keys given it there: one that loses it to a person uses the ids up.
+    given_to TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_media ON pruned_keeps(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_file_path ON pruned_keeps(file_path);
@@ -198,7 +200,8 @@ CREATE TABLE IF NOT EXISTS pruned_show_seasons (
     tmdb_id INTEGER,
     tvdb_id INTEGER,
     plex_library_id INTEGER,
-    given_libraries TEXT
+    given_libraries TEXT,
+    given_to TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pruned_show_seasons_show ON pruned_show_seasons(show_rating_key);
 CREATE INDEX IF NOT EXISTS idx_pruned_show_seasons_file_path ON pruned_show_seasons(file_path);

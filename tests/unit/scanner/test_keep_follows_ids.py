@@ -386,6 +386,45 @@ class TestRemovedKeep:
         assert _actions(conn, "new") == ["scheduled_deletion"]
         assert _actions(conn, "newer") == ["scheduled_deletion"]
 
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @pytest.mark.parametrize("still_listed", [True, False])
+    @_season("film new", "season new")
+    def test_one_removed_from_the_key_it_was_given_to_is_given_to_none_in_another_library(
+        self, conn, freezer, library, monkeypatch, run, still_listed
+    ):
+        library.sync("old")
+        _keep(conn, "old")
+        freezer.tick(60)
+        library.scan("new")
+        assert _actions(conn, "new") == ["protected_forever"]
+        _remove_keep(conn, "new", monkeypatch)
+
+        for _ in range(2):
+            freezer.tick(60)
+            getattr(library, run)(*(["new"] if still_listed else []), "newer")
+
+        assert "protected_forever" not in _actions(conn, "newer")
+
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @_season("season new")
+    def test_a_whole_show_keep_removed_from_the_key_it_was_given_to_is_given_to_none_in_another_library(
+        self, conn, freezer, library, run
+    ):
+        library.sync("old")
+        _keep_show(conn)
+        freezer.tick(60)
+        library.scan("new")
+        assert _is_kept(conn, "show", "new")
+        with conn:
+            conn.execute("DELETE FROM kept_shows WHERE show_rating_key = 'show-new'")
+            log_audit(conn, "show-new", "removed_show_keep", "removed", actor="admin")
+
+        for _ in range(2):
+            freezer.tick(60)
+            getattr(library, run)("newer")
+
+        assert not _is_kept(conn, "show", "newer")
+
     @_season("season")
     def test_nobody_can_remove_it_while_it_is_given(
         self, conn, db_path, freezer, library, monkeypatch

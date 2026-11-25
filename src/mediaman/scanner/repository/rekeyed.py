@@ -531,8 +531,11 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
         def give(title: sqlite3.Row, keep: sqlite3.Row = keep) -> bool:
             return _give_keep(conn, keep, title["id"])
 
-        titles = _films_or_seasons_with_ids(conn, _pruned_ids(keep), keep["season_number"])
-        _store_claim(conn, "pruned_keeps", keep["id"], _give_nearest(keep, titles, give))
+        claim = None
+        if not any(_keep_removed_since(conn, keep, key) for key in _entries(keep["given_to"])):
+            titles = _films_or_seasons_with_ids(conn, _pruned_ids(keep), keep["season_number"])
+            claim = _give_nearest(keep, titles, give, "id")
+        _store_claim(conn, "pruned_keeps", keep["id"], claim)
     _carry_pruned_show_keeps(conn)
 
 
@@ -540,33 +543,46 @@ def _pruned_ids(pruned: sqlite3.Row) -> Ids:
     return title_ids({**dict(pruned), "last_tmdb_id": None, "last_tvdb_id": None})
 
 
+# The other libraries where a set-aside keep was given, and the keys given it there.
+_Claim = tuple[set[object], set[object]]
+
+
 def _give_nearest(
-    pruned: sqlite3.Row, titles: Collection[sqlite3.Row], give: Callable[[sqlite3.Row], bool]
-) -> Collection[object] | None:
+    pruned: sqlite3.Row,
+    titles: Collection[sqlite3.Row],
+    give: Callable[[sqlite3.Row], bool],
+    key: str,
+) -> _Claim | None:
     """Give the keep of *pruned* to those of *titles* in its own library, else to those elsewhere.
 
-    Return the other libraries that have it, None once its own does. One
-    elsewhere may be a copy that was always there, so the title may still come
-    back to its own library, or to a third.
+    Return where else it is given, under which *key* of the titles, None once
+    its own library has it. One elsewhere may be a copy that was always there,
+    so the title may still come back to its own library, or to a third.
     """
     own_library = pruned["plex_library_id"]
     if [t for t in titles if t["plex_library_id"] == own_library and give(t)]:
         return None
     had = set(_entries(pruned["given_libraries"]))
-    elsewhere = [t for t in titles if t["plex_library_id"] not in {own_library, *had}]
-    return had.union(title["plex_library_id"] for title in elsewhere if give(title))
+    given = [t for t in titles if t["plex_library_id"] not in {own_library, *had} and give(t)]
+    return (
+        had.union(title["plex_library_id"] for title in given),
+        {*_entries(pruned["given_to"]), *(title[key] for title in given)},
+    )
 
 
 def _store_claim(
-    conn: sqlite3.Connection, table: str, pruned_id: int, libraries: Collection[object] | None
+    conn: sqlite3.Connection, table: str, pruned_id: int, claim: _Claim | None
 ) -> None:
-    """Store what _give_nearest returned of the row of the fixed *table*: None uses its ids up."""
+    """Store what became of the keep of the row of the fixed *table*: None uses its ids up.
+
+    So does a person who removes it from a key it was given to: no other key takes it then.
+    """
     params: list[object] = []
-    if libraries is None:
+    if claim is None:
         change = "tvdb_id = NULL, tmdb_id = NULL"
-    elif libraries:
-        change = "given_libraries = ?"
-        params.append(json.dumps(sorted(libraries, key=str)))
+    elif claim[0]:
+        change = "given_libraries = ?, given_to = ?"
+        params += [json.dumps(sorted(entries, key=str)) for entries in claim]
     else:
         return
     # rationale: the interpolated table and columns are fixed strings; every value is bound
@@ -696,9 +712,15 @@ def _carry_pruned_show_keeps(conn: sqlite3.Connection) -> None:
         def give(show: sqlite3.Row, keep: sqlite3.Row = gone[0]) -> bool:
             return _give_show_keep(conn, keep, show["show_rating_key"])
 
-        libraries = _give_nearest(gone[0], shows.values(), give)
+        claim = None
+        if not any(
+            _show_keep_removed_since(conn, season, key)
+            for season in gone
+            for key in _entries(season["given_to"])
+        ):
+            claim = _give_nearest(gone[0], shows.values(), give, "show_rating_key")
         for season in gone:
-            _store_claim(conn, "pruned_show_seasons", season["id"], libraries)
+            _store_claim(conn, "pruned_show_seasons", season["id"], claim)
 
 
 def _show_keep_removed_since(

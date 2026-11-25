@@ -128,6 +128,8 @@ _ADDED_COLUMNS = (
     ("media_items", "first_listed_at", "TEXT"),
     ("media_items", "unlisted", "INTEGER NOT NULL DEFAULT 0"),
     ("pruned_watches", "last_tvdb_id", "INTEGER"),
+    ("pruned_keeps", "given_to", "TEXT"),
+    ("pruned_show_seasons", "given_to", "TEXT"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.
