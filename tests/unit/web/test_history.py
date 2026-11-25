@@ -612,10 +612,10 @@ def test_a_long_library_name_is_cut_by_itself_and_is_whole_in_the_details(
     html = authed_client(app, conn).get("/history").text
 
     cut, hint = re.search(
-        r'<span class="hist-name">(.*?)</span></span>\s*<span class="hist-type">(.*?)</span>', html
+        r'<span class="hist-name">(.*?)</span>\s*<span class="hist-type">(.*?)</span>', html
     ).groups()
-    assert name in cut and "Plex failed" not in cut
-    assert hint == "Plex failed to answer for it"
+    assert name in cut and "Plex failed" not in cut and "·" not in cut
+    assert hint == "·&nbsp;Plex failed to answer for it"
     assert re.search(rf"<dt>Title</dt><dd>{name}</dd>", html)
     css = (_TEMPLATE_DIR.parent / "static/css/_history.css").read_text(encoding="utf-8")
     assert "text-overflow: ellipsis" in re.search(r"\.hist-name b \{([^}]*)\}", css)[1]
