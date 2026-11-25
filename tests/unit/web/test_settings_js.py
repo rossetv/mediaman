@@ -839,3 +839,21 @@ def test_integration_card_body_folds_open_and_shut() -> None:
     assert out["open"] == {"hidden": False, "shut": False, "moving": True}
     assert out["closing"] == {"hidden": False, "shut": True}
     assert out["closed"] == {"hidden": True, "expanded": "false"}
+
+
+def test_every_focus_handed_back_after_a_request_keeps_the_page_still() -> None:
+    js = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/js/settings"
+    after_a_request = {
+        "rows.js": ["target.focus("],
+        "savebar.js": ["saveBtn.focus("],
+        "users.js": ["if (there) btn.focus("],
+        "newsletter.js": ["if (keepFocus) btn.focus(", "if (keepFocus) addSubBtn.focus("],
+        "integrations.js": ["if (keepFocus) btn.focus(", "if (keepFocus) syncBtn.focus("],
+    }
+    for name, calls in after_a_request.items():
+        text = (js / name).read_text(encoding="utf-8")
+        for call in calls:
+            found = [m.start() for m in re.finditer(re.escape(call), text)]
+            assert found, (name, call)
+            for at in found:
+                assert text[at:].split(";", 1)[0].endswith("{ preventScroll: true })"), (name, call)

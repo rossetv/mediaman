@@ -125,4 +125,6 @@ def test_a_stored_model_outside_the_list_is_shown_not_swapped_for_the_first(
     html = authed_client(app, conn).get("/settings").text
 
     select = re.search(r'<select[^>]*id="openai_model".*?</select>', html, re.S).group(0)
-    assert re.search(r'<option value="gpt-5-retired" selected>', select)
+    assert re.search(
+        r'<option value="gpt-5-retired" selected>gpt-5-retired \(no longer offered\)<', select
+    )

@@ -278,18 +278,19 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
   content: "";
   position: absolute;
   inset: 19px 0;
-  border-radius: 5px;
+  border-radius: 1px;
   background: var(--c);
   transition: transform var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out);
   will-change: transform;
 }
+/* Only the bar's two outer ends are round; every corner between parts is nearly square. */
 .space-seg--first::before { border-start-start-radius: 11px; border-end-start-radius: 11px; }
 .space-seg--last::before { border-start-end-radius: 11px; border-end-end-radius: 11px; }
 .space-bar.has-active .space-seg::before { opacity: .28; transform: scaleY(.72); }
 .space-bar.has-active .space-seg.is-active::before { opacity: 1; transform: scaleY(1.5); }
 .space-bar:not(.has-active) .space-seg:active::before { transform: scaleY(1.2); }
 /* What the filesystem keeps back: neither used nor free. */
-.space-bar__rest { flex: var(--v) 1 0; height: 22px; border-radius: 5px 11px 11px 5px; background: var(--rgba-overlay-sm); }
+.space-bar__rest { flex: var(--v) 1 0; height: 22px; border-radius: 1px 11px 11px 1px; background: var(--rgba-overlay-sm); }
 .space-tick {
   position: absolute;
   inset-block: 8px;
