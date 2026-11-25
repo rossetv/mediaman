@@ -1708,7 +1708,16 @@ const scenarios = {
       p.ctx.MMWatch.detail.open(ref, { title: 'X', origin: card });
       return [p.ttl().querySelectorAll('.ttl-facts .ttl-facts__skel').length, p.q('.ttl__lead').querySelectorAll('.ttl__progress').length];
     };
-    return { admin: run('movie-120', true, true), viewer: run('movie-120', false, false), elsewhere: run('tmdb-movie-77', true, true),
+    const leavingOf = (ref) => {
+      const p = load({ routes: { ['/api/watch/title/' + ref]: pending } });
+      const card = p.doc.querySelector('.watch-card');
+      card.appendChild(build(p.doc, ['span', { class: 'watch-badge--leaving' }]));
+      p.run();
+      p.ctx.MMWatch.detail.open(ref, { title: 'X', origin: card });
+      const pills = p.q('.ttl__actions').children;
+      return [p.text('.ttl__leaving-skel').split(' in ')[0], p.ttl().querySelectorAll('.ttl__keep-skel--show').length, pills[pills.length - 2].style.width];
+    };
+    return { leaving: { film: leavingOf('movie-120'), show: leavingOf('show-300') }, admin: run('movie-120', true, true), viewer: run('movie-120', false, false), elsewhere: run('tmdb-movie-77', true, true),
       trending: [onTrending(true, true), onTrending(true, false), onTrending(false, true, true), onTrending(true, true, true)] };
   },
 

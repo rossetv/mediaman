@@ -715,6 +715,12 @@ def test_the_places_of_an_admin_s_facts_and_of_the_progress_are_held_while_a_tit
     assert {who: out[who] for who in places} == places
 
 
+def test_a_leaving_show_holds_the_places_of_its_own_wider_words() -> None:
+    leaving = _run("loadingPlaces")["leaving"]
+    assert leaving["film"] == ["Leaving", 0, "200px"]
+    assert leaving["show"] == ["Season 1 leaves", 1, "234px"]
+
+
 def test_a_title_its_card_says_is_in_the_library_loads_as_one() -> None:
     held, not_held, leaving, admins = _run("loadingPlaces")["trending"]
     # The admin's facts, the buttons, a Keep of the viewer's own, the line that says it leaves.
