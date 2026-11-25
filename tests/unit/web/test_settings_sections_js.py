@@ -118,6 +118,8 @@ def test_only_a_missing_folder_is_said_to_leave_its_library_always_scanned() -> 
     assert "Folder not found" in out["missing"] and "always scanned" in out["missing"]
     for answer in ("hidden", "slow"):
         assert "always" not in out[answer] and "If a scheduled scan" in out[answer]
+    # nor does the page know that a scheduled scan can read what it may not
+    assert "scans do" not in out["hidden"]
     assert "scan" not in out["lost"]
 
 

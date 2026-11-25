@@ -318,7 +318,7 @@
   function unreadState(err) {
     var code = err && err.error;
     if (code === 'not_allowed') {
-      return { tone: 'warn', text: 'This page may not read this folder, but scheduled scans do. If a scheduled scan can’t, it scans this library.' };
+      return { tone: 'warn', text: 'This page can’t check this folder. If a scheduled scan can’t read it either, it scans this library.' };
     }
     var text = MM.api.messageOf(err, 'Couldn’t check this folder. Try again.');
     if (code === 'not_found') text += ' While its disk can’t be read, this library is always scanned.';
