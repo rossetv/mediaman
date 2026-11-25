@@ -52,7 +52,7 @@ class Held:
 
     @property
     def seasons(self):
-        return {s["seasonNumber"]: s["monitored"] for s in self.series["seasons"]}
+        return {s["seasonNumber"]: s["monitored"] for s in self.series["seasons"] if s}
 
 
 def _beside(threads, action, *args):
@@ -207,3 +207,16 @@ def test_a_read_that_failed_for_a_moment_is_tried_again(
     client.unmonitor_season(9, 3)
 
     assert held.seasons == {3: False}
+
+
+def test_a_season_of_no_shape_beside_it_does_not_stop_a_change_and_is_sent_back_as_it_was(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, s3=False)
+    held.series["seasons"].insert(0, None)
+    fake_http.handler(held)
+
+    client.remonitor_season(9, 3)
+
+    assert held.series["seasons"][0] is None
+    assert held.seasons == {3: True}

@@ -80,12 +80,10 @@ def test_a_page_that_will_not_wait_is_answered_empty_and_the_next_one_has_the_vi
 def test_dropping_the_view_while_sonarr_hangs_piles_up_no_builds(monkeypatch):
     answered = threading.Event()
     builds: list[str] = []
-    done = threading.Semaphore(0)
 
     def get_series():
         builds.append("build")
         answered.wait(5)
-        done.release()
         return [SERIES]
 
     _hold(monkeypatch, get_series, [])
@@ -95,11 +93,13 @@ def test_dropping_the_view_while_sonarr_hangs_piles_up_no_builds(monkeypatch):
         catalog.invalidate()
     piled = len(builds)
     answered.set()
-    done.acquire(timeout=5)
+    for thread in threading.enumerate():
+        if thread.name == "watch-arr":
+            thread.join(5)
 
     assert piled == 1
-    # What the hung build read is older than the drop, so it is read anew.
-    assert catalog.arr_view(None, "k").answers_for("tv")
+    # What the hung build read is older than the drop, so it is read anew, behind the page again.
+    assert catalog.arr_view(None, "k", wait_s=5).answers_for("tv")
     assert len(builds) == 2
 
 

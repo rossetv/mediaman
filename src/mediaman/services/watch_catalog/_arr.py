@@ -230,7 +230,9 @@ def arr_view(
             if wait_s is None:
                 _build(*args)
             else:
-                threading.Thread(target=_build_behind, args=args, daemon=True).start()
+                threading.Thread(
+                    target=_build_behind, args=args, name="watch-arr", daemon=True
+                ).start()
         except BaseException as exc:
             if wait_s is not None:
                 _background[0] = False
