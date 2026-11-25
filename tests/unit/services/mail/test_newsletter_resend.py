@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -9,10 +10,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mediaman.crypto import validate_download_token
+from mediaman.crypto import generate_keep_token, validate_download_token
+from mediaman.crypto.tokens import keep_token_expiry
 from mediaman.db import init_db
 from mediaman.services.infra import SafeHTTPError
-from mediaman.services.mail.newsletter import send_newsletter
+from mediaman.services.mail.newsletter import render, send_newsletter
 from tests.helpers.factories import (
     insert_media_item,
     insert_scheduled_action,
@@ -336,3 +338,141 @@ def test_a_title_among_an_own_batch_and_a_later_shared_one_is_shown_once(conn, t
 
     counts = {to: html.count(">BothPick</div>") for to, html in outbox.html.items()}
     assert counts["alice@example.com"] == counts["bob@example.com"] == 1
+
+
+def _queue_many(conn, count: int) -> dict[int, str]:
+    """Queue *count* titles leaving a day apart, the latest first, each with a working Keep link;
+    their names by action."""
+    now = datetime.now(UTC)
+    titles = {}
+    for day in range(count, 0, -1):
+        name = f"Title{day:03}x"
+        insert_media_item(conn, id=name, title=name, plex_rating_key=name)
+        execute_at = now + timedelta(days=day, hours=1)
+        action_id = insert_scheduled_action(
+            conn,
+            media_item_id=name,
+            token=f"tok-{name}",
+            scheduled_at=now.isoformat(),
+            execute_at=execute_at.isoformat(),
+        )
+        token = generate_keep_token(
+            media_item_id=name,
+            action_id=action_id,
+            expires_at=keep_token_expiry(now, execute_at),
+            secret_key=_SECRET_KEY,
+        )
+        conn.execute(
+            "UPDATE scheduled_actions SET token_hash = ? WHERE id = ?",
+            (hashlib.sha256(token.encode()).hexdigest(), action_id),
+        )
+        titles[action_id] = name
+    conn.commit()
+    return titles
+
+
+def _names(html: str) -> list[str]:
+    """The titles a mail names, in order, each as often as it names it."""
+    return re.findall(r">(Title\d{3}x)<", html)
+
+
+class _Log(_Outbox):
+    """Keeps every mail, not only the latest of each address."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.mails: dict[str, list[str]] = {}
+
+    def send(self, *, to: str, subject: str, html: str, unsubscribe_url: str | None = None) -> None:
+        super().send(to=to, subject=subject, html=html, unsubscribe_url=unsubscribe_url)
+        self.mails.setdefault(to, []).append(html)
+
+    def named(self, to: str) -> list[str]:
+        return [name for html in self.mails.get(to, []) for name in _names(html)]
+
+
+def test_titles_past_what_one_mail_holds_are_named_in_the_next_ones_soonest_first(conn):
+    titles = _queue_many(conn, 300)
+    outbox = _Log()
+
+    outbox.scan(conn)
+    first = _names(outbox.html["alice@example.com"])
+    assert 80 < len(first) < 300
+    assert outbox.html["alice@example.com"].count("/keep/") == len(first)
+    assert {titles[a] for a in titles if _notified(conn, a)} == set(first)
+    for _ in range(5):
+        outbox.scan(conn)
+
+    for to in ("alice@example.com", "bob@example.com", "carol@example.com"):
+        in_turn = [name for html in outbox.mails[to] for name in sorted(_names(html))]
+        assert in_turn == sorted(titles.values())
+    assert all(_notified(conn, a) for a in titles)
+    sent = dict(outbox.sent)
+    outbox.scan(conn)
+    assert outbox.sent == sent
+
+
+def test_a_title_is_marked_only_once_each_person_was_shown_it(conn):
+    titles = _queue_many(conn, 300)
+    outbox = _Log()
+    outbox.failing = {"bob@example.com"}
+
+    outbox.scan(conn)  # alice and carol are shown the first ones, bob nothing
+    outbox.scan(conn)  # they are shown the next ones
+
+    assert not any(_notified(conn, a) for a in titles)
+    outbox.failing = set()
+    outbox.scan(conn)
+    shown_to_all = set(outbox.named("bob@example.com")) & set(outbox.named("alice@example.com"))
+    assert {titles[a] for a in titles if _notified(conn, a)} == shown_to_all
+    assert len(shown_to_all) < 300
+
+    for _ in range(5):
+        outbox.scan(conn)
+    for to in ("alice@example.com", "bob@example.com", "carol@example.com"):
+        assert sorted(outbox.named(to)) == sorted(titles.values())
+    assert all(_notified(conn, a) for a in titles)
+
+
+def test_a_title_one_persons_mail_had_no_room_for_waits_for_that_person_alone(conn):
+    titles = _queue_many(conn, 125)
+    conn.execute("DELETE FROM subscribers WHERE email = 'carol@example.com'")
+    conn.commit()
+    outbox = _Log()
+    real = render._fits
+
+    def fits_fewer_for_bob(html: str) -> bool:
+        return real(html) and (outbox.sent["alice@example.com"] == 0 or len(_names(html)) < 50)
+
+    with patch.object(render, "_fits", fits_fewer_for_bob):
+        outbox.scan(conn)
+
+    shown = {to: set(outbox.named(to)) for to in ("alice@example.com", "bob@example.com")}
+    assert len(shown["alice@example.com"]) > len(shown["bob@example.com"]) > 0
+    assert {titles[a] for a in titles if _notified(conn, a)} == shown["bob@example.com"]
+    outbox.scan(conn)
+    outbox.scan(conn)
+    for to in shown:
+        assert sorted(outbox.named(to)) == sorted(titles.values())
+
+
+def test_a_manual_send_of_a_long_list_records_nothing(conn):
+    titles = _queue_many(conn, 300)
+    outbox = _Log()
+    mailgun = MagicMock()
+    mailgun.send.side_effect = outbox.send
+    with (
+        patch("mediaman.services.mail.mailgun.MailgunClient", return_value=mailgun),
+        patch("mediaman.services.infra.get_aggregate_disk_usage", return_value=_DISK),
+        patch("mediaman.services.arr.build.build_radarr_from_db", return_value=None),
+        patch("mediaman.services.arr.build.build_sonarr_from_db", return_value=None),
+    ):
+        for _ in range(2):
+            send_newsletter(
+                conn, _SECRET_KEY, recipients=["alice@example.com"], mark_notified=False
+            )
+
+    first, second = (_names(html) for html in outbox.mails["alice@example.com"])
+    assert first == second == sorted(titles.values())[: len(first)]
+    assert not any(_notified(conn, a) for a in titles)
+    assert conn.execute("SELECT COUNT(*) FROM newsletter_deliveries").fetchone()[0] == 0

@@ -629,7 +629,7 @@ def _long_context(leaving: int) -> dict:
 
 
 def _fitted(env: Environment, ctx: dict) -> str:
-    return render_to_fit(env.get_template("newsletter.html"), **ctx)
+    return render_to_fit(env.get_template("newsletter.html"), **ctx)[0]
 
 
 @pytest.mark.parametrize("leaving", [24, 30, 60, 100, 300])
@@ -670,8 +670,12 @@ def test_a_mail_too_long_for_every_title_lists_the_soonest_and_links_to_the_rest
     listed = [item["keep_url"] for item in soonest if item["keep_url"] in text]
     assert listed == [item["keep_url"] for item in soonest[: len(listed)]]
     assert len(listed) > 80
-    assert f"and {300 - len(listed)} more in mediaman ({ctx['dashboard_url']})" in text
-    assert f"10 titles, in mediaman ({ctx['dashboard_url']})" in text
+    rest = f"and {300 - len(listed)} more in mediaman"
+    assert f"{rest} ({ctx['dashboard_url']}/watch?all=leaving)" in text
+    assert "Gone since the last mail\n\n10 titles were deleted.\n" in text
+    assert (
+        f"18 picks for the week, in mediaman ({ctx['dashboard_url']}/watch?all=recommended)" in text
+    )
     assert text.startswith("300 titles are leaving.")
 
 
@@ -703,7 +707,34 @@ def test_picks_and_gone_give_way_before_a_leaving_title_does(env: Environment) -
     assert html.count("/keep/") == 60
     assert html.count(">Download<") < 18
     assert html.count(">Download again<") == 3
-    assert "and 7 more in mediaman" in html
+    text = html_to_text(html)
+    assert "\nand 7 more were deleted.\n" in text  # with no link: only an admin sees them there
+    link = "https://mediaman.home.example/watch?all=recommended"
+    assert f"\nand 12 more picks in mediaman ({link})\n" in text
+
+
+def test_a_short_row_says_that_the_title_was_kept_before(env: Environment) -> None:
+    ctx = _long_context(24)
+    last = max(ctx["scheduled_items"], key=lambda item: item["days_left"])
+    last |= {"title": "Fargo", "is_reentry": True}
+
+    text = html_to_text(_fitted(env, ctx))
+
+    assert text.count("kept before, that time is up") == 1
+    assert "Fargo · kept before, that time is up\nLeaving in 23 days · Keep" in text
+
+
+def test_a_short_row_without_a_link_keeps_its_distance_from_the_next(env: Environment) -> None:
+    ctx = _long_context(24)
+    last = max(ctx["scheduled_items"], key=lambda item: item["days_left"])
+    last |= {"title": "Fargo", "keep_url": ""}
+
+    html = _fitted(env, ctx)
+
+    assert re.findall(r'<div style="([^"]*)">Fargo<br>', html) == [
+        "margin-top:6px;padding-bottom:12px"
+    ]
+    assert html.count('<div style="margin-top:6px">A Title') == 11
 
 
 def test_a_mail_that_fits_is_left_as_it_is(env: Environment) -> None:

@@ -75,8 +75,9 @@ def render_to_fit(
     deleted_items: list[DeletedNewsletterItem],
     this_week_items: list[NewsletterRecItem],
     **context: object,
-) -> str:
-    """Render the mail small enough that no client cuts it short.
+) -> tuple[str, list[ScheduledNewsletterItem]]:
+    """Render the mail small enough that no client cuts it short. Returns the HTML and the
+    leaving titles it names.
 
     A long list of leaving titles shows the soonest as they are and the rest as short rows,
     then gives up picks and deleted titles, so that each keeps its Keep link. Only when even
@@ -99,6 +100,7 @@ def render_to_fit(
             unlisted_leaving=count - listed,
             deleted_items=deleted_items[:gone],
             unlisted_gone=len(deleted_items[gone:]),
+            unlisted_picks=len(this_week_items) - len(shown_picks),
             this_week_items=shown_picks,
             **context,
         )
@@ -107,7 +109,7 @@ def render_to_fit(
     for pictured, others in ((count, every), (12, every), (6, every), (6, 3), (6, 0)):
         html = render(min(pictured, count), count, others, others)
         if _fits(html):
-            return html
+            return html, scheduled_items
     low, high = 0, count
     while low < high:
         middle = (low + high + 1) // 2
@@ -115,7 +117,7 @@ def render_to_fit(
             low = middle
         else:
             high = middle - 1
-    return render(0, low, 0, 0)
+    return render(0, low, 0, 0), soonest[:low]
 
 
 def _build_subject(scheduled_items: list[ScheduledNewsletterItem], dry_run: bool) -> str:

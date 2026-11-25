@@ -35,8 +35,8 @@
 {%- if act %}<td class="act" align="right" style="padding:0 0 20px">{{ act }}</td>{% endif %}
 </tr></tbody></table></td></tr>
 {%- endmacro -%}
-{%- macro more(line) -%}
-<tr><td class="pad" style="padding:0 32px 20px;font-size:15px;line-height:20px;{{ m.ff }}"><a class="link" href="{{ dashboard_url }}" style="display:inline-block;padding:12px 0;color:#0060c7;font-weight:600">{{ line }}</a></td></tr>
+{%- macro more(line,path="") -%}
+<tr><td class="pad" style="padding:0 32px 20px;font-size:15px;line-height:20px;{{ m.ff }}">{% if path %}<a class="link" href="{{ dashboard_url }}{{ path }}" style="display:inline-block;padding:12px 0;color:#0060c7;font-weight:600">{{ line }}</a>{% else %}<span class="t2" style="color:#5f5f66">{{ line }}</span>{% endif %}</td></tr>
 {%- endmacro -%}
 {{ m.head("Mediaman weekly report") }}
 <body class="bg" style="margin:0;padding:0;background:#f2f2f4">
@@ -58,16 +58,20 @@
 {%- endfor %}
 {%- if short %}
 <tr><td class="pad t1" style="padding:0 32px 14px;font-size:15px;line-height:20px;color:#1d1d1f;{{ m.wrap }}{{ m.ff }}">
-{%- for i in short %}<div style="margin-top:6px">{{ i.title }}{% if " · " in i.type_label %} · {{ i.type_label.split(" · ")[1] }}{% endif %}<br><span class="bad" style="color:#b3261e">{{ left(i.days_left) }}</span>{% if i.keep_url %} · <a class="link" href="{{ i.keep_url }}" style="display:inline-block;padding:12px 8px;color:#0060c7;font-weight:600">Keep</a>{% endif %}</div>{% endfor -%}
+{%- for i in short %}<div style="margin-top:6px{% if not i.keep_url %};padding-bottom:12px{% endif %}">{{ i.title }}{% if " · " in i.type_label %} · {{ i.type_label.split(" · ")[1] }}{% endif %}{% if i.is_reentry %} · kept before, that time is up{% endif %}<br><span class="bad" style="color:#b3261e">{{ left(i.days_left) }}</span>{% if i.keep_url %} · <a class="link" href="{{ i.keep_url }}" style="display:inline-block;padding:12px 8px;color:#0060c7;font-weight:600">Keep</a>{% endif %}</div>{% endfor -%}
 </td></tr>
 {%- endif %}
 {%- if unlisted %}
-{{ more("and " ~ unlisted ~ " more in mediaman") }}
+{{ more("and " ~ unlisted ~ " more in mediaman", "/watch?all=leaving") }}
 {%- endif %}
 {%- endif %}
 {%- set tr=this_week_items|selectattr("category","equalto","trending")|list %}{%- set pe=this_week_items|selectattr("category","equalto","personal")|list %}
 {%- if pe %}{{ picks("Picked for you","AI picks, from what you watched.",pe) }}{% endif %}
 {%- if tr %}{{ picks("Worth a look this week","AI picks, the same for everyone.",tr) }}{% endif %}
+{%- if unlisted_picks %}
+{%- set s = "" if unlisted_picks == 1 else "s" %}
+{{ more("and " ~ unlisted_picks ~ " more pick" ~ s ~ " in mediaman" if this_week_items else unlisted_picks ~ " pick" ~ s ~ " for the week, in mediaman", "/watch?all=recommended") }}
+{%- endif %}
 {%- if deleted_items or unlisted_deleted %}
 {{ sec("Gone since the last mail") }}
 {%- for i in deleted_items %}
@@ -76,7 +80,8 @@
 {{ rowitem(i.poster_url,i.title,lines,act,48,72) }}
 {%- endfor %}
 {%- if unlisted_deleted %}
-{{ more("and " ~ unlisted_deleted ~ " more in mediaman" if deleted_items else unlisted_deleted ~ (" title" if unlisted_deleted == 1 else " titles") ~ ", in mediaman") }}
+{#- With no link: a viewer is not shown deleted titles. #}
+{{ more(("and " ~ unlisted_deleted ~ " more " if deleted_items else unlisted_deleted ~ (" title " if unlisted_deleted == 1 else " titles ")) ~ ("was" if unlisted_deleted == 1 else "were") ~ " deleted.") }}
 {%- endif %}
 {%- endif %}
 {%- set t=storage.total_bytes or 1 %}{%- set pct=[(storage.used_bytes/t*100)|round|int,100]|min %}
