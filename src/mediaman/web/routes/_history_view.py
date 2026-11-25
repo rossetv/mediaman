@@ -223,7 +223,10 @@ def _security_summary(event: str, body: dict[str, object] | None, actor: str | N
 
 def _media_summary(action: str, detail: str, space_impact: str) -> str:
     if action == "library_left_out":
-        return "Check its disk limit in Settings"
+        reason = detail.rpartition("was not scanned: ")[2]
+        if reason.startswith("its disk limit"):
+            return "Check its disk limit in Settings"
+        return reason[:1].upper() + reason[1:]
     if space_impact:
         return space_impact
     if kept := _KEPT_RE.match(detail):

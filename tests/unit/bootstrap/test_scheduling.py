@@ -492,6 +492,28 @@ class TestReadyzLogging:
             assert warning_count() == 2
 
 
+@pytest.mark.parametrize(
+    ("summary", "ended"),
+    [
+        ({}, ("done", None)),
+        ({"left_out_notes": ["A was not scanned"]}, ("done", "A was not scanned")),
+        ({"failed_reason": "none read"}, ("error", "none read")),
+        ({"skipped_reason": "Plex not configured"}, ("skipped", "Plex not configured")),
+    ],
+)
+def test_a_scheduled_scan_ends_as_it_went(db_path, monkeypatch, summary, ended):
+    from mediaman.bootstrap import scan_jobs
+    from mediaman.db import init_db
+
+    conn = init_db(str(db_path))
+    monkeypatch.setattr("mediaman.db.get_db", lambda: conn)
+    monkeypatch.setattr("mediaman.scanner.runner.run_scan_from_db", lambda *a, **k: summary)
+
+    scan_jobs._run_scheduled_scan(None, "k")
+
+    assert tuple(conn.execute("SELECT status, error FROM scan_runs").fetchone()) == ended
+
+
 class TestJobFailureReleasesWriteLock:
     @pytest.mark.parametrize("job_name", ["_run_library_sync_job", "_run_scheduled_scan"])
     def test_failed_job_leaves_no_open_write_transaction(self, db_path, monkeypatch, job_name):

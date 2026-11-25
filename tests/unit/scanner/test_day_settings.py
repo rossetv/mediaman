@@ -22,6 +22,7 @@ def _engine_kwargs_for(conn, **stored: int) -> dict:
         patch("mediaman.scanner.engine.ScanEngine") as engine_cls,
         patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
     ):
+        engine_cls.return_value.run_scan.return_value = {}
         from mediaman.scanner.runner import run_scan_from_db
 
         run_scan_from_db(conn, "test-secret", skip_disk_check=True)

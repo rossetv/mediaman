@@ -20,6 +20,7 @@ from mediaman.db import (
     start_scan_run,
 )
 from mediaman.scanner.repository.scheduled_actions import clear_pending_deletions
+from mediaman.scanner.runner import SCAN_FAILED_NO_LIBRARY
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 from mediaman.services.media_meta._plex_session import _scrub_plex_token
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
@@ -99,15 +100,11 @@ def trigger_scan(
         thread_conn: sqlite3.Connection | None = None
         try:
             thread_conn = open_thread_connection(db_path)
-            from mediaman.scanner.runner import run_scan_from_db
+            from mediaman.scanner.runner import run_scan_from_db, scan_end
 
             reconcile_before_scan(thread_conn, secret_key)
             summary = run_scan_from_db(thread_conn, secret_key, skip_disk_check=True)
-            reason = summary.get("skipped_reason")
-            if reason:
-                finish_scan_run(thread_conn, run_id, "skipped", reason)
-            else:
-                finish_scan_run(thread_conn, run_id, "done")
+            finish_scan_run(thread_conn, run_id, *scan_end(summary))
         except Exception as exc:  # rationale: background job runner; a single bad scan must not leak a stuck "running" lease.
             logger.exception("Background scan failed")
             # Fall back to a fresh connection when the worker one never opened.
@@ -138,12 +135,13 @@ def scan_status(admin: str = Depends(get_current_admin)) -> dict[str, object]:
     if running:
         return {"running": True}
     row = conn.execute("SELECT status, error FROM scan_runs ORDER BY id DESC LIMIT 1").fetchone()
-    if row is not None and row["status"] == "skipped":
-        return {"running": False, "status": "skipped", "reason": row["error"]}
-    if row is not None and row["status"] == "error":
+    if row is None or (row["status"] == "done" and not row["error"]):
+        return {"running": False}
+    reason = row["error"]
+    if row["status"] == "error" and reason != SCAN_FAILED_NO_LIBRARY:
         # The stored error text can be an exception message; show a fixed one.
-        return {"running": False, "status": "error", "reason": "see the server log for details"}
-    return {"running": False}
+        reason = "see the server log for details"
+    return {"running": False, "status": row["status"], "reason": reason}
 
 
 @router.post("/api/scan/clear-scheduled", response_model=None)

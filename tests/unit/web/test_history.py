@@ -552,10 +552,19 @@ class TestHistoryFilterButtons:
         assert "Delete failed" in resp.text
 
 
-def test_a_library_left_out_is_named_with_what_to_check(app_factory, authed_client, conn):
+@pytest.mark.parametrize(
+    ("reason", "summary"),
+    [
+        ("its disk limit in Settings cannot be read", "Check its disk limit in Settings"),
+        ("Plex failed to answer for it", "Plex failed to answer for it"),
+    ],
+)
+def test_a_library_left_out_is_named_with_what_to_check(
+    app_factory, authed_client, conn, reason, summary
+):
     from mediaman.scanner.runner import _audit_left_out
 
-    _audit_left_out(conn, ["1"], {"1": "kids' films / shorts"})
+    _audit_left_out(conn, "k", {"1": reason}, {"1": "kids' films / shorts"})
     client = authed_client(app_factory(history_router, conn=conn), conn)
 
     [item] = client.get("/api/history").json()["items"]
@@ -564,7 +573,7 @@ def test_a_library_left_out_is_named_with_what_to_check(app_factory, authed_clie
         "library not scanned",
         "kids' films / shorts",
         "kids' films / shorts",
-        "Check its disk limit in Settings",
+        summary,
     )
     assert item["badge_class"] == "badge-action-deleted"
 

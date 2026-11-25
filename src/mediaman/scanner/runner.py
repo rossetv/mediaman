@@ -13,6 +13,7 @@ import logging
 import shutil
 import sqlite3
 import threading
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 import requests
@@ -66,6 +67,7 @@ def get_day_setting(conn: sqlite3.Connection, key: str, *, default: int) -> int:
 
 SCAN_SKIPPED_NO_PLEX = "Plex not configured"
 SCAN_SKIPPED_PLEX_UNREACHABLE = "Plex could not be reached"
+SCAN_FAILED_NO_LIBRARY = "no library could be read from Plex"
 
 
 class ScanSummary(TypedDict, total=False):
@@ -134,8 +136,11 @@ logger = logging.getLogger(__name__)
 
 # Audit rows about a Plex library rather than an item carry this prefix and its id.
 _LIBRARY_AUDIT_ID = "_library:"
-# Settings key holding the ids of the libraries the last scan to check the disks left out.
+# Settings keys holding which libraries the last scan to check the disks left out, and which
+# the last scan could not read from Plex: the reason of each by its id.
 _LEFT_OUT_KEY = "libraries_left_out"
+_UNREAD_KEY = "libraries_unread"
+_DISK_LIMIT_UNREADABLE = "its disk limit in Settings cannot be read"
 
 
 # Module-level Plex client cache. Rebuilding PlexClient on every
@@ -280,29 +285,65 @@ def _filter_libraries_by_disk(
     return filtered, left_out
 
 
+def _left_out_note(lib_id: str, reason: str, lib_titles: Mapping[str, str]) -> str:
+    return f"Plex library '{lib_titles.get(lib_id, lib_id)}' was not scanned: {reason}"
+
+
 def _audit_left_out(
-    conn: sqlite3.Connection, left_out: list[str], lib_titles: dict[str, str]
+    conn: sqlite3.Connection,
+    key: str,
+    left_out: Mapping[str, str],
+    lib_titles: Mapping[str, str],
 ) -> None:
-    """Record in the history each library left out that the last scan to check did not leave out."""
-    stored = repository.read_setting(conn, _LEFT_OUT_KEY)
-    before = json.loads(stored) if stored else []
-    for lib_id in left_out:
-        if lib_id not in before:
+    """Record in the history each library left out that was not, for the same reason, the last time.
+
+    *left_out* gives the reason of each; the settings row *key* holds those of the last time.
+    """
+    before = _read_left_out(conn, key)
+    for lib_id, reason in left_out.items():
+        if before.get(lib_id) != reason:
             log_audit(
                 conn,
                 _LIBRARY_AUDIT_ID + lib_id,
                 "library_left_out",
-                f"Plex library '{lib_titles.get(lib_id, lib_id)}' was not scanned: its disk "
-                "limit in Settings cannot be read",
+                _left_out_note(lib_id, reason, lib_titles),
             )
     if left_out != before:
         conn.execute(
             "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
             "updated_at = excluded.updated_at",
-            (_LEFT_OUT_KEY, json.dumps(left_out), now_iso()),
+            (key, json.dumps(left_out), now_iso()),
         )
     conn.commit()
+
+
+def _read_left_out(conn: sqlite3.Connection, key: str) -> dict[str, object]:
+    """Return what _audit_left_out stored, nothing when it cannot be read."""
+    try:
+        stored = json.loads(repository.read_setting(conn, key) or "{}")
+    except ValueError:
+        return {}
+    return stored if isinstance(stored, dict) else {}
+
+
+def _say_what_was_left_out(
+    conn: sqlite3.Connection,
+    summary: ScanSummary,
+    lib_ids: Iterable[str],
+    lib_titles: Mapping[str, str],
+) -> ScanSummary:
+    """Audit the libraries a scan of *lib_ids* could not read from Plex, and name them in its summary."""
+    left_out = summary.pop("left_out", {})
+    _audit_left_out(conn, _UNREAD_KEY, left_out, lib_titles)
+    if not left_out:
+        return summary
+    summary["left_out_notes"] = [
+        _left_out_note(lib_id, reason, lib_titles) for lib_id, reason in left_out.items()
+    ]
+    if left_out.keys() >= set(lib_ids):
+        summary["failed_reason"] = SCAN_FAILED_NO_LIBRARY
+    return summary
 
 
 def _get_or_build_plex(conn: sqlite3.Connection, secret_key: str) -> PlexClient | None:
@@ -417,8 +458,14 @@ def run_scan_from_db(
     plex, lib_ids, lib_types, lib_titles = result
 
     if not skip_disk_check:
-        lib_ids, left_out = _filter_libraries_by_disk(conn, lib_ids, lib_titles)
-        _audit_left_out(conn, left_out, lib_titles)
+        # One Plex does not list is left out by the scan, however full its disk is.
+        listed = [lib_id for lib_id in lib_ids if lib_id in lib_types]
+        unlisted = [lib_id for lib_id in lib_ids if lib_id not in lib_types]
+        to_scan, left_out = _filter_libraries_by_disk(conn, listed, lib_titles)
+        _audit_left_out(
+            conn, _LEFT_OUT_KEY, dict.fromkeys(left_out, _DISK_LIMIT_UNREADABLE), lib_titles
+        )
+        lib_ids = to_scan + unlisted
 
     sonarr_client = _build_sonarr(conn, secret_key)
     radarr_client = _build_radarr(conn, secret_key)
@@ -444,7 +491,7 @@ def run_scan_from_db(
         sonarr_client=sonarr_client,
         radarr_client=radarr_client,
     )
-    return cast(ScanSummary, engine.run_scan())
+    return _say_what_was_left_out(conn, engine.run_scan(), lib_ids, lib_titles)
 
 
 def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:

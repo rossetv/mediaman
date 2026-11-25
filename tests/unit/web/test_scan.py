@@ -207,6 +207,35 @@ class TestScanErrorStatus:
         assert body["reason"]
         assert "sekret" not in body["reason"]
 
+    @pytest.mark.parametrize(
+        ("summary", "expected"),
+        [
+            (
+                {"left_out_notes": ["A was not scanned"]},
+                {"status": "done", "reason": "A was not scanned"},
+            ),
+            (
+                {"failed_reason": "no library could be read from Plex"},
+                {"status": "error", "reason": "no library could be read from Plex"},
+            ),
+            ({}, {}),
+        ],
+        ids=["some left out", "none read", "all read"],
+    )
+    def test_status_says_what_the_scan_left_out(
+        self, app_factory, authed_client, conn, db_path, summary, expected
+    ):
+        import threading
+
+        client = authed_client(_app(app_factory, conn, db_path), conn)
+        with patch("mediaman.scanner.runner.run_scan_from_db", return_value=summary):
+            client.post("/api/scan/trigger")
+            for t in threading.enumerate():
+                if t.name == "manual-scan-worker":
+                    t.join(timeout=10)
+
+        assert client.get("/api/scan/status").json() == {"running": False, **expected}
+
     def test_recovery_open_oserror_is_logged_not_raised(
         self, app_factory, authed_client, conn, db_path
     ):
