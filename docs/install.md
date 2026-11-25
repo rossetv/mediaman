@@ -62,18 +62,25 @@ Open `http://localhost:8282` in Chrome or Firefox. The session cookie is `Secure
 
 ### Moving from `docker run`
 
-If you started mediaman with `docker run` and a `mediaman.key`, do not make a new key: the database opens only with yours. In the folder that holds `mediaman.key`, make the `docker-compose.yml` above, with your own mounts, port and `-e` settings, and add `external: true` under `name: mediaman-data`. Then back up, move the key and start:
+If you started mediaman with `docker run`, do not make a new key: the database opens only with the one your container has. Make a folder with the `docker-compose.yml` above, and in it:
+
+- your own mounts, port and `-e` settings;
+- `external: true` under `name: mediaman-data`. If your `/data` is mounted from elsewhere, use that in the file and in the backup line below;
+- the network, if you gave `--network`: `networks: [media]` under `mediaman:`, and at the end of the file `networks:`, with `media: {external: true}` under it. `media` stands for its name.
+
+If that folder already has a `.env`, rename it, and afterwards add back any other lines it held. Then, with mediaman running:
 
 ```bash
-docker stop mediaman
-docker run --rm -u 0 -v mediaman-data:/data -v "$PWD":/backup rossetv/mediaman tar czf /backup/mediaman-data.tgz -C /data .
-[ -f .env ] || echo "MEDIAMAN_SECRET_KEY=$(cat mediaman.key)" > .env
-docker compose pull
-docker rm mediaman
+key=$(docker exec mediaman printenv MEDIAMAN_SECRET_KEY) && [ -n "$key" ] && [ ! -e .env ] &&
+docker pull rossetv/mediaman &&
+docker stop mediaman &&
+docker run --rm -u 0 -v mediaman-data:/data -v "$PWD":/backup rossetv/mediaman tar czf /backup/mediaman-data.tgz -C /data . &&
+docker rename mediaman mediaman-old &&
+printf "MEDIAMAN_SECRET_KEY='%s'\n" "$key" > .env &&
 docker compose up -d
 ```
 
-If that folder already has a `.env`, put the key in it yourself. Your settings and people are as they were, and you [update](#backup-update-roll-back) like everyone else from then on.
+It stops at the first step that fails; if mediaman is stopped by then, `docker start mediaman` before trying again. Once you have signed in and Settings shows your services, `docker rm mediaman-old`. From then on you [update](#backup-update-roll-back) like everyone else.
 
 ## Connect your services
 
