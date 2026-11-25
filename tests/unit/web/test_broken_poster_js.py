@@ -54,3 +54,29 @@ def test_a_picture_with_another_to_try_is_marked_only_when_that_one_fails_too() 
     for name in ("unfitTwice", "unfitThenGone"):
         assert out[name] == [trying, given_up], name
     assert out["wide"][0] == {"src": None, "marked": False, "retrying": False}
+
+
+def test_a_picture_of_our_own_image_route_is_tried_twice_more_before_it_is_marked() -> None:
+    out = _run()["again429"]
+    assert out["thenLoads"] == [[False, 0], [False, 1], [False, 1]]
+    assert out["early"] == [[False, 1], [False, 1]]
+    assert out["neverLoads"] == [
+        [False, 0],
+        [False, 1],
+        [False, 1],
+        [False, 2],
+        [True, 2],
+        [True, 2],
+    ]
+    # One that loaded and failed later has its tries back.
+    assert out["afresh"][-2:] == [[False, 3], [True, 3]]
+
+
+def test_only_a_picture_still_wanted_at_that_address_is_tried_again() -> None:
+    out = _run()["again429"]
+    assert out["otherWhileWaiting"][-1] == [False, 0]
+    assert out["gone"][-1] == [False, 0]
+    assert out["hidden"][-1] == [True, 0]
+    assert out["elsewhere"] == [[True, 0], [True, 0]]
+    assert out["next"] == [[False, 1], [True, 1]]
+    assert out["unfit"] == [[True, 0], [True, 0]]

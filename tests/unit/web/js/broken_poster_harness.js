@@ -23,8 +23,10 @@ const events = {
 const before = { earlyPortrait: image(ART, 1000, 1500, true), earlyWide: image(ART, 1920, 1080, true), pending: image(ART, 0, 0, false) };
 
 const listeners = {};
+let timers = [];
 function run(pictures) {
   vm.runInNewContext(fs.readFileSync(SRC, 'utf8'), {
+    setTimeout: (fn) => { timers.push(fn); },
     document: {
       addEventListener: (t, fn) => { listeners[t] = fn; },
       querySelectorAll: (sel) => pictures.filter((i) => i.matches(sel)),
@@ -64,6 +66,49 @@ const fits = {
   early: fit(before.earlyWide), earlyTall: fit(before.earlyPortrait), pending: fit(before.pending), poster: fit(events.poster[1]),
   earlyThenItsEvent: reused(before.earlyWide, ...WIDE),
 };
-process.stdout.write(JSON.stringify({ fits, retries, marks: Object.fromEntries(
+/* A picture of mediaman's own image route, given 'error', 'load' and 'tick' (the waits end); each step
+   tells whether it is marked and how often its address was set. Others change it under way. */
+function own(steps, { src = '/api/watch/img/tmdb/w342/a.jpg', next, early, wide } = {}) {
+  timers = [];
+  const img = image(wide ? ART : ['data-broken-on-error'], 0, 0, true);
+  let at = src;
+  let set = 0;
+  // As Safari does, an address set where it already stands is not asked for again.
+  Object.defineProperty(img, 'src', { get: () => at, set: (v) => { if (v === at) return; at = v; set += 1; img.complete = false; } });
+  img.removeAttribute = () => { at = null; };
+  img.getAttribute = (a) => (a === 'src' ? at : null);
+  img.isConnected = true;
+  img.hidden = false;
+  if (next) img.dataset.nextSrc = next;
+  if (early) run([img]);
+  const seen = [];
+  steps.forEach((step) => {
+    if (step === 'tick') { const due = timers; timers = []; due.forEach((fn) => fn()); }
+    else if (step === 'other') { at = '/api/watch/img/tmdb/w342/b.jpg'; img.complete = false; }
+    else if (step === 'gone') img.isConnected = false;
+    else if (step === 'hide') img.hidden = true;
+    else {
+      const size = step === 'load' ? [400, 600] : [0, 0];
+      [img.naturalWidth, img.naturalHeight] = size;
+      img.complete = true;
+      listeners[step]({ target: img });
+    }
+    seen.push([marked(img), set]);
+  });
+  return seen;
+}
+const again429 = {
+  thenLoads: own(['error', 'tick', 'load']),
+  early: own(['tick', 'load'], { early: true }),
+  neverLoads: own(['error', 'tick', 'error', 'tick', 'error', 'tick']),
+  afresh: own(['error', 'tick', 'load', 'error', 'tick', 'error', 'tick', 'error']),
+  otherWhileWaiting: own(['error', 'other', 'tick']),
+  gone: own(['error', 'gone', 'tick']),
+  hidden: own(['error', 'hide', 'tick']),
+  elsewhere: own(['error', 'tick'], { src: '/api/poster/7' }),
+  next: own(['error', 'error'], { next: '/api/poster/7' }),
+  unfit: own(['load', 'tick'], { wide: true }),
+};
+process.stdout.write(JSON.stringify({ again429, fits, retries, marks: Object.fromEntries(
   Object.entries(events).map(([k, [, img]]) => [k, marked(img)])
     .concat(Object.entries(before).map(([k, img]) => [k, marked(img)]))) }));

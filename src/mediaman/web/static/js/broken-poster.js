@@ -40,6 +40,38 @@
     img.dataset.broken = '';
   }
 
+  // This route answers so where it is asked too much at once or its source is
+  // slow, so the same address may well answer a little later.
+  var OWN_ROUTE = '/api/watch/img/';
+  var RETRY_MS = [3000, 6000];
+  var tried = new WeakMap(); // image -> { src, times, waiting }
+
+  function failedToLoad(img) {
+    var src = img.getAttribute('src') || '';
+    var state = tried.get(img);
+    if (!state || state.src !== src) state = { src: src, times: 0, waiting: false };
+    if (state.waiting) return;
+    if (img.dataset.nextSrc || src.indexOf(OWN_ROUTE) !== 0 || state.times === RETRY_MS.length) {
+      tried.delete(img);
+      fail(img);
+      return;
+    }
+    tried.set(img, state);
+    state.waiting = true;
+    setTimeout(function () {
+      state.waiting = false;
+      // Meanwhile it may have loaded, been given another picture, or asked again.
+      if (tried.get(img) !== state || img.getAttribute('src') !== src || !img.complete) return;
+      if (!img.isConnected) return;
+      // What shows it has put something else in its place.
+      if (img.hidden) { fail(img); return; }
+      state.times += 1;
+      // Safari asks for an address that failed again only once it has been taken off.
+      img.removeAttribute('src');
+      img.src = src;
+    }, RETRY_MS[state.times]);
+  }
+
   function judge(img, fit) {
     if (unfit(img)) {
       fail(img);
@@ -53,11 +85,9 @@
     'load',
     function (event) {
       var target = event.target;
-      if (
-        target &&
-        target.tagName === 'IMG' &&
-        target.hasAttribute('data-wide-art')
-      ) {
+      if (!target || target.tagName !== 'IMG') return;
+      tried.delete(target);
+      if (target.hasAttribute('data-wide-art')) {
         // A picture judged below can still have its load event to come.
         judge(target, target.dataset.fit || '');
       }
@@ -78,7 +108,7 @@
         target.tagName === 'IMG' &&
         target.hasAttribute('data-broken-on-error')
       ) {
-        fail(target);
+        failedToLoad(target);
       }
     },
     true,
@@ -90,7 +120,7 @@
   for (var i = 0; i < failed.length; i++) {
     var img = failed[i];
     if (img.complete && img.naturalWidth === 0 && img.getAttribute('src')) {
-      fail(img);
+      failedToLoad(img);
     }
   }
   var wide = document.querySelectorAll('img[data-wide-art]');
