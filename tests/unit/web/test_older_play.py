@@ -240,8 +240,9 @@ def test_the_remote_steers_it_as_any_tv(amy, home, kitchen):
 
 def test_the_next_episode_follows_by_itself(amy, home, kitchen, clock):  # noqa: F811
     _play(amy, kitchen, "501", position_s=2860)
-    home.playing(39)
-    home.status("STOPPED", 39)
+    home.playing(55)
+    older_stream._feed(_streams()[0]).done = True
+    home.status("STOPPED", 55)
     home.step()
     assert _tv_of(amy, kitchen)["play"]["state"] == "upnext"
     for _ in range(12):
@@ -714,6 +715,17 @@ def test_a_tv_that_moved_is_played_on_where_it_is_now(admin, home, kitchen, conn
     row = conn.execute("SELECT * FROM audit_log WHERE action = 'sec:tv.moved'").fetchone()
     assert row["actor"] == "admin"
     assert repo.every(conn)[0].address == "192.168.1.77"
+
+
+def test_a_viewer_is_told_of_a_host_that_is_not_let_in_without_its_name(
+    amy, admin, home, kitchen, monkeypatch
+):
+    monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "mediaman.example")
+    told = _play(amy, kitchen)
+    assert (told.status_code, told.json()["error"]) == (409, "host_not_allowed")
+    assert "192.168.1.10" not in told.json()["message"]
+    assert "192.168.1.10" in _play(admin, kitchen).json()["message"]
+    assert home.tv.connects == []
 
 
 def test_mediamans_own_address_is_never_played_on(amy, home, kitchen, conn):

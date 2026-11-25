@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import sqlite3
 import threading
@@ -17,6 +18,7 @@ from mediaman.services.dlna.errors import AnotherTv, TvError, TvRefused, TvUnrea
 from mediaman.services.dlna.renderer import Renderer
 from mediaman.services.dlna.wire import Wire
 from mediaman.services.infra.settings_reader import get_bool_setting, get_string_setting
+from mediaman.web import _parse_allowed_hosts
 from mediaman.web.models.settings import _validate_tv_address
 from mediaman.web.repository import older_tvs as repo
 from mediaman.web.responses import respond_err
@@ -61,7 +63,23 @@ def media_base(conn: sqlite3.Connection) -> str:
             409,
             "The address TVs use starts with http. Turn on Plain http for older TVs in Settings.",
         )
+    host = urlsplit(base).hostname or ""
+    if not _is_let_in(host):
+        raise Refusal(
+            "host_not_allowed",
+            409,
+            f"MEDIAMAN_ALLOWED_HOSTS does not hold {host}. Add it and restart mediaman.",
+        )
     return base
+
+
+def _is_let_in(host: str) -> bool:
+    """Whether mediaman answers a request for *host*, as its host check does."""
+    allowed = _parse_allowed_hosts(os.environ.get("MEDIAMAN_ALLOWED_HOSTS", ""))
+    return any(
+        host == pattern or (pattern.startswith("*") and host.endswith(pattern[1:]))
+        for pattern in allowed
+    )
 
 
 def own_addresses(conn: sqlite3.Connection) -> set[str]:

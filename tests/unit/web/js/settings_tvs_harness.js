@@ -149,7 +149,7 @@ const scenarios = {
   },
   async pictures() {
     const out = {};
-    for (const code of ['no_fetch', 'no_picture', 'no_tv_address', 'http_off', 'busy']) {
+    for (const code of ['no_fetch', 'no_picture', 'no_tv_address', 'http_off', 'host_not_allowed', 'busy']) {
       const p = await page({ [CHECK]: FOUND, [PICTURE]: refused(code, 'said ' + code) });
       const input = p.doc.getElementById('tv_address');
       input.value = input.defaultValue = 'https://mediaman.example';

@@ -247,6 +247,12 @@ def ask_for(
         reaching.media_base(conn)
         found = reaching.reach(conn, tv.id, seeker=seeker)
     except Refusal as exc:
+        if exc.error == "host_not_allowed" and not admin:
+            return respond_err(
+                exc.error,
+                status=409,
+                message="mediaman is not set up for this TV. An admin can see why in Settings.",
+            )
         return exc.response
     except TvError as exc:
         claims.note(tv.id, answered=False)

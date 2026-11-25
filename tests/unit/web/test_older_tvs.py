@@ -312,6 +312,38 @@ def test_an_address_kept_before_that_no_tv_can_use_is_told(shown, client, conn, 
     assert shown.urls == []
 
 
+def test_a_host_the_app_does_not_answer_to_is_named_with_what_to_do(
+    shown, client, monkeypatch
+) -> None:
+    monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "mediaman.example, *.other.example")
+    got = _picture(client)
+    assert (got.status_code, got.json()["error"]) == (409, "host_not_allowed")
+    assert got.json()["message"] == (
+        "MEDIAMAN_ALLOWED_HOSTS does not hold 192.168.1.10. Add it and restart mediaman."
+    )
+    assert shown.urls == []
+
+
+@pytest.mark.parametrize(
+    ("allowed", "address"),
+    [
+        ("mediaman.example,192.168.1.10", HOST),
+        ("*", HOST),
+        ("", HOST),
+        ("*.other.example", "https://TV.other.example"),
+    ],
+)
+def test_a_host_the_app_answers_to_is_used(
+    shown, client, conn, monkeypatch, allowed, address
+) -> None:
+    monkeypatch.setattr(older_reach.socket, "getaddrinfo", lambda *a: [])
+    monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", allowed)
+    conn.execute("UPDATE settings SET value = ? WHERE key = 'tv_address'", (address,))
+    conn.commit()
+    _picture(client)
+    assert len(shown.urls) == 1
+
+
 def test_https_needs_no_switch(shown, client, conn, monkeypatch) -> None:
     monkeypatch.setattr(older_reach.socket, "getaddrinfo", lambda *a: [])
     conn.execute("UPDATE settings SET value = 'false' WHERE key = 'older_tvs_http'")

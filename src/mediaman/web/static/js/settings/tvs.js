@@ -151,6 +151,8 @@
       case 'http_off':
         return ['no', 'It couldn’t reach mediaman',
           'The address TVs use starts with http. Turn on Plain http for older TVs, below, and save. Then check again.'];
+      case 'host_not_allowed':
+        return ['no', 'It couldn’t reach mediaman', err.message];
       default:
         return ['no', MM.api.messageOf(err, 'Couldn’t show a test picture. Try again.')];
     }

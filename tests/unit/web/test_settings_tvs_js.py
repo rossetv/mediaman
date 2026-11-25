@@ -78,6 +78,7 @@ def test_a_tv_that_cannot_fetch_the_test_picture_is_not_added_and_says_why() -> 
     assert "must start with http://" in got["no_fetch"][1]
     assert "Set the address TVs use" in got["no_tv_address"][1]
     assert "Turn on Plain http" in got["http_off"][1]
+    assert "couldn’t reach mediamansaid host_not_allowed" in got["host_not_allowed"][1]
     assert "said busy" in got["busy"][1]
     # A TV that shows no pictures may still play films.
     assert [code for code, (_, _, shut, _) in got.items() if not shut] == ["no_picture"]
