@@ -633,23 +633,6 @@ def fetch_tracked_paths_in_folders(
     }
 
 
-def fetch_ids_tracking(conn: sqlite3.Connection, files: Collection[str]) -> set[str]:
-    """Return the ids of the media items that track one of *files*."""
-    paths = sorted(files)
-    ids: set[str] = set()
-    for start in range(0, len(paths), 500):
-        chunk = paths[start : start + 500]
-        # rationale: only fixed expressions and "?" placeholders are interpolated; every value is bound
-        rows = conn.execute(  # nosec B608
-            "SELECT DISTINCT mi.id FROM media_items mi, json_each("
-            "  CASE WHEN json_valid(mi.tracked_files) THEN mi.tracked_files ELSE '[]' END) j "
-            f"WHERE {_ENTRY_PATH} IN ({','.join('?' * len(chunk))})",
-            chunk,
-        )
-        ids.update(row["id"] for row in rows)
-    return ids
-
-
 def is_latest_audit(conn: sqlite3.Connection, media_item_id: str, action: str, detail: str) -> bool:
     """Return True if the newest audit entry for *media_item_id* is *action* with *detail*."""
     row = conn.execute(

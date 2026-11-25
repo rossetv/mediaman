@@ -1143,33 +1143,74 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
             token_used=True,
         )
 
-    def _scan_four_times(self, conn, mock_plex, freezer):
-        mock_plex.get_movie_items.side_effect = self.listed.__getitem__
+    def _scan_four_times(self, conn, mock_plex, freezer, *, ticked=("2", "4"), lists_1=False):
+        """Scan the *ticked* libraries; Plex lists 2 and 4, and 1 with no title if *lists_1*."""
+        mock_plex.get_movie_items.side_effect = lambda library: self.listed.get(library, [])
         mock_plex.get_show_seasons.side_effect = self.listed.__getitem__
+        conn.execute(
+            "UPDATE settings SET value = ? WHERE key = 'plex_libraries'", (json.dumps(ticked),)
+        )
+        conn.commit()
         for _ in range(4):
             ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
-                library_ids=["2", "4"],
-                library_types={"2": "movie", "4": "show"},
+                library_ids=list(ticked),
+                library_types={"2": "movie", "4": "show"} | ({"1": "movie"} if lists_1 else {}),
                 secret_key="test-key",
             ).run_scan()
             freezer.tick(timedelta(hours=2))
 
-    @pytest.mark.parametrize("kept", [True, False])
-    def test_a_file_of_a_kept_film_stays_though_a_film_with_other_files_has_it_too(
-        self, conn, mock_plex, freezer, kept
+    @staticmethod
+    def _schedule(conn, key):
+        insert_scheduled_action(
+            conn,
+            media_item_id=key,
+            action="scheduled_deletion",
+            token=f"due-{key}",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="pending",
+        )
+
+    def test_the_own_due_deletion_of_one_plex_lists_no_more_in_a_listed_library_is_not_carried_out(
+        self, conn, mock_plex, freezer
     ):
         own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
-        self._store(conn, "10", 1, own, [own, shared])
+        self._store(
+            conn, "10", 1, own, [own, shared], last_watched_at=datetime.now(UTC) - timedelta(days=1)
+        )
+        self._schedule(conn, "10")
         self._store(conn, "20", 2, other, [other, shared])
-        if kept:
-            self._keep(conn, "10")
+        conn.commit()
+        freezer.tick(60)
+
+        self._scan_four_times(conn, mock_plex, freezer, ticked=("1", "2", "4"), lists_1=True)
+
+        assert own.exists()
+        assert not conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
+
+    @pytest.mark.parametrize("ticked", [("2", "4"), ("1", "2", "4")], ids=["unticked", "ticked"])
+    @pytest.mark.parametrize("held_by", ["keep", "watch"])
+    def test_the_own_due_deletion_of_one_held_in_a_gone_library_is_not_carried_out(
+        self, conn, mock_plex, freezer, ticked, held_by
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        watched = datetime.now(UTC) - timedelta(days=1) if held_by == "watch" else None
+        self._store(conn, "10", 1, own, [own, shared], last_watched_at=watched)
+        self._schedule(conn, "10")
+        if held_by == "keep":
+            insert_kept_show(
+                conn, show_rating_key="s1", show_title="Title", action="protected_forever"
+            )
+            conn.execute("UPDATE media_items SET show_rating_key = 's1' WHERE id = '10'")
+        self._store(conn, "20", 2, other, [other, shared])
         conn.commit()
 
-        self._scan_four_times(conn, mock_plex, freezer)
+        self._scan_four_times(conn, mock_plex, freezer, ticked=ticked)
 
-        assert shared.exists() is kept
+        assert conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
+        assert (own.exists(), shared.exists()) == (True, True)
 
     def test_a_file_of_a_film_watched_lately_stays_until_the_watch_is_too_long_ago(
         self, conn, mock_plex, freezer

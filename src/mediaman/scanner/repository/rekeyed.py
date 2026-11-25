@@ -39,7 +39,6 @@ from mediaman.scanner.repository.scheduled_actions import (
     delete_scheduled_action,
     delete_show_scheduled_deletions,
     fetch_deletion,
-    fetch_ids_tracking,
 )
 from mediaman.scanner.repository.settings import read_setting
 
@@ -456,6 +455,7 @@ def held_beside_another_title(
     no keep and no watch, so the file would go with it once this one is forgotten.
     """
     now, staying = now_iso(), set()
+    tracking: dict[str, set[str]] | None = None
     for media_id in media_ids:
         title = fetch_title(conn, media_id)
         if title is None or not (
@@ -464,10 +464,22 @@ def held_beside_another_title(
             or _is_watched_lately(conn, media_id, inactivity_days)
         ):
             continue
-        same = {other["id"] for other in other_keys(conn, media_id, media_ids)}
-        if fetch_ids_tracking(conn, title_files(title)) - same - set(media_ids):
+        if tracking is None:
+            tracking = _ids_by_tracked_file(conn)
+        others = set().union(*(tracking.get(file, ()) for file in title_files(title)))
+        others.difference_update(media_ids)
+        if others and others - {other["id"] for other in other_keys(conn, media_id, media_ids)}:
             staying.add(media_id)
     return staying
+
+
+def _ids_by_tracked_file(conn: sqlite3.Connection) -> dict[str, set[str]]:
+    """Return the ids of the library's titles that track each file."""
+    tracking: dict[str, set[str]] = {}
+    for row in conn.execute("SELECT id, tracked_files FROM media_items WHERE tracked_files != ''"):
+        for file in title_files({"tracked_files": row["tracked_files"], "episode_keys": None}):
+            tracking.setdefault(file, set()).add(row["id"])
+    return tracking
 
 
 def _is_watched_lately(conn: sqlite3.Connection, media_id: str, inactivity_days: int) -> bool:

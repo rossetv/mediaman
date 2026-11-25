@@ -217,9 +217,10 @@ def remove_orphans(
     disk: the caller's transaction is committed first.
 
     An item another run saw, or anyone scheduled or kept, after the run began
-    stays too: the run's list may be from before the item came to Plex. So does
-    an item kept, or watched lately, with a file that another title has too and
-    takes no keep or watch for: while it is there, the file is not removed.
+    stays too: the run's list may be from before the item came to Plex. So does,
+    where *confirmed*, an item kept or watched lately with a file that another
+    title has too and takes no keep or watch for: while it is there, the file
+    is not removed.
 
     Args:
         conn: Open SQLite connection.
@@ -227,7 +228,8 @@ def remove_orphans(
         scanned_libs: Integer library IDs that were successfully fetched.
         listed_since: When the run began, before it listed anything.
         confirmed: Whether an earlier run already found the same, so that no
-            drop is suspicious.
+            drop is suspicious: the libraries are gone from Plex, which read
+            nothing of them, so no deletion of their items is carried out.
 
     Returns:
         Number of rows deleted.
@@ -285,8 +287,9 @@ def remove_orphans(
         unbooked = repository.fetch_unbooked_media_ids(conn)
         repository.forget_unremoved_files(conn, unbooked.intersection(unlisted))
         orphan_ids = [i for i in unlisted if i not in unbooked]
-        staying = held_beside_another_title(conn, set(orphan_ids), inactivity_days)
-        orphan_ids = [i for i in orphan_ids if i not in staying]
+        if confirmed:
+            staying = held_beside_another_title(conn, set(orphan_ids), inactivity_days)
+            orphan_ids = [i for i in orphan_ids if i not in staying]
         repository.save_pruned_keeps(conn, orphan_ids)
         repository.carry_pruned_keeps(conn, set(orphan_ids))
         repository.save_pruned_show_seasons(conn, set(orphan_ids))
