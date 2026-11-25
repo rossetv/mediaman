@@ -252,6 +252,18 @@ const scenarios = {
     decode.later.forEach((open) => open());
     return { before, during, after, reading, placing: p.placing(), thenSave: (p.click('pic-back'), p.$('pic-save').disabled) };
   },
+  async notJson() {
+    const out = [];
+    for (const way of ['photo', 'drawn']) {
+      const p = page({ fetch: answer(200), api: { put: () => Promise.resolve({}) } });
+      p.click('pic-open');
+      if (way === 'photo') { p.file(JPEG); p.click('pic-use'); } else p.pick(3);
+      p.click('pic-save');
+      await settle();
+      out.push({ error: p.error(), told: p.told, toasts: p.toasts, head: p.$('pic-open').querySelector('img').getAttribute('src'), open: p.open() });
+    }
+    return out;
+  },
   async backdrop() {
     const p = page();
     p.click('pic-open');

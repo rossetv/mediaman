@@ -376,6 +376,10 @@
         : sent.choice ? MM.api.put('/api/account/avatar', { choice: sent.choice })
           : MM.api.delete('/api/account/avatar');
       request.then(function (data) {
+        /* A proxy may answer with a page of its own. */
+        if (!data.url) throw new Error('no picture in the answer');
+        return data;
+      }).then(function (data) {
         setSaving(false);
         kept = { choice: data.choice, url: data.kind === 'photo' ? data.url : null };
         MM.dom.qa('img', opener).forEach(function (img) { swapIn(img, data.url); });

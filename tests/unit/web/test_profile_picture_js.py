@@ -162,3 +162,19 @@ def test_nothing_else_is_chosen_while_a_picture_is_saved() -> None:
 def test_a_photo_being_read_is_waited_for_before_anything_is_saved() -> None:
     out = _run("locked")
     assert (out["reading"], out["placing"], out["thenSave"]) == (True, True, False)
+
+
+def test_an_answer_that_names_no_picture_is_not_taken_for_a_saved_one() -> None:
+    assert (
+        _run("notJson")
+        == [
+            {
+                "error": "Could not save your picture. Try again.",
+                "told": [],
+                "toasts": [],
+                "head": "/d2",
+                "open": True,
+            }
+        ]
+        * 2
+    )
