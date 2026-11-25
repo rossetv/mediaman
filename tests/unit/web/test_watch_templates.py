@@ -15,11 +15,12 @@ import pytest
 TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
 CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css"
 
-# The nav belongs to another page's concerns; an empty one keeps these tests
-# about the Watch templates only.
+# The nav belongs to another page's concerns; one with only the places the Watch page
+# fills keeps these tests about the Watch templates.
+_NAV = "{% block nav_center %}{% endblock %}{% block nav_end %}{% endblock %}"
 _ENV = jinja2.Environment(
     loader=jinja2.ChoiceLoader(
-        [jinja2.DictLoader({"_nav.html": ""}), jinja2.FileSystemLoader(TEMPLATES)]
+        [jinja2.DictLoader({"_nav.html": _NAV}), jinja2.FileSystemLoader(TEMPLATES)]
     ),
     autoescape=True,
 )

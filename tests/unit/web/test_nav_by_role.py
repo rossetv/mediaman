@@ -94,17 +94,38 @@ def test_an_admin_and_a_missing_role_find_history_and_settings_in_the_menu_not_t
     ]
 
 
-def test_the_phone_bar_shows_the_storage_meter_on_watch_to_an_admin_and_to_nobody_else():
-    assert "data-space-open" in _render("admin", path="/watch", is_admin=True)
-    for role, path, is_admin in (
-        ("viewer", "/watch", False),
-        (None, "/watch", None),
-        ("admin", "/watch/show/1", True),
-        ("admin", "/downloads", None),
-    ):
-        html = _render(role, path=path, is_admin=is_admin)
-        assert "space-meter" not in html
-        assert "nav-topbar-title" in html
+def _bar_of(html: str) -> str:
+    return html.split('<header class="nav-glass')[1].split("</header>")[0]
+
+
+def _watch_bar(role: str, **ctx: object) -> str:
+    template = _TEMPLATES.env.get_template("_watch_bar.html")
+    return template.render(request=_request(role), **ctx)
+
+
+def test_on_watch_one_bar_holds_the_search_the_storage_and_the_views_in_reading_order():
+    html = _watch_bar("admin", is_admin=True, view="rows", q="")
+
+    order = ("nav-links", 'id="watch-search"', "space-meter", "watch-viewtoggle", "profile-btn")
+    places = [_bar_of(html).index(part) for part in order]
+    assert places == sorted(places)
+    assert len(_buttons(html)) == 1
+    assert "nav-topbar" not in html
+
+
+def test_a_viewer_s_bar_on_watch_has_the_search_and_neither_storage_nor_views():
+    bar = _bar_of(_watch_bar("viewer", is_admin=False, view="rows", q=""))
+
+    assert 'id="watch-search"' in bar
+    for part in ("space-meter", "watch-viewtoggle", "has-toggle"):
+        assert part not in bar
+
+
+def test_no_other_page_s_bar_has_the_search():
+    html = _render("admin", path="/downloads", is_admin=True)
+
+    assert "watch-search" not in html and "space-meter" not in html
+    assert "nav-topbar-title" in html
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])

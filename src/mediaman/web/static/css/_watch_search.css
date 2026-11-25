@@ -13,48 +13,76 @@
 /* ── The bar ── */
 
 .watch-page { position: relative; }
-/* The pill's two widths are lengths of the bar's own, so opening it measures nothing. */
-.watch-top { position: relative; z-index: 20; display: flex; justify-content: flex-end; align-items: center; height: 72px; padding: 20px var(--pad) 4px; container-type: inline-size; }
-.watch-search,
-.watch-sheet {
-  --open: min(680px, 100cqw);
-  --shut: min(460px, 100cqw);
-}
-.watch-top:has(> .watch-viewtoggle) > .watch-search { --shut: min(460px, 100cqw - 250px); }
-.watch-top:has(> .space-meter) > .watch-search { --shut: min(460px, 100cqw - 440px); }
-.watch-top > .watch-search {
-  position: absolute;
-  z-index: 1; /* over the switch and the meter while they make room */
-  left: var(--pad);
-  top: 20px;
-  display: block;
-  width: var(--shut);
-  max-width: none;
-  height: 48px;
-  min-height: 0;
-  padding: 0;
+
+/* One sticky line; below 1100px the field has a second one. */
+.wbar {
+  --line: 0px; /* the second line */
+  --w: calc(100cqw + 2 * var(--pad));
+  --wshut: min(440px, var(--w) - 940px);
+  --wopen: min(640px, var(--w) - 560px);
+  gap: 8px;
+  padding-bottom: var(--line);
+  height: calc(var(--nav-h) + var(--line));
   background: none;
-  border-radius: 24px;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 0;
+  container-type: inline-size;
 }
-.watch-top > .watch-search.is-open { width: var(--open); }
+/* The glass, which can tuck away the second line. */
+.wbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--scrim) 80%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--hair);
+}
+.wbar > :not(.watch-search, .watch-sheet, .sr-only) { position: relative; }
+.wbar .brand { margin-right: 16px; }
+.wbar .nav-links { flex: none; margin: 0 auto 0 0; }
+.wbar .profile-btn { gap: 8px; }
+.wbar .profile-btn-name { display: none; }
+.wbar .watch-viewtoggle__btn { min-height: 40px; padding: 0 14px; }
+
+/* The field stands in the middle and grows over the page: a little under the pointer, wide
+   and tall with the focus. It is drawn at its full size and cut down to the one it has:
+   --dl, --dr and --db are what is cut off its left, right and bottom. */
+.wbar .watch-search {
+  --ph: 40px;
+  --grow: 16px;
+  --bl: calc((var(--wopen) - var(--wshut)) / 2);
+  --br: var(--bl);
+  --sx: 0px;
+  --dl: max(0px, var(--bl) - var(--sx));
+  --dr: max(0px, var(--br) - var(--sx));
+  --db: var(--grow);
+  --dy: calc((var(--grow) - var(--db)) / 2);
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 6px;
+  width: var(--wopen);
+  height: calc(var(--ph) + var(--grow));
+  margin-left: calc(var(--wopen) / -2);
+  border-radius: 28px;
+  pointer-events: none;
+}
+@media (hover: hover) { .wbar .watch-search:hover { --sx: 12px; --db: calc(var(--grow) - 4px); } }
+.wbar .watch-search.is-open { --bl: 0px; --br: 0px; }
+.wbar .watch-search.is-focus { --db: 0px; }
 .watch-search:focus-within { outline: none; }
 
-/* A cap that stands still and a body that slides out from under it, so it
-   widens by one transform and both ends stay round. */
 .watch-search__pill,
-.watch-search__halo { position: absolute; left: 0; top: 0; width: var(--open); height: 48px; border-radius: 24px; pointer-events: none; }
-.watch-search__pill { overflow: hidden; }
-.watch-search__pill i { position: absolute; top: 0; height: 48px; background: linear-gradient(var(--s4) 1px, var(--s3) 1px); }
-.watch-search__pill i:nth-child(1) { left: 0; right: 0; border-radius: 0 24px 24px 0; transform: translateX(calc(var(--shut) - var(--open))); transition: transform var(--dur-open) var(--ease-spring); }
-.watch-search__pill i:nth-child(2) { left: 0; width: 24px; border-radius: 24px 0 0 24px; }
-.watch-search.is-open .watch-search__pill i { transform: none; }
+.watch-search__halo { position: absolute; inset: 0; border-radius: 28px; pointer-events: none; }
+.watch-search__pill { clip-path: inset(0 var(--dr) var(--db) var(--dl) round 28px); pointer-events: auto; cursor: text; transition: clip-path var(--dur-open) var(--ease-spring); }
+.watch-search__pill i { position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(var(--s4) 1px, var(--s3) 1px); }
 /* The raised tint and the accent ring. */
 .watch-search__pill i::before,
 .watch-search__pill i::after { content: ""; position: absolute; inset: 0; border-radius: inherit; opacity: 0; transition: opacity var(--dur) var(--ease-out); }
 .watch-search__pill i::before { background: color-mix(in srgb, var(--t1) 5%, transparent); }
 .watch-search__pill i::after { border: 2px solid var(--accent); }
-.watch-search__pill i:nth-child(1)::after { border-left: 0; }
-.watch-search__pill i:nth-child(2)::after { border-right: 0; }
 .watch-search.is-focus .watch-search__pill i::before,
 .watch-search.is-focus .watch-search__pill i::after { opacity: 1; }
 .watch-search__halo {
@@ -68,8 +96,10 @@
 /* After the pill has gone ahead of it. */
 .watch-search.is-focus .watch-search__halo { opacity: 1; transform: none; transition-delay: .13s, .06s; }
 
-.watch-search__lens { position: absolute; left: 16px; top: 13px; width: 22px; height: 22px; color: var(--t3); pointer-events: none; transition: transform var(--dur-slow) var(--ease-spring); }
-.watch-search__lens svg { display: block; width: 22px; height: 22px; overflow: visible; }
+/* What is in it keeps its line's height, and goes to the middle of the grown one. */
+.watch-search__inner { position: absolute; inset: 0 0 auto; height: var(--ph); transform: translate(var(--dl), var(--dy)); transition: transform var(--dur-open) var(--ease-spring); }
+.watch-search__lens { position: absolute; left: 14px; top: calc(var(--ph) / 2 - 10px); width: 20px; height: 20px; color: var(--t3); pointer-events: none; transition: transform var(--dur-slow) var(--ease-spring); }
+.watch-search__lens svg { display: block; width: 20px; height: 20px; overflow: visible; }
 .watch-search__lens :is(circle, line) { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-spring); }
 .watch-search__handle { transform-origin: 14px 14px; }
 .watch-search__lens .watch-search__arc { stroke: var(--accent); stroke-dasharray: 12 30; opacity: 0; transform-origin: 9.5px 9.5px; }
@@ -81,28 +111,27 @@
 .watch-search.is-pending .watch-search__arc { opacity: 1; transition-delay: .12s; animation: watch-search-turn .8s linear infinite; }
 @keyframes watch-search-turn { to { transform: rotate(360deg); } }
 
-.watch-search__row { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 52px 0 50px; }
-.watch-search__field { position: relative; flex: 1; min-width: 0; height: 48px; overflow: hidden; }
-.watch-search .watch-search__input { position: relative; width: 100%; height: 48px; padding: 0; letter-spacing: inherit; caret-color: var(--accent); }
+.watch-search__row { position: absolute; inset: 0 calc(var(--dl) + var(--dr)) 0 0; display: flex; align-items: center; gap: 8px; padding: 0 48px 0 44px; pointer-events: auto; }
+.watch-search__field { position: relative; flex: 1; min-width: 0; height: var(--ph); overflow: hidden; }
+.watch-search .watch-search__input { position: relative; width: 100%; height: var(--ph); padding: 0; letter-spacing: inherit; caret-color: var(--accent); }
 /* The words that move stand in for it. */
 .watch-search .watch-search__input::placeholder { color: transparent; }
-.watch-search__ph { position: absolute; left: 0; top: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; line-height: 48px; font-size: 16px; color: var(--t3); white-space: nowrap; pointer-events: none; }
+.watch-search__ph { position: absolute; left: 0; top: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; line-height: var(--ph); font-size: 16px; color: var(--t3); white-space: nowrap; pointer-events: none; }
 .watch-search.has-value .watch-search__ph { visibility: hidden; }
 
 /* The category or person whose page this is. */
-.watch-search__token { flex: none; display: flex; align-items: center; max-width: 60%; height: 44px; }
-.watch-search__token > span { display: flex; align-items: center; gap: 8px; min-width: 0; height: 32px; padding: 0 14px 0 6px; border-radius: 16px; background: var(--rgba-accent-bg); color: var(--accent-hi); font-size: 14px; font-weight: 600; }
+.watch-search__token { flex: none; display: flex; align-items: center; max-width: 60%; height: var(--ph); }
+.watch-search__token > span { display: flex; align-items: center; gap: 8px; min-width: 0; height: 30px; padding: 0 14px 0 6px; border-radius: 16px; background: var(--rgba-accent-bg); color: var(--accent-hi); font-size: 14px; font-weight: 600; }
 .watch-search__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .watch-search__token .watch-line { flex: none; width: 16px; height: 16px; margin-left: 5px; }
 .watch-search__token .watch-face { width: 24px; height: 24px; margin-left: -1px; font-size: 11px; }
 
 /* The key hint, then the cross. */
-.watch-search__end { position: absolute; top: 0; left: calc(var(--open) - 52px); width: 52px; height: 48px; pointer-events: none; transform: translateX(calc(var(--shut) - var(--open))); transition: transform var(--dur-open) var(--ease-spring); }
-.watch-search.is-open .watch-search__end { transform: none; }
+.watch-search__end { position: absolute; top: 0; right: 0; width: 48px; height: var(--ph); pointer-events: none; transform: translate(calc(-1 * var(--dr)), var(--dy)); transition: transform var(--dur-open) var(--ease-spring); }
 .watch-search__key {
   position: absolute;
-  right: 13px;
-  top: 11px;
+  right: 9px;
+  top: calc(var(--ph) / 2 - 13px);
   display: grid;
   place-items: center;
   min-width: 26px;
@@ -120,8 +149,10 @@
 .watch-search:is(.has-value, .has-token) .watch-search__key--esc { opacity: 0; transform: scale(.8); }
 .watch-search .watch-search__clear {
   position: absolute;
-  right: 2px;
-  top: 2px;
+  right: 0;
+  top: 0;
+  width: var(--ph);
+  height: var(--ph);
   margin: 0;
   color: var(--t2);
   font-size: 17px;
@@ -142,40 +173,79 @@
   .watch-search__key { display: none; }
   .watch-search__row { padding-right: 16px; }
   .watch-search:is(.has-value, .has-token) .watch-search__row,
-  .is-sheet-on .watch-search__row { padding-right: 50px; }
+  .has-sheet .watch-search__row { padding-right: 50px; }
   /* Nothing else says how to leave the sheet. At once, or Tab would stop on it as it goes. */
   .watch-search .watch-search__clear { transition: transform var(--dur) var(--ease-spring), color var(--dur-fast) var(--ease-out); }
-  .is-sheet-on .watch-search .watch-search__clear { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
+  .has-sheet .watch-search .watch-search__clear { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
 }
 
-/* Where the open bar would cover what stands beside it, that makes room. */
-.watch-top > :is(.watch-viewtoggle, .space-meter) { transition: opacity var(--dur) var(--ease-out) .12s, transform var(--dur-slow) var(--ease-out) .12s, visibility 0s .12s, background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
-@container (max-width: 1119.98px) {
-  .watch-search.is-open ~ .space-meter { opacity: 0; visibility: hidden; transform: translateX(14px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur-fast); }
+/* Where the open field would cover the meter, that makes room. */
+.wbar :is(.watch-viewtoggle, .space-meter) { transition: opacity var(--dur) var(--ease-out) .12s, transform var(--dur-slow) var(--ease-out) .12s, visibility 0s .12s, background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+@media (min-width: 1100px) {
+  .wbar.is-wide-open .space-meter { opacity: 0; visibility: hidden; transform: translateX(10px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur-fast); }
 }
-@container (max-width: 889.98px) {
-  .watch-search.is-open ~ .watch-viewtoggle { opacity: 0; visibility: hidden; transform: translateX(14px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur-fast); }
+@media (min-width: 1100px) and (max-width: 1319.98px) { .wbar { --wshut: min(380px, var(--w) - 750px); --wopen: min(520px, var(--w) - 644px); } }
+@media (min-width: 1100px) { .watch-search .watch-search__input, .watch-search__ph { font-size: 15px; } }
+@media (min-width: 1600px) {
+  .wbar { --wshut: min(520px, var(--w) - 1160px); --wopen: min(680px, var(--w) - 900px); }
+  .wbar .profile-btn-name { display: block; max-width: 80px; }
 }
-/* Between a tablet's meter and the field the switch has no words. */
-@media (min-width: 700px) and (max-width: 899.98px) {
-  .watch-top:has(> .space-meter) > .watch-search { --shut: min(460px, 100cqw - 346px); }
-  .watch-top > .watch-viewtoggle .watch-viewtoggle__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .watch-top > .watch-viewtoggle .watch-viewtoggle__btn { justify-content: center; width: 44px; padding: 0; }
-  .watch-top > .watch-viewtoggle .watch-viewtoggle__btn::before { inset: 4px; }
+/* Here the switch has no words. */
+@media (max-width: 799.98px), (min-width: 1100px) and (max-width: 1319.98px) {
+  .wbar .watch-viewtoggle__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .wbar .watch-viewtoggle__btn { justify-content: center; width: 40px; padding: 0; }
+  .wbar .watch-viewtoggle__btn::before { inset: 4px; }
 }
-/* The meter is in the top bar. */
-@media (max-width: 699.98px) { .watch-top:has(> .space-meter) > .watch-search { --shut: min(460px, 100cqw - 214px); } }
-@media (max-width: 599.98px) { .watch-top:has(> .watch-viewtoggle) > .watch-search { --shut: min(460px, 100cqw - 106px); } }
+@media (max-width: 1099.98px) {
+  .wbar { --line: 54px; --wshut: 100cqw; --wopen: 100cqw; }
+  .wbar .watch-search {
+    --ph: 44px;
+    --grow: 8px;
+    top: calc(var(--nav-h) + 2px);
+    transition: transform var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+  }
+  .wbar::before { clip-path: inset(0); transition: clip-path var(--dur) var(--ease-out); }
+  /* Scrolling down tucks the line away. It stays in the tab order: the focus brings it back. */
+  .wbar.is-tucked { pointer-events: none; }
+  .wbar.is-tucked > :not(.watch-search, .watch-sheet) { pointer-events: auto; }
+  .wbar.is-tucked::before { clip-path: inset(0 0 var(--line)); }
+  .wbar.is-tucked .watch-search { opacity: 0; transform: translateY(-14px); }
+  .wbar.is-tucked .watch-search * { pointer-events: none; }
+  html:has(.wbar) { scroll-padding-top: 114px; }
+}
+@media (max-width: 699.98px) {
+  .wbar { --nav-h: 48px; display: flex; gap: 4px; }
+  .wbar.has-toggle { --wshut: calc(100cqw - 102px); }
+  .wbar .nav-links { display: none; }
+  .wbar .brand { margin-right: auto; line-height: 44px; }
+  .wbar .space-meter { min-height: 44px; }
+  .wbar .watch-search { --bl: 0px; --br: calc(var(--wopen) - var(--wshut)); left: var(--pad); margin-left: 0; }
+  .wbar .watch-search:hover { --sx: 0px; }
+  .wbar > .watch-viewtoggle { position: absolute; right: var(--pad); top: calc(var(--nav-h) + 2px); }
+  .wbar .watch-viewtoggle__btn { width: 44px; min-height: 44px; }
+  .wbar:has(> .watch-search.is-open) > .watch-viewtoggle { opacity: 0; visibility: hidden; transform: translateX(14px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur-fast); }
+  .wbar.is-tucked > .watch-viewtoggle { opacity: 0; transform: translateY(-14px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); pointer-events: none; }
+}
+/* Little height: the bar goes with the page. */
+@media (max-height: 500px) {
+  .wbar { position: relative; }
+  html:has(.wbar) { scroll-padding-top: 0; }
+  .watch-page .watch-all { min-height: 100vh; min-height: 100dvh; }
+  .watch-page .watch-all__head { top: 0; }
+}
+/* The hero starts under it. */
+#watch-browse .watch-banner { margin-top: 0; }
 
 /* ── The sheet ── */
 
 .watch-sheet {
+  --sheet-w: min(680px, 100cqw);
   position: absolute;
   z-index: 1;
-  left: var(--pad);
-  top: 80px;
-  width: var(--open);
-  max-height: calc(var(--seen, 100dvh) - 150px);
+  left: calc(50% - var(--sheet-w) / 2);
+  top: calc(var(--nav-h) + 18px);
+  width: var(--sheet-w);
+  max-height: calc(var(--seen, 100dvh) - 88px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -184,7 +254,7 @@
   border-radius: 20px;
   background: var(--s1);
   box-shadow: var(--shadow-card);
-  transform-origin: 60px 0;
+  transform-origin: 50% 0;
   opacity: 0;
   visibility: hidden;
   transform: translateY(-10px) scale(.975);
@@ -196,8 +266,9 @@
 .watch-sheet__title:not(:first-child) { margin-top: 20px; }
 .watch-sheet.is-on .is-staged { animation: watch-sheet-rise var(--dur) var(--ease-out) backwards; }
 @keyframes watch-sheet-rise { from { opacity: 0; transform: translateY(8px); } }
-@media (max-width: 699.98px) { .watch-sheet { max-height: calc(var(--seen, 100dvh) - 210px); padding: 15px 13px; } }
-@media (max-height: 500px) { .watch-sheet { max-height: calc(var(--seen, 100dvh) - 146px); } }
+@media (max-width: 1099.98px) { .watch-sheet { top: calc(var(--nav-h) + 62px); max-height: calc(var(--seen, 100dvh) - 132px); } }
+@media (max-width: 699.98px) { .watch-sheet { max-height: calc(var(--seen, 100dvh) - 192px); padding: 15px 13px; } }
+@media (max-width: 699.98px) and (max-height: 500px) { .watch-sheet { max-height: calc(var(--seen, 100dvh) - 128px); } }
 
 .watch-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .watch-tile { position: relative; display: flex; align-items: center; gap: 11px; height: 56px; padding: 0 12px; overflow: hidden; border-radius: var(--r-lg); background: var(--s3); color: var(--t1); font-size: 14px; text-align: left; transition: transform var(--dur-fast) var(--ease-out); }
@@ -235,12 +306,11 @@
 .watch-person--skel .skel--line:last-child { width: 40%; margin: 4px 0 1.75px; }
 @media (max-width: 599.98px) { .watch-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-/* The page settles back behind it, and holds still: where the scrollbar takes room, that stays. */
+/* The page holds still behind it: where the scrollbar takes room, that stays. */
 html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 #watch-browse { transform-origin: 50% 160px; transition: transform var(--dur-open) var(--ease-out), opacity var(--dur) var(--ease-out); }
-.watch-page.is-sheet-on #watch-browse { transform: scale(.982); }
 #watch-browse.is-off { position: absolute; left: 0; right: 0; opacity: 0; pointer-events: none; transform: scale(.97); transition-duration: var(--dur-fast); }
-.watch-veil { position: fixed; inset: 0; z-index: 10; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out); }
+.watch-veil { position: fixed; inset: 0; z-index: calc(var(--z-nav) - 1); background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out); }
 .watch-page.is-sheet-on .watch-veil { opacity: .62; pointer-events: auto; }
 
 /* ── The results ── */
@@ -382,7 +452,6 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 @media (prefers-reduced-motion: reduce) {
   .watch-sheet.is-on .is-staged,
   .watch-search.is-pending .watch-search__arc { animation: none; }
-  .watch-page.is-sheet-on #watch-browse,
   .watch-search .watch-search__lens,
   .watch-search:hover .watch-search__key--slash,
   .watch-suggestion .watch-face,
@@ -399,8 +468,9 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   .watch-search__halo,
   .watch-search__ph { display: none; }
   .watch-search .watch-search__input::placeholder { color: GrayText; text-overflow: ellipsis; }
-  .watch-top > .watch-search { background: Canvas; border: 1px solid ButtonText; }
-  .watch-top > .watch-search.is-focus { outline: 2px solid Highlight; outline-offset: 1px; }
+  .wbar::before { background: Canvas; border-bottom-color: CanvasText; }
+  .watch-search::before { content: ""; position: absolute; inset: 0 var(--dr) var(--db) var(--dl); border: 1px solid ButtonText; border-radius: 28px; background: Canvas; pointer-events: auto; }
+  .watch-search.is-focus::before { outline: 2px solid Highlight; outline-offset: 1px; }
   .watch-search__lens .watch-search__arc { stroke: Highlight; }
   .watch-sheet,
   .watch-tile,

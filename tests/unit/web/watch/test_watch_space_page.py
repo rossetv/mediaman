@@ -44,14 +44,12 @@ def _page(client: TestClient, path: str) -> str:
 
 
 @pytest.mark.parametrize("path", ["/watch", "/watch?view=list", "/watch?q=film"])
-def test_an_admin_s_page_has_the_meter_in_both_layouts_and_one_panel(
-    app, authed_client, conn, path
-):
+def test_an_admin_s_page_has_the_one_meter_and_one_panel(app, authed_client, conn, path):
     html = _page(authed_client(app, conn), path)
 
     assert all(part in html for part in _OF_IT)
     meters = re.findall(r'<button[^>]*class="space-meter[^"]*"', html)
-    assert sorted("--phone" in m for m in meters) == [False, True]
+    assert len(meters) == 1
     assert html.count('id="space"') == 1
     # out of the part of the page that is inert while it is open
     assert html.index('id="space"') > html.index("</main>")
@@ -110,8 +108,8 @@ def _rules(selector: str) -> str:
 
 
 def test_the_phone_s_meter_gives_way_to_the_profile_button_beside_it():
-    meter = _rules(".space-meter--phone")
-    words = _rules(".space-meter--phone .space-meter__free")
+    meter = _rules(".space-meter")
+    words = _rules(".space-meter .space-meter__free")
 
     assert "flex: 0 1 auto" in meter
     assert "min-width: 44px" in meter
@@ -124,9 +122,9 @@ def test_a_narrow_phone_drops_the_bar_and_the_drive_for_the_marks_before_it_cuts
     both = ":has(> .space-meter__warn):has(> .space-meter__info)"
 
     for gone in (
-        f".space-meter--phone{any_mark} > .space-meter__bar",
+        f".space-meter{any_mark} > .space-meter__bar",
         f".space-meter--off{any_mark} > .ico:first-child",
-        f".space-meter--phone{both} > .ico:first-child",
+        f".space-meter{both} > .ico:first-child",
     ):
         assert "display: none" in _rules(gone), gone
 

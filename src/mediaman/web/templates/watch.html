@@ -7,7 +7,7 @@
 
 {% block title %}Watch · Mediaman{% endblock %}
 
-{% block nav %}{% include "_nav.html" %}{% endblock %}
+{% block nav %}{% include "_watch_bar.html" %}{% endblock %}
 
 {% block head %}
 <link rel="stylesheet" href="/static/css/_watch_browse.css?v={{ static_v }}">
@@ -80,37 +80,6 @@
 {% set asked = request.query_params if request else {} %}
 {% set on_results = not list_view and (q or asked.get("genre") or asked.get("person")) %}
 <div class="watch-page" id="watch-page">
-  <div class="watch-top" id="watch-top">
-    {% set search_label = "Search your library" if list_view else "Search films and shows" %}
-    <div class="watch-search{% if q %} has-value is-open{% endif %}" role="search">
-      <span class="watch-search__halo"></span>
-      <span class="watch-search__pill" aria-hidden="true"><i></i><i></i></span>
-      <span class="watch-search__lens" aria-hidden="true"><svg viewBox="0 0 22 22" focusable="false"><circle class="watch-search__ring" cx="9.5" cy="9.5" r="6.6"/><circle class="watch-search__arc" cx="9.5" cy="9.5" r="6.6"/><line class="watch-search__handle" x1="14.4" y1="14.4" x2="19" y2="19"/></svg></span>
-      <div class="watch-search__row">
-        <span class="watch-search__token" id="watch-search-token" hidden></span>
-        <span class="watch-search__field">
-          {# Stands in for the placeholder, which cannot move. #}
-          <span class="watch-search__ph" id="watch-search-hint" aria-hidden="true">{{ search_label }}</span>
-          <input id="watch-search" class="watch-search__input" type="search" role="combobox" placeholder="{{ search_label }}" aria-label="{{ search_label }}" aria-autocomplete="list" aria-expanded="false" aria-controls="watch-sheet" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search"{% if q %} value="{{ q }}"{% endif %}>
-        </span>
-      </div>
-      <span class="watch-search__end">
-        <kbd class="watch-search__key watch-search__key--slash" aria-hidden="true">/</kbd>
-        <kbd class="watch-search__key watch-search__key--esc" aria-hidden="true">esc</kbd>
-        <button type="button" class="watch-search__clear" id="watch-search-clear" aria-label="Clear search">{{ icon("i-xmark") }}</button>
-      </span>
-    </div>
-    {% if is_admin %}
-    {{ space.meter() }}
-    <nav class="watch-viewtoggle" id="watch-viewtoggle" aria-label="View">
-      <a class="watch-viewtoggle__btn" href="/watch" data-view="rows"{% if not list_view %} aria-current="page"{% endif %}>{{ icon("i-table-cells-large") }}<span class="watch-viewtoggle__label">Browse</span></a>
-      <a class="watch-viewtoggle__btn" href="/watch?view=list" data-view="list"{% if list_view %} aria-current="page"{% endif %}>{{ icon("i-list") }}<span class="watch-viewtoggle__label">List</span></a>
-    </nav>
-    {% endif %}
-    {# Filled by watch/search.js: ways to find something, before anything is typed. #}
-    <div class="watch-sheet" id="watch-sheet" role="listbox" aria-label="Ways to find something to watch" tabindex="-1" inert></div>
-    <p class="sr-only" id="watch-search-status" role="status"></p>
-  </div>
   <div class="watch-veil" id="watch-veil"></div>
 
   <div id="watch-browse"{% if list_view or on_results or grid %} hidden{% endif %}>

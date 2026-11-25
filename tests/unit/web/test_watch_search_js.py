@@ -921,3 +921,48 @@ def test_a_filter_whose_titles_could_not_be_had_is_asked_for_once() -> None:
     assert out["filter"] == ["Too many requests, trying again shortly.", 2, [5000]]
     assert out["changed"] == []
     assert out["broken"] == ["Couldn’t load the titles.", 3, []]
+
+
+def test_the_field_s_line_goes_on_the_way_down_and_comes_back_on_the_way_up() -> None:
+    out = _run("barTucks")
+    # 0, 60, 300, then up by too little to mean it until it adds up, up, and at the top.
+    assert out["out"] == [False, False, True, True, True, False, False, False, True]
+    assert (out["focused"], out["again"]) == (False, ["down", True])
+    assert out["wide"] == [False, False]
+
+
+def test_over_see_all_the_field_s_line_comes_back_at_the_top_alone() -> None:
+    assert _run("barTucksOverSeeAll") == [False, True, True, True, False]
+
+
+def test_the_open_sheet_keeps_the_field_s_line() -> None:
+    assert _run("barSheetHolds") == [True, False, False]
+
+
+def test_the_bar_s_elements_stand_in_the_order_they_are_read_at_every_width() -> None:
+    out = _run("barOrder")
+    wide = ["nav-links", "search", "watch-sheet", "meter", "watch-viewtoggle", "profile"]
+    assert out["out"] == [
+        wide,
+        ["nav-links", "meter", "watch-viewtoggle", "profile", "search", "watch-sheet"],
+        ["nav-links", "meter", "profile", "search", "watch-sheet", "watch-viewtoggle"],
+    ]
+    assert (out["back"], out["focused"]) == (wide, True)
+
+
+def test_the_meter_makes_room_only_where_the_open_field_would_cover_it() -> None:
+    out = _run("barMakesRoom")
+    assert out["covered"] == [False, True, False]
+    for free in ("clear", "narrow"):
+        assert out[free] == [False, False, False]
+    # Its words came while the field was open.
+    assert out["grows"] == [False, False, True, False]
+
+
+def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
+    out = _run("slashKeepsThePlace")
+    assert out == {"sticky": [400, True], "gone": [0, True]}
+
+
+def test_what_the_bar_covers_is_one_line_once_the_field_s_is_away() -> None:
+    assert _run("barCovers") == [106, 52]

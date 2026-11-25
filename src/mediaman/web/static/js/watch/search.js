@@ -587,6 +587,7 @@
     var hintText = byId('watch-search-hint');
     if (!input || !clear || !browse || !results || !status || !sheet || !veil || !token || !hintText) return;
     var box = input.closest('.watch-search');
+    var bar = box.closest('.wbar');
     var page = byId('watch-page');
     var address = window.MMWatch.address;
     var explore = window.MMWatch.explore;
@@ -622,6 +623,53 @@
       box.classList.toggle('is-open', on || !!input.value || tokened);
       // Another script may have hidden it; whether it shows is the bar's to say.
       clear.hidden = false;
+      makeRoom();
+    }
+
+    /* ── Where it stands in the bar ── */
+
+    var wide = window.matchMedia('(min-width: 1100px)');
+    var phone = window.matchMedia('(max-width: 699.98px)');
+    var toggle = byId('watch-viewtoggle');
+    var meter = bar.querySelector('.space-meter');
+    var scrolled = window.scrollY;
+
+    /* The open field would cover the meter. */
+    function makeRoom() {
+      bar.classList.toggle('is-wide-open', !!meter && wide.matches && box.classList.contains('is-open') &&
+        box.offsetLeft + box.offsetWidth + 8 > meter.offsetLeft);
+    }
+
+    /* The elements stand in the order they are read: below 1100px the field's line,
+       on a phone with the switch on it, comes after the first. */
+    function place() {
+      var active = document.activeElement;
+      var profile = bar.querySelector('.profile-btn');
+      if (toggle) bar.insertBefore(toggle, profile);
+      var after = wide.matches ? meter || profile : null;
+      [box, sheet].forEach(function (n) { bar.insertBefore(n, after); });
+      if (phone.matches && toggle) bar.appendChild(toggle);
+      // Moving a node takes the focus off it.
+      if (active && bar.contains(active) && document.activeElement !== active) active.focus({ preventScroll: true });
+      bar.classList.remove('is-tucked');
+    }
+
+    function onLine(node) { return box.contains(node) || (!!toggle && toggle.contains(node)); }
+
+    function tuck(on) { bar.classList.toggle('is-tucked', on); }
+
+    /* Below 1100px the field's line goes while the page is scrolled down, and comes back on
+       the way up; over the See all view, whose own header is there, at the top alone. */
+    function onScroll() {
+      var y = window.scrollY;
+      var by = y - scrolled;
+      // Slow steps up add up.
+      if (by > 0 || by < -6) scrolled = y;
+      var all = byId('watch-all');
+      var top = all && !all.hidden ? 8 : 80;
+      if (sheetOn || wide.matches || y < top || onLine(document.activeElement)) tuck(false);
+      else if (by > 0) tuck(true);
+      else if (by < -6 && top === 80) tuck(false);
     }
 
     function setPending(on) { box.classList.toggle('is-pending', on); }
@@ -815,6 +863,7 @@
         setHint(example(0));
       }
       sheetOn = on;
+      if (on) tuck(false);
       page.classList.toggle('is-sheet-on', on);
       document.documentElement.classList.toggle('has-sheet', on);
       clear.setAttribute('aria-label', on ? 'Close search' : 'Clear search');
@@ -1683,7 +1732,8 @@
       // Inert: under the storage panel, which is no aria-modal.
       if (modalOpen() || input.closest('[inert]')) return;
       e.preventDefault();
-      toTop();
+      // On a screen of little height the bar goes with the page.
+      if (box.getBoundingClientRect().top < 0) toTop();
       input.focus({ preventScroll: true });
       input.select();
       openSheet(true);
@@ -1721,7 +1771,16 @@
       // A narrow window shows no titles among the suggestions.
       sayList();
       if (!focused()) hintText.textContent = rest();
+      makeRoom();
     });
+    // Its words arrive after the page, and change.
+    if (meter && window.ResizeObserver) new window.ResizeObserver(makeRoom).observe(meter);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    bar.addEventListener('focusin', function (e) {
+      if (onLine(e.target)) tuck(false);
+    });
+    [wide, phone].forEach(function (m) { m.addEventListener('change', place); });
+    place();
 
     /* ── A page in the results' place ── */
 

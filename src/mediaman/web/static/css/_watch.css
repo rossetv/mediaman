@@ -98,12 +98,9 @@
 }
 .watch-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
 
-/* Top bar: the search field, and for admins the Browse / List switch at the
-   far right; below 600px the switch is two 44px icon buttons. */
-.watch-top { display: flex; align-items: center; gap: 12px; }
+/* The Browse / List switch, for admins. */
 .watch-viewtoggle {
   flex: none;
-  margin-left: auto;
   display: inline-flex;
   padding: 0 3px;
   border-radius: var(--r-pill);
@@ -139,11 +136,6 @@
 .watch-viewtoggle__btn[aria-current="page"]::before { opacity: 1; transform: none; }
 .watch-viewtoggle__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .watch-viewtoggle__btn > .ico { font-size: 13px; }
-@media (max-width: 599.98px) {
-  .watch-viewtoggle__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .watch-viewtoggle__btn { width: 44px; padding: 0; justify-content: center; }
-  .watch-viewtoggle__btn::before { inset: 4px; }
-}
 @media (prefers-reduced-motion: reduce) {
   .watch-viewtoggle__btn::before { transform: none; }
 }

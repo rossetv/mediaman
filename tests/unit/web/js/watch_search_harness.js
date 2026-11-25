@@ -23,7 +23,7 @@ Node.prototype.scrollIntoView = function () {};
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
-function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, every = () => 0, stored = {} } = {}) {
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {} } = {}) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -50,7 +50,16 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     Image: class {},
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', opacity: '1' }),
-    matchMedia: () => ({ matches: still }),
+    matchMedia: (q) => {
+      const min = /min-width: ([\d.]+)/.exec(q);
+      const max = /max-width: ([\d.]+)/.exec(q);
+      return {
+        get matches() { return min || max ? (!min || ctx.innerWidth >= +min[1]) && (!max || ctx.innerWidth <= +max[1]) : still; },
+        addEventListener: (_t, fn) => { (on.width = on.width || []).push(fn); },
+      };
+    },
+    innerWidth: width,
+    ResizeObserver: class { constructor(fn) { this.fn = fn; } observe() { observed.push(this.fn); } disconnect() {} },
     innerHeight: 800,
     categories,
     scrollY: 0,
@@ -83,15 +92,19 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  doc.body.appendChild(build(doc, ['div', { id: 'watch-page' },
+  doc.body.appendChild(build(doc, ['header', { class: 'nav-glass wbar' },
+    ['nav', { class: 'nav-links', id: 'nav-links' }],
     ['div', { class: 'watch-search' },
       ['span', { id: 'watch-search-token', hidden: '' }],
       ['span', { class: 'watch-search__field' }, ['span', { id: 'watch-search-hint' }, 'Search films and shows'],
         ['input', { id: 'watch-search', class: 'watch-search__input', value: opened, role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': 'watch-sheet' }]],
       ['button', { id: 'watch-search-clear', 'aria-label': 'Clear search' }]],
-    ['nav', { id: 'watch-viewtoggle' }, ['a', { href: '/watch', 'data-view': 'rows' }, 'Browse']],
     ['div', { id: 'watch-sheet' }],
     ['span', { id: 'watch-search-status' }],
+    ['button', { class: 'space-meter', id: 'meter' }],
+    ['nav', { id: 'watch-viewtoggle' }, ['a', { href: '/watch', 'data-view': 'rows' }, 'Browse']],
+    ['button', { class: 'profile-btn', id: 'profile' }]]));
+  doc.body.appendChild(build(doc, ['div', { id: 'watch-page' },
     ['div', { id: 'watch-veil' }],
     ['div', { id: 'watch-browse' }],
     ['section', { id: 'watch-results' }],
@@ -900,7 +913,7 @@ const scenarios = {
     dialog.setAttribute('aria-modal', 'true');
     out.dialog = press({});
     dialog.remove();
-    p.$('watch-page').setAttribute('inert', '');
+    p.doc.querySelector('.wbar').setAttribute('inert', '');
     out.inert = press({});
     return out;
   },
@@ -1984,6 +1997,76 @@ const scenarios = {
     out.times = e.calls.length;
     return out;
   },
+};
+
+// The field's line of the bar, below 1100px.
+const tucked = (p) => p.doc.querySelector('.wbar').classList.contains('is-tucked');
+function scrollTo(p, y) { p.ctx.scrollY = y; p.fire('scroll'); return tucked(p); }
+
+scenarios.barTucks = async () => {
+  const p = load(ADMIN, '', null, undefined, { width: 768 });
+  const out = [0, 60, 300, 298, 296, 293, 200, 40, 600].map((y) => scrollTo(p, y));
+  const to = (y, what) => { const was = scrollTo(p, y); return [what, was]; };
+  const bar = p.doc.querySelector('.wbar');
+  bar.listeners.focusin.forEach((fn) => fn({ target: p.input }));
+  return { out, focused: tucked(p), again: to(900, 'down'), wide: [300, 600].map((y) => scrollTo(load(ADMIN), y)) };
+};
+scenarios.barTucksOverSeeAll = async () => {
+  const p = load(ADMIN, '', null, undefined, { width: 768 });
+  p.$('watch-page').appendChild(build(p.doc, ['section', { id: 'watch-all' }]));
+  return [0, 400, 200, 60, 4].map((y) => scrollTo(p, y));
+};
+scenarios.barSheetHolds = async () => {
+  const p = await ready(ADMIN, '', null, undefined, { width: 768 });
+  scrollTo(p, 400);
+  const away = tucked(p);
+  p.press();
+  return [away, tucked(p), scrollTo(p, 700)];
+};
+scenarios.barOrder = async () => {
+  const kids = (p) => p.doc.querySelector('.wbar').children.map((n) => n.id || 'search').filter((id) => id !== 'watch-search-status');
+  const out = [1280, 768, 390].map((width) => kids(load(ADMIN, '', null, undefined, { width })));
+  const p = load(ADMIN, '', null, undefined, { width: 390 });
+  p.input.focus();
+  p.ctx.innerWidth = 1280;
+  p.fire('width');
+  return { out, back: kids(p), focused: p.doc.activeElement === p.input };
+};
+scenarios.barMakesRoom = async () => {
+  const at = async (meterLeft, width, grown) => {
+    const left = { meter: meterLeft };
+    const observed = [];
+    const p = await ready(ADMIN, '', null, undefined, { width, observed });
+    const box = p.doc.querySelector('.watch-search');
+    Object.defineProperty(box, 'offsetLeft', { value: 300 });
+    Object.defineProperty(box, 'offsetWidth', { value: 500 });
+    Object.defineProperty(p.$('meter'), 'offsetLeft', { get: () => left.meter });
+    const covers = () => p.doc.querySelector('.wbar').classList.contains('is-wide-open');
+    const out = [covers()];
+    p.input.focus();
+    out.push(covers());
+    if (grown) { left.meter = grown; observed.forEach((fn) => fn()); out.push(covers()); }
+    p.input.blur();
+    return out.concat(covers());
+  };
+  return { covered: await at(780, 1280), clear: await at(900, 1280), narrow: await at(780, 768), grows: await at(900, 1280, 780) };
+};
+scenarios.barCovers = async () => {
+  const p = await ready(ADMIN, '', null, undefined, { width: 768 });
+  p.doc.querySelector('.wbar').getBoundingClientRect = () => ({ top: 0, bottom: 106 });
+  p.ctx.getComputedStyle = () => ({ display: 'flex', paddingBottom: '54px', getPropertyValue: () => '' });
+  return [0, 400].map((y) => { scrollTo(p, y); return p.ctx.MMWatch.core.clearArea().top; });
+};
+// "/" finds the field where the page stands, unless the bar has gone with it.
+scenarios.slashKeepsThePlace = async () => {
+  const at = async (top) => {
+    const p = await ready(ADMIN);
+    p.ctx.scrollY = 400;
+    p.doc.querySelector('.watch-search').getBoundingClientRect = () => ({ top, right: 0, left: 0 });
+    p.doc.listeners.keydown.forEach((fn) => fn({ key: '/', preventDefault() {} }));
+    return [p.ctx.scrollY, p.doc.activeElement === p.input];
+  };
+  return { sticky: await at(6), gone: await at(-380) };
 };
 
 // Motion on: every move runs until finish() ends it.
