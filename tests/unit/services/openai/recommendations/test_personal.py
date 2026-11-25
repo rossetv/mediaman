@@ -459,6 +459,43 @@ class TestTaste:
             for kept in ("Adored", "Wanted", "heists", ", finished"):
                 assert kept not in prompt
 
+    @pytest.mark.parametrize(
+        "change", ["UPDATE admin_users SET ai_history = 0", "DELETE FROM user_searches"]
+    )
+    def test_what_is_switched_off_or_cleared_during_the_first_call_is_not_in_the_second(
+        self, conn, openai, known, monkeypatch, change
+    ):
+        real = personal.generate_personal
+
+        def change_meanwhile(*args, **kwargs):
+            items = real(*args, **kwargs)
+            conn.execute(change)
+            conn.commit()
+            return items
+
+        monkeypatch.setattr(personal, "generate_personal", change_meanwhile)
+        openai.items = [_pick("New")]
+        _make(conn, "amy")
+        assert ["heists" in prompt for prompt in openai.prompts] == [True, False]
+
+    def test_plays_of_a_plex_account_unlinked_during_the_first_call_are_not_sent_again(
+        self, conn, openai, known, monkeypatch
+    ):
+        _link(conn, "amy")
+        _plex_play(conn, "amy", "Plex Film", _ago(days=1))
+        real = personal.generate_personal
+
+        def unlink_meanwhile(*args, **kwargs):
+            items = real(*args, **kwargs)
+            conn.execute("DELETE FROM plex_links")
+            conn.commit()
+            return items
+
+        monkeypatch.setattr(personal, "generate_personal", unlink_meanwhile)
+        openai.items = [_pick("New")]
+        _make(conn, "amy")
+        assert ["Plex Film" in prompt for prompt in openai.prompts] == [True]
+
     @pytest.mark.parametrize("ai_history", [0, 1])
     def test_a_strong_no_is_never_picked_and_a_not_for_me_comes_last(
         self, conn, openai, monkeypatch, ai_history

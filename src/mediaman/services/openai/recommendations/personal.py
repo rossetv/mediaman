@@ -15,6 +15,7 @@ from plexapi.exceptions import PlexApiException
 from mediaman.core.time import now_utc
 from mediaman.services.openai.client import get_openai_key
 from mediaman.services.openai.recommendations import user_picks
+from mediaman.services.openai.recommendations._types import RecommendationItem
 from mediaman.services.openai.recommendations.enrich import (
     ENRICH_SECONDS,
     enrich_recommendations,
@@ -160,7 +161,8 @@ def _make(
         f"SELECT title, year, media_type, tmdb_id FROM suggestions WHERE {SHARED_ONLY} AND"
         f" batch_id = (SELECT MAX(batch_id) FROM suggestions WHERE {SHARED_ONLY})"
     ).fetchall()
-    portrait = _portrait(plays, ratings, read_taste(conn, username), [r["title"] for r in own])
+    previous = [r["title"] for r in own]
+    portrait = _portrait(plays, ratings, read_taste(conn, username), previous)
     items = generate_personal(conn, portrait, secret_key=secret_key)
     # Read again: they may have rated something while the model was thinking.
     taste = read_taste(conn, username)
@@ -173,20 +175,28 @@ def _make(
         # One rated up is known to them; one rated "not for me" may return, last.
         *((r.media_type, r.tmdb_id, r.title or "", r.year) for r in taste.ratings if r.level != -1),
     ]
+
+    def choose(found: list[RecommendationItem]) -> list[RecommendationItem]:
+        # What they cleared, kept from the AI or unlinked since the first call is not sent again.
+        told = read_taste(conn, username)
+        linked = get_link(conn, username)
+        same_link = (linked and linked.linked_at) == (link and link.linked_at)
+        return choose_mix(
+            found,
+            BATCH_SIZE,
+            conn,
+            portrait=_portrait(plays, ratings, told, previous),
+            levels=told.levels,
+            may_ask=same_link and ends_at - clock() >= _MIX_SECONDS,
+            secret_key=secret_key,
+        )
+
     enrich_recommendations(
         items,
         conn,
         secret_key,
         accept=new_titles(known),
-        choose=lambda found: choose_mix(
-            found,
-            BATCH_SIZE,
-            conn,
-            portrait=portrait,
-            levels=taste.levels,
-            may_ask=ends_at - clock() >= _MIX_SECONDS,
-            secret_key=secret_key,
-        ),
+        choose=choose,
         seconds=min(ENRICH_SECONDS, ends_at - clock()),
         clock=clock,
     )
