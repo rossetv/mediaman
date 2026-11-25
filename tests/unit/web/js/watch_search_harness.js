@@ -336,6 +336,21 @@ const scenarios = {
     return out;
   },
 
+  // The only title a search found is deleted.
+  async onlyCardDeleted() {
+    const card = { ref: null, key: 'id:900', title: 'Orchard Elsewhere', href: null, subtitle: 'Movie', admin: { id: '900', title: 'Orchard Elsewhere', kept: false } };
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [card], total: 1 });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    const more = p.doc.querySelector('.watch-card [data-watch-more]');
+    more.focus();
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { id: '900', showRk: '', phase: 'done', action: 'delete' } }));
+    await p.answer('/api/watch/search?', { items: [], total: 0 });
+    const at = p.doc.activeElement;
+    return { cards: p.titles('.watch-card'), focused: at.isConnected ? at.id || at.tagName : 'nowhere' };
+  },
+
   // A reply for an older query never reaches the page.
   async staleReply() {
     const p = load(ADMIN);

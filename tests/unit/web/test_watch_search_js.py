@@ -80,6 +80,10 @@ def test_the_last_library_title_deleted_gives_the_focus_to_a_card_not_a_heading(
     assert focused in {"Orchard Keepers", "Orchard Road"}
 
 
+def test_the_only_title_found_deleted_gives_the_focus_to_the_search_field() -> None:
+    assert _run("onlyCardDeleted") == {"cards": [], "focused": "watch-search"}
+
+
 def test_a_reply_to_an_older_or_shorter_query_is_dropped() -> None:
     out = _run("staleReply")
     assert out["afterOlder"] == ["New"]

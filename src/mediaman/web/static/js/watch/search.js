@@ -1689,12 +1689,18 @@
       setPending(!settled);
 
       if (settled && !all.lib.length && !all.out.length && !coming.length) {
-        if (lib.state === 'failed' && (tmdbQuiet || tmdb.state === 'failed')) { showFailed(SEARCH_FAILED); return; }
-        if (lib.state === 'ok' && tmdbQuiet && cat === 'failed') { showFailed(SEARCH_FAILED); return; }
-        if (lib.state === 'ok' && tmdbQuiet && !suggestionsFor(c.q, c).length) {
-          if (cat === 'unknown') { showFailed(CATEGORIES_FAILED); return; }
-          showNothing(c, tmdb.state === 'unconfigured');
-          last = c;
+        var said = true;
+        if (lib.state === 'failed' && (tmdbQuiet || tmdb.state === 'failed')) showFailed(SEARCH_FAILED);
+        else if (lib.state === 'ok' && tmdbQuiet && cat === 'failed') showFailed(SEARCH_FAILED);
+        else if (lib.state === 'ok' && tmdbQuiet && !suggestionsFor(c.q, c).length) {
+          if (cat === 'unknown') showFailed(CATEGORIES_FAILED);
+          else {
+            showNothing(c, tmdb.state === 'unconfigured');
+            last = c;
+          }
+        } else said = false;
+        if (said) {
+          afterLib(c);
           return;
         }
       }
@@ -1745,16 +1751,20 @@
       live.grid.removeAttribute('aria-busy');
       live.drawn = lib.state !== 'loading';
       draw(c.q, c, rows, settled);
-      if (lib.state !== 'loading' && c.afterLib) {
-        c.afterLib();
-        c.afterLib = null;
-      }
+      afterLib(c);
       refocus(c, 'lib', lib);
       refocus(c, 'tmdb', tmdb);
       if (settled) {
         last = c;
         readOut(c, all, coming.length);
       }
+    }
+
+    /* What waits for the library's answer, once that is drawn. */
+    function afterLib(c) {
+      if (c.lib.state === 'loading' || !c.afterLib) return;
+      c.afterLib();
+      c.afterLib = null;
     }
 
     /* After a retry the line it was in is gone: put focus on the group's
@@ -1828,8 +1838,9 @@
         var to = cardOf(key) || next;
         // The menu or the dialog gave the focus back to a button that is gone, or to an Undo that is going.
         if (!focusIsFree()) return;
-        var control = to && live.grid.contains(to) && core.controlIn(to, '[data-watch-more]');
+        var control = to && live.grid && live.grid.contains(to) && core.controlIn(to, '[data-watch-more]');
         if (control) control.focus({ preventScroll: true });
+        else input.focus({ preventScroll: true });
       };
       fetchLibrary(current);
     });
