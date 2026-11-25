@@ -72,9 +72,27 @@ def test_the_focus_waits_on_the_title_of_a_row_while_a_change_to_it_is_saved() -
 def test_back_between_filters_keeps_the_focus_in_the_list() -> None:
     assert _run("backBetweenFilters") == {
         "filter": "filter tv",
-        "row": "id:m2 keep-trigger",
+        "row": "id:m2 wl-title",
+        "keep": "id:m2 keep-trigger",
+        "delete": "id:m2 btn",
+        # never the Delete of another title
+        "deleteGone": "id:m9 keep-trigger",
         "rowGone": "filter ",
         "elsewhere": "watch-search",
+    }
+
+
+def test_back_gives_the_focus_that_waits_on_a_title_back_to_the_control_it_came_from() -> None:
+    waited = ["show:77 wl-title", True]
+    assert _run("backWhileTheFocusWaits") == {"keep": waited, "delete": waited, "marked": waited}
+
+
+def test_back_keeps_the_focus_on_its_control_while_a_mark_of_the_row_is_saved() -> None:
+    assert _run("backWhileAMarkIsSaved") == {
+        "title": "id:m2 wl-title",
+        "mark": "id:m2 watch-mark",
+        "keep": "id:m2 keep-trigger",
+        "delete": "id:m2 btn",
     }
 
 

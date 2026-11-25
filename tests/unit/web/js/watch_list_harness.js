@@ -414,6 +414,85 @@ const scenarios = {
     await settle();
     return { failed, trying, after: g.now() };
   },
+  /* Back while the slow list is on its way, then Forward to it. */
+  async goSlowBackForward() {
+    const g = going();
+    g.go();
+    g.slow();
+    g.p.popstate('');
+    await settle();
+    g.p.doc.activeElement.blur();
+    g.p.popstate('?view=list&type=movie&sort=size_desc');
+    await settle();
+    const waiting = g.now();
+    g.wait.resolve();
+    await settle();
+    return { waiting, after: g.now() };
+  },
+  /* Back while the slow list, with the focus, is on its way; Forward once it is in. */
+  async goSlowForwardWhenIn() {
+    const g = going();
+    g.go();
+    g.slow();
+    const there = g.p.ctx.history.state;
+    g.p.popstate('');
+    g.wait.resolve();
+    await settle();
+    g.p.doc.activeElement.blur();
+    g.p.popstate('?view=list&type=movie&sort=size_desc', there);
+    await settle();
+    return g.now();
+  },
+  /* Forward to a list whose row with the focus was deleted as Back left it: nothing has the focus, or *own* has. */
+  async forwardAfterDelete() {
+    const go = async (own, state) => {
+      const rows = [{ id: 'm9', title: 'Big', ref: 'movie-9' }, { id: 'm1', title: 'Copperline', ref: 'movie-1' }];
+      const g = going({ list: true, rows, motion: true, state: { said: '2 titles' } });
+      g.p.serve('/watch/list', { said: '1 title' }, rows.slice(0, 1));
+      g.p.row('id:m1').querySelector('a.wl-title').focus();
+      const tell = (phase) => g.p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase, action: 'delete', id: 'm1' } });
+      tell('busy');
+      if (state !== 'late') tell('done');
+      g.p.popstate('');
+      if (state === 'late') tell('done');
+      await settle();
+      g.slow();
+      if (own) g.p.doc.getElementById('watch-search').focus(); else g.p.doc.activeElement.blur();
+      // Safari leaves the focus for a while on what has just been hidden.
+      if (own === 'hidden') g.p.doc.activeElement.getClientRects = () => [];
+      g.p.popstate('?view=list');
+      await settle();
+      const { focus, on, said } = g.now();
+      return own === true ? on : { focus, said };
+    };
+    return { left: await go(false), late: await go(false, 'late'), hidden: await go('hidden'), own: await go(true), ownLate: await go(true, 'late') };
+  },
+  /* Forward to a list read again for a delete answered after Back left it: its rows are still drawn, and the focus is on
+     a title of one, *deleted* that one, *held* on the list itself, as it comes. */
+  async forwardToStale() {
+    const go = async (on) => {
+      const rows = [{ id: 'm9', title: 'Big', ref: 'movie-9' }, { id: 'm1', title: 'Copperline', ref: 'movie-1' }, { id: 'm2', title: 'Dune', ref: 'movie-2' }];
+      const wait = deferred();
+      const g = going({ list: true, rows, state: { said: '3 titles' } });
+      g.p.serve('/watch/list', { said: '2 titles' }, [rows[0], rows[2]], wait);
+      const tell = (phase) => g.p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase, action: 'delete', id: 'm1' } });
+      tell('busy');
+      g.p.popstate('');
+      await settle();
+      tell('done');
+      await settle();
+      // address.js puts the focus back where it was.
+      if (on !== 'held') g.p.row('id:' + (on === 'deleted' ? 'm1' : 'm2')).querySelector('a.wl-title').focus();
+      else g.p.doc.activeElement.blur();
+      g.p.popstate('?view=list');
+      await settle();
+      const waiting = g.now().focus;
+      wait.resolve();
+      await settle();
+      return { waiting: on === 'held' ? g.now().on : waiting, after: [g.p.doc.activeElement.textContent, g.p.doc.body.contains(g.p.doc.activeElement), !!g.p.doc.activeElement.closest('tr')] };
+    };
+    return { deleted: await go('deleted'), other: await go('other'), held: await go('held') };
+  },
   /* Called off when what it asked for has already been replaced by another list. */
   async goReplaced() {
     const g = going({ list: true });
@@ -1513,6 +1592,26 @@ const scenarios = {
   },
 
   // A film's keep changed, removed and kept again: the toasts still up after each.
+  /* The seasons each change made in a show's dialog is announced to start with: of some, its Undo, of the whole show, and
+     the end of every keep. */
+  async seasonsAnnounced() {
+    const announced = async (opts, act) => {
+      const d = await keepDialog(opts);
+      const ids = [];
+      d.doc.addEventListener('mm:watch-admin', (e) => { if (e.detail.phase === 'busy') ids.push(e.detail.ids); });
+      await act(d);
+      await settle();
+      return ids;
+    };
+    const none = { seasons: seasonsOf(null, null), seasonId: '' };
+    return {
+      some: await announced(none, async (d) => { d.tick('s2', true); await d.confirm(); d.toasts[0].action.onClick(); }),
+      show: await announced(none, async (d) => { d.tick('all', true); await d.confirm(); }),
+      end: await announced({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, null), seasonId: '' },
+        async (d) => { click(d.doc, d.button('keep-dialog-remove')); }),
+    };
+  },
+
   async oneKeepToast() {
     const p = load({ list: true, rows: ROWS });
     const up = () => p.toasts.filter((t) => !t.dismissed).map((t) => t.message);
@@ -2203,6 +2302,19 @@ const scenarios = {
     slow.resolve();
     await settle();
     return { keys: p.rowKeys(), summary: p.part('summary'), history: p.history };
+  },
+
+  // The last row leaves with the focus, which as in a browser drops to the page with it.
+  async lastRowFocus() {
+    const p = load({ list: true, rows: ROWS.slice(0, 1) });
+    const own = Node.prototype.remove;
+    Node.prototype.remove = function () { own.call(this); if (this.contains(p.doc.activeElement)) p.doc.activeElement = p.doc.body; };
+    p.replies['post /api/media/m1/delete'] = () => Promise.resolve({ ok: true });
+    p.serve('/watch/list', { label: 'all' }, []);
+    click(p.doc, p.row('id:m1').querySelector('[data-action="confirm-delete"]'));
+    await settle();
+    await settle();
+    return { keys: p.rowKeys(), on: p.doc.activeElement.className, there: p.doc.body.contains(p.doc.activeElement) };
   },
 
   // A sort header pressed with motion on: focus lands on the header in the rows coming in, not the

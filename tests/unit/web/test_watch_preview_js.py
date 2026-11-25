@@ -195,7 +195,12 @@ def test_a_continue_watching_card_resumes_at_once_and_its_menu_works_the_episode
     assert out["gets"] == ["show-2"]
     assert (out["label"], out["href"]) == ("Resume", "/watch/play/22?resume=1")
     assert out["where"] == "S2 · E4, 23 min left · Drama"
-    assert out["menu"] == ["Mark episode as watched", "Dismiss", "Play trailers on hover"]
+    assert out["menu"] == [
+        "Mark episode as watched",
+        "Dismiss",
+        "Details",
+        "Play trailers on hover",
+    ]
     assert out["pinned"] == "The Long Coast"
     assert out["asked"] == [
         ["data-mark-toggle", "episode/22"],
@@ -513,3 +518,49 @@ def test_what_is_held_of_the_titles_rested_on_is_bounded() -> None:
 
 def test_a_trailer_is_given_up_only_when_its_player_stops_moving_on() -> None:
     assert _run("trailerBuffers") == {"told": True, "still": True, "silent": False}
+
+
+def test_rate_opens_the_four_and_a_press_rates_and_folds_them() -> None:
+    out = _run("rate")
+    assert out["first"] == [False, "", "Only you see your rating.", False]
+    assert out["stops"] == 0
+    assert out["open"] is True
+    assert out["loved"] == [False, "is-up", "I love it. Counts most in your picks.", False]
+    assert out["left"] is False
+    # The menu shows the same level, and stays long enough to see the new one.
+    assert out["menu"] == ["false", "false", "false", "true"]
+    assert (out["looked"], out["shut"]) == (True, False)
+    assert out["after"][1] == "is-down"
+    assert out["rates"] == [["/api/watch/ratings/movie-1", level] for level in (2, -1)]
+    assert out["title"] == "Fieldwork"
+
+
+def test_rate_shows_a_rating_from_before_and_is_not_there_for_a_title_that_cannot_be_rated() -> (
+    None
+):
+    assert _run("ratedBefore") == [[False, "is-down", "Only you see your rating.", False], True]
+
+
+def test_a_rating_that_fails_is_said_in_the_preview_or_in_a_toast_once_that_has_gone() -> None:
+    said = "Your rating wasn’t saved. Try again."
+    assert _run("rateFails") == [[0, ["", said]], [1, None]]
+
+
+def test_a_strip_opened_again_stays_open_as_the_level_is_saved() -> None:
+    assert _run("stripAgain") == [1, True]
+
+
+def test_a_strip_opened_before_the_reply_stays_open_as_it_comes() -> None:
+    assert _run("stripEarly") == ["A field.", True]
+
+
+def test_a_preview_that_has_gone_leaves_no_rating_behind() -> None:
+    assert _run("setsLeft") == [1, 0]
+
+
+def test_a_title_known_not_to_be_rateable_has_no_rate_button() -> None:
+    assert _run("cannotRate") == {"pick": 0, "again": 0}
+
+
+def test_a_strip_folds_as_the_server_says_the_title_cannot_be_rated() -> None:
+    assert _run("stripNotRateable") == [False, True]

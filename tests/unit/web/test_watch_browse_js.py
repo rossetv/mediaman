@@ -501,6 +501,22 @@ def test_a_discover_card_has_a_mark_and_more_only_for_a_title_of_the_library() -
     ]
 
 
+def test_a_pick_has_its_more_button_whether_the_library_holds_it_or_not() -> None:
+    caption = ["watch-card__lead", "watch-card__tail"]
+    assert _run("pickMore") == [
+        [None, ["More for Title rec-1"], caption],
+        ["movie/11", ["More for Title pick-2"], caption],
+        [None, [], []],
+    ]
+
+
+def test_the_grid_of_the_picks_dates_a_pick_back_in_its_row_as_the_others() -> None:
+    out = _run("pickBackInGrid")
+    latest = out["dates"][0]
+    assert (out["group"], out["same"]) == ([latest, latest], True)
+    assert out["places"] == [[latest, "0"], [latest, "1"]]
+
+
 def test_the_discover_rows_keep_their_scroll_when_they_take_the_skeletons_place() -> None:
     assert _run("rowsMovedIn") == {"before": True, "after": False, "left": 300}
 

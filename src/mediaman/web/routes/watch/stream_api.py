@@ -73,6 +73,8 @@ _PLAYED_SLACK_SECONDS = 30.0
 
 # A place this close to the saved one is the same place; a save is rounded and the video may snap.
 _SAME_PLACE_SECONDS = 0.5
+# Final credits marked no further into the title than this share of it are taken as a wrong marker.
+_CREDITS_AFTER_FRACTION = 0.7
 
 # A segment request past the limits waits this long for a slot, so a player that fetches a little
 # ahead, or a seek whose old requests Plex still holds, is not refused. Well under the 10 s the
@@ -171,6 +173,18 @@ def plex_failure(exc: PlexError) -> Response:
     return respond_err("unreachable", status=502)
 
 
+def _credits_start(item: PlexItem) -> float | None:
+    """Where *item*'s last final credits start, or None where Plex has none to believe."""
+    starts = [
+        m.start_s
+        for m in item.markers
+        if m.kind == "credits"
+        and m.final
+        and _CREDITS_AFTER_FRACTION * item.duration_s < m.start_s < item.duration_s
+    ]
+    return max(starts, default=None)
+
+
 def _may_play_original(manager: StreamManager, item: PlexItem, username: str) -> bool:
     media = item.media
     if media is None or not may_copy(item):
@@ -238,6 +252,7 @@ def _start(
                 "media_item_id": item.parent_rating_key,
                 "show_rating_key": item.grandparent_rating_key,
             }
+        info["credits_s"] = _credits_start(item)
         if item.media is not None and item.preview_count:
             # Kept on the server for the preview route; none of it is in the answer.
             info["preview"] = {
@@ -415,6 +430,7 @@ def _save(stream: StreamInfo, username: str, position_s: float, played_s: float)
         # played_s is the client's own count, so it cannot exceed the time the viewing has run.
         played_s=min(played_s, stream.elapsed_s + _PLAYED_SLACK_SECONDS),
         now=now_utc(),
+        credits_s=info.get("credits_s"),
     )
     get_stream_manager().note_saved(username, stream, position_s, played_s)
     return watched

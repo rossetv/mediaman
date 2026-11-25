@@ -15,6 +15,8 @@
  *   POST /api/watch/stream/<id>/stop  {position_s, played_s} or nothing to save (a beacon,
  *                                     or a fetch where the next episode waits for it)
  *   POST /api/watch/keep              {media_item_id, days}
+ *   POST /api/watch/ratings/ask/<key>  (in the last credits or at the end, the place saved:
+ *                                     whether to ask for a rating)
  *   GET  /healthz                     (whether mediaman is reached where something went unanswered)
  *
  * A 410 from any stream URL means the server has dropped the stream (a
@@ -69,6 +71,18 @@
   var PAGE_WAIT_MS = 15000;
   var AGAIN_MS = 2000;       // a step back not begun by then may be asked for again
   var STOP_WAIT_MS = 5000;
+  /* Reached other than by playing into them, the last credits have played this long first. */
+  var CREDITS_PLAYED_S = 10;
+  /* Ones that begin earlier in the runtime than this are not believed, as on the server. */
+  var CREDITS_FROM = 0.7;
+  /* What comes after them is a scene where it is longer than this. */
+  var SCENE_S = 10;
+  /* The longest a title's end waits to hear whether to ask for a rating. */
+  var RATE_WAIT_MS = 4000;
+  /* A rating just given stays in sight this long. */
+  var RATED_MS = 1800;
+  /* Left alone this long, the question lets the page go on, or the credits. */
+  var RATE_IGNORED_MS = 30000;
   /* How long a start may go without an answer: on the server, with each of its calls to
      a slow Plex at its limit, one takes up to 110 s. */
   var START_WAIT_MS = 120000;
@@ -217,6 +231,11 @@
     qualityMenu: q('[data-quality-menu]'),
     fullscreen: q('[data-fullscreen]'),
     upnextStatus: q('[data-upnext-status]'),
+    rate: q('[data-rate]'),
+    rateTitle: q('[data-rate-title]'),
+    rateLevel: q('[data-rate-level]'),
+    rateSet: q('[data-rate-set]'),
+    rateStatus: q('[data-rate-status]'),
     ask: q('[data-ask]'),
     lost: q('[data-lost]'),
     message: q('[data-message]'),
@@ -322,6 +341,7 @@
   var fatalRestartUsed;
   var goneRestarts;
   var reverts;
+  var question;              // of a rating: see askOnce
 
   function resetVideo(at) {
     pendingStart = at;
@@ -352,6 +372,7 @@
     chapters = [];
     buildChapters();
     offerSkip(null);
+    question = { asking: null, held: null, put: false, tried: false, creditsS: 0, due: false, answered: false, over: false, aloneS: 0 };
     troubleAtPlayed = 0;
     clearTrouble();
     clearTimeout(seekSaveTimer);
@@ -754,6 +775,7 @@
     tryAgain = again;
     swapping = false;
     if (again !== tryLost && again !== playHere) releaseFrame();
+    if (shown(els.rate)) dropRating();
     setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !again;
@@ -1423,16 +1445,25 @@
     return { stream_id: streamId, position_s: body.position_s, played_s: body.played_s };
   }
 
+  /* The last save, and those before it that are still under way; whether it was taken. */
+  var saving = Promise.resolve(true);
+  var endSaved;              // whether the save at the end was taken, once that is known
   function saveProgress() {
     var body = unsaved();
-    if (!body) return;
+    if (!body) return streamId ? saving : Promise.resolve(false);
     var id = streamId;
-    MM.api.post('/api/watch/progress', withStream(body)).then(function () {
+    var before = saving;
+    var mine = MM.api.post('/api/watch/progress', withStream(body)).then(function () {
       if (id === streamId) savedAs = JSON.stringify(body);
+      return true;
     }).catch(function (err) {
-      if (!err || err.status !== 410 || id !== streamId) return;
-      streamEnded({ error: err.error, by: err.data && err.data.by });
+      if (err && err.status === 410 && id === streamId) {
+        streamEnded({ error: err.error, by: err.data && err.data.by });
+      }
+      return false;
     });
+    saving = before.then(function () { return mine; });
+    return saving;
   }
 
   function beacon(url, body) {
@@ -1551,6 +1582,7 @@
     dropAim();
     lastTime = null;
     hideUpnext();
+    leftEnd(t);
     if (video.readyState >= 1) {
       pendingStart = null;
       /* WebKit shows black until the place has loaded. */
@@ -1588,6 +1620,7 @@
     pressedPlay();
     aimS = within(t);
     hideUpnext();
+    leftEnd(aimS);
     clearTimeout(landTimer);
     landTimer = setTimeout(land, LAND_MS);
     if (hls && video.readyState < 1) hls.config.startPosition = aimS;
@@ -1623,6 +1656,7 @@
   /* Playing again, or moving within the episode, cancels the next-episode countdown. */
   ['play', 'playing', 'seeking'].forEach(function (name) {
     video.addEventListener(name, hideUpnext);
+    video.addEventListener(name, function () { leftEnd(position()); });
   });
 
   video.addEventListener('playing', function () {
@@ -1715,6 +1749,7 @@
         playedS += delta;
         rolling = true;
         backRounds = 0;
+        playedOn(lastTime, now);
       }
     }
     /* Emptied for a new stream the video stands at 0: from there to its start is no jump. */
@@ -1731,7 +1766,7 @@
       return;
     }
     dropAim();
-    saveProgress();
+    endSaved = saveProgress();
     showSkip();
     atEnd();
     showPlayState();
@@ -1887,6 +1922,7 @@
     var label = endsEpisode(m) ? 'Next episode' : 'Skip ' + MARKER_NAMES[m.kind].toLowerCase();
     els.skipText.textContent = label;
     els.skip.setAttribute('title', label + ' (S)');
+    keepOffSkip();
     skipTimer = setTimeout(function () { els.skip.classList.add('is-quiet'); }, SKIP_SHOWN_MS);
   }
 
@@ -2327,6 +2363,7 @@
   function showControls() {
     root.classList.remove('is-idle');
     scheduleIdle();
+    if (ignoredTimer !== null) waitForRating();
   }
 
   /* Whether the mouse or a finger, not the keyboard, last moved the focus.
@@ -2423,6 +2460,7 @@
     if (menuOpen()) focusByPointer = false;
     if (e.key === 'Escape') {
       if (menuOpen()) closeMenus(true);
+      else if (shown(els.rate) && (!upnextOpen() || els.rate.contains(document.activeElement))) endRating();
       else hideUpnext();
       return;
     }
@@ -2437,12 +2475,17 @@
     if (e.key === ' ' || e.key === 'Spacebar') {
       if (onControl) {
         /* Space presses a control the keyboard is on, not one the mouse left the focus on. */
-        if (!focusByPointer || !e.target.closest('.player-chrome')) return;
+        if (!focusByPointer || !e.target.closest('.player-chrome, .player-rate')) return;
         e.target.blur();
       }
       e.preventDefault();
       if (!e.repeat) togglePlay(false);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (els.rate.contains(e.target)) {
+        e.preventDefault();
+        moveInRating(e.key === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
       /* The slider's own where the keyboard is on it, not where the mouse left the focus. */
       if ((tag === 'INPUT' && !focusByPointer) || menuOpen()) return;
       e.preventDefault();
@@ -2466,10 +2509,21 @@
   /* What the video's end leads to. */
   function atEnd() {
     if (nextUnknown) findNext();
-    else if (!next && showHref) window.location.href = showHref;
-    else if (!next) goBack();
-    else if (autoplay) goOrAsk(showUpnext);
-    else showUpnext();
+    else if (!next) askRating(leaveAtEnd);
+    else {
+      if (autoplay) goOrAsk(showUpnext);
+      else showUpnext();
+      /* What cannot be seen is not asked. */
+      if (upnextOpen() && !cannotBeSeen()) {
+        if (roomForRating()) askRating(null);
+        else rateAfterUpnext = true;
+      }
+    }
+  }
+
+  function leaveAtEnd() {
+    if (showHref) window.location.href = showHref;
+    else goBack();
   }
 
   /* The document at `href`: not a player's where the video cannot be played, and
@@ -2563,6 +2617,7 @@
     wantPlaying = true;
     clickToggled = false;
     hideUpnext();
+    dropRating();
     hideMessage();
     holdFrame(true);
     showSubtitle(next.label);
@@ -2667,6 +2722,10 @@
     card.classList.remove('is-counting');
     if (card.contains(document.activeElement)) els.play.focus();
     leave(card);
+    /* What hides it may go on to the next episode at once. */
+    if (rateAfterUpnext) setTimeout(function () {
+      if (rateAfterUpnext && video.ended && !upnextOpen()) askRating(null);
+    }, 0);
   }
 
   function stopCountdown() {
@@ -2786,6 +2845,7 @@
   }
 
   function ask() {
+    dropRating();
     leaveNative();
     swapping = true;
     holdFrame();
@@ -2802,8 +2862,14 @@
   }
 
   /* A question must not hide behind the system's own player. */
+  function inNative() {
+    return !!video.webkitPresentationMode && video.webkitPresentationMode !== 'inline';
+  }
+
+  function nativelyShown() { return inNative() || !!document.pictureInPictureElement; }
+
   function leaveNative() {
-    if (video.webkitPresentationMode && video.webkitPresentationMode !== 'inline') {
+    if (inNative()) {
       video.webkitSetPresentationMode('inline');
     } else if (document.pictureInPictureElement) {
       document.exitPictureInPicture().catch(function () {});
@@ -2826,6 +2892,296 @@
       showUpnext(true);
       showPlayState();
     });
+  }
+
+  /* ---- a rating at the end --------------------------------------------- */
+
+  var ratingAsked = 0;       // bumps with every question and whenever one no longer matters
+  var ratingWait = null;     // runs until it is known whether to ask
+  var rating = null;         // the set of thumbs of the card
+  var ratingRef;             // the title it rates
+  var tight = window.matchMedia('(max-width: 659.98px) and (max-height: 599.98px)'); // as in the CSS
+  var rateAfterUpnext = false;
+  var onReturn = null;       // what the end leads to, once the hidden page is seen again
+  var rateHovered = false;   // the mouse is on the card
+  var overCredits = false;   // the card came while the video played
+  var goOnAfter = null;      // what the end leads to once the card is done with
+  var ratedTimer = null;
+  var ignoredTimer = null;
+  var unsavedRating = null;  // {ref, level} on its way to the server
+
+  /* Ask the server, once `saved` is taken and if it is `still` wanted then, whether to ask what the
+     person thought: the question, or null. It gives each only once, so one that cannot be shown
+     as it comes is held. */
+  function askOnce(saved, still) {
+    var mine = question;
+    mine.tried = true;
+    mine.asking = saved.then(function (taken) {
+      if (mine !== question) return null;
+      if (!still()) mine.tried = false;
+      if (!taken || !mine.tried) return null;
+      return MM.api.post('/api/watch/ratings/ask/' + encodeURIComponent(item.rating_key));
+    }).then(function (data) {
+      mine.held = data && data.ask ? data : null;
+    }, function () {}).then(function () {
+      mine.asking = null;
+      return mine.held;
+    });
+    return mine.asking;
+  }
+
+  /* The last credits, where they are to be believed as the server sees it, or null. */
+  function lastCredits() {
+    var m = markers.filter(function (x) { return x.kind === 'credits' && x.final; }).pop();
+    return m && m.start_s > duration() * CREDITS_FROM ? m : null;
+  }
+
+  /* Places are saved in tenths: one that rounds to before the credits is not in them yet. */
+  function inCredits(t) {
+    var m = lastCredits();
+    return !!m && Math.round(t * 10) / 10 >= m.start_s && !afterCredits(t);
+  }
+
+  /* Whether a scene that comes after the credits is on at `t`. */
+  function afterCredits(t) {
+    var m = lastCredits();
+    return !!m && duration() - m.end_s > SCENE_S && t >= m.end_s;
+  }
+
+  function pageHidden() { return document.visibilityState === 'hidden'; }
+
+  function cannotBeSeen() { return nativelyShown() || pageHidden(); }
+
+  /* The video has played from one place to another. */
+  function playedOn(from, to) {
+    if (!inCredits(to)) {
+      question.creditsS = 0;
+      question.due = false;
+      if (rating && overCredits && afterCredits(to)) putOffRating();
+      return;
+    }
+    if (rating && overCredits) leaveAlone(to - from);
+    if (question.put || question.over) return;
+    question.creditsS += to - from;
+    if (!inCredits(from) || question.creditsS >= CREDITS_PLAYED_S) question.due = true;
+    if (!question.due || cannotBeSeen()) return;
+    if (question.held) showRating(question.held, null);
+    else if (!question.tried) askInCredits();
+  }
+
+  function askInCredits() {
+    var mine = question;
+    var asked = ratingAsked;
+    askOnce(saveProgress(), function () { return !switching && inCredits(position()); }).then(function (held) {
+      if (!held || mine !== question || mine.put || asked !== ratingAsked) return;
+      if (inCredits(position()) && !switching && !video.ended && !cannotBeSeen()) showRating(held, null);
+    });
+  }
+
+  /* At the end. `goOn`, or null where the next episode follows, comes after the question or
+     in its place. */
+  function askRating(goOn) {
+    if (question.put) {
+      endWithRating(goOn);
+      return;
+    }
+    dropRating();
+    if (goOn && pageHidden()) {
+      onReturn = goOn;
+      return;
+    }
+    var mine = ratingAsked;
+    var since = Date.now();
+    function heard(held) {
+      if (mine !== ratingAsked) return;
+      clearTimeout(ratingWait);
+      if (held && pageHidden()) {
+        onReturn = goOn;
+        return;
+      }
+      if (held && !roomForRating()) {
+        rateAfterUpnext = true;
+        return;
+      }
+      if (held) {
+        showRating(held, goOn);
+        return;
+      }
+      ratingAsked++;
+      if (goOn) goOn();
+    }
+    if (goOn) ratingWait = setTimeout(heard, RATE_WAIT_MS);
+    /* A question that is answered too late to be put would be spent for nothing. */
+    function askNow() {
+      askOnce(endSaved, function () {
+        return mine === ratingAsked && (!goOn || Date.now() - since <= RATE_WAIT_MS / 2);
+      }).then(heard);
+    }
+    if (question.held) heard(question.held);
+    else if (!question.asking) askNow();
+    else question.asking.then(function (held) {
+      if (mine !== ratingAsked) return;
+      if (held) heard(held);
+      else askNow();
+    });
+  }
+
+  /* The question has been put before the end: open still, it is waited for. */
+  function endWithRating(goOn) {
+    if (!goOn) return;
+    if (!rating) {
+      goOn();
+      return;
+    }
+    leaveNative();
+    goOnAfter = goOn;
+    waitForRating();
+  }
+
+  /* Where the card has no names by its thumbs it says the one given. */
+  function showLevel(level) {
+    var given = MM.ratings.LEVELS.filter(function (l) { return l.level === level; })[0];
+    els.rateLevel.textContent = given ? given.name : '';
+    els.rate.classList.toggle('is-rated', !!given);
+  }
+
+  /* Over the skip button where large text makes the two meet. */
+  function keepOffSkip() {
+    els.rate.classList.remove('player-rate--above');
+    if (!shown(els.rate) || !shown(els.skip)) return;
+    var card = els.rate.getBoundingClientRect();
+    var skip = els.skip.getBoundingClientRect();
+    els.rate.classList.toggle('player-rate--above', card.right > skip.left && card.bottom > skip.top);
+  }
+  window.addEventListener('resize', keepOffSkip);
+
+  /* Whether the card can be seen: a small window has no room for it and the next episode's. */
+  function roomForRating() { return !tight.matches || !upnextOpen(); }
+
+  function showRating(held, goOn) {
+    var text = 'How was ' + (held.season ? 'season ' + held.season + ' of ' : '') + held.title + '?';
+    if (goOn) leaveNative();
+    goOnAfter = goOn;
+    question.put = true;
+    question.aloneS = 0;
+    rateHovered = false;
+    overCredits = !video.ended;
+    els.rateTitle.textContent = text;
+    els.rateSet.textContent = '';
+    ratingRef = held.ref;
+    rating = MM.ratings.mount(held.ref, { variant: 'grid', again: overCredits });
+    els.rateSet.appendChild(rating.node);
+    /* A small window shows no names. */
+    els.rateSet.querySelectorAll('button').forEach(function (b) { b.setAttribute('title', b.getAttribute('aria-label')); });
+    els.rate.classList.toggle('player-rate--beside', !goOn);
+    showLevel(null);
+    show(els.rate);
+    keepOffSkip();
+    els.rateStatus.textContent = text;
+    if (!overCredits) showControls();
+    waitForRating();
+  }
+
+  /* The question goes, and nothing of it is to come. */
+  function dropRating() {
+    ratingAsked++;
+    rateAfterUpnext = false;
+    onReturn = null;
+    [ratingWait, ratedTimer, ignoredTimer].forEach(clearTimeout);
+    ignoredTimer = null;
+    goOnAfter = null;
+    if (!rating) return;
+    rating.destroy();
+    rating = null;
+    els.rateStatus.textContent = '';
+    if (els.rate.contains(document.activeElement)) els.play.focus();
+    leave(els.rate);
+  }
+
+  /* The video is, or is to be, at `t` and not at its end: one put in the credits stays in them. */
+  function leftEnd(t) {
+    if (rating && overCredits && afterCredits(t)) {
+      putOffRating();
+      return;
+    }
+    if (!rating || !overCredits || !inCredits(t)) {
+      dropRating();
+      return;
+    }
+    goOnAfter = null;
+    clearTimeout(ignoredTimer);
+    ignoredTimer = null;
+  }
+
+  /* Out of the way of a scene: without an answer the question is put again at the end. */
+  function putOffRating() {
+    question.put = question.answered;
+    dropRating();
+  }
+
+  /* The credits have played on for this long: one that nobody is at goes, for the end to put it. */
+  function leaveAlone(playedFor) {
+    if (pageHidden()) return;
+    question.aloneS += playedFor;
+    if (rateHovered || (!focusByPointer && els.rate.contains(document.activeElement))) question.aloneS = 0;
+    if (question.aloneS < RATE_IGNORED_MS / 1000) return;
+    question.over = true;
+    putOffRating();
+  }
+
+  els.rate.addEventListener('pointerenter', function (e) { rateHovered = e.pointerType === 'mouse'; });
+  els.rate.addEventListener('pointerleave', function () { rateHovered = false; });
+  els.rate.addEventListener('pointerdown', function () { question.aloneS = 0; });
+
+  function moveInRating(by) {
+    var thumbs = els.rateSet.querySelectorAll('button');
+    var at = Array.prototype.indexOf.call(thumbs, document.activeElement);
+    thumbs[at < 0 ? (by < 0 ? thumbs.length - 1 : 0) : (at + by + thumbs.length) % thumbs.length].focus();
+  }
+
+  function endRating() {
+    var goOn = goOnAfter;
+    dropRating();
+    if (goOn) goOn();
+  }
+
+  function waitForRating() {
+    clearTimeout(ignoredTimer);
+    ignoredTimer = null;
+    if (!goOnAfter) return;
+    ignoredTimer = setTimeout(function () {
+      /* The keyboard in the card is somebody; a click leaves the focus behind. */
+      if (!focusByPointer && !unsavedRating && els.rate.contains(document.activeElement)) waitForRating();
+      else endRating();
+    }, RATE_IGNORED_MS);
+  }
+
+  document.addEventListener('mm:rating', function (e) {
+    var said = e.detail;
+    if (said.phase === 'pending') unsavedRating = { ref: said.ref, level: said.level };
+    else if (said.phase !== 'read') unsavedRating = null;
+    if (rating && MM.ratings.canRate(ratingRef) === false) endRating();
+    if (!rating || said.from !== rating.node) return;
+    clearTimeout(ratedTimer);
+    showLevel(said.level);
+    question.answered = said.level !== null;
+    if (said.phase === 'saved' && said.level !== null) ratedTimer = setTimeout(endRating, RATED_MS);
+    else waitForRating();
+  });
+
+  q('[data-rate-close]').addEventListener('click', endRating);
+
+  /* Leaving may cut off the request that a rating went out with. */
+  function keepRating() {
+    if (!unsavedRating) return;
+    var none = unsavedRating.level === null;
+    fetch('/api/watch/ratings/' + encodeURIComponent(unsavedRating.ref), {
+      method: none ? 'DELETE' : 'PUT',
+      credentials: 'same-origin',
+      keepalive: true,
+      headers: none ? {} : { 'Content-Type': 'application/json' },
+      body: none ? undefined : JSON.stringify({ level: unsavedRating.level }),
+    }).catch(function () {});
   }
 
   /* ---- back ------------------------------------------------------------ */
@@ -2871,7 +3227,9 @@
 
   root.addEventListener('click', function (e) {
     var link = e.target.closest('[data-back]');
-    if (!link || cameFrom !== backHref || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (!link || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    dropRating();
+    if (cameFrom !== backHref) return;
     e.preventDefault();
     goBack();
   });
@@ -2880,6 +3238,7 @@
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') beaconProgress();
+    else if (onReturn) askRating(onReturn);
   });
 
   // A phone may not say so.
@@ -2890,6 +3249,8 @@
     backTimer = null;
     var resumeAt = position();
     beaconStop();
+    dropRating();
+    keepRating();
     pendingStart = resumeAt;
     streamId = null;
     generation++;

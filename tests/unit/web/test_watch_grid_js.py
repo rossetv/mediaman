@@ -7,6 +7,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 HARNESS = Path(__file__).parent / "js" / "watch_grid_harness.js"
 
 OPEN = {"browse": False, "all": True, "moving": False, "open": True}
@@ -261,6 +263,80 @@ def test_a_card_taken_out_lets_the_rest_close_up_and_comes_back_to_its_place() -
 
 def test_a_card_undone_after_it_faded_out_of_the_grid_is_seen_again() -> None:
     assert _run("backFromAFade") == {"off": True, "held": False, "back": 2}
+
+
+def test_the_last_pick_of_a_date_takes_its_line_along_and_the_first_back_has_it_again() -> None:
+    out = _run("datedOut")
+    assert out["one"] == ["b1", 1, "b2", 3]
+    assert out["gone"]["seq"] == []
+    assert out["loaded"]["seq"] == ["b3", 4]
+    # Back in another order than they went, and before what came later.
+    assert out["first"] == ["b1", 1, "b2", 3, "b3", 4]
+    assert out["back"]["seq"] == ["b1", 1, 2, "b2", 3, "b3", 4]
+
+
+def test_a_date_with_nothing_under_it_any_more_is_not_there_to_jump_to() -> None:
+    out = _run("datedOut")
+    assert out["loaded"]["jumps"] == ["b3"]
+    assert out["back"]["jumps"] == ["b1", "b2", "b3"]
+
+
+def test_the_date_named_is_not_one_that_has_gone_even_if_it_was_jumped_to() -> None:
+    assert _run("datedOut")["gone"]["label"] == "Jump to: b2"
+
+
+@pytest.mark.parametrize(
+    ("case", "focus", "kept"),
+    [
+        ("onButton", "watch-all-title", False),
+        ("inMenu", "watch-all-title", False),
+        ("elsewhere", "watch-all__back", True),
+    ],
+)
+def test_with_no_date_to_jump_to_the_button_goes_and_comes_back_and_no_focus_is_lost(
+    case: str, focus: str, kept: bool
+) -> None:
+    assert _run("datedOut")[case] == {
+        "none": [],
+        "hidden": True,
+        "menu": False,
+        "focus": focus,
+        "kept": kept,
+        "back": False,
+    }
+
+
+def test_a_dates_line_fades_out_with_its_last_pick_and_stands_as_it_did_once_back() -> None:
+    out = _run("datedOut")
+    assert (out["fades"], out["faded"]) == (True, False)
+    assert out["seen"] == [["b1", 1, 2, "b2", 3], False, "grid-group", ""]
+
+
+@pytest.mark.parametrize(
+    ("case", "seq", "undone"),
+    [
+        ("middle", ["a", 1, 2, 3, "b", 4, "c", 5, "d", 6], []),
+        ("firstOfDate", ["a", 1, 2, 3, "b", 4], []),
+        ("aloneFirst", ["a", 1, "b", 4], []),
+        ("aloneBetween", ["a", 1, 2, 3, "b", 4, "c", 5], []),
+        ("aloneLast", ["a", 1, 2, 3, "c", 5], ["a", 1, 2, 3, "b", 4, "c", 5]),
+        ("aloneAfterTaken", ["a", 1, 2, "b", 4], ["a", 1, 2, 3, "b", 4, "c", 5]),
+        ("dateTaken", ["a", 2, "b", 4], ["a", 1, 2, 3, "b", 4]),
+        ("dateTakenBack", ["a", 2, "b", 4], ["a", 1, 2, 3, "b", 4]),
+        ("onlyMarkOfDate", ["a", 9, "b", 1, "c", 5], ["a", 9, "b", 1, 2, "c", 5]),
+        ("afterAMark", ["a", 1, "b", 4, "c", 5], ["a", 1, 3, "b", 4, "c", 5]),
+        ("allOut", ["a", 1], ["a", 1, "b", 2]),
+    ],
+)
+def test_a_pick_back_in_its_row_stands_under_its_date_in_the_grid_opened_without_it(
+    case: str, seq: list[object], undone: list[object]
+) -> None:
+    assert _run("bringsDated")[case] == [True, seq, undone or seq]
+
+
+def test_a_pick_of_a_date_whose_page_is_to_come_is_left_to_that_page() -> None:
+    seq = ["a", 1, 2, 3]
+    assert _run("bringsDated")["toCome"] == [False, seq, seq]
 
 
 def test_a_card_back_in_its_row_comes_back_to_a_grid_that_was_filled_without_it() -> None:

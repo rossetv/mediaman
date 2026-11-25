@@ -1,0 +1,133 @@
+/* The set of four thumbs a person rates a title with (ratings.js). */
+
+.rate-th {
+  --th-bg: var(--s1);
+  display: block;
+  width: 26px;
+  height: 24px;
+  overflow: visible;
+  fill: var(--th-bg);
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  transition: transform var(--dur) var(--ease-out);
+}
+.rate-th--2 { width: 32px; }
+.rate-th--down { rotate: x 180deg; }
+.rate-th g { transform-box: fill-box; transform-origin: 20% 90%; }
+.rate-th .b { opacity: .9; }
+.rate-th .halo { fill: var(--th-bg); stroke: var(--th-bg); stroke-width: 5; }
+.rate__b.is-on > .rate-th,
+.rate-th.is-on { fill: currentColor; stroke-width: 1.1; }
+.rate__b.is-on > .rate-th .b,
+.rate-th.is-on .b { opacity: .6; }
+
+.rate { --rate-bg: var(--s2); display: flex; flex-direction: column; gap: 6px; width: fit-content; max-width: 100%; }
+.rate__set { display: inline-flex; gap: 2px; width: fit-content; padding: 3px; border: 1px solid var(--hair); border-radius: 26px; background: var(--rate-bg); }
+.rate__b {
+  --b-bg: var(--rate-bg);
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  background: none;
+  color: var(--t2);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+.rate__b .rate-th { --th-bg: var(--b-bg); }
+.rate__b:active .rate-th { transform: scale(.86); }
+.rate__b.is-up.is-on { --b-bg: color-mix(in srgb, var(--accent) 18%, var(--s2)); color: var(--accent-hi); background: var(--b-bg); }
+.rate__b.is-down.is-on { --b-bg: color-mix(in srgb, var(--orange) 16%, var(--s2)); color: var(--orange); background: var(--b-bg); }
+.rate.has .rate__b:not(.is-on) { opacity: .55; }
+/* A touch leaves its hover behind, which would keep a thumb taken back lit. */
+@media (hover: hover) {
+  .rate__b:not(.is-on):hover { --b-bg: var(--s4); color: var(--t1); background: var(--b-bg); }
+  .rate.has .rate__b:hover { opacity: 1; }
+}
+.rate.has .rate__b:focus-visible { opacity: 1; }
+.rate__b:focus-visible { border-radius: 22px; }
+
+.rate__b.pop .f { animation: rate-pop calc(var(--dur) * 1.5) var(--ease-out); }
+.rate__b.pop .b { animation: rate-pop calc(var(--dur) * 1.5) var(--ease-out) calc(var(--dur) * .35) backwards; }
+@keyframes rate-pop {
+  0% { transform: none; }
+  35% { transform: translateY(-4px) rotate(-9deg); }
+  70% { transform: translateY(1px) rotate(2deg); }
+}
+
+.rate__tip {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  translate: -50% 0;
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  background: var(--s5);
+  color: var(--t1);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .rate__b:hover .rate__tip { opacity: 1; transform: none; }
+}
+.rate__b:focus-visible .rate__tip { opacity: 1; transform: none; }
+
+.rate__line { min-height: 20px; margin: 0; padding-left: 4px; font-size: 13px; line-height: 20px; color: var(--t3); }
+.rate__line > span { display: inline-block; }
+.rate__line > .is-new { animation: rate-rise var(--dur) var(--ease-out); }
+.rate__line b { color: var(--t1); font-weight: 600; }
+.rate__line.is-bad { color: var(--danger-text); }
+@keyframes rate-rise { from { opacity: 0; transform: translateY(10px); } }
+
+.rate--grid { --rate-bg: var(--s3); width: 100%; }
+.rate--grid .rate__set { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; width: 100%; padding: 4px; border-radius: 16px; }
+.rate--grid .rate__b { width: auto; height: 72px; gap: 5px; align-content: center; border-radius: 13px; }
+.rate__lab { font-size: 12px; font-weight: 500; line-height: 1.2; white-space: nowrap; }
+
+.rate--strip { --rate-bg: var(--s3); }
+.rate--strip .rate__set { padding: 0; box-shadow: var(--shadow-card); }
+.rate--strip .rate__b { height: 40px; }
+
+.rate--menu .rate__set { padding: 0; border: 0; background: none; }
+
+@media (max-width: 699.98px) {
+  .rate--strip .rate__b { height: 44px; }
+}
+@media (max-width: 599.98px) {
+  .rate__b { width: 56px; }
+  .rate__tip { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rate__b.pop .f,
+  .rate__b.pop .b,
+  .rate__line > .is-new { animation: none; }
+  .rate__b:active .rate-th { transform: none; }
+}
+
+@media (forced-colors: active) {
+  .rate { --rate-bg: ButtonFace; }
+  .rate__set { border: 1px solid ButtonBorder; }
+  .rate.has .rate__b:not(.is-on) { opacity: 1; }
+  .rate__b { forced-color-adjust: none; color: ButtonText; background: ButtonFace; }
+  .rate__b.is-up.is-on,
+  .rate__b.is-down.is-on { --b-bg: Highlight; color: HighlightText; background: Highlight; }
+  .rate__b:not(.is-on):hover { --b-bg: ButtonFace; color: Highlight; background: ButtonFace; }
+  .rate__b:focus-visible { outline-color: Highlight; }
+  .rate__tip { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
+}
