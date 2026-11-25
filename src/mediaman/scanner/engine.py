@@ -33,7 +33,7 @@ import json
 import logging
 import sqlite3
 from collections.abc import Callable, Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from xml.etree.ElementTree import ParseError
 
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient
 
 from mediaman.core.format import ensure_tz as _ensure_tz
-from mediaman.core.time import now_iso
+from mediaman.core.time import now_iso, now_utc
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 from mediaman.scanner import repository
 from mediaman.scanner._scan_library import (
@@ -93,8 +93,11 @@ _FETCH_ERRORS = (
 
 __all__ = ["ScanEngine"]
 
-# Settings key holding the ids of the libraries with items that the last run found gone from Plex.
+# Settings key holding when each library with items that Plex no longer lists was first found gone.
 _GONE_LIBRARIES_KEY = "gone_libraries"
+# How long after it was first found gone a run must begin to confirm it: every run in a short
+# spell may ask a Plex that has just started and does not list all its libraries yet.
+_GONE_FOR = timedelta(hours=1)
 
 
 def _coerce_lib_ids(raw: Iterable[str]) -> set[int]:
@@ -605,19 +608,20 @@ class ScanEngine:
         return _ensure_tz(candidate)
 
     def _remove_items_of_gone_libraries(self) -> int:
-        """Remove the items of each library Plex listed neither in this run nor in the one before.
+        """Remove the items of each library Plex still does not list an hour after a run found so.
 
         No scan of a listed library would, and until then they hold back the
-        deletion of what is at their paths. One run is not enough, however few
+        deletion of what is at their paths. One look is not enough, however few
         the items: an answer may lack a library that is there. An empty list of
         libraries says nothing, and one Plex failed to give ends the run before
         it starts. A library that is only unticked in Settings keeps its items.
         """
         if not self._library_types:
             return 0
-        gone = fetch_gone_library_ids(self._conn, self._library_types)
-        stored = repository.read_setting(self._conn, _GONE_LIBRARIES_KEY)
-        before = json.loads(stored) if stored else []
+        begin_write(self._conn)
+        before = self._read_gone_since()
+        ids = fetch_gone_library_ids(self._conn, self._library_types)
+        gone = {lib_id: before.get(lib_id) or now_iso() for lib_id in ids}
         if gone != before:
             logger.warning("engine.gone_libraries now=%s before=%s", gone, before)
             self._conn.execute(
@@ -627,12 +631,41 @@ class ScanEngine:
                 (_GONE_LIBRARIES_KEY, json.dumps(gone), now_iso()),
             )
         removed = 0
-        for lib_id in set(gone).intersection(before):
+        for lib_id, since in gone.items():
+            if not self._began_after(since, _GONE_FOR):
+                continue
             listed = self._listed_keys.intersection(
                 repository.fetch_ids_in_libraries(self._conn, [lib_id])
             )
             removed += self._remove_orphaned_items(listed, {lib_id}, confirmed=True)
         return removed
+
+    def _read_gone_since(self) -> dict[int, str]:
+        """Return when each library was first found gone; a record that cannot be read is none."""
+        try:
+            stored = json.loads(repository.read_setting(self._conn, _GONE_LIBRARIES_KEY) or "{}")
+        except ValueError:
+            return {}
+        if not isinstance(stored, dict):
+            return {}
+        return {
+            int(lib_id): since
+            for lib_id, since in stored.items()
+            if lib_id.isdecimal() and self._is_past(since)
+        }
+
+    @staticmethod
+    def _is_past(moment: object) -> bool:
+        parsed = _parse_iso_utc(moment) if isinstance(moment, str) else None
+        return parsed is not None and parsed <= now_utc()
+
+    def _began_after(self, moment: str, delay: timedelta) -> bool:
+        """Return True if the current run began at least *delay* after *moment*.
+
+        What it lists was read after it began, so it is a look of its own.
+        """
+        began, earlier = _parse_iso_utc(self._started_at), _parse_iso_utc(moment)
+        return began is not None and earlier is not None and began - earlier >= delay
 
     def _remove_orphaned_items(
         self,

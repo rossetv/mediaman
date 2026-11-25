@@ -630,11 +630,15 @@ class TestScanWithOneBadLibrary:
         assert self._scheduled(conn) == {"10", "20"}
 
 
+_HOUR = timedelta(hours=1)
+
+
 class TestGoneLibrary:
     """Plex library 1 was removed and made again as 2, the only one ticked."""
 
     @pytest.fixture(autouse=True)
-    def _library(self, conn, tmp_path, monkeypatch):
+    def _library(self, conn, tmp_path, monkeypatch, freezer):
+        freezer.move_to(datetime(2026, 11, 24, 12, tzinfo=UTC))
         monkeypatch.setattr(
             "mediaman.scanner.engine._refresh_recommendations", lambda *a, **k: None
         )
@@ -666,8 +670,8 @@ class TestGoneLibrary:
     def _ids(conn):
         return {r[0] for r in conn.execute("SELECT id FROM media_items")}
 
-    def test_its_items_go_and_hold_no_deletion_back_once_a_second_run_finds_it_gone_too(
-        self, conn, mock_plex
+    def test_its_items_go_and_hold_no_deletion_back_once_a_run_an_hour_later_finds_it_gone_too(
+        self, conn, mock_plex, freezer
     ):
         first = self._engine(conn, mock_plex, ["2"]).run_scan()
 
@@ -675,32 +679,100 @@ class TestGoneLibrary:
         assert self._ids(conn) == {"10", "20"}
         assert self.film.exists()
 
+        freezer.tick(_HOUR)
         second = self._engine(conn, mock_plex, ["2"]).run_scan()
 
         assert (second["removed"], second["deleted"]) == (1, 1)
         assert not self.film.exists()
 
-    def test_its_items_go_with_a_second_sync_too(self, conn, mock_plex):
+    def test_its_items_go_with_a_sync_an_hour_later_too(self, conn, mock_plex, freezer):
         assert self._engine(conn, mock_plex, ["2"]).sync_library()["removed"] == 0
+        freezer.tick(_HOUR)
         assert self._engine(conn, mock_plex, ["2"]).sync_library()["removed"] == 1
 
         assert self._ids(conn) == {"20"}
 
-    def test_one_listed_again_in_between_starts_over(self, conn, mock_plex):
-        for listed in (["2"], ["1", "2"], ["2"]):
-            self._engine(conn, mock_plex, listed).run_scan()
+    @pytest.mark.parametrize("run", ["sync_library", "run_scan"])
+    def test_its_items_stay_however_many_runs_find_it_gone_within_the_hour(
+        self, conn, mock_plex, freezer, run
+    ):
+        for _ in range(3):
+            getattr(self._engine(conn, mock_plex, ["2"]), run)()
+            freezer.tick(timedelta(minutes=29))
 
         assert self._ids(conn) == {"10", "20"}
         assert self.film.exists()
 
-    def test_an_empty_list_in_between_is_not_a_run_that_finds_it_gone(self, conn, mock_plex):
+    def test_a_run_begun_within_the_hour_does_not_confirm_it_however_long_it_takes(
+        self, conn, mock_plex, freezer
+    ):
         self._engine(conn, mock_plex, ["2"]).run_scan()
+        freezer.tick(timedelta(minutes=30))
+        engine = self._engine(conn, mock_plex, ["2"])
+        mock_plex.get_watch_history.side_effect = lambda key: freezer.tick(_HOUR) and []
+
+        engine.run_scan()
+
+        assert self._ids(conn) == {"10", "20"}
+
+    def test_the_hour_begins_when_the_run_that_first_found_it_gone_says_so(
+        self, conn, mock_plex, freezer
+    ):
+        engine = self._engine(conn, mock_plex, ["2"])
+        mock_plex.get_watch_history.side_effect = lambda key: freezer.tick(_HOUR) and []
+        engine.run_scan()
+        mock_plex.get_watch_history.side_effect = None
+
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+
+        assert self._ids(conn) == {"10", "20"}
+
+    @pytest.mark.parametrize(
+        "stored",
+        [
+            "",
+            "not json",
+            "5",
+            "[1]",
+            "{}",
+            '{"1": 5}',
+            '{"x": "2020-01-01"}',
+            '{"1": "2099-01-01"}',
+        ],
+    )
+    def test_a_record_that_cannot_be_read_is_a_first_look(self, conn, mock_plex, freezer, stored):
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('gone_libraries', ?, '2026')",
+            (stored,),
+        )
+        conn.commit()
+
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+        assert self._ids(conn) == {"10", "20"}
+
+        freezer.tick(_HOUR)
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+        assert self._ids(conn) == {"20"}
+
+    def test_one_listed_again_in_between_starts_over(self, conn, mock_plex, freezer):
+        for listed in (["2"], ["1", "2"], ["2"]):
+            self._engine(conn, mock_plex, listed).run_scan()
+            freezer.tick(_HOUR)
+
+        assert self._ids(conn) == {"10", "20"}
+        assert self.film.exists()
+
+    def test_an_empty_list_in_between_is_not_a_run_that_finds_it_gone(
+        self, conn, mock_plex, freezer
+    ):
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+        freezer.tick(_HOUR)
         self._engine(conn, mock_plex, []).run_scan()
 
         assert self._ids(conn) == {"10", "20"}
         assert self.film.exists()
 
-    def test_a_keep_of_its_item_still_keeps_the_file(self, conn, mock_plex):
+    def test_a_keep_of_its_item_still_keeps_the_file(self, conn, mock_plex, freezer):
         insert_scheduled_action(
             conn,
             media_item_id="10",
@@ -713,13 +785,17 @@ class TestGoneLibrary:
 
         for _ in range(2):
             self._engine(conn, mock_plex, ["2"]).run_scan()
+            freezer.tick(_HOUR)
 
         assert self._ids(conn) == {"20"}
         assert self.film.exists()
 
-    def test_a_library_plex_still_lists_keeps_its_hold_though_unticked(self, conn, mock_plex):
+    def test_a_library_plex_still_lists_keeps_its_hold_though_unticked(
+        self, conn, mock_plex, freezer
+    ):
         for _ in range(2):
             self._engine(conn, mock_plex, ["1", "2"]).run_scan()
+            freezer.tick(_HOUR)
 
         assert self._ids(conn) == {"10", "20"}
         assert self.film.exists()
@@ -733,13 +809,16 @@ class TestGoneLibrary:
         assert "10" in self._ids(conn)
         assert self.film.exists()
 
-    def test_a_dry_run_prunes_nothing(self, conn, mock_plex):
+    def test_a_dry_run_prunes_nothing(self, conn, mock_plex, freezer):
         for _ in range(2):
             self._engine(conn, mock_plex, ["2"], dry_run=True).run_scan()
+            freezer.tick(_HOUR)
 
         assert self._ids(conn) == {"10", "20"}
 
-    def test_a_large_one_goes_only_when_a_second_run_finds_it_gone_too(self, conn, mock_plex):
+    def test_a_large_one_goes_only_when_a_run_an_hour_later_finds_it_gone_too(
+        self, conn, mock_plex, freezer
+    ):
         for n in range(11, 20):
             insert_media_item(conn, id=f"{n}", plex_rating_key=f"{n}", plex_library_id=1)
         conn.commit()
@@ -748,6 +827,7 @@ class TestGoneLibrary:
         assert len(self._ids(conn)) == 11
         assert self.film.exists()
 
+        freezer.tick(_HOUR)
         self._engine(conn, mock_plex, ["2"]).run_scan()
         assert "10" not in self._ids(conn)
         assert not self.film.exists()
