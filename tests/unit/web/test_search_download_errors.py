@@ -10,6 +10,7 @@ import pytest
 from fastapi.responses import JSONResponse
 
 from mediaman.services.arr import ArrError
+from mediaman.services.arr.base import SearchUnanswered
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth.password_hash import set_user_email
 from mediaman.web.routes.download import confirm
@@ -172,6 +173,21 @@ def test_a_failed_re_monitor_of_a_filed_movie_is_still_a_failure(authed_client, 
 
     assert resp.status_code == 502
     assert _mailed(app) == []
+
+
+def test_a_re_monitored_movie_whose_search_got_no_answer_is_mailed_and_audited(authed_client, app):
+    radarr = MagicMock()
+    radarr.get_movie_by_tmdb.return_value = {"id": 7, "monitored": False}
+    radarr.remonitor_movie.side_effect = SearchUnanswered("no answer")
+
+    resp = _post_with_an_email(
+        authed_client, app, "build_radarr_from_db", radarr, _valid_body(tmdb_id=16)
+    )
+
+    assert resp.status_code == 200
+    assert _mailed(app) == ["admin@example.com"]
+    audited = app.state.db.execute("SELECT action FROM audit_log").fetchall()
+    assert [r["action"] for r in audited] == ["downloaded"]
 
 
 def test_the_emailed_page_forgets_its_arr_list_when_search_adds_a_title(authed_client):

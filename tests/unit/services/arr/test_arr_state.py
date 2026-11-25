@@ -956,12 +956,11 @@ class TestAddOrRemonitorMovieWhenTheSearchFails:
 
         radarr.unmonitor_movie.assert_called_once_with(7, max_retries=1)
 
-    def test_a_movie_whose_search_may_be_running_stays_monitored(self):
+    def test_a_movie_whose_search_may_be_running_stays_monitored_and_counts_as_re_monitored(self):
         radarr = self._radarr()
         radarr.remonitor_movie.side_effect = SearchUnanswered("no answer")
 
-        with pytest.raises(ArrError):
-            add_or_remonitor_movie(radarr, 603, "The Matrix")
+        assert add_or_remonitor_movie(radarr, 603, "The Matrix") == "remonitored"
 
         radarr.unmonitor_movie.assert_not_called()
 
