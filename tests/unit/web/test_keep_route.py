@@ -325,11 +325,18 @@ class TestKeepPageRoute:
 
         assert f"{date_text} — {word}" in text
 
-    def test_a_date_that_has_passed_says_so_and_that_it_can_still_be_kept(self, conn, freezer):
+    @pytest.mark.parametrize(
+        ("execute_at", "date"),
+        [("2026-05-01T12:00:00+00:00", "1 May"), ("2026-05-03T11:00:00+00:00", "3 May")],
+        ids=["days ago", "earlier the same day"],
+    )
+    def test_a_date_that_has_passed_says_so_and_that_it_can_still_be_kept(
+        self, conn, freezer, execute_at, date
+    ):
         freezer.move_to("2026-05-03T12:00:00+00:00")
         _insert_media_item(conn)
         action_id = insert_scheduled_action(
-            conn, media_item_id="mi1", token="placeholder", execute_at="2026-05-01T12:00:00+00:00"
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
         )
         token = _make_keep_token(conn, "mi1", action_id)
         app = self._make_app(conn)
@@ -337,7 +344,7 @@ class TestKeepPageRoute:
 
         text = " ".join(TestClient(app).get(f"/keep/{token}").text.split())
 
-        assert "1 May 2026 — leaving any day </div>" in text
+        assert f"{date} 2026 — leaving any day </div>" in text
         assert "The date has passed, but you can keep this item until it is deleted" in text
         assert "Keep for" in text
 
