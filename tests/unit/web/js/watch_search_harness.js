@@ -1117,13 +1117,15 @@ const scenarios = {
     return p.doc.querySelector('.explore-facts').textContent;
   },
 
-  // A name of one long word takes its room from the posters beside it.
-  async longName() {
-    const p = load(ADMIN, '', null, { tmdb_configured: true, genres: [{ ...GENRES[0], id: 'documentary', name: 'Documentary' }, { ...GENRES[0], id: 'science-fiction', name: 'Science Fiction' }], decades: [], people: [] });
+  // Every category has its own drawing and no picture, whatever posters came with it.
+  async categoryTiles() {
+    const genre = (id, name, urls) => ({ ...GENRES[0], id, name, poster_urls: urls });
+    const p = load(ADMIN, '', null, { tmdb_configured: true, genres: [genre('action', 'Action', ['/api/watch/img/tmdb/a.jpg']), genre('war', 'War', []), genre('made-up', 'Made up', [])], decades: [], people: [] });
     await settle();
     p.press();
     await settle();
-    return p.sheet.querySelectorAll('.watch-tile').map((n) => [n.textContent, n.classList.contains('is-long')]).sort();
+    return p.sheet.querySelectorAll('.watch-tile').map((n) => [n.textContent, n.querySelectorAll('img').length, n.children[0].getAttribute('class'),
+      n.querySelector('path') && n.querySelector('path').getAttribute('d')]);
   },
 
   // Less: cut short only once what stands below has closed over the text, unless More is pressed first.

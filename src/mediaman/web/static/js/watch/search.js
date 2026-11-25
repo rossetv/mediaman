@@ -736,10 +736,9 @@
     function genreTile(genre, i) {
       var b = option(el('button', 'watch-tile'), 'genre-' + genre.id);
       b.type = 'button';
-      b.classList.toggle('is-long', /\S{10}/.test(genre.name));
+      b.appendChild(explore.icon(genre.id));
       var name = el('b', '', genre.name);
       b.appendChild(name);
-      (genre.poster_urls || []).slice(0, 2).forEach(function (url) { b.appendChild(small(url)); });
       b.addEventListener('click', function () { explore.openGenre(genre.id, {}, name); });
       return staged(b, 40 + (i % 4 + Math.floor(i / 4)) * 24);
     }

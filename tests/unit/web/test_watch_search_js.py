@@ -512,8 +512,12 @@ def test_a_persons_story_is_cut_only_once_it_has_closed() -> None:
     assert _run("storyCloses") == [[True, False], [False, True], [True, False], [False, False]]
 
 
-def test_only_a_name_with_a_long_word_takes_room_from_its_posters() -> None:
-    assert _run("longName") == [["Documentary", True], ["Science Fiction", False]]
+def test_every_category_has_its_own_drawing_and_no_picture() -> None:
+    tiles = _run("categoryTiles")
+    assert [t[:3] for t in tiles] == [
+        [name, 0, "watch-line"] for name in ("Action", "War", "Made up")
+    ]
+    assert len({t[3] for t in tiles}) == 3
 
 
 def test_people_lead_where_no_title_matches() -> None:
