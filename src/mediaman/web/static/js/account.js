@@ -45,7 +45,7 @@
   // With `keepWidth` the words are for a screen reader, so what is beside the button does not move.
   function setBusy(button, words, keepWidth) {
     if (words) {
-      button._width = button.offsetWidth;
+      var width = button.offsetWidth;
       button.setAttribute('aria-disabled', 'true');
       if (button._label === undefined) button._label = button.textContent;
       button.textContent = '';
@@ -53,16 +53,17 @@
       spinner.className = 'btn-spinner';
       spinner.setAttribute('aria-hidden', 'true');
       button.appendChild(spinner);
-      var text = document.createElement('span');
-      text.textContent = words;
-      button.appendChild(text);
       if (keepWidth) {
-        button.style.width = button._width + 'px';
-        text.className = 'sr-only';
+        button.style.width = width + 'px';
+        button._name = button.getAttribute('aria-label');
+        button.setAttribute('aria-label', words);
+      } else {
+        button.appendChild(document.createTextNode(words));
       }
     } else {
       button.removeAttribute('aria-disabled');
       button.style.width = '';
+      if (button._name) button.setAttribute('aria-label', button._name);
       if (button._label !== undefined) button.textContent = button._label;
     }
   }

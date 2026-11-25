@@ -49,8 +49,9 @@ def test_one_device_is_signed_out_by_its_own_button() -> None:
     assert (out["own"], out["label"]) == (False, "Sign out: Safari on iPhone")
     # one request for each press, however often it is pressed meanwhile
     assert out["sent"] == ["/api/users/sessions/a%2Fb"] * 3 + ["/api/users/sessions/id3"]
-    # said to a screen reader, at the width the button had
-    assert out["busy"] == ["Signing out…", "20px", True]
+    # only a spinner at the width the button had, and the words for a screen reader
+    assert out["busy"] == ["", "20px", "Signing out…"]
+    assert out["labelAfter"] == out["label"]
     assert out["words"] == {
         "title": "Confirm it’s you",
         "descText": "Enter your Mediaman password to sign out a device.",

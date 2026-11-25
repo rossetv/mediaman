@@ -116,11 +116,12 @@ const scenarios = {
       const button = p.button(1);
       button.focus();
       for (let i = 0; i < 2; i += 1) button.listeners.click.forEach((fn) => fn({}));
-      const busy = [button.textContent, button.style.width, button.querySelector('.sr-only') !== null];
+      const busy = [button.textContent, button.style.width, button.getAttribute('aria-label')];
       await settle();
       return busy;
     };
     const busy = await push();
+    const labelAfter = p.button(1).getAttribute('aria-label');
     const refused = { rows: p.rows().length, says: p.button(1).textContent, toasts: p.toasts.splice(0), focusKept: p.$('account-sessions').children[1].contains(p.active()) };
     answer = () => Promise.reject({ error: 'reauth_cancelled' });
     await push();
@@ -130,7 +131,7 @@ const scenarios = {
     const gone = { rows: p.rows().length, toasts: p.toasts.splice(0), onNext: p.button(1) === p.active(), why: !p.$('account-revoke-why').hidden };
     p.toasts.length = 0;
     await push();
-    return { own: Boolean(own), label, busy, sent, words: p.asked[0], refused, cancelled, gone, last: { rows: p.rows().length, focused: p.focused(), disabled: p.$('account-revoke-others').disabled, why: !p.$('account-revoke-why').hidden } };
+    return { own: Boolean(own), label, labelAfter, busy, sent, words: p.asked[0], refused, cancelled, gone, last: { rows: p.rows().length, focused: p.focused(), disabled: p.$('account-revoke-others').disabled, why: !p.$('account-revoke-why').hidden } };
   },
   // the first list, asked before a new password, is answered after the one asked since
   async lateList() {
