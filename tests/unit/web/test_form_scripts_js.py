@@ -21,7 +21,9 @@ def test_pressing_the_eye_keeps_the_cursor_where_it_was_in_the_field() -> None:
     out = _run("focus")
     assert out["prevented"] is True
     assert out["active"] is True
-    assert out["selection"] == [2, 5]
+    assert out["kept"] == [2, 5, "backward"]
+    # what the browser did stands once the field has been typed in or left
+    assert out["typedMeanwhile"] == out["leftMeanwhile"] == [0, 0, "none"]
     # what shows the eye, which stays out of sight without the script
     assert out["drawn"] == "pwd-on"
 

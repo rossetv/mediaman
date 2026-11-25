@@ -25,9 +25,11 @@ function page({ refused, forced, options } = {}) {
   ['old_password', 'new_password', 'confirm_password'].forEach((id) => { $(id).value = ''; $(id).type = 'password'; });
   form.reset = () => ['old_password', 'new_password'].forEach((id) => { $(id).value = ''; });
   const timers = [];
+  const frames = [];
   const listeners = {};
   const ctx = vm.createContext({
     document: doc, Set, JSON, Math, TextEncoder, setTimeout: (fn, ms) => timers.push({ fn, ms }), clearTimeout: (n) => { if (timers[n - 1]) timers[n - 1].fn = () => {}; },
+    requestAnimationFrame: (fn) => frames.push(fn),
     FormDataEvent: Object, getComputedStyle: () => ({}), matchMedia: () => ({ matches: true }),
     addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
   });
@@ -45,7 +47,14 @@ function page({ refused, forced, options } = {}) {
     back: () => listeners.pageshow.forEach((fn) => fn({ persisted: true })),
     type(id, value) { $(id).value = value; form.listeners.input.forEach((fn) => fn({ target: $(id) })); },
     key: (caps) => form.listeners.keydown.forEach((fn) => fn({ getModifierState: () => caps })),
-    press: (n) => doc.querySelectorAll('.pwd-eye')[n].listeners.click.forEach((fn) => fn({})),
+    // As Chromium does: a field whose type changed has its cursor put at the start after the press, then a frame.
+    press(n) {
+      const fields = doc.querySelectorAll('input');
+      const was = fields.map((f) => f.type);
+      doc.querySelectorAll('.pwd-eye')[n].listeners.click.forEach((fn) => fn({}));
+      fields.forEach((f, i) => { if (f.type !== was[i]) f.setSelectionRange(0, 0); });
+      frames.splice(0).forEach((fn) => fn());
+    },
     // As the browser raises it: on the form, then on up to the document.
     submit() {
       const e = { target: form, sent: true, stopped: false, preventDefault() { this.sent = false; }, stopPropagation() { this.stopped = true; } };
@@ -102,10 +111,10 @@ const scenarios = {
     const state = () => [p.$('old_password').type, p.$('new_password').type, p.doc.querySelectorAll('.pwd-eye').map((e) => e.getAttribute('aria-pressed'))];
     const out = { first: state() };
     p.$('new_password').focus();
-    p.$('new_password').setSelectionRange(2, 4);
+    p.$('new_password').setSelectionRange(2, 4, 'backward');
     p.press(1);
     out.shown = state();
-    out.kept = [p.focused(), p.$('new_password').selectionStart, p.$('new_password').selectionEnd];
+    out.kept = [p.focused(), p.$('new_password').selectionStart, p.$('new_password').selectionEnd, p.$('new_password').selectionDirection];
     p.type('old_password', 'x');
     p.type('new_password', GOOD);
     p.submit();

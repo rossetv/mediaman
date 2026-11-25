@@ -163,10 +163,14 @@
       // The cursor stays in the field while its eye is pressed.
       f.eye.addEventListener('mousedown', function (e) { e.preventDefault(); });
       f.eye.addEventListener('click', function () {
-        var from = f.input.selectionStart, to = f.input.selectionEnd;
+        var from = f.input.selectionStart, to = f.input.selectionEnd, way = f.input.selectionDirection, value = f.input.value;
         f.shown(f.eye.getAttribute('aria-pressed') !== 'true');
         if (document.activeElement !== f.input) return;
-        try { f.input.setSelectionRange(from, to); } catch (err) { /* A field that has none. */ }
+        // Chromium puts the cursor at the start just after the type changes, so it goes back a frame later.
+        requestAnimationFrame(function () {
+          if (document.activeElement !== f.input || f.input.value !== value) return;
+          try { f.input.setSelectionRange(from, to, way); } catch (err) { /* A field that has none. */ }
+        });
       });
       return f;
     }

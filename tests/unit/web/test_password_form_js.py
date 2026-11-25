@@ -157,7 +157,7 @@ def test_an_eye_shows_its_own_field_and_keeps_the_cursor_where_it_was() -> None:
     out = _run("eye")
     assert out["first"] == ["password", "password", ["false", "false"]]
     assert out["shown"] == ["password", "text", ["false", "true"]]
-    assert out["kept"] == ["new_password", 2, 4]
+    assert out["kept"] == ["new_password", 2, 4, "backward"]
 
 
 def test_a_shown_password_is_hidden_while_it_is_sent_and_shown_again_if_refused() -> None:
