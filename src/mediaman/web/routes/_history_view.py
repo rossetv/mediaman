@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import unquote
 
+from mediaman.web.repository.history import Play, PlayPart
+
 NOT_RECORDED = "Not recorded"
 _HIDDEN = "[hidden]"
 # Only a runaway value is cut: the details are where the whole event is read.
@@ -319,3 +321,105 @@ def describe(
     else:
         summary = _media_summary(action, stored, space_impact)
     return EventView(summary=summary, actor=who, ip=ip, fields=fields)
+
+
+# What a person who is no admin reads of their own events. The stored text is not among it:
+# it can hold other people's names, addresses and settings.
+_OWN_FIELDS = frozenset({"Event", "Time", "Title", "Space reclaimed", "Event ID"})
+_OWN_KEYS = (
+    "id",
+    "action",
+    "action_label",
+    "badge_class",
+    "space_impact",
+    "created_at",
+    "is_security",
+)
+
+
+def own_item(item: dict[str, object], username: str) -> dict[str, object]:
+    """*item*, the admin's reading of an event of *username*'s, as they may read it themselves.
+
+    The keys are the same, so one template draws both.
+    """
+    title = item["line_title"]
+    fields: list[dict[str, object]] = []
+    stored = item["fields"]
+    assert isinstance(stored, list)
+    for field in stored:
+        if field["label"] == "Title":
+            fields += [
+                _field("Title", title if title != "Unknown" else ""),
+                _field("Who", username),
+            ]
+        elif field["label"] == "IP address":
+            # The read is of the stored text, whose form the row's own name vouches for.
+            fields += [_field("Who", username), field]
+        elif field["label"] in _OWN_FIELDS:
+            fields.append(field)
+    security = bool(item["is_security"])
+    return {k: item[k] for k in _OWN_KEYS} | {
+        "media_item_id": "",
+        "plex_rating_key": item["plex_rating_key"],
+        "title": title,
+        "line_title": title,
+        "detail": "",
+        "summary": "" if security or item["action"] == "library_left_out" else item["summary"],
+        "actor": username,
+        "ip": item["ip"] if security else None,
+        "fields": fields,
+    }
+
+
+def _part_label(part: PlayPart) -> str:
+    number = ""
+    if part.season_number is not None:
+        number = f"S{part.season_number}"
+    if part.episode_number is not None:
+        number += f"E{part.episode_number}"
+    return " · ".join(p for p in (number, part.title and scrub_control(part.title)) if p)
+
+
+def play_item(play: Play) -> dict[str, object]:
+    """A sitting in the shape of an event's item."""
+    title = scrub_control(play.title)
+    label = "finished" if play.finished else "started"
+    episodes = [
+        {"label": _part_label(p) or "Episode", "finished": p.finished}
+        for p in play.parts
+        if play.media_type == "tv"
+    ]
+    if len(episodes) > 1:
+        summary = f"{len(episodes)} episodes"
+    else:
+        summary = "".join(_part_label(p) for p in play.parts) if episodes else ""
+    fields = [_field("Event", f"{label} (play)"), _time_field(play.created_at)]
+    if play.started_at != play.created_at:
+        fields.append(_time_field(play.started_at) | {"label": "First play of the sitting"})
+    fields += [_field("Title", title), _field("Who", play.username)]
+    fields += [
+        _field("Episode", f"{e['label']} ({'finished' if e['finished'] else 'started'})")
+        for e in episodes
+    ]
+    return {
+        "id": play.ref,
+        "media_item_id": "",
+        "action": "play",
+        "action_label": label,
+        "badge_class": "badge-action-scanned",
+        "detail": "",
+        "space_impact": "",
+        "created_at": play.created_at,
+        "title": title,
+        "line_title": title,
+        "plex_rating_key": play.title_key,
+        "is_security": False,
+        "summary": summary,
+        "actor": play.username,
+        "ip": None,
+        "fields": fields,
+        "media_type": play.media_type,
+        "finished": play.finished,
+        "started_at": play.started_at,
+        "episodes": episodes,
+    }
