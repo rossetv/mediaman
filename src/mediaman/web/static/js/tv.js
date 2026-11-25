@@ -335,8 +335,8 @@
         if (status === 200) heard();
         if (status === 200 && got.state === 'ready') { paired(mine, got); return; }
         if (status === 404) { codeGone(); return; }
-        // Nobody took this TV over: it was unpaired.
-        if (status === 200 && mode === 'boot' && !token) { pending = null; signedOut(); show(); return; }
+        // Unpaired, or paired anew and about to be told so: the code is good either way.
+        if (status === 200 && mode === 'boot' && !token) { mode = 'code'; show(); }
         if (status === 0 || status >= 500) missed(false);
         mine.gap = retry ? retry * 1000 : got.poll_ms;
         pollPending(mine);

@@ -76,7 +76,14 @@ def test_an_unpaired_tv_stops_the_film_and_keeps_nothing() -> None:
     out = _run("unpairedElsewhere")
     assert "Signed out" in out["said"]
     assert (out["src"], out["store"]) == (None, {})
-    assert "Signed out" in _run("unpairedWithACodeShown")["said"]
+
+
+def test_a_refused_tv_is_signed_out_only_where_its_code_is_gone_too() -> None:
+    out = _run("unpairedWithACodeShown")
+    assert "is ready" in out["back"]
+    # the code may have been entered, and its pairing not yet be stored
+    assert "482 916" in out["said"] and "Connected to tobias" in out["late"]
+    assert "Signed out" in out["gone"] and out["store"] == {}
 
 
 def test_a_film_gives_way_to_the_person_who_takes_the_tv_over() -> None:

@@ -204,7 +204,21 @@ const scenarios = {
     const back = t.says();
     t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'pairing', expires_in_s: 200, poll_ms: 2000 } : GONE);
     await t.step(6000);
-    return { back, said: t.says() };
+    const said = t.says();
+    t.answers.poll = ready({ owner: 'tobias' });
+    await t.step(3000);
+    const late = t.says();
+    const u = tv({ kept: 'old' });
+    u.answers.poll = ready();
+    u.run();
+    await u.step(1500);
+    u.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    u.key(OK);
+    await u.step(500);
+    u.key(RIGHT); u.key(OK);
+    u.answers.poll = GONE;
+    await u.step(6000);
+    return { back, said, late, gone: u.says(), store: u.store };
   },
   async loads() {
     const t = tv({ kept: 'old' });
