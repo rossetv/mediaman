@@ -962,8 +962,7 @@ def api_watch_title_collection(
     ref: str, request: Request, username: str = Depends(get_current_user)
 ) -> JSONResponse:
     """The films of the collection that film *ref* is part of, ``here`` marking its own, and
-    why one is not to be asked for; null when there is nothing to show, also when TMDB gives
-    no answer."""
+    why one is not to be asked for; null when there is nothing to show."""
     if not REF_RE.fullmatch(ref):
         return _not_found()
     nothing = JSONResponse(None)
@@ -985,10 +984,12 @@ def api_watch_title_collection(
 
     try:
         collection = catalog.film_collection(client, tmdb_id, allow_fetch=allow_fetch)
-    except disk_cache.Refused:
+    except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
-    except catalog.TmdbUnavailable:
+    except catalog.TitleNotFound:
         return nothing
+    except catalog.TmdbUnavailable:
+        return respond_err("tmdb_request_failed", status=502)
     if collection is None or len(collection["films"]) < 2:
         return nothing
     films = collection["films"]

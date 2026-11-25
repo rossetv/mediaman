@@ -251,10 +251,11 @@ def test_without_a_tmdb_key_there_is_nothing(viewer, monkeypatch):
     ],
     ids=str,
 )
-def test_a_failure_of_tmdb_is_nothing_and_is_not_kept(viewer, tmdb, path, failure):
+def test_a_failure_of_tmdb_says_so_and_is_not_kept(viewer, tmdb, path, failure):
     answer, tmdb[path] = tmdb[path], failure
 
-    assert _ask(viewer) is None
+    resp = viewer.get("/api/watch/title/movie-100/collection")
+    assert resp.status_code == (429 if failure == 429 else 502)
 
     tmdb[path] = answer
     catalog.gate.reset()
@@ -288,7 +289,7 @@ def test_details_held_from_before_the_collection_are_read_anew_for_that_film(vie
     asked = tmdb["/movie/11"]
     tmdb["/movie/11"] = 500
 
-    assert _ask(viewer) is None
+    assert viewer.get("/api/watch/title/movie-100/collection").status_code == 502
     # The title itself still shows what was held of it.
     assert catalog.details(TmdbClient("token"), "movie", 11) == old
 
