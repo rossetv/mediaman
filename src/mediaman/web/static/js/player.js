@@ -84,6 +84,8 @@
   var CREDITS_PLAYED_S = 10;
   /* Ones that begin earlier in the runtime than this are not believed, as on the server. */
   var CREDITS_FROM = 0.7;
+  /* Where the server counts a title watched from, unless its final credits begin before. */
+  var WATCHED_FROM = 0.9;
   /* What comes after them is a scene where it is longer than this. */
   var SCENE_S = 10;
   /* The longest a title's end waits to hear whether to ask for a rating. */
@@ -904,6 +906,7 @@
 
   /* The first of the controls that are there. */
   function focusControls() {
+    paintAway();
     (!isAway() || swapping ? els.play : onTv() && !els.openRemote.hidden ? els.openRemote : video.ended ? els.bring : els.play).focus();
   }
 
@@ -1679,7 +1682,8 @@
   function togglePlay(byButton) {
     if (onTv()) return;
     if (shown(els.message)) {
-      if (tryAgain) tryAgain();
+      /* A card came by itself: a press meant for the picture is not for it. */
+      if (tryAgain && (byButton || els.messageActs.hidden)) tryAgain();
       return;
     }
     if (aimS !== null) land();
@@ -1922,6 +1926,7 @@
     }
     dropAim();
     endSaved = saveProgress();
+    watchedHere();
     showSkip();
     atEnd();
     showPlayState();
@@ -2084,6 +2089,14 @@
   /* Only the last credits lead on; a scene may follow the others. */
   function endsEpisode(m) { return !!next && m.kind === 'credits' && m.final; }
 
+  /* A TV on which this one waits to follow another has it wait no more. */
+  function watchedHere() { if (playOn && !away) playOn.watched(String(item.rating_key)); }
+
+  function countsWatched(t) {
+    var credits = lastCredits();
+    return duration() > 0 && t >= Math.min(WATCHED_FROM * duration(), credits ? credits.start_s : Infinity);
+  }
+
   function skipOn() {
     if (!skipMarker) return;
     if (!endsEpisode(skipMarker)) {
@@ -2091,6 +2104,7 @@
       return;
     }
     /* Saved as at the end, so that the episode counts as watched. */
+    watchedHere();
     goNext(false, duration());
   }
   els.skip.addEventListener('click', skipOn);
@@ -2903,8 +2917,12 @@
     if (countdownTimer === null) return;
     clearInterval(countdownTimer);
     countdownTimer = null;
+    tellCount(null);
     showPlayState();
   }
+
+  /* A way that carries on goes on with the count where the page is left. */
+  function tellCount(until) { if (away && away.play && away.play.counts) away.play.counts(until); }
 
   /* The card, counting down where the next episode begins by itself: not where it is to `wait`. */
   function showUpnext(wait) {
@@ -2929,6 +2947,7 @@
       goOrAsk(function () { goNext(true); });
     };
     countdownTimer = setInterval(count, 250);
+    tellCount(until);
     count();
   }
 
@@ -3502,7 +3521,7 @@
       holding = held;
       pendingStart = at;
       showAway();
-      showMessage(MSG_MAYBE_TV, playAnyway);
+      showMessage(held.says, playAnyway);
       return;
     }
     wantPlaying = playing;
@@ -3994,7 +4013,7 @@
     if (lost || over) hint = 'Your place is saved at ' + fmt(position()) + '.';
     else if (failed) hint = tv.kind === 'older' && tv.play.error === 'tv' ? BAD_FILE : 'Your place is kept.';
     else if (begins) hint = 'Starting. This can take a few seconds.';
-    else if (ended && upnextOpen()) hint = autoplay && countdownTimer !== null ? 'Keep this page open for the next episode.' : awayName() + ' waits for you to choose.';
+    else if (ended && upnextOpen()) hint = autoplay && countdownTimer !== null ? (away.play && away.play.carriesOn ? 'The next episode starts by itself, even if you leave this page.' : 'Keep this page open for the next episode.') : awayName() + ' waits for you to choose.';
     else if (ended) hint = awayName() + ' is ready for something else.';
     else if (tv && !isThis(tv.play)) hint = 'It plays ' + [tv.play.title, tv.play.episode_title].filter(Boolean).join(', ') + ' now.';
     else if (away.play && away.play.carriesOn) hint = 'You can leave this page. The TV carries on.';
@@ -4146,7 +4165,7 @@
   function begin() {
     var key = String(item.rating_key);
     var asked = playOn && playOn.again(key);
-    var look = playOn && playOn.mayBeOnTv();
+    var look = playOn && playOn.mayBeOnTv(root.hasAttribute('data-on-tv'));
     if (!asked && !look) {
       if (!holding) startStream(position());
       return;
@@ -4155,6 +4174,7 @@
     var mine = holding = {
       way: asked ? asked.way : null,
       told: !!holding,
+      says: holding ? holding.says : MSG_MAYBE_TV,
       heard: false,
       at: position(),
       pressed: false,
@@ -4174,9 +4194,10 @@
 
     function tell(text) {
       clearTimeout(timer);
+      if (text) mine.says = text;
       if (mine !== holding || mine.told) return;
       mine.told = true;
-      showMessage(text || MSG_MAYBE_TV, playAnyway);
+      showMessage(mine.says, playAnyway);
     }
 
     function tellAfter(ms) {
@@ -4232,7 +4253,7 @@
       });
     }).catch(function (err) {
       mine.heard = true;
-      tell(err && err.code === 'elsewhere' ? MSG_OTHER_TAB : null);
+      tell(err && err.code === 'elsewhere' ? MSG_OTHER_TAB : MSG_MAYBE_TV);
     });
   }
 
@@ -4300,12 +4321,14 @@
     clearTimeout(backTimer);
     backTimer = null;
     if (away && away.play && away.play.carriesOn) {
-      beaconProgress();
+      if (video.ended) beaconStop();
+      else beaconProgress();
       dropRating();
       keepRating();
       return;
     }
     var resumeAt = position();
+    if (hasPlayed && countsWatched(resumeAt)) watchedHere();
     beaconStop();
     dropRating();
     keepRating();

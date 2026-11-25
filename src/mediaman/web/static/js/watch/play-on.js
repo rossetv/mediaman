@@ -4,9 +4,10 @@
  *   MM.playOn.changed()          what a way says of itself may be different now
  *   MM.playOn.again(key)         null, or {way, found}: a promise of the play of that title which a
  *                                way may find already on
- *   MM.playOn.mayBeOnTv()        whether a TV was playing anything when last heard of
+ *   MM.playOn.mayBeOnTv(told)    whether a TV was playing anything when last heard of, or this page was `told` so
  *   MM.playOn.onTv(key)          a promise of the TV that title plays on, or null; rejects where
  *                                that cannot be known
+ *   MM.playOn.watched(key)       that title was watched here to its end
  *   MM.playOn.cancel()           what is starting is not wanted any more: a promise, settled once that is
  *                                stopped or refused
  *   MM.playOn.ready(fn)          fn(whether there is anything to play on), now and as it changes
@@ -15,7 +16,7 @@
  *                                address it plays at
  *
  * A way: {id, label, sub, icon, available(), chooser, start(what), asks?, looking?, trouble?, look?, again?, release?,
- * leads?}. Its start is called in the press itself, since the browser shows its list of TVs for a
+ * watched?, leads?}. Its start is called in the press itself, since the browser shows its list of TVs for a
  * press alone; asks() says whether it will. looking() is true while it is not known yet whether it
  * is available, and trouble() says why it is not, as {title, line}. One that `leads` needs the player, which is opened.
  *
@@ -1068,7 +1069,10 @@
     register: function (way) { ways.push(way); changed(); },
     changed: changed,
     cancel: cancel,
-    mayBeOnTv: function () { return !absent && remembered(); },
+    mayBeOnTv: function (told) { return !absent && (told || remembered()); },
+    watched: function (key) {
+      ways.forEach(function (w) { if (w.watched) w.watched(key); });
+    },
     onTv: function (key) {
       return look().then(function () {
         if (lost) throw new Error('lost');
