@@ -40,6 +40,10 @@ def client():
     def api_latin():
         "€".encode("latin-1")
 
+    @app.get("/api/own-text")
+    def api_own_text():
+        "a name read from disk \udcff".encode("utf-8")
+
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -90,6 +94,10 @@ def test_text_sent_with_no_utf8_form_is_a_bad_request(client):
 
 def test_any_other_encoding_fault_is_still_a_crash(client):
     assert client.get("/api/latin").status_code == 500
+
+
+def test_the_servers_own_text_with_no_utf8_form_is_still_a_crash(client):
+    assert client.get("/api/own-text").status_code == 500
 
 
 def test_a_missing_api_route_stays_json_even_for_a_browser(client):

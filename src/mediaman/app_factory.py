@@ -31,7 +31,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Any, NamedTuple
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -572,16 +572,18 @@ def create_app() -> FastAPI:
     # bootstrap_db completes; callers register them via register_secret().
     install_root_filter()
 
+    from mediaman.web.error_pages import refuse_text_with_no_utf8_form, register_error_pages
+
     app = FastAPI(
         title="Mediaman",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        dependencies=[Depends(refuse_text_with_no_utf8_form)],
     )
 
     from mediaman.web import register_security_middleware
-    from mediaman.web.error_pages import register_error_pages
     from mediaman.web.template_context import signed_in_avatar
 
     register_security_middleware(app)
