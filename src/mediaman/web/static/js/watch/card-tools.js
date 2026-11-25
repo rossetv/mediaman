@@ -414,6 +414,22 @@
     window.addEventListener('pointercancel', end);
   });
 
+  /* With a mouse as well, a finger's press on a button not in sight is nobody's. */
+  var unseen = null;
+
+  document.addEventListener('pointerdown', function (e) {
+    var tool = e.pointerType !== 'mouse' && mouse() && e.target.closest && e.target.closest('.card-tool');
+    unseen = tool && Number(getComputedStyle(tool).opacity) < 0.5 ? tool : null;
+  }, true);
+
+  document.addEventListener('click', function (e) {
+    if (unseen && unseen.contains(e.target)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+    unseen = null;
+  }, true);
+
   document.addEventListener('contextmenu', function (e) { if (!mouse() && thumbAt(e.target)) e.preventDefault(); });
 
   /* ── Keys ──

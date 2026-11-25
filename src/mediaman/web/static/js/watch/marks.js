@@ -377,6 +377,7 @@
       });
       // From the banner, the one that takes its place gets the focus.
       if (lost && taken.focus && !done.fromBanner) core.focusSoftly(taken.focus);
+      done.beside = taken.focus;
     });
     if (cards.length) tellContinue(ref);
   }
@@ -739,17 +740,19 @@
     return own ? own[1] + '-' + own[2] : given || '';
   }
 
-  function change(mark, watched, name, ref, card) {
+  /* *inPanel*: from a touch screen's panel, which stays open until the answer, as its eye alone can show the wait. */
+  function change(mark, watched, name, ref, card, inPanel) {
     if (busy[mark]) return;
     // undos puts the page back; rows: Continue watching or the banner changed with it; redraw: it may come back there.
     var done = { undos: [], part: /^(season|episode)\//.test(mark), rows: false, redraw: !watched, card: card };
     var tmdb = /^tmdb-/.test(mark); // not in the library: nothing of it is in Continue watching
     ref = refOfMark(mark, ref);
-    if (card) window.MMWatch.cardTools.close(card);
+    if (card && !inPanel) window.MMWatch.cardTools.close(card);
     started(mark);
     retireUndos(mark, ref);
     send(mark, watched).then(function (data) { readFirst(mark, ref, function () {
       changes += 1;
+      if (inPanel) window.MMWatch.cardTools.close(card);
       if (done.part) tmdbOf(ref).forEach(function (tmdb) { delete said[tmdb]; });
       done.undos = paint(mark, watched);
       if (/^show\//.test(mark)) done.undos = done.undos.concat(paintSeasons(ref, watched));
@@ -774,7 +777,7 @@
       var held = err && err.error === 'in_library' && err.data ? err.data.mark_kind + '/' + err.data.mark_key : '';
       if (tmdb && /^(movie|show)\/[0-9]+$/.test(held)) {
         nowHeld(mark, held);
-        change(held, watched, name, null, card);
+        change(held, watched, name, null, card, inPanel);
         return;
       }
       if (err && err.error === 'no_tmdb_id') noEye(mark);
@@ -803,6 +806,12 @@
     return { undos: [], part: part, undone: true, redraw: done.rows, fromBanner: done.fromBanner, card: done.card, seek: focusLost(null) };
   }
 
+  /* An Undo that was refused has taken its toast, and the focus in it, with it. */
+  function keepFocus(ref, done) {
+    if (!focusLost(null)) return;
+    refocus(controlOf(ref, done, true) || (done.beside && canFocus(done.beside) ? done.beside : core.spareFocus()));
+  }
+
   function undoChange(mark, watched, name, ref, done) {
     whenIdle(mark, function () {
       refocus(toggleOf(mark, done.card));
@@ -820,6 +829,7 @@
       }); }, function (err) {
         toastFailed(mark, err, name);
         setBusy(mark, false);
+        keepFocus(ref, done);
       });
     });
   }
@@ -872,6 +882,7 @@
       }, function (err) {
         tell(ref, MM.api.messageOf(err, 'Couldn’t undo for ' + name + '. It stays dismissed.'), { variant: 'error' });
         setBusy(ref, false);
+        keepFocus(ref, done);
       });
     });
   }
@@ -1119,7 +1130,7 @@
     var toggle = e.target.closest('[data-mark-toggle]');
     var of = toggle && toggle.closest('.watch-card');
     if (of) {
-      change(toggle.getAttribute('data-mark-toggle'), toggle.getAttribute('aria-pressed') !== 'true', nameOf(of), refOf(of), of);
+      change(toggle.getAttribute('data-mark-toggle'), toggle.getAttribute('aria-pressed') !== 'true', nameOf(of), refOf(of), of, !!toggle.closest('.card-over'));
       return;
     }
     if (toggle) {

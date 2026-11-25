@@ -354,6 +354,104 @@ const scenarios = {
     return { card, row: styles.slice(0, 1) };
   },
 
+  // Pressed in a touch screen's panel, with an answer that takes its time, and one that refuses.
+  async panelWaits() {
+    const go = async (answer) => {
+      const first = later();
+      const p = load(watchPage([row('lib', [FILM({ tmdb: '10' })])]), { touch: true, api: { 'POST /api/watch/watched/movie/1': () => first.answer } });
+      const film = p.cards()[0];
+      click(p.doc, film.querySelector('[data-card-rate]'), { detail: 1 });
+      const eye = film.querySelector('.card-over__b');
+      click(p.doc, eye);
+      await settle();
+      const waiting = [film.classList.contains('is-lifted'), eye.getAttribute('aria-busy')];
+      first.send(answer());
+      await settle();
+      return [waiting, film.classList.contains('is-lifted'), p.toasts.length];
+    };
+    return { done: await go(() => ({ ok: true, changed: 1 })), refused: await go(() => Promise.reject(Object.assign(new Error('x'), { status: 503 }))) };
+  },
+
+  // An Undo that is refused after its card has left Continue watching.
+  async refusedFocus() {
+    const go = async (act, cards, api) => {
+      const p = load(watchPage([row('cont', cards)]), { next: watchPage([row('cont', cards.slice(1))]), api });
+      await p.pick(p.cards()[0], act);
+      p.doc.activeElement = p.doc.body;
+      await p.undo();
+      return [p.marks(), p.focus(), p.toasts[p.toasts.length - 1].variant];
+    };
+    const mark = { 'DELETE /api/watch/watched/movie/1?undo=1': 409 };
+    return { mark: await go('mark', CONTINUE, mark), dismiss: await go('dismiss', CONTINUE, { 'DELETE /api/watch/dismissed/movie-1': 409 }), last: (await go('mark', CONTINUE.slice(0, 1), mark))[1] };
+  },
+
+  // A finger on a screen that has a mouse too, on a button that is not in sight, and on one that is.
+  async unseenTool() {
+    const press = async (opacity) => {
+      const p = load(watchPage([row('lib', [FILM()])]));
+      p.ctx.getComputedStyle = () => ({ opacity: String(opacity), getPropertyValue: () => '', transform: 'none' });
+      const eye = p.cards()[0].querySelector('.card-tool--eye');
+      send(p.doc.listeners.pointerdown, { target: eye, pointerType: 'touch' });
+      const e = { target: eye, stopped: false, preventDefault() {}, stopImmediatePropagation() { this.stopped = true; } };
+      p.doc.listeners.click.forEach((fn) => { if (!e.stopped) fn(e); });
+      await settle();
+      return p.calls;
+    };
+    return { hidden: await press(0), shown: await press(1) };
+  },
+
+  // What a screen reader is told of the levels.
+  async levelsSaid() {
+    const p = load(watchPage([row('lib', [FILM({ tmdb: '10', level: 1 })])]));
+    const film = p.cards()[0];
+    p.open(film);
+    return film.querySelectorAll('.card-over .rate__b').map((b) => {
+      const by = b.getAttribute('aria-describedby');
+      const hint = by && p.doc.getElementById(by);
+      return [b.getAttribute('aria-checked'), hint ? [hint.textContent, hint.hidden] : null];
+    });
+  },
+
+  // Badges that come after the others of their poster.
+  async badgeOrder() {
+    const names = (poster) => poster.querySelectorAll('.watch-badge').map((b) => b.className.split('--')[1]);
+    const go = (kinds) => {
+      const p = load(watchPage([row('lib', [FILM({ watched: true })])]));
+      const poster = p.cards()[0].querySelector('.watch-card__poster');
+      kinds.forEach((kind) => p.added(poster.appendChild(build(p.doc, ['span', { class: 'watch-badge watch-badge--' + kind }]))));
+      return names(poster);
+    };
+    return [go(['state']), go(['leaving']), go(['state', 'leaving']), go(['new']), go(['unwatched'])];
+  },
+
+  // What a card says of the keyboard's focus and of the mouse, and no copy of it or other card does.
+  async cardStates() {
+    const p = load(watchPage([row('lib', [FILM({ tmdb: '10' }), card('movie/9', 'Other', 'Movie')])]));
+    const [film, other] = p.cards();
+    const has = (name) => [film, other].map((c) => c.classList.contains(name));
+    const eye = film.querySelector('.card-tool--eye');
+    const out = [];
+    eye.focus();
+    send(p.doc.listeners.focusin, { target: eye });
+    out.push(has('has-focus'));
+    send(p.doc.listeners.focusout, { target: eye, relatedTarget: film.querySelector('.watch-card__link') });
+    out.push(has('has-focus'));
+    const away = other.querySelector('.watch-card__link');
+    send(p.doc.listeners.focusout, { target: eye, relatedTarget: away });
+    out.push(has('has-focus'));
+    away.focus();
+    send(p.doc.listeners.focusin, { target: away });
+    out.push(has('has-focus'));
+    send(p.doc.listeners.pointerover, { target: eye });
+    out.push(has('is-on-tools'));
+    send(p.doc.listeners.pointerover, { target: film.querySelector('.watch-card__link') });
+    out.push(has('is-on-tools'));
+    send(p.doc.listeners.pointerover, { target: eye });
+    send(p.doc.listeners.pointerout, { target: eye, relatedTarget: null });
+    out.push(has('is-on-tools'));
+    return out;
+  },
+
   // A rating from a card: a level, then the same one taken back.
   async menuRating() {
     const p = rated();

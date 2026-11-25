@@ -388,6 +388,57 @@ def test_a_card_that_leaves_its_row_is_not_cut_at_its_edges_and_a_row_is() -> No
     assert out["row"] == [["SECTION", "hidden"]]
 
 
+def test_a_mark_pressed_in_the_panel_shows_there_that_it_waits() -> None:
+    out = _run("panelWaits")
+    assert out["done"] == [[True, "true"], False, 1]
+    # It can be pressed again.
+    assert out["refused"] == [[True, "true"], True, 1]
+
+
+def test_a_refused_undo_leaves_the_focus_beside_where_its_card_stood() -> None:
+    out = _run("refusedFocus")
+    left = ["episode/22", "movie/3"]
+    assert out["mark"] == out["dismiss"] == [left, "episode/22", "error"]
+    assert out["last"] == "INPUT"  # the search
+
+
+def test_a_finger_s_press_on_a_button_out_of_sight_marks_nothing() -> None:
+    out = _run("unseenTool")
+    assert out == {"hidden": [], "shown": ["POST /api/watch/watched/movie/1"]}
+
+
+def test_a_reader_is_told_that_the_level_given_is_taken_back_by_a_press() -> None:
+    hint = ["Press again to take it back", True]
+    assert _run("levelsSaid") == [
+        ["false", None],
+        ["true", hint],
+        ["false", None],
+        ["false", None],
+    ]
+
+
+def test_a_badge_that_comes_late_stands_where_css_looks_for_it() -> None:
+    assert _run("badgeOrder") == [
+        ["state", "watched"],
+        ["leaving", "watched"],
+        ["leaving", "state", "watched"],
+        ["new", "watched"],
+        ["watched", "unwatched"],
+    ]
+
+
+def test_a_card_says_that_the_keyboard_or_the_mouse_is_on_it() -> None:
+    assert _run("cardStates") == [
+        [True, False],
+        [True, False],
+        [False, False],
+        [False, True],
+        [True, False],
+        [False, False],
+        [False, False],
+    ]
+
+
 def test_a_mark_undone_before_the_page_answers_moves_nothing() -> None:
     assert _run("undoneFirst") == ["movie/1", "episode/22", "movie/3"]
 
