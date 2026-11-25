@@ -4,13 +4,13 @@ Both libraries are pulled whole on each build, which is too slow to repeat on ev
 discover row, search and title open. A download started from Watch calls
 ``invalidate()`` so the next answer shows it queued rather than the held state.
 A service that cannot be reached counts as empty: its titles carry no download state.
-A Sonarr that gave no answer is asked again sooner, alone and behind the page.
+A Sonarr that gave no answer is asked again sooner, alone. While a service gives none, the view is
+built behind the pages, which are given what is held.
 """
 
 from __future__ import annotations
 
 import logging
-import math
 import sqlite3
 import threading
 import time
@@ -48,7 +48,8 @@ from mediaman.services.infra import SafeHTTPError
 logger = logging.getLogger(__name__)
 
 TTL_S = 30.0
-#: How long a Sonarr that gave no answer is left alone, and how long a page waits for it then.
+#: How long a Sonarr that gave no answer is left alone, and how long a page waits for a service
+#: that gave none.
 RETRY_S = 5.0
 RETRY_WAIT_S = 1.0
 _ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, sqlite3.Error, ValueError)
@@ -139,9 +140,13 @@ class ArrView:
 @dataclass(frozen=True, slots=True)
 class _Held:
     view: ArrView
+    #: When both are asked again, and when Sonarr alone is if that is sooner.
     until: float
-    #: When Sonarr is asked again; never where it answered.
     again: float
+
+    def lacks_an_answer(self) -> bool:
+        """Whether a service that is set up gave none."""
+        return not {"radarr", "sonarr"} <= self.view.answering | self.view.not_set_up
 
 
 def _client(
@@ -223,15 +228,15 @@ def arr_view(
 ) -> ArrView:
     """The held view, or one built now. With *wait_s* a view not there by then goes on being
     built in the background, and an empty one that answers for neither service comes back; one
-    is built there at a time, however often the view is dropped meanwhile. A Sonarr asked again is
-    asked there too, and what is held comes back without *wait_s* when it is slow."""
+    is built there at a time, however often the view is dropped meanwhile. While a service gives
+    no answer it is asked there too, and what is held comes back without *wait_s* when it is slow."""
     late = ArrView({**build_radarr_cache(None), **build_sonarr_cache(None)})
     with _lock:
         held, now = _memo.get("arr"), clock()
-        if held is not None and held.until <= now:
-            held = None
         if held is not None and now < held.again:
             return held.view
+        if held is not None and not held.lacks_an_answer():
+            held = None
         if held is not None and wait_s is None:
             late, wait_s = held.view, RETRY_WAIT_S
         generation = _generation[0]
@@ -246,6 +251,8 @@ def arr_view(
     if owner:
         try:
             # Built here: the connection is this thread's own.
+            if held is not None and held.until <= now:
+                held = None
             radarr = None if held else _client(arr_build.build_radarr_from_db, conn, secret_key)
             sonarr = _client(arr_build.build_sonarr_from_db, conn, secret_key)
             args = (future, generation, radarr, sonarr, clock, held)
@@ -294,11 +301,8 @@ def _build(
             del _building[generation]
             if _generation[0] == generation:
                 now = clock()
-                _memo["arr"] = _Held(
-                    view,
-                    held.until if held else now + TTL_S,
-                    math.inf if known else now + RETRY_S,
-                )
+                until = max(held.until, now + RETRY_S) if held else now + TTL_S
+                _memo["arr"] = _Held(view, until, until if known else now + RETRY_S)
     future.set_result(view)
 
 
