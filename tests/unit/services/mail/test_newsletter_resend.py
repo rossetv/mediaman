@@ -334,5 +334,5 @@ def test_a_title_among_an_own_batch_and_a_later_shared_one_is_shown_once(conn, t
 
     outbox.scan(conn)
 
-    counts = {to: html.count(">BothPick<") for to, html in outbox.html.items()}
+    counts = {to: html.count(">BothPick</div>") for to, html in outbox.html.items()}
     assert counts["alice@example.com"] == counts["bob@example.com"] == 1

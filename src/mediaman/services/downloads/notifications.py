@@ -522,6 +522,7 @@ def _process_one_notification(
     now_dt: datetime,
     sonarr_series_index: list[SonarrSeries] | None = None,
     radarr_index: dict[int, RadarrMovie] | None = None,
+    base_url: str = "",
 ) -> None:
     """Check availability, send the email and mark one claimed row.
 
@@ -566,7 +567,9 @@ def _process_one_notification(
         # Sentinels are exhausted above; cast narrows the union for mypy
         # without touching runtime behaviour.
         movie_typed = cast("RadarrMovie | None", movie)
-        subject, html = _build_email_payload(row, movie_typed, suggestions_by_tmdb, template)
+        subject, html = _build_email_payload(
+            row, movie_typed, suggestions_by_tmdb, template, base_url
+        )
         # The claim may be old by now (a long batch, slow Arr lookups): refresh it so
         # reconcile does not free a row whose email is going out.
         restamped = restamp_claim(conn, row)
@@ -606,6 +609,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     library sync job.
     """
     from mediaman.services.arr.state import LazyArrClients
+    from mediaman.services.infra import get_string_setting
 
     if not record_sent(conn):
         return
@@ -660,6 +664,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
                 # radarr_index stays None; _check_radarr_movie falls back to
                 # per-row get_movie_by_tmdb as a safe fallback.
 
+    base_url = get_string_setting(conn, "base_url", secret_key=secret_key)
     for row in runnable:
         _process_one_notification(
             conn,
@@ -671,6 +676,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             now_dt,
             sonarr_series_index=sonarr_series_index,
             radarr_index=radarr_index,
+            base_url=base_url,
         )
 
 

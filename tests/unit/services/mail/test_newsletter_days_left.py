@@ -66,8 +66,9 @@ def _cards(conn, *, manual: bool) -> dict[str, str]:
             send_newsletter(conn, _SECRET_KEY)
     html = mailgun.send.call_args.kwargs["html"]
     cards = {}
-    for chunk in html.split('class="sched-card"')[1:]:
-        title = re.search(r'class="item-title">([^<]*)<', chunk).group(1)
+    for chunk in html.split('class="item"')[1:]:
+        chunk = chunk.split("</tbody>")[0]
+        title = re.search(r'<div class="t1"[^>]*>([^<]*)<', chunk).group(1)
         cards[title] = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", chunk))
     return cards
 
@@ -80,10 +81,10 @@ def test_each_item_shows_the_days_left_of_its_own_deadline(conn, manual):
 
     cards = _cards(conn, manual=manual)
 
-    assert "2 days left" in cards["Five Days In"]
-    assert "6 days left" in cards["One Day In"]
-    assert "25 days left" in cards["Long Grace"]
-    assert "14 days left" not in "".join(cards.values())
+    assert "Leaving in 2 days" in cards["Five Days In"]
+    assert "Leaving in 6 days" in cards["One Day In"]
+    assert "Leaving in 25 days" in cards["Long Grace"]
+    assert "Leaving in 14 days" not in "".join(cards.values())
 
 
 @pytest.mark.parametrize("manual", [False, True], ids=["scan_send", "manual_send"])
@@ -116,7 +117,7 @@ def test_a_season_zero_about_to_leave_is_called_specials(conn):
 def test_the_last_day_reads_singular(conn):
     _queue(conn, "Last Day", days_into_grace=6)
 
-    assert "1 day left" in _cards(conn, manual=False)["Last Day"]
+    assert "Leaving tomorrow" in _cards(conn, manual=False)["Last Day"]
 
 
 def test_a_deadline_already_passed_reads_any_day_not_today_and_no_count(conn):
@@ -126,13 +127,13 @@ def test_a_deadline_already_passed_reads_any_day_not_today_and_no_count(conn):
 
     assert "Leaving any day" in card
     assert "today" not in card
-    assert "days left" not in card
+    assert "Leaving in" not in card
     assert "-3" not in card
 
 
 @pytest.mark.parametrize(
     ("hours_away", "expected", "not_expected"),
-    [(4, "Due today", "1 day left"), (26, "1 day left", "2 days left")],
+    [(4, "Leaving today", "Leaving tomorrow"), (26, "Leaving tomorrow", "Leaving in 2 days")],
     ids=["same_utc_date", "next_utc_date"],
 )
 def test_days_left_counts_utc_calendar_days_not_hours(conn, hours_away, expected, not_expected):

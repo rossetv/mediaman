@@ -1,243 +1,77 @@
-<!DOCTYPE html>
-{# Email template. Every colour, background, button and layout rule that the
-     message depends on is inline (and the layout is tables) because many mail
-     clients drop or only half honour <style>; the <style> block below is a
-     progressive enhancement for narrow screens only. Colours are solid hex
-     because Outlook desktop ignores rgba(). They deliberately do NOT use the
-     CSS custom-property tokens from static/css/_tokens.css (email clients strip
-     those); if the design-system palette changes, update this file by hand. #}
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="color-scheme" content="dark">
-<meta name="supported-color-schemes" content="dark">
-<title>Mediaman Weekly Report</title>
-<style>
-  body { -webkit-font-smoothing:antialiased; }
-  .mm-email a { text-decoration:none; }
-  .mm-email .clamp2 { overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-  @media (max-width: 520px) {
-    .mm-email .sect { padding:18px 16px !important; }
-    .mm-email .grid, .mm-email .grid tbody, .mm-email .grid tr { display:block; width:100% !important; }
-    .mm-email .grid td.cell { display:inline-block; box-sizing:border-box; padding:0 6px 16px !important; }
-    .mm-email .grid td.m100 { width:100% !important; padding:0 0 10px !important; }
-    .mm-email .grid td.m50 { width:49.9% !important; }
-    .mm-email .clamp2 { -webkit-line-clamp:unset; display:block; }
-  }
-</style>
-</head>
-<body style="margin:0;padding:0;background:#000000;color:#ffffff;">
-
-{#- Byte formatting macro. A unit hands over to the next once its rounded value
-    would read 1024 (1023.96 GB is "1.0 TB", not "1024.0 GB"). -#}
-{%- macro fmt_bytes(b) -%}
-  {%- if b is none or b == 0 -%}0 B
+{%- import "_mail_base.html" as m -%}
+{#- A unit hands over to the next once its rounded value would read 1024
+    (1023.96 GB is "1.0 TB", not "1024.0 GB"). -#}
+{%- macro by(b) -%}
+  {%- if not b -%}0 B
   {%- elif b >= 1073741824 * 1023.95 -%}{{ "%.1f"|format(b / 1099511627776) }} TB
-  {%- elif b >= 1073741824 -%}{{ "%.1f"|format(b / 1073741824) }} GB
   {%- elif b >= 1048576 * 1023.5 -%}{{ "%.1f"|format(b / 1073741824) }} GB
-  {%- elif b >= 1048576 -%}{{ "%.0f"|format(b / 1048576) }} MB
   {%- elif b >= 1024 * 1023.5 -%}{{ "%.0f"|format(b / 1048576) }} MB
   {%- elif b >= 1024 -%}{{ "%.0f"|format(b / 1024) }} KB
   {%- else -%}{{ b }} B
   {%- endif -%}
 {%- endmacro -%}
-
-{#- Font stack, written without quotes so it can sit inside a style attribute -#}
-{%- set ff = "font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Segoe UI,Helvetica Neue,Arial,sans-serif;" -%}
-
-{#- Long words (a release name with no spaces) break rather than widen the message. -#}
-{%- set wrap = "overflow-wrap:anywhere;word-break:break-word;" -%}
-
-{#- A button: the background sits on the cell and the padding on the link, so it
-    reads as a button in clients that honour either. White on #0071e3 is 4.7:1 (the
-    brighter #2997ff gives 3:1), and the link is 44px tall so a thumb finds it. -#}
-{%- macro btn(url, label, block=false, small=false) -%}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0"{% if block %} width="100%"{% endif %}><tr><td bgcolor="#0071e3" align="center" style="background:#0071e3;border-radius:6px;"><a href="{{ url }}" class="btn" style="display:block;padding:{{ '12px 14px' if small else '12px 22px' }};color:#ffffff;font-size:{{ '13px' if small else '14px' }};font-weight:600;line-height:20px;text-align:center;text-decoration:none;white-space:nowrap;">{{ label }}</a></td></tr></table>
+{%- macro added(n) -%}{% if n <= 0 %}added today{% else %}added {{ n }} day{{ "s" if n != 1 else "" }} ago{% endif %}{%- endmacro -%}
+{%- macro left(n) -%}{% if n<0 %}Leaving any day{% elif n==0 %}Leaving today{% elif n==1 %}Leaving tomorrow{% else %}Leaving in {{ n }} days{% endif %}{%- endmacro -%}
+{%- macro sec(title,sub="") -%}
+<tr><td class="pad" style="padding:30px 32px 18px;{{ m.ff }}"><div class="t1" style="font-size:22px;font-weight:700;letter-spacing:-.4px;line-height:28px;color:#1d1d1f;">{{ title }}</div>{% if sub %}<div class="t2" style="margin-top:2px;font-size:15px;line-height:21px;color:#5f5f66;">{{ sub }}</div>{% endif %}</td></tr>
 {%- endmacro -%}
-
-{%- macro ghost(url, label, block=false, pad='14px 14px', size='13px') -%}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0"{% if block %} width="100%"{% endif %}><tr><td align="center" style="border:1px solid #0c2d4d;border-radius:980px;"><a href="{{ url }}" class="btn-ghost" style="display:block;padding:{{ pad }};color:#2997ff;font-size:{{ size }};font-weight:600;line-height:16px;text-align:center;text-decoration:none;white-space:nowrap;">{{ label }}</a></td></tr></table>
+{%- macro state(label,cls,bg,fg) -%}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;"><tr><td class="{{ cls }}" align="center" bgcolor="{{ bg }}" style="background:{{ bg }};border-radius:23px;padding:13px 6px;color:{{ fg }};font-size:14px;font-weight:600;line-height:20px;white-space:nowrap;{{ m.ff }}">{{ label }}</td></tr></table>{%- endmacro -%}
+{%- macro picks(title,sub,items) -%}
+{{ sec(title,sub) }}
+<tr><td class="pk" style="padding:0 26px 4px;"><table role="presentation" class="picks" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;"><tbody class="pb">
+{%- for row in items|batch(3,'') %}<tr class="row">{% for i in row %}{% if i %}<td class="cell" width="33.33%" valign="top" style="padding:0 6px 26px;{{ m.ff }}">
+{{ m.pic(i.poster_url,i.title,170,255) }}
+<div class="t1" style="margin-top:10px;font-size:15px;font-weight:600;line-height:20px;color:#1d1d1f;{{ m.wrap }}">{{ i.title }}</div>
+<div class="t2" style="margin-top:2px;font-size:13px;line-height:18px;color:#5f5f66;">{{ "Movie" if i.media_type=="movie" else "TV" }}{% if i.rating %} &middot; &#9733; {{ i.rating }}{% endif %}</div>
+{% if i.reason %}<div class="t2" style="margin-top:6px;font-size:13px;line-height:19px;color:#5f5f66;{{ m.wrap }}">{{ i.reason }}</div>{% endif %}
+<div style="margin-top:12px;">{% if i.download_state=="in_library" %}{{ state("In the library","okb","#e6f5ea","#1a7f37") }}{% elif i.download_state=="downloading" %}{{ state("Downloading","b-dl","#e3eefc","#0060c7") }}{% elif i.download_state=="queued" %}{{ state("On its way","b-wait","#fbf3d6","#6b5200") }}{% elif i.download_url %}{{ m.btn(i.download_url,"Download",0,true) }}{% endif %}</div>
+</td>{% else %}<td class="gap" width="33.33%" style="font-size:0;line-height:0;">&nbsp;</td>{% endif %}{% endfor %}</tr>{% endfor %}
+</tbody></table></td></tr>
 {%- endmacro -%}
-
-{%- macro pill(label, bg, fg) -%}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="{{ bg }}" style="background:{{ bg }};border-radius:6px;padding:6px 8px;color:{{ fg }};font-size:11px;font-weight:600;line-height:16px;white-space:nowrap;">{{ label }}</td></tr></table>
+{%- macro rowitem(poster,title,lines,act,pw=72,ph=108) -%}
+<tr><td class="pad" style="padding:0 32px;"><table role="presentation" class="item" width="100%" cellpadding="0" cellspacing="0" border="0"><tbody class="ib"><tr class="r">
+<td class="lead" width="{{ pw }}" valign="top" style="width:{{ pw }}px;padding:0 0 20px;">{{ m.pic(poster,title,pw,ph) }}</td>
+<td class="txt" valign="top" style="padding:0 16px 20px;{{ m.ff }}"><div class="t1" style="font-size:17px;font-weight:600;line-height:22px;color:#1d1d1f;{{ m.wrap }}">{{ title }}</div>{{ lines }}</td>
+{% if act %}<td class="act" valign="top" align="right" style="padding:0 0 20px;">{{ act }}</td>{% endif %}
+</tr></tbody></table></td></tr>
 {%- endmacro -%}
-
-{#- A poster, or a plain block of the same shape when there is none. With *fluid* the
-    image fills its cell (a 2:3 box when empty); otherwise it is w x h. -#}
-{%- macro poster(item, w, h, fluid=false) -%}
-{%- if item.poster_url -%}
-<img class="poster" src="{{ item.poster_url }}" alt="{{ item.title }}" width="{{ w }}" height="{{ h }}" style="display:block;border:0;border-radius:4px;background:#1d1d1f;{% if fluid %}width:100%;height:auto;{% else %}width:{{ w }}px;height:{{ h }}px;{% endif %}">
-{%- elif fluid -%}
-<div class="poster" style="background:#1d1d1f;border-radius:4px;height:0;padding-top:150%;font-size:0;line-height:0;">&nbsp;</div>
-{%- else -%}
-<div class="poster" style="background:#1d1d1f;border-radius:4px;width:{{ w }}px;height:{{ h }}px;font-size:0;line-height:0;">&nbsp;</div>
-{%- endif -%}
-{%- endmacro -%}
-
-{#- A table grid of *cols* columns; the call block draws one item. *m* is the
-    cell class that lets narrow screens re-flow the columns. -#}
-{%- macro grid(items, cols, m) -%}
-<table role="presentation" class="grid" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
-{%- for row in items | batch(cols, '') %}
-<tr>
-{%- for item in row -%}
-<td class="cell {{ m }}" width="{{ (100 / cols) | round(2) }}%" valign="top" style="padding:0 {{ 0 if loop.last else 6 }}px 16px {{ 0 if loop.first else 6 }}px;">{% if item %}{{ caller(item) }}{% endif %}</td>
+{{ m.head("Mediaman weekly report") }}
+<body class="bg" style="margin:0;padding:0;background:#f2f2f4;">
+{%- set n=scheduled_items|length %}
+{{ m.pre((n ~ (" title is" if n==1 else " titles are") ~ " leaving. Keep what you want to stay." if n else "New picks for the week.")) }}
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f2f2f4" style="background:#f2f2f4;"><tr><td class="wrap" align="center" style="padding:20px 12px 32px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;{{ m.ff }}">
+{%- if dry_run %}<tr><td class="warn" align="center" bgcolor="#fff2d6" style="background:#fff2d6;border-radius:12px;padding:12px 20px;color:#7a4b00;font-size:14px;font-weight:600;line-height:20px;{{ m.ff }}">A trial run: nothing will really be deleted.</td></tr>{% endif %}
+{{ m.brand(report_date) }}
+<tr><td class="card" bgcolor="#ffffff" style="background:#ffffff;border-radius:16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+{%- if scheduled_items %}
+{{ sec("Leaving soon","Press Keep on anything you want to stay.") }}
+{%- for i in scheduled_items %}
+{%- set lines %}<div class="bad" style="margin-top:3px;font-size:14px;font-weight:600;line-height:20px;color:#b3261e;">{{ left(i.days_left) }}</div><div class="t2" style="margin-top:2px;font-size:14px;line-height:20px;color:#5f5f66;">{{ i.type_label }} &middot; {{ by(i.file_size_bytes) }}<br>{% if i.last_watched_info %}{{ i.last_watched_info }}{% else %}<span style="white-space:nowrap;">Never&nbsp;watched</span>{% endif %}{% if i.added_days_ago is not none %} &middot; {{ added(i.added_days_ago) }}{% endif %}</div>{% if i.is_reentry %}<div class="t2" style="margin-top:4px;font-size:13px;line-height:18px;color:#5f5f66;">It was kept before, and that time is up.</div>{% endif %}{% endset %}
+{%- set act %}{% if i.keep_url %}{{ m.btn(i.keep_url,"Keep") }}{% endif %}{% endset %}
+{{ rowitem(i.poster_url,i.title,lines,act) }}
 {%- endfor %}
-</tr>
+{%- endif %}
+{%- set tr=this_week_items|selectattr("category","equalto","trending")|list %}{%- set pe=this_week_items|selectattr("category","equalto","personal")|list %}
+{%- if pe %}{{ picks("Picked for you","AI picks, from what you watched.",pe) }}{% endif %}
+{%- if tr %}{{ picks("Worth a look this week","AI picks, the same for everyone.",tr) }}{% endif %}
+{%- if deleted_items %}
+{{ sec("Gone since the last mail") }}
+{%- for i in deleted_items %}
+{%- set lines %}<div class="t2" style="margin-top:3px;font-size:14px;line-height:20px;color:#5f5f66;">{% if i.season_number is number %}{{ "Specials" if i.season_number==0 else "Season " ~ i.season_number }} &middot; {% endif %}{% if i.deleted_date %}deleted {{ i.deleted_date }} &middot; {% endif %}{{ by(i.file_size_bytes) }}</div>{% endset %}
+{%- set act %}{% if i.redownload_url %}{{ m.ghost(i.redownload_url,"Download again") }}{% endif %}{% endset %}
+{{ rowitem(i.poster_url,i.title,lines,act,48,72) }}
 {%- endfor %}
-</table>
-{%- endmacro -%}
-
-{%- macro added_text(n) -%}{% if n <= 0 %}Added today{% else %}Added {{ n }} day{{ 's' if n != 1 else '' }} ago{% endif %}{%- endmacro -%}
-
-{%- macro days_left_text(n) -%}{% if n < 0 %}Leaving any day{% elif n == 0 %}Due today{% else %}{{ n }} day{{ 's' if n != 1 else '' }} left{% endif %}{%- endmacro -%}
-
-{%- macro rec_section(label, items) -%}
-<tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
-  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">{{ label }} &middot; AI picks</div>
-  {% call(item) grid(items, 4, 'm50') %}
-    {{ poster(item, 130, 195, true) }}
-    <div class="clamp2" style="font-size:13px;font-weight:600;line-height:1.3;color:#ffffff;margin-top:7px;{{ wrap }}">{{ item.title }}</div>
-    <div style="font-size:11px;color:#8e8e8e;margin-top:2px;">{% if item.rating %}&#9733; {{ item.rating }} &middot; {% endif %}{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</div>
-    <div class="clamp2" style="font-size:11px;line-height:1.35;color:#8e8e8e;margin-top:3px;{{ wrap }}">{{ item.reason }}</div>
-    <div style="margin-top:7px;">
-    {%- if item.download_state == 'in_library' %}{{ pill('In Library', '#06190b', '#30d158') }}
-    {%- elif item.download_state == 'downloading' %}{{ pill('Downloading', '#05121f', '#2997ff') }}
-    {%- elif item.download_state == 'queued' %}{{ pill('Queued', '#1f1a01', '#ffd60a') }}
-    {%- elif item.download_url %}{{ btn(item.download_url, 'Download', block=true, small=true) }}
-    {%- endif %}</div>
-  {% endcall %}
+{%- endif %}
+{%- set t=storage.total_bytes or 1 %}{%- set pct=[(storage.used_bytes/t*100)|round|int,100]|min %}
+<tr><td class="pad hair" style="padding:24px 32px 28px;border-top:1px solid #e3e3e8;{{ m.ff }}">
+<div class="t1" style="font-size:15px;font-weight:600;line-height:20px;color:#1d1d1f;">{{ by(storage.free_bytes) }} free <span class="t2" style="font-weight:400;color:#5f5f66;">of {{ by(storage.total_bytes) }}</span></div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="track" bgcolor="#e3e3e8" style="margin:10px 0;background:#e3e3e8;border-radius:4px;"><tr><td width="{{ pct }}%" height="8" bgcolor="#0071e3" style="width:{{ pct }}%;height:8px;background:#0071e3;border-radius:4px;font-size:0;line-height:0;">&nbsp;</td><td height="8" style="height:8px;font-size:0;line-height:0;">&nbsp;</td></tr></table>
+<div class="t2" style="font-size:14px;line-height:20px;color:#5f5f66;">{% for size, what in [(storage.by_type.movie, "movies"), (storage.by_type.show, "TV"), (storage.by_type.anime, "anime")] if size %}{{ by(size) }} {{ what }}{% if not loop.last %} &middot; {% else %}<br>{% endif %}{% endfor %}Made free: {{ by(reclaimed_week) }} this week, {{ by(reclaimed_month) }} this month, {{ by(reclaimed_total) }} in all.</div>
 </td></tr>
-{%- endmacro -%}
-
-{#- Compute storage bar segment widths -#}
-{%- set total_b = storage.total_bytes or 1 -%}
-{%- set movies_b = storage.by_type.movie or 0 -%}
-{%- set tv_b = storage.by_type.show or 0 -%}
-{%- set anime_b = storage.by_type.anime or 0 -%}
-{%- set other_b = storage.used_bytes - movies_b - tv_b - anime_b -%}
-{%- if other_b < 0 -%}{%- set other_b = 0 -%}{%- endif -%}
-{%- set movies_pct = [(movies_b / total_b * 100), 100] | min | round(1) -%}
-{%- set tv_pct = [(tv_b / total_b * 100), 100] | min | round(1) -%}
-{%- set anime_pct = [(anime_b / total_b * 100), 100] | min | round(1) -%}
-{%- set other_pct = [(other_b / total_b * 100), 100] | min | round(1) -%}
-{%- set segments = [(movies_pct, '#ff9f0a'), (tv_pct, '#2997ff'), (anime_pct, '#bf5af2'), (other_pct, '#48484a')] -%}
-
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="background:#000000;">
-  <tr>
-    <td align="center" style="padding:24px 12px;">
-
-      <table role="presentation" class="mm-email" width="680" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="width:100%;max-width:680px;background:#000000;color:#ffffff;{{ ff }}">
-
-          {% if dry_run %}
-          <tr><td align="center" bgcolor="#2a1a00" style="background:#2a1a00;border:1px solid #4d3000;border-radius:8px 8px 0 0;padding:10px 20px;font-size:13px;color:#ff9f0a;font-weight:600;{{ ff }}">
-            &#9888; DRY RUN MODE — No items will actually be deleted
-          </td></tr>
-          {% endif %}
-
-          <tr><td class="eh" align="center" style="padding:22px 24px 18px;text-align:center;border-bottom:1px solid #0f0f0f;{{ ff }}">
-            <div style="font-size:24px;font-weight:600;letter-spacing:-0.28px;color:#ffffff;">media<span style="color:#2997ff;">man</span></div>
-            <div style="font-size:13px;color:#8e8e8e;margin-top:4px;">Weekly Report &middot; {{ report_date }}</div>
-          </td></tr>
-
-          <tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">Storage &amp; Reclaimed</div>
-            <div style="font-size:26px;font-weight:600;line-height:1.1;color:#ffffff;">{{ fmt_bytes(storage.used_bytes) }} <span style="font-size:13px;font-weight:400;color:#8e8e8e;">of {{ fmt_bytes(storage.total_bytes) }} &middot; {{ fmt_bytes(storage.free_bytes) }} free</span></div>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#2a2a2d" style="background:#2a2a2d;border-radius:4px;margin:12px 0;"><tr>
-              {%- for pct, colour in segments if pct > 0 %}
-              <td width="{{ pct }}%" height="16" bgcolor="{{ colour }}" style="width:{{ pct }}%;height:16px;background:{{ colour }};font-size:0;line-height:0;">&nbsp;</td>
-              {%- endfor %}
-              <td height="16" style="height:16px;font-size:0;line-height:0;">&nbsp;</td>
-            </tr></table>
-            <div style="font-size:12px;line-height:1.8;color:#8e8e8e;" class="chips">
-              {% if movies_b > 0 %}<span style="white-space:nowrap;margin-right:14px;"><span style="color:#ff9f0a;">&#9679;</span> Movies {{ fmt_bytes(movies_b) }}</span> {% endif %}
-              {% if tv_b > 0 %}<span style="white-space:nowrap;margin-right:14px;"><span style="color:#2997ff;">&#9679;</span> TV {{ fmt_bytes(tv_b) }}</span> {% endif %}
-              {% if anime_b > 0 %}<span style="white-space:nowrap;margin-right:14px;"><span style="color:#bf5af2;">&#9679;</span> Anime {{ fmt_bytes(anime_b) }}</span> {% endif %}
-              {% if other_pct > 0 %}<span style="white-space:nowrap;margin-right:14px;"><span style="color:#48484a;">&#9679;</span> Other {{ fmt_bytes(other_b) }}</span>{% endif %}
-            </div>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;"><tr>
-              {%- for value, caption in [(reclaimed_week, 'This week'), (reclaimed_month, 'This month'), (reclaimed_total, 'All time')] %}
-              <td width="33%" valign="top" style="text-align:left;{{ ff }}"><div style="font-size:20px;font-weight:600;line-height:1.15;color:#30d158;">{{ fmt_bytes(value) }}</div><div style="font-size:11px;color:#8e8e8e;letter-spacing:0.3px;margin-top:2px;">{{ caption }}</div></td>
-              {%- endfor %}
-            </tr></table>
-          </td></tr>
-
-          {% if scheduled_items %}
-          <tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#120707" style="background:#120707;border:1px solid #2e0f0d;border-radius:12px;"><tr><td style="padding:16px 16px 4px;{{ ff }}">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:14px;"><tr>
-                <td valign="top" style="{{ ff }}">
-                  <div style="font-size:22px;font-weight:600;line-height:1.15;letter-spacing:-0.3px;color:#ff453a;">{{ scheduled_items|length }} scheduled for deletion</div>
-                  <div style="font-size:12px;color:#8e8e8e;margin-top:3px;">{{ fmt_bytes(scheduled_items | sum(attribute='file_size_bytes')) }} &middot; click Keep on anything you want to hang onto</div>
-                </td>
-                <td valign="top" align="right" style="padding-left:14px;">
-                  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td class="hero-countdown" bgcolor="#2a0f0e" style="background:#2a0f0e;border:1px solid #5a1f1b;border-radius:980px;padding:6px 12px;font-size:11px;font-weight:700;letter-spacing:0.2px;color:#ff453a;white-space:nowrap;{{ ff }}">&#9679; {{ days_left_text(scheduled_items | map(attribute='days_left') | min) }}</td></tr></table>
-                </td>
-              </tr></table>
-              {% call(item) grid(scheduled_items, 2, 'm100') %}
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0505" style="background:#0a0505;border:1px solid #1e1414;border-radius:8px;table-layout:fixed;" class="sched-card"><tr>
-                <td valign="top" width="46" style="padding:10px 0 10px 10px;">{{ poster(item, 46, 69) }}</td>
-                <td valign="top" style="padding:10px;font-size:12px;line-height:1.4;color:#ffffff;{{ ff }}{{ wrap }}">
-                  <div style="font-size:13px;font-weight:600;color:#ffffff;margin-bottom:2px;{{ wrap }}" class="item-title">{{ item.title }}</div>
-                  <div style="font-size:11px;color:#8e8e8e;">
-                    {{ item.type_label }}
-                    {% if item.added_days_ago is not none %} &middot; {{ added_text(item.added_days_ago) }}{% endif %}
-                    &middot; {{ days_left_text(item.days_left) }}
-                    &middot;
-                    {% if item.last_watched_info %}{{ item.last_watched_info }}{% else %}<span style="color:#ff453a;white-space:nowrap;">Never&nbsp;watched</span>{% endif %}
-                  </div>
-                  <div style="font-size:12px;font-weight:600;color:#8e8e8e;margin-top:3px;">{{ fmt_bytes(item.file_size_bytes) }}</div>
-                  {% if item.is_reentry %}
-                  <div style="margin-top:6px;background:#0f0d00;border:1px solid #1f1b02;border-radius:6px;padding:6px 8px;font-size:11px;color:#ffd60a;">&#9888; Previously kept — grace period expired. Scheduled again.</div>
-                  {% endif %}
-                  {% if item.keep_url %}
-                  <div style="margin-top:6px;">{{ btn(item.keep_url, 'Keep', small=true) }}</div>
-                  {% endif %}
-                </td>
-              </tr></table>
-              {% endcall %}
-            </td></tr></table>
-          </td></tr>
-          {% endif %}
-
-          {% if deleted_items %}
-          <tr><td class="sect" style="padding:22px 28px;border-bottom:1px solid #0f0f0f;text-align:left;{{ ff }}">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:#8e8e8e;margin-bottom:14px;">Deleted Since Last Report</div>
-            {% call(item) grid(deleted_items, 4, 'm50') %}
-              {{ poster(item, 100, 150, true) }}
-              <div class="clamp2" style="font-size:12px;font-weight:600;line-height:1.3;color:#ffffff;margin-top:6px;{{ wrap }}">{{ item.title }}</div>
-              {% if item.season_number is number %}
-              <div style="font-size:11px;color:#8e8e8e;margin-top:2px;">{{ "Specials" if item.season_number == 0 else "Season %d" % item.season_number }}</div>
-              {% endif %}
-              <div style="font-size:11px;color:#8e8e8e;margin-top:2px;">Deleted {{ item.deleted_date }} &middot; {{ fmt_bytes(item.file_size_bytes) }}</div>
-              {% if item.redownload_url %}
-              <div style="margin-top:6px;">{{ ghost(item.redownload_url, 'Re-Download', block=true, pad='14px 8px', size='12px') }}</div>
-              {% endif %}
-            {% endcall %}
-          </td></tr>
-          {% endif %}
-
-          {% set trending_items = this_week_items | selectattr('category', 'equalto', 'trending') | list %}
-          {% if trending_items %}{{ rec_section('Trending This Week', trending_items) }}{% endif %}
-
-          {% set personal_items = this_week_items | selectattr('category', 'equalto', 'personal') | list %}
-          {% if personal_items %}{{ rec_section('Based on Your Watch History', personal_items) }}{% endif %}
-
-          <tr><td align="center" style="padding:24px 24px 28px;text-align:center;{{ ff }}">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td>{{ ghost(dashboard_url, 'Open mediaman →', pad='14px 26px', size='14px') }}</td></tr></table>
-            <div style="font-size:12px;color:#a1a1a6;margin-top:16px;line-height:1.6;">
-              You&#39;re receiving this because you&#39;re subscribed to mediaman notifications.
-              {% if unsubscribe_url %}<br><a href="{{ unsubscribe_url }}" style="display:inline-block;padding:12px 16px;line-height:20px;color:#d1d1d6;text-decoration:underline;">Unsubscribe</a>{% endif %}
-            </div>
-          </td></tr>
-
-      </table>
-
-    </td>
-  </tr>
-</table>
-
-</body>
-</html>
+</table></td></tr>
+<tr><td align="center" style="padding:26px 24px 8px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td>{{ m.ghost(dashboard_url,"Open mediaman") }}</td></tr></table></td></tr>
+<tr><td class="pad t2" align="center" style="padding:10px 32px 8px;font-size:13px;line-height:20px;color:#5f5f66;{{ m.ff }}">You get this because you are subscribed to mediaman.{% if unsubscribe_url %}<br><a class="link" href="{{ unsubscribe_url }}" style="display:inline-block;padding:12px 16px;line-height:20px;color:#0060c7;text-decoration:underline;">Unsubscribe</a>{% endif %}</td></tr>
+</table></td></tr></table>
+</body></html>

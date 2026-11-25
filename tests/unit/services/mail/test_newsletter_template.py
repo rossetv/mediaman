@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
+from mediaman.services.mail.plaintext import html_to_text
+
 
 @pytest.fixture
 def env() -> Environment:
@@ -129,21 +131,24 @@ def test_full_render(env: Environment) -> None:
     assert "{{" not in html
     assert "{%" not in html
 
-    assert "scheduled for deletion" in html
-    assert "14 days left" in html  # the first card's own deadline
-    assert "9 days left" in html  # the second card, and the header (the soonest)
+    assert "Leaving soon" in html
+    assert "Leaving in 14 days" in html
+    assert "Leaving in 9 days" in html
     assert "Ad Astra" in html
     assert "Westworld S4" in html
     assert 'href="https://example/keep/tok1"' in html
     assert 'href="https://example/keep/tok2"' in html
-    assert "Previously kept" in html  # re-entry warning
+    assert html.count("It was kept before, and that time is up.") == 1  # the re-entry
     assert "Dune: Part Two" in html
     assert "Severance S2" in html
-    assert "In Library" in html
+    assert "In the library" in html
     assert "Downloading" in html
-    assert "Trending This Week" in html
-    assert "Based on Your Watch History" in html
-    assert "Deleted Since Last Report" in html
+    assert "Worth a look this week" in html
+    assert "Picked for you" in html
+    assert "Gone since the last mail" in html
+    assert 'href="https://example/download/d1"' in html
+    assert 'href="https://example/download/rd1"' in html
+    assert 'href="https://example/unsubscribe?token=xyz"' in html
 
     # Removed section should not appear
     assert "Last Week" not in html
@@ -168,8 +173,22 @@ def test_a_deleted_season_zero_is_called_specials(env: Environment) -> None:
 
     html = env.get_template("newsletter.html").render(**ctx)
 
-    assert ">Specials</div>" in html
+    assert ">Specials &middot; deleted 3 days ago" in html
     assert "Season 0" not in html
+
+
+@pytest.mark.parametrize("poster", ["", "https://example/p.jpg"], ids=["no_poster", "poster"])
+def test_what_a_title_or_a_reason_holds_is_escaped(env: Environment, poster: str) -> None:
+    ctx = _full_context()
+    for key in ("scheduled_items", "deleted_items", "this_week_items"):
+        for item in ctx[key]:
+            item.update(title='"><b>x', reason="<b>y", type_label="<b>z", poster_url=poster)
+
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    assert "<b>" not in html
+    assert "&lt;b&gt;y" in html and "&lt;b&gt;z" in html
+    assert html.count("&#34;&gt;&lt;b&gt;x") == 12  # each title, and its picture's name or place
 
 
 def test_empty_scheduled_and_deleted(env: Environment) -> None:
@@ -179,43 +198,79 @@ def test_empty_scheduled_and_deleted(env: Environment) -> None:
 
     html = env.get_template("newsletter.html").render(**ctx)
 
-    assert "scheduled for deletion" not in html
-    assert "Deleted Since Last Report" not in html
-    assert "Trending This Week" in html
+    assert "Leaving soon" not in html
+    assert "Gone since the last mail" not in html
+    assert "Worth a look this week" in html
     assert "Open mediaman" in html
 
 
 def test_dry_run_banner_renders(env: Environment) -> None:
     html = env.get_template("newsletter.html").render(**_full_context(dry_run=True))
 
-    assert "DRY RUN MODE" in html
+    assert "A trial run: nothing will really be deleted." in html
+    assert "trial run" not in env.get_template("newsletter.html").render(**_full_context())
 
 
-def test_singular_day_left(env: Environment) -> None:
+def test_a_title_with_one_day_left_is_leaving_tomorrow(env: Environment) -> None:
     ctx = _full_context()
     for item in ctx["scheduled_items"]:
         item["days_left"] = 1
 
     html = env.get_template("newsletter.html").render(**ctx)
 
-    assert "1 day left" in html
-    assert "1 days left" not in html
+    assert html.count("Leaving tomorrow") == 2
+    assert "1 day" not in html.replace("14 days", "")
 
 
-def test_header_counts_down_to_the_soonest_deadline(env: Environment) -> None:
+@pytest.mark.parametrize(
+    ("leaving", "line"),
+    [
+        (2, "2 titles are leaving. Keep what you want to stay."),
+        (1, "1 title is leaving. Keep what you want to stay."),
+        (0, "New picks for the week."),
+    ],
+)
+def test_the_inbox_line_says_what_the_mail_is_for(
+    env: Environment, leaving: int, line: str
+) -> None:
+    ctx = _full_context()
+    ctx["scheduled_items"] = ctx["scheduled_items"][:leaving]
+
+    text = html_to_text(env.get_template("newsletter.html").render(**ctx))
+
+    assert text.startswith(line)
+
+
+def test_what_can_be_done_comes_first_and_disk_space_last(env: Environment) -> None:
+    text = html_to_text(env.get_template("newsletter.html").render(**_full_context()))
+
+    order = [
+        "Leaving soon",
+        "Picked for you",
+        "Worth a look this week",
+        "Gone since the last mail",
+        "4.0 TB free of 22.0 TB",
+        "Open mediaman (https://example)",
+        "Unsubscribe (https://example/unsubscribe?token=xyz)",
+    ]
+    assert sorted(order, key=text.index) == order
+
+
+def test_the_plain_text_part_has_every_link_of_the_mail(env: Environment) -> None:
     html = env.get_template("newsletter.html").render(**_full_context())
 
-    countdown = re.search(r'class="hero-countdown"[^>]*>(.*?)</td>', html, re.S).group(1)
-    assert "9 days left" in countdown
+    links = re.findall(r'href="([^"]+)"', html)
+    assert len(links) == 6
+    text = html_to_text(html)
+    assert [link for link in links if f"({link})" not in text] == []
 
 
 def test_every_poster_image_declares_its_size(env: Environment) -> None:
     """Mail clients that drop the stylesheet still need a width and height."""
     html = env.get_template("newsletter.html").render(**_full_context())
     imgs = re.findall(r"<img\b[^>]*>", html)
-    posters = [tag for tag in imgs if 'class="poster"' in tag]
-    assert posters
-    for tag in posters:
+    assert len(imgs) == 6
+    for tag in imgs:
         assert re.search(r'\swidth="\d+"', tag), tag
         assert re.search(r'\sheight="\d+"', tag), tag
 
@@ -223,28 +278,42 @@ def test_every_poster_image_declares_its_size(env: Environment) -> None:
 def test_fluid_posters_scale_with_their_cell_without_distortion(env: Environment) -> None:
     """The height attribute would otherwise beat the width and crop posters wide."""
     html = env.get_template("newsletter.html").render(**_full_context())
-    fluid = [tag for tag in re.findall(r"<img\b[^>]*>", html) if 'width="100"' in tag]
-    assert fluid
-    for tag in fluid:
-        assert "width:100%;height:auto" in tag, tag
+    imgs = re.findall(r"<img\b[^>]*>", html)
+    assert imgs
+    for tag in imgs:
+        assert re.search(r"width:100%;max-width:\d+px;height:auto", tag), tag
 
 
-def test_legend_lists_other_when_the_grey_segment_is_drawn(env: Environment) -> None:
+def test_a_title_without_a_poster_shows_its_name_in_the_posters_place(env: Environment) -> None:
     ctx = _full_context()
-    ctx["storage"]["used_bytes"] = 20 * 1024**4  # 2 TB beyond the library types
+    ctx["scheduled_items"][0]["poster_url"] = ""
 
     html = env.get_template("newsletter.html").render(**ctx)
 
-    chips = re.search(r'<div [^>]*class="chips">(.*?)</div>', html, re.S).group(1)
-    assert "Other 2.0 TB" in chips
-    assert "#48484a" in chips
+    place = re.search(r'<td class="pic" aria-hidden="true"[^>]*>([^<]*)</td>', html)
+    assert place and place.group(1) == "Ad Astra"
 
 
-def test_legend_omits_other_when_nothing_is_left_over(env: Environment) -> None:
-    html = env.get_template("newsletter.html").render(**_full_context())
+@pytest.mark.parametrize(("used_tb", "share"), [(11, 50), (20, 91), (30, 100), (0, 0)])
+def test_the_bar_is_filled_to_the_share_of_the_disk_in_use(
+    env: Environment, used_tb: int, share: int
+) -> None:
+    ctx = _full_context()
+    ctx["storage"]["used_bytes"] = used_tb * 1024**4
 
-    chips = re.search(r'<div [^>]*class="chips">(.*?)</div>', html, re.S).group(1)
-    assert "Other" not in chips
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    track = re.search(r'class="track".*?</table>', html, re.S).group(0)
+    assert re.findall(r'<td width="(\d+)%"[^>]*width:(\d+)%', track) == [(str(share),) * 2]
+
+
+def test_only_the_types_that_take_space_are_named(env: Environment) -> None:
+    ctx = _full_context()
+    template = env.get_template("newsletter.html")
+    assert "8.0 TB movies · 7.0 TB TV · 3.0 TB anime\n" in html_to_text(template.render(**ctx))
+
+    ctx["storage"]["by_type"] = {"movie": 8 * 1024**4, "show": 0, "anime": 0}
+    assert "8.0 TB movies\n" in html_to_text(template.render(**ctx))
 
 
 def test_never_watched_cannot_wrap(env: Environment) -> None:
@@ -261,16 +330,17 @@ def _tags(html: str, name: str) -> list[str]:
 def test_text_and_background_colours_are_inline_not_only_in_the_stylesheet(
     env: Environment,
 ) -> None:
-    """Clients that drop <style> must still get light text on the dark background."""
+    """Clients that drop <style> must still get dark text on the light background."""
     html = env.get_template("newsletter.html").render(**_full_context())
+    html = re.sub(r"<style>.*?</style>", "", html, flags=re.S)
 
-    assert re.search(r"<body[^>]*background:#000000[^>]*color:#ffffff", html)
-    frame = re.search(r'<table[^>]*class="mm-email"[^>]*>', html).group(0)
-    assert "background:#000000" in frame
-    assert "color:#ffffff" in frame
-    assert "font-family:" in frame
+    assert re.search(r"<body[^>]*background:#f2f2f4", html)
+    card = re.search(r'<td class="card"[^>]*>', html).group(0)
+    assert 'bgcolor="#ffffff"' in card and "background:#ffffff" in card
     title = re.search(r"<div[^>]*>Ad Astra</div>", html).group(0)
-    assert "color:#ffffff" in title
+    assert "color:#1d1d1f" in title
+    assert "font-family:" in html[: html.index(title)].rsplit("<td", 1)[1]
+    assert "rgba(" not in html
 
 
 def test_buttons_carry_their_own_background_and_padding(env: Environment) -> None:
@@ -279,7 +349,7 @@ def test_buttons_carry_their_own_background_and_padding(env: Environment) -> Non
     for href in ("https://example/keep/tok1", "https://example/download/d1"):
         cell = re.search(r'<td[^>]*>(?=<a href="' + re.escape(href) + '")', html).group(0)
         assert "background:#0071e3" in cell
-        assert "border-radius:6px" in cell
+        assert "border-radius:23px" in cell
         link = re.search(r'<a href="' + re.escape(href) + r'"[^>]*>', html).group(0)
         assert "padding:" in link
         assert "color:#ffffff" in link
@@ -290,7 +360,9 @@ def test_poster_grids_are_tables_not_css_grids(env: Environment) -> None:
 
     assert "display:grid" not in html
     assert "display:flex" not in html
-    assert html.count('class="grid"') >= 3  # scheduled, deleted, recommended
+    assert html.count('<table role="presentation" class="item"') == 3  # scheduled, deleted
+    assert html.count('<table role="presentation" class="picks"') == 2
+    assert "<table" not in re.sub(r'<table role="presentation"', "", html)
 
 
 def test_every_poster_has_the_title_as_alt_text(env: Environment) -> None:
@@ -307,21 +379,23 @@ def test_every_poster_has_the_title_as_alt_text(env: Environment) -> None:
     }
 
 
-def test_declares_a_dark_colour_scheme(env: Environment) -> None:
+def test_declares_both_colour_schemes(env: Environment) -> None:
     html = env.get_template("newsletter.html").render(**_full_context())
 
-    assert '<meta name="color-scheme" content="dark">' in html
-    assert '<meta name="supported-color-schemes" content="dark">' in html
+    assert '<meta name="color-scheme" content="light dark">' in html
+    assert '<meta name="supported-color-schemes" content="light dark">' in html
 
 
 def test_footer_text_and_unsubscribe_link_are_readable(env: Environment) -> None:
     html = env.get_template("newsletter.html").render(**_full_context())
 
-    footer = html[html.index("You&#39;re receiving this") - 200 :]
+    footer = html[html.index("You get this because") - 200 :]
     assert "rgba(" not in footer
-    assert "color:#a1a1a6" in footer
-    link = re.search(r'<a href="https://example/unsubscribe\?token=xyz"[^>]*>', footer).group(0)
-    assert "color:#d1d1d6" in link
+    assert "color:#5f5f66" in footer
+    link = re.search(
+        r'<a class="link" href="https://example/unsubscribe\?token=xyz"[^>]*>', footer
+    ).group(0)
+    assert "color:#0060c7" in link
     assert "underline" in link
 
 
@@ -333,6 +407,11 @@ def _luminance(hex_colour: str) -> float:
     return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
 
 
+def _contrast(one: str, other: str) -> float:
+    light, dark = sorted([_luminance(one), _luminance(other)], reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
 def test_button_text_reads_at_the_aa_contrast(env: Environment) -> None:
     html = env.get_template("newsletter.html").render(**_full_context())
 
@@ -341,8 +420,45 @@ def test_button_text_reads_at_the_aa_contrast(env: Environment) -> None:
         r'<td[^>]*background:(#[0-9a-f]{6})[^>]*>(?=<a href="https://example/keep)', html
     )
     text = re.search(r"color:(#[0-9a-f]{6})", link).group(1)
-    light, dark = sorted([_luminance(text), _luminance(cell.group(1))], reverse=True)
-    assert (light + 0.05) / (dark + 0.05) >= 4.5
+    assert _contrast(text, cell.group(1)) >= 4.5
+
+
+_ON_A_PLATE = ("okb", "warn", "chip", "pic", "b-wait", "b-dl")
+
+
+def test_all_text_reads_at_the_aa_contrast_in_the_reader_s_dark_mail(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+    dark = re.search(r"@media \(prefers-color-scheme:dark\)\{(.*?)\n\}", html, re.S).group(1)
+    rules = dict(re.findall(r"\.([\w-]+)\{([^}]*)\}", dark))
+
+    def colour(name: str, prop: str) -> str | None:
+        found = re.search(rf"(?<![\w-]){prop}:(#[0-9a-f]{{6}}) !important", rules[name])
+        return found.group(1) if found else None
+
+    for name in rules:
+        text = colour(name, "color")
+        plates = ["card", "bg"] if name not in _ON_A_PLATE else [name]
+        for plate in plates if text else []:
+            assert _contrast(text, colour(plate, "background")) >= 4.5, (name, plate)
+    assert all(colour(name, "color") for name in (*_ON_A_PLATE, "t1", "t2", "link", "bad"))
+
+
+def test_all_text_reads_at_the_aa_contrast_without_the_styles(env: Environment) -> None:
+    ctx = _full_context(dry_run=True)
+    ctx["this_week_items"][0]["download_state"] = "queued"
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    texts = set(re.findall(r"(?<![\w-])color:(#[0-9a-f]{6})", html.split("<body")[1]))
+    plates = re.findall(
+        r'class="([\w-]+)" align="center" bgcolor="(#[0-9a-f]{6})"[^>]*?[; ]color:(#[0-9a-f]{6})',
+        html,
+    )
+    assert {name for name, _, _ in plates} >= {"warn", "okb", "b-dl", "b-wait"}
+    for name, plate, text in plates:
+        assert _contrast(text, plate) >= 4.5, name
+    for text in texts - {text for _, _, text in plates} - {"#ffffff", "#f2f2f4"}:
+        least = 3 if text == "#0071e3" else 4.5  # the name at the top, which is large
+        assert min(_contrast(text, "#ffffff"), _contrast(text, "#f2f2f4")) >= least, text
 
 
 def test_every_button_is_a_thumb_tall(env: Environment) -> None:
@@ -350,8 +466,8 @@ def test_every_button_is_a_thumb_tall(env: Environment) -> None:
     ctx["unsubscribe_url"] = ""
     html = env.get_template("newsletter.html").render(**ctx)
 
-    links = re.findall(r'<a href="[^"]*" class="btn[^"]*" style="([^"]*)"', html)
-    assert len(links) >= 4  # keep, download, re-download, open
+    links = re.findall(r'<a[^>]* style="(display:block[^"]*)"', html)
+    assert len(links) == 5  # two of keep, download, download again, open
     for style in links:
         pad = int(re.search(r"padding:(\d+)px", style).group(1))
         line = int(re.search(r"line-height:(\d+)px", style).group(1))
@@ -363,7 +479,7 @@ def test_the_unsubscribe_link_is_a_thumb_tall(env: Environment) -> None:
     ctx["unsubscribe_url"] = "https://mm.example/unsubscribe/abc"
     html = env.get_template("newsletter.html").render(**ctx)
 
-    style = re.search(r'<a href="https://mm.example/unsubscribe/abc" style="([^"]*)"', html)[1]
+    style = re.search(r'href="https://mm.example/unsubscribe/abc" style="([^"]*)"', html)[1]
     pad = int(re.search(r"padding:(\d+)px", style).group(1))
     line = int(re.search(r"line-height:(\d+)px", style).group(1))
     assert 2 * pad + line >= 44, style
@@ -400,13 +516,13 @@ def test_sizes_hand_over_to_the_next_unit_before_they_read_1024(
 
     html = env.get_template("newsletter.html").render(**ctx)
 
-    card = html[html.index('class="item-title">Ad Astra') : html.index("keep/tok1")]
-    assert f">{shown}</div>" in card
+    card = html[html.index(">Ad Astra</div>") : html.index("keep/tok1")]
+    assert f"Movie &middot; {shown}<br>" in card
 
 
 @pytest.mark.parametrize(
     ("days", "shown"),
-    [(335, "Added 335 days ago"), (1, "Added 1 day ago"), (0, "Added today")],
+    [(335, "added 335 days ago"), (1, "added 1 day ago"), (0, "added today")],
 )
 def test_a_scheduled_card_says_how_long_ago_it_was_added(
     env: Environment, days: int, shown: str
@@ -416,5 +532,5 @@ def test_a_scheduled_card_says_how_long_ago_it_was_added(
 
     html = env.get_template("newsletter.html").render(**ctx)
 
-    assert shown in html
-    assert f"Added {days}d" not in html
+    card = html[html.index(">Ad Astra</div>") : html.index("keep/tok1")]
+    assert shown in card
