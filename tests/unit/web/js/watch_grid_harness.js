@@ -773,22 +773,29 @@ const scenarios = {
     return out;
   },
 
-  // A pick back in its row, whose grid of dates was filled without it: beside a pick of its date there, or with the line of
-  // its date, and the pages loaded since stay.
+  // A pick that had left its row as See all opened: back, it stands at its place under its date, whatever has been taken out of
+  // the grid, and so of the row, since; then that comes back too, each with one line of its date. *more*: a page to come.
   async bringsDated() {
-    const go = (rowOf, gridOf, n, takes = []) => {
-      const p = load({ cards: rowOf.map((r) => r[0]) });
-      const inRow = p.rows[0].querySelectorAll('.watch-card');
-      inRow.forEach((c, i) => c.setAttribute('data-batch', rowOf[i][1]));
-      const cardOf = ([id, batch]) => { const c = p.card(id); c.setAttribute('data-batch', batch); return c; };
+    const go = (row, gridOf, n, takes = [], more = {}) => {
+      const p = load({ cards: row.map((r) => r[0]) });
+      const scroller = p.rows[0].querySelector('.watch-row__scroll');
+      const order = scroller.children;
+      const cardIn = (nodes, id) => nodes.find((c) => c.querySelector('[data-title-ref="movie-' + id + '"]'));
+      const places = {};
+      const tag = (c, id, batch, at) => { c.setAttribute('data-batch', batch); c.setAttribute('data-place', at); };
+      row.forEach(([id, batch], i) => { places[id] = row.slice(0, i).filter((r) => r[1] === batch).length; tag(order[i], id, batch, places[id]); });
       const line = (c) => p.grid.group(c.getAttribute('data-batch'), c.getAttribute('data-batch'));
-      const all = (nodes) => nodes.map((g) => (typeof g === 'string' ? p.grid.group(g, g) : cardOf(g)));
-      p.grid.open(p.opts({ total: null, cards: all(gridOf), line }));
+      const make = (g) => { if (typeof g === 'string') return p.grid.group(g, g); const c = p.card(g[0]); tag(c, g[0], g[1], places[g[0]] || 0); return c; };
+      const rowBack = (id) => { const c = cardIn(order, id); scroller.insertBefore(c, order.slice(order.indexOf(c)).find((o) => o !== c && o.parentNode === scroller) || null); return c; };
+      cardIn(order, n).remove();
+      p.grid.open(p.opts({ total: null, cards: gridOf.map(make), line, dates: () => ['a', 'b', 'c', 'd'], fetchPage: () => new Promise(() => {}), ...more }));
       const grid = p.doc.querySelector('.watch-all .watch-grid');
-      const at = (id) => grid.querySelectorAll('.watch-card').find((c) => c.querySelector('[data-title-ref="movie-' + id + '"]'));
-      takes.forEach((id) => p.grid.take(at(id), '.watch-card__link'));
-      const twin = p.grid.bring(inRow.find((c) => c.querySelector('[data-title-ref="movie-' + n + '"]')));
-      return [twin === at(n), grid.children.map((c) => c.getAttribute('data-group') || Number(c.querySelector('[data-title-ref]').getAttribute('data-title-ref').slice(6)))];
+      const seq = () => grid.children.filter((c) => !c.classList.contains('watch-card--skel')).map((c) => c.getAttribute('data-group') || Number(c.querySelector('[data-title-ref]').getAttribute('data-title-ref').slice(6)));
+      const taken = takes.map((id) => { const t = p.grid.take(cardIn(grid.children, id), '.watch-card__link'); cardIn(order, id).remove(); return () => { t.undo(); p.grid.bring(rowBack(id)); }; });
+      const twin = p.grid.bring(rowBack(n));
+      const out = [!!twin && twin === cardIn(grid.children, n), seq()];
+      taken.forEach((undo) => undo());
+      return out.concat([seq()]);
     };
     const row = [[1, 'a'], [2, 'a'], [3, 'a'], [4, 'b'], [5, 'c']];
     return {
@@ -796,8 +803,14 @@ const scenarios = {
       firstOfDate: go(row, ['a', [2, 'a'], [3, 'a'], 'b', [4, 'b']], 1),
       aloneFirst: go([[1, 'a'], [4, 'b']], ['b', [4, 'b']], 1),
       aloneBetween: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a'], 'c', [5, 'c']], 4),
+      aloneLast: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a'], 'b', [4, 'b']], 5, [4], { next: 'd' }),
       aloneAfterTaken: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a'], 'c', [5, 'c']], 4, [3, 5]),
       dateTaken: go(row, ['a', [1, 'a'], [3, 'a'], 'b', [4, 'b']], 2, [1, 3]),
+      dateTakenBack: go(row, ['a', [1, 'a'], [3, 'a'], 'b', [4, 'b']], 2, [3, 1]),
+      onlyMarkOfDate: go([[9, 'a'], [1, 'b'], [2, 'b'], [5, 'c']], ['a', [9, 'a'], 'b', [2, 'b'], 'c', [5, 'c']], 1, [2]),
+      afterAMark: go([[1, 'a'], [3, 'a'], [4, 'b'], [5, 'c']], ['a', [1, 'a'], [3, 'a'], 'c', [5, 'c']], 4, [3]),
+      allOut: go([[1, 'a'], [2, 'b']], ['b', [2, 'b']], 1, [2]),
+      toCome: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a']], 4, [], { next: 'b' }),
     };
   },
 

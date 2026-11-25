@@ -103,7 +103,6 @@
     var loader = null;
     var status = null;
     var marks = new Map(); // where each card and dated line taken out stood: a mark in its place, by it
-    var spots = new Map(); // the same marks of the cards, by what a card is known by
 
     host.classList.add('watch-grid-host');
     var grid = host.querySelector('.watch-grid') || host.appendChild(el('div', 'watch-grid'));
@@ -261,7 +260,6 @@
       tail.replaceChildren();
       grid.replaceChildren();
       marks.clear();
-      spots.clear();
       content.cards.forEach(function (node) {
         var kept = isCard(node) && old.get(keyOf(node));
         if (kept) {
@@ -370,12 +368,10 @@
     /* Take *card* out, the others closing up, and the dated line it leaves with none under it.
        Returns what puts them back. */
     function take(card) {
-      var key = keyOf(card);
       var mark;
       closeUp(function () {
         var line = lineOver(card);
         mark = markOut(card);
-        spots.set(key, mark);
         if (!line || !isLine(line) || !bare(line)) return [];
         // Off the grid it would have the space over it that it does without when first.
         line.style.paddingTop = getComputedStyle(line).paddingTop;
@@ -385,7 +381,6 @@
       if (loader.next() === null) ending();
       return function () {
         closeUp(function () {
-          spots.delete(key);
           wake(card);
           putIn(mark);
           lineBack(card);
@@ -399,19 +394,38 @@
       if (line && marks.has(line)) putIn(line);
     }
 
-    /* Where the card known by *key* stands, or stood before it was taken out. */
-    function spot(key) {
-      return spots.get(key) || cards().filter(function (card) { return keyOf(card) === key; })[0] || null;
+    /* The dated lines, each with the cards under it, those taken out by their marks. */
+    function dated() {
+      var out = [];
+      toArray(grid.childNodes).forEach(function (spot) {
+        var node = marks.get(spot) || spot;
+        if (node.nodeType !== 1) return;
+        if (isLine(node)) out.push({ id: idOf(node), spot: spot, cards: [] });
+        else if (out.length && isCard(node)) out[out.length - 1].cards.push({ spot: spot, place: placeOf(node) });
+      });
+      return out;
     }
 
-    /* Put *card* after the spot *after*, else before the spot *before*, else first; under
-       *line*, a dated line of its own, when it has one. */
-    function put(card, after, before, line) {
+    function placeOf(card) { return Number(card.getAttribute('data-place')); }
+
+    /* Put *card* at its place under the line of its date, made by *newLine()* where there is none.
+       *dates*: the dates in their order. */
+    function put(card, dates, newLine) {
+      var date = card.getAttribute('data-batch');
+      var all = dated();
+      var own = all.filter(function (g) { return g.id === date; })[0];
+      function endOf(g) { return (g.cards[g.cards.length - 1] || g).spot.nextSibling; }
       closeUp(function () {
-        if (line && before) before = lineOver(before) || before;
-        grid.insertBefore(wake(card), after ? after.nextSibling : before || grid.firstChild);
-        if (line) card.before(line);
-        else lineBack(card);
+        wake(card);
+        if (own) {
+          var next = own.cards.filter(function (c) { return c.place > placeOf(card); })[0];
+          grid.insertBefore(card, next ? next.spot : endOf(own));
+          if (marks.has(own.spot)) putIn(own.spot);
+          return;
+        }
+        var later = all.filter(function (g) { return dates.indexOf(g.id) > dates.indexOf(date); })[0];
+        grid.insertBefore(card, later ? later.spot : all.length ? endOf(all[all.length - 1]) : grid.firstChild);
+        card.before(newLine());
       }, null);
       if (loader.next() === null) ending();
     }
@@ -568,12 +582,12 @@
       onScreen: onScreen,
       set: set,
       take: take,
-      spot: spot,
       put: put,
       busy: busy,
       jump: function (id) { jump(id, false); },
       groupNow: groupNow,
       toCome: toCome,
+      next: function () { return loader.next(); },
       enter: enter,
       hold: function (on) {
         held = on;
@@ -841,7 +855,7 @@
     settle();
     if (!now) return null; // it was closing
     if (now.opts.line) {
-      putIn(card, row);
+      putIn(card);
       return twin();
     }
     var content = now.opts.contents(now.value);
@@ -853,23 +867,12 @@
     return twin();
   }
 
-  /* Put a copy of *card* in the open grid of dated cards, where *row* has it, beside a card of its
-     date; the first of its date comes with its line. */
-  function putIn(card, row) {
-    var all = toArray(row.querySelectorAll('.watch-row__scroll .watch-card'));
-    var i = all.indexOf(card);
-    var date = card.getAttribute('data-batch');
-    function near(list, any) {
-      for (var n = 0; n < list.length; n++) {
-        var spot = (any || list[n].getAttribute('data-batch') === date) && now.list.spot(keyOf(list[n]));
-        if (spot) return spot;
-      }
-      return null;
-    }
-    var before = all.slice(0, i).reverse();
-    var after = all.slice(i + 1);
-    var own = near(before) || near(after);
-    now.list.put(copy(card), near(before, !own), own ? near(after) : near(after, true), own ? null : now.opts.line(card));
+  /* Put a copy of *card* under its date in the open grid, unless the page of that date is still to come. */
+  function putIn(card) {
+    var dates = now.opts.dates();
+    var next = now.list.next();
+    if (next !== null && dates.indexOf(card.getAttribute('data-batch')) >= dates.indexOf(next)) return;
+    now.list.put(copy(card), dates, function () { return now.opts.line(card); });
     nameLine();
   }
 

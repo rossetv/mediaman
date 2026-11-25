@@ -289,20 +289,30 @@ def test_a_dates_line_fades_out_with_its_last_pick_and_stands_as_it_did_once_bac
 
 
 @pytest.mark.parametrize(
-    ("case", "seq"),
+    ("case", "seq", "undone"),
     [
-        ("middle", ["a", 1, 2, 3, "b", 4, "c", 5, "d", 6]),
-        ("firstOfDate", ["a", 1, 2, 3, "b", 4]),
-        ("aloneFirst", ["a", 1, "b", 4]),
-        ("aloneBetween", ["a", 1, 2, 3, "b", 4, "c", 5]),
-        ("aloneAfterTaken", ["a", 1, 2, "b", 4]),
-        ("dateTaken", ["a", 2, "b", 4]),
+        ("middle", ["a", 1, 2, 3, "b", 4, "c", 5, "d", 6], []),
+        ("firstOfDate", ["a", 1, 2, 3, "b", 4], []),
+        ("aloneFirst", ["a", 1, "b", 4], []),
+        ("aloneBetween", ["a", 1, 2, 3, "b", 4, "c", 5], []),
+        ("aloneLast", ["a", 1, 2, 3, "c", 5], ["a", 1, 2, 3, "b", 4, "c", 5]),
+        ("aloneAfterTaken", ["a", 1, 2, "b", 4], ["a", 1, 2, 3, "b", 4, "c", 5]),
+        ("dateTaken", ["a", 2, "b", 4], ["a", 1, 2, 3, "b", 4]),
+        ("dateTakenBack", ["a", 2, "b", 4], ["a", 1, 2, 3, "b", 4]),
+        ("onlyMarkOfDate", ["a", 9, "b", 1, "c", 5], ["a", 9, "b", 1, 2, "c", 5]),
+        ("afterAMark", ["a", 1, "b", 4, "c", 5], ["a", 1, 3, "b", 4, "c", 5]),
+        ("allOut", ["a", 1], ["a", 1, "b", 2]),
     ],
 )
 def test_a_pick_back_in_its_row_stands_under_its_date_in_the_grid_opened_without_it(
-    case: str, seq: list[object]
+    case: str, seq: list[object], undone: list[object]
 ) -> None:
-    assert _run("bringsDated")[case] == [True, seq]
+    assert _run("bringsDated")[case] == [True, seq, undone or seq]
+
+
+def test_a_pick_of_a_date_whose_page_is_to_come_is_left_to_that_page() -> None:
+    seq = ["a", 1, 2, 3]
+    assert _run("bringsDated")["toCome"] == [False, seq, seq]
 
 
 def test_a_card_back_in_its_row_comes_back_to_a_grid_that_was_filled_without_it() -> None:
