@@ -430,6 +430,8 @@
     };
   }
 
+  var lifts = 0;
+
   /* The set on end: a place that goes along with the mouse, the finger or the focus, and the name
      of the level it is on. */
   function lifted(node, group) {
@@ -437,8 +439,11 @@
     var puck = group.insertBefore(el('span', 'rate__puck'), group.firstChild);
     var name = node.appendChild(el('span', 'rate__name'));
     var words = name.appendChild(el('span'));
+    var back = node.appendChild(el('span', '', 'Press again to take it back'));
     var said = null; // the button pressed last, which keeps its own words
     name.setAttribute('aria-hidden', 'true');
+    back.id = 'rate-back-' + (++lifts);
+    back.hidden = true;
 
     function isOn(b) { return b.getAttribute('aria-checked') === 'true'; }
 
@@ -486,6 +491,10 @@
       paint: function () {
         var at = buttons.filter(function (b) { return b.classList.contains('is-at'); })[0];
         place(at || buttons.filter(isOn)[0]);
+        buttons.forEach(function (b) {
+          if (isOn(b)) b.setAttribute('aria-describedby', back.id);
+          else b.removeAttribute('aria-describedby');
+        });
       },
       enter: function () { focusOn(buttons.filter(isOn)[0] || buttons[1]); },
     };

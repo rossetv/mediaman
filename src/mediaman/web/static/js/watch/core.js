@@ -301,7 +301,6 @@
       if (item.level) card.setAttribute('data-level', String(Number(item.level)));
       var thumb = addTool(card, item.title, 'thumb', 'Rate ' + item.title, null);
       thumb.setAttribute('data-card-rate', '');
-      thumb.setAttribute('aria-haspopup', 'true');
       thumb.setAttribute('aria-expanded', 'false');
     }
     eyeFor(addTool(card, item.title, 'eye', markLabel(mark), 'i-eye'), mark, !!item.watched);
@@ -321,9 +320,9 @@
     b.setAttribute('aria-label', label);
     if (tools.children.length) b.setAttribute('tabindex', '-1');
     if (iconName) b.appendChild(window.MM.dom.icon(iconName));
+    tools.appendChild(b);
     card.classList.add('has-tools');
     card.classList.toggle('has-three-tools', tools.children.length > 2);
-    tools.appendChild(b);
     return b;
   }
 
