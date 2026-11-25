@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -46,6 +47,9 @@ from mediaman.web.routes.watch import mark_undo
 from mediaman.web.routes.watch.pages import is_valid_key, open_plex, plex_error_code
 
 router = APIRouter()
+
+# The numbers of episodes by season.
+_Numbers = Mapping[int, Collection[int]]
 
 _KINDS = frozenset({"movie", "episode", "season", "show"})
 _DISMISS_REF_RE = re.compile(r"(movie|show)-([0-9]{1,18})")
@@ -87,36 +91,36 @@ def _season_targets(
 
 def _targets(
     request: Request, conn: sqlite3.Connection, libraries: list[str], kind: str, key: str
-) -> tuple[list[MarkTarget], int | None]:
-    """What a mark covers, and of a show its last season; raises PlexItemNotFound for anything
-    outside the scanned libraries."""
+) -> tuple[list[MarkTarget], _Numbers]:
+    """What a mark covers, and of a show its episodes' numbers by season; raises
+    PlexItemNotFound for anything outside the scanned libraries."""
     if kind == "movie":
         if lib.find_movie(conn, libraries, key) is None:
             raise PlexItemNotFound("Not a movie of the library")
-        return [MarkTarget(key, key, None, 0)], None
+        return [MarkTarget(key, key, None, 0)], {}
     if kind == "show" and lib.find_show(conn, libraries, key) is None:
         raise PlexItemNotFound("Not a show of the library")
     plex = open_plex(request, conn)
     if kind == "episode":
-        return _episode_targets(conn, plex, libraries, key), None
+        return _episode_targets(conn, plex, libraries, key), {}
     if kind == "season":
         episodes = plex.get_season_episodes(key)
         if not episodes:
             raise PlexItemNotFound("Not a season of the library")
         # A season does not say which show it is of; its episodes do.
         [first] = _episode_targets(conn, plex, libraries, episodes[0].rating_key)
-        return _season_targets(episodes, key, first.show_rating_key or ""), None
+        return _season_targets(episodes, key, first.show_rating_key or ""), {}
     show = plex.get_show(key)
     if not is_in_libraries(show, libraries):
         raise PlexItemNotFound("Not a show of the library")
-    targets = [
-        target
-        for season in show.seasons
-        for target in _season_targets(
-            plex.get_season_episodes(season.rating_key), season.rating_key, key
-        )
-    ]
-    return targets, max((s.index for s in show.seasons if s.index > 0), default=None)
+    targets: list[MarkTarget] = []
+    numbers: dict[int, set[int]] = {}
+    for season in show.seasons:
+        episodes = plex.get_season_episodes(season.rating_key)
+        targets += _season_targets(episodes, season.rating_key, key)
+        if season.index > 0 and episodes:
+            numbers.setdefault(season.index, set()).update(e.index for e in episodes)
+    return targets, numbers
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +152,7 @@ def _mark_title(
     conn: sqlite3.Connection,
     user_id: int,
     marked: _Marked,
-    last_season: int | None,
+    numbers: _Numbers,
     now: datetime,
     *,
     changed: bool,
@@ -156,12 +160,28 @@ def _mark_title(
     """Mark the title too, or the part of it that was taken back; None when it is so already."""
     if marked.part is not None:
         return seen_titles.change_part(conn, user_id, marked.key, marked.part, seen=True)
-    if marked.title.media_type == "tv" and last_season is None:
+    show = marked.title.media_type == "tv"
+    if show and not numbers:
         return None
     before = seen_titles.get_mark(conn, user_id, marked.key)
     if not changed and before is not None and not before.not_seen:
         return None
-    return seen_titles.mark(conn, user_id, marked.title, last_season, now, in_library=True)
+    last_season = max(numbers) if show else None
+    return seen_titles.mark(
+        conn, user_id, marked.title, last_season, now, in_library=True, episodes=numbers
+    )
+
+
+def _covered(
+    conn: sqlite3.Connection, username: str, libraries: list[str], targets: list[MarkTarget]
+) -> set[str]:
+    """The keys among *targets* that a mark of their title covers without a row."""
+    shows = {t.show_rating_key for t in targets if t.show_rating_key}
+    found = seen_titles.seen_films(conn, username, libraries) if not shows else set()
+    for show in shows:
+        for season in seen_titles.covered_seasons(conn, username, libraries, show_key=show):
+            found |= season.episodes
+    return found
 
 
 def _unmark_title(conn: sqlite3.Connection, user_id: int, marked: _Marked) -> SeenChange | None:
@@ -222,18 +242,18 @@ def api_watch_mark(
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
     try:
-        targets, last_season = _targets(request, conn, libraries, kind, key)
+        targets, numbers = _targets(request, conn, libraries, kind, key)
     except PlexItemNotFound:
         return _not_found()
     except PlexError as exc:
         return respond_err(plex_error_code(exc), status=503)
     now = now_utc()
+    covered = _covered(conn, username, libraries, targets)
+    targets = [t for t in targets if t.rating_key not in covered]
     changes = mark_watched(conn, username, targets, now)
     marked = _marked(conn, libraries, kind, key)
     title = (
-        _mark_title(conn, user_id, marked, last_season, now, changed=bool(changes))
-        if marked
-        else None
+        _mark_title(conn, user_id, marked, numbers, now, changed=bool(changes)) if marked else None
     )
     mark_undo.hold(
         (user_id, kind, key),

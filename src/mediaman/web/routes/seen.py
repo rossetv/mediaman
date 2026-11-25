@@ -69,7 +69,7 @@ def _keep(change: SeenChange, title: RatedTitle, *, watched: bool) -> None:
         change.key,
         watched=watched,
         changes=[],
-        title=change if change.before != change.after else None,
+        title=change,
         now=now_utc(),
     )
 

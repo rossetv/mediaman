@@ -243,6 +243,15 @@ class TestMarking:
 
         assert (undone.json()["watched"], _mark_of(conn)) == (False, before)
 
+    def test_a_mark_repeated_leaves_its_undo(self, client, conn, monkeypatch):
+        client.put(f"{BASE}/tmdb-movie-603")
+        monkeypatch.setattr(routes, "now_utc", lambda: NOW + timedelta(seconds=1))
+        client.put(f"{BASE}/tmdb-movie-603")
+
+        client.delete(f"{BASE}/tmdb-movie-603?undo=1")
+
+        assert _stored(conn) == []
+
     def test_undoing_what_was_taken_back_gives_it_back_as_it_was(self, client, conn, tmdb):
         user = find_user_id(conn, "aoife")
         seen_titles.mark(conn, user, RatedTitle("tv", 44), 1, NOW, in_library=True)
@@ -349,6 +358,17 @@ class TestJoiningTheLibrary:
 
         assert _show(conn).watched
 
+    @pytest.mark.parametrize("reach", [None, {1: {1}}])
+    def test_of_a_season_not_listed_less_than_the_whole_is_not_watched(self, conn, as_user, reach):
+        _season(conn, 1, [], listed=False)
+        user, title = find_user_id(conn, "aoife"), RatedTitle("tv", 44)
+        seen_titles.mark(conn, user, title, 2, NOW, in_library=bool(reach), episodes=reach)
+        if reach is None:
+            part = seen_titles.ShowPart("500", 1, 1, frozenset({1, 2}))
+            seen_titles.change_part(conn, user, ("tv", 44), part, seen=False)
+
+        assert not _show(conn).watched
+
     def test_an_episode_begun_again_is_not_seen_until_it_ends(self, client, conn):
         client.put(f"{BASE}/tmdb-tv-44")
         _season(conn, 1, ["511", "512"])
@@ -374,26 +394,48 @@ class TestJoiningTheLibrary:
 
 
 class TestMarkedInTheLibrary:
-    def _mark(self, conn, *episodes, through=2, at=NOW):
-        mark_watched(conn, "aoife", [MarkTarget(k, f"50{k[1]}", "500", 0) for k in episodes], at)
-        seen_titles.mark(
-            conn,
-            find_user_id(conn, "aoife"),
-            RatedTitle("tv", 44),
-            through,
-            at,
-            in_library=True,
-        )
+    def _mark(self, conn, *numbers):
+        """Season 1's episodes of those *numbers*, as marking the show does."""
+        targets = [MarkTarget(f"51{n}", "501", "500", 0) for n in numbers]
+        mark_watched(conn, "aoife", targets, NOW)
+        user = find_user_id(conn, "aoife")
+        title = RatedTitle("tv", 44)
+        seen_titles.mark(conn, user, title, 1, NOW, in_library=True, episodes={1: numbers})
 
     def test_a_new_episode_of_a_marked_season_is_not_seen(self, conn, as_user):
         _season(conn, 1, ["511", "512"])
-        self._mark(conn, "511")
+        self._mark(conn, 1)
 
         assert (_show(conn).watched, _show(conn).left) == (False, 1)
         assert seen_titles.with_covered(conn, "aoife", LIBS, "500", {}) == {}
 
+    def test_marked_again_without_a_season_it_keeps_what_it_reached_of_it(self, conn, as_user):
+        self._mark(conn, 1)
+        user, title = find_user_id(conn, "aoife"), RatedTitle("tv", 44)
+        seen_titles.mark(conn, user, title, 2, NOW, in_library=True, episodes={2: {1}})
+        assert _mark_of(conn).episodes == {1: {1}, 2: {1}}
+
+        seen_titles.mark(conn, user, title, 2, NOW, in_library=False)
+
+        assert _mark_of(conn).episodes == {}
+
+    def test_taking_back_an_episode_it_never_reached_leaves_it(self, conn, as_user):
+        self._mark(conn, 1)
+        part = seen_titles.ShowPart("500", 1, 2, frozenset({1, 2}))
+        user = find_user_id(conn, "aoife")
+
+        assert seen_titles.change_part(conn, user, ("tv", 44), part, seen=False) is None
+
+    def test_all_it_reached_of_its_seasons_taken_back_ends_it(self, conn, as_user):
+        self._mark(conn, 1)
+        part = seen_titles.ShowPart("500", 1, 1, frozenset({1, 2}))
+        user = find_user_id(conn, "aoife")
+        seen_titles.change_part(conn, user, ("tv", 44), part, seen=False)
+
+        assert _stored(conn) == []
+
     def test_once_deleted_and_back_under_new_keys_it_is_watched(self, conn, as_user):
-        self._mark(conn, "511", "512")
+        self._mark(conn, 1, 2)
         conn.execute("DELETE FROM watch_progress")
         _season(conn, 1, ["611", "612"])
         assert _show(conn).watched
@@ -467,7 +509,7 @@ class TestCards:
 
     def test_a_show_of_which_a_part_was_taken_back_is_not_watched(self, client, conn):
         client.put(f"{BASE}/tmdb-tv-44")
-        part = seen_titles.ShowPart("500", 1, 3)
+        part = seen_titles.ShowPart("500", 1, 3, frozenset({1, 2, 3}))
         user = find_user_id(conn, "aoife")
         seen_titles.change_part(conn, user, ("tv", 44), part, seen=False)
         assert self._watched(conn, ("tv", 44))["watched"] is False

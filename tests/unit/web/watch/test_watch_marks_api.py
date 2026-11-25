@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import random
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.services.media_meta.plex_watch import PlexUnavailable
+from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.middleware.csrf import CSRFOriginMiddleware
 from mediaman.web.repository import ratings, seen_titles
@@ -96,7 +98,9 @@ def _rows(conn):
     return [tuple(r) for r in conn.execute("SELECT * FROM watch_progress ORDER BY rating_key")]
 
 
-def _play(conn, key, *, position, duration=3000.0, item="501", show="500"):
+def _play(
+    conn, key, *, position, duration=3000.0, item="501", show="500", now=NOW - timedelta(hours=1)
+):
     save_progress(
         conn,
         username="aoife",
@@ -106,7 +110,7 @@ def _play(conn, key, *, position, duration=3000.0, item="501", show="500"):
         position_s=position,
         duration_s=duration,
         played_s=position,
-        now=NOW - timedelta(hours=1),
+        now=now,
     )
 
 
@@ -173,6 +177,10 @@ def matched(conn):
 @pytest.fixture
 def joined(conn, as_user, matched):
     """A show aoife marked while the library held none of it."""
+    _mark_outside(conn)
+
+
+def _mark_outside(conn):
     user_id = ratings.find_user_id(conn, "aoife")
     title = ratings.RatedTitle("tv", 44)
     seen_titles.mark(conn, user_id, title, 2, NOW, in_library=False)
@@ -359,6 +367,178 @@ class TestAShowMarkedBeforeItJoined:
         assert seen_titles.person_marks(conn, "aoife").partly == set()
 
 
+def _arrives(conn, plex, key="523", season="502"):
+    """An episode more, as a scan lists it and Plex names it."""
+    stored = conn.execute("SELECT episode_keys FROM media_items WHERE id = ?", (season,))
+    listed = json.loads(stored.fetchone()[0])
+    listed.append({"key": key, "number": len(listed) + 1, "path": key})
+    conn.execute(
+        "UPDATE media_items SET episode_keys = ?, episode_count = ? WHERE id = ?",
+        (json.dumps(listed), len(listed), season),
+    )
+    conn.commit()
+    number = int(season[2])
+    plex.add_show(
+        "500",
+        "The Long Coast",
+        {1: ("501", ["511", "512"]), number: (season, [e["key"] for e in listed])},
+    )
+
+
+class TestMarkedInTheLibrary:
+    @pytest.mark.parametrize("played", [None, NOW - timedelta(days=1), NOW + timedelta(days=1)])
+    @pytest.mark.parametrize("again", [False, True])
+    def test_an_episode_that_comes_later_is_not_seen_whatever_was_taken_back(
+        self, client, conn, matched, plex, played, again
+    ):
+        def play():
+            for key in ("521", "522"):
+                _play(conn, key, position=2900, item="502", now=played)
+
+        if played and played < NOW:
+            play()
+        client.post("/api/watch/watched/show/500")
+        if played and played > NOW:
+            play()
+        for key in ("521", "522"):
+            client.delete(f"/api/watch/watched/episode/{key}")
+        if again:
+            client.post("/api/watch/watched/season/502")
+            client.delete("/api/watch/watched/season/502?undo=1")
+
+        _arrives(conn, plex)
+
+        assert _covered(conn, [*EPISODES, "523"]) == ["511", "512"]
+
+    def test_a_film_unmarked_by_an_older_version_is_so_after_a_mark_is_undone(
+        self, client, conn, matched
+    ):
+        path = "/api/watch/watched/movie/100"
+        client.post(path)
+        unmark_watched(conn, "aoife", "movie", "100")
+        client.post(path)
+
+        client.delete(f"{path}?undo=1")
+
+        assert _watched(conn) == set()
+
+
+class TestWhatIsLeftOfAMark:
+    def test_an_episode_with_no_number_speaks_for_itself_alone(self, client, conn, joined, plex):
+        unnumbered = [{"key": "511", "number": None, "path": "a"}]
+        unnumbered.append({"key": "512", "number": 2, "path": "b"})
+        conn.execute(
+            "UPDATE media_items SET episode_keys = ? WHERE id = '501'", (json.dumps(unnumbered),)
+        )
+        conn.commit()
+        assert _covered(conn) == ["512", "521", "522"]
+
+        client.post("/api/watch/watched/episode/511")
+        assert _covered(conn) == EPISODES
+        client.delete("/api/watch/watched/episode/511")
+        assert _covered(conn) == ["512", "521", "522"]
+
+        client.delete("/api/watch/watched/season/501")
+        client.post("/api/watch/watched/episode/511")
+        assert _covered(conn) == ["511", "521", "522"]
+
+    @pytest.mark.parametrize(
+        "parts",
+        [
+            ["season/501", "season/502"],
+            ["episode/511", "episode/512", "season/502"],
+            [f"episode/{e}" for e in EPISODES],
+        ],
+    )
+    @pytest.mark.parametrize("start", ["joined", "in the library"])
+    def test_with_every_part_taken_back_the_mark_is_gone_and_undone_to_the_last(
+        self, client, conn, matched, start, parts
+    ):
+        if start == "joined":
+            _mark_outside(conn)
+        else:
+            client.post("/api/watch/watched/show/500")
+        for part in parts:
+            client.delete(f"/api/watch/watched/{part}")
+        assert _title_marks(conn) == {}
+
+        client.post(f"/api/watch/watched/{parts[-1]}?undo=1")
+
+        assert _title_marks(conn) == {("tv", 44): 2}
+
+    def test_an_episode_given_back_of_a_season_taken_back_comes_alone(self, client, conn, joined):
+        client.delete("/api/watch/watched/season/501")
+        client.post("/api/watch/watched/episode/511")
+        assert _covered(conn) == ["511", "521", "522"]
+
+        client.post("/api/watch/watched/episode/512")
+
+        assert seen_titles.person_marks(conn, "aoife").partly == set()
+
+
+@pytest.mark.parametrize("start", ["joined", "nothing"])
+def test_an_older_undo_takes_nothing_back_of_a_whole_show_marked_since(
+    client, conn, matched, start
+):
+    if start == "joined":
+        _mark_outside(conn)
+    client.post("/api/watch/watched/episode/511")
+    client.post("/api/watch/watched/show/500")
+
+    assert client.delete("/api/watch/watched/episode/511?undo=1").status_code == 409
+    assert _watched(conn) == {"show-500"}
+
+
+def test_marks_of_two_episodes_of_a_show_not_marked_are_each_undone(client, conn, matched):
+    for key in ("511", "512"):
+        client.post(f"/api/watch/watched/episode/{key}")
+    for key in ("511", "512"):
+        assert client.delete(f"/api/watch/watched/episode/{key}?undo=1").status_code == 200
+
+    assert _covered(conn) == []
+
+
+_OF = {
+    "show/500": set(EPISODES),
+    "season/501": {"511", "512"},
+    "season/502": {"521", "522"},
+    **{f"episode/{e}": {e} for e in EPISODES},
+}
+
+
+@pytest.mark.parametrize("start", ["nothing", "joined", "in the library"])
+def test_marks_in_any_order_read_as_they_were_made_and_undo_exactly(
+    client, conn, matched, monkeypatch, start
+):
+    monkeypatch.setattr(marks_api, "_MARK_LIMITER", ActionRateLimiter(10**6, 60))
+    dice = random.Random(7)
+    for _ in range(40):
+        conn.execute("DELETE FROM watch_progress")
+        conn.execute("DELETE FROM user_seen_titles")
+        conn.commit()
+        mark_undo._held.clear()
+        seen = set()
+        if start != "nothing":
+            seen = set(EPISODES)
+            if start == "joined":
+                _mark_outside(conn)
+            else:
+                client.post("/api/watch/watched/show/500")
+        made = []
+        for _ in range(4):
+            part, marks = dice.choice(list(_OF)), dice.random() < 0.5
+            made.append((part, marks))
+            path = f"/api/watch/watched/{part}"
+            before, seen = seen, seen | _OF[part] if marks else seen - _OF[part]
+            (client.post if marks else client.delete)(path)
+            assert _covered(conn) == sorted(seen), made
+            if before != seen and dice.random() < 0.3:
+                (client.delete if marks else client.post)(f"{path}?undo=1")
+                seen = before
+                assert _covered(conn) == sorted(seen), made
+        assert bool(_watched(conn)) is (seen == set(EPISODES)), made
+
+
 class TestCopiesOfAFilm:
     @pytest.fixture
     def copies(self, conn, as_user, matched):
@@ -377,6 +557,15 @@ class TestCopiesOfAFilm:
         assert _watched(conn) == set()
 
         client.post(f"/api/watch/watched/movie/{key}?undo=1")
+        assert _watched(conn) == {"movie-100", "movie-102"}
+
+    def test_marking_a_copy_that_is_watched_already_leaves_nothing_to_undo(
+        self, client, conn, copies
+    ):
+        client.post("/api/watch/watched/movie/100")
+        client.post("/api/watch/watched/movie/102")
+        client.delete("/api/watch/watched/movie/102?undo=1")
+
         assert _watched(conn) == {"movie-100", "movie-102"}
 
     def test_a_row_unmarked_by_an_older_version_stays_so(self, client, conn, copies):

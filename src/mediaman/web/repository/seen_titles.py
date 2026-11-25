@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
@@ -34,6 +34,7 @@ _SHOWS = (
 @dataclass(frozen=True, slots=True)
 class SeenMark:
     through_season: int | None  # None for a film
+    episodes: Mapping[int, frozenset[int]]  # the numbers it reaches of a season not whole
     not_seen: frozenset[str]  # what of it was taken back: seasons ("2") and episodes ("2.5")
     in_library: bool
     title: str | None
@@ -75,16 +76,12 @@ class CoveredSeason:
 
 @dataclass(frozen=True, slots=True)
 class ShowPart:
-    """A regular season of a library show, or one episode of it. *episode* is None for the
-    season, and for an episode Plex has no number of."""
+    """A regular season of a library show, or with *episode* that one of it."""
 
     show_key: str
     season: int
     episode: int | None
-
-    @property
-    def name(self) -> str:
-        return str(self.season) if self.episode is None else f"{self.season}.{self.episode}"
+    numbers: frozenset[int]  # of the season's episodes
 
 
 def person_marks(conn: sqlite3.Connection, username: str) -> PersonMarks:
@@ -110,7 +107,7 @@ def person_marks(conn: sqlite3.Connection, username: str) -> PersonMarks:
 
 def get_mark(conn: sqlite3.Connection, user_id: int, key: TitleKey) -> SeenMark | None:
     row = conn.execute(
-        "SELECT through_season, not_seen, in_library, title, year, seen_at FROM user_seen_titles"
+        "SELECT through_season, episodes, not_seen, in_library, title, year, seen_at FROM user_seen_titles"
         " WHERE user_id = ? AND media_type = ? AND tmdb_id = ?",
         (user_id, *key),
     ).fetchone()
@@ -118,6 +115,7 @@ def get_mark(conn: sqlite3.Connection, user_id: int, key: TitleKey) -> SeenMark 
         return None
     return SeenMark(
         row["through_season"],
+        _reach(row["episodes"]),
         _parts(row["not_seen"]),
         bool(row["in_library"]),
         row["title"],
@@ -130,6 +128,10 @@ def _parts(stored: str | None) -> frozenset[str]:
     return frozenset(json.loads(stored or "[]"))
 
 
+def _reach(stored: str | None) -> dict[int, frozenset[int]]:
+    return {int(s): frozenset(numbers) for s, numbers in json.loads(stored or "{}").items()}
+
+
 def mark(
     conn: sqlite3.Connection,
     user_id: int,
@@ -138,23 +140,32 @@ def mark(
     now: datetime,
     *,
     in_library: bool,
+    episodes: Mapping[int, Collection[int]] | None = None,
 ) -> SeenChange:
-    """Mark *title* watched whole, a show up to *through_season* or the season it is marked up
-    to already if later. A name already held is kept when *title* has none."""
+    """Mark *title* watched, a show up to *through_season* or the season it is marked up to
+    already if later: whole, or of the seasons in *episodes* those numbers. A name already held
+    is kept when *title* has none. Marked so already, nothing is written."""
     key = (title.media_type, title.tmdb_id)
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         before = get_mark(conn, user_id, key)
         if before is not None and through_season is not None:
             through_season = max(through_season, before.through_season or 0)
+        reach = dict(before.episodes) if before is not None and in_library else {}
+        reach |= {season: frozenset(numbers) for season, numbers in (episodes or {}).items()}
         after = SeenMark(
             through_season,
+            reach,
             frozenset(),
             in_library,
             title.title or (before.title if before else None),
             title.year or (before.year if before else None),
             now.astimezone(UTC).isoformat(),
         )
+        if before is not None and after == replace(
+            before, title=after.title, year=after.year, seen_at=after.seen_at
+        ):
+            return SeenChange(user_id, key, before, before)
         _write(conn, user_id, key, after)
     return SeenChange(user_id, key, before, after)
 
@@ -172,20 +183,29 @@ def change_part(
     conn: sqlite3.Connection, user_id: int, key: TitleKey, part: ShowPart, *, seen: bool
 ) -> SeenChange | None:
     """Take a part of a marked show back, or give back with *seen* what was; None when the mark
-    does not reach it or it is so already."""
+    does not reach it or it is so already. With nothing left of it the mark goes."""
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         before = get_mark(conn, user_id, key)
-        if before is None or part.season > (before.through_season or 0):
+        through = (before.through_season or 0) if before else 0
+        if before is None or part.season > through:
             return None
-        if seen:
-            inside = f"{part.name}."
-            parts = {p for p in before.not_seen if p != part.name and not p.startswith(inside)}
-        else:
-            parts = {*before.not_seen, part.name}
-        if parts == before.not_seen:
+        season = str(part.season)
+        reach = part.numbers & before.episodes.get(part.season, part.numbers)
+        if part.episode is not None and part.episode not in reach:
             return None
-        after = replace(before, not_seen=frozenset(parts))
+        every = {f"{season}.{n}" for n in reach}
+        one = every if part.episode is None else {f"{season}.{part.episode}"}
+        taken = set(before.not_seen)
+        if season in taken:
+            taken = (taken - {season}) | every
+        taken = taken - one if seen else taken | one
+        if (part.episode is None and not seen) or (every and every <= taken):
+            taken = (taken - every) | {season}
+        if taken == before.not_seen:
+            return None
+        gone = all(str(n) in taken for n in range(1, through + 1))
+        after = None if gone else replace(before, not_seen=frozenset(taken))
         _write(conn, user_id, key, after)
     return SeenChange(user_id, key, before, after)
 
@@ -207,11 +227,15 @@ def _write(conn: sqlite3.Connection, user_id: int, key: TitleKey, mark: SeenMark
         return
     conn.execute(
         "INSERT OR REPLACE INTO user_seen_titles (user_id, media_type, tmdb_id, through_season,"
-        " not_seen, in_library, title, year, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " episodes, not_seen, in_library, title, year, seen_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             user_id,
             *key,
             mark.through_season,
+            json.dumps({s: sorted(numbers) for s, numbers in mark.episodes.items()})
+            if mark.episodes
+            else None,
             json.dumps(sorted(mark.not_seen)) if mark.not_seen else None,
             int(mark.in_library),
             mark.title,
@@ -266,13 +290,12 @@ def covered_seasons(
     show_key: str | None = None,
 ) -> list[CoveredSeason]:
     """The seasons of the library's shows (or only of *show_key*) that *username*'s marks of
-    the shows cover: those up to the season a show is marked up to, less what was taken back
-    and the episodes begun and not seen. A mark made in the library covers no season it left
-    rows on: those say which episodes were meant."""
+    the shows cover: what a mark reaches, less what was taken back and the episodes whose own
+    row says otherwise. An episode Plex has no number of is never covered."""
     # rationale: _SHOWS is a fixed string; every value is bound
     rows = conn.execute(  # nosec B608
         f"{_SHOWS} SELECT held.id, held.show_rating_key, held.season_number, held.episode_keys,"
-        " t.seen_at, t.in_library, t.not_seen"
+        " t.seen_at, t.in_library, t.episodes, t.not_seen"
         " FROM user_seen_titles t JOIN admin_users u ON u.id = t.user_id"
         " JOIN shows ON shows.tmdb_id = t.tmdb_id"
         " JOIN held ON held.show_rating_key = shows.show_key"
@@ -301,40 +324,35 @@ def covered_seasons(
     found = []
     for r, listed in seasons:
         season, taken_back = r["season_number"], _parts(r["not_seen"])
+        if str(season) in taken_back:
+            continue
+        reach = _reach(r["episodes"]).get(season)
         held = (
             by_season.get(r["id"], [])
             if listed is None
             else [by_episode[key] for key in listed if key in by_episode]
         )
-        if str(season) in taken_back or (
-            r["in_library"] and any(_was_there(p, r["seen_at"]) for p in held)
-        ):
-            continue
-        own = {p["rating_key"]: bool(p["watched"] or p["seen_at"]) for p in held if _says(p)}
+        own = {
+            p["rating_key"]: bool(p["watched"] or p["seen_at"])
+            for p in held
+            # A row only left by a mark taken back is older than a mark made outside the library.
+            if r["in_library"] or p["watched"] or p["seen_at"] or p["updated_at"] > NEVER_PLAYED
+        }
         episodes = frozenset(
             key
             for key, number in (listed or {}).items()
-            if key not in own and f"{season}.{number}" not in taken_back
+            if key not in own
+            and number is not None
+            and (reach is None or number in reach)
+            and f"{season}.{number}" not in taken_back
         )
-        whole = (
-            all(own.values())
-            if listed is None
-            else all(key in episodes or own.get(key) for key in listed)
-        )
+        if listed is None:
+            part_back = any(p.startswith(f"{season}.") for p in taken_back)
+            whole = reach is None and not part_back and all(own.values())
+        else:
+            whole = all(key in episodes or own.get(key) for key in listed)
         found.append(CoveredSeason(r["id"], r["show_rating_key"], episodes, whole, r["seen_at"]))
     return found
-
-
-def _says(row: sqlite3.Row) -> bool:
-    """Whether a row says more than that its mark was taken back."""
-    return bool(row["watched"] or row["seen_at"] or row["updated_at"] > NEVER_PLAYED)
-
-
-def _was_there(row: sqlite3.Row, marked_at: str) -> bool:
-    """Whether a row was there when the show was marked."""
-    if row["seen_at"] is not None:
-        return bool(row["seen_at"] <= marked_at)
-    return bool(row["watched"] or row["updated_at"] == NEVER_PLAYED)
 
 
 def _episodes(stored: str | None) -> dict[str, int | None] | None:
@@ -362,23 +380,20 @@ def with_covered(
 def part_of(
     conn: sqlite3.Connection, libraries: Sequence[str], kind: str, key: str
 ) -> ShowPart | None:
-    """The part of a library show that a "season" or "episode" is; None for a special."""
-    if kind == "season":
-        sql = (
-            "SELECT show_rating_key, season_number, NULL AS number FROM held"
-            " WHERE season_number > 0 AND id = :key"
-        )
-    else:
-        # The key's own text first, which is far quicker to look for than to read each list.
-        sql = (
-            "SELECT show_rating_key, season_number, json_extract(e.value, '$.number') AS number"
-            " FROM held, json_each(episode_keys) e WHERE season_number > 0"
-            " AND instr(episode_keys, :key) AND json_extract(e.value, '$.key') = :key"
-        )
-    # rationale: *sql* is one of the two fixed strings above
-    row = conn.execute(  # nosec B608
-        f"{_SHOWS} {sql} LIMIT 1", {"libraries": json.dumps(list(libraries)), "key": key}
-    ).fetchone()
-    if row is None:
-        return None
-    return ShowPart(row["show_rating_key"], row["season_number"], row["number"])
+    """The part of a library show that a "season" or "episode" is; None for a special, and for
+    an episode not listed or with no number."""
+    # The key's own text first, which is far quicker to look for than to read each list.
+    where = "id = :key" if kind == "season" else "instr(episode_keys, :key)"
+    # rationale: *where* is one of the two fixed fragments above
+    rows = conn.execute(  # nosec B608
+        f"{_SHOWS} SELECT show_rating_key, season_number, episode_keys FROM held"
+        f" WHERE season_number > 0 AND {where}",
+        {"libraries": json.dumps(list(libraries)), "key": key},
+    )
+    for r in rows:
+        listed = _episodes(r["episode_keys"]) or {}
+        number = listed.get(key)
+        if kind == "season" or number is not None:
+            numbers = frozenset(n for n in listed.values() if n is not None)
+            return ShowPart(r["show_rating_key"], r["season_number"], number, numbers)
+    return None

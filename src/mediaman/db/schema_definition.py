@@ -448,15 +448,16 @@ CREATE TABLE IF NOT EXISTS user_ratings (
     PRIMARY KEY (user_id, media_type, tmdb_id)
 );
 
--- The films and shows a person marked watched, by TMDB id. A show is marked up to a season, less
--- what of it was taken back since: not_seen is a JSON list of seasons ("2") and episodes ("2.5").
--- in_library is 1 where the mark was made on the library's title, whose own rows then speak
--- while it is there.
+-- The films and shows a person marked watched, by TMDB id. A show is marked up to a season: whole
+-- seasons, but of those in episodes (JSON, their numbers by season) only these, where it was
+-- marked in the library; less not_seen, what was taken back since (a JSON list of seasons, "2",
+-- and episodes, "2.5").
 CREATE TABLE IF NOT EXISTS user_seen_titles (
     user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
     media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
     tmdb_id INTEGER NOT NULL,
     through_season INTEGER CHECK ((media_type = 'tv') = (through_season IS NOT NULL)),
+    episodes TEXT,
     not_seen TEXT,
     in_library INTEGER NOT NULL DEFAULT 0,
     title TEXT,

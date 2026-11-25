@@ -25,6 +25,7 @@ class Undo:
     watched: bool  # what the change it takes back did
     changes: Sequence[MarkChange]
     title: SeenChange | None  # of the title's own mark
+    of: TitleKey | None
     expires: datetime
 
 
@@ -41,17 +42,20 @@ def hold(
     title: SeenChange | None,
     now: datetime,
 ) -> None:
-    """Hold a change of *slot*, a title *of* that key or a part of it, if it changed anything. An
-    earlier one that changed the title's own mark can then be undone no more: it would take this
-    one back too."""
+    """Hold a change of *slot*, a title *of* that key or a part of it, if it changed anything.
+    Where it or an earlier one changed the title's own mark, the earlier can be undone no more:
+    that would take this one back too."""
+    if title is not None and title.before == title.after:
+        title = None
     if not changes and title is None:
         return
     with _lock:
         for old, undo in list(_held.items()):
-            outdated = undo.title is not None and (old[0], undo.title.key) == (slot[0], of)
+            same = of is not None and (old[0], undo.of) == (slot[0], of)
+            outdated = same and (undo.title or title) is not None
             if undo.expires <= now or outdated:
                 del _held[old]
-        _held[slot] = Undo(watched, changes, title, now + UNDO_WINDOW)
+        _held[slot] = Undo(watched, changes, title, of, now + UNDO_WINDOW)
 
 
 def take(slot: Slot, *, watched: bool, now: datetime) -> Undo | None:
