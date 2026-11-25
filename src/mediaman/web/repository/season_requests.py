@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Literal
 
@@ -45,7 +46,7 @@ def library_seasons(conn: sqlite3.Connection, show: ShowIds) -> set[int]:
 
 
 def season_refusals(
-    conn: sqlite3.Connection, show: ShowIds, numbers: set[int]
+    conn: sqlite3.Connection, show: ShowIds, numbers: Collection[int]
 ) -> dict[int, Refusal]:
     """Which of the seasons *numbers* stand in the way of being asked for, and how.
 
@@ -56,7 +57,7 @@ def season_refusals(
     leaving = _leaving(conn, show)
     removed = _removed(conn, show, numbers)
     refused: dict[int, Refusal] = dict.fromkeys(removed, "removed")
-    refused.update(dict.fromkeys(leaving & numbers, "leaving"))
+    refused.update(dict.fromkeys(leaving & set(numbers), "leaving"))
     return refused
 
 
@@ -74,17 +75,22 @@ def _leaving(conn: sqlite3.Connection, show: ShowIds) -> set[int]:
     return {row[0] for row in rows}
 
 
-def _removed(conn: sqlite3.Connection, show: ShowIds, numbers: set[int]) -> set[int]:
-    """The seasons mediaman deleted that nobody downloaded again since."""
-    deletions = conn.execute(
+def _last_deletions(conn: sqlite3.Connection, show: ShowIds) -> dict[int | None, int]:
+    """The audit id of the latest deletion of each season; under None, one recorded without a
+    season, which was of any of them."""
+    rows = conn.execute(
         "SELECT season_number, MAX(audit_id) FROM deleted_media WHERE media_type != 'movie'"
         " AND (tvdb_id = :tvdb OR tmdb_id = :tmdb"
         " OR (tvdb_id IS NULL AND tmdb_id IS NULL AND title = :title COLLATE NOCASE))"
         " GROUP BY season_number",
         show.params(),
     ).fetchall()
-    latest = {row[0]: row[1] for row in deletions}
-    # One recorded without a season was of any of them.
+    return {row[0]: row[1] for row in rows}
+
+
+def _removed(conn: sqlite3.Connection, show: ShowIds, numbers: Collection[int]) -> set[int]:
+    """The seasons mediaman deleted that nobody downloaded again since."""
+    latest = _last_deletions(conn, show)
     of_any = latest.get(None, 0)
     return {
         number
@@ -109,38 +115,50 @@ def _downloaded_since(conn: sqlite3.Connection, show: ShowIds, number: int, audi
 
 def record_season(
     conn: sqlite3.Connection,
+    show: ShowIds,
     *,
     title: str,
-    tmdb_id: int,
-    tvdb_id: int,
     number: int,
     actor: str,
     email: str | None,
     added: bool,
-) -> None:
-    """Record the season *actor* asked for: its mail, and the download when they *added* it.
+    was_removed: bool,
+    started: Collection[int] = (),
+) -> Refusal | None:
+    """Record the season *actor* asked for, or answer what has come to stand in its way since.
 
-    Named by its show's id and its number, as a re-download is, so a deletion of another
-    season of the show is not taken for one asked for again.
+    The download is audited when they *added* it, with the seasons *started* by it, and else when
+    it has no line yet since it was last deleted: one added whose answer, or line, was lost. It is
+    named by its show's id and its number, as a re-download is, so a deletion of another season
+    of the show is not taken for one asked for again. *was_removed* says that the season had been
+    deleted when it was asked for.
     """
     with conn:
-        if added:
-            log_audit(
-                conn,
-                f"tvdb:{tvdb_id}:s{number}",
-                "downloaded",
-                f"Added season {number} of '{title}' to Sonarr by {actor}",
-                actor=actor,
+        conn.execute("BEGIN IMMEDIATE")
+        refusal = season_refusals(conn, show, {number}).get(number)
+        if refusal == "leaving" or (refusal == "removed" and not was_removed):
+            return refusal
+        latest = _last_deletions(conn, show)
+        deleted = max(latest.get(number, 0), latest.get(None, 0))
+        detail = f"Added season {number} of '{title}' to Sonarr by {actor}"
+        if started:
+            detail += "; the show was unmonitored, so this also started season " + ", ".join(
+                str(n) for n in sorted(started)
             )
+        if not added:
+            detail = f"Asked for season {number} of '{title}' by {actor}; Sonarr had it monitored"
+        if added or not _downloaded_since(conn, show, number, deleted):
+            log_audit(conn, f"tvdb:{show.tvdb_id}:s{number}", "downloaded", detail, actor=actor)
         if email is not None:
             record_download_notification(
                 conn,
                 email=email,
                 title=title,
                 media_type="tv",
-                tmdb_id=tmdb_id,
-                tvdb_id=tvdb_id,
+                tmdb_id=show.tmdb_id,
+                tvdb_id=show.tvdb_id,
                 service="sonarr",
                 season_number=number,
                 username=actor,
             )
+    return None

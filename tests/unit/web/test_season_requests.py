@@ -5,19 +5,26 @@
 from __future__ import annotations
 
 import copy
+import json
+from itertools import count
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mediaman.db import get_db
 from mediaman.scanner.repository.audit import AuditRow
 from mediaman.scanner.repository.scheduled_actions import (
     fetch_pending_unmonitors,
     was_requested_since,
 )
+from mediaman.services.arr import _sonarr_methods
+from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.spec import SONARR_SPEC
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth.password_hash import create_user, set_user_email
 from mediaman.web.routes.history import _build_item
 from mediaman.web.routes.recommended.api import reset_download_action_limiter
+from mediaman.web.routes.search._seasons import REQUEST_SECONDS, add_to_tracked_show
 from tests.helpers.factories import (
     insert_audit_log,
     insert_media_item,
@@ -68,8 +75,10 @@ class Sonarr(MagicMock):
         self.remonitor_season.side_effect = self._monitor
         return self
 
-    def _monitor(self, _series_id, number):
+    def _monitor(self, _series_id, number, *, guard):
+        guard(copy.deepcopy(self.show))
         next(s for s in self.show["seasons"] if s["seasonNumber"] == number)["monitored"] = True
+        self.show["monitored"] = True
 
     @property
     def searched(self):
@@ -197,10 +206,10 @@ def test_half_a_success_is_told_by_season_and_only_what_was_added_is_recorded(
 ):
     sonarr = Sonarr().track(_season(3), _season(4))
 
-    def monitor(_series_id, number):
+    def monitor(_series_id, number, *, guard):
         if number == 3:
             raise SafeHTTPError(400, "no", "sonarr/series")
-        sonarr._monitor(_series_id, number)
+        sonarr._monitor(_series_id, number, guard=guard)
 
     sonarr.remonitor_season.side_effect = monitor
 
@@ -243,7 +252,6 @@ def test_a_request_that_failed_whole_can_be_sent_again_at_once(viewer, db, ask, 
 def test_once_sonarr_gives_no_answer_the_other_seasons_do_not_wait_for_it_too(viewer, ask, route):
     sonarr = Sonarr().track(_season(3), _season(4), _season(5))
     sonarr.remonitor_season.side_effect = SafeHTTPError(0, "timeout", "sonarr/series")
-    sonarr.get_series_by_id.side_effect = SafeHTTPError(0, "timeout", "sonarr/series")
 
     resp = ask(viewer, sonarr, [3, 4, 5])
 
@@ -397,6 +405,162 @@ def test_only_an_admin_undoes_a_deletion_sonarr_is_still_to_be_told_of(
     assert _results(resp) == {2: "asked" if asked_again else "removed"}
     [row] = fetch_pending_unmonitors(db)
     assert was_requested_since(db, row) is asked_again
+
+
+def _off(*seasons):
+    sonarr = Sonarr().track(*seasons)
+    sonarr.show["monitored"] = False
+    return sonarr
+
+
+@both
+def test_a_viewer_cannot_start_the_other_seasons_of_a_show_that_is_off(viewer, db, ask, route):
+    sonarr = _off(_season(1, monitored=True), _season(3))
+
+    resp = ask(viewer, sonarr, [3])
+
+    assert (resp.status_code, _results(resp)) == (409, {3: "show_unmonitored"})
+    assert (sonarr.searched, _audit(db)) == ([], [])
+
+
+@pytest.mark.parametrize("route", ["search"])
+def test_a_viewer_may_turn_on_a_show_none_but_the_named_seasons_of_which_start(viewer, ask, route):
+    sonarr = _off(_season(1), _season(3), _season(4, monitored=True))
+
+    resp = ask(viewer, sonarr, [3, 4])
+
+    assert _results(resp) == {3: "asked", 4: "already_asked"}
+
+
+@pytest.mark.parametrize("route", ["search"])
+def test_an_admin_is_told_and_audited_for_the_other_seasons_that_start(
+    authed_client, db, ask, route
+):
+    sonarr = _off(_season(1, monitored=True), _season(3), _season(5, monitored=True))
+
+    resp = ask(authed_client, sonarr, [3])
+
+    assert (resp.status_code, _results(resp)) == (200, {3: "asked"})
+    assert resp.json()["also_started"] == [1, 5]
+    [row] = _audit(db)
+    assert row[0] == f"tvdb:{TVDB}:s3" and "season 1, 5" in row[2]
+
+
+@pytest.mark.parametrize("route", ["search"])
+@pytest.mark.parametrize("why", ["removed", "leaving"])
+def test_no_one_starts_a_deleted_or_leaving_season_by_asking_for_another(
+    authed_client, db, ask, route, why
+):
+    if why == "removed":
+        _delete_season(db, 1)
+    else:
+        _in_library(db, 1)
+        insert_scheduled_action(db, media_item_id="502", action="scheduled_deletion")
+    sonarr = _off(_season(1, monitored=True), _season(3))
+
+    assert _results(ask(authed_client, sonarr, [3])) == {3: "show_unmonitored"}
+    assert sonarr.searched == []
+
+
+@pytest.mark.parametrize("route", ["search"])
+@pytest.mark.parametrize("when", ["before the add", "before the record"])
+def test_a_deletion_scheduled_while_a_season_is_asked_for_is_not_undone_by_it(
+    authed_client, db, ask, route, when
+):
+    _in_library(db, 2)
+    sonarr = Sonarr().track(_season(2, files=3))
+
+    def schedule():
+        # The route runs in a thread of its own.
+        insert_scheduled_action(get_db(), media_item_id="502", action="scheduled_deletion")
+
+    def monitor(series_id, number, *, guard):
+        if when == "before the add":
+            schedule()
+        sonarr._monitor(series_id, number, guard=guard)
+        schedule()
+
+    sonarr.remonitor_season.side_effect = monitor
+
+    resp = ask(authed_client, sonarr, [2])
+
+    assert _results(resp) == {2: "leaving"}
+    assert (_audit(db), _mails(db)) == ([], [])
+    assert sonarr.unmonitor_season.called is (when == "before the record")
+
+
+@pytest.mark.parametrize("route", ["search"])
+def test_a_season_deleted_while_an_admin_asks_for_it_is_not_recorded_as_asked_for_again(
+    authed_client, db, ask, route
+):
+    sonarr = Sonarr().track(_season(2))
+
+    def monitor(series_id, number, *, guard):
+        sonarr._monitor(series_id, number, guard=guard)
+        _delete_season(get_db(), 2)
+
+    sonarr.remonitor_season.side_effect = monitor
+
+    assert _results(ask(authed_client, sonarr, [2])) == {2: "removed"}
+    assert _audit(db) == []
+
+
+@pytest.mark.parametrize("route", ["search"])
+def test_an_added_season_whose_line_was_lost_gets_it_when_asked_for_again_and_once(
+    viewer, db, ask, route
+):
+    sonarr = Sonarr().track(_season(3, monitored=True), _season(4))
+
+    first = ask(viewer, sonarr, [3])
+    again = ask(viewer, sonarr, [3, 4])
+
+    assert (_results(first), _results(again)) == (
+        {3: "already_asked"},
+        {3: "already_asked", 4: "asked"},
+    )
+    assert [(row[0], row[3]) for row in _audit(db)] == [
+        (f"tvdb:{TVDB}:s3", "amy"),
+        (f"tvdb:{TVDB}:s4", "amy"),
+    ]
+
+
+@pytest.mark.parametrize("route", ["search"])
+def test_a_season_sonarr_gives_in_a_shape_that_cannot_be_read_fails_and_the_others_do_not(
+    viewer, ask, route
+):
+    odd = {"seasonNumber": 3, "monitored": False, "statistics": "x"}
+    sonarr = Sonarr().track(_season(2), odd, None)
+    sonarr.remonitor_season.side_effect = lambda *_a, guard: guard(copy.deepcopy(sonarr.show))
+
+    assert _results(ask(viewer, sonarr, [2, 3, 4])) == {2: "asked", 3: "failed", 4: "failed"}
+
+
+def test_a_slow_sonarr_ends_the_request_in_time(conn, fake_http, fake_response, monkeypatch):
+    clock = count(0.0, 2.0)
+    monkeypatch.setattr(_sonarr_methods, "monotonic", lambda: next(clock))
+    create_user(conn, "boss", "password123", enforce_policy=False)
+    series = {"id": 9, "monitored": True, "seasons": [_season(n) for n in range(1, 21)]}
+
+    def arr(method, url, **_kwargs):
+        if "tvdbId" in url:
+            return fake_response(json_data=[series])
+        return fake_response(json_data=[] if "command" in url and method == "GET" else series)
+
+    fake_http.handler(arr)
+    resp = add_to_tracked_show(
+        conn,
+        ArrClient(SONARR_SPEC, "http://sonarr:8989", "key"),
+        tmdb_id=77,
+        tvdb_id=TVDB,
+        title="Glass Coast",
+        numbers=range(1, 21),
+        actor="boss",
+        email=None,
+    )
+
+    results = [s["result"] for s in json.loads(resp.body)["seasons"]]
+    assert results[0] == "asked" and results[-1] == "failed"
+    assert next(clock) < REQUEST_SECONDS * 2
 
 
 def test_the_history_line_names_the_show():

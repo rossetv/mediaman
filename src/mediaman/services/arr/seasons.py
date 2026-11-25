@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal, cast
-
-import requests
 
 from mediaman.core.time import now_utc
 from mediaman.services.arr._transport import ArrError, SearchUnanswered
 from mediaman.services.arr._types import ArrQueueItem, ArrSeason, SonarrSeries
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.state import _season_has_aired, _season_stats, season_on_disk
-from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -183,27 +180,31 @@ def _is_not_out(season: ArrSeason, air_date: str | None) -> bool:
     )
 
 
-def add_season(client: ArrClient, series_id: int, number: int) -> bool:
-    """Monitor and search one season of a series Sonarr holds; whether it is monitored now.
+class SeasonRefused(ArrError):
+    """A season is not added for a reason *result* names, found once its series was read."""
 
-    One monitored whose search could not be started counts: Sonarr fetches it, and mediaman's
-    own passes search what stays missing. Raises when Sonarr cannot say what became of it.
+    def __init__(self, result: str) -> None:
+        self.result = result
+        super().__init__(result)
+
+
+def add_season(
+    client: ArrClient, series_id: int, number: int, judge: Callable[[SonarrSeries], str | None]
+) -> None:
+    """Monitor and search one season of a series Sonarr holds.
+
+    *judge* is asked of the series as it is read to be changed; what it answers is raised as
+    ``SeasonRefused`` and nothing is changed. A search that got no answer may be running.
     """
+
+    def guard(series: SonarrSeries) -> None:
+        if (result := judge(series)) is not None:
+            raise SeasonRefused(result)
+
     try:
-        client.remonitor_season(series_id, number)
+        client.remonitor_season(series_id, number, guard=guard)
     except SearchUnanswered:
         logger.warning("sonarr search of series_id=%s season=%s got no answer", series_id, number)
-    except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
-        logger.warning(
-            "sonarr add of series_id=%s season=%s failed", series_id, number, exc_info=True
-        )
-        series = client.get_series_by_id(series_id)
-        return any(
-            is_asked(series, s)
-            for s in series.get("seasons") or []
-            if s.get("seasonNumber") == number
-        )
-    return True
 
 
 def is_refused_start(

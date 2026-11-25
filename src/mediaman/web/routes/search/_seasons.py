@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Callable, Sequence
-from dataclasses import replace
-from typing import Literal
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Literal, cast
 
 import requests
 from fastapi.responses import JSONResponse
@@ -15,9 +15,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from mediaman.services import watch_catalog
 from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import SonarrSeries
-from mediaman.services.arr.base import ArrClient, SeasonsNotListed
-from mediaman.services.arr.seasons import add_season, is_asked
-from mediaman.services.arr.state import season_on_disk
+from mediaman.services.arr.base import ArrClient, ArrUpstreamError, SeasonsNotListed
+from mediaman.services.arr.seasons import (
+    SeasonRefused,
+    add_season,
+    is_asked,
+    is_refused_start,
+    readable_seasons,
+    show_seasons,
+)
+from mediaman.services.arr.state import _season_stats, season_on_disk
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository.season_requests import (
@@ -30,7 +37,19 @@ from mediaman.web.responses import respond_failure
 
 logger = logging.getLogger(__name__)
 
-Result = Literal["asked", "already_asked", "held", "not_listed", "leaving", "removed", "failed"]
+#: How long adding seasons to a show may take; those not come to by then are answered as failed.
+REQUEST_SECONDS = 40.0
+
+Result = Literal[
+    "asked",
+    "already_asked",
+    "held",
+    "not_listed",
+    "leaving",
+    "removed",
+    "show_unmonitored",
+    "failed",
+]
 
 
 class SeasonPicks(BaseModel):
@@ -63,6 +82,56 @@ def seasons_not_listed(exc: SeasonsNotListed, asked: Sequence[int]) -> JSONRespo
     return respond_failure(message, status=422)
 
 
+@dataclass(frozen=True)
+class _Request:
+    """The seasons *named* of a show, and whether an admin asks."""
+
+    conn: sqlite3.Connection
+    show: ShowIds
+    named: list[int]
+    is_admin: bool
+
+    def judge(self, series: SonarrSeries, number: int) -> Result | None:
+        """What season *number* is without being added to *series*; None for one to add."""
+        seasons, whole = readable_seasons(series)
+        season = next((s for s in seasons if s["seasonNumber"] == number), None)
+        if season is None:
+            return "not_listed" if whole else "failed"
+        if season_on_disk(season):
+            return "held"
+        monitored = {s["seasonNumber"] for s in seasons if s.get("monitored")}
+        refused = season_refusals(self.conn, self.show, {number} | monitored)
+        refusal = refused.get(number)
+        if refusal == "leaving":
+            return "leaving"
+        if refusal == "removed":
+            # Sonarr may still be to be told of the deletion, and so want it, and Plex's last
+            # scan may list it. Asked for by an admin, it is left monitored then.
+            if not self.is_admin:
+                return "removed"
+        elif is_asked(series, season):
+            return "already_asked"
+        elif not _season_stats(season).get("episodeFileCount") and (
+            number in library_seasons(self.conn, self.show)
+        ):
+            return "held"
+        bring_back = self.named if self.is_admin else ()
+        barred = {n for n, why in refused.items() if why == "leaving" or n not in bring_back}
+        started = self.started(series, number)
+        # One whose state cannot be read could be started as well.
+        if started and not whole:
+            return "show_unmonitored"
+        if is_refused_start(started, barred, self.named, is_admin=self.is_admin):
+            return "show_unmonitored"
+        return None
+
+    def started(self, series: SonarrSeries, number: int) -> set[int]:
+        return show_seasons(series, {}, {}).started_with(number)
+
+    def was_removed(self, number: int) -> bool:
+        return season_refusals(self.conn, self.show, {number}).get(number) == "removed"
+
+
 def add_to_tracked_show(
     conn: sqlite3.Connection,
     sonarr: ArrClient,
@@ -74,77 +143,114 @@ def add_to_tracked_show(
     actor: str,
     email: str | None,
 ) -> JSONResponse:
-    """Add the seasons *numbers* to a show Sonarr tracks, and answer for each of them.
+    """Add the seasons *numbers* to a show Sonarr tracks, and answer for each of them, in a
+    limited time.
 
     Only adds: a season held, or wanted already, is left as it is and not searched again, so the
     same request can be sent twice. Each season is recorded as it is added. Raises what Sonarr
     raises when the show cannot be read.
     """
+    with sonarr.within(REQUEST_SECONDS):
+        return _add_all(
+            conn,
+            sonarr,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            title=title,
+            numbers=numbers,
+            actor=actor,
+            email=email,
+        )
+
+
+def _add_all(
+    conn: sqlite3.Connection,
+    sonarr: ArrClient,
+    *,
+    tmdb_id: int,
+    tvdb_id: int,
+    title: str,
+    numbers: Sequence[int],
+    actor: str,
+    email: str | None,
+) -> JSONResponse:
     series = sonarr.get_series_by_tvdb(tvdb_id)
     series_id = series.get("id") if series else None
-    if series is None or series_id is None:
+    if series is None or not isinstance(series_id, int):
         raise ArrError("Sonarr holds the series with no usable id")
     wanted = sorted(set(numbers))
-    judge = _judge(conn, series, ShowIds(tmdb_id, tvdb_id, title), set(wanted), actor)
+    # The request's title is whatever the browser sent.
+    show = ShowIds(tmdb_id, tvdb_id, str(series.get("title") or title))
+    request = _Request(conn, show, wanted, get_user_role(conn, actor) == "admin")
     results: dict[int, Result] = {}
+    started: set[int] = set()
     answering = True
     try:
         for number in wanted:
-            result = judge(number)
+            result = request.judge(series, number)
+            was_removed = request.was_removed(number)
+            also: set[int] = set()
             if result is None and answering:
-                try:
-                    result = "asked" if add_season(sonarr, series_id, number) else "failed"
-                except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
-                    logger.exception("Sonarr does not say what became of season %s", number)
-                    answering = False
-            results[number] = result or "failed"
+                result, also, answering = _add(sonarr, series_id, request, number)
+            result = result or "failed"
             if result in ("asked", "already_asked"):
-                record_season(
+                refusal = record_season(
                     conn,
+                    show,
                     title=title,
-                    tmdb_id=tmdb_id,
-                    tvdb_id=tvdb_id,
                     number=number,
                     actor=actor,
                     email=email,
                     added=result == "asked",
+                    was_removed=was_removed,
+                    started=also - set(wanted),
                 )
+                if refusal is not None:
+                    if result == "asked":
+                        _take_back(sonarr, series_id, number)
+                    result = refusal
+            if result == "asked":
+                started |= also - set(wanted)
+            results[number] = result
     finally:
         # A failed season may have been added too.
         watch_catalog.invalidate()
-    return _answer(title, results)
+    return _answer(title, results, sorted(started))
 
 
-def _judge(
-    conn: sqlite3.Connection, series: SonarrSeries, show: ShowIds, wanted: set[int], actor: str
-) -> Callable[[int], Result | None]:
-    """What each season of *wanted* is without being added; None for one to add."""
-    listed = {s.get("seasonNumber"): s for s in series.get("seasons") or []}
-    # The request's title is whatever the browser sent.
-    show = replace(show, title=series.get("title") or show.title)
-    refused = season_refusals(conn, show, wanted)
-    in_plex = library_seasons(conn, show)
-    is_admin = get_user_role(conn, actor) == "admin"
+def _add(
+    sonarr: ArrClient, series_id: int, request: _Request, number: int
+) -> tuple[Result | None, set[int], bool]:
+    """What became of adding the season, the other seasons it started, and whether Sonarr is
+    worth asking for more."""
+    also: set[int] = set()
 
-    def judge(number: int) -> Result | None:
-        season = listed.get(number)
-        refusal = refused.get(number)
-        if season is None:
-            return "not_listed"
-        if season_on_disk(season):
-            return "held"
-        if refusal == "leaving":
-            return "leaving"
-        if refusal == "removed":
-            # Sonarr may still be to be told of the deletion, and so want it, and Plex's last
-            # scan may list it. Asked for by an admin, it is left monitored then.
-            return None if is_admin else "removed"
-        if is_asked(series, season):
-            return "already_asked"
-        in_sonarr = (season.get("statistics") or {}).get("episodeFileCount")
-        return "held" if number in in_plex and not in_sonarr else None
+    def judge(series: SonarrSeries) -> Result | None:
+        also.clear()
+        also.update(request.started(series, number))
+        return request.judge(series, number)
 
-    return judge
+    try:
+        add_season(sonarr, series_id, number, judge)
+    except SeasonRefused as exc:
+        return cast(Result, exc.result), set(), True
+    except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as exc:
+        logger.exception("Season %s of Sonarr series %s could not be added", number, series_id)
+        answered = (
+            exc.status_code not in (0, 502, 503, 504)
+            if isinstance(exc, SafeHTTPError)
+            else isinstance(exc, ArrUpstreamError)
+        )
+        return "failed", set(), answered
+    return "asked", also, True
+
+
+def _take_back(sonarr: ArrClient, series_id: int, number: int) -> None:
+    """Best effort: a deletion booked meanwhile is told to Sonarr by its own pass too."""
+    try:
+        sonarr.unmonitor_season(series_id, number, max_retries=1, lone_episodes=False)
+    except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+        logger.exception("Season %s of Sonarr series %s stays monitored", number, series_id)
 
 
 # What each result says of its seasons, after their names: for one, and for more.
@@ -162,12 +268,18 @@ _SAID: tuple[tuple[Result, str, str], ...] = (
         "was deleted here, so only an admin can bring it back",
         "were deleted here, so only an admin can bring them back",
     ),
+    (
+        "show_unmonitored",
+        "can't be added: the show is off in Sonarr, and turning it on would start other seasons",
+        "can't be added: the show is off in Sonarr, and turning it on would start other seasons",
+    ),
     ("failed", "couldn't be added: try again", "couldn't be added: try again"),
 )
 # The answer when no season is here or on its way, by the first result there is.
 _REFUSED: tuple[tuple[Result, int], ...] = (
     ("failed", 502),
     ("leaving", 409),
+    ("show_unmonitored", 409),
     ("removed", 403),
     ("not_listed", 422),
 )
@@ -179,7 +291,7 @@ def _names(numbers: Sequence[int]) -> str:
     return "seasons " + ", ".join(str(n) for n in numbers[:-1]) + f" and {numbers[-1]}"
 
 
-def _answer(title: str, results: dict[int, Result]) -> JSONResponse:
+def _answer(title: str, results: dict[int, Result], started: Sequence[int]) -> JSONResponse:
     found = set(results.values())
     said = []
     if "asked" in found:
@@ -190,9 +302,13 @@ def _answer(title: str, results: dict[int, Result]) -> JSONResponse:
             names = _names(numbers)
             verb = one if len(numbers) == 1 else more
             said.append(f"{names[0].upper()}{names[1:]} {verb}.")
+    if started:
+        said.append(f"The show was off in Sonarr, so {_names(started)} started too.")
     message = " ".join(said)
     seasons = [{"number": n, "result": result} for n, result in results.items()]
     if found & {"asked", "already_asked", "held"}:
-        return JSONResponse({"ok": True, "message": message, "seasons": seasons})
+        return JSONResponse(
+            {"ok": True, "message": message, "seasons": seasons, "also_started": list(started)}
+        )
     status = next(status for result, status in _REFUSED if result in found)
     return respond_failure(message, status=status, seasons=seasons)
