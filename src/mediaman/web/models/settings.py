@@ -64,6 +64,7 @@ _HOME_NETWORKS = tuple(
 )
 
 
+_PLAIN_RE = re.compile("[!-~]+")
 _LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _HOST_RE = re.compile(rf"(?=.{{1,253}}\Z){_LABEL}(?:\.{_LABEL})*")
 _NUMBER_RE = re.compile("[0-9]+|0x[0-9a-f]*")
@@ -72,6 +73,9 @@ _NUMBER_RE = re.compile("[0-9]+|0x[0-9a-f]*")
 def _validate_tv_address(v: str) -> str:
     """Return the address TVs fetch films from: an origin, and over http a home one."""
     _validate_url(v)
+    # Reading it would drop a tab, and take a name in other letters for another than browsers do.
+    if not _PLAIN_RE.fullmatch(v):
+        raise ValueError("must be a home address")
     try:
         parts = urlsplit(v)
         host, port = parts.hostname or "", parts.port
@@ -84,10 +88,7 @@ def _validate_tv_address(v: str) -> str:
     except ValueError:
         ip = None
     if ip is None or not any(ip in net for net in _HOME_NETWORKS):
-        try:
-            host = host.rstrip(".").encode("idna").decode("ascii").lower()
-        except UnicodeError as exc:
-            raise ValueError("must be a home address") from exc
+        host = host.rstrip(".")
         # A last part like a number makes the whole an address in some other spelling.
         named = _HOST_RE.fullmatch(host) and not _NUMBER_RE.fullmatch(host.rpartition(".")[2])
         local = host == "localhost" or host.endswith(".localhost")
