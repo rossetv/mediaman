@@ -567,7 +567,7 @@
   // Of the library, or downloaded and on its way to it.
   function isHeld(t) { return window.MMWatch.search.isHeld(t); }
 
-  /* What the grid holds: [{ t, ai, why, late }]. The titles like the one named and the AI's picks:
+  /* What the grid holds: [{ t, ai, why, lead, late }]. The titles like the one named and the AI's picks:
      those of the two that came first, where they stand, then the rest of the other, *late*. One the AI
      picked of the titles like it is its pick, *why* it picked it. *phase* is the question's. */
   function picks(item, phase) {
@@ -582,7 +582,7 @@
     function add(t, pick, late) {
       if (seen.has(t.ref)) return;
       seen.add(t.ref);
-      all.push({ t: t, ai: !!pick, why: (pick && pick.reason) || '', late: late });
+      all.push({ t: t, ai: !!pick, why: (pick && pick.reason) || '', lead: (pick && pick.reason_lead) || '', late: late });
     }
     function addFound() { found.forEach(function (t) { add(t, chosen.get(t.ref), aiFirst); }); }
     if (!aiFirst) addFound();
@@ -633,17 +633,17 @@
   function addWhy(node, x) {
     if (!x.why || node.querySelector('.watch-card__why')) return;
     var sub = node.querySelector('.watch-card__sub');
-    if (sub) sub.after(whyLine(x.why));
-    else node.appendChild(whyLine(x.why));
+    if (sub) sub.after(whyLine(x.why, x.lead));
+    else node.appendChild(whyLine(x.why, x.lead));
   }
 
-  /* Why the AI picked it, under the card; "Because you liked …" leads where it says so. */
-  function whyLine(text) {
+  /* Why the AI picked it, under the card. The server names the "Because you liked …" it starts with,
+     whole, since a title may hold a colon of its own. */
+  function whyLine(text, lead) {
     var p = el('p', 'watch-card__why');
-    var lead = /^(Because you (?:liked|watched) [^:]+):\s*/.exec(text);
-    if (lead) {
-      p.appendChild(el('b', '', lead[1]));
-      p.appendChild(document.createTextNode(' · ' + text.slice(lead[0].length)));
+    if (lead && text.startsWith(lead + ':')) {
+      p.appendChild(el('b', '', lead));
+      p.appendChild(document.createTextNode(' · ' + text.slice(lead.length + 1).trim()));
     } else p.textContent = text;
     return p;
   }

@@ -192,7 +192,6 @@ TASTE = Taste(liked=["Alibi", "Star Wars: Episode IV"], played=["Harbour", "Alib
         ("Because you liked Made Up Film: another tight heist.", "Another tight heist."),
         ("Because you liked Harbour: the same slow town.", "The same slow town."),
         ("Because you watched Orchard: a quiet farm drama.", "A quiet farm drama."),
-        ("Because you loved Made Up Film and its heists.", None),
         ("A tight heist in one night.", "same"),
     ],
 )
@@ -205,6 +204,75 @@ def test_a_because_you_liked_is_kept_only_for_a_title_of_their_own(
 
     reasons = [t["reason"] for t in found["titles"]]
     assert reasons == ([] if shown is None else [reason if shown == "same" else shown])
+
+
+@pytest.mark.parametrize(
+    ("reason", "shown"),
+    [
+        ("Because you loved Made Up Film and its heists.", "Made Up Film and its heists."),
+        ("Because you liked Made Up Film, another tight heist.", "Another tight heist."),
+        ("Because you liked Made Up Film – another tight heist.", "Another tight heist."),
+        ("Because you liked Alibi, another tight heist.", "same"),
+    ],
+)
+def test_a_because_you_liked_with_no_colon_loses_only_its_lead_when_not_their_own(
+    model, monkeypatch, reason, shown
+):
+    model["items"] = [_item(NAMES[0], reason)]
+    _check_with(monkeypatch, lambda item, at: _found(item, at + 1))
+    found = _answer(Question(text="films I would like"), TASTE)
+    assert [t["reason"] for t in found["titles"]] == [reason if shown == "same" else shown]
+
+
+NEW_HOPE = "Star Wars: Episode IV – A New Hope"
+
+
+@pytest.mark.parametrize(
+    ("reason", "lead"),
+    [
+        ("Because you liked Alibi: another tight heist.", "Because you liked Alibi"),
+        (f"Because you liked {NEW_HOPE}: space opera again.", f"Because you liked {NEW_HOPE}"),
+        ("Because you've watched Harbour, the same slow town.", "Because you've watched Harbour"),
+        ("Because you liked Made Up Film: another tight heist.", None),
+        (
+            "Because you liked Star Wars: Episode IV, a space epic.",
+            "Because you liked Star Wars: Episode IV",
+        ),
+        ("A tight heist in one night.", None),
+    ],
+)
+def test_the_lead_kept_is_given_with_the_whole_reason(model, monkeypatch, reason, lead):
+    model["items"] = [_item(NAMES[0], reason)]
+    _check_with(monkeypatch, lambda item, at: _found(item, at + 1))
+    taste = Taste(liked=["Alibi", NEW_HOPE, "Star Wars: Episode IV"], played=["Harbour"])
+    (title,) = _answer(Question(text="films I would like"), taste)["titles"]
+    assert title["reason_lead"] == lead
+    assert title["reason"].startswith(lead or "") and title["reason"].endswith(reason[-8:])
+
+
+def test_forty_titles_are_asked_for_and_thirty_six_kept(model, monkeypatch):
+    monkeypatch.setattr(answers, "CHECKERS", 1)
+    names = [f"Film {n}" for n in range(50)]
+    model["items"] = [_item(n) for n in names]
+    checked = []
+
+    def check(client, item, q):
+        checked.append(item["title"])
+        return _found(item, names.index(item["title"]) + 1)
+
+    monkeypatch.setattr(answers, "_checked", check)
+    assert [t["title"] for t in _answer()["titles"]] == names[:36]
+    assert "up to 40 titles" in model["prompts"][0]
+
+    # Five of the first forty not real: the rest of the forty are kept, and none past them asked.
+    checked.clear()
+    monkeypatch.setattr(
+        answers,
+        "_checked",
+        lambda client, item, q: None if names.index(item["title"]) < 5 else check(client, item, q),
+    )
+    assert [t["title"] for t in _answer()["titles"]] == names[5:40]
+    assert checked == names[5:40]
 
 
 def test_with_no_taste_sent_no_because_you_liked_is_kept(model, monkeypatch):
@@ -246,6 +314,17 @@ def test_a_plain_question_uses_their_taste_only_to_choose(model, monkeypatch):
         ("a film for my mum", True),
         ("a heist that goes wrong", False),
         ("films like Inside Out", False),
+        ("films like Me Before You", False),
+        ("shows like my favourites", True),
+        ("someone like me", True),
+        ("films like I would pick", True),
+        ("World War I films", False),
+        ("Rocky I", False),
+        ("Star Wars Episode I and its sequels", False),
+        ("something I'd like", True),
+        ("what should I watch", True),
+        ("Films I would like", True),
+        ("we've seen all of Rocky", True),
     ],
 )
 def test_a_question_about_the_asker_is_personal(text, personal):

@@ -434,13 +434,19 @@ def api_ask(
         return respond_err("too_short", status=400)
     key = _question_key(text)
     skip: frozenset[tuple[str, int]] = frozenset()
+    skip_titles: frozenset[tuple[str, str]] = frozenset()
     if ai.is_personal(text) and repo.uses_history(conn, user_id):
         # Answered from their taste, so asked afresh once it changes; never what they played.
         key += "\n" + repo.taste_stamp(conn, user_id, username)
-        skip = frozenset((p.kind, p.tmdb_id) for p in person_plays(conn, username) if p.tmdb_id)
+        plays = person_plays(conn, username)
+        skip = frozenset((p.kind, p.tmdb_id) for p in plays if p.tmdb_id)
+        # A play's year is not known, so its title alone stands for it.
+        skip_titles = frozenset(
+            (p.kind, catalog.normalise_title(p.title)) for p in plays if not p.tmdb_id
+        )
     if _RELATIVE_RE.search(text):
         key += "\n" + now_utc().date().isoformat()
-    question = ai.Question(text=text, skip=skip)
+    question = ai.Question(text=text, skip=skip, skip_titles=skip_titles)
     return _answer(request, conn, client, user_id, username, "ask", key, question, body.refine)
 
 
@@ -729,6 +735,8 @@ def _card(
         "season_count": title["season_count"],
         "genre": title["genre"],
         "reason": title["reason"],
+        # An answer kept from before the lead was given has none.
+        "reason_lead": title.get("reason_lead"),
         "play_href": play_href(film) if film else None,
     }
 
