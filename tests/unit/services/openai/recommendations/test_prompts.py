@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -333,6 +334,14 @@ class TestPersonalPrompt:
 
 
 class TestTrendingPrompt:
+    @pytest.mark.parametrize("web", [True, False])
+    def test_the_prompt_names_today_with_its_year_once(self, monkeypatch, web):
+        calls = _answering(monkeypatch)
+        monkeypatch.setattr(prompts, "is_web_search_enabled", lambda _conn: web)
+        monkeypatch.setattr(prompts, "now_utc", lambda: datetime(2026, 11, 25, 12, tzinfo=UTC))
+        prompts.generate_trending(None)
+        assert calls[0][0].startswith("Today is 25 November 2026. ")
+
     @pytest.mark.parametrize("web", [True, False])
     def test_the_model_is_told_to_search_only_when_it_can(self, monkeypatch, web):
         calls = _answering(monkeypatch)

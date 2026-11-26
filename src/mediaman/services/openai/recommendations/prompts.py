@@ -320,7 +320,7 @@ def generate_trending(
     from mediaman.core.format import format_day_month as _fmt_dm
 
     now = now_utc()
-    today = f"{_fmt_dm(now, long_month=True)} {now.year}"
+    today = _fmt_dm(now, long_month=True)
     if is_web_search_enabled(conn):
         last_week_end = now - timedelta(days=now.weekday() + 1)
         last_week_start = last_week_end - timedelta(days=6)
