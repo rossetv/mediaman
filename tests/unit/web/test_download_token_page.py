@@ -505,9 +505,12 @@ class TestPollingCapability:
         assert not (poll_payload.get("svc") == "radarr" and poll_payload.get("tmdb") == 99)
 
     def test_status_endpoint_accepts_poll_token(
-        self, app_factory, conn, secret_key, templates_stub
+        self, app_factory, conn, secret_key, templates_stub, monkeypatch
     ):
         """GET /api/download/status with a valid poll_token returns 200 without admin session."""
+        monkeypatch.setattr(
+            "mediaman.web.routes.download.status.library_title", lambda *a: "movie-1"
+        )
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
