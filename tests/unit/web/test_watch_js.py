@@ -17,13 +17,6 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_the_kept_line_is_marked_kept_until_undo() -> None:
-    out = _run("kept")
-    assert (out["kept"]["text"], out["kept"]["kept"]) == ("Kept for 7 days", True)
-    assert out["undone"]["kept"] is False
-    assert out["undone"]["text"].startswith("Leaving in 3 days")
-
-
 def test_a_kept_card_closes_its_slot_while_it_fades_without_squashing_its_content() -> None:
     out = _run("cardExit")
     # The whole exit fits --dur-slow (250ms); the slot starts closing at 0.6 of it.

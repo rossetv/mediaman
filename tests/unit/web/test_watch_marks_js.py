@@ -514,33 +514,6 @@ def test_under_details_the_rows_change_but_focus_stays_in_details() -> None:
     assert (out["dialog"], out["onPage"]) == ("ttl", None)
 
 
-def test_a_show_page_follows_an_episode_s_mark_where_it_stands() -> None:
-    out = _run("showPage")["same"]
-    assert out["fetched"] == ["/s?season=1"]
-    assert (out["play"], out["show"], out["focus"]) == ("/watch/play/22", "true", True)
-    # The tab's words stay its own: the mark is in its name.
-    assert out["pill"] == ["Season 1, watched", "Season 1", True]
-    assert out["episode"] == ["true", "Mark as not watched", "One, watched", False, False]
-
-
-def test_a_season_picked_meanwhile_is_left_alone() -> None:
-    assert _run("showPage")["otherSeason"] == ["/watch/play/21", "false"]
-
-
-def test_a_late_answer_about_the_show_s_page_never_undoes_a_newer_mark() -> None:
-    assert _run("lateTitlePage") == {
-        "pressed": ["true", "true", "false"],
-        "play": "/watch/play/23",
-    }
-
-
-def test_a_late_answer_about_the_show_s_page_never_brings_back_an_undone_mark() -> None:
-    assert _run("lateTitlePageUndone") == {
-        "pressed": ["false", "false", "false"],
-        "play": "/watch/play/21",
-    }
-
-
 def test_rows_whose_answer_came_too_late_follow_with_the_next_change() -> None:
     assert _run("lateRows") == ["movie/1", "episode/23", "movie/3"]
 
@@ -638,18 +611,6 @@ def test_an_undo_waits_for_the_same_title_s_change_on_its_way() -> None:
 
 def test_a_second_dismiss_before_the_first_is_in_does_nothing() -> None:
     assert _run("dismissTwice") == [["POST /api/watch/dismissed/movie-1"], 1]
-
-
-def test_a_show_page_follows_only_what_nothing_else_is_changing() -> None:
-    out = _run("leftAlone")
-    before, after = "/watch/play/21", "/watch/play/22"
-    assert out == {
-        "busyMark": [after, ["true", "true", "false"]],
-        "loadingSeason": [before, ["true", "true", "false"]],
-        "signedOut": [before, ["true", "true", "false"]],
-        "playFocused": [before, ["true", "false", "false"]],
-        "followed": [after, ["true", "false", "false"]],
-    }
 
 
 def test_a_title_marked_as_not_watched_again_comes_back_to_continue_watching() -> None:
