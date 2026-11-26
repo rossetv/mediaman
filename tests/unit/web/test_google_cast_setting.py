@@ -75,8 +75,9 @@ def test_an_admin_is_told_which_addresses_older_tvs_take(app, authed_client, con
     for said in (hint, needs):
         assert "home address or its name" in said
         assert "http://nas.local:8282" in said
-        assert "A name on the internet needs https://" in said
+        assert "A name or address on the internet needs https://" in said
         assert "any address" not in said
+    assert "An IPv6 address goes in square brackets there, such as [fd00::10]." in needs
 
 
 def _scripts(path: str, conn, stored: str) -> str:

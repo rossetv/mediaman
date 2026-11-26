@@ -134,7 +134,7 @@ def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
     assert https[0] is None
     assert "https" in https[1]
     assert http[0] is None
-    assert "Plain http" in http[1]
+    assert http[1] == "Older TVs can use this only while Plain http for older TVs is on."
     assert named[0] == "true"
     assert "https://" in named[1]
     for refused in (public, public_6):
@@ -150,9 +150,13 @@ def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
     assert link_local[0] == "true"
     assert "can’t reach this kind of address" in link_local[1]
     assert "fe80" not in link_local[1]
-    *home_names, foreign_name, foreign_mapped = said[16:]
+    *home_names, foreign_name, foreign_mapped = said[16:22]
     assert [kind[0] for kind in home_names] == [None] * 4
     assert foreign_name[0] == foreign_mapped[0] == "true"
+    self_given = said[22]
+    assert self_given[0] == "true"
+    assert "gives itself" in self_given[1]
+    assert "internet" not in self_given[1]
 
 
 def test_the_save_bar_saves_the_settings_and_minds_nothing_typed_to_add_a_tv() -> None:

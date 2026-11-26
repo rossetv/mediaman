@@ -117,6 +117,11 @@ def _validate_tv_address(v: str) -> str:
                 "must be a home address and not a link-local one: "
                 "use this server's other address or its name"
             )
+        if parts.scheme != "https" and ip.version == 4 and ip.is_link_local:
+            raise ValueError(
+                "must be a home address and not a self-assigned one: "
+                "use this server's other address or its name"
+            )
         if parts.scheme != "https" and not any(ip in net for net in _HOME_NETWORKS):
             raise ValueError(
                 "must be a home address and not one of another network: "

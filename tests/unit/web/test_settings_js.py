@@ -232,8 +232,9 @@ _REFUSED_TV_ADDRESSES = {
     "https://[::1]": "localhost",
     "http://[fe80::1]:8282": "a kind of address a TV can’t reach. Use this server’s home address or its name",
     "https://:8282": "needs a server name",
-    "http://[fd00::1%25en0]": "such as http://192.168.1.10:8282, or a name with https",
-    "https://1.2.3": "such as http://192.168.1.10:8282, or a name with https",
+    "http://[fd00::1%25en0]": "must be this server’s home address or its name, such as http://nas.local:8282",
+    "https://1.2.3": "must be this server’s home address or its name, such as http://nas.local:8282",
+    "http://169.254.1.1": "is an address a device gives itself, and it changes",
 }
 
 
@@ -246,6 +247,8 @@ def test_a_refused_tv_address_is_told_what_is_wrong_with_it() -> None:
     told = dict(zip(_REFUSED_TV_ADDRESSES, _run("tvAddressError", json.dumps(said)), strict=True))
     wrong = {t: w for t, w in told.items() if _REFUSED_TV_ADDRESSES[t] not in w}
     assert wrong == {}
+    assert [w for w in told.values() if "192.168.1.10" in w or "example.com" in w] == []
+    assert "internet" not in told["http://169.254.1.1"]
 
 
 def test_a_refused_save_brings_the_refused_field_out_from_under_the_bar() -> None:

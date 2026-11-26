@@ -561,6 +561,9 @@
         bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address or its name.';
       } else if (/^\[fe[89ab]/i.test(host)) {
         bad = 'A TV can’t reach this kind of address. Use this server’s home address or its name, such as http://nas.local:8282.';
+      } else if (/^http:/i.test(value) && /^169\.254\./.test(host)) {
+        bad = 'A device gives itself this address, and it changes, so TVs can’t rely on it. Use this server’s home ' +
+          'address or its name, such as http://nas.local:8282.';
       } else if (/^http:/i.test(value) && (/^\d+(\.\d+){3}$/.test(host) &&
           !/^(10|192\.168|172\.(1[6-9]|2\d|3[01])|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./.test(host) ||
           /^\[/.test(host) && !/^\[f[cd]/i.test(host))) {
@@ -575,7 +578,7 @@
         bad = 'A name on the internet needs https://. With http://, use a home name: one word, or one that ends in .local, ' +
           '.lan, .home.arpa or .internal.';
       } else if (/^http:/i.test(value) && document.getElementById('older_tvs_http').value !== 'true') {
-        warn = 'This starts with http, which older TVs may use only with Plain http for older TVs on.';
+        warn = 'Older TVs can use this only while Plain http for older TVs is on.';
       }
       hint.textContent = bad || warn || usual;
       hint.classList.toggle('is-bad', !!bad);

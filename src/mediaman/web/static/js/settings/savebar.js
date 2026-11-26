@@ -383,9 +383,9 @@
     [/must include a host/i, 'needs a server name after http:// or https://.'],
     [/home address after http/i, 'must start with http:// before a home address, or https:// before a name.'],
     [/home address with nothing after it/i, 'must have nothing after the server name or port, such as ' +
-      'http://192.168.1.10:8282 or https://mediaman.example.com.'],
+      'http://nas.local:8282.'],
     [/home address with no sign-in/i, 'must have no sign-in: leave out the @ and what stands before it.'],
-    [/home address with a port in use/i, 'needs a port from 1 to 65535, such as 8282 in http://192.168.1.10:8282.'],
+    [/home address with a port in use/i, 'needs a port from 1 to 65535, such as 8282 in http://nas.local:8282.'],
     [/home address in plain characters/i, 'can have no spaces, no accents and no letters other than a to z.'],
     [/home address or a valid name/i, 'needs a server name of letters a to z, digits, dots and hyphens. Between ' +
       'the dots are 1 to 63 of them, with no hyphen first or last.'],
@@ -393,12 +393,13 @@
       'address or its name, such as http://nas.local:8282.'],
     [/home address and not a link-local/i, 'is a kind of address a TV can’t reach. Use this server’s home address or ' +
       'its name, such as http://nas.local:8282.'],
+    [/home address and not a self-assigned/i, 'is an address a device gives itself, and it changes, so TVs can’t ' +
+      'rely on it. Use this server’s home address or its name, such as http://nas.local:8282.'],
     [/home address and not one of another/i, 'needs https:// before an address on the internet. With http://, use this ' +
       'server’s home address or its name, such as http://nas.local:8282.'],
     [/home address, or a name with https/i, 'needs https:// before a name on the internet. With http://, use a home ' +
       'name: one word, such as http://nas:8282, or one that ends in .local, .lan, .home.arpa or .internal.'],
-    [/must be a home address/i, 'must be this server’s home address, such as http://192.168.1.10:8282, or a name ' +
-      'with https, such as https://mediaman.example.com.'],
+    [/must be a home address/i, 'must be this server’s home address or its name, such as http://nas.local:8282.'],
     [/invalid URL/i, 'is not a valid address.'],
     [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
     [/start or end with \*{4}/, 'cannot start or end with ****.'],
