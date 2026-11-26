@@ -64,6 +64,9 @@ def media_base(conn: sqlite3.Connection) -> str:
             "The address TVs use starts with http. Turn on Plain http for older TVs in Settings.",
         )
     host = urlsplit(base).hostname or ""
+    # The host check sees an IPv6 address in its brackets, as the TV sends it.
+    if ":" in host:
+        host = f"[{host}]"
     if not _is_let_in(host):
         raise Refusal(
             "host_not_allowed",

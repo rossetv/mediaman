@@ -324,6 +324,17 @@ def test_a_host_the_app_does_not_answer_to_is_named_with_what_to_do(
     assert shown.urls == []
 
 
+def test_an_ipv6_address_is_named_in_the_form_the_host_check_takes(
+    shown, client, conn, monkeypatch
+) -> None:
+    monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "fd00::10")
+    conn.execute("UPDATE settings SET value = 'http://[fd00::10]:8282' WHERE key = 'tv_address'")
+    conn.commit()
+    got = _picture(client)
+    assert (got.status_code, got.json()["error"]) == (409, "host_not_allowed")
+    assert "does not hold [fd00::10]." in got.json()["message"]
+
+
 @pytest.mark.parametrize(
     ("allowed", "address"),
     [
@@ -331,6 +342,7 @@ def test_a_host_the_app_does_not_answer_to_is_named_with_what_to_do(
         ("*", HOST),
         ("", HOST),
         ("*.other.example", "https://TV.other.example"),
+        ("[fd00::10]", "http://[fd00::10]:8282"),
     ],
 )
 def test_a_host_the_app_answers_to_is_used(
