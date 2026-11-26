@@ -226,12 +226,19 @@ def is_not_plex_reply(exc: Exception) -> bool:
     """Whether ``exc`` is what plexapi raises on a 200 that is not a Plex server's answer.
 
     A web page or another service's JSON does not parse as XML; an empty body, or XML
-    that is not Plex's, parses to nothing and plexapi then fails on that ``None``. Any
-    other TypeError or AttributeError is a programming error and is not matched.
+    that is not Plex's, parses to nothing and plexapi then fails on that ``None``. A
+    TypeError or AttributeError counts only when it was raised inside plexapi, so one
+    from our own code is a programming error and keeps its traceback.
     """
     if isinstance(exc, ParseError):
         return True
-    return isinstance(exc, (TypeError, AttributeError)) and "'NoneType'" in str(exc)
+    if not isinstance(exc, (TypeError, AttributeError)):
+        return False
+    tb = exc.__traceback__
+    while tb is not None and tb.tb_next is not None:
+        tb = tb.tb_next
+    module = str(tb.tb_frame.f_globals.get("__name__", "")) if tb else ""
+    return module == "plexapi" or module.startswith("plexapi.")
 
 
 def _not_plex(exc: Exception) -> JSONResponse:
