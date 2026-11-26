@@ -744,7 +744,7 @@ def test_a_person_who_unpairs_leaves_the_others_the_tv_and_ends_only_their_own_f
     assert bob.delete(f"/api/tvs/{shared}").status_code == 200
     assert (tv.poll()["play"] is not None) == plays_on
     assert tv.poll()["people"] == ["amy"]
-    assert bob.get(f"/api/tvs/{shared}").status_code == 404
+    assert bob.get(f"/api/tvs/{shared}").status_code == 410
     assert _tv_of(amy, shared)["people"] == ["amy"]
 
 
@@ -776,6 +776,83 @@ def test_a_password_change_or_removal_unpairs_only_that_person(tv, shared, amy, 
         assert delete_user(conn, user_id, "root")
     ready = tv.poll()
     assert (ready["owner"], ready["people"], ready["play"]["by"]) == ("bob", ["bob"], "bob")
+
+
+@pytest.mark.parametrize("what", ["next", "again", "subtitles"])
+def test_the_film_of_someone_no_longer_paired_goes_on_for_nobody(tv, shared, amy, bob, conn, what):
+    _play(amy, shared, "501")
+    tv.poll("playing", 70)
+    conn.execute("UPDATE admin_users SET password_hash = 'other' WHERE username = 'amy'")
+    conn.commit()
+    asked = _command(bob, shared, what, subtitle="off")
+    assert asked.status_code == 409
+    assert tv.poll()["play"] is None
+
+
+def test_a_viewer_leaves_a_shared_tv_and_cannot_unpair_it_for_everyone(tv, shared, amy, bob):
+    assert bob.delete(f"/api/tvs/{shared}?everyone=1").status_code == 403
+    assert tv.poll()["people"] == ["amy", "bob"]
+
+
+def test_an_admin_unpairs_a_shared_tv_for_everyone(tv, shared, amy, bob, person):
+    root = person("root", role="admin")
+    assert root.delete(f"/api/tvs/{shared}?everyone=1").status_code == 200
+    assert tv.post("poll").status_code == 404
+
+
+def test_the_others_are_told_who_stopped_a_film_even_their_own(tv, shared, amy, bob):
+    _play(amy, shared)
+    tv.poll("playing", 70)
+    _command(amy, shared, "stop")
+    assert _tv_of(bob, shared)["last"]["stopped_by"] == "amy"
+
+
+def test_leaving_while_ones_film_plays_counts_as_stopping_it(tv, shared, amy, bob):
+    _play(bob, shared)
+    tv.poll("playing", 70)
+    bob.delete(f"/api/tvs/{shared}")
+    assert _tv_of(amy, shared)["last"]["stopped_by"] == "bob"
+
+
+def test_who_stopped_started_or_removed_is_said_in_these_fields(tv, shared, amy, bob, person):
+    _play(amy, shared)
+    tv.poll("playing", 70)
+    _play(bob, shared, "102", confirm=True)
+    hers, his = _tv_of(amy, shared)["play"], _tv_of(bob, shared)["play"]
+    assert (hers["started_by"], hers["replaced"]) == ("bob", {"title": "Film", "place_kept": True})
+    assert (his["started_by"], his["replaced"]) == (None, None)
+    tv.poll("playing", 10)
+    _command(amy, shared, "stop")
+    hers, his = _tv_of(amy, shared)["last"], _tv_of(bob, shared)["last"]
+    assert (hers["stopped_by"], hers["mine"], his["stopped_by"], his["mine"]) == (
+        None,
+        False,
+        "amy",
+        True,
+    )
+    _play(bob, shared)
+    root = person("root", role="admin")
+    root.delete(f"/api/tvs/{shared}/people/bob")
+    removed = bob.get(f"/api/tvs/{shared}")
+    assert (removed.status_code, removed.json()) == (
+        410,
+        {
+            "ok": False,
+            "error": "removed",
+            "reason": "removed",
+            "by": "root",
+            "tv": "TV",
+            "stopped": "Film",
+        },
+    )
+    assert _tv_of(amy, shared)["last"]["stopped_by"] == "root"
+    tv.pair(bob)
+    bob.delete(f"/api/tvs/{shared}")
+    left = bob.post(f"/api/tvs/{shared}/commands", json={"kind": "stop"})
+    assert (left.status_code, left.json()) == (
+        410,
+        {"ok": False, "error": "left", "reason": "left", "by": None, "tv": "TV", "stopped": None},
+    )
 
 
 # ── what ends a pairing ──

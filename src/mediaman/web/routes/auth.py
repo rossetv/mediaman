@@ -38,6 +38,7 @@ from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.models._common import _MAX_USERNAME_LEN
 from mediaman.web.responses import respond_err
 from mediaman.web.routes.plex_link import carry_attempt
+from mediaman.web.routes.tv import end_plays_of
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,7 @@ def _flag_weak_password(
     if weak_password:
         already_flagged = user_must_change_password(conn, username)
         set_must_change_password(conn, username, True)
+        end_plays_of(username)
         if not already_flagged:
             logger.info(
                 "auth.weak_password_detected user=%s ip=%s — flagged for rotation",
