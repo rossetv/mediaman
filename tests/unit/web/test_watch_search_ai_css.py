@@ -91,3 +91,43 @@ def test_the_pill_has_an_edge_and_the_system_s_colours_in_forced_colours() -> No
     forced = " ".join(_media_blocks(CSS, "(forced-colors: active)"))
     body = _body(forced, PILL)
     assert "border: 1px solid ButtonText" in body and "color: ButtonText" in body
+
+
+def _decl(body: str, prop: str) -> str:
+    found = re.findall(rf"(?<![\w-]){re.escape(prop)}:\s*([^;]+);", body)
+    assert found, prop
+    return found[-1].strip()
+
+
+def test_the_ai_ring_takes_the_resting_field_s_shape_so_none_of_it_is_cut_off() -> None:
+    pill = _body(CSS, ".watch-search__pill")
+    clip = re.search(r"clip-path:\s*inset\((.+?) round", pill)
+    assert clip
+    ring = _body(CSS, ".watch-search__pill::after")
+    assert _decl(ring, "inset") == clip.group(1)
+    # It follows the field as it grows and shrinks, as the cut does.
+    clip_move = re.search(r"clip-path (var\(--dur-open\) var\(--ease-spring\))", pill)
+    assert clip_move and f"inset {clip_move.group(1)}" in _decl(ring, "transition")
+
+
+def test_the_halo_s_colour_turns_with_the_ring_not_after_it() -> None:
+    moves = [
+        m.split()[0] for m in _decl(_body(CSS, ".watch-search__halo"), "transition").split(",")
+    ]
+    focus = _body(CSS, ".watch-search.is-focus .watch-search__halo")
+    delays = [d.strip() for d in _decl(focus, "transition-delay").split(",")]
+    # A shorter list of delays repeats over the transitions.
+    delay = delays[moves.index("outline-color") % len(delays)]
+    assert float(delay.rstrip("s")) == 0, delay
+
+
+def test_on_a_phone_held_sideways_the_pill_folds_once_the_field_is_left() -> None:
+    sideways = " ".join(_media_blocks(CSS, "(max-height: 500px) and (pointer: coarse)"))
+    body = _body(sideways, ".watch-search.is-ai:not(.is-focus) .watch-search__ai")
+    for part in ("max-width: 0", "opacity: 0", "visibility: hidden", "pointer-events: none"):
+        assert part in body, part
+
+
+def test_a_person_chip_s_initials_sit_in_the_middle_of_its_face() -> None:
+    face = _body(CSS, ".watch-try--for > .watch-face")
+    assert _decl(face, "display") == "grid" and _decl(face, "place-items") == "center"
