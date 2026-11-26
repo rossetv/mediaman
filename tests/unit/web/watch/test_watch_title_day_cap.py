@@ -11,6 +11,7 @@ from tests.unit.web.watch.test_watch_catalog_api import (  # noqa: F401
     _fresh_memo,
     arr,
     library,
+    plex,
     tmdb,
     viewer,
 )
@@ -22,7 +23,7 @@ class TestTitleDayCap:
         monkeypatch.setattr(catalog_api, "_TITLE_DAY_LIMITER", ActionRateLimiter(1, 3600))
 
         viewer.get("/api/watch/title/tmdb-movie-12")
-        resp = viewer.get("/api/watch/title/tmdb-movie-11")
+        resp = viewer.get("/api/watch/title/tmdb-movie-13")
 
         assert resp.status_code == 429
         body = resp.json()
@@ -30,11 +31,25 @@ class TestTitleDayCap:
         assert 3590 <= body["retry_after"] <= 3600
         assert resp.headers["Retry-After"] == str(body["retry_after"])
 
+    def test_a_title_the_library_holds_opens_at_the_days_cap(
+        self, viewer, tmdb, arr, plex, monkeypatch
+    ):
+        monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
+        monkeypatch.setattr(catalog_api, "_TITLE_DAY_LIMITER", ActionRateLimiter(1, 3600))
+
+        viewer.get("/api/watch/title/tmdb-movie-12")
+        resp = viewer.get("/api/watch/title/tmdb-movie-11")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert (body["in_library"], body["library_ref"]) == (True, "movie-100")
+        assert body["title"] == "The Glasshouse"
+
     def test_the_query_limit_keeps_the_plain_answer(self, viewer, tmdb, arr, monkeypatch):
         monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
         monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(0, 60))
 
-        resp = viewer.get("/api/watch/title/tmdb-movie-11")
+        resp = viewer.get("/api/watch/title/tmdb-movie-13")
 
         assert resp.status_code == 429
         assert resp.json()["error"] == "too_many_requests"

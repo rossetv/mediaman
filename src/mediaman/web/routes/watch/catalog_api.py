@@ -1201,8 +1201,8 @@ def api_watch_title(
             wait = _TITLE_DAY_LIMITER.retry_after(username)
             capped = respond_err("title_day_limit", status=429, retry_after=wait)
             capped.headers["Retry-After"] = str(wait)
-            return capped
-        return respond_err("too_many_requests", status=429)
+            return without_tmdb(capped)
+        return without_tmdb(respond_err("too_many_requests", status=429))
     except catalog.TmdbBusy:
         return without_tmdb(respond_err("too_many_requests", status=429))
     except catalog.TitleNotFound:
