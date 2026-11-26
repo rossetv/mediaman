@@ -733,15 +733,6 @@
 .watch-back:hover { color: var(--accent-hi); }
 .watch-hero__info { display: flex; flex-direction: column; gap: 12px; max-width: 720px; min-width: 0; }
 .watch-hero__summary { font-size: 15px; line-height: 1.5; color: var(--t2); }
-/* The line keeps the Keep button's height when it is kept or empty (a season
-   that is not leaving), so Resume and the season tabs never move under a tap. */
-.watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 32px; font-size: 14px; color: var(--danger-text); }
-.watch-leaving--kept { color: var(--success); }
-/* Another season is leaving, not this one: said quietly, with no Keep. */
-.watch-leaving--other { color: var(--t2); }
-.watch-leaving:focus { outline: none; }
-.watch-leaving:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
-
 .watch-seasons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .watch-seasons.watch-row__scroll { flex-wrap: nowrap; margin: 0; padding-block: 6px; }
 .watch-seasons > .watch-pill { flex: none; scroll-snap-align: start; white-space: nowrap; }
@@ -910,8 +901,7 @@
 
 /* Phones and touch screens: the Keep button grows to 44px, the pill stays. */
 @media (pointer: coarse), (max-width: 599.98px) {
-  .watch-keep,
-  .watch-leaving { min-height: 44px; }
+  .watch-keep { min-height: 44px; }
   .watch-keep::before { inset: 6px 0; }
   .watch-keep::after { content: none; }
 }
