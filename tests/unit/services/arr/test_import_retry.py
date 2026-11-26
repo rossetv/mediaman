@@ -84,6 +84,8 @@ class Arrs:
         self.slow: set[str] = set()
         # Paths of a film or a show answered with a 500.
         self.broken: set[str] = set()
+        # Reads of a film or a show, with their query, that time out.
+        self.hanging: set[str] = set()
         # The status a command is refused with, if it is.
         self.refusing = 0
         # Whether a DELETE leaves its record in the queue, as a download client that would not
@@ -118,6 +120,8 @@ class Arrs:
                 raise requests.ReadTimeout("no answer")
             if parts.path in self.broken:
                 return _fake_response(status=500, json_data={})
+            if self.reads[-1][1] in self.hanging:
+                raise requests.ReadTimeout("no answer")
         if parts.path == "/api/v3/queue":
             records = self.queues[service]
             return _fake_response(
@@ -1056,3 +1060,28 @@ def test_a_film_whose_read_fails_keeps_no_other_film_from_getting_its_tries_back
     arrs.poll()
 
     assert _rows(arrs) == {"radarr:77"}
+
+
+def test_a_title_tried_a_month_ago_whose_copy_is_still_queued_keeps_its_tries(arrs):
+    _tried(arrs, "radarr:9", ago=timedelta(days=31), tries=2)
+    arrs.movies = [_dune()]
+    arrs.queues["radarr"] = [
+        _stuck_film(40, trackedDownloadStatus="ok", trackedDownloadState="importing")
+    ]
+    arrs.poll()
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.poll(timedelta(minutes=5))
+    _hourly(arrs, 3)
+
+    assert [c for c in arrs.changes() if c[0] == "DELETE"] == []
+
+
+def test_a_season_whose_read_never_answers_holds_back_no_other_show_for_good(arrs):
+    _tried(arrs, "sonarr:5:11")
+    _tried(arrs, "sonarr:5:13", [501])
+    arrs.hanging = {"/api/v3/episode?seriesId=5&seasonNumber=11"}
+    arrs.files = {501: arrs.at()}
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert _rows(arrs) == {"sonarr:5:11"}

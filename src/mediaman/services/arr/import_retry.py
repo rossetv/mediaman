@@ -534,7 +534,7 @@ def _after(text: object, since: datetime) -> bool:
     return added is not None and added > since
 
 
-def _forget_imported(conn: sqlite3.Connection, secret_key: str) -> None:
+def _forget_imported(conn: sqlite3.Connection, secret_key: str, now: datetime) -> None:
     """Forget each title tried before whose film, or an episode its last try was for, has a file
     added since that try began, so its tries start again: a file it had before, as of a copy that
     was not an upgrade, gives nothing back. Forget one gone from Radarr or Sonarr too, once the
@@ -542,7 +542,7 @@ def _forget_imported(conn: sqlite3.Connection, secret_key: str) -> None:
 
     A search still to send keeps its row. Each title is asked with one short try; one whose read
     fails is asked again next run, and a service that gives no answer is not asked again in this
-    one.
+    one. Each run starts at another title, so one that never answers holds back no other for good.
     """
     clients: dict[str, Any] = {}
     shows: dict[int, bool] = {}
@@ -550,10 +550,12 @@ def _forget_imported(conn: sqlite3.Connection, secret_key: str) -> None:
     answered: set[str] = set()
     gone: list[tuple[str, str]] = []
     forget = "DELETE FROM arr_import_retries WHERE key=? AND tried_at=? AND search IS NULL"
-    for key, tried_at, episodes in conn.execute(
+    rows = conn.execute(
         "SELECT key, tried_at, tried_episodes FROM arr_import_retries"
-        " WHERE tries > 0 AND search IS NULL AND tried_at IS NOT NULL"
-    ).fetchall():
+        " WHERE tries > 0 AND search IS NULL AND tried_at IS NOT NULL ORDER BY key"
+    ).fetchall()
+    start = int(now.timestamp() // _STUCK_FOR.total_seconds()) % len(rows) if rows else 0
+    for key, tried_at, episodes in rows[start:] + rows[:start]:
         service = key.partition(":")[0]
         began = parse_iso_utc(tried_at)
         if service in down or began is None:
@@ -587,15 +589,16 @@ def _forget_imported(conn: sqlite3.Connection, secret_key: str) -> None:
                 conn.execute(forget, (key, tried_at))
 
 
-def _expire(conn: sqlite3.Connection, now: datetime) -> None:
-    """Forget each title out of the queue and not being tried that was last tried ``_KEPT_FOR``
-    ago, with its tries."""
+def _expire(conn: sqlite3.Connection, now: datetime, cards: Sequence[Mapping[str, object]]) -> None:
+    """Forget each title out of the queue of *cards* and not being tried that was last tried
+    ``_KEPT_FOR`` ago, with its tries."""
+    queued = {unit.key for _card, unit in _units(cards)}
     for key, tried_at in conn.execute(
         "SELECT key, tried_at FROM arr_import_retries WHERE tried_at IS NOT NULL"
         " AND stuck_since IS NULL AND retried_at IS NULL AND search IS NULL"
     ).fetchall():
         began = parse_iso_utc(tried_at)
-        if began is not None and now - began >= _KEPT_FOR:
+        if key not in queued and began is not None and now - began >= _KEPT_FOR:
             with conn:
                 conn.execute(
                     "DELETE FROM arr_import_retries WHERE key=? AND tried_at=?"
@@ -611,8 +614,8 @@ def retry_stuck_imports(
     before could not, and remove and search again for each download of *cards* that has not
     imported for an hour, this last not while the setting is off. A service that gives no
     answer to a search or a removal is not sent another in this run."""
-    _expire(conn, now_utc())
-    _forget_imported(conn, secret_key)
+    _expire(conn, now_utc(), cards)
+    _forget_imported(conn, secret_key, now_utc())
     down: set[str] = set()
     for key, search, shown, retried_at in conn.execute(
         "SELECT key, search, shown, retried_at FROM arr_import_retries"
