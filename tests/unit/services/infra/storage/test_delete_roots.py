@@ -52,3 +52,20 @@ def test_denied_folders_are_not_restatted_on_each_validation(tmp_path, monkeypat
     _delete_roots._is_forbidden_root(tmp_path)
 
     assert stated == [str(tmp_path)]
+
+
+@pytest.mark.parametrize("bad", ["", "media/movies", "/"])
+def test_a_refused_root_names_both_places_the_roots_are_read_from(bad):
+    with pytest.raises(DeletionRefused) as refused:
+        delete_path("/media/movies/film", allowed_roots=[bad])
+    assert "MEDIAMAN_DELETE_ROOTS" in str(refused.value)
+    assert "delete_allowed_roots" in str(refused.value)
+
+
+def test_a_symlinked_root_names_both_places_the_roots_are_read_from(tmp_path):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    with pytest.raises(DeletionRefused) as refused:
+        delete_path(str(tmp_path / "link" / "film"), allowed_roots=[str(tmp_path / "link")])
+    assert "MEDIAMAN_DELETE_ROOTS" in str(refused.value)
+    assert "delete_allowed_roots" in str(refused.value)
