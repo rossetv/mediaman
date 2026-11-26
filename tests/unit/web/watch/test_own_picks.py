@@ -12,8 +12,9 @@ from fastapi.testclient import TestClient
 
 from mediaman.core.time import now_iso, now_utc
 from mediaman.services import watch_catalog as catalog
-from mediaman.services.infra import ConfigDecryptError, SSRFRefused
+from mediaman.services.infra import ConfigDecryptError, SafeHTTPError, SSRFRefused
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.openai import client as openai_client
 from mediaman.services.openai.recommendations import prompts, user_picks
 from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
@@ -504,6 +505,29 @@ class TestRefresh:
 
         status = people["amy"].get("/api/watch/picks/refresh").json()
         assert (status["status"], status["my_refresh"]["available"]) == ("failed", True)
+        assert "error" not in status
+
+    @pytest.mark.parametrize(
+        ("exc", "error"),
+        [
+            (SafeHTTPError(401, "", "https://api.openai.com"), "unavailable"),
+            (requests.Timeout("slow"), None),
+        ],
+    )
+    def test_a_refused_key_says_unavailable_and_nothing_else_does(
+        self, people, conn, openai, monkeypatch, exc, error
+    ):
+        def post(*_a, **_k):
+            raise exc
+
+        self._play(conn, "amy", 5)
+        monkeypatch.setattr(openai_client, "_refused_key", None)
+        monkeypatch.setattr(openai_client._OPENAI_CLIENT, "post", post)
+        monkeypatch.setattr(prompts, "call_openai", openai_client.call_openai)
+        people["amy"].post("/api/watch/picks/refresh")
+
+        status = people["amy"].get("/api/watch/picks/refresh").json()
+        assert (status["status"], status.get("error")) == ("failed", error)
 
     @pytest.mark.parametrize(
         ("plays", "setting", "reason"),

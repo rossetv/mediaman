@@ -65,6 +65,7 @@ def openai(monkeypatch):
         return fake.items
 
     monkeypatch.setattr(prompts, "call_openai", call)
+    monkeypatch.setattr(prompts, "ask_openai", call)
     monkeypatch.setattr("mediaman.services.media_meta.tmdb.TmdbClient.from_db", lambda *_a: None)
     monkeypatch.setattr("mediaman.services.media_meta.omdb.fetch_ratings", lambda *_a, **_k: {})
     return fake

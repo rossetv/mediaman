@@ -18,6 +18,7 @@ from urllib.parse import quote as urlquote
 
 from mediaman.core.time import now_utc
 from mediaman.services.openai.client import (
+    ask_openai,
     call_openai,
     holds_domain,
     is_web_search_enabled,
@@ -315,7 +316,7 @@ def generate_trending(
 
     *previous_titles* are titles from the last 30 days, newest first, that GPT is told not
     to repeat. The wording follows whether web search is on, so the model is never told to
-    do something it has no way to do.
+    do something it has no way to do. Raises OpenAIUnavailable when the model gave no answer.
     """
     from mediaman.core.format import format_day_month as _fmt_dm
 
@@ -348,7 +349,7 @@ def generate_trending(
         + f"Return {_ASK_FOR} items.\n\n{_CHOOSING}\n{SHARED_WORDING}\n\n{_ANSWER}"
     )
 
-    items = call_openai(prompt, conn, use_web_search=True, secret_key=secret_key)
+    items = ask_openai(prompt, conn, use_web_search=True, secret_key=secret_key)
     return parse_recommendations(
         items, "trending", sent_titles=[*previous, *(previous_titles or [])[:100]]
     )

@@ -1164,6 +1164,25 @@ def test_an_answer_of_nothing_offers_simpler_questions() -> None:
     assert out["asked"] == ["a western musical film", [Q, "a western musical film"]]
 
 
+def test_a_refused_key_reads_as_unavailable_and_is_not_offered_again() -> None:
+    out = _run("askOutcomes")["refused"]
+    assert out["head"].startswith("AI isn’t available right now")
+    assert "key" not in out["head"].lower()
+    assert (out["again"], out["offered"]) == (None, False)
+
+
+def test_an_answer_that_did_not_come_may_be_tried_again() -> None:
+    out = _run("askOutcomes")["failed"]
+    assert out["head"].startswith("The answer didn’t arrive")
+    assert (out["again"], out["offered"]) == ("Try again", True)
+
+
+def test_an_answer_of_no_titles_says_none_fits_and_keeps_the_question() -> None:
+    out = _run("askOutcomes")["empty"]
+    assert out["head"].startswith("No title fits")
+    assert (out["again"], out["kept"]) == (None, Q)
+
+
 def test_a_chip_narrows_the_answer_and_pressed_again_gives_all_of_it_back() -> None:
     out = _run("askNarrow")
     assert out["sent"] == {"q": Q, "refine": "Funnier"}

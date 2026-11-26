@@ -11,6 +11,7 @@ mediaman.services.openai.recommendations.prompts.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -51,6 +52,9 @@ OPENAI_MODELS: tuple[str, ...] = ("gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra
 # Also used when a stored choice is no longer offered, so an install that saved a
 # retired model keeps working instead of sending OpenAI a model it has dropped.
 _DEFAULT_MODEL = "gpt-6.2-sol"
+
+# The digest of the key OpenAI last refused, in memory only: a changed key is not refused.
+_refused_key: str | None = None
 
 _MARKDOWN_LINK_RE = re.compile(r"\[.*?\]\(.*?\)")
 
@@ -206,10 +210,28 @@ def _parse_response(data: Any) -> list[dict[str, object]] | None:
     return items
 
 
-def _handle_error(exc: Exception) -> list[dict[str, object]]:
-    """Log *exc* and return the empty-batch sentinel [], keeping call_openai's error
-    handling in one place.
-    """
+class OpenAIUnavailable(Exception):
+    """No answer came from OpenAI; *refused* when it refused the API key, or none is set."""
+
+    def __init__(self, *, refused: bool = False) -> None:
+        super().__init__("OpenAI refused the API key" if refused else "OpenAI gave no answer")
+        self.refused = refused
+
+
+def _digest(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode()).hexdigest()
+
+
+def key_refused(conn: sqlite3.Connection | None, secret_key: str | None = None) -> bool:
+    """Whether OpenAI refused the API key now set when it was last sent."""
+    try:
+        api_key = get_openai_key(conn, secret_key)
+    except ValueError:
+        return False
+    return _refused_key is not None and _refused_key == _digest(api_key)
+
+
+def _log_error(exc: Exception) -> None:
     if isinstance(exc, SafeHTTPError):
         if exc.status_code == 401:
             logger.exception("OpenAI API key rejected (401) — check settings")
@@ -221,10 +243,9 @@ def _handle_error(exc: Exception) -> list[dict[str, object]]:
         logger.exception("OpenAI API network error: %s", exc)
     else:
         logger.exception("Failed to parse OpenAI response: %s", exc)
-    return []
 
 
-def call_openai(
+def ask_openai(
     prompt: str,
     conn: sqlite3.Connection | None,
     use_web_search: bool = False,
@@ -238,14 +259,17 @@ def call_openai(
     indirect-prompt-injection surface. *use_web_search* defaults to False so callers
     must opt in alongside the operator setting.
 
-    When web search is active a title that looks adversarial rejects the whole batch and []
-    is returned; a title that holds a domain is left out alone.
+    An empty list is an answer that held nothing. Raises OpenAIUnavailable when no answer
+    came: the key was refused or is not set, OpenAI could not be reached or answered in a
+    shape that cannot be read, or, with web search active, a title looked adversarial (the
+    whole batch is then rejected; a title that holds a domain is left out alone).
     """
+    global _refused_key
     try:
         api_key = get_openai_key(conn, secret_key)
     except ValueError:
         logger.warning("Recommendations skipped — OpenAI API key not configured")
-        return []
+        raise OpenAIUnavailable(refused=True) from None
 
     web_search_active = use_web_search and is_web_search_enabled(conn)
     model = get_openai_model(conn)
@@ -255,29 +279,8 @@ def call_openai(
         resp = _OPENAI_CLIENT.post(
             "/v1/responses", headers=headers, json=body, timeout=_CALL_TIMEOUT
         )
+        _refused_key = None
         items = _parse_response(resp.json())
-        if items is None:
-            return []
-
-        if web_search_active:
-            # Conservative security choice: reject the entire batch on any hostile
-            # title rather than filtering per-item. A single adversarial title
-            # indicates the web-search path may have been manipulated, so the entire
-            # result set is untrusted. A title that only has the shape of a domain
-            # ("Mr.Robot") is the one that is dropped.
-            for item in items:
-                title = str(item.get("title", ""))
-                if _title_hostile(title):
-                    logger.error(
-                        "openai.web_search.batch_rejected title=%r — "
-                        "title failed safety check; entire batch discarded",
-                        title,
-                    )
-                    return []
-            items = [i for i in items if not holds_domain(str(i.get("title", "")))]
-
-        return items
-
     except (
         SafeHTTPError,
         requests.Timeout,
@@ -288,4 +291,43 @@ def call_openai(
         AttributeError,
         RecursionError,
     ) as exc:
-        return _handle_error(exc)
+        _log_error(exc)
+        refused = isinstance(exc, SafeHTTPError) and exc.status_code == 401
+        if refused:
+            _refused_key = _digest(api_key)
+        raise OpenAIUnavailable(refused=refused) from exc
+    if items is None:
+        raise OpenAIUnavailable
+
+    if web_search_active:
+        # Conservative security choice: reject the entire batch on any hostile
+        # title rather than filtering per-item. A single adversarial title
+        # indicates the web-search path may have been manipulated, so the entire
+        # result set is untrusted. A title that only has the shape of a domain
+        # ("Mr.Robot") is the one that is dropped.
+        for item in items:
+            title = str(item.get("title", ""))
+            if _title_hostile(title):
+                logger.error(
+                    "openai.web_search.batch_rejected title=%r — "
+                    "title failed safety check; entire batch discarded",
+                    title,
+                )
+                raise OpenAIUnavailable
+        items = [i for i in items if not holds_domain(str(i.get("title", "")))]
+
+    return items
+
+
+def call_openai(
+    prompt: str,
+    conn: sqlite3.Connection | None,
+    use_web_search: bool = False,
+    *,
+    secret_key: str | None = None,
+) -> list[dict[str, object]]:
+    """ask_openai, with [] when no answer came."""
+    try:
+        return ask_openai(prompt, conn, use_web_search, secret_key=secret_key)
+    except OpenAIUnavailable:
+        return []

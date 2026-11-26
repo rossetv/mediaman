@@ -245,7 +245,8 @@ def refresh_recommendations(
 ) -> int:
     """Generate the new and popular recommendations everyone sees; returns the count
     generated. No viewing data goes into them. Every run replaces today's batch, and drops
-    the stored picks, the people's own too, that TMDB holds for adult titles.
+    the stored picks, the people's own too, that TMDB holds for adult titles. Raises
+    OpenAIUnavailable when the model gave no answer.
     """
     drop_adult_picks(conn, secret_key)
     now = now_utc()

@@ -751,3 +751,50 @@ class TestRefreshExceptionHandling:
         with pytest.raises(ValueError, match="unexpected non-DB error"):
             # Reproduce what happens when ValueError is NOT caught by sqlite3.Error
             raise_value_error(hb_conn, run_id)
+
+
+class TestRefreshWords:
+    """What the admin reads when a refresh made no picks: the key is blamed only when refused."""
+
+    @pytest.mark.parametrize(
+        ("failure", "blames_key"),
+        [
+            ("refused", True),
+            ("timeout", False),
+            ("empty", False),
+        ],
+    )
+    def test_the_key_is_blamed_only_when_openai_refused_it(
+        self, tmp_path, monkeypatch, fake_response, failure, blames_key
+    ):
+        import threading
+
+        import requests
+
+        from mediaman.db import start_refresh_run
+        from mediaman.services.infra import SafeHTTPError
+        from mediaman.services.openai import client as openai_client
+
+        db_path = str(tmp_path / "picks.db")
+        conn = init_db(db_path)
+        insert_settings(conn, openai_api_key="sk-test")
+        run_id = start_refresh_run(conn)
+        empty = {
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "[]"}]}]
+        }
+
+        def post(*_a, **_k):
+            if failure == "refused":
+                raise SafeHTTPError(401, "", "https://api.openai.com")
+            if failure == "timeout":
+                raise requests.Timeout("slow")
+            return fake_response(json_data=empty)
+
+        monkeypatch.setattr(openai_client, "_refused_key", None)
+        monkeypatch.setattr(openai_client._OPENAI_CLIENT, "post", post)
+        _rec_refresh._run_refresh(db_path, "0123456789abcdef" * 4, run_id, threading.Event())
+
+        result = _rec_refresh._get_refresh_result()
+        assert result is not None and result["ok"] is False
+        assert ("key" in str(result["message"]).lower()) is blames_key
+        assert "try again" in str(result["message"]).lower()

@@ -286,6 +286,12 @@ def test_own_picks_that_could_not_be_made_leave_the_row_and_can_be_tried_again()
     assert out["again"]["text"].startswith("Making your picks")
 
 
+def test_own_picks_refused_by_openai_say_the_ai_is_unavailable_and_offer_no_try_again() -> None:
+    out = _run("ownRefreshOff")
+    assert out["text"] == "AI isn’t available right now."
+    assert out["toasts"] == ["AI isn’t available right now."]
+
+
 def test_a_refused_refresh_of_own_picks_says_why_and_keeps_the_focus() -> None:
     out = _run("ownRefused")
     assert (out["wait"]["button"], out["wait"]["focus"]) == ("Refresh in 6 days", "row-tool")

@@ -7,12 +7,14 @@ import json
 from datetime import timedelta
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
 from mediaman.core.time import now_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.openai import client as openai_client
 from mediaman.services.openai.recommendations import personal, prompts
 from mediaman.services.openai.search_assist import answers, phrases, tonight
 from mediaman.services.watch_catalog import _arr, _discover, _library, _title_meta
@@ -81,11 +83,14 @@ class Model:
         self.prompts: list[str] = []
         self.items: list[dict] = []
         self.meanwhile = lambda conn: None
+        self.error: Exception | None = None
 
     def __call__(self, prompt, conn, use_web_search=False, *, secret_key=None):
         assert not use_web_search
         self.prompts.append(prompt)
         self.meanwhile(conn)
+        if self.error is not None:
+            raise self.error
         return self.items
 
 
@@ -121,7 +126,7 @@ def tmdb(monkeypatch):
 def model(monkeypatch):
     fake = Model()
     monkeypatch.setattr(phrases, "call_openai", fake)
-    monkeypatch.setattr(answers, "call_openai", fake)
+    monkeypatch.setattr(answers, "ask_openai", fake)
     return fake
 
 
@@ -467,11 +472,37 @@ class TestAsk:
     def test_no_answer_of_the_model_or_of_tmdb_is_a_failure_that_is_not_kept(
         self, amy, model, tmdb
     ):
-        assert _ask(amy)["status"] == "failed"
-        model.items, tmdb.failing = [_title("Alibi")], True
+        model.error = openai_client.OpenAIUnavailable()
+        assert _ask(amy) == {"ok": True, "status": "failed", "run_id": 1}
+        model.error, model.items, tmdb.failing = None, [_title("Alibi")], True
         assert _ask(amy)["status"] == "failed"
         tmdb.failing = False
         assert _ask(amy)["status"] == "done"
+
+    def test_an_answer_of_no_titles_is_kept_as_nothing_fits(self, amy, model):
+        for _ in range(2):
+            found = _ask(amy)
+            assert (found["status"], found["owned"], found["others"]) == ("done", [], [])
+        assert len(model.prompts) == 1
+
+    @staticmethod
+    def _openai_fails(monkeypatch, exc):
+        def post(*_a, **_k):
+            raise exc
+
+        monkeypatch.setattr(answers, "ask_openai", openai_client.ask_openai)
+        monkeypatch.setattr(openai_client, "_refused_key", None)
+        monkeypatch.setattr(openai_client._OPENAI_CLIENT, "post", post)
+
+    def test_a_refused_key_ends_the_run_as_unavailable(self, amy, monkeypatch):
+        self._openai_fails(monkeypatch, SafeHTTPError(401, "", "https://api.openai.com"))
+        found = _ask(amy)
+        assert (found["status"], found.get("error")) == ("failed", "unavailable")
+
+    def test_openai_out_of_reach_is_a_failure_that_may_be_tried_again(self, amy, monkeypatch):
+        self._openai_fails(monkeypatch, requests.Timeout("slow"))
+        found = _ask(amy)
+        assert (found["status"], found.get("error")) == ("failed", None)
 
     def test_a_crash_ends_the_run_so_the_person_can_ask_again(self, amy, model):
         def crash(_conn):

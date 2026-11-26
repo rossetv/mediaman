@@ -249,6 +249,7 @@ def _answering(monkeypatch, items=()):
         return list(items)
 
     monkeypatch.setattr(prompts, "call_openai", fake)
+    monkeypatch.setattr(prompts, "ask_openai", fake)
     return calls
 
 

@@ -10,13 +10,17 @@ import pytest
 import requests
 
 from mediaman.db import init_db
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.openai import client as client_mod
 from mediaman.services.openai.client import (
     _DEFAULT_MODEL,
+    OpenAIUnavailable,
+    ask_openai,
     call_openai,
     get_openai_key,
     get_openai_model,
     is_web_search_enabled,
+    key_refused,
 )
 from tests.helpers.factories import insert_settings
 
@@ -309,3 +313,97 @@ class TestCallOpenAi:
         with patch("mediaman.services.openai.client.get_openai_key", return_value="sk-test"):
             result = call_openai("some prompt", conn, use_web_search=False)
         assert result == payload
+
+
+def _answer(items) -> dict:
+    text = json.dumps({"items": items})
+    return {"output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}]}
+
+
+def _fail_with(monkeypatch, exc):
+    def post(*_a, **_k):
+        raise exc
+
+    monkeypatch.setattr(client_mod._OPENAI_CLIENT, "post", post)
+
+
+class TestAskOpenAi:
+    @pytest.fixture(autouse=True)
+    def _nothing_refused(self, monkeypatch):
+        monkeypatch.setattr(client_mod, "_refused_key", None)
+
+    def test_an_answer_of_no_items_is_an_empty_list(self, conn, fake_http, fake_response):
+        insert_settings(conn, openai_api_key="sk-test")
+        fake_http.queue("POST", fake_response(json_data=_answer([])))
+        assert ask_openai("p", conn) == []
+
+    @pytest.mark.parametrize(
+        ("exc", "refused"),
+        [
+            (SafeHTTPError(401, "", "https://api.openai.com"), True),
+            (SafeHTTPError(429, "", "https://api.openai.com"), False),
+            (requests.Timeout("slow"), False),
+            (requests.ConnectionError("down"), False),
+        ],
+    )
+    def test_no_answer_says_whether_the_key_was_refused(self, conn, monkeypatch, exc, refused):
+        insert_settings(conn, openai_api_key="sk-test")
+        _fail_with(monkeypatch, exc)
+        with pytest.raises(OpenAIUnavailable) as raised:
+            ask_openai("p", conn)
+        assert raised.value.refused is refused
+        assert key_refused(conn) is refused
+
+    def test_an_answer_that_cannot_be_read_is_no_answer(self, conn, fake_http, fake_response):
+        insert_settings(conn, openai_api_key="sk-test")
+        fake_http.queue("POST", fake_response(json_data={"output": "nothing"}))
+        with pytest.raises(OpenAIUnavailable) as raised:
+            ask_openai("p", conn)
+        assert raised.value.refused is False
+
+    def test_no_key_set_is_unavailable(self, conn):
+        with pytest.raises(OpenAIUnavailable) as raised:
+            ask_openai("p", conn)
+        assert raised.value.refused is True
+        assert key_refused(conn) is False
+
+
+class TestKeyRefused:
+    @pytest.fixture(autouse=True)
+    def _nothing_refused(self, monkeypatch):
+        monkeypatch.setattr(client_mod, "_refused_key", None)
+
+    def _set_key(self, conn, key):
+        conn.execute("DELETE FROM settings WHERE key = 'openai_api_key'")
+        insert_settings(conn, openai_api_key=key)
+
+    def test_a_refused_key_stays_refused_until_it_is_changed(self, conn, monkeypatch):
+        self._set_key(conn, "sk-old")
+        _fail_with(monkeypatch, SafeHTTPError(401, "", "https://api.openai.com"))
+        assert call_openai("p", conn) == []
+        assert key_refused(conn) is True
+        _fail_with(monkeypatch, requests.Timeout("slow"))
+        assert call_openai("p", conn) == []
+        assert key_refused(conn) is True
+
+        self._set_key(conn, "sk-new")
+        assert key_refused(conn) is False
+
+    def test_a_good_answer_clears_the_refusal(self, conn, monkeypatch, fake_response):
+        self._set_key(conn, "sk-test")
+        answers = [
+            SafeHTTPError(401, "", "https://api.openai.com"),
+            fake_response(json_data=_answer([])),
+        ]
+
+        def post(*_a, **_k):
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        monkeypatch.setattr(client_mod._OPENAI_CLIENT, "post", post)
+        call_openai("p", conn)
+        assert key_refused(conn) is True
+        call_openai("p", conn)
+        assert key_refused(conn) is False

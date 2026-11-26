@@ -14,7 +14,7 @@ from mediaman.core.time import now_utc
 from mediaman.db import get_db, open_thread_connection
 from mediaman.services.arr.build import build_plex_from_db
 from mediaman.services.infra import ConfigDecryptError, SSRFRefused, get_bool_setting
-from mediaman.services.openai.client import get_openai_key
+from mediaman.services.openai.client import get_openai_key, key_refused
 from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations.personal import has_enough_plays, make_picks
 from mediaman.services.openai.recommendations.user_picks import RefreshState
@@ -105,8 +105,13 @@ def api_refresh_own_picks(
 def api_own_picks_status(
     request: Request, username: str = Depends(get_current_user)
 ) -> JSONResponse:
-    """How the person's refresh goes: running, done or failed (the last they started), or idle."""
+    """How the person's refresh goes: running, done or failed (the last they started), or idle.
+    A failed one says "unavailable" when OpenAI refused the key."""
     conn = get_db()
-    mine = my_refresh(conn, username, request.app.state.config.secret_key)
+    secret_key = request.app.state.config.secret_key
+    mine = my_refresh(conn, username, secret_key)
     status = "running" if mine["running"] else user_picks.last_status(conn, username) or "idle"
-    return respond_ok({"status": status, "my_refresh": mine})
+    body: dict[str, object] = {"status": status, "my_refresh": mine}
+    if status == "failed" and key_refused(conn, secret_key):
+        body["error"] = "unavailable"
+    return respond_ok(body)
