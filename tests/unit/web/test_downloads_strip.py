@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from mediaman.core.time import now_utc
+from mediaman.services.arr import fetcher
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.download_queue import _reset_previous_queue
 from mediaman.services.watch_catalog import clear_library_index, invalidate
@@ -185,10 +186,11 @@ def test_a_service_that_stops_answering_leaves_in_the_row_only_what_downloads_sh
     services, viewer, monkeypatch
 ):
     monkeypatch.setattr(strip, "HOLD_S", 0.0)
+    monkeypatch.setattr(fetcher, "_BLIP_SECONDS", 0.0)
     _get(viewer)
     services[0].get_queue.side_effect = requests.ConnectionError("http://10.0.0.9:7878 refused")
     services[0].get_movies.side_effect = services[0].get_queue.side_effect
-    _get(viewer)  # one missed answer is no outage; the second in a row is
+    _get(viewer)  # a blip that ends at once: the next missed answer is an outage
     resp = _get(viewer)
     body = resp.json()
     assert body["items"] == viewer.get("/api/downloads").json()["queue"] == []
@@ -345,11 +347,12 @@ def test_the_downloads_page_s_poll_tells_the_ring_and_asks_the_services_nothing_
 
 
 def test_a_service_that_stops_answering_leaves_the_ring_on_downloads_what_it_shows(
-    services, viewer
+    services, viewer, monkeypatch
 ):
+    monkeypatch.setattr(fetcher, "_BLIP_SECONDS", 0.0)
     viewer.get("/api/downloads")
     services[0].get_queue.side_effect = requests.ConnectionError("down")
-    viewer.get("/api/downloads")  # one missed answer is no outage; the second in a row is
+    viewer.get("/api/downloads")  # a blip that ends at once: the next missed answer is an outage
     after = viewer.get("/api/downloads").json()
     assert after["strip"]["summary"]["total"] == len(after["queue"]) + bool(after["hero"])
     assert after["strip"]["outage"] == "Downloads aren't available"

@@ -8,6 +8,7 @@ import pytest
 import requests
 
 from mediaman.core.time import now_utc
+from mediaman.services.arr import fetcher
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.abandon import AbandonResult
 from mediaman.services.downloads.download_queue import _reset_previous_queue
@@ -264,8 +265,9 @@ def test_the_strip_passes_on_no_other_service_s_poster(services, conn):
 
 
 def test_a_page_opened_while_a_service_is_down_claims_no_download_it_does_not_show(
-    services, client
+    services, client, monkeypatch
 ):
+    monkeypatch.setattr(fetcher, "_BLIP_SECONDS", 0.0)
     radarr, _, _, _ = services
     radarr.get_movies.return_value = [
         {**_movie(n, title), "hasFile": False, "isAvailable": True}
@@ -273,7 +275,7 @@ def test_a_page_opened_while_a_service_is_down_claims_no_download_it_does_not_sh
     ]
     client.get("/api/downloads")
     radarr.get_queue.side_effect = radarr.get_movies.side_effect = requests.ConnectionError("x")
-    client.get("/api/downloads")  # one missed answer is no outage; the second in a row is
+    client.get("/api/downloads")  # a blip that ends at once: the next missed answer is an outage
 
     data = client.get("/api/downloads").json()
 
@@ -430,7 +432,10 @@ def test_the_top_card_stays_on_its_download_while_another_starts(services, clien
     assert [i["title"] for i in then["queue"]] == ["Alpha"]
 
 
-def test_the_strip_holds_no_more_than_the_page_shows_while_a_service_is_down(services, client):
+def test_the_strip_holds_no_more_than_the_page_shows_while_a_service_is_down(
+    services, client, monkeypatch
+):
+    monkeypatch.setattr(fetcher, "_BLIP_SECONDS", 0.0)
     radarr = services[0]
     radarr.get_movies.return_value = [
         {**_movie(n, title), "hasFile": False, "isAvailable": True}
@@ -439,7 +444,7 @@ def test_the_strip_holds_no_more_than_the_page_shows_while_a_service_is_down(ser
     client.get("/api/downloads")
     client.get("/api/downloads/strip")
     radarr.get_queue.side_effect = radarr.get_movies.side_effect = requests.ConnectionError("x")
-    client.get("/api/downloads")  # one missed answer is no outage; the second in a row is
+    client.get("/api/downloads")  # a blip that ends at once: the next missed answer is an outage
     strip.shared.clear()
 
     data = client.get("/api/downloads").json()

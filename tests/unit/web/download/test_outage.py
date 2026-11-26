@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
+from mediaman.services.arr import fetcher
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
 from mediaman.services.downloads.download_queue import _reset_previous_queue
@@ -188,8 +189,9 @@ def test_an_item_its_service_left_out_of_half_an_answer_is_not_taken_for_finishe
 
 @_SERVICES
 def test_a_page_first_loaded_while_a_service_is_down_keeps_the_names_and_art_of_its_downloads(
-    services, client, service, name
+    services, client, service, name, monkeypatch
 ):
+    monkeypatch.setattr(fetcher, "_BLIP_SECONDS", 0.0)
     arr, nzbget = services[service], services[2]
     arr.get_queue.return_value = [_queued("Dune: Part One", "dune.p1.2021.1080p")]
     nzbget.get_queue.return_value = [_loading("dune.p1.2021.1080p"), _loading("Manual.2020")]

@@ -1,4 +1,5 @@
-"""A service that misses one answer stands on its last; the second miss in a row is an outage."""
+"""A service that misses answers for a few seconds stands on its last; missing them for longer is
+an outage."""
 
 from __future__ import annotations
 
@@ -52,8 +53,29 @@ def test_one_failure_gives_the_last_answer_and_reports_nothing(conn, radarr):
     assert _answers(conn, radarr, ["ok", "down"])[1] == (["Dune"], [], [])
 
 
-def test_two_failures_in_a_row_drop_the_cards_and_report_the_service(conn, radarr):
-    assert _answers(conn, radarr, ["ok", "down", "down"])[2] == ([], ["Radarr"], [])
+def test_failures_more_than_five_seconds_after_the_first_in_a_row_are_reported(conn, radarr):
+    seen = _answers(conn, radarr, ["ok", "down", "down", "down", "down"])
+    assert [unreachable for _, unreachable, _ in seen] == [[], [], [], [], ["Radarr"]]
+    assert seen[4][0] == []
+
+
+def test_two_pages_that_each_miss_an_answer_in_one_blip_both_keep_the_last(conn, radarr):
+    _answers(conn, radarr, ["ok"])
+    radarr.get_queue.side_effect = requests.ConnectionError("down")
+    first = fetch_arr_queue_result(conn, "k" * 64)
+    second = fetch_arr_queue_result(conn, "k" * 64)
+    assert [(r.unreachable, [c["title"] for c in r.cards]) for r in (first, second)] == [
+        ([], ["Dune"]),
+        ([], ["Dune"]),
+    ]
+
+
+def test_a_blip_that_starts_near_a_minute_after_the_answer_stands_in_only_within_the_minute(
+    conn, radarr
+):
+    _answers(conn, radarr, ["ok"])
+    radarr.clock.now += 57
+    assert _answers(conn, radarr, ["down", "down"]) == [(["Dune"], [], []), ([], ["Radarr"], [])]
 
 
 def test_failures_between_answers_are_never_reported(conn, radarr):

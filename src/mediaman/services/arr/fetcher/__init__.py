@@ -50,19 +50,20 @@ __all__ = [
 ]
 
 
-# A service's last full answer, which stands in for a single failed fetch after it: one missed
-# answer is no outage, and the Downloads page polls every two seconds. An answer older than this
-# stands in for nothing. Guarded by _answers_lock.
+# A service's last full answer, which stands in for the fetches that fail in the first few
+# seconds after one fails: a blip is no outage, and every open Downloads page and header strip
+# polls on its own. An answer older than a minute stands in for nothing. Guarded by _answers_lock.
 _STAND_IN_SECONDS = 60.0
+_BLIP_SECONDS = 5.0
 _last_answers: dict[str, tuple[float, list[ArrCard]]] = {}
-_stood_in: set[str] = set()
+_failing_since: dict[str, float] = {}
 _answers_lock = threading.Lock()
 
 
 def _forget_answers() -> None:
     with _answers_lock:
         _last_answers.clear()
-        _stood_in.clear()
+        _failing_since.clear()
 
 
 def fetch_arr_queue_result(
@@ -75,9 +76,9 @@ def fetch_arr_queue_result(
 
     Unlike ``fetch_arr_queue``, this surfaces errors alongside cards so
     callers can show when a service is unreachable. While *steady*, a service
-    that fails once, right after an answer less than a minute old, is given
-    that answer's cards and not reported; the failure after that is. A refused
-    key is reported at once.
+    that fails within five seconds of its first failure in a row is given its
+    last answer's cards, if that answer is less than a minute old, and not
+    reported; a failure after that is. A refused key is reported at once.
     """
     from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 
@@ -92,11 +93,12 @@ def fetch_arr_queue_result(
 
 def _stand_in(name: str, result: FetchResult) -> bool:
     """Add *name*'s last answer to *result* for a fetch that failed, if it may stand in."""
+    now = time.monotonic()
     with _answers_lock:
         kept = _last_answers.get(name)
-        if name in _stood_in or kept is None or time.monotonic() - kept[0] > _STAND_IN_SECONDS:
+        blip = now - _failing_since.setdefault(name, now)
+        if kept is None or now - kept[0] > _STAND_IN_SECONDS or blip > _BLIP_SECONDS:
             return False
-        _stood_in.add(name)
     result.cards.extend(kept[1])
     return True
 
@@ -104,7 +106,7 @@ def _stand_in(name: str, result: FetchResult) -> bool:
 def _keep_answer(name: str, cards: list[ArrCard]) -> None:
     with _answers_lock:
         _last_answers[name] = (time.monotonic(), list(cards))
-        _stood_in.discard(name)
+        _failing_since.pop(name, None)
 
 
 def _fetch_service(
@@ -118,7 +120,7 @@ def _fetch_service(
     steady: bool,
 ) -> None:
     """Add one service's cards to *result*, or the error that kept them out; while *steady*,
-    a single failure is answered by the service's last answer."""
+    a failure in a blip is answered by the service's last answer."""
     failures: list[str] = []
     try:
         client = build(conn, secret_key)
