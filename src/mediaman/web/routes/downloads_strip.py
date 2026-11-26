@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -13,8 +13,10 @@ from fastapi.responses import JSONResponse
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.arr.finding_copy import will_retry
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.download_queue import build_downloads_response
+from mediaman.services.downloads.download_queue.items import DownloadsResponse
 from mediaman.services.downloads.strip import Answer, Strip, StripItem
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.web.auth.middleware import get_current_user
@@ -64,8 +66,28 @@ def payload_for(
     return shown
 
 
+def with_retrying(conn: sqlite3.Connection, data: DownloadsResponse) -> DownloadsResponse:
+    """*data* with each download that needs attention saying whether mediaman will look for
+    another copy of it unasked."""
+
+    def marked(item: dict[str, object]) -> dict[str, object]:
+        key = item.get("retry_key")
+        if item.get("state") != "needs_attention" or not isinstance(key, str) or not key:
+            return item
+        return {**item, "retrying": will_retry(conn, key, [str(item.get("attention") or "")])}
+
+    return cast(
+        DownloadsResponse,
+        {
+            **data,
+            "hero": marked(data["hero"]) if data["hero"] else None,
+            "queue": [marked(item) for item in data["queue"]],
+        },
+    )
+
+
 def _make(conn: sqlite3.Connection, secret_key: str, before: Strip) -> Strip:
-    data = build_downloads_response(conn, secret_key)
+    data = with_retrying(conn, build_downloads_response(conn, secret_key))
     items = strip.collect(data, before.items, now_utc())
     return Strip(tuple(_with_titles(conn, secret_key, items)), data["outage"])
 

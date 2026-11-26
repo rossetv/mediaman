@@ -270,7 +270,7 @@
 
   function show(origin) {
     unveil();
-    MM.inertPage.hold(root, cardHolders());
+    MM.inertPage.hold(root, cardHolders);
     isOpen = true;
     growFrom(origin);
     root.classList.add('is-entering');
@@ -416,7 +416,7 @@
     isOpen = true;
     address.push('title', titleUrl(c.ref));
     keepPick();
-    MM.inertPage.hold(root, cardHolders());
+    MM.inertPage.hold(root, cardHolders);
     growFrom(c.origin);
     if (!c.data || c.data.draft) root.setAttribute('aria-busy', 'true');
     titleEl.focus({ preventScroll: true });
@@ -509,7 +509,7 @@
     nameClose();
     if (!wasOpen) root.classList.add('is-aside');
     lockPage(true);
-    MM.inertPage.hold(root, cardHolders());
+    MM.inertPage.hold(root, cardHolders);
     statusEl.textContent = '';
     body.style.marginBottom = '';
     showPictures(c.data);
@@ -1958,8 +1958,10 @@
   /* The card in the row of a download that Radarr or Sonarr will not import, or that is looked for again. */
   function troubleOf(c) { return lookedFor(c, ['needs_attention', 'finding_copy']); }
 
-  /* What an admin is told of it, as the card tells it; a viewer's card holds none. */
-  function fixOf(item) { return [item.attention, item.attention_hint].filter(Boolean).join(' · '); }
+  /* What an admin is told of it, as the card tells it; a viewer's card holds none, but that it is tried again. */
+  function fixOf(item) {
+    return [item.attention, item.retrying ? 'mediaman will look for another copy' : item.attention_hint].filter(Boolean).join(' · ');
+  }
 
   function followNote(text) {
     var p = el('p', 'ttl__note');

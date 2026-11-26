@@ -36,6 +36,7 @@ from mediaman.web.routes.downloads_strip import (
     library_of,
     library_title,
     mark_playable,
+    with_retrying,
 )
 from mediaman.web.routes.poster.title_art import title_art
 
@@ -127,7 +128,7 @@ def _page_payload(
         page["subtitle"] = (
             f"{downloads_subtitle(rows, coming)} · some may be missing" if rows else soon
         )
-    return page, _ring(data, asked_at, index, admin=admin)
+    return page, _ring(with_retrying(conn, data), asked_at, index, admin=admin)
 
 
 def _former_id(item: dict[str, object]) -> str | None:
@@ -196,6 +197,7 @@ def _for_viewer(payload: DownloadsResponse) -> None:
         )
         item.pop("tmdb_id", None)
         item.pop("queued_since", None)
+        item.pop("retry_key", None)
     for item in [*items, *payload["recent"]]:
         item.update(strip.for_viewer(item))
 

@@ -100,6 +100,8 @@ class StripItem:
     #: it, which only an admin is told.
     attention: str = ""
     attention_hint: str = ""
+    #: Of one that needs attention: whether mediaman will look for another copy unasked.
+    retrying: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +205,7 @@ def _current(item: Mapping[str, object]) -> StripItem:
         tmdb_id=tmdb_id,
         attention=_text(item.get("attention")),
         attention_hint=_text(item.get("attention_hint")),
+        retrying=item.get("retrying") is True and state == "needs_attention",
     )
 
 
@@ -309,6 +312,7 @@ def _shown(item: StripItem, *, admin: bool) -> dict[str, Any]:
         "art_url": item.art_url,
         "attention": item.attention if told else "",
         "attention_hint": item.attention_hint if told else "",
+        "retrying": item.retrying,
     }
 
 

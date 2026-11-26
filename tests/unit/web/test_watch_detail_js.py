@@ -1634,6 +1634,15 @@ def test_a_film_the_arr_will_not_import_says_it_needs_attention_not_downloading(
     assert out["other"] == out["plain"]
 
 
+def test_a_film_that_mediaman_will_try_again_says_so_instead_of_where_to_fix_it() -> None:
+    out = _run("troubled")
+    retry = "mediaman will look for another copy"
+    assert out["retryingAdmin"]["note"] == (
+        "No files found are eligible for import · " + retry + ". Follow it in Downloads."
+    )
+    assert out["retryingViewer"]["note"] == retry + ". Follow it in Downloads."
+
+
 def test_a_season_the_arr_holds_back_or_looks_again_for_is_not_called_downloading() -> None:
     out = _run("seasonsTroubled")
     assert [c[1] for c in out["chips"]] == [

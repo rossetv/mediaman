@@ -90,6 +90,13 @@ def build_episode_dicts(
     ]
 
 
+def _retry_key(arr: ArrCard) -> str:
+    """How the retry bookkeeping keys *arr*'s title, "" when the queue gave no id of it."""
+    if arr.get("kind") == "series":
+        return f"sonarr:{arr['series_id']}:" if arr.get("series_id") else ""
+    return f"radarr:{arr['movie_id']}" if arr.get("movie_id") else ""
+
+
 def build_matched_item(
     arr: ArrCard,
     matched_nzb: Mapping[str, object],
@@ -128,6 +135,7 @@ def build_matched_item(
             has_pack=arr.get("has_pack", False),
             arr_id=arr.get("arr_id") or 0,
             kind="series",
+            retry_key=_retry_key(arr),
         )
     return build_item(
         dl_id=arr.get("dl_id", nzb_dl_id),
@@ -141,6 +149,7 @@ def build_matched_item(
         size_total=format_bytes(int(nzb_file_mb * 1024 * 1024)),
         arr_id=arr.get("arr_id") or 0,
         kind="movie",
+        retry_key=_retry_key(arr),
         label=arr.get("label", ""),
     )
 
@@ -197,6 +206,7 @@ def _build_unmatched_series_item(
         arr_id=arr.get("arr_id") or 0,
         kind="series",
         attention=queue_attention(raw_episodes),
+        retry_key=_retry_key(arr),
     )
 
 
@@ -244,6 +254,7 @@ def _build_unmatched_movie_item(
         kind="movie",
         label=arr.get("label", ""),
         attention=arr.get("attention", ""),
+        retry_key=_retry_key(arr),
     )
 
 

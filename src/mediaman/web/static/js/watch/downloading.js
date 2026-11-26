@@ -73,6 +73,12 @@
     return [item.percent + '%', typeof item.minutes_left === 'number' ? ' · ' + left(item.minutes_left) : ''];
   }
 
+  /* Where an admin fixes a download that needs attention; of one mediaman retries, what it will do. */
+  function hintOf(item) {
+    if (item.state !== 'needs_attention') return '';
+    return item.retrying ? 'mediaman will look for another copy' : item.attention_hint || '';
+  }
+
   function refOf(item) { return REF_RE.test(item.ref || '') ? item.ref : ''; }
 
   function hrefOf(item) { return (refOf(item) && core.safePath(item.href)) || HREF; }
@@ -151,11 +157,11 @@
     var text = says(item);
     setText(line.children[0], text[0]);
     setText(line.children[1], text[1]);
-    var fix = item.state === 'needs_attention' ? [item.attention, item.attention_hint].filter(Boolean).join(' · ') : '';
+    var hint = hintOf(item);
+    var fix = item.state === 'needs_attention' ? [item.attention, hint].filter(Boolean).join(' · ') : '';
     if (fix) line.setAttribute('title', fix);
     else line.removeAttribute('title');
     var where = node.querySelector('.dw__fix');
-    var hint = item.state === 'needs_attention' ? item.attention_hint || '' : '';
     setText(where, hint);
     where.hidden = !hint;
     if (item.state === 'ready' && !wasReady) {

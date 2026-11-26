@@ -118,6 +118,8 @@ const scenarios = {
     const p = load([answer([
       item('Told', { ...held, attention: why, attention_hint: 'Fix it in Sonarr: Activity → Queue' }),
       item('Viewer', { ...held, attention: '', attention_hint: '' }),
+      item('Retried', { ...held, retrying: true, attention: why, attention_hint: 'Fix it in Sonarr: Activity → Queue' }),
+      item('ViewerRetried', { ...held, retrying: true, attention: '', attention_hint: '' }),
     ])]);
     await p.step(10);
     const of = (t) => ({
@@ -125,7 +127,7 @@ const scenarios = {
       classes: p.card(t).className, fill: p.card(t).style.set['--p'],
       fix: ((n) => (n && !n.hidden ? n.textContent : null))(p.card(t).querySelector('.dw__fix')),
     });
-    return { told: of('Told'), viewer: of('Viewer') };
+    return { told: of('Told'), viewer: of('Viewer'), retried: of('Retried'), viewerRetried: of('ViewerRetried') };
   },
   async nothing() {
     const p = load([answer([])]);

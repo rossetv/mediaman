@@ -43,6 +43,15 @@ def test_an_admin_reads_where_to_fix_it_on_the_card_itself_not_only_on_hover(car
     assert card["viewer"]["fix"] is None
 
 
+def test_one_mediaman_will_try_again_says_so_to_an_admin_and_a_viewer_alike(card) -> None:
+    said = "mediaman will look for another copy"
+    assert card["retried"]["fix"] == said
+    assert card["retried"]["title"] == _WHY + " · " + said
+    assert card["viewerRetried"]["fix"] == said
+    assert card["viewerRetried"]["line"] == "Needs attention"
+    assert card["viewerRetried"]["title"] == said
+
+
 def _rule(sheet: str, selector: str) -> str:
     css = (STYLES / sheet).read_text("utf-8")
     found = re.search(re.escape(selector) + r" \{([^}]*)\}", css)

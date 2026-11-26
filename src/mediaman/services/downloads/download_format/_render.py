@@ -36,6 +36,7 @@ def build_item(
     kind: str = "",
     label: str = "",
     attention: str = "",
+    retry_key: str = "",
 ) -> DownloadItem:
     """Build a simplified download item for the API response.
 
@@ -47,7 +48,7 @@ def build_item(
     """
     if stuck_seasons is None:
         stuck_seasons = []
-    return {
+    item: DownloadItem = {
         "id": dl_id,
         "title": title,
         "media_type": media_type,
@@ -76,6 +77,9 @@ def build_item(
         "attention": attention if state == "needs_attention" else "",
         "attention_hint": attention_hint(arr_source) if state == "needs_attention" else "",
     }
+    if retry_key:
+        item["retry_key"] = retry_key
+    return item
 
 
 def build_episode_summary(episodes: list[dict[str, object]]) -> str:

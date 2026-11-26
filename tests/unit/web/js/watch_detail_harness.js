@@ -1444,6 +1444,8 @@ const scenarios = {
     const out = { plain: look() };
     out.admin = to({ state: 'needs_attention', attention: 'No files found are eligible for import', attention_hint: 'Fix it in Radarr: Activity → Queue' });
     out.viewer = to({ state: 'needs_attention', attention: '', attention_hint: '' });
+    out.retryingAdmin = to({ state: 'needs_attention', retrying: true, attention: 'No files found are eligible for import', attention_hint: 'Fix it in Radarr: Activity → Queue' });
+    out.retryingViewer = to({ state: 'needs_attention', retrying: true, attention: '', attention_hint: '' });
     out.finding = to({ state: 'finding_copy' });
     out.other = to({ ref: 'tmdb-movie-78', state: 'needs_attention' });
     return out;
