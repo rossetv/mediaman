@@ -2354,7 +2354,8 @@ const scenarios = {
     const h = build();
     const page = h.add('div', { className: 'setg-pg' });
     const card = h.add('div', { className: 'intg-card' }, page);
-    h.add('h3', {}, card).textContent = 'Plex';
+    const title = h.add('h3', {}, card);
+    title.textContent = 'Plex';
     const btn = h.add('button', {}, card);
     btn.setAttribute('data-test-service', 'plex');
     let answer = { status: 502 };
@@ -2373,7 +2374,11 @@ const scenarios = {
     m.integrations.init();
     h.drain(); await h.flush();
     const press = async (a) => { answer = a; said.length = 0; btn.fire('click'); await h.flush(); h.drain(); await h.flush(); return said.slice(); };
+    title.textContent = '';
+    const nameless = await press({ status: 502, message: 'Not reachable' });
+    title.textContent = 'Plex';
     return {
+      nameless,
       named: await press({ status: 502, message: 'Plex refused the token.' }),
       unnamed: await press({ status: 502, message: 'Couldn\'t reach the service.' }),
       inside: await press({ status: 502, message: 'No Plex server answered at this address.' }),
