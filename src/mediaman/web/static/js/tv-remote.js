@@ -180,9 +180,13 @@
      shown once it has gone, where it stays. */
   var afterClose = [];
   function sayClosing(text) {
-    if (!isOpen) { say(text); return; }
+    if (!isOpen) { sayGone(text); return; }
     afterClose.push(text);
     close();
+  }
+  function sayGone(text) {
+    if (exit) afterClose.push(text);
+    else say(text);
   }
   function sayHeld() { afterClose.splice(0).forEach(say); }
 
@@ -312,14 +316,39 @@
 
   function isGone(err) { return err.status === 404 && err.error === 'not_found' || err.status === 410 && err.error !== 'replaced'; }
 
+  /* A page the server sends the person on to, which api.js cannot tell of a read: the remote goes
+     first. The sign-in leads back here. */
+  var SENT_TO = ['/login', '/force-password-change'];
+  function away(to) {
+    var was = isOpen;
+    ended = true;
+    clearTimeout(timer);
+    close();
+    if (to === '/login') {
+      var here = global.location.pathname + (global.location.search || '');
+      to += (here === '/' ? '' : '?next=' + encodeURIComponent(here)) + (global.location.hash || '');
+    }
+    settled(function () { setTimeout(function () { global.location.href = to; }, was ? EXIT_MS : 0); });
+    return new Promise(function () {});
+  }
+  function sentTo(err) { return err && err.data && SENT_TO.indexOf(err.data.redirect) !== -1 ? err.data.redirect : ''; }
+
   /* An answer cut off in its body comes as an empty one. */
   function get(path, key) {
     var stopper = new AbortController();
     var late = setTimeout(function () { stopper.abort(); }, ANSWER_MS);
-    return MM.api.get(LIST + path, { signal: stopper.signal }).then(function (data) {
+    return fetch(LIST + path, { credentials: 'same-origin', signal: stopper.signal }).then(function (resp) {
+      var to = resp.redirected ? new URL(resp.url).pathname : '';
+      if (SENT_TO.indexOf(to) !== -1) return away(to);
+      if (resp.status === 401) return away('/login');
+      return resp.json().catch(function () { return {}; }).then(function (data) {
+        if (!resp.ok) throw new MM.api.APIError(data.error || 'http_' + resp.status, data.message || data.error, resp.status, data.issues, data);
+        if (!data[key]) throw new Error('no answer');
+        return data[key];
+      });
+    }).then(function (got) {
       clearTimeout(late);
-      if (!data[key]) throw new Error('no answer');
-      return data[key];
+      return got;
     }, function (err) {
       clearTimeout(late);
       throw err;
@@ -501,6 +530,7 @@
   }
 
   function refuse(err) {
+    if (sentTo(err)) { away(sentTo(err)); return; }
     if (isGone(err)) { lostTv(err); render(); return; }
     if (SILENT.indexOf(err.error) === -1) {
       var text = err.name === 'AbortError' ? 'mediaman didn’t answer. Try again.'
@@ -1478,7 +1508,7 @@
       getOne(id).then(open, refuseOpen);
       return;
     }
-    if (!play() && !gone) { say('Nothing is playing on ' + name() + ' now.'); return; }
+    if (!play() && !gone) { sayGone('Nothing is playing on ' + name() + ' now.'); return; }
     ended = false;
     if (!isOpen) {
       isOpen = true;

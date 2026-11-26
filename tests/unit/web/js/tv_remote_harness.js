@@ -65,7 +65,25 @@ async function page(opts = {}) {
   class APIError extends Error {
     constructor(error, status, data) { super(error); this.error = error; this.status = status; this.data = data || {}; }
   }
+  // As api.js builds one: code, message, status, issues, body.
+  class RealAPIError extends Error {
+    constructor(error, message, status, issues, data) { super(message); this.error = error; this.status = status; this.data = data || {}; }
+  }
   const copy = (x) => JSON.parse(JSON.stringify(x));
+  // The server's answer to a read, as fetch gives it; `api.away` is the page a read is sent on to.
+  async function answer(url, o) {
+    if (api.away) {
+      api.calls.push({ method: 'GET', url, at: clock });
+      return { ok: true, status: 200, redirected: true, url: 'http://testserver' + api.away, json: async () => { throw new SyntaxError('html'); } };
+    }
+    try {
+      const data = await call('GET', url, null, o);
+      return { ok: true, status: 200, redirected: false, url: 'http://testserver' + url, json: async () => data };
+    } catch (err) {
+      if (!(err instanceof APIError)) throw err;
+      return { ok: false, status: err.status, redirected: false, url: 'http://testserver' + url, json: async () => ({ error: err.error, ...err.data }) };
+    }
+  }
   async function call(method, url, body, o) {
     api.calls.push({ method, url, body: body && copy(body), at: clock });
     if (api.hang) {
@@ -121,13 +139,13 @@ async function page(opts = {}) {
   const session = {};
   const win = {
     listeners: {}, history,
-    location: { href: '', replace(to) { history.entries[history.index] = null; win.location.href = to; } }, innerWidth: 1000, innerHeight: 800, navigator: { onLine: true },
+    location: { href: '', pathname: '/watch', search: '?q=1', hash: '', replace(to) { history.entries[history.index] = null; win.location.href = to; } }, innerWidth: 1000, innerHeight: 800, navigator: { onLine: true },
     sessionStorage: { getItem: (k) => session[k] || null, setItem: (k, v) => { session[k] = v; } },
     matchMedia: (q) => ({ matches: !!opts.still && /reduced-motion/.test(q) }),
     addEventListener(t, fn) { win.listeners[t] = fn; },
     UIFeedback: { toast: (t) => { toasts.push(t); overRemote.push(doc.documentElement.classList.contains('has-tv-rem')); }, error: (t) => toasts.push('! ' + t) },
     ModalA11y: { register() {}, onOpened() {}, onClosed() {} },
-    MM: { api: { get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
+    MM: { api: { APIError: RealAPIError, get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
   };
   // What cast-sender.js tells and does; the tab that follows the play is another with `away`.
   const cast = { now: null, over: null, did: [], away: false, saved: true, hold: null, refuse: null, change() {}, ...opts.cast };
@@ -182,7 +200,8 @@ async function page(opts = {}) {
     win.crypto = { getRandomValues: (a) => a };
   }
   const ctx = vm.createContext({
-    fetch: () => new Promise((yes) => pages.push(() => yes({ text: async () => '' }))),
+    fetch: (url, o) => (/^\/api\/tvs/.test(url) ? answer(url, o) : new Promise((yes) => pages.push(() => yes({ text: async () => '' })))),
+    URL,
     DOMParser: class { parseFromString() { return { getElementById: () => ({ getAttribute: (k) => ({ 'data-item': '{"title":"Glass Orchard"}' }[k] || null) }) }; } },
     window: win, document: doc, AbortController,
     Date: class extends Date { constructor(...a) { super(...(a.length ? a : [clock])); } static now() { return clock; } },
@@ -1479,6 +1498,45 @@ const scenarios = {
     q.win.MM.tvRemote.open(7);
     await settle();
     return { given, byId: q.isOpen() };
+  },
+  // A read sent on to a page, a command refused for a password to change, and a session that has gone.
+  async sentAway() {
+    const out = {};
+    for (const [why, still] of [['redirect', false], ['redirect', true], ['refused', false], ['signedOut', false]]) {
+      const p = await page({ still });
+      await p.pass(5100);
+      await p.open();
+      if (why === 'redirect') p.api.away = '/force-password-change';
+      if (why === 'signedOut') p.api.fail = ['http_401', 401];
+      if (why === 'refused') {
+        p.api.refuse = 'http_403';
+        p.api.refusal = { detail: 'password_change_required', message: 'You must change your password before continuing.', redirect: '/force-password-change' };
+        await p.press('[data-play]');
+      } else await p.pass(1100);
+      const leaving = p.$('#tv-remote').classList.contains('is-leaving');
+      const before = p.win.location.href;
+      await p.pass(300);
+      const reads = p.reads().length;
+      await p.pass(30000);
+      out[why + (still ? 'Still' : '')] = { leaving, before, href: p.win.location.href, hidden: p.$('#tv-remote').hidden, toasts: p.toasts, asksOn: p.reads().length - reads };
+    }
+    return out;
+  },
+  // Opened again while it closes, onto a TV where nothing plays.
+  async reopenedClosing() {
+    const out = {};
+    for (const still of [false, true]) {
+      const p = await page({ still });
+      await p.pass(5100);
+      await p.open();
+      await p.press('[data-close]');
+      p.win.MM.tvRemote.open(aTv({ play: null }));
+      await settle();
+      const early = p.toasts.length;
+      await p.pass(300);
+      out[still ? 'still' : 'moves'] = { early, toasts: p.toasts, over: p.overRemote };
+    }
+    return out;
   },
 };
 

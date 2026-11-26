@@ -674,3 +674,26 @@ def test_playing_over_a_film_of_someone_the_tv_is_shared_with_asks_by_name() -> 
     out = _run("takeNamed")
     assert "maren is watching Dune" in out["said"] and "Their place is kept" in out["said"]
     assert (out["take"], out["primary"]) == ("Play mine instead", True)
+
+
+def test_a_phone_sent_on_to_a_page_closes_the_remote_with_motion_and_goes_there() -> None:
+    out = _run("sentAway")
+    away = {
+        "leaving": True,
+        "before": "",
+        "href": "/force-password-change",
+        "hidden": True,
+        "toasts": [],
+        "asksOn": 0,
+    }
+    assert out["redirect"] == away
+    assert out["redirectStill"] == away
+    assert out["refused"] == away
+    assert out["signedOut"] == {**away, "href": "/login?next=%2Fwatch%3Fq%3D1"}
+
+
+def test_nothing_playing_said_while_the_remote_closes_waits_until_it_has_gone() -> None:
+    out = _run("reopenedClosing")
+    said = ["Nothing is playing on Living room now."]
+    assert out["moves"] == {"early": 0, "toasts": said, "over": [False]}
+    assert out["still"] == {"early": 0, "toasts": said, "over": [False]}

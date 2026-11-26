@@ -147,3 +147,7 @@ def test_each_step_of_pairing_comes_in_and_at_once_under_reduced_motion() -> Non
     moves = re.findall(step, css)
     assert "var(--dur)" in moves[0] and moves[1] == "none"
     assert "prefers-reduced-motion" in css[: css.rindex("animation: none")]
+
+
+def test_a_password_to_change_first_sends_the_person_to_change_it() -> None:
+    assert _run("sentAway") == {"code": "/force-password-change", "name": "/force-password-change"}
