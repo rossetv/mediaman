@@ -484,17 +484,23 @@
     return isFinite(video.duration) ? video.duration : 0;
   }
 
-  /* Where the video last stood with something loaded. */
+  /* Where the video last stood with something loaded. Safari puts it back at 0 with no seek
+     when an AirPlay TV fails or lets go of it: that is not a place. */
   var lastPlace = null;
-  local.addEventListener('timeupdate', function () {
-    if (local.readyState >= 1 && !local.seeking) lastPlace = local.currentTime;
+  local.addEventListener('seeking', function () {
+    if (local.readyState >= 1) lastPlace = local.currentTime;
   });
+  local.addEventListener('timeupdate', function () {
+    if (local.readyState < 1 || local.seeking || backAtZero()) return;
+    lastPlace = local.currentTime;
+  });
+
+  function backAtZero() { return local.currentTime < 1 && lastPlace >= 1; }
 
   function position() {
     if (aimS !== null) return aimS;
     if (pendingStart !== null) return pendingStart;
-    /* Emptied by Safari, as an AirPlay TV that failed leaves it, it stands at 0. */
-    if (video === local && video.readyState === 0 && lastPlace !== null) return lastPlace;
+    if (video === local && lastPlace !== null && (video.readyState === 0 || backAtZero())) return lastPlace;
     return video.currentTime;
   }
 
@@ -1427,6 +1433,9 @@
     if (!hls || !fromTicket()) return;
     var at = aimS !== null || pendingStart !== null ? position() : lastPlace;
     if (at !== null && Math.abs(local.currentTime - at) > 2) local.currentTime = within(at);
+    /* The TV may land a little past it, and the place is the TV's from here on. */
+    pendingStart = null;
+    dropAim();
     if (tvHeld !== hls && local.webkitCurrentPlaybackTargetIsWireless) holdForTv(hls);
   });
 

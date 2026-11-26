@@ -5133,6 +5133,59 @@ const scenarios = {
     return { starts: p.starts().length, at: v.currentTime };
   },
 
+  /* Safari lets the TV go with the video still loaded but its time back at 0, and the TV then
+     takes the new stream. */
+  async away_airplay_back_at_zero(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const v = p.video;
+    const e = p.elsewhere;
+    await streamPlays(p, 30);
+    e.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+    await settle();
+    v.currentTime = 1500;
+    fire(v, 'timeupdate');
+    p.replies.push({ ok: { stream_id: 's2', playlist: '/p2', airplay: '/api/cast/A2/index.m3u8' } });
+    v.currentTime = 0;
+    fire(v, 'timeupdate');
+    e.ownOnTv(false, v);
+    await settle();
+    const from = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    e.ownOnTv(true, v, 'http://mm/api/cast/A2/index.m3u8');
+    v.currentTime = 0;
+    v.readyState = 1;
+    fire(v, 'loadedmetadata');
+    await settle();
+    return { from: from, at: v.currentTime };
+  },
+
+  /* The TV lands a little past the place it was sent to, plays on, and then a new quality is
+     chosen. */
+  async away_airplay_lands_past(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const v = p.video;
+    const e = p.elsewhere;
+    await streamPlays(p, 30);
+    e.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+    await settle();
+    v.currentTime = 300;
+    fire(v, 'timeupdate');
+    p.replies.push({ ok: { stream_id: 's2', playlist: '/p2', airplay: '/api/cast/A2/index.m3u8' } });
+    click(p.q('[data-quality="medium"]'));
+    await settle();
+    v.currentSrc = 'http://mm/api/cast/A2/index.m3u8';
+    v.currentTime = 0;
+    v.readyState = 1;
+    fire(v, 'loadedmetadata');
+    await settle();
+    v.currentTime = 303;
+    fire(v, 'seeked');
+    for (let i = 0; i < 60; i++) { v.currentTime += 1; fire(v, 'timeupdate'); }
+    p.replies.push({ ok: { stream_id: 's3', playlist: '/p3', airplay: '/api/cast/A3/index.m3u8' } });
+    click(p.q('[data-quality="low"]'));
+    await settle();
+    return { from: p.hlsList[p.hlsList.length - 1].config.startPosition };
+  },
+
   /* The TV fails after a long pause, as its stream has ended, or as Plex ended its session by
      itself, and Safari empties the video. */
   away_airplay_tv_fails_gone: (p) => tvFails(p, 410, { ok: false, error: 'gone' }),

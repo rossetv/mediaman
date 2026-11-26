@@ -2431,6 +2431,16 @@ def test_safari_naming_a_replaced_streams_address_starts_no_further_stream(marku
     assert out["starts"] == 2
 
 
+def test_a_tv_let_go_with_the_time_back_at_zero_starts_the_next_stream_from_the_place(markup):
+    out = elsewhere(markup, "away_airplay_back_at_zero", "mms")
+    assert out == {"from": 1500, "at": 1500}
+
+
+def test_a_tv_that_lands_past_its_place_is_not_pulled_back_there_by_a_later_stream(markup):
+    out = elsewhere(markup, "away_airplay_lands_past", "mms")
+    assert out["from"] == 363
+
+
 @pytest.mark.parametrize("scenario", ["away_airplay_tv_fails_gone", "away_airplay_tv_fails_plex"])
 def test_a_tv_that_fails_after_a_long_pause_starts_again_from_the_place(markup, scenario):
     out = elsewhere(markup, scenario, "mms")
