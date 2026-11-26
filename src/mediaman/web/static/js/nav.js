@@ -33,6 +33,12 @@
   var openedAt = 0;
   var SETTLE_MS = 450; // a second tap of the one that opened the sheet comes within this
 
+  var panel = menu.querySelector('.profile-panel');
+  var handle = menu.querySelector('.profile-handle');
+  var calm = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var SHUT_PX = 80;      // dragged this far down, the sheet shuts
+  var FLICK_PX_MS = 0.5; // or flicked down this fast, from 20 px on
+
   function items() {
     return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
   }
@@ -56,6 +62,7 @@
 
   function open(button, last) {
     opener = button;
+    panel.style.transform = '';
     menu.inert = false;
     openedAt = Date.now();
     menu.setAttribute('open', '');
@@ -82,10 +89,19 @@
       return;
     }
     if (!isOpen()) return;
-    // The sheet comes up under the finger, Log out where the button was.
-    if (phone.matches && e.detail && Date.now() - openedAt < SETTLE_MS && menu.contains(e.target)) {
-      e.preventDefault();
-      return;
+    // The sheet comes up over the button: a tap on its spot, at any time, shuts the sheet
+    // and never presses what lies there. A keyboard click has no detail and no spot.
+    if (phone.matches && e.detail && menu.contains(e.target)) {
+      var spot = opener.getBoundingClientRect();
+      if (e.clientX >= spot.left && e.clientX <= spot.right && e.clientY >= spot.top && e.clientY <= spot.bottom) {
+        e.preventDefault();
+        close(true);
+        return;
+      }
+      if (Date.now() - openedAt < SETTLE_MS) {
+        e.preventDefault();
+        return;
+      }
     }
     // The sheet's backdrop is the menu's own box around the panel.
     if (e.target === menu || (e.target.closest && e.target.closest('.profile-close'))) close(true);
@@ -128,6 +144,37 @@
     e.preventDefault();
     e.stopPropagation();
   }, true);
+
+  // The handle drags the sheet down after the finger: shut past a distance or a flick, back otherwise.
+  var drag = null;
+  function dragTo(y) { panel.style.transform = 'translateY(' + Math.max(0, y - drag.y) + 'px)'; }
+  if (handle) {
+    handle.addEventListener('pointerdown', function (e) {
+      if (!isOpen() || !phone.matches || e.button) return;
+      drag = { id: e.pointerId, y: e.clientY, t: Date.now() };
+      panel.style.transition = 'none';
+      if (handle.setPointerCapture) handle.setPointerCapture(e.pointerId);
+    });
+    handle.addEventListener('pointermove', function (e) {
+      if (drag && e.pointerId === drag.id) dragTo(e.clientY);
+    });
+    var lift = function (e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      var far = Math.max(0, e.clientY - drag.y);
+      var flick = far > 20 && far / Math.max(1, Date.now() - drag.t) > FLICK_PX_MS;
+      drag = null;
+      panel.style.transition = '';
+      if (e.type === 'pointerup' && (far > SHUT_PX || flick)) {
+        if (calm.matches) panel.style.transform = '';
+        else panel.style.transform = 'translateY(100%)';
+        close(true);
+      } else {
+        panel.style.transform = '';
+      }
+    };
+    handle.addEventListener('pointerup', lift);
+    handle.addEventListener('pointercancel', lift);
+  }
 
   // A menu becomes a sheet, or a sheet a menu.
   phone.addEventListener('change', function () { close(true); });

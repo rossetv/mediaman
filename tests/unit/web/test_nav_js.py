@@ -228,3 +228,27 @@ def test_the_second_tap_of_a_double_tap_on_the_picture_presses_nothing_in_the_sh
 
 def test_a_ring_that_comes_back_does_not_sweep_round_from_where_it_last_stood() -> None:
     assert _run("ringComesBack") == {"eased": [False, True, False, True], "left": False}
+
+
+def test_a_tap_on_the_avatars_spot_shuts_the_sheet_at_any_time_and_never_logs_out() -> None:
+    out = _run("spotTap")
+    shut = {"prevented": True, "open": False, "focused": "button"}
+    assert out["late"] == shut
+    assert out["early"] == shut
+    # elsewhere on Log out, a later tap is a real press; a key press is too
+    assert out["beside"]["prevented"] is False
+    assert out["key"]["prevented"] is False
+    assert out["desktop"]["prevented"] is False
+
+
+def test_the_handle_drags_the_sheet_shut_or_lets_it_spring_back() -> None:
+    out = _run("drag")
+    assert out["far"]["follow"] == ["translateY(30px)", "translateY(120px)"]
+    assert (out["far"]["open"], out["far"]["transform"]) == (False, "translateY(100%)")
+    assert (out["short"]["open"], out["short"]["transform"]) == (True, "")
+    assert (out["upward"]["open"], out["upward"]["follow"]) == (True, ["translateY(0px)"])
+    assert out["flick"]["open"] is False
+    # reduced motion shuts it without the slide
+    assert (out["still"]["open"], out["still"]["transform"]) == (False, "")
+    # the next opening starts from rest
+    assert out["far"]["reopened"] == {"open": True, "transform": ""}

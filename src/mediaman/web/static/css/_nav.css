@@ -266,13 +266,25 @@
     transition: transform var(--dur-fast) var(--ease-out);
   }
   .profile-menu[open] .profile-panel { transform: none; transition-duration: var(--dur); }
+  /* A tall strip to take hold of, with the small bar drawn in it. */
   .profile-handle {
     display: block;
+    height: 28px;
+    margin: -4px -12px 0;
+    position: relative;
+    touch-action: none;
+    cursor: grab;
+  }
+  .profile-handle::before {
+    content: "";
+    position: absolute;
+    top: 12px;
+    left: 50%;
     width: 36px;
     height: 4px;
+    margin-left: -18px;
     border-radius: var(--r-pill);
     background: var(--hair-strong);
-    margin: 4px auto 8px;
   }
   .profile-close {
     display: grid;

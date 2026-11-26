@@ -8,20 +8,20 @@ const { makeDocument, build, click } = require('./fake_dom.js');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-function page(isPhone, downloading) {
+function page(isPhone, downloading, reduced) {
   const doc = makeDocument();
   const button = ['button', { class: 'profile-btn', id: 'button', 'aria-expanded': 'false', 'aria-label': 'Profile menu, robin' },
     ['span', { class: 'avatar' }, 'R'], ['span', { class: 'profile-ring', id: 'ring' }], ['span', { class: 'profile-count', id: 'count' }]];
   const item = (id, tag) => [tag, { id, role: 'menuitem', href: '/' + id, tabindex: '-1' }, id];
   doc.body.appendChild(build(doc, ['header', { id: 'top' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
-    ['div', { id: 'panel' }, ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), ['span', { id: 'profile-note', hidden: '' }], item('logout', 'button')]]));
+    ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), ['span', { id: 'profile-note', hidden: '' }], item('logout', 'button')]]));
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x']]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
   const $ = (id) => doc.getElementById(id);
   $('already-inert').inert = true;
   const media = { matches: isPhone, on: [], addEventListener(t, fn) { this.on.push(fn); } };
-  const win = { listeners: {}, location: { hash: '' }, matchMedia: () => media, addEventListener(t, fn) { win.listeners[t] = fn; } };
+  const win = { listeners: {}, location: { hash: '' }, matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
   if (downloading) win.MM = { downloading };
   win.visualViewport = { height: 800, scale: 1, addEventListener(t, fn) { win.listeners['seen ' + t] = fn; } };
   const images = [];
@@ -212,6 +212,52 @@ const scenarios = {
     p.clock.now += 200;
     p.click('profile-menu', { detail: 1 });
     return { quick: at(true, 300, { detail: 1 }), slow: at(true, 500, { detail: 1 }), key: at(true, 100, { detail: 0 }), desktop: at(false, 100, { detail: 1 }), open: p.open() };
+  },
+  // A tap on the spot of the avatar, whenever it comes, shuts the sheet and presses nothing.
+  spotTap() {
+    const at = (isPhone, ms, extra) => {
+      const p = page(isPhone);
+      p.click('button');
+      p.clock.now += ms;
+      let prevented = null;
+      p.doc.addEventListener('click', (e) => { prevented = e.defaultPrevented; });
+      p.click('logout', extra);
+      return { prevented, open: p.open(), focused: p.focused() };
+    };
+    const on = { detail: 1, clientX: 10, clientY: 10 };
+    return {
+      late: at(true, 5000, on),
+      early: at(true, 100, on),
+      beside: at(true, 5000, { detail: 1, clientX: 90, clientY: 10 }),
+      key: at(true, 5000, { detail: 0, clientX: 0, clientY: 0 }),
+      desktop: at(false, 5000, on),
+    };
+  },
+  // The handle drags the panel after the finger.
+  drag() {
+    const run = (moves, reduced, ms) => {
+      const p = page(true, null, reduced);
+      p.click('button');
+      const handle = p.$('handle');
+      const panel = p.$('panel');
+      const send = (type, y) => (handle.listeners[type] || []).forEach((fn) => fn({ type, pointerId: 1, button: 0, clientY: y }));
+      send('pointerdown', 100);
+      const follow = [];
+      moves.forEach((y) => { send('pointermove', y); follow.push(panel.style.transform); });
+      p.clock.now += ms;
+      send('pointerup', moves[moves.length - 1]);
+      const out = { follow, open: p.open(), transform: panel.style.transform, transition: panel.style.transition };
+      p.click('button');
+      out.reopened = { open: p.open(), transform: panel.style.transform };
+      return out;
+    };
+    return {
+      far: run([130, 220], false, 400),
+      short: run([110, 140], false, 400),
+      upward: run([60], false, 400),
+      flick: run([135], false, 40),
+      still: run([130, 220], true, 400),
+    };
   },
   // Off, the ring is set where it begins; on, it eases from where it stands.
   ringComesBack() {
