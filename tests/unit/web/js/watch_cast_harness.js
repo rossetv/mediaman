@@ -49,6 +49,7 @@ function load(cast = CAST, motion = false) {
     setTimeout: (fn, ms) => { timers.push({ id: ++id, fn, at: clock.now + (ms || 0) }); return id; },
     clearTimeout: (n) => { timers = timers.filter((t) => t.id !== n); },
     requestAnimationFrame: (fn) => fn(),
+    cancelAnimationFrame: () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     matchMedia: () => ({ matches: !motion }), // reduced motion: nothing flies
     performance: { now: () => clock.now },
@@ -300,6 +301,36 @@ const scenarios = {
     p.over(pane(), 'mouse', 100, 100);
     p.wheel(pane(), 3, { deltaMode: 1 });
     return { kept, short, after, rest, fresh, notch: p.people.map(([who]) => who.name) };
+  },
+
+  // Where things may move, the card goes with the scroll: it rises as the scroll goes on, settles back when it
+  // stops short, and opens their page once the scroll has gone far enough.
+  async scrolledCarried() {
+    const p = load(CAST, true);
+    let queued = [];
+    p.ctx.requestAnimationFrame = (fn) => { queued.push(fn); return queued.length; };
+    p.ctx.cancelAnimationFrame = () => { queued = []; };
+    const frames = async (n) => {
+      for (let i = 0; i < n; i++) {
+        await p.wait(16);
+        const now = queued.splice(0);
+        now.forEach((fn) => fn(p.ctx.performance.now()));
+      }
+    };
+    const risen = () => p.q('.cast-card').style.scale || '';
+    p.over(p.item(0));
+    await p.wait(300);
+    await frames(10);
+    const pane = () => p.q('.cast-card__pane');
+    p.over(pane(), 'mouse', 100, 100);
+    p.wheel(pane(), 40);
+    await frames(4);
+    const going = { scale: Number(risen()) > 1, opened: p.people.length };
+    await frames(40);
+    const back = { scale: risen(), opened: p.people.length };
+    for (let i = 0; i < 4; i++) { p.wheel(pane(), 40); await frames(1); }
+    await frames(40);
+    return { going, back, opened: p.people.map(([who]) => who.name) };
   },
 
   // A card with no room above or under the person stands over the photo the pointer rests on: a scroll there is the page's.

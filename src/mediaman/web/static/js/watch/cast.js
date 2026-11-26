@@ -399,6 +399,7 @@
 
   function close() {
     if (!live) return;
+    putDown();
     var p = live;
     live = null;
     folding = p;
@@ -422,6 +423,7 @@
 
   /* Gone at once: what it stands on is drawn again or goes. */
   function drop() {
+    putDown();
     disarm();
     clearTimeout(closeTimer);
     closeTimer = null;
@@ -512,6 +514,11 @@
 
   var GAP_MS = 180;
   var READY_MS = 100; // how long the card has stood open, to have been seen
+  var REST_MS = 170;  // a scroll that has stopped short of opening it
+  var NOTCH_REST_MS = 520; // the same of a wheel, whose next notch may be half a second away
+  var LIFT = 64;      // px the card rises, all the way to their page
+  var GROW = 0.1;
+  var carried = null; // the card going with the scroll: { p, motion }
   var stream = null;  // { mine, sum, notches, at, done }
   var openedAt = 0;
   var reached = false; // the pointer has come onto the card, not only rested on the photo it opened from
@@ -541,11 +548,45 @@
   function scrolledOpen(e) {
     if (!stream || !stream.mine) return;
     if (e.cancelable) e.preventDefault();
-    if (stream.done || !live || (stream.sum < watch.carry.OPENS && !stream.notches)) return;
-    stream.done = true;
+    if (stream.done || !live) return;
+    if (plain()) {
+      // Nothing moves to show it is under way: a notch, its own scroll, is enough.
+      if (stream.sum >= watch.carry.OPENS || stream.notches) arrive(live);
+      return;
+    }
+    if (!carried) {
+      var p = live;
+      carried = { p: p, motion: watch.carry.motion(lift, function (at) { if (at) arrive(p); else putDown(); }) };
+    }
+    carried.motion.push(px(e, e.deltaY), stream.notches ? NOTCH_REST_MS : REST_MS);
+  }
+
+  /* It opens without following the hand where that is asked not to move, or is not drawn. */
+  function plain() {
+    return core.reduceMotion() || window.matchMedia('(forced-colors: active)').matches || window.innerWidth < 700 || window.innerHeight <= 500;
+  }
+
+  /* The card rises and grows with the scroll, *at* of the way to their page. */
+  function lift(at) {
+    var s = 1 + GROW * at;
+    card.style.translate = Math.round((1 - s) * card.offsetWidth / 2) + 'px ' + ((1 - s) * shell.offsetHeight / 2 - LIFT * at) + 'px';
+    card.style.scale = String(s);
+  }
+
+  /* Back where it stood. */
+  function putDown() {
+    if (!carried) return;
+    carried.motion.stop();
+    carried = null;
+    card.style.translate = card.style.scale = '';
+  }
+
+  /* Their page opens, the photo flying to it from where the card has risen to. */
+  function arrive(p) {
+    if (stream && stream.mine) stream.done = true;
     window.addEventListener('wheel', eatRest, { passive: false });
     untilStill();
-    openPerson(live);
+    openPerson(p);
   }
 
   function eatRest(e) {

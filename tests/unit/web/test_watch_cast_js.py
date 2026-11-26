@@ -168,3 +168,10 @@ def test_a_scroll_that_is_the_title_pages_own_passes_over_a_card_and_opens_nothi
 
 def test_a_scroll_with_the_pointer_still_on_the_photo_under_its_card_opens_nothing() -> None:
     assert _run("scrolledOnThePhoto") == {"still": False, "opened": 0, "moved": True, "then": 1}
+
+
+def test_where_things_may_move_the_card_goes_with_the_scroll_and_settles_back_short_of_it() -> None:
+    out = _run("scrolledCarried")
+    assert out["going"] == {"scale": True, "opened": 0}
+    assert out["back"] == {"scale": "", "opened": 0}
+    assert out["opened"] == ["Mara Ellison"]
