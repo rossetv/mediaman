@@ -11,7 +11,7 @@ library-cleanup job into a system-wide ``rmtree``. Two layers of defence
 guard against that:
 
 * **Forbidden-root allowlist refusal** — a deletion never starts unless the
-  configured ``delete_allowed_roots`` allowlist is well-formed: absolute,
+  allowlist of delete folders (``MEDIAMAN_DELETE_ROOTS``) is well-formed: absolute,
   non-symlink, and not pointing at a system / mount-root directory
   (``_delete_roots``).
 * **Strict-descendant + same-device + no-symlink rules at delete time** — the

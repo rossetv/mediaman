@@ -9,9 +9,11 @@ in ``deletion`` and ``disk_usage``.
 
 Threat model: a buggy or compromised Plex part-path must never be able to
 escalate a routine cleanup into a system-wide ``rmtree``. The first line of
-defence is refusing to even *start* a deletion when the configured
-``delete_allowed_roots`` allowlist is malformed — empty, relative, a symlink,
-or pointing at a forbidden system directory.
+defence is refusing to even *start* a deletion when the allowlist of delete
+folders is malformed — empty, relative, a symlink, or pointing at a forbidden
+system directory. A person sets it with ``MEDIAMAN_DELETE_ROOTS``; a
+``delete_allowed_roots`` settings row is read too if someone wrote one by
+hand, since nothing in mediaman writes it.
 """
 
 from __future__ import annotations
@@ -47,7 +49,7 @@ class DeletionRefused(PathSafetyError):
 
 
 #: Paths that must never be configured as a delete root. A misconfigured
-#: ``delete_allowed_roots = ["/"]`` (or any system directory) would let a
+#: ``MEDIAMAN_DELETE_ROOTS=/`` (or any system directory) would let a
 #: crafted Plex part-path escalate cleanup into a system-wide ``rmtree``,
 #: so we refuse to even start a deletion when an allowlist contains any
 #: of these. The list deliberately covers the standard FHS top-level
@@ -246,7 +248,7 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
     well-known top-level system directories in ``_FORBIDDEN_ROOTS``.
 
     The resolved-path check runs against the **resolved** form so an
-    attacker who manages to set ``delete_allowed_roots = ["/data/.."]``
+    attacker who manages to set ``MEDIAMAN_DELETE_ROOTS=/data/..``
     (which resolves to ``/``) is still refused.
 
     The symlink check is done by opening the candidate path with
