@@ -15,7 +15,7 @@
     { name: '1½ h', minutes: 90, said: 'an hour and a half' },
     { name: '2 h', minutes: 120, said: 'two hours' },
     // The most the server takes: no limit.
-    { name: 'All evening', minutes: 720, said: 'an evening' }
+    { name: 'All evening', minutes: 720, said: 'an evening', short: 'Evening' }
   ];
   var SET = 6; // outlines while the first set comes: the server says how many a set holds
   var COUNTS = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'];
@@ -64,6 +64,7 @@
 
     var times = TIMES.map(function (t, i) {
       var b = opts.option(button('', t.name), 'tonight-' + i);
+      if (t.short) b.setAttribute('data-short', t.short);
       b.setAttribute('aria-checked', 'false');
       b.addEventListener('click', function () { choose(i, 0); });
       return seg.appendChild(b);
@@ -158,16 +159,7 @@
     var NO_TOOLS = { tmdb_ref: null, mark_kind: null, mark_key: null };
 
     function readyCard(item, i) {
-      var begun = item.left && item.kind === 'show' && item.episode && item.minutes;
-      var card = search.card(Object.assign({}, item, NO_TOOLS, { subtitle: begun ? '' : sub(item) }));
-      // An episode begun says which, and on a line of its own what it has left: where a line
-      // is too narrow for both, "left" would go first and leave it as long as a whole one.
-      if (begun) {
-        var line = card.querySelector('.watch-card__sub');
-        line.classList.add('tn__sub--two');
-        line.appendChild(el('span', '', 'S' + item.season + ' · E' + item.episode));
-        line.appendChild(el('span', '', dur(item.minutes) + ' left'));
-      }
+      var card = search.card(Object.assign({}, item, NO_TOOLS, { subtitle: sub(item) }));
       card.classList.add('tn__card');
       return option(card, item, 'tonight-title-' + i, i);
     }

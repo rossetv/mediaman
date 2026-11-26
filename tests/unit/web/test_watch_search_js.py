@@ -1260,9 +1260,11 @@ def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_l
     assert out["ready"] == [
         ["Film 1", "/watch/movie/1", "2020 · 1 h 40 min", "option"],
         ["Film 2", "/", "S7 · E4 · 43 min", "option"],
-        # An episode begun: which, then on a line of its own what it has left.
-        ["Film 3", "/watch/movie/3", "S2 · E320 min left", "option"],
+        # An episode begun: as its neighbours say an episode, and what it has left.
+        ["Film 3", "/watch/movie/3", "S2 · E3 · 20 min left", "option"],
     ]
+    # Where "All evening" would wrap, the panel shows this word in its place.
+    assert out["short"] == [None, None, None, "Evening"]
     assert out["away"] == [
         ["Away 1", "#title=tmdb-movie-1", "Movie · 1 h 35 min", "option"],
         ["Away 2", "#title=tmdb-tv-2", "TV · 22 min episodes", "option"],

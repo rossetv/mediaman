@@ -565,9 +565,44 @@ def test_the_panel_s_headings_stay_on_one_line_with_large_text() -> None:
     assert "flex: none" in _of(".watch-sheet__head > .watch-sheet__title", sheet=ASK)
 
 
-def test_tonight_s_posters_are_three_to_a_line_on_a_phone() -> None:
-    assert "repeat(6, minmax(0, 1fr))" in _of(".tn__list", sheet=ASK)
-    assert "repeat(3, minmax(0, 1fr))" in _of(".tn__list", "(max-width: 599.98px)", ASK)
+def test_tonight_s_titles_break_between_words_on_cards_as_wide_as_the_rows() -> None:
+    assert "overflow-wrap: normal" in _of(".tn__list .watch-card__title", sheet=ASK)
+    columns = re.search(r"minmax\((\d+)px, 1fr\)", _of(".tn__list", sheet=ASK))
+    assert columns and int(columns[1]) >= 128
+    # A phone swipes a row of them, each as wide as its rows' own.
+    phone = "(max-width: 599.98px)"
+    assert "overflow-x: auto" in _of(".tn__list", phone, ASK)
+    assert (
+        int(re.search(r"flex: 0 0 (\d+)px", _of(".tn__list > .watch-card", phone, ASK))[1]) >= 112
+    )
+
+
+def test_tonight_s_longest_time_has_a_shorter_word_where_it_would_wrap() -> None:
+    narrow = "(max-width: 359.98px)"
+    assert "font-size: 0" in _of(".tn__seg > button[data-short]", narrow, ASK)
+    assert "attr(data-short)" in _of(".tn__seg > button[data-short]::before", narrow, ASK)
+
+
+def test_an_ai_pick_s_sparkle_has_a_backplate_of_its_own_in_forced_colours() -> None:
+    spark = _of(".watch-card__spark", FORCED, ASK)
+    assert "background: Canvas" in spark and "color: CanvasText" in spark
+
+
+def test_a_question_s_head_on_a_phone_holds_two_lines_of_words_and_one_under_them() -> None:
+    height = _last("min-height", _of(".ask__row", "(max-width: 599.98px)", ASK))
+    two_lines_and_one = 2 * 1.3 * 16 + 1 + 1.35 * 13 + 2 * 8 + 2 * 1
+    assert (
+        eval(height.replace("calc", "").replace("px", ""), {"__builtins__": {}})
+        >= two_lines_and_one
+    )
+
+
+def test_a_wide_way_on_goes_under_a_question_s_words_on_a_phone() -> None:
+    phone = "(max-width: 599.98px)"
+    assert "flex-wrap: wrap" in _of(".ask__row:has(> .chip)", phone, ASK)
+    assert "flex-basis: calc(100% - 58px)" in _of(
+        ".ask__row:has(> .chip) > .ask__words", phone, ASK
+    )
 
 
 REMOTE = SHEET.with_name("_tv_remote.css")

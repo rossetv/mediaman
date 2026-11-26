@@ -38,10 +38,14 @@
 .tn__out .is-old { opacity: .5; transition: opacity var(--dur-fast) var(--ease-out) .1s; }
 .tn__group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 16px 0 10px; font-size: 13px; font-weight: 600; color: var(--t2); }
 .tn__group > small { font-weight: 400; color: var(--t3); }
-.tn__list { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px 10px; }
+/* As wide as the rows' cards, so a title wraps between its words and never inside one. */
+.tn__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px 10px; }
 .tn__list[aria-hidden] { padding-top: 16px; }
 .tn__card { animation: watch-ask-rise var(--dur-slow) var(--ease-out) backwards; }
-.tn__sub--two > span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tn__list .watch-card__title { overflow-wrap: normal; }
+/* What a begun one has left stays whole, on the one line: the episode's number gives way first. */
+.tn__card .watch-card__sub:has(> .watch-card__left) { flex-wrap: nowrap; }
+.tn__card .watch-card__sub > :is(.watch-card__tail, .watch-card__left) { flex: none; }
 :is(.tn, .ask) .watch-card__link.is-picked > .watch-card__poster { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tn__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0 4px; font-size: 13px; color: var(--t3); }
 /* What clips the list cuts whatever reaches out of its line. */
@@ -100,6 +104,13 @@ button.ask__row:active { transform: scale(.99); }
 .ask__skel:nth-child(8n + 7) .skel::after { animation-delay: .48s; }
 .ask__skel:nth-child(8n) .skel::after { animation-delay: .56s; }
 .ask__none { grid-column: 1 / -1; font-size: 15px; color: var(--t2); }
+/* Over the foot of the screen while the titles that came last are below it. */
+.ask__below { position: fixed; z-index: 30; left: 50%; bottom: calc(var(--foot) + max(20px, env(safe-area-inset-bottom))); translate: -50% 0; gap: 7px; padding: 0 18px 0 16px; border-color: var(--hair-strong); background: var(--s4); color: var(--t1); font-weight: 500; white-space: nowrap; box-shadow: 0 8px 24px color-mix(in srgb, var(--scrim) 45%, transparent); animation: watch-ask-below var(--dur) var(--ease-spring, var(--ease-out)) backwards; }
+.ask__below:hover { background: var(--s5); }
+.ask__below > .ico:first-child { color: color-mix(in srgb, var(--purple) 45%, var(--t1)); }
+.ask__below > .ico:last-child { color: var(--t2); }
+html.has-tv-mini .ask__below { bottom: calc(var(--foot) + 96px); }
+@keyframes watch-ask-below { from { opacity: 0; transform: translateY(12px) scale(.96); } }
 /* An AI pick: a sparkle before its title, which wraps at its words as any card's. */
 .watch-card__spark { display: inline-block; margin-right: 5px; color: color-mix(in srgb, var(--purple) 35%, var(--t1)); font-size: .9em; vertical-align: -.05em; animation: watch-ask-spark var(--dur-slow) var(--ease-pop, var(--ease-out)) .12s backwards; }
 @keyframes watch-ask-spark { from { opacity: 0; transform: scale(.4) rotate(-30deg); } }
@@ -130,9 +141,17 @@ a.chip { text-decoration: none; }
 @media (max-width: 599.98px) {
   .tn__head { flex-direction: column; align-items: stretch; }
   .tn__seg > button { min-width: 0; padding: 0 4px; line-height: 1.15; white-space: normal; overflow-wrap: anywhere; }
-  .tn__list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* A row to swipe, as the page's own rows are on a phone: the next card peeks in. */
+  .tn__list { display: flex; margin: -4px -4px; padding: 4px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding-inline: 4px; scrollbar-width: none; }
+  .tn__list::-webkit-scrollbar { display: none; }
+  .tn__list > .watch-card { flex: 0 0 120px; scroll-snap-align: start; }
   .ask__key { display: none; }
-  .ask__row { min-height: 60px; }
+  /* Two lines of its words and one of what it says under them: its height holds as Stop goes and they rewrap. */
+  .ask__row { min-height: calc(2 * 1.3 * 16px + 1px + 1.35 * 13px + 18px); }
+  /* A way on as wide as a phone's line goes under the words, which keep the width to be read. */
+  .ask__row:has(> .chip) { flex-wrap: wrap; row-gap: 10px; }
+  .ask__row:has(> .chip) > .ask__words { flex-basis: calc(100% - 58px); }
+  .ask__row > .chip { margin-left: 58px; }
   .ask .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
   .ask__skel:nth-child(n + 7) { display: none; }
   .ask__group-note { flex-basis: 100%; }
@@ -144,9 +163,13 @@ a.chip { text-decoration: none; }
   .refine.is-wrap > * { flex: initial; }
 }
 @media (max-width: 419.98px) { .tn__seg > button { padding: 0; font-size: 12.5px; } }
+/* Too narrow for "All evening" on one line: the shorter word shows, and the whole is still read out. */
+@media (max-width: 359.98px) {
+  .tn__seg > button[data-short] { font-size: 0; }
+  .tn__seg > button[data-short]::before { content: attr(data-short); content: attr(data-short) / ""; font-size: 12.5px; }
+}
 /* Two where three would cut a long word of a title, as the grid does. */
 @media (max-width: 389.98px) {
-  .tn__list,
   .ask .watch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -157,7 +180,8 @@ a.chip { text-decoration: none; }
   .is-thinking .ask__mark > .ico,
   .is-thinking .ask__row::after,
   .ask__step,
-  .watch-card__spark { animation: none; }
+  .watch-card__spark,
+  .ask__below { animation: none; }
   /* The outlines stand still. */
   .ask__skel .skel { animation: none; }
   .chip:active,
@@ -174,4 +198,7 @@ a.chip { text-decoration: none; }
   button.ask__row.is-picked { outline: 2px solid Highlight; outline-offset: -2px; }
   .ask__mark > .ico,
   .watch-try--ai > .ico { color: CanvasText; }
+  /* Outside the title's backplate it would stand on the poster: it has one of its own. */
+  .watch-card__spark { forced-color-adjust: none; padding: 1px 2px; border-radius: 3px; background: Canvas; color: CanvasText; }
+  .ask__below { border-color: ButtonText; }
 }

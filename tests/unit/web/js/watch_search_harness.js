@@ -2856,6 +2856,7 @@ scenarios.tonight = async () => {
   click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[0]);
   click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[2]);
   out.times = times();
+  out.short = p.sheet.querySelectorAll('.tn__seg button').map((b) => b.getAttribute('data-short'));
   const library = () => p.sent('/tonight?').map((c) => c[1]);
   const elsewhere = () => p.sent('/tonight/elsewhere').map((c) => c[1]);
   out.sent = [library(), elsewhere()];
@@ -3140,10 +3141,10 @@ scenarios.similarSentence = async () => {
 
 // Where the AI is set up and fails, what it would have been asked tells an admin why, not to check its spelling.
 scenarios.offSaid = async () => {
-  const run = async (who, why, page, q) => {
+  const run = async (who, why, page, q, items = []) => {
     const p = await asking({ available: false, why }, { page: { is_admin: who === 'admin', ...page } });
     await p.search(q);
-    await p.answer('/api/watch/search?', { items: [], total: 0 });
+    await p.answer('/api/watch/search?', { items, total: items.length });
     await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
     const note = p.doc.querySelector('.ask__note--quiet');
     const none = p.doc.querySelector('.results-page--none');
@@ -3152,6 +3153,7 @@ scenarios.offSaid = async () => {
       link: (p.doc.querySelector('.ask__note--quiet .ask__link') || {}).href || null,
       none: none && !none.hidden ? none.textContent : null,
       searched: p.calls.map((c) => decodeURIComponent(c.url)).filter((u) => /watch\/search\?/.test(u)),
+      setups: p.doc.querySelectorAll('a').filter((a) => /Set up TMDB/.test(a.textContent) && !a.closest('[hidden]')).length,
     };
   };
   const q = 'a gentle comedy for a sunny day';
@@ -3161,6 +3163,7 @@ scenarios.offSaid = async () => {
     refused: await run('admin', 'refused', {}, q),
     viewer: await run('viewer', null, {}, q),
     noTmdb: await run('admin', 'no_tmdb', { tmdb_configured: false }, 'similar to harrow lane'),
+    noTmdbFound: await run('admin', 'no_tmdb', { tmdb_configured: false }, 'similar to harrow lane', [LIB]),
   };
 };
 
@@ -3199,6 +3202,68 @@ scenarios.veilPressed = async () => {
   await settle();
   const veil = p.$('watch-veil');
   return { open: p.sheet.classList.contains('is-on'), inert: !!veil.inert, hidden: veil.getAttribute('aria-hidden') };
+};
+
+// What the AI picks of titles not already shown comes under its own heading, where its outlines stood.
+scenarios.lateGroup = async () => {
+  const p = await asking();
+  await p.search(LIKE_Q);
+  await p.answer('/api/watch/similar', { tmdb_configured: true, title: NAMED, items: [BLIND, SIGHT] });
+  p.key('Enter'); await settle();
+  const grid = () => p.doc.querySelector('.ask__grid').children.map((n) => (n.classList.contains('ask__group') ? 'head:' + n.querySelector('.results-group__title').textContent
+    : n.classList.contains('watch-card--skel') ? 'outline' : 'card'));
+  const out = { thinking: grid() };
+  const head = p.doc.querySelector('.ask__group--late');
+  const LEAVER = { ...HELD, ref: 'tmdb-movie-3', library_ref: 'movie-3', title: 'Salt and Ember', keep_id: '9', leaving_days: 2, href: '/watch/movie/3' };
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  await p.poll({ ...ANSWER, owned: [LEAVER, HELD], others: [{ ...SIGHT, reason: 'The same leap of faith.' }, OTHER] });
+  out.answered = grid();
+  out.sameHead = p.doc.querySelector('.ask__group--late') === head;
+  out.note = (head.querySelector('.ask__group-note') || {}).textContent || '';
+  const of = (ref) => p.card(ref).closest('.watch-card');
+  out.cards = ['movie-3', 'movie-1'].map((ref) => ({
+    keep: of(ref).querySelectorAll('[data-watch-keep]').length,
+    badges: of(ref).querySelectorAll('.watch-badge').map((n) => n.className.split(' ').pop()),
+  }));
+  return out;
+};
+
+// Titles that land below the screen are pointed to, and nothing scrolls till the person asks.
+scenarios.belowChip = async () => {
+  const rect = Node.prototype.getBoundingClientRect;
+  let low = 1400;
+  Node.prototype.getBoundingClientRect = function () {
+    return this.classList && this.classList.contains('ask__group--late') ? { top: low, bottom: low + 30, left: 0, right: 20, width: 20, height: 30 } : rect.call(this);
+  };
+  const run = async (at) => {
+    low = at;
+    const p = await asking();
+    const scrolled = [];
+    p.ctx.MMWatch.search && (Node.prototype.scrollIntoView = function () { scrolled.push(this.className); });
+    await p.search(LIKE_Q);
+    await p.answer('/api/watch/similar', { tmdb_configured: true, title: NAMED, items: [BLIND, SIGHT] });
+    p.key('Enter'); await settle();
+    await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+    await p.poll({ ...ANSWER, others: [{ ...SIGHT, reason: 'The same leap of faith.' }, OTHER] });
+    const chip = () => p.doc.querySelector('.ask__below');
+    return { p, chip, scrolled };
+  };
+  try {
+    const out = {};
+    const low1 = await run(1400);
+    out.low = { chip: low1.chip() && low1.chip().textContent, scrolled: low1.scrolled.slice(), scrollY: low1.p.ctx.scrollY };
+    click(low1.p.doc, low1.chip()); await settle();
+    out.pressed = { chip: !!low1.chip(), scrolled: low1.scrolled.slice(), focused: low1.p.doc.activeElement && low1.p.doc.activeElement.textContent };
+    const low2 = await run(1400);
+    low = 300; low2.p.fire('scroll');
+    out.scrolledTo = !!low2.chip();
+    const seen = await run(300);
+    out.seen = !!seen.chip();
+    return out;
+  } finally {
+    Node.prototype.getBoundingClientRect = rect;
+    Node.prototype.scrollIntoView = function () {};
+  }
 };
 
 const name = process.argv[2];

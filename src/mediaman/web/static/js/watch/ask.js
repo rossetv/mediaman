@@ -550,6 +550,7 @@
   var WAITING = 8; // poster outlines while the AI looks
   var WAITING_AFTER = 4; // of them after titles already shown
   var STAGGER_MS = 35;
+  var BELOW_PX = 120; // of the screen's foot, where a heading is too low to be seen with its titles
   var STAGES = { taste: 'Reading what you watch…', choosing: 'Choosing titles…', checking: 'Checking the details…' };
 
   function titles(item) { return item.shown ? item.shown.owned.concat(item.shown.others) : []; }
@@ -612,9 +613,7 @@
   function card(x) {
     var search = window.MMWatch.search;
     var t = x.t;
-    var node = isHeld(t)
-      ? (x.late ? search.tmdbCard : search.heldCard)(Object.assign({}, t, { ref: refOf(t) }))
-      : search.tmdbCard(t);
+    var node = isHeld(t) ? search.heldCard(Object.assign({}, t, { ref: refOf(t) }), x.late) : search.tmdbCard(t);
     if (t.in_library && t.kind === 'show' && t.season_count) {
       core.caption(node.querySelector('.watch-card__sub'), 'TV · ' + t.season_count + (t.season_count === 1 ? ' season' : ' seasons'));
     }
@@ -630,18 +629,24 @@
     return node;
   }
 
+  /* A group's heading; one of no titles yet is over the outlines of those to come. */
   function groupRow(key, title, note, n) {
     return {
       key: 'head-' + key,
-      sig: note,
+      sig: title,
       make: function () {
-        var node = el('div', 'results-group__head ask__group');
+        var node = el('div', 'results-group__head ask__group ask__group--' + key);
         node.appendChild(el('h2', 'results-group__title', title));
         node.appendChild(el('span', 'results-group__count'));
-        if (note) node.appendChild(el('span', 'ask__group-note', note));
+        node.appendChild(el('span', 'ask__group-note'));
         return node;
       },
-      update: function (node) { node.querySelector('.results-group__count').textContent = n + (n === 1 ? ' title' : ' titles'); }
+      update: function (node) {
+        node.querySelector('.results-group__count').textContent = n ? n + (n === 1 ? ' title' : ' titles') : '';
+        var said = node.querySelector('.ask__group-note');
+        said.textContent = note;
+        said.hidden = !note;
+      }
     };
   }
 
@@ -657,7 +662,8 @@
   }
 
   /* The grid's rows, grouped by whether the library has them, then those that came later, so that
-     nothing on the page moves when they come; outlines follow while the AI looks.
+     nothing on the page moves when they come. While the AI looks, outlines stand where they will:
+     under the heading of those to come, once titles are shown above it.
      *can* is the page's can_download: those not in the library are offered for download only of a kind it allows. */
   function gridRows(item, phase, can) {
     var all = picks(item, phase);
@@ -669,12 +675,23 @@
     function note(list) {
       return list.some(function (x) { return !isHeld(x.t) && can[x.t.kind] !== false; }) ? 'Open one to download it' : '';
     }
+    /* Of a group of both: how many the library has, and how many may be downloaded. */
+    function mixNote(list) {
+      var have = list.filter(function (x) { return isHeld(x.t); }).length;
+      if (!have) return note(list);
+      if (have === list.length) return have === 1 ? 'In your library' : 'All in your library';
+      var get = list.filter(function (x) { return !isHeld(x.t) && can[x.t.kind] !== false; }).length;
+      return have + ' in your library' + (get ? ', ' + get + ' to download' : '');
+    }
+    var found = looked(item);
+    var waits = phase === 'thinking' || (!!found && found.state === 'loading' && phase !== 'refused');
     var rows = [];
     if (held.length) rows = rows.concat(groupRow('owned', 'In your library', '', held.length), cardRows(held));
     if (others.length) rows = rows.concat(groupRow('others', 'Not in your library', note(others), others.length), cardRows(others));
-    if (late.length) rows = rows.concat(groupRow('late', item.foundFirst ? 'AI picks' : 'Titles like it', note(late), late.length), cardRows(late));
-    var found = looked(item);
-    var waits = phase === 'thinking' || (!!found && found.state === 'loading' && phase !== 'refused');
+    if (late.length || (waits && all.length)) {
+      var name = phase === 'thinking' || item.foundFirst ? 'AI picks' : 'Titles like it';
+      rows = rows.concat(groupRow('late', name, mixNote(late), late.length), cardRows(late));
+    }
     if (waits) {
       for (var i = 0; i < (all.length ? WAITING_AFTER : WAITING); i++) {
         rows.push({ key: 'skel-' + i, make: outlineCard });
@@ -691,7 +708,8 @@
     if (!admin) return { title: 'AI isn’t available right now', text: 'Search works as always.' };
     if (code === 'no_key') return { title: 'AI needs an OpenAI key', text: 'Add one in Settings, then ask again.', link: ['Open the OpenAI card', '/settings#intg-openai'] };
     if (code === 'refused') return { title: 'OpenAI refused the key', text: 'Check it in the OpenAI card.', link: ['Open the OpenAI card', '/settings#intg-openai'] };
-    if (code === 'no_tmdb') return { title: 'AI needs TMDB', text: 'It checks every title it names against TMDB.', link: ['Set up TMDB', '/settings#setg-integrations'] };
+    // The search itself offers to set TMDB up, under its results.
+    if (code === 'no_tmdb') return { title: 'AI needs TMDB', text: 'It checks every title it names against TMDB.' };
     if (code === 'off') return { title: 'AI in search is switched off', text: 'A daily limit is set to 0 in the OpenAI card.', link: ['Open the OpenAI card', '/settings#intg-openai'] };
     return { title: 'AI isn’t available right now', text: 'Search works as always.' };
   }
@@ -732,6 +750,7 @@
     /* *inside* holds *nodes*, with *part*, the titles, among them. What stays is not taken off the
        page: the cards in it are not drawn again. */
     function fill(item, phase, nodes, part) {
+      dropBelow();
       var had = inside.contains(document.activeElement);
       nodes = nodes.filter(Boolean);
       core.toArray(inside.children).forEach(function (node) { if (nodes.indexOf(node) < 0) node.remove(); });
@@ -830,6 +849,42 @@
     function drawGrid(item) {
       if (!drawn || !drawn.grid) return;
       window.MMWatch.search.glide(drawn.grid, gridRows(item, drawn.phase, opts.can || {}), null, STAGGER_MS);
+      if (below && below.head.parentNode !== drawn.grid) dropBelow();
+    }
+
+    /* Titles that came after the others land below them, often off the screen: a chip on the
+       screen says so, and takes the person to them when pressed. Nothing moves by itself. */
+    var below = null; // { node, head, off }
+
+    function pointBelow() {
+      var head = drawn && drawn.grid && drawn.grid.querySelector('.ask__group--late');
+      var first = head && head.nextElementSibling;
+      if (!first || below || !first.querySelector('.watch-card__link') || head.getBoundingClientRect().top < window.innerHeight - BELOW_PX) return;
+      var title = head.querySelector('.results-group__title');
+      var b = button('chip ask__below');
+      b.appendChild(MM.dom.icon('i-sparkles'));
+      b.appendChild(el('span', '', title.textContent + ' below'));
+      b.appendChild(MM.dom.icon('i-arrow-down'));
+      function seen() { if (head.getBoundingClientRect().top < window.innerHeight - BELOW_PX) dropBelow(); }
+      b.addEventListener('click', function () {
+        dropBelow();
+        head.scrollIntoView({ block: 'start', behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+        title.tabIndex = -1;
+        title.focus({ preventScroll: true });
+      });
+      window.addEventListener('scroll', seen, { passive: true });
+      drawn.part.node.appendChild(b);
+      below = { node: b, head: head, off: function () { window.removeEventListener('scroll', seen); } };
+    }
+
+    function dropBelow() {
+      if (!below) return;
+      var node = below.node;
+      below.off();
+      below = null;
+      if (core.reduceMotion() || !node.animate) { node.remove(); return; }
+      node.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateY(8px)' }], { duration: 160, easing: 'ease-out', fill: 'forwards' })
+        .onfinish = function () { node.remove(); };
     }
 
     /* Where the AI would be asked and fails: why, for an admin with the way to it. Under titles like
@@ -924,6 +979,7 @@
       drawn.note = note;
       drawChips(item);
       drawGrid(item);
+      pointBelow();
       sayCount(item);
     }
 

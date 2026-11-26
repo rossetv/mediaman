@@ -76,7 +76,42 @@ def test_without_tmdb_similar_to_searches_the_library_for_the_title_and_says_why
     out = _run("offSaid")["noTmdb"]
     assert "/api/watch/search?q=harrow lane" in out["searched"]
     assert out["note"].startswith("AI needs TMDB.")
-    assert out["link"] == "/settings#setg-integrations"
+
+
+def test_without_tmdb_an_admin_is_offered_to_set_it_up_once_whatever_the_library_has() -> None:
+    out = _run("offSaid")
+    assert (out["noTmdb"]["setups"], out["noTmdbFound"]["setups"]) == (1, 1)
+
+
+def test_the_ai_s_outlines_stand_under_its_own_heading_and_its_picks_land_there() -> None:
+    out = _run("lateGroup")
+    assert (
+        out["thinking"]
+        == ["head:Not in your library", "card", "card", "head:AI picks"] + ["outline"] * 4
+    )
+    assert (
+        out["answered"]
+        == ["head:Not in your library", "card", "card", "head:AI picks"] + ["card"] * 3
+    )
+    assert out["sameHead"] is True
+
+
+def test_late_library_picks_are_library_cards_and_the_group_says_its_mix() -> None:
+    out = _run("lateGroup")
+    leaving, held = out["cards"]
+    assert leaving["keep"] == 1 and "watch-badge--leaving" in leaving["badges"]
+    assert held["badges"] == ["watch-badge--in"]
+    assert out["note"] == "2 in your library, 1 to download"
+
+
+def test_picks_landing_below_the_screen_are_pointed_to_and_scrolled_to_only_when_pressed() -> None:
+    out = _run("belowChip")
+    assert out["low"] == {"chip": "AI picks below", "scrolled": [], "scrollY": 0}
+    pressed = out["pressed"]
+    assert pressed["chip"] is False and pressed["focused"] == "AI picks"
+    assert pressed["scrolled"] and "ask__group--late" in pressed["scrolled"][0]
+    # Once they are on the screen, by the person's own scrolling or from the start, it is not shown.
+    assert (out["scrolledTo"], out["seen"]) == (False, False)
 
 
 def test_return_on_a_title_typed_in_full_opens_it_and_asks_nothing() -> None:

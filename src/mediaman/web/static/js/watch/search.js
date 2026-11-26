@@ -182,9 +182,9 @@
     return card;
   }
 
-  /* One found by its category, in the library. */
-  function buildHeldCard(item) {
-    return addKeep(buildTmdbCard(item, true), item);
+  /* One found by its category, in the library; *said*: among others that are not, it says so. */
+  function buildHeldCard(item, said) {
+    return addKeep(buildTmdbCard(item, !said), item);
   }
 
   /* A title TMDB knows, in the library or not; *plain*: its heading says which. */
@@ -1607,6 +1607,7 @@
       hold('none', 'Search results');
       if (asking && asking.item) {
         live.node.appendChild(el('p', 'results-none', 'No title has these words in its name.'));
+        if (notSetUp) live.node.appendChild(hint(data));
         quietWhileAsked();
         rise(live.node);
         status.textContent = ['No matches for “' + c.q + '”', askHint()].filter(Boolean).join('. ');
