@@ -118,7 +118,7 @@ const scenarios = {
     const poll = (episodes, extra) => p.upd({ hero: item('h'), queue: [item('q', { media_type: 'series', episodes, ...extra })] });
     const look = () => ({
       rows: p.qa('.dl-compact .dl-ep-row').map((r) => r.children.map((c) => c.textContent.trim()).join('|')),
-      toggle: p.text('.dl-compact [data-v="ep-toggle"]'),
+      toggle: p.text('.dl-compact [data-v="ep-toggle"]'), inline: p.qa('.dl-compact [data-v="ep-count"]').length,
       open: !!p.q('.dl-compact [data-v="ep-list"]') && !p.q('.dl-compact [data-v="ep-list"]').hidden,
     });
     poll([ep('S01E01', { state: 'downloading', progress: 20 })]);
