@@ -316,11 +316,12 @@ const scenarios = {
     t.run();
     await t.step(3000);
     const shown = t.says();
+    const picture = (t.html().match(/<div class="qr"[^>]*><svg[^>]*>/) || [''])[0];
     const left = t.text('cd');
     const before = { ...t.store };
     t.answers.poll = ready({ name: '<b>Den</b>', owner: 'a&b' });
     await t.step(3000);
-    return { shown, left, before, asked: t.paths('code').map((c) => c.token), polled: t.last('poll').token, after: t.store, said: t.html() };
+    return { shown, picture, left, before, asked: t.paths('code').map((c) => c.token), polled: t.last('poll').token, after: t.store, said: t.html() };
   },
   async codesStop() {
     const t = tv();

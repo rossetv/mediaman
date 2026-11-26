@@ -59,6 +59,12 @@ def test_a_code_is_asked_for_with_no_token_and_the_new_one_is_kept_only_once_pai
     assert "Connected to a&#38;b" in out["said"] and "<b>Den" not in out["said"]
 
 
+def test_the_qr_code_is_named_for_a_screen_reader_as_one_picture() -> None:
+    picture = _run("pairs")["picture"]
+    assert 'role="img"' in picture and 'aria-label="QR code to pair this TV"' in picture
+    assert 'aria-hidden="true"' in picture.split("<svg", 1)[1]
+
+
 def test_a_code_that_ran_out_is_renewed_and_a_tv_nobody_stands_at_stops() -> None:
     once = _run("codeRanOut")
     assert once["asked"] == 2 and once["left"].startswith("The last code ran out.")
