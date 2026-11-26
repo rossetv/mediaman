@@ -1,14 +1,22 @@
-"""What a password change, or an account's removal, does to a film it plays on a shared TV."""
+"""What a password change, a weak password at sign-in, or an account's removal, does to a film it plays on a shared TV."""
 
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
 from mediaman.services.rate_limit import reset_all_limiters
 from mediaman.services.tv import players
 from mediaman.services.tv.players import Choice, Play, Players
 from mediaman.web.auth.password_hash import _change_password as rotation
 from mediaman.web.routes import tv as tv_routes
+from mediaman.web.routes.auth import _limiter
+from mediaman.web.routes.auth import router as auth_router
+from mediaman.web.routes.force_password_change import (
+    _FORCE_CHANGE_IP_LIMITER,
+    _FORCE_CHANGE_LIMITER,
+)
+from mediaman.web.routes.force_password_change import router as force_router
 from mediaman.web.routes.users import router as users_router
 from tests.helpers.factories import insert_admin_user
 
@@ -79,3 +87,56 @@ def test_removing_an_account_ends_its_film_as_stopped_by_the_admin(admin, board,
     (vic,) = conn.execute("SELECT id FROM admin_users WHERE username = 'vic'").fetchone()
     assert admin.delete(f"/api/users/{vic}").status_code == 200
     assert (board.view(_KEY)["play"], board.view(_KEY)["last"]["stopped_by"]) == (None, "admin")
+
+
+def _unpaired_with_the_film(client, conn, token):
+    (tv_id,) = conn.execute("SELECT id FROM tvs").fetchone()
+    client.cookies.set("session_token", token)
+    gone = client.get(f"/api/tvs/{tv_id}")
+    return gone.status_code, gone.json().get("reason"), gone.json().get("stopped")
+
+
+def test_a_weak_password_at_sign_in_ends_the_persons_film_and_unpairs_them(
+    app_factory, admin, board, conn, templates_stub
+):
+    _limiter.reset()
+    _plays(board, conn, "admin")
+    app = app_factory(auth_router, tv_routes.router, conn=conn)
+    app.state.templates = templates_stub
+    client = TestClient(app)
+    signed_in = client.post(
+        "/login",
+        data={"username": "admin", "password": "password1234"},
+        follow_redirects=False,
+    )
+    assert signed_in.status_code == 302, signed_in.text
+    assert (board.view(_KEY)["play"], board.view(_KEY)["last"]["stopped_by"]) == (None, "admin")
+    token = signed_in.cookies["session_token"]
+    assert _unpaired_with_the_film(client, conn, token) == (410, "account", "Film")
+
+
+def test_a_forced_password_change_ends_the_persons_film_and_unpairs_them(
+    app_factory, admin, board, conn, templates_stub
+):
+    # A flag set where no TV was told, as one from before TVs were shared.
+    conn.execute("UPDATE admin_users SET must_change_password = 1 WHERE username = 'admin'")
+    conn.execute(
+        "INSERT INTO tv_people (tv_id, user_id, paired_at)"
+        " SELECT tvs.id, u.id, '2026' FROM tvs, admin_users u WHERE u.username = 'admin'"
+    )
+    conn.commit()
+    _FORCE_CHANGE_LIMITER.reset()
+    _FORCE_CHANGE_IP_LIMITER.reset()
+    _plays(board, conn, "admin")
+    app = app_factory(force_router, tv_routes.router, conn=conn)
+    app.state.templates = templates_stub
+    client = TestClient(app, cookies=dict(admin.cookies))
+    changed = client.post(
+        "/force-password-change",
+        data={"old_password": "password1234", "new_password": _NEW, "confirm_password": _NEW},
+        follow_redirects=False,
+    )
+    assert changed.status_code == 302, changed.text
+    assert (board.view(_KEY)["play"], board.view(_KEY)["last"]["stopped_by"]) == (None, "admin")
+    token = changed.cookies["session_token"]
+    assert _unpaired_with_the_film(client, conn, token) == (410, "account", "Film")
