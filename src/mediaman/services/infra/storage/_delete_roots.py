@@ -264,6 +264,7 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
     if not roots:
         raise DeletionRefused(
             "delete folders are not configured; refusing deletion. "
-            "Set the MEDIAMAN_DELETE_ROOTS env var (colon-separated)."
+            "Set the delete_allowed_roots setting or the MEDIAMAN_DELETE_ROOTS env var "
+            "(colon-separated)."
         )
     return [_validate_single_root(raw) for raw in roots]

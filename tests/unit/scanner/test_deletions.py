@@ -306,6 +306,31 @@ class TestRecoverStuckDeletions:
         row = conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m3'").fetchone()
         assert row is None  # Row removed — cleanup complete.
 
+    def test_a_path_outside_the_roots_names_both_places_to_set_them(
+        self, conn, tmp_path, monkeypatch, caplog
+    ):
+        root = tmp_path / "library"
+        root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        outside = str(tmp_path / "elsewhere" / "M.mkv")
+        _insert_media(conn, media_id="m4", file_path=outside)
+        insert_scheduled_action(
+            conn,
+            media_item_id="m4",
+            action="scheduled_deletion",
+            token="tok-m4",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="deleting",
+        )
+
+        with caplog.at_level("ERROR", logger="mediaman"):
+            recover_stuck_deletions(conn)
+
+        text = " ".join(r.getMessage() for r in caplog.records)
+        assert "delete_allowed_roots" in text
+        assert "MEDIAMAN_DELETE_ROOTS" in text
+
     @pytest.mark.parametrize("root_state", ["missing", "empty"])
     def test_file_gone_with_root_unavailable_is_not_booked_deleted(
         self, conn, tmp_path, monkeypatch, root_state

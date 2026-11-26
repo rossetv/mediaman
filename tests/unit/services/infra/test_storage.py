@@ -299,8 +299,10 @@ class TestDeletePathValidation:
         target = tmp_path / "anywhere"
         target.mkdir()
         (target / "f.txt").write_text("data")
-        with pytest.raises(DeletionRefused, match="not configured"):
+        with pytest.raises(DeletionRefused, match="not configured") as refused:
             delete_path(str(target), allowed_roots=[])
+        assert "delete_allowed_roots" in str(refused.value)
+        assert "MEDIAMAN_DELETE_ROOTS" in str(refused.value)
         # File system untouched.
         assert target.exists()
 
@@ -364,6 +366,21 @@ class TestDeletePathSymlinkSafety:
         with pytest.raises(DeletionRefused, match="symlink"):
             delete_path(str(link_root / "f.txt"), allowed_roots=[str(link_root)])
 
+    def test_a_symlinked_root_met_at_removal_names_both_places_to_set_roots(self, tmp_path):
+        from mediaman.services.infra.storage.deletion import _safe_rmtree
+
+        real_root = tmp_path / "real_root"
+        real_root.mkdir()
+        link_root = tmp_path / "link_root"
+        link_root.symlink_to(real_root)
+        target = link_root / "sub"
+        target.mkdir()
+
+        with pytest.raises(DeletionRefused, match="symlink") as refused:
+            _safe_rmtree(target, [link_root, real_root])
+        assert "delete_allowed_roots" in str(refused.value)
+        assert "MEDIAMAN_DELETE_ROOTS" in str(refused.value)
+
     def test_refuses_root_that_is_itself_a_symlink(self, tmp_path):
         """A delete_allowed_roots entry that is a symlink is a
         misconfiguration and must cause deletion to be refused."""
@@ -378,8 +395,10 @@ class TestDeletePathSymlinkSafety:
         (target / "inner.txt").write_text("x")
 
         # Root is the symlink, target is inside its resolved content.
-        with pytest.raises(DeletionRefused, match="symlink"):
+        with pytest.raises(DeletionRefused, match="symlink") as refused:
             delete_path(str(target), allowed_roots=[str(link_root)])
+        assert "delete_allowed_roots" in str(refused.value)
+        assert "MEDIAMAN_DELETE_ROOTS" in str(refused.value)
         # Target is untouched.
         assert target.exists()
 
