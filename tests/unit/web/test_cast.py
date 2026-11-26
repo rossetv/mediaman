@@ -828,3 +828,14 @@ def test_a_players_airplay_address_reads_its_own_stream_alone(alice, tv):
     assert tv.get(second["airplay"]).status_code == 200
     # The stream's id is no ticket.
     assert tv.get(f"/api/cast/{first['stream_id']}/index.m3u8").status_code == 404
+
+
+def test_an_airplay_address_that_ran_out_is_refused_and_leaves_the_players_stream(alice, tv, clock):
+    started = _watch(alice, airplay=True)
+    url = started["airplay"]
+    assert tv.get(url).status_code == 200
+    clock.now += TICKET_SECONDS
+    # Whoever still holds the old address reads nothing, and ends nothing.
+    for path in (url, _segment_url(url), url):
+        assert tv.get(path).status_code == 404
+    assert alice.get(started["playlist"]).status_code == 200

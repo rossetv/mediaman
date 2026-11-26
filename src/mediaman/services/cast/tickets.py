@@ -31,6 +31,10 @@ class Ticket:
     #: token of the paired TV it was started for, as the TVs table does.
     session_hash: str
     expires: float
+    #: Whether the stream is the ticket's alone, as a Cast's is: its reaper ends it with the
+    #: ticket, so a read of a ticket that ran out ends it at once. A player's stream that an
+    #: AirPlay TV reads lives on without its ticket.
+    holds_stream: bool = True
 
 
 class TicketStore:
@@ -40,11 +44,18 @@ class TicketStore:
         self._tickets: dict[str, Ticket] = {}
 
     def issue(
-        self, stream_id: str, user: str, session_hash: str, *, live: Callable[[Ticket], bool]
+        self,
+        stream_id: str,
+        user: str,
+        session_hash: str,
+        *,
+        live: Callable[[Ticket], bool],
+        holds_stream: bool = True,
     ) -> str:
         """Return a new ticket for *stream_id*, forgetting those that ran out or are not *live*."""
         token = secrets.token_urlsafe(32)
-        ticket = Ticket(stream_id, user, session_hash, self._clock() + TICKET_SECONDS)
+        expires = self._clock() + TICKET_SECONDS
+        ticket = Ticket(stream_id, user, session_hash, expires, holds_stream)
         with self._lock:
             held = list(self._tickets.items())
         ended = [key for key, t in held if self.expired(t) or not live(t)]
@@ -57,7 +68,7 @@ class TicketStore:
     def read(self, token: str) -> Ticket | None:
         """The ticket *token* stands for, or None.
 
-        One that ran out is handed back too, so that the caller can end its stream.
+        One that ran out is handed back too, so that the caller can end a stream it holds.
         """
         if not _TICKET_RE.fullmatch(token):
             return None

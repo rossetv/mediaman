@@ -211,8 +211,10 @@ def _read_ticket(request: Request, token: str) -> Ticket | Response:
     store = get_ticket_store()
     ticket = store.read(token)
     if ticket is not None and not _is_good(ticket):
-        with contextlib.suppress(StreamGone):
-            get_stream_manager().end(ticket.stream_id, ticket.user)
+        # A player's stream an AirPlay TV reads outlives its ticket: an old address ends nothing.
+        if ticket.holds_stream or not store.expired(ticket):
+            with contextlib.suppress(StreamGone):
+                get_stream_manager().end(ticket.stream_id, ticket.user)
         store.drop(token)
         ticket = None
     if ticket is not None and not stream_lives(ticket):

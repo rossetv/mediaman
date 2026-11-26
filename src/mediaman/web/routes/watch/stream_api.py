@@ -335,8 +335,11 @@ def _start(
             quality, rows = playing, without_original(rows)
     airplay = None
     if body.airplay:
-        # Bound to this one stream and this session: it ends with either, as a Cast's does.
-        token = get_ticket_store().issue(stream_id, username, session_hash, live=stream_lives)
+        # Bound to this one stream and this session: it ends with either, as a Cast's does. The
+        # stream is the player's, so the ticket's running out leaves it.
+        token = get_ticket_store().issue(
+            stream_id, username, session_hash, live=stream_lives, holds_stream=False
+        )
         airplay = f"/api/cast/{token}/index.m3u8"
     return respond_ok(
         {
