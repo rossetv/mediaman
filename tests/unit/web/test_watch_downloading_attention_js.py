@@ -27,9 +27,13 @@ def test_an_admin_reads_that_it_needs_attention_and_why(card) -> None:
     assert card["told"]["title"] == _WHY + " · Fix it in Sonarr: Activity → Queue"
 
 
-def test_a_viewer_reads_only_that_it_needs_attention(card) -> None:
+_ADMIN = "Won’t finish until an admin sorts it out"
+
+
+def test_a_viewer_reads_that_it_needs_attention_and_waits_for_an_admin(card) -> None:
     assert card["viewer"]["line"] == "Needs attention"
-    assert card["viewer"]["title"] is None
+    assert card["viewer"]["fix"] == _ADMIN
+    assert card["viewer"]["title"] == _ADMIN
 
 
 def test_it_has_no_bar_of_progress_but_the_warning_one(card) -> None:
@@ -40,7 +44,6 @@ def test_it_has_no_bar_of_progress_but_the_warning_one(card) -> None:
 
 def test_an_admin_reads_where_to_fix_it_on_the_card_itself_not_only_on_hover(card) -> None:
     assert card["told"]["fix"] == "Fix it in Sonarr: Activity → Queue"
-    assert card["viewer"]["fix"] is None
 
 
 def test_one_mediaman_will_try_again_says_so_to_an_admin_and_a_viewer_alike(card) -> None:
@@ -66,3 +69,11 @@ def test_a_card_that_is_stuck_has_no_full_bar_that_reads_as_done() -> None:
 def test_where_to_fix_it_is_plain_text_not_the_colour_of_a_link() -> None:
     assert "var(--warning)" not in _rule("_dl.css", ".dl-attention-hint")
     assert "var(--warning)" not in _rule("_watch_downloading.css", ".dw__fix")
+
+
+def test_a_stuck_card_gives_what_happens_next_two_lines_and_grows_to_hold_them() -> None:
+    fix = _rule("_watch_downloading.css", ".dw.is-stuck .dw__fix")
+    link = _rule("_watch_downloading.css", ".dw__link")
+
+    assert "-webkit-line-clamp: 2" in fix and "white-space: normal" in fix
+    assert "min-height: 104px" in link and re.search(r"(?<![\w-])height: 104px", link) is None

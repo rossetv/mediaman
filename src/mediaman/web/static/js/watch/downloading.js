@@ -73,10 +73,11 @@
     return [item.percent + '%', typeof item.minutes_left === 'number' ? ' · ' + left(item.minutes_left) : ''];
   }
 
-  /* Where an admin fixes a download that needs attention; of one mediaman retries, what it will do. */
+  /* What comes of a download that needs attention: that mediaman retries it, else where an admin
+     fixes it; a viewer is told only that it waits for one. */
   function hintOf(item) {
     if (item.state !== 'needs_attention') return '';
-    return item.retrying ? 'mediaman will look for another copy' : item.attention_hint || '';
+    return item.retrying ? 'mediaman will look for another copy' : item.attention_hint || 'Won’t finish until an admin sorts it out';
   }
 
   function refOf(item) { return REF_RE.test(item.ref || '') ? item.ref : ''; }
