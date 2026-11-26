@@ -128,6 +128,8 @@ def test_a_row_drawn_without_episodes_gains_them() -> None:
     out = _run("rowEpisodes", hero=_item("h"), queue=[_item("q", media_type="series")])
     assert out["more"]["rows"] == ["S01E01|Title S01E01||Ready", "S01E02|Named late||Queued"]
     assert out["more"]["toggle"] == "2 episodes" and out["more"]["inline"] == 0
+    # in the row's card, under its text, as the server draws them
+    assert out["more"]["inside"] == 2
 
 
 def test_an_episodes_button_added_by_a_poll_says_whether_it_is_open() -> None:
@@ -207,10 +209,12 @@ def test_a_link_to_radarr_keeps_the_focus_while_its_line_changes() -> None:
 
 
 def test_a_page_that_hears_nothing_says_so_and_goes_on_asking() -> None:
-    out = _run("lost", hero=_item("h"), recent=[_item("r")], subtitle="1 item in progress")
-    # subtitle, the top card, recently added titles: what is shown stays
-    live = ["1 item in progress", 1, 1]
-    cut_off = ["1 item in progress · can't reach mediaman", 1, 1]
+    out = _run(
+        "lost", hero=_item("h", eta="5 min"), recent=[_item("r")], subtitle="1 item in progress"
+    )
+    # subtitle, the top card and its time left, recently added titles: what is shown stays
+    live = ["1 item in progress", 1, 1, "5 min"]
+    cut_off = ["1 item in progress · can't reach mediaman", 1, 1, "5 min"]
     assert out["once"] == live, "one failed poll is no news"
     assert out["twice"] == cut_off
     assert out["back"] == live

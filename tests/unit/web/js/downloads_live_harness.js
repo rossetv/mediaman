@@ -204,7 +204,7 @@ const scenarios = {
     const run = async (ms) => { const t = p.timers.find((x) => x.ms === ms); if (!t) return false; p.timers.splice(p.timers.indexOf(t), 1); t.fn(); await settle(); return true; };
     const answer = async (n, data) => { calls[n].resolve({ subtitle: '1 item in progress', hero: item('h', { eta: '5 min' }), queue: [], upcoming: [], recent: [], unreachable: [], outage: '', ...data }); await settle(); };
     const fail = async (n) => { calls[n].reject(new Error('down')); await settle(); };
-    const look = () => [p.text('.ph p'), p.qa('.dl-hero').length, p.qa('.dl-recent-item').length];
+    const look = () => [p.text('.ph p'), p.qa('.dl-hero').length, p.qa('.dl-recent-item').length, p.text('.dl-hero [data-v="eta"]')];
     const out = {};
     await run(2000); await fail(0);
     out.once = look();
