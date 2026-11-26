@@ -597,6 +597,39 @@ def test_a_tv_s_paused_stream_is_not_ended_for_a_new_start(manager, plex, clock)
     assert manager.get(tv, "alice")
 
 
+def test_at_the_limit_a_tv_paused_over_half_an_hour_gives_way_to_a_new_start(manager, plex, clock):
+    tv = _start(manager, rating_key="1", tv=plex_stream.TvTracks())
+    manager.playlist(tv, "alice")
+    others = [_start(manager, rating_key=str(k + 2)) for k in range(MAX_STREAMS_PER_USER - 1)]
+    clock.now += 31 * 60
+    for kept in others:
+        manager.get(kept, "alice")
+
+    assert manager.get(_start(manager, rating_key="99"), "alice")
+
+    with pytest.raises(StreamGone):
+        manager.get(tv, "alice")
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [_session_of(plex, 0)]
+
+
+def test_a_paused_tv_s_stream_is_kept_alive_on_plex_for_two_hours_then_stopped(
+    manager, plex, clock
+):
+    tv = _start(manager, tv=plex_stream.TvTracks())
+    manager.playlist(tv, "alice")
+    session = _session_of(plex, 0)
+    for _ in range(4):
+        clock.now += 29 * 60
+        assert manager.reap() == 0
+    assert plex.calls_to("stop") == []
+    assert [c["params"]["session"] for c in plex.calls_to("ping")] == [session] * 4
+
+    clock.now += 5 * 60
+
+    assert manager.reap() == 1
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [session]
+
+
 def test_the_limit_frees_up_when_a_stream_is_stopped(manager):
     ids = [_start(manager, rating_key=str(k + 1)) for k in range(MAX_STREAMS_PER_USER)]
 

@@ -56,7 +56,8 @@ logger = logging.getLogger(__name__)
 SESSION_PREFIX = "mediaman-"
 IDLE_TIMEOUT_SECONDS = 180.0
 # A paused TV asks for nothing, and the phone that started it may be asleep.
-TV_IDLE_TIMEOUT_SECONDS = 30 * 60.0
+# Plex keeps the session as long as the reaper pings it.
+TV_IDLE_TIMEOUT_SECONDS = 2 * 3600.0
 SEGMENT_URL_PREFIX = "/api/watch/stream"
 
 _CLIENT_IDENTIFIER = "mediaman-watch"
@@ -88,8 +89,10 @@ MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
 # A playing player saves its place every 10 s and tries a lost connection again for 60 s, so a
 # stream silent longer is no longer fetched: at the limit, a new start of its person's ends it.
-# One a TV reads waits out TV_IDLE_TIMEOUT_SECONDS.
+# One a TV reads waits longer, but less than TV_IDLE_TIMEOUT_SECONDS, so a TV left paused does
+# not hold one of the person's few streams for hours.
 REPLACEABLE_AFTER_SECONDS = 90.0
+TV_REPLACEABLE_AFTER_SECONDS = 30 * 60.0
 _POOL_MAXSIZE = 32
 
 # A segment is read whole on a worker thread, and the pages share those (40 by default), so reads
@@ -682,7 +685,7 @@ class StreamManager:
                 (s.last_access, sid)
                 for sid, s in own
                 if now - s.last_access
-                > (TV_IDLE_TIMEOUT_SECONDS if s.tv_read else REPLACEABLE_AFTER_SECONDS)
+                > (TV_REPLACEABLE_AFTER_SECONDS if s.tv_read else REPLACEABLE_AFTER_SECONDS)
             ]
             if not silent:
                 raise TooManyStreams(f"at most {MAX_STREAMS_PER_USER} streams can be open at once")
