@@ -214,14 +214,15 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
                 status=400,
                 message="Plex is not configured or its URL was refused — check the Plex URL and token in Settings",
             )
+        counts = {key: result.get(key, 0) for key in ("synced", "errors", "removed")}
         security_event(
             conn,
             event="library.sync",
             actor=admin,
             ip=get_client_ip(request),
-            detail={"synced": result.get("synced", 0)},
+            detail=counts,
         )
-        return respond_ok({"synced": result.get("synced", 0)})
+        return respond_ok(counts)
     except (
         PlexApiException,
         SafeHTTPError,

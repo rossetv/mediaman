@@ -132,13 +132,11 @@
       settings=settings, extra=openai_extra) }}
 
   {{ c.service_card("tmdb", "T", "tmdb", "TMDB",
-      "Poster images for media recommendations.",
+      "Search, rows, title pages and collections on Watch.",
       fields=[
         [
-          {"kind": "secret", "id": "tmdb_api_key", "label": "API Key",
-           "placeholder": "TMDB API key (v3 auth)"},
           {"kind": "secret", "id": "tmdb_read_token", "label": "API Read Token",
-           "sub": "Get both from <a href=\"https://www.themoviedb.org/settings/api\" target=\"_blank\" rel=\"noopener\">themoviedb.org/settings/api</a>.",
+           "sub": "Get it from <a href=\"https://www.themoviedb.org/settings/api\" target=\"_blank\" rel=\"noopener\">themoviedb.org/settings/api</a>.",
            "placeholder": "eyJhbGci…"},
         ],
       ],

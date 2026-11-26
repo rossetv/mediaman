@@ -48,6 +48,11 @@
   }
   function isNewest(service, run) { return newest[service] === run; }
 
+  function serviceName(btn) {
+    var h = btn.closest('.intg-card') && btn.closest('.intg-card').querySelector('h3');
+    return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
+  }
+
   function fieldValue(id) {
     var el = document.getElementById(id);
     return el ? el.value : '';
@@ -289,9 +294,12 @@
 
     paintTests: function () {
       document.querySelectorAll('[data-test-service]').forEach(function (btn) {
-        var label = MM.settings.integrations.hasEdits(btn) ? 'Test saved' : 'Test';
+        if (btn.disabled) return;
+        var edited = MM.settings.integrations.hasEdits(btn);
+        var label = edited ? 'Test saved' : 'Test';
         // Leaving a field for this button repaints it mid-press, and Safari drops the click if the text is replaced.
-        if (!btn.disabled && btn.textContent !== label) btn.textContent = label;
+        if (btn.textContent !== label) btn.textContent = label;
+        btn.setAttribute('aria-label', edited ? 'Test saved ' + serviceName(btn) + ' settings' : 'Test ' + serviceName(btn));
       });
     },
 
@@ -316,11 +324,6 @@
     init: function () {
       var self = MM.settings.integrations;
 
-      function serviceName(btn) {
-        var h = btn.closest('.intg-card') && btn.closest('.intg-card').querySelector('h3');
-        return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
-      }
-
       // An answer that already holds the service's name as a whole word is not given it twice.
       function said(btn, label) {
         var name = serviceName(btn);
@@ -340,7 +343,8 @@
         if (btn) self.announce(service, '');
         if (btn) {
           if (self.hasEdits(btn)) window.UIFeedback.toast('Testing ' + serviceName(btn) + ' as last saved. Save to test your changes.');
-          btn.disabled = true; btn.textContent = 'Testing…';
+          // While it works the button is named by what it shows; the result is read out by the card.
+          btn.disabled = true; btn.textContent = 'Testing…'; btn.removeAttribute('aria-label');
         }
         MM.api.post('/api/settings/test/' + encodeURIComponent(service))
           .then(function () {
@@ -389,7 +393,23 @@
         syncBtn.appendChild(document.createTextNode('Syncing…'));
         syncBtn.disabled = true;
         MM.api.post('/api/library/sync')
-          .then(function () { syncBtn.textContent = 'Synced ✓'; })
+          .then(function (res) {
+            var synced = (res && res.synced) || 0, failed = (res && res.errors) || 0;
+            var items = synced.toLocaleString('en-GB') + (synced === 1 ? ' item' : ' items');
+            if (failed) {
+              syncBtn.textContent = failed.toLocaleString('en-GB') + ' failed';
+              window.UIFeedback.error((synced ? 'Synced ' + items : 'Nothing synced') + ', ' +
+                failed.toLocaleString('en-GB') + ' failed. Mediaman’s log says which.');
+            } else if (!synced) {
+              syncBtn.textContent = '0 synced';
+              // A person has to act on this, so it stays longer than a passing note.
+              window.UIFeedback.toast('Nothing synced. Choose libraries to scan under Libraries & Paths, then save.',
+                { duration: 8000 });
+            } else {
+              syncBtn.textContent = 'Synced ✓';
+              window.UIFeedback.success('Synced ' + items + ' from Plex.');
+            }
+          })
           .catch(function (err) {
             syncBtn.textContent = 'Failed';
             window.UIFeedback.error(MM.api.messageOf(err, 'Library sync failed'));
