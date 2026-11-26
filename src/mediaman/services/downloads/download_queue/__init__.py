@@ -14,7 +14,6 @@ importable from here.
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 import threading
 import time
@@ -109,8 +108,6 @@ _state_lock = threading.Lock()
 # What a viewer is told while a service refuses its key or password, which only an admin can
 # put right.
 VIEWER_OUTAGE = "Downloads aren't available"
-# The fetcher's line for a service whose answer was 401 or 403: the key was refused.
-_REFUSED_LINE = re.compile(r"(\w+) fetch failed: HTTP 40[13] ")
 
 
 def _reset_previous_queue() -> None:
@@ -374,10 +371,6 @@ def _outage_line(unreachable: list[str], refused: Collection[str] = ()) -> str:
     return f"Can't reach {_names(down)} or sign in to {_names(shut)}"
 
 
-def _refused_keys(errors: list[str]) -> list[str]:
-    return [found[1] for line in errors if (found := _REFUSED_LINE.match(line))]
-
-
 def _is_set_up(
     conn: sqlite3.Connection, secret_key: str, build: Callable[[sqlite3.Connection, str], object]
 ) -> bool:
@@ -407,7 +400,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     # 1. Fetch *arr queue
     arr_result = fetch_arr_queue_result(conn, secret_key)
     unreachable = list(arr_result.unreachable)
-    refused = _refused_keys(arr_result.errors)
+    refused = list(arr_result.refused)
     arr_base_urls_map = _arr_base_urls(conn, secret_key)
 
     # 2. Fetch NZBGet queue + status
@@ -459,9 +452,14 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     current_map: dict[str, dict[str, object]] = {
         cast(str, item["id"]): item for item in items_as_dicts
     }
+    # The upcoming too, for the poster of each that the app holds.
+    by_id = {
+        **current_map,
+        **{i["id"]: cast(dict[str, object], i) for i in upcoming_items},
+    }
     for card in [*arr_result.cards, *remembered]:
-        if card["dl_id"] in current_map and "tmdb_id" in card:
-            current_map[card["dl_id"]]["tmdb_id"] = card["tmdb_id"]
+        if card["dl_id"] in by_id and "tmdb_id" in card:
+            by_id[card["dl_id"]]["tmdb_id"] = card["tmdb_id"]
     _maybe_record_completions(
         conn,
         current_map,

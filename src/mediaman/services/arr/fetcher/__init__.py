@@ -90,6 +90,8 @@ def _fetch_service(
         logger.warning("Failed to fetch %s queue: %s", name, exc, exc_info=True)
         result.errors.append(f"{name} fetch failed: {exc}")
         result.unreachable.append(name)
+        if isinstance(exc, SafeHTTPError) and exc.status_code in (401, 403):
+            result.refused.append(name)
         return
     result.unreachable.extend(failures)
     stamp_searching_since(conn, name.lower(), cards, complete=not failures)

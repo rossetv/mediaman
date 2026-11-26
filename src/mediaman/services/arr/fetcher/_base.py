@@ -86,12 +86,14 @@ class FetchResult:
     ``cards`` is the list of download cards (same content as ``fetch_arr_queue``).
     ``errors`` is a list of human-readable error strings -- one per service that
     failed, with the cause.  Empty when all fetches succeeded.  ``unreachable``
-    names every service whose list is missing or incomplete, for the page to show.
+    names every service whose list is missing or incomplete, for the page to show;
+    ``refused`` those of them that answered 401 or 403, which refused their API key.
     """
 
     cards: list[ArrCard] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     unreachable: list[str] = field(default_factory=list)
+    refused: list[str] = field(default_factory=list)
 
 
 class _ArrEpisodeRequired(TypedDict):
