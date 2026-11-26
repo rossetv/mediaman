@@ -2410,6 +2410,7 @@ const scenarios = {
       const a = li.querySelector('.watch-ep');
       const about = li.querySelector('.watch-ep__about');
       return { state: a.querySelector('.watch-ep__state') && a.querySelector('.watch-ep__state').textContent, meta: a.querySelector('.watch-ep__meta').textContent,
+        facts: a.querySelector('.watch-ep__meta').querySelectorAll('.watch-ep__fact').map((f) => f.textContent),
         about: about && about.textContent, describes: !!about && a.getAttribute('aria-describedby') === about.id, inName: !!about && about.getAttribute('aria-hidden') !== 'true',
         tick: !!a.querySelector('.watch-ep__tick'), controlsInLink: a.querySelectorAll('button').length, more: li.querySelectorAll('.watch-ep__more').length };
     };

@@ -798,6 +798,7 @@
 .watch-ep__title { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .watch-ep__meta { font-size: 13px; color: var(--t3); }
 .watch-ep__meta:empty { display: none; }
+.watch-ep__fact { white-space: nowrap; }
 .watch-ep__state { grid-area: state; font-size: 12px; padding: 4px 10px; border-radius: var(--r-pill); color: var(--t2); background: var(--rgba-overlay-sm); }
 .watch-ep__state--active { color: var(--accent); background: var(--rgba-accent-bg); }
 

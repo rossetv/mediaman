@@ -3147,7 +3147,8 @@
     return !!play && play.href === e.href && !e.watched;
   }
 
-  function episodeFacts(e) {
+  /* *node* says an episode's facts, each one kept whole. */
+  function episodeFacts(node, e) {
     var facts = [];
     if (e.minutes) facts.push(dur(e.minutes));
     // A date alone is read as UTC midnight, the day before west of it.
@@ -3155,7 +3156,12 @@
     var said = at ? day(at) : '';
     if (said) facts.push(at > Date.now() ? 'Airs ' + said : said);
     if (e.state === 'in_progress' && e.minutes_left) facts.push(dur(e.minutes_left) + ' left');
-    return facts.join(' · ');
+    node.textContent = '';
+    facts.forEach(function (fact, i) {
+      if (i) node.appendChild(document.createTextNode(' · '));
+      node.appendChild(el('span', 'watch-ep__fact', fact));
+    });
+    return node;
   }
 
   function episodeRow(e) {
@@ -3203,7 +3209,7 @@
     var title = el('span', 'watch-ep__title', name);
     if (e.watched) title.appendChild(el('span', 'sr-only', ', watched'));
     text.appendChild(title);
-    text.appendChild(el('span', 'watch-ep__meta', episodeFacts(e)));
+    text.appendChild(episodeFacts(el('span', 'watch-ep__meta'), e));
     a.appendChild(text);
     li.appendChild(a);
     describe(li, e);
@@ -3369,7 +3375,7 @@
       box.querySelector('.ttl__season-facts').textContent = seasonFacts(about, episodes);
       var fresh = [sayOfSeason(box, about, seasonName(s))];
       rows.forEach(function (li, i) {
-        li.querySelector('.watch-ep__meta').textContent = episodeFacts(episodes[i]);
+        episodeFacts(li.querySelector('.watch-ep__meta'), episodes[i]);
         fresh.push(describe(li, episodes[i]));
       });
       if (typeof ResizeObserver === 'function') fitNow(panel);

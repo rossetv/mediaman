@@ -874,6 +874,9 @@ def test_an_episode_says_what_it_is_about_when_it_aired_and_what_was_seen_of_it(
     # Only the episode Play plays is the one to continue.
     assert (other["state"], other["about"], other["more"]) == ("In progress", None, 0)
     assert (unaired["state"], unaired["meta"]) == (None, "50 min · Airs 2 Jan 2999")
+    # Each fact is held whole, so a narrow row breaks only between them.
+    assert watched["facts"] == ["50 min", "4 May 2019"]
+    assert begun["facts"] == ["50 min", "30 min left"]
 
 
 def test_a_row_is_one_link_whose_description_is_not_in_its_name() -> None:
