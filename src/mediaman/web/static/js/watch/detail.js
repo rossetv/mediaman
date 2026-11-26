@@ -1689,6 +1689,8 @@
       }
     } else if (!d.in_library || cur.justAdded) {
       downloadPart(actions, under);
+    } else if (PLEX_SAYS[d.plex_error]) {
+      under.appendChild(note(PLEX_SAYS[d.plex_error], 'i-circle-exclamation'));
     }
     var leaves = leavingNow();
     var other = leaves ? null : otherLeaving();
@@ -1711,6 +1713,13 @@
     if (cur.shareMsg) under.appendChild(note(cur.shareMsg));
     if (cur.shareUrl) under.appendChild(shareField(cur.shareUrl));
   }
+
+  /* Why a library title has no Play, by what Plex answered. */
+  var PLEX_SAYS = {
+    unreachable: 'Can’t reach Plex right now, so this can’t be played. Check back in a moment.',
+    not_set_up: 'Plex isn’t set up yet, so this can’t be played.',
+    gone: 'This is not in the library any more.'
+  };
 
   function playLink(play) {
     var a = el('a', 'btn btn--lg watch-btn--play');
@@ -2007,7 +2016,10 @@
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
-    if (!d.download) return;
+    if (!d.download) {
+      if (!d.in_library) actions.appendChild(statePill('dl-state--none', 'Not in your library'));
+      return;
+    }
     var tv = d.kind !== 'movie';
     if (k.tracked || (tv && d.sonarr_tracked)) {
       actions.appendChild(statePill('dl-state--done', 'Already added', 'i-circle-check'));

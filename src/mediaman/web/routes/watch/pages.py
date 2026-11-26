@@ -1062,9 +1062,10 @@ def _primary_episode(
     episodes_of: Callable[[str], list[PlexEpisode]],
     origin: str,
     counted: lib.ShowSeen | None = None,
-) -> tuple[dict[str, str], int | None]:
-    """The show page's main button, and the season of the episode it plays. *counted* saves
-    reading the seasons it says are seen when looking back from the start."""
+) -> tuple[dict[str, str] | None, int | None]:
+    """The show page's main button, and the season of the episode it plays; no button when no
+    episode can be played. *counted* saves reading the seasons it says are seen when looking
+    back from the start."""
     last = max((p for p in progress.values() if p.played), key=lambda p: p.updated_at, default=None)
     found: tuple[PlexSeason, PlexEpisode] | None = None
     if last is not None:
@@ -1103,7 +1104,7 @@ def _primary_episode(
             "label": f"Play {episode_label(season.index, episode.index)}",
             "href": play_href(episode.rating_key, origin=origin),
         }, season.index
-    return {"label": "Play", "href": f"/watch/show/{show.rating_key}"}, None
+    return None, None
 
 
 def _episode_row(

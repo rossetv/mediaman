@@ -588,6 +588,8 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "ai_pick": False,
         "because_of": [],
         "play": None,
+        # Of a library title: "gone" when Plex no longer has it, else as ``plex_error_code``.
+        "plex_error": None,
         "leaving": None,
         "leaving_seasons": [],
         "keep_allowed": False,
@@ -681,8 +683,9 @@ def _movie_title(
     out["tmdb_ref"] = tmdb_ref(title_key("movie", movie.tmdb_id))
     try:
         item = open_plex(request, conn).get_item(movie.key)
-    except PlexError:
+    except PlexError as exc:
         item = None
+        out["plex_error"] = _plex_error(exc)
     if item is not None and (item.type != "movie" or not is_in_libraries(item, libraries)):
         raise _OutsideLibraries(movie.key)
     if item is not None:
@@ -715,6 +718,10 @@ def _movie_title(
         with contextlib.suppress(catalog.TmdbUnavailable):
             _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id)
     return out
+
+
+def _plex_error(exc: PlexError) -> str:
+    return "gone" if isinstance(exc, PlexItemNotFound) else plex_error_code(exc)
 
 
 def _show_tmdb_id(
@@ -873,8 +880,9 @@ def _show_title(
         if selected is None and show.seasons:
             selected = show.seasons[0]
         episodes = episodes_of(selected.rating_key) if selected else []
-    except PlexError:
+    except PlexError as exc:
         show = None
+        out["plex_error"] = _plex_error(exc)
     if show is not None:
         season_watched = {
             s.rating_key: _season_watched(
@@ -890,7 +898,7 @@ def _show_title(
             overview=show.summary,
             genres=[show.genre] if show.genre else [],
             season_count=len(show.seasons) or None,
-            play={**primary, "progress_pct": None, "minutes_left": None},
+            play={**primary, "progress_pct": None, "minutes_left": None} if primary else None,
             seasons=[
                 {
                     "number": s.index,

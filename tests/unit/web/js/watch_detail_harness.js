@@ -2528,6 +2528,25 @@ const scenarios = {
     return { tracked, all: { primary: primary(p), button: !!p.q('.ttl__download') } };
   },
 
+  // Titles there is nothing to press for: a film with no way to download it, and library titles
+  // Plex cannot give.
+  async nothingToPress() {
+    const gone = (err, title) => Object.assign({}, title, { play: null, plex_error: err });
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: null }),
+      '/api/watch/title/movie-120': gone('unreachable', LIB_MOVIE),
+      '/api/watch/title/movie-121': gone('gone', Object.assign({}, LIB_MOVIE, { ref: 'movie-121', library_ref: 'movie-121' })),
+      '/api/watch/title/show-300': gone('unreachable', LIB_SHOW),
+    } });
+    p.run();
+    const open = async (ref) => {
+      p.ctx.MMWatch.detail.open(ref, {});
+      await settle();
+      return { primary: primary(p), under: p.text('[data-ttl-part="under"]') };
+    };
+    return { film: await open('tmdb-movie-77'), unreachable: await open('movie-120'), gone: await open('movie-121'), show: await open('show-300') };
+  },
+
   async seasonPills() {
     const p = load({ routes: {
       '/api/watch/title/show-300': LIB_SHOW,

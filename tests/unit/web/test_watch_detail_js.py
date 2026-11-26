@@ -855,6 +855,20 @@ def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
     assert out["all"]["button"] is False
 
 
+def test_a_film_that_cannot_be_downloaded_says_it_is_not_in_the_library() -> None:
+    film = _run("nothingToPress")["film"]
+    assert film["primary"]["text"] == "Not in your library"
+    assert film["primary"]["cls"] == "dl-state dl-state--none"
+
+
+def test_a_library_title_plex_cannot_give_says_why_there_is_no_play() -> None:
+    out = _run("nothingToPress")
+    assert "reach Plex" in out["unreachable"]["under"]
+    assert "reach Plex" in out["show"]["under"]
+    assert "not in the library any more" in out["gone"]["under"]
+    assert out["gone"]["primary"] is None
+
+
 def test_a_season_pill_swaps_the_episodes_in_place_and_keeps_focus() -> None:
     out = _run("seasonPills")
     assert out["first"]["pills"] == [["Season 1", "false"], ["Season 2", "true"]]

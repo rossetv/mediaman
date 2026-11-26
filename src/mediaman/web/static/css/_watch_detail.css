@@ -476,6 +476,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .dl-state--queued { background: var(--rgba-warning-bg); color: var(--warning); }
 .dl-state--downloading { background: var(--rgba-accent-bg); color: var(--accent); font-variant-numeric: tabular-nums; }
 .dl-state--done { background: var(--rgba-success-bg); color: var(--success); }
+.dl-state--none { background: var(--rgba-overlay-md); color: var(--t2); }
 .dl-progress { display: flex; flex-direction: column; gap: 8px; width: min(380px, 100%); }
 .dl-progress .watch-bar--banner { width: 100%; }
 .dl-progress .watch-bar--banner::-webkit-progress-value { background: var(--accent); }

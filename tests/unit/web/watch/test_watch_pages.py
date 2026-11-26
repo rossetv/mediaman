@@ -1170,12 +1170,26 @@ class TestShowTitle:
     def test_show_outside_scanned_libraries_is_refused(self, title, key):
         assert title(f"/api/watch/title/show-{key}").status_code == 404
 
-    def test_plex_unreachable_leaves_nothing_to_play(self, title, plex):
+    def test_plex_unreachable_says_so_with_nothing_to_play(self, title, plex):
         plex.error = PlexUnavailable("Plex could not be reached")
 
         body = title("/api/watch/title/show-500").json()
 
         assert (body["title"], body["play"], body["episodes"]) == ("The Long Coast", None, [])
+        assert body["plex_error"] == "unreachable"
+
+    def test_a_show_gone_from_plex_says_it_is_gone(self, title, plex):
+        del plex.shows["500"]
+
+        assert title("/api/watch/title/show-500").json()["plex_error"] == "gone"
+
+    def test_a_show_plex_answers_for_has_no_error(self, title):
+        assert title("/api/watch/title/show-500").json()["plex_error"] is None
+
+    def test_a_show_with_no_episode_to_play_offers_no_play(self, title, plex):
+        plex.add_show("500", "The Long Coast", {1: ("501", [])})
+
+        assert title("/api/watch/title/show-500").json()["play"] is None
 
 
 class TestOpenRow:
@@ -1243,7 +1257,12 @@ class TestMovieTitle:
 
         body = title("/api/watch/title/movie-100").json()
 
-        assert (body["title"], body["play"]) == ("Brightwater", None)
+        assert (body["title"], body["play"], body["plex_error"]) == ("Brightwater", None, "gone")
+
+    def test_movie_plex_cannot_reach_says_so(self, title, plex):
+        plex.error = PlexUnavailable("Plex could not be reached")
+
+        assert title("/api/watch/title/movie-100").json()["plex_error"] == "unreachable"
 
     @pytest.mark.parametrize("key", ["900", "501", "999"])
     def test_movie_outside_scanned_libraries_is_refused(self, title, key):

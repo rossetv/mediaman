@@ -323,7 +323,7 @@ def _show_from_plex(
         primary, _season = _primary_episode(plex, show, progress, episodes_of, origin, counted)
     except PlexError:
         return
-    out["play"] = {**primary, "progress_pct": None, "minutes_left": None}
+    out["play"] = {**primary, "progress_pct": None, "minutes_left": None} if primary else None
 
 
 def _outside_title(
