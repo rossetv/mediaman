@@ -89,24 +89,18 @@
       return;
     }
     if (!isOpen()) return;
-    // The sheet comes up over the button: a tap on its spot, at any time, shuts the sheet
-    // and never presses what lies there. A keyboard click has no detail and no spot.
-    if (phone.matches && e.detail && menu.contains(e.target)) {
-      var spot = opener.getBoundingClientRect();
-      if (e.clientX >= spot.left && e.clientX <= spot.right && e.clientY >= spot.top && e.clientY <= spot.bottom) {
-        e.preventDefault();
-        close(true);
-        return;
-      }
-      if (Date.now() - openedAt < SETTLE_MS) {
-        e.preventDefault();
-        return;
-      }
+    // The sheet comes up under the finger, Log out near where the button was.
+    if (phone.matches && e.detail && Date.now() - openedAt < SETTLE_MS && menu.contains(e.target)) {
+      e.preventDefault();
+      return;
     }
     // The sheet's backdrop is the menu's own box around the panel.
     if (e.target === menu || (e.target.closest && e.target.closest('.profile-close'))) close(true);
     else if (e.target.closest && e.target.closest('a[role="menuitem"]')) close(false);
   });
+
+  // iOS sends a tap on the dimmed page to the document's click handler only if the menu has a handler of its own.
+  menu.addEventListener('click', function () {});
 
   document.addEventListener('pointerdown', function (e) {
     if (isOpen() && !menu.contains(e.target) && !buttonOf(e.target)) close(false);

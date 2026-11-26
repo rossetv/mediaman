@@ -253,15 +253,17 @@
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     transform: none;
+    /* The sheet floats clear of where the avatar stands, so no row lies on its spot. */
+    padding: 0 8px max(8px, calc(var(--foot) - var(--foot-gap) + 8px));
   }
   .profile-panel {
     width: 100%;
     max-width: 520px;
-    max-height: 85vh;
-    max-height: 85dvh;
-    padding: 8px 12px calc(16px + env(safe-area-inset-bottom, 0px));
-    border-width: 1px 0 0;
-    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    max-height: calc(100vh - var(--foot) + var(--foot-gap) - 24px);
+    max-height: calc(100dvh - var(--foot) + var(--foot-gap) - 24px);
+    padding: 8px 12px;
+    border-width: 1px;
+    border-radius: var(--r-lg);
     transform: translateY(24px);
     transition: transform var(--dur-fast) var(--ease-out);
   }

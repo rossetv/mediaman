@@ -213,26 +213,6 @@ const scenarios = {
     p.click('profile-menu', { detail: 1 });
     return { quick: at(true, 300, { detail: 1 }), slow: at(true, 500, { detail: 1 }), key: at(true, 100, { detail: 0 }), desktop: at(false, 100, { detail: 1 }), open: p.open() };
   },
-  // A tap on the spot of the avatar, whenever it comes, shuts the sheet and presses nothing.
-  spotTap() {
-    const at = (isPhone, ms, extra) => {
-      const p = page(isPhone);
-      p.click('button');
-      p.clock.now += ms;
-      let prevented = null;
-      p.doc.addEventListener('click', (e) => { prevented = e.defaultPrevented; });
-      p.click('logout', extra);
-      return { prevented, open: p.open(), focused: p.focused() };
-    };
-    const on = { detail: 1, clientX: 10, clientY: 10 };
-    return {
-      late: at(true, 5000, on),
-      early: at(true, 100, on),
-      beside: at(true, 5000, { detail: 1, clientX: 90, clientY: 10 }),
-      key: at(true, 5000, { detail: 0, clientX: 0, clientY: 0 }),
-      desktop: at(false, 5000, on),
-    };
-  },
   // The handle drags the panel after the finger.
   drag() {
     const run = (moves, reduced, ms) => {

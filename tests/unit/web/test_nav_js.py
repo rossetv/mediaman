@@ -230,15 +230,17 @@ def test_a_ring_that_comes_back_does_not_sweep_round_from_where_it_last_stood() 
     assert _run("ringComesBack") == {"eased": [False, True, False, True], "left": False}
 
 
-def test_a_tap_on_the_avatars_spot_shuts_the_sheet_at_any_time_and_never_logs_out() -> None:
-    out = _run("spotTap")
-    shut = {"prevented": True, "open": False, "focused": "button"}
-    assert out["late"] == shut
-    assert out["early"] == shut
-    # elsewhere on Log out, a later tap is a real press; a key press is too
-    assert out["beside"]["prevented"] is False
-    assert out["key"]["prevented"] is False
-    assert out["desktop"]["prevented"] is False
+def test_no_row_of_the_phone_sheet_lies_on_the_avatars_spot() -> None:
+    sheet = (
+        NAV_CSS.read_text()
+        .split("/* Phones: a bottom sheet", 1)[1]
+        .split("@media (prefers-reduced-motion", 1)[0]
+    )
+    # the sheet stops above where the avatar stands, so Log out is never under it
+    menu = re.search(r"\.profile-menu \{[^}]*\}", sheet).group(0)  # type: ignore[union-attr]
+    assert "padding: 0 8px max(8px, calc(var(--foot) - var(--foot-gap) + 8px))" in menu
+    panel = re.search(r"\.profile-panel \{[^}]*\}", sheet).group(0)  # type: ignore[union-attr]
+    assert "100dvh - var(--foot) + var(--foot-gap)" in panel
 
 
 def test_the_handle_drags_the_sheet_shut_or_lets_it_spring_back() -> None:
