@@ -1,4 +1,4 @@
-"""The TVs & Casting section shows each state of a check, and asks before it forgets a TV.
+"""The TVs & Casting section shows each state of a check, and asks before it unpairs a TV.
 
 The real script runs under node against a small fake DOM.
 """
@@ -96,12 +96,29 @@ def test_checking_a_kept_tv_shows_whether_it_answered() -> None:
     assert "Older TV at 192.168.1.77" in got["says"]
 
 
-def test_a_tv_is_forgotten_only_after_a_question_and_each_kind_at_its_own_address() -> None:
+def test_a_tv_is_unpaired_only_after_a_question_and_each_kind_at_its_own_address() -> None:
     got = _run("forget")
     assert (got["asked"], got["kept"]) == (False, 2)
     assert got["deleted"] == ["/api/settings/older-tvs/2", "/api/tvs/1"]
     assert "No TVs yet" in got["left"]
     assert got["dropped"] == [2, 1]
+
+
+def test_cancel_comes_first_in_each_panel_and_the_question_starts_on_it() -> None:
+    got = _run("order")
+    assert got["sure"] == [["Cancel", "Unpair this TV"], True]
+    assert got["rename"][-2:] == ["Cancel", "Save"]
+    assert got["add"] == ["Cancel", "Add this TV"]
+
+
+def test_a_tv_is_unpaired_in_the_same_word_profile_and_the_tv_use() -> None:
+    got = _run("order")
+    assert "Unpair" in got["row"]
+    said = " ".join(got["words"])
+    assert "Unpair Living room?" in said
+    assert "Couldn’t unpair it." in said
+    assert "forget" not in said.lower()
+    assert "You can add it again by its address." in got["older"]
 
 
 def test_a_rename_that_failed_keeps_what_was_typed() -> None:

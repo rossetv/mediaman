@@ -261,13 +261,13 @@
       acts.appendChild(check);
     }
     var rename = button('Rename', 'ghost', editName);
-    var forget = button('Forget', 'danger', ask);
+    var unpair = button('Unpair', 'danger', ask);
     acts.appendChild(rename);
-    acts.appendChild(forget);
+    acts.appendChild(unpair);
     nameButtons();
 
     function nameButtons() {
-      [check, rename, forget].forEach(function (b) {
+      [check, rename, unpair].forEach(function (b) {
         if (b) b.setAttribute('aria-label', (b.dataset.label || b.textContent) + ' ' + tv.name);
       });
     }
@@ -332,8 +332,8 @@
         if (e.key === 'Escape') { e.preventDefault(); done(); }
       });
       box.appendChild(input);
-      box.appendChild(save);
       box.appendChild(button('Cancel', 'ghost', done));
+      box.appendChild(save);
       box.appendChild(status);
       line.replaceChildren(ico, box);
       input.focus();
@@ -346,27 +346,27 @@
       clear('.tv-sure');
       var sure = el('div', 'tv-sure');
       sure.setAttribute('role', 'alertdialog');
-      sure.setAttribute('aria-label', 'Forget ' + tv.name + '?');
-      var words = el('p', '', 'Forget ' + tv.name + '? It stops playing at once and is gone from everyone’s list. ' +
+      sure.setAttribute('aria-label', 'Unpair ' + tv.name + '?');
+      var words = el('p', '', 'Unpair ' + tv.name + '? It stops playing at once and is gone from everyone’s list. ' +
         (tv.kind === 'older' ? 'You can add it again by its address.' : 'To use it again, pair it with a new code.'));
-      var yes = button('Forget this TV', 'danger', remove);
+      var yes = button('Unpair this TV', 'danger', remove);
       var no = button('Cancel', 'ghost', cancel);
       var status = el('p', 'tv-err');
       status.setAttribute('role', 'alert');
       var two = el('div');
-      two.appendChild(yes);
       two.appendChild(no);
+      two.appendChild(yes);
       sure.appendChild(words);
       sure.appendChild(two);
       sure.appendChild(status);
 
       function cancel() {
         go(sure, function () { sure.remove(); });
-        forget.focus();
+        unpair.focus();
       }
       function remove() {
         if (isBusy(yes)) return;
-        setBusy(yes, 'Forgetting…');
+        setBusy(yes, 'Unpairing…');
         MM.api.delete(urlOf(tv)).catch(function (err) {
           // Gone already is what was asked for.
           if (err.error !== 'not_found') throw err;
@@ -377,10 +377,10 @@
             fallback: addBtn,
             done: function () { if (!wrap.querySelector('.tv-li')) showEmpty(); },
           });
-          window.UIFeedback.success(tv.name + ' is forgotten.');
+          window.UIFeedback.success(tv.name + ' is unpaired.');
         }, function (err) {
           setBusy(yes, '');
-          status.textContent = MM.api.messageOf(err, 'Couldn’t forget it. Try again.');
+          status.textContent = MM.api.messageOf(err, 'Couldn’t unpair it. Try again.');
         });
       }
       sure.addEventListener('keydown', function (e) {
@@ -422,8 +422,8 @@
     var end = el('div', 'tv-add-end');
     var add = button('Add this TV', 'primary', commit);
     add.disabled = true;
-    end.appendChild(add);
     end.appendChild(button('Cancel', 'ghost', close));
+    end.appendChild(add);
     var status = el('p', 'tv-err');
     status.setAttribute('role', 'alert');
 

@@ -192,7 +192,7 @@ const scenarios = {
   async leaving() {
     const p = await page({}, [PAIRED, OLDER], false);
     const done = (n) => p.fire(n, 'animationend');
-    await p.press(p.row(1), 'Forget');
+    await p.press(p.row(1), 'Unpair');
     const first = p.row(1).querySelector('.tv-sure');
     await p.press(p.row(1), 'Cancel');
     const out = { question: [first.isConnected, first.className, first.inert] };
@@ -214,15 +214,35 @@ const scenarios = {
   },
   async forget() {
     const p = await page({});
-    await p.press(p.row(1), 'Forget');
+    await p.press(p.row(1), 'Unpair');
     const asked = p.calls.some((c) => c[0] === 'DELETE');
     await p.press(p.row(1), 'Cancel');
     const kept = p.doc.querySelectorAll('.tv-li').length;
-    await p.press(p.row(1), 'Forget');
-    await p.press(p.row(1), 'Forget this TV');
-    await p.press(p.row(0), 'Forget');
-    await p.press(p.row(0), 'Forget this TV');
+    await p.press(p.row(1), 'Unpair');
+    await p.press(p.row(1), 'Unpair this TV');
+    await p.press(p.row(0), 'Unpair');
+    await p.press(p.row(0), 'Unpair this TV');
     return { asked, kept, deleted: p.calls.filter((c) => c[0] === 'DELETE').map((c) => c[1]), left: p.list.textContent, dropped: p.dropped };
+  },
+  // The buttons of each panel in the order they are drawn, and every word a person reads there.
+  async order() {
+    const p = await page({ 'DELETE /api/tvs/1': refused('x') });
+    const names = (root) => root.querySelectorAll('button').map((b) => b.textContent);
+    const read = (root) => [root.textContent].concat(root.querySelectorAll('[aria-label]').map((n) => n.getAttribute('aria-label')));
+    const out = { row: names(p.row(0)), words: read(p.row(0)) };
+    await p.press(p.row(0), 'Unpair');
+    const sure = p.row(0).querySelector('.tv-sure');
+    out.sure = [names(sure), p.doc.activeElement === p.button(sure, 'Cancel')];
+    await p.press(sure, 'Unpair this TV');
+    out.words = out.words.concat(read(p.row(0)));
+    out.older = p.row(1).textContent;
+    await p.press(p.row(1), 'Unpair');
+    out.older = p.row(1).querySelector('.tv-sure').textContent;
+    await p.press(p.row(1), 'Rename');
+    out.rename = names(p.row(1).querySelector('.tv-edit'));
+    await p.add('x');
+    out.add = names(p.panel.querySelector('.tv-add-end'));
+    return out;
   },
   async rename() {
     const answers = { 'PATCH /api/tvs/1': refused('x', 'No such luck') };
