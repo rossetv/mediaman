@@ -578,7 +578,8 @@ def test_a_page_whose_only_button_is_harmless_goes_full_screen_and_acts_at_the_f
     assert out["then"] != out["said"]
 
 
-def test_the_title_row_leaves_room_for_the_hint_while_it_shows() -> None:
-    out = _run("fullRoom")
-    assert "fsb" in out["at"].split()
-    assert "fsb" not in out["later"].split()
+def test_the_title_row_leaves_room_for_the_hint() -> None:
+    css = (STATIC / "css/tv.css").read_text()
+    room = re.search(r"\.top \.t1 \{ margin-right: (\d+)px", css)
+    # the pill is about 425 px wide and ends where the title row does; keep a gap
+    assert room and int(room[1]) >= 455

@@ -1111,7 +1111,7 @@
   }
   function hush() {
     var node = document.getElementById('ov');
-    if (node) node.className = (hidden && shown === 'play' ? 'ov hide' : 'ov') + (hintOn() ? ' fsb' : '');
+    if (node) node.className = hidden && shown === 'play' ? 'ov hide' : 'ov';
   }
 
   // What plays, waits for a film or counts down; the rest are still pictures.
@@ -1187,10 +1187,9 @@
   }
   function hint() {
     // A film the browser would not start says it in its own words.
-    if (hintNode) hintNode.className = hintOn() ? 'fs on' : 'fs';
-    hush();
+    var on = fullDue() && !blocked && !(FILM[shown] && hintGone);
+    if (hintNode) hintNode.className = on ? 'fs on' : 'fs';
   }
-  function hintOn() { return fullDue() && !blocked && !(FILM[shown] && hintGone); }
 
   /* ── keys ── */
 
