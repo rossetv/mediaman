@@ -50,6 +50,7 @@ from mediaman.web.routes.watch.stream_api import (
     _StreamRoute,
     plex_failure,
     session_lasts,
+    stream_lives,
 )
 
 router = APIRouter(route_class=_StreamRoute)
@@ -150,7 +151,7 @@ def _start(
     except PlexError as exc:
         return plex_failure(exc)
     store = get_ticket_store()
-    token = store.issue(stream_id, username, session_hash, live=_stream_lives)
+    token = store.issue(stream_id, username, session_hash, live=stream_lives)
     ticket = store.read(token)
     try:
         if ticket is None:
@@ -180,14 +181,6 @@ def _start(
             "chapters": [asdict(c) for c in item.chapters],
         }
     )
-
-
-def _stream_lives(ticket: Ticket) -> bool:
-    try:
-        get_stream_manager().peek(ticket.stream_id, ticket.user)
-    except StreamGone:
-        return False
-    return True
 
 
 def _may_still_watch(conn: sqlite3.Connection, ticket: Ticket) -> bool:
@@ -222,7 +215,7 @@ def _read_ticket(request: Request, token: str) -> Ticket | Response:
             get_stream_manager().end(ticket.stream_id, ticket.user)
         store.drop(token)
         ticket = None
-    if ticket is not None and not _stream_lives(ticket):
+    if ticket is not None and not stream_lives(ticket):
         store.drop(token)
         ticket = None
     if ticket is None:
