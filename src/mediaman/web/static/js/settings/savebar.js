@@ -450,19 +450,34 @@
     return 'Save failed — try again.';
   }
 
+  var PERSON_MOVES = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+  var stopKeepingClear = function () {};
+
   // The first field a save was refused for, brought out from under the bar; the focus stays where it is.
   function showRefused(data) {
+    stopKeepingClear();
     var first = data && Array.isArray(data.detail) && data.detail[0];
     var loc = first && Array.isArray(first.loc) ? first.loc.filter(function (p) { return p !== 'body'; }) : [];
     var field = typeof loc[0] === 'string' && document.getElementById(loc[0]);
     if (!field) return;
     var row = field.closest('.setg-row') || field;
-    // A frame on, the bar has grown to hold the error, which the page's room for it does not know yet.
-    requestAnimationFrame(function () {
-      row.scrollIntoView({ block: 'nearest' });
-      var under = savebar ? row.getBoundingClientRect().bottom - savebar.getBoundingClientRect().top + 11 : 0;
+    if (!savebar || !window.ResizeObserver) { row.scrollIntoView({ block: 'nearest' }); return; }
+    // The bar takes a frame or more to settle around the error, and the page's room for it lags behind,
+    // so the row follows the bar's real top until the person moves on their own.
+    var shown = false;
+    var observer = new ResizeObserver(function () {
+      if (!shown) { row.scrollIntoView({ block: 'nearest' }); shown = true; }
+      var under = row.getBoundingClientRect().bottom - savebar.getBoundingClientRect().top + 11;
       if (under > 0) window.scrollBy(0, under);
     });
+    function stop() {
+      observer.disconnect();
+      PERSON_MOVES.forEach(function (t) { document.removeEventListener(t, stop, true); });
+      stopKeepingClear = function () {};
+    }
+    PERSON_MOVES.forEach(function (t) { document.addEventListener(t, stop, true); });
+    stopKeepingClear = stop;
+    observer.observe(savebar, { box: 'border-box' });
   }
 
   function init(opts) {
@@ -510,6 +525,7 @@
     }
 
     function clearSaveError() {
+      stopKeepingClear();
       if (savebar) savebar.classList.remove('is-error', 'is-partial');
       if (saveBtn) {
         saveBtn.classList.remove('btn--danger');
