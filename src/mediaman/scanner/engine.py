@@ -103,6 +103,9 @@ _GONE_FOR = timedelta(hours=1)
 # Off: what it would do to the file of a kept copy is not yet certain.
 _PRUNE_GONE_LIBRARIES = False
 
+# The last library sync's counts; a sync every minute that finds the same says so at DEBUG.
+_last_sync_summary: dict[str, int] | None = None
+
 
 def _coerce_lib_ids(raw: Iterable[str]) -> set[int]:
     """Coerce an iterable of library ID strings to a set of ints.
@@ -244,7 +247,11 @@ class ScanEngine:
         finally:
             # Libraries committed before a failure are already in the DB.
             watch_catalog.clear_library_index()
-        logger.info(
+        global _last_sync_summary
+        quiet = summary == _last_sync_summary and not summary["errors"]
+        _last_sync_summary = summary
+        logger.log(
+            logging.DEBUG if quiet else logging.INFO,
             "Library sync complete: %d synced, %d orphans removed, %d errors",
             summary["synced"],
             summary["removed"],
