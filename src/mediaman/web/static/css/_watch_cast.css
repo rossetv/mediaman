@@ -89,7 +89,7 @@ button.cast-card__poster:hover { transform: scale(1.04); }
 button.cast-card__poster:active { transform: scale(.98); }
 /* No hover to show a tooltip: the title stands on the foot of the picture, over a scrim, and the row keeps its height. */
 @media (hover: none) {
-  .cast-card__poster > .cast-card__poster-name { position: absolute; inset: auto 0 0; z-index: 1; display: -webkit-box; padding: 14px 2px 0; border-bottom: 4px solid transparent; background-origin: border-box; font-size: 10px; line-height: 12px; letter-spacing: -.01em; background: linear-gradient(transparent, color-mix(in srgb, var(--scrim) 85%, transparent)); color: #fff; text-align: center; text-wrap: balance; overflow-wrap: anywhere; -webkit-line-clamp: 3; line-clamp: 3; }
+  .cast-card__poster > .cast-card__poster-name { position: absolute; inset: auto 0 0; z-index: 1; display: -webkit-box; padding: 14px 2px 0; border-bottom: 4px solid transparent; font-size: 10px; line-height: 12px; letter-spacing: -.01em; background: linear-gradient(transparent, color-mix(in srgb, var(--scrim) 85%, transparent)); background-origin: border-box; color: #fff; text-align: center; text-wrap: balance; overflow-wrap: anywhere; -webkit-line-clamp: 3; line-clamp: 3; }
   .cast-card__poster > img:not([data-broken]) ~ .cast-card__poster-name { visibility: visible; }
 }
 .cast-card__known.is-none > .cast-card__label { visibility: hidden; }

@@ -21,6 +21,8 @@ def test_a_poster_title_s_shading_reaches_under_its_transparent_border() -> None
     assert "border-bottom: 4px solid transparent" in rule
     # Without it the gradient tiles into the border and a lighter strip shows at the poster's foot.
     assert "background-origin: border-box" in rule
+    # The background shorthand resets the origin, so the origin must come after it.
+    assert rule.index("background-origin") > rule.index("background: linear-gradient")
 
 
 def test_a_poster_title_is_held_to_three_lines() -> None:
