@@ -857,7 +857,8 @@ def _title_of_fields(
 ) -> dict[str, Any]:
     out = _payload(ref, "movie" if kind == "movie" else "show", client is not None)
     _fill_fields(out, request, conn, kind, tmdb_id, fields)
-    arr = _arr(request, conn)
+    # A slow Radarr or Sonarr does not hold the page: its download state comes on a later answer.
+    arr = begin_arr_view(conn, request.app.state.config.secret_key)()
     index = catalog.library_index(
         conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
     )

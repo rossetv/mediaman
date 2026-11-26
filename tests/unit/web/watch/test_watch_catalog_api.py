@@ -1757,6 +1757,30 @@ class TestTitleDownload:
 
         assert (download["state"], download["pct"], download["answered"]) == (None, None, True)
 
+    def test_a_film_opens_at_once_while_radarr_hangs_and_a_later_open_has_its_state(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        arr.movies = [{"tmdbId": 12, "hasFile": False, "monitored": True}]
+        released = threading.Event()
+        real = arr.get_movies
+        monkeypatch.setattr(arr, "get_movies", lambda: (released.wait(10), real())[1])
+        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 0.05)
+        try:
+            started = time.monotonic()
+            first = viewer.get("/api/watch/title/tmdb-movie-12").json()
+            took = time.monotonic() - started
+        finally:
+            released.set()
+            for thread in threading.enumerate():
+                if thread.name == "watch-arr":
+                    thread.join(5)
+
+        assert took < 5
+        assert first["title"] == "Glass Onion"
+        assert (first["download"]["state"], first["download"]["answered"]) == (None, False)
+        later = viewer.get("/api/watch/title/tmdb-movie-12").json()["download"]
+        assert (later["state"], later["answered"]) == ("queued", True)
+
     def test_an_unreachable_arr_is_not_answered(self, viewer, tmdb, arr):
         arr.down = True
 
