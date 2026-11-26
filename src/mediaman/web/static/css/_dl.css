@@ -97,6 +97,7 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
 .dl-state-downloading   { background: var(--rgba-accent-chip); color: var(--accent-text); }
 .dl-state-almost_ready  { background: var(--rgba-success-chip); color: var(--success); }
 .dl-state-needs_attention { background: var(--rgba-warning-bg); color: var(--warning); }
+.dl-state-finding_copy  { background: var(--rgba-warning-bg); color: var(--warning); }
 .dl-state-ready         { background: var(--rgba-success-bg-hover); color: var(--success); }
 .dl-state-upcoming      { background: var(--rgba-overlay-md); color: var(--t2); }
 .dl-state-pill--xs      { padding: 2px 8px; white-space: nowrap; }

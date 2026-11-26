@@ -104,9 +104,10 @@ _HERO_STATE_PRIORITY: dict[str, int] = {
     "downloading": 0,
     "almost_ready": 1,
     "needs_attention": 2,
-    "queued": 3,
-    "searching": 4,
-    "upcoming": 5,
+    "finding_copy": 3,
+    "queued": 4,
+    "searching": 5,
+    "upcoming": 6,
 }
 
 
@@ -119,7 +120,7 @@ def select_hero(
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     """Pick the hero item and return (hero, remaining_items).
 
-    By state: downloading, almost_ready, needs_attention, queued, searching; within one, the oldest added
+    By state: downloading, almost_ready, needs_attention, finding_copy, queued, searching; within one, the oldest added
     first, then by title, so nothing moves while its state stands. The item of id *kept*, the
     last hero, stays the hero while it is downloading or almost ready.
     """
@@ -127,7 +128,7 @@ def select_hero(
         return None, []
 
     def sort_key(item: dict[str, object]) -> tuple[int, float, str, str]:
-        priority = _HERO_STATE_PRIORITY.get(str(item.get("state") or ""), 6)
+        priority = _HERO_STATE_PRIORITY.get(str(item.get("state") or ""), 7)
         added_at = item.get("added_at")
         added = added_at if isinstance(added_at, int | float) else 0.0
         return (priority, added, str(item.get("title") or "").casefold(), str(item.get("id")))

@@ -35,7 +35,8 @@ this module path.  Each name is re-exported below.
 from __future__ import annotations
 
 import logging
-from typing import cast
+from collections.abc import Mapping
+from typing import Any, cast
 
 from mediaman.services.arr._add import _AddFlowMixin
 from mediaman.services.arr._lookups import _LookupsMixin
@@ -53,6 +54,7 @@ from mediaman.services.arr._transport import (
 )
 from mediaman.services.arr._types import ArrQueueItem
 from mediaman.services.arr.spec import ArrSpec
+from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -147,3 +149,19 @@ class ArrClient(
                 len(out),
             )
         return out
+
+    def remove_from_queue(self, queue_id: int) -> None:
+        """Remove a queue record and its download from the download client, and blocklist its
+        release so it is not grabbed again; no search is started, the caller starts its own.
+        A record already gone is no failure."""
+        try:
+            self._delete(
+                f"/api/v3/queue/{queue_id}?removeFromClient=true&blocklist=true&skipRedownload=true"
+            )
+        except SafeHTTPError as exc:
+            if exc.status_code != 404:
+                raise
+
+    def send_command(self, command: Mapping[str, Any]) -> None:
+        """Post a command, such as a search, for Radarr or Sonarr to run in the background."""
+        self._post("/api/v3/command", command)

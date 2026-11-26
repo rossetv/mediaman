@@ -43,7 +43,7 @@
       pct.classList.toggle('dl-compact-pct--muted', !(item.progress > 0) || held);
     }
     var sizeInfo = d.q('[data-v="size-info"]', row);
-    if (sizeInfo) sizeInfo.hidden = (item.state === 'searching');
+    if (sizeInfo) sizeInfo.hidden = (item.state === 'searching' || item.state === 'finding_copy');
     var sizeDone = d.q('[data-v="size-done"]', row);
     if (sizeDone) d.setText(sizeDone, item.size_done || '');
     var sizeTotal = d.q('[data-v="size-total"]', row);

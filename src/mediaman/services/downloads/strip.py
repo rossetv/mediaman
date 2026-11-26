@@ -43,7 +43,14 @@ STALE_LINE = "Can't check downloads"
 UNNAMED = "A download"
 
 State = Literal[
-    "downloading", "almost_ready", "needs_attention", "queued", "searching", "stuck", "ready"
+    "downloading",
+    "almost_ready",
+    "needs_attention",
+    "finding_copy",
+    "queued",
+    "searching",
+    "stuck",
+    "ready",
 ]
 
 _ACTIVE: frozenset[State] = frozenset({"downloading", "almost_ready"})
@@ -52,6 +59,7 @@ _RANK: dict[State, int] = {
     "downloading": 0,
     "almost_ready": 0,
     "needs_attention": 1,
+    "finding_copy": 1,
     "queued": 1,
     "searching": 2,
     "stuck": 2,
@@ -131,6 +139,8 @@ def _state_of(item: Mapping[str, object]) -> State:
         return "almost_ready"
     if state == "needs_attention":
         return "needs_attention"
+    if state == "finding_copy":
+        return "finding_copy"
     # Only an item NZBGet does not hold names where it comes from.
     if state == "queued" or not item.get("arr_source"):
         return "queued"

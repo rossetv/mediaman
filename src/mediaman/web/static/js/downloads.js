@@ -50,7 +50,7 @@
   }
 
   /* The order the server sorts states in. */
-  var STATES = ['downloading', 'almost_ready', 'needs_attention', 'queued', 'searching'];
+  var STATES = ['downloading', 'almost_ready', 'needs_attention', 'finding_copy', 'queued', 'searching'];
 
   function rankOf(state) {
     var rank = STATES.indexOf(state);

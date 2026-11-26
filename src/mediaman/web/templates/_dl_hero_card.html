@@ -54,7 +54,7 @@
       </div>
       {% endif %}
 
-      <div class="dl-hero-progress" data-v="progress-wrap" {% if item.state in ('searching', 'needs_attention') %}hidden{% endif %}>
+      <div class="dl-hero-progress" data-v="progress-wrap" {% if item.state in ('searching', 'needs_attention', 'finding_copy') %}hidden{% endif %}>
         <div class="dl-hero-bar dl-bar" role="progressbar" aria-label="{{ item.title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}">
           <div class="dl-hero-fill dl-bar-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="--fill-pct:{{ item.progress }}%"></div>
         </div>

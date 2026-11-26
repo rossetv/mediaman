@@ -268,6 +268,7 @@ class SettingsUpdate(BaseModel):
     disk_thresholds: Annotated[dict[str, Any] | None, Field(max_length=256)] = None
 
     auto_abandon_enabled: bool | None = None
+    import_retry_enabled: bool | None = None
 
     older_tvs_enabled: bool | None = None
     older_tvs_http: bool | None = None

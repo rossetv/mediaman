@@ -27,8 +27,8 @@
     {% endcall %}
   {% endcall %}
 
-  {% call c.setg_card(title="Stuck searches",
-                         sub="When a download has been searching for ages with no result, mediaman can give up automatically. The Abandon button on the Downloads page is always available after 10 hours of searching for manual control.") %}
+  {% call c.setg_card(title="Stuck downloads",
+                         sub="When a download has been searching for ages with no result, or won't import, mediaman can deal with it automatically. The Abandon button on the Downloads page is always available after 10 hours of searching for manual control.") %}
     {% set auto_abandon = settings.get('auto_abandon_enabled', False) not in (False, 'false', 'False', 0, '0') %}
     {% call c.setg_row("Auto-abandon",
                           "When on, mediaman unmonitors stuck items after 14 days of fruitless searching. For movies, the whole movie. For series, only the seasons currently missing episodes.") %}
@@ -36,6 +36,14 @@
             data-toggle data-target="auto_abandon_enabled"
             aria-checked="{{ 'true' if auto_abandon else 'false' }}"></span>
       <input type="hidden" id="auto_abandon_enabled" value="{{ 'true' if auto_abandon else 'false' }}">
+    {% endcall %}
+    {% set import_retry = settings.get('import_retry_enabled', True) not in (False, 'false', 'False', 0, '0') %}
+    {% call c.setg_row("Retry stuck downloads automatically",
+                          "When Radarr or Sonarr can't import a download for an hour, mediaman removes it, blocklists that release and searches again. Two tries per film or season, then it waits for you.") %}
+      <span class="tog {% if import_retry %}on{% endif %}" role="switch" tabindex="0" aria-label="Retry stuck downloads automatically"
+            data-toggle data-target="import_retry_enabled"
+            aria-checked="{{ 'true' if import_retry else 'false' }}"></span>
+      <input type="hidden" id="import_retry_enabled" value="{{ 'true' if import_retry else 'false' }}">
     {% endcall %}
   {% endcall %}
 

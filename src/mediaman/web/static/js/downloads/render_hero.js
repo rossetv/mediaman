@@ -137,7 +137,7 @@
 
     /* Progress wrap (hide entirely while searching) */
     var progressWrap = d.q('[data-v="progress-wrap"]', card);
-    if (progressWrap) progressWrap.hidden = (item.state === 'searching' || item.state === 'needs_attention');
+    if (progressWrap) progressWrap.hidden = (item.state === 'searching' || item.state === 'needs_attention' || item.state === 'finding_copy');
 
     /* Progress bar */
     var fill = d.q('[data-v="fill"]', card);

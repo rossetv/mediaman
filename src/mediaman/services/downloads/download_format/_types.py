@@ -14,6 +14,7 @@ DOWNLOAD_STATE_LABELS: dict[str, str] = {
     "downloading": "Downloading",
     "almost_ready": "Almost ready",
     "needs_attention": "Needs attention",
+    "finding_copy": "Finding another copy",
     "ready": "Ready to watch",
     "upcoming": "",
 }

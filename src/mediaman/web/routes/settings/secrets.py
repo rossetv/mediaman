@@ -49,6 +49,7 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
         "ai_questions_per_day",
         "ai_everyone_per_day",
         "auto_abandon_enabled",
+        "import_retry_enabled",
         "older_tvs_enabled",
         "older_tvs_http",
         "google_cast_enabled",

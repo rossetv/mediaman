@@ -11,7 +11,7 @@
       <div class="dl-compact-title dl-row-title">{{ item.title }}</div>
       <div class="dl-compact-meta dl-row-meta">
         <span class="dl-state-pill dl-state-pill--xs dl-state-{{ item.state }}" data-v="pill">{{ item.state_label }}</span>
-        <span data-v="size-info" {% if item.state == 'searching' %}hidden{% endif %}>
+        <span data-v="size-info" {% if item.state in ('searching', 'finding_copy') %}hidden{% endif %}>
           <span data-v="size-done">{{ item.size_done or '' }}</span> of <span data-v="size-total">{{ item.size_total or '' }}</span>
         </span>
       </div>

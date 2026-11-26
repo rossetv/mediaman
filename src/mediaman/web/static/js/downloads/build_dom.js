@@ -399,7 +399,7 @@
     var progressWrap = document.createElement('div');
     progressWrap.className = 'dl-hero-progress';
     progressWrap.setAttribute('data-v', 'progress-wrap');
-    if (state === 'searching' || state === 'needs_attention') progressWrap.hidden = true;
+    if (state === 'searching' || state === 'needs_attention' || state === 'finding_copy') progressWrap.hidden = true;
 
     var bar = buildBar('dl-hero-bar dl-bar', item.title);
     var fill = document.createElement('div');
@@ -686,7 +686,7 @@
     meta.appendChild(pill);
     var sizeInfo = el('span');
     sizeInfo.setAttribute('data-v', 'size-info');
-    if (item.state === 'searching') sizeInfo.hidden = true;
+    if (item.state === 'searching' || item.state === 'finding_copy') sizeInfo.hidden = true;
     var done = el('span', '', item.size_done || '');
     done.setAttribute('data-v', 'size-done');
     var total = el('span', '', item.size_total || '');

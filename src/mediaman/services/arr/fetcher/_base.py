@@ -197,6 +197,8 @@ class ArrCard(BaseArrCard, total=False):
     # Seasons Abandon can unmonitor, as {"number", "missing_episodes", "aired"}; only
     # on a series still searching, which has no queue episodes to read them from.
     stuck_seasons: list[dict[str, int]]
+    # A download of it that would not import was removed and another copy is looked for.
+    finding_copy: bool
 
 
 def film_id(title: str, tmdb_id: int) -> str:

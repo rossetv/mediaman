@@ -33,6 +33,7 @@ from mediaman.services.arr.fetcher._base import (
 from mediaman.services.arr.fetcher._radarr import fetch_radarr_queue
 from mediaman.services.arr.fetcher._searching_since import stamp_searching_since
 from mediaman.services.arr.fetcher._sonarr import fetch_sonarr_queue
+from mediaman.services.arr.import_retry import note_stuck_imports
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 
 if TYPE_CHECKING:
@@ -148,6 +149,7 @@ def _fetch_service(
         return
     result.unreachable.extend(failures)
     stamp_searching_since(conn, name.lower(), cards, complete=not failures)
+    note_stuck_imports(conn, name.lower(), cards, complete=not failures)
     adopt_throttle(conn, cards)
     if steady and not failures:
         _keep_answer(name, cards)

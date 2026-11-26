@@ -158,6 +158,8 @@ def _build_unmatched_series_item(
     raw_episodes = arr.get("episodes", [])
     episodes = build_episode_dicts(raw_episodes)
     state = map_queue_state(raw_episodes) if raw_episodes else "searching"
+    if arr.get("finding_copy"):
+        state = "finding_copy"
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
@@ -211,6 +213,8 @@ def _build_unmatched_movie_item(
     state = map_arr_status(
         arr.get("status", ""), arr.get("tracked_state", ""), arr.get("tracked_status", "")
     )
+    if arr.get("finding_copy"):
+        state = "finding_copy"
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
