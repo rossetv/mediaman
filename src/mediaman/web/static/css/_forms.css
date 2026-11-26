@@ -18,6 +18,10 @@
 }
 
 /* Form inputs */
+/* Every page's own field rule draws its border in --hair: on a field that hairline is the edge. */
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"]), select, textarea):not(:disabled) {
+  --hair: var(--field-edge);
+}
 .inp,
 .form-input,
 .form-select,
@@ -128,6 +132,7 @@ select.inp,
   height: 26px;
   border-radius: var(--r-pill);
   background: var(--rgba-overlay-lg);
+  box-shadow: inset 0 0 0 1px var(--field-edge);
   transition: background var(--dur-fast) var(--ease-out);
   cursor: pointer;
   flex-shrink: 0;
@@ -143,7 +148,7 @@ select.inp,
   transition: transform var(--dur) var(--ease-out);
   z-index: 1;
 }
-.tog.on { background: var(--success); }
+.tog.on { background: var(--success); box-shadow: none; }
 .tog.on::after { transform: translateX(18px); }
 /* The 26px switch keeps its look; an invisible 44px hit area on touch widths. */
 @media (max-width: 699.98px) {
