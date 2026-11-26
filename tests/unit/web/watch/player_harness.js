@@ -3190,6 +3190,54 @@ const scenarios = {
     };
   },
 
+  /* Played into its last credits, and what is done there: nothing ('go'), Watch credits ('watch'),
+     a pause ('pause'), a jump back out of them ('back'), a stall ('stall'); or with no credits
+     marker at all ('none'). */
+  async credits_next(p) {
+    const how = p.win.serverPlays;
+    p.replies[0] = answer('1080p-8000', { markers: how === 'none' ? MARKERS.slice(0, 1) : MARKERS });
+    await streamPlays(p, 2690);
+    p.video.paused = false;
+    const card = p.q('[data-upnext]');
+    const look = () => ({
+      card: !gone(card), counts: card.classList.contains('is-counting'),
+      skip: gone(p.q('[data-skip]')) ? null : p.q('[data-skip-text]').textContent,
+    });
+    const playFor = (s) => { for (let i = 0; i < s; i++) { p.video.currentTime += 1; fire(p.video, 'timeupdate'); p.tick(1000); } };
+    playFor(5);
+    const out = { before: look() };
+    playFor(10);
+    out.credits = look();
+    out.line = p.q('[data-upnext]').querySelector('.player-card-line').textContent;
+    out.cancel = p.q('[data-upnext-cancel]').textContent;
+    out.said = p.q('[data-upnext-status]').textContent;
+    p.q('[data-mute]').focus();
+    if (how === 'watch') { click(p.q('[data-upnext-cancel]')); card.dropped(); playFor(1); }
+    if (how === 'pause') { p.video.paused = true; fire(p.video, 'pause'); }
+    if (how === 'back') { p.video.currentTime = 1000; fire(p.video, 'seeking'); fire(p.video, 'seeked'); }
+    if (how === 'stall') { fire(p.video, 'waiting'); fire(p.video, 'playing'); }
+    out.after = look();
+    out.focusKept = doc.activeElement === p.q('[data-mute]');
+    const from = p.calls.length;
+    if (how === 'pause' || how === 'back') p.tick(11000);
+    else playFor(11);
+    await settle();
+    out.went = p.calls.slice(from).some((c) => c.page && /502/.test(c.url));
+    out.saved = p.calls.slice(from).filter((c) => /\/stop$/.test(c.url)).map((c) => c.body && c.body.position_s);
+    if (how === 'pause') {
+      p.video.paused = false;
+      fire(p.video, 'play');
+      fire(p.video, 'playing');
+      playFor(1);
+      out.again = look();
+    }
+    if (how === 'watch' || how === 'none') {
+      endsNow(p);
+      out.end = look();
+    }
+    return out;
+  },
+
   /* The episode ends, the next-episode card counts down, Cancel dismisses it. */
   async upnext_cancel(p) {
     await streamPlays(p, 0);
@@ -3560,7 +3608,8 @@ const scenarios = {
 
   /* The end of an episode leads, after the countdown, to the next in this page. */
   async next_in_place(p) {
-    p.replies[0] = answer('1080p-8000', { markers: MARKERS, chapters: CHAPTERS });
+    /* Credits that lead on would count down before the end. */
+    p.replies[0] = answer('1080p-8000', { markers: MARKERS.map((m) => Object.assign({}, m, { final: false })), chapters: CHAPTERS });
     await streamPlays(p, 2900);
     const video = p.video;
     video.volume = 0.4;
@@ -4723,7 +4772,7 @@ const scenarios = {
     out.end = Object.assign(look(), { dialog: !!p.q('[data-ask]') && p.q('[data-ask]').open });
     if (what === 'endSeek') { seek(2950); await on(1); out.sought = look(); p.tick(60000); await settle(); out.soughtLate = look(); return out; }
     p.tick(9000); await settle();
-    out.nine = look();
+    out.nine = Object.assign(look(), { dialog: !!p.q('[data-ask]') && p.q('[data-ask]').open });
     p.tick(22000); await settle();
     out.late = look();
     out.went = p.calls.some((c) => c.page);
@@ -4973,6 +5022,59 @@ const scenarios = {
     e.ownOnTv(false, v);
     await settle();
     out.back = { starts: p.starts().length, from: p.hlsList[p.hlsList.length - 1].config.startPosition === at };
+    return out;
+  },
+
+  /* While a TV plays it: the player's own video on an AirPlay TV ('mms'), AirPlay from the sheet
+     ('tvs') or Chromecast ('cast'). The intro, then the last credits and the next episode. */
+  async away_credits(p) {
+    const how = p.win.serverPlays;
+    p.replies[0] = answer('best', { markers: MARKERS });
+    if (how === 'mms') p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    await streamPlays(p, 30);
+    let media = p.video;
+    let way = null;
+    if (how === 'mms') {
+      p.video.currentTime = 34;
+      p.elsewhere.ownOnTv(true, p.video, 'http://mm/api/cast/A1/index.m3u8');
+      await settle();
+    } else if (how === 'tvs') {
+      media = (await airPlays(p)).air;
+    } else {
+      way = await castPlays(p, true);
+      media = way.media;
+    }
+    media.paused = false;
+    const skip = p.q('[data-skip]');
+    /* Seen: there, and not gone quiet under controls that went away. */
+    const look = () => (gone(skip) || (skip.classList.contains('is-quiet') && p.root.classList.contains('is-idle')) ? null : p.q('[data-skip-text]').textContent);
+    const playFor = (s) => { for (let i = 0; i < s; i++) { media.currentTime += 1; fire(media, 'timeupdate'); p.tick(1000); } };
+    const out = {};
+    media.currentTime = 60;
+    playFor(15);
+    out.intro = look();
+    click(skip);
+    out.introTo = media.currentTime;
+    media.currentTime = 2690;
+    fire(media, 'timeupdate');
+    playFor(12);
+    await settle();
+    const card = p.q('[data-upnext]');
+    out.card = !gone(card) && card.classList.contains('is-counting');
+    const from = p.calls.length;
+    if (how === 'mms') p.replies.push({ ok: { stream_id: 's2', playlist: '/p2', airplay: '/api/cast/A2/index.m3u8' } });
+    p.tick(10000);
+    await settle();
+    out.saved = p.calls.slice(from).filter((c) => /\/stop$/.test(c.url)).map((c) => c.body && c.body.position_s);
+    if (how === 'mms') {
+      const start = startCalls(p).pop().body;
+      out.next = { key: start.rating_key, airplay: start.airplay };
+      out.next.offered = p.video.querySelectorAll('source').map((s) => s.src);
+    } else if (how === 'cast') {
+      out.next = way.loads.map((s) => s.title.rating_key);
+    } else {
+      out.next = p.elsewhere.starts().map((b) => b.rating_key);
+    }
     return out;
   },
 
