@@ -109,9 +109,12 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       ['span', { id: 'watch-search-token', hidden: '' }],
       ['span', { class: 'watch-search__field' }, ['span', { id: 'watch-search-hint' }, 'Search films and shows'],
         ['input', { id: 'watch-search', class: 'watch-search__input', value: opened, role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': 'watch-sheet' }]],
+      ['button', { id: 'watch-search-ai', class: 'watch-search__ai', type: 'button', tabindex: '-1', 'aria-hidden': 'true' }, ['span', {}, 'Ask AI']],
+      ['span', { id: 'watch-search-ai-hint', class: 'sr-only' }, 'AI search: Return asks AI for titles that fit'],
       ['button', { id: 'watch-search-clear', 'aria-label': 'Clear search' }]],
     ['div', { id: 'watch-sheet' }],
     ['span', { id: 'watch-search-status' }],
+    ['p', { id: 'watch-search-mode', class: 'sr-only', role: 'status' }],
     ['div', { class: 'nav-end', id: 'end' },
       ['button', { class: 'space-meter', id: 'meter' }],
       ['button', { class: 'profile-btn', id: 'profile' }]]]));
@@ -2189,7 +2192,7 @@ scenarios.barStays = async () => {
   return out;
 };
 scenarios.barOrder = async () => {
-  const kids = (p) => p.doc.querySelector('.wbar').children.map((n) => n.id || 'search').filter((id) => id !== 'watch-search-status');
+  const kids = (p) => p.doc.querySelector('.wbar').children.map((n) => n.id || 'search').filter((id) => id !== 'watch-search-status' && id !== 'watch-search-mode');
   const out = [1280, 768, 390].map((width) => kids(load(ADMIN, '', null, undefined, { width })));
   const p = load(ADMIN, '', null, undefined, { width: 390 });
   p.input.focus();
@@ -2374,7 +2377,19 @@ async function asking(more, opts, opened, at) {
   const p = load({ ...ADMIN, ...page, view: view || 'rows' }, opened, at, undefined, { assist, ...rest });
   await settle();
   p.assist = assist;
-  p.said = () => p.doc.querySelectorAll('.sr-only').filter((n) => n.getAttribute('role') === 'status').map((n) => n.textContent).join();
+  // What the AI said: the field's own mode is read out apart, and checked through p.field().
+  p.said = () => p.doc.querySelectorAll('.sr-only').filter((n) => n.getAttribute('role') === 'status' && n.id !== 'watch-search-mode').map((n) => n.textContent).join();
+  // The field as the AI's: its ring, the pill and what is said of it.
+  p.field = () => {
+    const pill = p.$('watch-search-ai');
+    return {
+      ai: p.doc.querySelector('.watch-search').classList.contains('is-ai'),
+      tab: pill.tabIndex, hidden: pill.getAttribute('aria-hidden'),
+      described: p.input.getAttribute('aria-describedby'), mode: p.$('watch-search-mode').textContent,
+    };
+  };
+  // Return would ask: the row that asks, or the field turned the AI's.
+  p.offered = () => p.head() !== null || p.field().ai;
   p.fail = async (urlPart, error, data, status = 429) => {
     p.calls.filter((c) => c.url.includes(urlPart) && !c.done).forEach((c) => { c.done = true; c.reject({ error, status, data: data || {} }); });
     await settle();
@@ -2395,14 +2410,22 @@ async function asking(more, opts, opened, at) {
 scenarios.askOffered = async () => {
   const p = await asking();
   const out = {};
-  p.type('two words'); out.two = p.head();
-  p.type(Q); out.three = p.head();
-  out.picked = p.doc.querySelector('.ask__row').classList.contains('is-picked');
+  p.type('two words'); out.two = [p.head(), p.field()];
+  p.type(Q); out.three = [p.head(), p.field()];
   p.wait(); await settle();
   out.searched = p.calls.map((c) => c.url.split('?')[0]);
-  p.type('two words'); out.less = p.head();
+  p.type('two words'); out.less = [p.head(), p.field()];
+  // Of "like <title>" the AI is asked as its own row, and the field stays as it is.
+  p.type('something like nine locks'); out.like = p.field().ai;
   const without = await asking({ available: false });
-  without.type(Q); out.without = without.head();
+  without.type(Q); out.without = [without.head(), without.field().ai];
+  // Return asks, and so does the pill.
+  const r = await asking();
+  r.type(Q); r.key('Enter'); await settle();
+  out.enter = r.sent('/ask').map((c) => c[2].q);
+  const b = await asking();
+  b.type(Q); click(b.doc, b.$('watch-search-ai')); await settle();
+  out.pill = b.sent('/ask').map((c) => c[2].q);
   return out;
 };
 
@@ -2443,7 +2466,7 @@ scenarios.askNewer = async () => {
   await p.poll(ANSWER);
   out.head = p.head();
   // Back at the old question it is offered again, not answered by the other's titles.
-  p.type(Q); out.old = [p.head(), p.cards().length];
+  p.type(Q); out.old = [p.head(), p.cards().length, p.field().ai];
   return out;
 };
 
@@ -2491,7 +2514,7 @@ scenarios.askReloaded = async () => {
   const p = await asking({}, { session }, Q, at);
   const out = { mine: p.sent('/ask').map((c) => c[2].q), recorded: p.sent('/searches').length };
   const other = await asking({}, {}, Q, at);
-  out.link = [other.sent('/ask').length, other.head()];
+  out.link = [other.sent('/ask').length, other.head(), other.field().ai];
   // One left going by the page before gives way; one of another tab is not touched.
   const left = await asking({}, { session });
   await left.ask('a newer question altogether');
@@ -2580,7 +2603,7 @@ scenarios.askNextPerson = async () => {
   await carl.ask('a question of his own');
   await carl.fail('/ask', 'running', { run_id: 7 }, 409);
   const bob = await asking({ account: 'b2' }, { session }, Q, at);
-  const out = { asked: bob.sent('/ask').length, recorded: bob.sent('/searches').length, head: bob.head() };
+  const out = { asked: bob.sent('/ask').length, recorded: bob.sent('/searches').length, head: bob.head(), field: bob.field().ai };
   const like = await asking({ account: 'b2' }, { session }, '', '/?like=movie-1');
   out.like = [like.sent('/like').length, like.url()];
   await bob.ask('a question of his own');
@@ -2628,7 +2651,7 @@ scenarios.askForgotten = async () => {
   click(p.doc, p.doc.getElementById('watch-option-clear-recent')); await settle();
   await p.reply('DELETE', '/searches', {});
   p.type(Q);
-  const out = { head: p.head(), kept: JSON.stringify(session).includes(Q) };
+  const out = { head: p.head(), field: p.field().ai, kept: JSON.stringify(session).includes(Q) };
   const next = await asking({}, { session }, Q, '/?q=' + Q.replace(/ /g, '+'));
   out.asked = next.sent('/ask').length;
   return out;
@@ -2752,7 +2775,7 @@ scenarios.askRefused = async () => {
     const again = p.doc.querySelector('.ask__row .chip');
     const head = p.head();
     p.type(Q + ' too');
-    return { head, again: again && again.textContent, offered: p.head() !== null };
+    return { head, again: again && again.textContent, offered: p.offered() };
   };
   const p = await asking();
   await p.ask(Q);
@@ -2795,7 +2818,7 @@ scenarios.askOutcomes = async () => {
     const again = p.doc.querySelector('.ask__row .chip');
     const out = { head: p.head(), again: again && again.textContent, kept: p.input.value };
     p.type(Q + ' too');
-    out.offered = p.head() !== null;
+    out.offered = p.offered();
     return out;
   };
   return {
@@ -3343,6 +3366,81 @@ scenarios.belowChip = async () => {
     Node.prototype.getBoundingClientRect = rect;
     Node.prototype.scrollIntoView = function () {};
   }
+};
+
+// ── For one person: their suggestions and their categories in their order ──
+
+const ALL_GENRES = ['action', 'comedy', 'thriller', 'science-fiction', 'drama', 'horror', 'family', 'crime', 'romance', 'fantasy', 'animation', 'documentary', 'anime', 'mystery', 'war']
+  .map((id) => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1), aliases: [], types: ['movie', 'tv'], poster_urls: [] }));
+const TASTE = {
+  personal: true,
+  order: ['comedy', 'anime', 'science-fiction', 'fantasy', 'animation', 'family', 'action', 'thriller', 'drama', 'crime', 'romance', 'documentary', 'mystery', 'war', 'horror'],
+  favourites: ['comedy', 'anime'],
+  chips: [
+    { kind: 'genre', genre: 'comedy', type: 'movie', sort: 'popular', text: 'Feel-good comedies' },
+    { kind: 'genre', genre: 'science-fiction', type: 'tv', sort: 'top_rated', text: 'Top-rated sci-fi series' },
+    { kind: 'person', person_id: 77, name: 'Ines Varga', text: 'With Ines Varga', profile_url: '/api/watch/img/tmdb/w185/i.jpg' },
+    { kind: 'genre', genre: 'comedy', type: 'all', sort: 'newest', text: 'New comedies' },
+  ],
+  like: { ref: 'tmdb-tv-60625', name: 'Rick and Morty', text: 'More like Rick and Morty' },
+};
+const NEWBIE = { personal: false, order: TASTE.order.slice().reverse(), favourites: [], chips: [], like: null };
+
+/* The sheet opened for a person whose page carries *taste*. */
+async function sheetFor(taste, more) {
+  const p = load({ ...ADMIN, taste }, '', null, { tmdb_configured: true, genres: ALL_GENRES, decades: DECADES }, more === null ? {} : { assist: { ...ASSIST, ...more } });
+  await settle();
+  p.press(); await settle();
+  // Tonight is known only once the sheet has been open.
+  p.key('Escape'); p.press(); await settle();
+  const parts = p.sheet.querySelectorAll('.watch-tiles');
+  return {
+    p,
+    // The parts in the order they stand, and the line under one where there is one.
+    heads: p.sheet.children.map((n) => (n.classList.contains('tn') ? 'Tonight'
+      : n.classList.contains('watch-sheet__title') || n.classList.contains('watch-sheet__hint') ? n.textContent
+        : n.querySelector('.watch-sheet__title') ? n.querySelector('.watch-sheet__title').textContent : null)).filter(Boolean),
+    forYou: p.sheet.querySelectorAll('.watch-try--for, .watch-try--ai').map((n) => [n.textContent, n.classList.contains('watch-try--ai'), n.getAttribute('role')]),
+    first: parts[0] ? parts[0].children.map((n) => n.id.replace('watch-option-genre-', '')) : [],
+    more: parts[1] ? parts[1].children.map((n) => n.id.replace('watch-option-genre-', '')) : [],
+    favs: p.sheet.querySelectorAll('.watch-tile--fav').map((n) => [n.id.replace('watch-option-genre-', ''), n.querySelector('small').textContent, n.getAttribute('aria-label')]),
+    hint: (p.sheet.querySelector('.watch-sheet__hint') || {}).textContent || null,
+    tries: p.sheet.querySelectorAll('.watch-try').filter((n) => n.parentNode.getAttribute('aria-label') === 'Try').map((n) => [n.textContent, n.classList.contains('watch-try--ai')]),
+  };
+}
+
+scenarios.forYou = async () => {
+  const withAi = await sheetFor(TASTE, {});
+  const noKey = await sheetFor(TASTE, { available: false });
+  const { p } = withAi;
+  // A category of theirs opens on what they play of it, sorted as the chip says.
+  click(p.doc, p.sheet.querySelectorAll('.watch-try--for')[2]); await settle();
+  const opened = p.url();
+  const q = (await sheetFor(TASTE, {})).p;
+  click(q.doc, q.sheet.querySelectorAll('.watch-try--for').find((n) => n.textContent.endsWith('With Ines Varga'))); await settle();
+  const r = (await sheetFor(TASTE, {})).p;
+  click(r.doc, r.sheet.querySelectorAll('.watch-try--for').find((n) => n.textContent.startsWith('More like'))); await settle();
+  const strip = ({ p: _p, ...rest }) => rest;
+  return { withAi: strip(withAi), noKey: strip(noKey), opened, person: q.url(), like: [r.url(), r.calls.filter((c) => c.url.includes('/like')).map((c) => c.body)] };
+};
+
+scenarios.forYouNewbie = async () => {
+  const strip = ({ p: _p, ...rest }) => rest;
+  return { newbie: strip(await sheetFor(NEWBIE, {})), off: strip(await sheetFor(null, {})) };
+};
+
+// The words typed read as a request, and no title has them.
+scenarios.aiNoTitle = async () => {
+  const out = {};
+  for (const [name, coarse] of [['desk', false], ['phone', true]]) {
+    const p = await asking();
+    if (coarse) p.ctx.matchMedia = (q) => ({ matches: q.includes('coarse'), addEventListener() {} });
+    await p.search(Q);
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    out[name] = p.doc.querySelectorAll('.results-none').map((n) => n.textContent);
+  }
+  return out;
 };
 
 const name = process.argv[2];
