@@ -3046,7 +3046,7 @@ const scenarios = {
       await settle();
       const texts = (nodes) => nodes.map((n) => n.textContent);
       return { p, answers, look: () => ({ shown: texts(p.ttl().querySelectorAll('[data-rating]')), line: !!p.q('[data-ttl-part="ratings"]'),
-        held: !!p.q('.ttl__ratings-wait'), waiting: texts(p.ttl().querySelectorAll('.ttl__ratings-wait > *')) }) };
+        held: !!p.q('.ttl__ratings-wait'), waiting: p.q('.ttl__ratings-wait') ? texts(p.q('.ttl__ratings-wait').children) : [] }) };
     };
     const early = { imdb: null, rt: null, tmdb: 7.4, metascore: null };
     const came = await page(early);
@@ -3744,7 +3744,8 @@ scenarios.tvBar = async () => {
 
 // What finds more like a title comes to be known after the title opened; then one that is no one's, and one by its TMDB id.
 scenarios.like = async () => {
-  const p = load({ routes: { '/api/watch/title/movie-120': Object.assign({}, LIB_MOVIE, { poster_url: '/api/watch/poster/120' }), '/api/watch/title/rec-3': Object.assign({}, MOVIE_DL, { ref: 'rec-3' }),
+  let named = LIB_MOVIE.title;
+  const p = load({ routes: { '/api/watch/title/movie-120': () => Promise.resolve(Object.assign({}, LIB_MOVIE, { title: named, poster_url: '/api/watch/poster/120' })), '/api/watch/title/rec-3': Object.assign({}, MOVIE_DL, { ref: 'rec-3' }),
     '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
   p.run();
   const b = () => p.q('[data-ttl-act="like"]');
@@ -3759,6 +3760,10 @@ scenarios.like = async () => {
   p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
   out.acts = acts();
   out.focus = p.doc.activeElement.getAttribute('data-ttl-act');
+  // Renamed since it opened: the title it was opened as is not the one asked about.
+  named = 'Glass Harbour: Restored';
+  p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-120', refs: ['movie-120'] } });
+  await settle();
   click(p.doc, b());
   await open('rec-3');
   if (b()) click(p.doc, b());
