@@ -30,7 +30,7 @@
 
   /* How long the last step is seen before the way to watch takes the steps' place. */
   var DONE_AFTER_MS = 900;
-  var STEP_OF = { searching: 1, queued: 1, downloading: 2, almost_ready: 2, ready: 4 };
+  var STEP_OF = { searching: 1, queued: 1, finding_copy: 1, downloading: 2, almost_ready: 2, needs_attention: 2, ready: 4 };
 
   var page = document.querySelector('.share-page');
   var hero = document.querySelector('.share-hero');
@@ -191,8 +191,18 @@
       else li.removeAttribute('aria-current');
     });
     steps.classList.toggle('is-all', data.state === 'ready');
-    MM.dom.setText(steps.children[1].querySelector('span'), data.state === 'queued' ? 'Queued' : 'Searching');
-    MM.dom.setText(steps.children[2].querySelector('span'), data.state === 'almost_ready' ? 'Almost ready' : 'Downloading');
+    var held = data.state === 'needs_attention';
+    steps.classList.toggle('is-held', held);
+    var stuck = act.querySelector('[data-stuck]');
+    if (!_pollStopped) {
+      act.querySelector('[data-say]').hidden = held;
+      stuck.hidden = !held;
+      if (held) MM.dom.setText(stuck, stuckWords(data));
+    }
+    var second = { queued: 'Queued', finding_copy: 'Finding another copy' }[data.state] || 'Searching';
+    MM.dom.setText(steps.children[1].querySelector('span'), second);
+    var third = { almost_ready: 'Almost ready', needs_attention: 'Needs attention' }[data.state] || 'Downloading';
+    MM.dom.setText(steps.children[2].querySelector('span'), third);
 
     var done = data.progress || 0;
     var running = data.state === 'downloading';
@@ -206,7 +216,14 @@
     drawEpisodes(data);
 
     colour(running ? 0.25 + 0.0065 * done : data.state === 'ready' ? 1 : data.state === 'almost_ready' ? 0.92 : 0.25);
-    say({ 1: data.state === 'queued' ? 'Queued' : 'Searching', 2: data.state === 'almost_ready' ? 'Almost ready' : 'Downloading', 4: 'Ready to watch' }[at]);
+    say({ 1: second, 2: third, 4: 'Ready to watch' }[at]);
+  }
+
+  /* Only what is true of one that will not finish as it is. */
+  function stuckWords(data) {
+    if (data.retrying) return 'This copy won’t finish. mediaman will look for another copy.';
+    if (data.attention_hint) return 'It won’t finish by itself. ' + data.attention_hint + '.';
+    return 'It won’t finish until an admin sorts it out.';
   }
 
   /* The words stand at the hero's foot: while the list is open they keep their place, and the
@@ -253,6 +270,7 @@
     if (!notice) return;
     notice.hidden = false;
     act.querySelector('[data-say]').hidden = true;
+    act.querySelector('[data-stuck]').hidden = true;
     say('Updates have stopped. Reload the page to see where it is now.');
   }
 

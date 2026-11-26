@@ -531,7 +531,7 @@
     }
     if (!Object.keys(owed).length) return;
     var asked = changes;
-    fetchPage('/watch').then(function (doc) {
+    fetchPage('/').then(function (doc) {
       if (asked !== changes) return;
       var due = owed;
       owed = {};
@@ -609,55 +609,9 @@
     else if (b) old.appendChild(document.importNode(b, true));
   }
 
-  function syncEpisode(link, fresh) {
-    link.className = fresh.className;
-    replacePart(link, fresh, '.watch-ep__text');
-    replacePart(link, fresh, '.watch-ep__state');
-    replacePart(link.querySelector('.watch-ep__thumb'), fresh.querySelector('.watch-ep__thumb'), '.watch-bar');
-  }
-
-  /* The film's or show's own page: its Play button, its season tabs, its episodes
-     and every toggle, changed where they are. */
-  function followTitle() {
-    var tab = document.querySelector('.watch-seasons a.watch-pill.on');
-    var href = tab ? tab.getAttribute('href') : window.location.pathname + window.location.search;
-    var asked = changes;
-    fetchPage(href).then(function (doc) {
-      if (asked !== changes) return;
-      var on = document.querySelector('.watch-seasons a.watch-pill.on');
-      var list = document.querySelector('.watch-episodes');
-      // Another season was picked meanwhile: it comes with its own marks.
-      if (on !== tab || (list && list.getAttribute('aria-busy') === 'true')) return;
-      var info = document.querySelector('.watch-hero__info');
-      var freshInfo = doc.querySelector('.watch-hero__info');
-      if (!info || !freshInfo) return;
-      var play = info.querySelector('.watch-btn--play');
-      if (play !== document.activeElement) replacePart(info, freshInfo, '.watch-btn--play');
-      var tabs = toArray(doc.querySelectorAll('.watch-seasons a.watch-pill'));
-      toArray(document.querySelectorAll('.watch-seasons a.watch-pill')).forEach(function (pill) {
-        var fresh = tabs.filter(function (t) { return t.getAttribute('href') === pill.getAttribute('href'); })[0];
-        if (!fresh) return;
-        replacePart(pill, fresh, '.watch-pill__mark');
-        if (fresh.hasAttribute('aria-label')) pill.setAttribute('aria-label', fresh.getAttribute('aria-label'));
-        else pill.removeAttribute('aria-label');
-      });
-      toArray(document.querySelectorAll('[data-mark-toggle]')).forEach(function (b) {
-        var fresh = withAttr(doc, 'data-mark-toggle', b.getAttribute('data-mark-toggle'))[0];
-        if (fresh && !busy[b.getAttribute('data-mark-toggle')]) setToggle(b, fresh.getAttribute('aria-pressed') === 'true');
-      });
-      var eps = toArray(doc.querySelectorAll('.watch-ep'));
-      toArray(document.querySelectorAll('.watch-ep')).forEach(function (link, i) {
-        if (eps[i] && eps[i].getAttribute('data-ep') === link.getAttribute('data-ep')) syncEpisode(link, eps[i]);
-      });
-    }).catch(function () {
-      // The mark is saved; the page shows the rest on the next load.
-    });
-  }
-
   function follow(ref, done) {
     latest[ref] = done;
-    if (byId('watch-browse')) followRows(ref, done);
-    else followTitle();
+    followRows(ref, done);
   }
 
   /* Told as `mm:watch-marked`, with detail { ref, refs }: the title's refs, and of them the library's, if it has one. */

@@ -17,6 +17,7 @@ from ._discover import (
     discover_shelves,
     held_details,
     search,
+    similar,
     tmdb_card,
 )
 from ._explore import (
@@ -98,6 +99,7 @@ __all__ = [
     "person",
     "search",
     "season",
+    "similar",
     "tmdb_card",
     "tmdb_fields",
     "tmdb_id_for_tvdb",

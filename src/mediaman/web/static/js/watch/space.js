@@ -127,7 +127,7 @@
 
   function titleLink(node, ref, title) {
     if (!ref) return node;
-    node.href = '/watch#title=' + encodeURIComponent(ref);
+    node.href = '/#title=' + encodeURIComponent(ref);
     node.setAttribute('data-title-ref', ref);
     node.setAttribute('data-title', title);
     return node;
@@ -1329,7 +1329,7 @@
     var total = got ? got.total : count(k);
     if (total <= (got ? got.items.length : HEAVIEST)) return;
     var all = el('a', 'space-all');
-    all.href = '/watch?all=library&type=' + k + '&sort=size';
+    all.href = '/?all=library&type=' + k + '&sort=size';
     h.append(add(all, document.createTextNode('See all ' + total + ' by size'), MM.dom.icon('i-chevron-right')));
     if (going && going.href === all.href) all.setAttribute('aria-busy', 'true');
   }
@@ -1717,7 +1717,7 @@
     if (wanted.every(function (item) { return here[item.media_item_id]; })) return;
     var seq = refreshSeq;
     var gen = keepGen;
-    fetch('/watch', { credentials: 'same-origin', headers: { Accept: 'text/html' } }).then(function (resp) {
+    fetch('/', { credentials: 'same-origin', headers: { Accept: 'text/html' } }).then(function (resp) {
       if (!resp.ok || resp.redirected) throw new Error('page ' + resp.status);
       return resp.text();
     }).then(function (html) {

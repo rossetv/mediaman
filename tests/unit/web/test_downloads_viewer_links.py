@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
@@ -92,3 +93,44 @@ def test_rows_that_all_wait_sit_under_up_next(app_factory, conn):
 
 def test_rows_that_download_sit_under_also_in_progress(app_factory, conn):
     assert "Also in progress</h2>" in _heading(app_factory, conn, ["queued", "downloading"])
+
+
+def _held(*_args):
+    held = {
+        "state": "needs_attention",
+        "state_label": "Needs attention",
+        "attention": "Not an upgrade for existing movie file",
+        "attention_hint": "Fix it in Radarr: Activity → Queue",
+        "retry_key": "radarr:1",
+    }
+    return {**_payload(), "hero": _item("radarr:1", **held), "queue": [_item("radarr:3", **held)]}
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_the_key_a_retry_is_read_by_is_sent_to_nobody(app_factory, conn, role):
+    _, body = _page_and_api(app_factory, conn, role, _held)
+    assert not [i for i in (body["hero"], *body["queue"]) if "retry_key" in i]
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_a_download_mediaman_will_retry_says_so_and_not_where_to_fix_it(app_factory, conn, role):
+    html, body = _page_and_api(app_factory, conn, role, _held)
+    assert body["hero"]["retrying"] is True
+    assert html.count("mediaman will look for another copy") == 2
+    assert "Fix it in Radarr" not in html
+
+
+def test_a_download_whose_tries_are_spent_says_where_to_fix_it(app_factory, conn):
+    conn.execute("INSERT INTO arr_import_retries (key, tries) VALUES ('radarr:1', 2)")
+    conn.commit()
+    html, body = _page_and_api(app_factory, conn, "admin", _held)
+    assert body["hero"]["retrying"] is False
+    assert "Fix it in Radarr" in html and "look for another copy" not in html
+
+
+def test_a_viewer_is_told_a_download_that_needs_attention_waits_for_an_admin(app_factory, conn):
+    conn.execute("INSERT INTO arr_import_retries (key, tries) VALUES ('radarr:1', 2)")
+    conn.commit()
+    html, _ = _page_and_api(app_factory, conn, "viewer", _held)
+    assert html.count("Won’t finish until an admin sorts it out") == 2
+    assert "Fix it in Radarr" not in html

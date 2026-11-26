@@ -7,6 +7,7 @@ from __future__ import annotations
 from mediaman.core.format import format_bytes
 from mediaman.services.arr._types import ArrQueueItem, RadarrMovie
 from mediaman.services.downloads.download_format import (
+    attention_reason,
     build_item,
     map_arr_status,
 )
@@ -41,6 +42,7 @@ def _radarr_queue_item(queue: list[ArrQueueItem], tmdb_id: int) -> DownloadItem 
         state = map_arr_status(
             item.get("status") or "",
             item.get("trackedDownloadState") or "",
+            item.get("trackedDownloadStatus") or "",
         )
         eta = _eta(state, item.get("timeleft", ""))
         title = item_movie.get("title", "")
@@ -54,18 +56,22 @@ def _radarr_queue_item(queue: list[ArrQueueItem], tmdb_id: int) -> DownloadItem 
             eta=eta,
             size_done=format_bytes(size_total - size_left),
             size_total=format_bytes(size_total),
+            arr_source="Radarr",
+            attention=attention_reason(item),
         )
     return None
 
 
-def _radarr_searching_item(movie: RadarrMovie | None) -> DownloadItem:
+def _radarr_searching_item(
+    movie: RadarrMovie | None, *, finding_copy: bool = False
+) -> DownloadItem:
     title = (movie or {}).get("title", "")
     return build_item(
         dl_id=f"radarr:{title}" if title else "",
         title=title,
         media_type="movie",
         poster_url="",
-        state="searching",
+        state="finding_copy" if finding_copy else "searching",
         progress=0,
         eta="",
         size_done="",

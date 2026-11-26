@@ -40,10 +40,10 @@ def test_a_signed_out_visitor_goes_to_login_not_to_watch(make, router, path):
 @pytest.mark.parametrize(
     ("query", "target"),
     [
-        ("?q=dune", "/watch?q=dune"),
-        ("?q=a%20%26%20b%3Dc", "/watch?q=a+%26+b%3Dc"),
-        ("?q=%20%20", "/watch"),
-        ("", "/watch"),
+        ("?q=dune", "/?q=dune"),
+        ("?q=a%20%26%20b%3Dc", "/?q=a+%26+b%3Dc"),
+        ("?q=%20%20", "/"),
+        ("", "/"),
     ],
 )
 def test_search_keeps_a_usable_query(make, query, target):
@@ -56,7 +56,7 @@ def test_search_keeps_a_usable_query(make, query, target):
 def test_search_cuts_a_query_that_is_too_long(make):
     resp = make(search_router).get("/search?q=" + "x" * 500, follow_redirects=False)
 
-    assert resp.headers["location"] == "/watch?q=" + "x" * 100
+    assert resp.headers["location"] == "/?q=" + "x" * 100
 
 
 @pytest.mark.parametrize(
@@ -80,7 +80,7 @@ def test_the_old_filters_and_sorts_lead_to_the_same_of_all_titles(
 ):
     resp = make(router).get(path + query, follow_redirects=False)
 
-    assert (resp.status_code, resp.headers["location"]) == (302, "/watch" + target)
+    assert (resp.status_code, resp.headers["location"]) == (302, "/" + target)
 
 
 def test_library_drops_values_there_are_none_of(make):
@@ -88,13 +88,13 @@ def test_library_drops_values_there_are_none_of(make):
         "/library?type=bogus&sort=bogus&page=0&per_page=9999&q=", follow_redirects=False
     )
 
-    assert resp.headers["location"] == "/watch?all=library"
+    assert resp.headers["location"] == "/?all=library"
 
 
 def test_library_with_no_filters_opens_all_titles(make):
     resp = make(library_router).get("/library", follow_redirects=False)
 
-    assert resp.headers["location"] == "/watch?all=library"
+    assert resp.headers["location"] == "/?all=library"
 
 
 def test_recommended_opens_watch_at_its_recommended_row(make):
@@ -102,4 +102,4 @@ def test_recommended_opens_watch_at_its_recommended_row(make):
 
     assert resp.status_code == 302
     # No fragment of its own, so the browser keeps an old link's #recommendation-<id>.
-    assert resp.headers["location"] == "/watch?row=recommended"
+    assert resp.headers["location"] == "/?row=recommended"

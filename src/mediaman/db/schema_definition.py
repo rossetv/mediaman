@@ -586,6 +586,23 @@ CREATE TABLE IF NOT EXISTS arr_searching_since (
     last_seen TEXT
 );
 
+-- A Radarr film's or a Sonarr season's download that would not import, and the copies
+-- mediaman removed for another: since when it has been held back (NULL while it is not),
+-- the tries made, and while one runs when it began, the queue ids removed, the search
+-- still to be sent and what the card shows meanwhile; and when the last try began, with the
+-- episodes it was for, kept after it ends to tell a later import from a file held before.
+CREATE TABLE IF NOT EXISTS arr_import_retries (
+    key TEXT PRIMARY KEY,
+    stuck_since TEXT,
+    tries INTEGER NOT NULL DEFAULT 0,
+    retried_at TEXT,
+    removed TEXT,
+    search TEXT,
+    shown TEXT,
+    tried_at TEXT,
+    tried_episodes TEXT
+);
+
 CREATE TABLE IF NOT EXISTS keep_tokens_used (
     token_hash TEXT PRIMARY KEY,
     used_at TEXT NOT NULL

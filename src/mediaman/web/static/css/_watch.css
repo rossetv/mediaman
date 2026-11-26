@@ -161,7 +161,8 @@
   margin-top: 16px;
   display: flex;
   align-items: flex-end;
-  padding: 24px var(--pad) 44px;
+  /* --banner-lift: how far the bar stands over its top, where the words must not go. */
+  padding: calc(var(--banner-lift, 0px) + 24px) var(--pad) 44px;
   overflow: hidden;
   background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--bg) 80%);
   /* Dark enough for the text up to where the title can reach, then eased out with no edge;
@@ -732,24 +733,9 @@
 .watch-back:hover { color: var(--accent-hi); }
 .watch-hero__info { display: flex; flex-direction: column; gap: 12px; max-width: 720px; min-width: 0; }
 .watch-hero__summary { font-size: 15px; line-height: 1.5; color: var(--t2); }
-/* The line keeps the Keep button's height when it is kept or empty (a season
-   that is not leaving), so Resume and the season tabs never move under a tap. */
-.watch-leaving { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 32px; font-size: 14px; color: var(--danger-text); }
-.watch-leaving--kept { color: var(--success); }
-/* Another season is leaving, not this one: said quietly, with no Keep. */
-.watch-leaving--other { color: var(--t2); }
-.watch-leaving:focus { outline: none; }
-.watch-leaving:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
-
 .watch-seasons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-/* With scripts the seasons stand on one line that scrolls, its gutters holding the arrows so
-   that they never stand on a season. */
-.watch-seasons__line { --pad: clamp(20px, 4vw, 32px); min-width: 0; margin: 6px calc(-1 * var(--pad)) 0; }
 .watch-seasons.watch-row__scroll { flex-wrap: nowrap; margin: 0; padding-block: 6px; }
 .watch-seasons > .watch-pill { flex: none; scroll-snap-align: start; white-space: nowrap; }
-.watch-seasons__line > .watch-row__arrow { top: 12px; width: 32px; height: 32px; font-size: 13px; }
-.watch-seasons__line > .watch-row__arrow--prev { left: 2px; }
-.watch-seasons__line > .watch-row__arrow--next { right: 2px; }
 .watch-pill__mark { margin-left: 8px; font-size: 13px; opacity: .75; }
 .watch-pill {
   display: inline-flex;
@@ -855,7 +841,7 @@
 
 /* A phone held sideways: a shorter banner that leaves its buttons on screen. */
 @media (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
-  .watch-banner { --banner-poster-w: 124px; min-height: 260px; margin-top: 8px; padding: 16px var(--pad) 18px; }
+  .watch-banner { --banner-poster-w: 124px; min-height: 260px; margin-top: 8px; padding: calc(var(--banner-lift, 0px) + 16px) var(--pad) 18px; }
   .watch-banner__body { width: auto; max-width: min(560px, calc(100% - var(--banner-poster-w) - 28px)); gap: 8px; }
   .watch-banner__title { --title-lines: 3; font-size: 28px; }
   .watch-banner__title--long { --title-lines: 4; font-size: 24px; }
@@ -863,11 +849,11 @@
   .watch-banner__line { font-size: 13px; }
   .watch-banner__poster { --banner-poster-w: 124px; right: var(--pad); left: auto; top: 50%; max-height: calc(100% - 72px); transform: translateY(-50%); }
 }
-/* One that has the bar at the foot too: the dark beside the text, not above it. */
+/* A short landscape phone: the dark beside the text, not above it. */
 @media (max-width: 699.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
-  /* That bar leaves little height, so the buttons stand beside the text, at its top, in place of
+  /* Little height is left, so the buttons stand beside the text, at its top, in place of
      the poster: however long the title, they stay on screen. */
-  .watch-banner { min-height: 0; margin-top: 0; padding-block: 12px 14px; }
+  .watch-banner { min-height: 0; margin-top: 0; padding-block: calc(var(--banner-lift, 0px) + 12px) 14px; }
   .watch-banner__poster { display: none; }
   .watch-banner__body { width: 100%; max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) 196px; gap: 6px 16px; }
   .watch-banner__body > * { grid-column: 1; }
@@ -886,7 +872,7 @@
 @media (forced-colors: active) {
   .watch-banner__bg { display: none; }
   /* With no picture there is nothing to leave room for. */
-  .watch-banner:has(> .watch-banner__bg--art:not([data-broken])) { min-height: 0; padding-top: 24px; }
+  .watch-banner:has(> .watch-banner__bg--art:not([data-broken])) { min-height: 0; padding-top: calc(var(--banner-lift, 0px) + 24px); }
   .watch-pill.on { forced-color-adjust: none; color: HighlightText; }
   .watch-pill.on { background: Highlight; }
   .watch-keep::before { border: 1px solid ButtonText; }
@@ -915,8 +901,7 @@
 
 /* Phones and touch screens: the Keep button grows to 44px, the pill stays. */
 @media (pointer: coarse), (max-width: 599.98px) {
-  .watch-keep,
-  .watch-leaving { min-height: 44px; }
+  .watch-keep { min-height: 44px; }
   .watch-keep::before { inset: 6px 0; }
   .watch-keep::after { content: none; }
 }

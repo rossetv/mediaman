@@ -38,7 +38,7 @@ def test_a_card_opens_at_once_with_its_title_and_its_own_address() -> None:
     assert loading["focus"] is True
     assert loading["locked"] is True
     assert loading["hash"] == "#title=tmdb-movie-77"
-    assert loading["history"] == [["push", "/watch#title=tmdb-movie-77"]]
+    assert loading["history"] == [["push", "/#title=tmdb-movie-77"]]
     assert out["loaded"]["busy"] is None
     assert "2 h 19 min" in out["loaded"]["meta"]
     assert out["loaded"]["primary"]["text"] == "Download"
@@ -112,7 +112,7 @@ def test_back_before_a_title_has_stepped_aside_turns_it_round() -> None:
 def test_a_title_s_genres_lead_to_explore_and_back_to_them() -> None:
     out = _run("genreLinks")
     assert out["meta"].endswith("Drama, Sci-Fi & Fantasy, Noir12A")
-    assert out["hrefs"] == ["/watch?genre=drama", "/watch?genre=science-fiction"]
+    assert out["hrefs"] == ["/?genre=drama", "/?genre=science-fiction"]
     assert out["modified"] == {"prevented": False, "explored": []}
     assert out["explored"] == [{"genre": "science-fiction"}]
     assert out["gone"] is True
@@ -130,7 +130,7 @@ def test_a_direct_link_opens_the_title_and_closing_drops_the_hash_without_histor
     out = _run("directLink")
     assert out["opened"]["hidden"] is False
     assert out["opened"]["gets"][0] == "/api/watch/title/movie-120"
-    assert out["history"] == [["replace", "/watch"]]
+    assert out["history"] == [["replace", "/"]]
     assert out["hash"] == ""
 
 
@@ -140,7 +140,7 @@ def test_a_title_no_card_opened_gives_the_focus_to_one_of_its_cards_that_shows()
 
 def test_an_old_recommendation_link_opens_the_pick() -> None:
     out = _run("oldRecommendationLink")
-    assert out["history"][0] == ["replace", "/watch#title=rec-5"]
+    assert out["history"][0] == ["replace", "/#title=rec-5"]
     assert out["gets"][0] == "/api/watch/title/rec-5"
     assert "two slow mysteries" in out["reason"]
 
@@ -298,6 +298,7 @@ def test_a_title_finds_more_like_itself_beside_play_once_there_is_an_ai_to_ask()
             ["tmdb-movie-77", "Meridian", None],
             ["tmdb-movie-77", "Meridian", None],
         ],
+        "undownloadable": ["tmdb-movie-78"],
         "off": False,
     }
 
@@ -854,6 +855,35 @@ def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
     assert out["all"]["button"] is False
 
 
+def test_a_film_that_cannot_be_downloaded_says_it_is_not_in_the_library_as_a_line_not_a_button() -> (
+    None
+):
+    film = _run("nothingToPress")["film"]
+    assert film["primary"] is None
+    assert ["ttl__status", True, "Not in your library"] in film["statuses"]
+
+
+def test_the_lines_under_the_actions_of_how_a_title_stands_are_of_one_kind() -> None:
+    show = _run("nothingToPress")["show"]
+    kinds = [("ttl__status" in cls.split(), has_icon) for cls, has_icon, _ in show["statuses"]]
+    assert kinds == [(True, True), (True, True)]
+    assert "reach Plex" in show["statuses"][0][2] and "leaves" in show["statuses"][1][2]
+
+
+def test_a_title_plex_no_longer_has_offers_no_watched_mark_which_plex_would_refuse() -> None:
+    out = _run("nothingToPress")
+    assert out["gone"]["mark"] is False
+    assert out["unreachable"]["mark"] is True
+
+
+def test_a_library_title_plex_cannot_give_says_why_there_is_no_play() -> None:
+    out = _run("nothingToPress")
+    assert "reach Plex" in out["unreachable"]["under"]
+    assert "reach Plex" in out["show"]["under"]
+    assert "not in the library any more" in out["gone"]["under"]
+    assert out["gone"]["primary"] is None
+
+
 def test_a_season_pill_swaps_the_episodes_in_place_and_keeps_focus() -> None:
     out = _run("seasonPills")
     assert out["first"]["pills"] == [["Season 1", "false"], ["Season 2", "true"]]
@@ -1009,8 +1039,9 @@ def test_a_shorter_season_leaves_its_pill_where_it_was_pressed() -> None:
 
 def test_a_season_whose_leaving_line_goes_or_comes_leaves_its_pill_where_it_was_pressed() -> None:
     out = _run("leavingLineGoes")
-    for at, scrolled in (("0", 0), ("25", 0), ("300", 260)):
-        assert out[at]["gone"] == {"moved": 0, "line": False, "scroll": scrolled}
+    for at in ("0", "25", "300"):
+        # The line stays, naming the season that leaves with no Keep: nothing is scrolled.
+        assert out[at]["gone"] == {"moved": 0, "line": True, "scroll": int(at)}
         assert out[at]["loaded"] == 0
         assert (out[at]["back"]["moved"], out[at]["back"]["line"]) == (0, True)
         assert out[at]["room"] == 0
@@ -1171,6 +1202,34 @@ def test_a_link_that_names_a_season_opens_the_show_on_it() -> None:
     own = {"on": ["Season 2"], "first": False, "asked": 0}
     assert (out["own"], out["none"], out["gone"]) == (own, own, own)
     assert out["failed"] == {**own, "asked": 1}
+
+
+def test_a_library_title_says_what_its_own_page_said_of_it() -> None:
+    out = _run("ownPageFacts")
+    show = out["show"]
+    # An episode seen before and begun again says both, and plays on from where it is.
+    assert (show["href"], show["bar"]) == ("/watch/play/21?resume=1", True)
+    assert (show["state"], show["name"]) == ("In progress", "Spring Tide, watched")
+    # A watched season's tab keeps its words and adds an eye, and says so to a screen reader.
+    assert show["tab"] == ["Season 1, watched", "Season 1", 1]
+    # The season tabs stand with the episodes, not on the picture.
+    assert show["tabsInHero"] == 0
+    assert show["toggles"] == [
+        "Mark show as watched",
+        "Mark season as watched",
+        "Mark Spring Tide as watched",
+    ]
+    assert out["left"] == "31 min left"
+    assert out["gone"] == "This title is not available any more."
+
+
+def test_an_address_that_names_a_season_opens_the_show_on_it() -> None:
+    assert _run("openOnSeasonByAddress") == {
+        "open": True,
+        "title": "/api/watch/title/show-300",
+        "on": ["Season 1"],
+        "first": True,
+    }
 
 
 def test_the_bar_of_close_is_left_alone_while_a_title_goes() -> None:
@@ -1390,15 +1449,23 @@ def test_a_title_opened_from_a_leaving_season_keeps_that_season_and_no_other() -
     assert out["gone"] == [None, None, None]
 
 
-def test_a_title_opened_otherwise_names_the_season_it_keeps() -> None:
-    assert _keeps(_run("leavingSeasons")["plain"]) == THIRD
+def test_a_title_opened_otherwise_says_of_the_season_on_show_what_it_says_once_that_is_picked() -> (
+    None
+):
+    out = _run("leavingSeasons")
+    assert out["plain"] == out["pickedOther"] == [None, None, "Season 3 leaves in 2 days."]
+    assert _keeps(out["plainOnLeaving"]) == SECOND
 
 
 def test_the_season_picked_in_the_list_is_the_one_kept() -> None:
     out = _run("leavingSeasons")
     assert _keeps(out["picked"]) == SECOND
     assert out["focus"] == "pill-2"
-    assert out["pickedOther"] == [None, None, None]
+    assert out["pickedOther"][:2] == [None, None]
+
+
+def test_a_season_picked_that_does_not_leave_names_the_one_that_does_with_no_keep() -> None:
+    assert _run("leavingSeasons")["pickedOther"][2] == "Season 3 leaves in 2 days."
 
 
 def test_a_films_keep_names_no_season() -> None:
@@ -1462,7 +1529,7 @@ def test_a_keep_undone_elsewhere_shows_on_the_open_title() -> None:
 def test_the_director_leads_to_their_titles_and_back() -> None:
     assert _run("directorLink") == {
         "text": "DirectorAda Rimmington",
-        "href": "/watch?person=9008",
+        "href": "/?person=9008",
         "modified": False,
         "explored": [{"person": 9008}],
         "focus": "director",
@@ -1561,6 +1628,55 @@ def test_a_title_still_looked_for_says_so_as_its_card_does() -> None:
         "queued": queued,
         "other": queued,
     }
+
+
+def test_a_film_the_arr_will_not_import_says_it_needs_attention_not_downloading() -> None:
+    out = _run("troubled")
+    assert out["plain"] == {
+        "pill": "Downloading 42%",
+        "status": None,
+        "note": "Follow it in Downloads.",
+        "bar": True,
+    }
+    stuck = "No files found are eligible for import · Fix it in Radarr: Activity → Queue"
+    assert out["admin"] == {
+        "pill": None,
+        "status": "Needs attention",
+        "note": stuck + ". Follow it in Downloads.",
+        "bar": False,
+    }
+    assert (out["viewer"]["pill"], out["viewer"]["status"]) == (None, "Needs attention")
+    assert out["finding"] == {
+        "pill": None,
+        "status": "Finding another copy",
+        "note": "Follow it in Downloads.",
+        "bar": False,
+    }
+    assert out["other"] == out["plain"]
+
+
+def test_a_viewer_is_told_a_stuck_film_waits_for_an_admin_as_the_download_page_says() -> None:
+    note = _run("troubled")["viewer"]["note"]
+    assert note == "It won’t finish until an admin sorts it out. Follow it in Downloads."
+
+
+def test_a_film_that_mediaman_will_try_again_says_so_instead_of_where_to_fix_it() -> None:
+    out = _run("troubled")
+    retry = "mediaman will look for another copy"
+    assert out["retryingAdmin"]["note"] == (
+        "No files found are eligible for import · " + retry + ". Follow it in Downloads."
+    )
+    assert out["retryingViewer"]["note"] == retry + ". Follow it in Downloads."
+
+
+def test_a_season_the_arr_holds_back_or_looks_again_for_is_not_called_downloading() -> None:
+    out = _run("seasonsTroubled")
+    assert [c[1] for c in out["chips"]] == [
+        "Needs attention",
+        "Finding another copy",
+        "Downloading",
+    ]
+    assert out["titles"] == ["No files found · Fix it in Sonarr", None, None]
 
 
 def test_a_page_drawn_on_its_way_leaves_no_trace_until_it_opens_as_a_press_would_open_it() -> None:
@@ -1765,3 +1881,13 @@ def test_a_film_opened_before_radarr_answered_is_asked_once_more_and_drawn_in_pl
     assert out["moved"]["primary"] == "Resume S2 · E4"
     # Download pressed meanwhile: what it started stands.
     assert (out["pressed"]["asked"], out["pressed"]["primary"]) == (1, "Queued")
+
+
+def test_a_title_opens_and_closes_without_touching_every_card_on_the_page() -> None:
+    out = _run("opensOverManyCards")
+    assert out["open"]["kind"] == "TV series"
+    # what holds the cards is hidden from assistive tech under the title, not made inert
+    assert out["open"]["inert"] is False and out["open"]["hidden"] == "true"
+    assert out["closed"] == {"inert": False, "hidden": None}
+    # its kind and its card are found by its ref, not by going through every card
+    assert out["sweeps"] == []

@@ -239,7 +239,7 @@
       if (empty.text) box.appendChild(el('p', 'grid-empty__text', empty.text));
       if (empty.link) {
         var link = el('a', 'grid-empty__link', empty.link);
-        link.setAttribute('href', core.safePath(empty.href) || '/watch');
+        link.setAttribute('href', core.safePath(empty.href) || '/');
         if (empty.filter !== undefined) link.setAttribute('data-grid-filter', empty.filter);
         else if (!/#/.test(empty.href)) link.setAttribute('data-grid-back', '');
         box.appendChild(link);
@@ -678,7 +678,7 @@
       var head = el('div', 'watch-all__head');
       head.appendChild(el('div', 'watch-all__glass'));
       var back = el('a', 'watch-all__back');
-      back.setAttribute('href', '/watch');
+      back.setAttribute('href', '/');
       back.setAttribute('aria-label', 'Back to all rows');
       back.appendChild(icon('i-chevron-left'));
       var names = el('div', 'watch-all__names');
@@ -1426,7 +1426,7 @@
     now = { opts: opts, value: opts.sort ? opts.sort.value : null, filter: opts.filter ? opts.filter.value : null, list: null, asked: null, shown: null, jumped: false, fills: 0, late: null };
     now.list = list(dom.body, {
       title: opts.title, cards: cards, next: opts.next, fetchPage: opts.fetchPage,
-      total: opts.total, empty: opts.empty || { title: 'Nothing in ' + opts.title + ' yet', text: 'What you add shows up here.', link: 'Back to all rows', href: '/watch' },
+      total: opts.total, empty: opts.empty || { title: 'Nothing in ' + opts.title + ' yet', text: 'What you add shows up here.', link: 'Back to all rows', href: '/' },
       clearTop: headBottom, start: dom.bar, waiting: opts.waiting, refresh: opts.refresh,
       say: function (text) { if (Date.now() - saidAt > HEARD_MS) say(text); },
       took: fitSort

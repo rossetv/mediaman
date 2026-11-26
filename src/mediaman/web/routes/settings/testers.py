@@ -6,6 +6,7 @@ endpoint in the package __init__ invokes the registered functions.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
@@ -21,6 +22,7 @@ from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 from mediaman.services.downloads.nzbget import NzbgetError
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 from mediaman.services.media_meta.omdb import clear_refusal
+from mediaman.services.openai.client import clear_refusal as clear_openai_refusal
 from mediaman.web.models import _API_KEY_RE
 from mediaman.web.responses import respond_failure
 
@@ -305,7 +307,10 @@ def test_openai(settings: dict[str, object]) -> JSONResponse:
         return respond_failure("OpenAI API key is required", status=200)
     if not _API_KEY_RE.match(api_key):
         return _failure("auth_failed: API key contains invalid characters", _BAD_KEY_CHARS)
-    return _test_bearer_api(_OPENAI_MODELS_URL, api_key)
+    response = _test_bearer_api(_OPENAI_MODELS_URL, api_key)
+    if json.loads(bytes(response.body)).get("ok") is True:
+        clear_openai_refusal(api_key)
+    return response
 
 
 @_register("tmdb")

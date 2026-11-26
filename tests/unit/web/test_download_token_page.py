@@ -986,10 +986,10 @@ class TestWatchLink:
     @pytest.mark.parametrize(
         ("item", "href"),
         [
-            ({}, "/watch#title=tmdb-movie-42"),
-            ({"media_type": "tv"}, "/watch#title=tmdb-tv-42"),
-            ({"tmdb_id": None}, "/watch"),
-            ({"tmdb_id": "//evil.example"}, "/watch"),
+            ({}, "/#title=tmdb-movie-42"),
+            ({"media_type": "tv"}, "/#title=tmdb-tv-42"),
+            ({"tmdb_id": None}, "/"),
+            ({"tmdb_id": "//evil.example"}, "/"),
         ],
     )
     def test_it_opens_the_title_itself_on_this_site(self, item, href):
@@ -1007,7 +1007,7 @@ class TestWatchLink:
         )
         assert href is not None
         path, _, ref = href[1].partition("#title=")
-        assert REF_RE.fullmatch(ref) and safe_return_path(path) == "/watch"
+        assert REF_RE.fullmatch(ref) and safe_return_path(path) == "/"
 
 
 class TestDownloadPageCast:

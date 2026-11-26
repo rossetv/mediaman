@@ -14,7 +14,14 @@
 
   var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/;
   var HREF = '/downloads';
-  var STATES = { queued: ['is-queued'], searching: ['is-looking'], stuck: ['is-looking', 'is-stuck'], ready: ['is-ready'] };
+  var STATES = {
+    queued: ['is-queued'],
+    searching: ['is-looking'],
+    stuck: ['is-looking', 'is-stuck'],
+    needs_attention: ['is-looking', 'is-stuck'],
+    finding_copy: ['is-looking'],
+    ready: ['is-ready']
+  };
   var FLY_MS = 520;
   var AT_START_PX = 2;
   var REST_MS = 600; // a swipe goes on after the finger has gone
@@ -57,15 +64,20 @@
   function says(item) {
     if (item.state === 'ready') return ['', item.line || 'Ready to watch'];
     if (item.state === 'almost_ready') return ['Almost ready', ''];
+    /* What Radarr or Sonarr says is wrong is told to an admin alone. */
+    if (item.state === 'needs_attention') return ['Needs attention', item.attention ? ' · ' + item.attention : ''];
+    if (item.state === 'finding_copy') return ['', 'Finding another copy'];
     if (item.state === 'queued') return ['', 'Queued'];
     if (item.state === 'stuck') return ['', 'Nothing found yet' + (item.line ? ' · ' + item.line : '')];
     if (item.state === 'searching') return ['', 'Looking for the best version'];
     return [item.percent + '%', typeof item.minutes_left === 'number' ? ' · ' + left(item.minutes_left) : ''];
   }
 
-  /* TheTVDB's posters have no address of mediaman's own. */
-  function picture(value) {
-    return core.safePath(value) || (/^https:\/\//.test(value || '') ? value : '');
+  /* What comes of a download that needs attention: that mediaman retries it, else where an admin
+     fixes it; a viewer is told only that it waits for one. */
+  function hintOf(item) {
+    if (item.state !== 'needs_attention') return '';
+    return item.retrying ? 'mediaman will look for another copy' : item.attention_hint || 'Won’t finish until an admin sorts it out';
   }
 
   function refOf(item) { return REF_RE.test(item.ref || '') ? item.ref : ''; }
@@ -81,8 +93,8 @@
 
   /* The poster stands in where there is no wide picture. */
   function setPicture(img, item) {
-    var poster = picture(item.poster_url);
-    var art = img.classList.contains('dw__pic') ? '' : picture(item.art_url);
+    var poster = core.safePath(item.poster_url);
+    var art = img.classList.contains('dw__pic') ? '' : core.safePath(item.art_url);
     var want = art || poster;
     if (want === img.getAttribute('data-of')) return;
     img.setAttribute('data-of', want);
@@ -105,6 +117,7 @@
     var line = text.appendChild(el('span', 'dw__line'));
     line.appendChild(el('strong'));
     line.appendChild(el('span'));
+    text.appendChild(el('span', 'dw__fix')).hidden = true;
     link.appendChild(text);
     var go = el('span', 'dw__go');
     go.setAttribute('aria-hidden', 'true');
@@ -145,6 +158,13 @@
     var text = says(item);
     setText(line.children[0], text[0]);
     setText(line.children[1], text[1]);
+    var hint = hintOf(item);
+    var fix = item.state === 'needs_attention' ? [item.attention, hint].filter(Boolean).join(' · ') : '';
+    if (fix) line.setAttribute('title', fix);
+    else line.removeAttribute('title');
+    var where = node.querySelector('.dw__fix');
+    setText(where, hint);
+    where.hidden = !hint;
     if (item.state === 'ready' && !wasReady) {
       card.timer = setTimeout(function () { land(item.key, Object.keys(cards).length === 1); draw(last); }, Math.max(1, item.ready_seconds || 1) * 1000);
     }
@@ -418,7 +438,7 @@
     link.setAttribute('data-title-ref', item.ref);
     link.setAttribute('data-kind', item.kind === 'movie' ? 'movie' : 'show');
     var poster = link.appendChild(el('span', 'watch-card__poster'));
-    var src = picture(item.poster_url);
+    var src = core.safePath(item.poster_url);
     if (src) {
       var img = poster.appendChild(el('img', 'is-loaded'));
       img.setAttribute('src', src);
@@ -526,7 +546,7 @@
   }
 
   window.MMWatch.downloading = {
-    picture: picture,
+    picture: core.safePath,
     line: function (item) { return says(item).join(''); },
     ref: refOf,
     href: hrefOf

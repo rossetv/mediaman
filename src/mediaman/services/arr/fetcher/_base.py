@@ -127,6 +127,12 @@ class ArrEpisodeEntry(_ArrEpisodeRequired, total=False):
     season_number: int
     # The queue entry's trackedDownloadState, which with its status says what it is doing.
     tracked_state: str
+    # Its trackedDownloadStatus, and what Sonarr says is wrong with it, "" when nothing is.
+    tracked_status: str
+    attention: str
+    # Sonarr's ids of the queue record and of its episode.
+    queue_id: int
+    episode_id: int
 
 
 class BaseArrCard(TypedDict):
@@ -156,6 +162,15 @@ class ArrCard(BaseArrCard, total=False):
     status: str
     # A film's queue entry's trackedDownloadState, which with its status says what it is doing.
     tracked_state: str
+    # Its trackedDownloadStatus, and what Radarr says is wrong with it, "" when nothing is.
+    tracked_status: str
+    attention: str
+    # Of a queue entry: Radarr's ids of the record and its film, or Sonarr's of the series, and
+    # the download client's id.
+    queue_id: int
+    movie_id: int
+    series_id: int
+    download_id: str
     is_upcoming: bool
     release_label: str
     arr_id: int
@@ -182,6 +197,8 @@ class ArrCard(BaseArrCard, total=False):
     # Seasons Abandon can unmonitor, as {"number", "missing_episodes", "aired"}; only
     # on a series still searching, which has no queue episodes to read them from.
     stuck_seasons: list[dict[str, int]]
+    # A download of it that would not import was removed and another copy is looked for.
+    finding_copy: bool
 
 
 def film_id(title: str, tmdb_id: int) -> str:

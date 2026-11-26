@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from mediaman.services.downloads.download_format._types import DownloadItem, state_label
+from mediaman.services.downloads.download_format._types import (
+    DownloadItem,
+    attention_hint,
+    state_label,
+)
 
 
 def build_item(
@@ -31,17 +35,20 @@ def build_item(
     arr_id: int = 0,
     kind: str = "",
     label: str = "",
+    attention: str = "",
+    retry_key: str = "",
 ) -> DownloadItem:
     """Build a simplified download item for the API response.
 
     search_count and last_search_ts are set only for the searching state; added_at is
     the fallback before the first search (first 5 minutes, or after a restart).
     label is what to call it where its title does not tell it from another.
+    attention is what Radarr or Sonarr says is wrong with one that needs attention.
     abandon_visible is a server-side threshold check so the frontend needs no logic.
     """
     if stuck_seasons is None:
         stuck_seasons = []
-    return {
+    item: DownloadItem = {
         "id": dl_id,
         "title": title,
         "media_type": media_type,
@@ -67,7 +74,12 @@ def build_item(
         "arr_id": arr_id,
         "kind": kind,
         "label": label,
+        "attention": attention if state == "needs_attention" else "",
+        "attention_hint": attention_hint(arr_source) if state == "needs_attention" else "",
     }
+    if retry_key:
+        item["retry_key"] = retry_key
+    return item
 
 
 def build_episode_summary(episodes: list[dict[str, object]]) -> str:
@@ -76,6 +88,7 @@ def build_episode_summary(episodes: list[dict[str, object]]) -> str:
     downloading = sum(1 for e in episodes if e["state"] == "downloading")
     queued = sum(1 for e in episodes if e["state"] == "queued")
     searching = sum(1 for e in episodes if e["state"] == "searching")
+    held = sum(1 for e in episodes if e["state"] == "needs_attention")
 
     parts = []
     if ready:
@@ -86,15 +99,20 @@ def build_episode_summary(episodes: list[dict[str, object]]) -> str:
         parts.append(f"{queued} queued")
     if searching:
         parts.append(f"{searching} searching")
+    # Of all of them, the state pill beside it says as much.
+    if held and held != total:
+        parts.append(f"{held} need{'s' if held == 1 else ''} attention")
     return " · ".join(parts)
 
 
 _HERO_STATE_PRIORITY: dict[str, int] = {
     "downloading": 0,
     "almost_ready": 1,
-    "queued": 2,
-    "searching": 3,
-    "upcoming": 4,
+    "needs_attention": 2,
+    "finding_copy": 3,
+    "queued": 4,
+    "searching": 5,
+    "upcoming": 6,
 }
 
 
@@ -107,7 +125,7 @@ def select_hero(
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     """Pick the hero item and return (hero, remaining_items).
 
-    By state: downloading, almost_ready, queued, searching; within one, the oldest added
+    By state: downloading, almost_ready, needs_attention, finding_copy, queued, searching; within one, the oldest added
     first, then by title, so nothing moves while its state stands. The item of id *kept*, the
     last hero, stays the hero while it is downloading or almost ready.
     """
@@ -115,7 +133,7 @@ def select_hero(
         return None, []
 
     def sort_key(item: dict[str, object]) -> tuple[int, float, str, str]:
-        priority = _HERO_STATE_PRIORITY.get(str(item.get("state") or ""), 5)
+        priority = _HERO_STATE_PRIORITY.get(str(item.get("state") or ""), 7)
         added_at = item.get("added_at")
         added = added_at if isinstance(added_at, int | float) else 0.0
         return (priority, added, str(item.get("title") or "").casefold(), str(item.get("id")))

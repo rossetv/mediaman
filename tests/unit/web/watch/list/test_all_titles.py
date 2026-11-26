@@ -265,7 +265,7 @@ def test_a_viewer_s_link_to_an_admin_s_filter_and_order_shows_the_usual_one(
     client = TestClient(app)
     client.cookies.set("session_token", create_session(conn, "ivo"))
 
-    ctx = client.get("/watch?all=library&type=stale&sort=size").json()
+    ctx = client.get("/?all=library&type=stale&sort=size").json()
 
     assert (ctx["grid"]["type"], ctx["grid"]["sort"], ctx["grid"]["fact"]) == ("", "added", None)
     assert [t[0] for t in ctx["library_types"]] == ["", "movies", "tv", "anime", "unseen"]
@@ -295,7 +295,7 @@ def test_an_empty_library_says_what_comes_next(read, conn):
     assert read("type=kept")["empty"] == {
         "title": "Nothing is kept",
         "link": "Show all titles",
-        "href": "/watch?all=library",
+        "href": "/?all=library",
         "filter": "",
     }
 

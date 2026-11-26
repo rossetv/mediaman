@@ -252,9 +252,9 @@ def test_the_abandon_dialog_keeps_the_width_of_the_page_s_scrollbar_until_it_clo
     stuck = {"state": "searching", "abandon_visible": True}
     out = _run("held", queue=[_item("q1", **stuck)])
     assert out == {"open": "15px", "again": "15px", "closed": None}
-    # the dialog is named in the one rule that stops the page scrolling
+    # the page it holds is the one the rule that stops the page scrolling names
     shared = (WEB / "static/css/_ui_feedback.css").read_text(encoding="utf-8")
-    assert '#abandon-modal[aria-hidden="false"]' in shared.split("var(--page-bar")[0]
+    assert "html.page-held" in shared.split("var(--page-bar")[0]
 
 
 def _rule_of(selector: str) -> str:

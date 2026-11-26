@@ -1004,7 +1004,7 @@ class TestKeepFormFailurePage:
         )
         html = self._client(conn).get(f"/keep/{_make_keep_token(conn, 'mi1', action_id)}").text
 
-        href = f"/watch#title={ref}" if ref else "/login"
+        href = f"/#title={ref}" if ref else "/login"
         assert re.findall(r'href="([^"]*)">Sign in', html) == [href, href]
 
     def test_an_unknown_error_code_still_renders_a_page(self, conn):

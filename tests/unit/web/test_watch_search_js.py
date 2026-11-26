@@ -137,8 +137,8 @@ def test_a_title_of_one_letter_is_searched_for_outside_the_library_too() -> None
 
 def test_clearing_returns_to_browse_keeps_focus_and_drops_q_from_the_address() -> None:
     out = _run("clear")
-    assert out["withQ"] == "/watch?foo=1&q=orchard#title=movie-2"
-    assert out["url"] == "/watch?foo=1#title=movie-2"
+    assert out["withQ"] == "/?foo=1&q=orchard#title=movie-2"
+    assert out["url"] == "/?foo=1#title=movie-2"
     assert (out["value"], out["focus"], out["browse"], out["results"]) == ("", True, True, True)
     assert (out["status"], out["groups"]) == ("", 0)
     assert out["index"] == 0  # typing and clearing leave nothing for Back to undo
@@ -146,22 +146,22 @@ def test_clearing_returns_to_browse_keeps_focus_and_drops_q_from_the_address() -
 
 def test_a_search_is_one_entry_back_is_the_rows_and_forward_the_search() -> None:
     out = _run("searchEntry")
-    assert out["typed"] == ["/watch?q=o", 2, 0]
-    assert out["more"] == ["/watch?q=orchard+road", 2]
-    assert out["back"] == ["/watch", "", "browse", 700]
+    assert out["typed"] == ["/?q=o", 2, 0]
+    assert out["more"] == ["/?q=orchard+road", 2]
+    assert out["back"] == ["/", "", "browse", 700]
     assert out["forward"] == [
-        "/watch?q=orchard+road",
+        "/?q=orchard+road",
         "orchard road",
         "results",
         "/api/watch/search?q=orchard%20road",
     ]
-    assert out["linked"] == ["/watch", 1]
-    assert out["restored"] == ["/watch?q=orchard", 1]
+    assert out["linked"] == ["/", 1]
+    assert out["restored"] == ["/?q=orchard", 1]
 
 
 def test_a_search_typed_while_the_last_is_still_leaving_is_not_lost() -> None:
     assert _run("emptiedAndTyped") == [
-        "/watch?q=lantern",
+        "/?q=lantern",
         "lantern",
         "results",
         2,
@@ -170,7 +170,7 @@ def test_a_search_typed_while_the_last_is_still_leaving_is_not_lost() -> None:
 
 
 def test_what_was_typed_over_an_emptied_search_outlives_the_step_back_to_a_category() -> None:
-    assert _run("emptiedAndTypedOnCategory") == ["/watch?q=lantern", "lantern", "results", True]
+    assert _run("emptiedAndTypedOnCategory") == ["/?q=lantern", "lantern", "results", True]
 
 
 def test_a_shows_leaving_badge_in_a_search_is_worded_for_its_season_and_has_no_keep() -> None:
@@ -375,15 +375,16 @@ def test_a_held_title_of_a_category_phrase_has_its_keep_as_a_match_by_name_has()
 
 def test_arrows_move_one_highlight_esc_undoes_a_step_at_a_time_and_enter_opens_it() -> None:
     out = _run("keys")
-    assert out["open"] == [True, False, True, "true"]
+    # The rows behind the sheet are hidden from assistive tech, not made inert, which restyles them all.
+    assert out["open"] == [True, False, False, "true", "true"]
     assert out["tile"] == [["watch-option-genre-action=true"], "watch-option-genre-action"]
     assert out["dropped"] == [[], True]
-    assert out["closed"] == [False, False, False]
+    assert out["closed"] == [False, False, None, False]
     assert out["script"] is False
     assert out["row"] == ["watch-option-c-action=true"]
     assert out["none"] == []
     assert out["cleared"] == ["", "browse", True]
-    assert out["opened"] == "/watch?genre=action"
+    assert out["opened"] == "/?genre=action"
 
 
 def test_slash_goes_to_the_field_but_not_from_a_field_or_behind_a_dialog() -> None:
@@ -399,13 +400,13 @@ def test_without_tmdb_the_field_opens_no_sheet() -> None:
 
 def test_a_category_opened_from_a_search_goes_back_to_the_search_and_its_results() -> None:
     out = _run("categoryAndBack")
-    assert (out["url"], out["entries"]) == ("/watch?genre=action", 3)
+    assert (out["url"], out["entries"]) == ("/?genre=action", 3)
     assert (out["value"], out["token"], out["title"]) == ("", "Action", "Action")
     assert out["shown"] == "results"
     assert out["cards"] == []  # nothing of the search is left beside it
     # Its results stand again before the server has answered.
     assert out["back"] == {
-        "url": "/watch?q=action",
+        "url": "/?q=action",
         "value": "action",
         "token": None,
         "titles": ["Orchard Keepers", "Orchard Road"],
@@ -416,23 +417,23 @@ def test_a_category_opened_from_a_search_goes_back_to_the_search_and_its_results
 
 def test_typing_on_a_category_is_an_entry_of_its_own_and_the_cross_goes_to_the_rows() -> None:
     out = _run("typeOnCategory")
-    genre = "/watch?genre=action&sort=newest"
+    genre = "/?genre=action&sort=newest"
     assert out["first"] == [
         genre,
         1,
         ["/api/watch/explore?genre=action&sort=newest&after="],
         "results",
     ]
-    assert out["typed"] == ["/watch?q=o", 2, False, True]
-    assert out["more"] == ["/watch?q=orchard", 2]
+    assert out["typed"] == ["/?q=o", 2, False, True]
+    assert out["more"] == ["/?q=orchard", 2]
     assert out["back"] == [genre, "", True, False]
-    assert out["cleared"] == ["/watch", "browse", True]
+    assert out["cleared"] == ["/", "browse", True]
 
 
 def test_a_category_s_place_that_is_no_longer_read_starts_its_list_anew_as_chosen() -> None:
     out = _run("stalePlace")
     assert out["asked"] == "/api/watch/explore?genre=action&sort=newest&decade=2010s&after="
-    assert out["url"] == "/watch?genre=action&sort=newest&decade=2010s"
+    assert out["url"] == "/?genre=action&sort=newest&decade=2010s"
     assert out["years"] == "2010s"
     assert (out["set"], out["next"]) == ([[1, "2,2", True]], "2,2")
 
@@ -463,7 +464,7 @@ def test_the_filters_change_the_address_in_place_and_the_last_one_pressed_wins()
         "/api/watch/explore?genre=action&type=movie",
         "/api/watch/explore?genre=action&type=movie&sort=top_rated",
     ]
-    assert out["address"] == ["/watch?genre=action&type=movie&sort=top_rated", 1]
+    assert out["address"] == ["/?genre=action&type=movie&sort=top_rated", 1]
     assert out["set"][0] == [1, 2, True]
     assert out["said"] == "Top rated movies · 7 titles"  # not the late answer's 9
     assert out["pressed"] == ["Movies", "Top rated", "Anywhere"]
@@ -478,7 +479,7 @@ def test_a_category_of_films_alone_offers_no_kind_to_choose() -> None:
     assert out["says"] == "Popular movies"
     assert out["url"] == "/api/watch/explore?genre=horror"
     # A link that asks for a kind it has not lists all it has.
-    assert out["linked"] == ["/watch?genre=horror", "/api/watch/explore?genre=horror"]
+    assert out["linked"] == ["/?genre=horror", "/api/watch/explore?genre=horror"]
 
 
 def test_a_persons_page_lists_what_the_library_holds_first_under_its_own_heading() -> None:
@@ -594,9 +595,9 @@ def test_a_persons_title_is_listed_once_and_a_page_of_repeats_leads_on_to_the_ne
 
 def test_esc_and_back_leave_a_category() -> None:
     out = _run("leaveCategory")
-    assert out["menus"] == "/watch?genre=action&type=tv"
-    assert out["linked"] == ["/watch", 1, "browse", True]
-    assert out["opened"] == [["/watch?genre=action", 1], "/watch", 0, "browse"]
+    assert out["menus"] == "/?genre=action&type=tv"
+    assert out["linked"] == ["/", 1, "browse", True]
+    assert out["opened"] == [["/?genre=action", 1], "/", 0, "browse"]
 
 
 def test_what_is_typed_is_read_as_a_category_a_kind_an_order_and_a_decade() -> None:
@@ -654,7 +655,7 @@ def test_a_category_that_is_not_there_says_so_with_a_way_back_and_nothing_to_try
     assert (genre["title"], genre["pill"]) == ("Category not found", "Category")
     assert (genre["stopped"], genre["filters"], genre["back"]) == (True, 0, 1)
     assert "not found" in genre["status"]
-    assert out["away"] == ["/watch", "browse"]
+    assert out["away"] == ["/", "browse"]
     # A touch screen's keyboard would come up over the rows.
     assert out["focus"] == ["watch-search", "main-content"]
 
@@ -675,10 +676,10 @@ def test_a_person_who_cannot_be_had_just_now_has_a_heading_and_may_be_tried_agai
 def test_a_decade_that_is_not_listed_is_dropped_from_the_link() -> None:
     out = _run("badLinks")
     first = "/api/watch/explore?genre=action"
-    assert out["decade"] == ["/watch?genre=action", [first]]
-    assert out["late"][0] == "/watch?genre=action"
+    assert out["decade"] == ["/?genre=action", [first]]
+    assert out["late"][0] == "/?genre=action"
     assert out["late"][1][-1] == first
-    assert out["listed"][0] == "/watch?genre=action&decade=1990s"
+    assert out["listed"][0] == "/?genre=action&decade=1990s"
 
 
 def test_the_sheet_closes_an_open_preview() -> None:
@@ -687,12 +688,12 @@ def test_the_sheet_closes_an_open_preview() -> None:
 
 def test_keys_pressed_during_a_composition_are_left_to_it() -> None:
     untouched = [0, [False, False], "act", 0]
-    page = "/watch?genre=action"
+    page = "/?genre=action"
     assert _run("composing") == [untouched, page, untouched, page]
 
 
 def test_any_year_stays_chosen_when_the_years_arrive() -> None:
-    assert _run("anyYear") == ["", "/watch?genre=action", 4]
+    assert _run("anyYear") == ["", "/?genre=action", 4]
 
 
 def test_the_field_names_a_list_only_while_it_can_be_seen() -> None:
@@ -715,7 +716,7 @@ def test_what_loads_on_a_category_or_person_is_said_after_what_the_page_is() -> 
 
 
 def test_a_search_emptied_over_a_grid_returns_to_that_grid() -> None:
-    back = ["/watch?all=movies&sort=az", 0, 2, "", True, 120, False]
+    back = ["/?all=movies&sort=az", 0, 2, "", True, 120, False]
     assert _run("emptiedOverGrid") == [back, back, back]
 
 
@@ -727,23 +728,23 @@ def test_a_category_is_narrowed_to_the_library_in_the_address() -> None:
     out = _run("where")
     assert out["shown"] is True
     assert out["asked"] == "/api/watch/explore?genre=action&where=library"
-    assert out["address"] == ["/watch?genre=action&where=library", 1]
+    assert out["address"] == ["/?genre=action&where=library", 1]
     assert out["said"] == "Popular movies and TV in your library · 12 titles"
-    assert out["anywhere"] == ["/api/watch/explore?genre=action", "/watch?genre=action"]
+    assert out["anywhere"] == ["/api/watch/explore?genre=action", "/?genre=action"]
 
 
 def test_a_link_to_the_librarys_part_of_a_category_opens_on_it() -> None:
     out = _run("where")
     assert out["linked"] == ["/api/watch/explore?genre=action&where=library", ["In library"]]
     assert out["bogus"] == "/api/watch/explore?genre=action"
-    assert out["left"] == "/watch?q=o"
+    assert out["left"] == "/?q=o"
 
 
 def test_the_library_is_not_offered_until_it_is_known_and_a_link_to_it_says_so() -> None:
     out = _run("where")
     assert out["hidden"] == [True, 0]
     assert out["early"] == [True, True]
-    assert out["out"] == ["/watch?genre=action", "/api/watch/explore?genre=action", True]
+    assert out["out"] == ["/?genre=action", "/api/watch/explore?genre=action", True]
 
 
 def test_the_people_the_library_has_most_of_stand_in_the_sheet() -> None:
@@ -756,7 +757,7 @@ def test_the_people_the_library_has_most_of_stand_in_the_sheet() -> None:
     ]
     assert len(out["sheet"]) == 6
     assert (out["first"], out["option"]) == ("P1Person 18 titles", "option")
-    assert out["opened"] == ["/watch?person=9001", "Person 1"]
+    assert out["opened"] == ["/?person=9001", "Person 1"]
     assert out["bare"] == ["Browse by category", "Your library", "Or try", "More categories"]
 
 
@@ -771,37 +772,37 @@ def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
         "Person 3 | In 2 action titles",
     ]
     assert out["none"] == 3
-    assert out["actor"] == ["/watch?person=9001", "Person 1"]
+    assert out["actor"] == ["/?person=9001", "Person 1"]
 
 
 def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None:
     out = _run("emptiedStepLost")
-    assert (out["url"], out["other"]) == ("/watch?all=movies", True)
+    assert (out["url"], out["other"]) == ("/?all=movies", True)
 
 
 def test_a_search_emptied_by_a_step_back_that_is_never_made_leaves_the_search_usable() -> None:
     out = _run("emptiedStepLost")
-    assert out["next"] == [["/watch?q=lantern", "results", "/api/watch/search?q=lantern"]] * 2
+    assert out["next"] == [["/?q=lantern", "results", "/api/watch/search?q=lantern"]] * 2
 
 
 def test_what_is_typed_before_a_slow_step_back_is_made_stays_and_is_searched_for() -> None:
-    searched = ["lantern", "/watch?q=lantern", "results", "/api/watch/search?q=lantern"]
+    searched = ["lantern", "/?q=lantern", "results", "/api/watch/search?q=lantern"]
     assert _run("emptiedStepLate") == [searched, searched]
 
 
 def test_a_back_long_after_a_step_that_was_never_made_closes_the_search() -> None:
-    assert _run("emptiedLongAgo") == ["/watch?all=movies", "", "browse"]
+    assert _run("emptiedLongAgo") == ["/?all=movies", "", "browse"]
 
 
 def test_a_search_emptied_twice_during_a_slow_step_back_goes_back_once() -> None:
     # The second time before, then after, the step is given up on.
-    back = [1, "/watch?all=movies", "", "browse"]
+    back = [1, "/?all=movies", "", "browse"]
     assert _run("emptiedTwice") == [back, back]
 
 
 def test_a_search_typed_over_a_category_opened_during_a_lost_step_is_sent() -> None:
     assert _run("emptiedThenCategory") == [
-        "/watch?q=lantern",
+        "/?q=lantern",
         "results",
         "/api/watch/search?q=lantern",
     ]
@@ -853,7 +854,7 @@ def test_a_category_s_page_shows_nothing_that_would_move_before_it_is_known() ->
 
 def test_tab_goes_on_from_the_field_into_the_rows_behind_the_sheet() -> None:
     # In reach before the key is let through, which is when the browser looks for the next stop.
-    assert _run("tabOut") == [[True, False, False, False]] * 2
+    assert _run("tabOut") == [[[False, "true"], False, [False, None], False]] * 2
 
 
 def test_the_rows_are_gone_though_a_category_opens_while_they_fade() -> None:
@@ -861,8 +862,8 @@ def test_the_rows_are_gone_though_a_category_opens_while_they_fade() -> None:
 
 
 def test_a_search_emptied_over_a_category_or_person_returns_to_their_page() -> None:
-    genre = ["/watch?genre=action&sort=newest", 0, 2, True, True]
-    assert _run("emptiedOverPage") == [genre, genre, ["/watch?person=9001", *genre[1:]]]
+    genre = ["/?genre=action&sort=newest", 0, 2, True, True]
+    assert _run("emptiedOverPage") == [genre, genre, ["/?person=9001", *genre[1:]]]
 
 
 def test_the_cards_of_the_library_alone_do_not_say_they_are_in_the_library() -> None:
@@ -886,7 +887,7 @@ def test_a_word_being_composed_is_searched_for_when_it_is_done_or_rested_on() ->
     assert out["asked"][0].endswith("q=%E6%97%A5")
     assert out["paused"] == 2
     assert out["searched"] == 0
-    assert out["page"] == ["/watch?genre=action", False]
+    assert out["page"] == ["/?genre=action", False]
 
 
 def test_the_people_and_what_to_try_stand_before_the_less_used_categories() -> None:
@@ -945,13 +946,10 @@ def test_scrolling_never_takes_the_field_away() -> None:
 
 def test_the_bar_s_elements_stand_in_the_order_they_are_read_at_every_width() -> None:
     out = _run("barOrder")
-    wide = ["brand", "search", "watch-sheet", "meter", "profile"]
-    assert out["out"] == [
-        wide,
-        wide,
-        # at the foot of a phone, beside the profile button
-        ["brand", "meter", "search", "watch-sheet", "profile"],
-    ]
+    # one order at every width: the brand, the search, then the island at the end
+    wide = ["brand", "search", "watch-sheet", "end"]
+    phone = ["brand", "search", "watch-sheet", "end"]
+    assert out["out"] == [wide, wide, phone]
     assert (out["back"], out["focused"]) == (wide, True)
 
 
@@ -974,9 +972,9 @@ def test_what_the_open_field_covers_comes_back_with_the_focus() -> None:
 
 def test_what_the_open_field_covers_can_have_the_focus() -> None:
     sheet = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_search.css"
-    rules = re.findall(r"([^{}]*(?:space-meter\)?|profile-btn)) \{([^}]*)\}", sheet.read_text())
+    rules = re.findall(r"([^{}]*(?:space-meter|nav-end\))) \{([^}]*)\}", sheet.read_text())
     hidden = [body for _, body in rules if "opacity: 0" in body]
-    assert len(hidden) == 3
+    assert len(hidden) == 2
     for body in hidden:
         assert "pointer-events: none" in body and "visibility" not in body
 
@@ -1050,10 +1048,11 @@ def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
     out = _run("askAnswered")
     assert out["sent"] == [["POST", "/ask", {"q": Q}]]
     assert out["search"] == 1  # beside the search itself
-    assert (out["thinking"].endswith("Looking for titles that fit"), out["busy"]) == (True, "true")
+    assert (out["thinking"].endswith("Reading what you watch…"), out["busy"]) == (True, "true")
     assert out["head"] == f"“{Q}” | 2 titles, 1 already here"
     assert [t[0] for t in out["titles"]] == ["Nine Locks", "<b>Thunder</b>"]
-    assert out["go"][0] == ["Play Nine Locks", "/watch/play/1"]
+    # Each is the poster card every row has, marked as the AI's pick.
+    assert out["marked"] == [["AI pick"], ["AI pick"]]
     assert out["said"] == "2 titles, 1 already here"
     assert out["recorded"] == [["POST", "/searches", {"q": Q}]]
     assert out["asksAgain"] == 1
@@ -1061,6 +1060,7 @@ def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
 
 def test_an_answer_s_words_stay_words_and_its_addresses_stay_on_the_site() -> None:
     out = _run("askAnswered")
+    # What the AI said of it goes with the card, as words, for its preview and its page.
     assert out["titles"][1][2] == "<img src=x onerror=alert(1)>"
     assert out["markup"] == [0, 0]
     assert out["links"] == [
@@ -1119,7 +1119,7 @@ def test_another_question_asked_meanwhile_is_the_one_that_goes_on() -> None:
     newer = "a much newer question"
     for asked, head, runs in _run("askTakeover")["other"]:
         assert asked == [Q, newer]
-        assert head.startswith(f"“{newer}” | Looking")
+        assert head.startswith(f"“{newer}” | Reading")
         assert runs == []  # nor is it stopped
 
 
@@ -1144,9 +1144,12 @@ def test_a_limit_names_the_number_in_force_and_when_it_ends() -> None:
 
 def test_a_limit_of_none_and_no_key_read_as_unavailable_and_offer_it_no_more() -> None:
     out = _run("askRefused")
+    # An admin is told where it is switched off; with no reason given, what anyone is told.
+    for way in ("zero", "everyoneZero"):
+        assert out[way]["head"].startswith("AI in search is switched off")
     for way in ("zero", "everyoneZero", "unavailable"):
-        assert out[way]["head"].startswith("AI isn’t available right now")
         assert (out[way]["again"], out[way]["offered"]) == (None, False)
+    assert out["unavailable"]["head"].startswith("AI isn’t available right now")
 
 
 def test_what_may_work_the_next_time_can_be_tried_again() -> None:
@@ -1195,11 +1198,12 @@ def test_a_chip_narrows_the_answer_and_pressed_again_gives_all_of_it_back() -> N
     assert out["none"][1] == "Nothing here fits “Only in your library”"
 
 
-def test_a_film_of_an_answer_is_downloaded_once_and_says_so() -> None:
+def test_a_film_of_an_answer_queued_from_its_page_says_so_on_its_card() -> None:
     out = _run("askDownload")
-    assert out["read"] == ["/api/watch/title/tmdb-movie-2"]
-    assert out["posted"] == [{"tmdb_id": 2}]
-    assert out["queued"] == ["Play Nine Locks", "<b>Thunder</b>: Queued"]
+    assert out["before"] == [[], []]
+    assert out["queued"] == [[], ["Queued"]]
+    # the card follows the page's word alone: nothing is read or posted for it
+    assert out["calls"] == []
 
 
 def test_the_sheet_opens_on_tonight_the_recent_searches_and_the_person_s_own_phrases() -> None:
@@ -1246,24 +1250,58 @@ def test_tonight_shows_what_fits_the_time_pressed_last() -> None:
     out = _run("tonight")
     assert out["first"] == "watch-option-tonight-0"
     assert out["times"] == ["option,false", "option,false", "option,true", "option,false"]
-    assert out["sent"] == ["/tonight?minutes=60", "/tonight?minutes=120"]
-    assert out["cards"] == [
-        ["Film 1", "/watch/movie/1", "<i>why</i>"],
-        ["Film 2", "/watch", "<i>why</i>"],
-        ["Film 3", "/watch/movie/3", "<i>why</i>"],
+    assert out["sent"] == [
+        ["/tonight?minutes=60", "/tonight?minutes=120"],
+        ["/tonight/elsewhere?minutes=60", "/tonight/elsewhere?minutes=120"],
     ]
-    assert out["sub"][:2] == ["2020 · Drama, ends T", "TV · season 1, ends T"]
+    # each card links to its title and says in a line what it is and how long
+    assert [(c[0], c[1]) for c in out["ready"]] == [
+        ("Film 1", "/watch/movie/1"),
+        ("Film 2", "/"),
+        ("Film 3", "/watch/movie/3"),
+    ]
+    assert [c[2] for c in out["ready"]] == [
+        "2020 · 1 h 40 min",
+        "S7 · E4 · 43 min",
+        "S2 · E3 · 20 min left",
+    ]
+    assert [c[2] for c in out["away"]] == ["Movie · 1 h 35 min", "TV · 22 min episodes"]
     assert out["opened"] == [["movie-1"], True]
+
+
+def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_library() -> None:
+    out = _run("tonight")
+    assert out["groups"] == ["Ready to play", "Not in your libraryOpen one to download it"]
+    assert out["ready"] == [
+        ["Film 1", "/watch/movie/1", "2020 · 1 h 40 min", "option"],
+        ["Film 2", "/", "S7 · E4 · 43 min", "option"],
+        # An episode begun: as its neighbours say an episode, and what it has left.
+        ["Film 3", "/watch/movie/3", "S2 · E3 · 20 min left", "option"],
+    ]
+    # Where "All evening" would wrap, the panel shows this word in its place.
+    assert out["short"] == [None, None, None, "Evening"]
+    assert out["away"] == [
+        ["Away 1", "#title=tmdb-movie-1", "Movie · 1 h 35 min", "option"],
+        ["Away 2", "#title=tmdb-tv-2", "TV · 22 min episodes", "option"],
+    ]
+    # Their buttons would stand among the options.
+    assert out["tools"] == 0
 
 
 def test_tonight_has_others_and_says_when_little_or_nothing_fits() -> None:
     out = _run("tonight")
-    assert out["foot"] == ["All in your library, none seen", "The others"]
-    assert out["more"] == "/tonight?minutes=120&skip=3"
-    assert out["back"][1] == "Back to the first"
-    assert out["few"] == ["Only 1 unseen title fits in an hour and a half", None]
+    # A set is as long as the server's: the next starts where it says.
+    assert out["foot"] == ["", "Three others"]
+    # The others of the library: what is not in it stays, and is not asked again.
+    assert out["more"] == ["/tonight?minutes=120&skip=3", 2]
+    assert out["back"] == [["", "Back to the first"], 2]
+    # What is not in the library failing leaves what is, and says nothing.
+    assert out["few"] == [["Only 1 title fits in an hour and a half", None], 1, None, 0]
+    assert out["unchecked"] == ["", None]
+    assert out["keptAway"] == [2, 1]
     assert "The shortest is Film 4, 1 h 28 min." in out["none"][0]
     assert out["way"] == "/tonight?minutes=90"
+    assert out["evening"] == "/tonight?minutes=720"
     assert out["failed"].startswith("Couldn’t look just now")
 
 
@@ -1272,17 +1310,17 @@ def test_titles_like_one_have_a_page_that_back_leaves() -> None:
     assert out["can"] == [True, True, False, False]
     assert out["none"] is False
     assert out["sent"] == [{"ref": "movie-1"}]
-    assert out["page"][:2] == ["/watch?like=movie-1", "Like Nine Locks"]
+    assert out["page"][:2] == ["/?like=movie-1", "Like Nine Locks"]
     assert out["answer"] == "More like Nine Locks | 2 titles, 1 already here"
-    assert out["back"] == ["/watch", "browse", True]
+    assert out["back"] == ["/", "browse", True]
 
 
 def test_a_link_to_titles_like_one_asks_nothing_but_the_way_back_to_them_does() -> None:
     out = _run("like")
-    assert out["linked"] == [0, "/watch", "browse"]
+    assert out["linked"] == [0, "/", "browse"]
     assert out["again"][0] == ["movie-1"]
     assert out["again"][1:] == [
-        "More like Nine Locks | Looking for titles that fit",
+        "More like Nine Locks | Reading what you watch…",
         "Like Nine Locks",
     ]
 
@@ -1292,7 +1330,7 @@ def test_what_is_remembered_is_the_person_s_own_and_goes_at_sign_out() -> None:
     # Nothing is asked, kept or stopped for the next person of the tab.
     assert (out["asked"], out["recorded"], out["runs"]) == (0, 0, 0)
     assert out["head"].startswith("Ask AI")
-    assert out["like"] == [0, "/watch"]
+    assert out["like"] == [0, "/"]
     assert out["kept"] is False
     assert out["signedOut"] == ["other"]
 
@@ -1303,9 +1341,9 @@ def test_where_no_title_has_the_words_return_is_still_said_to_ask() -> None:
     assert out["asked"] == f"No matches for “{Q}”"
 
 
-def test_a_download_from_an_answer_keeps_the_focus_on_its_button() -> None:
+def test_a_card_of_an_answer_drawn_again_keeps_the_focus() -> None:
     out = _run("askFocus")
-    assert out == {"label": "<b>Thunder</b>: Queued", "there": True, "busy": None}
+    assert out == {"ref": "tmdb-movie-2", "there": True, "badge": "Queued"}
 
 
 def test_clearing_forgets_the_answers_and_the_question_remembered() -> None:
@@ -1318,20 +1356,20 @@ def test_a_page_back_brings_is_brought_up_to_date() -> None:
     out = _run("askRestored")
     assert out["head"].startswith("Ask AI")
     assert out["tries"] == ["popular action movies", "popular comedy movies", "top rated sci-fi"]
-    assert out["other"] == [["/watch"], None]
+    assert out["other"] == [["/"], None]
     assert out["first"].endswith("already here")
 
 
 def test_titles_like_one_can_be_found_from_all_titles() -> None:
     out = _run("askLibrary")
     assert out["can"] is True
-    assert out["page"][0] == "/watch?like=movie-1"
+    assert out["page"][0] == "/?like=movie-1"
     assert out["page"][1].startswith("More like Nine Locks")
 
 
 def test_what_is_read_out_stands_outside_what_is_busy() -> None:
     out = _run("askStatus")
-    assert out["text"] == ["Looking for titles that fit"]
+    assert out["text"] == ["Reading what you watch…"]
     assert out["busy"] == [False]
 
 
@@ -1340,7 +1378,7 @@ def test_a_page_of_someone_else_s_is_left_when_it_is_looked_at_again() -> None:
     assert out["hidden"] == []
     for way in ("visible", "focused", "opened"):
         # With none of their words in the address, the bar or what the tab remembers.
-        assert out[way] == [["/watch"], "", False], way
+        assert out[way] == [["/"], "", False], way
     assert out["sheet"] == 0
     assert out["same"] == []
 
@@ -1355,7 +1393,7 @@ def test_what_is_sent_says_whose_page_it_is_of_and_a_refusal_leaves_it() -> None
         sent, left = out[way]
         assert [url for _, url, _ in sent] == urls
         assert all(headers == {"X-Assist-Account": "a1"} for _, _, headers in sent), way
-        assert left == [["/watch"], "", False], way
+        assert left == [["/"], "", False], way
 
 
 def test_words_that_came_with_the_address_are_not_kept_for_a_press_on_a_result() -> None:
@@ -1367,7 +1405,7 @@ def test_words_that_came_with_the_address_are_not_kept_for_a_press_on_a_result()
 
 def test_what_is_downloading_leads_the_results_from_what_the_page_knows_already() -> None:
     out = _run("downloading")
-    gate = ["The Órchard Gate", "42% · 14 min left", "tmdb-movie-9", "/watch#title=tmdb-movie-9"]
+    gate = ["The Órchard Gate", "42% · 14 min left", "tmdb-movie-9", "/#title=tmdb-movie-9"]
     salt = ["Salt", "Queued", None, "/downloads"]
     # Shown as it is typed, before anything is asked, and nothing is asked for it.
     assert out["typed"] == [gate]
@@ -1392,3 +1430,17 @@ def test_the_empty_search_leads_to_all_titles_and_to_downloads_with_their_live_n
     assert out["opened"] == [[["", "", {"fromSearch": True}]], False, 0]
     assert out["changed"] == ["All 1 title", None, "All 2 titles"]
     assert out["bare"] == "Downloads"
+
+
+def test_titles_that_cannot_be_downloaded_are_not_called_available_to_download() -> None:
+    out = _run("noDownloadHeads")
+    assert out["early"] == ["In your library", "Not in your library"]
+    assert out["heads"] == ["In your library", "Not in your library"]
+    assert "available to download" not in out["status"]
+    assert "1 not in your library" in out["status"]
+
+
+def test_an_answer_offers_no_download_of_a_kind_that_cannot_be_downloaded() -> None:
+    out = _run("askNoDownload")
+    assert out["films"] == [["In your library", ""], ["Not in your library", ""]]
+    assert out["shows"][1] == ["Not in your library", "Open one to download it"]

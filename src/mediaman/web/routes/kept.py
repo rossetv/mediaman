@@ -100,7 +100,7 @@ def redirect_kept_to_library(request: Request) -> RedirectResponse:
     resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    return RedirectResponse("/watch?all=library&type=kept", status_code=301)
+    return RedirectResponse("/?all=library&type=kept", status_code=301)
 
 
 @router.get("/kept/page")
@@ -109,7 +109,7 @@ def redirect_kept_page(request: Request) -> RedirectResponse:
     resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    return RedirectResponse("/watch?all=library&type=kept", status_code=301)
+    return RedirectResponse("/?all=library&type=kept", status_code=301)
 
 
 @router.get("/api/kept")
@@ -235,4 +235,4 @@ def redirect_protected_page(request: Request) -> RedirectResponse:
     resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    return RedirectResponse("/watch?all=library&type=kept", status_code=301)
+    return RedirectResponse("/?all=library&type=kept", status_code=301)

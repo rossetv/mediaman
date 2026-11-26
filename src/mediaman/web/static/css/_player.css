@@ -536,6 +536,67 @@
 .player:not(.is-away).is-held.is-switching .player-dim { opacity: .4; }
 @keyframes player-spin { to { transform: rotate(360deg); } }
 
+/* The name in place of the spinner while a title starts; it gives way to the first frame.
+   Only the way in and the way out move: WebKit would fade it from a style it had before the sheets. */
+.player {
+  --intro-w: clamp(168px, 34vw, 640px);
+  --intro-fade: .4s;
+  --intro-rise: .5s;
+  --intro-picture: .6s;
+  --intro-zoom: 1.2s;
+}
+.player.is-starting .player-spinner { opacity: 0; }
+.player-intro {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: var(--intro-w);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+}
+.player-intro svg { display: block; width: 100%; height: auto; overflow: visible; }
+.player-intro-halo { position: absolute; top: 0; left: 0; opacity: 0; filter: blur(calc(var(--intro-w) * .022)); }
+.player-intro-halo .wm-media { display: none; }
+.player-intro-halo .wm-man { stroke-width: 130; }
+.player.is-intro .player-intro { opacity: 1; transition: opacity var(--dur-slow) var(--ease-out); }
+.player.is-intro-out .player-intro { transition: opacity var(--intro-fade) ease; }
+.player.is-intro video.player-video { opacity: 0; }
+.player.is-intro-out video.player-video { transition: opacity var(--intro-picture) var(--ease-out); }
+/* The last episode's frame, kept for a message that may come, fades under the name. */
+.player.is-intro .player-hold { opacity: 0; transition: opacity var(--dur-slow) var(--ease-out); }
+/* What the start waits for, said under the name: half its height, 970 / 4210 of its width, below the middle. */
+.player.is-intro .player-lost { top: calc(50% + var(--intro-w) * .1152 + 28px); }
+@media (prefers-reduced-motion: no-preference) {
+  .player:is(.is-intro, .is-intro-out) .player-intro .wm-media > path { animation: wm-draw var(--dur-draw) var(--ease-out) backwards; }
+  .player:is(.is-intro, .is-intro-out) .player-intro .wm-media > circle { animation: wm-dot var(--dur-draw) var(--ease-out) backwards; }
+  .player:is(.is-intro, .is-intro-out) .player-intro .wm-man > path { animation: wm-draw var(--dur-draw-man) var(--delay-draw-man) var(--ease-out) backwards; }
+  /* Drawn, man glows softly for as long as the start takes. */
+  .player:is(.is-intro, .is-intro-out) .player-intro-halo { animation: player-intro-glow 1.8s calc(var(--delay-draw-man) + var(--dur-draw-man)) ease-in-out infinite; }
+  /* Out, the drawing stops where it was and fades from there. */
+  .player.is-intro-out :is(.player-intro .wm-media > path, .player-intro .wm-media > circle, .player-intro .wm-man > path, .player-intro-halo) { animation-play-state: paused; }
+  .player.is-intro video.player-video { transform: scale(1.03); }
+  /* It goes up, soft and a little larger, as the picture comes in. */
+  .player.is-intro-out .player-intro {
+    transform: translate(-50%, -50%) scale(1.06);
+    filter: blur(4px);
+    transition: opacity var(--intro-fade) ease, transform var(--intro-rise) var(--ease-out), filter var(--intro-fade) ease;
+  }
+  .player.is-intro-out video.player-video { transition: opacity var(--intro-picture) var(--ease-out), transform var(--intro-zoom) var(--ease-out); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The base stylesheet pulses the spinner here; under the name it stays hidden. */
+  .player.is-starting.is-loading .player-spinner { animation: none !important; }
+  /* Only a fade, which the base stylesheet would cut short. */
+  .player.is-intro .player-intro { transition-duration: var(--dur-slow) !important; }
+  .player.is-intro-out .player-intro { transition-duration: var(--intro-fade) !important; }
+  .player.is-intro-out video.player-video { transition-duration: var(--intro-picture) !important; }
+}
+@media (forced-colors: active) {
+  .player-intro .wm-man { stroke: currentColor; }
+  .player-intro .player-intro-halo { display: none; }
+}
+@keyframes player-intro-glow { 50% { opacity: .75; } }
+
 /* What the picture waits for, said under its spinner. */
 .player-lost {
   position: absolute;
@@ -863,8 +924,8 @@
 
 /* "Kept until" with its whole date and Undo, on one line of the narrow toast. */
 @media (max-height: 420px) {
-  body:has(.player) .ui-toast--action { gap: 8px; padding-inline: 10px; font-size: 13px; }
-  body:has(.player) .ui-toast__action { padding-inline: 8px; }
+  html.has-player .ui-toast--action { gap: 8px; padding-inline: 10px; font-size: 13px; }
+  html.has-player .ui-toast__action { padding-inline: 8px; }
 }
 
 /* Playing elsewhere: the page says where, its controls are the remote. */
@@ -879,7 +940,7 @@
 .player.has-no-volume :is([data-mute], .player-volume-slider) { display: none; }
 .player-air { z-index: -1; }
 .player.is-away { display: flex; flex-direction: column; overflow-y: auto; }
-.player.is-away :is(.player-video:not(.player-air), .player-spinner, .player-hold, [data-fullscreen], .player-controls .player-play-on) { display: none !important; }
+.player.is-away :is(.player-video:not(.player-air), .player-spinner, .player-intro, .player-hold, [data-fullscreen], .player-controls .player-play-on) { display: none !important; }
 /* Out of sight but there: Safari sends to a TV only what the page shows. */
 .player.is-away .player-air { display: block !important; opacity: 0; pointer-events: none; }
 .player.is-away .player-top { position: relative; flex: none; padding-bottom: 12px; background: none; }

@@ -268,6 +268,41 @@ def search(
     return [r for r in result if not r.get("adult")]
 
 
+def similar(
+    client: TmdbClient,
+    media_type: str,
+    tmdb_id: int,
+    *,
+    allow_fetch: Callable[[], bool] | None = None,
+) -> list[dict[str, object]]:
+    """TMDB's recommendations for one title, or its similar titles where it has none; adult
+    titles left out. *allow_fetch* is as ``search`` takes it."""
+    kind = "movie" if media_type == "movie" else "tv"
+
+    def fetch() -> list[dict[str, object]]:
+        found: list[dict[str, object]] = []
+        for which in ("recommendations", "similar"):
+            try:
+                payload = client._get(f"/{kind}/{tmdb_id}/{which}", {"page": 1})
+            except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+                if _is_gone(exc):
+                    raise TitleNotFound(kind) from exc
+                raise _failure(exc, which) from exc
+            results = payload.get("results") if isinstance(payload, dict) else None
+            if not isinstance(results, list):
+                raise TmdbUnavailable(which)
+            # Each is of the title's own kind, which TMDB leaves out of these lists.
+            found = [{"media_type": kind, **r} for r in results if isinstance(r, dict)]
+            if found:
+                break
+        return found
+
+    result: list[dict[str, object]] = _cached(
+        client, f"tmdb:similar:{kind}:{tmdb_id}", _DAY, 7 * _DAY, fetch, allow_fetch
+    )
+    return [r for r in result if not r.get("adult")]
+
+
 def _details_key(media_type: str, tmdb_id: int) -> str:
     # "v5": entries before it lack the director's id, the date and the popularity.
     return f"tmdb:details:v5:{media_type}:{tmdb_id}"

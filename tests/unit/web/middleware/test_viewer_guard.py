@@ -34,14 +34,14 @@ def test_an_admin_gets_its_role_on_the_request(guarded_app, conn, authed_client)
     assert reached == [("GET", "/settings", "admin")]
 
 
-@pytest.mark.parametrize("path", ["/settings", "/"])
+@pytest.mark.parametrize("path", ["/settings", "/library"])
 def test_a_viewer_is_redirected_from_an_admin_page_to_watch(guarded_app, conn, viewer_client, path):
     app, reached = guarded_app
     client = viewer_client(app, conn)
 
     resp = client.get(path, follow_redirects=False)
 
-    assert (resp.status_code, resp.headers["location"]) == (303, "/watch")
+    assert (resp.status_code, resp.headers["location"]) == (303, "/")
     assert reached == []
 
 
@@ -103,7 +103,7 @@ def test_a_viewer_asking_for_the_list_view_is_sent_back_to_watch(guarded_app, co
 
     resp = client.get("/watch/list?type=kept", follow_redirects=False)
 
-    assert (resp.status_code, resp.headers["location"]) == (303, "/watch")
+    assert (resp.status_code, resp.headers["location"]) == (303, "/")
     assert reached == []
 
 
@@ -124,7 +124,7 @@ def test_a_role_other_than_admin_or_viewer_is_refused(guarded_app, conn, authed_
 
     resp = client.get("/settings", follow_redirects=False)
 
-    assert resp.headers["location"] == "/watch"
+    assert resp.headers["location"] == "/"
     assert reached == []
 
 
@@ -136,7 +136,7 @@ def test_a_demotion_applies_on_the_next_request(guarded_app, conn, authed_client
     _set_role(conn, "admin", "viewer")
     resp = client.get("/settings", follow_redirects=False)
 
-    assert resp.headers["location"] == "/watch"
+    assert resp.headers["location"] == "/"
     assert reached == [("GET", "/settings", "admin")]
 
 
@@ -200,7 +200,7 @@ def test_signing_in_lands_on_watch_whatever_the_role(real_app, conn, role):
         follow_redirects=False,
     )
 
-    assert (resp.status_code, resp.headers["location"]) == (302, "/watch")
+    assert (resp.status_code, resp.headers["location"]) == (302, "/")
 
 
 def test_a_viewer_lands_on_watch_after_a_forced_password_change(real_app, conn):
@@ -226,7 +226,7 @@ def test_a_viewer_lands_on_watch_after_a_forced_password_change(real_app, conn):
         follow_redirects=False,
     )
 
-    assert (resp.status_code, resp.headers["location"]) == (302, "/watch")
+    assert (resp.status_code, resp.headers["location"]) == (302, "/")
 
 
 def test_a_viewer_can_reconfirm_their_password(guarded_app, conn, viewer_client):

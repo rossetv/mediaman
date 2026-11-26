@@ -32,7 +32,7 @@ binding (User-Agent + client IP) is consistently applied:
 
 `resolve_admin_page_session`
     `resolve_page_session` for admin-only pages: a signed-in non-admin is
-    redirected to ``/watch`` instead of being served the page.
+    redirected to Watch instead of being served the page.
 
 `is_admin`
     Convenience predicate over `get_optional_admin_from_token` that
@@ -62,7 +62,7 @@ from mediaman.web.auth.session_store import validate_session
 PageSession = tuple[str, sqlite3.Connection] | RedirectResponse
 
 #: Where a user lands after signing in with no page to go back to.
-LANDING_PATH = "/watch"
+LANDING_PATH = "/"
 
 #: What an open page asks for by itself on every page, which is no sign of anyone there.
 _PASSIVE_PATHS = frozenset({"/api/downloads/strip"})
@@ -200,7 +200,7 @@ def _login_path(request: Request) -> str:
     query = request.scope.get("query_string", b"").decode("latin-1")
     if query:
         target += "?" + query
-    if target in ("/", LANDING_PATH) or safe_return_path(target) is None:
+    if target == LANDING_PATH or safe_return_path(target) is None:
         return "/login"
     return "/login?" + urlencode({"next": target})
 
@@ -225,7 +225,7 @@ def resolve_page_session(
 
 
 def resolve_admin_page_session(request: Request) -> PageSession:
-    """Like `resolve_page_session`, but a non-admin is redirected to ``/watch`` (303).
+    """Like `resolve_page_session`, but a non-admin is redirected to Watch (303).
 
     Admin pages use this so they refuse a viewer on their own, as the admin
     APIs do, rather than relying on the viewer guard alone.

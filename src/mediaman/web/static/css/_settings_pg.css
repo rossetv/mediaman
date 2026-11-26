@@ -51,6 +51,9 @@
     scroll-padding-inline: 32px;
   }
   .setg-pg .setg-rail::-webkit-scrollbar { display: none; }
+  /* At rest under the bar, it runs up behind it, its chips where they were: the page shows
+     only under the islands. */
+  .setg-pg .setg-rail.is-stuck { top: 0; margin-top: calc(-1 * var(--nav-h)); padding-top: calc(var(--nav-h) + 10px); }
   /* Fade edges cue the horizontal scroll. The rail is a flex overflow
      container so `position: absolute` pulls the pseudos out of the flex
      flow and pins them to the padding box — they sit on top of the
@@ -68,6 +71,8 @@
     right: 0;
     background: linear-gradient(to left, rgba(10,10,12,.95), rgba(10,10,12,0));
   }
+  .setg-pg .setg-rail.is-stuck::before,
+  .setg-pg .setg-rail.is-stuck::after { top: var(--nav-h); }
   .setg-pg .setg-rail-item {
     flex: 0 0 auto;
     padding: 8px 13px;
@@ -128,15 +133,15 @@
 /* A focused control the browser scrolls into view must clear the sticky bars. The
    scroller is <html>, so the padding is scoped by the page it holds. Section jumps rely on it too, so
    .setg-block carries no scroll-margin of its own. */
-html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
+html.has-setg-pg { scroll-padding-top: calc(var(--nav-h) + 16px); }
 @media (max-width: 960px) {
   /* top bar + chip strip (65, as laid out above) + a gap */
-  html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 65px + 12px); }
+  html.has-setg-pg { scroll-padding-top: calc(var(--nav-h) + 65px + 12px); }
 }
 /* A phone held sideways has no room for three bars beside the save bar: the strip scrolls with the page. */
 @media (max-width: 960px) and (max-height: 500px) {
   .setg-pg .setg-rail { position: relative; top: auto; }
-  html:has(.setg-rail) { scroll-padding-top: 60px; }
+  html.has-setg-rail { scroll-padding-top: 60px; }
 }
 .setg-pg .setg-block-hd {
   display: flex; align-items: baseline; justify-content: space-between;
@@ -211,6 +216,26 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .setg-row-lbl { font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
 .setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 4px; line-height: 1.5; max-width: 58ch; }
 .setg-pg .setg-row-sub a { color: var(--accent); }
+/* What the AI switch lacks: the line grows and shrinks its own height, so the rows below slide. */
+.setg-pg .ai-need {
+  --ai-need-gap: 0px;
+  grid-column: 1;
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: calc(-1 * var(--ai-need-gap));
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-rows var(--dur-slow) var(--ease-out), margin-top var(--dur-slow) var(--ease-out),
+              opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.setg-pg .ai-need.is-open { grid-template-rows: 1fr; margin-top: 0; opacity: 1; visibility: visible; transition-delay: 0s; }
+/* Room on every side for the link's focus ring, which the shut line would clip. */
+.setg-pg .ai-need > div { min-height: 0; overflow: hidden; margin-inline: -4px; }
+.setg-pg .ai-need p { padding: 6px 4px 4px; color: var(--t2); }
+@media (max-width: 639.98px) {
+  .setg-pg .ai-need { --ai-need-gap: 10px; }
+  .setg-pg .ai-need p { padding-top: 0; }
+}
 @media (max-width: 639.98px) {
   .setg-pg .setg-row { grid-template-columns: 1fr; gap: 10px; }
   .setg-pg .setg-row > :last-child { width: 100%; }
@@ -346,14 +371,13 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   line-height: 1.35;
 }
 /* What is scrolled into view stops above the bar while it is up. */
-html:has(.setg-pg .savebar.on) { --savebar-below: 0px; scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--savebar-below) + 11px); }
+html.has-savebar { --savebar-below: 0px; scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--savebar-below) + 11px); }
 @media (max-width: 699.98px) {
-  /* On the bar at the foot, so the savebar stays reachable. */
   .setg-pg .savebar { bottom: var(--foot); padding: 10px var(--pad); }
   .setg-pg .savebar .sb-inner { gap: 10px; flex-wrap: wrap; }
   .setg-pg .savebar .sb-msg { flex: 1 1 auto; }
   .setg-pg .savebar .btn { flex: 0 0 auto; }
-  html:has(.setg-pg .savebar.on) { --savebar-below: var(--foot); }
+  html.has-savebar { --savebar-below: var(--foot); }
 }
 @media (max-width: 380px) {
   /* On very narrow phones, stack the action buttons to their own row so

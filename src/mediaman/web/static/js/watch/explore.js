@@ -328,6 +328,12 @@
 
   function plural(n) { return n === 1 ? '1 title' : n.toLocaleString() + ' titles'; }
 
+  /* A person's titles are films and shows: offered for download only where both can be. */
+  function notHeld() {
+    var can = stage().data.can_download || {};
+    return can.movie === false || can.show === false ? 'Not in your library' : 'Available to download';
+  }
+
   /* Without TMDB there is nothing to list: a line says so, with the way on for an admin. */
   function notSetUp(f) {
     var data = stage().data;
@@ -355,7 +361,7 @@
     box.appendChild(window.MM.dom.icon('i-film'));
     box.appendChild(el('p', 'grid-empty__title', text));
     var link = el('a', 'grid-empty__link', 'Back to all rows');
-    link.href = '/watch';
+    link.href = '/';
     link.addEventListener('click', function (e) {
       if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
@@ -852,7 +858,7 @@
           var owned = watch.search.isHeld(item);
           var held = owned && !heads.tmdb;
           if (held) cards = cards.concat(head('lib', 'In your library', reply.in_library));
-          else if (!owned) cards = cards.concat(head('tmdb', 'Available to download', reply.total - reply.in_library));
+          else if (!owned) cards = cards.concat(head('tmdb', notHeld(), reply.total - reply.in_library));
           cards.push(watch.search.tmdbCard(item, held));
         });
         var next = reply.next_page || null;

@@ -398,6 +398,24 @@ const scenarios = {
     await p.pass(1100);
     return { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts };
   },
+  // What the page says of the bar and the remote, for what makes room for them.
+  async pageMarks() {
+    const p = await page();
+    const html = p.doc.documentElement.classList;
+    const marks = () => ['has-tv-mini', 'is-tv-mini-leaving', 'has-tv-rem'].filter((c) => html.contains(c));
+    const out = { shown: marks() };
+    await p.open();
+    out.open = marks();
+    await p.press('[data-close]');
+    out.closing = marks();
+    await p.pass(1000);
+    out.closed = marks();
+    await p.press('[data-mini-stop]');
+    out.stopping = marks();
+    await p.pass(1000);
+    out.stopped = marks();
+    return out;
+  },
   async stop() {
     const p = await page();
     await p.press('[data-mini-stop]');

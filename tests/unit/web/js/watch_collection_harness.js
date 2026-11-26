@@ -219,6 +219,11 @@ const scenarios = {
     return p.doc.querySelectorAll('.coll-out p').map((n) => n.textContent);
   },
 
+  async notSetUp() {
+    const p = await asked({ name: 'X', films: [film(2), film(1, { why_not: 'not_set_up' })] });
+    return p.doc.querySelectorAll('.coll-out p').map((n) => n.textContent);
+  },
+
   async confirm() {
     const p = await asked();
     const out = { open: p.isOpen(), rows: p.rows(), boxes: p.doc.querySelectorAll('.coll-item input').map((b) => b.checked),

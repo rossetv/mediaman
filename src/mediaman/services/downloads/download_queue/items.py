@@ -18,6 +18,7 @@ from mediaman.services.downloads.download_format import (
     map_arr_status,
     map_episode_state,
     map_queue_state,
+    queue_attention,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 
@@ -89,6 +90,13 @@ def build_episode_dicts(
     ]
 
 
+def _retry_key(arr: ArrCard) -> str:
+    """How the retry bookkeeping keys *arr*'s title, "" when the queue gave no id of it."""
+    if arr.get("kind") == "series":
+        return f"sonarr:{arr['series_id']}:" if arr.get("series_id") else ""
+    return f"radarr:{arr['movie_id']}" if arr.get("movie_id") else ""
+
+
 def build_matched_item(
     arr: ArrCard,
     matched_nzb: Mapping[str, object],
@@ -127,6 +135,7 @@ def build_matched_item(
             has_pack=arr.get("has_pack", False),
             arr_id=arr.get("arr_id") or 0,
             kind="series",
+            retry_key=_retry_key(arr),
         )
     return build_item(
         dl_id=arr.get("dl_id", nzb_dl_id),
@@ -140,6 +149,7 @@ def build_matched_item(
         size_total=format_bytes(int(nzb_file_mb * 1024 * 1024)),
         arr_id=arr.get("arr_id") or 0,
         kind="movie",
+        retry_key=_retry_key(arr),
         label=arr.get("label", ""),
     )
 
@@ -157,6 +167,8 @@ def _build_unmatched_series_item(
     raw_episodes = arr.get("episodes", [])
     episodes = build_episode_dicts(raw_episodes)
     state = map_queue_state(raw_episodes) if raw_episodes else "searching"
+    if arr.get("finding_copy"):
+        state = "finding_copy"
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
@@ -193,6 +205,8 @@ def _build_unmatched_series_item(
         stuck_seasons=stuck_seasons,
         arr_id=arr.get("arr_id") or 0,
         kind="series",
+        attention=queue_attention(raw_episodes),
+        retry_key=_retry_key(arr),
     )
 
 
@@ -206,7 +220,11 @@ def _build_unmatched_movie_item(
     added_at: float,
     abandon_visible_now: bool,
 ) -> DownloadItem:
-    state = map_arr_status(arr.get("status", ""), arr.get("tracked_state", ""))
+    state = map_arr_status(
+        arr.get("status", ""), arr.get("tracked_state", ""), arr.get("tracked_status", "")
+    )
+    if arr.get("finding_copy"):
+        state = "finding_copy"
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
@@ -235,6 +253,8 @@ def _build_unmatched_movie_item(
         arr_id=arr.get("arr_id") or 0,
         kind="movie",
         label=arr.get("label", ""),
+        attention=arr.get("attention", ""),
+        retry_key=_retry_key(arr),
     )
 
 

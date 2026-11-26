@@ -39,7 +39,7 @@ class TestPageSessionBinding:
         )
         # Past the session check the old page is a redirect to Watch, not to /login.
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/watch?all=library"
+        assert resp.headers["location"] == "/?all=library"
 
     def test_library_redirects_on_different_ua(self, app_factory, conn, templates_stub):
         """Stolen cookie replayed with a different UA → redirect to /login."""

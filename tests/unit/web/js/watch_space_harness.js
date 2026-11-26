@@ -191,14 +191,14 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900, innerWidth: 1280,
     scrollBy() {},
-    location: { pathname: '/watch', search: '', assign(to) { assigned.push(to); }, reload() { throw new Error('the page was reloaded'); } },
+    location: { pathname: '/', search: '', assign(to) { assigned.push(to); }, reload() { throw new Error('the page was reloaded'); } },
     fetch: (url, init) => {
       // Signed out since the page was loaded: what is asked for next is refused.
       if (opts.signedIn && opts.signedIn.yes) return server.request('GET', url).then((data) => ({ ok: true, status: 200, json: () => Promise.resolve(data) }));
-      if (url !== '/watch') return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) });
+      if (url !== '/') return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) });
       const answer = { ok: !!server.page, status: 200, redirected: server.redirected, text: () => Promise.resolve('') };
       server.pages += 1;
-      return server.holding === '/watch' ? new Promise((resolve) => server.held.push({ url, go: () => resolve(answer) })) : Promise.resolve(answer);
+      return server.holding === 'the page' ? new Promise((resolve) => server.held.push({ url, go: () => resolve(answer) })) : Promise.resolve(answer);
     },
     UIFeedback: { toast: (message, opts) => { const t = { message, undo: !!(opts && opts.action), opts }; toasts.push(t); return t; }, dismiss(t) { t.dismissed = true; }, error: (message) => toasts.push({ message, error: true }), confirm: () => Promise.resolve(confirmed), dismissConfirm() {} },
     addEventListener(type, fn) { if (type === 'load') ready.push(fn); else (listening[type] = listening[type] || []).push(fn); },
@@ -442,13 +442,13 @@ const scenarios = {
       closed: await after(async (p) => { back(p); p.layer().close('pop'); }),
     };
   },
-  /* Only what stands clear of the bars is drawn, and no row the panel cuts off. */
+  /* Only what stands clear of the bar is drawn, and no row the panel cuts off. */
   async flightClipped() {
     const p = await flying((q) => {
-      const foot = q.doc.createElement('div');
-      foot.className = 'nav-foot';
-      q.doc.body.appendChild(foot);
-      place(foot, 0, 800, 390);
+      const bar = q.doc.createElement('header');
+      bar.className = 'nav-glass';
+      q.doc.body.appendChild(bar);
+      place(bar, 0, 0, 390, 64);
       place(q.$('space-storage'), 0, 0, 390, 100);
       const pics = q.all('.space-layer:not([inert]) .space-mini');
       place(pics[0], 0, 60, 30, 40);
@@ -1079,7 +1079,7 @@ const scenarios = {
     const none = p.server.pages;
     p.server.page = ['div', { class: 'watch-rows' }, leavingSection('1', '2', '9')];
     p.server.rows = ['1', '2', '9'].map((id) => row(id));
-    p.server.holding = '/watch';
+    p.server.holding = 'the page';
     await p.click(p.$('space-scan'));
     await p.run(3000);
     p.server.holding = '/api/watch/keep';

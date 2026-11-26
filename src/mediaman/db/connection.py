@@ -149,6 +149,8 @@ _ADDED_COLUMNS = (
     ("admin_sessions", "device_label", "TEXT"),
     ("admin_sessions", "public_id", "TEXT"),
     ("audit_log", "actor_id", "INTEGER"),
+    ("arr_import_retries", "tried_at", "TEXT"),
+    ("arr_import_retries", "tried_episodes", "TEXT"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.
@@ -184,6 +186,16 @@ def _fill_first_listed(conn: sqlite3.Connection) -> None:
     """
     conn.execute(
         "UPDATE media_items SET first_listed_at = last_scanned_at WHERE first_listed_at IS NULL"
+    )
+
+
+def _fill_tried_at(conn: sqlite3.Connection) -> None:
+    """Give each download retry stored without the time its last try began the time held of its
+    try running, else now, so a later import still gives its tries back."""
+    conn.execute(
+        "UPDATE arr_import_retries SET tried_at = COALESCE(retried_at, ?)"
+        " WHERE tried_at IS NULL AND tries > 0",
+        (now_utc().isoformat(),),
     )
 
 
@@ -235,6 +247,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         _add_missing_columns(conn)
         conn.executescript(_ADDED_INDEXES)
         _fill_first_listed(conn)
+        _fill_tried_at(conn)
         _fill_session_ids(conn)
         _take_over_plays(conn)
         conn.commit()

@@ -60,6 +60,10 @@ def test_addresses_that_are_not_mediamans_own_lead_nowhere(out) -> None:
     assert out["links"]["pictures"] == [None, None, None]
 
 
+def test_a_picture_from_another_site_is_not_shown_even_over_https(out) -> None:
+    assert out["links"]["far"] == [[None, None], [None, None], [None, None]]
+
+
 def test_a_card_stays_in_place_while_its_progress_moves(out) -> None:
     assert out["live"] == {"same": True, "line": "55% · 9 min left", "fill": "55"}
 

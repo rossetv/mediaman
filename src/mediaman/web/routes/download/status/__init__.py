@@ -21,12 +21,18 @@ from mediaman.crypto import generate_poll_token, validate_poll_token
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.downloads.download_format import build_item
+from mediaman.services.arr.finding_copy import is_finding_copy, will_retry
+from mediaman.services.downloads.download_format import (
+    attention_reason,
+    build_item,
+    map_queue_state,
+)
 from mediaman.services.downloads.download_format._types import DownloadItem, state_label
 from mediaman.services.downloads.notifications import requested_tvdb_id
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.responses import respond_err
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
 from mediaman.web.routes.download._season import season_of_media_id
@@ -38,7 +44,12 @@ from ._radarr import _radarr_queue_item, _radarr_ready_item, _radarr_searching_i
 # unit tests import it from this module path; the ``as`` form marks the
 # re-export as deliberate.
 from ._shared import _format_timeleft as _format_timeleft
-from ._sonarr import _sonarr_aggregate, _sonarr_queue_entries, _sonarr_series_fallback
+from ._sonarr import (
+    _is_series,
+    _sonarr_aggregate,
+    _sonarr_queue_entries,
+    _sonarr_series_fallback,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,11 +130,27 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
         ready = _radarr_ready_item(movie)
         return _playable(conn, secret_key, ready, "movie", tmdb_id, movie.get("year"))
 
-    queued = _radarr_queue_item(client.get_queue(), tmdb_id)
+    queue = client.get_queue()
+    queued = _radarr_queue_item(queue, tmdb_id)
+    movie_id = movie.get("id") if movie else None
     if queued is not None:
-        return queued
+        records = [q for q in queue if (q.get("movie") or {}).get("tmdbId") == tmdb_id]
+        states = [
+            {
+                "status": q.get("status") or "",
+                "tracked_state": q.get("trackedDownloadState") or "",
+                "tracked_status": q.get("trackedDownloadStatus") or "",
+            }
+            for q in records
+        ]
+        # Nothing is tried again while another copy of the film still comes in.
+        held = map_queue_state(states) == "needs_attention"
+        key = f"radarr:{movie_id}" if isinstance(movie_id, int) and held else None
+        return _retrying(conn, queued, key, [attention_reason(q) for q in records])
 
-    return _radarr_searching_item(movie)
+    return _radarr_searching_item(
+        movie, finding_copy=isinstance(movie_id, int) and is_finding_copy(conn, "radarr", movie_id)
+    )
 
 
 def _sonarr_status(
@@ -138,10 +165,36 @@ def _sonarr_status(
     series_title, ep_entries = _sonarr_queue_entries(queue, tmdb_id, season_number, tvdb_id)
 
     if ep_entries:
-        return _sonarr_aggregate(series_title, ep_entries)
+        series_id = next(
+            (
+                (item.get("series") or {}).get("id")
+                for item in queue
+                if _is_series(item.get("series") or {}, tmdb_id, tvdb_id)
+            ),
+            None,
+        )
+        season = "" if season_number is None else season_number
+        key = f"sonarr:{series_id}:{season}" if isinstance(series_id, int) else None
+        found = _sonarr_aggregate(series_title, ep_entries)
+        return _retrying(conn, found, key, [e["attention"] for e in ep_entries])
 
-    found = _sonarr_series_fallback(client, tmdb_id, season_number, tvdb_id)
+    found = _sonarr_series_fallback(
+        client,
+        tmdb_id,
+        season_number,
+        tvdb_id,
+        finding_copy=lambda series_id: is_finding_copy(conn, "sonarr", series_id, season_number),
+    )
     return _playable(conn, secret_key, found, "tv", tmdb_id)
+
+
+def _retrying(
+    conn: sqlite3.Connection, item: DownloadItem, key: str | None, reasons: list[str]
+) -> DownloadItem:
+    """*item*, of one that needs attention saying whether another copy will be looked for."""
+    if item["state"] != "needs_attention":
+        return item
+    return {**item, "retrying": key is not None and will_retry(conn, key, reasons)}
 
 
 def _playable(
@@ -272,6 +325,9 @@ def download_status(
         # and surface as a 500 to the polling client.
         logger.exception("download_status error (service=%s tmdb_id=%s)", service, tmdb_id)
         result = _UNKNOWN_ITEM
+    if not admin or get_user_role(conn, admin) != "admin":
+        # What Radarr or Sonarr says is wrong is an admin's to read and act on.
+        result = {**result, "arr_source": "", "attention": "", "attention_hint": ""}
 
     # Renew only while the download is unfinished and the chain is under 24
     # hours old, so a held token cannot be kept alive forever; an unknown

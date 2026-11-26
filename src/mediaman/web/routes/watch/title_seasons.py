@@ -5,9 +5,12 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.arr import build as arr_build
+from mediaman.services.arr.finding_copy import finding_seasons
 from mediaman.services.arr.seasons import ShowSeasons, is_refused_start, is_still_to_air
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository.season_requests import ShowIds, library_seasons, season_refusals
@@ -21,7 +24,20 @@ def begin_arr_view(conn: sqlite3.Connection, secret_key: str) -> Callable[[], ca
     """Begin the Radarr and Sonarr view, and give what collects it."""
     due = time.monotonic() + ARR_WAIT_S
     catalog.arr_view(conn, secret_key, wait_s=0)
-    return lambda: catalog.arr_view(conn, secret_key, wait_s=max(0.0, due - time.monotonic()))
+
+    def collect() -> catalog.ArrView:
+        view = catalog.arr_view(conn, secret_key, wait_s=max(0.0, due - time.monotonic()))
+        if view.generation is not None:
+            return view
+        # A view still being built knows nothing yet, not even what is not set up.
+        builds = (
+            ("radarr", arr_build.build_radarr_from_db),
+            ("sonarr", arr_build.build_sonarr_from_db),
+        )
+        unset = frozenset(name for name, build in builds if build(conn, secret_key) is None)
+        return replace(view, not_set_up=unset)
+
+    return collect
 
 
 def missing_seasons(
@@ -69,6 +85,8 @@ def fill_season_status(
     in_plex = library_seasons(conn, show) - removed | {s["number"] for s in seasons if s["key"]}
     is_admin = get_user_role(conn, username) == "admin"
     answered = arr.answers_for("tv")
+    series_id = arr.caches["sonarr_series"].get(tmdb_id, {}).get("id") if tmdb_id else None
+    finding = finding_seasons(conn, series_id) if isinstance(series_id, int) else set()
     for season in seasons:
         number = season["number"]
         state = sonarr.states.get(number) if sonarr else None
@@ -82,6 +100,8 @@ def fill_season_status(
             status = None
         else:
             status = _tmdb_status(season, air_dates.get(number))
+        if number in finding and status != "held":
+            status = "finding_copy"
         asked = state is not None and state.asked
         refusal = None
         wanted = status in ("partly_held", "not_asked", "not_out") and not asked

@@ -45,7 +45,7 @@ function serverRow(id, title, cards, total, next) {
   const viewport = { class: 'watch-row__viewport', ...(next ? { 'data-row-kind': id, 'data-row-next': next } : {}) };
   return ['section', { class: 'watch-row', 'data-row-id': id, 'data-row-total': String(total), ...(id === 'leaving' ? { 'data-watch-leaving-row': '' } : {}) },
     ['div', { class: 'watch-row__head' }, ['h2', { class: 'watch-row__title' },
-      ['a', { class: 'row-open', href: '/watch?all=' + id, 'data-row-open': id }, ['span', { 'data-row-title': '' }, title],
+      ['a', { class: 'row-open', href: '/?all=' + id, 'data-row-open': id }, ['span', { 'data-row-title': '' }, title],
         ['span', { class: 'row-open__cue', 'data-grid-fade': '' }, ['span', { class: 'row-open__word' }, 'See all'], ['svg', { class: 'ico' }]]]]],
     ['div', viewport, ['div', { class: 'watch-row__scroll', 'aria-label': title }, ...cards]]];
 }
@@ -65,7 +65,7 @@ const titles = (type, ns, next, total = 32) => ({ type, items: ns.map((n) => ({ 
 
 async function load(opts = {}) {
   const doc = makeDocument();
-  const tab = { entries: [{ url: opts.url || '/watch', state: null }], index: 0 };
+  const tab = { entries: [{ url: opts.url || '/', state: null }], index: 0 };
   const here = () => new URL(tab.entries[tab.index].url, 'http://mm');
   const listeners = {};
   const calls = [];
@@ -92,7 +92,7 @@ async function load(opts = {}) {
     ...opts.routes,
   };
   const server = opts.server ? [['section', { class: 'watch-all', id: 'watch-all' },
-    ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/watch' }], ['h1', { class: 'watch-all__title', id: 'watch-all-title' }],
+    ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/' }], ['h1', { class: 'watch-all__title', id: 'watch-all-title' }],
       ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]], ['div', { class: 'watch-all__bar' }],
     ['div', { class: 'watch-all__body' }, ['div', { class: 'watch-grid' }, ...opts.server.map((n) => libraryCard(n))], ['div', { class: 'grid-tail' }]]]] : [];
   doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' }, ['input', { id: 'watch-search' }],
@@ -235,11 +235,11 @@ const scenarios = {
       await p.settle();
       seen.push({ at: p.at(), sort: p.grid().sort, things: p.grid().things });
     }
-    const link = await load({ url: '/watch?all=movies&sort=unwatched' });
+    const link = await load({ url: '/?all=movies&sort=unwatched' });
     await p.step(-1);
     await p.step(1);
     const forward = p.grid().things;
-    const plain = await load({ url: '/watch?all=continue&sort=unwatched' });
+    const plain = await load({ url: '/?all=continue&sort=unwatched' });
     return { seen, forward, link: link.grid().sort, other: plain.grid().sort };
   },
 
@@ -275,14 +275,14 @@ const scenarios = {
     };
     Node.prototype.scrollTo = function (o) { if (this.classList.contains('watch-all__filters')) went.push([o.left, o.behavior]); };
     try {
-      await load({ admin: true, url: '/watch?all=library&type=kept&sort=size', motion: true });
+      await load({ admin: true, url: '/?all=library&type=kept&sort=size', motion: true });
       return went;
     } finally { Node.prototype.getBoundingClientRect = own; Node.prototype.scrollTo = scrollTo; }
   },
 
   // An empty filter leads back to All, and its link goes with it.
   async emptyFilter() {
-    const none = () => ({ ...titles('unseen', [], null, 0), empty: { title: 'None', link: 'Show all titles', href: '/watch?all=library', filter: '' } });
+    const none = () => ({ ...titles('unseen', [], null, 0), empty: { title: 'None', link: 'Show all titles', href: '/?all=library', filter: '' } });
     const p = await load({ routes: { '/api/watch/library/library/row?limit=60&type=unseen': none } });
     await p.open('movies');
     await p.filter('unseen');
@@ -312,7 +312,7 @@ const scenarios = {
 
   // An admin's link to an admin's filter and order, and the menu's own heading for those.
   async admins() {
-    const p = await load({ admin: true, url: '/watch?all=library&type=kept&sort=size' });
+    const p = await load({ admin: true, url: '/?all=library&type=kept&sort=size' });
     p.fire('scroll');
     await p.settle();
     const open = p.grid();
@@ -505,7 +505,7 @@ const scenarios = {
 
   // A shared link: the server's cards stay the same nodes, and it goes on from its cursor.
   async cold() {
-    const p = await load({ url: '/watch?all=movies', server: [1, 2, 3], grid: { id: 'library', total: 5, next: 'k', counts: COUNTS, fact: null },
+    const p = await load({ url: '/?all=movies', server: [1, 2, 3], grid: { id: 'library', total: 5, next: 'k', counts: COUNTS, fact: null },
       routes: { '/api/watch/library/library/row?limit=60&type=movies&after=k': () => titles('movies', [4, 5], null, 5) }, early: true });
     const node = p.doc.querySelector('.watch-all .watch-card');
     await p.settle();
@@ -518,12 +518,12 @@ const scenarios = {
 
   // A shared link to a row that loads after the page: asked for once.
   async coldLater() {
-    const trending = await load({ url: '/watch?all=trending', server: [], grid: { id: 'trending', total: null, next: null } });
+    const trending = await load({ url: '/?all=trending', server: [], grid: { id: 'trending', total: null, next: null } });
     await trending.settle();
-    const picks = await load({ url: '/watch?all=recommended', server: [], grid: { id: 'recommended', total: null, next: null } });
+    const picks = await load({ url: '/?all=recommended', server: [], grid: { id: 'recommended', total: null, next: null } });
     await picks.settle();
     let fail = true;
-    const failed = await load({ url: '/watch?all=popular_movies', server: [], grid: { id: 'popular_movies', total: null, next: null },
+    const failed = await load({ url: '/?all=popular_movies', server: [], grid: { id: 'popular_movies', total: null, next: null },
       routes: { '/api/watch/discover': () => { if (fail) throw Object.assign(new Error('no'), { status: 502 }); return { rows: [{ id: 'popular_movies', items: [tmdb(7)], next_page: null }] }; } } });
     await failed.settle();
     const tail = failed.grid().tail;
@@ -551,13 +551,13 @@ const scenarios = {
   // Both a search and a row in the address: the search has the page. An unknown row or order: none.
   async odd() {
     const at = async (url, more) => { const p = await load({ url, ...more }); return p.grid() && [p.grid().title, p.grid().sort]; };
-    return { search: await at('/watch?all=movies&q=x'), adminsOrder: await at('/watch?all=library&sort=size'), adminsFilter: await at('/watch?all=library&type=kept'), genre: await at('/watch?genre=action&all=movies'),
-      unknown: await at('/watch?all=films'), inherited: await at('/watch?all=constructor'), order: await at('/watch?all=continue&sort=newest') };
+    return { search: await at('/?all=movies&q=x'), adminsOrder: await at('/?all=library&sort=size'), adminsFilter: await at('/?all=library&type=kept'), genre: await at('/?genre=action&all=movies'),
+      unknown: await at('/?all=films'), inherited: await at('/?all=constructor'), order: await at('/?all=continue&sort=newest') };
   },
 
   // A row's grid keeps nothing of what a category was narrowed to.
   async afterACategory() {
-    const p = await load({ url: '/watch?genre=action&type=movie&where=library&decade=1990s' });
+    const p = await load({ url: '/?genre=action&type=movie&where=library&decade=1990s' });
     await p.open('movies');
     return p.at();
   },
@@ -584,19 +584,19 @@ const scenarios = {
     took.reverse().forEach((t) => t.undo());
     const back = { things: p.grid().things, count: p.grid().count, cards: cards().length };
     const left = p.doc.querySelector('.watch-all__body').hasAttribute('data-watch-leaving-row');
-    const q = await load({ url: '/watch?all=leaving' });
+    const q = await load({ url: '/?all=leaving' });
     const all = () => q.doc.querySelectorAll('.watch-all .watch-card');
     const last = all().map((c) => keep && q.ctx.MMWatch.keep.fromRow(c, c.closest('[data-watch-leaving-row]'), true, '[data-watch-keep]'));
     // Taken and filled again since, by a sort and by closing and opening: both ends still meet.
     const refilled = async (id, ref, meanwhile) => {
-      const r = await load({ url: '/watch?all=' + id });
+      const r = await load({ url: '/?all=' + id });
       const all = r.doc.querySelectorAll('.watch-card').filter((c) => c.querySelector('.watch-card__link').getAttribute('href').endsWith('/' + ref));
       const taken = all.map((c) => r.ctx.MMWatch.keep.fromRow(c, c.closest('.watch-row'), c.getClientRects().length > 0, '[data-watch-more]'));
       await meanwhile(r);
       const control = taken.reverse().map((t) => t.undo());
       return { things: r.grid().things, count: r.grid().count, focus: control.map((c) => c && r.doc.querySelector('.watch-all').contains(c)) };
     };
-    const reopen = async (r) => { r.press(r.doc.querySelector('.watch-all__back')); await r.settle(); r.tab.entries[0].url = '/watch?all=leaving'; r.fire('popstate'); await r.settle(); };
+    const reopen = async (r) => { r.press(r.doc.querySelector('.watch-all__back')); await r.settle(); r.tab.entries[0].url = '/?all=leaving'; r.fire('popstate'); await r.settle(); };
     const sorted = await refilled('continue', 42, async (r) => { await r.choose('az'); });
     const reopened = await refilled('leaving', 51, reopen);
     return { sorted, reopened, gone, back, left, empty: { things: q.grid().things, tail: q.grid().tail, count: q.grid().count, focus: last[1].focus.id, body: q.doc.querySelector('.watch-all__body').hasAttribute('data-watch-leaving-row') } };
@@ -614,7 +614,7 @@ Object.assign(scenarios, {
   // An Undo of a Keep focuses the Keep that is shown: the grid's while it is open, the row's once it is closed.
   async keepUndone() {
     const go = async (meanwhile, preview) => {
-      const p = await load({ url: '/watch?all=leaving' });
+      const p = await load({ url: '/?all=leaving' });
       const all = p.doc.getElementById('watch-all');
       const pv = p.doc.body.appendChild(build(p.doc, ['div', { class: 'pv' }, ['button', { 'data-watch-keep': '51', 'aria-label': 'Keep Film 51' }]]));
       const node = all.querySelector('.watch-card');

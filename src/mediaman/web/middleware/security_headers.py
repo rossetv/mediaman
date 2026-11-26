@@ -42,13 +42,8 @@ logger = logging.getLogger(__name__)
 # - ``img-src`` is an allowlist of known image CDNs:
 #   * 'self'           — /api/poster proxy + static assets
 #   * data: blob:      — inline data URIs and object URLs used by JS
-#   * image.tmdb.org   — TMDB poster/backdrop images
 #   * i.ytimg.com      — YouTube thumbnail images
 #   * www.gravatar.com — Gravatar profile images (admin avatars, if any)
-#   * mediacover.radarr.video mediacover.sonarr.video — Radarr/Sonarr
-#     fallback for poster remoteUrls when TMDB is unreachable
-#   * artworks.thetvdb.com — TheTVDB artwork CDN used by Sonarr poster
-#     URLs that are surfaced on /downloads
 #   The allowlist (rather than ``https:`` for any host) limits the
 #   pixel-tracking surface to known services.
 # - ``media-src 'self' blob:`` lets the in-page player load same-origin
@@ -59,12 +54,8 @@ logger = logging.getLogger(__name__)
 _CSP_STATIC_DIRECTIVES = (
     "default-src 'self'; "
     "img-src 'self' data: blob: "
-    "https://image.tmdb.org "
     "https://i.ytimg.com "
-    "https://www.gravatar.com "
-    "https://mediacover.radarr.video "
-    "https://mediacover.sonarr.video "
-    "https://artworks.thetvdb.com; "
+    "https://www.gravatar.com; "
     "connect-src 'self'; "
     "media-src 'self' blob:; "
     "frame-src https://www.youtube-nocookie.com; "
@@ -87,7 +78,7 @@ _CAST_SCRIPTS = (
 GOOGLE_CAST_SETTING = "google_cast_enabled"
 
 # The pages a Cast can be started from or goes on beside. Never one where a password is typed.
-_CAST_PAGES = frozenset({"/watch", "/downloads"})
+_CAST_PAGES = frozenset({"/", "/downloads"})
 
 
 def _google_cast_allowed(request: Request) -> bool:

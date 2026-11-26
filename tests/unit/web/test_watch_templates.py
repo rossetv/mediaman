@@ -84,101 +84,6 @@ def test_what_dims_the_page_is_beside_the_title_so_that_a_trailer_can_lie_betwee
     assert html.index("/watch/carry.js") < html.index("/watch/preview.js")
 
 
-def _show_ctx(**over: object) -> dict:
-    ctx: dict = {
-        "show": {
-            "title": "The Long Coast",
-            "meta_line": "TV · 2021",
-            "summary": "A town.",
-            "poster_url": "",
-            "watched": False,
-            "mark_kind": "show",
-            "mark_key": "300",
-        },
-        "primary": {"label": "Resume S2 · E4", "href": "/watch/play/9?resume=1"},
-        "seasons": [
-            {
-                "number": 1,
-                "key": "301",
-                "watched": True,
-                "href": "/watch/show/s?season=1",
-                "selected": False,
-            },
-            {
-                "number": 2,
-                "key": "302",
-                "watched": False,
-                "href": "/watch/show/s?season=2",
-                "selected": True,
-            },
-        ],
-        "leaving": None,
-        "episodes": [
-            {
-                "number": 1,
-                "title": "Spring Tide",
-                "minutes": 52,
-                "thumb_url": "/api/watch/thumb/1",
-                "key": "1",
-                "state": "watched",
-                "watched": True,
-                "progress_pct": None,
-                "minutes_left": None,
-                "href": "/watch/play/1",
-            },
-            {
-                "number": 2,
-                "title": "Low Water",
-                "minutes": 50,
-                "thumb_url": None,
-                "key": "2",
-                "state": "in_progress",
-                "watched": False,
-                "progress_pct": 38,
-                "minutes_left": 31,
-                "href": "/watch/play/2",
-            },
-            {
-                "number": 3,
-                "title": "Maydays",
-                "minutes": 47,
-                "thumb_url": None,
-                "key": "3",
-                "state": "none",
-                "watched": False,
-                "progress_pct": None,
-                "minutes_left": None,
-                "href": "/watch/play/3",
-            },
-        ],
-        "back_href": "/watch",
-        "watch_error": None,
-    }
-    ctx.update(over)
-    return ctx
-
-
-def _movie_ctx(**over: object) -> dict:
-    ctx: dict = {
-        "movie": {
-            "title": "Fieldwork",
-            "year": 2021,
-            "minutes": 89,
-            "summary": "A film.",
-            "poster_url": "",
-            "watched": True,
-            "mark_kind": "movie",
-            "mark_key": "5",
-        },
-        "primary": {"label": "Resume (31 min left)", "href": "/watch/play/5?resume=1"},
-        "leaving": None,
-        "back_href": "/watch",
-        "watch_error": None,
-    }
-    ctx.update(over)
-    return ctx
-
-
 class _Inspect(HTMLParser):
     """Collect the markup facts the CSP cares about."""
 
@@ -348,14 +253,6 @@ def test_progress_and_watched_marks_follow_the_card() -> None:
     assert ">Watched<" in html
 
 
-def test_each_face_of_the_watched_button_holds_its_own_icon() -> None:
-    html = _render("watch_show.html", **_show_ctx())
-    for face in ("off", "on"):
-        for inside in re.findall(rf'<span class="watch-mark-btn__{face}">(.*?)</span>', html):
-            assert inside.count("<use") == 1
-    assert html.count('class="watch-mark-btn__on"') == html.count('class="watch-mark-btn__off"') > 0
-
-
 def test_banner_shows_episodes_button_only_when_given() -> None:
     banner = {
         "kicker": "Continue watching",
@@ -462,70 +359,6 @@ def test_titles_from_plex_are_escaped() -> None:
     assert "&lt;script&gt;alert(1)" in html
 
 
-def test_show_page_marks_each_episode_state_and_the_selected_season() -> None:
-    html = _render("watch_show.html", **_show_ctx())
-    assert "‹ Back to Watch" in html
-    assert html.count('class="watch-pill') == 2
-    assert html.count('aria-current="page"') == 1
-    assert 'href="/watch/show/s?season=2" aria-current="page"' in html
-    assert ">Watched<" in html and ">In progress<" in html
-    assert "50 min · 31 min left" in html
-    assert 'value="38"' in html
-    assert 'href="/watch/play/3"' in html
-
-
-def test_show_page_leaving_line_has_keep() -> None:
-    plain = _render("watch_show.html", **_show_ctx())
-    scheduled = _render("watch_show.html", **_show_ctx(leaving={"days": 2, "keep_id": "s2"}))
-    assert "Leaving in" not in plain
-    assert "Leaving in 2 days" in scheduled and 'data-watch-keep="s2"' in scheduled
-
-
-def test_movie_page_shows_facts_primary_and_leaving_line() -> None:
-    html = _render("watch_movie.html", **_movie_ctx(leaving={"days": 1, "keep_id": "m9"}))
-    assert "2021 · 1 h 29 min" in html
-    assert "Resume (31 min left)" in html
-    assert "Leaving in 1 day" in html and 'data-watch-keep="m9"' in html
-
-
-@pytest.mark.parametrize(
-    ("name", "ctx"),
-    [
-        ("watch_show.html", _show_ctx(show={**_show_ctx()["show"], "poster_url": "/api/poster/7"})),
-        (
-            "watch_movie.html",
-            _movie_ctx(movie={**_movie_ctx()["movie"], "poster_url": "/api/poster/7"}),
-        ),
-    ],
-)
-def test_a_title_s_own_page_shows_its_wide_picture_and_its_poster_only_without_one(
-    name: str, ctx: dict
-) -> None:
-    page = _Tree(_render(name, **ctx))
-    pictures = [a for tag, a, _in in page.found if tag == "img" and "/api/poster/" in a["src"]]
-    art, fill, poster = pictures
-    assert "data-wide-art" in art and "data-broken-on-error" in art
-    assert art["src"] == "/api/poster/7?kind=art"
-    assert art["data-next-src"] == "/api/poster/7?kind=art&source=tmdb"
-    for img in (fill, poster):
-        assert (img["src"], img["loading"]) == ("/api/poster/7", "lazy")
-
-
-def test_a_show_s_season_tabs_stand_with_its_episodes_and_not_on_the_picture() -> None:
-    html = _render("watch_show.html", **_show_ctx())
-    banner = html.split('<section class="watch-banner"', 1)[1].split("</section>", 1)[0]
-    assert "watch-btn--play" in banner
-    assert "watch-pill" not in banner
-    # Outside what a season's tab swaps.
-    assert "watch-pill" not in html.split('<section class="watch-episodes"', 1)[1]
-
-
-def test_movie_page_not_available() -> None:
-    html = _render("watch_movie.html", not_available=True, back_href="/watch")
-    assert "No longer available" in html
-    assert "‹ Back to Watch" in html
-
-
 def test_pages_have_no_inline_script_or_style() -> None:
     banner = {
         "title": "T",
@@ -546,9 +379,6 @@ def test_pages_have_no_inline_script_or_style() -> None:
             ],
         ),
         _watch(watch_error="unreachable"),
-        _render("watch_show.html", **_show_ctx(leaving={"days": 2, "keep_id": "s2"})),
-        _render("watch_movie.html", **_movie_ctx(leaving={"days": 2, "keep_id": "m1"})),
-        _render("watch_movie.html", not_available=True),
     ]
     for html in pages:
         found = _Inspect()
@@ -687,39 +517,6 @@ def test_a_phone_s_keyboard_offers_search_and_leaves_what_is_typed_alone() -> No
         assert attr in field.group(0)
 
 
-@pytest.mark.parametrize(
-    "page", [("watch_show.html", _show_ctx()), ("watch_movie.html", _movie_ctx())]
-)
-def test_title_pages_load_the_poster_fade_script(page):
-    name, ctx = page
-
-    assert 'src="/static/js/watch-rows.js?v="' in _render(name, **ctx)
-
-
-def test_a_title_page_past_its_date_says_any_day() -> None:
-    html = _render("watch_movie.html", **_movie_ctx(leaving={"days": -3, "keep_id": "m9"}))
-    assert '<span class="watch-leaving__text">Leaving any day</span>' in html
-
-
-@pytest.mark.parametrize(
-    ("days", "text"),
-    [
-        (-3, "Season 1 leaves any day"),
-        (0, "Season 1 leaves today"),
-        (1, "Season 1 leaves in 1 day"),
-        (5, "Season 1 leaves in 5 days"),
-    ],
-)
-def test_show_page_names_another_leaving_season_without_a_keep(days: int, text: str) -> None:
-    html = _render(
-        "watch_show.html",
-        **_show_ctx(season_leaving=True, other_leaving={"season": 1, "days": days}),
-    )
-    assert text in html
-    assert "watch-leaving--other" in html
-    assert "data-watch-keep" not in html
-
-
 def test_discover_skeleton_puts_recommended_first_with_its_tools_height() -> None:
     html = _watch(tmdb_configured=True, picks_on=True)
     skeleton = html.split('class="watch-discover-skel"', 1)[1].split('id="watch-results"', 1)[0]
@@ -744,7 +541,7 @@ def test_banner_details_opens_the_title_overlay() -> None:
     actions = html.split('class="watch-actions"', 1)[1].split("</div>", 1)[0]
     details = re.search(r'<a [^>]*data-title-ref="show-500"[^>]*>(?=Details</a>)', actions)
     assert details is not None
-    assert 'href="/watch#title=show-500"' in details.group(0)
+    assert 'href="/#title=show-500"' in details.group(0)
     assert 'data-title="The Long Coast"' in details.group(0)
     assert "watch-btn--grey" in details.group(0)
     assert "Details</a>" in actions
@@ -1229,50 +1026,12 @@ def test_dismiss_is_offered_by_a_continue_watching_card_and_its_banner_alone() -
     assert not other.having("data-dismiss-ref") and not other.having("data-watch-dismiss")
 
 
-def test_the_pages_toggles_say_what_is_watched_and_what_a_press_does() -> None:
-    def toggles(html: str) -> list[tuple]:
-        return [
-            (a["data-mark-toggle"], a["aria-pressed"], a["aria-label"])
-            for a in _Tree(html).having("data-mark-toggle")
-        ]
-
-    assert toggles(_render("watch_movie.html", **_movie_ctx())) == [
-        ("movie/5", "true", "Mark as watched")
-    ]
-    assert toggles(_render("watch_show.html", **_show_ctx())) == [
-        ("show/300", "false", "Mark show as watched"),
-        ("season/302", "false", "Mark season as watched"),
-        ("episode/1", "true", "Mark Spring Tide as watched"),
-        ("episode/2", "false", "Mark Low Water as watched"),
-        ("episode/3", "false", "Mark Maydays as watched"),
-    ]
-
-
-def test_a_watched_season_s_tab_says_so_without_changing_its_words() -> None:
-    html = _render("watch_show.html", **_show_ctx())
-    tabs = re.findall(r'<a class="watch-pill[^>]*>.*?</a>', html)
-    assert 'aria-label="Season 1, watched"' in tabs[0] and "#i-eye" in tabs[0]
-    assert "aria-label" not in tabs[1] and "#i-eye" not in tabs[1]
-    # seasons.js reads the tab's text as the season's name.
-    assert re.sub(r"<[^>]+>", "", tabs[0]) == "Season 1"
-
-
-def test_an_episode_seen_before_says_so_while_it_is_played_again() -> None:
-    ctx = _show_ctx()
-    ctx["episodes"][1]["watched"] = True
-    html = _render("watch_show.html", **ctx)
-    assert 'Low Water<span class="sr-only">, watched</span>' in html
-    assert ">In progress<" in html
-
-
 def test_no_button_stands_in_a_link() -> None:
     pages = [
         _watch(
             banner=_BANNER,
             rows=[{"title": "Leaving soon", "items": [_marked(leaving_days=2, keep_id="m1")]}],
         ),
-        _render("watch_show.html", **_show_ctx()),
-        _render("watch_movie.html", **_movie_ctx()),
     ]
     for html in pages:
         tree = _Tree(html)

@@ -525,10 +525,10 @@ CONTROLS = ":is(a, button, input, select, textarea, [tabindex])"
 
 
 def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scroll_it() -> None:
-    page = 'html:has(> body[data-page="watch"])'
+    page = 'html[data-page="watch"]'
     assert "scroll-padding-top: var(--bar-clear)" in _of(page, sheet=BAR)
     # While the focus is in the bar or All titles' head, the page has no padding to scroll for.
-    held = 'html:has(> body[data-page="watch"] :is(.wbar, .watch-all__head) :focus)'
+    held = 'html[data-page="watch"].is-bar-focus'
     assert "scroll-padding-top: 0" in _of(held, sheet=BAR)
     sticky = {
         head.strip()
@@ -545,10 +545,10 @@ def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
     assert "scroll-margin-top: calc(var(--nav-h) - var(--bar-clear, 0px))" in _of(
         "#main-content", sheet=BAR
     )
-    # One line at every width, and nothing at the top of a phone.
+    # One line at every width, a phone's islands included.
     assert "scroll-margin-top" not in _of("#main-content", "(max-width: 1099.98px)", BAR)
     nav = SHEET.with_name("_nav.css")
-    assert "--nav-h: 0px" in _of("html:has(.nav-foot)", "(max-width: 699.98px)", nav)
+    assert int(re.search(r"--nav-h: (\d+)px", _of(":root", "(max-width: 699.98px)", nav))[1]) >= 52
 
 
 ASK = SHEET.with_name("_watch_ask.css")
@@ -561,72 +561,122 @@ def test_tonight_s_controls_are_44px_to_press_inside_what_clips_them() -> None:
     assert "align-self: stretch" in _of(".tn__foot > .txt", sheet=ASK)
 
 
-def test_the_panel_s_headings_and_a_film_s_length_stay_on_one_line_with_large_text() -> None:
+def test_the_panel_s_headings_stay_on_one_line_with_large_text() -> None:
     assert "flex: none" in _of(".watch-sheet__head > .watch-sheet__title", sheet=ASK)
-    assert "white-space: nowrap" in _of(".tn__art > span", sheet=ASK)
-    # The picture is as wide as it needs.
-    assert "position: relative" in _of(".tn__art > span", sheet=ASK)
-    assert "min-width: 104px" in _of(".tn__art", "(max-width: 599.98px)", ASK)
+
+
+def test_tonight_s_titles_break_between_words_on_cards_as_wide_as_the_rows() -> None:
+    assert "overflow-wrap: normal" in _of(".tn__list .watch-card__title", sheet=ASK)
+    columns = re.search(r"minmax\((\d+)px, 1fr\)", _of(".tn__list", sheet=ASK))
+    assert columns and int(columns[1]) >= 128
+    # A phone swipes a row of them, each as wide as its rows' own.
+    phone = "(max-width: 599.98px)"
+    assert "overflow-x: auto" in _of(".tn__list", phone, ASK)
+    assert (
+        int(re.search(r"flex: 0 0 (\d+)px", _of(".tn__list > .watch-card", phone, ASK))[1]) >= 112
+    )
+
+
+def test_tonight_s_longest_time_has_a_shorter_word_where_it_would_wrap() -> None:
+    narrow = "(max-width: 359.98px)"
+    assert "font-size: 0" in _of(".tn__seg > button[data-short]", narrow, ASK)
+    assert "attr(data-short)" in _of(".tn__seg > button[data-short]::before", narrow, ASK)
+
+
+def test_an_ai_pick_s_sparkle_has_a_backplate_of_its_own_in_forced_colours() -> None:
+    spark = _of(".watch-card__spark", FORCED, ASK)
+    assert "background: Canvas" in spark and "color: CanvasText" in spark
+
+
+def test_a_question_s_head_on_a_phone_holds_two_lines_of_words_and_one_under_them() -> None:
+    height = _last("min-height", _of(".ask__row", "(max-width: 599.98px)", ASK))
+    two_lines_and_one = 2 * 1.3 * 16 + 1 + 1.35 * 13 + 2 * 8 + 2 * 1
+    assert (
+        eval(height.replace("calc", "").replace("px", ""), {"__builtins__": {}})
+        >= two_lines_and_one
+    )
+
+
+def test_a_wide_way_on_goes_under_a_question_s_words_on_a_phone() -> None:
+    phone = "(max-width: 599.98px)"
+    assert "flex-wrap: wrap" in _of(".ask__row:has(> .chip)", phone, ASK)
+    assert "flex-basis: calc(100% - 58px)" in _of(
+        ".ask__row:has(> .chip) > .ask__words", phone, ASK
+    )
 
 
 REMOTE = SHEET.with_name("_tv_remote.css")
 SEARCH = SHEET.with_name("_watch_search.css")
 WIDE, PHONE = "(min-width: 700px)", "(max-width: 699.98px)"
-BAR_SHOWN = "body:has(> .tv-mini:not([hidden]))"
+BAR_SHOWN = "html.has-tv-mini"
 
 
 def _last(name: str, css: str) -> str:
     return re.findall(rf"(?<![\w-]){re.escape(name)}:\s*([^;]+)", css)[-1]
 
 
-def _px(value: str, foot: int, height: int) -> float:
-    """What a length of a window *height* high with *foot* at its foot comes to in pixels."""
-    wide_nav = _last("--nav-h", _of(":root", sheet=SHEET.with_name("_tokens.css")))
+def _px(value: str, narrow: bool, height: int) -> float:
+    """What a length comes to in pixels in a window *height* high, on a phone if *narrow*."""
+    nav = SHEET.with_name("_nav.css")
+    nav_h = _last("--nav-h", _of(":root", PHONE, nav) if narrow else _of(":root", sheet=nav))
     value = re.sub(r"env\([^()]*\)", "0px", value)
-    for name, px in (("--foot", f"{foot}px"), ("--nav-h", wide_nav), ("--seen", "100dvh")):
+    # No phone has a bar at its foot.
+    for name, px in (("--foot", "0px"), ("--nav-h", nav_h), ("--seen", "100dvh")):
         value = re.sub(rf"var\({name}(?:, [^()]+)?\)", px, value)
     value = value.replace("var(--seen-top, 0px)", "0px").replace("calc", "")
     value = re.sub(r"([\d.]+)dvh", lambda m: str(float(m[1]) / 100 * height), value)
     return float(eval(value.replace("px", ""), {"__builtins__": {}, "min": min, "max": max}))
 
 
-def _bar_top(narrow: bool, foot: int, height: int) -> float:
+def _bar_top(narrow: bool, height: int) -> float:
     """How far the top of the TV bar is from the foot of the window."""
     css = _of(".tv-mini", sheet=REMOTE) + (_of(".tv-mini", PHONE, REMOTE) if narrow else "")
     pads = re.findall(r"(\d+)px", _last("padding", css))
     inside = _last("min-height", _of(".tv-mini__open", sheet=REMOTE))
-    tall = int(pads[0]) + int(pads[2]) + _px(inside, foot, height)
-    return _px(_last("bottom", css), foot, height) + tall
+    tall = int(pads[0]) + int(pads[2]) + _px(inside, narrow, height)
+    return _px(_last("bottom", css), narrow, height) + tall
 
 
 @pytest.mark.parametrize(
-    ("narrow", "foot", "height"),
-    [(False, 0, 800), (False, 0, 390), (True, 72, 844), (True, 60, 375)],
+    ("narrow", "height"),
+    [(False, 800), (False, 390), (True, 844), (True, 375)],
 )
-def test_the_search_sheet_ends_above_the_tv_bar_at_every_width(narrow, foot, height) -> None:
+def test_the_search_sheet_ends_above_the_tv_bar_at_every_width(narrow, height) -> None:
     top = _of(".watch-sheet", sheet=SEARCH)
     if narrow:
         top += _of(".watch-sheet", PHONE, SEARCH)
     tallest = _of(f"{BAR_SHOWN} .watch-sheet", PHONE if narrow else WIDE, REMOTE)
-    end = _px(_last("top", top), foot, height) + _px(_last("max-height", tallest), foot, height)
-    assert end <= height - _bar_top(narrow, foot, height)
+    end = _px(_last("top", top), narrow, height) + _px(_last("max-height", tallest), narrow, height)
+    assert end <= height - _bar_top(narrow, height)
 
 
-@pytest.mark.parametrize("foot", [60, 72])
-def test_a_phone_s_tv_bar_is_above_the_foot_and_below_toasts_and_what_is_scrolled_to(foot) -> None:
+@pytest.mark.parametrize("height", [844, 375])
+def test_a_phone_s_tv_bar_is_off_the_foot_and_below_toasts_and_what_is_scrolled_to(height) -> None:
     bar = _of(".tv-mini", PHONE, REMOTE)
-    assert _px(_last("bottom", bar), foot, 844) >= foot
-    over = _bar_top(True, foot, 844)
-    toast = _of(f"{BAR_SHOWN}:has(.watch-search) .ui-toast-host", PHONE, REMOTE)
-    assert _px(_last("bottom", toast), foot, 844) >= over
-    scrolled = _of("html:has(.tv-mini:not([hidden]))", PHONE, REMOTE)
-    assert _px(_last("scroll-padding-bottom", scrolled), foot, 844) >= over
+    assert _px(_last("bottom", bar), True, height) >= 8
+    over = _bar_top(True, height)
+    nav_h = int(
+        _last("--nav-h", _of(":root", PHONE, SHEET.with_name("_nav.css"))).removesuffix("px")
+    )
+    assert over <= height - nav_h  # under the bar at the top
+    toast = _of(f"{BAR_SHOWN}.has-watch-search .ui-toast-host", PHONE, REMOTE)
+    assert _px(_last("bottom", toast), True, height) >= over
+    scrolled = _of("html.has-tv-mini", PHONE, REMOTE)
+    assert _px(_last("scroll-padding-bottom", scrolled), True, height) >= over
 
 
-def test_an_error_page_on_a_phone_is_as_high_as_the_screen_less_the_nav() -> None:
-    nav = _last("--nav-h", _of(".nav-glass", PHONE, SHEET.with_name("_nav.css")))
-    page = _of("body:has(> .nav-glass) .login-page", PHONE, SHEET.with_name("_error.css"))
-    assert _last("min-height", page) == f"calc(100vh - {nav})"
+def test_an_error_page_is_as_high_as_the_screen_less_the_nav_at_every_width() -> None:
+    error = SHEET.with_name("_error.css")
+    page = _of(".nav-glass ~ main .login-page", sheet=error)
+    assert _last("min-height", page) == "calc(100vh - var(--nav-h))"
+    assert _of(".nav-glass ~ main .login-page", PHONE, error) == ""
+
+
+def test_the_nav_s_height_is_set_in_the_nav_sheet_alone() -> None:
+    css = SHEET.parent
+    assert "--nav-h:" not in _of(":root", sheet=css / "_tokens.css")
+    assert _last("--nav-h", _of(":root", sheet=css / "_nav.css")) == "72px"
+    assert _last("--nav-h", _of(":root", PHONE, css / "_nav.css")) == "64px"
 
 
 def test_a_row_kept_at_its_start_does_not_snap_whatever_its_script_sets_inline() -> None:

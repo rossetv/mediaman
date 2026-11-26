@@ -93,6 +93,14 @@ class TestBuildEpisodeSummary:
     def test_it_says_how_many_episodes_are_downloading(self, count, said):
         assert build_episode_summary([{"state": "downloading"}] * count) == said
 
+    @pytest.mark.parametrize("count", [1, 3])
+    def test_episodes_that_all_need_attention_leave_it_to_the_state_pill(self, count):
+        assert build_episode_summary([{"state": "needs_attention"}] * count) == ""
+
+    def test_some_that_need_attention_are_counted(self):
+        eps = [{"state": "ready"}, {"state": "needs_attention"}]
+        assert build_episode_summary(eps) == "1 of 2 episodes ready · 1 needs attention"
+
     def test_parts_joined_by_separator(self):
         eps = [{"state": "ready"}, {"state": "downloading"}]
         result = build_episode_summary(eps)

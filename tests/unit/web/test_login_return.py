@@ -55,9 +55,9 @@ def admin(conn):
     "page",
     [
         "/history",
-        "/watch?view=list&q=a%20%26%20b&page=3",
+        "/?view=list&q=a%20%26%20b&page=3",
         "/watch/show/Caf%C3%A9%20%3F?season=2",
-        "/watch?q=%2F%2Fexample.com",
+        "/?q=%2F%2Fexample.com",
         "/kept",
         "/kept/page",
         "/protected?from=mail",
@@ -82,7 +82,7 @@ def test_a_wrong_password_on_the_way_does_not_lose_the_page(client, admin):
     assert resp.headers["location"] == "/history?page=2"
 
 
-@pytest.mark.parametrize("page", ["/", "/watch", "/watch/list?q=x", "/api/history"])
+@pytest.mark.parametrize("page", ["/", "/watch/list?q=x", "/api/history"])
 def test_an_address_with_no_place_to_keep_leads_to_plain_sign_in(client, page):
     assert client.get(page).headers["location"] == "/login"
 
@@ -136,7 +136,7 @@ def test_an_address_outside_the_pages_of_this_app_is_no_place_to_return_to(targe
 def test_signing_in_never_follows_an_address_outside_the_pages_of_this_app(client, admin, target):
     resp = client.post("/login?next=" + quote(target, safe=""), data=_CREDENTIALS)
 
-    assert (resp.status_code, resp.headers["location"]) == (302, "/watch")
+    assert (resp.status_code, resp.headers["location"]) == (302, "/")
 
 
 def _run(*args: str, **location: str) -> str:
@@ -152,20 +152,20 @@ def _run(*args: str, **location: str) -> str:
 
 
 def test_a_session_that_ends_on_an_open_page_keeps_its_address_and_hash():
-    href = urlsplit(_run(pathname="/watch", search="?view=list&q=a%26b", hash="#title=movie-1"))
+    href = urlsplit(_run(pathname="/", search="?view=list&q=a%26b", hash="#title=movie-1"))
 
     assert href.path == "/login"
-    assert parse_qs(href.query) == {"next": ["/watch?view=list&q=a%26b"]}
+    assert parse_qs(href.query) == {"next": ["/?view=list&q=a%26b"]}
     assert href.fragment == "title=movie-1"
 
 
 def test_a_session_that_ends_on_the_landing_page_needs_no_address():
-    assert _run(pathname="/watch", search="", hash="") == "/login"
+    assert _run(pathname="/", search="", hash="") == "/login"
 
 
 @pytest.mark.parametrize(
     ("part", "pathname"),
-    [("poll", "/downloads"), ("browse", "/watch"), ("browse", "/watch/show/Caf%C3%A9")],
+    [("poll", "/downloads"), ("browse", "/"), ("browse", "/watch/show/Caf%C3%A9")],
 )
 def test_a_page_that_is_refused_while_open_keeps_its_address_and_hash(part, pathname):
     href = urlsplit(_run(part, pathname=pathname, search="?a=1%262", hash="#title=movie-1"))
@@ -176,4 +176,4 @@ def test_a_page_that_is_refused_while_open_keeps_its_address_and_hash(part, path
 
 
 def test_the_rows_of_the_landing_page_need_no_address():
-    assert _run("browse", pathname="/watch", search="", hash="") == "/login"
+    assert _run("browse", pathname="/", search="", hash="") == "/login"

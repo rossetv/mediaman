@@ -176,11 +176,6 @@ function continuePage(cards, show) {
 }
 function episodeCard(key) { return card('episode/' + key, 'Brightwater', 'S1 · E' + (key - 20), { dismiss: 'show-2' }); }
 
-/* A show's own page whose episodes *watched* are watched, of 21, 22 and 23. */
-function episodesPage(watched, play = '/watch/play/21') {
-  return ['div', { id: 'watch-page' }, ['div', { class: 'watch-hero__info' }, ['a', { class: 'watch-btn--play', href: play }, play]],
-    ['section', { class: 'watch-episodes' }, ...[21, 22, 23].map((n) => ['button', { 'data-mark-toggle': 'episode/' + n, 'data-mark-name': 'E' + n, 'aria-pressed': String(watched.includes(n)) }])]];
-}
 async function press(p, n) {
   const b = p.doc.querySelector('[data-mark-toggle="episode/' + n + '"]');
   click(p.doc, b);
@@ -1599,56 +1594,6 @@ const scenarios = {
     return { ...out, afterUndo, touched, onPage: p.toasts[p.toasts.length - 1].dialog };
   },
 
-  // The show's own page follows an episode's mark: Play, the tabs and every toggle.
-  async showPage() {
-    const page = (watched, selected, play) => ['div', { id: 'watch-page' },
-      ['div', { class: 'watch-hero__info' },
-        ['div', { class: 'watch-actions' }, ['a', { class: 'watch-btn--play', href: play }, play],
-          ['button', { 'data-mark-toggle': 'show/2', 'data-mark-name': 'Brightwater', 'aria-pressed': String(watched) }]],
-        ['nav', { class: 'watch-seasons' }, ...[1, 2].map((n) => ['a', { class: 'watch-pill' + (n === selected ? ' on' : ''), href: '/s?season=' + n,
-          ...(watched && n === 1 ? { 'aria-label': 'Season 1, watched' } : {}) }, 'Season ' + n, ...(watched && n === 1 ? [['svg', { class: 'watch-pill__mark' }]] : [])])]],
-      ['section', { class: 'watch-episodes' }, ['ol', {}, ['li', {},
-        ['a', { class: 'watch-ep' + (watched ? '' : ' watch-ep--in-progress'), 'data-ep': '21' }, ['span', { class: 'watch-ep__thumb' }, ...(watched ? [] : [['progress', { class: 'watch-bar' }]])],
-          ['span', { class: 'watch-ep__text' }, watched ? 'One, watched' : 'One'], ...(watched ? [] : [['span', { class: 'watch-ep__state' }, 'In progress']])],
-        ['button', { 'data-mark-toggle': 'episode/21', 'data-mark-name': 'One', 'aria-pressed': String(watched), title: 'Mark as watched' }]]]]];
-    const run = async (onFetch) => {
-      const p = load(page(false, 1, '/watch/play/21'), { next: page(true, 1, '/watch/play/22'), onFetch });
-      const b = p.doc.querySelector('[data-mark-toggle="episode/21"]');
-      b.focus();
-      click(p.doc, b);
-      await settle();
-      const pill = p.doc.querySelectorAll('.watch-pill')[0];
-      const ep = p.doc.querySelector('.watch-ep');
-      return { fetched: p.fetched, play: p.doc.querySelector('.watch-btn--play').getAttribute('href'),
-        show: p.doc.querySelector('[data-mark-toggle="show/2"]').getAttribute('aria-pressed'), pill: [pill.getAttribute('aria-label'), pill.textContent, !!pill.querySelector('.watch-pill__mark')],
-        episode: [b.getAttribute('aria-pressed'), b.getAttribute('title'), ep.textContent, ep.classList.contains('watch-ep--in-progress'), !!ep.querySelector('.watch-bar')], focus: p.doc.activeElement === b };
-    };
-    const other = await run((doc) => { const t = doc.querySelectorAll('.watch-pill'); t[0].classList.remove('on'); t[1].classList.add('on'); });
-    return { same: await run(), otherSeason: [other.play, other.show] };
-  },
-
-  // The show's page asked for after one mark lands after the next mark's.
-  async lateTitlePage() {
-    const first = later();
-    const p = load(episodesPage([]), { next: (n) => (n === 1 ? first.answer : episodesPage([21, 22], '/watch/play/23')) });
-    await press(p, 21);
-    await press(p, 22);
-    first.send(episodesPage([21], '/watch/play/22'));
-    await settle();
-    return { pressed: pressed(p), play: p.doc.querySelector('.watch-btn--play').getAttribute('href') };
-  },
-
-  // The page asked for after a mark lands after its Undo's.
-  async lateTitlePageUndone() {
-    const first = later();
-    const p = load(episodesPage([]), { next: (n) => (n === 1 ? first.answer : episodesPage([])) });
-    await press(p, 21);
-    await p.undo();
-    first.send(episodesPage([21], '/watch/play/22'));
-    await settle();
-    return { pressed: pressed(p), play: p.doc.querySelector('.watch-btn--play').getAttribute('href') };
-  },
-
   // The Watch page asked for after an episode's mark lands after a film's mark.
   async lateRows() {
     const first = later();
@@ -1915,24 +1860,6 @@ const scenarios = {
     return p.look('lib')[0].slice(1, 3);
   },
 
-  // What a show's page leaves alone when the server's page arrives.
-  async leftAlone() {
-    const next = episodesPage([21], '/watch/play/22');
-    const go = async (before, opts) => {
-      const p = load(episodesPage([22]), { next, ...opts });
-      await before(p);
-      await press(p, 21);
-      return [p.doc.querySelector('.watch-btn--play').getAttribute('href'), pressed(p)];
-    };
-    const nothing = () => {};
-    return {
-      busyMark: await go((p) => press(p, 22), { api: { 'DELETE /api/watch/watched/episode/22': () => later().answer } }),
-      loadingSeason: await go((p) => p.doc.querySelector('.watch-episodes').setAttribute('aria-busy', 'true'), {}),
-      signedOut: await go(nothing, { redirected: true }),
-      playFocused: await go((p) => p.doc.querySelector('.watch-btn--play').focus(), {}),
-      followed: await go(nothing, {}),
-    };
-  },
 };
 
 // What to find more like each card's title by, where an AI answers, then where none does.

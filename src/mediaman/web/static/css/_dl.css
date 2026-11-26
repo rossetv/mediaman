@@ -96,11 +96,15 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
 .dl-state-searching     { background: var(--rgba-warning-bg); color: var(--warning); }
 .dl-state-downloading   { background: var(--rgba-accent-chip); color: var(--accent-text); }
 .dl-state-almost_ready  { background: var(--rgba-success-chip); color: var(--success); }
+.dl-state-needs_attention { background: var(--rgba-warning-bg); color: var(--warning); }
+.dl-state-finding_copy  { background: var(--rgba-warning-bg); color: var(--warning); }
 .dl-state-ready         { background: var(--rgba-success-bg-hover); color: var(--success); }
 .dl-state-upcoming      { background: var(--rgba-overlay-md); color: var(--t2); }
 .dl-state-pill--xs      { padding: 2px 8px; white-space: nowrap; }
 
 .dl-search-hint { font-size: 12px; color: var(--t3); margin-top: 6px; }
+/* Where to fix a download that needs attention, on a line of its own under what is wrong. */
+.dl-attention-hint { display: block; color: var(--t2); }
 .dl-arr-link { position: relative; display: inline-block; white-space: nowrap; color: var(--accent); }
 .dl-arr-link:hover { text-decoration: underline; }
 /* 44px to touch, the line's own height to look at: the rest is taken back in margins. */
@@ -345,6 +349,7 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
 .dl-ep-status-pill.ready { background: var(--rgba-success-chip); color: var(--success); }
 .dl-ep-status-pill.downloading { background: var(--rgba-accent-chip); color: var(--accent-text); }
 .dl-ep-status-pill.queued { background: var(--rgba-overlay-lg); color: var(--t1); }
+.dl-ep-status-pill.needs_attention { background: var(--rgba-warning-bg); color: var(--warning); }
 
 /* The heading takes the focus of a row that went; the ring is as wide as its words. */
 #dl-root h1 { width: fit-content; }

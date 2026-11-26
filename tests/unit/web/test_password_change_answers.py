@@ -340,7 +340,7 @@ class TestForcedPage:
         field, rules, _ = self._told(_submit(page, new=new))
 
         assert (field, rules) == ("new_password", ["same"])
-        assert page.get("/watch", follow_redirects=False).headers["location"] == _PAGE
+        assert page.get("/", follow_redirects=False).headers["location"] == _PAGE
 
     def test_the_lock_is_said_and_the_right_password_is_not_confirmed(self, page, conn):
         _lock(conn)
@@ -373,4 +373,4 @@ class TestForcedPage:
     def test_a_good_one_opens_watch(self, page):
         resp = _submit(page)
 
-        assert (resp.status_code, resp.headers["location"]) == (302, "/watch")
+        assert (resp.status_code, resp.headers["location"]) == (302, "/")

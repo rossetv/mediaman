@@ -2,9 +2,9 @@
    the drawn marks and the page that only has something to say. #}
 {% from "_components.html" import icon %}
 
-{% macro bar(label="Open mediaman", href="/watch") -%}
+{% macro bar(label="Open mediaman", href="/") -%}
 <header class="share-bar">
-  <a class="brand" href="/watch" aria-label="mediaman">{{ icon("i-wordmark", "wordmark") }}</a>
+  <a class="brand" href="/" aria-label="mediaman">{{ icon("i-wordmark", "wordmark") }}</a>
   <a class="btn btn--ghost" href="{{ href }}">{{ label }}</a>
 </header>
 {%- endmacro %}

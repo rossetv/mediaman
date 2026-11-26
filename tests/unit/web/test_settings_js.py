@@ -54,6 +54,12 @@ def test_discard_puts_back_the_last_saved_values() -> None:
     assert out["afterSaveDiscard"] == {"value": "http://c", "flag": True}
 
 
+def test_the_page_says_when_the_bar_is_up_and_when_it_is_gone() -> None:
+    out = _run("savebar")
+    assert out["pageWhileDirty"] is True
+    assert out["pageAfterDiscard"] is False
+
+
 def test_the_pages_room_for_the_bar_follows_the_bars_height() -> None:
     assert _run("savebarRoom") == [{"--savebar-h": "61px"}, {"--savebar-h": "258px"}]
 
@@ -963,3 +969,11 @@ def test_a_failed_test_names_the_service_once_for_a_screen_reader() -> None:
 
 def test_a_finished_save_tells_the_newsletter_panel() -> None:
     assert _run("savedTellsNewsletter") == {"told": 1}
+
+
+def test_the_section_rail_is_marked_stuck_only_while_it_rests_under_the_bar() -> None:
+    assert _run("railStuck") == {"atRest": False, "stuck": True, "back": False}
+
+
+def test_the_section_rail_is_marked_stuck_again_after_a_resize_moves_it() -> None:
+    assert _run("railStuckResize") == {"before": False, "after": True}

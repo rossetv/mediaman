@@ -133,7 +133,8 @@
       pct: bar ? bar.value : 0,
       leaving: textOf(poster, '.watch-badge__long'),
       poster: img && !img.hasAttribute('data-broken') ? img.getAttribute('src') : '',
-      pick: pickOf(link)
+      pick: pickOf(link),
+      why: link.getAttribute('data-ai-why') || '' // what the AI said of it, where a search's AI picked it
     };
   }
 
@@ -328,6 +329,7 @@
     if (p.card.poster) picture.appendChild(image('pv__still', p.card.poster));
     p.body = shell.appendChild(el('div', 'pv__body'));
     if (p.card.pick) n.classList.add('pv--reason');
+    if (link.closest('.watch-sheet')) n.classList.add('pv--over');
     if (!known(SCROLLED)) p.hint = shell.appendChild(hint());
     shell.appendChild(posterCopy(p));
     if (watch.marks && watch.marks.canRate(p.card.ref, link)) rating(p);
@@ -607,9 +609,10 @@
     p.actions = p.body.appendChild(el('div', (p.actions && p.actions.className) || 'pv__actions'));
     actions(p);
     if (p.rating) p.body.appendChild(p.rating.line);
-    if (!d && p.card.pick) p.body.appendChild(reason('')).appendChild(lines(['92%', '60%']));
-    else if (d && (d.reason || p.card.pick)) p.body.appendChild(reason(d.reason || ''));
-    p.n.classList.toggle('pv--reason', !!p.card.pick || !!(d && d.reason));
+    var why = (d && d.reason) || p.card.why;
+    if (!d && p.card.pick && !why) p.body.appendChild(reason('')).appendChild(lines(['92%', '60%']));
+    else if (why || (d && p.card.pick)) p.body.appendChild(reason(why || ''));
+    p.n.classList.toggle('pv--reason', !!p.card.pick || !!why);
     var words = d && (d.overview || d.tagline);
     if (words) p.body.appendChild(el('p', 'pv__text', words));
     else if (!d) p.body.appendChild(lines(p.card.pick ? ['96%', '70%'] : ['100%', '94%', '58%']));
@@ -841,12 +844,28 @@
     return a;
   }
 
+  /* Whether a film, or a show, can be downloaded here: Radarr gets the one, Sonarr the other. */
+  var canDownload = (function () {
+    var node = document.getElementById('watch-page-data');
+    try { return (JSON.parse(node ? node.textContent : '{}') || {}).can_download || {}; } catch (e) { return {}; }
+  })();
+
+  /* Whether the card's title may be offered for download before its reply says: not where its
+     kind cannot be, nor where it could be either kind and one of them cannot. */
+  function mayDownload(p) {
+    var m = /^tmdb-(movie|tv)-/.exec(p.card.ref || '');
+    var kind = m ? (m[1] === 'tv' ? 'show' : 'movie') : p.link.getAttribute('data-kind');
+    if (kind === 'movie' || kind === 'show') return canDownload[kind] !== false;
+    return canDownload.movie !== false && canDownload.show !== false;
+  }
+
   /* Play or Resume, Download, or how far a download is. */
   function primary(p) {
     var d = p.data;
     if (p.card.plays) return playLink(p.card.pct ? 'Resume' : 'Play', p.card.href);
     if (!d) {
       var held = LIBRARY_RE.test(p.card.ref) || !!posterOf(p.link).querySelector('.watch-badge--in');
+      if (!held && !mayDownload(p)) return null;
       var b = button('pv__waiting skel skel--pill', held ? p.card.pct ? 'Resume' : 'Play' : 'Download', held ? 'i-play' : 'i-download');
       b.setAttribute('aria-disabled', 'true');
       return b;
@@ -945,7 +964,7 @@
 
   function openDetail(p) {
     if (!watch.detail) return;
-    watch.detail.open(p.card.ref, { origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick });
+    watch.detail.open(p.card.ref, { origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick, why: p.card.why });
     if (detailOpen()) handOver(p);
   }
 
@@ -1523,7 +1542,7 @@
   function pickUp(p) {
     var tmdb = cardOf(p.link).getAttribute('data-tmdb-ref');
     var drawn = watch.detail.draw(p.card.ref, {
-      origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick,
+      origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick, why: p.card.why,
       preview: p.data, poster: p.card.poster, noWide: !!p.media.querySelector('.pv__standin'), watched: seen(p), tmdbRef: tmdb || p.card.ref
     });
     if (!drawn) return false;

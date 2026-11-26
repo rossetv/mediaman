@@ -115,7 +115,8 @@ def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> 
     found, total = lib.search_library(conn, libraries, term, sys.maxsize if admin else SEARCH_LIMIT)
     items = library_items(conn, username, libraries, found[:SEARCH_LIMIT])
     if admin:
-        search = TitleSearch(conn, term)
+        # As search_library ranked them: a title it forgave among them is put after the rest.
+        search = TitleSearch(conn, term, forgiving=True)
         unheld = all_titles.in_one_read(
             conn, lambda: all_titles.unheld(conn, libraries, term, found)
         )

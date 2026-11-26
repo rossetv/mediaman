@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
 from mediaman.core.time import parse_iso_utc
 from mediaman.services.downloads.download_format import (
+    attention_reason,
     classify_movie_upcoming,
     compute_movie_released_at,
     extract_poster_url,
@@ -58,6 +59,11 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
             release_names=[release_name] if release_name else [],
         )
         card["tracked_state"] = q.get("trackedDownloadState") or ""
+        card["tracked_status"] = q.get("trackedDownloadStatus") or ""
+        card["attention"] = attention_reason(q)
+        card["queue_id"] = q.get("id") or 0
+        card["movie_id"] = q.get("movieId") or movie.get("id") or 0
+        card["download_id"] = q.get("downloadId") or ""
         _identify(card, movie.get("tmdbId"))
         items.append(card)
     return items

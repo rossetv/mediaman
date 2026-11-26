@@ -119,7 +119,7 @@ function load(opts = {}) {
     MutationObserver: class { observe() {} disconnect() {} },
     innerHeight: opts.innerHeight || 900,
     innerWidth: opts.innerWidth || 1280,
-    location: { pathname: '/watch', href: '/watch', search: opts.search || '', hash: opts.hash || '' },
+    location: { pathname: '/', href: '/', search: opts.search || '', hash: opts.hash || '' },
     history: { state: null, replaceState(state, _t, url) {
       this.state = state;
       if (url !== ctx.location.pathname + ctx.location.search + ctx.location.hash) replaced.push(url);
@@ -1210,7 +1210,7 @@ const scenarios = {
       await settle();
       let made = null;
       p.ctx.MMWatch.grid.open = (o) => { made = o; };
-      p.doc.body.appendChild(build(p.doc, ['div', {}, ['div', { class: 'watch-all__body' }], ['a', { href: '/watch?all=' + id, 'data-row-open': id }, 'Row']]));
+      p.doc.body.appendChild(build(p.doc, ['div', {}, ['div', { class: 'watch-all__body' }], ['a', { href: '/?all=' + id, 'data-row-open': id }, 'Row']]));
       p.doc.querySelector('.watch-all__body').toggleAttribute = () => {};
       click(p.doc, p.doc.querySelector('[data-row-open="' + id + '"]'));
       out[id] = made.fetchPage ? [(await made.fetchPage('k')).total, (await made.sort.choose('az')).next] : null;
@@ -1252,7 +1252,7 @@ const scenarios = {
     let made = null;
     p.ctx.MMWatch.grid.open = (o) => { made = o; };
     p.doc.body.appendChild(build(p.doc, ['div', { class: 'watch-all__body' }])).toggleAttribute = () => {};
-    const open = p.doc.body.appendChild(build(p.doc, ['a', { href: '/watch?all=recommended', 'data-row-open': 'recommended' }]));
+    const open = p.doc.body.appendChild(build(p.doc, ['a', { href: '/?all=recommended', 'data-row-open': 'recommended' }]));
     const first = rec(p.doc).querySelector('.watch-card');
     click(p.doc, open);
     const heading = made.cards[0];

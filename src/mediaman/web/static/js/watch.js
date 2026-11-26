@@ -11,7 +11,6 @@
   var watch = window.MMWatch;
   if (!watch || !watch.core) return;
   if (watch.search) watch.search.init();
-  if (watch.seasons) watch.seasons.init();
   // Last: what the address names opens in modules that are all there.
   if (watch.address) watch.address.start();
 })();

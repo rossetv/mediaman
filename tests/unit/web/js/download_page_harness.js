@@ -192,6 +192,22 @@ const SCENARIOS = {
     out.ready = seen(p);
     return out;
   },
+  async attention() {
+    const p = page();
+    p.start();
+    await settle();
+    await press(p);
+    await p.poll({ state: 'needs_attention', progress: 100, eta: '', ...JSON.parse(process.argv[3] || '{}') });
+    return { ...seen(p), held: p.act().querySelector('.share-steps').classList.contains('is-held') };
+  },
+  async finding() {
+    const p = page();
+    p.start();
+    await settle();
+    await press(p);
+    await p.poll({ state: 'finding_copy', progress: 0, eta: '' });
+    return seen(p);
+  },
   async eta() {
     const p = page();
     p.start();

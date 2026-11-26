@@ -72,6 +72,7 @@ from mediaman.services.arr._throttle_state import (
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.fetcher import fetch_arr_queue
+from mediaman.services.arr.import_retry import retry_stuck_imports
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -397,6 +398,11 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
             logger.warning(
                 "auto-abandon: skipped %s due to error", item.get("dl_id"), exc_info=True
             )
+
+    try:
+        retry_stuck_imports(conn, secret_key, arr_items)
+    except Exception:  # rationale: scheduler must survive a failed retry pass
+        logger.warning("import retry: pass failed", exc_info=True)
 
     try:
         _trigger_sonarr_partial_missing(conn, arr_items, secret_key)

@@ -3603,6 +3603,22 @@ const scenarios = {
     return out;
   },
 
+  /* The page says while Keep's menu is open, for the toasts to make way, and not for another menu. */
+  async keep_menu_marks_page(p) {
+    p.held.keep = JSON.parse(p.win.serverPlays);
+    await streamPlays(p, 0);
+    const marked = () => doc.documentElement.classList.contains('has-player-keep-open');
+    const keep = p.q('[data-keep]').querySelector('[data-menu-trigger]');
+    press(keep);
+    const open = marked();
+    press(p.q('[data-quality-btn]'));
+    const otherMenu = marked();
+    press(keep);
+    const reopened = marked();
+    press(keep);
+    return { open, otherMenu, reopened, closed: marked() };
+  },
+
   /* What the toast of a keep offers, by what the server says of undoing it. */
   async keep_offers(p) {
     p.held.keep = JSON.parse(p.win.serverPlays);
@@ -4467,20 +4483,20 @@ const scenarios = {
       p.tick(more && more.waits || 60000);
       return Object.assign(out, { late: p.win.location.href });
     };
-    const reloaded = boot(html, false, null, undefined, { referrer: 'http://mm/watch?genre=action', length: 3 }).win.history.state;
+    const reloaded = boot(html, false, null, undefined, { referrer: 'http://mm/?genre=action', length: 3 }).win.history.state;
     return {
-      fromWatch: press({ referrer: 'http://mm/watch?genre=action', length: 3 }),
+      fromWatch: press({ referrer: 'http://mm/?genre=action', length: 3 }),
       reload: press({ length: 3, state: reloaded }),
-      newTab: press({ referrer: 'http://mm/watch', length: 1 }),
+      newTab: press({ referrer: 'http://mm/', length: 1 }),
       deep: press({ length: 2 }),
       otherSite: press({ referrer: 'http://evil/watch', length: 3 }),
       otherPage: press({ referrer: 'http://mm/watch/play/9', length: 3 }),
-      slow: press({ referrer: 'http://mm/watch', length: 3 }, { waits: 10000 }),
-      slower: press({ referrer: 'http://mm/watch', length: 3 }, { leaves: true }),
-      twice: press({ referrer: 'http://mm/watch', length: 3 }, { twice: 500 }),
-      again: press({ referrer: 'http://mm/watch', length: 3 }, { twice: 2500 }),
-      onItsWay: press({ referrer: 'http://mm/watch', length: 3 }, { twice: 2500, leaves: true }),
-      newTabPress: press({ referrer: 'http://mm/watch', length: 3 }, { metaKey: true }),
+      slow: press({ referrer: 'http://mm/', length: 3 }, { waits: 10000 }),
+      slower: press({ referrer: 'http://mm/', length: 3 }, { leaves: true }),
+      twice: press({ referrer: 'http://mm/', length: 3 }, { twice: 500 }),
+      again: press({ referrer: 'http://mm/', length: 3 }, { twice: 2500 }),
+      onItsWay: press({ referrer: 'http://mm/', length: 3 }, { twice: 2500, leaves: true }),
+      newTabPress: press({ referrer: 'http://mm/', length: 3 }, { metaKey: true }),
     };
   },
 
@@ -6107,7 +6123,144 @@ const scenarios = {
     }
     return out;
   },
+
+  /* A title that is slow to start: the name, from a third of a second in, until it plays. */
+  async intro_slow(p) {
+    await settle();
+    p.tick(250);
+    const early = introState(p);
+    p.tick(100);
+    const late = introState(p);
+    p.tick(4000);
+    const waits = introState(p);
+    await streamPlays(p, 0);
+    return { early: early, late: late, waits: waits, playing: introState(p) };
+  },
+
+  /* A title that starts at once never shows the name. */
+  async intro_fast(p) {
+    let ever = false;
+    const cl = p.root.classList;
+    const add = cl.add.bind(cl);
+    cl.add = (...names) => { ever = ever || names.indexOf('is-intro') >= 0; return add(...names); };
+    await settle();
+    p.tick(200);
+    await streamPlays(p, 0);
+    p.tick(1000);
+    return Object.assign(introState(p), { ever: ever });
+  },
+
+  /* Buffering and seeking once it plays keep the spinner. */
+  async intro_midplay(p) {
+    await streamPlays(p, 30);
+    fire(p.video, 'waiting');
+    p.tick(1000);
+    const waiting = introState(p);
+    fire(p.video, 'playing');
+    p.video.seeking = true;
+    p.video.currentTime = 900;
+    fire(p.video, 'seeking');
+    fire(p.video, 'waiting');
+    p.tick(1000);
+    return { waiting: waiting, seeking: introState(p) };
+  },
+
+  /* The next episode is a title that starts. */
+  async intro_next(p) {
+    await streamPlays(p, 100);
+    p.replies.push(answer('1080p-8000'));
+    click(p.q('[data-next-btn]'));
+    await settle();
+    p.tick(400);
+    const loading = Object.assign(introState(p), { held: holdState(p).shown });
+    const v = p.video;
+    await settle();
+    p.hlsList[p.hlsList.length - 1].emit('hlsManifestParsed');
+    await settle();
+    v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720; v.currentTime = 0;
+    fire(v, 'playing');
+    return { loading: loading, playing: Object.assign(introState(p), { held: holdState(p).shown }) };
+  },
+
+  /* A start that fails while the name shows: the message is not drawn over, and Try again starts it again. */
+  async intro_error(p) {
+    await settle();
+    p.tick(400);
+    const before = introState(p);
+    p.replies.push({ err: { status: 503 } }, answer('1080p-8000'));
+    p.hlsList[0].emit('hlsError', { fatal: true, type: 'networkError' });
+    await settle();
+    const cl = p.root.classList;
+    const failed = Object.assign(introState(p), { out: cl.contains('is-intro-out'), message: messageState(p) !== null });
+    press(p.q('[data-retry]'));
+    await settle();
+    p.tick(400);
+    const again = Object.assign(introState(p), { message: messageState(p) !== null });
+    await streamPlays(p, 0);
+    return { before: before, failed: failed, again: again, playing: introState(p) };
+  },
+
+  /* Autoplay is refused and the picture is sought before it first plays: no name. */
+  async intro_seek_first(p) {
+    await settle();
+    p.hlsList[0].emit('hlsManifestParsed');
+    await settle();
+    const v = p.video;
+    v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720;
+    v.paused = true;
+    fire(v, 'pause');
+    fire(v, 'canplay');
+    v.seeking = true;
+    fire(v, 'seeking');
+    fire(v, 'waiting');
+    p.tick(1000);
+    return introState(p);
+  },
+
+  /* Back from the page cache while the name shows or waits. */
+  async intro_back(p) {
+    await settle();
+    p.tick(400);
+    const shown = introState(p);
+    p.leave();
+    p.comeBack();
+    await settle();
+    p.tick(1000);
+    await streamPlays(p, 0);
+    p.tick(1000);
+    return { shown: shown, after: introState(p), out: p.root.classList.contains('is-intro-out') };
+  },
+
+  /* A second name, once the first has gone out, is drawn from the start: neither class holds it at a reflow. */
+  async intro_restart(p) {
+    await settle();
+    p.tick(400);
+    await streamPlays(p, 100);
+    const cl = p.root.classList;
+    const out = cl.contains('is-intro-out');
+    const reflows = [];
+    Object.defineProperty(p.root, 'offsetWidth', { get() { reflows.push([cl.contains('is-intro'), cl.contains('is-intro-out')]); return 0; } });
+    p.replies.push(answer('1080p-8000'));
+    click(p.q('[data-next-btn]'));
+    await settle();
+    p.tick(400);
+    return { out: out, reflows: reflows, intro: cl.contains('is-intro') };
+  },
+
+  /* Sent to a TV as it starts: the page shows what it shows today. */
+  async away_intro(p) {
+    p.elsewhere.plays.push(() => new Promise(() => {}));
+    await openSheet(p);
+    await pickRow(p, 'tv-5');
+    p.tick(1000);
+    await settle();
+    return introState(p);
+  },
 };
+
+function introState(p) {
+  return { intro: p.root.classList.contains('is-intro'), starting: p.root.classList.contains('is-starting'), loading: p.root.classList.contains('is-loading') };
+}
 
 (async () => {
   const [file, name, reduced, serverPlays] = process.argv.slice(2);

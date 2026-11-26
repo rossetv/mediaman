@@ -25,14 +25,20 @@
          mediaman *is* poking Radarr/Sonarr on a cadence — absence of Activity
          in *arr does not mean nothing is happening. Only shown in the
          `searching` state; hidden otherwise so it doesn't linger after the
-         item starts downloading. */
+         item starts downloading. Of one that needs attention it says instead what
+         Radarr or Sonarr says is wrong and where to fix it, which only an admin is sent; or,
+         to anyone, that mediaman will look for another copy itself; else, to anyone else, that
+         it waits for an admin. */
   function updateSearchHint(card, item) {
     var d = dom();
     var hint = d.q('[data-v="search-hint"]', card);
     if (!hint) return;
+    var held = item.state === 'needs_attention';
     /* The link into Radarr or Sonarr is an admin's alone; for anyone else it is never drawn. */
-    var link = d.canAbandonHere() ? item.arr_link : '';
-    if (item.state !== 'searching' || (!item.search_hint && !link)) {
+    var link = !held && d.canAbandonHere() ? item.arr_link : '';
+    var words = (held ? item.attention : item.search_hint) || '';
+    var fix = held ? (item.retrying ? 'mediaman will look for another copy' : item.attention_hint || 'Won’t finish until an admin sorts it out') : '';
+    if ((item.state !== 'searching' && !held) || (!words && !link && !fix)) {
       d.passFocus(hint);
       hint.hidden = true;
       return;
@@ -60,8 +66,20 @@
       hint.appendChild(sep);
       hint.appendChild(a);
     }
-    d.setText(text, item.search_hint || '');
-    if (sep) sep.hidden = !item.search_hint || !link;
+    d.setText(text, words);
+    text.hidden = !words;
+    var fixed = d.q('[data-v="attention-hint"]', hint);
+    if (fix && !fixed) {
+      fixed = document.createElement('span');
+      fixed.className = 'dl-attention-hint';
+      fixed.setAttribute('data-v', 'attention-hint');
+      hint.appendChild(fixed);
+    }
+    if (fixed) {
+      d.setText(fixed, fix);
+      fixed.hidden = !fix;
+    }
+    if (sep) sep.hidden = !words || !link;
     if (a) {
       if (!link) d.passFocus(a);
       a.hidden = !link;
@@ -121,7 +139,7 @@
 
     /* Progress wrap (hide entirely while searching) */
     var progressWrap = d.q('[data-v="progress-wrap"]', card);
-    if (progressWrap) progressWrap.hidden = (item.state === 'searching');
+    if (progressWrap) progressWrap.hidden = (item.state === 'searching' || item.state === 'needs_attention' || item.state === 'finding_copy');
 
     /* Progress bar */
     var fill = d.q('[data-v="fill"]', card);

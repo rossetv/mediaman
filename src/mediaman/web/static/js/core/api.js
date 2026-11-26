@@ -92,7 +92,7 @@
   /* Sign-in, and back to this page after it; the browser keeps the hash over the redirects. */
   function loginUrl() {
     var here = window.location.pathname + (window.location.search || '');
-    return '/login' + (here === '/watch' ? '' : '?next=' + encodeURIComponent(here)) +
+    return '/login' + (here === '/' ? '' : '?next=' + encodeURIComponent(here)) +
       (window.location.hash || '');
   }
 

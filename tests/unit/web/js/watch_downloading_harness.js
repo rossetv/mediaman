@@ -112,6 +112,23 @@ function load(answers, opts = {}) {
 }
 
 const scenarios = {
+  async needsAttention() {
+    const why = 'Single episode file contains all episodes in seasons. Review file name or manually import';
+    const held = { state: 'needs_attention', percent: 0, minutes_left: null };
+    const p = load([answer([
+      item('Told', { ...held, attention: why, attention_hint: 'Fix it in Sonarr: Activity → Queue' }),
+      item('Viewer', { ...held, attention: '', attention_hint: '' }),
+      item('Retried', { ...held, retrying: true, attention: why, attention_hint: 'Fix it in Sonarr: Activity → Queue' }),
+      item('ViewerRetried', { ...held, retrying: true, attention: '', attention_hint: '' }),
+    ])]);
+    await p.step(10);
+    const of = (t) => ({
+      line: p.line(t), title: p.card(t).querySelector('.dw__line').getAttribute('title'),
+      classes: p.card(t).className, fill: p.card(t).style.set['--p'],
+      fix: ((n) => (n && !n.hidden ? n.textContent : null))(p.card(t).querySelector('.dw__fix')),
+    });
+    return { told: of('Told'), viewer: of('Viewer'), retried: of('Retried'), viewerRetried: of('ViewerRetried') };
+  },
   async nothing() {
     const p = load([answer([])]);
     await p.step(10);
@@ -135,10 +152,12 @@ const scenarios = {
     const p = load([answer([
       item('Known'), item('Nzb', { ref: null, href: '/downloads' }),
       item('Bad', { ref: 'javascript:1', href: 'javascript:alert(1)', poster_url: 'http://elsewhere/x', art_url: '//elsewhere/y' }),
+      item('Far', { poster_url: 'https://pictures.example/x', art_url: 'https://pictures.example/y' }),
     ])]);
     await p.step(10);
     const of = (t) => { const a = p.card(t).querySelector('a'); return [a.getAttribute('href'), a.getAttribute('data-title-ref')]; };
-    return { known: of('Known'), nzb: of('Nzb'), bad: of('Bad'), pictures: p.card('Bad').querySelectorAll('img').map((i) => i.getAttribute('src')) };
+    return { known: of('Known'), nzb: of('Nzb'), bad: of('Bad'), pictures: p.card('Bad').querySelectorAll('img').map((i) => i.getAttribute('src')),
+      far: p.card('Far').querySelectorAll('img').map((i) => [i.getAttribute('src'), i.getAttribute('data-next-src')]) };
   },
   async live() {
     const p = load([answer([item('A', { percent: 40 })]), answer([item('A', { percent: 55, minutes_left: 9 })])]);

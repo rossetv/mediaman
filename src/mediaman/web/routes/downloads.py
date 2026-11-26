@@ -36,6 +36,7 @@ from mediaman.web.routes.downloads_strip import (
     library_of,
     library_title,
     mark_playable,
+    with_retrying,
 )
 from mediaman.web.routes.poster.title_art import title_art
 
@@ -99,15 +100,18 @@ def _page_payload(
     TMDB or another service, and films of one title by their labels; and what the header's
     ring is told of them. A recent download the library does not hold yet was only added. A
     viewer is told of a service that does not answer only that downloads are not available.
-    Copies: completion detection keeps the items as they came.
+    One that needs attention says whether mediaman will look for another copy; the key that is
+    read by is the server's alone. Copies: completion detection keeps the items as they came.
     """
     asked_at = strip.on_page.now()
-    data = build_downloads_response(conn, secret_key)
+    data = with_retrying(conn, build_downloads_response(conn, secret_key))
     index = library_of(conn, secret_key)
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         title = item.get("label") or item["title"]
-        return {**item, "title": title, "poster_url": _poster(item, index)}
+        page_item = {**item, "title": title, "poster_url": _poster(item, index)}
+        page_item.pop("retry_key", None)
+        return page_item
 
     page: DownloadsResponse = {
         **data,
@@ -178,14 +182,22 @@ def _lookup_dl_item(
 
 
 def _for_viewer(payload: DownloadsResponse) -> None:
-    """Clear what only an admin uses on every item: Abandon, where Radarr and Sonarr are, the
-    names of releases, and the ids and dates kept for the server's own bookkeeping."""
+    """Clear what only an admin uses on every item: Abandon, where Radarr and Sonarr are and
+    what they say is wrong, the names of releases, and the ids and dates kept for the server's
+    own bookkeeping."""
     hero = payload["hero"]
     items = [*payload["queue"], *payload["upcoming"]]
     if hero is not None:
         items.append(hero)
     for item in items:
-        item.update(abandon_visible=False, arr_link="", arr_source="", arr_id=0)
+        item.update(
+            abandon_visible=False,
+            arr_link="",
+            arr_source="",
+            arr_id=0,
+            attention="",
+            attention_hint="",
+        )
         item.pop("tmdb_id", None)
         item.pop("queued_since", None)
     for item in [*items, *payload["recent"]]:

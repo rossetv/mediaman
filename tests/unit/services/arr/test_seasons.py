@@ -143,3 +143,28 @@ def test_queue_entries_that_cannot_be_read_are_skipped():
     odd = [{"series": "x"}, {**_entry(1), "episode": [1]}, {**_entry(1), "size": "big"}]
 
     assert queued_seasons(readable_queue([*odd, _entry(2)])) == {(9, 2): "downloading"}
+
+
+def _held_back(season, **over):
+    return {
+        **_entry(season, "completed"),
+        "trackedDownloadState": "importBlocked",
+        "trackedDownloadStatus": "warning",
+        **over,
+    }
+
+
+def test_a_season_sonarr_will_not_import_needs_attention_unless_another_episode_is_coming_in():
+    assert queued_seasons([_held_back(1), _held_back(1)]) == {(9, 1): "needs_attention"}
+    assert queued_seasons([_held_back(1), _entry(1)]) == {(9, 1): "downloading"}
+    assert queued_seasons([_entry(1, "queued"), _held_back(1)]) == {(9, 1): "needs_attention"}
+    # An import that is only waiting is not stuck.
+    ok = _held_back(2, trackedDownloadState="importing", trackedDownloadStatus="ok")
+    assert queued_seasons([ok]) == {(9, 2): "downloading"}
+
+
+def test_a_season_that_needs_attention_is_not_held_or_offered_as_downloading():
+    queue = queued_seasons([_held_back(1)])
+
+    assert _state(_season(1, 3, 8, 8, True), queue=queue)[0] == "needs_attention"
+    assert _state(_season(1, 8, 8, 8, True), queue=queue)[0] == "held"

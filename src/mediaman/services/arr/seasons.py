@@ -17,8 +17,18 @@ from mediaman.services.arr.state import _season_has_aired, _season_stats, season
 
 logger = logging.getLogger(__name__)
 
-QueueState = Literal["downloading", "queued"]
-Status = Literal["held", "partly_held", "downloading", "queued", "asked", "not_asked", "not_out"]
+QueueState = Literal["downloading", "needs_attention", "queued"]
+Status = Literal[
+    "held",
+    "partly_held",
+    "downloading",
+    "needs_attention",
+    "finding_copy",
+    "queued",
+    "asked",
+    "not_asked",
+    "not_out",
+]
 #: (Sonarr series id, season number) -> what the download queue holds of it.
 SeasonQueue = Mapping[tuple[int, int], QueueState]
 
@@ -107,10 +117,16 @@ def queued_seasons(queue: Iterable[ArrQueueItem]) -> dict[tuple[int, int], Queue
                 "sizeleft": left,
                 "progress": clamp_progress(size, left),
                 "status": entry.get("status") or entry.get("trackedDownloadStatus") or "queued",
+                "tracked_state": entry.get("trackedDownloadState") or "",
+                "tracked_status": entry.get("trackedDownloadStatus") or "",
             }
         )
         if state == "queued":
             found.setdefault((series_id, number), "queued")
+        elif state == "needs_attention":
+            # What is still coming in says more of the season than what is stuck.
+            if found.get((series_id, number)) != "downloading":
+                found[series_id, number] = "needs_attention"
         elif state != "searching":
             found[series_id, number] = "downloading"
     return found

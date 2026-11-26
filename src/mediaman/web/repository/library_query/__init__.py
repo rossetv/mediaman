@@ -10,7 +10,7 @@ Four private modules, one concept each:
   ``protection_label``, ``title_ref``, ``_shape_rows``) that convert raw DB values into
   Jinja-template-ready strings and dicts.
 * `._match` — how a title is compared with what a person typed (``TitleSearch``,
-  ``without_article``, ``MAX_SEARCH_TERM_LEN``).
+  ``title_distance``, ``loosened``, ``without_article``, ``MAX_SEARCH_TERM_LEN``).
 * `._stats` — simple ``COUNT`` / ``SUM`` queries for the library stats bar
   (``fetch_stats``, ``count_movies``, ``count_tv_shows``, ``count_anime_shows``, ``count_stale``,
   ``count_titles``, ``sum_total_size_bytes``).
@@ -28,8 +28,11 @@ from mediaman.web.repository.library_query._display import (
     type_css,
 )
 from mediaman.web.repository.library_query._match import (
+    FORGIVEN,
     MAX_SEARCH_TERM_LEN,
     TitleSearch,
+    loosened,
+    title_distance,
     without_article,
 )
 from mediaman.web.repository.library_query._query import (
@@ -59,6 +62,7 @@ __all__ = [
     "ALL_SEASON_TYPES",
     "ANIME_SEASON_TYPES",
     "DUE_SOON_DAYS",
+    "FORGIVEN",
     "MAX_SEARCH_TERM_LEN",
     "TV_SEASON_TYPES",
     "VALID_SORTS",
@@ -74,10 +78,12 @@ __all__ = [
     "fetch_display_rows",
     "fetch_library",
     "fetch_stats",
+    "loosened",
     "protection_label",
     "row_items",
     "shape_display_rows",
     "sum_total_size_bytes",
+    "title_distance",
     "title_ref",
     "type_css",
     "without_article",

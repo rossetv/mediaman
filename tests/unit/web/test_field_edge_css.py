@@ -89,9 +89,9 @@ def test_on_history_the_keyboard_lands_clear_of_the_bar_and_tools_but_a_bars_own
     None
 ):
     assert "scroll-padding-top: var(--bar-clear)" in _of(
-        'html:has(> body[data-page="history"])', "_history.css"
+        'html[data-page="history"]', "_history.css"
     )
-    held = 'html:has(> body[data-page="history"] :is(.nav-glass, .hx-tools) :focus)'
+    held = 'html[data-page="history"].is-bar-focus'
     assert "scroll-padding-top: 0" in _of(held, "_history.css")
 
 
@@ -99,7 +99,7 @@ def test_under_a_short_window_historys_tools_and_all_titles_head_go_with_the_pag
     short = "(max-height: 500px)"
     assert "position: relative" in _of(".hx-tools", "_history.css", short)
     assert "--bar-clear: calc(var(--nav-h) + 12px)" in _of(
-        'html:has(> body[data-page="history"])', "_history.css", short
+        'html[data-page="history"]', "_history.css", short
     )
     assert "position: relative" in _of(".watch-all__head", "_watch_grid.css", short)
 

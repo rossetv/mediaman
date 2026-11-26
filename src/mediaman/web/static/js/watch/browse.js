@@ -45,7 +45,7 @@
   function toLogin() {
     var here = window.location;
     var place = here.pathname + here.search;
-    here.href = '/login' + (place === '/watch' ? '' : '?next=' + encodeURIComponent(place)) + here.hash;
+    here.href = '/login' + (place === '/' ? '' : '?next=' + encodeURIComponent(place)) + here.hash;
   }
 
   /* A 401: the session ran out, so the login page, not a "Couldn't load". */
@@ -94,7 +94,7 @@
     if (item.keep_id) article.setAttribute('data-keep-id', item.keep_id);
     if (item.leaving_id) watch.search.setLeaving(article, item);
     var link = el('a', 'watch-card__link');
-    link.setAttribute('href', safePath(item.href) || '/watch#title=' + ref);
+    link.setAttribute('href', safePath(item.href) || '/#title=' + ref);
     link.setAttribute('data-title-ref', ref);
     if (item.kind === 'movie' || item.kind === 'show') link.setAttribute('data-kind', item.kind);
     if (item.in_library) link.setAttribute('data-in-library', '');
@@ -719,7 +719,7 @@
       var options = payload.batches.map(function (b, i) { return { id: b.id, label: batchName(b, i === 0) }; }).slice(Math.max(0, from));
       return options.length > 1 ? { label: 'Jump to', value: payload.batch, options: options, jump: true } : null;
     }
-    var empty = { title: 'No recommendations yet', link: 'Back to all rows', href: '/watch' };
+    var empty = { title: 'No recommendations yet', link: 'Back to all rows', href: '/' };
     function line(card) { return batchLine(card.getAttribute('data-batch'), rec.payload); }
     function dates() { return rec.payload.batches.map(function (b) { return b.id; }); }
     if (at.row && rec && rec.payload.batch) {

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 #: Canonical state → user-visible label map. Single source of truth shared by
 #: Jinja templates (via ``state_label`` field on the rendered item) and the
@@ -13,6 +13,8 @@ DOWNLOAD_STATE_LABELS: dict[str, str] = {
     "queued": "Queued",
     "downloading": "Downloading",
     "almost_ready": "Almost ready",
+    "needs_attention": "Needs attention",
+    "finding_copy": "Finding another copy",
     "ready": "Ready to watch",
     "upcoming": "",
 }
@@ -20,6 +22,11 @@ DOWNLOAD_STATE_LABELS: dict[str, str] = {
 
 def state_label(state: str) -> str:
     return DOWNLOAD_STATE_LABELS.get(state, state)
+
+
+def attention_hint(source: str) -> str:
+    """Where an admin deals with a download that needs attention."""
+    return f"Fix it in {source or 'Radarr or Sonarr'}: Activity → Queue"
 
 
 class DownloadItem(TypedDict):
@@ -54,3 +61,13 @@ class DownloadItem(TypedDict):
     arr_id: int
     kind: str
     label: str
+    # Of one that needs attention, for an admin alone: what Radarr or Sonarr says is wrong,
+    # and where to deal with it.
+    attention: str
+    attention_hint: str
+    # Of one that needs attention, on the status poll alone: whether mediaman will look for
+    # another copy unasked.
+    retrying: NotRequired[bool]
+    # How the retry bookkeeping keys it, where it is one of Radarr's or Sonarr's, for the server
+    # alone: the season's number is left off a show's.
+    retry_key: NotRequired[str]

@@ -52,7 +52,7 @@ def search_page(request: Request, q: str = "") -> Response:
     if isinstance(resolved, RedirectResponse):
         return resolved
     q = q.strip()[:_MAX_QUERY_LEN]
-    return RedirectResponse(f"/watch?{urlencode({'q': q})}" if q else "/watch", status_code=302)
+    return RedirectResponse(f"/?{urlencode({'q': q})}" if q else "/", status_code=302)
 
 
 @router.get("/api/search")

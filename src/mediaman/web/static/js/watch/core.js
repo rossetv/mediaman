@@ -71,14 +71,12 @@
     return { fade: fade, closeAt: Math.round(total * 0.6), total: total };
   }
 
-  /* The part of the window neither the bar nor a phone's bar at the foot covers. */
+  /* The part of the window the bar does not cover. */
   function clearArea() {
     var area = { top: 0, bottom: window.innerHeight };
-    toArray(document.querySelectorAll('.nav-glass, .nav-foot')).forEach(function (bar) {
+    toArray(document.querySelectorAll('.nav-glass')).forEach(function (bar) {
       if (getComputedStyle(bar).display === 'none') return;
-      var r = bar.getBoundingClientRect();
-      if (bar.classList.contains('nav-foot')) area.bottom = Math.min(area.bottom, r.top);
-      else area.top = Math.max(area.top, r.bottom);
+      area.top = Math.max(area.top, bar.getBoundingClientRect().bottom);
     });
     return area;
   }

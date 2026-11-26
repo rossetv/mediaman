@@ -24,7 +24,7 @@ def _run(scenario: str):
 def test_a_row_s_heading_opens_its_grid_which_goes_on_from_the_row_and_back_returns() -> None:
     out = _run("library")
     assert out["label"] == "Movies, see all 32"
-    assert (out["prevented"], out["at"]) == (True, "/watch?all=library&type=movies")
+    assert (out["prevented"], out["at"]) == (True, "/?all=library&type=movies")
     assert (out["title"], out["count"], out["sort"]) == (
         "All titles",
         "32 titles",
@@ -34,38 +34,38 @@ def test_a_row_s_heading_opens_its_grid_which_goes_on_from_the_row_and_back_retu
     assert out["calls"] == ["/api/watch/library/library/row?limit=60&type=movies"]
     assert out["filters"] == ["All40", "Movies32*", "TV6", "Anime2", "Not watched3"]
     assert out["rows"] is True  # hidden behind it
-    assert out["back"] == {"at": "/watch", "grid": None, "rows": True, "focus": True}
+    assert out["back"] == {"at": "/", "grid": None, "rows": True, "focus": True}
 
 
 def test_the_order_chosen_comes_from_the_server_and_stays_in_the_address() -> None:
     out = _run("sorted")
     assert out["labels"] == ["Recently added", "A to Z", "Newest release", "Not watched first"]
-    assert out["sorted"]["at"] == "/watch?all=library&type=movies&sort=az"
+    assert out["sorted"]["at"] == "/?all=library&type=movies&sort=az"
     assert out["sorted"]["grid"]["things"] == ["Film 9", "Film 1"]
-    assert out["back"] == {"at": "/watch", "grid": None}
+    assert out["back"] == {"at": "/", "grid": None}
     assert out["forward"] == {
-        "at": "/watch?all=library&type=movies&sort=az",
+        "at": "/?all=library&type=movies&sort=az",
         "things": ["Film 9", "Film 1"],
         "sort": "A to Z",
     }
-    assert out["again"] == {"at": "/watch?all=library&type=movies", "n": 32, "first": "Film 1"}
+    assert out["again"] == {"at": "/?all=library&type=movies", "n": 32, "first": "Film 1"}
 
 
 def test_newest_release_and_not_watched_first_are_the_library_s_own_orders() -> None:
     out = _run("ordered")
     assert out["seen"] == [
         {
-            "at": "/watch?all=library&type=movies&sort=unwatched",
+            "at": "/?all=library&type=movies&sort=unwatched",
             "sort": "Not watched first",
             "things": ["Film 4", "Film 6"],
         },
         {
-            "at": "/watch?all=library&type=movies",
+            "at": "/?all=library&type=movies",
             "sort": "Recently added",
             "things": [f"Film {n}" for n in range(1, 33)],
         },
         {
-            "at": "/watch?all=library&type=movies&sort=year",
+            "at": "/?all=library&type=movies&sort=year",
             "sort": "Newest release",
             "things": ["Film 5", "Film 3", "Film 7"],
         },
@@ -79,14 +79,14 @@ def test_a_row_all_on_the_page_is_put_in_order_there_as_the_server_would() -> No
     out = _run("continued")
     assert out["first"]["things"][0] == "The Zebra"
     assert out["sorted"] == ["An Apple", "Éclair", "Fig", "Gnu", "Orchard", "The Zebra"]
-    assert (out["at"], out["calls"]) == ("/watch?all=continue&sort=az", [])
+    assert (out["at"], out["calls"]) == ("/?all=continue&sort=az", [])
 
 
 def test_trending_shows_films_or_tv_alone_on_every_page_and_counts_nothing() -> None:
     out = _run("filtered")
     assert out["all"] == ["T1", "T2", "T3", "T4", "T5"]
     assert (out["count"], out["tail"]) == ("", "That’s everything for now.")
-    assert (out["tv"], out["at"]) == (["T2", "T4"], "/watch?all=trending&sort=tv")
+    assert (out["tv"], out["at"]) == (["T2", "T4"], "/?all=trending&sort=tv")
 
 
 def test_picks_stand_under_the_date_of_their_batch_labelled_as_ai_picks() -> None:
@@ -129,7 +129,7 @@ def test_a_row_that_is_all_on_the_screen_offers_no_grid() -> None:
     assert _run("whole") == {
         "plain": {"href": None, "label": None, "cue": False},
         "prevented": False,
-        "at": "/watch",
+        "at": "/",
         "grid": None,
     }
 
@@ -142,7 +142,7 @@ def test_three_screens_of_one_row_bring_the_offer_and_another_row_takes_it_away(
     assert (out["taken"], out["again"], out["back"]) == (False, False, True)
     assert out["prevented"] is True
     assert (out["at"], out["title"], out["left"]) == (
-        "/watch?all=library&type=movies",
+        "/?all=library&type=movies",
         "All titles",
         False,
     )
@@ -238,7 +238,7 @@ def test_the_heading_moves_nothing_else_and_only_where_motion_is_welcome() -> No
 
 
 def test_a_click_for_a_new_tab_or_on_an_unknown_row_is_the_browser_s() -> None:
-    assert _run("otherClicks") == {"tab": False, "unknown": False, "grid": None, "at": "/watch"}
+    assert _run("otherClicks") == {"tab": False, "unknown": False, "grid": None, "at": "/"}
 
 
 def test_a_shared_link_keeps_the_server_s_cards_and_goes_on_after_them() -> None:
@@ -246,7 +246,7 @@ def test_a_shared_link_keeps_the_server_s_cards_and_goes_on_after_them() -> None
     assert out["open"]["things"] == ["Film 1", "Film 2", "Film 3", "Film 4", "Film 5"]
     assert out["same"] is True
     # Back from a link leads to the rows in the same entry.
-    assert (out["at"], out["rows"], out["entries"]) == ("/watch", True, 1)
+    assert (out["at"], out["rows"], out["entries"]) == ("/", True, 1)
 
 
 def test_a_shared_link_to_a_row_that_loads_later_fills_once_it_is_here() -> None:
@@ -261,8 +261,8 @@ def test_a_shared_link_to_a_row_that_loads_later_fills_once_it_is_here() -> None
 def test_a_search_takes_the_page_from_the_grid_and_back_opens_it_again() -> None:
     out = _run("leftFor")
     assert out["left"] == {"grid": None, "rows": False}
-    assert out["back"] == {"at": "/watch?all=library&type=movies", "title": "All titles"}
-    assert out["browse"] == {"at": "/watch", "grid": None, "rows": True}
+    assert out["back"] == {"at": "/?all=library&type=movies", "title": "All titles"}
+    assert out["browse"] == {"at": "/", "grid": None, "rows": True}
 
 
 def test_an_address_that_asks_for_something_else_or_for_nothing_known_opens_no_grid() -> None:
@@ -278,7 +278,7 @@ def test_an_address_that_asks_for_something_else_or_for_nothing_known_opens_no_g
 
 
 def test_a_row_s_grid_keeps_nothing_of_a_category_in_its_address() -> None:
-    assert _run("afterACategory") == "/watch?type=movies&all=library"
+    assert _run("afterACategory") == "/?type=movies&all=library"
 
 
 def test_a_card_kept_or_dismissed_in_the_grid_leaves_it_and_its_row_and_comes_back_to_both() -> (
@@ -336,7 +336,7 @@ def test_only_a_grid_left_for_another_view_opens_again_where_it_was() -> None:
 
 def test_a_row_changed_while_a_panel_holds_the_page_keeps_its_way_in_and_its_count():
     assert _run("underAPanel") == {
-        "href": "/watch?all=continue",
+        "href": "/?all=continue",
         "label": "Continue watching, see all 5",
         "cue": True,
         "offer": "See all5",
@@ -346,24 +346,24 @@ def test_a_row_changed_while_a_panel_holds_the_page_keeps_its_way_in_and_its_cou
 def test_a_filter_is_in_the_address_beside_the_order_and_pressed_again_is_off() -> None:
     out = _run("filters")
     unseen = out["unseen"]
-    assert (out["prevented"], unseen["at"]) == (True, "/watch?all=library&type=unseen")
+    assert (out["prevented"], unseen["at"]) == (True, "/?all=library&type=unseen")
     assert (unseen["things"], unseen["count"]) == (["Film 2", "Film 8", "Film 3"], "3 titles")
     assert unseen["filters"][-1] == "Not watched3*"
     assert unseen["focus"] == "unseen"
     assert unseen["say"] == "All titles, Not watched, 3 titles, Sort: Recently added."
     assert out["sorted"] == {
-        "at": "/watch?all=library&type=unseen&sort=az",
+        "at": "/?all=library&type=unseen&sort=az",
         "things": ["Film 3", "Film 2"],
     }
-    assert (out["off"]["at"], out["off"]["filters"][0]) == ("/watch?all=library", "All40*")
+    assert (out["off"]["at"], out["off"]["filters"][0]) == ("/?all=library", "All40*")
     assert out["tab"] is False
-    assert out["back"] == {"at": "/watch", "grid": None}
-    assert (out["forward"]["at"], out["forward"]["filters"][0]) == ("/watch?all=library", "All40*")
+    assert out["back"] == {"at": "/", "grid": None}
+    assert (out["forward"]["at"], out["forward"]["filters"][0]) == ("/?all=library", "All40*")
 
 
 def test_a_filter_that_cannot_be_had_leaves_the_one_that_stands_and_the_address() -> None:
     failed = _run("filters")["failed"]
-    assert failed["at"] == "/watch?all=library&type=unseen&sort=az"
+    assert failed["at"] == "/?all=library&type=unseen&sort=az"
     assert failed["filters"][-1] == "Not watched3*"
 
 
@@ -383,8 +383,8 @@ def test_an_admin_has_filters_and_orders_of_their_own() -> None:
 
 def test_titles_in_hand_are_shown_without_asking_again() -> None:
     out = _run("handedOver")
-    assert out["at"] == "/watch?all=library&type=movies&sort=size"
-    assert (out["things"], out["calls"], out["back"]) == (["Film 6", "Film 5"], 0, "/watch")
+    assert out["at"] == "/?all=library&type=movies&sort=size"
+    assert (out["things"], out["calls"], out["back"]) == (["Film 6", "Film 5"], 0, "/")
 
 
 def test_a_first_page_that_cannot_be_had_keeps_the_row_s_cards_and_offers_another_try() -> None:
@@ -396,7 +396,7 @@ def test_a_first_page_that_cannot_be_had_keeps_the_row_s_cards_and_offers_anothe
 def test_the_way_out_of_an_empty_filter_hands_the_focus_to_the_filter_all() -> None:
     assert _run("emptyFilter") == {
         "says": "Show all titles",
-        "at": "/watch?all=library",
+        "at": "/?all=library",
         "things": ["Film 1", "Film 2", "Film 90"],
         "focus": "",
         "chip": True,
@@ -407,15 +407,15 @@ def test_a_filter_or_order_chosen_while_the_grid_still_opens_is_taken() -> None:
     out = _run("whileItOpens")
     assert out["filter"] == {
         "moving": True,
-        "at": "/watch?all=library&type=unseen",
+        "at": "/?all=library&type=unseen",
         "still": False,
         "things": ["Film 2", "Film 8"],
     }
     assert (out["sort"]["at"], out["sort"]["things"]) == (
-        "/watch?all=library&type=movies&sort=az",
+        "/?all=library&type=movies&sort=az",
         ["Film 9", "Film 1"],
     )
-    assert out["leaving"]["at"] == "/watch?all=library&type=movies"
+    assert out["leaving"]["at"] == "/?all=library&type=movies"
 
 
 def test_a_filter_opened_by_its_address_is_brought_into_sight_at_once() -> None:

@@ -32,7 +32,7 @@ def test_base_html_uses_british_english_locale():
     """Lang attribute should be en-GB, matching the British
     English copy convention used everywhere else in the codebase."""
     base = _tpl("base.html")
-    assert '<html lang="en-GB">' in base
+    assert '<html lang="en-GB"' in base
 
 
 def test_base_html_wraps_content_in_main_landmark():

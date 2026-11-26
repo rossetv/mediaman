@@ -40,7 +40,7 @@ const showOf = (seasons) => ({
 
 function card(id, title, over = {}) {
   return ['article', { class: 'watch-card', id, ...(over.mark ? { 'data-mark': over.mark } : {}), ...(over.keep ? { 'data-keep-id': over.keep } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
-    ['a', { class: 'watch-card__link', href: over.href || '/watch#title=' + over.ref, ...(over.ref ? { 'data-title-ref': over.ref } : {}), ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie' } : {}) },
+    ['a', { class: 'watch-card__link', href: over.href || '/watch#title=' + over.ref, ...(over.ref ? { 'data-title-ref': over.ref } : {}), ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie' } : {}), ...(over.why ? { 'data-ai-why': over.why } : {}) },
       ['span', { class: 'watch-card__poster' }, ['img', { src: '/api/poster/1' }], ['span', { class: 'watch-card__title' }, title],
         ...(over.leaving ? [['span', { class: 'watch-badge watch-badge--leaving' }, ['span', { class: 'watch-badge__long' }, over.leaving]]] : []),
         ...(over.pct ? [['progress', { class: 'watch-bar', value: String(over.pct) }]] : [])],
@@ -62,6 +62,7 @@ const CARDS = [
   card('onAnother', 'The Long Coast', { href: '/watch/play/21', dismiss: 'show-2', sub: 'S1 · E4 · 23 min left' }),
   card('held', 'Held', { ref: 'movie-3', pick: 'rec-6' }),
   card('going', 'The Long Coast', { href: '/watch/play/22?resume=1', dismiss: 'show-2', mark: 'episode/22', pct: 40, sub: 'S2 · E4 · 23 min left' }),
+  card('aiPick', 'Dockside', { ref: 'tmdb-movie-9', why: 'Tense and kind, as you like them.' }),
 ];
 
 /* A page at rest. *opts*: api (ref to its answer: data, a status or nothing yet), reduced, forced, coarse, saveData.
@@ -70,6 +71,7 @@ function load(opts = {}) {
   const doc = makeDocument();
   doc.createElement = ((make) => (tag) => { const n = make(tag); n.style.setProperty = (name, value) => { n.style[name] = value; }; return n; })(doc.createElement);
   doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }, ['div', { id: 'watch-keep-menu', class: 'watch-keep-menu', hidden: '' }, ['button', { class: 'watch-keep-menu__item', 'data-days': '30' }, 'Keep 30 days']], ['input', { id: 'watch-search' }], ['div', { id: 'watch-browse' }, ['div', { class: 'watch-row__scroll' }, ...CARDS]]]));
+  if (opts.pageData) doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' }, JSON.stringify(opts.pageData)]));
   const ttl = doc.body.appendChild(build(doc, ['div', { id: 'ttl', hidden: '' }, ['div', { class: 'ttl__hero' }, ['img', { class: 'ttl__art' }]]]));
   ttl.style.removeProperty = (name) => { delete ttl.style[name]; };
   ttl.scrollTop = 0;
@@ -344,6 +346,17 @@ const scenarios = {
     save.done({ media_type: 'movie', tmdb_id: 1 });
     await h.pass(50);
     return [h.rates.length, rateLook(h)[0]];
+  },
+  /* What a title not in the library offers while its preview is on its way, where films cannot be downloaded. */
+  async waitingWithoutRadarr() {
+    const h = load({ pageData: { can_download: { movie: false, show: true } }, api: { 'tmdb-movie-9': undefined, 'tmdb-tv-7': undefined } });
+    const offered = () => [...h.pv().querySelectorAll('.pv__waiting')].map((n) => n.textContent.trim());
+    await h.rest('outside', 900);
+    const film = offered();
+    h.over(h.doc.body);
+    await h.pass(900);
+    await h.rest('show', 900);
+    return { film, show: offered() };
   },
   /* The levels opened before the reply is there. */
   async stripEarly() {
@@ -798,6 +811,18 @@ const scenarios = {
     h.waiting['rec-5'](reply);
     await h.pass(50);
     return { held, reason: h.text('.pv__reason') };
+  },
+  /* A card the AI picked in a search: why, from the card, before the reply and after it, and on to its page. */
+  async aiWhy() {
+    const h = load({ api: { 'tmdb-movie-9': undefined } });
+    await h.rest('aiPick', 800);
+    const early = h.text('.pv__reason');
+    h.waiting['tmdb-movie-9']({ ...OUTSIDE, ref: 'tmdb-movie-9' });
+    await h.pass(50);
+    const late = h.text('.pv__reason');
+    h.pv().querySelector('[data-preview-more]').click();
+    h.doc.querySelector('.pv-menu [data-act="details"]').click();
+    return { early, late, why: h.origins[0].why };
   },
   /* The page moves on, with a preview open and with one about to. */
   async movedOn() {

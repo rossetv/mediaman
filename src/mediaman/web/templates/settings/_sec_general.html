@@ -90,6 +90,13 @@
               aria-checked="{{ 'true' if sugg_on else 'false' }}"></span>
         <input type="hidden" id="suggestions_enabled" value="{{ 'true' if sugg_on else 'false' }}">
       </div>
+      {% set ai_need = 'refused' if openai_key_refused else ('key' if sugg_on and not settings.get('openai_api_key') else '') %}
+      <div class="setg-row-sub ai-need{% if ai_need %} is-open{% endif %}" id="setg-ai-need" data-need="{{ ai_need }}">
+        <div><p role="status">
+          {%- if ai_need == 'refused' %}OpenAI refused the key. Check it in the <a href="#intg-openai">OpenAI card</a>.
+          {%- elif ai_need %}Needs an <a href="#intg-openai">OpenAI key</a>.{% endif -%}
+        </p></div>
+      </div>
       <details class="setg-row-sub fold-more" id="setg-ai-more">
         <summary id="setg-ai-more-toggle">What OpenAI gets {{ c.icon("i-chevron-down") }}</summary>
         <div>

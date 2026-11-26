@@ -39,6 +39,25 @@ const confirm = () => {
 };
 
 const scenarios = {
+  // the page is marked held from the first dialog's opening to the last one's closing
+  async heldMark() {
+    const held = () => root.classList.contains('page-held');
+    const steps = [held()];
+    const closes = [confirm(), confirm()];
+    steps.push(held());
+    closes.forEach((close) => { close(); steps.push(held()); });
+    return steps;
+  },
+  // the password dialog marks the page held while it is open
+  async reauthHeldMark() {
+    const held = () => root.classList.contains('page-held');
+    const steps = [held()];
+    ctx.MM.reauth.openModal({ onSubmit: () => new Promise(() => {}) });
+    steps.push(held());
+    closers[closers.length - 1]();
+    steps.push(held());
+    return steps;
+  },
   // two dialogs, one over the other, closed oldest first and newest first
   async stacked() {
     const run = (oldestFirst) => {

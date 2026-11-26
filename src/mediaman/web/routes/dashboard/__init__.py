@@ -1,4 +1,4 @@
-"""The storage panel's JSON endpoints, and `/`, which sends an admin to Watch.
+"""The storage panel's JSON endpoints.
 
 View-model shaping lives in _data and _poster_fanout. Every query lives in
 mediaman.web.repository.dashboard, so no SQL belongs here.
@@ -9,19 +9,14 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from starlette.responses import Response
+from fastapi.responses import JSONResponse
 
 from mediaman.core.delete_root_state import read_delete_root_waiting
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
 from mediaman.scanner.repository import read_delete_allowed_roots_setting, read_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
-from mediaman.web.auth.middleware import (
-    LANDING_PATH,
-    get_current_admin,
-    resolve_admin_page_session,
-)
+from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.repository.dashboard import fetch_reclaimed_chart, sum_reclaimed_bytes
 from mediaman.web.routes.dashboard._data import (
     _fetch_recently_deleted,
@@ -43,14 +38,6 @@ def _show_storage(storage: dict[str, object], plex_configured: bool) -> bool:
         or storage["tv_bytes"]
         or storage["anime_bytes"]
     )
-
-
-@router.get("/", response_class=HTMLResponse)
-def home(request: Request) -> Response:
-    resolved = resolve_admin_page_session(request)
-    if isinstance(resolved, RedirectResponse):
-        return resolved
-    return RedirectResponse(LANDING_PATH, status_code=302)
 
 
 @router.get("/api/dashboard/stats")

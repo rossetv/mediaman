@@ -102,9 +102,12 @@
 .pv__meta b { color: var(--t1); font-weight: 600; }
 .pv__grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pv__meta > .pv__leaving { color: var(--danger-text); }
-.pv__text,
-.pv__reason > p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.pv__text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+/* The AI's one sentence of why, whole. */
+.pv__reason > p { overflow-wrap: anywhere; }
 .pv__text { font-size: 13.5px; -webkit-line-clamp: 3; line-clamp: 3; min-height: 60px; color: var(--t2); }
+/* Of a card in the search panel, which stands over the page. */
+.pv--over { z-index: calc(var(--z-nav) + 1); }
 .pv--reason .pv__text { -webkit-line-clamp: 2; line-clamp: 2; min-height: 40px; }
 .pv__reason { padding: 9px 12px; background: var(--s2); border-radius: var(--r-xs); line-height: 19px; color: var(--t2); }
 .pv__reason > .ai-label { margin-bottom: 4px; }

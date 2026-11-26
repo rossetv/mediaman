@@ -96,11 +96,7 @@ class TestSecurityHeadersMiddleware:
             "script-src": "script-src 'self'",
             "style-src": "style-src 'self'",
             "style-src-attr": "style-src-attr 'unsafe-inline'",
-            "img-src": (
-                "img-src 'self' data: blob: https://image.tmdb.org https://i.ytimg.com "
-                "https://www.gravatar.com https://mediacover.radarr.video "
-                "https://mediacover.sonarr.video https://artworks.thetvdb.com"
-            ),
+            "img-src": "img-src 'self' data: blob: https://i.ytimg.com https://www.gravatar.com",
             "connect-src": "connect-src 'self'",
             "media-src": "media-src 'self' blob:",
             "frame-src": "frame-src https://www.youtube-nocookie.com",
@@ -1077,10 +1073,19 @@ class TestCspImgSrc:
             f"img-src still contains bare 'https:' wildcard — tokens: {tokens}"
         )
 
-    def test_csp_allows_tmdb(self):
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "image.tmdb.org",
+            "mediacover.radarr.video",
+            "mediacover.sonarr.video",
+            "artworks.thetvdb.com",
+        ],
+    )
+    def test_csp_lets_in_no_picture_the_app_proxies_itself(self, host):
         from mediaman.web.middleware.security_headers import _CSP
 
-        assert "image.tmdb.org" in _CSP
+        assert host not in _CSP
 
     def test_csp_allows_ytimg(self):
         from mediaman.web.middleware.security_headers import _CSP
@@ -1120,9 +1125,9 @@ class TestObscure405:
 class TestGoogleCastScripts:
     """Google's Cast script is allowed only where an admin has turned Chromecast on."""
 
-    _PAGES = ("/watch", "/watch/play/101", "/watch/show/7", "/downloads")
+    _PAGES = ("/", "/watch/play/101", "/watch/show/7", "/downloads")
     _ELSEWHERE = (
-        "/",
+        "/watch",
         "/login",
         "/settings",
         "/account",
@@ -1140,9 +1145,7 @@ class TestGoogleCastScripts:
         return (
             f"script-src 'self' 'nonce-{nonce}'; style-src 'self' 'nonce-{nonce}'; "
             "style-src-attr 'unsafe-inline'; default-src 'self'; "
-            "img-src 'self' data: blob: https://image.tmdb.org https://i.ytimg.com "
-            "https://www.gravatar.com https://mediacover.radarr.video "
-            "https://mediacover.sonarr.video https://artworks.thetvdb.com; "
+            "img-src 'self' data: blob: https://i.ytimg.com https://www.gravatar.com; "
             "connect-src 'self'; media-src 'self' blob:; "
             "frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; "
             "object-src 'none'; base-uri 'self'; form-action 'self'"
@@ -1160,15 +1163,15 @@ class TestGoogleCastScripts:
     def test_any_value_but_true_is_off(self, conn, stored):
         set_connection(conn)
         insert_settings(conn, google_cast_enabled=stored)
-        csp = self._csp("/watch")
+        csp = self._csp("/")
         assert csp == self._today(csp)
 
     def test_a_setting_that_cannot_be_read_is_off(self, conn):
         set_connection(conn)
         insert_settings(conn, google_cast_enabled="true")
-        assert "gstatic" in self._csp("/watch")
+        assert "gstatic" in self._csp("/")
         conn.execute("DROP TABLE settings")
-        csp = self._csp("/watch")
+        csp = self._csp("/")
         assert csp == self._today(csp)
 
     @pytest.mark.parametrize("path", _PAGES)

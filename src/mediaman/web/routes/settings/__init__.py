@@ -30,6 +30,7 @@ from mediaman.services.infra import ConfigDecryptError
 from mediaman.services.infra import (
     is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
 )
+from mediaman.services.openai.client import key_refused
 from mediaman.web.auth.middleware import resolve_admin_page_session
 from mediaman.web.repository.search_assist import DAILY_LIMITS, daily_limit
 from mediaman.web.repository.settings import (
@@ -174,6 +175,11 @@ def settings_page(request: Request) -> Response:
     for limit_key in DAILY_LIMITS:
         settings[limit_key] = daily_limit(conn, limit_key)
 
+    try:
+        openai_key_refused = key_refused(conn, config.secret_key)
+    except ConfigDecryptError:
+        openai_key_refused = False
+
     _libs_raw = settings.get("plex_libraries") or []
     plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []
 
@@ -187,6 +193,7 @@ def settings_page(request: Request) -> Response:
             "settings": settings,
             "plex_libraries_selected": plex_libraries_selected,
             "timezones": _timezones(),
+            "openai_key_refused": openai_key_refused,
         },
     )
 

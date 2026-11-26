@@ -161,7 +161,7 @@
   }
 
   function href(type, sort) {
-    return '/watch?all=library' + (type ? '&type=' + type : '') + (sort === 'added' ? '' : '&sort=' + sort);
+    return '/?all=library' + (type ? '&type=' + type : '') + (sort === 'added' ? '' : '&sort=' + sort);
   }
 
   watch.expand.source('library', function (at) {

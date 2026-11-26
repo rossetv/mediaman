@@ -188,12 +188,18 @@
 
   /* ── Address ── */
 
+  /* A show's address may name the season it opens on: #title=show-1&season=2. */
   function hashRef() {
-    var m = /^#title=(.+)$/.exec(window.location.hash || '');
+    var m = /^#title=([^&]+)(?:&season=[0-9]{1,4})?$/.exec(window.location.hash || '');
     if (!m) return null;
     var ref;
     try { ref = decodeURIComponent(m[1]); } catch (e) { return null; }
     return REF_RE.test(ref) ? ref : null;
+  }
+
+  function hashSeason() {
+    var m = /^#title=show-[0-9]{1,18}&season=([0-9]{1,4})$/.exec(window.location.hash || '');
+    return m ? Number(m[1]) : undefined;
   }
 
   function titleUrl(ref) { return address.url({}, 'title=' + encodeURIComponent(ref)); }
@@ -249,6 +255,12 @@
     }
   }
 
+  /* What holds the cards: made inert, every card on the page would be restyled as a title opens
+     and closes, so it is only hidden from assistive tech under the title, which covers it. */
+  function cardHolders() {
+    return ['watch-browse', 'watch-results', 'watch-all'].map(function (id) { return document.getElementById(id); }).filter(Boolean);
+  }
+
   function unveil() {
     root.hidden = false;
     root.classList.remove('is-leaving', 'is-aside', 'is-trailer');
@@ -258,7 +270,7 @@
 
   function show(origin) {
     unveil();
-    MM.inertPage.hold(root);
+    MM.inertPage.hold(root, cardHolders);
     isOpen = true;
     growFrom(origin);
     root.classList.add('is-entering');
@@ -268,8 +280,8 @@
 
   /* Open the title *ref*. opts: origin (the card), title (what the card
      already knows), pick (the AI pick it was listed as, when *ref* is the
-     library's), push (add a history entry), atEpisodes (show its episodes),
-     season (the number of the season it opens on, if not the show's own choice). */
+     library's), why (what an AI that picked it in a search said of it), push (add a history entry),
+     atEpisodes (show its episodes), season (the number of the season it opens on, if not the show's own choice). */
   function open(ref, opts) {
     opts = opts || {};
     if (!REF_RE.test(ref)) return;
@@ -308,7 +320,8 @@
       keepIds: {},         // what has been offered to keep while it is open
       cardKeep: keepOnCard(opts.origin), // the season its card is of, by what keeps it
       pickRef: PICK_RE.test(ref) ? ref : PICK_RE.test(opts.pick || '') ? opts.pick : null,
-      pick: null,          // why it is a pick, once known: { reason, because, early }; early: its preview's, which names no titles
+      // why it is a pick, once known: { reason, because, early }; early: its preview's or its card's, which names no titles
+      pick: opts.why ? { reason: String(opts.why), because: [], early: true } : null,
       said: '',            // the words of it its preview was read by: they go on as they are
       noWide: false,       // its preview has tried its wide pictures: there is none
       onPick: null,
@@ -403,7 +416,7 @@
     isOpen = true;
     address.push('title', titleUrl(c.ref));
     keepPick();
-    MM.inertPage.hold(root);
+    MM.inertPage.hold(root, cardHolders);
     growFrom(c.origin);
     if (!c.data || c.data.draft) root.setAttribute('aria-busy', 'true');
     titleEl.focus({ preventScroll: true });
@@ -496,7 +509,7 @@
     nameClose();
     if (!wasOpen) root.classList.add('is-aside');
     lockPage(true);
-    MM.inertPage.hold(root);
+    MM.inertPage.hold(root, cardHolders);
     statusEl.textContent = '';
     body.style.marginBottom = '';
     showPictures(c.data);
@@ -527,17 +540,15 @@
     var m = /^(movie|tmdb-movie|show|tmdb-tv)-/.exec(ref);
     if (m) return /movie/.test(m[1]) ? 'movie' : 'show';
     if (given === 'movie' || given === 'show') return given;
-    var cards = toArray(document.querySelectorAll('[data-title-ref][data-kind]')).filter(function (n) {
-      return n.getAttribute('data-title-ref') === ref;
-    });
-    var kind = cards.length ? cards[0].getAttribute('data-kind') : '';
+    var card = document.querySelector('[data-title-ref="' + ref + '"][data-kind]');
+    var kind = card ? card.getAttribute('data-kind') : '';
     return kind === 'movie' || kind === 'show' ? kind : '';
   }
 
   /* Where focus goes from a title no card opened, or whose card has gone. */
   function cardOf(ref) {
-    return toArray(document.querySelectorAll('[data-title-ref]')).filter(function (n) {
-      return n.getAttribute('data-title-ref') === ref && n.getClientRects().length && !n.closest('.is-leaving');
+    return toArray(document.querySelectorAll('[data-title-ref="' + ref + '"]')).filter(function (n) {
+      return n.getClientRects().length && !n.closest('.is-leaving');
     })[0];
   }
 
@@ -643,7 +654,7 @@
       if (link.hasAttribute('data-in-library') && there) {
         link.removeAttribute('data-in-library');
         link.setAttribute('data-title-ref', there);
-        link.setAttribute('href', '/watch#title=' + there);
+        link.setAttribute('href', '/#title=' + there);
         toArray(card.querySelectorAll('.watch-badge--in, .watch-badge--leaving')).forEach(function (b) { b.remove(); });
         return;
       }
@@ -1121,7 +1132,7 @@
     if (leaves) {
       var leaving = skel('ttl__leaving-skel');
       leaving.textContent = (isShow ? 'Season 1 leaves' : 'Leaving') + ' in 10 days. Keep it to stop the deletion.';
-      var line = el('p', 'ttl__leaving');
+      var line = el('p', 'ttl__leaving ttl__status');
       line.setAttribute('aria-hidden', 'true');
       line.appendChild(icon('i-clock'));
       line.appendChild(leaving);
@@ -1275,7 +1286,7 @@
   /* A link to a page of Explore, which a plain press opens in place. */
   function exploreLink(cls, text, query, act, open) {
     var a = el('a', cls, text);
-    a.setAttribute('href', '/watch?' + query);
+    a.setAttribute('href', '/?' + query);
     a.setAttribute('data-ttl-act', act);
     a.addEventListener('click', function (e) {
       if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || !window.MMWatch.explore) return;
@@ -1433,7 +1444,7 @@
     var ratings = ratingsRow(d);
     if (ratings) main.appendChild(ratings);
     askRatings(cur);
-    if (cur.pickRef) main.appendChild(pickBox(cur.pick));
+    if (cur.pickRef || cur.pick) main.appendChild(pickBox(cur.pick));
     var words = cur.said || d.overview;
     if (words) main.appendChild(el('p', 'ttl__overview', words));
     if (d.draft && d.kind === 'movie') main.appendChild(el('p', 'ttl__credit')).appendChild(skel('skel--line', '200px'));
@@ -1481,23 +1492,44 @@
     return (card && card.getAttribute('data-keep-id')) || '';
   }
 
-  /* What of the title leaves, and a Keep here keeps: of a show the season the person
-     picked; opened by a link that names a season, the one on show; else the one on the
-     card it was opened from, else the first that goes.
+  /* The season of a show its episodes are of, by the person's pick or the show's own; null
+     with no seasons to show. */
+  function seasonOnShow(d) {
+    if (cur.chosen) return cur.season;
+    return d.seasons && d.seasons.length ? ownSeason(d).number : null;
+  }
+
+  /* Whether what leaves is said of the season on show: else of the season on the card the
+     title was opened from, the one asked about. */
+  function bySeasonOnShow(d) {
+    return seasonOnShow(d) !== null && (cur.chosen || cur.opensOn !== undefined || !cur.cardKeep);
+  }
+
+  /* What of the title leaves, and a Keep here keeps: of a show the season on show, or the
+     one on the card it was opened from; with no season on show, the first that goes.
      Never another season than the one asked about. */
   function leavingNow() {
     var d = cur.data;
     var found = d.leaving;
     if (d.kind !== 'movie') {
       found = (d.leaving_seasons || []).filter(function (s) {
-        if (cur.chosen) return s.season === cur.season;
-        if (cur.opensOn !== undefined && d.seasons && d.seasons.length) return s.season === ownSeason(d).number;
+        if (bySeasonOnShow(d)) return s.season === seasonOnShow(d);
         return !cur.cardKeep || String(s.keep_id) === cur.cardKeep;
       })[0];
     }
     if (!found || !found.keep_id) return null;
     cur.keepIds[found.keep_id] = true;
     return { id: String(found.keep_id), days: found.days, season: d.kind === 'movie' ? null : found.season };
+  }
+
+  /* Of a show on a season that does not leave: the first other season that does, said with
+     no Keep, as that would keep a season not on show. */
+  function otherLeaving() {
+    var d = cur.data;
+    if (d.kind === 'movie' || !bySeasonOnShow(d)) return null;
+    var shown = seasonOnShow(d);
+    var found = (d.leaving_seasons || []).filter(function (s) { return s.season !== shown; })[0];
+    return found ? { days: found.days, season: found.season } : null;
   }
 
   function leavesWhen(days) {
@@ -1668,13 +1700,13 @@
       }
     } else if (!d.in_library || cur.justAdded) {
       downloadPart(actions, under);
+    } else if (PLEX_SAYS[d.plex_error]) {
+      under.appendChild(statusLine(PLEX_SAYS[d.plex_error], 'i-circle-exclamation'));
     }
     var leaves = leavingNow();
-    if (leaves) {
-      var line = el('p', 'ttl__leaving');
-      line.appendChild(icon('i-clock'));
-      line.appendChild(leavingWords(leaves));
-      under.appendChild(line);
+    var other = leaves ? null : otherLeaving();
+    if (leaves || other) {
+      under.appendChild(statusLine(leaves ? leavingWords(leaves) : leavingText(other), 'i-clock', 'ttl__leaving'));
     }
     var like = likeButton(d);
     if (like) actions.appendChild(like);
@@ -1689,6 +1721,13 @@
     if (cur.shareMsg) under.appendChild(note(cur.shareMsg));
     if (cur.shareUrl) under.appendChild(shareField(cur.shareUrl));
   }
+
+  /* Why a library title has no Play, by what Plex answered. */
+  var PLEX_SAYS = {
+    unreachable: 'Can’t reach Plex right now, so this can’t be played. Check back in a moment.',
+    not_set_up: 'Plex isn’t set up yet, so this can’t be played.',
+    gone: 'This is not in the library any more.'
+  };
 
   function playLink(play) {
     var a = el('a', 'btn btn--lg watch-btn--play');
@@ -1727,7 +1766,7 @@
   function likeButton(d) {
     var search = window.MMWatch.search || {};
     var byId = d.download && d.download.tmdb_id ? 'tmdb-' + (d.kind === 'movie' ? 'movie-' : 'tv-') + d.download.tmdb_id : '';
-    var ref = [d.library_ref, d.ref, cur.ref, byId].filter(function (r) { return search.canLike && search.canLike(r); })[0];
+    var ref = [d.library_ref, d.ref, cur.ref, d.tmdb_ref, byId].filter(function (r) { return search.canLike && search.canLike(r); })[0];
     if (!ref) return null;
     var b = button('btn btn--lg watch-btn--grey', 'Find more like this', 'i-sparkles');
     b.setAttribute('data-ttl-act', 'like');
@@ -1741,8 +1780,10 @@
   var shownLooked = ''; // what was last drawn of it
 
   function saysLooked() {
-    var looked = cur && cur.data && stateOf(cur.ref).state === 'queued' ? lookedFor(cur) : null;
-    return looked ? cur.ref + looked.state + looked.line : '';
+    var k = cur && cur.data ? stateOf(cur.ref) : null;
+    var looked = k && k.state === 'queued' ? lookedFor(cur, ['searching', 'stuck']) : null;
+    var trouble = k && inFlight(k) ? troubleOf(cur) : null;
+    return (looked ? cur.ref + looked.state + looked.line : '') + (trouble ? trouble.state + fixOf(trouble) : '');
   }
 
   if (window.MM.downloading) {
@@ -1757,7 +1798,7 @@
 
   function titleMark(d) {
     var mark = core.markOf(d);
-    if (!mark) return null;
+    if (!mark || d.plex_error === 'gone') return null; // Plex refuses a mark of what it no longer has
     var b = core.markButton('btn btn--lg watch-btn--grey', mark, d.watched, d.title || cur.title,
       d.kind === 'movie' ? 'Mark as watched' : 'Mark show as watched');
     b.setAttribute('data-ttl-act', 'mark');
@@ -1805,6 +1846,15 @@
   document.addEventListener('mm:watch-marked', function (e) {
     if (isOpen && cur && cur.data && e.detail.refs.indexOf(markRef()) >= 0) reloadMarks(cur);
   });
+
+  /* A line of how the title stands, under the actions: each the same but for its colour (*cls*,
+     first, as what tells the lines apart when they are drawn again). *words*: text, or its span. */
+  function statusLine(words, iconName, cls) {
+    var p = el('p', (cls ? cls + ' ' : '') + 'ttl__status');
+    p.appendChild(icon(iconName));
+    p.appendChild(typeof words === 'string' ? el('span', '', words) : words);
+    return p;
+  }
 
   function note(text, iconName, iconClass) {
     var p = el('p', 'ttl__note');
@@ -1914,12 +1964,20 @@
   }
 
   /* The download of the title *c* while it is looked for, as its card in the row says it; else null. */
-  function lookedFor(c) {
+  function lookedFor(c, states) {
     var state = window.MM.downloading && window.MM.downloading.last();
     var refs = [c.ref, c.openedAs, c.data && c.data.library_ref];
     return (state && state.items.filter(function (item) {
-      return (item.state === 'searching' || item.state === 'stuck') && item.ref && refs.indexOf(item.ref) >= 0;
+      return states.indexOf(item.state) >= 0 && item.ref && refs.indexOf(item.ref) >= 0;
     })[0]) || null;
+  }
+
+  /* The card in the row of a download that Radarr or Sonarr will not import, or that is looked for again. */
+  function troubleOf(c) { return lookedFor(c, ['needs_attention', 'finding_copy']); }
+
+  /* What an admin is told of it, as the card tells it; a viewer's card holds none, but that it is tried again. */
+  function fixOf(item) {
+    return [item.attention, item.retrying ? 'mediaman will look for another copy' : item.attention_hint].filter(Boolean).join(' · ');
   }
 
   function followNote(text) {
@@ -1940,8 +1998,23 @@
       if (cur.addedNow) under.appendChild(note('In your library. Added just now.', 'i-circle-check', 'ttl__note-ok'));
       return;
     }
+    var trouble = k.state === 'queued' || k.state === 'downloading' ? troubleOf(cur) : null;
+    if (trouble) {
+      // Nothing to press: a line of how it stands, where the in-progress states have a pill.
+      var stuck = trouble.state === 'needs_attention';
+      var status = statusLine(stuck ? 'Needs attention' : 'Finding another copy',
+        stuck ? 'i-triangle-exclamation' : 'i-magnifying-glass', 'ttl__status--warn');
+      status.setAttribute('role', 'status');
+      status.setAttribute('tabindex', '-1');
+      status.setAttribute('data-ttl-act', 'primary');
+      under.appendChild(status);
+      var why = stuck ? fixOf(trouble) || 'It won’t finish until an admin sorts it out' : '';
+      under.appendChild(followNote(why ? why + '. ' : ''));
+      if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
+      return;
+    }
     if (k.state === 'queued') {
-      var looked = lookedFor(cur);
+      var looked = lookedFor(cur, ['searching', 'stuck']);
       actions.appendChild(looked ? statePill('dl-state--queued', 'Looking for the best version', 'i-magnifying-glass')
         : statePill('dl-state--queued', 'Queued', 'i-clock'));
       under.appendChild(followNote(!looked ? 'Waiting for a download slot. '
@@ -1967,7 +2040,10 @@
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
-    if (!d.download) return;
+    if (!d.download) {
+      if (!d.in_library) under.appendChild(statusLine('Not in your library', 'i-circle-info'));
+      return;
+    }
     var tv = d.kind !== 'movie';
     if (k.tracked || (tv && d.sonarr_tracked)) {
       actions.appendChild(statePill('dl-state--done', 'Already added', 'i-circle-check'));
@@ -2037,7 +2113,7 @@
 
   /* ── A show's seasons: the state of each, and asking for more ── */
 
-  var ON_THE_WAY = { downloading: 1, queued: 1, asked: 1 };
+  var ON_THE_WAY = { downloading: 1, needs_attention: 1, finding_copy: 1, queued: 1, asked: 1 };
   var REFUSED = { leaving: 'Leaving soon', removed: 'Deleted', not_listed: 'Can’t be asked for yet', show_unmonitored: 'Downloads are off' };
 
   function held(s) { return s.status ? s.status === 'held' : !!s.in_library; }
@@ -2067,6 +2143,8 @@
     function lead(text, after) { return after ? text + ' · ' + after : text; }
     if (held(s)) return { name: 'held', icon: 'i-check', text: 'In library' };
     if (s.status === 'downloading') return { name: 'coming', icon: 'i-arrow-down', text: 'Downloading' };
+    if (s.status === 'needs_attention') return { name: 'queued', icon: 'i-triangle-exclamation', text: 'Needs attention' };
+    if (s.status === 'finding_copy') return { name: 'queued', icon: 'i-magnifying-glass', text: 'Finding another copy' };
     if (s.status === 'queued') return { name: 'queued', icon: 'i-clock', text: 'Queued' };
     if (s.status === 'asked') return { name: 'queued', icon: 'i-clock', text: 'Asked for' };
     if (s.status === 'partly_held') {
@@ -2252,6 +2330,9 @@
         box.textContent = '';
         box.appendChild(icon(glyph));
       }
+      var trouble = s.status === 'needs_attention' ? troubleOf(cur) : null;
+      if (trouble && fixOf(trouble)) chip.setAttribute('title', fixOf(trouble));
+      else chip.removeAttribute('title');
       chip.querySelector('.season-chip__name').textContent = seasonName(s);
       var sub = chip.querySelector('.season-chip__sub');
       if (sub.textContent !== state.text) {
@@ -2640,7 +2721,7 @@
     var wait = 0;
     if (c.data.seasons_pending) {
       if (c.pendingAsks < PENDING_ASKS) wait = PENDING_MS;
-    } else if (unknown(c.data) || allSeasons(c.data).some(function (s) { return s.status === 'downloading' || s.status === 'queued'; })) {
+    } else if (unknown(c.data) || allSeasons(c.data).some(function (s) { return !!ON_THE_WAY[s.status] && s.status !== 'asked'; })) {
       wait = POLL_SLOW_MS;
     }
     if (!wait) return;
@@ -4056,7 +4137,7 @@
     if (!REF_RE.test(ref)) return;
     e.preventDefault();
     var season = /[?&]season=([0-9]{1,4})(?:&|$)/.exec(card.getAttribute('href') || '');
-    open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), pick: card.getAttribute('data-pick-ref'),
+    open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), pick: card.getAttribute('data-pick-ref'), why: card.getAttribute('data-ai-why'),
       season: season ? Number(season[1]) : undefined, atEpisodes: card.getAttribute('data-title-at') === 'episodes', push: true });
   });
 
@@ -4065,7 +4146,7 @@
   /* A title the address opens: as it was left when Back leads to it. */
   function openAt(ref, how) {
     if (how === 'pop' && kept[ref]) comeBack(kept[ref]);
-    else open(ref, { pick: window.history.state && window.history.state.mmPick });
+    else open(ref, { pick: window.history.state && window.history.state.mmPick, season: hashSeason() });
   }
 
   address.layer({

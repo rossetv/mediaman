@@ -123,14 +123,9 @@
 .ui-confirm-overlay.is-visible { opacity: 1; }
 
 /* The page does not scroll behind an open dialog (confirm, password, keep and season,
-   abandon, picture). A title's page and the storage panel hold the html already. */
-html:not(.has-space, .has-ttl) body:has(
-  > .ui-confirm-overlay:not(.is-leaving),
-  > .reauth-backdrop:not([aria-hidden="true"]),
-  > .keep-dialog-overlay.active:not(.is-closing),
-  > .pic-back:not([aria-hidden="true"]),
-  #abandon-modal[aria-hidden="false"]
-) {
+   abandon, picture: MM.dom.holdPage marks the page). A title's page, the storage panel
+   and the TV remote hold the html already. */
+html.page-held:not(.has-space, .has-ttl, .has-tv-remote) body {
   overflow: hidden;
 }
 /* The scrollbar that goes with the scrolling keeps its room on a page that had one
@@ -192,7 +187,7 @@ html.page-bar { scrollbar-gutter: stable; }
     justify-content: flex-end;
     max-height: calc(100dvh - var(--nav-h) - var(--toast-bottom) - 16px);
   }
-  body:has(.setg-rail) .ui-toast-host { --toast-bottom: 90px; }
+  html.has-setg-rail .ui-toast-host { --toast-bottom: 90px; }
 }
 
 /* Phones: full-width 44px buttons, stacked so Confirm lands nearest the thumb. */
@@ -214,7 +209,7 @@ html.page-bar { scrollbar-gutter: stable; }
 
 /* The player: under its title, where no control, menu or card of it ever is.
    On a phone Keep comes between, and its open menu is let through. */
-body:has(.player) .ui-toast-host {
+html.has-player .ui-toast-host {
   --toast-top: calc(max(26px, env(safe-area-inset-top)) + 60px);
   top: var(--toast-top);
   bottom: auto;
@@ -224,37 +219,37 @@ body:has(.player) .ui-toast-host {
   max-height: calc(100dvh - var(--toast-top) - 130px);
 }
 @media (max-width: 600px) {
-  body:has(.player) .ui-toast-host {
+  html.has-player .ui-toast-host {
     --toast-top: calc(max(12px, env(safe-area-inset-top)) + 60px);
     left: 12px;
     right: 12px;
   }
 }
 @media (max-width: 600px) and (orientation: portrait) {
-  body:has(.player) .ui-toast-host { --toast-top: calc(max(12px, env(safe-area-inset-top)) + 104px); }
-  body:has(.player-keep [aria-expanded="true"]) .ui-toast-host {
+  html.has-player .ui-toast-host { --toast-top: calc(max(12px, env(safe-area-inset-top)) + 104px); }
+  html.has-player-keep-open .ui-toast-host {
     --toast-top: calc(max(12px, env(safe-area-inset-top)) + 268px);
   }
 }
 /* A phone on its side: beside the next-episode card. */
 @media (max-height: 420px) {
-  body:has(.player) .ui-toast-host { right: auto; max-width: 220px; }
+  html.has-player .ui-toast-host { right: auto; max-width: 220px; }
 }
 
 /* Settings: up to 960 px the section chips form a sticky bar under the top
    bar (it ends near 116 px at most); drop the toasts below it, clear of the chips. */
 @media (max-width: 960px) {
-  body:has(.setg-rail) .ui-toast-host { --toast-top: 120px; }
+  html.has-setg-rail .ui-toast-host { --toast-top: 120px; }
 }
 
-/* On a phone the bar at the foot and a settings savebar (up to two rows) sit under the stack. */
+/* On a phone a settings savebar (up to two rows) sits under the stack. */
 @media (max-width: 699.98px) {
   .ui-toast-host { --toast-reserve: calc(var(--foot) + 86px); }
 }
 
-/* Watch on a phone: the stack stands just above the bar at the foot. */
+/* Watch on a phone: the stack stands just above the foot of the screen. */
 @media (max-width: 699.98px) {
-  body:has(.watch-search) .ui-toast-host {
+  html.has-watch-search .ui-toast-host {
     top: auto;
     bottom: calc(var(--foot) + 12px);
     max-height: calc(100dvh - var(--nav-h) - var(--foot) - 24px);

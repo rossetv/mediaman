@@ -22,7 +22,7 @@ _ADMIN_ONLY_LINKS = {"/settings"}
 _RETIRED_LINKS = {"/search", "/library", "/recommended"}
 
 
-def _request(role: str | None, path: str = "/watch", username: str | None = "robin") -> Request:
+def _request(role: str | None, path: str = "/", username: str | None = "robin") -> Request:
     state = {} if role is None else {"user_role": role}
     if username is not None:
         state["username"] = username
@@ -31,7 +31,7 @@ def _request(role: str | None, path: str = "/watch", username: str | None = "rob
 
 
 def _render(
-    role: str | None, *, path: str = "/watch", username: str | None = "robin", **ctx: object
+    role: str | None, *, path: str = "/", username: str | None = "robin", **ctx: object
 ) -> str:
     template = _TEMPLATES.env.get_template("_nav.html")
     return template.render(request=_request(role, path, username), **ctx)
@@ -62,7 +62,7 @@ def _buttons(html: str) -> list[str]:
 def test_a_viewer_gets_the_way_back_to_watch_and_a_menu_of_what_they_may_open():
     html = _render("viewer")
 
-    assert set(_links(_bar_of(html).split("<noscript>")[0])) == {"/watch"}
+    assert set(_links(_bar_of(html).split("<noscript>")[0])) == {"/"}
     assert _menu_items(html) == [
         ("/account", "Profile"),
         ("/downloads", "Downloads"),
@@ -78,7 +78,7 @@ def test_an_admin_and_a_missing_role_find_settings_too_in_the_menu_and_nothing_m
 ):
     html = _render(role)
 
-    assert set(_links(_bar_of(html).split("<noscript>")[0])) == {"/watch"}
+    assert set(_links(_bar_of(html).split("<noscript>")[0])) == {"/"}
     assert _menu_items(html) == [
         ("/account", "Profile"),
         ("/downloads", "Downloads"),
@@ -101,7 +101,7 @@ def _watch_bar(role: str, **ctx: object) -> str:
 def test_no_page_has_a_menu_of_links_in_its_bar_or_at_its_foot(role):
     for html in (_render(role), _watch_bar(role, is_admin=role == "admin", view="rows", q="")):
         assert "<nav" not in html
-        assert re.search(r'<div class="nav-foot" aria-hidden="true"></div>', html)
+        assert "nav-foot" not in html
 
 
 def test_without_scripts_downloads_is_still_a_link_in_every_bar():
@@ -139,7 +139,7 @@ def test_every_other_page_s_bar_has_the_way_back_to_watch_and_no_search():
     html = _render("admin", path="/downloads", is_admin=True)
 
     assert "watch-search" not in html and "space-meter" not in html
-    (back,) = re.findall(r'<a class="nav-back" href="/watch">(.*?)</a>', _bar_of(html))
+    (back,) = re.findall(r'<a class="nav-back" href="/">(.*?)</a>', _bar_of(html))
     assert back.endswith("Watch")
 
 
@@ -155,9 +155,7 @@ def test_a_page_can_fill_the_middle_and_the_end_of_the_desktop_bar():
     html = env.from_string('{% include "extra.html" %}').render(request=_request("viewer"))
 
     bar = html.split('<header class="nav-glass">')[1].split("</header>")[0]
-    places = [
-        bar.index(part) for part in ('class="brand"', "middle /watch", ">end<", "profile-btn")
-    ]
+    places = [bar.index(part) for part in ('class="brand"', "middle /", ">end<", "profile-btn")]
     assert places == sorted(places)
 
 
@@ -284,12 +282,12 @@ def test_unknown_role_gets_the_viewer_menu():
     assert "/settings" not in _links(_render("guest"))
 
 
-@pytest.mark.parametrize("path", ["/watch", "/watch/show/abc", "/watch/play/42"])
+@pytest.mark.parametrize("path", ["/", "/watch/show/abc", "/watch/play/42"])
 def test_watch_pages_mark_the_way_home_without_nav_active(path):
     html = _render("viewer", path=path)
 
     assert re.search(
-        r'<a class="brand" href="/watch" aria-label="mediaman, home" aria-current="page"', html
+        r'<a class="brand" href="/" aria-label="mediaman, home" aria-current="page"', html
     )
 
 

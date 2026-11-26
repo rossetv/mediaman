@@ -83,6 +83,10 @@ def test_a_film_that_cannot_be_checked_is_left_out_in_plain_words() -> None:
     assert _run("unavailable") == ["Can’t be checked right now: Film 1"]
 
 
+def test_a_film_radarr_is_not_set_up_for_is_left_out_without_seeming_a_fault() -> None:
+    assert _run("notSetUp") == ["Can’t be downloaded here: Film 1"]
+
+
 def test_the_dialog_lists_what_is_missing_and_says_what_is_left_out_and_why() -> None:
     out = _run("confirm")
     assert out["open"] is True

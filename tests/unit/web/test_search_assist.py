@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from time import monotonic
 
 import pytest
 import requests
@@ -45,7 +46,25 @@ class FakeTmdb:
                 (6, "Orchard", 2020, 200, "Noor"),
             )
         }
+        # Shows by id: (name, minutes an episode).
+        self.shows: dict[int, tuple[str, int]] = {}
+        # Trending and Popular, as TMDB lists them: never empty, as TMDB's own are not.
+        self.lists: dict[str, list[dict]] = {}
+        self._unknown = [{"id": 999, "media_type": "movie", "title": "Unknown"}]
         self.failing = False
+
+    def _list(self, name):
+        # As the client does, a failure answers nothing.
+        return [] if self.failing else self.lists.get(name) or self._unknown
+
+    def trending(self, page):
+        return self._list("trending")
+
+    def popular_movies(self, page):
+        return self._list("popular_movies")
+
+    def popular_tv(self, page):
+        return self._list("popular_tv")
 
     def _down(self):
         if self.failing:
@@ -60,6 +79,11 @@ class FakeTmdb:
 
     def details_or_raise(self, media_type, tmdb_id):
         self._down()
+        if media_type == "tv":
+            if tmdb_id not in self.shows:
+                raise SafeHTTPError(status_code=404, body_snippet="", url="https://tmdb.invalid")
+            name, minutes = self.shows[tmdb_id]
+            return {"id": tmdb_id, "name": name, "episode_run_time": [minutes], "genres": []}
         for name, (found, year, minutes, director) in self.films.items():
             if found == tmdb_id:
                 return {
@@ -142,6 +166,8 @@ def _world(monkeypatch):
     monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_a: None)
     monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_a: None)
     monkeypatch.setattr(assist.threading, "Thread", InlineThread)
+    monkeypatch.setattr(openai_client, "_refused_key", None)
+    monkeypatch.setattr(openai_client, "_refused_at", 0.0)
     yield
     catalog.invalidate()
 
@@ -216,6 +242,47 @@ def _play(conn, key, user="amy-secret"):
         "INSERT INTO watch_progress (username, rating_key, media_item_id, position_s, duration_s,"
         " watched, updated_at, credited_at, seen_at) VALUES (?, ?, ?, 9, 9, 1, '2026', '2026', '2026')",
         (user, key, key),
+    )
+    conn.commit()
+
+
+def _show(conn, key, tmdb_id, name, episodes):
+    """A show of one season of *episodes*, whose keys are the show's key and their number."""
+    season = f"{key}01"
+    insert_media_item(
+        conn,
+        id=season,
+        title="Season 1",
+        show_title=name,
+        media_type="tv_season",
+        season_number=1,
+        show_rating_key=key,
+        plex_library_id=1,
+    )
+    listed = [{"key": f"{key}-{n}", "number": n, "path": f"/e{n}"} for n in range(1, episodes + 1)]
+    conn.execute(
+        "UPDATE media_items SET episode_count = ?, tmdb_id = ?, episode_keys = ? WHERE id = ?",
+        (episodes, tmdb_id, json.dumps(listed), season),
+    )
+    conn.commit()
+
+
+def _episode_played(conn, show, number, *, position=None, at="2026-01-01", user="amy-secret"):
+    """Episode *number* of *show* played to its end, or to *position* of its 40 minutes."""
+    done = position is None
+    conn.execute(
+        "INSERT INTO watch_progress (username, rating_key, media_item_id, show_rating_key,"
+        " position_s, duration_s, watched, updated_at, seen_at) VALUES (?, ?, ?, ?, ?, 2400, ?, ?, ?)",
+        (
+            user,
+            f"{show}-{number}",
+            f"{show}01",
+            show,
+            2400 if done else position,
+            done,
+            at,
+            at if done else None,
+        ),
     )
     conn.commit()
 
@@ -500,6 +567,7 @@ class TestAsk:
 
     def test_a_key_known_refused_offers_no_question(self, amy, model, monkeypatch):
         monkeypatch.setattr(openai_client, "_refused_key", openai_client._digest("sk-test"))
+        monkeypatch.setattr(openai_client, "_refused_at", monotonic())
         assert amy.get(BASE).json()["available"] is False
         assert _ask(amy)["error"] == "unavailable"
         assert model.prompts == []
@@ -918,6 +986,7 @@ class TestNoKey:
             amy.get(f"{BASE}/tonight", params={"minutes": 120}),
             amy.get(f"{BASE}/runs/1"),
         ):
+            # Why is an admin's to know: amy has nothing to set.
             assert resp.json() == {"ok": False, "error": "unavailable"}
         assert model.prompts == []
         assert amy.delete(f"{BASE}/searches").status_code == 200
@@ -933,14 +1002,16 @@ class TestTonight:
     def _titles(self, client, minutes, **params):
         return {i["title"] for i in self._get(client, minutes, **params)["items"]}
 
-    def test_three_that_fit_and_then_the_others(self, amy, conn):
+    def test_three_that_fit_and_then_the_others(self, amy, conn, monkeypatch):
+        monkeypatch.setattr(tonight, "PER_SET", 3)
         _own(conn, 1, 2, 3, 5, 6)
         self._get(amy, 120)  # TMDB is asked of a few titles at a time
         first = self._get(amy, 120)
         assert (len(first["items"]), first["total"], first["more"]) == (3, 4, True)
+        assert first["next"] == 3
         assert all(i["minutes"] <= 120 and i["reason"] for i in first["items"])
 
-        second = self._get(amy, 120, skip=3)
+        second = self._get(amy, 120, skip=first["next"])
         assert (len(second["items"]), second["more"]) == (1, False)
         seen = {i["title"] for i in first["items"] + second["items"]}
         assert seen == {"Nine Locks", "Alibi", "Train Job", "Harbour"}
@@ -971,25 +1042,73 @@ class TestTonight:
         found = self._get(amy, 60)
         assert (found["items"], found["shortest"]["title"]) == ([], "Alibi")
 
-    def test_a_show_counts_its_first_season_whole(self, amy, conn, tmdb, monkeypatch):
-        insert_media_item(
-            conn,
-            id="300",
-            title="Season 1",
-            show_title="Orchard",
-            media_type="tv_season",
-            season_number=1,
-            show_rating_key="30",
-            plex_library_id=1,
-        )
-        conn.execute("UPDATE media_items SET episode_count = 6, tmdb_id = 77 WHERE id = '300'")
-        conn.commit()
-        show = {"id": 77, "name": "Orchard", "episode_run_time": [40], "genres": []}
-        monkeypatch.setattr(tmdb, "details_or_raise", lambda *_a: show)
+    def test_a_show_is_offered_by_its_next_episode_where_no_film_fits(self, amy, conn, tmdb):
+        _own(conn, 1)
+        _show(conn, "30", 77, "Orchard", 4)
+        tmdb.shows[77] = ("Orchard", 43)
 
-        assert self._get(amy, 230)["total"] == 0
-        [item] = self._get(amy, 240)["items"]
-        assert (item["ref"], item["minutes"], item["season"]) == ("show-30", 240, 1)
+        found = self._get(amy, 60)
+        assert [(i["ref"], i["season"], i["episode"], i["minutes"]) for i in found["items"]] == [
+            ("show-30", 1, 1, 43)
+        ]
+        assert found["items"][0]["href"] == "/watch/show/30?season=1"
+
+    def test_what_the_person_is_partway_through_comes_first_then_shows_they_saw(
+        self, amy, conn, tmdb
+    ):
+        _own(conn, 3)
+        tmdb.shows.update({77: ("Orchard", 43), 78: ("Fig Lane", 50)})
+        _show(conn, "30", 77, "Orchard", 4)
+        _show(conn, "40", 78, "Fig Lane", 3)
+        _episode_played(conn, "40", 2, position=600, at="2026-01-01")
+        _episode_played(conn, "30", 1, at="2026-02-01")
+        _episode_played(conn, "30", 2, at="2026-02-02")
+        # Seen before, though no longer in Continue watching.
+        conn.execute(
+            "INSERT INTO watch_dismissed (username, title_key, dismissed_at)"
+            " VALUES ('amy-secret', '30', '2026-03-01')"
+        )
+        conn.commit()
+
+        items = self._get(amy, 120)["items"]
+        assert [(i["ref"], i["episode"], i["partway"]) for i in items] == [
+            ("show-40", 2, True),
+            ("show-30", 3, False),
+            ("movie-103", None, False),
+        ]
+        # What is left of the one begun, by what Plex said it runs.
+        assert (items[0]["minutes"], items[0]["left"]) == (30, True)
+
+    def test_a_show_seen_to_its_last_episode_is_not_offered(self, amy, conn, tmdb):
+        tmdb.shows[77] = ("Orchard", 43)
+        _show(conn, "30", 77, "Orchard", 2)
+        for number in (1, 2):
+            _episode_played(conn, "30", number)
+
+        assert self._get(amy, 120)["items"] == []
+
+    def test_each_person_is_offered_the_episode_they_are_at(self, people, conn, tmdb):
+        tmdb.shows[77] = ("Orchard", 43)
+        _show(conn, "30", 77, "Orchard", 4)
+        _episode_played(conn, "30", 1)
+        _episode_played(conn, "30", 2)
+
+        [amy] = self._get(people["amy"], 60)["items"]
+        [bob] = self._get(people["bob"], 60)["items"]
+        assert (amy["episode"], amy["partway"]) == (3, True)
+        assert (bob["episode"], bob["partway"]) == (1, False)
+
+    def test_a_show_runs_as_its_episodes_played_did_while_tmdb_is_out_of_reach(
+        self, amy, conn, tmdb
+    ):
+        _show(conn, "30", 77, "Orchard", 4)
+        _episode_played(conn, "30", 1)
+        tmdb.failing = True
+
+        [item] = self._get(amy, 60)["items"]
+        assert (item["episode"], item["minutes"]) == (2, 40)
+        resp = amy.get(f"{BASE}/tonight/elsewhere", params={"minutes": 60})
+        assert (resp.status_code, resp.json()["items"]) == (200, [])
 
     def test_the_reason_names_what_the_person_played_unless_history_is_off(self, amy, conn):
         _own(conn, 5, 6)
@@ -999,6 +1118,48 @@ class TestTonight:
         amy.put(f"{BASE}/history", json={"enabled": False})
         [item] = self._get(amy, 300)["items"]
         assert item["title"] == "Orchard" and "Harbour" not in item["reason"]
+
+    def _elsewhere(self, client, minutes):
+        resp = client.get(f"{BASE}/tonight/elsewhere", params={"minutes": minutes})
+        assert resp.status_code == 200
+        return [(i["title"], i["minutes"], i["can_download"]) for i in resp.json()["items"]]
+
+    def test_titles_not_in_the_library_fit_and_say_whether_they_can_be_downloaded(
+        self, amy, conn, tmdb, monkeypatch
+    ):
+        monkeypatch.setattr(assist, "can_download", lambda *_a: {"movie": True, "show": False})
+        _own(conn, 2)
+        tmdb.shows[90] = ("Salt Flats", 22)
+        tmdb.lists = {
+            "trending": [
+                {"id": 4, "media_type": "movie", "title": "Kestrel"},
+                {"id": 2, "media_type": "movie", "title": "Alibi"},
+                {"id": 90, "media_type": "tv", "name": "Salt Flats"},
+            ],
+            "popular_movies": [{"id": 3, "title": "Train Job"}],
+        }
+
+        assert self._elsewhere(amy, 90) == [("Salt Flats", 22, False), ("Train Job", 45, True)]
+
+    def test_no_title_the_person_saw_played_or_refused_is_offered_from_elsewhere(
+        self, people, conn, tmdb
+    ):
+        tmdb.lists = {
+            "popular_movies": [
+                {"id": n, "title": name}
+                for n, name in ((1, "Nine Locks"), (2, "Alibi"), (3, "Train Job"), (5, "Harbour"))
+            ],
+        }
+        _mark_seen(conn, 1)
+        _rate(conn, 2, -2)
+        conn.execute(
+            "INSERT INTO played_titles (username, media_type, title, tmdb_id, played_at)"
+            " VALUES ('amy-secret', 'movie', 'Train Job', 3, '2026')"
+        )
+        conn.commit()
+
+        assert [t for t, *_ in self._elsewhere(people["amy"], 120)] == ["Harbour"]
+        assert len(self._elsewhere(people["bob"], 120)) == 4
 
     def test_tmdb_out_of_reach_is_no_error(self, amy, conn, tmdb):
         _own(conn, 1)

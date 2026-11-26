@@ -99,7 +99,7 @@ class El {
 function build(pollGet) {
   const listeners = {};
   const doc = {
-    hidden: false, documentElement: { clientWidth: 1280 },
+    hidden: false, documentElement: { clientWidth: 1280, classList: { add() {}, remove() {} } },
     createElement: (t) => new El(t, doc),
     createElementNS: (ns, t) => new El(t, doc),
     createTextNode: (t) => { const e = new El('#text', doc); e._text = t; return e; },
@@ -305,6 +305,28 @@ scenarios.abandonNamesTheTitle = async function () {
   r.openItem('m1', 'movie', [], 'Twin', '21');
   r.confirmClick();
   return { built, updated: buttons(), sent: r.posts[0].body };
+};
+
+// each button's accessible name carries its title, built and refreshed
+scenarios.abandonNames = async function () {
+  const h = build(() => Promise.resolve({}));
+  ['core/dom.js', 'downloads/build_dom.js', 'downloads/render_hero.js', 'downloads/render_row.js', 'downloads/render_recent.js'].forEach(h.load);
+  h.ctx.MM.downloads.poll = { start: (cb) => { h.ctx.update = cb; } };
+  h.add('dl-empty-container'); h.add('dl-recent-container');
+  h.root.setAttribute('data-can-abandon', 'true');
+  h.load('downloads.js');
+  const names = () => h.root.querySelectorAll('[data-abandon-trigger]')
+    .map((b) => b.getAttribute('aria-label') + ' | ' + b.getAttribute('title')).sort();
+  const poll = (t) => h.ctx.update({
+    subtitle: '', recent: [],
+    hero: item('h', { title: 'Hero ' + t, abandon_visible: true }),
+    queue: [item('q', { title: 'Queue ' + t, abandon_visible: true })],
+    upcoming: [item('u', { title: 'Soon ' + t })],
+  });
+  poll('A');
+  const built = names();
+  poll('B');
+  return { built, updated: names() };
 };
 
 // another tab abandoned it first
@@ -1021,6 +1043,44 @@ scenarios.newRowMidList = async function () {
   return p.byId('dl-queue-list').querySelectorAll('.dl-compact').map((r) => [
     r.getAttribute('data-dl-id'), r.style.height || '', r.slideStart || '', r.getBoundingClientRect().top,
   ]);
+};
+
+// one Radarr or Sonarr will not import says so, with what is wrong and where to fix it for an
+// admin alone, and has no bar of progress
+scenarios.needsAttention = async function () {
+  const look = (admin, retrying = false) => {
+    const p = pageRig(true);
+    if (!admin) p.h.root.setAttribute('data-can-abandon', 'false');
+    const held = {
+      state: 'needs_attention', state_label: 'Needs attention', progress: 100, eta: '',
+      attention: admin ? 'Review file name or manually import' : '',
+      attention_hint: admin ? 'Fix it in Sonarr: Activity → Queue' : '',
+      retrying,
+      episodes: [{ label: 'S12E01', title: 'One', state: 'needs_attention', progress: 100 }],
+    };
+    p.upd({ hero: item('h', held), queue: [item('q', held)] });
+    const of = (card) => {
+      const hint = card.querySelector('[data-v="search-hint"]');
+      const fix = card.querySelector('[data-v="attention-hint"]');
+      const bar = card.querySelector('[data-v="fill"]').parentNode;
+      const wrap = card.querySelector('[data-v="progress-wrap"]');
+      const pct = card.querySelector('[data-v="pct"]');
+      return {
+        pill: card.querySelector('.dl-state-pill').textContent,
+        hint: hint.hidden ? null : hint.querySelector('[data-v="search-hint-text"]').textContent,
+        fix: fix && !fix.hidden ? fix.textContent : null,
+        bar: !(bar.hidden || (wrap && wrap.hidden)),
+        pct: wrap ? null : pct.textContent,
+        episode: card.querySelector('.dl-ep-status-pill') && card.querySelector('.dl-ep-status-pill').textContent,
+      };
+    };
+    return { hero: of(p.byId('dl-hero-container').querySelector('.dl-hero')), row: of(p.byId('dl-queue-list').querySelector('.dl-compact')) };
+  };
+  return {
+    admin: look(true),
+    viewer: look(false),
+    retrying: { admin: look(true, true), viewer: look(false, true) },
+  };
 };
 
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

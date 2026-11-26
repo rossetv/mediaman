@@ -12,8 +12,3 @@
 {% macro title(text) -%}
 <h1 class="watch-banner__title{% if text|length > 80 %} watch-banner__title--longest{% elif text|length > 40 %} watch-banner__title--long{% endif %}">{{ text }}</h1>
 {%- endmacro %}
-
-{# The same behind a film's or a show's own page: *poster_url* also names its wide pictures. #}
-{% macro page_pictures(poster_url) -%}
-{% if poster_url %}{{ pictures({"backdrop_url": poster_url ~ "?kind=art", "next_backdrop_url": poster_url ~ "?kind=art&source=tmdb", "poster_url": poster_url}) }}{% endif %}
-{%- endmacro %}

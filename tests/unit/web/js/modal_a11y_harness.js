@@ -69,6 +69,30 @@ function page() {
 }
 
 const scenarios = {
+  // A dialog that spares what holds the cards: hidden from assistive tech, not made inert, under it
+  // and under a confirm over it, and given back as it was.
+  spared() {
+    const p = page();
+    p.$('top').setAttribute('aria-hidden', 'false');
+    const hiddenOnes = () => p.doc.documentElement.descendants().filter((n) => n.getAttribute('aria-hidden') === 'true').map((n) => n.id);
+    p.$('inside').hidden = false;
+    p.ctx.MM.inertPage.hold(p.$('inside'), [p.$('list'), p.$('top')]);
+    const open = { inert: p.inert(), hidden: hiddenOnes() };
+    p.confirm();
+    const over = { inert: p.inert(), hidden: hiddenOnes() };
+    p.key('Escape');
+    p.ctx.MM.inertPage.release(p.$('inside'));
+    return { open, over, closed: { inert: p.inert(), hidden: hiddenOnes(), top: p.$('top').getAttribute('aria-hidden') } };
+  },
+  // What a dialog spares is asked for again as another dialog opens: a holder built after it is spared too.
+  sparedLater() {
+    const p = page();
+    p.$('inside').hidden = false;
+    p.ctx.MM.inertPage.hold(p.$('inside'), () => ['list', 'late'].map((id) => p.doc.getElementById(id)).filter(Boolean));
+    p.$('main').appendChild(build(p.doc, ['section', { id: 'late' }]));
+    p.confirm();
+    return { inert: p.inert(), hidden: p.doc.documentElement.descendants().filter((n) => n.getAttribute('aria-hidden') === 'true').map((n) => n.id) };
+  },
   // A confirm over a page whose storage panel is closed, and inert as it always is then.
   confirm() {
     const p = page();

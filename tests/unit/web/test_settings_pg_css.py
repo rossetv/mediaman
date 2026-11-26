@@ -39,7 +39,7 @@ def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
 def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
     css = (CSS / "_settings_pg.css").read_text()
 
-    bar = re.search(r"html:has\(\.setg-pg \.savebar\.on\) \{([^{}]*)\}", css)
+    bar = re.search(r"html\.has-savebar \{([^{}]*)\}", css)
     assert bar and "--savebar-below: 0px" in bar.group(1)
     assert "scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--savebar-below)" in bar.group(
         1
@@ -49,7 +49,7 @@ def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
     # on a phone the bar stands on the one at the foot
     below = "var(--foot)"
     phone = css[css.index(f".setg-pg .savebar {{ bottom: {below};") :]
-    assert f"html:has(.setg-pg .savebar.on) {{ --savebar-below: {below}; }}" in phone
+    assert f"html.has-savebar {{ --savebar-below: {below}; }}" in phone
 
 
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
@@ -222,7 +222,7 @@ def test_the_browsers_own_field_parts_are_drawn_for_a_dark_page() -> None:
 
 def test_scrolled_into_view_controls_clear_the_sticky_bars() -> None:
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
-    rules = re.findall(r"html:has\(\.setg-pg\)\s*\{([^{}]*)\}", css)
+    rules = re.findall(r"html\.has-setg-pg\s*\{([^{}]*)\}", css)
     assert len(rules) == 2
     assert all("scroll-padding-top" in body for body in rules)
     # the phone rule reaches past the top bar and the chip strip (65 px)

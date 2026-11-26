@@ -121,6 +121,8 @@
   /* How long the picture waits before it is said why: a drop, and a busy server or a slow start. */
   var LOST_NOTICE_MS = 300;
   var SLOW_NOTICE_MS = 8000;
+  /* A title that starts sooner than this shows neither its name nor a spinner. */
+  var INTRO_AFTER_MS = 300;
   /* The longest a busy server may ask for before it is asked again. */
   var BUSY_MAX_S = 30;
   /* Automatic steps down when playback stalls twice within this much of the
@@ -223,7 +225,7 @@
     item = readJSON(el, 'data-item') || {};
     rows = readJSON(el, 'data-qualities') || [];
     leaving = readJSON(el, 'data-leaving');
-    backHref = el.getAttribute('data-back-href') || '/watch';
+    backHref = el.getAttribute('data-back-href') || '/';
     showHref = el.getAttribute('data-show-href') || '';
     startS = parseFloat(el.getAttribute('data-start-s')) || 0;
     placeS = parseFloat(el.getAttribute('data-place-s'));
@@ -826,8 +828,42 @@
     root.classList.toggle('is-loading', on);
     if (!on) waitingSince = null;
     else if (waitingSince === null) waitingSince = Date.now();
+    showIntro();
     showNotice();
     showPlayState();
+  }
+
+  /* While a title starts here, its name stands in for the spinner; what plays elsewhere keeps its own. */
+  var introTimer = null;
+  function introDue() {
+    return root.classList.contains('is-loading') && (!hasPlayed || switching) && (wantPlaying || starting) && !away && !attempt && !holding;
+  }
+
+  function showIntro() {
+    var due = introDue();
+    root.classList.toggle('is-starting', due);
+    if (!due) {
+      clearTimeout(introTimer);
+      introTimer = null;
+      if (root.classList.contains('is-intro')) {
+        /* The name hides a held frame: over a picture that plays now, it is not to show again. */
+        if (video.readyState >= 3) releaseFrame();
+        root.classList.add('is-intro-out');
+        root.classList.remove('is-intro');
+      }
+    } else if (introTimer === null && !root.classList.contains('is-intro')) {
+      introTimer = setTimeout(function () {
+        introTimer = null;
+        if (!introDue()) {
+          showIntro();
+          return;
+        }
+        root.classList.remove('is-intro-out');
+        /* The drawing kept its end; a reflow with neither class drops it, so it starts over. */
+        void root.offsetWidth;
+        root.classList.add('is-intro');
+      }, INTRO_AFTER_MS);
+    }
   }
 
   var heldForSeek = false;
@@ -880,6 +916,8 @@
     swapping = false;
     if (again !== tryLost && again !== playHere) releaseFrame();
     if (shown(els.rate)) dropRating();
+    /* A message is no hand-over: the name goes at once, not by a fade over the text. */
+    root.classList.remove('is-intro', 'is-intro-out');
     setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !again || !!card;
@@ -2401,6 +2439,7 @@
     var opened = openTrigger();
     if (!opened) return;
     opened.setAttribute('aria-expanded', 'false');
+    document.documentElement.classList.remove('has-player-keep-open');
     if (refocus) opened.focus();
     leave(opened.parentNode.querySelector('.player-menu'));
   }
@@ -2432,6 +2471,8 @@
     closeMenus();
     if (open) return;
     trigger.setAttribute('aria-expanded', 'true');
+    // For the toasts, which make way for Keep's open menu (_ui_feedback.css).
+    document.documentElement.classList.toggle('has-player-keep-open', !!trigger.closest('.player-keep'));
     var menu = trigger.parentNode.querySelector('.player-menu');
     show(menu);
     focusMenu(menu);
@@ -3412,7 +3453,7 @@
   function ledHere() {
     if (window.history.length < 2 || !document.referrer) return false;
     var from = new URL(document.referrer);
-    return from.origin === window.location.origin && /^\/watch(\/(show|movie)\/[0-9]+)?$/.test(from.pathname);
+    return from.origin === window.location.origin && /^\/(watch\/(show|movie)\/[0-9]+)?$/.test(from.pathname);
   }
 
   /* Kept with the entry, so a reload knows it too. */

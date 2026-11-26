@@ -129,6 +129,7 @@ class El {
 function build() {
   const timers = [];
   const docListeners = {};
+  const htmlClasses = new Set();
   const doc = {
     activeElement: null,
     createElement: (t) => new El(t, doc),
@@ -140,7 +141,14 @@ function build() {
     listeners: docListeners,
     capturing: new Set(),
     revealed: [],
-    documentElement: { clientHeight: 844, classList: { add() {} } },
+    documentElement: {
+      clientHeight: 844,
+      classes: htmlClasses,
+      classList: {
+        add: (c) => { htmlClasses.add(c); },
+        toggle: (c, on) => { if (on) htmlClasses.add(c); else htmlClasses.delete(c); },
+      },
+    },
     dispatchEvent: (e) => { (docListeners[e.type] || []).forEach((fn) => fn(e)); },
     addEventListener: (t, fn, capture) => {
       (docListeners[t] = docListeners[t] || []).push(fn);
@@ -356,8 +364,10 @@ const scenarios = {
     const edit = (v, c) => { input.value = v; box.checked = c; input.fire('input'); };
     edit('http://b', false);
     const dirty = bar.classList.contains('on');
+    const pageWhileDirty = h.doc.documentElement.classes.has('has-savebar');
     discard.fire('click');
     await h.flush();
+    const pageAfterDiscard = h.doc.documentElement.classes.has('has-savebar');
     const afterDiscard = { value: input.value, checked: box.checked, dirty: bar.classList.contains('on') };
     // save a new value, then edit again and discard: back to the saved value
     edit('http://c', true);
@@ -372,7 +382,7 @@ const scenarios = {
     edit('http://e', false);
     discard.fire('click');
     await h.flush();
-    return { dirty, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
+    return { dirty, pageWhileDirty, pageAfterDiscard, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
   },
 
   // A refused save shows the field it refused, out from under the bar, and leaves the focus where it was.
@@ -2342,6 +2352,41 @@ const scenarios = {
       out.newsletter.none = await step(n, () => n.page['btn-confirm-newsletter'].fire('click'));
     }
     return out;
+  },
+
+  // The section rail knows when it has come to rest under the bar, and when it has left it.
+  async railStuck() {
+    const h = build();
+    h.load('settings/rows.js'); h.load('settings/toggles.js');
+    const rail = h.add('nav', { className: 'setg-rail' });
+    h.add('div', { id: 'setg-a', className: 'setg-block' });
+    h.ctx.getComputedStyle = () => ({ top: '64px' });
+    h.ctx.innerHeight = 800; h.ctx.scrollY = 0;
+    rail.place = { top: 210, bottom: 274 };
+    h.ctx.MM.settings.toggles.init();
+    const scroll = (top) => {
+      rail.place = { top, bottom: top + 64 };
+      (h.docListeners['window:scroll'] || []).forEach((f) => f());
+      return rail.classList.contains('is-stuck');
+    };
+    const atRest = rail.classList.contains('is-stuck');
+    return { atRest, stuck: scroll(64), back: scroll(150) };
+  },
+
+  // A resize that moves the rail changes whether it is stuck, with no scroll.
+  async railStuckResize() {
+    const h = build();
+    h.load('settings/rows.js'); h.load('settings/toggles.js');
+    const rail = h.add('nav', { className: 'setg-rail' });
+    h.add('div', { id: 'setg-a', className: 'setg-block' });
+    h.ctx.getComputedStyle = () => ({ top: '64px' });
+    h.ctx.innerHeight = 800; h.ctx.scrollY = 0;
+    rail.place = { top: 210, bottom: 274 };
+    h.ctx.MM.settings.toggles.init();
+    const before = rail.classList.contains('is-stuck');
+    rail.place = { top: 64, bottom: 128 };
+    (h.docListeners['window:resize'] || []).forEach((f) => f());
+    return { before, after: rail.classList.contains('is-stuck') };
   },
 
   // A throttled service is not counted as not connected.

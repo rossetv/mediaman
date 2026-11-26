@@ -22,7 +22,7 @@ from collections import Counter
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -57,7 +57,13 @@ from mediaman.web.auth.password_hash import get_user_email, get_user_role
 from mediaman.web.repository import seen_titles
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import fetch_keep
-from mediaman.web.repository.library_query import TitleSearch, protection_label
+from mediaman.web.repository.library_query import (
+    FORGIVEN,
+    TitleSearch,
+    loosened,
+    protection_label,
+    title_distance,
+)
 from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
 from mediaman.web.repository.watch_progress import WatchProgress, get_progress, show_progress
 from mediaman.web.responses import respond_err, respond_ok
@@ -76,6 +82,7 @@ from mediaman.web.routes.watch.pages import (
     _episode_row,
     _primary_episode,
     _season_watched,
+    can_download,
     leaving_info,
     open_plex,
     play_href,
@@ -171,7 +178,7 @@ def api_watch_search_tmdb(
         return respond_ok({"tmdb_configured": True, "items": [], "held": [], "people": []})
     try:
         # Only a search TMDB is asked for counts against the limit; a cached one is free.
-        found = catalog.search(client, term, allow_fetch=lambda: _QUERY_LIMITER.check(username))
+        found = _search_forgiving(client, term, lambda: _QUERY_LIMITER.check(username))
     except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
@@ -203,12 +210,158 @@ def api_watch_search_tmdb(
     )
 
 
+def _named(item: Mapping[str, object]) -> str:
+    return str(item.get("title") or item.get("name") or "")
+
+
+def _search_forgiving(
+    client: TmdbClient, term: str, allow_fetch: Callable[[], bool]
+) -> list[dict[str, object]]:
+    """TMDB's search for *term*; where no title it finds holds the words as typed, also for
+    them without plurals or punctuation, which TMDB does not forgive. Its own come first."""
+    found = catalog.search(client, term, allow_fetch=allow_fetch)
+    again = loosened(term)
+    if not again or again == term.casefold().strip():
+        return found
+    if any((d := title_distance(term, _named(r))) is not None and d < FORGIVEN for r in found):
+        return found
+    try:
+        more = catalog.search(client, again, allow_fetch=allow_fetch)
+    except (disk_cache.Refused, catalog.TmdbUnavailable):
+        return found
+    seen = {(r.get("media_type"), r.get("id")) for r in found}
+    return found + [r for r in more if (r.get("media_type"), r.get("id")) not in seen]
+
+
 def _library_title(
     conn: sqlite3.Connection, libraries: list[str], ref: str
 ) -> lib.LibraryMovie | lib.LibraryShow | None:
     kind, _, key = ref.partition("-")
     find = lib.find_movie if kind == "movie" else lib.find_show
     return find(conn, libraries, key)
+
+
+_SIMILAR_SHOWN = 12
+# How far a title may be from what was typed and still be the one it names, at once: the
+# same, the same but for a leading article, or starting with it.
+_STARTS_WITH = 2
+
+
+@router.get("/api/watch/similar")
+def api_watch_similar(
+    request: Request,
+    q: Annotated[str, Query(max_length=catalog.MAX_QUERY_LEN)] = "",
+    username: str = Depends(get_current_user),
+) -> JSONResponse:
+    """The title *q* names, the library's before TMDB's, and the titles TMDB finds like it.
+    ``title`` is null where nothing is named by it."""
+    term = q.strip()
+    conn = get_db()
+    client = _tmdb_client(request, conn)
+    if client is None:
+        return respond_ok({"tmdb_configured": False, "title": None, "items": []})
+    libraries = lib.scanned_library_ids(conn)
+    index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
+    allow = lambda: _QUERY_LIMITER.check(username)  # noqa: E731
+    found: list[dict[str, object]] = []
+    try:
+        named = _named_title(request, conn, client, username, index, term, allow) if term else None
+        if named is not None:
+            found = catalog.similar(client, named["tmdb_kind"], named["tmdb_id"], allow_fetch=allow)
+    except (disk_cache.Refused, catalog.TmdbBusy):
+        return respond_err("too_many_requests", status=429)
+    except catalog.TitleNotFound:
+        pass
+    except catalog.TmdbUnavailable:
+        return respond_err("tmdb_request_failed", status=502)
+    if named is None:
+        return respond_ok({"tmdb_configured": True, "title": None, "items": []})
+    own = (named["tmdb_kind"], named["tmdb_id"])
+    [cards] = _discover_cards(
+        request,
+        conn,
+        client,
+        username,
+        [[r for r in found if (r.get("media_type"), r.get("id")) != own]],
+    )
+    marks = card_marks(seen_titles.person_marks(conn, username), client)
+    shown = cards[:_SIMILAR_SHOWN]
+    for card in shown:
+        ref = card["library_ref"]
+        if isinstance(ref, str) and ref.startswith("show-"):
+            show = lib.find_show(conn, libraries, ref.removeprefix("show-"))
+            card["season_count"] = (show.season_count or None) if show else None
+    return respond_ok(
+        {
+            "tmdb_configured": True,
+            "title": {k: v for k, v in named.items() if not k.startswith("tmdb_")},
+            "items": [marked(c, marks) for c in shown],
+        }
+    )
+
+
+def _named_title(
+    request: Request,
+    conn: sqlite3.Connection,
+    client: TmdbClient,
+    username: str,
+    index: catalog.LibraryIndex,
+    term: str,
+    allow: Callable[[], bool],
+) -> dict[str, Any] | None:
+    """The title *term* names, with its TMDB kind and id: the library's that TMDB knows where
+    its name is *term* or starts with it; else the closest of TMDB's, its first of those as close; else
+    the closest of the library's. A library title that only holds the words, or is forgiven
+    them, may be another than the one meant ("up" is in "Superbad")."""
+    by_ref = {
+        ref: (kind, tmdb_id)
+        for kind, refs in (("movie", index.movies_by_tmdb), ("tv", index.shows_by_tmdb))
+        for tmdb_id, ref in refs.items()
+    }
+    libraries = lib.scanned_library_ids(conn)
+    found, _ = lib.search_library(conn, libraries, term, 5)
+    own: dict[str, Any] | None = None
+    for title in found:
+        movie = isinstance(title, lib.LibraryMovie)
+        ref = f"{'movie' if movie else 'show'}-{title.key}"
+        known = by_ref.get(ref) or (
+            ("movie" if movie else "tv", title.tmdb_id) if title.tmdb_id else None
+        )
+        if known is None:
+            continue
+        [shown] = library_items(conn, username, libraries, [title])
+        own = {
+            "ref": ref,
+            "library_ref": ref,
+            "title": title.title,
+            "kind": "movie" if movie else "show",
+            "year": title.year,
+            "poster_url": shown.get("poster_url"),
+            "tmdb_kind": known[0],
+            "tmdb_id": known[1],
+        }
+        break
+    distance = title_distance(term, own["title"]) if own else None
+    if own and distance is not None and distance <= _STARTS_WITH:
+        return own
+    close = [
+        (d, item)
+        for item in _search_forgiving(client, term, allow)
+        if item.get("media_type") in ("movie", "tv")
+        and (d := title_distance(term, _named(item))) is not None
+    ]
+    # A stable sort: of titles as close, TMDB's first.
+    for _, item in sorted(close, key=lambda found: found[0]):
+        kind, tmdb_id = item.get("media_type"), item.get("id")
+        card = catalog.tmdb_card(item, index, _arr(request, conn))
+        if card is None:
+            continue
+        return {
+            **{k: card[k] for k in ("ref", "library_ref", "title", "kind", "year", "poster_url")},
+            "tmdb_kind": kind,
+            "tmdb_id": tmdb_id,
+        }
+    return own
 
 
 @router.get("/api/watch/discover")
@@ -456,6 +609,8 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "ai_pick": False,
         "because_of": [],
         "play": None,
+        # Of a library title: "gone" when Plex no longer has it, else as ``plex_error_code``.
+        "plex_error": None,
         "leaving": None,
         "leaving_seasons": [],
         "keep_allowed": False,
@@ -549,8 +704,9 @@ def _movie_title(
     out["tmdb_ref"] = tmdb_ref(title_key("movie", movie.tmdb_id))
     try:
         item = open_plex(request, conn).get_item(movie.key)
-    except PlexError:
+    except PlexError as exc:
         item = None
+        out["plex_error"] = _plex_error(exc)
     if item is not None and (item.type != "movie" or not is_in_libraries(item, libraries)):
         raise _OutsideLibraries(movie.key)
     if item is not None:
@@ -560,7 +716,7 @@ def _movie_title(
             overview=item.summary,
             runtime_min=round(item.duration_s / 60) or None,
         )
-        origin = f"/watch#title={ref}"
+        origin = f"/#title={ref}"
         if progress is not None and resumable(progress):
             pct, left = progress_fields(progress)
             out["play"] = {
@@ -583,6 +739,10 @@ def _movie_title(
         with contextlib.suppress(catalog.TmdbUnavailable):
             _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id)
     return out
+
+
+def _plex_error(exc: PlexError) -> str:
+    return "gone" if isinstance(exc, PlexItemNotFound) else plex_error_code(exc)
 
 
 def _show_tmdb_id(
@@ -718,7 +878,7 @@ def _show_title(
     out["tmdb_ref"] = tmdb_ref(title_key("tv", listed.tmdb_id))
     tmdb_seasons: list[dict[str, Any]] = []
     arr_view = begin_arr_view(conn, request.app.state.config.secret_key)
-    origin = f"/watch#title={ref}"
+    origin = f"/#title={ref}"
     try:
         plex = open_plex(request, conn)
         show = plex.get_show(listed.key)
@@ -741,8 +901,9 @@ def _show_title(
         if selected is None and show.seasons:
             selected = show.seasons[0]
         episodes = episodes_of(selected.rating_key) if selected else []
-    except PlexError:
+    except PlexError as exc:
         show = None
+        out["plex_error"] = _plex_error(exc)
     if show is not None:
         season_watched = {
             s.rating_key: _season_watched(
@@ -758,7 +919,7 @@ def _show_title(
             overview=show.summary,
             genres=[show.genre] if show.genre else [],
             season_count=len(show.seasons) or None,
-            play={**primary, "progress_pct": None, "minutes_left": None},
+            play={**primary, "progress_pct": None, "minutes_left": None} if primary else None,
             seasons=[
                 {
                     "number": s.index,
@@ -908,7 +1069,7 @@ def _title_of_fields(
         )
         if library_ref is None:
             out["sonarr_tracked"] = arr.sonarr_tracked(tmdb_id)
-    if library_ref is None:
+    if library_ref is None and can_download(conn, secret)["movie" if kind == "movie" else "show"]:
         state, pct = arr.state(kind, tmdb_id)
         request_body: dict[str, Any] = (
             {"url": download_url}
@@ -1232,10 +1393,13 @@ def api_watch_title_collection(
     [found_cards] = _discover_cards(request, conn, client, username, [films])
     marks = card_marks(seen_titles.person_marks(conn, username), client)
     cards = [marked(card, marks) for card in found_cards]
-    answered = _arr(request, conn).answers_for("movie")
+    arr = _arr(request, conn)
+    radarr = "not_set_up" if "radarr" in arr.not_set_up else None
+    if radarr is None and not arr.answers_for("movie"):
+        radarr = "unavailable"
     shown = []
     for film, card in zip(films, cards, strict=True):
-        why_not = _why_not_to_request(card, film["release_date"], answered)
+        why_not = _why_not_to_request(card, film["release_date"], radarr)
         shown.append(
             {
                 **card,
@@ -1249,8 +1413,10 @@ def api_watch_title_collection(
 
 
 def _why_not_to_request(
-    card: Mapping[str, object], release_date: str | None, radarr_answered: bool
+    card: Mapping[str, object], release_date: str | None, radarr_off: str | None
 ) -> str | None:
+    """Why the film of *card* may not be asked for, or None; *radarr_off* is why Radarr can't
+    take it ("not_set_up", "unavailable"), or None."""
     state = card["download_state"]
     if card["in_library"] or state in (ACTION_IN_LIBRARY, ACTION_PARTIAL):
         return "held"
@@ -1260,7 +1426,7 @@ def _why_not_to_request(
         return "undated"
     if release_date > now_utc().date().isoformat():
         return "unreleased"
-    return None if radarr_answered else "unavailable"
+    return radarr_off
 
 
 @router.get("/api/watch/title/{ref}/season/{number}")
@@ -1294,7 +1460,7 @@ def api_watch_title_season(
         return _not_found()
     except PlexError as exc:
         return respond_err(plex_error_code(exc), status=503)
-    origin = f"/watch#title={ref}"
+    origin = f"/#title={ref}"
     client = _tmdb_client(request, conn)
     found, pending = None, False
     if client is not None and not _is_described(season, episodes):

@@ -4,7 +4,8 @@
      <script type="application/json"> data islands, which CSP does not
      gate. style-src still allows 'unsafe-inline' for the few inline styles
      that carry data (bar widths). -->
-<html lang="en-GB">
+{# What the page holds is said on html for the styles; a :has() there would be tested on every change in the page. #}
+<html lang="en-GB" data-page="{{ nav_active or '' }}"{% block html_class %}{% endblock %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

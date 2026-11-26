@@ -551,24 +551,6 @@
     return back;
   }
 
-  function seasonShown() {
-    var on = document.querySelector('.watch-seasons a.watch-pill.on');
-    return on ? on.getAttribute('href') : null;
-  }
-
-  /* The title page's line, put back in the hero when the season tabs took
-     it off and its season is the one shown again. */
-  function putLineBack(line, season) {
-    if (document.body.contains(line) || seasonShown() !== season) return;
-    var info = document.querySelector('.watch-hero__info');
-    if (!info) return;
-    var current = info.querySelector('[data-watch-leaving]');
-    var actions = info.querySelector('.watch-actions');
-    if (current) current.replaceWith(line);
-    else if (actions) actions.before(line);
-    else info.appendChild(line);
-  }
-
   function span(days) { return days === FOREVER ? FOREVER : 'for ' + days + ' days'; }
 
   /* The storage panel, which lists what is scheduled:
@@ -588,27 +570,6 @@
       undos.push(listed.undo);
       focus = listed.focus;
     }
-
-    // A title page's "Leaving in N days · Keep" line says how long it is kept.
-    triggersFor(id).forEach(function (button) {
-      var line = button.closest('[data-watch-leaving]');
-      if (!line) return;
-      var parts = toArray(line.childNodes);
-      var season = seasonShown();
-      parts.forEach(function (n) { n.remove(); });
-      line.textContent = 'Kept ' + span(days);
-      line.classList.add('watch-leaving--kept');
-      line.tabIndex = -1;
-      focus = line;
-      undos.push(function () {
-        line.textContent = '';
-        line.classList.remove('watch-leaving--kept');
-        parts.forEach(function (n) { line.appendChild(n); });
-        line.removeAttribute('tabindex');
-        putLineBack(line, season);
-        return button;
-      });
-    });
 
     // The card the Keep was pressed in comes first, so focus stays there; an open
     // grid's, the rows hidden behind it, last, so an Undo has it back before the row's.
@@ -659,17 +620,10 @@
   }
 
   /* The title a Keep button belongs to, for the toasts: its label reads "Keep <title>", with
-     the season of a season's. The title page's line adds the season of the tab shown. */
+     the season of a season's. */
   function titleOf(button) {
     var label = button.getAttribute('aria-label');
-    var title = label ? label.replace(/^Keep /, '') : '';
-    if (!title) return '';
-    var season = '';
-    if (button.closest('[data-watch-leaving]')) {
-      var tab = document.querySelector('.watch-seasons a.watch-pill.on');
-      if (tab) season = tab.textContent.trim();
-    }
-    return season ? title + ', ' + season : title;
+    return label ? label.replace(/^Keep /, '') : '';
   }
 
   /* Watch's own Keep can be undone. Forever, and a title whose day has come
@@ -788,7 +742,7 @@
       keep(trigger, days === FOREVER ? FOREVER : parseInt(days, 10));
     },
     spare: function () {
-      return document.querySelector('.watch-seasons a.watch-pill.on') || core.spareFocus();
+      return core.spareFocus();
     }
   }) : null;
 

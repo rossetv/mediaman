@@ -114,7 +114,7 @@
     var at = /^\/watch\/(movie|show)\/([0-9]+)(\?|$)/.exec(item.href || '');
     var ref = item.ref || (at ? at[1] + '-' + at[2] : '');
     if (ref) link.setAttribute('data-title-ref', ref);
-    link.href = safePath(item.href) || '/watch';
+    link.href = safePath(item.href) || '/';
     var poster = el('span', 'watch-card__poster');
     var posterUrl = safePath(item.poster_url);
     if (posterUrl) {
@@ -182,9 +182,9 @@
     return card;
   }
 
-  /* One found by its category, in the library. */
-  function buildHeldCard(item) {
-    return addKeep(buildTmdbCard(item, true), item);
+  /* One found by its category, in the library; *said*: among others that are not, it says so. */
+  function buildHeldCard(item, said) {
+    return addKeep(buildTmdbCard(item, !said), item);
   }
 
   /* A title TMDB knows, in the library or not; *plain*: its heading says which. */
@@ -306,12 +306,12 @@
 
   var glides = new WeakMap();
 
-  /* Make *root* hold *list*, [{ key, sig, make, update }], keeping the node of
-     each key that stays. What stays glides from where it is on the screen this
+  /* Make *root* hold *list*, [{ key, sig, make, update, keepFocus }], keeping the node of
+     each key that stays; one redrawn with *keepFocus* keeps the focus it had. What stays glides from where it is on the screen this
      instant, even mid-flight; what is new rises; what is gone fades. A change of
      *sig* redraws a node where it stands. *first* changes the page around them,
-     once it is known where they are. */
-  function glide(root, list, first) {
+     once it is known where they are. *step* is how far apart, in ms, the new ones rise. */
+  function glide(root, list, first, step) {
     var g = glides.get(root);
     if (!g) {
       g = { nodes: new Map(), ghosts: el('div', 'results-ghosts') };
@@ -357,8 +357,11 @@
       } else if (held.sig !== x.sig) {
         stopMoving(held);
         var node = x.make();
+        var had = x.keepFocus && held.node.contains(document.activeElement);
         if (held.node.parentNode) held.node.replaceWith(node);
         held.node = node;
+        var to = had && (node.querySelector('a') || node.querySelector('button') || node);
+        if (to && to.focus) to.focus({ preventScroll: true });
       }
       held.sig = x.sig;
       if (x.update) x.update(held.node);
@@ -386,7 +389,7 @@
     fresh.forEach(function (held) {
       if (!near(held.to)) return;
       held.rising = play(held.node, [{ opacity: 0, transform: 'translateY(14px) scale(.97)' }, { opacity: 1, transform: 'none' }], 240,
-        { delay: Math.min(n++, 10) * 22, fill: 'backwards' });
+        { delay: Math.min(n++, 10) * (step || 22), fill: 'backwards' });
     });
   }
 
@@ -605,6 +608,9 @@
     var address = window.MMWatch.address;
     var explore = window.MMWatch.explore;
     var data = readPageData();
+    // Results mix films and shows: offered for download only where both can be.
+    var can = data.can_download || {};
+    var outTitle = can.movie === false || can.show === false ? 'Not in your library' : 'Available to download';
 
     var view = results.hidden ? 'browse' : 'results'; // what stands under the bar: browse, results or page
     var timer = null;
@@ -620,6 +626,7 @@
     var emptiedTimer = null;
     var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
+    var stopIds = 0;
     var people = new Map(); // everybody a search has named, by id
     var ai = window.MMWatch.ask || null;
     var downloads = window.MMWatch.downloading || null;
@@ -652,7 +659,7 @@
     var wide = window.matchMedia('(min-width: 1100px)');
     var phone = window.matchMedia('(max-width: 699.98px)');
     var meter = bar.querySelector('.space-meter');
-    var profile = bar.querySelector('.profile-btn');
+    var end = bar.querySelector('.nav-end'); // the meter's and the profile button's island
 
     /* The field stays between what is on either side, however large a person has text;
        where that leaves too little, or cuts the meter's figure, the meter drops the words
@@ -667,7 +674,7 @@
     function short() {
       var brand = bar.querySelector('.brand');
       var l = brand.offsetLeft + brand.offsetWidth + 2;
-      var r = (meter || profile).offsetLeft - 2;
+      var r = end.offsetLeft - 2;
       bar.style.setProperty('--l', l + 'px');
       bar.style.setProperty('--r', r + 'px');
       if (!meter) return false;
@@ -682,7 +689,7 @@
 
     /* The open field would cover the meter. */
     function covers() {
-      return !!meter && wide.matches && box.offsetLeft + box.offsetWidth + 8 > meter.offsetLeft;
+      return !!meter && wide.matches && box.offsetLeft + box.offsetWidth + 8 > end.offsetLeft;
     }
 
     function makeRoom() {
@@ -691,15 +698,6 @@
 
     /* The focus is on what the open field covers. */
     function asked() { return document.activeElement === meter && covers(); }
-
-    /* The elements stand in the order they are read: on a phone the field is at the foot. */
-    function place() {
-      var active = document.activeElement;
-      var after = phone.matches ? profile : meter || profile;
-      [box, sheet].forEach(function (n) { bar.insertBefore(n, after); });
-      // Moving a node takes the focus off it.
-      if (active && bar.contains(active) && document.activeElement !== active) active.focus({ preventScroll: true });
-    }
 
     function setPending(on) { box.classList.toggle('is-pending', on); }
 
@@ -914,12 +912,11 @@
             if (!detail) return false;
             leaveSheet();
             // On a phone the focus would bring its keyboard back.
-            detail.open(item.ref, { origin: core.coarsePointer() ? null : input, title: item.title, kind: item.kind });
+            detail.open(item.ref, { origin: core.coarsePointer() ? null : input, title: item.title, kind: item.kind, season: item.season || undefined });
             return true;
           }
         });
       }
-      evening.refresh();
       sheet.appendChild(evening.node);
     }
 
@@ -1031,7 +1028,12 @@
       clear.setAttribute('aria-label', on ? 'Close search' : 'Clear search');
       sheet.classList.toggle('is-on', on);
       sheet.inert = !on;
-      [browse, byId('watch-all')].forEach(function (n) { if (n) n.inert = on; });
+      // Hidden from assistive tech, not made inert: that would restyle every card on the page. The
+      // veil stays to be pressed: it closes the sheet, where a press through it would open what is under it.
+      if (window.MM.inertPage) {
+        if (on) window.MM.inertPage.hold(bar, [browse, byId('watch-all'), veil].filter(Boolean));
+        else window.MM.inertPage.release(bar);
+      }
       sayList();
       pick(null);
     }
@@ -1124,8 +1126,16 @@
     function around(change, nodes) {
       var move = flip(heldPage().concat(nodes || []));
       change();
-      ordinary.hidden = !asking.item;
+      quietWhileAsked();
       move();
+    }
+
+    /* While the AI looks, nothing is said of no title having the words: it may yet find some. */
+    function quietWhileAsked() {
+      var looking = !!asking && !!asking.item && asking.item.state === 'thinking';
+      var none = !!live && live.kind === 'none';
+      if (none) live.node.hidden = looking;
+      if (ordinary) ordinary.hidden = !(asking && asking.item) || (looking && none);
     }
 
     function askPlace() {
@@ -1136,7 +1146,7 @@
       ordinary.hidden = true;
       results.insertBefore(ordinary, results.firstChild);
       results.insertBefore(host, ordinary);
-      asking = ai.view(host, { ask: fillAsk, stopped: function () { ai.keep({ q: null }); }, around: around });
+      asking = ai.view(host, { can: can, admin: data.is_admin === true, ask: fillAsk, plain: fill, stopped: function () { ai.keep({ q: null }); }, around: around });
     }
 
     function hideAsk() { if (asking && asking.item) asking.hide(); }
@@ -1144,7 +1154,8 @@
     /* A sentence is offered to the AI, or shows what came of it, while the search answers below. */
     function offerAsk(q) {
       if (!ai) return;
-      if (!ai.fits(q)) { hideAsk(); return; }
+      // Where the AI is set up and fails, what it would have been asked is told why.
+      if (!ai.fits(q) && !(canExplore() && ai.similarOf(q)) && !(ai.failing() && ai.shaped(q))) { hideAsk(); return; }
       if (!asking) askPlace();
       asking.row(q);
       asking.pick(!picked);
@@ -1206,6 +1217,8 @@
       var host = node.appendChild(el('section', 'ask'));
       host.setAttribute('aria-label', 'More like ' + name);
       var place = ai.view(host, {
+        can: can,
+        admin: data.is_admin === true,
         ask: fillAsk,
         stopped: function () { ai.keepLike({ ref: ref, name: name, poster: poster, asked: false }); },
         around: function (change, nodes) {
@@ -1423,7 +1436,7 @@
         sayList();
         // While the person types they are not read out.
         if (c && !settled && !status.textContent) status.textContent = suggestionCount();
-        pick(at ? options().filter(function (n) { return n.id === at; })[0] || null : null);
+        pick(at ? stops().filter(function (n) { return n.id === at; })[0] || null : null);
       });
     }
 
@@ -1450,6 +1463,24 @@
       return root ? core.toArray(root.querySelectorAll('.watch-option')).filter(function (n) { return n.getClientRects().length; }) : [];
     }
 
+    /* What the arrow keys go through: the options, and over the results' suggestions the titles
+       an AI answer shows, as a card of the grid that they stand in. */
+    function stops() {
+      var all = options();
+      if (sheetOn || !asking || !asking.item) return all;
+      return core.toArray(asking.host.querySelectorAll('.ask__grid .watch-card__link')).filter(shows).concat(all);
+    }
+
+    function isCard(node) { return !!node && node.classList.contains('watch-card__link'); }
+
+    /* The suggested title whose name is all that was typed, if there is one: Return opens it. */
+    function exactTitle() {
+      var typed = folded(input.value);
+      return (typed && options().filter(function (n) {
+        return n.hasAttribute('data-title-ref') && folded(n.getAttribute('data-title') || '') === typed;
+      })[0]) || null;
+    }
+
     /* Tell the field's readers of the list that shows, if one does. */
     function sayList() {
       var open = options().length > 0;
@@ -1464,7 +1495,7 @@
       }
       var bar = live && live.kind === 'results' ? live.bar : null;
       if (bar) {
-        if (!sheetOn && node) {
+        if (!sheetOn && node && !isCard(node)) {
           var at = 'translateY(' + node.offsetTop + 'px)';
           if (!bar.classList.contains('is-on')) {
             // It shows where it is wanted, and glides from there.
@@ -1475,11 +1506,12 @@
           }
           bar.style.transform = at;
         }
-        bar.classList.toggle('is-on', !sheetOn && !!node);
+        bar.classList.toggle('is-on', !sheetOn && !!node && !isCard(node));
       }
       picked = node;
-      if (asking) asking.pick(!node);
+      if (asking) asking.pick(!node && !exactTitle());
       if (!node) { input.removeAttribute('aria-activedescendant'); return; }
+      if (!node.id) node.id = 'watch-stop-' + (++stopIds);
       node.classList.add('is-picked');
       node.setAttribute('aria-selected', 'true');
       input.setAttribute('aria-activedescendant', node.id);
@@ -1511,7 +1543,7 @@
 
     /* Whether the key moved the highlight. */
     function step(key) {
-      var all = options();
+      var all = stops();
       if (!all.length) return false;
       if (picked && !shows(picked)) pick(null);
       var across = key === 'ArrowLeft' || key === 'ArrowRight';
@@ -1520,12 +1552,13 @@
         pick(key === 'ArrowDown' ? all[0] : all[all.length - 1]);
         return true;
       }
-      if (sheetOn) {
+      if (sheetOn || isCard(picked)) {
         var to = beside(all, picked, key);
         if (to || key === 'ArrowUp') pick(to);
         return true;
       }
-      var strip = all.length > 1 && all[0].offsetTop === all[1].offsetTop;
+      var listed = options();
+      var strip = listed.length > 1 && listed[0].offsetTop === listed[1].offsetTop;
       if (across && !strip) return false;
       var i = all.indexOf(picked) + (key === 'ArrowDown' || key === 'ArrowRight' ? 1 : -1);
       pick(all[i] || null);
@@ -1574,6 +1607,8 @@
       hold('none', 'Search results');
       if (asking && asking.item) {
         live.node.appendChild(el('p', 'results-none', 'No title has these words in its name.'));
+        if (notSetUp) live.node.appendChild(hint(data));
+        quietWhileAsked();
         rise(live.node);
         status.textContent = ['No matches for “' + c.q + '”', askHint()].filter(Boolean).join('. ');
         return;
@@ -1626,12 +1661,12 @@
       return n ? n + (n === 1 ? ' suggestion' : ' suggestions') : '';
     }
 
-    function askHint() { return asking && asking.item && asking.offered() ? 'Press Return to ask AI' : ''; }
+    function askHint() { return asking && asking.item && asking.offered() && !exactTitle() ? 'Press Return to ask AI' : ''; }
 
     function readOut(c, all, coming) {
       var parts = coming ? [coming + ' downloading'] : [];
       if (c.lib.state === 'ok' && all.lib.length) parts.push((all.total > all.lib.length ? all.lib.length + ' of ' : '') + all.total + ' in your library');
-      if (all.out.length) parts.push(all.out.length + ' available to download');
+      if (all.out.length) parts.push(all.out.length + ' ' + outTitle.toLowerCase());
       status.textContent = [parts.length
         ? parts.join(', ') + ' for “' + c.q + '”'
         : 'No matches in your library for “' + c.q + '”', suggestionCount(), askHint()].filter(Boolean).join('. ');
@@ -1730,13 +1765,13 @@
       }
 
       if (tmdb.state === 'loading' && !tmdb.items) {
-        rows.push(headRow('tmdb', 'Available to download'));
+        rows.push(headRow('tmdb', outTitle));
         rows = rows.concat(c.before.length ? cardRows(c.before) : skeletonRows('tmdb'));
       } else if (tmdb.state === 'failed') {
-        rows.push(headRow('tmdb', 'Available to download'), failRow(c, 'tmdb', TMDB_FAILED, function () { fetchTmdb(c); paint(c); }));
+        rows.push(headRow('tmdb', outTitle), failRow(c, 'tmdb', TMDB_FAILED, function () { fetchTmdb(c); paint(c); }));
         rows = rows.concat(cardRows(all.out));
       } else if (all.out.length) {
-        rows = rows.concat(headRow('tmdb', 'Available to download', all.out.length), cardRows(all.out));
+        rows = rows.concat(headRow('tmdb', outTitle, all.out.length), cardRows(all.out));
       } else if (settled && !all.lib.length && lib.state === 'ok') {
         if (peopleFor(c.q, c).length) {
           rows.push({ key: NO_TITLE, sig: c.q, make: function () { return el('p', 'results-none', 'No title matches “' + c.q + '”'); } });
@@ -1782,7 +1817,7 @@
     /* Ask for one part of search *c*; what an earlier answer gave stays until this one is in. */
     function ask(c, part, url, read, failed) {
       c[part] = Object.assign({}, c[part], { state: 'loading' });
-      MM.api.get(url, { signal: c.ctrl.signal }).then(function (reply) {
+      (typeof url === 'function' ? url() : MM.api.get(url, { signal: c.ctrl.signal })).then(function (reply) {
         if (current !== c) return;
         c[part] = read(reply || {});
         paint(c);
@@ -1793,8 +1828,38 @@
       });
     }
 
+    /* *url*'s answers for what *c* searches for: of "similar to …", the title it names, and with *whole* all of
+       its words too. */
+    function searchAll(c, url, whole) {
+      function get(w) { return MM.api.get(url + encodeURIComponent(w), { signal: c.ctrl.signal }); }
+      return function () {
+        if (!whole || c.find === c.q) return get(c.find);
+        // The whole sentence rarely names a title: its search failing leaves what the title's found.
+        return Promise.all([get(c.find), get(c.q).catch(function () { return null; })])
+          .then(function (replies) { return joined(replies[0], replies[1]); });
+      };
+    }
+
+    function joined(a, b) {
+      a = a || {};
+      b = b || {};
+      var out = Object.assign({}, b, a);
+      ['items', 'held', 'people'].forEach(function (k) {
+        if (!a[k] && !b[k]) return;
+        var seen = new Set();
+        out[k] = (a[k] || []).concat(b[k] || []).filter(function (x) {
+          var id = x.ref || x.href || x.key || x.person_id;
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+      });
+      if (typeof a.total === 'number' || typeof b.total === 'number') out.total = Math.max(a.total || 0, b.total || 0, (out.items || []).length);
+      return out;
+    }
+
     function fetchLibrary(c) {
-      ask(c, 'lib', SEARCH_URL + encodeURIComponent(c.q), function (reply) {
+      ask(c, 'lib', searchAll(c, SEARCH_URL, true), function (reply) {
         return { state: 'ok', items: reply.items || [], total: reply.total };
       }, function (err) {
         return { state: 'failed', text: MM.api.messageOf(err, SEARCH_FAILED) };
@@ -1846,7 +1911,8 @@
     });
 
     function fetchTmdb(c) {
-      ask(c, 'tmdb', TMDB_URL + encodeURIComponent(c.q), function (reply) {
+      // Of "similar to …", TMDB's few searches are not spent on the sentence.
+      ask(c, 'tmdb', searchAll(c, TMDB_URL, false), function (reply) {
         if (reply.tmdb_configured === false) return { state: 'unconfigured' };
         var found = reply.people || [];
         found.forEach(function (p) { people.set(p.person_id, p); });
@@ -1920,9 +1986,12 @@
       }
       showResults(q, inPlace);
       offerAsk(q);
+      if (asking && asking.item && asking.item.like) ai.lookSimilar(asking.item);
       var known = last && last.q === q ? last : null;
       var c = {
         q: q, ctrl: new AbortController(), refocus: null,
+        // Of "similar to …", the title it names is searched for too, with or without the AI.
+        find: (ai && ai.similarOf(q)) || q,
         lib: known && { items: known.lib.items, total: known.lib.total }, tmdb: known && { items: known.tmdb.items, held: known.tmdb.held }, cat: null,
         // What is on the page already and fits may stay while TMDB is asked.
         before: last && !known ? gather(last).out.filter(function (x) { return begins(x.item.title, q.toLowerCase()); }) : []
@@ -2009,7 +2078,7 @@
     input.addEventListener('keydown', function (e) {
       if (composing(e)) return;
       if (/^Arrow/.test(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        if (e.key === 'ArrowDown' && !sheetOn && !options().length) {
+        if (e.key === 'ArrowDown' && !sheetOn && !stops().length) {
           openSheet(true);
           if (sheetOn) e.preventDefault();
         } else if (step(e.key)) {
@@ -2043,6 +2112,11 @@
         return;
       }
       if (tokened || !input.value) return;
+      var exact = exactTitle();
+      if (exact) {
+        exact.click();
+        return;
+      }
       clearTimeout(timer);
       run();
       var q = input.value.trim();
@@ -2129,20 +2203,16 @@
     if (window.ResizeObserver) {
       // In the next frame: it may change the meter's size itself.
       var sized = new window.ResizeObserver(function () { window.requestAnimationFrame(fitBetween); });
-      [meter || profile, bar.querySelector('.brand')].forEach(function (n) { sized.observe(n); });
+      [end, bar.querySelector('.brand')].forEach(function (n) { sized.observe(n); });
     }
     bar.addEventListener('focusin', sync);
     bar.addEventListener('focusout', function () { setTimeout(sync); });
     // WebKit still has the old width as it tells of a resize.
-    phone.addEventListener('change', function () {
-      place();
-      window.requestAnimationFrame(fitAgain);
-    });
+    phone.addEventListener('change', function () { window.requestAnimationFrame(fitAgain); });
     // Words that grow in a meter as wide as it can be do not change its size.
     if (meter && window.MutationObserver) {
       new window.MutationObserver(fitAgain).observe(meter, { childList: true, characterData: true, subtree: true });
     }
-    place();
 
     /* ── A page in the results' place ── */
 
@@ -2262,7 +2332,8 @@
     sayList();
     showExamples();
     if (canExplore()) explore.categories();
-    if (ai && data.tmdb_configured === true) ai.load().then(askAgain);
+    // Without TMDB too: there is no AI then, and an admin is told why.
+    if (ai) ai.load().then(askAgain);
     window.MMWatch.search.like = like;
     window.MMWatch.search.canLike = canLike;
     // A value the browser put back (going back to the page) gets its results.
@@ -2271,5 +2342,5 @@
     setTimeout(function () { if (view === 'results' && !live) show('browse'); });
   }
 
-  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, glide: glide, leavingBadge: leavingBadge, setLeaving: setLeaving, isHeld: isHeld, composing: composing };
+  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, heldCard: buildHeldCard, glide: glide, leavingBadge: leavingBadge, setLeaving: setLeaving, isHeld: isHeld, composing: composing };
 })();

@@ -28,7 +28,7 @@ def _rule(css: str, selector: str) -> str:
 def test_toasts_on_the_player_leave_its_bottom_controls_alone() -> None:
     # Wide pages and the phone Watch page send the stack to the bottom right, on the controls.
     css = _text("_ui_feedback.css")
-    player = _rule(css, "body:has(.player) .ui-toast-host")
+    player = _rule(css, "html.has-player .ui-toast-host")
     assert re.search(r"(?<![\w-])bottom:\s*auto", player)
     assert re.search(r"(?<![\w-])right:\s*auto", player)
     assert re.search(r"(?<![\w-])top:\s*var\(--toast-top\)", player)
@@ -36,7 +36,7 @@ def test_toasts_on_the_player_leave_its_bottom_controls_alone() -> None:
 
 def test_toasts_on_a_phone_leave_the_open_keep_menu_alone() -> None:
     css = _text("_ui_feedback.css")
-    host = _rule(css, 'body:has(.player-keep [aria-expanded="true"]) .ui-toast-host')
+    host = _rule(css, "html.has-player-keep-open .ui-toast-host")
     # Back row 44, Keep row 44, the menu's three 44 px choices and the gaps between them.
     assert int(re.search(r"\+ (\d+)px", host).group(1)) >= 44 + 8 + 44 + 4 + 3 * 44 + 12
 

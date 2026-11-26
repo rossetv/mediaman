@@ -80,7 +80,7 @@ def test_unsubscribe_pages_have_a_heading_and_no_dead_cancel_link():
     ):
         html = templates.get_template(name).render(ctx)
         assert "<h1" in html
-        assert 'href="/"' not in html
+        assert "Cancel" not in html
 
 
 def test_rate_limited_login_keeps_the_escaped_username_and_never_the_password(client):

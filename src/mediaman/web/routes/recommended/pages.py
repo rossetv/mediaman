@@ -18,4 +18,4 @@ def recommended_page(request: Request) -> Response:
         return resolved
     # A query, not a #fragment: a Location with its own fragment would replace the one the
     # browser carries over, and old /recommended#recommendation-<id> links rely on that.
-    return RedirectResponse("/watch?row=recommended", status_code=302)
+    return RedirectResponse("/?row=recommended", status_code=302)

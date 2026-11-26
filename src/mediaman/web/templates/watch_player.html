@@ -5,6 +5,7 @@
    data-attributes on #player: tojson output is safe inside single quotes. #}
 
 {% block title %}{{ item.title }} · Mediaman{% endblock %}
+{% block html_class %} class="has-player"{% endblock %}
 
 {% block head %}
   <link rel="stylesheet" href="/static/css/_ratings.css?v={{ static_v }}">
@@ -37,6 +38,12 @@
 
   <div class="player-dim" aria-hidden="true"></div>
   <div class="player-spinner" data-spinner aria-hidden="true"></div>
+  {# The name while a title starts, over a blurred copy that glows. Not from the sprite: WebKit
+     does not animate what is, nor filter what is inside an svg. #}
+  <div class="player-intro" aria-hidden="true">
+    <svg class="player-intro-halo" viewBox="0 -735 4210 970" focusable="false">{% include "_wordmark.html" %}</svg>
+    <svg viewBox="0 -735 4210 970" focusable="false">{% include "_wordmark.html" %}</svg>
+  </div>
 
   {# Each data-slot is filled again from the next episode's own page when that takes over here. #}
   <div class="player-top player-chrome">

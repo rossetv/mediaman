@@ -131,29 +131,13 @@ def test_toggles_reach_44px_on_phones_without_growing() -> None:
 def test_the_way_back_to_watch_reaches_44px_at_every_width() -> None:
     css = _text(CSS_DIR / "_nav.css")
     pill = int(re.search(r"\.nav-back,\s*\.nav-noscript \{[^}]*?min-height: (\d+)px", css).group(1))
-    reach = int(re.search(r"\.nav-noscript::after \{[^}]*?inset: -(\d+)px 0", css).group(1))
-    assert pill + 2 * reach >= 44
+    assert pill >= 44
     phone = [rule for block in _media_blocks(css, PHONE) for rule in _rules(block)]
-    heights = [body for heads, body in phone if ".nav-back" in heads and "height:" in body]
-    assert heights and all(
-        int(re.search(r"[^-]height: (\d+)px", b).group(1)) >= 44 for b in heights
-    )
-
-
-def test_what_is_scrolled_into_view_on_a_phone_stops_above_the_bottom_bar() -> None:
-    css = _text(CSS_DIR / "_nav.css")
-    phone = [rule for block in _media_blocks(css, PHONE) for rule in _rules(block)]
-    (held,) = [body for heads, body in phone if "html:has(.nav-foot)" in heads and "scroll" in body]
-    assert (
-        int(re.search(r"scroll-padding-bottom: calc\(var\(--foot\) \+ (\d+)px", held).group(1)) > 0
-    )
-    assert re.search(r"--foot: calc\(\d+px \+ env\(safe-area-inset-bottom", held)
-    # the strip is as tall as everything that keeps clear of it takes it to be
-    assert any(".nav-foot" in heads and "height: var(--foot)" in body for heads, body in phone)
+    assert not any(".nav-back" in heads and "height:" in body for heads, body in phone)
 
 
 def test_no_offset_repeats_the_height_of_the_bar_at_the_foot() -> None:
-    for name in ("_ui_feedback.css", "_settings_pg.css", "_watch_search.css"):
+    for name in ("_ui_feedback.css", "_settings_pg.css"):
         css = _text(CSS_DIR / name)
         assert "var(--foot)" in css, name
         assert not re.search(r"calc\(\d+px \+ env\(safe-area-inset-bottom", css), name
@@ -177,13 +161,6 @@ def test_the_pairing_page_leaves_room_for_the_bar_at_the_foot_and_under_itself()
         if ".pair-pg" in heads and "48px" in body
     ]
     assert re.search(r"padding: 48px 20px calc\(\d+px \+ var\(--foot\)\)", page)
-
-
-def test_the_bar_at_the_foot_leaves_what_stands_on_it_44px_on_a_short_phone_too() -> None:
-    css = _text(CSS_DIR / "_nav.css")
-    sizes = re.findall(r"--foot: calc\((\d+)px \+[^;]*;\s*--foot-gap: (\d+)px", css)
-    assert len(sizes) == 2
-    assert all(int(foot) - 2 * int(gap) >= 44 for foot, gap in sizes)
 
 
 def test_nothing_in_the_bar_holds_what_is_fixed_at_the_foot_of_a_phone() -> None:

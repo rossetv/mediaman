@@ -7,7 +7,7 @@
    when the row is laid out: watch/expand.js then takes the link off a row that is all there. #}
 {% macro row_head(row) -%}
 <div class="watch-row__head">
-  <h2 class="watch-row__title"><a class="row-open" href="/watch?all={{ row.id }}" data-row-open="{{ row.id }}" aria-label="{{ row.title }}, see all {{ row['items']|length }}"><span data-row-title>{{ row.title }}</span><span class="row-open__cue" data-grid-fade><span class="row-open__word">See all</span>{{ icon("i-chevron-right") }}</span></a></h2>
+  <h2 class="watch-row__title"><a class="row-open" href="/?all={{ row.id }}" data-row-open="{{ row.id }}" aria-label="{{ row.title }}, see all {{ row['items']|length }}"><span data-row-title>{{ row.title }}</span><span class="row-open__cue" data-grid-fade><span class="row-open__word">See all</span>{{ icon("i-chevron-right") }}</span></a></h2>
 </div>
 {%- endmacro %}
 
@@ -15,7 +15,7 @@
 <div class="watch-all__filters" role="group" aria-label="Show">
   {% for value, label, admin in types %}
   {% if admin and not types[loop.index0 - 1][2] %}<span class="watch-all__lock" role="img" aria-label="Admins only">{{ icon("i-lock") }}</span>{% endif %}
-  <a class="fpill{% if grid.type == value %} on{% endif %}" href="/watch?all=library{% if value %}&amp;type={{ value }}{% endif %}{% if grid.sort != "added" %}&amp;sort={{ grid.sort }}{% endif %}" data-grid-filter="{{ value }}"{% if grid.type == value %} aria-current="true"{% endif %}>{{ label }}<small>{{ grid.counts[value] }}</small></a>
+  <a class="fpill{% if grid.type == value %} on{% endif %}" href="/?all=library{% if value %}&amp;type={{ value }}{% endif %}{% if grid.sort != "added" %}&amp;sort={{ grid.sort }}{% endif %}" data-grid-filter="{{ value }}"{% if grid.type == value %} aria-current="true"{% endif %}>{{ label }}<small>{{ grid.counts[value] }}</small></a>
   {% endfor %}
 </div>
 {%- if grid.fact %}<p class="watch-all__fact">{{ grid.fact }}</p>{% endif %}
@@ -25,7 +25,7 @@
 <section class="watch-all" id="watch-all" aria-labelledby="watch-all-title">
   <div class="watch-all__head">
     <div class="watch-all__glass"></div>
-    <a class="watch-all__back" href="/watch" aria-label="Back to all rows">{{ icon("i-chevron-left") }}</a>
+    <a class="watch-all__back" href="/" aria-label="Back to all rows">{{ icon("i-chevron-left") }}</a>
     <div class="watch-all__names">
       <h1 class="watch-all__title" id="watch-all-title" tabindex="-1">{{ grid.title }}</h1>
       <span class="watch-all__count">{% if grid.total %}{{ grid.total }} {{ "title" if grid.total == 1 else "titles" }}{% endif %}</span>
@@ -42,7 +42,7 @@
       {% if not grid["items"] and grid.empty %}
       <div class="grid-empty">{{ icon("i-film") }}<p class="grid-empty__title">{{ grid.empty.title }}</p>{% if grid.empty.text %}<p class="grid-empty__text">{{ grid.empty.text }}</p>{% endif %}<a class="grid-empty__link" href="{{ grid.empty.href }}">{{ grid.empty.link }}</a></div>
       {% elif not grid["items"] and not grid.loads_later %}
-      <div class="grid-empty">{{ icon("i-film") }}<p class="grid-empty__title">{% if grid.id == "leaving" %}Nothing is leaving soon{% else %}Nothing in {{ grid.title }}{% if grid.id != "continue" %} yet{% endif %}{% endif %}</p><a class="grid-empty__link" href="/watch">Back to all rows</a></div>
+      <div class="grid-empty">{{ icon("i-film") }}<p class="grid-empty__title">{% if grid.id == "leaving" %}Nothing is leaving soon{% else %}Nothing in {{ grid.title }}{% if grid.id != "continue" %} yet{% endif %}{% endif %}</p><a class="grid-empty__link" href="/">Back to all rows</a></div>
       {% endif %}
     </div>
   </div>
