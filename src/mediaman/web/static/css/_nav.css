@@ -268,11 +268,11 @@
     transition: transform var(--dur-fast) var(--ease-out);
   }
   .profile-menu[open] .profile-panel { transform: none; transition-duration: var(--dur); }
-  /* A tall strip to take hold of, with the small bar drawn in it. */
+  /* A strip to take hold of that a thumb fits, with the small bar drawn in it. */
   .profile-handle {
     display: block;
-    height: 28px;
-    margin: -4px -12px 0;
+    height: 44px;
+    margin: -8px -12px -12px;
     position: relative;
     touch-action: none;
     cursor: grab;
@@ -280,7 +280,7 @@
   .profile-handle::before {
     content: "";
     position: absolute;
-    top: 12px;
+    top: 16px;
     left: 50%;
     width: 36px;
     height: 4px;

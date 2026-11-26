@@ -37,7 +37,8 @@
   var handle = menu.querySelector('.profile-handle');
   var calm = window.matchMedia('(prefers-reduced-motion: reduce)');
   var SHUT_PX = 80;      // dragged this far down, the sheet shuts
-  var FLICK_PX_MS = 0.5; // or flicked down this fast, from 20 px on
+  var FLICK_PX_MS = 0.5; // or flicked down this fast, from 20 px on, over the last bit of the drag
+  var FLICK_WINDOW_MS = 80;
 
   function items() {
     return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
@@ -62,7 +63,11 @@
 
   function open(button, last) {
     opener = button;
+    // A drag-close leaves the panel far below: put it back unseen, so every opening rises alike.
+    panel.style.transition = 'none';
     panel.style.transform = '';
+    void panel.offsetWidth;
+    panel.style.transition = '';
     menu.inert = false;
     openedAt = Date.now();
     menu.setAttribute('open', '');
@@ -145,17 +150,25 @@
   if (handle) {
     handle.addEventListener('pointerdown', function (e) {
       if (!isOpen() || !phone.matches || e.button) return;
-      drag = { id: e.pointerId, y: e.clientY, t: Date.now() };
+      drag = { id: e.pointerId, y: e.clientY, pts: [{ y: e.clientY, t: Date.now() }] };
       panel.style.transition = 'none';
       if (handle.setPointerCapture) handle.setPointerCapture(e.pointerId);
     });
     handle.addEventListener('pointermove', function (e) {
-      if (drag && e.pointerId === drag.id) dragTo(e.clientY);
+      if (!drag || e.pointerId !== drag.id) return;
+      drag.pts.push({ y: e.clientY, t: Date.now() });
+      dragTo(e.clientY);
     });
     var lift = function (e) {
       if (!drag || e.pointerId !== drag.id) return;
       var far = Math.max(0, e.clientY - drag.y);
-      var flick = far > 20 && far / Math.max(1, Date.now() - drag.t) > FLICK_PX_MS;
+      var now = Date.now();
+      var pts = drag.pts;
+      var ref = pts[pts.length - 1];
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i].t >= now - FLICK_WINDOW_MS) { ref = pts[i]; break; }
+      }
+      var flick = far > 20 && (e.clientY - ref.y) / Math.max(1, now - ref.t) > FLICK_PX_MS;
       drag = null;
       panel.style.transition = '';
       if (e.type === 'pointerup' && (far > SHUT_PX || flick)) {
@@ -197,7 +210,7 @@
   function drawDownloads(state) {
     var sum = state.summary;
     var words = sum.ready ? sum.ready + ' ready to watch'
-      : sum.active ? sum.total + ' downloading'
+      : sum.active ? sum.total + (sum.active === sum.total ? ' downloading' : ' in progress')
       : sum.waiting + ' waiting to download';
     button.setAttribute('aria-label', name + (!sum.total ? '' : state.lost ? ', downloads not updating' : ', ' + words));
 

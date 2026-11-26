@@ -215,7 +215,8 @@ const scenarios = {
   },
   // The handle drags the panel after the finger.
   drag() {
-    const run = (moves, reduced, ms) => {
+    // steps: [y, ms since the last step]; the finger lifts `lift` ms after the last one.
+    const run = (steps, lift, reduced) => {
       const p = page(true, null, reduced);
       p.click('button');
       const handle = p.$('handle');
@@ -223,20 +224,28 @@ const scenarios = {
       const send = (type, y) => (handle.listeners[type] || []).forEach((fn) => fn({ type, pointerId: 1, button: 0, clientY: y }));
       send('pointerdown', 100);
       const follow = [];
-      moves.forEach((y) => { send('pointermove', y); follow.push(panel.style.transform); });
-      p.clock.now += ms;
-      send('pointerup', moves[moves.length - 1]);
-      const out = { follow, open: p.open(), transform: panel.style.transform, transition: panel.style.transition };
+      steps.forEach(([y, ms]) => { p.clock.now += ms; send('pointermove', y); follow.push(panel.style.transform); });
+      p.clock.now += lift;
+      send('pointerup', steps[steps.length - 1][0]);
+      const out = { follow, open: p.open(), transform: panel.style.transform };
+      const log = [];
+      const style = panel.style;
+      panel.style = new Proxy(style, { set(t, k, v) { log.push(k + '=' + v); t[k] = v; return true; } });
+      Object.defineProperty(panel, 'offsetWidth', { get() { log.push('layout'); return 0; } });
+      const set = p.$('profile-menu').setAttribute;
+      p.$('profile-menu').setAttribute = function (k, v) { if (k === 'open') log.push('open'); return set.call(this, k, v); };
       p.click('button');
-      out.reopened = { open: p.open(), transform: panel.style.transform };
+      out.reopened = { open: p.open(), transform: panel.style.transform, log };
       return out;
     };
     return {
-      far: run([130, 220], false, 400),
-      short: run([110, 140], false, 400),
-      upward: run([60], false, 400),
-      flick: run([135], false, 40),
-      still: run([130, 220], true, 400),
+      far: run([[130, 10], [220, 10]], 10, false),
+      short: run([[110, 10], [140, 10]], 400, false),
+      slow: run([[110, 300], [160, 300], [175, 300]], 50, false),
+      upward: run([[60, 10]], 10, false),
+      // a pause, then a short quick flick
+      flick: run([[100, 600], [115, 40], [140, 44]], 0, false),
+      still: run([[130, 10], [220, 10]], 10, true),
     };
   },
   // Off, the ring is set where it begins; on, it eases from where it stands.

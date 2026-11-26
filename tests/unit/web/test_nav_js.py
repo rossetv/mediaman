@@ -174,7 +174,7 @@ def test_the_ring_the_count_and_the_menu_say_how_what_is_downloading_stands() ->
     }
     assert told == {
         "one": (", 1 downloading", ["is-on"], 42, None, ", 42%", 1),
-        "many": (", 4 downloading", ["is-on"], 40, None, ", 40% · 4", 1),
+        "many": (", 4 in progress", ["is-on"], 40, None, ", 40% · 4", 1),
         "mixed": (", 1 ready to watch", ["is-on"], 57, "1", ", 57% · 4", 1),
         "ready": (", 1 ready to watch", ["is-on", "is-ready"], 100, "1", ", 1 ready", 0),
         "waiting": (
@@ -187,7 +187,7 @@ def test_the_ring_the_count_and_the_menu_say_how_what_is_downloading_stands() ->
         ),
         # What it last was is not told as what it is.
         "lost": (", downloads not updating", ["is-on", "is-lost"], 57, None, ", Not updating", 0),
-        "found": (", 4 downloading", ["is-on"], 40, None, ", 40% · 4", 1),
+        "found": (", 4 in progress", ["is-on"], 40, None, ", 40% · 4", 1),
     }
     assert out["lost"]["tone"] == ["is-lost"]
     assert [out[key]["tone"] for key in ("mixed", "ready", "waiting")] == [
@@ -248,9 +248,31 @@ def test_the_handle_drags_the_sheet_shut_or_lets_it_spring_back() -> None:
     assert out["far"]["follow"] == ["translateY(30px)", "translateY(120px)"]
     assert (out["far"]["open"], out["far"]["transform"]) == (False, "translateY(100%)")
     assert (out["short"]["open"], out["short"]["transform"]) == (True, "")
+    # slow and under the distance
+    assert (out["slow"]["open"], out["slow"]["transform"]) == (True, "")
     assert (out["upward"]["open"], out["upward"]["follow"]) == (True, ["translateY(0px)"])
-    assert out["flick"]["open"] is False
     # reduced motion shuts it without the slide
     assert (out["still"]["open"], out["still"]["transform"]) == (False, "")
-    # the next opening starts from rest
-    assert out["far"]["reopened"] == {"open": True, "transform": ""}
+
+
+def test_a_short_quick_flick_shuts_the_sheet_even_after_a_pause() -> None:
+    assert _run("drag")["flick"]["open"] is False
+
+
+def test_each_opening_after_a_drag_starts_from_rest_unseen() -> None:
+    out = _run("drag")["far"]["reopened"]
+    assert out["open"] is True
+    # put back with no transition, then the transition returns, and only then does it open
+    assert out["log"] == [
+        "transition=none",
+        "transform=",
+        "layout",
+        "transition=",
+        "open",
+    ]
+
+
+def test_the_handle_strip_is_as_tall_as_a_thumb() -> None:
+    sheet = NAV_CSS.read_text().split("/* Phones: a bottom sheet", 1)[1]
+    strip = re.search(r"\.profile-handle \{[^}]*\}", sheet).group(0)  # type: ignore[union-attr]
+    assert "height: 44px" in strip
