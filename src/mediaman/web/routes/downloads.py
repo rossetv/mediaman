@@ -121,8 +121,12 @@ def _page_payload(
             item["readiness"] = "unknown"
     if not admin and data["outage"]:
         page["outage"], page["unreachable"], page["refused"] = VIEWER_OUTAGE, [], []
-        rows = (1 if page["hero"] else 0) + len(page["queue"])
-        page["subtitle"] = downloads_subtitle(rows, len(page["upcoming"]), page["outage"])
+        # In the words downloads.js keeps the line in, so the first render and the poll agree.
+        rows, coming = (1 if page["hero"] else 0) + len(page["queue"]), len(page["upcoming"])
+        soon = f"{coming} coming soon" if coming else ""
+        page["subtitle"] = (
+            f"{downloads_subtitle(rows, coming)} · some may be missing" if rows else soon
+        )
     return page, _ring(data, asked_at, index, admin=admin)
 
 

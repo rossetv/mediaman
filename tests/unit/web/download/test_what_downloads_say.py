@@ -466,7 +466,8 @@ def test_a_viewer_is_not_told_which_service_does_not_answer(services, client, co
 
     assert resp.json()["unreachable"] == []
     assert resp.json()["outage"] == ring["outage"] == "Downloads aren't available"
-    assert resp.json()["subtitle"] == "1 item in progress · downloads aren't available"
+    # the words the page script says for the same rows, so the first render and the poll agree
+    assert resp.json()["subtitle"] == "1 item in progress · some may be missing"
     assert "Radarr" not in resp.text
 
 
