@@ -254,7 +254,8 @@
       if (rows[y][x]) d += 'M' + (x + 4) + ' ' + (y + 4) + 'h1v1h-1z';
     }
     var side = rows.length + 8;
-    return '<div class="qr"><svg viewBox="0 0 ' + side + ' ' + side + '" shape-rendering="crispEdges"><path d="' + d + '"/></svg></div>';
+    return '<div class="qr" role="img" aria-label="QR code to pair this TV"><svg viewBox="0 0 ' + side + ' ' + side +
+      '" shape-rendering="crispEdges" aria-hidden="true"><path d="' + d + '"/></svg></div>';
   }
 
   /* ── the server ── */

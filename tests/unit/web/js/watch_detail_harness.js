@@ -201,7 +201,10 @@ function load(opts = {}) {
     AbortController: class { constructor() { this.signal = {}; } abort() { this.signal.aborted = true; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
-    matchMedia: (q) => ({ matches: /min-width/.test(q) || (!!opts.still && /reduced-motion/.test(q)) }),
+    // A wide, tall screen unless the scenario says it is narrow, or short as a phone on its side.
+    matchMedia: (q) => ({ matches: q.split(',').some((either) => either.split(' and ').every((f) =>
+      /min-width/.test(f) ? !opts.narrow : /max-width/.test(f) ? !!opts.narrow : /min-height/.test(f) ? !opts.short
+        : /max-height/.test(f) ? !!opts.short : /reduced-motion/.test(f) ? !!opts.still : false)) }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900,
     innerWidth: 1280,
@@ -450,6 +453,33 @@ const scenarios = {
     if (waits[1]) waits[1].resolve(LIB_MOVIE);
     await settle();
     return { meanwhile, director: p.text('.ttl__credit'), failed: !!p.q('.ttl__failed') };
+  },
+
+  // Refused what it asked ahead, the page asks ahead no more for a minute; what is opened is still asked for.
+  async aheadBacksOff() {
+    const p = carried({ routes: { '/api/watch/title/movie-1': new APIError(429, 'too_many_requests'),
+      '/api/watch/title/movie-2': Object.assign({}, LIB_MOVIE, { ref: 'movie-2', library_ref: 'movie-2' }) } });
+    p.detail.ahead('movie-1');
+    await settle();
+    p.clock.now += 59000;
+    p.detail.ahead('movie-2');
+    const meanwhile = p.aheads.length;
+    p.draw();
+    p.detail.undraw();
+    await settle();
+    const drawn = p.gets.filter((u) => u === '/api/watch/title/movie-120').length;
+    p.clock.now += 2000;
+    p.detail.ahead('movie-2');
+    return { meanwhile, drawn, after: p.aheads.slice(1) };
+  },
+
+  // A title that is not there is not asked for again when it is opened.
+  async aheadNotFoundOnOpen() {
+    const p = carried({ routes: { '/api/watch/title/movie-120': new APIError(404, 'not_found') } });
+    p.detail.ahead('movie-120');
+    p.detail.open('movie-120', {});
+    await settle();
+    return { asked: p.gets.length, failed: !!p.q('.ttl__failed') };
   },
 
   // Only what a preview asks for on the chance it is opened says so to the server, which limits it apart.
@@ -954,6 +984,75 @@ const scenarios = {
     };
   },
 
+  // A player that never answers, or says it cannot play, goes back to the artwork and says so; one that answers plays on.
+  async trailerStuck() {
+    const origin = 'https://www.youtube-nocookie.com';
+    const run = async (then, how = {}) => {
+      const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+      p.run();
+      await openCard(p, 'tmdb-movie-77');
+      click(p.doc, p.q('[data-ttl-act="trailer"]'));
+      const frame = p.q('.ttl__player iframe');
+      let listening = 0;
+      frame.contentWindow = { postMessage: (m) => { if (JSON.parse(m).event === 'listening') listening++; } };
+      const say = (d) => p.message({ origin, source: frame.contentWindow, data: JSON.stringify(d) });
+      const due = (ms) => p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+      // A slow connection: the player's own wait has passed before its frame has even loaded.
+      if (how.slow) due(8000);
+      if (how.never) due(12000);
+      else (frame.listeners.load || []).forEach((fn) => fn({}));
+      const loaded = p.ttl().classList.contains('is-trailer');
+      then(p, say);
+      due(250);
+      const asked = listening;
+      due(8000);
+      const out = { playing: p.ttl().classList.contains('is-trailer'), told: p.toasts.map((t) => t.message),
+        focus: p.doc.activeElement.getAttribute('data-ttl-act'), asked };
+      return how.slow ? { loaded, ...out } : out;
+    };
+    return {
+      silent: await run(() => {}),
+      heard: await run((p, say) => say({ event: 'onReady' })),
+      refused: await run((p, say) => say({ event: 'onError', info: 150 })),
+      stopped: await run((p) => p.key('Escape')),
+      slowThenHeard: await run((p, say) => say({ event: 'onReady' }), { slow: true }),
+      slowThenSilent: await run(() => {}, { slow: true }),
+      neverLoads: await run(() => {}, { never: true }),
+    };
+  },
+
+  // Over the trailer's area while its frame loads and its player has not yet spoken; gone once it plays or gives way.
+  async trailerLoadingMark() {
+    const origin = 'https://www.youtube-nocookie.com';
+    const run = async (then, loads = true) => {
+      const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+      p.run();
+      await openCard(p, 'tmdb-movie-77');
+      click(p.doc, p.q('[data-ttl-act="trailer"]'));
+      const frame = p.q('.ttl__player iframe');
+      frame.contentWindow = { postMessage: () => {} };
+      const say = (d) => p.message({ origin, source: frame.contentWindow, data: JSON.stringify(d) });
+      const due = (ms) => p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+      const mark = () => {
+        const m = p.q('.ttl__player .ttl__wait');
+        return m ? { text: m.textContent, role: m.getAttribute('role'), spinner: !!p.q('.ttl__wait .btn-spinner') } : null;
+      };
+      const pressed = mark();
+      if (loads) (frame.listeners.load || []).forEach((fn) => fn({}));
+      const loaded = mark();
+      then({ p, say, due });
+      return { pressed, loaded, after: mark(), playing: p.ttl().classList.contains('is-trailer') };
+    };
+    return {
+      heard: await run(({ say }) => say({ event: 'onReady' })),
+      refused: await run(({ say }) => say({ event: 'onError', info: 150 })),
+      silent: await run(({ due }) => { due(8000); }),
+      never: await run(({ due }) => { due(12000); }, false),
+      closed: await run(({ p }) => p.key('Escape')),
+      waiting: await run(() => {}),
+    };
+  },
+
   async trailerInView() {
     const run = async (still) => {
       const p = load({ still, routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
@@ -1010,6 +1109,10 @@ const scenarios = {
     p.run();
     await openCard(p, 'tmdb-movie-77');
     click(p.doc, p.q('[data-ttl-act="trailer"]'));
+    // Its player answers, as one that plays does.
+    const frame = p.q('.ttl__player iframe');
+    frame.contentWindow = { postMessage: () => {} };
+    p.message({ origin: 'https://www.youtube-nocookie.com', source: frame.contentWindow, data: JSON.stringify({ event: 'onReady' }) });
     status = { state: 'ready' };
     title = Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120', download: null });
     p.tick();
@@ -1020,6 +1123,19 @@ const scenarios = {
     const afterBack = { hash: p.loc.hash, trailer: p.ttl().classList.contains('is-trailer'), busy: p.ttl().getAttribute('aria-busy'), again: p.gets.length - loaded.gets };
     p.key('Escape');
     return { loaded: loaded.hash, afterBack, closed: p.ttl().classList.contains('is-leaving'), end: p.loc.hash };
+  },
+
+  // What a title's page learns of it, watched elsewhere since its card was drawn, its cards are brought up to: not from its preview alone.
+  async arrivalPaints() {
+    const watched = Object.assign({}, LIB_MOVIE, { watched: true, mark_kind: 'movie', mark_key: '120' });
+    const p = carried({ data: watched });
+    const painted = [];
+    p.ctx.MMWatch.marks = { paint: (mark, w) => painted.push([mark, w]) };
+    p.draw();
+    const drawn = painted.slice();
+    p.detail.openDrawn();
+    await settle();
+    return { drawn, opened: painted };
   },
 
   // A library show's own toggles, then what a mark made elsewhere or here brings back.
@@ -1050,6 +1166,7 @@ const scenarios = {
     const say = (ref) => p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'tmdb-tv-9', refs: ['tmdb-tv-9', ref] } });
     say('show-9');
     const otherTitle = p.gets.length - gets;
+    painted.length = 0;
     say('show-300');
     await settle();
     const after = { toggles: toggles(), play: primary(p).text, episode: p.text('.watch-ep__title'), tab: p.q('.watch-pill[data-season="1"]').getAttribute('aria-label'),
@@ -1190,6 +1307,49 @@ const scenarios = {
       return { before, after: primary(p).text, events: p.events };
     }
     return { answered: await run(true), unanswered: await run(false) };
+  },
+
+  // A first answer before Radarr had: the page asks once more a little later, and draws what that says,
+  // unless the person has moved on or pressed Download meanwhile.
+  async radarrLate() {
+    const ref = 'tmdb-movie-77';
+    async function run(how) {
+      const answers = [];
+      let held = null;
+      const p = load({ routes: {
+        ['/api/watch/title/' + ref]: () => {
+          const first = !answers.length;
+          const dl = first && how !== 'answered' ? { state: null, answered: false } : { state: how === 'pressed' ? null : 'queued', answered: true };
+          const data = Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, dl) });
+          answers.push(dl);
+          if (!first && how === 'moved') return new Promise((resolve) => { held = () => resolve(data); });
+          return Promise.resolve(JSON.parse(JSON.stringify(data)));
+        },
+        '/api/watch/title/show-300': LIB_SHOW,
+      } });
+      p.run();
+      await openCard(p, ref);
+      p.q('[data-ttl-act="primary"]').focus();
+      const later = () => p.timers.filter((t) => t.fn && t.ms === 2000);
+      const waits = later().length;
+      if (how === 'pressed') {
+        click(p.doc, p.q('[data-ttl-act="primary"]'));
+        await settle();
+      }
+      later().forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+      await settle();
+      if (how === 'moved') {
+        await openCard(p, 'show-300');
+        if (held) held();
+        await settle();
+      }
+      later().forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+      await settle();
+      const asked = p.gets.filter((g) => g === '/api/watch/title/' + ref).length;
+      return { waits, asked, primary: primary(p).text, focus: p.doc.activeElement.getAttribute('data-ttl-act'),
+        told: p.events.filter((e) => e.ref === ref && e.download_state === 'queued').length };
+    }
+    return { late: await run('late'), answered: await run('answered'), moved: await run('moved'), pressed: await run('pressed') };
   },
 
   // The status poll answers unknown (the Arr did not answer) for a queued download.
@@ -2336,6 +2496,7 @@ const scenarios = {
       const a = li.querySelector('.watch-ep');
       const about = li.querySelector('.watch-ep__about');
       return { state: a.querySelector('.watch-ep__state') && a.querySelector('.watch-ep__state').textContent, meta: a.querySelector('.watch-ep__meta').textContent,
+        facts: a.querySelector('.watch-ep__meta').querySelectorAll('.watch-ep__fact').map((f) => f.textContent),
         about: about && about.textContent, describes: !!about && a.getAttribute('aria-describedby') === about.id, inName: !!about && about.getAttribute('aria-hidden') !== 'true',
         tick: !!a.querySelector('.watch-ep__tick'), controlsInLink: a.querySelectorAll('button').length, more: li.querySelectorAll('.watch-ep__more').length };
     };
@@ -2607,6 +2768,28 @@ const scenarios = {
       noTvs: (await open(film, { playOn: true, routes: { ['/api/watch/title/' + film.ref]: film } })).says,
       notHeld: (await open(MOVIE_DL, { playOn: true })).says,
       without: (await open(film, {})).says,
+    };
+  },
+
+  // On a phone an admin's line of when a title leaves takes them to the Keep below; elsewhere it only says so.
+  async leavingToKeep() {
+    const run = async (opts) => {
+      const p = load({ adminApi: { keep: () => {} }, ...opts,
+        routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': opts.facts || FACTS } });
+      p.run();
+      p.ctx.MMWatch.detail.open('movie-120', {});
+      await settle();
+      const line = p.q('.ttl__leaving');
+      const to = line.querySelector('button');
+      if (to) click(p.doc, to);
+      return { words: line.textContent, link: to ? to.textContent : null, focus: p.doc.activeElement.getAttribute('data-ttl-act') };
+    };
+    return {
+      phone: await run({ admin: true, narrow: true }),
+      sideways: await run({ admin: true, short: true }),
+      wide: await run({ admin: true }),
+      viewer: await run({ narrow: true }),
+      waiting: await run({ admin: true, narrow: true, facts: () => new Promise(() => {}) }),
     };
   },
 
@@ -2890,7 +3073,7 @@ const scenarios = {
   },
 
   /* Ratings that are still to come: what came with the title keeps its place, and another title's page is let be.
-     Those not here yet stand in a line of their own, out of which a rating that came is drawn. */
+     Their line is held for them, with nothing drawn for a rating the title may not have. */
   async lateRatings() {
     const asked = '/api/watch/title/movie-120/ratings';
     const page = async (ratings) => {
@@ -2903,7 +3086,7 @@ const scenarios = {
       await settle();
       const texts = (nodes) => nodes.map((n) => n.textContent);
       return { p, answers, look: () => ({ shown: texts(p.ttl().querySelectorAll('[data-rating]')), line: !!p.q('[data-ttl-part="ratings"]'),
-        waiting: texts(p.ttl().querySelectorAll('.ttl__ratings-wait .skel')) }) };
+        held: !!p.q('.ttl__ratings-wait'), waiting: p.q('.ttl__ratings-wait') ? texts(p.q('.ttl__ratings-wait').children) : [] }) };
     };
     const early = { imdb: null, rt: null, tmdb: 7.4, metascore: null };
     const came = await page(early);
@@ -2941,7 +3124,7 @@ const scenarios = {
     shut.answers[0].reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     shut.p.ctx.history.back();
     await settle();
-    out.again = [shut.answers.length, shut.look().waiting.length];
+    out.again = [shut.answers.length, shut.look().held];
     return out;
   },
 
@@ -3601,7 +3784,8 @@ scenarios.tvBar = async () => {
 
 // What finds more like a title comes to be known after the title opened; then one that is no one's, and one by its TMDB id.
 scenarios.like = async () => {
-  const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/title/rec-3': Object.assign({}, MOVIE_DL, { ref: 'rec-3' }),
+  let named = LIB_MOVIE.title;
+  const p = load({ routes: { '/api/watch/title/movie-120': () => Promise.resolve(Object.assign({}, LIB_MOVIE, { title: named, poster_url: '/api/watch/poster/120' })), '/api/watch/title/rec-3': Object.assign({}, MOVIE_DL, { ref: 'rec-3' }),
     '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
   p.run();
   const b = () => p.q('[data-ttl-act="like"]');
@@ -3616,12 +3800,16 @@ scenarios.like = async () => {
   p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
   out.acts = acts();
   out.focus = p.doc.activeElement.getAttribute('data-ttl-act');
+  // Renamed since it opened: the title it was opened as is not the one asked about.
+  named = 'Glass Harbour: Restored';
+  p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-120', refs: ['movie-120'] } });
+  await settle();
   click(p.doc, b());
   await open('rec-3');
   if (b()) click(p.doc, b());
   await open('tmdb-movie-77');
   click(p.doc, b());
-  out.asked = asked.map((a) => a[0]);
+  out.asked = asked;
   on = false;
   p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
   out.off = !!b();
@@ -3637,6 +3825,24 @@ scenarios.thumbsWait = async () => {
     return { columns: p.ttl().classList.contains('ttl--admin'), buttons: p.q('.ttl__actions').children.length };
   };
   return { admin: look(true, 'movie-120'), viewer: look(false, 'movie-120'), tmdb: look(true, 'tmdb-movie-77') };
+};
+
+// A title's page asks for its rating each time it loads, so one changed in another tab is the one shown.
+scenarios.ratedElsewhere = async () => {
+  let level = 1;
+  const p = load({ thumbs: true, routes: { '/api/watch/title/movie-120': LIB_MOVIE,
+    '/api/watch/ratings?refs=movie-120': () => Promise.resolve({ ok: true, ratings: { 'movie-120': { level, rateable: true } } }) } });
+  p.run();
+  const due = async () => { p.timers.filter((t) => t.fn && t.ms === 0).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); };
+  const asked = () => p.gets.filter((g) => /ratings\?refs=/.test(g)).length;
+  const open = async () => { p.ctx.MMWatch.detail.open('movie-120', { push: true }); await settle(); await due(); };
+  await open();
+  const first = [asked(), p.ctx.MM.ratings.get('movie-120')];
+  p.key('Escape');
+  p.tick();
+  level = -2;
+  await open();
+  return { first, again: [asked(), p.ctx.MM.ratings.get('movie-120')] };
 };
 
 // *rateable* unknown: the answer comes after the wait is over.

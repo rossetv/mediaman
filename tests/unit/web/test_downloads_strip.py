@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from mediaman.core.time import now_utc
+from mediaman.services.arr import fetcher
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.download_queue import _reset_previous_queue
 from mediaman.services.watch_catalog import clear_library_index, invalidate
@@ -125,7 +126,7 @@ def test_a_viewer_gets_every_download_with_a_title_to_open(services, viewer, con
     )
     conn.commit()
     body = _get(viewer).json()
-    ember, harbour = body["items"]
+    harbour, ember = body["items"]
     assert (ember["state"], ember["percent"]) == ("downloading", 40)
     assert (ember["ref"], ember["href"]) == ("tmdb-movie-11", "/watch#title=tmdb-movie-11")
     assert ember["poster_url"] == "/api/watch/img/tmdb/w342/p11.jpg"
@@ -181,18 +182,19 @@ def test_the_downloads_page_gives_an_admin_the_release_names(services, viewer, c
     assert (hero["id"], hero["title"]) == ("aB3xK9qLm2Zt", "aB3xK9qLm2Zt")
 
 
-def test_a_service_that_stops_answering_leaves_the_row_as_it_was(services, viewer, monkeypatch):
+def test_a_service_that_stops_answering_leaves_in_the_row_only_what_downloads_shows(
+    services, viewer, monkeypatch
+):
     monkeypatch.setattr(strip, "HOLD_S", 0.0)
+    monkeypatch.setattr(fetcher, "_BLIP_SECONDS", 0.0)
     _get(viewer)
     services[0].get_queue.side_effect = requests.ConnectionError("http://10.0.0.9:7878 refused")
     services[0].get_movies.side_effect = services[0].get_queue.side_effect
+    _get(viewer)  # a blip that ends at once: the next missed answer is an outage
     resp = _get(viewer)
     body = resp.json()
-    assert [(i["title"], i["percent"], i["held"]) for i in body["items"]] == [
-        ("Ember Coast", 40, True),
-        ("Dry Harbour", 40, True),
-    ]
-    assert body["outage"] == "Can't reach Radarr"
+    assert body["items"] == viewer.get("/api/downloads").json()["queue"] == []
+    assert body["outage"] == "Downloads aren't available"
     assert "10.0.0.9" not in resp.text
 
 
@@ -247,7 +249,7 @@ def test_a_title_radarr_has_no_picture_of_gets_those_tmdb_told_of(services, view
     held, ids = asked
     _queue(services, [_movie(11, "Ember Coast", images=[]), _movie(12, "Dry Harbour")])
     held[11] = {"poster_url": "/api/watch/img/tmdb/w342/a.jpg", "backdrop_url": "/art/b.jpg"}
-    ember, harbour = _get(viewer).json()["items"]
+    harbour, ember = _get(viewer).json()["items"]
     assert (ember["poster_url"], ember["art_url"]) == (
         "/api/watch/img/tmdb/w342/a.jpg",
         "/art/b.jpg",
@@ -269,7 +271,7 @@ def test_a_title_whose_lookup_fails_takes_no_other_down(services, viewer, asked)
     asked[0][11] = AttributeError("malformed")
     resp = _get(viewer)
     assert resp.status_code == 200
-    ember, harbour = resp.json()["items"]
+    harbour, ember = resp.json()["items"]
     assert (ember["ref"], ember["poster_url"]) == ("tmdb-movie-11", "")
     assert harbour["art_url"] == "/api/watch/img/tmdb/w1280/f12.jpg"
 
@@ -344,9 +346,13 @@ def test_the_downloads_page_s_poll_tells_the_ring_and_asks_the_services_nothing_
     assert _get(viewer).json()["summary"] == again["strip"]["summary"]
 
 
-def test_a_service_that_stops_answering_leaves_the_ring_on_downloads_as_it_was(services, viewer):
-    before = viewer.get("/api/downloads").json()["strip"]
+def test_a_service_that_stops_answering_leaves_the_ring_on_downloads_what_it_shows(
+    services, viewer, monkeypatch
+):
+    monkeypatch.setattr(fetcher, "_BLIP_SECONDS", 0.0)
+    viewer.get("/api/downloads")
     services[0].get_queue.side_effect = requests.ConnectionError("down")
-    after = viewer.get("/api/downloads").json()["strip"]
-    assert after["summary"] == before["summary"]
-    assert after["outage"] == "Can't reach Radarr"
+    viewer.get("/api/downloads")  # a blip that ends at once: the next missed answer is an outage
+    after = viewer.get("/api/downloads").json()
+    assert after["strip"]["summary"]["total"] == len(after["queue"]) + bool(after["hero"])
+    assert after["strip"]["outage"] == "Downloads aren't available"

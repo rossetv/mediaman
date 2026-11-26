@@ -326,6 +326,141 @@ const scenarios = {
     return out;
   },
 
+  // The panel asks for the Base URL while it is empty, and Escape shuts the panel.
+  async panelWords() {
+    const p = await newsletter();
+    const field = p.id('base_url');
+    const note = () => p.id('newsletter-base-note').textContent;
+    const out = { filled: note() };
+    const toggle = async () => { p.click(p.id('btn-send-newsletter')); await settle(); };
+    await toggle();
+    field.value = '';
+    await toggle();
+    out.emptyOnOpen = note();
+    out.noteClass = p.id('newsletter-base-note').querySelector('.fld-sub').className;
+    field.value = 'https://media.example.com';
+    p.fire(field, 'input');
+    out.typed = note();
+    field.value = ' ';
+    p.fire(field, 'input');
+    out.cleared = note();
+    p.id('btn-send-newsletter').focus();
+    p.id('btn-cancel-newsletter').focus();
+    p.fire(p.id('newsletter-send-panel'), 'keydown', { key: 'Escape' });
+    await settle();
+    out.escape = { open: !p.id('newsletter-send-panel').hidden && p.ctx.MM.settings.rows.isOpen(p.id('newsletter-send-panel')),
+      expanded: p.id('btn-send-newsletter').getAttribute('aria-expanded'), focused: p.doc.activeElement === p.id('btn-send-newsletter') };
+    return out;
+  },
+
+  // Escape shuts the open panel from the button that opened it, but not while a send is under way.
+  async escapeFromOpener() {
+    const p = await newsletter();
+    const opener = p.id('btn-send-newsletter');
+    const panel = p.id('newsletter-send-panel');
+    const look = () => ({
+      open: p.ctx.MM.settings.rows.isOpen(panel),
+      label: opener.textContent,
+      expanded: opener.getAttribute('aria-expanded'),
+      focused: p.doc.activeElement === opener,
+    });
+    const out = { before: look() };
+    opener.focus();
+    p.id('btn-confirm-newsletter').disabled = true;
+    p.fire(opener, 'keydown', { key: 'Escape' });
+    await settle();
+    out.sending = look();
+    p.id('btn-confirm-newsletter').disabled = false;
+    p.fire(opener, 'keydown', { key: 'Enter' });
+    await settle();
+    out.otherKey = look();
+    p.fire(opener, 'keydown', { key: 'Escape' });
+    await settle();
+    out.after = look();
+    p.fire(opener, 'keydown', { key: 'Escape' });
+    await settle();
+    out.again = look();
+    return out;
+  },
+
+  // The panel names everything missing, as the server does, and says a typed value waits for a save.
+  async setupNotes() {
+    const p = await newsletter();
+    const note = () => p.id('newsletter-base-note').textContent;
+    const set = (id, v) => { p.id(id).value = v; p.fire(p.id(id), 'input'); };
+    const out = {};
+    p.ctx.MM.settings.savebar = { isEdited: () => false };
+    set('mailgun_api_key', '');
+    out.noMail = note();
+    set('base_url', '');
+    out.nothing = note();
+    set('base_url', 'ftp://x');
+    out.mailAndFtp = note();
+    set('mailgun_api_key', 'x');
+    out.ftp = note();
+    set('base_url', 'https://media.example.com');
+    p.ctx.MM.settings.savebar.isEdited = (el) => el.id === 'base_url';
+    set('base_url', 'https://media.example.org');
+    out.unsaved = note();
+    p.ctx.MM.settings.savebar.isEdited = () => false;
+    set('base_url', 'https://media.example.net');
+    out.saved = note();
+    return out;
+  },
+
+  // The note is read again when a save finishes and when focus or a pointer returns to the panel.
+  async noteRefresh() {
+    const p = await newsletter();
+    const note = () => p.id('newsletter-base-note').textContent;
+    let edited = false;
+    p.ctx.MM.settings.savebar = { isEdited: (el) => edited && el.id === 'base_url' };
+    const typed = () => {
+      edited = true;
+      p.id('base_url').value = 'https://media.example.org';
+      p.fire(p.id('base_url'), 'input');
+      const said = note();
+      edited = false;
+      return said;
+    };
+    const out = {};
+    const panel = p.id('newsletter-send-panel');
+    out.typed = typed();
+    out.stale = note();
+    p.ctx.MM.settings.newsletter.settingsSaved();
+    out.afterSave = note();
+    typed();
+    p.fire(panel, 'focusin');
+    out.afterFocus = note();
+    typed();
+    p.fire(panel, 'pointerdown');
+    out.afterPointer = note();
+    return out;
+  },
+
+  // A send refused for the reason the note gives says it once, beside the button.
+  async refusedOnce() {
+    const p = await newsletter();
+    const words = 'Set Base URL under General & Schedule first';
+    p.id('base_url').value = '';
+    p.ctx.MM.api.post = () => refused('base_url_missing', words, 400);
+    p.ctx.MM.api.messageOf = (e) => e.message;
+    p.ctx.MM.dom.stillAt = () => true;
+    p.click(p.id('btn-send-newsletter'));
+    await settle();
+    p.click(p.id('btn-send-newsletter'));
+    await settle();
+    const before = p.id('newsletter-base-note').textContent;
+    p.click(p.id('btn-confirm-newsletter'));
+    await settle();
+    const out = { before, note: p.id('newsletter-base-note').textContent, status: p.id('newsletter-send-status').textContent };
+    p.fire(p.id('newsletter-send-panel'), 'focusin');
+    out.noteAfterFocus = p.id('newsletter-base-note').textContent;
+    p.id('base_url').value = 'ftp://x';
+    p.fire(p.id('base_url'), 'input');
+    out.changed = { note: p.id('newsletter-base-note').textContent, status: p.id('newsletter-send-status').textContent };
+    return out;
+  },
+
   // What the dialog says of removing someone who gets the newsletter, and of one who opted out.
   async removalWords() {
     const p = await newsletter([1]);
@@ -370,9 +505,15 @@ async function newsletter(people) {
       ['button', { id: 'btn-send-newsletter' }],
       ['div', { id: 'newsletter-send-panel', class: 'setg-fold' },
         ['div', { id: 'newsletter-recipient-list' }], ['div', { id: 'newsletter-recipient-note' }],
+        ['div', { id: 'newsletter-base-note' }],
+        ['button', { id: 'btn-cancel-newsletter' }, 'Cancel'],
         ['button', { id: 'btn-confirm-newsletter' }, 'Send newsletter'],
         ['span', { id: 'newsletter-send-status' }]],
+      ['input', { id: 'base_url' }], ['input', { id: 'mailgun_domain' }],
+      ['input', { id: 'mailgun_api_key' }], ['input', { id: 'mailgun_from_address' }],
     ], ['rows', 'newsletter']);
+    p.id('base_url').value = 'https://media.example.com';
+    ['mailgun_domain', 'mailgun_api_key', 'mailgun_from_address'].forEach((id) => { p.id(id).value = 'x'; });
     let failing = 0;
     let subs = (people || [1, 2]).map((n) => ({ id: n, email: 'p' + n + '@example.com', active: true }));
     const errors = [];

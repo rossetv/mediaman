@@ -87,6 +87,7 @@ from mediaman.web.routes.watch.pages import (
     seasons_leaving,
 )
 from mediaman.web.routes.watch.title_seasons import (
+    ARR_WAIT_S,
     begin_arr_view,
     fill_season_status,
     missing_seasons,
@@ -111,6 +112,9 @@ _RATINGS_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_pe
 _COLLECTION_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 # Titles a preview asks for before they are opened: most never are, and each can cost Plex a call.
 _AHEAD_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=600)
+# Titles TMDB is asked for in a day, opened or asked for ahead alike, so asking ahead is no way
+# round the query limit's day; only an open counts against its minute.
+_TITLE_DAY_LIMITER = ActionRateLimiter(max_in_window=200, window_seconds=24 * 60 * 60)
 # A worker thread waits for the answer.
 _TMDB_TIMEOUT_S = 3.0
 _RATINGS_TTL = timedelta(days=30)
@@ -838,9 +842,10 @@ def _tmdb_title(
 ) -> dict[str, Any]:
     """A TMDB title (*kind* "movie" or "tv"). Raises TmdbUnavailable, and disk_cache.Refused
     when TMDB would be asked and *allow_fetch* says no."""
+    arr = begin_arr_view(conn, request.app.state.config.secret_key)
     fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
     return _title_of_fields(
-        request, conn, username, client, ref, kind, tmdb_id, download_url, fields
+        request, conn, username, client, ref, kind, tmdb_id, download_url, fields, arr
     )
 
 
@@ -854,10 +859,14 @@ def _title_of_fields(
     tmdb_id: int,
     download_url: str | None,
     fields: dict[str, Any],
+    begun: Callable[[], catalog.ArrView] | None = None,
 ) -> dict[str, Any]:
+    """The title's answer; *begun* collects the Radarr and Sonarr view begun before TMDB was
+    asked. A slow one does not hold the page: its download state comes on a later answer."""
     out = _payload(ref, "movie" if kind == "movie" else "show", client is not None)
     _fill_fields(out, request, conn, kind, tmdb_id, fields)
-    arr = _arr(request, conn)
+    secret = request.app.state.config.secret_key
+    arr = begun() if begun else catalog.arr_view(conn, secret, wait_s=ARR_WAIT_S)
     index = catalog.library_index(
         conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
     )
@@ -951,6 +960,18 @@ def _held_title(
         return None
 
 
+def _may_look_up(username: str, ahead: bool) -> bool:
+    """Whether TMDB may be asked for a title: within the day's title lookups and, for an open,
+    the query limit."""
+    at = _TITLE_DAY_LIMITER.reserve(username)
+    if at is None:
+        return False
+    if ahead or _QUERY_LIMITER.check(username):
+        return True
+    _TITLE_DAY_LIMITER.release(username, at)
+    return False
+
+
 @router.get("/api/watch/title/{ref}")
 def api_watch_title(
     ref: str, request: Request, ahead: bool = False, username: str = Depends(get_current_user)
@@ -991,7 +1012,7 @@ def api_watch_title(
         if client is None:
             return without_tmdb(respond_err("tmdb_not_configured", status=503))
         media_type, _, tmdb_id = rest.partition("-")
-        # Any id can be asked for, so only a title TMDB must answer counts against the limit;
+        # Any id can be asked for, so only a title TMDB must answer counts against the limits;
         # a cached one is free.
         return respond_ok(
             _tmdb_title(
@@ -1003,7 +1024,7 @@ def api_watch_title(
                 media_type,
                 int(tmdb_id),
                 None,
-                lambda: _QUERY_LIMITER.check(username),
+                lambda: _may_look_up(username, ahead),
             )
         )
     except disk_cache.Refused:

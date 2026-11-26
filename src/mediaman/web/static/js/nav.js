@@ -33,6 +33,13 @@
   var openedAt = 0;
   var SETTLE_MS = 450; // a second tap of the one that opened the sheet comes within this
 
+  var panel = menu.querySelector('.profile-panel');
+  var handle = menu.querySelector('.profile-handle');
+  var calm = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var SHUT_PX = 80;      // dragged this far down, the sheet shuts
+  var FLICK_PX_MS = 0.5; // or flicked down this fast, from 20 px on, over the last bit of the drag
+  var FLICK_WINDOW_MS = 80;
+
   function items() {
     return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
   }
@@ -56,6 +63,11 @@
 
   function open(button, last) {
     opener = button;
+    // A drag-close leaves the panel far below: put it back unseen, so every opening rises alike.
+    panel.style.transition = 'none';
+    panel.style.transform = '';
+    void panel.offsetWidth;
+    panel.style.transition = '';
     menu.inert = false;
     openedAt = Date.now();
     menu.setAttribute('open', '');
@@ -67,6 +79,7 @@
 
   function close(returnFocus) {
     if (!isOpen()) return;
+    if (drag) { drag = null; panel.style.transition = ''; panel.style.transform = ''; }
     menu.removeAttribute('open');
     releasePage();
     // CSS keeps the menu visible for the fade, so only this keeps it out of focus and the tree.
@@ -82,7 +95,7 @@
       return;
     }
     if (!isOpen()) return;
-    // The sheet comes up under the finger, Log out where the button was.
+    // The sheet comes up under the finger, Log out near where the button was.
     if (phone.matches && e.detail && Date.now() - openedAt < SETTLE_MS && menu.contains(e.target)) {
       e.preventDefault();
       return;
@@ -91,6 +104,9 @@
     if (e.target === menu || (e.target.closest && e.target.closest('.profile-close'))) close(true);
     else if (e.target.closest && e.target.closest('a[role="menuitem"]')) close(false);
   });
+
+  // iOS sends a tap on the dimmed page to the document's click handler only if the menu has a handler of its own.
+  menu.addEventListener('click', function () {});
 
   document.addEventListener('pointerdown', function (e) {
     if (isOpen() && !menu.contains(e.target) && !buttonOf(e.target)) close(false);
@@ -129,6 +145,48 @@
     e.stopPropagation();
   }, true);
 
+  // The handle drags the sheet down after the finger: shut past a distance or a flick, back otherwise.
+  var drag = null;
+  function dragTo(y) { panel.style.transform = 'translateY(' + Math.max(0, y - drag.y) + 'px)'; }
+  if (handle) {
+    handle.addEventListener('pointerdown', function (e) {
+      if (!isOpen() || !phone.matches || e.button) return;
+      drag = { id: e.pointerId, y: e.clientY, pts: [{ y: e.clientY, t: Date.now() }] };
+      panel.style.transition = 'none';
+      if (handle.setPointerCapture) handle.setPointerCapture(e.pointerId);
+    });
+    handle.addEventListener('pointermove', function (e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag.pts.push({ y: e.clientY, t: Date.now() });
+      dragTo(e.clientY);
+    });
+    var lift = function (e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      var far = Math.max(0, e.clientY - drag.y);
+      var now = Date.now();
+      var pts = drag.pts;
+      var ref = pts[pts.length - 1];
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i].t >= now - FLICK_WINDOW_MS) { ref = pts[i]; break; }
+      }
+      var speed = (e.clientY - ref.y) / Math.max(1, now - ref.t);
+      var flick = far > 20 && speed > FLICK_PX_MS;
+      var back = speed < -FLICK_PX_MS; // flicked back up: keep it open, however far down it was
+      drag = null;
+      panel.style.transition = '';
+      if (e.type === 'pointerup' && !back && (far > SHUT_PX || flick)) {
+        if (calm.matches) panel.style.transform = '';
+        else panel.style.transform = 'translateY(100%)';
+        close(true);
+      } else {
+        panel.style.transform = '';
+      }
+    };
+    handle.addEventListener('pointerup', lift);
+    handle.addEventListener('pointercancel', lift);
+    handle.addEventListener('lostpointercapture', lift); // a release that never came
+  }
+
   // A menu becomes a sheet, or a sheet a menu.
   phone.addEventListener('change', function () { close(true); });
 
@@ -156,7 +214,7 @@
   function drawDownloads(state) {
     var sum = state.summary;
     var words = sum.ready ? sum.ready + ' ready to watch'
-      : sum.active ? sum.total + ' downloading'
+      : sum.active ? sum.total + (sum.active === sum.total ? ' downloading' : ' in progress')
       : sum.waiting + ' waiting to download';
     button.setAttribute('aria-label', name + (!sum.total ? '' : state.lost ? ', downloads not updating' : ', ' + words));
 

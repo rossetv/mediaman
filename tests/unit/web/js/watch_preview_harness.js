@@ -161,7 +161,7 @@ function load(opts = {}) {
       };
     }
     // A busy page gives its first frame on the way late.
-    if (f === 'watch/carry.js') ctx.MMWatch.carry.stage = () => ({ draw: (place) => { if (!places.length) clock += opts.busy || 0; places.push(place); }, end: () => steps.push('end'), heroFoot: 500 });
+    if (f === 'watch/carry.js') ctx.MMWatch.carry.stage = () => { if (opts.stageThrows) throw new Error('staged'); return ({ draw: (place) => { if (!places.length) clock += opts.busy || 0; places.push(place); }, end: () => steps.push('end'), heroFoot: 500 }); };
   });
 
   const h = {
@@ -1587,6 +1587,14 @@ const scenarios = {
     await h.scroll([20, 20, 20, 20, 20, 20, 20]);
     await h.pass(1500);
     return { steps: h.steps.filter((s) => !/ahead/.test(s)), back: h.places.some((at, i) => at < h.places[i - 1]) };
+  },
+  /* The stage throws once the page is drawn: it is undrawn and the page opens plainly, as by a press. */
+  async stageThrows() {
+    const h = load({ stageThrows: true });
+    await h.rest('film', 1100);
+    await h.scroll([45, 45, 45]);
+    await h.pass(500);
+    return { steps: h.steps.filter((s) => !/ahead/.test(s)), details: h.details, drawn: h.doc.documentElement.classList.contains('has-ttl') };
   },
   /* Less motion: a notched wheel opens it, at its first notch, however far apart the notches come. */
   async plainNotches() {

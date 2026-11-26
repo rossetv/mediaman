@@ -304,6 +304,8 @@
   display: flex;
   gap: var(--watch-gap);
   overflow-x: auto;
+  /* A card's tap areas reach past the bottom: scrollable there, the row would keep a vertical wheel from the page. */
+  overflow-y: hidden;
   overscroll-behavior-x: contain;
   padding: 6px var(--pad) 16px;
   margin: -6px 0 -16px;

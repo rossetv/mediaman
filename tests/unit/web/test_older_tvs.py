@@ -324,6 +324,17 @@ def test_a_host_the_app_does_not_answer_to_is_named_with_what_to_do(
     assert shown.urls == []
 
 
+def test_an_ipv6_address_is_named_in_the_form_the_host_check_takes(
+    shown, client, conn, monkeypatch
+) -> None:
+    monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "fd00::10")
+    conn.execute("UPDATE settings SET value = 'http://[fd00::10]:8282' WHERE key = 'tv_address'")
+    conn.commit()
+    got = _picture(client)
+    assert (got.status_code, got.json()["error"]) == (409, "host_not_allowed")
+    assert "does not hold [fd00::10]." in got.json()["message"]
+
+
 @pytest.mark.parametrize(
     ("allowed", "address"),
     [
@@ -331,6 +342,7 @@ def test_a_host_the_app_does_not_answer_to_is_named_with_what_to_do(
         ("*", HOST),
         ("", HOST),
         ("*.other.example", "https://TV.other.example"),
+        ("[fd00::10]", "http://[fd00::10]:8282"),
     ],
 )
 def test_a_host_the_app_answers_to_is_used(
@@ -557,6 +569,15 @@ def test_both_switches_are_off_until_saved_on(app_factory, authed_client, conn) 
         ("https://XN--Fernseh-Gert-qcb.example", "https://xn--fernseh-gert-qcb.example"),
         ("https://4k.example", "https://4k.example"),
         ("https://192.168.1.10", "https://192.168.1.10"),
+        ("http://100.64.1.2:8282", "http://100.64.1.2:8282"),
+        ("http://[FD00::5]:8282/", "http://[fd00::5]:8282"),
+        ("https://8.8.8.8", "https://8.8.8.8"),
+        ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
+        ("http://NAS.local:8282", "http://nas.local:8282"),
+        ("http://mediaman.:8282", "http://mediaman:8282"),
+        ("http://nas.lan:8282", "http://nas.lan:8282"),
+        ("http://NAS.Home.Arpa", "http://nas.home.arpa"),
+        ("http://box.internal:8282", "http://box.internal:8282"),
         ("", ""),
     ],
 )
@@ -573,7 +594,19 @@ def test_an_address_tvs_can_use_is_kept(client, typed, kept) -> None:
         "http://127.0.0.1:8282",
         "http://[::1]:8282",
         "http://8.8.8.8",
+        "http://100.128.0.1",
+        "http://[2001:db8::1]",
+        "http://[::ffff:8.8.8.8]",
+        "http://[fe80::1]:8282",
+        "https://[fe80::1]",
+        "https://127.0.0.1",
+        "https://[::ffff:127.0.0.1]",
+        "https://0.0.0.0",
         "http://mediaman.example",
+        "http://nas.local.example",
+        "http://nas.lan.example",
+        "http://home.arpa",
+        "javascript://192.168.1.10",
         "ftp://192.168.1.10",
         "http://a:b@192.168.1.10",
         "http://192.168.1.10/path",
@@ -598,7 +631,6 @@ def test_an_address_tvs_can_use_is_kept(client, typed, kept) -> None:
         "https://12345",
         "https://1.2.3",
         "https://mediaman.0x7f",
-        "https://8.8.8.8",
         "https://[::1]",
         "https://" + "a" * 64 + ".example",
     ],

@@ -13,6 +13,7 @@
   --s4:           #2e2e33;       /* pill on surface */
   --hair:         rgba(255,255,255,.07);
   --hair-strong:  rgba(255,255,255,.12);
+  --field-edge:   #727277;       /* a field's or a switch's edge: 3:1 on --bg up to --s3 */
 
   /* Text */
   --t1: #fff;

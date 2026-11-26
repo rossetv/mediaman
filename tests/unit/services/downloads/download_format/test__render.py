@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mediaman.services.downloads.download_format import (
     build_episode_summary,
     build_item,
@@ -60,6 +62,9 @@ class TestBuildEpisodeSummary:
         result = build_episode_summary(eps)
         assert "2 of 2 episodes ready" in result
 
+    def test_one_episode_is_one_episode(self):
+        assert build_episode_summary([{"state": "ready"}]) == "1 of 1 episode ready"
+
     def test_mixed_states(self):
         eps = [
             {"state": "ready"},
@@ -82,6 +87,12 @@ class TestBuildEpisodeSummary:
         assert "searching" in result
         assert "ready" not in result
 
+    @pytest.mark.parametrize(
+        ("count", "said"), [(1, "1 episode downloading"), (3, "3 episodes downloading")]
+    )
+    def test_it_says_how_many_episodes_are_downloading(self, count, said):
+        assert build_episode_summary([{"state": "downloading"}] * count) == said
+
     def test_parts_joined_by_separator(self):
         eps = [{"state": "ready"}, {"state": "downloading"}]
         result = build_episode_summary(eps)
@@ -90,7 +101,7 @@ class TestBuildEpisodeSummary:
 
 class TestSelectHero:
     def _dl_item(self, *, state="downloading", progress=0, title="Item"):
-        return {"title": title, "state": state, "progress": progress}
+        return {"id": f"radarr:{title}", "title": title, "state": state, "progress": progress}
 
     def test_empty_list_returns_none_and_empty(self):
         hero, rest = select_hero([])
@@ -109,12 +120,22 @@ class TestSelectHero:
         hero, _rest = select_hero([searching, downloading])
         assert hero["title"] == "Downloading"
 
-    def test_highest_progress_downloading_wins(self):
-        low = self._dl_item(state="downloading", progress=20, title="Low")
-        high = self._dl_item(state="downloading", progress=80, title="High")
-        hero, rest = select_hero([low, high])
-        assert hero["title"] == "High"
-        assert any(r["title"] == "Low" for r in rest)
+    def test_a_download_that_passes_another_takes_neither_the_top_card_nor_its_row(self):
+        a = self._dl_item(state="downloading", progress=20, title="A")
+        b = self._dl_item(state="downloading", progress=10, title="B")
+        c = self._dl_item(state="downloading", progress=30, title="C")
+        before = select_hero([a, b, c])
+        c["progress"] = b["progress"] = 90
+        after = select_hero([c, b, a])
+        assert [after[0], *after[1]] == [before[0], *before[1]]
+        assert before[0] is a
+
+    def test_the_last_top_card_stays_on_top_while_it_is_coming_in(self):
+        a = self._dl_item(state="downloading", title="A")
+        z = self._dl_item(state="almost_ready", title="Z")
+        assert select_hero([a, z], kept="radarr:Z")[0] is z
+        z["state"] = "searching"
+        assert select_hero([a, z], kept="radarr:Z")[0] is a
 
     def test_first_item_wins_when_nothing_downloading(self):
         a = self._dl_item(state="searching", progress=0, title="A")

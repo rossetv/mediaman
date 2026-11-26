@@ -111,14 +111,34 @@ class TestUnsubscribeRoute:
         _insert_subscriber(conn, "user@example.com")
         token = generate_unsubscribe_token(email="user@example.com", secret_key=secret_key)
         resp = client.get(f"/unsubscribe?token={token}", follow_redirects=True)
-        # Should render the confirmation page (200) or equivalent.
         assert resp.status_code == 200
+        assert "<title>Unsubscribe · Mediaman</title>" in resp.text
+        assert "already unsubscribed" not in resp.text
+        assert 'name="token"' in resp.text
+
+    def test_get_with_a_used_link_says_already_unsubscribed(self, client, app, secret_key):
+        conn = app.state.db
+        _insert_subscriber(conn, "used@example.com")
+        conn.execute("UPDATE subscribers SET active = 0 WHERE email = 'used@example.com'")
+        conn.commit()
+        token = generate_unsubscribe_token(email="used@example.com", secret_key=secret_key)
+        resp = client.get(f"/unsubscribe?token={token}")
+        assert resp.status_code == 200
+        assert "already unsubscribed" in resp.text
+        assert 'name="token"' not in resp.text
+
+    def test_get_with_an_unknown_address_answers_like_a_used_link(self, client, secret_key):
+        token = generate_unsubscribe_token(email="nobody@example.com", secret_key=secret_key)
+        resp = client.get(f"/unsubscribe?token={token}")
+        assert resp.status_code == 200
+        assert "already unsubscribed" in resp.text
 
     def test_get_with_invalid_token_returns_invalid_response(self, client, secret_key):
         """GET with a bad token shows the invalid-link page."""
         resp = client.get("/unsubscribe?token=notavalidtoken", follow_redirects=True)
         assert resp.status_code == 200
-        assert "no longer valid" in resp.text.lower() or resp.status_code in (200,)
+        assert "no longer valid" in resp.text.lower()
+        assert "Could not unsubscribe" in resp.text
 
     def test_post_with_token_only_unsubscribes(self, client, app, secret_key):
         conn = app.state.db

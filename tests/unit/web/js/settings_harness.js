@@ -375,6 +375,45 @@ const scenarios = {
     return { dirty, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
   },
 
+  // A refused save shows the field it refused, out from under the bar, and leaves the focus where it was.
+  async refusedInView() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    h.add('button', { id: 'btn-discard' }, bar);
+    h.add('span', { id: 'save-status' }, bar);
+    const row = h.add('div', { className: 'setg-row' }, page);
+    const input = h.add('input', { id: 'tv_address', value: '', type: 'text' }, row);
+    const detail = [{ loc: ['body', 'tv_address'], msg: 'Value error, must be a home address and not localhost' }];
+    h.ctx.MM.api = { put: () => Promise.reject({ status: 422, data: { detail } }), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    // An 844px screen: the row sits clear of the 80px bar, which grows to 175px for the error and settles at 193px a frame on.
+    let height = 80;
+    bar.getBoundingClientRect = () => ({ top: 844 - height, bottom: 844 });
+    row.place = { top: 700, bottom: 744 };
+    h.ctx.scrollBy = (x, y) => { row.place = { top: row.place.top - y, bottom: row.place.bottom - y }; };
+    h.doc.documentElement.style = { setProperty() {} };
+    const resized = [];
+    h.ctx.ResizeObserver = function (fn) { this.observe = () => resized.push(fn); this.disconnect = () => resized.splice(resized.indexOf(fn), 1); };
+    h.doc.removeEventListener = () => {};
+    const frame = (to) => { height = to; h.timers.splice(0).filter((t) => t.ms === 16).forEach((t) => t.fn()); resized.forEach((fn) => fn()); };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    input.value = 'http://localhost'; input.fire('input');
+    save.focus();
+    save.fire('click');
+    await h.flush();
+    frame(175);
+    frame(193);
+    return {
+      revealed: h.doc.revealed.map((r) => r[0]),
+      focus: h.doc.activeElement && h.doc.activeElement.id,
+      roomAboveBar: bar.getBoundingClientRect().top - row.place.bottom,
+    };
+  },
+
   // The settings a save sends.
   async payloadKeys() {
     const h = build();
@@ -1254,6 +1293,28 @@ const scenarios = {
     return { emailCancel: shut(email, cancel), emailAgain: shut(email, email), addCancel: shut(add, addCancel), addAgain: shut(add, add) };
   },
 
+  // Escape shuts the e-mail fold of a Team row and gives the focus back to its button.
+  async emailEscape() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    h.add('div', { id: 'user-list' });
+    h.add('main', { id: 'main' });
+    userForm(h);
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer', email: '' }] }) };
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const row = names(h.doc.getElementById('user-list'), 'usr-row')[0];
+    const opener = row.querySelector('[data-user-action="email"]');
+    const form = row.querySelector('form');
+    opener.fire('click');
+    h.drain();
+    const opened = opener.getAttribute('aria-expanded');
+    form.fire('keydown', { key: 'a' });
+    form.fire('keydown', { key: 'Escape' });
+    h.drain();
+    return { opened, expanded: opener.getAttribute('aria-expanded'), focused: h.doc.activeElement === opener };
+  },
+
   // How many libraries are said to be selected, by what Plex answers.
   async libraryCount() {
     const count = async (answer) => {
@@ -2049,6 +2110,30 @@ const scenarios = {
     (p.h.doc.listeners.selectionchange || []).forEach((f) => f({}));
     out.typed = [p.token.selectionStart, p.token.selectionEnd];
     return out;
+  },
+
+  // A finished save tells the newsletter panel, so its note is read again.
+  async savedTellsNewsletter() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    h.add('button', { id: 'btn-discard' }, bar);
+    const field = h.add('input', { id: 'base_url', value: 'v', type: 'text' }, page);
+    h.ctx.MM.api = { put: () => Promise.resolve({ status: 'saved' }), post: () => Promise.resolve({}), get: () => Promise.resolve({}), messageOf: (e, words) => words };
+    h.ctx.MM.reauth = { run: (fn) => fn() };
+    h.ctx.MM.dom = { focusStillIn: () => false };
+    h.ctx.UIFeedback = { toast() {}, confirm: () => Promise.resolve(true) };
+    ['savebar', 'general'].forEach((n) => h.load('settings/' + n + '.js'));
+    const m = h.ctx.MM.settings;
+    let told = 0;
+    m.newsletter = { settingsSaved: () => { told += 1; } };
+    m.savebar.init({ getPayload: m.general.collectSettings });
+    h.drain(); await h.flush();
+    field.value = 'w'; field.fire('input');
+    save.fire('click');
+    await h.flush(); h.drain(); await h.flush();
+    return { told };
   },
 
   // Which services are checked again after a save, and what their pills end up saying.

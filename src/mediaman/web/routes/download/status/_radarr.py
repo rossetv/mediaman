@@ -4,33 +4,24 @@ barrel so build_radarr_from_db stays patchable.
 
 from __future__ import annotations
 
-from typing import Any, cast
-
 from mediaman.core.format import format_bytes
 from mediaman.services.arr._types import ArrQueueItem, RadarrMovie
 from mediaman.services.downloads.download_format import (
     build_item,
-    extract_poster_url,
     map_arr_status,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 
-from ._shared import _format_timeleft, _safe_int, _safe_progress
+from ._shared import _eta, _safe_int, _safe_progress
 
 
 def _radarr_ready_item(movie: RadarrMovie) -> DownloadItem:
     title = movie.get("title", "")
-    # rationale: ``RadarrMovie.images`` is typed as ``list[ArrImage]``,
-    # but ``extract_poster_url`` accepts ``Sequence[Mapping[str, object]]``
-    # to support the parallel Sonarr branches that pass through raw
-    # queue dicts.  The runtime values are identical; the cast narrows
-    # the mypy view without a runtime conversion.
-    poster_url = extract_poster_url(cast("list[dict[Any, Any]] | None", movie.get("images")))
     return build_item(
         dl_id=f"radarr:{title}",
         title=title,
         media_type="movie",
-        poster_url=poster_url,
+        poster_url="",
         state="ready",
         progress=100,
         eta="",
@@ -51,16 +42,13 @@ def _radarr_queue_item(queue: list[ArrQueueItem], tmdb_id: int) -> DownloadItem 
             item.get("status") or "",
             item.get("trackedDownloadState") or "",
         )
-        eta = _format_timeleft(item.get("timeleft", ""))
-        if state == "almost_ready":
-            eta = "Post-processing…"
+        eta = _eta(state, item.get("timeleft", ""))
         title = item_movie.get("title", "")
-        poster_url = extract_poster_url(item_movie.get("images"))
         return build_item(
             dl_id=f"radarr:{title}",
             title=title,
             media_type="movie",
-            poster_url=poster_url,
+            poster_url="",
             state=state,
             progress=progress,
             eta=eta,

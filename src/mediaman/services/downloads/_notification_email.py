@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
+from mediaman.crypto import mail_tmdb_image_url
 from mediaman.services.arr._types import RadarrMovie
 from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
 from mediaman.services.downloads.download_format import extract_poster_url
@@ -164,6 +165,7 @@ def build_email_payload(
     suggestions_by_tmdb: dict[int, SuggestionsMeta],
     template: Template,
     base_url: str = "",
+    secret_key: str = "",
 ) -> tuple[str, str]:
     title = row.title
     media_type = row.media_type
@@ -189,10 +191,14 @@ def build_email_payload(
 
     # The wide backdrop heads the email; a title with none shows its poster as a poster.
     # Upgrade small TMDB posters to w500 for better-looking emails.
+    # With the site address known, TMDB's pictures come from this site, so TMDB never learns
+    # who opens the mail; Radarr's own poster address is left as it is.
     backdrop_src = safe_backdrop(meta["backdrop_url"]) or ""
+    backdrop_src = mail_tmdb_image_url(backdrop_src, "w1280", secret_key, base_url) or backdrop_src
     poster_src = meta["poster_url"]
     if poster_src:
         poster_src = poster_src.replace("/w300", "/w500").replace("/w200", "/w500")
+        poster_src = mail_tmdb_image_url(poster_src, "w500", secret_key, base_url) or poster_src
 
     # A season row names its season so two seasons of one show do not send the same text.
     season_label = f"Season {row.season_number}" if row.season_number is not None else ""

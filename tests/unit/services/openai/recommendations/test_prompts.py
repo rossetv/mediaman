@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -248,6 +249,7 @@ def _answering(monkeypatch, items=()):
         return list(items)
 
     monkeypatch.setattr(prompts, "call_openai", fake)
+    monkeypatch.setattr(prompts, "ask_openai", fake)
     return calls
 
 
@@ -333,6 +335,21 @@ class TestPersonalPrompt:
 
 
 class TestTrendingPrompt:
+    @pytest.mark.parametrize("web", [True, False])
+    def test_the_prompt_names_today_with_its_year_once(self, monkeypatch, web):
+        calls = _answering(monkeypatch)
+        monkeypatch.setattr(prompts, "is_web_search_enabled", lambda _conn: web)
+        monkeypatch.setattr(prompts, "now_utc", lambda: datetime(2026, 11, 25, 12, tzinfo=UTC))
+        prompts.generate_trending(None)
+        assert calls[0][0].startswith("Today is 25 November 2026. ")
+
+    def test_last_week_is_named_in_one_form_from_monday_to_sunday(self, monkeypatch):
+        calls = _answering(monkeypatch)
+        monkeypatch.setattr(prompts, "is_web_search_enabled", lambda _conn: True)
+        monkeypatch.setattr(prompts, "now_utc", lambda: datetime(2026, 11, 25, 12, tzinfo=UTC))
+        prompts.generate_trending(None)
+        assert "in the week of 16 November 2026–22 November 2026." in calls[0][0]
+
     @pytest.mark.parametrize("web", [True, False])
     def test_the_model_is_told_to_search_only_when_it_can(self, monkeypatch, web):
         calls = _answering(monkeypatch)

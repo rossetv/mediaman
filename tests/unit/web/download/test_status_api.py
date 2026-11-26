@@ -28,6 +28,12 @@ from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.download import router as download_router
 
 
+@pytest.fixture(autouse=True)
+def _the_library_holds_every_title(monkeypatch):
+    """A title its service has the file of is in the library here, to be played."""
+    monkeypatch.setattr("mediaman.web.routes.download.status.library_title", lambda *a: "movie-1")
+
+
 def _make_download_app(conn, secret_key: str) -> FastAPI:
     app = FastAPI()
     app.include_router(download_router)

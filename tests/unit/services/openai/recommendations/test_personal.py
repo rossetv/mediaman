@@ -65,6 +65,7 @@ def openai(monkeypatch):
         return fake.items
 
     monkeypatch.setattr(prompts, "call_openai", call)
+    monkeypatch.setattr(prompts, "ask_openai", call)
     monkeypatch.setattr("mediaman.services.media_meta.tmdb.TmdbClient.from_db", lambda *_a: None)
     monkeypatch.setattr("mediaman.services.media_meta.omdb.fetch_ratings", lambda *_a, **_k: {})
     return fake
@@ -262,6 +263,7 @@ class TestMaking:
         _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
         answers = iter([[_pick(f"New {n}") for n in range(20)], []])
         monkeypatch.setattr(prompts, "call_openai", lambda *_a, **_k: next(answers))
+        monkeypatch.setattr(prompts, "ask_openai", lambda *_a, **_k: next(answers))
         assert _make(conn, "amy") == 14
         assert next(answers, "both calls made") == "both calls made"
         assert conn.execute("SELECT status FROM user_pick_runs").fetchone()[0] == "done"

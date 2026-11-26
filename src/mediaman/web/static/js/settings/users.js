@@ -300,6 +300,11 @@
           holdFocus(cancel, form);
           toggle(false);
         });
+        form.addEventListener('keydown', function (e) {
+          if (e.key !== 'Escape' || isBusy(save)) return;
+          holdFocus(cancel, form);
+          toggle(false);
+        });
         form.addEventListener('input', function () { if (!isBusy(save)) say(''); });
         form.addEventListener('submit', function (e) {
           e.preventDefault();

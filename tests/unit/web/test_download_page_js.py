@@ -148,9 +148,8 @@ def test_a_title_already_there_is_said_where_the_button_was_and_is_no_failure(
     ("answer", "why"),
     [
         ("unanswered", "Could not reach mediaman."),
-        ("Download request failed — check service connectivity", "Try again in a moment."),
-        ("Radarr not configured", "Try again in a moment."),
-        ("Sonarr not configured", "Try again in a moment."),
+        ("The download service didn't take it", "Try again in a moment."),
+        ("Downloads aren't set up", "Try again in a moment."),
         ("Too many requests", "Try again in a moment."),
     ],
 )
@@ -168,7 +167,7 @@ def test_a_link_that_cannot_work_again_offers_no_retry(answers: dict) -> None:
     for answer, said in (
         ("Token expired or invalid", "This link does not work any more."),
         ("This download link has already been used", "been used already"),
-        ("Series not found in Sonarr lookup", "Ask whoever sent you this link."),
+        ("The download service doesn't know this show", "Ask whoever sent you this link."),
         ("No TVDB ID found for this series", "Ask whoever sent you this link."),
     ):
         seen = answers[answer]
@@ -227,6 +226,8 @@ def test_the_steps_the_bar_and_the_colour_follow_the_download(run: dict) -> None
 
     assert steps == {
         "searching": ("Searching", False, "Searching"),
+        "queued": ("Queued", False, "Queued"),
+        "searchedAgain": ("Searching", False, "Searching"),
         "downloading": ("Downloading", True, "Downloading"),
         "later": ("Downloading", True, "Downloading"),
         "unanswered": ("Downloading", True, "Downloading"),

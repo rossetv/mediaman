@@ -1354,16 +1354,24 @@
       if (plain()) {
         // Nothing moves to show it is under way: a notch, its own scroll, is enough.
         if (s.sum < watch.carry.OPENS && !s.notches) return;
-        s.owner = 'over';
-        remember(SCROLLED, 'yes');
-        openDetail(live);
-        page().addEventListener('wheel', wheeled, { passive: false });
-        untilStill();
+        openPlainly(s);
         return;
       }
       if (!pickUp(live)) return;
+      if (!carried) {
+        openPlainly(s);
+        return;
+      }
     }
     carried.motion.push(dy, s.notches ? NOTCH_REST_MS : REST_MS);
+  }
+
+  function openPlainly(s) {
+    s.owner = 'over';
+    remember(SCROLLED, 'yes');
+    openDetail(live);
+    page().addEventListener('wheel', wheeled, { passive: false });
+    untilStill();
   }
 
   /* It opens without following the hand: what it would follow with is asked not to move, or is not drawn. */
@@ -1523,8 +1531,14 @@
     closeTimer = null;
     clearTimeout(p.trailerTimer);
     disarm();
-    var stage = watch.carry.stage(p);
-    carried = { p: p, stage: stage, motion: watch.carry.motion(stage.draw, function (at) { if (at) arrive(); else giveBack(); }) };
+    try {
+      var stage = watch.carry.stage(p);
+      carried = { p: p, stage: stage, motion: watch.carry.motion(stage.draw, function (at) { if (at) arrive(); else giveBack(); }) };
+    } catch (err) {
+      carried = null;
+      watch.detail.undraw();
+      return true;
+    }
     page().addEventListener('wheel', wheeled, { passive: false });
     return true;
   }

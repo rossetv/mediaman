@@ -42,13 +42,11 @@
     if (box && box.firstElementChild && !dom.isCollapsing(box)) dom.collapse(box, function () { clear(box); });
   }
 
-  var lastHero = null;
+  var CUT_OFF = ' · can\'t reach mediaman';
 
-  function heldHero(dom, box, data) {
-    var card = box && !dom.isCollapsing(box) && box.querySelector('.dl-hero');
-    if (!card) return null;
-    var title = card.querySelector('.dl-hero-title');
-    return dom.held(card.getAttribute('data-dl-id'), title ? title.textContent : '', data) ? card : null;
+  /* True of every row under it: those that do not download yet are what is up next. */
+  function queueHeading(queue) {
+    return queue.every(function (item) { return item.state === 'queued'; }) ? 'Up next' : 'Also in progress';
   }
 
   /* The order the server sorts states in. */
@@ -70,8 +68,11 @@
     var rows = Array.prototype.slice.call(list.querySelectorAll('.dl-compact'));
     var ranks = rows.map(stateRank);
     var order = rows.map(function (_, i) { return i; }).sort(function (a, b) { return ranks[a] - ranks[b] || a - b; });
+    if (!order.some(function (at, i) { return at !== i; })) return;
     var next = list.firstElementChild;
     var active = document.activeElement;
+    /* A row put back in the list would play its entrance again, over the slide. */
+    rows.forEach(function (row) { row.classList.remove('dl-card-enter'); });
     order.forEach(function (i) {
       if (rows[i] === next) next = next.nextElementSibling;
       else list.insertBefore(rows[i], next);
@@ -80,23 +81,59 @@
     if (active && document.activeElement !== active && list.contains(active)) active.focus({ preventScroll: true });
   }
 
+  /* Where each row of a list is seen, read before a poll changes any, as long as motion is
+     wanted. */
+  function placesOf(list) {
+    if (!list || buildDom().reducedMotion()) return [];
+    var top = list.getBoundingClientRect().top;
+    return Array.prototype.map.call(list.children, function (row) {
+      return { row: row, at: row.getBoundingClientRect().top - top };
+    });
+  }
+
+  /* Rows now elsewhere in their list than they were seen, whether they moved or one above
+     them changed height, start from there and ease to their places. */
+  function slideRows(list, places) {
+    if (!places.length) return;
+    var dom = buildDom();
+    var top = list.getBoundingClientRect().top;
+    places.forEach(function (place) {
+      if (place.row.parentNode === list && !dom.isCollapsing(place.row)) slideFrom(place.row, place.at + top);
+    });
+  }
+
+  function slideFrom(row, top) {
+    var run = row._dlSlide = {};
+    /* Its place, without what is left of a slide still running. */
+    row.classList.remove('is-sliding');
+    row.style.transform = '';
+    var by = top - row.getBoundingClientRect().top;
+    if (!(Math.abs(by) >= 1)) return;
+    row.style.transform = 'translateY(' + by + 'px)';
+    void row.offsetHeight;
+    row.classList.add('is-sliding');
+    row.style.transform = '';
+    setTimeout(function () { if (row._dlSlide === run) row.classList.remove('is-sliding'); }, 400);
+  }
+
   function shownIn(dom, box, selector) {
     if (!box || dom.isCollapsing(box)) return [];
     return Array.prototype.filter.call(box.querySelectorAll(selector), function (row) { return !dom.isCollapsing(row); });
   }
 
-  /* The server's line counts what it lists, so while rows are held the same
-     line (_downloads_subtitle in download_queue) is built from what is shown. */
+  /* The server's line counts what it lists. While a viewer is told only that downloads are
+     not available, the rows beside it are those that may be missing; with none, the card
+     says it, and the line is left to what is coming. */
   function subtitleFor(dom, data) {
+    var viewer = !dom.canAbandonHere();
+    if (!data.outage || !viewer) return data.subtitle;
     var active = shownIn(dom, document.getElementById('dl-hero-container'), '.dl-hero')
       .concat(shownIn(dom, document.getElementById('dl-queue-container'), '.dl-compact'));
     var coming = shownIn(dom, document.getElementById('dl-upcoming-container'), '.dl-upcoming-row');
-    var anyHeld = active.concat(coming).some(function (row) { return row.classList.contains('is-held'); });
-    if (!anyHeld || !data.outage) return data.subtitle;
-    var soon = coming.length ? ' · ' + coming.length + ' coming soon' : '';
-    if (!active.length) return data.outage + soon;
-    return active.length + ' item' + (active.length !== 1 ? 's' : '') + ' in progress' + soon +
-      ' · ' + data.outage.charAt(0).toLowerCase() + data.outage.slice(1);
+    var soon = coming.length ? coming.length + ' coming soon' : '';
+    if (!active.length) return soon;
+    return active.length + ' item' + (active.length !== 1 ? 's' : '') + ' in progress' +
+      (soon ? ' · ' + soon : '') + ' · some may be missing';
   }
 
   function updateSubtitle(dom, header, text) {
@@ -123,13 +160,8 @@
     var emptyContainer = document.getElementById('dl-empty-container');
     var recentContainer = document.getElementById('dl-recent-container');
     var header = root.querySelector('.ph');
-    var held = false;  // something stays shown because its service does not answer
-
-    /* A hero whose service went down keeps its place above one further from done. */
-    var kept = heldHero(dom, heroContainer, data);
-    if (kept && data.hero && stateRank(kept) < rankOf(data.hero.state)) {
-      data = Object.assign({}, data, { hero: null, queue: [data.hero].concat(data.queue || []) });
-    }
+    var queuePlaces = placesOf(document.getElementById('dl-queue-list'));
+    var upcomingPlaces = placesOf(document.getElementById('dl-upcoming-list'));
 
     /* Hero — the card is rebuilt when the container was emptied by an
        earlier poll that had no hero. */
@@ -147,11 +179,7 @@
         if (dom.isCollapsing(heroContainer)) dom.reveal(heroContainer);
         renderHero().updateHero(heroContainer, data.hero);
       }
-    } else if (kept) {
-      held = true;
-      dom.markHeld(kept);
     } else {
-      lastHero = null;
       closeSection(dom, heroContainer);
     }
 
@@ -159,11 +187,6 @@
     var present = {};
     if (data.hero) present[data.hero.id] = false;
     var queue = data.queue || [];
-    /* A hero whose service went down gives way to another item and becomes a row. */
-    var demoted = data.hero && lastHero && lastHero.id !== data.hero.id &&
-        dom.held(lastHero.id, lastHero.title, data) ? lastHero : null;
-    if (demoted) queue = queue.concat(demoted);
-    if (data.hero) lastHero = data.hero;
     if (queue.length > 0) {
       if (!queueContainer) {
         queueContainer = document.createElement('div');
@@ -178,13 +201,14 @@
       if (!list) {
         var qHeader = document.createElement('h2');
         qHeader.className = 'dl-compact-header';
-        qHeader.textContent = 'Also downloading';
+        qHeader.textContent = queueHeading(queue);
         queueContainer.appendChild(qHeader);
         list = document.createElement('div');
         list.className = 'dl-compact-list';
         list.id = 'dl-queue-list';
         queueContainer.appendChild(list);
       }
+      dom.setText(queueContainer.querySelector('.dl-compact-header'), queueHeading(queue));
       var added = [];
       for (var i = 0; i < queue.length; i++) {
         var item = queue[i];
@@ -194,19 +218,15 @@
           if (dom.isCollapsing(row)) dom.reveal(row);
           renderRow().updateCompactRow(row, item);
         } else {
-          row = dom.buildCompactRow(item);
-          list.insertBefore(row, item === demoted ? list.firstElementChild : null);
-          added.push(row);
+          added.push(dom.placeInOrder(list, dom.buildCompactRow(item), queue, i));
         }
-        if (item === demoted) dom.markHeld(row);
       }
       orderRows(list);
+      /* A new row opens from nothing before the rows below it are measured. */
       if (!opening) added.forEach(dom.reveal);
-      dom.dropAbsent(list.querySelectorAll('.dl-compact'), present, data);
+      slideRows(list, queuePlaces);
+      dom.dropAbsent(list.querySelectorAll('.dl-compact'), present);
       if (opening) dom.reveal(queueContainer);
-    } else if (queueContainer && !dom.isCollapsing(queueContainer) &&
-        dom.dropAbsent(queueContainer.querySelectorAll('.dl-compact'), present, data)) {
-      held = true;
     } else {
       closeSection(dom, queueContainer);
     }
@@ -215,11 +235,11 @@
        position (above "Coming soon"); fill it when nothing is downloading,
        with the outage card if a service did not answer, clear it otherwise. */
     if (emptyContainer) {
-      var nothingActive = !data.hero && queue.length === 0 && !held;
+      var nothingActive = !data.hero && queue.length === 0;
       var shown = emptyContainer.firstElementChild;
       if (nothingActive) {
-        var wanted = dom.buildEmptyState(data.outage);
-        if (shown && dom.q('h3', shown).textContent !== dom.q('h3', wanted).textContent) {
+        var wanted = dom.buildEmptyState(data.outage, data.downloads_set_up, data.refused);
+        if (shown && shown.textContent !== wanted.textContent) {
           clear(emptyContainer);
           emptyContainer.appendChild(wanted);
         } else if (!shown) {
@@ -234,6 +254,8 @@
 
     /* Upcoming */
     renderRecent().updateUpcomingList(root, data);
+    var upcomingList = document.getElementById('dl-upcoming-list');
+    if (upcomingList) slideRows(upcomingList, upcomingPlaces);
 
     /* Recent */
     if (data.recent) renderRecent().updateRecent(recentContainer, data.recent);
@@ -247,15 +269,14 @@
     update(data);
   }
 
-  /* mediaman itself does not answer: all that is shown is held as what was last
-     known, as it is for a service that does not. */
+  /* mediaman itself does not answer: what is shown stays as it was, and the line says so. */
   function lost() {
     if (MM.downloading) MM.downloading.lose();
-    var line = 'Can\'t reach mediaman';
-    update({
-      hero: null, queue: [], upcoming: [], subtitle: line,
-      unreachable: ['Radarr', 'Sonarr', 'NZBGet'], outage: line,
-    });
+    var header = root.querySelector('.ph');
+    if (!header) return;
+    var shown = header.querySelector('p');
+    var base = shown ? shown.textContent.replace(CUT_OFF, '') : '';
+    updateSubtitle(buildDom(), header, base ? base + CUT_OFF : 'Can\'t reach mediaman');
   }
 
   document.addEventListener('click', function (e) {

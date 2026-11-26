@@ -24,6 +24,7 @@
   var SETTINGS_HREF = '/settings#setg-general';
   var SHARED_HREF = '/settings#setg-integrations';
   var NO_KEY = 'New ones need an OpenAI key, set in Settings.';
+  var OFF = 'AI isn’t available right now.';
   var REC_TITLE = 'Recommended for you';
   var DISCOVER_ROWS = [
     ['trending', 'Trending this week'],
@@ -390,6 +391,7 @@
   var timer = null; // of the Refresh that counts down
   var ownBusy = false;
   var ownFailed = false; // the last refresh of the person's own picks made none
+  var ownOff = false; // and the AI is not available
   var ownFresh = false; // the one just followed made new ones
   var making = null; // the words shown while they are made
   var ownRefs = ''; // the person's own picks in the latest batch
@@ -778,7 +780,8 @@
     if (mine.reason === 'daily_limit' && state === 'cooldown') return 'That’s all the refreshes for now.';
     if (mine.reason === 'not_enough_plays') return ((payload.items || []).length && !ownOf(payload) ? 'For everyone. ' : '') + 'Play five titles and these become yours.';
     if (mine.reason === 'not_configured' && isAdmin) return NO_KEY;
-    if (ownFailed) return 'Couldn’t make new ones.' + (state === 'ready' ? ' Try again.' : '');
+    if (mine.reason === 'unavailable') return OFF;
+    if (ownFailed) return ownOff ? OFF : 'Couldn’t make new ones.' + (state === 'ready' ? ' Try again.' : '');
     var items = payload.items || [];
     if (ownOf(payload)) {
       return items.every(function (i) { return i.own; }) ? 'From your plays.' : 'From your plays, then new and popular.';
@@ -897,6 +900,7 @@
         ownFresh = fresh;
         ownBusy = false;
         ownFailed = !fresh && !payload.my_refresh.running && (st.status === 'failed' || (mine && st.status !== 'done'));
+        ownOff = ownFailed && st.error === 'unavailable';
         if (changed) {
           updateRec(payload);
         } else {
@@ -904,6 +908,7 @@
           drawOwn();
         }
         if (fresh) core.toast('Your new picks are in.', { variant: 'success' });
+        else if (ownOff) core.toast(OFF, { variant: 'error' });
         else if (ownFailed) core.toast('Couldn’t make new picks for you.' + (payload.my_refresh.available ? ' Try again.' : ''), { variant: 'error' });
       }).catch(function (err) {
         if (!loggedOut(err)) ownError('Your picks may have changed, but they didn’t load. Reload the page to see them.');

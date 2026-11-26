@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 
 import requests
 from requests.exceptions import RequestException
 from urllib3.exceptions import NewConnectionError
 
 from mediaman.core.email_validation import validate_email_address as _validate_recipient
-from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra import SafeHTTPClient, SafeHTTPError, get_string_setting
 from mediaman.services.mail.plaintext import html_to_text
 
 logger = logging.getLogger(__name__)
@@ -173,3 +174,16 @@ class MailgunClient:
             return True
         except (SafeHTTPError, RequestException):
             return False
+
+
+def load_mailgun_client(conn: sqlite3.Connection, secret_key: str) -> MailgunClient | None:
+    """Build the client from the stored settings, or None when Mailgun is not set up.
+
+    An empty from-address counts as not set up, as most MTAs reject an empty From header.
+    """
+    domain = get_string_setting(conn, "mailgun_domain", secret_key=secret_key)
+    api_key = get_string_setting(conn, "mailgun_api_key", secret_key=secret_key)
+    from_address = get_string_setting(conn, "mailgun_from_address", secret_key=secret_key)
+    if not domain or not api_key or not from_address:
+        return None
+    return MailgunClient(domain, api_key, from_address)

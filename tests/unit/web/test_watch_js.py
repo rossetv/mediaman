@@ -169,7 +169,7 @@ def test_a_change_of_a_whole_show_takes_away_the_toast_of_every_season_of_it() -
 def test_only_the_last_keep_or_undo_of_a_title_has_a_toast() -> None:
     assert _run("oneToast") == [
         ["Kept Leaving Film for 7 days."],
-        ["Keep undone for Leaving Film"],
+        ["Keep undone for Leaving Film."],
         ["Kept Leaving Film for 7 days."],
         ["Kept Leaving Film for 7 days.", "Kept Northbound for 7 days."],
         # a change of it made elsewhere starts

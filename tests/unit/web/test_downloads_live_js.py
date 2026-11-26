@@ -108,24 +108,28 @@ def test_a_queued_shows_episodes_follow_each_poll_and_an_open_list_stays_open() 
     assert out["first"] == {
         "rows": ["S01E01|Title S01E01||20%"],
         "toggle": "1 episode",
-        "count": "1 episode",
+        "inline": 0,
+        "inside": 2,
         "open": True,
     }
     assert out["more"] == {
         "rows": ["S01E01|Title S01E01||Ready", "S01E02|Named late||Queued"],
         "toggle": "2 episodes",
-        "count": "2 episodes",
+        "inline": 0,
+        "inside": 2,
         "open": True,
     }
     assert out["pack"]["rows"] == ["S01E01|Title S01E01|In pack", "S01E02|Title S01E02|In pack"]
     assert out["pack"]["toggle"] == "2 episodes · pack download"
-    assert out["none"] == {"rows": [], "toggle": None, "count": "", "open": False}
+    assert out["none"] == {"rows": [], "toggle": None, "inline": 0, "inside": 0, "open": False}
 
 
 def test_a_row_drawn_without_episodes_gains_them() -> None:
     out = _run("rowEpisodes", hero=_item("h"), queue=[_item("q", media_type="series")])
     assert out["more"]["rows"] == ["S01E01|Title S01E01||Ready", "S01E02|Named late||Queued"]
-    assert out["more"]["count"] == "2 episodes"
+    assert out["more"]["toggle"] == "2 episodes" and out["more"]["inline"] == 0
+    # in the row's card, under its text, as the server draws them
+    assert out["more"]["inside"] == 2
 
 
 def test_an_episodes_button_added_by_a_poll_says_whether_it_is_open() -> None:
@@ -140,7 +144,7 @@ def test_every_bar_says_whose_progress_it_is_and_every_section_has_a_heading() -
     assert out["first"]["bars"] == [["Th2", "20"], ["S01E01", "10"], ["Tq", "2"]]
     assert out["rebuilt"] == [["Th3", "30"], ["S01E01", "15"], ["Tq", "3"]]
     assert out["brought"] == [["S01E01", "7"], ["S01E02", "7"]]
-    headings = ["Th2", "Also downloading", "Coming soon", "Recently added"]
+    headings = ["Th2", "Also in progress", "Coming soon", "Recently added"]
     assert out["first"]["headings"] == ["H1 Downloads", *(f"H2 {h}" for h in headings)]
 
 
@@ -205,10 +209,12 @@ def test_a_link_to_radarr_keeps_the_focus_while_its_line_changes() -> None:
 
 
 def test_a_page_that_hears_nothing_says_so_and_goes_on_asking() -> None:
-    out = _run("lost", hero=_item("h"), recent=[_item("r")], subtitle="1 item in progress")
-    # subtitle, dimmed cards, recently added titles
-    live = ["1 item in progress", 0, 1]
-    cut_off = ["1 item in progress · can't reach mediaman", 1, 1]
+    out = _run(
+        "lost", hero=_item("h", eta="5 min"), recent=[_item("r")], subtitle="1 item in progress"
+    )
+    # subtitle, the top card and its time left, recently added titles: what is shown stays
+    live = ["1 item in progress", 1, 1, "5 min"]
+    cut_off = ["1 item in progress · can't reach mediaman", 1, 1, "5 min"]
     assert out["once"] == live, "one failed poll is no news"
     assert out["twice"] == cut_off
     assert out["back"] == live
@@ -216,7 +222,7 @@ def test_a_page_that_hears_nothing_says_so_and_goes_on_asking() -> None:
     assert out["retried"], "a poll that hangs is given up and another sent"
     assert out["backAgain"] == live
     # a poll the hidden tab was waiting for does not hold up the next
-    assert out["shownAgain"] == [7, 0]
+    assert out["shownAgain"] == [7, 1]
 
 
 def test_after_an_abandon_the_page_says_so_and_the_focus_is_on_something() -> None:
@@ -264,15 +270,16 @@ def test_the_hero_cannot_be_scrolled_inside_itself() -> None:
     assert re.findall(r"overflow: (\w+)", _rule(".dl-hero"))[-1] == "clip"
 
 
-def test_a_rows_episodes_button_is_nearer_its_own_row_than_the_next() -> None:
-    gap = int(re.findall(r"gap: (\d+)px", _rule(".dl-compact-list"))[0])
-    own = int(re.findall(r"margin-top: (\d+)px", _rule(".dl-compact-episodes-toggle"))[-1])
-    # The next row's own space, so that it folds away with that row; `:where` lets it.
-    after = ":where(.dl-compact:has(> .dl-compact-episodes-toggle):not(.is-folded)) + .dl-compact"
-    below = int(re.findall(r"margin-top: (\d+)px", _rule(after))[0])
-    assert own == 8 and below + gap == 16
+def test_a_rows_episodes_button_and_list_are_inside_its_card_under_its_text() -> None:
+    text = (WEB / "templates/_dl_compact_row.html").read_text(encoding="utf-8")
+    card = text.split('class="dl-compact-row', 1)[1].rsplit("</div>", 1)[0]
+    assert 'data-v="ep-toggle"' in card and 'data-v="ep-list"' in card
+    for part in (
+        ".dl-compact-row > .dl-compact-episodes-toggle",
+        ".dl-compact-row > .dl-compact-episodes",
+    ):
+        assert "grid-column: 2 / -1" in _rule(part)
     assert "margin-top: 0" in _rule(".dl-fold.is-folded")
-    assert "margin-bottom" not in _rule(after)
 
 
 def test_the_state_of_a_download_is_not_in_the_accent_itself_on_its_own_tint() -> None:
@@ -292,7 +299,7 @@ def _in_media(condition: str, selector: str) -> str:
 
 def test_a_finger_reaches_every_control_at_any_width() -> None:
     coarse = "(pointer: coarse)"
-    assert "inset: -15px -6px" in _in_media(coarse, ".dl-arr-link::after")
+    assert "min-height: 44px" in _in_media(coarse, ".dl-arr-link")
     # In two pieces each would be reached over its own line alone.
     assert "display: inline-block" in _rule(".dl-arr-link")
     assert "white-space: nowrap" in _rule(".dl-arr-link")
@@ -304,7 +311,7 @@ def test_a_finger_reaches_every_control_at_any_width() -> None:
 
 def test_a_link_on_a_line_of_its_own_has_no_dot_before_it() -> None:
     phone = "(max-width: 479.98px)"
-    assert "display: block" in _in_media(phone, ".dl-arr-link")
+    assert "display: flex" in _in_media(phone, ".dl-arr-link")
     assert "display: none" in _in_media(phone, ".dl-hint-sep")
     out = _run("hintFocus", hero=_item("h", **_STUCK), queue=[_item("q", **_STUCK)])
     assert out["dots"] == 2, "in the row the server drew and the one a poll built"
@@ -328,7 +335,7 @@ def test_a_new_hero_shows_through_the_one_before_it() -> None:
     assert out["first"] == [{"says": "Th", "inert": True, "hidden": "true", "hooks": 0}]
     assert out["second"] == ["Tb"], "one at a time"
     assert out["after"] == 0 and out["hero"] == "Tc"
-    assert "animation: dl-hero-out var(--dur-slow)" in _rule(".dl-hero-ghost")
+    assert "animation: dl-hero-out var(--dur-fast)" in _rule(".dl-hero-ghost")
 
 
 def test_a_poll_while_the_old_hero_fades_draws_the_new_one_in_full() -> None:
@@ -483,7 +490,7 @@ def test_on_a_phone_a_hero_that_changes_height_keeps_its_top_where_it_is() -> No
     assert room == card - 2 * padding
     assert "flex: none" in _in_media(phone, ".dl-hero-info")
     # the old card's ground goes on under it while the card grows
-    assert "min-height: 100%" in _rule(".dl-hero-ghost__card")
+    assert "inset: 0;" in _rule(".dl-hero-ghost__card")
 
 
 def test_the_ring_is_told_by_the_page_s_own_polls_and_of_those_that_fail() -> None:

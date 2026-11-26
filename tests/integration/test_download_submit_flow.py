@@ -145,7 +145,7 @@ class TestDownloadSubmitAlreadyExists:
         assert resp.status_code == 409
         body = resp.json()
         assert body["ok"] is False
-        assert "already exists" in body["error"]
+        assert "has already been added" in body["error"]
         assert "poll_token" in body
 
         # Nothing written to audit_log or notifications on a conflict.

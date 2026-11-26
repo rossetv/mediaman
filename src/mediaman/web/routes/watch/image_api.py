@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -59,12 +60,15 @@ def _fetch_tmdb_image(size: str, name: str) -> tuple[bytes, str]:
     return response.content, mime
 
 
-@router.get("/api/watch/img/tmdb/{size}/{name}")
-async def api_watch_tmdb_image(
-    size: str, name: str, username: str = Depends(get_current_user)
-) -> Response:
-    if size not in _SIZES or not _NAME_RE.fullmatch(name):
-        return Response(status_code=404)
+def is_tmdb_image(size: str, name: str) -> bool:
+    """Whether *size* and *name* are a known size and a plain TMDB file name."""
+    return size in _SIZES and _NAME_RE.fullmatch(name) is not None
+
+
+async def tmdb_image_response(size: str, name: str, may_fetch: Callable[[], bool]) -> Response:
+    """Answer one TMDB image from the disk cache, fetching it from TMDB on a miss only when
+    *may_fetch* says so; *size* and *name* are already checked.
+    """
 
     def fetch() -> disk_cache.Image:
         content, mime = _fetch_tmdb_image(size, name)
@@ -79,7 +83,7 @@ async def api_watch_tmdb_image(
         try:
             content, info = await run_in_threadpool(load, False)
         except disk_cache.Refused:
-            if not _IMG_LIMITER.check(username):
+            if not may_fetch():
                 raise
             fetched = asyncio.wrap_future(_FETCHES.submit(load, True))
             content, info = await asyncio.wait_for(fetched, _FETCH_WAIT_S)
@@ -102,6 +106,15 @@ async def api_watch_tmdb_image(
         media_type=mime if mime in ALLOWED_IMAGE_MIMES else "image/jpeg",
         headers={"Cache-Control": _CACHE_CONTROL},
     )
+
+
+@router.get("/api/watch/img/tmdb/{size}/{name}")
+async def api_watch_tmdb_image(
+    size: str, name: str, username: str = Depends(get_current_user)
+) -> Response:
+    if not is_tmdb_image(size, name):
+        return Response(status_code=404)
+    return await tmdb_image_response(size, name, lambda: _IMG_LIMITER.check(username))
 
 
 __all__ = ["router"]

@@ -12,14 +12,14 @@ from mediaman.services.arr.seasons import ShowSeasons, is_refused_start, is_stil
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository.season_requests import ShowIds, library_seasons, season_refusals
 
-#: A library show's page is quick without Sonarr, so it waits no longer than this for it, from
-#: before it asks Plex.
-SONARR_WAIT_S = 1.0
+#: A title's page is quick without Radarr and Sonarr, so it waits no longer than this for them,
+#: from before it asks Plex or TMDB.
+ARR_WAIT_S = 1.0
 
 
 def begin_arr_view(conn: sqlite3.Connection, secret_key: str) -> Callable[[], catalog.ArrView]:
-    """Begin the Sonarr view, and give what collects it."""
-    due = time.monotonic() + SONARR_WAIT_S
+    """Begin the Radarr and Sonarr view, and give what collects it."""
+    due = time.monotonic() + ARR_WAIT_S
     catalog.arr_view(conn, secret_key, wait_s=0)
     return lambda: catalog.arr_view(conn, secret_key, wait_s=max(0.0, due - time.monotonic()))
 

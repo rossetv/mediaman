@@ -64,6 +64,9 @@ def media_base(conn: sqlite3.Connection) -> str:
             "The address TVs use starts with http. Turn on Plain http for older TVs in Settings.",
         )
     host = urlsplit(base).hostname or ""
+    # The host check sees an IPv6 address in its brackets, as the TV sends it.
+    if ":" in host:
+        host = f"[{host}]"
     if not _is_let_in(host):
         raise Refusal(
             "host_not_allowed",
@@ -157,7 +160,7 @@ def same_tv(tv: repo.OlderTv, found: Renderer) -> Renderer:
     if tv.udn and found.udn != tv.udn:
         raise AnotherTv(
             "Another device answers at this address now. If the TV’s address changed, "
-            "forget it here and add it again."
+            "unpair it here and add it again."
         )
     return found
 

@@ -10,6 +10,7 @@ import pytest
 
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.download_format import format_eta
+from mediaman.services.downloads.download_queue import VIEWER_OUTAGE
 from mediaman.services.downloads.strip import Answer, Shared, Strip, StripItem, collect, payload
 
 _NOW = datetime(2026, 5, 4, 12, 0, tzinfo=UTC)
@@ -156,10 +157,9 @@ def test_what_is_left_of_a_name_cut_short_is_not_told_as_a_title(release, title,
     assert item.title == told
 
 
-def test_such_a_release_keeps_its_card_while_nzbget_is_away_and_when_it_is_done():
+def test_such_a_release_is_not_held_while_nzbget_is_away_and_keeps_its_card_when_done():
     before = collect(_data(_raw(_RELEASE, title=_RELEASE)), (), _NOW)
-    [held] = collect(_data(unreachable=["NZBGet"]), before, _NOW)
-    assert (held.key, held.held) == (before[0].key, True)
+    assert collect(_data(unreachable=["NZBGet"]), before, _NOW) == []
     [ready] = collect(_data(recent=[_done(_RELEASE, 1, title=_RELEASE)]), before, _NOW)
     assert (ready.key, ready.state, ready.title) == (before[0].key, "ready", strip.UNNAMED)
 
@@ -205,11 +205,10 @@ def test_what_waits_comes_after_what_comes_in():
     assert [i.state for i in items] == ["downloading", "queued", "searching"]
 
 
-def test_what_a_service_held_stays_while_it_does_not_answer_and_goes_once_it_does():
+def test_what_a_service_that_does_not_answer_had_is_not_held_as_the_page_lists_it_not():
     before = collect(_data(_raw("radarr:A"), _raw("sonarr:B", media_type="series")), (), _NOW)
     down = collect(_data(_raw("sonarr:B"), unreachable=["Radarr"]), before, _NOW)
-    assert [(i.key, i.held) for i in down] == [("radarr:A", True), ("sonarr:B", False)]
-    assert [i.key for i in collect(_data(_raw("sonarr:B")), down, _NOW)] == ["sonarr:B"]
+    assert [(i.key, i.held) for i in down] == [("sonarr:B", False)]
 
 
 def test_with_nzbget_away_a_download_is_not_shown_as_looked_for():
@@ -383,3 +382,12 @@ def test_what_is_offered_while_one_is_being_made_is_left_and_nobody_waits():
         return Strip()
 
     shared.offer(make, shared.now())
+
+
+def test_a_payload_asked_for_without_saying_who_names_no_service():
+    told = strip.Strip(outage="Can't sign in to Radarr")
+
+    said = strip.payload(strip.Answer(told, 0.0))
+
+    assert said["outage"] == VIEWER_OUTAGE
+    assert strip.payload(strip.Answer(told, 0.0), admin=True)["outage"] == told.outage

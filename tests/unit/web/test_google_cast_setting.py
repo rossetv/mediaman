@@ -73,8 +73,11 @@ def test_an_admin_is_told_which_addresses_older_tvs_take(app, authed_client, con
     hint = html.split('id="tv-address-hint"', 1)[1].split("</span>", 1)[0]
     needs = html.split("<b>An older TV:</b>", 1)[1].split("</li>", 1)[0]
     for said in (hint, needs):
-        assert "a home address with http" in said
-        assert "a name with https" in said
+        assert "home address or its name" in said
+        assert "http://nas.local:8282" in said
+        assert "A name or address on the internet needs https://" in said
+        assert "any address" not in said
+    assert "An IPv6 address goes in square brackets there, such as [fd00::10]." in needs
 
 
 def _scripts(path: str, conn, stored: str) -> str:

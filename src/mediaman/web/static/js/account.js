@@ -551,8 +551,8 @@
       return seen + '. Paired' + by + ' ' + dayOf(tv.paired_at) + '.';
     }
 
-    function action(words, tv, run) {
-      var button = el('button', 'btn btn--ghost btn--sm', words);
+    function action(words, kind, tv, run) {
+      var button = el('button', 'btn btn--' + kind + ' btn--sm', words);
       button.type = 'button';
       button.setAttribute('aria-label', words + ': ' + tv.name);
       button.addEventListener('click', function () { if (!isBusy(button)) run(button); });
@@ -570,9 +570,9 @@
       text.appendChild(el('div', 'me-sub', stateOf(tv)));
       row.appendChild(text);
       var acts = el('div', 'dev-acts');
-      var rename = action('Rename', tv, function () { edit(tv); });
+      var rename = action('Rename', 'ghost', tv, function () { edit(tv); });
       acts.appendChild(rename);
-      acts.appendChild(action('Unpair', tv, function (button) { unpair(tv, button); }));
+      acts.appendChild(action('Unpair', 'danger', tv, function (button) { unpair(tv, button); }));
       row.appendChild(acts);
       return rename;
     }
@@ -591,7 +591,7 @@
       save.type = 'submit';
       var cancel = el('button', 'btn btn--ghost btn--sm', 'Cancel');
       cancel.type = 'button';
-      [input, save, cancel].forEach(function (node) { form.appendChild(node); });
+      [input, cancel, save].forEach(function (node) { form.appendChild(node); });
       row.appendChild(form);
       function shut() {
         if (isBusy(save)) return;

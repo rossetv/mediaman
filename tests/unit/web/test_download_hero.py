@@ -7,11 +7,19 @@ from pathlib import Path
 
 import jinja2
 
+from mediaman.crypto import sign_tmdb_image_url
+
 WEB = Path(__file__).resolve().parents[3] / "src/mediaman/web"
 _ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(WEB / "templates"), autoescape=True)
 
-POSTER = "https://image.tmdb.org/t/p/w300/p.jpg"
-BACKDROP = "https://image.tmdb.org/t/p/w1280/b.jpg"
+# Signed as the page's route signs them.
+_EXPIRES_AT = 1_900_000_000
+POSTER = sign_tmdb_image_url(
+    "https://image.tmdb.org/t/p/w300/p.jpg", "w500", "k" * 64, expires_at=_EXPIRES_AT
+)
+BACKDROP = sign_tmdb_image_url(
+    "https://image.tmdb.org/t/p/w1280/b.jpg", "w1280", "k" * 64, expires_at=_EXPIRES_AT
+)
 
 
 def _css(name: str) -> str:

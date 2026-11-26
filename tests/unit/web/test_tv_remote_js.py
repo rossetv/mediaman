@@ -586,3 +586,12 @@ def test_the_remote_opens_on_a_tv_given_whole_or_by_id() -> None:
 def test_both_are_hidden_until_something_plays(node_id: str) -> None:
     tag = _template().split(f'id="{node_id}"')[1].split(">")[0]
     assert tag.endswith(" hidden")
+
+
+def test_cancel_comes_before_taking_a_tv_from_someone() -> None:
+    got = _run("takeOrder")
+    assert (got["busy"], got["pair"]) == (["unsay", "take"], ["unsay", "take"])
+
+
+def test_a_pairing_that_would_take_a_tv_from_someone_starts_on_cancel() -> None:
+    assert _run("takeOrder")["focus"] == "unsay"

@@ -191,6 +191,7 @@
       else li.removeAttribute('aria-current');
     });
     steps.classList.toggle('is-all', data.state === 'ready');
+    MM.dom.setText(steps.children[1].querySelector('span'), data.state === 'queued' ? 'Queued' : 'Searching');
     MM.dom.setText(steps.children[2].querySelector('span'), data.state === 'almost_ready' ? 'Almost ready' : 'Downloading');
 
     var done = data.progress || 0;
@@ -205,7 +206,7 @@
     drawEpisodes(data);
 
     colour(running ? 0.25 + 0.0065 * done : data.state === 'ready' ? 1 : data.state === 'almost_ready' ? 0.92 : 0.25);
-    say({ 1: 'Searching', 2: data.state === 'almost_ready' ? 'Almost ready' : 'Downloading', 4: 'Ready to watch' }[at]);
+    say({ 1: data.state === 'queued' ? 'Queued' : 'Searching', 2: data.state === 'almost_ready' ? 'Almost ready' : 'Downloading', 4: 'Ready to watch' }[at]);
   }
 
   /* The words stand at the hero's foot: while the list is open they keep their place, and the

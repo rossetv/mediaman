@@ -140,14 +140,13 @@ def _record_and_respond(
         tmdb_id=tmdb_id if tmdb_id is not None else 0,
         secret_key=secret_key,
     )
-    service_label = "Radarr" if service == "radarr" else "Sonarr"
     what = f"'{title}'"
     if season_number is not None:
         what = f"{season_name(season_number).lower()} of '{title}'"
     return JSONResponse(
         {
             "ok": True,
-            "message": f"Added {what} to {service_label} — download starting shortly",
+            "message": f"Added {what} — download starting shortly",
             "service": service,
             "tmdb_id": tmdb_id,
             "poll_token": poll_token,
@@ -298,7 +297,7 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
     client = build_radarr_from_db(conn, secret_key)
     if not client:
         _unmark_token_used(token)
-        return respond_failure("Radarr not configured", status=503)
+        return respond_failure("Downloads aren't set up", status=503)
 
     try:
         outcome = add_or_remonitor_movie(client, tmdb_id, title, keep_filed=True)
@@ -405,7 +404,7 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
         _unmark_token_used(token)
-        return respond_failure("Sonarr not configured", status=503)
+        return respond_failure("Downloads aren't set up", status=503)
 
     season = payload["season"]
     season_number = season.season_number if season else None
@@ -414,7 +413,7 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
         if not results:
             _unmark_token_used(token)
-            return respond_failure("Series not found in Sonarr lookup", status=404)
+            return respond_failure("The download service doesn't know this show", status=404)
         tvdb_id = results[0].get("tvdbId")
         if not tvdb_id:
             _unmark_token_used(token)
@@ -595,7 +594,6 @@ def _handle_already_exists_error(
         if is_redownload:
             _unmark_token_used(token)
         service_name = "radarr" if media_type == "movie" else "sonarr"
-        svc_label = "Radarr" if media_type == "movie" else "Sonarr"
         poll_token = None
         if tmdb_id:
             poll_token = generate_poll_token(
@@ -612,10 +610,10 @@ def _handle_already_exists_error(
         if isinstance(exc, _AlreadyThere) and exc.state:
             extra["download_state"] = exc.state
             extra["notify_by_email"] = exc.mail_to_come
-        said = f"'{title}' already exists"
+        said = f"'{title}' has already been added"
         if season_number is not None:
             said = already_there(season_number, title)
-        return respond_failure(f"{said} in your {svc_label} library", status=409, **extra)
+        return respond_failure(said, status=409, **extra)
     # Phase 2 (failure): release the reservation so the user can
     # retry once the upstream recovers.
     _unmark_token_used(token)
@@ -624,7 +622,7 @@ def _handle_already_exists_error(
     # captures the user-facing failure separately, so operators
     # who need the stack can dial up the log level.
     logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
-    return respond_failure("Download request failed — check service connectivity", status=502)
+    return respond_failure("The download service didn't take it", status=502)
 
 
 @router.post("/download/{token}")
@@ -692,7 +690,7 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         # caught here, which is the intended control-flow behaviour.
         _unmark_token_used(token)
         logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
-        return respond_failure("Download request failed — check service connectivity", status=502)
+        return respond_failure("The download service didn't take it", status=502)
     finally:
         # A failed request may have added the title too.
         drop_arr_cache()

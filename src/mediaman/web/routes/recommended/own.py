@@ -14,7 +14,7 @@ from mediaman.core.time import now_utc
 from mediaman.db import get_db, open_thread_connection
 from mediaman.services.arr.build import build_plex_from_db
 from mediaman.services.infra import ConfigDecryptError, SSRFRefused, get_bool_setting
-from mediaman.services.openai.client import get_openai_key
+from mediaman.services.openai.client import OpenAIUnavailable, get_openai_key, key_refused
 from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations.personal import has_enough_plays, make_picks
 from mediaman.services.openai.recommendations.user_picks import RefreshState
@@ -35,6 +35,8 @@ def _state(conn: sqlite3.Connection, username: str, secret_key: str) -> RefreshS
         get_openai_key(conn, secret_key)
     except ValueError:
         return RefreshState("not_configured")
+    if key_refused(conn, secret_key):
+        return RefreshState("unavailable")
     state = user_picks.refresh_state(conn, username, now_utc())
     if state.reason is None and not has_enough_plays(conn, username):
         return RefreshState("not_enough_plays")
@@ -72,6 +74,8 @@ def _run(db_path: str, secret_key: str, username: str, run_id: int) -> None:
         except (SSRFRefused, ConfigDecryptError, requests.RequestException, ValueError):
             logger.warning("Own picks: Plex is unavailable, its stars are left out", exc_info=True)
         make_picks(conn, username, plex, run_id, secret_key=secret_key)
+    except OpenAIUnavailable:
+        pass  # the client has said why in one line, and the run says it too
     except Exception:  # rationale: background job runner; a failed run is recorded by make_picks
         logger.exception("Making a person's own picks failed")
     finally:
@@ -105,8 +109,11 @@ def api_refresh_own_picks(
 def api_own_picks_status(
     request: Request, username: str = Depends(get_current_user)
 ) -> JSONResponse:
-    """How the person's refresh goes: running, done or failed (the last they started), or idle."""
+    """How the person's refresh goes: running, done or failed (the last they started), or idle.
+    A failed one says "unavailable" when OpenAI refused the key."""
     conn = get_db()
     mine = my_refresh(conn, username, request.app.state.config.secret_key)
     status = "running" if mine["running"] else user_picks.last_status(conn, username) or "idle"
+    if status == "unavailable":
+        return respond_ok({"status": "failed", "my_refresh": mine, "error": "unavailable"})
     return respond_ok({"status": status, "my_refresh": mine})

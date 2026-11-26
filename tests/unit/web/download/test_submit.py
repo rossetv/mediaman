@@ -133,6 +133,7 @@ class TestDownloadSubmitMovie:
         data = resp.json()
         assert data["ok"] is True
         assert data["service"] == "radarr"
+        assert data["message"] == "Added 'Dune' — download starting shortly"
         mock_radarr.add_movie.assert_called_once_with(42, "Dune")
 
     def test_movie_response_includes_poll_token(self, app_factory, conn, secret_key):
@@ -168,7 +169,7 @@ class TestDownloadSubmitMovie:
 
         assert resp.status_code == 503
         assert resp.json()["ok"] is False
-        assert resp.json()["message"] == "Radarr not configured"
+        assert resp.json()["message"] == "Downloads aren't set up"
         # Token must be unmarked so the user can retry after configuring Radarr
         with _USED_TOKENS_LOCK:
             import hashlib
@@ -198,7 +199,8 @@ class TestDownloadSubmitMovie:
         assert resp.status_code == 409
         body = resp.json()
         assert body["ok"] is False
-        assert "already exists" in body["error"]
+        assert "has already been added" in body["error"]
+        assert "Radarr" not in body["error"]
         assert "poll_token" in body
 
     def test_radarr_502_returns_error_and_token_unmarked(self, app_factory, conn, secret_key):
@@ -458,3 +460,36 @@ def test_a_failed_audit_write_takes_the_notification_row_with_it(conn):
 
     assert not conn.in_transaction
     assert conn.execute("SELECT COUNT(*) FROM download_notifications").fetchone()[0] == 0
+
+
+class TestDownloadSubmitSonarrWords:
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
+        _clear_used_tokens()
+        _DOWNLOAD_LIMITER_POST.reset()
+
+    def test_a_show_the_service_does_not_know_names_no_service(self, app_factory, conn, secret_key):
+        app = _app(app_factory, conn)
+        client = TestClient(app, raise_server_exceptions=True)
+        token = _make_token(secret_key, title="Severance", media_type="tv", tmdb_id=1)
+        mock_sonarr = MagicMock()
+        mock_sonarr.lookup_by_tmdb_id.return_value = []
+
+        with patch(
+            "mediaman.web.routes.download.submit.build_sonarr_from_db", return_value=mock_sonarr
+        ):
+            resp = client.post(f"/download/{token}")
+
+        assert resp.status_code == 404
+        assert resp.json()["message"] == "The download service doesn't know this show"
+
+    def test_sonarr_not_set_up_says_downloads_are_not(self, app_factory, conn, secret_key):
+        app = _app(app_factory, conn)
+        client = TestClient(app, raise_server_exceptions=True)
+        token = _make_token(secret_key, title="Severance", media_type="tv", tmdb_id=1)
+
+        with patch("mediaman.web.routes.download.submit.build_sonarr_from_db", return_value=None):
+            resp = client.post(f"/download/{token}")
+
+        assert resp.status_code == 503
+        assert resp.json()["message"] == "Downloads aren't set up"

@@ -308,6 +308,63 @@ def test_recipients_that_cannot_be_read_again_stay_as_they_were_and_say_so() -> 
     assert out["reopened"] == {"ticks": 3, "note": ""}
 
 
+def test_the_send_panel_asks_for_the_base_url_while_it_is_empty_and_escape_shuts_it() -> None:
+    out = _run("panelWords")
+    assert out["filled"] == ""
+    assert out["emptyOnOpen"] == "Set Base URL under General & Schedule first"
+    assert "is-err" in out["noteClass"].split()
+    assert out["typed"] == ""
+    assert out["cleared"] == "Set Base URL under General & Schedule first"
+    assert out["escape"] == {"open": False, "expanded": "false", "focused": True}
+
+
+def test_escape_on_the_button_that_opened_the_send_panel_shuts_it() -> None:
+    out = _run("escapeFromOpener")
+    opened = {"open": True, "label": "Close", "expanded": "true", "focused": True}
+    shut = {"open": False, "label": "Select recipients", "expanded": "false", "focused": True}
+    assert out["before"] == opened
+    # nothing happens while the send is under way, or for another key
+    assert out["sending"] == opened
+    assert out["otherKey"] == opened
+    assert out["after"] == shut
+    assert out["again"] == shut
+
+
+def test_the_send_panel_names_what_is_missing_as_the_server_does() -> None:
+    out = _run("setupNotes")
+    mail = "set up Email (Mailgun) under Integrations"
+    base = "set Base URL under General & Schedule"
+    assert out["noMail"] == "Set up Email (Mailgun) under Integrations first"
+    assert out["nothing"] == f"Set up Email (Mailgun) under Integrations and {base} first"
+    assert (
+        out["mailAndFtp"]
+        == f"{mail[0].upper()}{mail[1:]} and make Base URL start with http:// or https:// first"
+    )
+    assert out["ftp"] == "Make Base URL start with http:// or https:// first"
+    assert out["unsaved"].startswith("Save Settings first")
+    assert out["saved"] == ""
+
+
+def test_the_note_is_read_again_after_a_save_and_when_focus_or_a_pointer_returns() -> None:
+    out = _run("noteRefresh")
+    assert out["typed"].startswith("Save Settings first")
+    assert out["stale"] == out["typed"]
+    assert (out["afterSave"], out["afterFocus"], out["afterPointer"]) == ("", "", "")
+
+
+def test_a_refused_send_says_the_missing_setting_once() -> None:
+    out = _run("refusedOnce")
+    assert out["before"] == "Set Base URL under General & Schedule first"
+    assert out["note"] == ""
+    assert out["status"] == "Set Base URL under General & Schedule first"
+    assert out["noteAfterFocus"] == ""
+    # a changed setting makes the answer stale and the note speaks for the new state
+    assert out["changed"] == {
+        "note": "Make Base URL start with http:// or https:// first",
+        "status": "",
+    }
+
+
 def test_removing_someone_who_unsubscribed_says_that_it_is_forgotten() -> None:
     active, opted_out = _run("removalWords")
     assert "add them again" in active and "unsubscribed" not in active

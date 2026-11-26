@@ -66,13 +66,12 @@
     listEl.replaceChildren();
 
     if (!isPicker()) {
+      var arr = kind === 'series' ? 'Sonarr' : 'Radarr';
       copyEl.textContent = upcoming
-        ? 'It hasn’t been released yet. Mediaman will unmonitor it in ' +
-          'Radarr/Sonarr so it won’t be picked up when it lands. It stays ' +
-          'in your library — re-monitor any time to start tracking again.'
-        : 'Mediaman will stop poking Radarr/Sonarr and the item will be ' +
-          'unmonitored. It stays in your library so you can re-monitor any ' +
-          'time — nothing is deleted from disk.';
+        ? 'Mediaman will unmonitor it in ' + arr + ', so nothing is searched for ' +
+          'or downloaded. Monitor it there again any time.'
+        : 'Mediaman will stop searching and unmonitor it in ' + arr + '. ' +
+          'Nothing is deleted from disk. Monitor it there again any time.';
       listEl.hidden = true;
     } else {
       copyEl.textContent =
@@ -197,6 +196,7 @@
 
     var dlId = current.dlId;
     var title = current.title;
+    var failure = current.upcoming ? 'Couldn’t stop tracking. Try again.' : 'Couldn’t abandon. Try again.';
     var message = current.upcoming ? 'Stopped tracking ' + title
       : 'Stopped searching for ' + (isPicker() ? seasons.length + ' season' + (seasons.length === 1 ? '' : 's') + ' of ' : '') + title;
     inflight[dlId] = true;
@@ -220,7 +220,7 @@
         delete inflight[dlId];
         if (err.status === 404) { finish('Already gone: ' + title, 'info'); return; }
         if (showsThis()) showConfirmState();
-        window.UIFeedback.error(MM.api.messageOf(err, 'Couldn’t abandon. Try again.'));
+        window.UIFeedback.error(MM.api.messageOf(err, failure));
       });
   }
 

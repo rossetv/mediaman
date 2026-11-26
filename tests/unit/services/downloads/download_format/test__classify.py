@@ -198,7 +198,7 @@ class TestMapArrStatus:
         assert map_arr_status("completed") == "almost_ready"
 
     def test_queued_status(self):
-        assert map_arr_status("queued") == "downloading"
+        assert map_arr_status("queued") == "queued"
 
     def test_importing_tracked_state(self):
         assert map_arr_status("queued", "importing") == "almost_ready"

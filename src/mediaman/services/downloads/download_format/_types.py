@@ -10,7 +10,7 @@ from typing import Any, TypedDict
 #: only as documentation; lookup is by key.
 DOWNLOAD_STATE_LABELS: dict[str, str] = {
     "searching": "Looking for the best version",
-    "queued": "Queued — waiting on indexer",
+    "queued": "Queued",
     "downloading": "Downloading",
     "almost_ready": "Almost ready",
     "ready": "Ready to watch",

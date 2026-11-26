@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -238,6 +239,7 @@ class TestDone:
 class TestLastChanged:
     def _given(self, client, templates_stub):
         client.app.state.templates = templates_stub
+        client.app.state.config = MagicMock(secret_key="k" * 64)
         return client.get("/account").json()["password_changed"]
 
     def test_profile_says_nothing_before_the_first_change(self, client, templates_stub):

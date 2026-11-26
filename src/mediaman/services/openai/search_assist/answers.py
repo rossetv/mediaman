@@ -13,7 +13,7 @@ import requests
 
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient, year_of
-from mediaman.services.openai.client import _title_hostile, call_openai
+from mediaman.services.openai.client import _title_hostile, ask_openai
 from mediaman.services.openai.recommendations.enrich import _exact_result
 from mediaman.services.openai.recommendations.prompts import strip_season_suffix
 from mediaman.services.watch_catalog import (
@@ -124,13 +124,14 @@ def make_answer(
     stopped: Callable[[], bool],
     clock: Callable[[], float] = time.monotonic,
 ) -> AssistAnswer | None:
-    """The answer to *question*; None when the model or TMDB gave none, or it was *stopped*.
-    No titles at all means nothing real fits."""
+    """The answer to *question*; None when TMDB could not be asked, or it was *stopped*.
+    No titles at all means nothing real fits. Raises OpenAIUnavailable when the model gave
+    no answer."""
     prompt = _prompt(question, taste())
     if stopped():
         return None
-    items = call_openai(prompt, conn, secret_key=secret_key)
-    if not items or stopped():
+    items = ask_openai(prompt, conn, secret_key=secret_key)
+    if stopped():
         return None
     ends_at = clock() + _CHECK_S
     titles: dict[tuple[str, int], AnswerTitle] = {}

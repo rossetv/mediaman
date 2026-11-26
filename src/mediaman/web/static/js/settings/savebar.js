@@ -383,20 +383,23 @@
     [/must include a host/i, 'needs a server name after http:// or https://.'],
     [/home address after http/i, 'must start with http:// before a home address, or https:// before a name.'],
     [/home address with nothing after it/i, 'must have nothing after the server name or port, such as ' +
-      'http://192.168.1.10:8282 or https://mediaman.example.com.'],
+      'http://nas.local:8282.'],
     [/home address with no sign-in/i, 'must have no sign-in: leave out the @ and what stands before it.'],
-    [/home address with a port in use/i, 'needs a port from 1 to 65535, such as 8282 in http://192.168.1.10:8282.'],
+    [/home address with a port in use/i, 'needs a port from 1 to 65535, such as 8282 in http://nas.local:8282.'],
     [/home address in plain characters/i, 'can have no spaces, no accents and no letters other than a to z.'],
     [/home address or a valid name/i, 'needs a server name of letters a to z, digits, dots and hyphens. Between ' +
       'the dots are 1 to 63 of them, with no hyphen first or last.'],
     [/home address and not localhost/i, 'cannot be localhost: to a TV, that means itself. Use this server’s home ' +
-      'address, such as http://192.168.1.10:8282.'],
-    [/home address and not one of another/i, 'must be an address of your home network: one that starts with 10, ' +
-      '172.16 to 172.31, or 192.168. A name with https may be anywhere.'],
-    [/home address, or a name with https/i, 'needs https:// and not http:// before a name. With http, use this ' +
-      'server’s home address, such as http://192.168.1.10:8282.'],
-    [/must be a home address/i, 'must be this server’s home address, such as http://192.168.1.10:8282, or a name ' +
-      'with https, such as https://mediaman.example.com.'],
+      'address or its name, such as http://nas.local:8282.'],
+    [/home address and not a link-local/i, 'is a kind of address a TV can’t reach. Use this server’s home address or ' +
+      'its name, such as http://nas.local:8282.'],
+    [/home address and not a self-assigned/i, 'is an address a device gives itself, and it changes, so TVs can’t ' +
+      'rely on it. Use this server’s home address or its name, such as http://nas.local:8282.'],
+    [/home address and not one of another/i, 'needs https:// before an address on the internet. With http://, use this ' +
+      'server’s home address or its name, such as http://nas.local:8282.'],
+    [/home address, or a name with https/i, 'needs https:// before a name on the internet. With http://, use a home ' +
+      'name: one word, such as http://nas:8282, or one that ends in .local, .lan, .home.arpa or .internal.'],
+    [/must be a home address/i, 'must be this server’s home address or its name, such as http://nas.local:8282.'],
     [/invalid URL/i, 'is not a valid address.'],
     [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
     [/start or end with \*{4}/, 'cannot start or end with ****.'],
@@ -447,6 +450,36 @@
     return 'Save failed — try again.';
   }
 
+  var PERSON_MOVES = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+  var stopKeepingClear = function () {};
+
+  // The first field a save was refused for, brought out from under the bar; the focus stays where it is.
+  function showRefused(data) {
+    stopKeepingClear();
+    var first = data && Array.isArray(data.detail) && data.detail[0];
+    var loc = first && Array.isArray(first.loc) ? first.loc.filter(function (p) { return p !== 'body'; }) : [];
+    var field = typeof loc[0] === 'string' && document.getElementById(loc[0]);
+    if (!field) return;
+    var row = field.closest('.setg-row') || field;
+    if (!savebar || !window.ResizeObserver) { row.scrollIntoView({ block: 'nearest' }); return; }
+    // The bar takes a frame or more to settle around the error, and the page's room for it lags behind,
+    // so the row follows the bar's real top until the person moves on their own.
+    var shown = false;
+    var observer = new ResizeObserver(function () {
+      if (!shown) { row.scrollIntoView({ block: 'nearest' }); shown = true; }
+      var under = row.getBoundingClientRect().bottom - savebar.getBoundingClientRect().top + 11;
+      if (under > 0) window.scrollBy(0, under);
+    });
+    function stop() {
+      observer.disconnect();
+      PERSON_MOVES.forEach(function (t) { document.removeEventListener(t, stop, true); });
+      stopKeepingClear = function () {};
+    }
+    PERSON_MOVES.forEach(function (t) { document.addEventListener(t, stop, true); });
+    stopKeepingClear = stop;
+    observer.observe(savebar, { box: 'border-box' });
+  }
+
   function init(opts) {
     var getPayload = (opts && opts.getPayload) || function () { return {}; };
     var refreshOverviewHero = (opts && opts.refreshOverviewHero) || function () {};
@@ -492,6 +525,7 @@
     }
 
     function clearSaveError() {
+      stopKeepingClear();
       if (savebar) savebar.classList.remove('is-error', 'is-partial');
       if (saveBtn) {
         saveBtn.classList.remove('btn--danger');
@@ -642,6 +676,7 @@
             saved = { values: sent.values, disk: merged ? MM.settings.diskThresholds.fromServer(data) : sent.disk };
             show(saved, sent);
             recheck(Object.keys(payload));
+            if (MM.settings.newsletter && MM.settings.newsletter.settingsSaved) MM.settings.newsletter.settingsSaved();
             refreshOverviewHero();
             var edited = changedKeys(saved, snapshot()).length > 0;
             var partial = edited || kept.length > 0;
@@ -693,6 +728,7 @@
             // Reconstruct a minimal data envelope so summariseSaveError can
             // read detail / error fields that MM.api.APIError already parsed.
             setSaveError(summariseSaveError(err.data || {}, err.status));
+            showRefused(err.data);
           } else {
             // Status 0 is a request with no answer; its message is the
             // shared network wording.

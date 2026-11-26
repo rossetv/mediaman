@@ -57,6 +57,7 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
             status=status,
             release_names=[release_name] if release_name else [],
         )
+        card["tracked_state"] = q.get("trackedDownloadState") or ""
         _identify(card, movie.get("tmdbId"))
         items.append(card)
     return items

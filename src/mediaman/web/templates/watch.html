@@ -67,14 +67,13 @@
   <h1 class="watch-empty__title">Nothing to watch yet</h1>
   {% if is_admin %}
   <p class="watch-empty__text">
-    {% if library_total %}Watch can’t open what the scans found. Scan again from Storage, at the top, or see all titles below.
+    {% if library_total %}Watch can’t open what the scans found. Press Sync now in Settings, or see all titles below.
     {% else %}Your library is empty.
-    {% if tmdb_configured %}Scan it from Storage, at the top, or search above for something to download.
-    {% else %}Pick the libraries to scan in Settings, then scan from Storage, at the top. Connect TMDB there too to search for titles to download.{% endif %}{% endif %}
+    {% if tmdb_configured %}Press Sync now in Settings, or search for something to download.
+    {% else %}Pick the libraries to scan in Settings, then press Sync now under General & Schedule. Connect TMDB there too to search for titles to download.{% endif %}{% endif %}
   </p>
   <div class="watch-actions">
-    <a class="btn btn--lg watch-btn--play" href="/watch#storage">Open Storage</a>
-    <a class="btn btn--lg watch-btn--grey" href="/settings">Open Settings</a>
+    <a class="btn btn--lg watch-btn--play" href="/settings#setg-general">Open Settings</a>
   </div>
   {% else %}
   <p class="watch-empty__text">The library is empty for now. Check back soon, or ask whoever runs mediaman.</p>

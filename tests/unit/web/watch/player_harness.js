@@ -3423,13 +3423,29 @@ const scenarios = {
     const start = { volume: p.video.volume, muted: p.video.muted, mute: p.q('[data-mute]').getAttribute('aria-label') };
     const fill = () => p.q('[data-volume]').style['--fill'];
     start.fill = fill();
+    const startText = p.q('[data-volume]').getAttribute('aria-valuetext');
     p.video.muted = false; p.video.volume = 0.25;
     fire(p.video, 'volumechange');
+    const unmutedText = p.q('[data-volume]').getAttribute('aria-valuetext');
     const unmuted = Object.assign({}, p.storage);
     const unmutedFill = fill();
     press(p.q('[data-mute]'));
     fire(p.video, 'volumechange');
-    return { start: start, unmuted: unmuted, unmutedFill: unmutedFill, muted: Object.assign({}, p.storage), mutedFill: fill() };
+    const text = () => p.q('[data-volume]').getAttribute('aria-valuetext');
+    return { start: start, unmuted: unmuted, unmutedFill: unmutedFill, muted: Object.assign({}, p.storage), mutedFill: fill(), startText: startText, unmutedText: unmutedText, mutedText: text() };
+  },
+
+  /* The clock and the bar when the file is shorter than the length Plex gave (3000 s). */
+  async ended_clock(p) {
+    await streamPlays(p, 100);
+    p.video.duration = 2990;
+    p.video.currentTime = 2990;
+    const look = () => ({ remaining: p.q('[data-remaining]').textContent, left: p.q('[data-played]').style.width });
+    fire(p.video, 'timeupdate');
+    const playing = look();
+    p.video.paused = true; p.video.ended = true;
+    fire(p.video, 'ended');
+    return { playing: playing, ended: look() };
   },
 
   /* The keys of a slider on the seek bar. */
@@ -3626,6 +3642,7 @@ const scenarios = {
       said: said,
       focus: doc.activeElement === trigger ? 'keep' : doc.activeElement === p.q('[data-play]') ? 'play' : 'nothing',
       undone: p.calls.filter((c) => /\/unkeep$/.test(c.url)).map((c) => c.body.media_item_id),
+      toasts: p.toasts.map((t) => t.text),
     };
   },
 

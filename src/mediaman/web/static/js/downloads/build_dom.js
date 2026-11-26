@@ -19,11 +19,9 @@
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.recentWords(r)            the line under a recent item's title
- *   MM.downloads.buildDom.buildEmptyState(outage)
- *   MM.downloads.buildDom.held(id, title, data)    the item's service does not answer and nothing stands in for it
- *   MM.downloads.buildDom.markHeld(card)            dim a hero or row of a service that does not answer
- *   MM.downloads.buildDom.unmarkHeld(card)
- *   MM.downloads.buildDom.dropAbsent(rows, present, data)  close departed rows, dim the held, say how many
+ *   MM.downloads.buildDom.buildEmptyState(outage, setUp, refused)
+ *   MM.downloads.buildDom.placeInOrder(list, row, items, at)  a new row where the server lists it
+ *   MM.downloads.buildDom.dropAbsent(rows, present)  close the rows the payload no longer lists
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
  *   MM.downloads.buildDom.setProgress(fill, percent)  a bar's width and its spoken value
@@ -163,13 +161,23 @@
     return img;
   }
 
-  /* Show an item's poster in `box`; with none it is left empty. */
+  /* An item's poster in `box`, and under it the mark that stands for one while there is
+     none or it does not load. */
+  function fillPoster(box, url) {
+    if (url) box.appendChild(buildPoster(url));
+    var mark = document.createElement('span');
+    mark.className = 'dl-poster-mark';
+    mark.appendChild(MM.dom.icon('i-film'));
+    box.appendChild(mark);
+  }
+
+  /* Show an item's poster in `box`. */
   function syncPoster(box, url) {
     if (!box) return;
     var img = box.querySelector('img');
-    if ((img ? img.getAttribute('src') : '') === (url || '')) return;
+    if ((img ? img.getAttribute('src') : '') === (url || '') && box.firstChild) return;
     while (box.firstChild) box.removeChild(box.firstChild);
-    if (url) box.appendChild(buildPoster(url));
+    fillPoster(box, url);
   }
 
   /* The hero's poster and blurred background are its item's, or none. */
@@ -182,7 +190,7 @@
     if (window.DLPoster) window.DLPoster.apply(bg);
   }
 
-  var RECENT_WORDS = { part: 'Some episodes ready', unknown: 'Added' };
+  var RECENT_WORDS = { part: 'Some episodes ready', unknown: 'In your library soon' };
 
   function recentWords(r) { return RECENT_WORDS[r.readiness] || 'Ready to watch'; }
 
@@ -221,23 +229,43 @@
      the download-tray glyph defined in downloads.html, so the poll-built
      card is identical to the server-rendered one. The #dl-empty-container
      owns the id — this builder returns only the inner card. */
-  /* Mirrors the two cards in downloads.html: nothing downloading, or a service
-     that cannot be reached, which the subtitle names. */
-  function buildEmptyState(outage) {
+  /* Mirrors the cards in downloads.html: nothing downloading, a service that cannot be
+     reached (which the subtitle names), one whose key was refused (which an admin is sent to
+     Settings for), or neither Radarr nor Sonarr set up. */
+  function buildEmptyState(outage, setUp, refused) {
+    var unset = !!setUp && !setUp.movies && !setUp.shows;
+    var shut = canAbandonHere() && outage && refused && refused.length ? refused : null;
     var el = document.createElement('div');
     el.className = 'empty';
 
     var icon = document.createElement('div');
     icon.className = 'empty-ico';
-    icon.appendChild(MM.dom.icon(outage ? 'i-triangle-exclamation' : 'i-download'));
+    icon.appendChild(MM.dom.icon(outage && !unset ? 'i-triangle-exclamation' : 'i-download'));
     el.appendChild(icon);
 
     var h3 = document.createElement('h3');
-    h3.textContent = outage ? 'Downloads can\'t be checked right now' : 'All caught up';
+    h3.textContent = unset ? 'Downloads aren’t set up'
+      : outage ? 'Downloads can\'t be checked right now' : 'All caught up';
     el.appendChild(h3);
 
     var p = document.createElement('p');
-    p.textContent = outage ? 'This page keeps trying.' : 'Nothing downloading right now.';
+    if (unset || shut) {
+      if (unset && !canAbandonHere()) {
+        p.textContent = 'Ask whoever runs mediaman to set it up.';
+      } else {
+        var names = shut && shut.length > 1
+          ? shut.slice(0, -1).join(', ') + ' and ' + shut[shut.length - 1] : shut && shut[0];
+        p.appendChild(document.createTextNode(shut ? 'Check the details for ' + names + ' in '
+          : 'Connect Radarr or Sonarr in '));
+        var link = document.createElement('a');
+        link.href = '/settings#setg-integrations';
+        link.textContent = 'Settings';
+        p.appendChild(link);
+        p.appendChild(document.createTextNode('.'));
+      }
+    } else {
+      p.textContent = outage ? 'This page keeps trying.' : 'Nothing downloading right now.';
+    }
     el.appendChild(p);
 
     return el;
@@ -245,7 +273,6 @@
 
   function buildEtaStat(text) {
     var wrap = document.createElement('span');
-    wrap.appendChild(document.createTextNode('ETA '));
     var eta = document.createElement('b');
     eta.setAttribute('data-v', 'eta');
     eta.textContent = text;
@@ -333,13 +360,7 @@
     /* Poster */
     var posterWrap = document.createElement('div');
     posterWrap.className = 'dl-hero-poster';
-    if (bgUrl) {
-      posterWrap.appendChild(buildPoster(bgUrl));
-    } else {
-      var posterPh = document.createElement('div');
-      posterPh.className = 'dl-hero-poster-placeholder';
-      posterWrap.appendChild(posterPh);
-    }
+    fillPoster(posterWrap, bgUrl);
     content.appendChild(posterWrap);
 
     /* Info section */
@@ -388,7 +409,7 @@
     setProgress(fill, item.progress);
     progressWrap.appendChild(bar);
 
-    /* Same stats line as _dl_hero_card.html: "N% complete", "done of total", "ETA x". */
+    /* Same stats line as _dl_hero_card.html: "N% complete", "done of total", the time left. */
     var details = document.createElement('div');
     details.className = 'dl-hero-details dl-stats';
     var pctWrap = document.createElement('span');
@@ -551,19 +572,26 @@
     var old = box.querySelector('.dl-hero-ghost');
     if (old) box.removeChild(old);
     if (reducedMotion()) return;
-    var ghost = el('div', 'dl-hero-ghost' + (card.classList.contains('is-held') ? ' is-held' : ''));
+    var ghost = el('div', 'dl-hero-ghost');
     ghost.setAttribute('aria-hidden', 'true');
     ghost.setAttribute('inert', '');
     var copy = el('div', 'dl-hero-ghost__card');
-    copy.style.height = card.getBoundingClientRect().height + 'px';
     Array.prototype.forEach.call(card.children, function (part) { copy.appendChild(part.cloneNode(true)); });
     ghost.appendChild(copy);
     ['id', 'data-v', 'data-ep', 'data-dl-id', 'data-abandon-trigger'].forEach(function (hook) {
       Array.prototype.forEach.call(ghost.querySelectorAll('[' + hook + ']'), function (part) { part.removeAttribute(hook); });
     });
     box.appendChild(ghost);
+    /* The new content waits for the old to be gone, so lines that differ never overlap. */
+    var run = card._dlSwap = {};
+    card.classList.remove('is-swapping');
+    void card.offsetWidth;
+    card.classList.add('is-swapping');
     /* Longer than the fade, which may never end in a tab that is hidden. */
-    setTimeout(function () { if (ghost.parentNode) box.removeChild(ghost); }, 400);
+    setTimeout(function () {
+      if (ghost.parentNode) box.removeChild(ghost);
+      if (card._dlSwap === run) card.classList.remove('is-swapping');
+    }, 400);
   }
 
   /* Read a card's height before it turns into another title's; the function returned is
@@ -594,12 +622,6 @@
     var episodes = item.episodes || [];
     var toggle = card.querySelector('[data-v="ep-toggle"]');
     var list = card.querySelector('[data-v="ep-list"]');
-    var count = card.querySelector('[data-v="ep-count"]');
-    if (count) {
-      MM.dom.setText(count, episodes.length ? episodeCount(episodes) : '');
-      count.hidden = !episodes.length;
-    }
-
     if (!episodes.length) {
       if (toggle) {
         passFocus(toggle);
@@ -612,6 +634,7 @@
     if (!toggle) {
       var info = card.querySelector('.dl-hero-info');
       var prefix = info ? 'dl-hero' : 'dl-compact';
+      var home = info || card.querySelector('.dl-compact-row') || card;
       toggle = el('button', prefix + '-episodes-toggle');
       toggle.type = 'button';
       toggle.setAttribute('data-v', 'ep-toggle');
@@ -621,8 +644,8 @@
       list = el('div', prefix + '-episodes');
       list.setAttribute('data-v', 'ep-list');
       list.hidden = true;
-      (info || card).appendChild(toggle);
-      (info || card).appendChild(list);
+      home.appendChild(toggle);
+      home.appendChild(list);
     }
     MM.dom.setText(toggle.querySelector('span'),
       episodeCount(episodes) + (item.has_pack ? ' · pack download' : ''));
@@ -648,7 +671,7 @@
     card.appendChild(row);
 
     var poster = el('div', 'dl-compact-poster dl-row-poster');
-    if (item.poster_url) poster.appendChild(buildPoster(item.poster_url));
+    fillPoster(poster, item.poster_url);
     row.appendChild(poster);
 
     var info = el('div', 'dl-compact-info dl-row-info');
@@ -670,9 +693,6 @@
     sizeInfo.appendChild(document.createTextNode(' of '));
     sizeInfo.appendChild(total);
     meta.appendChild(sizeInfo);
-    var count = el('span');
-    count.setAttribute('data-v', 'ep-count');
-    meta.appendChild(count);
     info.appendChild(meta);
 
     var hint = el('div', 'dl-search-hint');
@@ -711,68 +731,29 @@
     if (hero && hero.updateSearchHint) hero.updateSearchHint(card, item);
   }
 
-  function serviceOf(id) {
-    return id.indexOf('radarr:') === 0 ? 'Radarr' : id.indexOf('sonarr:') === 0 ? 'Sonarr' : 'NZBGet';
-  }
-
-  function words(title) {
-    var run = (title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-    return run ? ' ' + run + ' ' : '';
-  }
-
-  /* A service that cannot be reached leaves its items out of the payload, which
-     says nothing about them: they are not over. One it does list, as itself
-     or by NZBGet's name for its download, is not shown twice. */
-  function held(id, title, data) {
-    if (!id || !data.unreachable || data.unreachable.indexOf(serviceOf(id)) === -1) return false;
-    var mine = words(title);
-    var listed = (data.queue || []).concat(data.hero || [], data.upcoming || []);
-    return !listed.some(function (item) {
-      if (item.id === id) return true;
-      var its = serviceOf(item.id) === 'NZBGet' ? words(item.title) : '';
-      return mine && its && (mine.indexOf(its) !== -1 || its.indexOf(mine) !== -1);
-    });
-  }
-
-  /* What was last known stays; what would count down is taken off. */
-  function markHeld(card) {
-    card.classList.add('is-held');
-    var hint = card.querySelector('[data-v="search-hint"]');
-    if (hint) {
-      passFocus(hint);
-      hint.hidden = true;
+  /* Put a new row of `items[at]` where the server lists it: before the row of the first item
+     listed after it that has one, else last. */
+  function placeInOrder(list, row, items, at) {
+    for (var i = at + 1; i < items.length; i++) {
+      var next = MM.dom.findByAttr(list, 'data-dl-id', items[i].id);
+      if (next && next.parentNode === list) return list.insertBefore(row, next);
     }
-    if (card.classList.contains('dl-hero')) { updateEtaStat(card, ''); return; }
-    var eta = card.querySelector('[data-v="eta"]');
-    if (eta) eta.textContent = '';
+    return list.appendChild(row);
   }
 
-  function unmarkHeld(card) { card.classList.remove('is-held'); }
-
-  function titleOf(row) {
-    var title = row.querySelector('.dl-compact-title');
-    return title ? title.textContent : '';
-  }
-
-  /* Close the rows whose item is gone. `present` maps the ids the payload has
-     to true, or to false for one shown elsewhere on the page. Returns how many
-     rows stay because their service did not answer; with none left to show,
-     the rows are not closed one by one, since the section closes with them. */
-  function dropAbsent(rows, present, data) {
-    var kept = 0;
+  /* Close the rows whose item is gone. `present` maps the ids the payload has to true, or
+     to false for one shown elsewhere on the page. With none left to show, the rows are not
+     closed one by one, since the section closes with them. */
+  function dropAbsent(rows, present) {
     var gone = [];
     var shown = 0;
     for (var i = 0; i < rows.length; i++) {
       var id = rows[i].getAttribute('data-dl-id');
       if (!id || isCollapsing(rows[i])) continue;
       if (present[id]) shown += 1;
-      else if (!(id in present) && held(id, titleOf(rows[i]), data)) {
-        kept += 1;
-        markHeld(rows[i]);
-      } else gone.push(rows[i]);
+      else gone.push(rows[i]);
     }
-    if (shown || kept) gone.forEach(collapseAway);
-    return kept;
+    if (shown) gone.forEach(collapseAway);
   }
 
   /* Build upcoming row element. */
@@ -787,7 +768,7 @@
 
     var poster = document.createElement('div');
     poster.className = 'dl-compact-poster dl-row-poster';
-    if (item.poster_url) poster.appendChild(buildPoster(item.poster_url));
+    fillPoster(poster, item.poster_url);
     row.appendChild(poster);
 
     var info = document.createElement('div');
@@ -853,9 +834,9 @@
     buildRecentItem:      buildRecentItem,
     recentWords:          recentWords,
     buildEmptyState:      buildEmptyState,
-    held:                 held,
-    markHeld:             markHeld,
-    unmarkHeld:           unmarkHeld,
+    canAbandonHere:       canAbandonHere,
+    reducedMotion:        reducedMotion,
+    placeInOrder:         placeInOrder,
     dropAbsent:           dropAbsent,
     buildUpcomingRow:     buildUpcomingRow,
     buildCompactRow:      buildCompactRow,

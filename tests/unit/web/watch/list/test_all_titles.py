@@ -291,7 +291,7 @@ def test_signed_out_it_is_refused(app_factory, conn):
 def test_an_empty_library_says_what_comes_next(read, conn):
     assert read()["empty"]["title"] == "Connect Plex to get started"
     insert_settings(conn, plex_url="http://plex.invalid:32400", plex_token="tok")
-    assert read()["empty"]["href"] == "/watch#storage"
+    assert read()["empty"]["href"] == "/settings#setg-general"
     assert read("type=kept")["empty"] == {
         "title": "Nothing is kept",
         "link": "Show all titles",

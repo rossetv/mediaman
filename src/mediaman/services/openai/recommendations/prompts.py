@@ -18,6 +18,7 @@ from urllib.parse import quote as urlquote
 
 from mediaman.core.time import now_utc
 from mediaman.services.openai.client import (
+    ask_openai,
     call_openai,
     holds_domain,
     is_web_search_enabled,
@@ -315,16 +316,18 @@ def generate_trending(
 
     *previous_titles* are titles from the last 30 days, newest first, that GPT is told not
     to repeat. The wording follows whether web search is on, so the model is never told to
-    do something it has no way to do.
+    do something it has no way to do. Raises OpenAIUnavailable when the model gave no answer.
     """
     from mediaman.core.format import format_day_month as _fmt_dm
 
     now = now_utc()
-    today = f"{_fmt_dm(now, long_month=True)} {now.year}"
+    today = _fmt_dm(now, long_month=True)
     if is_web_search_enabled(conn):
         last_week_end = now - timedelta(days=now.weekday() + 1)
         last_week_start = last_week_end - timedelta(days=6)
-        week = f"{_fmt_dm(last_week_start)}–{_fmt_dm(last_week_end, long_month=True)}"
+        week = (
+            f"{_fmt_dm(last_week_start, long_month=True)}–{_fmt_dm(last_week_end, long_month=True)}"
+        )
         opener = (
             f"Today is {today}. Search the web for movies and TV shows newly released in "
             f"cinemas or on streaming, or widely watched, in the week of {week}. Prefer official "
@@ -348,7 +351,7 @@ def generate_trending(
         + f"Return {_ASK_FOR} items.\n\n{_CHOOSING}\n{SHARED_WORDING}\n\n{_ANSWER}"
     )
 
-    items = call_openai(prompt, conn, use_web_search=True, secret_key=secret_key)
+    items = ask_openai(prompt, conn, use_web_search=True, secret_key=secret_key)
     return parse_recommendations(
         items, "trending", sent_titles=[*previous, *(previous_titles or [])[:100]]
     )
@@ -490,7 +493,8 @@ def ask_offline(
 def generate_personal(
     conn: sqlite3.Connection | None, portrait: Portrait, *, secret_key: str | None = None
 ) -> list[RecommendationItem]:
-    """Generate one person's recommendations from *portrait* alone; the web is not searched."""
+    """Generate one person's recommendations from *portrait* alone; the web is not searched.
+    Raises OpenAIUnavailable when the model gave no answer."""
     prompt = (
         f"Suggest {_ASK_FOR} movies and TV shows for one person, based only on what is known of "
         "that person below.\n\n"
@@ -513,7 +517,7 @@ def generate_personal(
         f"Return {_ASK_FOR} items.\n\n{_CHOOSING}\n{PERSONAL_WORDING}\n\n{_ANSWER}"
     )
 
-    items = ask_offline(prompt, conn, secret_key)
+    items = ask_openai(prompt, conn, use_web_search=False, secret_key=secret_key)
     return parse_recommendations(
         items,
         "personal",

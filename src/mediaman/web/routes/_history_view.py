@@ -35,7 +35,7 @@ _WRITER_STRIPPED = str.maketrans("", "", "\r\n\0")
 _DROPPED_KEYS = frozenset({"ua_hash"})
 _LEGACY_BODY_RE = re.compile(r"^actor=(.+?) ip=(\S+)(?: (.*))?$", re.S)
 _KEPT_RE = re.compile(r"Kept (?:for [\w ]+?|forever)(?= by| \(|;|$)")
-_ADDED_RE = re.compile(r"Added '.*' to (Radarr|Sonarr)")
+_ADDED_RE = re.compile(r"Added '.*' to (?:Radarr|Sonarr)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,8 +141,8 @@ def _media_summary(action: str, detail: str, space_impact: str) -> str:
         return space_impact
     if kept := _KEPT_RE.match(detail):
         return kept.group(0)
-    if added := _ADDED_RE.match(detail):
-        return f"Added to {added.group(1)}"
+    if _ADDED_RE.match(detail):
+        return "Added to downloads"
     return ""
 
 

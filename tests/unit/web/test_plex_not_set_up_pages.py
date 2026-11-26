@@ -136,7 +136,7 @@ class TestAllTitles:
     def test_set_up_plex_empty_library_unchanged(self, page, conn):
         _plex(conn)
         html = page("/watch?all=library")
-        assert "Run a scan from Storage to pull in media from Plex." in html
+        assert "Press Sync now in Settings to pull in media from Plex." in html
         assert _CONNECT not in html
 
     def test_unset_plex_what_the_scans_found_is_there_still(self, page, conn):

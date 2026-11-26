@@ -789,6 +789,7 @@ const scenarios = {
       few: await at(MINE.few),
       noKeyViewer: await at(MINE.noKey),
       noKeyAdmin: await at(MINE.noKey, { admin: true }),
+      refused: await at({ ...MINE.noKey, reason: 'unavailable' }),
       off: !!rec(off.doc).querySelector('.rec-line'),
     };
   },
@@ -899,6 +900,18 @@ const scenarios = {
     click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
     await settle();
     return { failed, sameCards: rec(p.doc).querySelector('.watch-row__scroll') === scroller, again: lineOf(p) };
+  },
+
+  async ownRefreshOff() {
+    const p = load({ mine: MINE.ready, routes: {
+      'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+      'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'failed', error: 'unavailable' }),
+    } });
+    await settle();
+    click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
+    await settle();
+    await tick(p);
+    return { ...lineOf(p), toasts: p.toasts.map((t) => t.message) };
   },
 
   // The server refuses: what it says takes the button's place, or the button waits.

@@ -210,6 +210,10 @@ def test_the_line_says_why_there_are_no_new_picks_to_be_had() -> None:
     )
     assert (out["noKeyViewer"]["text"], out["noKeyViewer"]["button"]) == ("For everyone.", None)
     assert "OpenAI key" in out["noKeyAdmin"]["text"]
+    assert (out["refused"]["text"], out["refused"]["button"]) == (
+        "AI isn’t available right now.",
+        None,
+    )
     assert {v["posts"] for k, v in out.items() if k != "off"} == {0}
     assert out["off"] is False
 
@@ -284,6 +288,12 @@ def test_own_picks_that_could_not_be_made_leave_the_row_and_can_be_tried_again()
     assert out["failed"]["variant"] == "error"
     assert out["sameCards"] is True
     assert out["again"]["text"].startswith("Making your picks")
+
+
+def test_own_picks_refused_by_openai_say_the_ai_is_unavailable_and_offer_no_try_again() -> None:
+    out = _run("ownRefreshOff")
+    assert out["text"] == "AI isn’t available right now."
+    assert out["toasts"] == ["AI isn’t available right now."]
 
 
 def test_a_refused_refresh_of_own_picks_says_why_and_keeps_the_focus() -> None:

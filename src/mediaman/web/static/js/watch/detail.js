@@ -35,6 +35,7 @@
   var DOWNLOAD_GRACE_MS = 30000;
   var PENDING_MS = 2000;  // between readings of a title whose seasons' states are still to come
   var PENDING_ASKS = 5;
+  var ARR_LATE_MS = 2000; // till a title the Arr had not answered for is asked again, once
   var LATER_MS = 5000;    // till what another request is said to ask for is looked for again
   var CHECK_MS = 600;     // how long a check that was asked for shows at least
   var COPIED_MS = 2000;
@@ -45,8 +46,15 @@
   var AHEAD_FRESH_MS = 60000;
   /* How many are asked for a minute: each can cost Plex several calls. */
   var AHEAD_MOST = 10;
+  /* How long the server's refusal of what is asked ahead holds. */
+  var AHEAD_REFUSED_MS = 60000;
   /* How long after a close the next press of a double click can still come. */
   var DOUBLE_CLICK_MS = 600;
+  /* How long a trailer's player has to answer once its frame has loaded, and how long a frame
+     that never loads is waited for, before the trailer is taken to have failed. */
+  var TRAILER_STUCK_MS = 8000;
+  var TRAILER_LOAD_MS = 12000;
+  var LISTEN_MS = 250;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
 
   var sheet = root.querySelector('.ttl__sheet');
@@ -78,6 +86,7 @@
   var drawn = null;    // while the title on show is only drawn: { was }, the one before it
   var ahead = null;    // the title asked for before it is opened: { ref, at, ctrl, promise, data, failed }
   var aheadAt = [];    // when those of the last minute were
+  var aheadRefusedAt = -Infinity;
   var telling = false; // this page is saying what it knows of a title
   var isOpen = false;
   var kept = {};       // the titles left, by ref, as they were left
@@ -87,6 +96,7 @@
   var trying = false;  // the hero's picture is not known yet
   var onSettled = null;
   var trailerLeftAt = 0;
+  var trailerStuck = null;
   var heroEase = null; // the hero's height, easing as the trailer comes or goes
   var seq = 0;
   var pollTimer = null;
@@ -415,10 +425,14 @@
     if (ahead && !ahead.data && !wanted) return null;
     aheadAt = aheadAt.filter(function (at) { return now - at < 60000; });
     if (!REF_RE.test(ref) || aheadAt.length >= AHEAD_MOST) return null;
+    if (!wanted && now - aheadRefusedAt < AHEAD_REFUSED_MS) return null;
     aheadAt.push(now);
     var a = ahead = { ref: ref, at: now, ctrl: new AbortController(), promise: null, data: null, failed: false };
     a.promise = get(apiUrl(ref) + (wanted ? '' : '?ahead=1'), a.ctrl);
-    a.promise.then(function (data) { a.data = data; }, function () { a.failed = true; });
+    a.promise.then(function (data) { a.data = data; }, function (err) {
+      a.failed = true;
+      if (!wanted && err && err.status === 429) aheadRefusedAt = Date.now();
+    });
     return a;
   }
 
@@ -681,10 +695,11 @@
     var first = ownPicture(c.ref);
     if (first) el('img').setAttribute('src', first);
     if (c.pickRef && c.pickRef !== c.ref) askPick(c, ctrl);
-    if (window.MM.ratings) window.MM.ratings.read([c.ref]);
+    // It may have been rated since, in another tab.
+    if (window.MM.ratings) window.MM.ratings.read([c.ref], { again: true });
     // What was asked for ahead may be refused by its own limit, which a title opened is not.
     var asked = early ? early.promise.catch(function (err) {
-      if (err && err.name === 'AbortError') throw err;
+      if (err && (err.name === 'AbortError' || err.status === 404)) throw err;
       return get(apiUrl(c.ref), ctrl);
     }) : get(apiUrl(c.ref), ctrl);
     asked.then(function (data) {
@@ -879,7 +894,10 @@
       settleHero();
       renderContent(true, old);
     }
+    // Its cards may have been drawn before it was marked elsewhere.
+    if (core.markOf(data) && window.MMWatch.marks) window.MMWatch.marks.paint(core.markOf(data), !!data.watched);
     if (c.atEpisodes) toEpisodes();
+    if (data.download && data.download.answered === false && !c.askedLate) askLate(c);
     if (hasFacts(c)) loadFacts(c);
     if (pollable()) schedulePoll(0);
   }
@@ -1491,7 +1509,6 @@
   }
 
   var RATINGS = ['imdb', 'rt', 'tmdb', 'metascore'];
-  var WIDEST = { imdb: '10.0', rt: '100%', metascore: '100' };
 
   function ratingPill(key, value) {
     var glyph = { imdb: '★', rt: '🍅', tmdb: '★' }[key];
@@ -1526,19 +1543,6 @@
     return row;
   }
 
-  /* What is not here yet, as far as there is room on the line. */
-  function pillsToCome(keys) {
-    var wait = el('div', 'ttl__ratings-wait');
-    wait.setAttribute('aria-hidden', 'true');
-    Object.keys(WIDEST).forEach(function (key) {
-      if (keys.indexOf(key) > -1) return;
-      var p = wait.appendChild(ratingPill(key, WIDEST[key]));
-      p.className = 'ttl-rating skel';
-      p.removeAttribute('data-rating');
-    });
-    return wait;
-  }
-
   function ratingsRow(d) {
     var r = d.ratings || {};
     if (d.ratings_pending && !cur.ratings) cur.ratings = { early: r, came: null, asked: null };
@@ -1554,7 +1558,8 @@
     if (w.came && !keys.length) return null;
     var row = pillsRow(keys, all);
     row.setAttribute('data-ttl-part', 'ratings');
-    if (!w.came) row.appendChild(pillsToCome(keys));
+    // The line is held for what is to come; nothing says which the title has.
+    if (!w.came) row.appendChild(el('div', 'ttl__ratings-wait'));
     return row;
   }
 
@@ -1668,7 +1673,7 @@
     if (leaves) {
       var line = el('p', 'ttl__leaving');
       line.appendChild(icon('i-clock'));
-      line.appendChild(document.createTextNode(leavingText(leaves) + ' Keep it to stop the deletion.'));
+      line.appendChild(leavingWords(leaves));
       under.appendChild(line);
     }
     var like = likeButton(d);
@@ -1692,6 +1697,30 @@
     a.appendChild(icon('i-play'));
     a.appendChild(document.createTextNode(play.label || 'Play'));
     return a;
+  }
+
+  /* On a phone, either way up, an admin's Keep is far below, in the facts that come after the actions. */
+  function leavingWords(leaves) {
+    var words = el('span', '', leavingText(leaves) + ' ');
+    var api = window.MMWatch.admin;
+    var stacked = window.matchMedia('(max-width: 699.98px), (max-height: 500px)').matches; // as the sheet's own layout
+    if (!api || !api.keep || !hasFacts(cur) || !stacked) {
+      words.appendChild(document.createTextNode('Keep it to stop the deletion.'));
+      return words;
+    }
+    var b = el('button', 'ttl__leaving-keep', 'Keep it to stop the deletion');
+    b.type = 'button';
+    b.setAttribute('data-ttl-act', 'to-keep');
+    b.addEventListener('click', function () {
+      var to = byAct('admin-keep');
+      var box = to || body.querySelector('.ttl-facts'); // where it comes, while the facts load
+      if (!box) return;
+      box.scrollIntoView({ block: 'center', behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+      if (to) to.focus({ preventScroll: true });
+    });
+    words.appendChild(b);
+    words.appendChild(document.createTextNode('.'));
+    return words;
   }
 
   /* Titles like it, where there is an AI to find them. */
@@ -2827,12 +2856,26 @@
     askAgain(c).catch(function () {});
   }
 
-  /* Ask the open title again and show what its reply says. */
-  function askAgain(c) {
+  /* The open title's first answer came before the Arr's: what it knows of the download comes
+     on one more, unless a Download pressed meanwhile has said more. */
+  function askLate(c) {
+    c.askedLate = true;
+    var ref = c.ref;
+    var k = stateOf(ref);
+    var sent = k.sentAt;
+    var unpressed = function () { return k.sentAt === sent; };
+    setTimeout(function () {
+      if (c !== cur || !isOpen || c.ref !== ref || !unpressed()) return;
+      askAgain(c, unpressed).catch(function () {});
+    }, ARR_LATE_MS);
+  }
+
+  /* Ask the open title again and show what its reply says, if *still* (when given) holds. */
+  function askAgain(c, still) {
     var ref = c.ref;
     var asks = c.asks;
     return get(apiUrl(ref)).then(function (data) {
-      if (c !== cur || !isOpen || c.ref !== ref || asks !== c.asks) return;
+      if (c !== cur || !isOpen || c.ref !== ref || asks !== c.asks || (still && !still())) return;
       if (!takeReply(ref, data)) return;
       c.movedAt = Date.now();
       redrawActions(ref);
@@ -2953,6 +2996,24 @@
     if (frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(message), TRAILER_ORIGIN);
   }
 
+  /* Over the frame, so its own error page never shows, until the player first speaks or the trailer ends. */
+  function trailerWait() {
+    var w = el('div', 'ttl__wait');
+    w.setAttribute('role', 'status');
+    var spin = el('span', 'btn-spinner');
+    spin.setAttribute('aria-hidden', 'true');
+    w.appendChild(spin);
+    var said = el('span', 'sr-only');
+    said.textContent = 'Loading trailer';
+    w.appendChild(said);
+    return w;
+  }
+
+  function dropTrailerWait() {
+    var w = player.querySelector('.ttl__wait');
+    if (w) w.remove();
+  }
+
   /* The player takes the hero's box, so nothing below it moves; a hero too small
      for it grows. */
   function openTrailer() {
@@ -2968,9 +3029,21 @@
     frame.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
     frame.setAttribute('referrerpolicy', 'strict-origin');
     frame.setAttribute('allowfullscreen', '');
-    // YouTube's player reports its state only to a page that has asked.
-    frame.addEventListener('load', function () { tellFrame(frame, { event: 'listening' }); });
+    // YouTube's player reports its state only to a page that has asked, and may not be ready to hear it at once.
+    function listen() {
+      if (!trailerStuck || !player.contains(frame)) return;
+      tellFrame(frame, { event: 'listening' });
+      setTimeout(listen, LISTEN_MS);
+    }
+    frame.addEventListener('load', function () {
+      if (!trailerStuck || !player.contains(frame)) return;
+      clearTimeout(trailerStuck);
+      trailerStuck = setTimeout(failTrailer, TRAILER_STUCK_MS);
+      listen();
+    });
+    trailerStuck = setTimeout(failTrailer, TRAILER_LOAD_MS);
     player.appendChild(frame);
+    player.appendChild(trailerWait());
     player.setAttribute('aria-hidden', 'false');
     easeHero(function () { root.classList.add('is-trailer'); });
     nameClose();
@@ -2981,6 +3054,9 @@
   /* Close the trailer and nothing else. *refocus*: move focus from what goes
      with it to the Trailer button, and let the video fade into the artwork. */
   function closeTrailer(refocus) {
+    clearTimeout(trailerStuck);
+    trailerStuck = null;
+    dropTrailerWait();
     if (!trailerOn()) return;
     var active = document.activeElement;
     var lost = !root.contains(active) || player.contains(active) || active === closeBtn || active === titleEl; // out of sight under a trailer
@@ -3010,12 +3086,25 @@
     if (trailerOn()) address.back('trailer');
   }
 
+  function failTrailer() {
+    if (!trailerOn()) return;
+    leaveTrailer();
+    core.toast('Trailer unavailable.');
+  }
+
   window.addEventListener('message', function (e) {
     var frame = player.querySelector('iframe');
     if (!frame || e.source !== frame.contentWindow || e.origin !== TRAILER_ORIGIN) return;
+    clearTimeout(trailerStuck);
+    trailerStuck = null;
+    dropTrailerWait();
     var m;
     try { m = JSON.parse(e.data); } catch (err) { return; }
     if (!m) return;
+    if (m.event === 'onError') {
+      failTrailer();
+      return;
+    }
     var state = m.event === 'onStateChange' ? m.info
       : m.event === 'infoDelivery' && m.info ? m.info.playerState : null;
     if (state === 0) leaveTrailer();
@@ -3115,7 +3204,8 @@
     return !!play && play.href === e.href && !e.watched;
   }
 
-  function episodeFacts(e) {
+  /* *node* says an episode's facts, each one kept whole. */
+  function episodeFacts(node, e) {
     var facts = [];
     if (e.minutes) facts.push(dur(e.minutes));
     // A date alone is read as UTC midnight, the day before west of it.
@@ -3123,7 +3213,12 @@
     var said = at ? day(at) : '';
     if (said) facts.push(at > Date.now() ? 'Airs ' + said : said);
     if (e.state === 'in_progress' && e.minutes_left) facts.push(dur(e.minutes_left) + ' left');
-    return facts.join(' · ');
+    node.textContent = '';
+    facts.forEach(function (fact, i) {
+      if (i) node.appendChild(document.createTextNode(' · '));
+      node.appendChild(el('span', 'watch-ep__fact', fact));
+    });
+    return node;
   }
 
   function episodeRow(e) {
@@ -3171,7 +3266,7 @@
     var title = el('span', 'watch-ep__title', name);
     if (e.watched) title.appendChild(el('span', 'sr-only', ', watched'));
     text.appendChild(title);
-    text.appendChild(el('span', 'watch-ep__meta', episodeFacts(e)));
+    text.appendChild(episodeFacts(el('span', 'watch-ep__meta'), e));
     a.appendChild(text);
     li.appendChild(a);
     describe(li, e);
@@ -3337,7 +3432,7 @@
       box.querySelector('.ttl__season-facts').textContent = seasonFacts(about, episodes);
       var fresh = [sayOfSeason(box, about, seasonName(s))];
       rows.forEach(function (li, i) {
-        li.querySelector('.watch-ep__meta').textContent = episodeFacts(episodes[i]);
+        episodeFacts(li.querySelector('.watch-ep__meta'), episodes[i]);
         fresh.push(describe(li, episodes[i]));
       });
       if (typeof ResizeObserver === 'function') fitNow(panel);

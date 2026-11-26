@@ -23,11 +23,8 @@
 
   <div class="dl-hero-content">
     <div class="dl-hero-poster">
-      {% if item.poster_url %}
-      <img src="{{ item.poster_url }}" alt="" data-broken-on-error>
-      {% else %}
-      <div class="dl-hero-poster-placeholder"></div>
-      {% endif %}
+      {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" data-broken-on-error>{% endif %}
+      <span class="dl-poster-mark">{{ c.icon("i-film") }}</span>
     </div>
 
     <div class="dl-hero-info">
@@ -47,8 +44,8 @@
       </div>
 
       <div class="dl-search-hint" data-v="search-hint"
-           {% if item.state != 'searching' or not (item.search_hint or item.arr_link) %}hidden{% endif %}>
-        <span data-v="search-hint-text">{{ item.search_hint or '' }}</span><span class="dl-hint-sep" data-v="search-hint-sep" {% if not (item.search_hint and item.arr_link) %}hidden{% endif %}> · </span><a class="dl-arr-link" data-v="arr-link" {% if item.arr_link %}href="{{ item.arr_link }}"{% else %}hidden{% endif %} target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>
+           {% if item.state != 'searching' or not (item.search_hint or (can_abandon and item.arr_link)) %}hidden{% endif %}>
+        <span data-v="search-hint-text">{{ item.search_hint or '' }}</span>{% if can_abandon %}<span class="dl-hint-sep" data-v="search-hint-sep" {% if not (item.search_hint and item.arr_link) %}hidden{% endif %}> · </span><a class="dl-arr-link" data-v="arr-link" {% if item.arr_link %}href="{{ item.arr_link }}"{% else %}hidden{% endif %} target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>{% endif %}
       </div>
 
       <div class="dl-hero-progress" data-v="progress-wrap" {% if item.state == 'searching' %}hidden{% endif %}>
@@ -58,7 +55,7 @@
         <div class="dl-hero-details dl-stats">
           <span><b class="dl-hero-pct" data-v="pct">{{ item.progress }}%</b> complete</span>
           <span><b data-v="size-done">{{ item.size_done or '' }}</b> of <span data-v="size-total">{{ item.size_total or '' }}</span></span>
-          {% if item.eta %}<span>ETA <b data-v="eta">{{ item.eta }}</b></span>{% endif %}
+          {% if item.eta %}<span><b data-v="eta">{{ item.eta }}</b></span>{% endif %}
         </div>
       </div>
 

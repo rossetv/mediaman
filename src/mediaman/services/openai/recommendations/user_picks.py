@@ -174,7 +174,8 @@ def finish_run(conn: sqlite3.Connection, run_id: int, status: str, now: datetime
 
 
 def last_status(conn: sqlite3.Connection, username: str) -> str | None:
-    """How *username*'s last refresh they started themselves ended: done or failed."""
+    """How *username*'s last refresh they started themselves ended: done, failed, or
+    unavailable when OpenAI refused the key."""
     row = conn.execute(
         "SELECT status FROM user_pick_runs WHERE username = ? AND requested_by = 'person'"
         " AND finished_at IS NOT NULL ORDER BY started_at DESC, id DESC LIMIT 1",

@@ -65,8 +65,21 @@ class El {
   removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
   // what the browser sends when a transition or animation on this element ends
   emit(t, extra) { (this.listeners[t] || []).slice().forEach((f) => f({ target: this, ...extra })); }
-  get offsetHeight() { return this.hidden ? 0 : 50; }
-  getBoundingClientRect() { return { height: this.offsetHeight }; }
+  // a layout read: a transform set before it is where a slide starts, and a height set before it
+  // is where a fold eases from
+  get offsetHeight() { if (this.style.transform) this.slideStart = this.style.transform; this.laidHeight = this.style.height; return this.hidden ? 0 : this.style.height ? parseFloat(this.style.height) : 50; }
+  // A queue row stands 100px tall, and 43px more while its search line shows, or where a fold
+  // under way starts from; rows stack.
+  get rowHeight() {
+    if (this.classList.contains('dl-fold') && this.laidHeight) return parseFloat(this.laidHeight);
+    return 100 + (this.querySelectorAll('[data-v="search-hint"]').some((h) => !h.hidden) ? 43 : 0); }
+  getBoundingClientRect() {
+    const p = this.parentNode;
+    if (!p || p.id !== 'dl-queue-list') return { height: this.offsetHeight, top: 0 };
+    const above = p.children.slice(0, p.children.indexOf(this));
+    const shift = /translateY\((-?[\d.]+)px\)/.exec(this.style.transform || '');
+    return { height: this.rowHeight, top: above.reduce((sum, r) => sum + r.rowHeight, 0) + (shift ? Number(shift[1]) : 0) };
+  }
   get nextElementSibling() { const p = this.parentNode; return p ? p.children[p.children.indexOf(this) + 1] || null : null; }
   closest(sel) { let e = this; while (e && e.matches) { if (e.matches(sel)) return e; e = e.parentNode; } return null; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
@@ -208,7 +221,7 @@ function abandonRig() {
   h.doc.getElementById = (id) => byId[id] || null;
   h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel), holdPage: () => () => {} };
   let dismissFn;
-  const rig = { h, label, confirm, list, posts: [], closes: 0, refreshes: 0, errors: 0, toasts: [] };
+  const rig = { h, label, confirm, list, copy, posts: [], closes: 0, refreshes: 0, errors: 0, toasts: [] };
   h.ctx.MM.modal = {
     setupDetail: (_m, opts) => (dismissFn = () => opts.onClose(), {
       open() {},
@@ -223,8 +236,9 @@ function abandonRig() {
   h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
   h.doc.dispatchEvent = (e) => { if (e.type === 'mediaman:downloads:refresh') rig.refreshes += 1; };
   h.load('dl-abandon.js');
-  rig.openItem = (dlId, kind, stuck, title, arrId) => {
+  rig.openItem = (dlId, kind, stuck, title, arrId, upcoming) => {
     const t = mk(); t.dataset = { dlId, kind, title: title || 'T' + dlId, arrId, stuckSeasons: JSON.stringify(stuck || []) };
+    if (upcoming) t.dataset.abandonUpcoming = '1';
     t.closest = () => t;
     h.fire('click', { target: t });
   };
@@ -301,6 +315,35 @@ scenarios.abandonGone = async function () {
   r.posts[0].reject(Object.assign(new Error('gone'), { status: 404 }));
   await r.settle();
   return { closes: r.closes, refreshes: r.refreshes, errors: r.errors, toasts: r.toasts };
+};
+
+// what the dialog tells, for a film and a show, tracked or not yet in the library
+scenarios.abandonWords = async function () {
+  const r = abandonRig();
+  const words = {};
+  [['movie', false], ['movie', true], ['series', false], ['series', true]].forEach(([kind, upcoming]) => {
+    r.openItem('x', kind, [], 'Tx', 1, upcoming);
+    words[kind + (upcoming ? ' upcoming' : '')] = r.copy.textContent;
+  });
+  return words;
+};
+
+// a failed Stop tracking says so, and keeps the server's words when it sent some
+scenarios.abandonFailureWords = async function () {
+  const r = abandonRig();
+  const said = [];
+  r.h.ctx.UIFeedback.error = (m) => said.push(m);
+  r.h.ctx.MM.api.messageOf = (err, fallback) => (err.message === 'server' ? 'Radarr is down.' : fallback);
+  const fail = async (upcoming, message) => {
+    r.openItem('a' + said.length, 'movie', [], 'Tx', 1, upcoming);
+    r.confirmClick();
+    r.posts[r.posts.length - 1].reject(new Error(message));
+    await r.settle();
+  };
+  await fail(true, 'none');
+  await fail(false, 'none');
+  await fail(true, 'server');
+  return said;
 };
 
 // A fails after the dialog moved on to B: B's button is left alone
@@ -473,151 +516,76 @@ scenarios.emptyState = async function () {
   };
 };
 
-// a service that does not answer never reads as "All caught up" or empties a section
+// the page shows what the server lists: in an outage what it no longer lists goes as any row
+// does, and an outage never reads as "All caught up"
 scenarios.outage = async function () {
-  const down = { hero: null, queue: [], unreachable: ['Radarr'], outage: "Can't reach Radarr" };
+  const down = { hero: null, queue: [], outage: "Can't reach Radarr", unreachable: ['Radarr'] };
   const card = (p) => p.byId('dl-empty-container').querySelectorAll('h3').map((e) => e.textContent);
+  const count = (p, id, cls) => { const b = p.byId(id); return b ? b.querySelectorAll(cls).length : 0; };
   const live = pageRig(true);
-  const upcoming = [item('radarr:u1')];
-  live.upd({ hero: item('radarr:h1'), queue: [item('radarr:q1'), item('sonarr:q2')], upcoming });
+  live.upd({ hero: item('radarr:h1'), queue: [item('radarr:q1'), item('sonarr:q2')], upcoming: [item('radarr:u1')] });
   live.upd(down);
-  const count = (id, cls) => { const b = live.byId(id); return b ? b.querySelectorAll(cls).length : 0; };
-  const held = {
-    hero: count('dl-hero-container', '.dl-hero'), queue: count('dl-queue-container', '.dl-compact'),
-    upcoming: count('dl-upcoming-container', '.dl-upcoming-row'), cards: card(live),
+  const gone = {
+    hero: count(live, 'dl-hero-container', '.dl-hero'), queue: count(live, 'dl-queue-container', '.dl-compact'),
+    upcoming: count(live, 'dl-upcoming-container', '.dl-upcoming-row'), cards: card(live),
   };
-  live.upd({ hero: null, queue: [] });
-  const back = { hero: count('dl-hero-container', '.dl-hero'), queue: count('dl-queue-container', '.dl-compact'), upcoming: count('dl-upcoming-container', '.dl-upcoming-row') };
-
-  const other = pageRig(true);
-  other.upd({ hero: item('sonarr:h1'), queue: [] });
-  other.upd(down);
-
+  live.upd({ hero: item('radarr:h1'), queue: [item('radarr:q1')], upcoming: [item('radarr:u1')] });
+  const back = { hero: count(live, 'dl-hero-container', '.dl-hero'), queue: count(live, 'dl-queue-container', '.dl-compact'), upcoming: count(live, 'dl-upcoming-container', '.dl-upcoming-row') };
   const idle = pageRig(true);
   idle.upd({ hero: null, queue: [] });
   const cards = [card(idle)];
   idle.upd(down);
   cards.push(card(idle));
-  idle.upd(down);
   idle.upd({ hero: null, queue: [] });
   cards.push(card(idle));
-  return { held, back, finishedElsewhere: other.byId('dl-hero-container').querySelectorAll('.dl-hero').length, cards };
+  return { gone, back, cards };
 };
 
-// what stays during an outage is decided row by row, by the service of each
+// what an answer lists is shown whether or not it names the service that is down
 scenarios.outageRows = async function () {
   const ids = (p, box, cls) => { const b = p.byId(box); return b ? b.querySelectorAll(cls).map((r) => r.getAttribute('data-dl-id')) : []; };
   const look = (p) => ({ hero: ids(p, 'dl-hero-container', '.dl-hero'), queue: ids(p, 'dl-queue-container', '.dl-compact'), upcoming: ids(p, 'dl-upcoming-container', '.dl-upcoming-row') });
-  const start = () => {
+  const full = {
+    hero: item('sonarr:h1'), queue: [item('radarr:q1'), item('sonarr:q2'), item('sonarr:q3')],
+    upcoming: [item('radarr:u1'), item('sonarr:u2'), item('sonarr:u3')],
+  };
+  const run = (extra) => {
     const p = pageRig(true);
-    p.upd({
-      hero: item('sonarr:h1'), queue: [item('radarr:q1'), item('sonarr:q2'), item('sonarr:q3')],
-      upcoming: [item('radarr:u1'), item('sonarr:u2'), item('sonarr:u3')],
-    });
-    return p;
+    p.upd(full);
+    const down = { outage: "Can't reach Radarr", hero: item('sonarr:h1'), queue: [item('sonarr:q2')], upcoming: [item('sonarr:u2')], ...extra };
+    p.upd(down);
+    const during = look(p);
+    p.upd(full);
+    return { during, back: look(p) };
   };
-  const down = { unreachable: ['Radarr'], outage: "Can't reach Radarr" };
-  const some = start();
-  some.upd({ ...down, hero: item('sonarr:h1'), queue: [item('sonarr:q2')], upcoming: [item('sonarr:u2')] });
-  const promoted = start();
-  promoted.upd({ ...down, hero: item('sonarr:q2'), queue: [] });
-  const heldHero = pageRig(true);
-  heldHero.upd({ hero: item('radarr:h1'), queue: [item('sonarr:q2')] });
-  heldHero.upd({ ...down, hero: null, queue: [] });
-  heldHero.upd({ ...down, hero: item('sonarr:q2'), queue: [] });
-  const displaced = look(heldHero);
-  heldHero.upd({ ...down, hero: item('sonarr:q2'), queue: [] });
-  const stays = look(heldHero);
-  heldHero.upd({ hero: item('radarr:h1'), queue: [item('sonarr:q2')] });
-  const back = look(heldHero);
-  heldHero.upd({ hero: null, queue: [] });
-  heldHero.upd({ ...down, hero: item('sonarr:q9'), queue: [] });
-  const ended = look(heldHero);
-  const all = start();
-  all.upd({ ...down, hero: null, queue: [] });
-  const nothingElse = look(all);
-  all.upd({ hero: null, queue: [] });
-  return { some: look(some), promoted: look(promoted), displaced, stays, back, ended, nothingElse, over: look(all) };
+  return { admin: run({ unreachable: ['Radarr'], refused: [] }), viewer: run({ unreachable: [], refused: [] }) };
 };
 
-// what is kept through an outage is marked as such and counts nothing down
-scenarios.outageDim = async function () {
-  const p = pageRig(true);
-  const eta = (c) => { const e = c.querySelector('[data-v="eta"]'); return e ? e.textContent : ''; };
-  const look = () => [
-    ['dl-hero-container', '.dl-hero'], ['dl-queue-container', '.dl-compact'], ['dl-upcoming-container', '.dl-upcoming-row'],
-  ].flatMap(([box, cls]) => p.byId(box).querySelectorAll(cls)).map((c) => {
-    const hint = c.querySelector('[data-v="search-hint"]');
-    return [c.getAttribute('data-dl-id'), c.classList.contains('is-held'), eta(c), !!hint && !hint.hidden];
-  });
-  const live = {
-    hero: item('radarr:h1', { progress: 79, eta: '~1 min' }),
-    queue: [item('sonarr:q2', { eta: '~2 min' }), item('radarr:q3', { state: 'searching', search_hint: 'next attempt in 3m' })],
-    upcoming: [item('radarr:u1')],
-  };
-  p.upd(live);
-  const up = look();
-  p.upd({ hero: null, queue: [], unreachable: ['Radarr', 'Sonarr', 'NZBGet'], outage: "Can't reach" });
-  const down = look();
-  p.upd(live);
-  const back = look();
-  p.upd({ ...live, hero: live.queue[0], queue: [], upcoming: [], unreachable: ['Radarr'], outage: "Can't reach Radarr" });
-  return { up, down, back, demoted: look() };
-};
-
-// rows stay in order of state through an outage and the line above counts them
+// rows keep their order of state through an outage
 scenarios.outageOrder = async function () {
   const p = pageRig(true);
-  const line = () => p.h.root.querySelector('.ph').querySelector('p').textContent;
   const searching = { state: 'searching', state_label: 'Looking' };
-  const down = { unreachable: ['Radarr'], outage: "Can't reach Radarr" };
   p.upd({
-    subtitle: '5 items in progress · 2 coming soon', hero: item('radarr:h1', { title: 'One' }),
+    hero: item('radarr:h1', { title: 'One' }),
     queue: [item('sonarr:q1'), item('sonarr:q2', searching), item('radarr:q3', { title: 'Three', ...searching }), item('sonarr:q4', searching)],
-    upcoming: [item('radarr:u1'), item('sonarr:u2')],
   });
-  p.upd({
-    ...down, subtitle: "4 items in progress · 1 coming soon · can't reach Radarr", hero: item('sonarr:q1'),
-    queue: [item('Other.2024', { title: 'Other' }), item('sonarr:q4'), item('sonarr:q2', searching)], upcoming: [item('sonarr:u2')],
-  });
-  const part = { line: line(), rows: p.rows() };
-  p.upd({ ...down, subtitle: "Can't reach Radarr", hero: null, queue: [] });
-  const alone = { line: line(), rows: p.rows() };
-  p.upd({ subtitle: '1 item in progress', hero: item('sonarr:q1'), queue: [] });
-  const keeps = pageRig(true);
-  keeps.upd({ hero: item('radarr:h1'), queue: [item('sonarr:q1', searching)] });
-  keeps.upd({ ...down, hero: item('sonarr:q1', searching), queue: [] });
-  const hero = keeps.byId('dl-hero-container').querySelector('.dl-hero');
-  return {
-    part, alone, back: line(),
-    keeps: { hero: hero.getAttribute('data-dl-id'), dimmed: hero.classList.contains('is-held'), rows: keeps.rows() },
+  const down = {
+    outage: "Can't reach Radarr", hero: item('sonarr:q1'),
+    queue: [item('Other.2024', { title: 'Other' }), item('sonarr:q4'), item('sonarr:q2', searching)],
   };
+  p.upd(down);
+  return { rows: p.rows() };
 };
 
 // a service that answers in part: what the payload lists is drawn from it, once
 scenarios.outagePart = async function () {
   const p = pageRig(true);
-  const down = { unreachable: ['Radarr'], outage: "Can't reach Radarr" };
   const ids = (box, cls) => { const b = p.byId(box); return b ? b.querySelectorAll(cls).map((r) => r.getAttribute('data-dl-id')) : []; };
   p.upd({ hero: item('radarr:h1', { progress: 40 }), queue: [item('sonarr:q2')], upcoming: [item('radarr:u1')] });
-  p.upd({ ...down, hero: item('sonarr:q2', { progress: 60 }), queue: [item('radarr:h1', { progress: 50 }), item('radarr:u1')] });
+  const down = { outage: "Can't reach Radarr", hero: item('sonarr:q2', { progress: 60 }), queue: [item('radarr:h1', { progress: 50 }), item('radarr:u1')] };
+  p.upd(down);
   const row = p.byId('dl-queue-list').querySelector('.dl-compact');
   return { rows: p.rows(), pct: row.querySelector('[data-v="pct"]').textContent, upcoming: ids('dl-upcoming-container', '.dl-upcoming-row') };
-};
-
-// a held download that NZBGet still lists under its own name is shown once
-scenarios.outageNzb = async function () {
-  const p = pageRig(true);
-  p.upd({
-    hero: item('radarr:h1', { title: 'Ember Coast' }),
-    queue: [item('radarr:q1', { title: 'It' }), item('radarr:q2', { title: 'Dune: Part Two' }), item('sonarr:q3', { title: 'Dune' })],
-  });
-  p.upd({
-    hero: item('Ember.Coast.2021', { title: 'Ember Coast' }),
-    queue: [item('Dune.Part.Two.2024', { title: 'dune part two' }), item('Edit.2020', { title: 'Edit' }), item('sonarr:q3', { title: 'It' })],
-    unreachable: ['Radarr'], outage: "Can't reach Radarr",
-  });
-  return { rows: p.rows() };
 };
 
 // an episode list opens, and on close stays shown until it has folded away
@@ -873,5 +841,186 @@ scenarios.recentLeaves = async function (reduce) {
   return { during, back, gone: section() === null, boxEmpty: box.children.length === 0 };
 };
 scenarios.recentLeavesReduced = () => scenarios.recentLeaves(true);
+
+
+// the empty card for a page with no Radarr and no Sonarr, as an admin and as a viewer
+scenarios.notSetUp = async function () {
+  const look = (admin, setUp) => {
+    const p = pageRig(true);
+    if (!admin) p.h.root.setAttribute('data-can-abandon', 'false');
+    p.upd({ hero: null, queue: [], downloads_set_up: setUp });
+    const card = p.byId('dl-empty-container');
+    const link = card.querySelectorAll('a')[0];
+    return { h3: card.querySelectorAll('h3')[0].textContent, p: card.querySelectorAll('p')[0].textContent, link: link ? link.href : null };
+  };
+  return {
+    admin: look(true, { movies: false, shows: false }),
+    viewer: look(false, { movies: false, shows: false }),
+    films: look(true, { movies: true, shows: false }),
+    shows: look(false, { movies: false, shows: true }),
+    missing: look(true, undefined),
+  };
+};
+
+// a card the poll swaps to another title fades out over it in one box with it, and its new
+// content comes in only after
+scenarios.heroSwap = async function () {
+  const swap = (reduce) => {
+    const p = pageRig(reduce);
+    p.upd({ hero: item('h1'), queue: [] });
+    p.upd({ hero: item('h2'), queue: [] });
+    const box = p.byId('dl-hero-container');
+    return {
+      ghosts: box.querySelectorAll('.dl-hero-ghost__card').map((g) => g.style.height || ''),
+      swapping: box.querySelectorAll('.dl-hero')[0].classList.contains('is-swapping'),
+      later: (p.h.ctx.timers.forEach((t) => t()), box.querySelectorAll('.dl-hero')[0].classList.contains('is-swapping')),
+    };
+  };
+  return { moving: swap(false), reduced: swap(true) };
+};
+
+// a row whose state changes, and the rows it passes, slide to their places
+scenarios.rowSlide = async function () {
+  const run = (reduce) => {
+    const p = pageRig(reduce);
+    const start = [item('q1'), item('q2', { state: 'searching' }), item('q3')];
+    p.upd({ hero: item('h'), queue: start });
+    p.byId('dl-queue-list').querySelectorAll('.dl-compact').forEach((r) => r.classList.add('dl-card-enter'));
+    p.upd({ hero: item('h'), queue: [item('q1', { state: 'searching' }), item('q2', { state: 'searching' }), item('q3')] });
+    const rows = p.byId('dl-queue-list').querySelectorAll('.dl-compact');
+    return { order: rows.map((r) => r.getAttribute('data-dl-id')), sliding: rows.map((r) => r.classList.contains('is-sliding')), entering: rows.map((r) => r.classList.contains('dl-card-enter')) };
+  };
+  return { moving: run(false), reduced: run(true) };
+};
+
+// a row that grows without moving: the rows below it slide down instead of jumping
+scenarios.rowGrows = async function () {
+  const run = (reduce) => {
+    const p = pageRig(reduce);
+    const searching = { state: 'searching', state_label: 'Looking' };
+    p.upd({ hero: item('h'), queue: [item('q1', searching), item('q2', searching)] });
+    p.upd({ hero: item('h'), queue: [item('q1', { ...searching, search_hint: 'Searched once' }), item('q2', searching)] });
+    const rows = p.byId('dl-queue-list').querySelectorAll('.dl-compact');
+    return { sliding: rows.map((r) => r.classList.contains('is-sliding')), from: rows.map((r) => r.slideStart || '') };
+  };
+  return { moving: run(false), reduced: run(true) };
+};
+
+// a row that moves again while it still slides starts from where it is seen
+scenarios.slideAgain = async function () {
+  const p = pageRig();
+  p.upd({ hero: item('h'), queue: [item('q1'), item('q2')] });
+  const q2 = p.byId('dl-queue-list').querySelectorAll('.dl-compact')[1];
+  q2.classList.add('is-sliding');
+  q2.style.transform = 'translateY(-60px)';   // seen 40px down, on its way up
+  p.upd({ hero: item('h'), queue: [item('q1', { state: 'searching' }), item('q2')] });
+  const rows = p.byId('dl-queue-list').querySelectorAll('.dl-compact');
+  return rows.map((r) => [r.getAttribute('data-dl-id'), r.slideStart || '']);
+};
+
+// rows that come back take their places in the server's order, in Coming soon and the queue
+scenarios.returnOrder = async function () {
+  const p = pageRig(true);
+  const ids = (box, cls) => p.byId(box).querySelectorAll(cls).map((r) => r.getAttribute('data-dl-id'));
+  const full = {
+    hero: item('h'), queue: [item('q1'), item('q2'), item('q3')],
+    upcoming: [item('u1'), item('u2'), item('u3')],
+  };
+  const less = { ...full, queue: [item('q1'), item('q3')], upcoming: [item('u1'), item('u3')] };
+  p.upd(full);
+  p.upd(less);
+  p.upd(full);
+  return { upcoming: ids('dl-upcoming-container', '.dl-upcoming-row'), queue: ids('dl-queue-container', '.dl-compact') };
+};
+
+// a viewer's outage with nothing in progress is said by the card alone
+scenarios.viewerOutageLine = async function () {
+  const line = (admin, upcoming) => {
+    const p = pageRig(true);
+    if (!admin) p.h.root.setAttribute('data-can-abandon', 'false');
+    const outage = admin ? "Can't reach Radarr" : "Downloads aren't available";
+    const coming = upcoming.length ? ' · ' + upcoming.length + ' coming soon' : '';
+    p.upd({ hero: null, queue: [], upcoming, outage, subtitle: outage + coming });
+    return p.h.root.querySelectorAll('.ph')[0].querySelectorAll('p').map((e) => e.textContent);
+  };
+  return { viewer: line(false, []), viewerSoon: line(false, [item('u1')]), admin: line(true, []) };
+};
+
+// a card with no poster, or one that does not load, holds the mark of one
+scenarios.posterMark = async function () {
+  const p = pageRig(true);
+  p.upd({ hero: item('h', { poster_url: '' }), queue: [item('q1', { poster_url: '' }), item('q2', { poster_url: '/p.jpg' })] });
+  const kinds = (sel) => p.h.root.querySelectorAll(sel).map((box) => box.children.map((c) => c.tagName + '.' + c.className));
+  p.upd({ hero: item('h', { poster_url: '/h.jpg' }), queue: [item('q1', { poster_url: '' }), item('q2', { poster_url: '/p.jpg' })] });
+  return { hero: kinds('.dl-hero-poster'), rows: kinds('.dl-compact-poster') };
+};
+
+// the queue's heading is true of the rows under it
+scenarios.queueHeading = async function () {
+  const p = pageRig(true);
+  const heading = () => p.byId('dl-queue-container').querySelectorAll('h2')[0].textContent;
+  const out = {};
+  p.upd({ hero: item('h'), queue: [item('q1', { state: 'queued' }), item('q2', { state: 'queued' })] });
+  out.queued = heading();
+  p.upd({ hero: item('h'), queue: [item('q1', { state: 'queued' }), item('q2')] });
+  out.mixed = heading();
+  return out;
+};
+
+// a refused key sends an admin to Settings; a viewer is told only that it is not available
+scenarios.refusedKey = async function () {
+  const look = (admin, extra) => {
+    const p = pageRig(true);
+    if (!admin) p.h.root.setAttribute('data-can-abandon', 'false');
+    p.upd({ hero: null, queue: [], ...extra });
+    const card = p.byId('dl-empty-container');
+    const link = card.querySelectorAll('a')[0];
+    return { p: card.querySelectorAll('p')[0].textContent, link: link ? link.href : null };
+  };
+  const refused = { outage: "Can't sign in to Sonarr", unreachable: ['Sonarr'], refused: ['Sonarr'] };
+  return {
+    admin: look(true, refused),
+    two: look(true, { ...refused, refused: ['Radarr', 'Sonarr'] }),
+    down: look(true, { outage: "Can't reach Sonarr", unreachable: ['Sonarr'], refused: [] }),
+    viewer: look(false, { outage: "Downloads aren't available", unreachable: [], refused: [] }),
+  };
+};
+
+// a viewer is told that rows may be missing, not which service does not answer
+scenarios.viewerLine = async function () {
+  const line = (admin) => {
+    const p = pageRig(true);
+    if (!admin) p.h.root.setAttribute('data-can-abandon', 'false');
+    p.upd({
+      hero: item('h'), queue: [item('q')], upcoming: [item('u')], outage: admin ? "Can't reach Radarr" : "Downloads aren't available",
+      subtitle: 'server words',
+    });
+    return p.h.root.querySelectorAll('.ph')[0].querySelectorAll('p')[0].textContent;
+  };
+  return { viewer: line(false), admin: line(true) };
+};
+
+// only an admin's rows hold a link into Radarr or Sonarr
+scenarios.arrLink = async function () {
+  const count = (admin) => {
+    const p = pageRig(true);
+    if (!admin) p.h.root.setAttribute('data-can-abandon', 'false');
+    const searching = { state: 'searching', search_hint: 'next attempt', arr_link: 'http://r/x', arr_source: 'Radarr' };
+    p.upd({ hero: item('h', searching), queue: [item('q', searching)] });
+    return p.h.root.querySelectorAll('[data-v="arr-link"]').length;
+  };
+  return { admin: count(true), viewer: count(false) };
+};
+
+// a row that arrives mid-list opens from nothing, so the rows below it ease down as it grows
+// and never start from a place they were not seen in
+scenarios.newRowMidList = async function () {
+  const p = pageRig();
+  p.upd({ hero: item('h'), queue: [item('q1'), item('q3')] });
+  p.upd({ hero: item('h'), queue: [item('q1'), item('q2'), item('q3')] });
+  return p.byId('dl-queue-list').querySelectorAll('.dl-compact').map((r) => [
+    r.getAttribute('data-dl-id'), r.style.height || '', r.slideStart || '', r.getBoundingClientRect().top,
+  ]);
+};
 
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

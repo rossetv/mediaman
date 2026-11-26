@@ -86,12 +86,17 @@ class FetchResult:
     ``cards`` is the list of download cards (same content as ``fetch_arr_queue``).
     ``errors`` is a list of human-readable error strings -- one per service that
     failed, with the cause.  Empty when all fetches succeeded.  ``unreachable``
-    names every service whose list is missing or incomplete, for the page to show.
+    names every service whose list is missing or incomplete, for the page to show;
+    ``refused`` those of them that answered 401 or 403, which refused their API key.
+    ``stood_in`` names the services whose cards are their last answer, given for a fetch that
+    failed, which may be out of date.
     """
 
     cards: list[ArrCard] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     unreachable: list[str] = field(default_factory=list)
+    refused: list[str] = field(default_factory=list)
+    stood_in: list[str] = field(default_factory=list)
 
 
 class _ArrEpisodeRequired(TypedDict):
@@ -120,6 +125,8 @@ class ArrEpisodeEntry(_ArrEpisodeRequired, total=False):
 
     is_pack_episode: bool
     season_number: int
+    # The queue entry's trackedDownloadState, which with its status says what it is doing.
+    tracked_state: str
 
 
 class BaseArrCard(TypedDict):
@@ -147,6 +154,8 @@ class ArrCard(BaseArrCard, total=False):
     done_str: str
     timeleft: str
     status: str
+    # A film's queue entry's trackedDownloadState, which with its status says what it is doing.
+    tracked_state: str
     is_upcoming: bool
     release_label: str
     arr_id: int
@@ -185,6 +194,11 @@ def is_film_id(dl_id: str, title: str) -> bool:
     """Whether *dl_id* is a ``film_id`` of *title*."""
     number = dl_id.removeprefix(f"radarr:{title}#")
     return number != dl_id and number.isdecimal()
+
+
+def film_tmdb_id(dl_id: str, title: str) -> int | None:
+    """The TMDB id in a ``film_id`` of *title*, or None when *dl_id* is not one."""
+    return int(dl_id.rpartition("#")[2]) if is_film_id(dl_id, title) else None
 
 
 def make_arr_card(

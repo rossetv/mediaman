@@ -22,7 +22,7 @@ from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import build_item
-from mediaman.services.downloads.download_format._types import DownloadItem
+from mediaman.services.downloads.download_format._types import DownloadItem, state_label
 from mediaman.services.downloads.notifications import requested_tvdb_id
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
@@ -30,6 +30,7 @@ from mediaman.web.auth.middleware import get_optional_admin
 from mediaman.web.responses import respond_err
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
 from mediaman.web.routes.download._season import season_of_media_id
+from mediaman.web.routes.downloads_strip import library_of, library_title
 
 from ._radarr import _radarr_queue_item, _radarr_ready_item, _radarr_searching_item
 
@@ -115,7 +116,8 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
 
     movie = client.get_movie_by_tmdb(tmdb_id)
     if movie and movie.get("hasFile"):
-        return _radarr_ready_item(movie)
+        ready = _radarr_ready_item(movie)
+        return _playable(conn, secret_key, ready, "movie", tmdb_id, movie.get("year"))
 
     queued = _radarr_queue_item(client.get_queue(), tmdb_id)
     if queued is not None:
@@ -133,14 +135,30 @@ def _sonarr_status(
 
     queue = client.get_queue()
     tvdb_id = requested_tvdb_id(conn, tmdb_id)
-    series_title, series_poster, ep_entries = _sonarr_queue_entries(
-        queue, tmdb_id, season_number, tvdb_id
-    )
+    series_title, ep_entries = _sonarr_queue_entries(queue, tmdb_id, season_number, tvdb_id)
 
     if ep_entries:
-        return _sonarr_aggregate(series_title, series_poster, ep_entries)
+        return _sonarr_aggregate(series_title, ep_entries)
 
-    return _sonarr_series_fallback(client, tmdb_id, season_number, tvdb_id)
+    found = _sonarr_series_fallback(client, tmdb_id, season_number, tvdb_id)
+    return _playable(conn, secret_key, found, "tv", tmdb_id)
+
+
+def _playable(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    item: DownloadItem,
+    kind: str,
+    tmdb_id: int,
+    year: int | None = None,
+) -> DownloadItem:
+    """*item*, ready only once the library holds its title, as Downloads and the strip say;
+    almost ready until then."""
+    if item["state"] != "ready":
+        return item
+    if library_title(library_of(conn, secret_key), kind, tmdb_id, item["title"], year) is not None:
+        return item
+    return {**item, "state": "almost_ready", "state_label": state_label("almost_ready")}
 
 
 def _cached_status(

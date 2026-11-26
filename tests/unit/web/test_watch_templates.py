@@ -1058,8 +1058,8 @@ def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
 @pytest.mark.parametrize(
     ("admin", "tmdb", "says", "never"),
     [
-        (True, True, "search above for something to download", "Connect TMDB"),
-        (True, False, "Connect TMDB", "search above"),
+        (True, True, "search for something to download", "Connect TMDB"),
+        (True, False, "Connect TMDB", "search for something"),
         (False, True, "ask whoever runs mediaman", "Settings"),
         (False, False, "ask whoever runs mediaman", "TMDB"),
     ],
@@ -1075,7 +1075,18 @@ def test_an_empty_library_says_so_and_what_to_do_next(
     assert "Nothing to watch yet" in text
     assert says.lower() in text.lower()
     assert never.lower() not in text.lower()
-    assert ('href="/settings"' in text) is admin
+    assert ('href="/settings#setg-general"' in text) is admin
+    assert ("Sync now" in text) is admin
+
+
+def test_an_admin_whose_scans_found_titles_watch_cannot_open_is_sent_to_all_titles() -> None:
+    html = _watch(is_admin=True, tmdb_configured=True, library_total=3)
+    empty = re.search(r'<section class="watch-empty">(.*?)</section>', html, re.S)
+
+    assert empty
+    assert "can’t open what the scans found" in empty.group(1)
+    assert "see all titles below" in empty.group(1)
+    assert "Your library is empty" not in empty.group(1)
 
 
 def test_a_library_with_titles_or_a_plex_error_has_no_empty_state() -> None:

@@ -244,6 +244,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl.is-trailer .ttl__head { opacity: 0; transform: translateY(8px); }
 .ttl.is-trailer .ttl__hero::after { opacity: 0; }
 .ttl__frame {
+  grid-area: 1 / 1;
   display: block;
   width: min(100cqw, 100cqh * 16 / 9);
   aspect-ratio: 16 / 9;
@@ -252,6 +253,18 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   transform: scale(.97);
   transition: transform var(--dur) var(--ease-out);
 }
+/* Covers the frame (same cell, same box) until the player speaks; it takes no clicks. */
+.ttl__wait {
+  grid-area: 1 / 1;
+  width: min(100cqw, 100cqh * 16 / 9);
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  background: var(--scrim);
+  color: var(--t1);
+  pointer-events: none;
+}
+.ttl__wait .btn-spinner { width: 28px; height: 28px; margin: 0; border-width: 3px; }
 .ttl.is-trailer .ttl__frame { transform: none; animation: ttl-frame-in var(--dur-slow) var(--ease-out); }
 @keyframes ttl-frame-in { from { opacity: 0; transform: scale(.97); } }
 .ttl__trailer > span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
@@ -377,6 +390,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__progress { display: flex; align-items: center; gap: 12px; min-height: 1lh; font-size: 13px; color: var(--t2); }
 .ttl__progress .watch-bar--banner { width: min(240px, 50%); }
 .ttl__leaving { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--danger-text); }
+.ttl__leaving-keep { position: relative; padding: 0; border: 0; border-radius: var(--r-xxs); background: none; font: inherit; color: inherit; text-align: inherit; text-decoration: underline 1px; text-underline-offset: 3px; cursor: pointer; }
+.ttl__leaving-keep::after { content: ""; position: absolute; inset: -12px -3px; }
+.ttl__leaving-keep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl__leaving-keep:active { opacity: .6; }
 .ttl__leaving-skel { color: transparent; user-select: none; }
 .ttl__leaving:has(> .ttl__leaving-skel) > .ico { visibility: hidden; }
 .ttl__ratings { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -441,10 +458,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__actions.has-play-on > :is(.watch-btn--keep, .ttl__keep-skel) { flex: 0 0 auto; }
 }
 
-/* Those still to come take what is left of the line: the ones that do not fit wrap out of sight. */
-.ttl__ratings-wait { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; gap: inherit; height: calc(1lh + 8px); overflow: hidden; font-size: 12px; }
-.ttl__ratings-wait > .ttl-rating { flex: none; border-radius: var(--r-pill); }
-.ttl__ratings-wait > .ttl-rating > * { visibility: hidden; }
+/* The rest of the line is held for those still to come, so it keeps its height when they do or do not. */
+.ttl__ratings-wait { flex: 1 1 0; min-width: 0; height: calc(1lh + 8px); font-size: 12px; }
 
 /* Rating pills */
 .ttl-rating { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; }
@@ -607,6 +622,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl .watch-eprow:has(> .watch-ep--next) { background: var(--s2); }
 .ttl .watch-ep__text { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .ttl .watch-ep__meta { flex-basis: 100%; order: 2; }
+/* A fact moves to a line of its own whole, and only one wider than the column breaks. */
+.ttl .watch-ep__fact { display: inline-block; max-width: 100%; }
 .ttl .watch-ep__state { order: 1; padding: 3px 10px; font-weight: 600; }
 .ttl .watch-ep__about { grid-area: about; margin-top: 4px; font-size: 14px; color: var(--t2); overflow-wrap: anywhere; }
 
@@ -837,6 +854,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__head::before { display: none; }
   .ttl:not(.is-trailer) .ttl__hero { min-height: 190px; }
   .ttl__player { background: Canvas; }
+  .ttl__wait { background: Canvas; }
+  .ttl__wait .btn-spinner { forced-color-adjust: none; border-color: GrayText; border-top-color: CanvasText; }
   .season-chip[aria-checked="true"] { border-color: Highlight; }
   .season-chip[aria-checked="true"] .season-chip__box { forced-color-adjust: none; background: Highlight; border-color: Highlight; color: HighlightText; }
   .season-chip[aria-disabled="true"] { border-style: dashed; }
@@ -844,7 +863,6 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .season-pick__go[aria-disabled="true"] { opacity: 1; border-style: dashed; }
   .season-chip[data-state="none"]:not([data-icon="i-lock"]):not([aria-checked="true"]) .ico,
   .season-chip[data-state="pick"]:not([aria-checked="true"]) .ico { visibility: hidden; }
-  .ttl__ratings-wait > .ttl-rating { outline: 1px solid GrayText; outline-offset: -1px; }
   .dl-progress .watch-bar--banner::-webkit-progress-value { background: Highlight; }
   .dl-progress .watch-bar--banner::-moz-progress-bar { background: Highlight; }
 }

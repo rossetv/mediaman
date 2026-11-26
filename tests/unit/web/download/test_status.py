@@ -29,6 +29,12 @@ from mediaman.web.routes.download.status import (
 from tests.helpers.factories import insert_recent_download
 
 
+@pytest.fixture(autouse=True)
+def _the_library_holds_every_title(monkeypatch):
+    """A title its service has the file of is in the library here, to be played."""
+    monkeypatch.setattr("mediaman.web.routes.download.status.library_title", lambda *a: "movie-1")
+
+
 def _download_token(secret_key: str, media_type: str = "movie", tmdb_id: int = 42) -> str:
     return generate_download_token(
         email="test@example.com",
