@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sqlite3
 import threading
 from types import SimpleNamespace
 
@@ -85,6 +86,26 @@ def test_at_the_signal_the_places_are_saved_and_then_the_films_to_tvs_end(monkey
         assert older_stream.ending.is_set()
     finally:
         older_stream.ending.clear()
+
+
+def test_a_start_after_a_release_lets_a_tick_claim_again(monkeypatch):
+    from mediaman.services.downloads import _notification_claims
+    from mediaman.services.media_meta import plex_stream
+
+    manager = SimpleNamespace(reap=lambda: 0, tidy_orphans=lambda: 0, stop_all=lambda: None)
+    monkeypatch.setattr(plex_stream, "init_stream_manager", lambda *a, **k: manager)
+    monkeypatch.setattr(app_factory, "_tidy_stream_orphans", lambda tidy: None)
+    monkeypatch.setattr(app_factory, "_start_stream_reaper", lambda reap, interval: lambda: None)
+    monkeypatch.setattr(app_factory, "_when_told_to_end", lambda act: None)
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE download_notifications (notified INT, claimed_at TEXT)")
+    _notification_claims.release_claims_on_shutdown(conn)
+    assert _notification_claims._ending.is_set()
+
+    app_factory._start_watch_streams("k")
+
+    assert not _notification_claims._ending.is_set()
 
 
 @pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGINT])

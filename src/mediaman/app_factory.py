@@ -207,6 +207,7 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     yet sent, since a kill may come before the lifespan's end does.
     """
     from mediaman.db import close_db, get_db
+    from mediaman.services.downloads import _notification_claims
     from mediaman.services.downloads._notification_claims import release_claims_on_shutdown
     from mediaman.services.infra import allowed_outbound_hosts
     from mediaman.services.media_meta.plex_stream import init_stream_manager
@@ -226,6 +227,7 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     stop_reaper = _start_stream_reaper(manager.reap, _STREAM_REAP_INTERVAL_SECONDS)
 
     older_stream.ending.clear()
+    _notification_claims._ending.clear()
 
     def told_to_end() -> None:
         try:
