@@ -63,7 +63,7 @@
   /* [what stands out, the rest] */
   function says(item) {
     if (item.state === 'ready') return ['', item.line || 'Ready to watch'];
-    if (item.state === 'almost_ready') return ['Almost ready', ''];
+    if (item.state === 'almost_ready') return item.line ? ['', item.line] : ['Almost ready', ''];
     /* What Radarr or Sonarr says is wrong is told to an admin alone. */
     if (item.state === 'needs_attention') return ['Needs attention', item.attention ? ' · ' + item.attention : ''];
     if (item.state === 'finding_copy') return ['', 'Finding another copy'];

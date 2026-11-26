@@ -606,6 +606,7 @@ def test_a_removal_that_timed_out_may_have_gone_through_so_the_search_is_sent(ar
         "Failed to import episode due to permission issues.",
         "Failed to import episode, Root folder missing.",
         "Not enough free space",
+        "Single episode file contains all episodes in seasons. Review file name or manually import",
     ],
 )
 def test_a_download_stuck_on_sonarrs_own_setup_is_left_for_an_admin(arrs, message):
@@ -1169,7 +1170,7 @@ def test_a_download_sonarr_holds_for_a_while_is_waited_for_not_removed(arrs, mes
     _hourly(arrs, 3)
 
     assert arrs.changes() == []
-    assert arrs.states() == {"Alone": "needs_attention"}
+    assert arrs.states() == {"Alone": "almost_ready"}
 
 
 @pytest.mark.parametrize(

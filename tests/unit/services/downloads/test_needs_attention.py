@@ -19,7 +19,7 @@ from mediaman.services.downloads.download_queue.items import build_unmatched_arr
 from mediaman.services.downloads.strip import Answer, Strip, collect, payload
 
 _NOW = datetime(2026, 5, 4, 12, 0, tzinfo=UTC)
-_WHY = "Single episode file contains all episodes in seasons. Review file name or manually import"
+_WHY = "No files found are eligible for import in /downloads/Alone.S12"
 
 
 def _sonarr_record(episode: int, **over: object) -> dict[str, object]:

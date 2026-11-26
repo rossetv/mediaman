@@ -24,8 +24,13 @@ def state_label(state: str) -> str:
     return DOWNLOAD_STATE_LABELS.get(state, state)
 
 
-def attention_hint(source: str) -> str:
+WAITING_TO_IMPORT = "Waiting to import"
+
+
+def attention_hint(source: str, reason: str = "") -> str:
     """Where an admin deals with a download that needs attention."""
+    if "contains all episodes" in reason.lower():
+        return f"Import it by hand in {source or 'Sonarr'}: Activity → Queue → Manual Import"
     return f"Fix it in {source or 'Radarr or Sonarr'}: Activity → Queue"
 
 

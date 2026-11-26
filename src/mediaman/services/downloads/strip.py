@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 from mediaman.core.time import parse_iso_utc
 from mediaman.services.arr.fetcher._base import film_tmdb_id
+from mediaman.services.downloads.download_format._types import WAITING_TO_IMPORT
 from mediaman.services.downloads.download_queue import VIEWER_OUTAGE
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
 
@@ -192,6 +193,7 @@ def _current(item: Mapping[str, object]) -> StripItem:
     dl_id, tmdb_id = _text(item.get("id")), _int(item.get("tmdb_id")) or None
     # "Searched 12x · next attempt in ~4h"
     hint = _text(item.get("search_hint")).partition(" · ")[2] if state == "stuck" else ""
+    waits = item.get("state_label") == WAITING_TO_IMPORT
     return StripItem(
         key=_key_of(dl_id, tmdb_id),
         dl_id=dl_id,
@@ -200,7 +202,7 @@ def _current(item: Mapping[str, object]) -> StripItem:
         state=state,
         percent=max(0, min(100, _int(item.get("progress")))) if state in _ACTIVE else 0,
         minutes_left=_minutes_left(item.get("eta")) if state == "downloading" else None,
-        line=hint,
+        line=WAITING_TO_IMPORT if state == "almost_ready" and waits else hint,
         poster_url=_text(item.get("poster_url")),
         tmdb_id=tmdb_id,
         attention=_text(item.get("attention")),
