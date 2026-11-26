@@ -400,6 +400,10 @@
 }
 .setg-pg .link-danger:hover { background: var(--rgba-danger-bg-soft); }
 .setg-pg .usr-plex .link-danger { position: relative; min-height: 26px; padding: 0 9px; }
+/* In forced colours a button with no border reads as plain text. */
+@media (forced-colors: active) {
+  .setg-pg .link-danger { border: 1px solid ButtonText; }
+}
 
 /* A pressed button that is working keeps the focus, so it is dimmed instead of disabled. */
 .setg-pg .tv-li .btn[aria-disabled="true"],

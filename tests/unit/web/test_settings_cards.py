@@ -192,3 +192,8 @@ def test_a_fold_does_not_ease_its_border_width() -> None:
     eased = re.findall(r"\n\.setg-pg \.setg-fold \{[^}]*transition:([^;}]*)", PANELS)
     assert eased and "grid-template-rows" in eased[0]
     assert "border" not in eased[0]
+
+
+def test_remove_and_delete_keep_a_border_in_forced_colours() -> None:
+    blocks = re.findall(r"@media \(forced-colors: active\) \{(.*?)\n\}", PANELS, re.S)
+    assert any(re.search(r"\.setg-pg \.link-danger \{[^}]*border: 1px solid", b) for b in blocks)
