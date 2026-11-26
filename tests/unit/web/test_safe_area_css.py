@@ -155,3 +155,17 @@ def test_the_phone_storage_toasts_start_below_the_notch() -> None:
     top = _px(_last("--toast-top", toast), UPRIGHT)
     assert top >= UPRIGHT["top"] + 12
     assert _px(_last("--toast-top", toast), NO_INSETS) == 60
+
+
+@pytest.mark.parametrize("insets", [NO_INSETS, UPRIGHT])
+@pytest.mark.parametrize("media", [None, PHONE])
+def test_the_foot_of_an_open_title_stays_clear_of_the_tv_bar_over_it(insets, media) -> None:
+    remote = CSS / "_tv_remote.css"
+    bar_rule = _of("html.has-ttl .tv-mini", media, remote) or _of(
+        "html.has-ttl .tv-mini", None, remote
+    )
+    bar = _px(_last("bottom", bar_rule), insets)
+    page = _of("html.has-ttl.has-tv-mini .ttl", None, remote)
+    assert _px(_last("padding-bottom", page), insets) - bar >= 82
+    assert _px(_last("scroll-padding-bottom", page), insets) - bar >= 82
+    assert _px(_last("padding-bottom", page), NO_INSETS) == 98

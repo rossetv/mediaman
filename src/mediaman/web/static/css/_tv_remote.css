@@ -216,7 +216,7 @@ html.has-tv-mini.has-savebar { scroll-padding-bottom: calc(var(--savebar-h, 73px
 }
 /* A title's page is over the whole page, and the bar over it. */
 html.has-ttl .tv-mini { z-index: calc(var(--z-modal) + 1); bottom: max(16px, env(safe-area-inset-bottom)); }
-html.has-ttl.has-tv-mini .ttl { padding-bottom: 98px; scroll-padding-bottom: 98px; }
+html.has-ttl.has-tv-mini .ttl { padding-bottom: calc(82px + max(16px, env(safe-area-inset-bottom, 0px))); scroll-padding-bottom: calc(82px + max(16px, env(safe-area-inset-bottom, 0px))); }
 @media (max-width: 699.98px) {
   .tv-mini { bottom: max(8px, env(safe-area-inset-bottom, 0px)); width: calc(100% - 16px); gap: 4px; padding: 8px 4px 10px 8px; border-radius: 12px; }
   .tv-mini .player-btn--skip { display: none; }
