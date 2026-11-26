@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import time
 from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,7 +18,14 @@ from mediaman.services.downloads._notification_email import (
     get_notification_template,
 )
 from mediaman.services.mail.newsletter.summary import _load_recommendations, load_own_picks
-from tests.helpers.factories import insert_admin_user, insert_suggestion, insert_user_pick
+from tests.helpers.factories import (
+    insert_admin_user,
+    insert_download_notification,
+    insert_settings,
+    insert_subscriber,
+    insert_suggestion,
+    insert_user_pick,
+)
 
 SITE = "https://media.example"
 POSTER = "https://image.tmdb.org/t/p/w300/p.jpg"
@@ -129,3 +137,80 @@ def test_an_own_pick_s_poster_comes_from_this_site(conn, secret_key):
 
     (pick,) = picks["amy@example.com"]
     assert (pick["poster_url"] or "").startswith(f"{SITE}/api/img/tmdb/w342/p.jpg?sig=")
+
+
+def _mail_settings(conn, **extra):
+    insert_settings(
+        conn,
+        mailgun_domain="mg.example.com",
+        mailgun_api_key="key-test",
+        mailgun_from_address="media@example.com",
+        **extra,
+    )
+
+
+@pytest.mark.parametrize(("site", "signed"), [(SITE, True), ("", False)])
+def test_the_ready_mail_sent_has_this_site_s_poster_when_its_address_is_set(
+    conn, secret_key, monkeypatch, site, signed
+):
+    from mediaman.services.downloads.notifications import check_download_notifications
+
+    _mail_settings(conn, **({"base_url": site} if site else {}))
+    insert_suggestion(conn, title="Dune", tmdb_id=42, poster_url=POSTER)
+    insert_download_notification(
+        conn, email="u@example.com", title="Dune", media_type="movie", tmdb_id=42
+    )
+    movie = {"tmdbId": 42, "title": "Dune", "hasFile": True, "monitored": True}
+    radarr = MagicMock(**{"get_movies.return_value": [movie]})
+    radarr.get_movie_by_tmdb.return_value = movie
+    monkeypatch.setattr("mediaman.services.arr.build.build_radarr_from_db", lambda *a: radarr)
+    monkeypatch.setattr("mediaman.services.arr.build.build_sonarr_from_db", lambda *a: None)
+    mailgun = MagicMock()
+    monkeypatch.setattr("mediaman.services.mail.mailgun.MailgunClient", lambda *a, **k: mailgun)
+
+    check_download_notifications(conn, secret_key)
+
+    (picture,) = _pictures(mailgun.send.call_args.kwargs["html"])
+    if signed:
+        assert picture.startswith(f"{SITE}/api/img/tmdb/w500/p.jpg?sig=")
+        assert 180 <= _lasts_days(picture, secret_key) <= 181
+    else:
+        assert picture == "https://image.tmdb.org/t/p/w500/p.jpg"
+
+
+def test_the_newsletter_sent_has_this_site_s_pick_posters(conn, secret_key):
+    from mediaman.services.mail.newsletter import send_newsletter
+
+    _mail_settings(conn, base_url=SITE)
+    insert_subscriber(conn, email="amy@example.com")
+    insert_admin_user(conn, username="amy", role="viewer")
+    with conn:
+        conn.execute("UPDATE admin_users SET email = 'amy@example.com' WHERE username = 'amy'")
+    insert_suggestion(
+        conn,
+        title="Dune",
+        tmdb_id=42,
+        poster_url=POSTER,
+        batch_id=datetime.now(UTC).strftime("%Y-%m-%d"),
+    )
+    insert_user_pick(
+        conn,
+        "amy",
+        title="Arrival",
+        tmdb_id=43,
+        poster_url="https://image.tmdb.org/t/p/w300/own.jpg",
+    )
+    mailgun = MagicMock()
+    disk = {"total_bytes": 10 << 40, "used_bytes": 5 << 40, "free_bytes": 5 << 40}
+    with (
+        patch("mediaman.services.mail.mailgun.MailgunClient", return_value=mailgun),
+        patch("mediaman.services.infra.get_aggregate_disk_usage", return_value=disk),
+        patch("mediaman.services.arr.build.build_radarr_from_db", return_value=None),
+        patch("mediaman.services.arr.build.build_sonarr_from_db", return_value=None),
+    ):
+        send_newsletter(conn, secret_key)
+
+    html = mailgun.send.call_args.kwargs["html"]
+    posters = {p.split("?")[0] for p in _pictures(html)}
+    assert {f"{SITE}/api/img/tmdb/w342/p.jpg", f"{SITE}/api/img/tmdb/w342/own.jpg"} <= posters
+    assert "image.tmdb.org" not in html

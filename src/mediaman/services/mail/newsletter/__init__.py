@@ -233,8 +233,12 @@ def send_newsletter(
     this_week_items: list[NewsletterRecItem] = []
     own_picks: dict[str, list[NewsletterRecItem]] = {}
     if get_bool_setting(conn, "suggestions_enabled", default=True):
-        this_week_items = _load_recommendations(conn, check_enabled=False)
-        own_picks = load_own_picks(conn, subscriber_emails, now)
+        this_week_items = _load_recommendations(
+            conn, check_enabled=False, base_url=base_url, secret_key=secret_key
+        )
+        own_picks = load_own_picks(
+            conn, subscriber_emails, now, base_url=base_url, secret_key=secret_key
+        )
     has_recommendations = bool(this_week_items) or any(own_picks.values())
 
     scheduled_items = _load_scheduled_items(conn, secret_key, base_url, now, mark_notified)

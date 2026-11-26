@@ -523,6 +523,7 @@ def _process_one_notification(
     sonarr_series_index: list[SonarrSeries] | None = None,
     radarr_index: dict[int, RadarrMovie] | None = None,
     base_url: str = "",
+    secret_key: str = "",
 ) -> None:
     """Check availability, send the email and mark one claimed row.
 
@@ -568,7 +569,7 @@ def _process_one_notification(
         # without touching runtime behaviour.
         movie_typed = cast("RadarrMovie | None", movie)
         subject, html = _build_email_payload(
-            row, movie_typed, suggestions_by_tmdb, template, base_url
+            row, movie_typed, suggestions_by_tmdb, template, base_url, secret_key
         )
         # The claim may be old by now (a long batch, slow Arr lookups): refresh it so
         # reconcile does not free a row whose email is going out.
@@ -677,6 +678,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             sonarr_series_index=sonarr_series_index,
             radarr_index=radarr_index,
             base_url=base_url,
+            secret_key=secret_key,
         )
 
 
