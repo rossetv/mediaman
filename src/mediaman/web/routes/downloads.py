@@ -151,7 +151,7 @@ def _lookup_dl_item(
     films had none of their own. Raises 409 when that is more than one title, and 503 when none
     is while a service is unreachable.
     """
-    payload = build_downloads_response(conn, secret_key)
+    payload = build_downloads_response(conn, secret_key, steady=False)
     items = [*payload.get("queue", []), *payload.get("upcoming", [])]
     if hero := payload.get("hero"):
         items.append(hero)
