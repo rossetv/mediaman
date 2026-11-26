@@ -203,9 +203,11 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
 
     The tidy runs on its own thread so a Plex that is down never holds up startup. Returns
     the function that saves the places of what plays on TVs, stops the reaper and then every
-    live stream.
+    live stream. When told to end, it also frees the download-ready emails claimed and not
+    yet sent, since a kill may come before the lifespan's end does.
     """
-    from mediaman.db import get_db
+    from mediaman.db import close_db, get_db
+    from mediaman.services.downloads._notification_claims import release_claims_on_shutdown
     from mediaman.services.infra import allowed_outbound_hosts
     from mediaman.services.media_meta.plex_stream import init_stream_manager
     from mediaman.web.routes import older_stream, tv
@@ -229,7 +231,11 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
         try:
             tv.save_places()
         finally:
-            older_stream.ending.set()
+            try:
+                release_claims_on_shutdown(get_db())
+            finally:
+                close_db()
+                older_stream.ending.set()
 
     stop_listening = _when_told_to_end(told_to_end)
 
