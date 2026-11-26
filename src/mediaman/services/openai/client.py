@@ -232,15 +232,16 @@ def key_refused(conn: sqlite3.Connection | None, secret_key: str | None = None) 
 
 
 def _log_error(exc: Exception) -> None:
+    """One plain line for what OpenAI or the network did; a traceback only for the rest."""
     if isinstance(exc, SafeHTTPError):
         if exc.status_code == 401:
-            logger.exception("OpenAI API key rejected (401) — check settings")
+            logger.warning("OpenAI API key rejected (401) — check settings")
         else:
-            logger.exception("OpenAI API returned HTTP error: %s", exc)
+            logger.warning("OpenAI API returned HTTP error: %s", exc)
     elif isinstance(exc, requests.Timeout):
-        logger.warning("OpenAI API call timed out", exc_info=True)
+        logger.warning("OpenAI API call timed out")
     elif isinstance(exc, requests.RequestException):
-        logger.exception("OpenAI API network error: %s", exc)
+        logger.warning("OpenAI API network error: %s", exc)
     else:
         logger.exception("Failed to parse OpenAI response: %s", exc)
 
@@ -268,7 +269,7 @@ def ask_openai(
     try:
         api_key = get_openai_key(conn, secret_key)
     except ValueError:
-        logger.warning("Recommendations skipped — OpenAI API key not configured")
+        logger.info("OpenAI skipped — no API key is set")
         raise OpenAIUnavailable(refused=True) from None
 
     web_search_active = use_web_search and is_web_search_enabled(conn)

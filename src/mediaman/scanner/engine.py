@@ -70,6 +70,7 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.services.infra import get_bool_setting as _get_bool_setting
 from mediaman.services.mail.newsletter import NewsletterConfigError
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
+from mediaman.services.openai.client import OpenAIUnavailable
 from mediaman.services.openai.recommendations.persist import (
     prune_old_picks as _prune_old_picks,
 )
@@ -561,6 +562,8 @@ class ScanEngine:
         if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
             try:
                 _refresh_recommendations(self._conn, secret_key=self._secret_key)
+            except OpenAIUnavailable:
+                pass  # the client has said why in one line
             except Exception:  # rationale: what a model answers must never cost a scan
                 logger.exception("Recommendation generation failed — scan results unaffected")
             try:
