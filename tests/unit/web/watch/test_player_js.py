@@ -514,6 +514,21 @@ def test_the_button_f_and_a_double_click_ask_for_full_screen_but_a_double_tap_do
     assert (out["asked"], out["askedAfterTouch"]) == (3, 3)
 
 
+def test_the_volume_slider_says_its_level_in_a_whole_percentage(markup):
+    out = run(
+        markup, "volume", saved={"mediaman.watch.volume": "0.666", "mediaman.watch.muted": "false"}
+    )
+    assert (out["startText"], out["unmutedText"], out["mutedText"]) == ("67%", "25%", "Muted")
+    out = run(markup, "volume", saved={"mediaman.watch.muted": "true"})
+    assert out["startText"] == "Muted"
+
+
+def test_the_clock_and_bar_reach_the_end_by_the_files_own_length(markup):
+    out = run(markup, "ended_clock")
+    assert out["playing"]["remaining"] != "-0:00"
+    assert out["ended"] == {"remaining": "-0:00", "left": "100%"}
+
+
 def test_the_volume_track_fills_to_the_volume_heard(markup):
     out = run(markup, "volume", saved={"mediaman.watch.volume": "0.6"})
     assert (out["start"]["fill"], out["unmutedFill"], out["mutedFill"]) == ("60%", "25%", "0%")
@@ -829,6 +844,7 @@ def test_undoing_a_keep_puts_the_focus_where_it_can_be(markup, season, where, fo
     pages = {**season, "/plain": season["/watch/play/504"]}
     out = run(markup, "keep_undone", plays=where, pages=pages)
     assert (out["focus"], out["undone"]) == (focus, ["88"])
+    assert out["toasts"][-1] == "Keep undone."
 
 
 @pytest.mark.parametrize(

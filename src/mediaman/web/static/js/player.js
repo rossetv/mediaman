@@ -474,6 +474,8 @@
   resetVideo(startS);
 
   function duration() {
+    /* Plex's length can differ from the file's; at the end the file's own is what the clock reaches. */
+    if (video.ended && isFinite(video.duration) && video.duration > 0) return video.duration;
     if (item.duration_s > 0) return item.duration_s;
     return isFinite(video.duration) ? video.duration : 0;
   }
@@ -2366,6 +2368,7 @@
     MM.dom.setIcon(els.mute.querySelector('.ico'), silent ? 'i-volume-xmark' : 'i-volume-high');
     var level = video.muted ? 0 : video.volume;
     els.volume.value = level;
+    els.volume.setAttribute('aria-valuetext', video.muted ? 'Muted' : Math.round(level * 100) + '%');
     els.volume.style.setProperty('--fill', level * 100 + '%');
   }
   els.mute.addEventListener('click', function () {
@@ -2464,7 +2467,7 @@
         /* The next episode may have taken over, and the pill gone with this one. */
         if (moveFocus) (root.contains(keepTrigger) ? keepTrigger : els.play).focus();
         undoing = false;
-        if (window.UIFeedback) window.UIFeedback.toast('Keep undone', { variant: 'info' });
+        if (window.UIFeedback) window.UIFeedback.toast('Keep undone.', { variant: 'info' });
       }).catch(function (err) {
         undoing = false;
         var msg = MM.api.messageOf(err, 'Could not undo. It stays kept for ' + days + ' days.');
