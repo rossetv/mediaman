@@ -33,19 +33,17 @@
   box-shadow: var(--shadow-card);
 }
 .brand { display: inline-flex; align-items: center; font-size: 19px; color: var(--t1); }
-/* Its padding is the room its island, when it has one, takes; its margin keeps that off the next.
-   With no island, it is drawn that far left, so the logo starts on the page's edge, as the
-   headings below do. */
+/* Its padding is the room its island, when it has one, takes. Its margin pulls that room out past
+   the page's edge, so the logo starts on the edge, as the headings below do, with or without
+   the island: the island fades in round it and the logo never moves. */
 .nav-glass .brand {
   position: relative;
   height: 44px;
   padding: 0 12px;
-  margin-right: 10px;
+  margin: 0 22px 0 -12px;
   font-size: 21px;
-  transform: translateX(-12px);
-  transition: transform var(--dur-slow) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out);
 }
-.nav-glass.is-scrolled .brand { transform: none; }
 @media (hover: hover) { .nav-glass .brand:hover { color: color-mix(in srgb, var(--t1) 85%, transparent); } }
 .nav-glass .brand:active { color: color-mix(in srgb, var(--t1) 65%, transparent); }
 .nav-glass .brand > .ico { filter: drop-shadow(0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent)); }

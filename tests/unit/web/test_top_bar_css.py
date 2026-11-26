@@ -1,4 +1,4 @@
-"""The top bar's own details: the logo moves with its island, answers a pointer, and the field leaves the keyboard its way."""
+"""The top bar's own details: the logo stays put, answers a pointer, and the field leaves the keyboard its way."""
 
 from __future__ import annotations
 
@@ -21,10 +21,9 @@ def _body(selector: str, css: str) -> str:
     )
 
 
-def test_the_logo_slides_with_its_island_and_only_its_fade_back_waits() -> None:
+def test_the_logo_never_moves_and_only_its_fade_back_waits() -> None:
     brand = _body(".wbar .brand", _css("_watch_search.css"))
-    transform = re.search(r"transform ([^,;]+)", brand).group(1)  # type: ignore[union-attr]
-    assert not re.search(r"\.\d+s", transform)
+    assert "transform" not in brand
     assert re.search(r"opacity [^,;]+ \.12s", brand)
     # the storage and the profile still wait their turn as a whole
     shared = re.search(
