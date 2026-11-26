@@ -68,6 +68,30 @@ class UserRecord(TypedDict):
     role: str
 
 
+def _usernames(conn: sqlite3.Connection) -> list[str]:
+    return [row["username"] for row in conn.execute("SELECT username FROM admin_users")]
+
+
+def account_name(conn: sqlite3.Connection, typed: str) -> str:
+    """Return the stored name of the account *typed* means, or *typed* when none is meant.
+
+    Capitals do not matter when exactly one account matches; when two names differ only
+    in capitals, only the exact name finds either of them.
+    """
+    names = _usernames(conn)
+    if typed in names:
+        return typed
+    folded = typed.casefold()
+    matches = [name for name in names if name.casefold() == folded]
+    return matches[0] if len(matches) == 1 else typed
+
+
+def username_taken(conn: sqlite3.Connection, username: str) -> bool:
+    """True when an account has *username*, whatever the capitals."""
+    folded = username.casefold()
+    return any(name.casefold() == folded for name in _usernames(conn))
+
+
 def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
     row = conn.execute(
         "SELECT must_change_password FROM admin_users WHERE username = ?",
@@ -113,8 +137,7 @@ def create_user(
     minted but no audit trail exists" outcome.
 
     Raises:
-        UserExistsError: *username* is already taken (mapped from the
-            ``UNIQUE`` constraint on ``admin_users.username``).
+        UserExistsError: an account already has *username*, whatever the capitals.
         ValueError: *password* fails the strength policy — only when
             *enforce_policy* is true — or *role* is not ``admin`` / ``viewer``.
         sqlite3.IntegrityError: any other integrity-constraint failure
@@ -139,6 +162,8 @@ def create_user(
     try:
         with conn:
             conn.execute("BEGIN IMMEDIATE")
+            if username_taken(conn, username):
+                raise UserExistsError(f"User '{username}' already exists")
             conn.execute(
                 "INSERT INTO admin_users "
                 "(username, password_hash, created_at, must_change_password, role) "

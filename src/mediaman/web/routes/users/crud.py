@@ -26,6 +26,7 @@ from mediaman.web.auth.password_hash import (
     set_user_email,
     set_user_role,
 )
+from mediaman.web.auth.password_hash._user_crud import username_taken
 from mediaman.web.auth.password_policy import password_issues
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.auth.user_crud import find_username_by_user_id
@@ -167,7 +168,7 @@ def api_create_user(
         )
 
     # Refused before the costly hash, so that refusals which do not count stay cheap.
-    if any(user["username"] == username for user in list_users(conn)):
+    if username_taken(conn, username):
         _USER_CREATE_LIMITER.release(admin, reserved)
         return respond_failure(f"User '{username}' already exists", status=409)
 

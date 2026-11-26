@@ -13,6 +13,7 @@ from mediaman.db import init_db
 from mediaman.db.connection import SchemaTooOldError
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.password_hash import ROLES, UserExistsError, create_user
+from mediaman.web.auth.password_hash._user_crud import account_name
 from mediaman.web.auth.password_policy import password_issues
 
 
@@ -203,21 +204,20 @@ def unlock_user_cli() -> None:
 
     conn = _open_db()
     try:
-        row = conn.execute(
-            "SELECT id FROM admin_users WHERE username = ?", (args.username,)
-        ).fetchone()
+        username = account_name(conn, args.username)
+        row = conn.execute("SELECT id FROM admin_users WHERE username = ?", (username,)).fetchone()
         if row is None:
             print(f"Error: no such user '{args.username}'.", file=sys.stderr)
             sys.exit(1)
         was_locked, cleared = admin_unlock_with_audit(
-            conn, args.username, audit_actor="cli", target_id=row["id"]
+            conn, username, audit_actor="cli", target_id=row["id"]
         )
     finally:
         conn.close()
 
     if was_locked:
-        print(f"Cleared the login lockout and failure count for '{args.username}'.")
+        print(f"Cleared the login lockout and failure count for '{username}'.")
     elif cleared:
-        print(f"User '{args.username}' was not locked; cleared the failed-login count.")
+        print(f"User '{username}' was not locked; cleared the failed-login count.")
     else:
-        print(f"User '{args.username}' is not locked; nothing to clear.")
+        print(f"User '{username}' is not locked; nothing to clear.")

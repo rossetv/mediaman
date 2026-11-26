@@ -26,6 +26,7 @@ from mediaman.web.auth.password_hash import (
     set_must_change_password,
     user_must_change_password,
 )
+from mediaman.web.auth.password_hash._user_crud import account_name
 from mediaman.web.auth.password_policy import is_strong
 from mediaman.web.auth.return_path import safe_return_path
 from mediaman.web.auth.session_store import (
@@ -183,9 +184,12 @@ def login_submit(
         )
 
     conn = get_db()
+    typed = username
+    # From here on the account's own name, so capital variants share its lock and session.
+    username = account_name(conn, typed)
     if not authenticate(conn, username, password, client_ip=client_ip):
         _success_limiter.release(client_ip, success)
-        return _handle_failed_login(conn, username, client_ip, request)
+        return _handle_failed_login(conn, typed, client_ip, request)
     _limiter.release(client_ip, attempt)
 
     user_agent = request.headers.get("user-agent", "")
