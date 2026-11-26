@@ -841,12 +841,28 @@
     return a;
   }
 
+  /* Whether a film, or a show, can be downloaded here: Radarr gets the one, Sonarr the other. */
+  var canDownload = (function () {
+    var node = document.getElementById('watch-page-data');
+    try { return (JSON.parse(node ? node.textContent : '{}') || {}).can_download || {}; } catch (e) { return {}; }
+  })();
+
+  /* Whether the card's title may be offered for download before its reply says: not where its
+     kind cannot be, nor where it could be either kind and one of them cannot. */
+  function mayDownload(p) {
+    var m = /^tmdb-(movie|tv)-/.exec(p.card.ref || '');
+    var kind = m ? (m[1] === 'tv' ? 'show' : 'movie') : p.link.getAttribute('data-kind');
+    if (kind === 'movie' || kind === 'show') return canDownload[kind] !== false;
+    return canDownload.movie !== false && canDownload.show !== false;
+  }
+
   /* Play or Resume, Download, or how far a download is. */
   function primary(p) {
     var d = p.data;
     if (p.card.plays) return playLink(p.card.pct ? 'Resume' : 'Play', p.card.href);
     if (!d) {
       var held = LIBRARY_RE.test(p.card.ref) || !!posterOf(p.link).querySelector('.watch-badge--in');
+      if (!held && !mayDownload(p)) return null;
       var b = button('pv__waiting skel skel--pill', held ? p.card.pct ? 'Resume' : 'Play' : 'Download', held ? 'i-play' : 'i-download');
       b.setAttribute('aria-disabled', 'true');
       return b;

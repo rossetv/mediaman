@@ -732,3 +732,8 @@ def test_small_steps_sideways_over_a_preview_end_on_the_card_they_went_to_and_ne
         "right": {"left": 115, "asked": [[164, "smooth"]], "snap": ""},
         "left": {"left": 385, "asked": [[328, "smooth"]], "snap": ""},
     }
+
+
+def test_a_preview_on_its_way_offers_no_download_of_a_kind_that_cannot_be_downloaded() -> None:
+    # films cannot be downloaded here, shows can
+    assert _run("waitingWithoutRadarr") == {"film": [], "show": ["Download"]}

@@ -70,6 +70,7 @@ function load(opts = {}) {
   const doc = makeDocument();
   doc.createElement = ((make) => (tag) => { const n = make(tag); n.style.setProperty = (name, value) => { n.style[name] = value; }; return n; })(doc.createElement);
   doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }, ['div', { id: 'watch-keep-menu', class: 'watch-keep-menu', hidden: '' }, ['button', { class: 'watch-keep-menu__item', 'data-days': '30' }, 'Keep 30 days']], ['input', { id: 'watch-search' }], ['div', { id: 'watch-browse' }, ['div', { class: 'watch-row__scroll' }, ...CARDS]]]));
+  if (opts.pageData) doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' }, JSON.stringify(opts.pageData)]));
   const ttl = doc.body.appendChild(build(doc, ['div', { id: 'ttl', hidden: '' }, ['div', { class: 'ttl__hero' }, ['img', { class: 'ttl__art' }]]]));
   ttl.style.removeProperty = (name) => { delete ttl.style[name]; };
   ttl.scrollTop = 0;
@@ -344,6 +345,17 @@ const scenarios = {
     save.done({ media_type: 'movie', tmdb_id: 1 });
     await h.pass(50);
     return [h.rates.length, rateLook(h)[0]];
+  },
+  /* What a title not in the library offers while its preview is on its way, where films cannot be downloaded. */
+  async waitingWithoutRadarr() {
+    const h = load({ pageData: { can_download: { movie: false, show: true } }, api: { 'tmdb-movie-9': undefined, 'tmdb-tv-7': undefined } });
+    const offered = () => [...h.pv().querySelectorAll('.pv__waiting')].map((n) => n.textContent.trim());
+    await h.rest('outside', 900);
+    const film = offered();
+    h.over(h.doc.body);
+    await h.pass(900);
+    await h.rest('show', 900);
+    return { film, show: offered() };
   },
   /* The levels opened before the reply is there. */
   async stripEarly() {
