@@ -123,13 +123,13 @@ def test_container_system_present():
 
 
 def test_nav_surfaces_present():
-    """The nav is one bar, .nav-glass, the strip at the foot of a phone, .nav-foot, on which
-    the way back (or the search) and the profile button stand, and the .profile-menu."""
+    """The nav is one bar of islands, .nav-glass: the way back (or the search), the island at
+    the end, .nav-end, on which the profile button stands, and the .profile-menu."""
     css = _css()
     for sel in (
         ".nav-glass",
         ".nav-back",
-        ".nav-foot",
+        ".nav-end",
         ".profile-btn",
         ".profile-ring",
         ".profile-count",
@@ -140,11 +140,10 @@ def test_nav_surfaces_present():
         assert sel in css, f"missing nav selector: {sel}"
 
 
-def test_bottom_bar_uses_safe_area():
-    heights = re.findall(r"--foot: ([^;]+);", _css())
-    tall = [h for h in heights if h != "0px"]
-    assert len(tall) == 2
-    assert all("env(safe-area-inset-bottom" in h for h in tall)
+def test_the_foot_of_a_phone_page_and_its_sheet_clear_the_home_bar():
+    nav = (CSS_DIR / "_nav.css").read_text()
+    phone = nav.split("@media (max-width: 699.98px) {")
+    assert sum("env(safe-area-inset-bottom" in block.split("\n}")[0] for block in phone[1:]) >= 2
 
 
 def test_component_primitives_present():
@@ -228,7 +227,7 @@ def test_nav_template_emits_all_surfaces():
     for cls in (
         "nav-glass",
         "nav-back",
-        "nav-foot",
+        "nav-end",
         "profile-btn",
         "profile-ring",
         "profile-count",
@@ -238,7 +237,7 @@ def test_nav_template_emits_all_surfaces():
         assert cls in nav, f"missing nav surface class: {cls}"
     # Every primary destination still routes from the nav.
     for href in (
-        'href="/watch"',
+        'href="/"',
         'href="/downloads"',
         'href="/history"',
         'href="/settings"',

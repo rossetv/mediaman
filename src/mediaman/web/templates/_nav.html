@@ -1,13 +1,13 @@
 {# Nav surfaces.
-   - .nav-glass    — the bar: brand, the way back to Watch, profile button
-   - .nav-foot     — phones (< 700 px): the strip at the foot, on which the way back (on Watch
-                     the search) and the profile button stand
+   - .nav-glass    — the bar: no row of its own, but islands of glass over the top of the page:
+                     the brand, the way back to Watch (on Watch the search), and .nav-end
+   - .nav-end      — one island at the end: on Watch the storage meter, and the profile button
    - .profile-menu — what the profile button opens: a menu under it on desktop,
                      a bottom sheet on phones
 
    Set `nav_active` in template context to one of:
      watch | downloads | history | settings | account
-   /watch pages need not set it: the path decides.
+   Watch's pages need not set it: the path decides.
 
    `avatar_url` in the context is the signed-in person's picture.
 
@@ -24,7 +24,7 @@
 {% set is_viewer = (state.user_role if state else none) | default('admin', true) != 'admin' %}
 {% set who = (state.username if state else none) | default('Profile', true) %}
 {% set path = request.url.path if request is defined else '' %}
-{% set active = nav_active or ('watch' if (path == '/watch' or path.startswith('/watch/')) else '') %}
+{% set active = nav_active or ('watch' if (path == '/' or path.startswith('/watch/')) else '') %}
 
 {% set titles = {
   'downloads':   'Downloads',
@@ -37,11 +37,12 @@
 {% macro current(page) %}{% if active == page %} aria-current="page"{% endif %}{% endmacro %}
 
 <header class="nav-glass{% block nav_class %}{% endblock %}">
-  <a class="brand" href="/watch" aria-label="mediaman, home"{{ current('watch') }}>{{ icon("i-wordmark", "wordmark") }}</a>
-  {% block nav_center %}<a class="nav-back" href="/watch">{{ icon("i-chevron-left") }}Watch</a>{% endblock %}
-  {% block nav_end %}{% endblock %}
+  <a class="brand" href="/" aria-label="mediaman, home"{{ current('watch') }}>{{ icon("i-wordmark", "wordmark") }}</a>
+  {% block nav_center %}<a class="nav-back" href="/">{{ icon("i-chevron-left") }}Watch</a>{% endblock %}
   {# The menu needs its script. #}
   <noscript><a class="nav-noscript" href="/downloads">Downloads</a></noscript>
+  <div class="nav-end">
+  {% block nav_end %}{% endblock %}
   <button type="button" class="profile-btn{% if in_menu %} on{% endif %}" aria-haspopup="menu" aria-expanded="false" aria-controls="profile-menu-items" aria-label="Profile menu, {{ who }}{% if in_menu %}, {{ titles[active] }} is open{% endif %}">
     <span class="profile-ava">
       {{ avatar(who, avatar_url) }}
@@ -51,8 +52,8 @@
     <span class="profile-btn-name">{{ who }}</span>
     {{ icon("i-chevron-down") }}
   </button>
+  </div>
 </header>
-<div class="nav-foot" aria-hidden="true"></div>
 
 {# Profile menu — a direct child of <body>, so nav.js can make the rest of the page inert under the sheet #}
 <div class="profile-menu" id="profile-menu">

@@ -114,7 +114,7 @@
     var at = /^\/watch\/(movie|show)\/([0-9]+)(\?|$)/.exec(item.href || '');
     var ref = item.ref || (at ? at[1] + '-' + at[2] : '');
     if (ref) link.setAttribute('data-title-ref', ref);
-    link.href = safePath(item.href) || '/watch';
+    link.href = safePath(item.href) || '/';
     var poster = el('span', 'watch-card__poster');
     var posterUrl = safePath(item.poster_url);
     if (posterUrl) {
@@ -652,7 +652,7 @@
     var wide = window.matchMedia('(min-width: 1100px)');
     var phone = window.matchMedia('(max-width: 699.98px)');
     var meter = bar.querySelector('.space-meter');
-    var profile = bar.querySelector('.profile-btn');
+    var end = bar.querySelector('.nav-end'); // the meter's and the profile button's island
 
     /* The field stays between what is on either side, however large a person has text;
        where that leaves too little, or cuts the meter's figure, the meter drops the words
@@ -667,7 +667,7 @@
     function short() {
       var brand = bar.querySelector('.brand');
       var l = brand.offsetLeft + brand.offsetWidth + 2;
-      var r = (meter || profile).offsetLeft - 2;
+      var r = end.offsetLeft - 2;
       bar.style.setProperty('--l', l + 'px');
       bar.style.setProperty('--r', r + 'px');
       if (!meter) return false;
@@ -682,7 +682,7 @@
 
     /* The open field would cover the meter. */
     function covers() {
-      return !!meter && wide.matches && box.offsetLeft + box.offsetWidth + 8 > meter.offsetLeft;
+      return !!meter && wide.matches && box.offsetLeft + box.offsetWidth + 8 > end.offsetLeft;
     }
 
     function makeRoom() {
@@ -691,15 +691,6 @@
 
     /* The focus is on what the open field covers. */
     function asked() { return document.activeElement === meter && covers(); }
-
-    /* The elements stand in the order they are read: on a phone the field is at the foot. */
-    function place() {
-      var active = document.activeElement;
-      var after = phone.matches ? profile : meter || profile;
-      [box, sheet].forEach(function (n) { bar.insertBefore(n, after); });
-      // Moving a node takes the focus off it.
-      if (active && bar.contains(active) && document.activeElement !== active) active.focus({ preventScroll: true });
-    }
 
     function setPending(on) { box.classList.toggle('is-pending', on); }
 
@@ -2129,20 +2120,16 @@
     if (window.ResizeObserver) {
       // In the next frame: it may change the meter's size itself.
       var sized = new window.ResizeObserver(function () { window.requestAnimationFrame(fitBetween); });
-      [meter || profile, bar.querySelector('.brand')].forEach(function (n) { sized.observe(n); });
+      [end, bar.querySelector('.brand')].forEach(function (n) { sized.observe(n); });
     }
     bar.addEventListener('focusin', sync);
     bar.addEventListener('focusout', function () { setTimeout(sync); });
     // WebKit still has the old width as it tells of a resize.
-    phone.addEventListener('change', function () {
-      place();
-      window.requestAnimationFrame(fitAgain);
-    });
+    phone.addEventListener('change', function () { window.requestAnimationFrame(fitAgain); });
     // Words that grow in a meter as wide as it can be do not change its size.
     if (meter && window.MutationObserver) {
       new window.MutationObserver(fitAgain).observe(meter, { childList: true, characterData: true, subtree: true });
     }
-    place();
 
     /* ── A page in the results' place ── */
 

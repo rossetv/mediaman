@@ -545,10 +545,10 @@ def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
     assert "scroll-margin-top: calc(var(--nav-h) - var(--bar-clear, 0px))" in _of(
         "#main-content", sheet=BAR
     )
-    # One line at every width, and nothing at the top of a phone.
+    # One line at every width, a phone's islands included.
     assert "scroll-margin-top" not in _of("#main-content", "(max-width: 1099.98px)", BAR)
     nav = SHEET.with_name("_nav.css")
-    assert "--nav-h: 0px" in _of("html:has(.nav-foot)", "(max-width: 699.98px)", nav)
+    assert int(re.search(r"--nav-h: (\d+)px", _of(":root", "(max-width: 699.98px)", nav))[1]) >= 52
 
 
 ASK = SHEET.with_name("_watch_ask.css")
@@ -624,7 +624,7 @@ def test_a_phone_s_tv_bar_is_above_the_foot_and_below_toasts_and_what_is_scrolle
 
 
 def test_an_error_page_on_a_phone_is_as_high_as_the_screen_less_the_nav() -> None:
-    nav = _last("--nav-h", _of(".nav-glass", PHONE, SHEET.with_name("_nav.css")))
+    nav = _last("--nav-h", _of(":root", PHONE, SHEET.with_name("_nav.css")))
     page = _of("body:has(> .nav-glass) .login-page", PHONE, SHEET.with_name("_error.css"))
     assert _last("min-height", page) == f"calc(100vh - {nav})"
 

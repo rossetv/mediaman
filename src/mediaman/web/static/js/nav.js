@@ -190,13 +190,13 @@
   // A menu becomes a sheet, or a sheet a menu.
   phone.addEventListener('change', function () { close(true); });
 
-  // A phone's keyboard shortens what is seen of the page, not the page. Zoomed in, the scale makes up for it.
-  var seen = window.visualViewport;
-  function keyboard() {
-    var root = document.documentElement;
-    root.classList.toggle('has-keyboard', root.clientHeight - seen.height * seen.scale > 150);
+  // Once the page has moved under the bar, the brand takes an island of its own.
+  var bar = document.querySelector('.nav-glass');
+  function scrolled() { bar.classList.toggle('is-scrolled', window.scrollY > 4); }
+  if (bar) {
+    window.addEventListener('scroll', scrolled, { passive: true });
+    scrolled();
   }
-  if (seen) seen.addEventListener('resize', keyboard);
 
   var button = document.querySelector('.profile-btn');
   var name = button.getAttribute('aria-label');

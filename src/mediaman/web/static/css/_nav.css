@@ -1,29 +1,61 @@
-/* What the bar at the foot of a phone takes: nothing at any other width, nor on a page without it. */
+/* Nothing stands at the foot of a phone: what keeps clear of it keeps clear of nothing. */
 :root { --foot: 0px; }
 
+/* What the bar takes at the top of the window: islands as tall as a finger, with room round them. */
+:root { --nav-h: 72px; }
+@media (max-width: 699.98px) { :root { --nav-h: 64px; } }
+
+/* The bar draws no row of its own: islands of glass float over the top of the page, a picture
+   runs up under them, and what scrolls passes between them. */
 .nav-glass {
+  --isle: color-mix(in srgb, var(--s2) 38%, transparent);
+  /* Darkened under the tint, so white words keep their contrast over a white poster. */
+  --isle-blur: blur(22px) saturate(1.7) brightness(.72);
+  --isle-edge: color-mix(in srgb, var(--t1) 16%, transparent);
+  --isle-lit: color-mix(in srgb, var(--t1) 26%, transparent);
   position: sticky;
   top: 0;
   z-index: var(--z-nav);
   height: var(--nav-h);
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 16px;
   padding: 0 var(--pad);
+  pointer-events: none;
 }
-/* Its own layer: a blur on the bar would hold what is fixed in it on a phone. */
-.nav-glass::before {
+.nav-glass > * { pointer-events: auto; }
+/* Glass is drawn by each island, never by the bar: it would hold what is fixed in it. */
+.nav-back,
+.nav-noscript,
+.nav-end {
+  background: var(--isle);
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
+  border: 1px solid var(--isle-edge);
+  border-top-color: var(--isle-lit);
+  box-shadow: var(--shadow-card);
+}
+.brand { display: inline-flex; align-items: center; font-size: 19px; color: var(--t1); }
+/* Its margin keeps its island, when it has one, off the next. */
+.nav-glass .brand { position: relative; height: 44px; margin-right: 10px; font-size: 21px; }
+.nav-glass .brand > .ico { filter: drop-shadow(0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent)); }
+/* Its own island once the page has moved under it, where a poster could take its words. */
+.nav-glass .brand::before {
   content: "";
   position: absolute;
   z-index: -1;
-  inset: 0;
-  background: color-mix(in srgb, var(--scrim) 80%, transparent);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--hair);
+  inset: 0 -12px;
+  border-radius: var(--r-pill);
+  background: var(--isle);
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
+  border: 1px solid var(--isle-edge);
+  border-top-color: var(--isle-lit);
+  opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
 }
-.brand { display: inline-flex; align-items: center; font-size: 19px; color: var(--t1); }
-.nav-glass .brand { height: 44px; }
+.nav-glass.is-scrolled .brand::before { opacity: 1; }
+.nav-glass .brand:focus-visible { outline-offset: 2px; border-radius: var(--r-pill); }
 
 .nav-back,
 .nav-noscript {
@@ -31,32 +63,39 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
-  padding: 0 16px 0 12px;
+  min-height: 44px;
+  padding: 0 18px 0 14px;
   border-radius: var(--r-pill);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--t2);
-  background: var(--rgba-overlay-sm);
-  transition: background var(--dur-fast) var(--ease-out),
-              color var(--dur-fast) var(--ease-out),
+  color: var(--t1);
+  transition: background-color var(--dur-fast) var(--ease-out),
               transform var(--dur-fast) var(--ease-out);
 }
-/* 44px to tap. */
-.nav-back::after,
-.nav-noscript::after { content: ""; position: absolute; inset: -2px 0; }
 .nav-back { margin-right: auto; }
-.nav-noscript { padding: 0 16px; }
+.nav-noscript { padding: 0 18px; }
 .nav-back > .ico { font-size: 11px; transition: transform var(--dur) var(--ease-out); }
 .nav-back:hover,
-.nav-noscript:hover { color: var(--t1); background: var(--rgba-overlay-lg); }
+.nav-noscript:hover { background: color-mix(in srgb, var(--s4) 60%, transparent); }
 .nav-back:hover > .ico { transform: translateX(-2px); }
 .nav-back:active { transform: scale(.97); }
-/* The bar's edges clip it: keep the ring near. */
-.nav-back:focus-visible { outline-offset: 1px; border-radius: var(--r-pill); }
+.nav-back:focus-visible { outline-offset: 2px; border-radius: var(--r-pill); }
+
+/* The island at the end: on Watch the storage meter, then the profile button. */
+.nav-end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-height: 46px;
+  margin-left: auto;
+  padding: 0;
+  border-radius: var(--r-pill);
+}
+.nav-end .space-meter { min-height: 44px; margin-left: 1px; }
 
 /* Profile button: avatar, name and a chevron at the end of the bar. Below 900px
-   only the avatar shows, in a 44px target. */
+   only the avatar shows, in a 44px target, and its island is round. */
 .profile-btn {
   display: inline-flex;
   align-items: center;
@@ -65,8 +104,7 @@
   min-width: 44px;
   min-height: 44px;
   justify-content: center;
-  margin-right: -8px;
-  padding: 0 10px;
+  padding: 0 16px 0 7px;
   border-radius: var(--r-pill);
   font-size: 13px;
   color: var(--t2);
@@ -75,14 +113,14 @@
 .profile-btn:hover,
 .profile-btn[aria-expanded="true"] { color: var(--t1); }
 .profile-btn:active { transform: scale(.97); }
-.profile-btn:focus-visible { outline-offset: -2px; border-radius: var(--r-pill); }
+.profile-btn:focus-visible { outline-offset: 2px; border-radius: var(--r-pill); }
 .profile-btn-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .profile-btn > .ico { font-size: 10px; transition: transform var(--dur-fast) var(--ease-out); }
 .profile-btn[aria-expanded="true"] > .ico { transform: rotate(180deg); }
 .profile-btn.on .avatar,
 .profile-btn[aria-expanded="true"] .avatar { outline-color: var(--t1); }
 @media (max-width: 899.98px) {
-  .profile-btn { padding: 0; margin-right: -7px; }
+  .profile-btn { padding: 0; }
   .profile-btn-name,
   .profile-btn > .ico { display: none; }
 }
@@ -159,9 +197,6 @@
   transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
 }
 .profile-count.is-on { opacity: 1; transform: none; }
-
-/* Phones: the strip at the foot, under what stands there. */
-.nav-foot { display: none; }
 
 /* Profile menu. Closed: invisible and out of the tab order once the fade-out
    ends. One step above the nav surfaces and page dropdowns. */
@@ -253,14 +288,13 @@
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     transform: none;
-    /* The sheet floats clear of where the avatar stands, so no row lies on its spot. */
-    padding: 0 8px max(8px, calc(var(--foot) - var(--foot-gap) + 8px));
+    padding: 0 8px max(8px, env(safe-area-inset-bottom, 0px));
   }
   .profile-panel {
     width: 100%;
     max-width: 520px;
-    max-height: calc(100vh - var(--foot) + var(--foot-gap) - 24px);
-    max-height: calc(100dvh - var(--foot) + var(--foot-gap) - 24px);
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
     padding: 8px 12px;
     border-width: 1px;
     border-radius: var(--r-lg);
@@ -328,47 +362,34 @@
   .profile-btn.on .avatar,
   .profile-btn[aria-expanded="true"] .avatar { outline-color: Highlight; }
   .profile-sep { background: CanvasText; }
-  .nav-back { border: 1px solid LinkText; }
   .profile-ring { forced-color-adjust: none; background: conic-gradient(Highlight calc(var(--ring) * 1%), GrayText 0); }
   .profile-count { border-color: Canvas; background: Highlight; color: HighlightText; forced-color-adjust: none; }
 }
 
-/* Phones: the bar goes with the page, and what is pressed most stands at the foot. */
-@media (max-width: 699.98px) {
-  html:has(.nav-foot) {
-    --foot: calc(72px + env(safe-area-inset-bottom, 0px));
-    --foot-gap: 12px; /* above and below what stands on it */
-    --nav-h: 0px;     /* nothing stays at the top */
-    /* What is scrolled into view, a focused field included, stops above it. */
-    scroll-padding-bottom: calc(var(--foot) + 8px);
-  }
-  .nav-glass { --nav-h: 48px; position: relative; gap: 4px; }
-  .nav-glass::before { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .nav-glass .brand { margin-right: auto; }
-  .nav-foot {
-    display: block;
-    position: fixed;
-    z-index: calc(var(--z-nav) - 1);
-    inset: auto 0 0;
-    height: var(--foot);
-    background: color-mix(in srgb, var(--scrim) 80%, transparent);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    backdrop-filter: saturate(180%) blur(20px);
-    border-top: 1px solid var(--hair);
-  }
-  .nav-glass .profile-btn,
-  .nav-back { position: fixed; z-index: 1; bottom: calc(var(--foot) - var(--foot-gap) - 48px); height: 48px; }
-  .nav-glass .profile-btn { right: var(--pad); width: 48px; margin: 0; }
-  .nav-glass .avatar { width: 36px; height: 36px; }
-  .nav-back { left: var(--pad); padding: 0 22px 0 18px; font-size: 15px; color: var(--t1); background: var(--s3); }
-  .nav-back:hover { background: var(--s4); }
-  /* Over a keyboard there is room for neither. */
-  html.has-keyboard:has(.nav-foot) { --foot: 0px; }
-  .has-keyboard :is(.nav-foot, .nav-back, .nav-glass .profile-btn) { visibility: hidden; }
-  /* Content is not hidden under the foot. */
-  .container,
-  .login-page { padding-bottom: max(calc(80px + env(safe-area-inset-bottom, 0px)), calc(var(--foot) + 16px)); }
+/* Where glass cannot be drawn, or is not wanted, the islands are solid. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .nav-glass { --isle: var(--s2); --isle-blur: none; }
 }
-@media (max-width: 699.98px) and (max-height: 500px) {
-  html:has(.nav-foot) { --foot: calc(60px + env(safe-area-inset-bottom, 0px)); --foot-gap: 6px; }
+@media (prefers-reduced-transparency: reduce) {
+  .nav-glass { --isle: var(--s2); --isle-blur: none; }
+}
+@media (forced-colors: active) {
+  .nav-glass { --isle: Canvas; --isle-blur: none; --isle-edge: CanvasText; --isle-lit: CanvasText; }
+  .nav-glass .brand > .ico { filter: none; }
+}
+
+/* Phones: the brand, then round islands to press. */
+@media (max-width: 699.98px) {
+  .nav-glass { gap: 8px; }
+  .nav-glass .brand { font-size: 20px; }
+  .nav-back { padding: 0 18px 0 14px; font-size: 15px; }
+  .nav-glass .avatar { width: 32px; height: 32px; }
+  /* The meter gives way before the row is too wide. */
+  .nav-end { flex: 0 1 auto; min-width: 0; }
+  /* The meter opens the same panel without its sign. */
+  .nav-end .space-meter__info { display: none; }
+  /* A figure a fraction of a pixel too wide stays whole; one cut further drops its word (watch/search.js). */
+  .nav-glass .nav-end .space-meter__free { text-overflow: clip; }
+  .container,
+  .login-page { padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px)); }
 }

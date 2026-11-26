@@ -13,7 +13,7 @@ function page(isPhone, downloading, reduced) {
   const button = ['button', { class: 'profile-btn', id: 'button', 'aria-expanded': 'false', 'aria-label': 'Profile menu, robin' },
     ['span', { class: 'avatar' }, 'R'], ['span', { class: 'profile-ring', id: 'ring' }], ['span', { class: 'profile-count', id: 'count' }]];
   const item = (id, tag) => [tag, { id, role: 'menuitem', href: '/' + id, tabindex: '-1' }, id];
-  doc.body.appendChild(build(doc, ['header', { id: 'top' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
+  doc.body.appendChild(build(doc, ['header', { id: 'top', class: 'nav-glass' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
     ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), ['span', { id: 'profile-note', hidden: '' }], item('logout', 'button')]]));
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x']]));
@@ -21,7 +21,7 @@ function page(isPhone, downloading, reduced) {
   const $ = (id) => doc.getElementById(id);
   $('already-inert').inert = true;
   const media = { matches: isPhone, on: [], addEventListener(t, fn) { this.on.push(fn); } };
-  const win = { listeners: {}, location: { hash: '' }, matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
+  const win = { listeners: {}, scrollY: 0, location: { hash: '' }, matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
   if (downloading) win.MM = { downloading };
   win.visualViewport = { height: 800, scale: 1, addEventListener(t, fn) { win.listeners['seen ' + t] = fn; } };
   const images = [];
@@ -289,16 +289,11 @@ const scenarios = {
     p.click('button');
     return { open: p.open(), name: p.$('button').getAttribute('aria-label') };
   },
-  keyboard() {
-    const p = page(true);
-    const root = p.doc.documentElement;
-    root.clientHeight = 800;
-    const at = (height, scale) => {
-      Object.assign(p.win.visualViewport, { height, scale });
-      p.win.listeners['seen resize']();
-      return root.classList.contains('has-keyboard');
-    };
-    return { whole: at(800, 1), toolbar: at(720, 1), keyboard: at(450, 1), zoomed: at(400, 2), zoomedTyping: at(225, 2), away: at(800, 1) };
+  // The brand takes an island of its own once the page has moved under the bar.
+  scrolled() {
+    const p = page(false);
+    const at = (y) => { p.win.scrollY = y; p.win.listeners.scroll(); return p.$('top').classList.contains('is-scrolled'); };
+    return { rest: p.$('top').classList.contains('is-scrolled'), down: at(300), nudged: at(3), back: at(0) };
   },
 };
 

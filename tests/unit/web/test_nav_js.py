@@ -205,15 +205,8 @@ def test_where_nothing_tells_of_downloads_the_menu_works_without_them() -> None:
     assert _run("noDownloads") == {"open": True, "name": "Profile menu, robin"}
 
 
-def test_a_keyboard_is_told_from_a_toolbar_and_from_a_zoomed_page() -> None:
-    assert _run("keyboard") == {
-        "whole": False,
-        "toolbar": False,
-        "keyboard": True,
-        "zoomed": False,
-        "zoomedTyping": True,
-        "away": False,
-    }
+def test_the_brand_takes_its_island_once_the_page_has_moved_under_the_bar() -> None:
+    assert _run("scrolled") == {"rest": False, "down": True, "nudged": False, "back": False}
 
 
 def test_the_second_tap_of_a_double_tap_on_the_picture_presses_nothing_in_the_sheet() -> None:
@@ -230,17 +223,16 @@ def test_a_ring_that_comes_back_does_not_sweep_round_from_where_it_last_stood() 
     assert _run("ringComesBack") == {"eased": [False, True, False, True], "left": False}
 
 
-def test_no_row_of_the_phone_sheet_lies_on_the_avatars_spot() -> None:
+def test_the_phone_sheet_stands_clear_of_the_home_bar_and_the_top_of_the_screen() -> None:
     sheet = (
         NAV_CSS.read_text()
         .split("/* Phones: a bottom sheet", 1)[1]
         .split("@media (prefers-reduced-motion", 1)[0]
     )
-    # the sheet stops above where the avatar stands, so Log out is never under it
     menu = re.search(r"\.profile-menu \{[^}]*\}", sheet).group(0)  # type: ignore[union-attr]
-    assert "padding: 0 8px max(8px, calc(var(--foot) - var(--foot-gap) + 8px))" in menu
+    assert "padding: 0 8px max(8px, env(safe-area-inset-bottom, 0px))" in menu
     panel = re.search(r"\.profile-panel \{[^}]*\}", sheet).group(0)  # type: ignore[union-attr]
-    assert "100dvh - var(--foot) + var(--foot-gap)" in panel
+    assert "max-height: calc(100dvh - 24px)" in panel
 
 
 def test_the_handle_drags_the_sheet_shut_or_lets_it_spring_back() -> None:

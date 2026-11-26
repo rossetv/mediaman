@@ -77,11 +77,11 @@ def test_a_page_of_the_app_shows_the_name_once_as_a_link(client, path, link):
     ("name", "link"),
     [
         ("force_password_change.html", ("/", "mediaman")),
-        ("_nav.html", ("/watch", "mediaman, home")),
-        ("keep.html", ("/watch", "mediaman")),
-        ("download.html", ("/watch", "mediaman")),
-        ("subscribers/unsubscribe_confirm.html", ("/watch", "mediaman")),
-        ("subscribers/unsubscribe_result.html", ("/watch", "mediaman")),
+        ("_nav.html", ("/", "mediaman, home")),
+        ("keep.html", ("/", "mediaman")),
+        ("download.html", ("/", "mediaman")),
+        ("subscribers/unsubscribe_confirm.html", ("/", "mediaman")),
+        ("subscribers/unsubscribe_result.html", ("/", "mediaman")),
     ],
 )
 def test_a_template_shows_the_name_once_as_a_link(name, link):
