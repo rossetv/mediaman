@@ -172,6 +172,10 @@ def test_a_long_name_that_cannot_fit_its_column_breaks_at_a_syllable_with_a_hyph
         body = _of(selector, sheet)
         assert "hyphens: auto" in body, selector
         assert "-webkit-hyphens: auto" in body, selector
+    # Only a long word is hyphenated, so "Station" is never split where it would fit whole.
+    root = _of(":root", "_watch_grid.css")
+    assert "hyphenate-limit-chars: 11 5 4" in root
+    assert "-webkit-hyphenate-limit-before: 5" in root
 
 
 def test_a_phone_s_three_across_titles_are_wide_enough_for_cartographer_s() -> None:

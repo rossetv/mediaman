@@ -12,10 +12,13 @@
   .watch-grid-host > .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
 }
 /* Two where three would leave a title under 94px. A long word such as "Cartographer's" that still
-   cannot fit goes at a syllable with a hyphen (hyphens, which the page's en-GB lang drives), not mid-word. */
+   cannot fit goes at a syllable with a hyphen (the page's en-GB lang drives it), not mid-word. Only a word of
+   11 letters or more is hyphenated, so "Station" is never split where it would fit on the next line; a
+   name too long for any width may still be cut, with its hyphen. */
 @media (max-width: 359.98px) {
   .watch-grid-host > .watch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+:root { hyphenate-limit-chars: 11 5 4; -webkit-hyphenate-limit-before: 5; -webkit-hyphenate-limit-after: 4; }
 .watch-card__title,
 .watch-person__name { hyphens: auto; -webkit-hyphens: auto; }
 .watch-grid-host > .watch-grid:focus { outline: none; }
