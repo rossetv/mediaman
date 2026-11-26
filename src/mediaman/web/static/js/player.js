@@ -3842,7 +3842,22 @@
 
   onVideo('error', function () {
     if (away && streamId && !starting && !swapping) streamGone();
+    else if (hls && fromTicket() && streamId && !starting && !swapping) askAfterTv();
   });
+
+  /* An AirPlay TV was refused: hls.js is stopped and hears of nothing, so the server is asked
+     whether the stream is there, and a stream taken by another page or gone ends as ever. */
+  function askAfterTv() {
+    var id = streamId;
+    fetch(playlistUrl, { credentials: 'same-origin', cache: 'no-store' }).then(function (resp) {
+      if (resp.status !== 410) return null;
+      return resp.text().then(function (text) {
+        var answer = null;
+        try { answer = JSON.parse(text); } catch (e) { /* none of the server's own */ }
+        if (id === streamId) streamEnded(answer);
+      });
+    }).catch(function () { /* the connection tells of itself */ });
+  }
 
   /* No longer elsewhere; with `stop` what plays there is ended. */
   function endAway(stop) {

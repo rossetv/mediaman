@@ -2402,12 +2402,12 @@ def test_a_tv_that_takes_the_video_late_stops_the_loading_here_again(markup):
 
 def test_a_title_taken_by_another_page_while_the_tv_plays_says_so_here(markup):
     out = elsewhere(markup, "away_airplay_replaced", "mms")
-    assert out == {"message": REPLACED, "starts": 1, "destroyed": True}
+    assert out == {"message": REPLACED, "starts": 1, "destroyed": True, "asked": 1}
 
 
 def test_a_stream_gone_while_the_tv_plays_is_started_again(markup):
     out = elsewhere(markup, "away_airplay_gone", "mms")
-    assert (out["message"], out["starts"]) == (None, 2)
+    assert (out["message"], out["starts"], out["asked"]) == (None, 2, 1)
 
 
 @pytest.mark.parametrize("mode", ["tvs", "plain"])

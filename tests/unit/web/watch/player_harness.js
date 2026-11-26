@@ -430,6 +430,8 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
     emit(name, data) {
       /* Like hls.js: loading starts at the configured place, once the levels are known. */
       if (name === 'hlsManifestParsed') this.startsAt = this.config.startPosition;
+      /* Like hls.js: stopped, it loads nothing, so nothing it loads fails. */
+      if (name === 'hlsError' && this.stopped) return;
       if (this.handlers[name]) this.handlers[name](name, data || {});
     }
     loadSource(src) { this.src = src; }
@@ -6434,9 +6436,17 @@ async function ownTvEnds(p, body) {
   p.elsewhere.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
   await settle();
   p.replies.push({ ok: { stream_id: 's2', playlist: '/p2', airplay: '/api/cast/A2/index.m3u8' } });
+  /* hls.js is stopped and hears nothing: the TV is refused, and Safari says the video failed. */
+  const playlist = p.hlsList[0].src;
+  p.pages[playlist] = { status: 410, html: JSON.stringify(body) };
+  /* The 410 the TV's reads met: the stopped hls.js says nothing of it. */
   p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, body));
+  fire(v, 'error');
   await settle();
-  return { message: messageState(p), starts: p.starts().length, destroyed: p.hlsList[0].destroyed };
+  return {
+    message: messageState(p), starts: p.starts().length, destroyed: p.hlsList[0].destroyed,
+    asked: p.calls.filter((c) => c.page && c.url === playlist).length,
+  };
 }
 
 function introState(p) {
