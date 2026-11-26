@@ -98,6 +98,10 @@
   /* Whether *text* is what the AI would be asked, were it on: a question, or "similar to …". */
   function shaped(text) { return !!state && (wordCount(text) >= state.min_words || !!similarOf(text)); }
 
+  /* Whether the AI is set up and fails, which an admin is told of before asking: never set up or
+     switched off, it is no news on every question. Only an admin is told why. */
+  function failing() { return !available() && !!state && (state.why === 'refused' || state.why === 'no_tmdb'); }
+
   function same(a, b) { return tidy(a).toLowerCase() === tidy(b).toLowerCase(); }
 
   /* Keep a search the person made, where their history is used. */
@@ -828,10 +832,10 @@
       window.MMWatch.search.glide(drawn.grid, gridRows(item, drawn.phase, opts.can || {}), null, STAGGER_MS);
     }
 
-    /* Where the AI would be asked and is not to be: why not, for an admin with the way to it. Under
-       titles like the one named, of the AI's picks alone. */
+    /* Where the AI would be asked and fails: why, for an admin with the way to it. Under titles like
+       the one named, of the AI's picks alone. */
     function offNote(like) {
-      if (available()) return null;
+      if (!failing()) return null;
       var off = offWords(state && state.why, opts.admin);
       var note = el('p', 'ask__note ask__note--quiet');
       note.appendChild(document.createTextNode((like ? 'AI picks: ' : '') + off.title + '.' + (off.link || !like ? ' ' + off.text : '') + (off.link ? ' ' : '')));
@@ -1021,6 +1025,7 @@
     available: available,
     fits: fits,
     shaped: shaped,
+    failing: failing,
     record: record,
     forget: forget,
     kept: kept,

@@ -3011,10 +3011,10 @@ scenarios.similarUnnamed = async () => {
   return out;
 };
 
-// Without the AI, the title named and those like it still show, and why there are no AI picks.
+// Without the AI, the title named and those like it still show, and an admin whose AI fails is told why there are no AI picks.
 scenarios.similarNoAi = async () => {
-  const run = async (admin) => {
-    const p = await asking({ available: false, why: 'no_key' }, { page: { is_admin: admin } });
+  const run = async (admin, why) => {
+    const p = await asking({ available: false, why }, { page: { is_admin: admin } });
     await p.search(LIKE_Q);
     await p.answer('/api/watch/similar', { tmdb_configured: true, title: NAMED, items: [BLIND] });
     const out = aiPlace(p);
@@ -3022,7 +3022,7 @@ scenarios.similarNoAi = async () => {
     out.enter = (p.key('Enter'), await settle(), p.sent('/ask').length);
     return out;
   };
-  return { admin: await run(true), viewer: await run(false) };
+  return { admin: await run(true, 'refused'), noKey: await run(true, 'no_key'), viewer: await run(false, null) };
 };
 
 // While the AI looks, the plain search does not say that no title has the words; once it is done and there is none, it does.
@@ -3120,7 +3120,25 @@ scenarios.likeWords = async () => {
   return { bare: await asked('like crazy'), similar: await asked('similar to harrow lane'), something: await asked('something like crazy') };
 };
 
-// Where the AI is off, what it would have been asked says why, and is not told to check its spelling.
+// Of "similar to …", TMDB is asked for the title alone, and the whole sentence's search failing leaves what the title's found.
+scenarios.similarSentence = async () => {
+  const p = await asking();
+  await p.search('similar to harrow lane');
+  const tmdb = p.calls.map((c) => decodeURIComponent(c.url)).filter((u) => u.includes('/search/tmdb'));
+  p.calls.filter((c) => decodeURIComponent(c.url) === '/api/watch/search?q=similar to harrow lane')[0].reject(new Error('429'));
+  await settle();
+  await p.answer('/api/watch/search?q=harrow', { items: [LIB], total: 1 });
+  await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+  const grid = p.doc.querySelector('.results-page');
+  return {
+    tmdb,
+    heads: p.heads(),
+    titles: grid.querySelectorAll('.watch-card__title').map((n) => n.textContent),
+    failed: p.doc.querySelectorAll('.results-fail, [role="alert"]').length,
+  };
+};
+
+// Where the AI is set up and fails, what it would have been asked tells an admin why, not to check its spelling.
 scenarios.offSaid = async () => {
   const run = async (who, why, page, q) => {
     const p = await asking({ available: false, why }, { page: { is_admin: who === 'admin', ...page } });
@@ -3136,9 +3154,12 @@ scenarios.offSaid = async () => {
       searched: p.calls.map((c) => decodeURIComponent(c.url)).filter((u) => /watch\/search\?/.test(u)),
     };
   };
+  const q = 'a gentle comedy for a sunny day';
   return {
-    admin: await run('admin', 'no_key', {}, 'a gentle comedy for a sunny day'),
-    viewer: await run('viewer', null, {}, 'a gentle comedy for a sunny day'),
+    noKey: await run('admin', 'no_key', {}, q),
+    off: await run('admin', 'off', {}, q),
+    refused: await run('admin', 'refused', {}, q),
+    viewer: await run('viewer', null, {}, q),
     noTmdb: await run('admin', 'no_tmdb', { tmdb_configured: false }, 'similar to harrow lane'),
   };
 };

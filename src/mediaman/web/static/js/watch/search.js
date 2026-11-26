@@ -1154,8 +1154,8 @@
     /* A sentence is offered to the AI, or shows what came of it, while the search answers below. */
     function offerAsk(q) {
       if (!ai) return;
-      // Where the AI is off, what it would have been asked is told why.
-      if (!ai.fits(q) && !(canExplore() && ai.similarOf(q)) && !(!ai.available() && ai.shaped(q))) { hideAsk(); return; }
+      // Where the AI is set up and fails, what it would have been asked is told why.
+      if (!ai.fits(q) && !(canExplore() && ai.similarOf(q)) && !(ai.failing() && ai.shaped(q))) { hideAsk(); return; }
       if (!asking) askPlace();
       asking.row(q);
       asking.pick(!picked);
@@ -1827,12 +1827,15 @@
       });
     }
 
-    /* *url*'s answers for what *c* searches for: of "similar to …", the title it names and all of its words too. */
-    function searchAll(c, url) {
+    /* *url*'s answers for what *c* searches for: of "similar to …", the title it names, and with *whole* all of
+       its words too. */
+    function searchAll(c, url, whole) {
+      function get(w) { return MM.api.get(url + encodeURIComponent(w), { signal: c.ctrl.signal }); }
       return function () {
-        var words = c.find === c.q ? [c.q] : [c.find, c.q];
-        return Promise.all(words.map(function (w) { return MM.api.get(url + encodeURIComponent(w), { signal: c.ctrl.signal }); }))
-          .then(function (replies) { return replies.reduce(joined); });
+        if (!whole || c.find === c.q) return get(c.find);
+        // The whole sentence rarely names a title: its search failing leaves what the title's found.
+        return Promise.all([get(c.find), get(c.q).catch(function () { return null; })])
+          .then(function (replies) { return joined(replies[0], replies[1]); });
       };
     }
 
@@ -1855,7 +1858,7 @@
     }
 
     function fetchLibrary(c) {
-      ask(c, 'lib', searchAll(c, SEARCH_URL), function (reply) {
+      ask(c, 'lib', searchAll(c, SEARCH_URL, true), function (reply) {
         return { state: 'ok', items: reply.items || [], total: reply.total };
       }, function (err) {
         return { state: 'failed', text: MM.api.messageOf(err, SEARCH_FAILED) };
@@ -1907,7 +1910,8 @@
     });
 
     function fetchTmdb(c) {
-      ask(c, 'tmdb', searchAll(c, TMDB_URL), function (reply) {
+      // Of "similar to …", TMDB's few searches are not spent on the sentence.
+      ask(c, 'tmdb', searchAll(c, TMDB_URL, false), function (reply) {
         if (reply.tmdb_configured === false) return { state: 'unconfigured' };
         var found = reply.people || [];
         found.forEach(function (p) { people.set(p.person_id, p); });

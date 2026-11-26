@@ -52,14 +52,24 @@ def test_a_bare_like_is_searched_as_typed_and_similar_to_searches_both() -> None
         assert {f"/api/watch/search?q={named}", f"/api/watch/search?q={q}"} <= set(asked)
 
 
-def test_where_the_ai_is_off_a_question_says_why_and_not_to_check_the_spelling() -> None:
+def test_similar_to_asks_tmdb_for_the_title_alone_and_outlives_the_sentence_failing() -> None:
+    out = _run("similarSentence")
+    assert out["tmdb"] == ["/api/watch/search/tmdb?q=harrow lane"]
+    assert out["titles"] == ["Orchard Keepers", "Orchard Road"]
+    assert out["failed"] == 0
+
+
+def test_where_the_ai_is_set_up_and_fails_a_question_tells_an_admin_why() -> None:
     out = _run("offSaid")
-    assert out["admin"]["note"].startswith("AI needs an OpenAI key.")
-    assert out["admin"]["link"] == "/settings#intg-openai"
-    assert out["viewer"]["note"].startswith("AI isn’t available right now.")
-    assert out["viewer"]["link"] is None
-    for who in ("admin", "viewer"):
-        assert "spelling" not in out[who]["none"]
+    assert out["refused"]["note"].startswith("OpenAI refused the key.")
+    assert out["refused"]["link"] == "/settings#intg-openai"
+    assert "spelling" not in out["refused"]["none"]
+
+
+def test_where_the_ai_was_never_set_up_or_is_switched_off_a_question_says_nothing_of_it() -> None:
+    out = _run("offSaid")
+    for who in ("noKey", "off", "viewer"):
+        assert (out[who]["note"], out[who]["link"]) == (None, None)
 
 
 def test_without_tmdb_similar_to_searches_the_library_for_the_title_and_says_why() -> None:

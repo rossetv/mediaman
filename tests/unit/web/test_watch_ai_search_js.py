@@ -63,13 +63,13 @@ def test_a_title_nothing_names_leaves_the_ais_answer_alone() -> None:
 
 def test_without_the_ai_the_title_named_and_its_like_show_with_why_there_are_no_ai_picks() -> None:
     out = _run("similarNoAi")
-    for who in ("admin", "viewer"):
+    for who in ("admin", "noKey", "viewer"):
         assert out[who]["cards"] == ["Love Is Blind"]
         assert out[who]["enter"] == 0
-    assert out["admin"]["note"].startswith("AI picks: AI needs an OpenAI key.")
+    assert out["admin"]["note"].startswith("AI picks: OpenAI refused the key.")
     assert out["admin"]["link"] == "/settings#intg-openai"
-    assert out["viewer"]["note"] == "AI picks: AI isn’t available right now."
-    assert out["viewer"]["link"] is None
+    for who in ("noKey", "viewer"):
+        assert (out[who]["note"], out[who]["link"]) == (None, None)
 
 
 def test_no_title_having_the_words_is_said_only_once_the_ai_is_done() -> None:
