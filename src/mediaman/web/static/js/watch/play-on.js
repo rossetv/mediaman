@@ -908,12 +908,18 @@
     if (!sheet || !sheet.btn.isConnected || !sheet.btn.getClientRects().length) return;
     var s = sheet.node.style;
     s.left = s.top = s.bottom = s.maxHeight = '';
+    sheet.node.classList.remove('is-full');
     if (global.innerWidth < 700) return;
     var r = sheet.btn.getBoundingClientRect();
     var w = sheet.node.offsetWidth;
     var left = sheet.btn.hasAttribute('data-play-on-left') ? r.left : r.right - w;
     s.left = Math.max(12, Math.min(global.innerWidth - w - 12, left)) + 'px';
-    if (r.top > global.innerHeight / 2) {
+    var above = r.top > global.innerHeight / 2;
+    var room = above ? r.top - 22 : global.innerHeight - r.bottom - 22;
+    /* Too tall for either side of its button, as on a phone held sideways: the stylesheet gives it
+       the screen's height, over the button, rather than have it scroll. */
+    if (sheet.node.scrollHeight > room) { sheet.node.classList.add('is-full'); return; }
+    if (above) {
       s.bottom = global.innerHeight - r.top + 6 + 'px';
       s.top = 'auto';
       s.maxHeight = Math.max(200, Math.min(620, r.top - 22)) + 'px';

@@ -139,6 +139,22 @@ def test_a_stop_on_another_device_closes_the_remote_and_says_where_it_stopped() 
     assert "21:08" in out["toasts"][0]
 
 
+def test_the_bar_says_once_who_else_stopped_your_film_and_that_your_place_is_saved() -> None:
+    out = _run("stoppedByAnother")
+    assert out["maren"] == {
+        "bar": False,
+        "toasts": ["maren stopped Glass Orchard on Living room. Your place is saved at 21:08."],
+    }
+    assert out["nobody"] == {"bar": False, "toasts": []}
+
+
+def test_play_on_too_tall_for_the_room_by_its_button_takes_the_screens_height_instead() -> None:
+    out = _run("sheetHeight")
+    # The sheet's own rule then sizes it to the screen, inside its safe areas.
+    assert out["360"] == {"full": True, "bottom": "", "maxHeight": ""}
+    assert out["200"] == {"full": False, "bottom": "68px", "maxHeight": "318px"}
+
+
 def test_stop_takes_the_bar_away_and_says_so_once() -> None:
     out = _run("stop")
     assert out["bar"] is False

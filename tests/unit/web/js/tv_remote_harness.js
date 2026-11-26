@@ -414,6 +414,40 @@ const scenarios = {
     await p.pass(1100);
     return { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts };
   },
+  // The real sheet opened from a button low on a phone held sideways (874 by 402), as tall as it is.
+  async sheetHeight() {
+    const out = {};
+    for (const tall of [360, 200]) {
+      const p = await page({ sheet: true });
+      Object.assign(p.win, { innerWidth: 874, innerHeight: 402 });
+      const create = p.doc.createElement;
+      p.doc.createElement = (tag) => {
+        const el = create(tag);
+        if (tag === 'dialog') Object.defineProperties(el, { scrollHeight: { get: () => tall }, offsetWidth: { get: () => 372 } });
+        return el;
+      };
+      await p.open();
+      const btn = p.$('#tv-remote [data-play-on]');
+      btn.getBoundingClientRect = () => ({ left: 740, right: 788, top: 340, bottom: 384 });
+      btn.getClientRects = () => [1];
+      await p.press('#tv-remote [data-play-on]');
+      const s = p.$('.play-on').style;
+      out[tall] = { full: p.$('.play-on').classList.contains('is-full'), bottom: s.bottom || '', maxHeight: s.maxHeight || '' };
+    }
+    return out;
+  },
+  // The bar alone is shown as someone else, then nobody, stops the film.
+  async stoppedByAnother() {
+    const out = {};
+    for (const by of ['maren', null]) {
+      const p = await page();
+      Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay({ position_s: 1268 }), reason: 'stopped', stopped_by: by } });
+      await p.pass(5100);
+      await p.pass(15000);
+      out[by || 'nobody'] = { bar: p.bar().shown, toasts: p.toasts };
+    }
+    return out;
+  },
   // What the page says of the bar and the remote, for what makes room for them.
   async pageMarks() {
     const p = await page();
