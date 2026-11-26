@@ -573,6 +573,20 @@ def _reset_download_status_cache():
 
 
 @pytest.fixture(autouse=True)
+def _reset_notification_backoff():
+    """A row id backed off in one test must not hold back the same id in the next.
+
+    Rows are numbered from 1 in every test database, and the backoff is kept per
+    row id in this process, so an earlier test on the same worker would skip the row.
+    """
+    from mediaman.services.downloads._notification_backoff import _backoff_state
+
+    _backoff_state.clear()
+    yield
+    _backoff_state.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_disk_cache(monkeypatch):
     """Start every test with no disk cache root and no in-flight or failed fetches.
 
