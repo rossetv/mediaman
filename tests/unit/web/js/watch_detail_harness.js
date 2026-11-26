@@ -2461,7 +2461,7 @@ const scenarios = {
   async seasonsPending() {
     const run = async (comes) => {
       let n = 0;
-      const p = load({ routes: { '/api/watch/title/show-300': () => {
+      const p = load({ clock: true, routes: { '/api/watch/title/show-300': () => {
         n += 1;
         const there = comes && n > 2;
         return Promise.resolve(Object.assign({}, LIB_SHOW, { seasons_request: ASK, seasons_pending: !there,
@@ -2486,7 +2486,7 @@ const scenarios = {
         click(p.doc, p.q('.season-pick__go'));
         press.busy = p.q('.season-pick__go').textContent.trim();
         await settle();
-        for (let i = 0; i < 6; i += 1) { // read again while it is asked, then shown for a while at least
+        for (let i = 0; i < 6; i += 1) { // read again while it is asked, then shown for a while at least; the clock is still, so that wait is its full 600
           p.timers.filter((t) => t.fn && (t.ms === 2000 || (t.ms > 500 && t.ms <= 600))).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
           await settle();
         }
