@@ -327,11 +327,15 @@ def _shutdown(app: FastAPI, scheduler_started: bool) -> None:
 
     The scheduler is stopped first (only if it actually started) so no
     background job is mid-flight against a connection that ``close()``
-    is about to invalidate.
+    is about to invalidate. Download-ready emails claimed and not yet sent
+    are then freed for the next start.
     """
+    from mediaman.services.downloads._notification_claims import release_claims_on_shutdown
+
     if scheduler_started:
         shutdown_scheduling()
 
+    release_claims_on_shutdown(app.state.db)
     app.state.db.close()
     logger.info("Mediaman shutting down")
 
