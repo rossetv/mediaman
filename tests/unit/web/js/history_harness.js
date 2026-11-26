@@ -28,7 +28,7 @@ const whose = (i) => {
 };
 const item = (id, more) => { const i = raw(id, more); return { who: whose(i), ...i }; };
 const raw = (id, more) => ({
-  id, action: 'downloaded', action_label: 'downloaded', line_title: 'Film ' + id, title: 'Film ' + id, summary: 'Added to Radarr',
+  id, action: 'downloaded', action_label: 'downloaded', line_title: 'Film ' + id, title: 'Film ' + id, summary: 'Added to downloads',
   is_security: false, created_at: '2026-11-24T20:15:03Z', actor: 'ana', avatar: '/a/1', ip: null,
   fields: [at('2026-11-24T20:15:03Z'), { key: 'who', label: 'Who', value: 'ana', empty: false }, { key: 'space', label: 'Space freed', value: 'Not recorded', empty: true },
     { key: 'record', label: 'Stored record', value: '<i>', empty: false }], ...more,

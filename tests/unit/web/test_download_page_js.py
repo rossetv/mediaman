@@ -148,7 +148,7 @@ def test_a_title_already_there_is_said_where_the_button_was_and_is_no_failure(
     ("answer", "why"),
     [
         ("unanswered", "Could not reach mediaman."),
-        ("Download request failed — check service connectivity", "Try again in a moment."),
+        ("The download service didn't take it", "Try again in a moment."),
         ("Downloads aren't set up", "Try again in a moment."),
         ("Too many requests", "Try again in a moment."),
     ],

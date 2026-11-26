@@ -384,7 +384,7 @@ class TestTwoPhaseConsumption:
 
         assert resp1.status_code == 409  # handler returns 409 when arr reports conflict
         assert resp1.json()["ok"] is False
-        assert "already exists" in resp1.json()["error"]
+        assert "already downloaded or on its way" in resp1.json()["error"]
 
         # Second attempt must be blocked — item exists, token is spent
         with patch(
@@ -428,7 +428,7 @@ class TestTwoPhaseConsumption:
         ):
             resp1 = client.post(f"/download/{token}")
         assert resp1.status_code == 409
-        assert "already exists" in resp1.json()["error"]
+        assert "already downloaded or on its way" in resp1.json()["error"]
 
         # Second click on the same redownload link must succeed because
         # the token was released — the user is allowed to retry.

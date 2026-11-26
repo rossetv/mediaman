@@ -219,7 +219,7 @@ class TestSubmit:
             (
                 _series({**ON_DISK, "seasonNumber": 0}),
                 "error",
-                "Specials of 'Fargo' already exist ",
+                "Specials of 'Fargo' already exist",
             ),
         ],
     )

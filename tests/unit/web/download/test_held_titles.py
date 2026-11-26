@@ -386,7 +386,7 @@ class TestSubmitRefusedForAHeldTitle:
         token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
 
         assert resp.status_code == 409
-        assert "already exists" in resp.json()["error"]
+        assert "already downloaded or on its way" in resp.json()["error"]
         radarr.remonitor_movie.assert_not_called()
         radarr.add_movie.assert_not_called()
         assert _consumed(token)
@@ -400,7 +400,7 @@ class TestSubmitRefusedForAHeldTitle:
         token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
 
         assert resp.status_code == 409
-        assert "already exists" in resp.json()["error"]
+        assert "already downloaded or on its way" in resp.json()["error"]
         assert "poll_token" in resp.json()
         radarr.add_movie.assert_not_called()
         assert _consumed(token)
@@ -442,7 +442,7 @@ class TestSubmitRefusedForAHeldTitle:
 
         sonarr.add_series.assert_called_once()
         assert resp.status_code == 409
-        assert "already exists" in resp.json()["error"]
+        assert "already downloaded or on its way" in resp.json()["error"]
         assert _consumed(token)
 
     def test_a_400_for_a_series_sonarr_holds_but_will_not_fetch_is_already_exists_and_frees_the_link(
@@ -458,7 +458,7 @@ class TestSubmitRefusedForAHeldTitle:
 
         sonarr.add_series.assert_called_once()
         assert resp.status_code == 409
-        assert "already exists" in resp.json()["error"]
+        assert "already downloaded or on its way" in resp.json()["error"]
         assert not _consumed(token)
 
     @pytest.mark.parametrize("media_type", ["movie", "tv"])

@@ -610,10 +610,10 @@ def _handle_already_exists_error(
         if isinstance(exc, _AlreadyThere) and exc.state:
             extra["download_state"] = exc.state
             extra["notify_by_email"] = exc.mail_to_come
-        said = f"'{title}' already exists"
+        said = f"'{title}' is already downloaded or on its way"
         if season_number is not None:
             said = already_there(season_number, title)
-        return respond_failure(f"{said} in your downloads", status=409, **extra)
+        return respond_failure(said, status=409, **extra)
     # Phase 2 (failure): release the reservation so the user can
     # retry once the upstream recovers.
     _unmark_token_used(token)
@@ -622,7 +622,7 @@ def _handle_already_exists_error(
     # captures the user-facing failure separately, so operators
     # who need the stack can dial up the log level.
     logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
-    return respond_failure("Download request failed — check service connectivity", status=502)
+    return respond_failure("The download service didn't take it", status=502)
 
 
 @router.post("/download/{token}")
@@ -690,7 +690,7 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         # caught here, which is the intended control-flow behaviour.
         _unmark_token_used(token)
         logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
-        return respond_failure("Download request failed — check service connectivity", status=502)
+        return respond_failure("The download service didn't take it", status=502)
     finally:
         # A failed request may have added the title too.
         drop_arr_cache()
