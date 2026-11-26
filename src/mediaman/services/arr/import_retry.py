@@ -432,8 +432,8 @@ def _retry(
     removed_any = False
     # A record already gone was failed by nobody here, so no search of the service's own
     # follows unless it went with a download this run removed.
+    removed_ids: set[int] = set()
     removed_downloads: set[str] = set()
-    every_removed = True
     client = None
     try:
         client = _client(conn, secret_key, service)
@@ -442,9 +442,8 @@ def _retry(
         for queue_id in sorted(unit.held_ids):
             download = unit.downloads.get(queue_id, "")
             if client.remove_from_queue(queue_id):
+                removed_ids.add(queue_id)
                 removed_downloads.add(download)
-            elif not download or download not in removed_downloads:
-                every_removed = False
             removed_any = True
     except _ERRORS as exc:
         refused = _refused(exc)
@@ -473,6 +472,10 @@ def _retry(
                 (row[0], MAX_TRIES if refused else row[1], unit.key),
             )
         return silent
+    every_removed = all(
+        queue_id in removed_ids or unit.downloads.get(queue_id, "") in removed_downloads - {""}
+        for queue_id in unit.held_ids
+    )
     return _search(conn, client, unit.key, search, shown, now, every_removed)
 
 

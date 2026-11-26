@@ -1259,3 +1259,16 @@ def test_an_older_sonarr_that_finds_one_of_two_downloads_gone_is_sent_the_search
     assert [c[3] for c in arrs.changes() if c[0] == "POST"] == [
         {"name": "EpisodeSearch", "episodeIds": [501, 502]}
     ]
+
+
+def test_an_older_sonarr_that_finds_a_lower_id_gone_before_its_download_is_removed_is_not_searched(
+    arrs,
+):
+    arrs.versions["sonarr"] = _OLDER["sonarr"]
+    _season_stuck(arrs, 10, download="a")
+    arrs.failing_ids = {10: 404}
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c for c in arrs.changes() if c[0] == "POST"] == []
+    assert len(arrs.own_searches) == 1
