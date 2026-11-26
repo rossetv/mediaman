@@ -121,6 +121,8 @@
   /* How long the picture waits before it is said why: a drop, and a busy server or a slow start. */
   var LOST_NOTICE_MS = 300;
   var SLOW_NOTICE_MS = 8000;
+  /* A title that starts sooner than this shows neither its name nor a spinner. */
+  var INTRO_AFTER_MS = 300;
   /* The longest a busy server may ask for before it is asked again. */
   var BUSY_MAX_S = 30;
   /* Automatic steps down when playback stalls twice within this much of the
@@ -826,8 +828,40 @@
     root.classList.toggle('is-loading', on);
     if (!on) waitingSince = null;
     else if (waitingSince === null) waitingSince = Date.now();
+    showIntro();
     showNotice();
     showPlayState();
+  }
+
+  /* While a title starts here, its name stands in for the spinner; what plays elsewhere keeps its own. */
+  var introTimer = null;
+  function introDue() {
+    return root.classList.contains('is-loading') && (!hasPlayed || switching) && !away && !attempt && !holding;
+  }
+
+  function showIntro() {
+    var due = introDue();
+    root.classList.toggle('is-starting', due);
+    if (!due) {
+      clearTimeout(introTimer);
+      introTimer = null;
+      if (root.classList.contains('is-intro')) {
+        /* The name hides a held frame: over a picture that plays now, it is not to show again. */
+        if (video.readyState >= 3) releaseFrame();
+        root.classList.add('is-intro-out');
+        root.classList.remove('is-intro');
+      }
+    } else if (introTimer === null && !root.classList.contains('is-intro')) {
+      introTimer = setTimeout(function () {
+        introTimer = null;
+        if (!introDue()) {
+          showIntro();
+          return;
+        }
+        root.classList.remove('is-intro-out');
+        root.classList.add('is-intro');
+      }, INTRO_AFTER_MS);
+    }
   }
 
   var heldForSeek = false;

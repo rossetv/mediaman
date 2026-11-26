@@ -6107,7 +6107,79 @@ const scenarios = {
     }
     return out;
   },
+
+  /* A title that is slow to start: the name, from a third of a second in, until it plays. */
+  async intro_slow(p) {
+    await settle();
+    p.tick(250);
+    const early = introState(p);
+    p.tick(100);
+    const late = introState(p);
+    p.tick(4000);
+    const waits = introState(p);
+    await streamPlays(p, 0);
+    return { early: early, late: late, waits: waits, playing: introState(p) };
+  },
+
+  /* A title that starts at once never shows the name. */
+  async intro_fast(p) {
+    let ever = false;
+    const cl = p.root.classList;
+    const add = cl.add.bind(cl);
+    cl.add = (...names) => { ever = ever || names.indexOf('is-intro') >= 0; return add(...names); };
+    await settle();
+    p.tick(200);
+    await streamPlays(p, 0);
+    p.tick(1000);
+    return Object.assign(introState(p), { ever: ever });
+  },
+
+  /* Buffering and seeking once it plays keep the spinner. */
+  async intro_midplay(p) {
+    await streamPlays(p, 30);
+    fire(p.video, 'waiting');
+    p.tick(1000);
+    const waiting = introState(p);
+    fire(p.video, 'playing');
+    p.video.seeking = true;
+    p.video.currentTime = 900;
+    fire(p.video, 'seeking');
+    fire(p.video, 'waiting');
+    p.tick(1000);
+    return { waiting: waiting, seeking: introState(p) };
+  },
+
+  /* The next episode is a title that starts. */
+  async intro_next(p) {
+    await streamPlays(p, 100);
+    p.replies.push(answer('1080p-8000'));
+    click(p.q('[data-next-btn]'));
+    await settle();
+    p.tick(400);
+    const loading = Object.assign(introState(p), { held: holdState(p).shown });
+    const v = p.video;
+    await settle();
+    p.hlsList[p.hlsList.length - 1].emit('hlsManifestParsed');
+    await settle();
+    v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720; v.currentTime = 0;
+    fire(v, 'playing');
+    return { loading: loading, playing: Object.assign(introState(p), { held: holdState(p).shown }) };
+  },
+
+  /* Sent to a TV as it starts: the page shows what it shows today. */
+  async away_intro(p) {
+    p.elsewhere.plays.push(() => new Promise(() => {}));
+    await openSheet(p);
+    await pickRow(p, 'tv-5');
+    p.tick(1000);
+    await settle();
+    return introState(p);
+  },
 };
+
+function introState(p) {
+  return { intro: p.root.classList.contains('is-intro'), starting: p.root.classList.contains('is-starting'), loading: p.root.classList.contains('is-loading') };
+}
 
 (async () => {
   const [file, name, reduced, serverPlays] = process.argv.slice(2);
