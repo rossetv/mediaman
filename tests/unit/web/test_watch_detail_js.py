@@ -1594,7 +1594,11 @@ def test_a_title_still_looked_for_says_so_as_its_card_does() -> None:
 
 def test_a_film_the_arr_will_not_import_says_it_needs_attention_not_downloading() -> None:
     out = _run("troubled")
-    assert out["plain"] == {"pill": "Downloading 42%", "note": "Follow it in Downloads.", "bar": True}
+    assert out["plain"] == {
+        "pill": "Downloading 42%",
+        "note": "Follow it in Downloads.",
+        "bar": True,
+    }
     stuck = "No files found are eligible for import · Fix it in Radarr: Activity → Queue"
     assert out["admin"] == {
         "pill": "Needs attention",
