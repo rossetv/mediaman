@@ -50,6 +50,7 @@ from mediaman.web.routes.watch.stream_api import (
     _StreamRoute,
     plex_failure,
     session_lasts,
+    stream_lives,
 )
 
 router = APIRouter(route_class=_StreamRoute)
@@ -150,7 +151,7 @@ def _start(
     except PlexError as exc:
         return plex_failure(exc)
     store = get_ticket_store()
-    token = store.issue(stream_id, username, session_hash, live=_stream_lives)
+    token = store.issue(stream_id, username, session_hash, live=stream_lives)
     ticket = store.read(token)
     try:
         if ticket is None:
@@ -182,14 +183,6 @@ def _start(
     )
 
 
-def _stream_lives(ticket: Ticket) -> bool:
-    try:
-        get_stream_manager().peek(ticket.stream_id, ticket.user)
-    except StreamGone:
-        return False
-    return True
-
-
 def _may_still_watch(conn: sqlite3.Connection, ticket: Ticket) -> bool:
     """Whether the session that started the stream, or the pairing of the TV it was started for,
     and its user are still good.
@@ -218,11 +211,13 @@ def _read_ticket(request: Request, token: str) -> Ticket | Response:
     store = get_ticket_store()
     ticket = store.read(token)
     if ticket is not None and not _is_good(ticket):
-        with contextlib.suppress(StreamGone):
-            get_stream_manager().end(ticket.stream_id, ticket.user)
+        # A player's stream an AirPlay TV reads outlives its ticket: an old address ends nothing.
+        if ticket.holds_stream or not store.expired(ticket):
+            with contextlib.suppress(StreamGone):
+                get_stream_manager().end(ticket.stream_id, ticket.user)
         store.drop(token)
         ticket = None
-    if ticket is not None and not _stream_lives(ticket):
+    if ticket is not None and not stream_lives(ticket):
         store.drop(token)
         ticket = None
     if ticket is None:
@@ -272,7 +267,7 @@ def cast_playlist(request: Request, ticket: str) -> Response:
         return _head(_PLAYLIST_TYPE)
     try:
         text = get_stream_manager().playlist(
-            held.stream_id, held.user, base_path=f"/api/cast/{ticket}"
+            held.stream_id, held.user, base_path=f"/api/cast/{ticket}", by_tv=True
         )
     except StreamGone:
         return _refused(request)
@@ -290,6 +285,6 @@ async def cast_segment(request: Request, ticket: str, name: str) -> Response:
         content_type = segment_type(name)
         if request.method == "HEAD":
             return _head(content_type)
-        return _for_tv(await _read_segment(request, held.stream_id, held.user, name))
+        return _for_tv(await _read_segment(request, held.stream_id, held.user, name, by_tv=True))
     except (ValueError, StreamGone):
         return _refused(request)

@@ -1916,3 +1916,28 @@ def test_with_the_server_full_a_person_s_start_takes_their_own_silent_stream_s_p
     with pytest.raises(StreamGone):
         manager.get(silent, "alice")
     assert [c["params"]["session"] for c in plex.calls_to("stop")] == [_session_of(plex, 0)]
+
+
+def test_a_players_stream_a_tv_reads_waits_as_long_as_a_tvs(manager, plex, clock):
+    tv_read = _start(manager, rating_key="1")
+    own = _start(manager, rating_key="2")
+    manager.playlist(tv_read, "alice", by_tv=True)
+    manager.playlist(own, "alice")
+    _segment(manager, own, "alice", "00000.ts")
+    clock.now += plex_stream.IDLE_TIMEOUT_SECONDS + 1
+    assert manager.reap() == 1
+    assert manager.get(tv_read, "alice")
+    with pytest.raises(plex_stream.StreamGone):
+        manager.get(own, "alice")
+
+
+@pytest.mark.parametrize("read", ["playlist", "segment"])
+def test_a_stream_back_from_a_tv_to_its_player_waits_as_a_players_again(manager, plex, clock, read):
+    stream_id = _start(manager)
+    manager.playlist(stream_id, "alice", by_tv=True)
+    if read == "playlist":
+        manager.playlist(stream_id, "alice")
+    else:
+        _segment(manager, stream_id, "alice", "00000.ts")
+    clock.now += plex_stream.IDLE_TIMEOUT_SECONDS + 1
+    assert manager.reap() == 1
