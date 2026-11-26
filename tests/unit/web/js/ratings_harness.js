@@ -61,6 +61,23 @@ function load() {
 const lv = (level) => ({ level, rateable: true });
 
 const scenarios = {
+  // A title known already is not asked about again, unless the reader asks for it: then its sets take the answer.
+  async readAgain() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(1) });
+    const asked = p.log.length;
+    p.R.read(['movie-1']);
+    await p.go();
+    const plain = p.log.length - asked;
+    p.R.read(['movie-1'], { again: true });
+    await p.go();
+    const again = p.log.length - asked;
+    await p.ratings({ 'movie-1': lv(-1) });
+    return { plain, again, on: p.look(set).on, level: p.R.get('movie-1') };
+  },
+
   // One set of a title rated before: what it shows, then its own thumb pressed.
   async back() {
     const p = load();

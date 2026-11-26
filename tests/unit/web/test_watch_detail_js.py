@@ -1716,3 +1716,7 @@ def test_on_a_phone_an_admin_s_leaving_line_takes_them_to_the_keep_below() -> No
     # Before the Keep has come there is nowhere to take the focus.
     assert out["waiting"]["link"] == "Keep it to stop the deletion"
     assert out["waiting"]["focus"] != "admin-keep"
+
+
+def test_a_title_s_page_takes_its_rating_from_the_server_each_time_it_loads() -> None:
+    assert _run("ratedElsewhere") == {"first": [1, 1], "again": [2, -2]}

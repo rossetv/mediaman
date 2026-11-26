@@ -3735,6 +3735,24 @@ scenarios.thumbsWait = async () => {
   return { admin: look(true, 'movie-120'), viewer: look(false, 'movie-120'), tmdb: look(true, 'tmdb-movie-77') };
 };
 
+// A title's page asks for its rating each time it loads, so one changed in another tab is the one shown.
+scenarios.ratedElsewhere = async () => {
+  let level = 1;
+  const p = load({ thumbs: true, routes: { '/api/watch/title/movie-120': LIB_MOVIE,
+    '/api/watch/ratings?refs=movie-120': () => Promise.resolve({ ok: true, ratings: { 'movie-120': { level, rateable: true } } }) } });
+  p.run();
+  const due = async () => { p.timers.filter((t) => t.fn && t.ms === 0).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); };
+  const asked = () => p.gets.filter((g) => /ratings\?refs=/.test(g)).length;
+  const open = async () => { p.ctx.MMWatch.detail.open('movie-120', { push: true }); await settle(); await due(); };
+  await open();
+  const first = [asked(), p.ctx.MM.ratings.get('movie-120')];
+  p.key('Escape');
+  p.tick();
+  level = -2;
+  await open();
+  return { first, again: [asked(), p.ctx.MM.ratings.get('movie-120')] };
+};
+
 // *rateable* unknown: the answer comes after the wait is over.
 scenarios.thumbsNone = async () => {
   const none = { ok: true, ratings: { 'movie-120': { level: null, rateable: false } } };

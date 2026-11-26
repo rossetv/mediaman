@@ -264,9 +264,11 @@
 
   var toAsk = [];
 
-  function read(refs) {
+  /* opts.again: what is known of them may have changed elsewhere, so they are asked about anyway. */
+  function read(refs, opts) {
     refs.forEach(function (ref) {
       var s = stateOf(ref);
+      if (opts && opts.again && s.known && !s.busy) doubt(s);
       if ((s.known && !s.askAgain) || s.asking) return;
       s.asking = true;
       if (!toAsk.length) setTimeout(flush, 0);

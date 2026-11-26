@@ -692,7 +692,8 @@
     var first = ownPicture(c.ref);
     if (first) el('img').setAttribute('src', first);
     if (c.pickRef && c.pickRef !== c.ref) askPick(c, ctrl);
-    if (window.MM.ratings) window.MM.ratings.read([c.ref]);
+    // It may have been rated since, in another tab.
+    if (window.MM.ratings) window.MM.ratings.read([c.ref], { again: true });
     // What was asked for ahead may be refused by its own limit, which a title opened is not.
     var asked = early ? early.promise.catch(function (err) {
       if (err && (err.name === 'AbortError' || err.status === 404)) throw err;
