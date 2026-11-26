@@ -2405,6 +2405,17 @@ def test_a_wait_the_busy_server_asked_for_loads_nothing_once_the_tv_plays(markup
     assert out == {"stopped": True, "loads": 0}
 
 
+@pytest.mark.parametrize("scenario", ["away_airplay_lost", "away_airplay_lost_playlist"])
+def test_a_try_after_a_lost_connection_loads_nothing_once_the_tv_plays(markup, scenario):
+    out = elsewhere(markup, scenario, "mms")
+    assert out == {
+        "stopped": True,
+        "loads": 0,
+        "hls": 1,
+        "offered": ["blob:mms", "/api/cast/A1/index.m3u8"],
+    }
+
+
 def test_a_title_taken_by_another_page_while_the_tv_plays_says_so_here(markup):
     out = elsewhere(markup, "away_airplay_replaced", "mms")
     assert out == {"message": REPLACED, "starts": 1, "destroyed": True, "asked": 1}

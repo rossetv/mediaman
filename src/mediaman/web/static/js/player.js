@@ -1488,7 +1488,9 @@
 
   /* hls.js has stopped at an error of this stream's that may pass: go on loading. */
   function loadAgain(h, details) {
-    if (h !== hls) return;
+    /* A TV that took the video meanwhile reads the stream itself: a new hls.js would also take
+       the TV's address off the video, and the video off the TV. */
+    if (h !== hls || airplayed()) return;
     if (/^manifest/.test(details)) attach(playlistUrl, position());
     else h.startLoad(pendingStart === null ? -1 : pendingStart);
   }
@@ -1639,11 +1641,7 @@
       stopWatching();
       if (noneTooLong()) { fail(MSG_BUSY); return; }
       h.stopLoad();
-      setTimeout(function () {
-        /* A TV that took the video meanwhile reads the stream itself. */
-        if (airplayed()) return;
-        loadAgain(h, data.details);
-      }, retryAfterMs(data));
+      setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
       return;
     }
     /* Leaving the page cancels its requests too, before it says that it is left. */

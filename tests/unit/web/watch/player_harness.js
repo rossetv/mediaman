@@ -5083,6 +5083,11 @@ const scenarios = {
     return { stopped: h.stopped, loads: h.loads.length - loads };
   },
 
+  /* The connection was lost, by a segment or the playlist, and a TV took the video before the
+     player tried again. */
+  away_airplay_lost: (p) => lostBeforeTv(p, 'fragLoadError'),
+  away_airplay_lost_playlist: (p) => lostBeforeTv(p, 'manifestLoadError'),
+
   away_airplay_replaced: (p) => ownTvEnds(p, { ok: false, error: 'replaced', by: 'another-page' }),
   away_airplay_gone: (p) => ownTvEnds(p, { error: 'gone' }),
 
@@ -6444,6 +6449,23 @@ const scenarios = {
 };
 
 /* The player's own video plays on an AirPlay TV, and its stream answers 410 with *body*. */
+async function lostBeforeTv(p, details) {
+  p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+  const v = p.video;
+  await streamPlays(p, 30);
+  const h = p.hlsList[0];
+  h.emit('hlsError', loadError(details, 0));
+  const loads = h.loads.length;
+  p.elsewhere.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+  await settle();
+  p.tick(4000);
+  await settle();
+  return {
+    stopped: h.stopped, loads: h.loads.length - loads, hls: p.hlsList.length,
+    offered: v.querySelectorAll('source').map((s) => s.src),
+  };
+}
+
 async function ownTvEnds(p, body) {
   p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
   const v = p.video;
