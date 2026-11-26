@@ -238,7 +238,6 @@ const scenarios = {
     out.sure = [names(sure), p.doc.activeElement === p.button(sure, 'Cancel')];
     await p.press(sure, 'Unpair this TV');
     out.words = out.words.concat(read(p.row(0)));
-    out.older = p.row(1).textContent;
     await p.press(p.row(1), 'Unpair');
     out.older = p.row(1).querySelector('.tv-sure').textContent;
     await p.press(p.row(1), 'Rename');
