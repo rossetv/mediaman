@@ -969,11 +969,14 @@
   }
   function overlay(paused) {
     return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot">' +
-      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by ? ' by ' + esc(play.paused_by) : '')) + '</div>' : '') +
+      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by && me && me.people && me.people.length > 1 ? ' by ' + esc(play.paused_by) : '')) + '</div>' : '') +
       '<div class="bar"><div class="p" id="pr"></div>' + markNodes() + '</div><div class="tms"><span id="el"></span><span id="re"></span></div>' +
       offer([[glyph('back') + '10 s', 'b'], [glyph(paused ? 'play' : 'pause') + (paused ? 'Play' : 'Pause'), 'p'], [glyph('fwd') + '10 s', 'f'], [glyph('stop') + 'Stop', 's']]) +
       '</div></div>';
   }
+
+  // A code on a TV already paired adds a person to those it is paired with.
+  function codeHead() { return token && me ? 'Pair another person' : 'Watch on this TV'; }
 
   var PAGES = {
     boot: function () { return page(BOOT) + offer([]); },
@@ -981,13 +984,13 @@
       if (!pending) return PAGES.boot();
       var address = base.replace(/^https?:\/\//, '') + '/pair';
       var picture = qrPicture(base + '/pair#' + pending.code);
-      return page('<div class="code"><div class="lc">' + BRAND + '<div class="h">Watch on this TV</div>' +
+      return page('<div class="code"><div class="lc">' + BRAND + '<div class="h">' + codeHead() + '</div>' +
         '<div class="n"><u>1</u><div>On your phone or computer, go to<div class="addr' + (address.length > 30 ? ' addr--long' : '') + '">' + esc(address) + '</div></div></div>' +
         '<div class="n"><u>2</u><div>Type this code<div class="big">' + esc(pending.code.substr(0, 3) + ' ' + pending.code.substr(3)) + '</div></div></div>' +
         '<div class="sm" id="cd"></div>' + offer([['New code', 'n']].concat(leave())) + '</div>' +
         '<div class="rc">' + (picture && picture + '<div class="cap">Or point your phone&rsquo;s camera here.<br>Check the code matches.</div>') + '</div></div>');
     },
-    press: function () { return page(middle('Watch on this TV', 'The last code ran out.<br>Press OK for another.', [['New code', 'n']].concat(leave()))); },
+    press: function () { return page(middle(codeHead(), 'The last code ran out.<br>Press OK for another.', [['New code', 'n']].concat(leave()))); },
     slow: function () { return page(middle('Too many codes', 'A new one comes by itself in ' + (waitUntil - now() > 90000 ? Math.ceil((waitUntil - now()) / 60000) + ' minutes' : 'a minute') + '.', leave(), SPIN)); },
     conn: function () {
       var all = (me.people && me.people.length ? me.people : [me.owner]).map(esc);

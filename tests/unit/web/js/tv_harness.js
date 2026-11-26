@@ -428,6 +428,25 @@ const scenarios = {
     await u.step(3000);
     return { src, kept: t.video.attrs.src, store: t.store, more: after - fresh, idle: u.says(), polled: u.last('poll').token };
   },
+  async shared() {
+    const t = tv({ kept: 'old' });
+    t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'pairing', expires_in_s: 290, poll_ms: 2000 } : ready({ people: ['maren'], poll_ms: 2000 }));
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(1500);
+    t.key(OK);
+    await t.step(1000);
+    const code = t.says();
+    const paused = async (people) => {
+      const p = await playing();
+      p.answers.poll = () => ready({ play: p.now, people });
+      p.video.fire('pause');
+      p.now = film({ state: 'paused', paused_by: 'maren' });
+      await p.step(2500);
+      return p.says();
+    };
+    return { code, alone: await paused(['maren']), both: await paused(['maren', 'tobias']) };
+  },
   async unpairedWithACodeShown() {
     const t = tv({ kept: 'old' });
     t.answers.poll = ready();

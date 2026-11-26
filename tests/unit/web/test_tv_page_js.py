@@ -101,6 +101,14 @@ def test_a_tv_someone_joins_keeps_its_token_and_its_film_and_says_who_can_play()
     assert out["polled"] == "old"
 
 
+def test_a_paired_tvs_code_is_for_another_person_and_a_pause_is_named_only_when_shared() -> None:
+    out = _run("shared")
+    assert "Pair another person" in out["code"] and "482 916" in out["code"]
+    assert "Watch on this TV" not in out["code"]
+    assert "Paused" in out["alone"] and "Paused by" not in out["alone"]
+    assert "Paused by maren" in out["both"]
+
+
 def test_a_film_gives_way_to_the_person_who_takes_the_tv_over() -> None:
     out = _run("takenOver")
     # what its owner starts shows over the code, which still works
