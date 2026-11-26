@@ -45,7 +45,9 @@
       The container is always present so the poll loop just fills or
       clears it; #dl-root child order stays fixed. -#}
   <div id="dl-empty-container" role="status">
-    {% if outage and not hero and not queue %}
+    {% if downloads_set_up and not downloads_set_up.movies and not downloads_set_up.shows and not hero and not queue %}
+    {{ c.empty("Downloads aren’t set up", 'Connect Radarr or Sonarr in <a href="/settings">Settings</a>.' if can_abandon else "Ask whoever runs mediaman to set it up.", icon_svg=dl_empty_icon) }}
+    {% elif outage and not hero and not queue %}
     {{ c.empty("Downloads can't be checked right now", "This page keeps trying.", icon_svg=dl_outage_icon) }}
     {% elif not hero and not queue %}
     {{ c.empty("All caught up", "Nothing downloading right now.", icon_svg=dl_empty_icon) }}

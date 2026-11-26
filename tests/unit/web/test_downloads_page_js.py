@@ -393,3 +393,46 @@ def test_the_season_picker_ticks_only_seasons_with_missing_aired_episodes() -> N
         ["Season 4", "Not aired yet", False, "false"],
     ]
     assert out["label"] == "Abandon 2 seasons"
+
+
+def test_the_stop_dialog_names_the_service_and_claims_nothing_about_release_or_library() -> None:
+    words = _run("abandonWords")
+    assert "Radarr" in words["movie upcoming"] and "Sonarr" not in words["movie upcoming"]
+    assert "Sonarr" in words["series upcoming"] and "Radarr" not in words["series upcoming"]
+    assert "Sonarr" in words["series"] and "Radarr" in words["movie"]
+    for text in words.values():
+        assert "released" not in text and "library" not in text
+
+
+def test_a_failed_stop_tracking_says_stop_tracking_and_keeps_the_servers_words() -> None:
+    assert _run("abandonFailureWords") == [
+        "Couldn’t stop tracking. Try again.",
+        "Couldn’t abandon. Try again.",
+        "Radarr is down.",
+    ]
+
+
+def test_with_no_radarr_and_no_sonarr_the_page_says_downloads_are_not_set_up() -> None:
+    out = _run("notSetUp")
+    assert out["admin"] == {
+        "h3": "Downloads aren’t set up",
+        "p": "Connect Radarr or Sonarr in Settings.",
+        "link": "/settings",
+    }
+    assert out["viewer"] == {
+        "h3": "Downloads aren’t set up",
+        "p": "Ask whoever runs mediaman to set it up.",
+        "link": None,
+    }
+    # one service set up, or no answer about it: the page is as it was
+    for key in ("films", "shows", "missing"):
+        assert out[key]["h3"] == "All caught up"
+
+
+def test_the_top_cards_fading_copy_is_laid_out_in_the_cards_own_box() -> None:
+    out = _run("heroSwap")
+    assert out["moving"] == [""]
+    assert out["reduced"] == []
+    css = (Path(__file__).parents[3] / "src/mediaman/web/static/css/_dl.css").read_text()
+    rule = css.split(".dl-hero-ghost__card {", 1)[1].split("}", 1)[0]
+    assert "inset: 0;" in rule and "min-height" not in rule and "height:" not in rule

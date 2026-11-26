@@ -208,7 +208,7 @@ function abandonRig() {
   h.doc.getElementById = (id) => byId[id] || null;
   h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel), holdPage: () => () => {} };
   let dismissFn;
-  const rig = { h, label, confirm, list, posts: [], closes: 0, refreshes: 0, errors: 0, toasts: [] };
+  const rig = { h, label, confirm, list, copy, posts: [], closes: 0, refreshes: 0, errors: 0, toasts: [] };
   h.ctx.MM.modal = {
     setupDetail: (_m, opts) => (dismissFn = () => opts.onClose(), {
       open() {},
@@ -223,8 +223,9 @@ function abandonRig() {
   h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
   h.doc.dispatchEvent = (e) => { if (e.type === 'mediaman:downloads:refresh') rig.refreshes += 1; };
   h.load('dl-abandon.js');
-  rig.openItem = (dlId, kind, stuck, title, arrId) => {
+  rig.openItem = (dlId, kind, stuck, title, arrId, upcoming) => {
     const t = mk(); t.dataset = { dlId, kind, title: title || 'T' + dlId, arrId, stuckSeasons: JSON.stringify(stuck || []) };
+    if (upcoming) t.dataset.abandonUpcoming = '1';
     t.closest = () => t;
     h.fire('click', { target: t });
   };
@@ -301,6 +302,35 @@ scenarios.abandonGone = async function () {
   r.posts[0].reject(Object.assign(new Error('gone'), { status: 404 }));
   await r.settle();
   return { closes: r.closes, refreshes: r.refreshes, errors: r.errors, toasts: r.toasts };
+};
+
+// what the dialog tells, for a film and a show, tracked or not yet in the library
+scenarios.abandonWords = async function () {
+  const r = abandonRig();
+  const words = {};
+  [['movie', false], ['movie', true], ['series', false], ['series', true]].forEach(([kind, upcoming]) => {
+    r.openItem('x', kind, [], 'Tx', 1, upcoming);
+    words[kind + (upcoming ? ' upcoming' : '')] = r.copy.textContent;
+  });
+  return words;
+};
+
+// a failed Stop tracking says so, and keeps the server's words when it sent some
+scenarios.abandonFailureWords = async function () {
+  const r = abandonRig();
+  const said = [];
+  r.h.ctx.UIFeedback.error = (m) => said.push(m);
+  r.h.ctx.MM.api.messageOf = (err, fallback) => (err.message === 'server' ? 'Radarr is down.' : fallback);
+  const fail = async (upcoming, message) => {
+    r.openItem('a' + said.length, 'movie', [], 'Tx', 1, upcoming);
+    r.confirmClick();
+    r.posts[r.posts.length - 1].reject(new Error(message));
+    await r.settle();
+  };
+  await fail(true, 'none');
+  await fail(false, 'none');
+  await fail(true, 'server');
+  return said;
 };
 
 // A fails after the dialog moved on to B: B's button is left alone
@@ -873,5 +903,36 @@ scenarios.recentLeaves = async function (reduce) {
   return { during, back, gone: section() === null, boxEmpty: box.children.length === 0 };
 };
 scenarios.recentLeavesReduced = () => scenarios.recentLeaves(true);
+
+
+// the empty card for a page with no Radarr and no Sonarr, as an admin and as a viewer
+scenarios.notSetUp = async function () {
+  const look = (admin, setUp) => {
+    const p = pageRig(true);
+    if (!admin) p.h.root.setAttribute('data-can-abandon', 'false');
+    p.upd({ hero: null, queue: [], downloads_set_up: setUp });
+    const card = p.byId('dl-empty-container');
+    const link = card.querySelectorAll('a')[0];
+    return { h3: card.querySelectorAll('h3')[0].textContent, p: card.querySelectorAll('p')[0].textContent, link: link ? link.href : null };
+  };
+  return {
+    admin: look(true, { movies: false, shows: false }),
+    viewer: look(false, { movies: false, shows: false }),
+    films: look(true, { movies: true, shows: false }),
+    shows: look(false, { movies: false, shows: true }),
+    missing: look(true, undefined),
+  };
+};
+
+// a card the poll swaps to another title fades out over it in one box with it
+scenarios.heroSwap = async function () {
+  const ghosts = (reduce) => {
+    const p = pageRig(reduce);
+    p.upd({ hero: item('h1'), queue: [] });
+    p.upd({ hero: item('h2'), queue: [] });
+    return p.byId('dl-hero-container').querySelectorAll('.dl-hero-ghost__card').map((g) => g.style.height || '');
+  };
+  return { moving: ghosts(false), reduced: ghosts(true) };
+};
 
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

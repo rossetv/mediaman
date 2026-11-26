@@ -13,7 +13,6 @@
         <span data-v="size-info" {% if item.state == 'searching' %}hidden{% endif %}>
           <span data-v="size-done">{{ item.size_done or '' }}</span> of <span data-v="size-total">{{ item.size_total or '' }}</span>
         </span>
-        <span data-v="ep-count" {% if not item.episodes %}hidden{% endif %}>{% if item.episodes %}{{ item.episodes|length }} episode{{ 's' if item.episodes|length != 1 else '' }}{% endif %}</span>
       </div>
       <div class="dl-search-hint" data-v="search-hint"
            {% if item.state != 'searching' or not (item.search_hint or item.arr_link) %}hidden{% endif %}>

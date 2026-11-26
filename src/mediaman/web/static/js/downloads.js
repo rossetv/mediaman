@@ -218,7 +218,7 @@
       var nothingActive = !data.hero && queue.length === 0 && !held;
       var shown = emptyContainer.firstElementChild;
       if (nothingActive) {
-        var wanted = dom.buildEmptyState(data.outage);
+        var wanted = dom.buildEmptyState(data.outage, data.downloads_set_up);
         if (shown && dom.q('h3', shown).textContent !== dom.q('h3', wanted).textContent) {
           clear(emptyContainer);
           emptyContainer.appendChild(wanted);
