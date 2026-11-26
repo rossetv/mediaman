@@ -23,6 +23,7 @@ def test_an_episodes_dot_ends_the_fact_before_it_at_every_width() -> None:
     assert rule, "no dot rule outside a media query"
     # A no-break space keeps it from standing alone on a line.
     assert r'content: "\00a0·"' in rule.group(2)
+    assert not re.search(r"display:\s*none|visibility:\s*hidden|opacity:\s*0\s*;", rule.group(2))
     assert "::before" not in DETAIL.split(".ttl .watch-ep__fact", 1)[1].split("}", 1)[0]
 
 

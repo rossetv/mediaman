@@ -62,3 +62,12 @@ def test_an_arr_that_never_answers_is_asked_a_few_times_and_then_download_is_off
     # Pressed, it asks as ever and its own error says what failed.
     assert out["posts"] == ["/api/search/download"]
     assert "Radarr did not answer" in out["error"]
+
+
+def test_a_shows_seasons_are_not_offered_while_the_arr_has_not_answered() -> None:
+    out = _run("showSeasonsWaitForArr")
+    assert out["answered"]["chips"] == out["silent"]["chips"] > 0
+    assert out["answered"]["picks"] > 0
+    assert out["silent"]["picks"] == 0
+    assert "Download" in out["answered"]["primary"]["text"]
+    assert out["silent"]["primary"] is None

@@ -6,10 +6,10 @@ const fs = require('fs');
 const path = require('path');
 
 const source = fs.readFileSync(path.join(__dirname, 'watch_detail_harness.js'), 'utf8')
-  .replace(/scenarios\[process\.argv\[2\]\][\s\S]*$/, 'module.exports = { load, openCard, primary, click, MOVIE_DL, LIB_MOVIE, FACTS, APIError, settle };');
+  .replace(/scenarios\[process\.argv\[2\]\][\s\S]*$/, 'module.exports = { load, openCard, primary, click, MOVIE_DL, TV_DL, LIB_MOVIE, FACTS, APIError, settle };');
 const mod = { exports: {} };
 new Function('require', 'module', '__dirname', source)(require, mod, __dirname);
-const { load, openCard, primary, click, MOVIE_DL, LIB_MOVIE, FACTS, APIError, settle } = mod.exports;
+const { load, openCard, primary, click, MOVIE_DL, TV_DL, LIB_MOVIE, FACTS, APIError, settle } = mod.exports;
 
 const REF = 'tmdb-movie-77';
 const withDownload = (over) => Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, over) });
@@ -80,6 +80,25 @@ const scenarios = {
     click(p.doc, p.q('[data-ttl-act="primary"]'));
     await settle();
     return Object.assign(out, { posts: p.posts.map((x) => x.url), error: p.text('.ttl__error') });
+  },
+
+  // A show the Arr has not answered for: its seasons are not offered to pick until it has.
+  async showSeasonsWaitForArr() {
+    const out = {};
+    for (const answered of [false, true]) {
+      const data = Object.assign({}, TV_DL, { download: Object.assign({}, TV_DL.download, { answered }) });
+      const p = load({ routes: { '/api/watch/title/tmdb-tv-90': data } });
+      p.run();
+      p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+      await settle();
+      const chips = p.doc.querySelectorAll('.season-chip');
+      out[answered ? 'answered' : 'silent'] = {
+        chips: chips.length,
+        picks: chips.filter((c) => c.getAttribute('data-state') === 'pick').length,
+        primary: primary(p),
+      };
+    }
+    return out;
   },
 };
 
