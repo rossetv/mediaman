@@ -5,6 +5,9 @@ services:
     build: .
     image: mediaman:latest
     container_name: mediaman
+    # Passes every MEDIAMAN_ variable from .env into the container; the
+    # entries below add defaults for the ones the compose file itself uses.
+    env_file: .env
     environment:
       - MEDIAMAN_SECRET_KEY=${MEDIAMAN_SECRET_KEY}
       - MEDIAMAN_PORT=${MEDIAMAN_PORT:-8282}
