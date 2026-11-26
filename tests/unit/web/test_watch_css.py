@@ -548,7 +548,10 @@ def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
     # One line at every width, a phone's islands included.
     assert "scroll-margin-top" not in _of("#main-content", "(max-width: 1099.98px)", BAR)
     nav = SHEET.with_name("_nav.css")
-    assert int(re.search(r"--nav-h: (\d+)px", _of(":root", "(max-width: 699.98px)", nav))[1]) >= 52
+    assert (
+        int(re.search(r"--nav-h: calc\((\d+)px", _of(":root", "(max-width: 699.98px)", nav))[1])
+        >= 52
+    )
 
 
 ASK = SHEET.with_name("_watch_ask.css")
@@ -615,10 +618,17 @@ def _last(name: str, css: str) -> str:
     return re.findall(rf"(?<![\w-]){re.escape(name)}:\s*([^;]+)", css)[-1]
 
 
+def _bar_px(value: str) -> str:
+    """The bar's own height: what `--nav-h` holds, less the inset at the top of a phone."""
+    return re.sub(r"calc\((\d+px) \+ env\(safe-area-inset-top, 0px\)\)", r"\1", value)
+
+
 def _px(value: str, narrow: bool, height: int) -> float:
     """What a length comes to in pixels in a window *height* high, on a phone if *narrow*."""
     nav = SHEET.with_name("_nav.css")
-    nav_h = _last("--nav-h", _of(":root", PHONE, nav) if narrow else _of(":root", sheet=nav))
+    nav_h = _bar_px(
+        _last("--nav-h", _of(":root", PHONE, nav) if narrow else _of(":root", sheet=nav))
+    )
     value = re.sub(r"env\([^()]*\)", "0px", value)
     # No phone has a bar at its foot.
     for name, px in (("--nav-h", nav_h), ("--seen", "100dvh")):
@@ -656,7 +666,9 @@ def test_a_phone_s_tv_bar_is_off_the_foot_and_below_toasts_and_what_is_scrolled_
     assert _px(_last("bottom", bar), True, height) >= 8
     over = _bar_top(True, height)
     nav_h = int(
-        _last("--nav-h", _of(":root", PHONE, SHEET.with_name("_nav.css"))).removesuffix("px")
+        _bar_px(_last("--nav-h", _of(":root", PHONE, SHEET.with_name("_nav.css")))).removesuffix(
+            "px"
+        )
     )
     assert over <= height - nav_h  # under the bar at the top
     toast = _of(f"{BAR_SHOWN}.has-watch-search .ui-toast-host", PHONE, REMOTE)
@@ -675,8 +687,8 @@ def test_an_error_page_is_as_high_as_the_screen_less_the_nav_at_every_width() ->
 def test_the_nav_s_height_is_set_in_the_nav_sheet_alone() -> None:
     css = SHEET.parent
     assert "--nav-h:" not in _of(":root", sheet=css / "_tokens.css")
-    assert _last("--nav-h", _of(":root", sheet=css / "_nav.css")) == "72px"
-    assert _last("--nav-h", _of(":root", PHONE, css / "_nav.css")) == "64px"
+    assert _bar_px(_last("--nav-h", _of(":root", sheet=css / "_nav.css"))) == "72px"
+    assert _bar_px(_last("--nav-h", _of(":root", PHONE, css / "_nav.css"))) == "64px"
 
 
 def test_a_row_kept_at_its_start_does_not_snap_whatever_its_script_sets_inline() -> None:

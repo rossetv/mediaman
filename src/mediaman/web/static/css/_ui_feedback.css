@@ -13,7 +13,7 @@
   --toast-top: calc(var(--nav-h) + 16px);
   --toast-reserve: 90px;       /* room kept free for a bottom savebar */
   top: var(--toast-top);
-  right: 20px;
+  right: max(20px, env(safe-area-inset-right, 0px));
   z-index: 210;
   display: flex;
   flex-direction: column;
@@ -116,7 +116,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: max(20px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
   opacity: 0;
   transition: opacity var(--dur) var(--ease-out);
 }
@@ -221,8 +221,8 @@ html.has-player .ui-toast-host {
 @media (max-width: 600px) {
   html.has-player .ui-toast-host {
     --toast-top: calc(max(12px, env(safe-area-inset-top)) + 60px);
-    left: 12px;
-    right: 12px;
+    left: max(12px, env(safe-area-inset-left, 0px));
+    right: max(12px, env(safe-area-inset-right, 0px));
   }
 }
 @media (max-width: 600px) and (orientation: portrait) {

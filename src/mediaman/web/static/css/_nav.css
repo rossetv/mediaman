@@ -1,6 +1,6 @@
 /* What the bar takes at the top of the window: islands as tall as a finger, with room round them. */
-:root { --nav-h: 72px; }
-@media (max-width: 699.98px) { :root { --nav-h: 64px; } }
+:root { --nav-h: calc(72px + env(safe-area-inset-top, 0px)); }
+@media (max-width: 699.98px) { :root { --nav-h: calc(64px + env(safe-area-inset-top, 0px)); } }
 
 /* The bar draws no row of its own: islands of glass float over the top of the page, a picture
    runs up under them, and what scrolls passes between them. */
@@ -17,7 +17,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 0 var(--pad);
+  padding: env(safe-area-inset-top, 0px) var(--pad) 0;
   pointer-events: none;
 }
 .nav-glass > * { pointer-events: auto; }

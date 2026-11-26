@@ -17,7 +17,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 40px 24px;
+  padding: 40px max(24px, env(safe-area-inset-right, 0px)) 40px max(24px, env(safe-area-inset-left, 0px));
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -840,6 +840,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* A phone held sideways: the sheet takes the whole height. */
 @media (max-height: 500px) {
   .ttl { padding-block: 0; }
+  .ttl__body { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
   .ttl__sheet { min-height: 100%; border-block: 0; border-radius: 0; }
 }
 

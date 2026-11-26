@@ -75,7 +75,7 @@
   --scrim-modal: rgba(0,0,0,.7);
 
   /* Spacing (the bar's height, --nav-h, is set in _nav.css) */
-  --pad:     clamp(20px,4vw,40px);
+  --pad:     max(clamp(20px,4vw,40px), env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
   --section: clamp(36px,6vw,72px);
 
   /* Motion — quick, ease-out; _base.css switches it off under reduced motion. */
