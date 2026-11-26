@@ -1733,7 +1733,7 @@
   function likeButton(d) {
     var search = window.MMWatch.search || {};
     var byId = d.download && d.download.tmdb_id ? 'tmdb-' + (d.kind === 'movie' ? 'movie-' : 'tv-') + d.download.tmdb_id : '';
-    var ref = [d.library_ref, d.ref, cur.ref, byId].filter(function (r) { return search.canLike && search.canLike(r); })[0];
+    var ref = [d.library_ref, d.ref, cur.ref, d.tmdb_ref, byId].filter(function (r) { return search.canLike && search.canLike(r); })[0];
     if (!ref) return null;
     var b = button('btn btn--lg watch-btn--grey', 'Find more like this', 'i-sparkles');
     b.setAttribute('data-ttl-act', 'like');

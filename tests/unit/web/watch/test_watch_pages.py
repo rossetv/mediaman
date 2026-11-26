@@ -1519,6 +1519,12 @@ class TestWatchShell:
         assert viewer["settings_tmdb_href"] is None
         assert owner["settings_tmdb_href"] == "/settings#setg-integrations"
 
+    def test_page_data_says_which_kinds_of_title_can_be_downloaded(self, get, conn):
+        assert get("/").json()["page_data"]["can_download"] == {"movie": False, "show": False}
+        insert_settings(conn, radarr_url="http://radarr.invalid:7878", radarr_api_key="key")
+
+        assert get("/").json()["page_data"]["can_download"] == {"movie": True, "show": False}
+
 
 @pytest.mark.parametrize("as_admin", [False, True])
 def test_the_root_is_the_watch_page_for_a_viewer_and_an_admin(

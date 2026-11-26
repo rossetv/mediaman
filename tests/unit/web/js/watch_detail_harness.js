@@ -3823,7 +3823,8 @@ scenarios.tvBar = async () => {
 scenarios.like = async () => {
   let named = LIB_MOVIE.title;
   const p = load({ routes: { '/api/watch/title/movie-120': () => Promise.resolve(Object.assign({}, LIB_MOVIE, { title: named, poster_url: '/api/watch/poster/120' })), '/api/watch/title/rec-3': Object.assign({}, MOVIE_DL, { ref: 'rec-3' }),
-    '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    '/api/watch/title/tmdb-movie-77': MOVIE_DL,
+    '/api/watch/title/rec-4': Object.assign({}, MOVIE_DL, { ref: 'rec-4', tmdb_ref: 'tmdb-movie-78', download: null }) } });
   p.run();
   const b = () => p.q('[data-ttl-act="like"]');
   const acts = () => p.q('[data-ttl-part="actions"]').children.map((n) => n.getAttribute('data-ttl-act')).slice(0, 2);
@@ -3846,7 +3847,11 @@ scenarios.like = async () => {
   if (b()) click(p.doc, b());
   await open('tmdb-movie-77');
   click(p.doc, b());
-  out.asked = asked;
+  out.asked = asked.slice();
+  // A pick with nothing to download, where Radarr is not set up, is still known by its TMDB id.
+  await open('rec-4');
+  if (b()) click(p.doc, b());
+  out.undownloadable = asked.slice(out.asked.length).map((a) => a[0]);
   on = false;
   p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
   out.off = !!b();

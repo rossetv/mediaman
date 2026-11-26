@@ -76,6 +76,7 @@ from mediaman.web.routes.watch.pages import (
     _episode_row,
     _primary_episode,
     _season_watched,
+    can_download,
     leaving_info,
     open_plex,
     play_href,
@@ -908,7 +909,7 @@ def _title_of_fields(
         )
         if library_ref is None:
             out["sonarr_tracked"] = arr.sonarr_tracked(tmdb_id)
-    if library_ref is None:
+    if library_ref is None and can_download(conn, secret)["movie" if kind == "movie" else "show"]:
         state, pct = arr.state(kind, tmdb_id)
         request_body: dict[str, Any] = (
             {"url": download_url}

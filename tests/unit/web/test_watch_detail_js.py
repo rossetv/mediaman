@@ -298,6 +298,7 @@ def test_a_title_finds_more_like_itself_beside_play_once_there_is_an_ai_to_ask()
             ["tmdb-movie-77", "Meridian", None],
             ["tmdb-movie-77", "Meridian", None],
         ],
+        "undownloadable": ["tmdb-movie-78"],
         "off": False,
     }
 

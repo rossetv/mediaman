@@ -25,6 +25,7 @@ from starlette.responses import Response
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.arr import build as arr_build
 from mediaman.services.downloads import strip
 from mediaman.services.infra import allowed_outbound_hosts, get_bool_setting, get_string_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
@@ -152,6 +153,14 @@ def is_valid_key(key: str) -> bool:
 
 def poster_url(key: str) -> str:
     return f"/api/poster/{key}"
+
+
+def can_download(conn: sqlite3.Connection, secret_key: str) -> dict[str, bool]:
+    """Whether films and shows can be downloaded: Radarr fetches the one and Sonarr the other."""
+    return {
+        "movie": arr_build.build_radarr_from_db(conn, secret_key) is not None,
+        "show": arr_build.build_sonarr_from_db(conn, secret_key) is not None,
+    }
 
 
 def safe_origin(value: str | None) -> str | None:
@@ -1028,6 +1037,7 @@ def watch_page(
             "page_data": {
                 "is_admin": is_admin,
                 "tmdb_configured": tmdb_configured,
+                "can_download": can_download(conn, request.app.state.config.secret_key),
                 "q": q,
                 "grids": grid_titles,
                 "library_total": library_total,

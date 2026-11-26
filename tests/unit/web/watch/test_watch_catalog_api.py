@@ -1847,6 +1847,24 @@ class TestTitleDownload:
         assert overlapped == [True]
         assert download["answered"] is True
 
+    @pytest.mark.parametrize(
+        ("ref", "unset"),
+        [("tmdb-movie-12", "build_radarr_from_db"), ("tmdb-tv-77", "build_sonarr_from_db")],
+    )
+    def test_no_download_is_offered_where_what_would_fetch_it_is_not_set_up(
+        self, viewer, tmdb, arr, monkeypatch, ref, unset
+    ):
+        monkeypatch.setattr(_arr.arr_build, unset, lambda *_a: None)
+
+        assert viewer.get(f"/api/watch/title/{ref}").json()["download"] is None
+
+    def test_a_film_is_offered_its_download_without_sonarr(self, viewer, tmdb, arr, monkeypatch):
+        monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_a: None)
+
+        download = viewer.get("/api/watch/title/tmdb-movie-12").json()["download"]
+
+        assert download["request"]["url"] == "/api/search/download"
+
     def test_an_unreachable_arr_is_not_answered(self, viewer, tmdb, arr):
         arr.down = True
 
