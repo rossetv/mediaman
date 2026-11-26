@@ -963,3 +963,7 @@ def test_a_failed_test_names_the_service_once_for_a_screen_reader() -> None:
 
 def test_a_finished_save_tells_the_newsletter_panel() -> None:
     assert _run("savedTellsNewsletter") == {"told": 1}
+
+
+def test_the_section_rail_is_marked_stuck_only_while_it_rests_under_the_bar() -> None:
+    assert _run("railStuck") == {"atRest": False, "stuck": True, "back": False}

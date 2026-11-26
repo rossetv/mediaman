@@ -51,6 +51,9 @@
     scroll-padding-inline: 32px;
   }
   .setg-pg .setg-rail::-webkit-scrollbar { display: none; }
+  /* At rest under the bar, it runs up behind it, its chips where they were: the page shows
+     only under the islands. */
+  .setg-pg .setg-rail.is-stuck { top: 0; margin-top: calc(-1 * var(--nav-h)); padding-top: calc(var(--nav-h) + 10px); }
   /* Fade edges cue the horizontal scroll. The rail is a flex overflow
      container so `position: absolute` pulls the pseudos out of the flex
      flow and pins them to the padding box — they sit on top of the
@@ -68,6 +71,8 @@
     right: 0;
     background: linear-gradient(to left, rgba(10,10,12,.95), rgba(10,10,12,0));
   }
+  .setg-pg .setg-rail.is-stuck::before,
+  .setg-pg .setg-rail.is-stuck::after { top: var(--nav-h); }
   .setg-pg .setg-rail-item {
     flex: 0 0 auto;
     padding: 8px 13px;

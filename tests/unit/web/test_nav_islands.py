@@ -165,3 +165,121 @@ def test_on_a_phone_the_bar_stays_at_the_top() -> None:
 
     assert "position: relative" not in phone
     assert "--nav-h: 0px" not in _css(NAV)
+
+
+CSS = _WEB / "static/css"
+WATCH = CSS / "_watch.css"
+NARROW = "(max-width: 319.98px)"
+
+
+def _contexts(css: str) -> list[tuple[str, str]]:
+    """Every rule set's at-rule prelude ('' outside any) and its body."""
+    return [("", _outside(css))] + [
+        (pre, css[css.index("{", s) + 1 : e - 1]) for pre, s, e in _blocks(css)
+    ]
+
+
+def _px(value: str, nav: int, lift: str) -> float:
+    value = re.sub(r"var\(--banner-lift(?:, [^()]+)?\)", lift, value)
+    value = value.replace("var(--nav-h)", f"{nav}px").replace("calc", "").replace("px", "")
+    return float(eval(value, {"__builtins__": {}}))
+
+
+def test_watch_s_hero_keeps_its_words_clear_of_the_bar_whatever_its_padding() -> None:
+    lifted = _of("#watch-browse > .watch-banner:first-child", _outside(_css(SEARCH)))
+    lift = re.search(r"--banner-lift: ([^;]+);", lifted)
+    lift_px = lift.group(1).strip() if lift else "0px"
+    seen = 0
+    for pre, body in _contexts(_css(WATCH)):
+        navs = [64] if "max-width: 5" in pre or "max-width: 699" in pre else [64, 72]
+        for head, decls in re.findall(r"([^{}]+)\{([^{}]*)\}", body):
+            if not any(
+                s.strip().startswith(".watch-banner") and " " not in s.strip()
+                for s in head.split(",")
+            ):
+                continue
+            pads = re.findall(r"(?<![\w-])padding(-block|-top)?:\s*([^;]+);", decls)
+            if not pads:
+                continue
+            top = re.split(r"\s+(?![^()]*\))", pads[-1][1].strip())[0]
+            for nav in navs:
+                seen += 1
+                # The hero is drawn from the top of the window, under the bar.
+                assert _px(top, nav, lift_px) - nav >= 8, (pre, head.strip(), top, nav)
+    assert seen >= 5
+
+
+@pytest.mark.parametrize(
+    ("sheet", "glass"),
+    [("_history.css", ".hx-tools::after"), ("_watch_grid.css", ".watch-all__glass")],
+)
+def test_a_sticky_toolbar_s_glass_runs_up_behind_the_bar(sheet, glass) -> None:
+    own = _of(glass, _outside(_css(CSS / sheet)))
+
+    assert re.search(r"(?<![\w-])(top|inset): calc\(-1 \* var\(--nav-h\)\)", own), own
+
+
+def test_all_titles_head_comes_to_rest_under_the_bar_at_every_width() -> None:
+    grid = _css(CSS / "_watch_grid.css")
+    for pre, body in _contexts(grid):
+        for top in re.findall(r"(?<![\w-])top: ([^;]+);", _of(".watch-all__head", body)):
+            assert top in ("var(--nav-h)", "0") or "max-height: 500px" in pre, (pre, top)
+        for low in re.findall(r"min-height: ([^;]+);", _of(".watch-all", body)):
+            assert "var(--nav-h)" in low, (pre, low)
+
+
+def test_the_logo_s_glass_keeps_as_far_from_the_edge_as_the_end_island() -> None:
+    css = _outside(_css(NAV))
+    glass = _of(".nav-glass .brand::before", css)
+
+    assert re.search(r"inset: 0;", glass) and "-" not in glass.split("inset:")[1].split(";")[0]
+    assert re.search(r"padding: 0 1\dpx", _of(".nav-glass .brand", css))
+
+
+def test_on_a_phone_the_end_island_is_never_narrower_than_what_it_holds() -> None:
+    phone = _inside(_css(NAV), PHONE)
+    alone = re.findall(r"min-width: (\d+)px", _of(".nav-end", phone))
+    with_meter = re.findall(r"min-width: (\d+)px", _of(".nav-end:has(> .space-meter)", phone))
+
+    # A 44px profile button, and a 44px meter with a 4px gap; a 1px edge each side.
+    assert alone and int(alone[-1]) >= 44 + 2
+    assert with_meter and int(with_meter[-1]) >= 44 + 4 + 44 + 2
+
+
+def test_on_a_zoomed_phone_the_start_of_the_bar_gives_way_to_the_profile_button() -> None:
+    narrow = _inside(_css(NAV), NARROW)
+    assert "display: none" in _of(".nav-glass .brand", narrow)
+    back = _of(".nav-back", narrow)
+    assert "font-size: 0" in back and "width: 44px" in back
+    assert "display: none" in _of(
+        ".nav-end .space-meter", _inside(_css(NAV), "(max-width: 189.98px)")
+    )
+
+
+def test_the_storage_meter_is_a_finger_wide_however_little_room_it_has() -> None:
+    for pre, body in _contexts(_css(CSS / "_watch_space.css")):
+        for head, decls in re.findall(r"([^{}]+)\{([^{}]*)\}", body):
+            if not any(s.strip().endswith(".space-meter") for s in head.split(",")):
+                continue
+            for low in re.findall(r"min-width: (\d+)px", decls):
+                assert int(low) >= 44, (pre, head.strip())
+            assert "min-width: 0" not in decls, (pre, head.strip())
+
+
+def test_a_tap_on_the_phone_search_s_backdrop_does_not_reach_the_page() -> None:
+    backdrop = _of(".wbar::after", _inside(_css(SEARCH), PHONE))
+
+    assert "pointer-events: auto" in backdrop
+
+
+def test_settings_section_rail_at_rest_under_the_bar_runs_up_behind_it_with_its_chips_in_place() -> (
+    None
+):
+    narrow = _inside(_css(CSS / "_settings_pg.css"), "(max-width: 960px)")
+    rail = _of(".setg-pg .setg-rail", narrow)
+    stuck = _of(".setg-pg .setg-rail.is-stuck", narrow)
+
+    assert "top: var(--nav-h)" in rail and "top: 0;" in stuck
+    assert "margin-top: calc(-1 * var(--nav-h))" in stuck
+    own = re.search(r"padding: (\d+px)", rail).group(1)  # type: ignore[union-attr]
+    assert f"padding-top: calc(var(--nav-h) + {own})" in stuck

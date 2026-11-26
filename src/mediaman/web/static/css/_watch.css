@@ -161,7 +161,8 @@
   margin-top: 16px;
   display: flex;
   align-items: flex-end;
-  padding: 24px var(--pad) 44px;
+  /* --banner-lift: how far the bar stands over its top, where the words must not go. */
+  padding: calc(var(--banner-lift, 0px) + 24px) var(--pad) 44px;
   overflow: hidden;
   background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--bg) 80%);
   /* Dark enough for the text up to where the title can reach, then eased out with no edge;
@@ -849,7 +850,7 @@
 
 /* A phone held sideways: a shorter banner that leaves its buttons on screen. */
 @media (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
-  .watch-banner { --banner-poster-w: 124px; min-height: 260px; margin-top: 8px; padding: 16px var(--pad) 18px; }
+  .watch-banner { --banner-poster-w: 124px; min-height: 260px; margin-top: 8px; padding: calc(var(--banner-lift, 0px) + 16px) var(--pad) 18px; }
   .watch-banner__body { width: auto; max-width: min(560px, calc(100% - var(--banner-poster-w) - 28px)); gap: 8px; }
   .watch-banner__title { --title-lines: 3; font-size: 28px; }
   .watch-banner__title--long { --title-lines: 4; font-size: 24px; }
@@ -861,7 +862,7 @@
 @media (max-width: 699.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
   /* That bar leaves little height, so the buttons stand beside the text, at its top, in place of
      the poster: however long the title, they stay on screen. */
-  .watch-banner { min-height: 0; margin-top: 0; padding-block: 12px 14px; }
+  .watch-banner { min-height: 0; margin-top: 0; padding-block: calc(var(--banner-lift, 0px) + 12px) 14px; }
   .watch-banner__poster { display: none; }
   .watch-banner__body { width: 100%; max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) 196px; gap: 6px 16px; }
   .watch-banner__body > * { grid-column: 1; }
@@ -880,7 +881,7 @@
 @media (forced-colors: active) {
   .watch-banner__bg { display: none; }
   /* With no picture there is nothing to leave room for. */
-  .watch-banner:has(> .watch-banner__bg--art:not([data-broken])) { min-height: 0; padding-top: 24px; }
+  .watch-banner:has(> .watch-banner__bg--art:not([data-broken])) { min-height: 0; padding-top: calc(var(--banner-lift, 0px) + 24px); }
   .watch-pill.on { forced-color-adjust: none; color: HighlightText; }
   .watch-pill.on { background: Highlight; }
   .watch-keep::before { border: 1px solid ButtonText; }

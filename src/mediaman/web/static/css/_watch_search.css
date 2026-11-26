@@ -215,7 +215,7 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
     top: auto;
     width: 44px;
     height: 44px;
-    margin: 0 0 0 6px; /* clear of the brand's island */
+    margin: 0;
     border-radius: 22px;
   }
   /* Shut, the whole button is the field, under the lens. */
@@ -245,8 +245,14 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
     backdrop-filter: saturate(180%) blur(20px);
     opacity: 0;
     visibility: hidden;
+    /* A tap on it stays on it, where the bar would let it through to the page. */
+    pointer-events: auto;
   }
   .wbar:has(> .watch-search.is-focus)::after { opacity: 1; visibility: visible; transition: opacity var(--dur) var(--ease-out); }
+}
+/* With the logo gone, the button stays beside the profile's. */
+@media (max-width: 319.98px) {
+  .wbar .watch-search { margin-left: auto; }
 }
 /* Little height: the bar goes with the page. */
 @media (max-height: 500px) {
@@ -258,7 +264,7 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
 }
 /* The hero's picture runs up under the bar, whose islands float over it. */
 #watch-browse .watch-banner { margin-top: 0; }
-#watch-browse > .watch-banner:first-child { margin-top: calc(-1 * var(--nav-h)); }
+#watch-browse > .watch-banner:first-child { --banner-lift: var(--nav-h); margin-top: calc(-1 * var(--nav-h)); }
 
 /* ── The sheet ── */
 

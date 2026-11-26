@@ -45,7 +45,8 @@ body[data-page="history"] { overflow-x: clip; }
   left: 50%;
   margin-left: -50vw;
   width: 100vw;
-  top: 0;
+  /* Up behind the bar, so rows pass only under its islands and never show above the tools. */
+  top: calc(-1 * var(--nav-h));
   bottom: 0;
   border-bottom: 1px solid var(--hair);
   background: color-mix(in srgb, var(--scrim) 84%, transparent);

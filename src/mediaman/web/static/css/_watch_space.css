@@ -63,7 +63,7 @@
 /* Without room "1.2 TB free" is "1.2 TB", and then the bar alone; never a figure cut short. */
 .wbar.is-snug .space-meter__word { display: none; }
 .wbar.is-tight .space-meter > :is(.space-meter__free, .space-meter__leaving) { display: none; }
-.wbar.is-tight .space-meter { min-width: 0; }
+.wbar.is-tight .space-meter { min-width: 44px; }
 @media (max-width: 339.98px) {
   .space-meter { gap: 6px; padding: 0 6px; }
   .space-meter .space-meter__bar { width: 28px; }

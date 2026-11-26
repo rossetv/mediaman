@@ -151,8 +151,14 @@
       }
       lastActiveHref = id;
     }
-    window.addEventListener('scroll', syncRail, { passive: true });
+    // At rest under the bar, the rail's colour runs up behind it.
+    function syncStuck() {
+      if (!rail) return;
+      rail.classList.toggle('is-stuck', rail.getBoundingClientRect().top <= parseFloat(getComputedStyle(rail).top) + 1);
+    }
+    window.addEventListener('scroll', function () { syncRail(); syncStuck(); }, { passive: true });
     syncRail();
+    syncStuck();
   }
 
   function init() {

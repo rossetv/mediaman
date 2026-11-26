@@ -36,15 +36,15 @@
   box-shadow: var(--shadow-card);
 }
 .brand { display: inline-flex; align-items: center; font-size: 19px; color: var(--t1); }
-/* Its margin keeps its island, when it has one, off the next. */
-.nav-glass .brand { position: relative; height: 44px; margin-right: 10px; font-size: 21px; }
+/* Its padding is the room its island, when it has one, takes; its margin keeps that off the next. */
+.nav-glass .brand { position: relative; height: 44px; padding: 0 12px; margin-right: 10px; font-size: 21px; }
 .nav-glass .brand > .ico { filter: drop-shadow(0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent)); }
 /* Its own island once the page has moved under it, where a poster could take its words. */
 .nav-glass .brand::before {
   content: "";
   position: absolute;
   z-index: -1;
-  inset: 0 -12px;
+  inset: 0;
   border-radius: var(--r-pill);
   background: var(--isle);
   -webkit-backdrop-filter: var(--isle-blur);
@@ -384,12 +384,24 @@
   .nav-glass .brand { font-size: 20px; }
   .nav-back { padding: 0 18px 0 14px; font-size: 15px; }
   .nav-glass .avatar { width: 32px; height: 32px; }
-  /* The meter gives way before the row is too wide. */
-  .nav-end { flex: 0 1 auto; min-width: 0; }
+  /* The meter gives way before the row is too wide, but no further than its 44px beside the
+     profile button's (with the gap and the edges): the island is never narrower than both. */
+  .nav-end { flex: 0 1 auto; min-width: 46px; }
+  .nav-end:has(> .space-meter) { min-width: 95px; }
   /* The meter opens the same panel without its sign. */
   .nav-end .space-meter__info { display: none; }
   /* A figure a fraction of a pixel too wide stays whole; one cut further drops its word (watch/search.js). */
   .nav-glass .nav-end .space-meter__free { text-overflow: clip; }
-  .container,
-  .login-page { padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px)); }
+  /* Clear of the home bar, where the page runs under it. */
+  .container { padding-bottom: env(safe-area-inset-bottom, 0px); }
+}
+/* A phone zoomed in: the profile button, the only way to the other pages, keeps its place. The
+   logo goes first, then the word beside the way back (still read out), then the meter. */
+@media (max-width: 319.98px) {
+  .nav-glass .brand { display: none; }
+  .nav-back { width: 44px; padding: 0; justify-content: center; font-size: 0; }
+}
+@media (max-width: 189.98px) {
+  .nav-end .space-meter { display: none; }
+  .nav-end:has(> .space-meter) { min-width: 46px; }
 }
