@@ -407,3 +407,13 @@ class TestKeyRefused:
         assert key_refused(conn) is True
         call_openai("p", conn)
         assert key_refused(conn) is False
+
+
+def test_an_answer_that_is_not_json_is_one_plain_warning(conn, fake_http, fake_response, caplog):
+    insert_settings(conn, openai_api_key="sk-test")
+    output = [{"type": "message", "content": [{"type": "output_text", "text": "{not json"}]}]
+    fake_http.queue("POST", fake_response(json_data={"output": output}))
+    with caplog.at_level(logging.INFO, logger=client_mod.__name__):
+        assert call_openai("p", conn) == []
+    [record] = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert (record.levelno, record.exc_info) == (logging.WARNING, None)

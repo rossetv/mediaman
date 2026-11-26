@@ -118,7 +118,7 @@ def _run_refresh(db_path: str, secret_key: str, run_id: int, stop_event: threadi
         except OpenAIUnavailable as exc:
             count = 0
             no_recs = (
-                "OpenAI needs a working API key. Check it in Settings, then try again."
+                "OpenAI needs a working API key. Check the key, then try again."
                 if exc.refused
                 else "OpenAI didn't answer. Try again in a few minutes."
             )

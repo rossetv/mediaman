@@ -242,6 +242,8 @@ def _log_error(exc: Exception) -> None:
         logger.warning("OpenAI API call timed out")
     elif isinstance(exc, requests.RequestException):
         logger.warning("OpenAI API network error: %s", exc)
+    elif isinstance(exc, json.JSONDecodeError):
+        logger.warning("OpenAI's answer was not valid JSON: %s", exc)
     else:
         logger.exception("Failed to parse OpenAI response: %s", exc)
 

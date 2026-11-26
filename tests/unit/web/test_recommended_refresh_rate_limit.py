@@ -798,3 +798,5 @@ class TestRefreshWords:
         assert result is not None and result["ok"] is False
         assert ("key" in str(result["message"]).lower()) is blames_key
         assert "try again" in str(result["message"]).lower()
+        # Only the admin refreshes, from Settings: they are not sent where they are.
+        assert "settings" not in str(result["message"]).lower()
