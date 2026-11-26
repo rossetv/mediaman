@@ -1284,6 +1284,29 @@ const scenarios = {
     out.unchosen = list.did();
     return out;
   },
+  // The real sheet: what it asks before it takes a TV from someone, in the order it draws it.
+  async takeOrder() {
+    const begin = async () => {
+      const p = await page({ sheet: true, tvs: [aTv(), aTv({ id: 8, kind: 'page', name: 'Bedroom', play: null })] });
+      p.row = (key) => p.press('.play-on [data-key="' + key + '"]');
+      await p.open();
+      await p.press('#tv-remote [data-play-on]');
+      return p;
+    };
+    const keys = (p) => p.doc.querySelectorAll('.play-on button[data-key]').map((b) => b.getAttribute('data-key'))
+      .filter((k) => k === 'take' || k === 'unsay');
+    const busy = await begin();
+    busy.api.refuse = 'in_use';
+    await busy.row('tv-8');
+    const pair = await begin();
+    await pair.row('pair');
+    pair.api.fail = ['in_use', 409];
+    const code = pair.$('.play-on [data-key="code"]');
+    code.value = '123456';
+    await pair.on('.play-on [data-key="code"]', 'input', {});
+    await settle();
+    return { busy: keys(busy), pair: keys(pair) };
+  },
   async paintsTitles() {
     const p = await page();
     const b = p.doc.createElement('button');
