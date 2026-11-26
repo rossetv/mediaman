@@ -525,12 +525,12 @@ CONTROLS = ":is(a, button, input, select, textarea, [tabindex])"
 
 
 def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scroll_it() -> None:
-    css = BAR.read_text(encoding="utf-8")
-    rules = re.findall(r"([^{}]*)\{ scroll-margin-top: [^}]*\}", css)
-    page = [r.strip() for r in rules if CONTROLS in r]
-    assert len(page) == 2
-    for selector in page:
-        assert selector.endswith(':not(.watch-all__head *, [role="menu"] *)')
+    page = 'html:has(> body[data-page="watch"])'
+    assert "scroll-padding-top: var(--bar-clear)" in _of(page, sheet=BAR)
+    # Each control of a sticky bar takes the page's padding back, less its inset in the bar.
+    for bar, inset in ((".wbar", "4px"), (".watch-all__head", "var(--nav-h) + 6px")):
+        margin = _of(f"{bar} {CONTROLS}", sheet=BAR)
+        assert f"scroll-margin-top: calc({inset} - var(--bar-clear, 0px))" in margin
     sticky = {
         head.strip()
         for sheet in SHEET.parent.glob("_watch*.css")
@@ -542,7 +542,10 @@ def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scrol
 
 
 def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
-    assert "scroll-margin-top: var(--nav-h)" in _of("#main-content", sheet=BAR)
+    # The page's padding and this margin come to the bar's height.
+    assert "scroll-margin-top: calc(var(--nav-h) - var(--bar-clear, 0px))" in _of(
+        "#main-content", sheet=BAR
+    )
     # One line at every width, and nothing at the top of a phone.
     assert "scroll-margin-top" not in _of("#main-content", "(max-width: 1099.98px)", BAR)
     nav = SHEET.with_name("_nav.css")

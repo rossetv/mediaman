@@ -76,3 +76,22 @@ def test_historys_search_and_its_menus_fields_have_an_edge() -> None:
 def test_an_off_switch_shows_its_track_and_an_on_one_its_colour_alone() -> None:
     assert "box-shadow: inset 0 0 0 1px var(--field-edge)" in _of(".tog", "_forms.css")
     assert "box-shadow: none" in _of(".tog.on", "_forms.css")
+
+
+def test_on_history_the_keyboard_lands_clear_of_the_bar_and_tools_but_a_bars_own_control_stays_put() -> (
+    None
+):
+    page = 'html:has(> body[data-page="history"])'
+    assert "scroll-padding-top: var(--bar-clear)" in _of(page, "_history.css")
+    for bar in (".nav-glass", ".hx-tools"):
+        assert "scroll-margin-top: calc(" in _of(f"{bar} {CONTROLS}", "_history.css"), bar
+        assert "- var(--bar-clear, 0px))" in _of(f"{bar} {CONTROLS}", "_history.css"), bar
+
+
+def test_under_a_short_window_historys_tools_and_all_titles_head_go_with_the_page() -> None:
+    short = "(max-height: 500px)"
+    assert "position: relative" in _of(".hx-tools", "_history.css", short)
+    assert "--bar-clear: calc(var(--nav-h) + 12px)" in _of(
+        'html:has(> body[data-page="history"])', "_history.css", short
+    )
+    assert "position: relative" in _of(".watch-all__head", "_watch_grid.css", short)

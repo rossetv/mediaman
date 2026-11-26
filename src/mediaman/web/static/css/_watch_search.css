@@ -26,8 +26,14 @@
 }
 .wbar .brand { margin-right: auto; }
 
+/* What the keyboard comes to clears the bar, and All titles' 64px head under it. A child
+   combinator: the page's own mutations never test it again. */
+html:has(> body[data-page="watch"]) { --bar-clear: calc(var(--nav-h) + 80px); scroll-padding-top: var(--bar-clear); }
+/* A bar's own control is in sight already: its margin, less its inset in the bar, takes the padding back. */
+.wbar :is(a, button, input, select, textarea, [tabindex]) { scroll-margin-top: calc(4px - var(--bar-clear, 0px)); }
+.watch-all__head :is(a, button, input, select, textarea, [tabindex]) { scroll-margin-top: calc(var(--nav-h) + 6px - var(--bar-clear, 0px)); }
 /* Where the skip link goes. */
-#main-content { scroll-margin-top: var(--nav-h); }
+#main-content { scroll-margin-top: calc(var(--nav-h) - var(--bar-clear, 0px)); }
 
 /* The field stands in the middle and grows over the page: a little under the pointer, wide
    and tall with the focus. It is drawn at its full size and cut down to the one it has:
@@ -179,8 +185,6 @@
   .wbar .watch-search { --bl: calc(var(--l) - var(--pad) + 16px); --br: calc(100cqw + var(--pad) - var(--r) + 8px); left: var(--pad); margin-left: 0; }
   .wbar .watch-search.is-focus { --bl: 0px; --br: 0px; }
   .wbar:has(> .watch-search.is-focus) > :is(.brand, .space-meter) { opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out); }
-  /* On the page alone: padding on the whole would scroll it for the focus in the bar too. */
-  .watch-page > :not(#watch-detail) :is(a, button, input, select, textarea, [tabindex]):not(.watch-all__head *, [role="menu"] *) { scroll-margin-top: 68px; }
 }
 @media (min-width: 700px) and (max-width: 1099.98px) {
   .wbar:has(> .watch-search.is-focus) > .profile-btn { opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out); }
@@ -227,8 +231,8 @@
 /* Little height: the bar goes with the page. */
 @media (max-height: 500px) {
   .wbar { position: relative; }
+  html:has(> body[data-page="watch"]) { --bar-clear: 0px; }
   #main-content { scroll-margin-top: 0; }
-  .watch-page > :not(#watch-detail) :is(a, button, input, select, textarea, [tabindex]):not(.watch-all__head *, [role="menu"] *) { scroll-margin-top: 0; }
   .watch-page .watch-all { min-height: 100vh; min-height: 100dvh; }
   .watch-page .watch-all__head { top: 0; }
 }

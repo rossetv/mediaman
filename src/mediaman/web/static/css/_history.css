@@ -55,6 +55,12 @@ body[data-page="history"] { overflow-x: clip; }
   transition: opacity var(--dur) var(--ease-out);
 }
 .hx-tools.is-stuck::after { opacity: 1; }
+/* What the keyboard comes to clears the bar and the tools at their tallest (66px; wrapped, 118px).
+   A child combinator: the list's own mutations never test it again. */
+html:has(> body[data-page="history"]) { --bar-clear: calc(var(--nav-h) + 78px); scroll-padding-top: var(--bar-clear); }
+/* A bar's own control is in sight already: its margin, less its inset in the bar, takes the padding back. */
+.nav-glass :is(a, button, input, select, textarea, [tabindex]) { scroll-margin-top: calc(4px - var(--bar-clear, 0px)); }
+.hx-tools :is(a, button, input, select, textarea, [tabindex]) { scroll-margin-top: calc(var(--nav-h) + 6px - var(--bar-clear, 0px)); }
 .hx-line { display: flex; align-items: center; gap: 8px; }
 .hx-search { position: relative; flex: 1 1 260px; min-width: 0; }
 .hx-search > .ico {
@@ -386,6 +392,7 @@ body[data-page="history"] { overflow-x: clip; }
 .hx-none { padding: 14px 12px; font-size: 13px; color: var(--t3); }
 
 @media (max-width: 899.98px) {
+  html:has(> body[data-page="history"]) { --bar-clear: calc(var(--nav-h) + 130px); }
   .hx-line { flex-wrap: wrap; }
   .hx-search { flex-basis: 100%; }
   .hx-chips {
@@ -456,6 +463,12 @@ body[data-page="history"] { overflow-x: clip; }
   .hx-opt, .hx-opt-skel { min-height: 50px; font-size: 16px; }
   .hx-menu__f input,
   .hx-dates input { font-size: 16px; height: 44px; }
+}
+
+/* Little height: the tools go with the page. */
+@media (max-height: 500px) {
+  .hx-tools { position: relative; top: auto; }
+  html:has(> body[data-page="history"]) { --bar-clear: calc(var(--nav-h) + 12px); }
 }
 
 @media (max-height: 519.98px) {

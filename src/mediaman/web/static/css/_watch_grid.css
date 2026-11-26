@@ -144,6 +144,10 @@
   .watch-all__tools .row-tool { gap: 5px; padding: 0 10px 0 6px; background: none; }
   .watch-all__menu { margin-left: 0; }
 }
+/* Little height: the head goes with the page, as the bar does. */
+@media (max-height: 500px) {
+  .watch-all__head { position: relative; top: 0; }
+}
 @media (max-width: 359.98px) {
   .watch-all__title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; font-size: 15px; white-space: normal; }
   .watch-all__tools .row-tool .ico:not(.row-tool__chev) { display: none; }
