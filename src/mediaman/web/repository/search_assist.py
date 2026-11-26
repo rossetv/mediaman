@@ -7,14 +7,20 @@ Every read and write names the one person it is for, save the counts of everyone
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
+import statistics
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
 from mediaman.services.infra import get_int_setting
 from mediaman.services.openai.search_assist import Taste
+from mediaman.web.repository.library_query import ALL_SEASON_TYPES
+from mediaman.web.repository.seen_titles import covered_seasons
+from mediaman.web.repository.watch_progress import ContinueCard
 
 #: Questions a person may ask in a day, and runs of every kind for everyone together, unless
 #: an admin has set other numbers.
@@ -345,25 +351,108 @@ def finish_with_answer(
 # --- Tonight -------------------------------------------------------------------
 
 
-def begun_refs(conn: sqlite3.Connection, username: str) -> set[str]:
-    """The refs of the library titles *username* began, finished or marked, anything of a
-    show counting as the show."""
-    rows = conn.execute(
-        "SELECT CASE WHEN show_rating_key IS NULL THEN 'movie-' || COALESCE(media_item_id,"
-        " rating_key) ELSE 'show-' || show_rating_key END AS ref FROM watch_progress"
-        " WHERE username = :name AND (position_s > 0 OR watched = 1 OR seen_at IS NOT NULL)"
-        " UNION SELECT CASE WHEN media_type = 'movie' THEN 'movie-' || rating_key"
-        " ELSE 'show-' || show_rating_key END FROM plex_plays WHERE username = :name",
+@dataclass(frozen=True, slots=True)
+class Ahead:
+    """The episode of a library show a person would play next."""
+
+    season: int
+    number: int
+    # What Plex says it runs, or has left to run; else what the show's other episodes run.
+    minutes: int | None
+    # 0: the show is in their Continue watching, 1: they saw some of it, 2: none of it.
+    tier: int
+    # When they last played or saw any of it; empty when never.
+    at: str = ""
+    # It is begun, and *minutes* is what it has left.
+    left: bool = False
+
+
+def episodes_ahead(
+    conn: sqlite3.Connection,
+    username: str,
+    libraries: list[str],
+    resumed: Sequence[ContinueCard],
+) -> dict[str, Ahead]:
+    """By show rating key, the episode *username* would play next of each show of the scanned
+    libraries that has one: the one they began, as *resumed* (their Continue watching) says,
+    else the first after the furthest they saw, played in Plex or marked. A show they have seen
+    to its last listed episode has none. Specials do not count."""
+    marks = ",".join("?" * len(ALL_SEASON_TYPES))
+    # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
+    rows = conn.execute(  # nosec B608
+        "SELECT id, show_rating_key, season_number, episode_keys FROM media_items"
+        " WHERE CAST(plex_library_id AS TEXT) IN (SELECT CAST(value AS TEXT) FROM json_each(?))"
+        f" AND media_type IN ({marks}) AND show_rating_key IS NOT NULL"
+        " AND season_number > 0 AND episode_keys IS NOT NULL",
+        (json.dumps(list(libraries)), *ALL_SEASON_TYPES),
+    ).fetchall()
+    listed: dict[str, list[tuple[int, int, str]]] = {}
+    in_season: dict[str, list[str]] = {}
+    for r in rows:
+        for e in json.loads(r["episode_keys"]):
+            if isinstance(e.get("number"), int):
+                key = str(e["key"])
+                listed.setdefault(r["show_rating_key"], []).append(
+                    (r["season_number"], e["number"], key)
+                )
+                in_season.setdefault(r["id"], []).append(key)
+    for episodes in listed.values():
+        episodes.sort()
+    seen: dict[str, str] = {}  # episode key -> when
+    for r in conn.execute(
+        "SELECT rating_key, updated_at AS at FROM watch_progress WHERE username = :name"
+        " AND show_rating_key IS NOT NULL AND (watched = 1 OR seen_at IS NOT NULL)"
+        " UNION ALL SELECT rating_key, viewed_at FROM plex_plays WHERE username = :name"
+        " AND rating_key IS NOT NULL AND media_type != 'movie'",
         {"name": username},
-    )
-    return {r["ref"] for r in rows if r["ref"]}
+    ):
+        seen[r["rating_key"]] = max(seen.get(r["rating_key"], ""), r["at"] or "")
+    for c in covered_seasons(conn, username, libraries):
+        for key in in_season.get(c.season_id, []) if c.whole else c.episodes:
+            seen.setdefault(key, c.seen_at)
+    runs: dict[str, float] = {
+        r["rating_key"]: r["run"]
+        for r in conn.execute(
+            "SELECT rating_key, MAX(duration_s) AS run FROM watch_progress"
+            " WHERE show_rating_key IS NOT NULL AND duration_s > 0 GROUP BY rating_key"
+        )
+    }
+    begun = {c.progress.show_rating_key: c for c in resumed if c.progress.show_rating_key}
+    found: dict[str, Ahead] = {}
+    for show, episodes in listed.items():
+        known = [runs[key] for *_, key in episodes if key in runs]
+        typical = round(statistics.median(known) / 60) if known else None
+        card = begun.get(show)
+        at = (
+            card.progress.updated_at
+            if card
+            else max((seen[key] for *_, key in episodes if key in seen), default="")
+        )
+        keys = [key for *_, key in episodes]
+        if card is not None and card.progress.rating_key in keys:
+            place = keys.index(card.progress.rating_key)
+            p = card.progress
+            if not card.find_next:
+                left = math.ceil((p.duration_s - p.position_s) / 60) if p.duration_s else None
+                found[show] = Ahead(*episodes[place][:2], left or typical, 0, at, bool(left))
+                continue
+        else:
+            place = max((i for i, key in enumerate(keys) if key in seen), default=-1)
+        following = next((e for e in episodes[place + 1 :] if e[2] not in seen), None)
+        if following is None:
+            continue
+        season, number, key = following
+        run = round(runs[key] / 60) if key in runs else typical
+        tier = 0 if card is not None else 1 if at else 2
+        found[show] = Ahead(season, number, run or None, tier, at)
+    return found
 
 
-def first_seasons(conn: sqlite3.Connection) -> dict[str, int]:
-    """How many episodes the library holds of each show's first season, where known."""
+def films_seen_in_plex(conn: sqlite3.Connection, username: str) -> set[str]:
+    """The rating keys of the films *username* played in Plex's own apps."""
     rows = conn.execute(
-        "SELECT show_rating_key, MAX(episode_count) AS episodes FROM media_items"
-        " WHERE season_number = 1 AND show_rating_key IS NOT NULL AND episode_count > 0"
-        " GROUP BY show_rating_key"
+        "SELECT rating_key FROM plex_plays WHERE username = ? AND media_type = 'movie'"
+        " AND rating_key IS NOT NULL",
+        (username,),
     )
-    return {r["show_rating_key"]: r["episodes"] for r in rows}
+    return {r["rating_key"] for r in rows}

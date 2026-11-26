@@ -705,6 +705,7 @@ class TestShapes:
             "tagline",
             "runtime",
             "episode_run_time",
+            "last_episode_to_air",
             "vote_average",
             "poster_path",
         ]
@@ -724,6 +725,11 @@ class TestShapes:
             fields = catalog.tmdb_fields(payload, kind)
             assert fields["title"] == "T"
             json.dumps(fields, allow_nan=False)
+
+    def test_a_show_without_an_episode_run_time_runs_as_its_latest_episode(self):
+        show = {"name": "S", "episode_run_time": [], "last_episode_to_air": {"runtime": 44}}
+        assert catalog.tmdb_fields(show, "tv")["runtime_min"] == 44
+        assert catalog.tmdb_fields({**show, "episode_run_time": [30]}, "tv")["runtime_min"] == 30
 
     def test_tmdb_fields_prefer_a_trailer_and_cap_the_cast(self):
         details = {

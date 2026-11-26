@@ -47,7 +47,15 @@ def _runtime(details: Mapping[str, Any], kind: str) -> int | None:
         value = details.get("runtime")
     else:
         runs = details.get("episode_run_time")
-        value = runs[0] if isinstance(runs, list) and runs else None
+        last = details.get("last_episode_to_air")
+        # TMDB leaves the first empty for most shows now; their latest episode still says.
+        value = (
+            runs[0]
+            if isinstance(runs, list) and runs
+            else last.get("runtime")
+            if isinstance(last, Mapping)
+            else None
+        )
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 

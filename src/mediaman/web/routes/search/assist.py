@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from mediaman.core.time import now_utc
 from mediaman.db import get_db, open_thread_connection
 from mediaman.services import watch_catalog as catalog
-from mediaman.services.infra import disk_cache
+from mediaman.services.infra import disk_cache, get_bool_setting
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai import search_assist as ai
 from mediaman.services.openai.client import OpenAIUnavailable, get_openai_key, key_refused
@@ -37,11 +37,18 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import search_assist as repo
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.recommended import fetch_recommendations, group_into_batches
 from mediaman.web.repository.seen_titles import PersonMarks, person_marks
+from mediaman.web.repository.watch_progress import continue_watching
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.watch.card_marks import CardMarks, card_marks, marked, tmdb_ref
 from mediaman.web.routes.watch.catalog_api import _arr, held_fields
-from mediaman.web.routes.watch.pages import play_href, poster_url
+from mediaman.web.routes.watch.pages import (
+    can_download,
+    play_href,
+    poster_url,
+    progress_fields,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +65,7 @@ _LIKE_REF_RE = re.compile(r"^(movie|show)-([0-9]{1,18})$|^tmdb-(movie|tv)-([0-9]
 _WRITE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
 _ASK_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 _TONIGHT_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
+_ELSEWHERE_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 
 
 @dataclass(slots=True)
@@ -650,8 +658,9 @@ def api_tonight(
     skip: Annotated[int, Query(ge=0, le=3000)] = 0,
     username: str = Depends(get_current_user),
 ) -> JSONResponse:
-    """Three library titles the person has not begun that fit in *minutes*; with *skip*, the
-    three after those."""
+    """A set of what the person can play next of the library that fits in *minutes*: what they
+    are partway through, then the next episode of a show they saw some of, then what they never
+    began; with *skip*, the set after those."""
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
@@ -671,15 +680,97 @@ def api_tonight(
         minutes,
         skip=skip,
     )
+    held = held_fields(conn, username, lib.scanned_library_ids(conn))
     return respond_ok(
         {
             "minutes": minutes,
-            "items": [_tonight_card(c) for c in found.titles],
+            "items": [_tonight_card(c, held) for c in found.titles],
             "total": found.total,
             "more": found.total > skip + len(found.titles),
-            "shortest": _tonight_card(found.shortest) if found.shortest else None,
+            "shortest": _tonight_card(found.shortest, held) if found.shortest else None,
         }
     )
+
+
+@router.get("/api/search/assist/tonight/elsewhere")
+def api_tonight_elsewhere(
+    request: Request,
+    minutes: Annotated[int, Query(ge=15, le=720)],
+    username: str = Depends(get_current_user),
+) -> JSONResponse:
+    """A set of titles the library does not hold that fit in *minutes*, a show by its
+    episodes: of the picks made for the person, then of Trending and Popular. None they saw,
+    played or rated a strong no. Each says whether it can be downloaded here."""
+    conn, user_id = _person(username)
+    if user_id is None:
+        return _not_found()
+    client = _client(request, conn)
+    if client is None:
+        return _unavailable()
+    if not _ELSEWHERE_LIMITER.check(username):
+        return _too_many()
+    own = person_marks(conn, username)
+    plays = person_plays(conn, username)
+    done = {(p.kind, p.tmdb_id) for p in plays} | set(own.seen)
+    done |= {key for key, level in own.levels.items() if level == -2}
+    try:
+        shelves = [item for _, _, items in catalog.discover_shelves(client) for item in items]
+    except catalog.TmdbUnavailable:
+        shelves = []
+    index = _index(conn, client)
+    arr = _arr(request, conn)
+    cards: dict[tuple[str, int], dict[str, object]] = {}
+    picks: list[dict[str, object]] = []
+    listed: list[dict[str, object]] = []
+    for item, into in [(i, picks) for i in _picks(conn, username, own)] + [
+        (i, listed) for i in shelves
+    ]:
+        card = catalog.tmdb_card(item, index, arr)
+        if card is None or card["in_library"]:
+            continue
+        key = ("movie" if card["kind"] == "movie" else "tv", cast(int, item["id"]))
+        if key in done or key in cards:
+            continue
+        cards[key] = card
+        into.append({"id": key[1], "media_type": key[0]})
+    can = can_download(conn, _secret(request))
+    marks = card_marks(own, client)
+    found = tonight.elsewhere(
+        client, picks, listed, _enjoyed(conn, user_id, plays, own.levels), minutes
+    )
+    items = []
+    for title, run in found:
+        card = cards[(str(title["media_type"]), cast(int, title["id"]))]
+        items.append(
+            {
+                **marked({**card, **lib.mark_fields(None, set())}, marks),
+                "minutes": run,
+                "can_download": can[cast(str, card["kind"])],
+            }
+        )
+    return respond_ok({"minutes": minutes, "items": items})
+
+
+def _picks(conn: sqlite3.Connection, username: str, own: PersonMarks) -> list[dict[str, object]]:
+    """The picks made for *username*, the newest first, as TMDB lists a title."""
+    if not get_bool_setting(conn, "suggestions_enabled", default=True):
+        return []
+    batches = group_into_batches(
+        fetch_recommendations(conn, username), now_utc().date(), own.levels, own.seen
+    )
+    return [
+        {
+            "id": pick["tmdb_id"],
+            "media_type": pick["media_type"],
+            "title": pick["title"],
+            "release_date": str(pick["year"] or ""),
+            "poster_path": pick["poster_url"],
+            "vote_average": pick.get("rating"),
+        }
+        for batch in batches
+        for pick in cast(list[dict[str, Any]], batch["items"])
+        if isinstance(pick.get("tmdb_id"), int) and pick["media_type"] in ("movie", "tv")
+    ]
 
 
 def _candidates(
@@ -689,27 +780,61 @@ def _candidates(
     own: PersonMarks,
     played: set[tuple[str, int | None]],
 ) -> list[tonight.Candidate]:
+    """What *username* can play next of the library: the latest they played first."""
     libraries = lib.scanned_library_ids(conn)
-    begun = repo.begun_refs(conn, username)
-    seasons = repo.first_seasons(conn)
+    resumed = continue_watching(conn, username)
+    ahead = repo.episodes_ahead(conn, username, libraries, resumed)
+    partway = {
+        c.progress.media_item_id or c.progress.rating_key: c.progress
+        for c in resumed
+        if c.progress.show_rating_key is None
+    }
+    seen = lib.seen_films(conn, username, libraries) | repo.films_seen_in_plex(conn, username)
     keys = _tmdb_by_ref(index)
-    titles: list[tuple[str, str, int | None, int | None]] = [
-        (f"movie-{m.key}", m.title, m.year, None) for m in lib.library_movies(conn, libraries)
-    ]
-    titles += [
-        (f"show-{s.key}", s.title, s.year, seasons[s.key])
-        for s in lib.library_shows(conn, libraries)
-        if s.key in seasons
-    ]
-    return [
-        tonight.Candidate(ref, keys[ref], title, year, episodes, own.levels.get(keys[ref], 0))
-        for ref, title, year, episodes in titles
-        if ref in keys
-        and ref not in begun
-        and keys[ref] not in played
-        and keys[ref] not in own.seen
-        and own.levels.get(keys[ref]) != -2
-    ]
+    found: list[tuple[str, tonight.Candidate]] = []
+    for m in lib.library_movies(conn, libraries):
+        ref = f"movie-{m.key}"
+        key = keys.get(ref)
+        if key is None or own.levels.get(key) == -2:
+            continue
+        level = own.levels.get(key, 0)
+        p = partway.get(m.key)
+        if p is not None:
+            left = progress_fields(p)[1]
+            found.append(
+                (
+                    p.updated_at,
+                    tonight.Candidate(
+                        ref, key, m.title, m.year, run=left, tier=0, left=bool(left), level=level
+                    ),
+                )
+            )
+        elif m.key not in seen and key not in own.seen and key not in played:
+            found.append(("", tonight.Candidate(ref, key, m.title, m.year, level=level)))
+    for s in lib.library_shows(conn, libraries):
+        ref = f"show-{s.key}"
+        key = keys.get(ref)
+        next_up = ahead.get(s.key)
+        if key is None or next_up is None or own.levels.get(key) == -2:
+            continue
+        found.append(
+            (
+                next_up.at,
+                tonight.Candidate(
+                    ref,
+                    key,
+                    s.title,
+                    s.year,
+                    episode=(next_up.season, next_up.number),
+                    run=next_up.minutes,
+                    tier=next_up.tier,
+                    left=next_up.left,
+                    level=own.levels.get(key, 0),
+                ),
+            )
+        )
+    found.sort(key=lambda f: f[0], reverse=True)
+    return [c for _, c in found]
 
 
 def _enjoyed(
@@ -726,19 +851,27 @@ def _enjoyed(
     return {(p.kind, p.tmdb_id): p.title for p in lately}
 
 
-def _tonight_card(c: tonight.Candidate) -> dict[str, object]:
+def _tonight_card(
+    c: tonight.Candidate, held: Callable[[str | None], dict[str, object]]
+) -> dict[str, object]:
     kind, _, key = c.ref.partition("-")
+    href = catalog.library_href(c.ref) or "/"
     return {
+        **held(c.ref),
         "ref": c.ref,
         "kind": kind,
         "title": c.title,
         "year": c.year,
         "minutes": c.minutes,
-        "season": None if c.episodes is None else 1,
+        "season": c.episode[0] if c.episode else None,
+        "episode": c.episode[1] if c.episode else None,
+        "partway": c.tier == 0,
+        "left": c.left,
         "genre": next(iter(c.facts.genres), None) if c.facts else None,
         "reason": c.reason,
         "poster_url": poster_url(key),
-        "href": catalog.library_href(c.ref),
+        "href": f"{href}?season={c.episode[0]}" if c.episode else href,
+        "in_library": True,
         "tmdb_ref": tmdb_ref(c.key),
         "level": c.level or None,
     }

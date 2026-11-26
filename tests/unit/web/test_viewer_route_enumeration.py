@@ -100,6 +100,7 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/search/assist/runs/{run_id}"),
     ("DELETE", "/api/search/assist/runs/{run_id}"),
     ("GET", "/api/search/assist/tonight"),
+    ("GET", "/api/search/assist/tonight/elsewhere"),
     ("GET", "/downloads"),
     ("GET", "/api/downloads"),
     ("GET", "/api/downloads/strip"),
