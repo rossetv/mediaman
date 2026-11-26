@@ -6,6 +6,7 @@ The real script runs under node against a small fake DOM.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -92,7 +93,7 @@ def test_checking_a_kept_tv_shows_whether_it_answered() -> None:
     got = _run("checked")
     assert got["off"] == ["ok", "no"]
     assert got["on"] == ["ok", "ok"]
-    assert "Last seen today" in got["says"]
+    assert re.search(r"Last seen today, \d\d:\d\d\.", got["says"])
     assert "Older TV at 192.168.1.77" in got["says"]
 
 

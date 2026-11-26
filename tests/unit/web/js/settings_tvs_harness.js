@@ -164,6 +164,9 @@ const scenarios = {
     return out;
   },
   async checked() {
+    // A browser whose own language writes the time with AM and PM.
+    const time = Date.prototype.toLocaleTimeString;
+    Date.prototype.toLocaleTimeString = function (locale, o) { return time.call(this, locale || 'en-US', o); };
     const answers = { 'POST /api/settings/older-tvs/2/check': refused('unreachable', 'x') };
     const p = await page(answers);
     await p.press(p.row(1), 'Check');

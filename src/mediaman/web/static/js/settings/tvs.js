@@ -55,11 +55,11 @@
   function when(iso) {
     var at = new Date(iso);
     if (isNaN(at)) return '';
-    var time = at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    var time = at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     var days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 864e5);
     if (days <= 0) return 'today, ' + time;
-    if (days < 7) return at.toLocaleDateString(undefined, { weekday: 'long' }) + ', ' + time;
-    return at.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+    if (days < 7) return at.toLocaleDateString('en-GB', { weekday: 'long' }) + ', ' + time;
+    return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
   }
 
   function seen(tv) {
