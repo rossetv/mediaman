@@ -1751,8 +1751,10 @@
   var shownLooked = ''; // what was last drawn of it
 
   function saysLooked() {
-    var looked = cur && cur.data && stateOf(cur.ref).state === 'queued' ? lookedFor(cur) : null;
-    return looked ? cur.ref + looked.state + looked.line : '';
+    var k = cur && cur.data ? stateOf(cur.ref) : null;
+    var looked = k && k.state === 'queued' ? lookedFor(cur, ['searching', 'stuck']) : null;
+    var trouble = k && inFlight(k) ? troubleOf(cur) : null;
+    return (looked ? cur.ref + looked.state + looked.line : '') + (trouble ? trouble.state + fixOf(trouble) : '');
   }
 
   if (window.MM.downloading) {
@@ -1924,13 +1926,19 @@
   }
 
   /* The download of the title *c* while it is looked for, as its card in the row says it; else null. */
-  function lookedFor(c) {
+  function lookedFor(c, states) {
     var state = window.MM.downloading && window.MM.downloading.last();
     var refs = [c.ref, c.openedAs, c.data && c.data.library_ref];
     return (state && state.items.filter(function (item) {
-      return (item.state === 'searching' || item.state === 'stuck') && item.ref && refs.indexOf(item.ref) >= 0;
+      return states.indexOf(item.state) >= 0 && item.ref && refs.indexOf(item.ref) >= 0;
     })[0]) || null;
   }
+
+  /* The card in the row of a download that Radarr or Sonarr will not import, or that is looked for again. */
+  function troubleOf(c) { return lookedFor(c, ['needs_attention', 'finding_copy']); }
+
+  /* What an admin is told of it, as the card tells it; a viewer's card holds none. */
+  function fixOf(item) { return [item.attention, item.attention_hint].filter(Boolean).join(' · '); }
 
   function followNote(text) {
     var p = el('p', 'ttl__note');
@@ -1950,8 +1958,18 @@
       if (cur.addedNow) under.appendChild(note('In your library. Added just now.', 'i-circle-check', 'ttl__note-ok'));
       return;
     }
+    var trouble = k.state === 'queued' || k.state === 'downloading' ? troubleOf(cur) : null;
+    if (trouble) {
+      var stuck = trouble.state === 'needs_attention';
+      actions.appendChild(statePill('dl-state--queued', stuck ? 'Needs attention' : 'Finding another copy',
+        stuck ? 'i-triangle-exclamation' : 'i-magnifying-glass'));
+      var why = stuck ? fixOf(trouble) : '';
+      under.appendChild(followNote(why ? why + '. ' : ''));
+      if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
+      return;
+    }
     if (k.state === 'queued') {
-      var looked = lookedFor(cur);
+      var looked = lookedFor(cur, ['searching', 'stuck']);
       actions.appendChild(looked ? statePill('dl-state--queued', 'Looking for the best version', 'i-magnifying-glass')
         : statePill('dl-state--queued', 'Queued', 'i-clock'));
       under.appendChild(followNote(!looked ? 'Waiting for a download slot. '
@@ -2047,7 +2065,7 @@
 
   /* ── A show's seasons: the state of each, and asking for more ── */
 
-  var ON_THE_WAY = { downloading: 1, queued: 1, asked: 1 };
+  var ON_THE_WAY = { downloading: 1, needs_attention: 1, finding_copy: 1, queued: 1, asked: 1 };
   var REFUSED = { leaving: 'Leaving soon', removed: 'Deleted', not_listed: 'Can’t be asked for yet', show_unmonitored: 'Downloads are off' };
 
   function held(s) { return s.status ? s.status === 'held' : !!s.in_library; }
@@ -2077,6 +2095,8 @@
     function lead(text, after) { return after ? text + ' · ' + after : text; }
     if (held(s)) return { name: 'held', icon: 'i-check', text: 'In library' };
     if (s.status === 'downloading') return { name: 'coming', icon: 'i-arrow-down', text: 'Downloading' };
+    if (s.status === 'needs_attention') return { name: 'queued', icon: 'i-triangle-exclamation', text: 'Needs attention' };
+    if (s.status === 'finding_copy') return { name: 'queued', icon: 'i-magnifying-glass', text: 'Finding another copy' };
     if (s.status === 'queued') return { name: 'queued', icon: 'i-clock', text: 'Queued' };
     if (s.status === 'asked') return { name: 'queued', icon: 'i-clock', text: 'Asked for' };
     if (s.status === 'partly_held') {
@@ -2262,6 +2282,9 @@
         box.textContent = '';
         box.appendChild(icon(glyph));
       }
+      var trouble = s.status === 'needs_attention' ? troubleOf(cur) : null;
+      if (trouble && fixOf(trouble)) chip.setAttribute('title', fixOf(trouble));
+      else chip.removeAttribute('title');
       chip.querySelector('.season-chip__name').textContent = seasonName(s);
       var sub = chip.querySelector('.season-chip__sub');
       if (sub.textContent !== state.text) {
@@ -2650,7 +2673,7 @@
     var wait = 0;
     if (c.data.seasons_pending) {
       if (c.pendingAsks < PENDING_ASKS) wait = PENDING_MS;
-    } else if (unknown(c.data) || allSeasons(c.data).some(function (s) { return s.status === 'downloading' || s.status === 'queued'; })) {
+    } else if (unknown(c.data) || allSeasons(c.data).some(function (s) { return !!ON_THE_WAY[s.status] && s.status !== 'asked'; })) {
       wait = POLL_SLOW_MS;
     }
     if (!wait) return;

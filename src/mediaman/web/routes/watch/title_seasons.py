@@ -10,6 +10,7 @@ from typing import Any
 
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.arr import build as arr_build
+from mediaman.services.arr.finding_copy import finding_seasons
 from mediaman.services.arr.seasons import ShowSeasons, is_refused_start, is_still_to_air
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository.season_requests import ShowIds, library_seasons, season_refusals
@@ -84,6 +85,8 @@ def fill_season_status(
     in_plex = library_seasons(conn, show) - removed | {s["number"] for s in seasons if s["key"]}
     is_admin = get_user_role(conn, username) == "admin"
     answered = arr.answers_for("tv")
+    series_id = arr.caches["sonarr_series"].get(tmdb_id, {}).get("id") if tmdb_id else None
+    finding = finding_seasons(conn, series_id) if isinstance(series_id, int) else set()
     for season in seasons:
         number = season["number"]
         state = sonarr.states.get(number) if sonarr else None
@@ -97,6 +100,8 @@ def fill_season_status(
             status = None
         else:
             status = _tmdb_status(season, air_dates.get(number))
+        if number in finding and status != "held":
+            status = "finding_copy"
         asked = state is not None and state.asked
         refusal = None
         wanted = status in ("partly_held", "not_asked", "not_out") and not asked

@@ -1414,6 +1414,38 @@ const scenarios = {
     return out;
   },
 
+  // A film the Arr holds as downloading, whose card says it needs attention or is found another copy of.
+  async troubled() {
+    const downloading = { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'downloading', pct: 42, answered: true }) }) };
+    const p = load({ routes: downloading });
+    let tell;
+    let state = { items: [] };
+    p.ctx.MM.downloading = { last: () => state, subscribe(fn) { tell = fn; } };
+    p.run();
+    tell();
+    await openCard(p, 'tmdb-movie-77');
+    const look = () => ({ pill: primary(p).text, note: p.text('.ttl__note'), bar: !!p.q('.dl-progress') });
+    const to = (item) => { state = { items: [Object.assign({ ref: 'tmdb-movie-77' }, item)] }; tell(); return look(); };
+    const out = { plain: look() };
+    out.admin = to({ state: 'needs_attention', attention: 'No files found are eligible for import', attention_hint: 'Fix it in Radarr: Activity → Queue' });
+    out.viewer = to({ state: 'needs_attention', attention: '', attention_hint: '' });
+    out.finding = to({ state: 'finding_copy' });
+    out.other = to({ ref: 'tmdb-movie-78', state: 'needs_attention' });
+    return out;
+  },
+
+  // The seasons of a show, two of them held back.
+  async seasonsTroubled() {
+    const data = asked('tmdb-tv-90', {});
+    data.seasons = [one(1, 'needs_attention', { asked: true }), one(2, 'finding_copy', { asked: true }), one(3, 'downloading', { asked: true })];
+    const p = load({ routes: { '/api/watch/title/tmdb-tv-90': data } });
+    p.ctx.MM.downloading = { last: () => ({ items: [{ ref: 'tmdb-tv-90', state: 'needs_attention', attention: 'No files found', attention_hint: 'Fix it in Sonarr' }] }), subscribe() {} };
+    p.run();
+    p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+    await settle();
+    return { chips: chipsOf(p), titles: p.ttl().querySelectorAll('.season-chip').map((c) => c.getAttribute('title')) };
+  },
+
   // The status poll answers searching (gone from the Arr's queue) for a title held as queued:
   // the title is asked again, at most once a minute, and its reply decides.
   async searchingRechecks() {

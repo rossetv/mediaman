@@ -1592,6 +1592,35 @@ def test_a_title_still_looked_for_says_so_as_its_card_does() -> None:
     }
 
 
+def test_a_film_the_arr_will_not_import_says_it_needs_attention_not_downloading() -> None:
+    out = _run("troubled")
+    assert out["plain"] == {"pill": "Downloading 42%", "note": "Follow it in Downloads.", "bar": True}
+    stuck = "No files found are eligible for import · Fix it in Radarr: Activity → Queue"
+    assert out["admin"] == {
+        "pill": "Needs attention",
+        "note": stuck + ". Follow it in Downloads.",
+        "bar": False,
+    }
+    assert out["viewer"]["pill"] == "Needs attention"
+    assert out["viewer"]["note"] == "Follow it in Downloads."
+    assert out["finding"] == {
+        "pill": "Finding another copy",
+        "note": "Follow it in Downloads.",
+        "bar": False,
+    }
+    assert out["other"] == out["plain"]
+
+
+def test_a_season_the_arr_holds_back_or_looks_again_for_is_not_called_downloading() -> None:
+    out = _run("seasonsTroubled")
+    assert [c[1] for c in out["chips"]] == [
+        "Needs attention",
+        "Finding another copy",
+        "Downloading",
+    ]
+    assert out["titles"] == ["No files found · Fix it in Sonarr", None, None]
+
+
 def test_a_page_drawn_on_its_way_leaves_no_trace_until_it_opens_as_a_press_would_open_it() -> None:
     out = _run("drawnThenOpened")
     drawn = {

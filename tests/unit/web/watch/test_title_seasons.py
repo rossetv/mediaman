@@ -274,3 +274,28 @@ def test_a_view_that_comes_late_still_offers_no_way_to_ask_without_sonarr(
 
     assert (page["seasons_request"] is not None) is sonarr_set_up
     assert page["seasons"][0]["askable"] is False
+
+
+def _retry(conn, key, retried_at="2026-01-01T00:00:00+00:00"):
+    conn.execute(
+        "INSERT INTO arr_import_retries (key, stuck_since, retried_at) VALUES (?, ?, ?)",
+        (key, "2025-12-31T00:00:00+00:00", retried_at),
+    )
+    conn.commit()
+
+
+def test_a_season_whose_download_was_removed_to_find_another_copy_says_so(people):
+    view = _view(_sonarr_season(1, monitored=True), _sonarr_season(2, monitored=True))
+    _retry(people, "sonarr:9:2")
+    # A season only waiting to be retried is still told by what Sonarr's queue says.
+    _retry(people, "sonarr:9:1", retried_at=None)
+
+    status = _fill(people, _page(1, 2), view)
+
+    assert (status[1][0], status[2][0]) == ("asked", "finding_copy")
+
+
+def test_another_shows_retry_is_not_this_shows(people):
+    _retry(people, "sonarr:8:1")
+
+    assert _fill(people, _page(1), _view(_sonarr_season(1, monitored=True)))[1][0] == "asked"
