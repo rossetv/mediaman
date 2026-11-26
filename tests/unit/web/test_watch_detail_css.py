@@ -244,6 +244,12 @@ def test_a_season_that_cannot_be_asked_for_has_no_box() -> None:
     )
 
 
+def test_a_season_that_cannot_be_asked_for_keeps_no_empty_room_for_a_box() -> None:
+    empty = '.season-chip[aria-disabled="true"][data-state="none"][data-icon="i-check"]'
+    assert "display: none" in _of(f"{empty} .season-chip__box")
+    assert "grid-template-columns: minmax(0, 1fr)" in _of(empty)
+
+
 def test_the_button_that_asks_eases_in_to_its_own_opacity() -> None:
     assert "animation-name: season-go-in" in _of(".season-pick__go.fade-in")
     css = (STYLES / "_watch_detail.css").read_text(encoding="utf-8")

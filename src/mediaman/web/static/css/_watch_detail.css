@@ -539,6 +539,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .season-chip[aria-checked="true"] .season-chip__box { background: var(--accent); border-color: var(--accent); color: var(--color-on-accent); }
 .season-chip[aria-disabled="true"] { background: transparent; border-color: var(--hair-strong); color: var(--t2); cursor: default; transform: none; }
 .season-chip[aria-disabled="true"] .season-chip__box { background: transparent; border-color: transparent; color: transparent; font-size: 14px; }
+.season-chip[aria-disabled="true"][data-state="none"][data-icon="i-check"] { grid-template-columns: minmax(0, 1fr); }
+.season-chip[aria-disabled="true"][data-state="none"][data-icon="i-check"] .season-chip__box { display: none; }
 .season-chip[data-state="held"] .season-chip__box { background: var(--success); border-color: var(--success); color: #00210b; font-size: 10px; }
 .season-chip[data-state="coming"] .season-chip__box { color: var(--accent); }
 .season-chip[data-state="queued"] .season-chip__box { color: var(--warning); }
