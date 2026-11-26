@@ -218,3 +218,12 @@ a.chip { text-decoration: none; }
   .watch-card__spark { forced-color-adjust: none; padding: 1px 2px; border-radius: 3px; background: Canvas; color: CanvasText; }
   .ask__below { border-color: ButtonText; }
 }
+
+/* The answer's own heading: no box round it, the AI's colours on its mark. */
+div.ask__row { border-color: transparent; background: none; padding-inline: 0; }
+div.ask__row > .ask__mark:not(.ask__mark--art) { background: linear-gradient(135deg, color-mix(in srgb, var(--purple) 34%, var(--s2)), color-mix(in srgb, var(--pink) 26%, var(--s2))); color: var(--ai-pill-text); }
+div.ask__row .ask__words > b { font-size: 19px; letter-spacing: -.01em; }
+
+/* Why each title was picked, under its card. */
+.watch-card__why { display: -webkit-box; margin: 4px 0 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; font-size: 12px; line-height: 1.35; color: var(--t2); }
+.watch-card__why > b { font-weight: 600; color: var(--purple-text); }

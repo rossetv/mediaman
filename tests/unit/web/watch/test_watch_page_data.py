@@ -19,6 +19,13 @@ from tests.helpers.factories import insert_admin_user, insert_suggestion
 _TEMPLATES = Path(mediaman.__file__).parent / "web" / "templates"
 _QUERY = "</script><!--<script>x & 'y'"
 _ISLAND = re.compile(r'<script type="application/json" id="watch-page-data">(.*?)</script>', re.S)
+# The categories of someone the search sheet knows nothing of, in the sheet's usual order.
+_USUAL_ORDER = [
+    "action", "comedy", "thriller", "science-fiction", "drama", "horror",
+    "family", "crime", "romance", "fantasy", "animation", "documentary",
+    "adventure", "kids", "mystery", "history", "war", "western",
+    "music", "reality", "talk", "news", "soap", "tv-movie",
+]  # fmt: skip
 
 
 def test_page_data_has_no_markup_characters_and_parses_to_the_same_search(app_factory, conn):
@@ -47,6 +54,13 @@ def test_page_data_has_no_markup_characters_and_parses_to_the_same_search(app_fa
         "grid": None,
         "settings_tmdb_href": None,
         "downloading": None,
+        "taste": {
+            "personal": False,
+            "order": _USUAL_ORDER,
+            "favourites": [],
+            "chips": [],
+            "like": None,
+        },
     }
 
 

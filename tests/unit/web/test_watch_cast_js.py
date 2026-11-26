@@ -175,3 +175,38 @@ def test_where_things_may_move_the_card_goes_with_the_scroll_and_settles_back_sh
     assert out["going"] == {"scale": True, "opened": 0}
     assert out["back"] == {"scale": "", "opened": 0}
     assert out["opened"] == ["Mara Ellison"]
+
+
+def test_a_carried_card_rises_straight_up_about_its_own_middle_wherever_it_stands() -> None:
+    out = _run("carriedAtAnOffset")
+    assert out["grown"] is True
+    assert abs(out["middle"][0] - out["stands"][0]) < 1
+    assert abs(out["middle"][1] - (out["stands"][1] - 64 * out["at"])) < 1
+
+
+def test_a_carried_card_hands_its_photo_to_the_flight_and_fades_without_a_blank_frame() -> None:
+    out = _run("carriedHandOff")
+    assert out is not None
+    assert out["left"] == 1
+    assert out["ownPhoto"] == [0]
+    assert out["fadesOut"] is True
+    assert 150 <= out["ms"] <= 300
+    assert out["afterwards"] == 0
+
+
+def test_the_copy_a_carried_card_leaves_keeps_what_came_in_late_as_it_stands() -> None:
+    out = _run("carriedHandOffSettled")
+    assert out["arriving"] > 0
+    assert out["stillArriving"] == 0
+
+
+def test_the_photo_that_flies_to_their_page_is_the_one_the_card_showed() -> None:
+    assert _run("carriedHandOffSettled")["ownPhoto"] is True
+
+
+def test_the_hand_off_sets_out_from_the_next_frame_and_stands_still_through_a_slow_one() -> None:
+    out = _run("carriedHandOffSettled")
+    assert out["heldAtStart"] == [None, None]
+    assert out["first"] == [0, 0]
+    assert all(abs(ms - (150 - 1000 / 60)) < 0.01 for ms in out["heldBy"])
+    assert out["then"] == [0, 0]

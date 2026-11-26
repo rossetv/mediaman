@@ -217,3 +217,27 @@ class TestRedownloadedItemsDropOut:
             created_at=(_NOW - timedelta(days=4)).isoformat(),
         )
         assert self._titles(conn) == ["Dune"]
+
+
+def test_an_own_pick_s_reason_never_gives_a_title_they_rated_down_as_why(db_path):
+    from mediaman.services.mail.newsletter.summary import load_own_picks
+    from tests.helpers.factories import insert_admin_user, insert_user_pick
+
+    conn = _make_conn(db_path)
+    insert_admin_user(conn, username="amy", role="viewer")
+    with conn:
+        conn.execute("UPDATE admin_users SET email = 'amy@example.com' WHERE username = 'amy'")
+        conn.execute(
+            "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, title, updated_at)"
+            " SELECT id, 'movie', 7, -1, 'Sour', '2026' FROM admin_users WHERE username = 'amy'"
+        )
+    day = _NOW.strftime("%Y-%m-%d")
+    kept = "You loved Alpha, and this is the same quiet dread."
+    insert_user_pick(conn, "amy", title="P", tmdb_id=1, batch_id=day, reason=kept)
+    insert_user_pick(
+        conn, "amy", title="Q", tmdb_id=2, batch_id=day, reason="You loved Sour; this is as sharp."
+    )
+
+    picks = load_own_picks(conn, ["amy@example.com"], _NOW)["amy@example.com"]
+
+    assert {p["title"]: p["reason"] for p in picks} == {"P": kept, "Q": None}

@@ -230,6 +230,12 @@ def test_without_a_wide_picture_the_poster_stands_in() -> None:
     }
 
 
+def test_an_own_pick_says_why_they_will_like_it() -> None:
+    assert _run("ownPickWhy") == {
+        "reason": "AI pickWhy you’ll like itYou loved Orbit, and this is as tense."
+    }
+
+
 def test_a_picks_reason_has_its_place_before_it_arrives() -> None:
     assert _run("pick") == {"held": True, "reason": "AI pickYou finished Fieldwork."}
 

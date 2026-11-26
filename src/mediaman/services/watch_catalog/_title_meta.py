@@ -402,7 +402,11 @@ def _build(conn: sqlite3.Connection) -> _Library:
             }
         )
         casts.append((kept["genres"], json.loads(row["cast_json"])))
-    return _Library(items, _people(coverage(conn), casts))
+    known = {
+        (i["media_type"], i["id"]): (i["genres"], cast)
+        for i, (_, cast) in zip(items, casts, strict=True)
+    }
+    return _Library(items, _people(coverage(conn), casts), known)
 
 
 def library_titles(
@@ -464,6 +468,13 @@ class LibraryPeople:
 class _Library:
     titles: list[dict[str, Any]]
     people: LibraryPeople
+    #: Each title's genre ids and billed cast ([id, name, profile path]), by (kind, TMDB id).
+    known: dict[tuple[str, int], tuple[list[str], list[Any]]]
+
+
+def library_known(conn: sqlite3.Connection) -> dict[tuple[str, int], tuple[list[str], list[Any]]]:
+    """The genres and cast of each title the library holds, by (kind, TMDB id)."""
+    return _current(conn).known
 
 
 def library_people(conn: sqlite3.Connection) -> LibraryPeople:

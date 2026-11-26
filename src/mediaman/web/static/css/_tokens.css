@@ -46,6 +46,8 @@
   --orange:  #ff9f0a;
   --purple:  #bf5af2;
   --purple-text: #d18bf7;   /* purple text on the purple tint: keeps 4.5:1 up to --s4 */
+  --pink:    #ff6fae;   /* the AI's second colour, beside --purple: rings, glows and icons, never text */
+  --ai-pill-text: #f3dcff;  /* text on the AI's dark violet pill: well over 7:1 */
 
   /* Overlay ink for scrims and shadows (mix with transparent), the raised
      surface above --s4, and the Watch banner's backdrop gradient stops. */

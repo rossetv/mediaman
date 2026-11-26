@@ -646,9 +646,9 @@
     p.actions = p.body.appendChild(el('div', (p.actions && p.actions.className) || 'pv__actions'));
     actions(p);
     if (p.rating) p.body.appendChild(p.rating.line);
-    var why = (d && d.reason) || p.card.why;
-    if (!d && p.card.pick && !why) p.body.appendChild(reason('')).appendChild(lines(['92%', '60%']));
-    else if (why || (d && p.card.pick)) p.body.appendChild(reason(why || ''));
+    var why = (d && (d.why || d.reason)) || p.card.why;
+    if (!d && p.card.pick && !why) p.body.appendChild(reason('', p.card.pick)).appendChild(lines(['92%', '60%']));
+    else if (why || (d && p.card.pick)) p.body.appendChild(reason(why || '', p.card.pick));
     p.n.classList.toggle('pv--reason', !!p.card.pick || !!why);
     var words = d && (d.overview || d.tagline);
     if (words) p.body.appendChild(el('p', 'pv__text', words));
@@ -663,9 +663,12 @@
     return box;
   }
 
-  function reason(text) {
+  /* The AI label and why it is a pick; a person's own (*pick* "pick-…") says why they will like it. */
+  function reason(text, pick) {
     var box = el('div', 'pv__reason');
-    box.appendChild(core.aiLabel('AI pick'));
+    var head = box.appendChild(el('p', 'pv__reason-head'));
+    head.appendChild(core.aiLabel('AI pick'));
+    if (/^pick-/.test(pick || '')) head.appendChild(el('span', '', 'Why you’ll like it'));
     if (text) box.appendChild(el('p', '', text));
     return box;
   }

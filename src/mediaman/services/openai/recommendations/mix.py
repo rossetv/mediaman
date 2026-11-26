@@ -40,18 +40,19 @@ def choose_mix(
     """
     chosen: list[RecommendationItem] = []
     dropped: list[RecommendationItem] = []
-    rewrite = any(not _holds(item, portrait) for item in items) or bool(
+    picked = [item["title"] for item in items]
+    rewrite = any(not _holds(item, portrait, picked) for item in items) or bool(
         repeated_shapes(item["reason"] for item in items[:limit])
     )
     if items and may_ask and (len(items) > limit or rewrite):
-        chosen, dropped = _ask(items, limit, conn, portrait, secret_key)
+        chosen, dropped = _ask(items, limit, conn, portrait, picked, secret_key)
     taken = {id(item) for item in (*chosen, *dropped)}
     ordered = chosen + [item for item in items if id(item) not in taken]
     ordered += dropped[: max(0, limit // 2 - len(ordered))]
     # Stable, so the mix keeps its order among the rest.
     ordered.sort(key=lambda item: _level(item, levels or {}) < 0)
     for item in ordered:
-        if not _holds(item, portrait):
+        if not _holds(item, portrait, picked):
             item["reason"] = ""
     return _spread(ordered)[:limit]
 
@@ -64,14 +65,26 @@ def _own(item: RecommendationItem, portrait: prompts.Portrait) -> list[str]:
     return prompts.own_spellings(item.get("because_of") or [], portrait.originals)
 
 
-def _holds(item: RecommendationItem, portrait: prompts.Portrait | None) -> bool:
+def _sent(
+    item: RecommendationItem, portrait: prompts.Portrait | None, picked: Sequence[str]
+) -> list[str]:
+    """The titles a reason of *item* may not name: those sent of the person, and the other
+    picks among *picked*, which they never played."""
+    others = [title for title in picked if title != item["title"]]
+    return [*(portrait.sent_titles if portrait else ()), *others]
+
+
+def _holds(
+    item: RecommendationItem, portrait: prompts.Portrait | None, picked: Sequence[str]
+) -> bool:
     """Whether the reason of *item* stands as it is."""
     checked = checked_reason(
         item["reason"],
-        portrait.sent_titles if portrait else (),
+        _sent(item, portrait, picked),
         own_titles=_own(item, portrait) if portrait else (),
         shared=portrait is None,
         description=item.get("description"),
+        loved=portrait.loved if portrait else None,
     )
     if not checked:
         return False
@@ -99,6 +112,7 @@ def _ask(
     limit: int,
     conn: sqlite3.Connection | None,
     portrait: prompts.Portrait | None,
+    picked: Sequence[str],
     secret_key: str | None,
 ) -> tuple[list[RecommendationItem], list[RecommendationItem]]:
     """The items the model chose, in its order, with the reasons it wrote where those may be
@@ -127,11 +141,15 @@ def _ask(
             led := prompts.because_of_titles(answer.get("because_of"), portrait.titles_by_id)
         ):
             revised["because_of"] = led
-        if _holds(revised, portrait) and not _is_one_too_many(revised, item, shapes, portrait):
+        if _holds(revised, portrait, picked) and not _is_one_too_many(
+            revised, item, shapes, portrait, picked
+        ):
             item["reason"] = checked_reason(
                 revised["reason"],
-                portrait.sent_titles if portrait else (),
+                _sent(revised, portrait, picked),
                 own_titles=_own(revised, portrait) if portrait else (),
+                shared=portrait is None,
+                loved=portrait.loved if portrait else None,
             )
             item["because_of"] = revised.get("because_of") or []
         shapes[shape_of(item["reason"])] += 1
@@ -143,13 +161,14 @@ def _is_one_too_many(
     draft: RecommendationItem,
     shapes: Counter[str | None],
     portrait: prompts.Portrait | None,
+    picked: Sequence[str],
 ) -> bool:
     """Whether the set has enough reasons of the shape of *revised* while *draft* has a good one
     of a shape it has room for."""
     new, old = shape_of(revised["reason"]), shape_of(draft["reason"])
     if new is None or shapes[new] < SHAPE_MAX[new]:
         return False
-    return _holds(draft, portrait) and (old is None or shapes[old] < SHAPE_MAX[old])
+    return _holds(draft, portrait, picked) and (old is None or shapes[old] < SHAPE_MAX[old])
 
 
 def _alike(by_id: Mapping[str, RecommendationItem]) -> str:

@@ -33,10 +33,12 @@ from mediaman.services.media_meta.plex_watch import (
     is_in_libraries,
 )
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.openai.recommendations.reasons import pick_why
 from mediaman.services.openai.recommendations.repository import (
     SuggestionDetail,
     fetch_suggestion_by_id,
 )
+from mediaman.services.openai.recommendations.taste import disliked_titles
 from mediaman.services.openai.recommendations.user_picks import fetch_pick
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
@@ -84,6 +86,7 @@ _FIELDS = (
     "ratings",
     "trailer_key",
     "reason",
+    "why",
     "play",
     "leaving",
     "leaving_seasons",
@@ -449,6 +452,12 @@ def _other_title(
         except catalog.TmdbUnavailable:
             pass  # The pick's own text is better than none.
     out["reason"] = rec.reason or None
+    out["why"] = pick_why(
+        rec.reason,
+        rec.because_of,
+        own=kind == "pick",
+        disliked=disliked_titles(conn, username) if kind == "pick" else (),
+    )
     return out
 
 

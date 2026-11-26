@@ -326,6 +326,79 @@ class TestPersonalPrompt:
         )
         assert [p["reason"] for p in picks] == ["", ""]
 
+    def test_a_reason_tells_the_person_why_by_what_they_played_and_nothing_made_up(
+        self, monkeypatch
+    ):
+        why = "You loved Alpha and Beta, and this is the same tense, true-to-life survival."
+        reasons = [
+            why,
+            "You loved Gravity, and this is the same lone fight to get home.",
+            "You loved Alpha and Gravity, and this is the same quiet dread.",
+            "You loved Sour, and this is just as sharp.",
+            "A heist you will like.",
+        ]
+        _answering(
+            monkeypatch,
+            [
+                {"title": f"P{n}", "media_type": "movie", "reason": r, "because_of": ["H1", "H2"]}
+                for n, r in enumerate(reasons)
+            ],
+        )
+        history = [
+            {"title": "Alpha", "type": "movie", "note": "finished"},
+            {"title": "Beta", "type": "movie", "note": "watched again"},
+            {"title": "Sour", "type": "movie", "disliked": True},
+        ]
+
+        picks = prompts.generate_personal(None, make_portrait(history))
+
+        assert [p["reason"] for p in picks] == [why, "", "", "", ""]
+
+    @pytest.mark.parametrize(
+        ("reason", "kept"),
+        [
+            ("You loved Alpha, and Denis Villeneuve brings the same quiet awe here.", True),
+            ("You loved Alpha, and 2001 fans will find the same slow wonder.", True),
+            ("You loved Alpha and Gravity, and this is the same quiet dread.", False),
+            ("You loved Alpha, and Gravity.", False),
+            ("Alpha again: you've been watching Gravity, and this is the same lone fight.", False),
+            ("Alpha again, and you're a fan of Gravity, so this is the same lone fight.", False),
+            ("Made for fans of Alpha and Gravity like you: one long lone fight.", False),
+            ("Made for fans of Alpha like you: one long lone fight.", True),
+            ("You loved Gamma, and this is the same quiet dread.", False),
+            ("You watched Gamma, and this is the same quiet dread.", True),
+        ],
+    )
+    def test_a_reason_claims_only_what_they_played_and_loved_only_what_they_finished(
+        self, monkeypatch, reason, kept
+    ):
+        _answering(
+            monkeypatch,
+            [{"title": "P", "media_type": "movie", "reason": reason, "because_of": ["H1", "H2"]}],
+        )
+        history = [
+            {"title": "Alpha", "type": "movie", "note": "finished"},
+            {"title": "Gamma", "type": "movie", "note": "left part way"},
+        ]
+
+        [pick] = prompts.generate_personal(None, make_portrait(history))
+
+        assert pick["reason"] == (reason if kept else "")
+
+    def test_a_reason_naming_another_pick_of_the_answer_is_blanked(self, monkeypatch):
+        tied = "Shares Alpha's slow nights, but Tallow Hill is louder."
+        _answering(
+            monkeypatch,
+            [
+                {"title": "Brightwater", "media_type": "tv", "reason": tied, "because_of": ["H1"]},
+                {"title": "Tallow Hill", "media_type": "movie", "reason": "", "because_of": []},
+            ],
+        )
+        picks = prompts.generate_personal(
+            None, make_portrait([{"title": "Alpha", "type": "movie"}])
+        )
+        assert picks[0]["reason"] == ""
+
     def test_a_persons_titles_never_go_with_a_web_search(self, monkeypatch):
         calls = _answering(monkeypatch)
         prompts.generate_personal(
