@@ -104,3 +104,16 @@ def test_a_passing_openai_test_forgets_the_refusal_of_that_key(client, conn, mon
     with patch("mediaman.services.infra.http.client._dispatch", return_value=answer):
         assert client.post("/api/settings/test/openai").json()["ok"] is True
     assert openai_client.key_refused(conn) is False
+
+
+def test_a_refused_key_is_not_hidden_by_a_passing_test_kept_from_before(
+    client, conn, monkeypatch
+) -> None:
+    insert_settings(conn, openai_api_key="sk-validkey1234")
+    _TEST_CACHE["openai"] = (monotonic() + 100, {"ok": True}, 200)
+    monkeypatch.setattr(openai_client, "_refused_key", openai_client._digest("sk-validkey1234"))
+    monkeypatch.setattr(openai_client, "_refused_at", monotonic())
+    answer = MagicMock(status_code=200, headers={}, _content=b"{}", _content_consumed=True)
+    with patch("mediaman.services.infra.http.client._dispatch", return_value=answer) as sent:
+        assert client.post("/api/settings/test/openai?auto=1").json()["ok"] is True
+    assert sent.call_count == 1

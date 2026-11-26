@@ -46,6 +46,7 @@ from mediaman.services.infra import (
 )
 from mediaman.services.infra.settings_reader import get_setting
 from mediaman.services.infra.storage.disk_reads import settings_disk_reads
+from mediaman.services.openai.client import key_refused
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import (
     SETTINGS_AUTO_TEST_LIMITER as _SETTINGS_AUTO_TEST_LIMITER,
@@ -479,6 +480,11 @@ def api_test_service(
       avoiding a plaintext exposure window for every secret.
     * Each tester runs under a hard _TESTER_TIMEOUT_SECONDS cap.
     """
+    conn = get_db()
+    config = request.app.state.config
+    if service == "openai" and key_refused(conn, config.secret_key):
+        # A passing result kept from before the refusal must not hide it.
+        _invalidate_test_cache_for_keys({"openai_api_key"})
     tester, short_circuit = _resolve_tester_dispatch(service, admin, auto=auto)
     if short_circuit is not None:
         return short_circuit
@@ -487,8 +493,6 @@ def api_test_service(
             f"tester is None for service={service!r} after dispatch — invariant violated"
         )
 
-    conn = get_db()
-    config = request.app.state.config
     generation = _cache_generation(service)
     settings, decrypt_err = _load_tester_settings(service, conn, config.secret_key)
     if decrypt_err is not None:
