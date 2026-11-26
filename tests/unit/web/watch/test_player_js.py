@@ -715,6 +715,68 @@ def test_the_last_credits_with_nothing_next_go_to_the_end(last_episode):
     assert out == {"label": "Skip credits", "at": 2999, "hidden": True, "href": "/watch/play/1"}
 
 
+def at_credits(markup: Path, season: dict[str, Path], how: str, autoplay: str = "true") -> Any:
+    saved = {"mediaman.watch.autoplay": autoplay}
+    return run(markup, "credits_next", saved=saved, plays=how, pages=season)
+
+
+@pytest.mark.parametrize("how", ["go", "stall"])
+def test_the_last_credits_count_down_to_the_next_episode_saved_as_watched(markup, season, how):
+    out = at_credits(markup, season, how)
+    assert out["before"]["card"] is False
+    assert out["credits"] == {"card": True, "counts": True, "skip": None}
+    assert out["line"] == "S2 · E5 — High Tide"
+    assert "S2 · E5 — High Tide" in out["said"]
+    # A stall in the credits is no reason to stop the count, and the focus stays where it was.
+    assert (out["after"]["counts"], out["focusKept"]) == (True, True)
+    assert (out["went"], out["saved"]) == (True, [3000])
+
+
+def test_watch_credits_keeps_them_playing_with_the_next_episode_button_and_counts_at_the_end(
+    markup, season
+):
+    out = at_credits(markup, season, "watch")
+    assert out["cancel"] == "Watch credits"
+    assert out["after"] == {"card": False, "counts": False, "skip": "Next episode"}
+    assert (out["went"], out["saved"]) == (False, [])
+    assert out["end"] == {"card": True, "counts": True, "skip": None}
+
+
+@pytest.mark.parametrize("how", ["pause", "back"])
+def test_a_pause_or_a_jump_out_of_the_credits_stops_the_count(markup, season, how):
+    out = at_credits(markup, season, how)
+    assert out["after"]["card"] is False
+    assert out["went"] is False
+
+
+def test_the_credits_count_again_when_they_play_on_after_a_pause(markup, season):
+    assert at_credits(markup, season, "pause")["again"]["counts"] is True
+
+
+def test_in_the_system_s_full_screen_player_the_count_waits_for_the_end(markup, season):
+    out = at_credits(markup, season, "native")
+    assert (out["credits"]["card"], out["went"], out["mode"]) == (False, False, "fullscreen")
+    assert out["end"]["counts"] is True
+
+
+def test_credits_reached_by_a_jump_count_down_only_once_they_have_played_a_while(markup, season):
+    out = at_credits(markup, season, "jump")
+    assert (out["at"]["card"], out["soon"]["card"]) == (False, False)
+    assert out["later"] == {"card": True, "counts": True, "skip": None}
+
+
+def test_without_a_credits_marker_the_count_comes_at_the_end(markup, season):
+    out = at_credits(markup, season, "none")
+    assert (out["credits"]["card"], out["went"]) == (False, False)
+    assert out["end"]["counts"] is True
+
+
+def test_with_autoplay_off_the_last_credits_only_offer_the_next_episode(markup, season):
+    out = at_credits(markup, season, "go", autoplay="false")
+    assert out["credits"] == {"card": False, "counts": False, "skip": "Next episode"}
+    assert out["went"] is False
+
+
 def test_an_error_hides_the_skip_button(markup):
     assert run(markup, "skip_error") == {"shown": True, "underError": False}
 
@@ -1135,7 +1197,7 @@ def test_leaving_full_screen_cancels_the_countdown(markup, season):
 def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
     out = run(markup, "upnext_spoken")
     # In full screen the browser keeps Escape for itself.
-    said = "Next episode in 10 seconds. Space or Escape cancels."
+    said = "Next episode in 10 seconds: S2 · E5 — High Tide. Space or Escape cancels."
     assert (out["polite"], out["before"], out["cancelled"]) == ("status", "", "")
     assert (out["counting"], out["later"], out["again"]) == (said, said, said)
     # Nothing begins by itself then, so there is nothing to cancel.
@@ -2209,7 +2271,8 @@ def test_the_question_open_with_autoplay_off_stays_beside_the_next_episode(marku
 
 
 def test_the_question_open_gives_way_to_are_you_still_watching(markup):
-    out = in_credits(markup, "stillWatching")["end"]
+    # The count to the next episode began in the credits: it ends in the question.
+    out = in_credits(markup, "stillWatching")["nine"]
     assert (out["dialog"], out["card"]) == (True, False)
 
 
@@ -2374,6 +2437,28 @@ def test_when_the_tv_gives_the_picture_back_it_plays_on_here_from_there(markup):
     assert out["back"] == {"starts": 2, "from": True}
 
 
+@pytest.mark.parametrize("mode", ["mms", "tvs", "cast"])
+def test_skip_intro_and_the_credits_count_work_while_a_tv_plays(markup, season, mode):
+    out = elsewhere(markup, "away_credits", mode, pages=season)
+    # Seen without a touch: this page is what steers the TV.
+    assert (out["intro"], out["introTo"]) == ("Skip intro", 150)
+    assert (out["card"], out["saved"]) == (True, [3000])
+
+
+def test_the_next_episode_from_the_credits_goes_to_the_airplay_tv(markup, season):
+    out = elsewhere(markup, "away_credits", "mms", pages=season)
+    assert out["next"] == {
+        "key": "502",
+        "airplay": True,
+        "offered": ["blob:mms", "/api/cast/A2/index.m3u8"],
+    }
+
+
+@pytest.mark.parametrize("mode", ["tvs", "cast"])
+def test_the_next_episode_from_the_credits_goes_to_the_tv_of_the_sheet(markup, season, mode):
+    assert elsewhere(markup, "away_credits", mode, pages=season)["next"][-1] == "502"
+
+
 def test_on_an_iphone_airplay_is_offered_before_safari_says_a_tv_is_near(markup):
     out = elsewhere(markup, "away_airplay_alone", "mmsAlone")
     assert out == {"shown": True, "rows": ["close", "here", "airplay"]}
@@ -2414,6 +2499,37 @@ def test_a_try_after_a_lost_connection_loads_nothing_once_the_tv_plays(markup, s
         "hls": 1,
         "offered": ["blob:mms", "/api/cast/A1/index.m3u8"],
     }
+
+
+def test_a_tv_that_loads_the_videos_address_from_its_start_goes_on_from_the_place(markup):
+    out = elsewhere(markup, "away_airplay_takes_at_place", "mms")
+    assert out["at"] == 600
+
+
+def test_a_new_stream_safari_hands_the_tv_after_a_pause_plays_from_the_place(markup):
+    out = elsewhere(markup, "away_airplay_new_stream", "mms")
+    assert out["at"] == 1500
+
+
+def test_safari_naming_a_replaced_streams_address_starts_no_further_stream(markup):
+    out = elsewhere(markup, "away_airplay_new_stream", "mms")
+    assert out["starts"] == 2
+
+
+def test_a_tv_let_go_with_the_time_back_at_zero_starts_the_next_stream_from_the_place(markup):
+    out = elsewhere(markup, "away_airplay_back_at_zero", "mms")
+    assert out == {"from": 1500, "at": 1500}
+
+
+def test_a_tv_that_lands_past_its_place_is_not_pulled_back_there_by_a_later_stream(markup):
+    out = elsewhere(markup, "away_airplay_lands_past", "mms")
+    assert out["from"] == 363
+
+
+@pytest.mark.parametrize("scenario", ["away_airplay_tv_fails_gone", "away_airplay_tv_fails_plex"])
+def test_a_tv_that_fails_after_a_long_pause_starts_again_from_the_place(markup, scenario):
+    out = elsewhere(markup, scenario, "mms")
+    assert out == {"starts": 2, "from": 1500}
 
 
 def test_a_title_taken_by_another_page_while_the_tv_plays_says_so_here(markup):
@@ -2500,6 +2616,12 @@ def test_the_next_episode_goes_on_where_this_one_played(markup, tmp_path_factory
     assert out["casts"] == ["501", "502"]
     assert (out["loads"], out["local"], out["away"]) == (["502"], 1, True)
     assert out["qualities"] == ["auto", "best", "medium", "low"]
+
+
+def test_with_no_room_for_both_the_question_comes_before_the_count(markup):
+    out = elsewhere(markup, "away_rate_first")
+    assert out["credits"] == {"rate": True, "card": False}
+    assert (out["after"], out["went"]) == ({"rate": False, "card": True}, False)
 
 
 @pytest.mark.parametrize("last", [False, True])
