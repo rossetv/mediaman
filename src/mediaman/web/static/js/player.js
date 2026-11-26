@@ -1357,6 +1357,12 @@
      chosen, since iOS hands the TV to what plays. */
   var MAY_AIRPLAY = !!window.WebKitPlaybackTargetAvailabilityEvent;
   var airplayUrl = null;
+  /* The hls.js stopped for a TV, while it is, and how long Safari is given to move to the TV's
+     address: a sound-only target, such as a HomePod, or a TV lost first, leaves what hls.js feeds
+     playing here, and that must go on loading. */
+  var tvHeld = null;
+  var tvHeldTimer = null;
+  var TV_TAKES_MS = 5000;
 
   function offerTv(h, pos) {
     /* hls.js plays a source of its own where Safari has ManagedMediaSource; from src, none
@@ -1375,28 +1381,63 @@
       local.addEventListener('loadedmetadata', function there() {
         local.removeEventListener('loadedmetadata', there);
         if (h !== hls || !airplayed()) return;
-        h.stopLoad();
+        holdForTv(h);
         local.currentTime = pos;
       });
     }
   }
 
-  /* Whether Safari plays the video from that address: on a TV, or here once it left the TV. */
+  /* Whether Safari plays the video from that address, not from what hls.js feeds. */
+  function fromTicket() {
+    return !!local.currentSrc && local.currentSrc.indexOf('blob:') !== 0;
+  }
+
+  /* Whether a TV plays the video: from that address, on a TV or here once it left the TV; or
+     while Safari is still moving it there. */
   function airplayed() {
     if (!hls) return false;
-    return !!local.webkitCurrentPlaybackTargetIsWireless || (!!local.currentSrc && local.currentSrc.indexOf('blob:') !== 0);
+    return fromTicket() || (tvHeld === hls && !!local.webkitCurrentPlaybackTargetIsWireless);
   }
+
+  /* The TV reads the stream itself. */
+  function holdForTv(h) {
+    h.stopLoad();
+    stopWatching();
+    tvHeld = h;
+    clearTimeout(tvHeldTimer);
+    tvHeldTimer = setTimeout(function () { if (!fromTicket()) loadHere(h); }, TV_TAKES_MS);
+  }
+
+  function letTvGo() {
+    clearTimeout(tvHeldTimer);
+    tvHeld = null;
+  }
+
+  /* hls.js goes on loading from the place, where it was stopped for a TV that never took it. */
+  function loadHere(h) {
+    var held = tvHeld === h && h === hls;
+    letTvGo();
+    if (held) h.startLoad(position());
+  }
+
+  /* A TV that took the video later than that: hls.js stops again. */
+  local.addEventListener('loadedmetadata', function () {
+    if (hls && tvHeld !== hls && local.webkitCurrentPlaybackTargetIsWireless && fromTicket()) holdForTv(hls);
+  });
 
   local.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', function () {
     if (!hls) return;
     if (local.webkitCurrentPlaybackTargetIsWireless) {
-      /* The TV reads the stream itself. */
-      hls.stopLoad();
-      stopWatching();
+      holdForTv(hls);
       return;
     }
     /* Back from the TV: hls.js plays it here again, where the TV got to. */
-    if (airplayed() && !away) restartStream(true);
+    if (fromTicket()) {
+      letTvGo();
+      if (!away) restartStream(true);
+      return;
+    }
+    loadHere(hls);
   });
 
   function attach(playlist, pos) {
