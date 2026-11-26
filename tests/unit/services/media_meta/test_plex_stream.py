@@ -1897,3 +1897,22 @@ def test_starts_at_once_against_one_silent_stream_take_its_place_only_once(manag
         manager.get(silent, "alice")
     stopped = {c["params"]["session"] for c in plex.calls_to("stop")}
     assert not stopped & live_sessions
+
+
+def test_with_the_server_full_a_person_s_start_takes_their_own_silent_stream_s_place(
+    manager, plex, clock
+):
+    silent = _start(manager, rating_key="1")
+    live = [_start(manager, rating_key=str(k + 2)) for k in range(MAX_STREAMS_PER_USER - 1)]
+    for n in range(MAX_STREAMS_TOTAL - MAX_STREAMS_PER_USER):
+        _start(manager, user=f"user{n}")
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS + 1
+    for kept in live:
+        manager.get(kept, "alice")
+
+    new = _start(manager, rating_key="99")
+
+    assert manager.get(new, "alice")
+    with pytest.raises(StreamGone):
+        manager.get(silent, "alice")
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [_session_of(plex, 0)]
