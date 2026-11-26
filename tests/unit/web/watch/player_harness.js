@@ -3445,7 +3445,6 @@ const scenarios = {
     const playing = look();
     p.video.paused = true; p.video.ended = true;
     fire(p.video, 'ended');
-    fire(p.video, 'timeupdate');
     return { playing: playing, ended: look() };
   },
 

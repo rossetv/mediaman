@@ -1950,6 +1950,7 @@
       return;
     }
     dropAim();
+    render();
     endSaved = saveProgress();
     watchedHere();
     showSkip();
@@ -1977,7 +1978,7 @@
     els.played.style.width = pct + '%';
     els.thumb.style.left = pct + '%';
     els.elapsed.textContent = fmt(pos);
-    els.remaining.textContent = '-' + fmt(d - pos);
+    els.remaining.textContent = (d - pos < 1 ? '' : '-') + fmt(d - pos);
     els.seek.setAttribute('aria-valuenow', String(Math.round(pos)));
     showSkip();
     var chapter = showChapter(pos);

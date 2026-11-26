@@ -526,7 +526,7 @@ def test_the_volume_slider_says_its_level_in_a_whole_percentage(markup):
 def test_the_clock_and_bar_reach_the_end_by_the_files_own_length(markup):
     out = run(markup, "ended_clock")
     assert out["playing"]["remaining"] != "-0:00"
-    assert out["ended"] == {"remaining": "-0:00", "left": "100%"}
+    assert out["ended"] == {"remaining": "0:00", "left": "100%"}
 
 
 def test_the_volume_track_fills_to_the_volume_heard(markup):
