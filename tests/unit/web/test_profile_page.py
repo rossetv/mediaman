@@ -343,3 +343,38 @@ def test_only_an_admins_profile_has_a_list_of_other_peoples_tvs(
     # hidden until there are TVs
     assert len(re.findall(r'<section[^>]*id="account-tvs[^>]*\bhidden>', html)) == lists
     assert ('id="account-tvs-all"' in html) == (role == "admin")
+
+
+@pytest.mark.parametrize(
+    ("role", "ready", "says"),
+    [
+        ("admin", True, "Where download alerts go"),
+        ("admin", False, "Set it up under Email (Mailgun) in Settings"),
+        ("viewer", True, "Where download alerts go"),
+        ("viewer", False, "Ask an admin"),
+    ],
+)
+def test_the_email_row_says_when_mail_is_not_set_up(
+    app_factory, authed_client, conn, role, ready, says
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+
+    @app.middleware("http")
+    async def as_role(request, call_next):
+        request.state.user_role = role
+        return await call_next(request)
+
+    if ready:
+        for key in ("mailgun_domain", "mailgun_api_key", "mailgun_from_address"):
+            conn.execute(
+                "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, 'x', 0, 'x')",
+                (key,),
+            )
+    conn.commit()
+
+    html = authed_client(app, conn).get("/account").text
+    sub = re.search(r'id="account-email-sub">(.*?)</div>', html, re.S).group(1)
+
+    assert says in sub
+    assert ("Where download alerts go" in sub) == ready
+    assert ("Settings" in sub) == (not ready and role == "admin")
