@@ -319,3 +319,14 @@ def test_the_note_goes_out_of_reach_at_once_and_out_of_sight_as_it_has_closed(ou
         "closing": [False, True, False, text],
         "shut": True,
     }
+
+
+def test_the_row_the_page_came_with_takes_the_place_of_what_held_its_room(out) -> None:
+    assert out["heldRoom"] == {
+        "open": True, "resting": True, "hidden": False,
+        "cards": ["A", "B"], "dw": 2, "held": 0, "faded": 0, "rows": 1,
+    }  # fmt: skip
+
+
+def test_what_held_the_room_goes_when_nothing_downloads_any_more(out) -> None:
+    assert out["heldRoomGone"] == {"hidden": True, "inside": 0, "open": False}

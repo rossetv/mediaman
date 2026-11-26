@@ -197,6 +197,7 @@
     scroller.setAttribute('tabindex', '0');
     scroller.setAttribute('role', 'region');
     inner.appendChild(section);
+    slot.textContent = ''; // what held its room
     slot.appendChild(inner);
     stayAtStart(scroller);
     words = { name: name, count: count, link: link, notes: notes, note: note, noteText: noteText };
@@ -218,6 +219,12 @@
   }
 
   function close() {
+    if (!inner && !slot.hidden) {
+      // It came with the page and has gone since.
+      slot.textContent = '';
+      slot.classList.remove('is-open', 'is-resting');
+      slot.hidden = true;
+    }
     if (!inner || closing) return;
     passOn(slot);
     clearTimeout(opening);
@@ -321,8 +328,9 @@
     }
     if (!list.length) { letGo(); close(); return; }
     if (closing) comeBack();
+    // The row the page came with is open, but none of its cards are there yet.
+    var isNew = !inner || !slot.classList.contains('is-open');
     if (!inner) buildRow();
-    var isNew = !slot.classList.contains('is-open');
     var play = isNew ? null : core.flip(toArray(scroller.children));
     var ready = [];
     list.forEach(function (item) {

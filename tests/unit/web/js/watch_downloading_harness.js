@@ -42,7 +42,11 @@ function load(answers, opts = {}) {
   doc.hidden = false;
   doc.body.appendChild(build(doc, ['div', { id: 'watch-page' },
     ['div', { class: 'watch-rows' },
-      ['div', { class: 'dlx', id: 'watch-downloading', hidden: '' }],
+      opts.held
+        ? ['div', { class: 'dlx is-open is-resting', id: 'watch-downloading' }, ['div', { class: 'dlx__in dlx-skel', 'aria-hidden': 'true' },
+          ['div', { class: 'watch-row' }, ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll' },
+            ...Array.from({ length: opts.held }, () => ['div', { class: 'dw' }, ['span', { class: 'skel dlx-skel__card' }]])]]]]]
+        : ['div', { class: 'dlx', id: 'watch-downloading', hidden: '' }],
       ['section', { class: 'watch-row', 'data-row-id': 'recent' }, ['div', { class: 'watch-row__viewport' },
         ['div', { class: 'watch-row__scroll' }, recentCard('movie-1', 'Salt'), recentCard('movie-2', 'Fieldwork')]]]],
     ...(opts.fed ? [['script', { id: 'downloads-page-data' }, JSON.stringify({ downloading: opts.fed })]] : []),
@@ -548,6 +552,20 @@ const scenarios = {
     const now = { cards: p.cards(), open: p.slot.classList.contains('is-open'), asks: p.asks };
     await p.step(5000);
     return { now, cards: p.cards() };
+  },
+  async heldRoom() {
+    const p = load(['never'], { drawn: answer([item('A'), item('B')]), held: 2, still: false });
+    const of = (q) => p.slot.querySelectorAll(q).length;
+    return {
+      open: p.slot.classList.contains('is-open'), resting: p.slot.classList.contains('is-resting'), hidden: p.slot.hidden,
+      cards: p.slot.querySelectorAll('.dw__title').map((n) => n.textContent), dw: of('.dw'), held: of('.dlx-skel'),
+      faded: of('.fade-in'), rows: of('.watch-row'),
+    };
+  },
+  async heldRoomGone() {
+    const p = load([answer([])], { held: 1 });
+    await p.step(10);
+    return { hidden: p.slot.hidden, inside: p.slot.childNodes.length, open: p.slot.classList.contains('is-open') };
   },
   async drawnIdle() {
     const p = load([answer([item('New')])], { drawn: answer([]) });

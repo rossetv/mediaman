@@ -42,6 +42,10 @@
 .dlx__note[hidden] { display: none; }
 .dlx__note > .ico { flex: none; align-self: center; }
 
+/* What holds the row's room until watch/downloading.js draws it: a heading and cards of its size. */
+.dlx-skel__title { width: 150px; line-height: 1.1; height: 1lh; min-height: 20px; } /* as tall as the heading and its See all */
+.dlx-skel__card { flex: 1 0 auto; min-height: 104px; border-radius: var(--r-lg); }
+
 .dlx .watch-row__scroll > .dw { flex: 0 0 auto; width: 340px; }
 .dlx .watch-row__scroll > .dw.is-sole { width: min(520px, calc(100cqi - 2 * var(--pad))); }
 @media (max-width: 599.98px) {

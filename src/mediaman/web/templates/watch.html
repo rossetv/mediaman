@@ -128,8 +128,24 @@
     <div class="watch-rows">
       {% if not shelf and not watch_error %}{{ empty_library(is_admin, tmdb_configured, library_total) }}{% endif %}
       {% for row in shelf if row['items'] and row.id == 'continue' %}{{ row_section(row) }}{% endfor %}
-      {# watch/downloading.js fills it while something downloads. #}
+      {# watch/downloading.js fills it while something downloads. What the page came with holds
+         its room from the start, as the row will be, so that the rows under it stay put. #}
+      {% if downloading_held %}
+      <div class="dlx is-open is-resting" id="watch-downloading">
+        <div class="dlx__in dlx-skel" aria-hidden="true">
+          <div class="watch-row">
+            <div class="watch-row__head"><p class="watch-row__title"><span class="skel skel--title dlx-skel__title"></span></p></div>
+            <div class="watch-row__viewport">
+              <div class="watch-row__scroll">
+                {% for _ in range(downloading_held) %}<div class="dw{% if downloading_held == 1 %} is-sole{% endif %}"><span class="skel dlx-skel__card"></span></div>{% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% else %}
       <div class="dlx" id="watch-downloading" hidden></div>
+      {% endif %}
       {# What the person asked for loads after the page: watch/asked.js. #}
       {% if not watch_error %}
       <div id="watch-asked" hidden></div>
