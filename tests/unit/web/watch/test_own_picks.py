@@ -311,6 +311,64 @@ class TestDetail:
         assert body["because_of"] == ["Alpha", "Beta"]
         assert body["download"]["request"] == {"url": f"/api/watch/picks/{pick}/download"}
 
+    @pytest.mark.parametrize(
+        ("reason", "because_of", "why"),
+        [
+            (
+                "You loved Alpha, and this is the same quiet dread.",
+                '["Alpha"]',
+                "You loved Alpha, and this is the same quiet dread.",
+            ),
+            # Written before reasons spoke to the person: it tells of the title, not of them.
+            (
+                "A crew of three on a station, with the silences of Alpha.",
+                '["Alpha", "Beta"]',
+                "You watched Alpha and Beta.",
+            ),
+            (None, '["Alpha"]', "You watched Alpha."),
+            (None, None, "From what you’ve been watching lately."),
+        ],
+    )
+    def test_the_card_says_why_it_suits_them_and_never_the_plot(
+        self, people, conn, reason, because_of, why
+    ):
+        pick = insert_user_pick(
+            conn,
+            "amy",
+            tmdb_id=12,
+            reason=reason,
+            because_of=because_of,
+            description="A crew of three on a station.",
+        )
+        body = people["amy"].get(f"/api/watch/title/pick-{pick}").json()
+        assert body["why"] == why
+
+    def test_a_title_they_since_rated_down_is_never_why_they_will_like_it(self, people, conn):
+        pick = insert_user_pick(
+            conn,
+            "amy",
+            tmdb_id=12,
+            reason="You loved Beta, and this is just as sharp.",
+            because_of='["Alpha", "Beta"]',
+        )
+        conn.execute(
+            "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, title, updated_at)"
+            " SELECT id, 'movie', 7, -1, 'Beta', '2099' FROM admin_users WHERE username = 'amy'"
+        )
+        conn.commit()
+
+        body = people["amy"].get(f"/api/watch/title/pick-{pick}").json()
+
+        assert (body["why"], body["because_of"]) == (
+            "You watched Alpha.",
+            ["Alpha"],
+        )
+
+    def test_a_shared_pick_says_it_was_not_made_from_their_viewing(self, people, conn):
+        rec = insert_suggestion(conn, tmdb_id=12, reason="A heist told in real time.")
+        body = people["amy"].get(f"/api/watch/title/rec-{rec}").json()
+        assert "not from your own viewing" in body["why"]
+
     @pytest.mark.parametrize("other", ["bob", "admin"])
     def test_anyone_else_gets_the_answer_of_a_pick_that_does_not_exist(
         self, people, conn, arr, other

@@ -97,6 +97,21 @@ def test_a_reason_may_name_the_title_the_second_pass_tied_it_to(model, portrait)
     assert (item["reason"], item["because_of"]) == ("Beta's crew, but on a boat.", ["Beta"])
 
 
+def test_a_rewritten_reason_naming_another_candidate_is_left_out(model, portrait):
+    model.answer = [
+        {
+            "id": "C1",
+            "because_of": ["H1"],
+            "reason": "You loved Alpha; Tallow Hill is its louder cousin.",
+        },
+        {"id": "C2"},
+    ]
+    found = choose_mix(
+        [_pick("Brightwater", ""), _pick("Tallow Hill"), _pick("Q")], 2, None, portrait=portrait
+    )
+    assert [i["reason"] for i in found if i["title"] == "Brightwater"] == [""]
+
+
 def test_a_reason_that_retells_the_description_is_left_out(model, portrait):
     about = "A retired clerk trains three strangers for one last job in the harbour."
     copied = "Like Alpha, a retired clerk trains three strangers for one last job."

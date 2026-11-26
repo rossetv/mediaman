@@ -63,6 +63,7 @@ const CARDS = [
   card('held', 'Held', { ref: 'movie-3', pick: 'rec-6' }),
   card('going', 'The Long Coast', { href: '/watch/play/22?resume=1', dismiss: 'show-2', mark: 'episode/22', pct: 40, sub: 'S2 · E4 · 23 min left' }),
   card('aiPick', 'Dockside', { ref: 'tmdb-movie-9', why: 'Tense and kind, as you like them.' }),
+  card('ownPick', 'Mine', { ref: 'pick-8' }),
 ];
 
 /* A page at rest. *opts*: api (ref to its answer: data, a status or nothing yet), reduced, forced, coarse, saveData.
@@ -811,6 +812,13 @@ const scenarios = {
     h.waiting['rec-5'](reply);
     await h.pass(50);
     return { held, reason: h.text('.pv__reason') };
+  },
+  /* A person's own pick says why they will like it, not what the AI first wrote of it. */
+  async ownPickWhy() {
+    const reply = { ...OUTSIDE, ref: 'pick-8', reason: 'A crew on a station.', why: 'You loved Orbit, and this is as tense.' };
+    const h = load({ api: { 'pick-8': reply } });
+    await h.rest('ownPick', 800);
+    return { reason: h.text('.pv__reason') };
   },
   /* A card the AI picked in a search: why, from the card, before the reply and after it, and on to its page. */
   async aiWhy() {
