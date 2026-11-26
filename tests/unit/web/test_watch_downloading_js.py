@@ -30,7 +30,7 @@ def test_each_state_is_told_in_words(out) -> None:
         "Unknown": "40%",
         "Almost": "Almost ready",
         "Queued": "Queued",
-        "Looking": "Looking for the best version",
+        "Looking": "Looking for a copy",
         "Stuck": "Nothing found yet · next attempt in ~4h",
         "Ready": "Ready to watch",
         "Part": "Some episodes ready",

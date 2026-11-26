@@ -69,7 +69,7 @@
     if (item.state === 'finding_copy') return ['', 'Finding another copy'];
     if (item.state === 'queued') return ['', 'Queued'];
     if (item.state === 'stuck') return ['', 'Nothing found yet' + (item.line ? ' · ' + item.line : '')];
-    if (item.state === 'searching') return ['', 'Looking for the best version'];
+    if (item.state === 'searching') return ['', 'Looking for a copy'];
     return [item.percent + '%', typeof item.minutes_left === 'number' ? ' · ' + left(item.minutes_left) : ''];
   }
 
