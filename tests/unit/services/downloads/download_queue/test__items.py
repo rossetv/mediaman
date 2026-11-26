@@ -124,8 +124,8 @@ class TestBuildUnmatchedArrItem:
         assert item["state"] == "searching"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
-    def test_unmatched_movie_at_100_is_almost_ready(self, _mock_search):
-        arr = make_arr_card("movie", "Dune", source="Radarr", progress=100)
+    def test_unmatched_movie_radarr_has_completed_is_almost_ready(self, _mock_search):
+        arr = make_arr_card("movie", "Dune", source="Radarr", progress=100, status="completed")
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["state"] == "almost_ready"
 
@@ -194,7 +194,8 @@ class TestAbandonVisibleThreshold:
     """abandon_visible flips on once an item has been searching for ≥10 h."""
 
     def _make_item(self, searching_since: float, progress: int = 0) -> dict:
-        arr = make_arr_card("movie", "Dune", source="Radarr", progress=progress)
+        status = "completed" if progress == 100 else "searching"
+        arr = make_arr_card("movie", "Dune", source="Radarr", progress=progress, status=status)
         arr["searching_since"] = searching_since
         with patch(
             "mediaman.services.arr.search_trigger.get_search_info",

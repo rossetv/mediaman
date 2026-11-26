@@ -15,8 +15,9 @@ from mediaman.services.arr.fetcher._base import ArrCard, ArrEpisodeEntry
 from mediaman.services.downloads.download_format import (
     build_episode_summary,
     build_item,
+    map_arr_status,
     map_episode_state,
-    map_state,
+    map_queue_state,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 
@@ -143,14 +144,6 @@ def build_matched_item(
     )
 
 
-def _derive_state(episodes: list[dict[str, object]]) -> str:
-    if episodes and all(e["state"] == "ready" for e in episodes):
-        return "almost_ready"
-    if any(e["state"] in ("downloading", "queued") for e in episodes):
-        return "downloading"
-    return map_state(None, has_nzbget_match=False)
-
-
 def _build_unmatched_series_item(
     arr: ArrCard,
     arr_base_urls: dict[str, str],
@@ -161,8 +154,9 @@ def _build_unmatched_series_item(
     added_at: float,
     abandon_visible_now: bool,
 ) -> DownloadItem:
-    episodes = build_episode_dicts(arr.get("episodes", []))
-    state = _derive_state(episodes)
+    raw_episodes = arr.get("episodes", [])
+    episodes = build_episode_dicts(raw_episodes)
+    state = map_queue_state(raw_episodes) if raw_episodes else "searching"
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
@@ -170,7 +164,6 @@ def _build_unmatched_series_item(
         if state == "searching"
         else ""
     )
-    raw_episodes = arr.get("episodes", [])
     stuck_seasons = (
         arr.get("stuck_seasons") or _stuck_seasons_from_episodes(raw_episodes)
         if state == "searching"
@@ -213,7 +206,7 @@ def _build_unmatched_movie_item(
     added_at: float,
     abandon_visible_now: bool,
 ) -> DownloadItem:
-    state = _derive_state([{"state": map_episode_state(arr)}])
+    state = map_arr_status(arr.get("status", ""), arr.get("tracked_state", ""))
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")

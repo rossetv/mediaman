@@ -14,7 +14,7 @@ from mediaman.services.downloads.download_format import (
     build_episode_summary,
     build_item,
     format_episode_label,
-    map_arr_status,
+    map_queue_state,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
@@ -103,17 +103,7 @@ def _sonarr_aggregate(series_title: str, ep_entries: list[_SonarrEpEntry]) -> Do
     total_size = sum(size for size, _ in sizes.values())
     total_left = sum(left for _, left in sizes.values())
     overall_progress = _safe_progress(total_size, total_left) if total_size else 0
-    raw_statuses = [e["status"] for e in ep_entries]
-    raw_tracked = [e["tracked_state"] for e in ep_entries]
-    combined_status = next(
-        (s for s in raw_statuses if s.lower() in ("downloading", "completed")),
-        raw_statuses[0] if raw_statuses else "",
-    )
-    combined_tracked = next(
-        (s for s in raw_tracked if s.lower() in ("downloading", "importing", "importpending")),
-        raw_tracked[0] if raw_tracked else "",
-    )
-    state = map_arr_status(combined_status, combined_tracked)
+    state = map_queue_state(cast("list[dict[str, object]]", ep_entries))
     eta = _eta(state, max((e["timeleft"] for e in ep_entries if e["timeleft"]), default=""))
     episode_summary = build_episode_summary(episodes)
     return build_item(

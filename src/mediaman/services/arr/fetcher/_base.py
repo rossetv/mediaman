@@ -122,6 +122,8 @@ class ArrEpisodeEntry(_ArrEpisodeRequired, total=False):
 
     is_pack_episode: bool
     season_number: int
+    # The queue entry's trackedDownloadState, which with its status says what it is doing.
+    tracked_state: str
 
 
 class BaseArrCard(TypedDict):
@@ -149,6 +151,8 @@ class ArrCard(BaseArrCard, total=False):
     done_str: str
     timeleft: str
     status: str
+    # A film's queue entry's trackedDownloadState, which with its status says what it is doing.
+    tracked_state: str
     is_upcoming: bool
     release_label: str
     arr_id: int
@@ -187,6 +191,11 @@ def is_film_id(dl_id: str, title: str) -> bool:
     """Whether *dl_id* is a ``film_id`` of *title*."""
     number = dl_id.removeprefix(f"radarr:{title}#")
     return number != dl_id and number.isdecimal()
+
+
+def film_tmdb_id(dl_id: str, title: str) -> int | None:
+    """The TMDB id in a ``film_id`` of *title*, or None when *dl_id* is not one."""
+    return int(dl_id.rpartition("#")[2]) if is_film_id(dl_id, title) else None
 
 
 def make_arr_card(

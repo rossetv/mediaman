@@ -14,6 +14,7 @@ from mediaman.services.downloads.download_format._classify import (
     extract_poster_url,
     map_arr_status,
     map_episode_state,
+    map_queue_state,
     map_state,
     next_movie_release,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "looks_like_series_nzb",
     "map_arr_status",
     "map_episode_state",
+    "map_queue_state",
     "map_state",
     "next_movie_release",
     "normalise_for_match",
