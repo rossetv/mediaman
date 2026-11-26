@@ -88,11 +88,11 @@ def test_an_off_switch_shows_its_track_and_an_on_one_its_colour_alone() -> None:
 def test_on_history_the_keyboard_lands_clear_of_the_bar_and_tools_but_a_bars_own_control_stays_put() -> (
     None
 ):
-    page = 'html:has(> body[data-page="history"])'
-    assert "scroll-padding-top: var(--bar-clear)" in _of(page, "_history.css")
-    for bar in (".nav-glass", ".hx-tools"):
-        assert "scroll-margin-top: calc(" in _of(f"{bar} {CONTROLS}", "_history.css"), bar
-        assert "- var(--bar-clear, 0px))" in _of(f"{bar} {CONTROLS}", "_history.css"), bar
+    assert "scroll-padding-top: var(--bar-clear)" in _of(
+        'html:has(> body[data-page="history"])', "_history.css"
+    )
+    held = 'html:has(> body[data-page="history"] :is(.nav-glass, .hx-tools) :focus)'
+    assert "scroll-padding-top: 0" in _of(held, "_history.css")
 
 
 def test_under_a_short_window_historys_tools_and_all_titles_head_go_with_the_page() -> None:

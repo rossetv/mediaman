@@ -527,17 +527,16 @@ CONTROLS = ":is(a, button, input, select, textarea, [tabindex])"
 def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scroll_it() -> None:
     page = 'html:has(> body[data-page="watch"])'
     assert "scroll-padding-top: var(--bar-clear)" in _of(page, sheet=BAR)
-    # Each control of a sticky bar takes the page's padding back, less its inset in the bar.
-    for bar, inset in ((".wbar", "4px"), (".watch-all__head", "var(--nav-h) + 6px")):
-        margin = _of(f"{bar} {CONTROLS}", sheet=BAR)
-        assert f"scroll-margin-top: calc({inset} - var(--bar-clear, 0px))" in margin
+    # While the focus is in the bar or All titles' head, the page has no padding to scroll for.
+    held = 'html:has(> body[data-page="watch"] :is(.wbar, .watch-all__head) :focus)'
+    assert "scroll-padding-top: 0" in _of(held, sheet=BAR)
     sticky = {
         head.strip()
         for sheet in SHEET.parent.glob("_watch*.css")
         for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", sheet.read_text(encoding="utf-8"))
         if "position: sticky" in body
     }
-    # The bar of a title's overlay is in #watch-detail, which the rule leaves out.
+    # A title's overlay scrolls itself, under its own padding for its bar.
     assert sticky == {".watch-all__head", ".ttl__bar"}
 
 

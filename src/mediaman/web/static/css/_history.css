@@ -58,9 +58,8 @@ body[data-page="history"] { overflow-x: clip; }
 /* What the keyboard comes to clears the bar and the tools at their tallest (66px; wrapped, 118px).
    A child combinator: the list's own mutations never test it again. */
 html:has(> body[data-page="history"]) { --bar-clear: calc(var(--nav-h) + 78px); scroll-padding-top: var(--bar-clear); }
-/* A bar's own control is in sight already: its margin, less its inset in the bar, takes the padding back. */
-.nav-glass :is(a, button, input, select, textarea, [tabindex]) { scroll-margin-top: calc(4px - var(--bar-clear, 0px)); }
-.hx-tools :is(a, button, input, select, textarea, [tabindex]) { scroll-margin-top: calc(var(--nav-h) + 6px - var(--bar-clear, 0px)); }
+/* None while the focus is in a bar, which is in sight already: it would scroll the page. */
+html:has(> body[data-page="history"] :is(.nav-glass, .hx-tools) :focus) { scroll-padding-top: 0; }
 .hx-line { display: flex; align-items: center; gap: 8px; }
 .hx-search { position: relative; flex: 1 1 260px; min-width: 0; }
 .hx-search > .ico {
