@@ -17,6 +17,7 @@ import logging
 import re
 import sqlite3
 import unicodedata
+from time import monotonic
 from typing import Any
 
 import requests
@@ -55,6 +56,10 @@ _DEFAULT_MODEL = "gpt-6.2-sol"
 
 # The digest of the key OpenAI last refused, in memory only: a changed key is not refused.
 _refused_key: str | None = None
+_refused_at = 0.0
+
+# A refusal can be a passing fault; after this long the next call asks again.
+_REFUSAL_SECONDS = 3600.0
 
 _MARKDOWN_LINK_RE = re.compile(r"\[.*?\]\(.*?\)")
 
@@ -223,12 +228,16 @@ def _digest(api_key: str) -> str:
 
 
 def key_refused(conn: sqlite3.Connection | None, secret_key: str | None = None) -> bool:
-    """Whether OpenAI refused the API key now set when it was last sent."""
+    """Whether OpenAI refused the API key now set when it was last sent, within the hour."""
     try:
         api_key = get_openai_key(conn, secret_key)
     except ValueError:
         return False
-    return _refused_key is not None and _refused_key == _digest(api_key)
+    return (
+        _refused_key is not None
+        and _refused_key == _digest(api_key)
+        and monotonic() - _refused_at < _REFUSAL_SECONDS
+    )
 
 
 def _log_error(exc: Exception) -> None:
@@ -267,7 +276,7 @@ def ask_openai(
     shape that cannot be read, or, with web search active, a title looked adversarial (the
     whole batch is then rejected; a title that holds a domain is left out alone).
     """
-    global _refused_key
+    global _refused_key, _refused_at
     try:
         api_key = get_openai_key(conn, secret_key)
     except ValueError:
@@ -298,6 +307,7 @@ def ask_openai(
         refused = isinstance(exc, SafeHTTPError) and exc.status_code == 401
         if refused:
             _refused_key = _digest(api_key)
+            _refused_at = monotonic()
         raise OpenAIUnavailable(refused=refused) from exc
     if items is None:
         raise OpenAIUnavailable
