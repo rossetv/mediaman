@@ -103,7 +103,7 @@ def test_text_stays_readable_and_phone_inputs_do_not_trigger_zoom():
     for name, selector in (("_forms.css", ".inp"), ("_settings_pg.css", ".setg-pg .inp")):
         text = (css / name).read_text()
         pattern = (
-            r"@media \(max-width: 639\.98px\) \{[^{}]*?\s"
+            r"@media \(max-width: 639\.98px\)(?:, \(pointer: coarse\))? \{[^{}]*?\s"
             + re.escape(selector)
             + r" \{ font-size: 16px; \}"
         )
