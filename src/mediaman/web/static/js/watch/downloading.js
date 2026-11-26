@@ -73,11 +73,6 @@
     return [item.percent + '%', typeof item.minutes_left === 'number' ? ' · ' + left(item.minutes_left) : ''];
   }
 
-  /* TheTVDB's posters have no address of mediaman's own. */
-  function picture(value) {
-    return core.safePath(value) || (/^https:\/\//.test(value || '') ? value : '');
-  }
-
   function refOf(item) { return REF_RE.test(item.ref || '') ? item.ref : ''; }
 
   function hrefOf(item) { return (refOf(item) && core.safePath(item.href)) || HREF; }
@@ -91,8 +86,8 @@
 
   /* The poster stands in where there is no wide picture. */
   function setPicture(img, item) {
-    var poster = picture(item.poster_url);
-    var art = img.classList.contains('dw__pic') ? '' : picture(item.art_url);
+    var poster = core.safePath(item.poster_url);
+    var art = img.classList.contains('dw__pic') ? '' : core.safePath(item.art_url);
     var want = art || poster;
     if (want === img.getAttribute('data-of')) return;
     img.setAttribute('data-of', want);
@@ -431,7 +426,7 @@
     link.setAttribute('data-title-ref', item.ref);
     link.setAttribute('data-kind', item.kind === 'movie' ? 'movie' : 'show');
     var poster = link.appendChild(el('span', 'watch-card__poster'));
-    var src = picture(item.poster_url);
+    var src = core.safePath(item.poster_url);
     if (src) {
       var img = poster.appendChild(el('img', 'is-loaded'));
       img.setAttribute('src', src);
@@ -539,7 +534,7 @@
   }
 
   window.MMWatch.downloading = {
-    picture: picture,
+    picture: core.safePath,
     line: function (item) { return says(item).join(''); },
     ref: refOf,
     href: hrefOf

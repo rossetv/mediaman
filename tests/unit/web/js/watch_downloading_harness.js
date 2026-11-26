@@ -149,10 +149,12 @@ const scenarios = {
     const p = load([answer([
       item('Known'), item('Nzb', { ref: null, href: '/downloads' }),
       item('Bad', { ref: 'javascript:1', href: 'javascript:alert(1)', poster_url: 'http://elsewhere/x', art_url: '//elsewhere/y' }),
+      item('Far', { poster_url: 'https://pictures.example/x', art_url: 'https://pictures.example/y' }),
     ])]);
     await p.step(10);
     const of = (t) => { const a = p.card(t).querySelector('a'); return [a.getAttribute('href'), a.getAttribute('data-title-ref')]; };
-    return { known: of('Known'), nzb: of('Nzb'), bad: of('Bad'), pictures: p.card('Bad').querySelectorAll('img').map((i) => i.getAttribute('src')) };
+    return { known: of('Known'), nzb: of('Nzb'), bad: of('Bad'), pictures: p.card('Bad').querySelectorAll('img').map((i) => i.getAttribute('src')),
+      far: p.card('Far').querySelectorAll('img').map((i) => [i.getAttribute('src'), i.getAttribute('data-next-src')]) };
   },
   async live() {
     const p = load([answer([item('A', { percent: 40 })]), answer([item('A', { percent: 55, minutes_left: 9 })])]);
