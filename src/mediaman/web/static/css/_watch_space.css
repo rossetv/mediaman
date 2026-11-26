@@ -562,4 +562,5 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
   .space-tab[aria-selected="true"] { text-decoration: underline; text-underline-offset: 4px; }
   .space__ink { display: none; }
   .space-notice { border: 1px solid CanvasText; }
+  .space-meter--off .space-meter__free, .space-meter--off > .ico { color: ButtonText; }
 }
