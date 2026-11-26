@@ -271,6 +271,34 @@ const scenarios = {
       return [input.getAttribute('aria-invalid'), hint.textContent];
     });
   },
+  // What the live hint says of each address the server refuses on Save, and of ones it takes.
+  async shapes() {
+    const p = await page({});
+    const input = p.doc.getElementById('tv_address');
+    const hint = p.doc.getElementById('tv-address-hint');
+    const read = (v) => {
+      input.value = v;
+      p.fire(input, 'input');
+      return input.getAttribute('aria-invalid') === 'true';
+    };
+    const refused = ['http://[fd00::1%25eth0]:8282', 'http://nas.123:8282', 'http://nas.local:0', 'http://user:pw@nas.local:8282',
+      'http://nas.local:8282/app', 'http://nas..local:8282', 'http://-nas.local:8282', 'https://nas.local?x=1', 'http://nas.local:70000',
+      'https://10.999.0.300', 'https://nas.0x1f', 'https://a b.example.com'];
+    const taken = ['http://nas.local:8282', 'http://nas.local:8282/', 'https://nas.example.com', 'http://192.168.1.10:8282',
+      'https://203.0.113.5', 'http://[fd00::5]:8282', 'https://nas.example.com.', 'http://nas.local:'];
+    return { refused: refused.map(read), taken: taken.map(read), hint: hint.textContent };
+  },
+  // Which addresses the add dialog takes as a home one.
+  async homeAddresses() {
+    const out = {};
+    for (const v of ['192.168.1.44', '10.255.0.7', '172.16.0.20', '10.999.0.300', '192.168.1.256', '10.0.0.1.5', '172.32.0.1']) {
+      const p = await page({ [CHECK]: FOUND, [PICTURE]: FROM });
+      await p.add(v);
+      await settle();
+      out[v] = p.calls.some((c) => c[0] === 'POST' && c[1] === '/api/settings/older-tvs/check');
+    }
+    return out;
+  },
   // The page's own save bar, with the section's fields and one of the add form's.
   async saved() {
     const doc = makeDocument();

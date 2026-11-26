@@ -16,7 +16,11 @@
   MM.settings = MM.settings || {};
 
   var OLDER = '/api/settings/older-tvs';
-  var HOME = /^(10\.\d{1,3}|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}$/;
+  var OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
+  var HOME = new RegExp('^(?:10\\.' + OCTET + '|192\\.168|172\\.(?:1[6-9]|2\\d|3[01]))\\.' + OCTET + '\\.' + OCTET + '$');
+  var LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+  var NAME = new RegExp('^(?=.{1,253}$)' + LABEL + '(?:\\.' + LABEL + ')*$', 'i');
+  var IPV4 = new RegExp('^(?:' + OCTET + '\\.){3}' + OCTET + '$');
   var NETWORKS = 'mediaman must run in a container with a network of its own, as Docker gives one. ' +
     'Host networking, macvlan on the home network and an install without a container can’t reach TVs.';
   var ICONS = {
@@ -545,6 +549,28 @@
 
   /* ── the address TVs use ── */
 
+  // The shapes the server refuses on Save, said as they are typed.
+  function wrongShape(value) {
+    var rest = /^https?:\/\/(.*)$/i.exec(value);
+    if (!rest) return '';
+    var at = /^([^/?#]*)(.*)$/.exec(rest[1]);
+    var authority = at[1];
+    var sample = ' Use this server’s home address or its name, such as http://nas.local:8282.';
+    if (authority.indexOf('@') >= 0) return 'Leave out the sign-in.' + sample;
+    if (at[2] && at[2] !== '/') return 'Leave nothing after the address, not even a path.' + sample;
+    var parts = /^(\[[^\]]*\]|[^:]*)(?::(\d*))?$/.exec(authority);
+    if (!parts) return 'That isn’t a valid address.' + sample;
+    var host = parts[1];
+    if (parts[2] && (+parts[2] < 1 || +parts[2] > 65535)) return 'That port can’t be used.' + sample;
+    if (host.charAt(0) === '[') return host.indexOf('%') >= 0 ? 'A TV can’t use this kind of address.' + sample : '';
+    host = host.replace(/\.$/, '');
+    if (!host || IPV4.test(host)) return '';
+    if (/^(?:\d+|0x[0-9a-f]*)$/i.test(host.slice(host.lastIndexOf('.') + 1)) || !NAME.test(host)) {
+      return 'That isn’t a valid address.' + sample;
+    }
+    return '';
+  }
+
   function wireAddress() {
     var input = document.getElementById('tv_address');
     var hint = document.getElementById('tv-address-hint');
@@ -570,6 +596,8 @@
         bad = 'This address is on the internet, so it needs https://. With http://, use this server’s home address or its name.';
       } else if (!/^https?:/i.test(value) && /\w\.\w/.test(value)) {
         bad = 'Start with http:// before a home address, or https:// before a name.';
+      } else if (wrongShape(value)) {
+        bad = wrongShape(value);
       } else if (/^https:/i.test(value)) {
         warn = refusedHttps && refusedHttps.address === value
           ? 'This starts with https. Older TVs often refuse it, and ' + refusedHttps.name + ' did.'

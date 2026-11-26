@@ -142,7 +142,8 @@ def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
         assert "needs https://" in refused[1]
     assert bare[0] == "true"
     assert "https:// before a name" in bare[1]
-    assert login[0] is home[0] is begun[0] is None
+    assert login[0] == "true"
+    assert home[0] is begun[0] is None
     public_s, *home_kinds, link_local = said[10:16]
     assert public_s[0] is None
     assert "https" in public_s[1]
@@ -157,6 +158,17 @@ def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
     assert self_given[0] == "true"
     assert "gives itself" in self_given[1]
     assert "internet" not in self_given[1]
+
+
+def test_an_address_the_server_would_refuse_is_marked_as_typed_and_one_it_takes_is_not() -> None:
+    out = _run("shapes")
+    assert out["refused"] == [True] * 12
+    assert out["taken"] == [False] * 8
+
+
+def test_the_add_dialog_sends_only_numbers_a_home_address_can_have() -> None:
+    sent = _run("homeAddresses")
+    assert [k for k, v in sent.items() if v] == ["192.168.1.44", "10.255.0.7", "172.16.0.20"]
 
 
 def test_the_save_bar_saves_the_settings_and_minds_nothing_typed_to_add_a_tv() -> None:
