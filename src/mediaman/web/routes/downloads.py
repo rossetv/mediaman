@@ -84,10 +84,11 @@ def _in_library(
     conn: sqlite3.Connection,
     item: dict[str, object],
     index: catalog.LibraryIndex,
+    arr: catalog.ArrView | None,
 ) -> bool:
     """Whether the title of a recent download is there to play."""
     done = parse_iso_utc(str(item.get("completed_at") or "")) or now_utc()
-    return in_library(conn, index, _kind_of(item), _tmdb_id_of(item), str(item["title"]), done)
+    return in_library(conn, index, _kind_of(item), _tmdb_id_of(item), str(item["title"]), done, arr)
 
 
 def _poster(item: dict[str, object], index: catalog.LibraryIndex) -> str:
@@ -130,8 +131,11 @@ def _page_payload(
         "upcoming": [shown(item) for item in data["upcoming"]],
         "recent": [shown(item) for item in data["recent"]],
     }
+    # Radarr's years are asked for only when a film is among them.
+    films = any(_kind_of(item) == "movie" for item in page["recent"])
+    arr = catalog.arr_view(conn, secret_key) if films else None
     for item in page["recent"]:
-        if not _in_library(conn, item, index):
+        if not _in_library(conn, item, index, arr):
             item["readiness"] = "unknown"
     if not admin and data["outage"]:
         page["outage"], page["unreachable"], page["refused"] = VIEWER_OUTAGE, [], []
