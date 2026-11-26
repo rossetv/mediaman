@@ -323,6 +323,8 @@
     var was = isOpen;
     ended = true;
     clearTimeout(timer);
+    // The page holds edits that leaving would lose: the remote stops asking and the page stays.
+    if (MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()) return new Promise(function () {});
     close();
     if (to === '/login') {
       var here = global.location.pathname + (global.location.search || '');
@@ -351,6 +353,8 @@
       return got;
     }, function (err) {
       clearTimeout(late);
+      // As api.js words a request that never reached the server; an abort keeps its own name.
+      if (err && err.name === 'TypeError') throw new MM.api.APIError('network_error', 'Could not reach mediaman. Check your connection and try again.', 0);
       throw err;
     });
   }

@@ -76,6 +76,7 @@ async function page(opts = {}) {
       api.calls.push({ method: 'GET', url, at: clock });
       return { ok: true, status: 200, redirected: true, url: 'http://testserver' + api.away, json: async () => { throw new SyntaxError('html'); } };
     }
+    if (api.reject) throw api.reject;
     try {
       const data = await call('GET', url, null, o);
       return { ok: true, status: 200, redirected: false, url: 'http://testserver' + url, json: async () => data };
@@ -578,6 +579,32 @@ const scenarios = {
     const n = p.reads().length;
     await p.pass(60000);
     return p.reads().length - n;
+  },
+  // A read sent away while the page holds unsaved edits leaves the page as it is and asks no more.
+  async unsavedEdits() {
+    const out = {};
+    for (const [why, unsaved] of [['redirect', true], ['signedOut', true], ['signedOutSaved', false]]) {
+      const p = await page();
+      await p.pass(5100);
+      p.win.MM.api.hasUnsavedChanges = () => unsaved;
+      if (why === 'redirect') p.api.away = '/force-password-change';
+      else p.api.fail = ['http_401', 401];
+      await p.pass(5100);
+      await p.pass(1000);
+      const reads = p.reads().length;
+      await p.pass(60000);
+      out[why] = { href: p.win.location.href, asksOn: p.reads().length - reads };
+    }
+    return out;
+  },
+  // A read that never reached the server says the connection is lost, not that the TV is.
+  async phoneOffline() {
+    const p = await page({ player: true });
+    p.win.MM.api.messageOf = (e, f) => (e.error === 'network_error' ? e.message : f);
+    p.api.reject = new TypeError('Failed to fetch');
+    p.win.MM.tvRemote.open(7);
+    await settle();
+    return { toasts: p.toasts };
   },
   async upnext() {
     const p = await page();

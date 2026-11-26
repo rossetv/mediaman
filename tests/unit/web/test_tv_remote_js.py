@@ -205,6 +205,19 @@ def test_one_failed_request_says_nothing_and_a_lasting_one_does_until_it_is_back
     assert _run("offline") == {"once": None, "twice": "This device is offline", "back": None}
 
 
+def test_a_poll_that_finds_the_session_gone_leaves_a_page_with_unsaved_edits_where_it_is() -> None:
+    out = _run("unsavedEdits")
+    assert out["redirect"] == {"href": "", "asksOn": 0}
+    assert out["signedOut"] == {"href": "", "asksOn": 0}
+    assert out["signedOutSaved"]["href"].startswith("/login")
+
+
+def test_opening_a_tv_while_the_phone_is_offline_blames_the_connection_not_the_tv() -> None:
+    (toast,) = _run("phoneOffline")["toasts"]
+    assert "TV" not in toast
+    assert "connection" in toast
+
+
 def test_nothing_is_asked_for_after_signing_out() -> None:
     assert _run("signedOut") == 0
 
