@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Sequence
+
+from mediaman.services.infra import get_bool_setting
 
 logger = logging.getLogger(__name__)
 
@@ -39,3 +42,25 @@ def is_finding_copy(
         logger.warning("Failed to read whether a film looks for another copy", exc_info=True)
         return False
     return row is not None
+
+
+def will_retry(conn: sqlite3.Connection, key: str, reasons: Sequence[str]) -> bool:
+    """Whether a download of *key*, as ``import_retry`` keys it, that needs attention for
+    *reasons* will be removed and another copy looked for unasked. A *key* that ends in ":" is
+    any season of a series."""
+    # Not at the top: import_retry needs the fetcher, which needs import_retry.
+    from mediaman.services.arr import import_retry
+
+    if any(p in r.lower() for r in reasons for p in import_retry._SETUP_PROBLEMS):
+        return False
+    try:
+        if not get_bool_setting(conn, import_retry.SETTING, default=True):
+            return False
+        (tries,) = conn.execute(
+            "SELECT MAX(tries) FROM arr_import_retries WHERE key LIKE ?",
+            (f"{key}%" if key.endswith(":") else key,),
+        ).fetchone()
+    except sqlite3.DatabaseError:
+        logger.warning("Failed to read whether %s is tried again", key, exc_info=True)
+        return False
+    return (tries or 0) < import_retry.MAX_TRIES

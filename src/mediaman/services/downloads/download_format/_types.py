@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 #: Canonical state → user-visible label map. Single source of truth shared by
 #: Jinja templates (via ``state_label`` field on the rendered item) and the
@@ -65,3 +65,6 @@ class DownloadItem(TypedDict):
     # and where to deal with it.
     attention: str
     attention_hint: str
+    # Of one that needs attention, on the status poll alone: whether mediaman will look for
+    # another copy unasked.
+    retrying: NotRequired[bool]

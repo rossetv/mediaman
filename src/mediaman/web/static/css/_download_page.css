@@ -20,6 +20,9 @@
 .share-steps .is-now i { border-color: var(--accent); }
 .share-steps .is-now i::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--accent); animation: share-pulse 1.8s ease-in-out infinite; }
 @keyframes share-pulse { 50% { transform: scale(.55); opacity: .6; } }
+/* One that needs attention is not moving: its step is the warning colour, still. */
+.share-steps.is-held .is-now i { border-color: var(--warning); }
+.share-steps.is-held .is-now i::after { background: var(--warning); animation: none; }
 .share-steps.is-all li i { background: var(--success); border-color: var(--success); color: #00210b; }
 .share-steps.is-all li:not(:last-child)::after { background: var(--success); }
 
