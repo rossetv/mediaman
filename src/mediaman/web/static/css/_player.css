@@ -815,6 +815,11 @@
 @media (max-width: 350px) and (pointer: fine) {
   .player-controls .player-btn:not([data-fullscreen]) { min-width: 38px; }
 }
+/* With the TV button too, six 44px targets and the quality pill need 308px: the row takes 8px of the page's side padding. */
+@media (max-width: 349.98px) and (pointer: coarse) {
+  .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-controls { margin-inline: -8px; }
+  .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-pill { padding: 0; }
+}
 
 /* A phone on its side: the next-episode card keeps to the right, its picture beside the words. */
 @media (max-height: 520px) {

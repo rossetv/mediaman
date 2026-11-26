@@ -377,3 +377,20 @@ def test_try_again_in_the_sheet_stands_out_from_its_box() -> None:
 
     box = grey(_rule(css, ".play-on__say"))
     assert _contrast(grey(_rule(css, ".play-on__say .btn--secondary")), box) >= 1.2
+
+
+def test_the_row_of_controls_with_the_tv_button_fits_the_narrowest_phone() -> None:
+    css = _text("_player.css")
+    # Six 44px targets and the quality pill are wider than the row at 320 unless the row
+    # takes some of the page's side padding and the pill gives up its own.
+    m = re.search(
+        r"@media \(max-width: 349\.98px\) and \(pointer: coarse\) \{([^@]*?)\n\}", css, re.S
+    )
+    assert m, "no rule for the narrowest touch screens"
+    body = m.group(1)
+    assert re.search(r"\.player-controls \{ margin-inline: -(\d+)px; \}", body)
+    assert ".player-play-on:not([hidden])" in body
+    assert re.search(r"\.player-pill \{ padding: 0; \}", body)
+    side = int(re.search(r"margin-inline: -(\d+)px", body).group(1))
+    row = 320 - 2 * 12 + 2 * side
+    assert row >= 6 * 44 + 44
