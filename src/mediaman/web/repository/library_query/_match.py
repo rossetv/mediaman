@@ -74,9 +74,13 @@ def _spellings(text: str) -> tuple[str, str]:
 
 class TitleSearch:
     """The titles of the library of *conn*, as compared with *query*. *forgiving*: a title
-    may also differ from it by a plural or a small typo, which costs a search far more."""
+    may also differ from it by a plural or a small typo, which costs a search far more. *typos*
+    False: a forgiving search holds its words, in any order, only as typed."""
 
-    def __init__(self, conn: sqlite3.Connection, query: str, *, forgiving: bool = False) -> None:
+    def __init__(
+        self, conn: sqlite3.Connection, query: str, *, forgiving: bool = False, typos: bool = True
+    ) -> None:
+        self._typos = typos
         query = query[:MAX_SEARCH_TERM_LEN]
         self._wanted = _spellings(query)
         # Each word typed, whether it is the last, and whether each word of a title is it,
@@ -113,7 +117,11 @@ class TitleSearch:
             for word in words:
                 fits = known.get(word)
                 if fits is None:
-                    fits = known[word] = _word_fits(typed, word, last)
+                    fits = known[word] = (
+                        _word_fits(typed, word, last)
+                        if self._typos
+                        else _word_is(typed, word, last)
+                    )
                 if fits:
                     break
             else:
@@ -181,8 +189,12 @@ def _near(a: str, b: str, most: int) -> bool:
     return row[-1] <= most
 
 
+def _word_is(typed: str, word: str, last: bool) -> bool:
+    return typed == word or (last and len(typed) >= 2 and word.startswith(typed))
+
+
 def _word_fits(typed: str, word: str, last: bool) -> bool:
-    if typed == word or (last and len(typed) >= 2 and word.startswith(typed)):
+    if _word_is(typed, word, last):
         return True
     a, b = _stem(typed), _stem(word)
     if a == b:

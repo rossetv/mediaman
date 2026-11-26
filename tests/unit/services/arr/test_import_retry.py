@@ -1204,7 +1204,7 @@ def test_each_retry_is_searched_for_once_whichever_version_answers(
     assert arrs.states()[{"sonarr": "Alone", "radarr": "Dune"}[service]] == "finding_copy"
 
 
-def test_an_older_sonarrs_version_is_read_once_for_all_its_retries(arrs):
+def test_an_older_sonarrs_version_is_read_once_by_the_one_client_that_makes_all_its_retries(arrs):
     arrs.versions["sonarr"] = "3.0.10.1567"
     arrs.keeping = True
     _season_stuck(arrs, 10)
@@ -1212,6 +1212,8 @@ def test_an_older_sonarrs_version_is_read_once_for_all_its_retries(arrs):
     _hourly(arrs, 80)
 
     assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 2 of 2)"]
+    # One client is kept for the run here; the real builders make a new one per call, which
+    # reads the version again each time.
     assert arrs.version_reads == 1
 
 

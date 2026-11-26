@@ -114,6 +114,9 @@ def test_emails_claimed_but_not_yet_sent_are_freed_at_shutdown_and_sent_once(db_
     tick.join(10)
     assert sent == []
 
+    from mediaman.services.downloads import _notification_claims
+
+    _notification_claims._ending.clear()  # the next start
     _tick(db_path)
     assert len(sent) == 2
     assert _notified(db_path) == [1, 1]
@@ -131,6 +134,9 @@ def test_an_email_on_its_way_out_at_shutdown_is_not_sent_again(db_path, monkeypa
     _shut_down(db_path)
     gate.set()
     tick.join(10)
+    from mediaman.services.downloads import _notification_claims
+
+    _notification_claims._ending.clear()  # the next start
     _tick(db_path)
 
     assert sorted(sent) == sorted(set(sent))
@@ -155,3 +161,18 @@ def test_an_email_sent_but_not_written_down_is_written_at_shutdown(db_path, monk
 
     assert _notified(db_path) == [1, 1]
     assert len(sent) == 2
+
+
+def test_a_tick_after_the_end_signal_claims_nothing(db_path):
+    from mediaman.services.downloads._notification_claims import (
+        _claim_pending_notifications,
+        release_claims_on_shutdown,
+    )
+
+    conn = _connect(db_path)
+    try:
+        release_claims_on_shutdown(conn)
+        assert _claim_pending_notifications(conn) == []
+    finally:
+        conn.close()
+    assert _notified(db_path) == [0, 0]

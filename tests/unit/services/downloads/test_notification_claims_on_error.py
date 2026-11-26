@@ -165,6 +165,9 @@ def test_being_told_to_end_frees_the_emails_a_tick_claimed_and_none_is_sent_twic
         older_stream.ending.clear()
     assert mailgun.sent == []
 
+    from mediaman.services.downloads import _notification_claims
+
+    _notification_claims._ending.clear()  # the next start
     _tick(conn)
     assert len(mailgun.sent) == 2
     assert _notified(conn) == [1, 1]

@@ -230,8 +230,8 @@ class TestStorage:
                 "/m/<b>x</b> is empty or not mounted: 1 scheduled deletion is waiting",
                 "/media/tv is empty or not mounted: 3 scheduled deletions are waiting",
             ],
-            "off": "Deletions are off: set MEDIAMAN_DELETE_ROOTS to the folders mediaman may "
-            "delete from.",
+            "off": "Deletions are off: set the delete folders in Settings (or MEDIAMAN_DELETE_ROOTS) "
+            "to the folders mediaman may delete from.",
         }
         assert _run("notices") == [pane, pane]
 

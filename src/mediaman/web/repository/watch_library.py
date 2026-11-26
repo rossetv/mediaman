@@ -446,7 +446,7 @@ def find_show(conn: sqlite3.Connection, libraries: list[str], key: str) -> Libra
     return found[0] if found else None
 
 
-# Of the titles that hold what was typed, so few that the forgiving search is made too.
+# Of the titles that hold what was typed, so few that a plural or a typo is forgiven too.
 _FEW = 3
 _YEAR = re.compile(r"(?:19|20)\d\d")
 
@@ -454,14 +454,15 @@ _YEAR = re.compile(r"(?:19|20)\d\d")
 def _contain(
     conn: sqlite3.Connection, libraries: list[str], query: str
 ) -> tuple[list[LibraryMovie | LibraryShow], TitleSearch]:
-    search = TitleSearch(conn, query)
-    found: list[LibraryMovie | LibraryShow] = [
-        *_movies(conn, libraries, search=search),
-        *_shows(conn, libraries, search=search),
-    ]
-    if len(found) < _FEW:
-        search = TitleSearch(conn, query, forgiving=True)
-        found = [*_movies(conn, libraries, search=search), *_shows(conn, libraries, search=search)]
+    # Every word in any order is always looked for; a typo or a plural only where few hold the phrase.
+    for typos in (False, True):
+        search = TitleSearch(conn, query, forgiving=True, typos=typos)
+        found: list[LibraryMovie | LibraryShow] = [
+            *_movies(conn, libraries, search=search),
+            *_shows(conn, libraries, search=search),
+        ]
+        if sum(search.distance(i.title) != FORGIVEN for i in found) >= _FEW:
+            break
     return found, search
 
 

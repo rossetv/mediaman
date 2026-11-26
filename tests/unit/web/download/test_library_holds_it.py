@@ -202,3 +202,67 @@ def test_the_strip_does_not_open_the_held_show_for_its_remake(monkeypatch):
     shown = _with_title(item, _index_with_old_show(), arr, shown=False)
 
     assert (shown.ref, shown.href) == ("tmdb-tv-71", "/#title=tmdb-tv-71")
+
+
+def test_a_film_radarr_dates_apart_from_the_library_namesake_is_not_opened_as_it(monkeypatch):
+    monkeypatch.setattr(
+        "mediaman.web.routes.downloads_strip.title_art",
+        lambda key: {"poster_url": "", "backdrop_url": ""},
+    )
+    monkeypatch.setattr("mediaman.web.routes.downloads_strip._held", lambda kind, n: {})
+    monkeypatch.setattr(ArrView, "state", lambda self, kind, n: ("in_library", None))
+    arr = ArrView(
+        {
+            "radarr_movies": {5: {"tmdbId": 5, "year": 2021}},
+            "radarr_queue_tmdb_ids": set(),
+            "sonarr_series": {},
+            "sonarr_queue_tmdb_ids": set(),
+        }
+    )
+    index = LibraryIndex.build([("10", "Dune (1984)", None)], [])
+    item = strip.StripItem(key="k", title="Dune", kind="movie", state="ready", tmdb_id=5)
+
+    assert library_title(index, "movie", 5, "Dune", arr=arr) is None
+    assert _with_title(item, index, arr, shown=False).ref == "tmdb-movie-5"
+
+
+def test_a_film_the_library_holds_under_another_tmdb_id_is_not_opened_as_the_one_downloaded(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mediaman.web.routes.downloads_strip.title_art",
+        lambda key: {"poster_url": "", "backdrop_url": ""},
+    )
+    monkeypatch.setattr("mediaman.web.routes.downloads_strip._held", lambda kind, n: {})
+    monkeypatch.setattr(ArrView, "state", lambda self, kind, n: ("in_library", None))
+    arr = ArrView(
+        {
+            "radarr_movies": {},
+            "radarr_queue_tmdb_ids": set(),
+            "sonarr_series": {},
+            "sonarr_queue_tmdb_ids": set(),
+        }
+    )
+    index = LibraryIndex.build([("10", "Dune", 7)], [])
+    item = strip.StripItem(key="k", title="Dune", kind="movie", state="ready", tmdb_id=5)
+
+    assert _with_title(item, index, arr, shown=False).ref == "tmdb-movie-5"
+
+
+def test_a_film_added_in_radarr_is_dated_by_its_year_on_the_page_too(
+    services, client, conn, monkeypatch
+):
+    insert_media_item(
+        conn,
+        id="912",
+        title="Dry Harbour",
+        media_type="movie",
+        file_path="/media/movies/Dry Harbour (1990)/Dry Harbour.mkv",
+    )
+    services[0].get_movies.return_value = [{"id": 3, "tmdbId": 12, "year": 2024, "hasFile": True}]
+    monkeypatch.setattr("mediaman.services.watch_catalog.held_details", lambda kind, n: None)
+    _done(conn, "radarr:Dry Harbour#12", "Dry Harbour", "movie", now_utc())
+
+    page = [r["readiness"] for r in client.get("/api/downloads").json()["recent"]]
+
+    assert page == ["unknown"]

@@ -520,7 +520,7 @@ class TestReadDeleteAllowedRoots:
         roots = repository.read_delete_allowed_roots_setting(conn)
         assert roots == []
 
-    def test_nothing_configured_is_said_as_information_naming_only_the_env_var(
+    def test_nothing_configured_is_said_as_information_naming_both_places(
         self, conn, monkeypatch, caplog
     ):
         import logging
@@ -534,7 +534,7 @@ class TestReadDeleteAllowedRoots:
         assert [r.levelno for r in caplog.records] == [logging.INFO]
         message = caplog.records[0].getMessage()
         assert "MEDIAMAN_DELETE_ROOTS" in message
-        assert "delete_allowed_roots" not in message
+        assert "delete_allowed_roots" in message
 
     def test_deletion_off_is_said_once_however_often_the_roots_are_read(
         self, conn, monkeypatch, caplog
@@ -563,6 +563,7 @@ class TestReadDeleteAllowedRoots:
         assert roots == []
         own = [r for r in caplog.records if r.name == "mediaman.scanner.repository.settings"]
         assert [r.levelno for r in own] == [logging.ERROR]
+        assert "delete_allowed_roots" in own[0].getMessage()
 
     def test_quiet_read_logs_nothing_and_still_fails_closed(self, conn, monkeypatch, caplog):
         import logging

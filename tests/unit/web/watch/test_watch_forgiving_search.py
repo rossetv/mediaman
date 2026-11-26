@@ -111,3 +111,17 @@ def test_an_admins_search_ranks_a_forgiven_title_after_the_rest(app_factory, con
     _show(conn, "2", "House")
 
     assert _titles(admin, "house") == ["House", "War Horse"]
+
+
+def test_a_title_with_every_word_in_another_order_is_found_beside_many_phrase_hits(client, conn):
+    for key, title in enumerate(
+        ["The Harbour", "The Harbour Master", "The Harbour Lights", "The Northern Harbour"], 1
+    ):
+        _show(conn, str(key), title)
+    _show(conn, "9", "Harbours Apart")
+
+    found = _titles(client, "the harbour")
+
+    assert found[:3] == ["The Harbour", "The Harbour Lights", "The Harbour Master"]
+    assert "The Northern Harbour" in found
+    assert "Harbours Apart" not in found

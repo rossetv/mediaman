@@ -71,3 +71,6 @@ class DownloadItem(TypedDict):
     # How the retry bookkeeping keys it, where it is one of Radarr's or Sonarr's, for the server
     # alone: the season's number is left off a show's.
     retry_key: NotRequired[str]
+    # Of a show that needs attention, what each of its stuck episodes says is wrong, for the
+    # server alone.
+    attention_reasons: NotRequired[list[str]]

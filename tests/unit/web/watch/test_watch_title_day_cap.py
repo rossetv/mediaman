@@ -45,6 +45,17 @@ class TestTitleDayCap:
         assert (body["in_library"], body["library_ref"]) == (True, "movie-100")
         assert body["title"] == "The Glasshouse"
 
+    def test_a_title_the_library_holds_opens_at_the_query_limit(
+        self, viewer, tmdb, arr, plex, monkeypatch
+    ):
+        monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
+        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(0, 60))
+
+        resp = viewer.get("/api/watch/title/tmdb-movie-11")
+
+        assert resp.status_code == 200
+        assert resp.json()["library_ref"] == "movie-100"
+
     def test_the_query_limit_keeps_the_plain_answer(self, viewer, tmdb, arr, monkeypatch):
         monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
         monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(0, 60))

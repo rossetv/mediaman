@@ -260,12 +260,14 @@ def map_queue_state(entries: Sequence[_ArrLike]) -> str:
     return map_arr_status(status, state)
 
 
+def queue_attentions(entries: Sequence[_ArrLike]) -> list[str]:
+    """What each of *entries* that needs attention says is wrong."""
+    return [str(e.get("attention") or "") for e in entries if _entry_state(e) == "needs_attention"]
+
+
 def queue_attention(entries: Sequence[_ArrLike]) -> str:
     """What the first of *entries* that needs attention says is wrong, "" when none does."""
-    return next(
-        (str(e.get("attention") or "") for e in entries if _entry_state(e) == "needs_attention"),
-        "",
-    )
+    return next(iter(queue_attentions(entries)), "")
 
 
 # What Sonarr and Radarr say of a download their own setup keeps from importing (paths, remote

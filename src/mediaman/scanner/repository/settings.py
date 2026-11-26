@@ -82,7 +82,7 @@ def read_delete_allowed_roots_setting(
             roots = parse_delete_roots_env(env_val, quiet=quiet)
             if not roots and not quiet:
                 logger.error(
-                    "MEDIAMAN_DELETE_ROOTS is set but no valid roots "
+                    "MEDIAMAN_DELETE_ROOTS is set (and no delete_allowed_roots setting) but no valid roots "
                     "parsed from %r — deletions will be refused.",
                     env_val,
                 )
@@ -90,7 +90,8 @@ def read_delete_allowed_roots_setting(
     if not roots and not env_val and not quiet and not _said_deletion_off:
         _said_deletion_off = True
         logger.info(
-            "Scheduled deletion is off until MEDIAMAN_DELETE_ROOTS is set "
-            "(the folders it may delete from, separated by ':')."
+            "Scheduled deletion is off until the delete_allowed_roots setting or "
+            "MEDIAMAN_DELETE_ROOTS is set (the folders it may delete from; "
+            "separated by ':' in the variable)."
         )
     return roots
