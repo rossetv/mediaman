@@ -24,6 +24,15 @@
     target.scrollIntoView();
   });
 
+  // The page says when the focus is in a bar that stays in sight, whose scroll padding would
+  // scroll the page for it (_watch_search.css, _history.css).
+  var BARS = '.nav-glass, .hx-tools, .watch-all__head';
+  function inBar(node) {
+    document.documentElement.classList.toggle('is-bar-focus', !!(node && node.closest && node.closest(BARS)));
+  }
+  document.addEventListener('focusin', function (e) { inBar(e.target); });
+  document.addEventListener('focusout', function (e) { inBar(e.relatedTarget); });
+
   var menu = document.getElementById('profile-menu');
   if (!menu) return;
 

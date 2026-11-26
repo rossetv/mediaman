@@ -52,6 +52,18 @@ function page(isPhone, downloading, reduced) {
 }
 
 const scenarios = {
+  // The focus comes into the bar, moves in it, and leaves it for the page, then for nothing.
+  barFocus() {
+    const p = page(false);
+    const marked = () => p.doc.documentElement.classList.contains('is-bar-focus');
+    const out = [];
+    p.fire('focusin', p.$('button')); out.push(marked());
+    p.fire('focusout', p.$('button'), { relatedTarget: p.$('skip') }); p.fire('focusin', p.$('skip')); out.push(marked());
+    p.fire('focusout', p.$('skip'), { relatedTarget: p.$('elsewhere') }); out.push(marked());
+    p.fire('focusin', p.$('elsewhere')); out.push(marked());
+    p.fire('focusin', p.$('button')); p.fire('focusout', p.$('button'), { relatedTarget: null }); out.push(marked());
+    return out;
+  },
   // The skip link pressed again on the address it already led to: the browser moves the
   // focus but leaves the page where it was.
   skip() {

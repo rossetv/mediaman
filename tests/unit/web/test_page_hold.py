@@ -57,16 +57,13 @@ def test_a_page_that_had_a_scrollbar_keeps_its_room_so_what_is_fixed_stays_too()
 
 
 def test_one_rule_holds_the_page_for_every_dialog_and_leaves_a_held_html_alone() -> None:
-    rules = [rule for rule in _rules("body:has(") if "overflow: hidden" in rule[1]]
+    rules = [rule for rule in _rules("page-held") if "overflow: hidden" in rule[1]]
     assert len(rules) == 1
     head, _ = rules[0]
-    # a title's page and the storage panel hold the html: a held body there takes the nav bar away
-    assert head.startswith("html:not(.has-space, .has-ttl) body:has(")
-    for dialog in (
-        "> .ui-confirm-overlay:not(.is-leaving)",
-        '> .reauth-backdrop:not([aria-hidden="true"])',
-        "> .keep-dialog-overlay.active:not(.is-closing)",
-        '> .pic-back:not([aria-hidden="true"])',
-        '#abandon-modal[aria-hidden="false"]',
-    ):
-        assert dialog in head
+    # a title's page, the storage panel and the TV remote hold the html: a held body there
+    # takes the nav bar away
+    assert head == "html.page-held:not(.has-space, .has-ttl, .has-tv-remote) body"
+
+
+def test_the_page_is_marked_held_from_the_first_dialog_to_the_last() -> None:
+    assert _run("heldMark") == [False, True, True, False]

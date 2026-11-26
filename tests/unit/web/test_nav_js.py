@@ -280,3 +280,8 @@ def test_a_flick_back_up_keeps_the_sheet_open_however_far_it_was_pulled() -> Non
 def test_a_drag_that_loses_its_pointer_springs_back() -> None:
     out = _run("drag")["lost"]
     assert (out["open"], out["transform"], out["after"]) == (True, "", True)
+
+
+def test_the_page_is_marked_while_the_focus_is_in_the_bar_and_only_then() -> None:
+    # in, moved within, left for the page, settled there, left for nothing
+    assert _run("barFocus") == [True, True, False, False, False]

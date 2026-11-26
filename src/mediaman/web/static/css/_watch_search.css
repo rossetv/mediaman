@@ -27,11 +27,10 @@
 .wbar .brand { margin-right: auto; }
 .wbar .nav-end { margin-left: 0; }
 
-/* What the keyboard comes to clears the bar, and All titles' 64px head under it. A child
-   combinator: the page's own mutations never test it again. */
-html:has(> body[data-page="watch"]) { --bar-clear: calc(var(--nav-h) + 80px); scroll-padding-top: var(--bar-clear); }
+/* What the keyboard comes to clears the bar, and All titles' 64px head under it. */
+html[data-page="watch"] { --bar-clear: calc(var(--nav-h) + 80px); scroll-padding-top: var(--bar-clear); }
 /* None while the focus is in a bar or a head, which are in sight already: it would scroll the page. */
-html:has(> body[data-page="watch"] :is(.wbar, .watch-all__head) :focus) { scroll-padding-top: 0; }
+html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
 /* Where the skip link goes. */
 #main-content { scroll-margin-top: calc(var(--nav-h) - var(--bar-clear, 0px)); }
 
@@ -252,7 +251,7 @@ html:has(> body[data-page="watch"] :is(.wbar, .watch-all__head) :focus) { scroll
 /* Little height: the bar goes with the page. */
 @media (max-height: 500px) {
   .wbar { position: relative; }
-  html:has(> body[data-page="watch"]) { --bar-clear: 0px; }
+  html[data-page="watch"] { --bar-clear: 0px; }
   #main-content { scroll-margin-top: 0; }
   .watch-page .watch-all { min-height: 100vh; min-height: 100dvh; }
   .watch-page .watch-all__head { top: 0; }

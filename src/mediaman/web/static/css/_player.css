@@ -863,8 +863,8 @@
 
 /* "Kept until" with its whole date and Undo, on one line of the narrow toast. */
 @media (max-height: 420px) {
-  body:has(.player) .ui-toast--action { gap: 8px; padding-inline: 10px; font-size: 13px; }
-  body:has(.player) .ui-toast__action { padding-inline: 8px; }
+  html.has-player .ui-toast--action { gap: 8px; padding-inline: 10px; font-size: 13px; }
+  html.has-player .ui-toast__action { padding-inline: 8px; }
 }
 
 /* Playing elsewhere: the page says where, its controls are the remote. */

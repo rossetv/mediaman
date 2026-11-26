@@ -2401,6 +2401,7 @@
     var opened = openTrigger();
     if (!opened) return;
     opened.setAttribute('aria-expanded', 'false');
+    document.documentElement.classList.remove('has-player-keep-open');
     if (refocus) opened.focus();
     leave(opened.parentNode.querySelector('.player-menu'));
   }
@@ -2432,6 +2433,8 @@
     closeMenus();
     if (open) return;
     trigger.setAttribute('aria-expanded', 'true');
+    // For the toasts, which make way for Keep's open menu (_ui_feedback.css).
+    document.documentElement.classList.toggle('has-player-keep-open', !!trigger.closest('.player-keep'));
     var menu = trigger.parentNode.querySelector('.player-menu');
     show(menu);
     focusMenu(menu);

@@ -148,8 +148,8 @@
     },
 
     /**
-     * The page stops scrolling behind an open dialog (the rule in
-     * _ui_feedback.css), which takes its scrollbar away: a page that had one
+     * The page stops scrolling behind an open dialog (html.page-held, for the
+     * rule in _ui_feedback.css), which takes its scrollbar away: a page that had one
      * is marked (html.page-bar, with the bar's width in --page-bar) so the
      * styles keep that room and nothing moves sideways. It is measured by
      * the first holder, before the bar goes, and stays until the last has
@@ -164,6 +164,7 @@
           root.style.setProperty('--page-bar', bar + 'px');
           root.classList.add('page-bar');
         }
+        root.classList.add('page-held');
       }
       holders += 1;
       var holding = true;
@@ -171,6 +172,7 @@
         if (!holding) return;
         holding = false;
         holders -= 1;
+        if (!holders) root.classList.remove('page-held');
         if (!holders && barHeld) {
           root.style.removeProperty('--page-bar');
           root.classList.remove('page-bar');

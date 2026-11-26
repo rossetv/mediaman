@@ -5,6 +5,7 @@
    data-attributes on #player: tojson output is safe inside single quotes. #}
 
 {% block title %}{{ item.title }} · Mediaman{% endblock %}
+{% block html_class %} class="has-player"{% endblock %}
 
 {% block head %}
   <link rel="stylesheet" href="/static/css/_ratings.css?v={{ static_v }}">

@@ -595,3 +595,15 @@ def test_cancel_comes_before_taking_a_tv_from_someone() -> None:
 
 def test_a_pairing_that_would_take_a_tv_from_someone_starts_on_cancel() -> None:
     assert _run("takeOrder")["focus"] == "unsay"
+
+
+def test_the_page_says_while_the_bar_and_the_remote_show_and_while_the_bar_goes() -> None:
+    # the styles that make room for them read these, not the page itself
+    assert _run("pageMarks") == {
+        "shown": ["has-tv-mini"],
+        "open": ["has-tv-mini", "has-tv-rem"],
+        "closing": ["has-tv-mini", "has-tv-rem"],
+        "closed": ["has-tv-mini"],
+        "stopping": ["has-tv-mini", "is-tv-mini-leaving"],
+        "stopped": [],
+    }

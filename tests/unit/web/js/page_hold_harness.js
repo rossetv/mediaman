@@ -39,6 +39,15 @@ const confirm = () => {
 };
 
 const scenarios = {
+  // the page is marked held from the first dialog's opening to the last one's closing
+  async heldMark() {
+    const held = () => root.classList.contains('page-held');
+    const steps = [held()];
+    const closes = [confirm(), confirm()];
+    steps.push(held());
+    closes.forEach((close) => { close(); steps.push(held()); });
+    return steps;
+  },
   // two dialogs, one over the other, closed oldest first and newest first
   async stacked() {
     const run = (oldestFirst) => {

@@ -50,7 +50,12 @@
   function paintTests() {
     if (MM.settings.integrations) MM.settings.integrations.paintTests();
   }
-  function markClean() { if (savebar) savebar.classList.remove('on'); }
+  /* The page says when the bar is up, for what stands clear of it (_settings_pg.css). */
+  function showBar(on) {
+    savebar.classList.toggle('on', on);
+    document.documentElement.classList.toggle('has-savebar', on);
+  }
+  function markClean() { if (savebar) showBar(false); }
 
   // The last settings control the user edited, so focus lost to the hiding
   // bar can go back to where they were working.
@@ -568,7 +573,7 @@
         if (statusEl) statusEl.textContent = STANDING_TEXT;
         tellLeftOut();
       }
-      savebar.classList.toggle('on', !clean);
+      showBar(!clean);
       if (isUnsure() && statusEl && statusEl.textContent !== UNSURE_TEXT) {
         savebar.classList.add('is-partial');
         statusEl.textContent = UNSURE_TEXT;

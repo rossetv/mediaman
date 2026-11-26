@@ -737,6 +737,17 @@
   }
 
   var miniLeaving = null;
+  /* The page says what of it shows, for what makes room for it (_tv_remote.css). */
+  function showMini(on, leaving) {
+    setHidden(mini, !on);
+    mini.classList.toggle('is-leaving', leaving);
+    document.documentElement.classList.toggle('has-tv-mini', on);
+    document.documentElement.classList.toggle('is-tv-mini-leaving', leaving);
+  }
+  function showRemote(on) {
+    root.hidden = !on;
+    document.documentElement.classList.toggle('has-tv-rem', on);
+  }
   function renderMini(p) {
     if (!hasBar) return;
     var bad = !!gone || isLost();
@@ -745,14 +756,13 @@
     var show = !!tv && (!!p || !!gone) && !(bad && key === dismissed);
     if (!show) {
       if (mini.hidden || miniLeaving) return;
-      mini.classList.add('is-leaving');
-      miniLeaving = setTimeout(function () { miniLeaving = null; mini.hidden = true; }, EXIT_MS);
+      showMini(true, true);
+      miniLeaving = setTimeout(function () { miniLeaving = null; showMini(false, false); }, EXIT_MS);
       return;
     }
     if (miniLeaving) clearTimeout(miniLeaving);
     miniLeaving = null;
-    mini.classList.remove('is-leaving');
-    setHidden(mini, false);
+    showMini(true, false);
 
     var what = about();
     var title = what.title + (episode(what) ? ' · ' + code(what) : '');
@@ -1436,7 +1446,7 @@
       exit = null;
       root.classList.remove('is-leaving');
       root.inert = false;
-      root.hidden = false;
+      showRemote(true);
       root.scrollTop = 0;
       letGo = MM.dom.holdPage();
       document.documentElement.classList.add('has-tv-remote');
@@ -1467,7 +1477,7 @@
     root.inert = true;
     // A button clicked in Safari takes no focus, so there was none to give back.
     if ((document.activeElement === document.body || root.contains(document.activeElement)) && !mini.hidden && !miniLeaving) m('[data-open]').focus({ preventScroll: true });
-    exit = setTimeout(function () { exit = null; root.hidden = true; }, EXIT_MS);
+    exit = setTimeout(function () { exit = null; showRemote(false); }, EXIT_MS);
     schedule();
   }
   global.ModalA11y.register('tv-remote', close);

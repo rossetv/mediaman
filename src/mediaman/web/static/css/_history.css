@@ -55,11 +55,10 @@ body[data-page="history"] { overflow-x: clip; }
   transition: opacity var(--dur) var(--ease-out);
 }
 .hx-tools.is-stuck::after { opacity: 1; }
-/* What the keyboard comes to clears the bar and the tools at their tallest (66px; wrapped, 118px).
-   A child combinator: the list's own mutations never test it again. */
-html:has(> body[data-page="history"]) { --bar-clear: calc(var(--nav-h) + 78px); scroll-padding-top: var(--bar-clear); }
+/* What the keyboard comes to clears the bar and the tools at their tallest (66px; wrapped, 118px). */
+html[data-page="history"] { --bar-clear: calc(var(--nav-h) + 78px); scroll-padding-top: var(--bar-clear); }
 /* None while the focus is in a bar, which is in sight already: it would scroll the page. */
-html:has(> body[data-page="history"] :is(.nav-glass, .hx-tools) :focus) { scroll-padding-top: 0; }
+html[data-page="history"].is-bar-focus { scroll-padding-top: 0; }
 .hx-line { display: flex; align-items: center; gap: 8px; }
 .hx-search { position: relative; flex: 1 1 260px; min-width: 0; }
 .hx-search > .ico {
@@ -391,7 +390,7 @@ html:has(> body[data-page="history"] :is(.nav-glass, .hx-tools) :focus) { scroll
 .hx-none { padding: 14px 12px; font-size: 13px; color: var(--t3); }
 
 @media (max-width: 899.98px) {
-  html:has(> body[data-page="history"]) { --bar-clear: calc(var(--nav-h) + 130px); }
+  html[data-page="history"] { --bar-clear: calc(var(--nav-h) + 130px); }
   .hx-line { flex-wrap: wrap; }
   .hx-search { flex-basis: 100%; }
   .hx-chips {
@@ -467,7 +466,7 @@ html:has(> body[data-page="history"] :is(.nav-glass, .hx-tools) :focus) { scroll
 /* Little height: the tools go with the page. */
 @media (max-height: 500px) {
   .hx-tools { position: relative; top: auto; }
-  html:has(> body[data-page="history"]) { --bar-clear: calc(var(--nav-h) + 12px); }
+  html[data-page="history"] { --bar-clear: calc(var(--nav-h) + 12px); }
 }
 
 @media (max-height: 519.98px) {

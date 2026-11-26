@@ -140,7 +140,7 @@ function build() {
     listeners: docListeners,
     capturing: new Set(),
     revealed: [],
-    documentElement: { clientHeight: 844, classList: { add() {} } },
+    documentElement: { clientHeight: 844, classList: { add() {}, toggle() {} } },
     dispatchEvent: (e) => { (docListeners[e.type] || []).forEach((fn) => fn(e)); },
     addEventListener: (t, fn, capture) => {
       (docListeners[t] = docListeners[t] || []).push(fn);

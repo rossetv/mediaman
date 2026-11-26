@@ -525,10 +525,10 @@ CONTROLS = ":is(a, button, input, select, textarea, [tabindex])"
 
 
 def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scroll_it() -> None:
-    page = 'html:has(> body[data-page="watch"])'
+    page = 'html[data-page="watch"]'
     assert "scroll-padding-top: var(--bar-clear)" in _of(page, sheet=BAR)
     # While the focus is in the bar or All titles' head, the page has no padding to scroll for.
-    held = 'html:has(> body[data-page="watch"] :is(.wbar, .watch-all__head) :focus)'
+    held = 'html[data-page="watch"].is-bar-focus'
     assert "scroll-padding-top: 0" in _of(held, sheet=BAR)
     sticky = {
         head.strip()
@@ -572,7 +572,7 @@ def test_the_panel_s_headings_and_a_film_s_length_stay_on_one_line_with_large_te
 REMOTE = SHEET.with_name("_tv_remote.css")
 SEARCH = SHEET.with_name("_watch_search.css")
 WIDE, PHONE = "(min-width: 700px)", "(max-width: 699.98px)"
-BAR_SHOWN = "body:has(> .tv-mini:not([hidden]))"
+BAR_SHOWN = "html.has-tv-mini"
 
 
 def _last(name: str, css: str) -> str:
@@ -617,17 +617,17 @@ def test_a_phone_s_tv_bar_is_above_the_foot_and_below_toasts_and_what_is_scrolle
     bar = _of(".tv-mini", PHONE, REMOTE)
     assert _px(_last("bottom", bar), foot, 844) >= foot
     over = _bar_top(True, foot, 844)
-    toast = _of(f"{BAR_SHOWN}:has(.watch-search) .ui-toast-host", PHONE, REMOTE)
+    toast = _of(f"{BAR_SHOWN}.has-watch-search .ui-toast-host", PHONE, REMOTE)
     assert _px(_last("bottom", toast), foot, 844) >= over
-    scrolled = _of("html:has(.tv-mini:not([hidden]))", PHONE, REMOTE)
+    scrolled = _of("html.has-tv-mini", PHONE, REMOTE)
     assert _px(_last("scroll-padding-bottom", scrolled), foot, 844) >= over
 
 
 def test_an_error_page_is_as_high_as_the_screen_less_the_nav_at_every_width() -> None:
     error = SHEET.with_name("_error.css")
-    page = _of("body:has(> .nav-glass) .login-page", sheet=error)
+    page = _of(".nav-glass ~ main .login-page", sheet=error)
     assert _last("min-height", page) == "calc(100vh - var(--nav-h))"
-    assert _of("body:has(> .nav-glass) .login-page", PHONE, error) == ""
+    assert _of(".nav-glass ~ main .login-page", PHONE, error) == ""
 
 
 def test_the_nav_s_height_is_set_in_the_nav_sheet_alone() -> None:
