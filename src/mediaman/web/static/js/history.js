@@ -1131,7 +1131,7 @@
       }).join('\n');
       copyText(text).then(function () {
         btn.focus();
-        if (window.UIFeedback) window.UIFeedback.toast('Details copied', { variant: 'success' });
+        if (window.UIFeedback) window.UIFeedback.toast('Details copied.', { variant: 'success' });
       }, function () {
         btn.focus();
         if (window.UIFeedback) window.UIFeedback.error('Could not copy. Select the text and copy it by hand.');

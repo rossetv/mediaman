@@ -60,7 +60,7 @@ def test_copy_puts_the_labels_and_values_on_the_clipboard_and_keeps_the_row_open
     assert out["copied"] == [
         "When: 25 Nov 2026, 01:45:03 (2026-11-24 20:15:03 UTC)\nWho: ana\nStored record: <i>"
     ]
-    assert out["toasts"] == ["Details copied"]
+    assert out["toasts"] == ["Details copied."]
     assert out["open"] is True
 
 
