@@ -1691,7 +1691,7 @@ def test_a_title_asked_ahead_and_not_found_is_not_asked_again_when_opened() -> N
 
 def test_a_trailer_whose_player_never_answers_or_cannot_play_goes_back_to_the_artwork() -> None:
     out = _run("trailerStuck")
-    gone = {"playing": False, "told": ["Trailer unavailable"], "focus": "trailer"}
+    gone = {"playing": False, "told": ["Trailer unavailable."], "focus": "trailer"}
     # Asked again to report while it has not answered; not once it has.
     assert out["silent"] == {**gone, "asked": 2}
     assert out["refused"] == {**gone, "asked": 1}
@@ -1708,6 +1708,20 @@ def test_a_trailer_whose_player_never_answers_or_cannot_play_goes_back_to_the_ar
     assert out["slowThenSilent"] == {"loaded": True, **gone, "asked": 2}
     # One that never loads gives way in the end.
     assert out["neverLoads"] == {**gone, "asked": 0}
+
+
+def test_a_trailer_shows_a_named_loading_mark_until_its_player_speaks_or_it_gives_way() -> None:
+    out = _run("trailerLoadingMark")
+    mark = {"text": "Loading trailer", "role": "status", "spinner": True}
+    # From the moment the frame is added, through its load, until the player's first word.
+    assert out["waiting"] == {"pressed": mark, "loaded": mark, "after": mark, "playing": True}
+    for answer, playing in (("heard", True), ("refused", False)):
+        assert out[answer] == {"pressed": mark, "loaded": mark, "after": None, "playing": playing}
+    # Gone when the wait ends, whether the player stayed silent or the frame never loaded.
+    for ended in ("silent", "never", "closed"):
+        assert out[ended]["pressed"] == mark
+        assert out[ended]["after"] is None
+        assert out[ended]["playing"] is False
 
 
 def test_a_title_s_page_brings_its_cards_up_to_what_it_learns_of_it_not_to_its_preview() -> None:

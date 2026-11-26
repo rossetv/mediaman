@@ -283,3 +283,11 @@ def test_an_episode_fact_stays_whole_where_it_fits_and_breaks_rather_than_overfl
     every = "".join((STYLES / name).read_text(encoding="utf-8") for name in (*SHEETS, "_watch.css"))
     rules = re.findall(r"([^{}]*watch-ep__fact[^{}]*)\{([^{}]*)\}", every)
     assert rules and not [body for _, body in rules if "nowrap" in body]
+
+
+def test_a_trailers_loading_mark_covers_its_frame_and_takes_no_clicks() -> None:
+    mark = _of(".ttl__wait")
+    assert "grid-area: 1 / 1" in mark  # the frame's own cell, drawn after it, so it is on top
+    assert "background: var(--scrim)" in mark  # opaque, so the frame's error page never shows
+    assert "pointer-events: none" in mark
+    assert "width: min(100cqw, 100cqh * 16 / 9)" in mark and "aspect-ratio: 16 / 9" in mark

@@ -2996,6 +2996,24 @@
     if (frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(message), TRAILER_ORIGIN);
   }
 
+  /* Over the frame, so its own error page never shows, until the player first speaks or the trailer ends. */
+  function trailerWait() {
+    var w = el('div', 'ttl__wait');
+    w.setAttribute('role', 'status');
+    var spin = el('span', 'btn-spinner');
+    spin.setAttribute('aria-hidden', 'true');
+    w.appendChild(spin);
+    var said = el('span', 'sr-only');
+    said.textContent = 'Loading trailer';
+    w.appendChild(said);
+    return w;
+  }
+
+  function dropTrailerWait() {
+    var w = player.querySelector('.ttl__wait');
+    if (w) w.remove();
+  }
+
   /* The player takes the hero's box, so nothing below it moves; a hero too small
      for it grows. */
   function openTrailer() {
@@ -3025,6 +3043,7 @@
     });
     trailerStuck = setTimeout(failTrailer, TRAILER_LOAD_MS);
     player.appendChild(frame);
+    player.appendChild(trailerWait());
     player.setAttribute('aria-hidden', 'false');
     easeHero(function () { root.classList.add('is-trailer'); });
     nameClose();
@@ -3037,6 +3056,7 @@
   function closeTrailer(refocus) {
     clearTimeout(trailerStuck);
     trailerStuck = null;
+    dropTrailerWait();
     if (!trailerOn()) return;
     var active = document.activeElement;
     var lost = !root.contains(active) || player.contains(active) || active === closeBtn || active === titleEl; // out of sight under a trailer
@@ -3069,7 +3089,7 @@
   function failTrailer() {
     if (!trailerOn()) return;
     leaveTrailer();
-    core.toast('Trailer unavailable');
+    core.toast('Trailer unavailable.');
   }
 
   window.addEventListener('message', function (e) {
@@ -3077,6 +3097,7 @@
     if (!frame || e.source !== frame.contentWindow || e.origin !== TRAILER_ORIGIN) return;
     clearTimeout(trailerStuck);
     trailerStuck = null;
+    dropTrailerWait();
     var m;
     try { m = JSON.parse(e.data); } catch (err) { return; }
     if (!m) return;

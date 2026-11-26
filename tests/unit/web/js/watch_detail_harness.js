@@ -1021,6 +1021,38 @@ const scenarios = {
     };
   },
 
+  // Over the trailer's area while its frame loads and its player has not yet spoken; gone once it plays or gives way.
+  async trailerLoadingMark() {
+    const origin = 'https://www.youtube-nocookie.com';
+    const run = async (then, loads = true) => {
+      const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+      p.run();
+      await openCard(p, 'tmdb-movie-77');
+      click(p.doc, p.q('[data-ttl-act="trailer"]'));
+      const frame = p.q('.ttl__player iframe');
+      frame.contentWindow = { postMessage: () => {} };
+      const say = (d) => p.message({ origin, source: frame.contentWindow, data: JSON.stringify(d) });
+      const due = (ms) => p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+      const mark = () => {
+        const m = p.q('.ttl__player .ttl__wait');
+        return m ? { text: m.textContent, role: m.getAttribute('role'), spinner: !!p.q('.ttl__wait .btn-spinner') } : null;
+      };
+      const pressed = mark();
+      if (loads) (frame.listeners.load || []).forEach((fn) => fn({}));
+      const loaded = mark();
+      then({ p, say, due });
+      return { pressed, loaded, after: mark(), playing: p.ttl().classList.contains('is-trailer') };
+    };
+    return {
+      heard: await run(({ say }) => say({ event: 'onReady' })),
+      refused: await run(({ say }) => say({ event: 'onError', info: 150 })),
+      silent: await run(({ due }) => { due(8000); }),
+      never: await run(({ due }) => { due(20000); }, false),
+      closed: await run(({ p }) => p.key('Escape')),
+      waiting: await run(() => {}),
+    };
+  },
+
   async trailerInView() {
     const run = async (still) => {
       const p = load({ still, routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });

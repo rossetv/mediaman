@@ -244,6 +244,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl.is-trailer .ttl__head { opacity: 0; transform: translateY(8px); }
 .ttl.is-trailer .ttl__hero::after { opacity: 0; }
 .ttl__frame {
+  grid-area: 1 / 1;
   display: block;
   width: min(100cqw, 100cqh * 16 / 9);
   aspect-ratio: 16 / 9;
@@ -252,6 +253,18 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   transform: scale(.97);
   transition: transform var(--dur) var(--ease-out);
 }
+/* Covers the frame (same cell, same box) until the player speaks; it takes no clicks. */
+.ttl__wait {
+  grid-area: 1 / 1;
+  width: min(100cqw, 100cqh * 16 / 9);
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  background: var(--scrim);
+  color: var(--t1);
+  pointer-events: none;
+}
+.ttl__wait .btn-spinner { width: 28px; height: 28px; margin: 0; border-width: 3px; }
 .ttl.is-trailer .ttl__frame { transform: none; animation: ttl-frame-in var(--dur-slow) var(--ease-out); }
 @keyframes ttl-frame-in { from { opacity: 0; transform: scale(.97); } }
 .ttl__trailer > span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
@@ -841,6 +854,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__head::before { display: none; }
   .ttl:not(.is-trailer) .ttl__hero { min-height: 190px; }
   .ttl__player { background: Canvas; }
+  .ttl__wait { background: Canvas; }
+  .ttl__wait .btn-spinner { forced-color-adjust: none; border-color: GrayText; border-top-color: CanvasText; }
   .season-chip[aria-checked="true"] { border-color: Highlight; }
   .season-chip[aria-checked="true"] .season-chip__box { forced-color-adjust: none; background: Highlight; border-color: Highlight; color: HighlightText; }
   .season-chip[aria-disabled="true"] { border-style: dashed; }
