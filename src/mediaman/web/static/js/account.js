@@ -554,6 +554,11 @@
       return (tv.people || []).filter(function (who) { return who !== me; });
     }
 
+    // One's own TV that others are paired with too goes on for them: one only leaves it.
+    function leaves(tv) {
+      return !(others && others.contains(tv.row)) && othersOn(tv).length > 0;
+    }
+
     function stateOf(tv) {
       var seen = tv.on ? 'On now' : tv.last_seen_at ? 'Last seen ' + seenWhen(tv.last_seen_at) : 'Not seen yet';
       var theirs = others && others.contains(tv.row);
@@ -584,7 +589,7 @@
       var acts = el('div', 'dev-acts');
       var rename = action('Rename', 'ghost', tv, function () { edit(tv); });
       acts.appendChild(rename);
-      acts.appendChild(action('Unpair', 'danger', tv, function (button) { unpair(tv, button); }));
+      acts.appendChild(action(leaves(tv) ? 'Leave' : 'Unpair', 'danger', tv, function (button) { unpair(tv, button); }));
       row.appendChild(acts);
       return rename;
     }
@@ -664,17 +669,17 @@
       }) : Promise.resolve(true);
       sure.then(function (yes) {
         if (!yes || isBusy(button)) return;
-        setBusy(button, 'Unpairing…', true);
+        setBusy(button, leaves(tv) ? 'Leaving…' : 'Unpairing…', true);
         MM.api.delete('/api/tvs/' + tv.id).then(function () { return true; }, function (err) {
           if (err && err.status === 404) return true;
           setBusy(button, '');
-          UIFeedback.error(MM.api.messageOf(err, 'Could not unpair it. Try again.'));
+          UIFeedback.error(MM.api.messageOf(err, leaves(tv) ? 'Could not leave it. Try again.' : 'Could not unpair it. Try again.'));
           return false;
         }).then(function (ok) {
           if (!ok) return;
           if (MM.tvRemote) MM.tvRemote.drop(tv.id);
           drop(tv);
-          done(!theirs && othersOn(tv).length ? 'Unpaired from you. ' + namesOf(othersOn(tv)) + ' can still play on it.'
+          done(leaves(tv) ? 'You left ' + tv.name + '. ' + namesOf(othersOn(tv)) + ' can still play on it.'
             : 'Unpaired. That TV now says it was signed out.');
         });
       });

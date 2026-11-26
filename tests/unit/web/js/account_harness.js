@@ -163,6 +163,17 @@ const scenarios = {
     await settle();
     return { drawn, empty, failed, sent: sent[1], name: row.querySelector('.me-lbl').textContent, label: buttonOf(row, 'Rename').getAttribute('aria-label'), toasts: p.toasts };
   },
+  async tvLeave() {
+    const sent = [];
+    const p = page(tvApi([tvOf(1, 'Den', { people: ['amy', 'bob'] })], [], { delete: (url) => { sent.push(url); return Promise.resolve({ ok: true }); } }), { tvs: 'viewer' });
+    await settle();
+    const row = tvRows(p)[0];
+    const words = row.querySelectorAll('button').map((b) => [b.textContent, b.getAttribute('aria-label')]);
+    push(row.querySelectorAll('button')[1]);
+    await settle();
+    p.wait();
+    return { words, sent, toasts: p.toasts, asked: p.asked.length };
+  },
   async tvUnpair() {
     const sent = [];
     let answer = () => Promise.reject({ status: 500 });

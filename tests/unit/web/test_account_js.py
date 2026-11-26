@@ -443,6 +443,13 @@ def test_a_tv_is_renamed_in_its_row_and_a_failure_keeps_what_was_typed() -> None
     assert out["toasts"] == ["Renamed to Den."]
 
 
+def test_a_tv_shared_with_others_is_left_not_unpaired() -> None:
+    out = _run("tvLeave")
+    assert out["words"][1] == ["Leave", "Leave: Den"]
+    assert out["sent"] == ["/api/tvs/1"] and out["asked"] == 0
+    assert out["toasts"] == ["You left Den. bob can still play on it."]
+
+
 def test_an_unpaired_tv_leaves_the_list_and_the_last_takes_the_section_with_it() -> None:
     out = _run("tvUnpair")
     assert out["look"] == ["btn btn--danger btn--sm", "btn btn--ghost btn--sm"]
