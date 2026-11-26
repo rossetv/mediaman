@@ -846,7 +846,8 @@
        first; a title of it found later stands where it comes, with its badge. */
     function fetchPage(page) {
       say.next();
-      var got = page === 1 && early ? early : personPage(id, page);
+      var asked = page === 1 && !!early; // the page asked for at once, whose answer is already told
+      var got = asked ? early : personPage(id, page);
       if (page === 1) early = null;
       return got.then(function (reply) {
         if (open === mine && page === 1 && reply !== told) learn(reply);
@@ -867,16 +868,19 @@
         var next = reply.next_page || null;
         return cards.length || !next ? { cards: cards, next: next } : fetchPage(next);
       }, function (err) {
-        if (open === mine && page === 1) {
-          about.draw(null);
-          if (err && err.status === 404) gone(f, mine.list, 'Person not found', 'There is nobody to show here.');
-          else if (!f.title.textContent) {
-            f.node.classList.remove('is-unknown');
-            f.title.textContent = 'Couldn’t load this person';
-          }
-        }
+        if (open === mine && page === 1 && !(asked && earlyFailed)) failed(err);
         throw err;
       });
+    }
+
+    /* The first page could not be had: nothing more is said of them. */
+    function failed(err) {
+      about.draw(null);
+      if (err && err.status === 404) gone(f, mine.list, 'Person not found', 'There is nobody to show here.');
+      else if (!f.title.textContent) {
+        f.node.classList.remove('is-unknown');
+        f.title.textContent = 'Couldn’t load this person';
+      }
     }
 
     stage().open(f.node, who.name || 'Person', { face: who.profile_url || '', name: who.name || 'Person', person: who.name });
@@ -886,12 +890,17 @@
     open = mine;
     // Who they are comes with the first page of their titles, which may start below the fold: it is asked for at once.
     var told = null;
+    var earlyFailed = false;
     var early = personPage(id, 1);
     early.then(function (reply) {
       if (open !== mine) return;
       told = reply;
       learn(reply);
-    }, function () {});
+    }, function (err) {
+      if (open !== mine) return;
+      earlyFailed = true;
+      failed(err);
+    });
     mine.list = watch.grid.list(f.host, {
       title: who.name || 'Person', cards: [], next: 1, fetchPage: patient(mine, fetchPage),
       empty: { title: 'Nothing to show yet' }, say: say.grid

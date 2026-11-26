@@ -543,6 +543,30 @@ def test_who_a_person_is_comes_though_their_titles_wait_below_the_fold() -> None
     assert (out["title"], out["grid"]) == ("Mara Ellison", 0)
 
 
+def test_a_person_who_cannot_be_had_is_said_so_though_their_titles_wait_below_the_fold() -> None:
+    out = _run("personEarlyFails")
+    assert out["failed"] == {
+        "title": "Couldn’t load this person",
+        "skeletons": 0,
+        "known": True,
+        "stopped": False,
+    }
+    assert (out["gone"]["title"], out["gone"]["stopped"]) == ("Person not found", True)
+
+
+def test_a_first_answer_about_someone_no_longer_open_is_not_shown() -> None:
+    out = _run("personEarlyStale")
+    for how in ("answer", "fail"):
+        assert out[how] == {
+            "title": "Tomas Adeyemi",
+            "facts": "",
+            "known": 0,
+            "bio": True,
+            "token": "Tomas Adeyemi",
+            "said": False,
+        }, how
+
+
 def test_no_titles_are_counted_of_a_person_who_has_none() -> None:
     assert _run("personBare") == "Actor"
 

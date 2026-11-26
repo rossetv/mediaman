@@ -1237,6 +1237,37 @@ const scenarios = {
     };
   },
 
+  // Their titles wait below the fold and who they are cannot be had: the page says so at once, without a scroll.
+  async personEarlyFails() {
+    const page = async (err) => {
+      const p = await ready(ADMIN, '', '/?person=9001', undefined, { gridWaits: true });
+      p.calls[0].reject(err);
+      await settle();
+      return { title: p.doc.querySelector('.explore-title').textContent, skeletons: p.doc.querySelectorAll('.explore-head .skel, .explore-known .skel').length,
+        known: p.doc.querySelector('.explore-known').hidden === true, stopped: p.grids[0].stopped };
+    };
+    return { failed: await page(Object.assign(new Error('502'), { status: 502 })), gone: await page(Object.assign(new Error('404'), { status: 404 })) };
+  },
+
+  // One person's first answer arrives, or fails, once another's page is open: the open one is not told of it.
+  async personEarlyStale() {
+    const out = {};
+    for (const how of ['answer', 'fail']) {
+      const p = await ready(ADMIN, '', '/?person=9001', undefined, { gridWaits: true });
+      p.ctx.MMWatch.address.push(null, '/');
+      p.ctx.MMWatch.explore.openPerson({ person_id: 9002, name: 'Tomas Adeyemi', profile_url: null }, null);
+      await settle();
+      const first = p.calls.filter((c) => c.url.endsWith('/person/9001'))[0];
+      if (how === 'answer') first.resolve({ tmdb_configured: true, person: MARA, known_for: [{ ...TM, title: 'Salt' }], items: [TM], total: 1, in_library: 0, next_page: null });
+      else first.reject(Object.assign(new Error('404'), { status: 404 }));
+      await settle();
+      out[how] = { title: p.doc.querySelector('.explore-title').textContent, facts: p.doc.querySelector('.explore-facts').textContent,
+        known: p.doc.querySelectorAll('.explore-known a').length, bio: p.doc.querySelectorAll('.explore-bio .skel').length > 0,
+        token: p.doc.querySelector('.watch-search__name').textContent, said: p.status.textContent.includes('Mara') };
+    }
+    return out;
+  },
+
   // Nobody's titles are counted where there are none.
   async personBare() {
     const p = await ready(ADMIN, '', '/?person=9001');
