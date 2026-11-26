@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
+from jinja2 import Environment, FileSystemLoader
 
 import mediaman
 from mediaman.web.auth.session_store import create_session
@@ -64,3 +65,12 @@ def test_every_abandon_button_is_named_by_its_title(app_factory, conn) -> None:
     ]
     # the tooltip keeps the plain label
     assert 'title="Stop tracking"' in html and 'title="Abandon search"' in html
+
+
+def test_an_empty_title_leaves_no_trailing_colon_in_the_name() -> None:
+    env = Environment(loader=FileSystemLoader(str(_WEB / "templates")))
+    module = env.get_template("_components.html").make_module({"icon": lambda _n: ""})
+    named = module.abandon_btn("radarr:1", "movie", "Hero Film")
+    bare = module.abandon_btn("radarr:1", "movie", "")
+    assert 'aria-label="Abandon search: Hero Film"' in named
+    assert 'aria-label="Abandon search"' in bare

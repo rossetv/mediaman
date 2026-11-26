@@ -331,7 +331,7 @@
         data-kind="{{ kind }}"
         data-title="{{ title }}"
         data-stuck-seasons='{{ stuck_seasons }}'
-        aria-label="{{ label }}: {{ title }}"
+        aria-label="{{ label ~ (": " ~ title if title else "") }}"
         title="{{ label }}">
   {{ icon("i-xmark") }}
 </button>
