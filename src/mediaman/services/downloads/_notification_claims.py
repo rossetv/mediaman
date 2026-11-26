@@ -64,6 +64,8 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
     """
     # A claim a crash left behind is freed here, every tick, not only at startup; the
     # one-hour grace keeps a send still in flight from being claimed a second time.
+    if _ending.is_set():
+        return []
     reconcile_stranded_notifications(conn)
     claim_iso = now_iso()
     try:
@@ -124,6 +126,11 @@ _batch_stamps: set[str] = set()
 _stamps_lock = threading.Lock()
 
 
+# Set once the process is told to end: a tick after that claims nothing, since a kill may
+# come before the claims it made could be freed.
+_ending = threading.Event()
+
+
 def _note_claim(claim_iso: str, count: int) -> None:
     if not count:
         return
@@ -136,9 +143,10 @@ def _note_claim(claim_iso: str, count: int) -> None:
 
 def release_claims_on_shutdown(conn: sqlite3.Connection) -> int:
     """Write down the emails that went out, then free the rows this process claimed and has
-    not begun to send, so the next start sends them at once rather than an hour on. A row
+    not begun to send, and stop new claims, so the next start sends them at once rather than an hour on. A row
     whose email is on its way out keeps its claim. Returns the number freed.
     """
+    _ending.set()
     record_sent(conn)
     with _stamps_lock:
         stamps = sorted(_batch_stamps)

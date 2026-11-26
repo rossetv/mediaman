@@ -186,6 +186,16 @@ def _reset_disk_reads():
 
 
 @pytest.fixture(autouse=True)
+def _reset_notification_claims_ending():
+    """A test that ends the claims must not stop the next test's tick from claiming."""
+    from mediaman.services.downloads import _notification_claims
+
+    _notification_claims._ending.clear()
+    yield
+    _notification_claims._ending.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_scrubbed_secrets():
     """A secret one test registers must not be masked in the log of the next."""
     from mediaman.core import scrub_filter
