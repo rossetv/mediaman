@@ -2385,6 +2385,16 @@ def test_another_quality_while_the_tv_plays_goes_on_there_at_the_same_place(mark
     assert (out["at"], out["stopped"], out["streams"]) == (300, True, 2)
 
 
+def test_a_title_taken_by_another_page_while_the_tv_plays_says_so_here(markup):
+    out = elsewhere(markup, "away_airplay_replaced", "mms")
+    assert out == {"message": REPLACED, "starts": 1, "destroyed": True}
+
+
+def test_a_stream_gone_while_the_tv_plays_is_started_again(markup):
+    out = elsewhere(markup, "away_airplay_gone", "mms")
+    assert (out["message"], out["starts"]) == (None, 2)
+
+
 @pytest.mark.parametrize("mode", ["tvs", "plain"])
 def test_without_managed_media_source_the_video_gets_no_second_source(markup, mode):
     out = elsewhere(markup, "away_airplay_plain", mode)

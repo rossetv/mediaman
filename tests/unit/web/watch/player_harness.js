@@ -5010,6 +5010,10 @@ const scenarios = {
     return { offered: offered, at: v.currentTime, stopped: h.stopped, streams: p.hlsList.length };
   },
 
+  /* While the TV plays, the stream ends here with a 410: taken by another page, or gone. */
+  away_airplay_replaced: (p) => ownTvEnds(p, { ok: false, error: 'replaced', by: 'another-page' }),
+  away_airplay_gone: (p) => ownTvEnds(p, { error: 'gone' }),
+
   /* Chrome, or Safari without ManagedMediaSource: no address for a TV, and no change. */
   async away_airplay_plain(p) {
     await streamPlays(p, 30);
@@ -6366,6 +6370,19 @@ const scenarios = {
     return introState(p);
   },
 };
+
+/* The player's own video plays on an AirPlay TV, and its stream answers 410 with *body*. */
+async function ownTvEnds(p, body) {
+  p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+  const v = p.video;
+  await streamPlays(p, 30);
+  p.elsewhere.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+  await settle();
+  p.replies.push({ ok: { stream_id: 's2', playlist: '/p2', airplay: '/api/cast/A2/index.m3u8' } });
+  p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, body));
+  await settle();
+  return { message: messageState(p), starts: p.starts().length, destroyed: p.hlsList[0].destroyed };
+}
 
 function introState(p) {
   return { intro: p.root.classList.contains('is-intro'), starting: p.root.classList.contains('is-starting'), loading: p.root.classList.contains('is-loading') };

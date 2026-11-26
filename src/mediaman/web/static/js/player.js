@@ -1583,13 +1583,14 @@
 
   function onHlsError(data) {
     var h = hls;
-    /* What hls.js left off loading while a TV plays is no trouble. */
-    if (airplayed()) return;
     var status = data.response ? data.response.code : undefined;
+    /* The stream is the TV's too: taken by another page, or gone, it ends there as well. */
     if (status === 410) {
       streamEnded(answerOf(data));
       return;
     }
+    /* What else hls.js left off loading while a TV plays is no trouble. */
+    if (airplayed()) return;
     /* hls.js would ask for a refused segment again at once, six times over, before it
        calls the error fatal; for one the network lost, after waits of its own. */
     if (status === 429) {
