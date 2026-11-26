@@ -532,6 +532,17 @@ def test_nothing_stands_where_nothing_is_known_of_a_person() -> None:
         assert (out[state]["hidden"], out[state]["skeletons"]) == ([True, True, True], 0)
 
 
+def test_what_a_person_is_known_for_is_a_row_of_watch_cards_under_who_they_are() -> None:
+    out = _run("personKnownRow")
+    assert out["cards"] == ["movie-1", "tmdb-movie-9"]
+    assert (out["inHead"], out["beforeTitles"]) == (False, True)
+
+
+def test_who_a_person_is_comes_though_their_titles_wait_below_the_fold() -> None:
+    out = _run("personKnownRow")
+    assert (out["title"], out["grid"]) == ("Mara Ellison", 0)
+
+
 def test_no_titles_are_counted_of_a_person_who_has_none() -> None:
     assert _run("personBare") == "Actor"
 

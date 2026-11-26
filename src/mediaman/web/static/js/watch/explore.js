@@ -647,23 +647,16 @@
     return s;
   }
 
-  function knownPoster(t) {
-    var a = el('a', 'cast-card__poster');
-    a.setAttribute('data-title-ref', t.library_ref || t.ref);
-    a.setAttribute('data-title', t.title);
-    a.href = core.safePath(t.href) || '#title=' + encodeURIComponent(t.library_ref || t.ref);
-    a.title = t.title;
-    a.setAttribute('aria-label', t.title);
-    var src = core.safePath(t.poster_url);
-    if (src) {
-      var img = el('img');
-      img.alt = '';
-      img.setAttribute('data-broken-on-error', '');
-      img.src = src;
-      a.appendChild(img);
-    }
-    a.appendChild(el('span', 'cast-card__poster-name', t.title));
-    return a;
+  /* A title they are known for, as a card of a Watch row: the library's own where it has it. */
+  function knownCard(t) {
+    return watch.search.tmdbCard(Object.assign({}, t, { ref: t.library_ref || t.ref }));
+  }
+
+  function outlineCard() {
+    var node = el('div', 'watch-card watch-card--skel');
+    node.appendChild(el('span', 'skel skel--poster'));
+    node.appendChild(el('span', 'skel skel--line'));
+    return node;
   }
 
   /* What is said of a person on page *f*, its room held until it is known. What
@@ -673,8 +666,10 @@
     var story = el('div', 'explore-story');
     var bio = el('p', 'explore-bio');
     var more = el('button', 'explore-more', 'More');
-    var known = el('div', 'explore-known');
-    var posters = el('div', 'cast-card__posters');
+    var known = el('section', 'explore-known watch-row');
+    var head = el('div', 'results-group__head');
+    var viewport = el('div', 'watch-row__viewport');
+    var posters = el('div', 'watch-row__scroll');
     var drawn = null; // what it says, as JSON
     more.type = 'button';
     bio.id = 'explore-bio';
@@ -682,14 +677,20 @@
     more.setAttribute('aria-expanded', 'false');
     story.appendChild(bio);
     story.appendChild(more);
-    known.appendChild(el('p', 'cast-card__label', 'Known for'));
-    known.appendChild(posters);
+    head.appendChild(el('h2', 'results-group__title', 'Known for'));
+    known.appendChild(head);
+    posters.setAttribute('tabindex', '0');
+    posters.setAttribute('role', 'region');
+    posters.setAttribute('aria-label', 'Known for');
+    viewport.appendChild(posters);
+    known.appendChild(viewport);
     f.text.appendChild(years);
     f.head.appendChild(story);
-    f.head.appendChild(known);
+    f.node.insertBefore(known, f.host);
     years.appendChild(line('130px'));
     ['100%', '96%', '64%'].forEach(function (w) { bio.appendChild(line(w)); });
-    for (var i = 0; i < 4; i++) posters.appendChild(el('span', 'cast-card__poster skel'));
+    for (var i = 0; i < 4; i++) posters.appendChild(outlineCard());
+    if (watch.rows) watch.rows.init(viewport);
     more.classList.add('is-unknown');
     known.setAttribute('aria-hidden', 'true');
 
@@ -764,7 +765,7 @@
           more.classList.remove('is-unknown');
           story.hidden = !p.biography;
           posters.textContent = '';
-          ((of && of.known_for) || []).slice(0, 4).forEach(function (t) { posters.appendChild(knownPoster(t)); });
+          ((of && of.known_for) || []).slice(0, 4).forEach(function (t) { posters.appendChild(knownCard(t)); });
           known.hidden = !posters.children.length;
           known.removeAttribute('aria-hidden');
           f.head.classList.add('is-told');
@@ -845,8 +846,10 @@
        first; a title of it found later stands where it comes, with its badge. */
     function fetchPage(page) {
       say.next();
-      return personPage(id, page).then(function (reply) {
-        if (open === mine && page === 1) learn(reply);
+      var got = page === 1 && early ? early : personPage(id, page);
+      if (page === 1) early = null;
+      return got.then(function (reply) {
+        if (open === mine && page === 1 && reply !== told) learn(reply);
         if (page === 1) {
           heads = {};
           shown.clear();
@@ -881,6 +884,14 @@
     stage().grow(photo, from);
     stage().rise(f.text, 60);
     open = mine;
+    // Who they are comes with the first page of their titles, which may start below the fold: it is asked for at once.
+    var told = null;
+    var early = personPage(id, 1);
+    early.then(function (reply) {
+      if (open !== mine) return;
+      told = reply;
+      learn(reply);
+    }, function () {});
     mine.list = watch.grid.list(f.host, {
       title: who.name || 'Person', cards: [], next: 1, fetchPage: patient(mine, fetchPage),
       empty: { title: 'Nothing to show yet' }, say: say.grid

@@ -23,7 +23,7 @@ Node.prototype.scrollIntoView = function () {};
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
-function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {}, session = {}, assist = null, visualViewport, set = {}, downloading = null } = {}) {
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {}, session = {}, assist = null, visualViewport, set = {}, downloading = null, gridWaits = false } = {}) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -161,7 +161,8 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
         g.tail.appendChild(build(doc, ['div', { class: 'grid-fail' }, ['span', {}, 'Couldn’t load the titles.']])).appendChild(again);
       });
       host.appendChild(g.tail);
-      load();
+      // One that stands below the fold waits to be scrolled to.
+      if (!gridWaits) load();
       grids.push(g);
       return {
         tail: g.tail,
@@ -1179,7 +1180,7 @@ const scenarios = {
   async personAbout() {
     const said = (p) => ({
       born: p.doc.querySelector('.explore-born').textContent, bio: p.doc.querySelector('.explore-bio').textContent,
-      known: p.doc.querySelectorAll('.explore-known a').map((a) => [a.getAttribute('data-title-ref'), a.getAttribute('aria-label')]),
+      known: p.doc.querySelectorAll('.explore-known a').map((a) => [a.getAttribute('data-title-ref'), a.querySelector('.watch-card__title').textContent]),
       hidden: ['born', 'story', 'known'].map((k) => p.doc.querySelector('.explore-' + k).hidden === true),
       skeletons: p.doc.querySelectorAll('.explore-head .skel').length,
     });
@@ -1219,6 +1220,21 @@ const scenarios = {
     await failed.answer('/api/watch/person/9001', reply(told, known));
     out.retried = said(failed);
     return out;
+  },
+
+  // What they are known for is a row of the Watch page's own cards, under who they are, and it comes though their titles below it wait.
+  async personKnownRow() {
+    const p = await ready(ADMIN, '', '/?person=9001', undefined, { gridWaits: true });
+    const known = [{ ...TM, library_ref: 'movie-1', title: 'Salt' }, { ...TM, title: 'Road' }];
+    await p.answer('/api/watch/person/9001', { tmdb_configured: true, person: MARA, known_for: known, items: [TM], total: 1, in_library: 0, next_page: null });
+    const row = p.doc.querySelector('.explore-known');
+    return {
+      title: p.doc.querySelector('.explore-title').textContent,
+      inHead: !!row.closest('.explore-head'),
+      beforeTitles: row.nextSibling === p.doc.querySelector('.explore-grid'),
+      cards: p.doc.querySelectorAll('.explore-known a').filter((a) => a.classList.contains('watch-card__link') && a.parentNode.classList.contains('watch-card') && a.parentNode.parentNode.classList.contains('watch-row__scroll')).map((a) => a.getAttribute('data-title-ref')),
+      grid: p.grids[0].titles.length,
+    };
   },
 
   // Nobody's titles are counted where there are none.
