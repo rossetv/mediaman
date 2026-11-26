@@ -162,12 +162,13 @@
     if (name !== 'title' && name !== 'preview' && preview && preview.close) preview.close();
     keepPlace();
     var ref = /#title=([a-z0-9-]+)$/.exec(to);
-    if (was && ref) openedOn[was.id] = ref[1];
+    // The title takes the preview's entry, so the page's own entry beneath it is the one that remembers.
+    if (was && ref) openedOn[over && was.under ? was.under : was.id] = ref[1];
     var at = (was ? was.at : 0) + (over ? 0 : 1);
     var stack = was ? was.stack.filter(function (s) { return s.name !== 'preview'; }) : [];
     var open = stack.some(function (s) { return s.name === name; });
     write(over ? 'replaceState' : 'pushState', {
-      id: newId(), at: at, entry: name,
+      id: newId(), at: at, entry: name, under: name === 'preview' && was ? was.id : undefined,
       stack: name === null || open ? stack : stack.concat({ name: name, at: at })
     }, to);
     restack();

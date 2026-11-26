@@ -52,6 +52,7 @@ function load(opts = {}) {
   const gets = [];
   const opened = []; // the cards a click reached, as a tap would open them
   const steps = [];
+  const stored = {};
   const tab = { entries: [{ url: '/watch', state: null }], index: 0, went: 0 };
   doc.body.addEventListener('click', (e) => { const link = e.target.closest('.watch-card__link'); if (link) opened.push(link.closest('.watch-card').id); });
 
@@ -84,7 +85,7 @@ function load(opts = {}) {
       replaceState(state, _t, url) { tab.entries[tab.index] = { url, state: JSON.parse(JSON.stringify(state)) }; },
       go(by) { tab.went++; setImmediate(() => { if (tab.index + by < 0 || tab.index + by >= tab.entries.length) return; tab.index += by; (winListeners.popstate || []).forEach((fn) => fn({})); }); },
     },
-    sessionStorage: { getItem: () => null, setItem() {} },
+    sessionStorage: { getItem: (k) => (k in stored ? stored[k] : null), setItem(k, v) { stored[k] = v; } },
     scrollTo() {},
     addEventListener: (type, fn) => { (winListeners[type] = winListeners[type] || []).push(fn); },
     UIFeedback: { toast() {} },
@@ -130,7 +131,7 @@ function load(opts = {}) {
     return ev;
   };
   const h = {
-    doc, tab, ctx, gets, opened, steps, winListeners, listeners, now: () => clock,
+    doc, tab, ctx, stored, gets, opened, steps, winListeners, listeners, now: () => clock,
     poster: (id) => doc.querySelector('#' + id + ' .watch-card__poster'),
     async pass(ms) {
       const end = clock + ms;
@@ -226,6 +227,16 @@ const scenarios = {
     h.ctx.MMWatch.address.close('title');
     await h.pass(600);
     return { opened, back: { entries: h.tab.entries.length, index: h.tab.index, url: h.tab.entries[h.tab.index].url } };
+  },
+  async titleRemembered() {
+    const h = load();
+    await hold(h, 700);
+    const page = h.tab.entries[0].state.mm.id;
+    h.ctx.MMWatch.address.layer({ name: 'title', depth: 50, params: [], hash: true, read: (here) => (/^title=/.test(here.hash) ? here.hash : null), open() {}, close() {} });
+    h.ctx.MMWatch.address.push('title', '/watch#title=movie-1');
+    await h.pass(600);
+    (h.winListeners.pagehide || []).forEach((fn) => fn({}));
+    return JSON.parse(h.stored['mm:watch:titles']) [page] || null;
   },
   async mouse() {
     const h = load({ width: 1280, mouse: true });

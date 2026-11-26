@@ -45,5 +45,9 @@ def test_opening_the_title_from_it_replaces_its_entry_and_back_leaves_the_page_a
     }
 
 
+def test_a_title_opened_from_a_preview_is_remembered_on_the_page_entry(out) -> None:
+    assert out["titleRemembered"] == "movie-1"
+
+
 def test_a_mouse_preview_never_touches_the_history(out) -> None:
     assert out["mouse"] == {"open": True, "entries": 1, "went": 0}
