@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
+HINT = "You already have a TV with this name. You can still use it."
 HARNESS = Path(__file__).parent / "js" / "pair_harness.js"
 
 
@@ -109,7 +110,8 @@ def test_a_list_from_the_first_pairing_does_not_touch_the_second() -> None:
 
 def test_a_repeat_is_said_once_and_spaces_do_not_hide_it() -> None:
     out = _run("rewrite")
-    assert out["writes"] == ["You already have a TV with this name. You can still use it."]
+    assert out["writes"] == [HINT]
+    assert out["spaced"] == HINT
 
 
 def test_the_hint_keeps_two_lines_of_room_and_the_chosen_pill_shows_in_forced_colours() -> None:

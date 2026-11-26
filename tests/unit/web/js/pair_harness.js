@@ -174,11 +174,13 @@ const scenarios = {
     const writes = [];
     let text = why.textContent;
     Object.defineProperty(why, 'textContent', { get: () => text, set: (v) => { writes.push(v); text = v; } });
+    let spaced = null;
     for (const v of ['Living  room', 'living room ', 'Living room']) {
       p.$('pair-name').value = v;
       p.$('pair-name').listeners.input.forEach((fn) => fn({}));
+      if (spaced === null) spaced = text;
     }
-    return { writes, text };
+    return { writes, text, spaced };
   },
   async badList() {
     const out = [];
