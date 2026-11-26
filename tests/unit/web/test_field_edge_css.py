@@ -95,3 +95,19 @@ def test_under_a_short_window_historys_tools_and_all_titles_head_go_with_the_pag
         'html:has(> body[data-page="history"])', "_history.css", short
     )
     assert "position: relative" in _of(".watch-all__head", "_watch_grid.css", short)
+
+
+def test_all_titles_goes_two_across_wherever_three_would_cut_a_long_title_word() -> None:
+    # "Cartographer's" at 12px bold is 92px; a card is a third of the window less its 20px
+    # sides and two 10px gaps, and the title sits 8px inside the poster on each side.
+    two = [
+        m
+        for m in re.finditer(
+            r"@media \(max-width: ([\d.]+)px\) \{\s*\.watch-grid-host > \.watch-grid \{ ([^}]*)\}",
+            (CSS / "_watch_grid.css").read_text(),
+        )
+        if "repeat(2," in m[2]
+    ]
+    assert len(two) == 1
+    first_three = float(two[0][1]) + 0.02
+    assert (first_three - 2 * 20 - 2 * 10) / 3 - 2 * 8 >= 93
