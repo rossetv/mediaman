@@ -225,9 +225,11 @@ class TvTracks:
 class SegmentRead:
     """One segment to read: ``claim_read`` gives it a slot, ``release_read`` takes it back."""
 
-    def __init__(self, stream_id: str, user: str) -> None:
+    def __init__(self, stream_id: str, user: str, *, by_tv: bool = False) -> None:
         self.stream_id = stream_id
         self.user = user
+        #: Read by a TV with a ticket, as ``playlist``'s *by_tv*.
+        self.by_tv = by_tv
         self.unwanted = False
         self._lock = threading.Lock()
         self._socket: socket.socket | None = None
@@ -366,7 +368,8 @@ class _Stream:
     #: Place of its start among all starts: of two of the same item, the later one plays.
     order: int = 0
     tv: bool = False
-    #: A TV has read its playlist or a segment.
+    #: A TV has read its playlist or a segment: of one started for a TV, or by a ticket, as an
+    #: AirPlay TV reads a player's stream, and its player has read neither since.
     tv_read: bool = False
     #: Whether a TV may go on reading; asked by the reaper, without the lock.
     allowed: Callable[[], bool] | None = None
@@ -688,12 +691,15 @@ class StreamManager:
             raise TooManyStreams("too many streams are open")
         return self._end(ending, now)
 
-    def playlist(self, stream_id: str, user: str, *, base_path: str | None = None) -> str:
+    def playlist(
+        self, stream_id: str, user: str, *, base_path: str | None = None, by_tv: bool = False
+    ) -> str:
         """Return the media playlist with every URI rewritten to mediaman's segment route.
 
-        That route is under *base_path*, by default the signed-in person's own.
+        That route is under *base_path*, by default the signed-in person's own. *by_tv* is a
+        read by a TV with a ticket, which gives the stream a TV's idle time.
         """
-        stream = self._touch(stream_id, user, read=True)
+        stream = self._touch(stream_id, user, read=True, by_tv=by_tv)
         base, token = self._creds()
         raw = self._get(
             base, token, stream.child_path, op="playlist", max_bytes=_PLAYLIST_MAX_BYTES
@@ -731,7 +737,7 @@ class StreamManager:
         ``StreamGone`` once the stream ends or the read is cancelled.
         """
         content_type = segment_type(name)
-        stream = self._touch(read.stream_id, read.user, read=True)
+        stream = self._touch(read.stream_id, read.user, read=True, by_tv=read.by_tv)
         base, token = self._creds()
         path = f"{posixpath.dirname(stream.child_path)}/{name}"
 
@@ -1001,13 +1007,19 @@ class StreamManager:
             self._call_quietly("stop", session_id)
         return len(orphans)
 
-    def _touch(self, stream_id: str, user: str, *, read: bool = False) -> _Stream:
+    def _touch(
+        self, stream_id: str, user: str, *, read: bool = False, by_tv: bool = False
+    ) -> _Stream:
         with self._lock:
             stream = self._streams.get(stream_id)
             if stream is None or stream.user != user:
                 raise self._gone(stream_id, user)
             stream.last_access = self._clock()
-            stream.tv_read = stream.tv and (stream.tv_read or read)
+            if read and (stream.tv or by_tv):
+                stream.tv_read = True
+            elif read:
+                # Back with its player: an AirPlay TV no longer reads it.
+                stream.tv_read = False
             viewing = self._viewings.setdefault(
                 (user, stream.rating_key), _Viewing(stream.viewing_started, stream.last_access)
             )
