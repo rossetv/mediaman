@@ -3204,6 +3204,22 @@ const scenarios = {
       skip: gone(p.q('[data-skip]')) ? null : p.q('[data-skip-text]').textContent,
     });
     const playFor = (s) => { for (let i = 0; i < s; i++) { p.video.currentTime += 1; fire(p.video, 'timeupdate'); p.tick(1000); } };
+    if (how === 'jump') {
+      /* Reached by a jump, not by playing into them. */
+      p.video.currentTime = 2800;
+      fire(p.video, 'seeking'); fire(p.video, 'seeked'); fire(p.video, 'timeupdate');
+      const out = { at: look() };
+      playFor(5);
+      out.soon = look();
+      playFor(6);
+      out.later = look();
+      return out;
+    }
+    /* In the system's own full screen player, as on an iPhone. */
+    if (how === 'native') {
+      p.video.webkitPresentationMode = 'fullscreen';
+      p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; };
+    }
     playFor(5);
     const out = { before: look() };
     playFor(10);
@@ -3231,10 +3247,11 @@ const scenarios = {
       playFor(1);
       out.again = look();
     }
-    if (how === 'watch' || how === 'none') {
+    if (how === 'watch' || how === 'none' || how === 'native') {
       endsNow(p);
       out.end = look();
     }
+    out.mode = p.video.webkitPresentationMode || null;
     return out;
   },
 
@@ -5048,17 +5065,17 @@ const scenarios = {
     const skip = p.q('[data-skip]');
     /* Seen: there, and not gone quiet under controls that went away. */
     const look = () => (gone(skip) || (skip.classList.contains('is-quiet') && p.root.classList.contains('is-idle')) ? null : p.q('[data-skip-text]').textContent);
-    const playFor = (s) => { for (let i = 0; i < s; i++) { media.currentTime += 1; fire(media, 'timeupdate'); p.tick(1000); } };
+    /* Answers come between beats, as the server's would. */
+    const playFor = async (s) => { for (let i = 0; i < s; i++) { media.currentTime += 1; fire(media, 'timeupdate'); p.tick(1000); await settle(); } };
     const out = {};
     media.currentTime = 60;
-    playFor(15);
+    await playFor(15);
     out.intro = look();
     click(skip);
     out.introTo = media.currentTime;
     media.currentTime = 2690;
     fire(media, 'timeupdate');
-    playFor(12);
-    await settle();
+    await playFor(12);
     const card = p.q('[data-upnext]');
     out.card = !gone(card) && card.classList.contains('is-counting');
     const from = p.calls.length;
@@ -5331,6 +5348,25 @@ const scenarios = {
     await settle();
     out.leaves = p.win.location.href;
     out.buttons = [p.q('[data-bring]').textContent, p.q('[data-stop-away]').textContent];
+    return out;
+  },
+
+  /* A narrow page with no room for the question and the next episode's card at once. */
+  async away_rate_first(p) {
+    p.replies[0] = answer('best', { markers: MARKERS });
+    p.held.rate = { ask: true, ref: 'show-77', title: 'The Long Coast', season: 2 };
+    await streamPlays(p, 30);
+    const { air } = await airPlays(p);
+    const look = () => ({ rate: !gone(p.q('[data-rate]')), card: !gone(p.q('[data-upnext]')) });
+    const playFor = async (n) => { for (let i = 0; i < n; i++) { air.currentTime += 1; fire(air, 'timeupdate'); p.tick(1000); await settle(); } };
+    air.currentTime = 2695;
+    await playFor(8);
+    const out = { credits: look() };
+    click(p.q('[data-rate-close]'));
+    await settle();
+    await playFor(1);
+    out.after = look();
+    out.went = p.calls.some((c) => c.page);
     return out;
   },
 

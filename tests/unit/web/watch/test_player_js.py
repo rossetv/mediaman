@@ -753,6 +753,18 @@ def test_the_credits_count_again_when_they_play_on_after_a_pause(markup, season)
     assert at_credits(markup, season, "pause")["again"]["counts"] is True
 
 
+def test_in_the_system_s_full_screen_player_the_count_waits_for_the_end(markup, season):
+    out = at_credits(markup, season, "native")
+    assert (out["credits"]["card"], out["went"], out["mode"]) == (False, False, "fullscreen")
+    assert out["end"]["counts"] is True
+
+
+def test_credits_reached_by_a_jump_count_down_only_once_they_have_played_a_while(markup, season):
+    out = at_credits(markup, season, "jump")
+    assert (out["at"]["card"], out["soon"]["card"]) == (False, False)
+    assert out["later"] == {"card": True, "counts": True, "skip": None}
+
+
 def test_without_a_credits_marker_the_count_comes_at_the_end(markup, season):
     out = at_credits(markup, season, "none")
     assert (out["credits"]["card"], out["went"]) == (False, False)
@@ -2575,11 +2587,16 @@ def test_the_next_episode_goes_on_where_this_one_played(markup, tmp_path_factory
     assert out["qualities"] == ["auto", "best", "medium", "low"]
 
 
+def test_with_no_room_for_both_the_question_comes_before_the_count(markup):
+    out = elsewhere(markup, "away_rate_first")
+    assert out["credits"] == {"rate": True, "card": False}
+    assert (out["after"], out["went"]) == ({"rate": False, "card": True}, False)
+
+
 @pytest.mark.parametrize("last", [False, True])
 def test_the_credits_and_the_end_are_the_players_own_on_a_tv_too(markup, last_episode, last):
     out = elsewhere(last_episode if last else markup, "away_end")
-    # Where the next episode counts down over the credits, a narrow page has no room for both.
-    assert out["rate"] is last
+    assert out["rate"] is True
     assert (out["saved"], out["upnext"]) == (["c1", 2997], not last)
     # The TV may be given something else from here.
     assert (out["says"], out["leaves"]) == ("Finished on AirPlay", "/watch/play/1")

@@ -423,6 +423,7 @@
   var chapterShown;          // the one the chapters button names
   var skipMarker;            // the marker the skip button now offers to skip, or null
   var creditsOffered;        // the next episode's card has come in this pass through the last credits
+  var creditsRun;            // of this pass: {s, due} played of the last credits, and whether the card is due
   var troubleAtPlayed;
   var mediaRecoverUsed;
   var fatalRestartUsed;
@@ -461,6 +462,7 @@
     buildChapters();
     offerSkip(null);
     creditsOffered = false;
+    creditsRun = { s: 0, due: false };
     question = { asking: null, held: null, put: false, tried: false, creditsS: 0, due: false, answered: false, over: false, aloneS: 0 };
     troubleAtPlayed = 0;
     clearTrouble();
@@ -2085,6 +2087,7 @@
         rolling = true;
         backRounds = 0;
         playedOn(lastTime, now);
+        playedInCredits(lastTime, now);
       }
     }
     /* Emptied for a new stream the video stands at 0: from there to its start is no jump. */
@@ -3171,19 +3174,37 @@
   function offerNextAtCredits() {
     if (!inLastCredits(position())) {
       creditsOffered = false;
+      creditsRun = { s: 0, due: false };
       return;
     }
-    if (creditsOffered || !els.upnext || upnextOpen() || video.paused || video.ended || switching || swapping ||
-      dragging || pendingStart !== null || shown(els.message) || onTv() || opening() || (els.ask && els.ask.open)) return;
+    /* In the system's own full screen player it could not be seen: the end has the card. */
+    if (creditsOffered || !creditsRun.due || !els.upnext || upnextOpen() || video.paused || video.ended || switching ||
+      swapping || dragging || pendingStart !== null || shown(els.message) || onTv() || opening() ||
+      (els.ask && els.ask.open) || inNative()) return;
+    var unasked = !question.put && !question.over && !question.tried && !cannotBeSeen();
+    if (!roomForBoth() && (unasked || question.asking || rating)) {
+      /* No room for the two: the question comes first, and the card once it has gone. */
+      if (unasked) {
+        question.due = true;
+        askInCredits();
+      }
+      return;
+    }
     creditsOffered = true;
-    /* The system's own full screen player would hide it. */
-    if (inNative()) video.webkitSetPresentationMode('inline');
     showUpnext();
-    /* As at the end: the question beside the card where there is room for both. */
-    if (!question.put && !question.over && !question.tried && !cannotBeSeen() && roomForRating()) {
+    /* As at the end: the question beside the card. */
+    if (unasked) {
       question.due = true;
       askInCredits();
     }
+  }
+
+  /* Played into the last credits, the card comes at once; reached by a jump, after they have
+     played a while, as the question does. */
+  function playedInCredits(from, to) {
+    if (!inLastCredits(to)) return;
+    creditsRun.s += to - from;
+    if (!inLastCredits(from) || creditsRun.s >= CREDITS_PLAYED_S) creditsRun.due = true;
   }
 
   function toggleAutoplay() {
@@ -3483,7 +3504,8 @@
   window.addEventListener('resize', keepOffSkip);
 
   /* Whether the card can be seen: a small window has no room for it and the next episode's. */
-  function roomForRating() { return !upnextOpen() || !tight.matches && !(isAway() && window.innerWidth < 1200); }
+  function roomForRating() { return !upnextOpen() || roomForBoth(); }
+  function roomForBoth() { return !tight.matches && !(isAway() && window.innerWidth < 1200); }
 
   function showRating(held, goOn) {
     var text = 'How was ' + (held.season ? 'season ' + held.season + ' of ' : '') + held.title + '?';
