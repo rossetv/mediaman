@@ -2073,6 +2073,30 @@ const scenarios = {
     return out;
   },
 
+  // A finished save tells the newsletter panel, so its note is read again.
+  async savedTellsNewsletter() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    h.add('button', { id: 'btn-discard' }, bar);
+    const field = h.add('input', { id: 'base_url', value: 'v', type: 'text' }, page);
+    h.ctx.MM.api = { put: () => Promise.resolve({ status: 'saved' }), post: () => Promise.resolve({}), get: () => Promise.resolve({}), messageOf: (e, words) => words };
+    h.ctx.MM.reauth = { run: (fn) => fn() };
+    h.ctx.MM.dom = { focusStillIn: () => false };
+    h.ctx.UIFeedback = { toast() {}, confirm: () => Promise.resolve(true) };
+    ['savebar', 'general'].forEach((n) => h.load('settings/' + n + '.js'));
+    const m = h.ctx.MM.settings;
+    let told = 0;
+    m.newsletter = { settingsSaved: () => { told += 1; } };
+    m.savebar.init({ getPayload: m.general.collectSettings });
+    h.drain(); await h.flush();
+    field.value = 'w'; field.fire('input');
+    save.fire('click');
+    await h.flush(); h.drain(); await h.flush();
+    return { told };
+  },
+
   // Which services are checked again after a save, and what their pills end up saying.
   async recheck() {
     const h = build();

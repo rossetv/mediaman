@@ -256,6 +256,9 @@
         msg.style.marginTop = '8px';
         baseNote.appendChild(msg);
       }
+      // The save bar calls this when a save has stored the settings the note was waiting on.
+      MM.settings.newsletter.settingsSaved = noteBaseUrl;
+
       // A changed setting makes the last answer stale. A save happens away from the panel, so the
       // note is read again when the person comes back to it.
       setupFields.forEach(function (f) {

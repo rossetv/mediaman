@@ -377,6 +377,35 @@ const scenarios = {
     return out;
   },
 
+  // The note is read again when a save finishes and when focus or a pointer returns to the panel.
+  async noteRefresh() {
+    const p = await newsletter();
+    const note = () => p.id('newsletter-base-note').textContent;
+    let edited = false;
+    p.ctx.MM.settings.savebar = { isEdited: (el) => edited && el.id === 'base_url' };
+    const typed = () => {
+      edited = true;
+      p.id('base_url').value = 'https://media.example.org';
+      p.fire(p.id('base_url'), 'input');
+      const said = note();
+      edited = false;
+      return said;
+    };
+    const out = {};
+    const panel = p.id('newsletter-send-panel');
+    out.typed = typed();
+    out.stale = note();
+    p.ctx.MM.settings.newsletter.settingsSaved();
+    out.afterSave = note();
+    typed();
+    p.fire(panel, 'focusin');
+    out.afterFocus = note();
+    typed();
+    p.fire(panel, 'pointerdown');
+    out.afterPointer = note();
+    return out;
+  },
+
   // A send refused for the reason the note gives says it once, beside the button.
   async refusedOnce() {
     const p = await newsletter();

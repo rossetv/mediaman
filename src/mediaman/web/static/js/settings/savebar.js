@@ -644,6 +644,7 @@
             saved = { values: sent.values, disk: merged ? MM.settings.diskThresholds.fromServer(data) : sent.disk };
             show(saved, sent);
             recheck(Object.keys(payload));
+            if (MM.settings.newsletter && MM.settings.newsletter.settingsSaved) MM.settings.newsletter.settingsSaved();
             refreshOverviewHero();
             var edited = changedKeys(saved, snapshot()).length > 0;
             var partial = edited || kept.length > 0;

@@ -332,6 +332,13 @@ def test_the_send_panel_names_what_is_missing_as_the_server_does() -> None:
     assert out["saved"] == ""
 
 
+def test_the_note_is_read_again_after_a_save_and_when_focus_or_a_pointer_returns() -> None:
+    out = _run("noteRefresh")
+    assert out["typed"].startswith("Save Settings first")
+    assert out["stale"] == out["typed"]
+    assert (out["afterSave"], out["afterFocus"], out["afterPointer"]) == ("", "", "")
+
+
 def test_a_refused_send_says_the_missing_setting_once() -> None:
     out = _run("refusedOnce")
     assert out["before"] == "Set Base URL under General & Schedule first"

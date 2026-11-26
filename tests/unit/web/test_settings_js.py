@@ -227,10 +227,10 @@ _REFUSED_TV_ADDRESSES = {
     "https://a b.example": "no spaces",
     "http://203.0.113.5": "With https, any address works",
     "http://[2001:db8::1]": "With https, any address works",
-    "http://watch.example.org": "With http, use a .local name, a one-word name",
+    "http://watch.example.org": "With http, use a home name, such as nas.local, nas.lan or nas",
     "https://localhost": "localhost",
     "https://[::1]": "localhost",
-    "http://[fe80::1]:8282": "this server’s other address or its name",
+    "http://[fe80::1]:8282": "starts with fe80: a TV can’t reach it. Use this server’s other address or its name",
     "https://:8282": "needs a server name",
     "http://[fd00::1%25en0]": "such as http://192.168.1.10:8282, or a name with https",
     "https://1.2.3": "such as http://192.168.1.10:8282, or a name with https",
@@ -943,3 +943,7 @@ def test_a_failed_test_names_the_service_once_for_a_screen_reader() -> None:
     assert out["unnamed"] == ["", "Plex: Couldn't reach the service."]
     assert out["inside"] == ["", "No Plex server answered at this address."]
     assert out["longerWord"] == ["", "Plex: Plexamp answered."]
+
+
+def test_a_finished_save_tells_the_newsletter_panel() -> None:
+    assert _run("savedTellsNewsletter") == {"told": 1}
