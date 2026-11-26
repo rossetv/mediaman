@@ -502,6 +502,8 @@ html[data-page="history"].is-bar-focus { scroll-padding-top: 0; }
   .hist-body .btn::after { content: ""; position: absolute; inset: -7px 0; }
   .hx-search input,
   .hx-chip { height: 44px; }
+  /* 16px stops Safari zooming the page when the field is focused */
+  .hx-search input { font-size: 16px; }
   .hx-x { width: 44px; height: 44px; }
   .hx-chip__clear { width: 44px; }
 }

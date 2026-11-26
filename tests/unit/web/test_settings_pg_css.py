@@ -235,7 +235,7 @@ def test_blocks_add_no_scroll_margin_on_top_of_the_page_scroll_padding() -> None
 
 def test_every_select_draws_its_own_chevron_clear_of_the_edge() -> None:
     forms = re.sub(r"/\*.*?\*/", "", (CSS / "_forms.css").read_text(), flags=re.S)
-    rule = re.search(r"select\.inp,\s*\.form-select \{([^{}]*)\}", forms)
+    rule = re.search(r"select\.inp \{([^{}]*)\}", forms)
     assert rule and "appearance: none" in rule.group(1)
     assert "background-position: right 12px center" in rule.group(1)
     forced = re.search(r"@media \(forced-colors: active\) \{[^{}]*\{([^{}]*)\}", forms)
@@ -247,7 +247,7 @@ def test_no_field_rule_wipes_the_select_chevron() -> None:
         css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(), flags=re.S)
         for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
             fields = [p.strip() for p in head.split(",")]
-            if any(re.search(r"(\.inp|\.form-select)(:focus)?$", f) for f in fields):
+            if any(re.search(r"(\.inp)(:focus)?$", f) for f in fields):
                 shorthand = re.search(r"(?<![\w-])background\s*:", body)
                 assert not shorthand or "background-image" in body, (sheet, fields)
 
@@ -309,3 +309,40 @@ def test_a_panel_folds_at_the_speed_of_the_other_folds() -> None:
         r"prefers-reduced-motion: reduce\)\s*\{\s*\.setg-pg \.setg-fold \{ transition: none; \}"
     )
     assert re.search(reduced, PANELS)
+
+
+def _strip(sheet: str) -> str:
+    return re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(), flags=re.S)
+
+
+def test_a_disabled_settings_field_keeps_the_dimmed_colour() -> None:
+    css = _strip("_settings_pg.css")
+    rule = re.search(r"\.setg-pg \.inp:disabled \{([^{}]*)\}", css)
+    assert rule and "color: var(--t3)" in rule.group(1)
+
+
+def test_the_monospace_settings_field_is_16px_where_touch_would_zoom() -> None:
+    css = _strip("_settings_pg.css")
+    rule = re.search(
+        r"@media \(max-width: 639\.98px\), \(pointer: coarse\) \{\s*\.setg-pg \.inp--mono \{([^{}]*)\}",
+        css,
+    )
+    assert rule and "font-size: 16px" in rule.group(1)
+    # The 16px rule has to come after the 13px base to win.
+    assert css.index("font-size: 13px") < css.index(rule.group(0))
+
+
+def test_the_history_search_field_is_16px_on_a_touch_screen_of_any_width() -> None:
+    css = _strip("_history.css")
+    rule = re.search(
+        r"@media \(pointer: coarse\) and \(min-width: 700px\) \{(?:[^{}]*\{[^{}]*\})*?\s*\.hx-search input \{\s*font-size: 16px;",
+        css,
+    )
+    assert rule
+
+
+def test_no_stylesheet_styles_the_unused_form_input_select_and_threshold_classes() -> None:
+    for sheet in CSS.glob("*.css"):
+        text = sheet.read_text()
+        for name in (".form-input", ".form-select", ".threshold-input"):
+            assert name not in text, (sheet.name, name)

@@ -80,6 +80,9 @@
     scroll-snap-align: center;
   }
   .setg-pg .setg-rail-item > .ico { font-size: 13px; }
+@media (max-width: 639.98px), (pointer: coarse) {
+  .setg-pg .inp--mono { font-size: 16px; }
+}
   /* Active chip sits above the ::before/::after fade gradients so its edge
      never picks up a darkened band when it lands inside the 32px fade zone.
      Inactive chips stay below so the fades still cue horizontal scroll. */
@@ -257,6 +260,7 @@ html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
 @media (max-width: 639.98px), (pointer: coarse) {
   .setg-pg .inp { font-size: 16px; }
 }
+.setg-pg .inp:disabled { color: var(--t3); }
 .setg-pg .inp:focus { border-color: var(--accent); background-color: var(--s3); }
 .setg-pg .inp:focus:not(:focus-visible) { outline: 0; }
 .setg-pg .inp::placeholder { color: var(--t3); }
