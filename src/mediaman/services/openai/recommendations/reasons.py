@@ -19,13 +19,27 @@ _REASON_REFUSED = re.compile(
 )
 # Second-person wording, ids, and praise or talk of popularity that says nothing of the title.
 _EMPTY_WORDS = re.compile(
-    r"\b(?:you|your|yours|yourself|because|[HC]\d+"
+    r"\b(?:[HC]\d+"
     r"|must[- ](?:see|watch)|gripping|mind[- ]bending|edge[- ]of[- ](?:the|your)[- ]seat|buzz"
     r"|chatter|acclaimed|perfect for|everyone is talking|expected to|nostalgia[- ]driven"
     r"|hidden gem|thought[- ]provoking|heart[- ]?warming|feel[- ]good|unforgettable|masterpiece"
     r"|captivating|compelling|tour de force|genre fans|something for everyone|sure to"
     r"|roller ?coaster|smash hit|fan favou?rite|similar (?:vibe|themes?|tone)s?)\b",
     re.IGNORECASE,
+)
+# Speaking to the person: only a reason for them alone that names what led to the pick may.
+_SECOND_PERSON = re.compile(r"\b(?:you|your|yours|yourself|because)\b", re.IGNORECASE)
+# "You loved ...": a claim about what the person played, whose object must be a title that
+# led to the pick (each is "X" by then).
+_CLAIM_RE = re.compile(
+    r"\byou(?:'ve|'d|\s+have|\s+had)?(?:\s+(?:also|both|really|clearly|already|once|just))*\s+"
+    r"(?:loved|liked|enjoyed|watched|played|saw|seen|rated|finished|binged|rewatched|adored"
+    r"|devoured|stayed with|stuck with|sat through|went for|took to)\s+(?P<rest>[^.!?;]*)",
+    re.IGNORECASE,
+)
+_CLAIMED_RE = re.compile(
+    r"(?:(?:both|all of|every (?:season|episode) of|the whole of)\s+)?"
+    r"X(?:\s*(?:,\s*and|,|and|&)\s*X)*\b(?!\s*(?:,\s*and|,|and|&)\s*(?:the\s+)?[A-Z0-9])"
 )
 # What would word a pick everyone sees as one made for a person or this household.
 _PERSONAL_WORDS = re.compile(
@@ -75,9 +89,10 @@ def checked_reason(
     description: str | None = None,
 ) -> str:
     """*reason* as it may be shown, cut to whole sentences; empty when it holds an address, an
-    id, markdown, second-person wording or an empty phrase, names one of *sent_titles* that is
-    none of *own_titles* (the titles that led to the pick), copies *description*, or cannot be
-    cut. A *shared* pick's may not sound made for one person either.
+    id, markdown or an empty phrase, names one of *sent_titles* that is none of *own_titles*
+    (the titles that led to the pick), copies *description*, or cannot be cut. It may speak to
+    the person ("you") only when it is for them alone and names one of *own_titles*, and may
+    say they played or loved only those. A *shared* pick's may not sound made for one person.
     """
     if _REASON_REFUSED.search(reason) or _copies(reason, description):
         return ""
@@ -86,12 +101,50 @@ def checked_reason(
     spellings = [_without(text, own) for text in _spellings(reason)]
     if _EMPTY_WORDS.search(spellings[0]) or (shared and _PERSONAL_WORDS.search(spellings[0])):
         return ""
+    if _SECOND_PERSON.search(spellings[0]) and (shared or spellings[0] == _spellings(reason)[0]):
+        return ""
+    if any(not _CLAIMED_RE.match(m["rest"]) for m in _CLAIM_RE.finditer(spellings[0])):
+        return ""
     if any(_names(spellings, title) for title in sent_titles if title not in own):
         return ""
     if len(reason) <= _REASON_MAX_LEN:
         return reason
     ends = [m.end() for m in _SENTENCE_END_RE.finditer(reason) if m.end() <= _REASON_MAX_LEN]
     return reason[: ends[-1]] if ends else ""
+
+
+#: What the card of a pick made for everyone says: nothing of it came from this person.
+SHARED_WHY = "Chosen for everyone here, not from your own viewing."
+_NO_TITLES_WHY = "Picked for you from what you’ve been watching."
+
+
+def pick_why(
+    reason: str | None,
+    because_of: Sequence[str],
+    *,
+    own: bool,
+    disliked: Iterable[str] = (),
+) -> str:
+    """Why a pick suits the person it is shown to, never what happens in it: its own (*own*)
+    pick's *reason* where that speaks to them and names a title of *because_of* that they have
+    not since rated down (*disliked*), else a line made of those titles, else a plain one.
+    A shared pick's reason was written for everyone, so its card says so instead."""
+    if not own:
+        return SHARED_WHY
+    down = {title.casefold() for title in disliked}
+    led = [title for title in because_of if title.casefold() not in down]
+    spellings = _spellings(reason or "")
+    if (
+        reason
+        and _SECOND_PERSON.search(reason)
+        and is_tied(reason, led)
+        and not any(_names(spellings, title) for title in disliked)
+    ):
+        return reason
+    if not led:
+        return _NO_TITLES_WHY
+    named = led[0] if len(led) == 1 else f"{', '.join(led[:-1])} and {led[-1]}"
+    return f"Picked for you because you watched {named}."
 
 
 def is_tied(reason: str, own_titles: Iterable[str]) -> bool:

@@ -386,7 +386,7 @@
       cur.title = d.title || cur.title;
       cur.kind = d.kind;
       if (full && ref === cur.pickRef) takePick(cur, full);
-      else if (opts.preview && opts.preview.reason) cur.pick = { reason: opts.preview.reason, because: [], early: true };
+      else if (opts.preview && (opts.preview.why || opts.preview.reason)) cur.pick = { reason: opts.preview.why || opts.preview.reason, because: [], early: true };
       learn(ref, d);
       takeDownload(ref, d.download, !!full);
       renderContent(false);
@@ -791,7 +791,7 @@
   /* ── Why it is a pick ── */
 
   function takePick(c, data) {
-    c.pick = { reason: data.reason || '', because: data.because_of || [] };
+    c.pick = { reason: data.why || data.reason || '', because: data.because_of || [] };
   }
 
   /* A title open under its library ref says nothing of the pick it was listed as. */
@@ -803,7 +803,7 @@
       if (c.onPick) c.onPick();
       var box = c.data && body.querySelector('.ttl__reason');
       if (!box) return;
-      var fresh = pickBox(c.pick);
+      var fresh = pickBox(c.pick, c.pickRef);
       if (fresh.textContent === box.textContent) return;
       var slide = core.flip(followers(box));
       box.replaceWith(fresh);
@@ -828,8 +828,9 @@
     c.onPick = go;
   }
 
-  /* The AI label, the reason and the titles behind it; *pick* null: not known yet. */
-  function pickBox(pick) {
+  /* The AI label, the reason and the titles behind it; *pick* null: not known yet. A
+     person's own pick (*pickRef* "pick-…") says why they will like it. */
+  function pickBox(pick, pickRef) {
     var box = el('section', 'ttl__reason');
     box.setAttribute('aria-label', 'Why it’s here');
     var head = el('p', 'ttl__reason-head');
@@ -841,9 +842,10 @@
       box.appendChild(skel('skel--line', '62%'));
       return box;
     }
-    if (pick.reason || pick.because.length) head.appendChild(el('span', '', 'Why it’s here'));
+    if (pick.reason || pick.because.length) head.appendChild(el('span', '', /^pick-/.test(pickRef || '') ? 'Why you’ll like it' : 'Why it’s here'));
     if (pick.reason) box.appendChild(el('p', '', pick.reason));
-    if (pick.because.length) {
+    var named = pick.because.some(function (title) { return pick.reason.indexOf(title) >= 0; });
+    if (pick.because.length && !named) {
       var because = el('p', 'ttl__because', 'Because you played ');
       pick.because.forEach(function (title, i) {
         if (i) because.appendChild(document.createTextNode(i === pick.because.length - 1 ? ' and ' : ', '));
@@ -1444,7 +1446,7 @@
     var ratings = ratingsRow(d);
     if (ratings) main.appendChild(ratings);
     askRatings(cur);
-    if (cur.pickRef || cur.pick) main.appendChild(pickBox(cur.pick));
+    if (cur.pickRef || cur.pick) main.appendChild(pickBox(cur.pick, cur.pickRef));
     var words = cur.said || d.overview;
     if (words) main.appendChild(el('p', 'ttl__overview', words));
     if (d.draft && d.kind === 'movie') main.appendChild(el('p', 'ttl__credit')).appendChild(skel('skel--line', '200px'));

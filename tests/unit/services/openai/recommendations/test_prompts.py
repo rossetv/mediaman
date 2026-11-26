@@ -326,6 +326,48 @@ class TestPersonalPrompt:
         )
         assert [p["reason"] for p in picks] == ["", ""]
 
+    def test_a_reason_tells_the_person_why_by_what_they_played_and_nothing_made_up(
+        self, monkeypatch
+    ):
+        why = "You loved Alpha and Beta, and this is the same tense, true-to-life survival."
+        reasons = [
+            why,
+            "You loved Gravity, and this is the same lone fight to get home.",
+            "You loved Alpha and Gravity, and this is the same quiet dread.",
+            "You loved Sour, and this is just as sharp.",
+            "A heist you will like.",
+        ]
+        _answering(
+            monkeypatch,
+            [
+                {"title": f"P{n}", "media_type": "movie", "reason": r, "because_of": ["H1", "H2"]}
+                for n, r in enumerate(reasons)
+            ],
+        )
+        history = [
+            {"title": "Alpha", "type": "movie"},
+            {"title": "Beta", "type": "movie"},
+            {"title": "Sour", "type": "movie", "disliked": True},
+        ]
+
+        picks = prompts.generate_personal(None, make_portrait(history))
+
+        assert [p["reason"] for p in picks] == [why, "", "", "", ""]
+
+    def test_a_reason_naming_another_pick_of_the_answer_is_blanked(self, monkeypatch):
+        tied = "Shares Alpha's slow nights, but Tallow Hill is louder."
+        _answering(
+            monkeypatch,
+            [
+                {"title": "Brightwater", "media_type": "tv", "reason": tied, "because_of": ["H1"]},
+                {"title": "Tallow Hill", "media_type": "movie", "reason": "", "because_of": []},
+            ],
+        )
+        picks = prompts.generate_personal(
+            None, make_portrait([{"title": "Alpha", "type": "movie"}])
+        )
+        assert picks[0]["reason"] == ""
+
     def test_a_persons_titles_never_go_with_a_web_search(self, monkeypatch):
         calls = _answering(monkeypatch)
         prompts.generate_personal(

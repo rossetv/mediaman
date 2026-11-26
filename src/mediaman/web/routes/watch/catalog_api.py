@@ -44,10 +44,12 @@ from mediaman.services.media_meta.plex_watch import (
     is_in_libraries,
 )
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.openai.recommendations.reasons import pick_why
 from mediaman.services.openai.recommendations.repository import (
     SuggestionDetail,
     fetch_suggestion_by_id,
 )
+from mediaman.services.openai.recommendations.taste import disliked_titles
 from mediaman.services.openai.recommendations.user_picks import fetch_pick
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import parse_execute_at
@@ -606,6 +608,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "in_collection": False,
         "trailer_key": None,
         "reason": None,
+        "why": None,
         "ai_pick": False,
         "because_of": [],
         "play": None,
@@ -1250,7 +1253,14 @@ def _recommended_title(
             pass  # What was stored is better than none.
     if out is None:
         out = _stored_title(request, conn, username, client, ref, rec, download_url)
-    out.update(reason=rec.reason or None, ai_pick=True, because_of=list(rec.because_of))
+    disliked = disliked_titles(conn, username) if kind == "pick" else []
+    down = {title.casefold() for title in disliked}
+    out.update(
+        reason=rec.reason or None,
+        why=pick_why(rec.reason, rec.because_of, own=kind == "pick", disliked=disliked),
+        ai_pick=True,
+        because_of=[title for title in rec.because_of if title.casefold() not in down],
+    )
     return out
 
 

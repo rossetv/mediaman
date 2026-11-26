@@ -113,31 +113,32 @@ _CHOOSING = """How to choose:
 """
 
 _WORDING = """- One or two short sentences, at most 180 characters in total.
-- Concrete and true of this title alone: its maker, setting, form, tone or situation. A sentence that would fit ten other titles is wrong.
 - Never retell the plot. No twists, deaths or endings, and nothing a viewer is meant to find out: if the surprise is what the title is, how its puzzle works or who someone proves to be, write of its maker, setting, form or tone instead. Do not copy a description.
 - Plain British English. No hype and no popularity talk. Do not use: must-see, gripping, mind-bending, compelling, captivating, thought-provoking, heart-warming, hidden gem, buzz, acclaimed, perfect for, similar themes, expected to.
-- No awards, scores, box office, dates or streaming service.
-- Never write "you", "your", "we" or "because", and no ids.
+- No awards, scores, box office, dates or streaming service, and no ids.
 - If you are unsure of a fact, leave it out."""
 
 #: How a reason for one person is written.
 PERSONAL_WORDING = f"""How to write "reason":
-- Name one title from because_of, spelled as in the list, and the concrete thing this pick shares with it. Then say what is different here. Name no other title.
+- Tell this person, warmly and as "you", why they will like it: name the one or two titles of its because_of, spelled as in the list, and the concrete thing this pick shares with them (maker, setting, form, tone or subject). Say what it is like to watch, not what happens in it.
+- Name no other title, and never say they played, loved or watched anything not in because_of. Say "loved" only of a title they finished, watched again or rated up; else "watched".
 {_WORDING}
-- Vary the shape across the set: where the title is named, what kind of fact links them, one sentence or two. At most three in the whole set may set one title against the other with "here", and at most one may open with "Like", "As in" or the like.
+- Vary the shape across the set: how it opens, where the titles come, one sentence or two. At most three in the whole set may set one title against the other with "here", and at most one may open with "Like", "As in" or the like.
 
 Good, each a shape of its own:
-"The director of The Lantern Clerk left the coast for a hotel kitchen and kept the long silences."
-"Five strangers, one locked room and no music: the stage-play feel of Tessera Station in a third of the time."
-"Filmed in one harbour over a winter, with the dry humour of The Lantern Clerk."
-Bad: "Like The Lantern Clerk, it is a gripping thriller with similar themes."
+"You loved The Lantern Clerk and Tessera Station, and this is the same tense, true-to-life survival at sea."
+"Five strangers, one locked room and no music: if Tessera Station kept you up, this will too."
+"You finished The Lantern Clerk twice; the same director keeps its long silences, now in a hotel kitchen."
+Bad: "A clerk finds a letter and must decide whether to open it." (that is the plot, not why)
 The good examples are invented. Copy their manner, not their words."""
 
 #: How a reason everyone sees is written.
 SHARED_WORDING = f"""How to write "reason":
 - It is read by everyone, so it knows nothing of anyone's viewing. Say what sets this title apart from others of its kind, then, if there is room, what taste it suits.
 - Name no other movie or show.
+- Concrete and true of this title alone: its maker, setting, form, tone or situation. A sentence that would fit ten other titles is wrong.
 {_WORDING}
+- Never write "you", "your", "we" or "because".
 
 Good: "A heist told almost in real time, with no music and one location. Suits anyone who enjoys planning as much as action."
 Bad: "A gripping thriller expected to delight genre fans."
@@ -230,9 +231,12 @@ def parse_recommendations(
     item with a warning; a failing reason is blanked (see checked_reason) and the pick kept.
 
     *sent_titles* are the titles the prompt named, *titles_by_id* those it gave an id and
-    *originals* how those were spelled before sanitising.
+    *originals* how those were spelled before sanitising. A reason may name none of them but
+    those that led to its pick, nor another pick of the answer.
     """
     sent = list(sent_titles)
+    # The other picks were never played, so no reason may name one either.
+    picked = [str(item.get("title") or "").strip() for item in items[:_ASK_FOR]]
     results: list[RecommendationItem] = []
     for item in items[:_ASK_FOR]:
         raw_title = str(item.get("title") or "")
@@ -248,7 +252,7 @@ def parse_recommendations(
         because_of = because_of_titles(item.get("because_of"), titles_by_id or {})
         reason = checked_reason(
             reason,
-            sent,
+            [*sent, *(other for other in picked if other and other != raw_title.strip())],
             own_titles=own_spellings(because_of, originals or {}),
             shared=category == "trending",
         )
