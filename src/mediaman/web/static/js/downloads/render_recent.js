@@ -129,7 +129,7 @@
         if (d.isCollapsing(rowEl)) d.reveal(rowEl);
         row().updateUpcomingRow(rowEl, item);
       } else {
-        rowEl = listEl.appendChild(d.buildUpcomingRow(item));
+        rowEl = d.placeInOrder(listEl, d.buildUpcomingRow(item), upcoming, i);
         if (!opening) d.reveal(rowEl);
       }
     }

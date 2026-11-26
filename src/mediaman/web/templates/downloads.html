@@ -19,7 +19,9 @@
 
   <div class="ph">
     <h1>Downloads</h1>
-    {% if subtitle %}<p>{{ subtitle }}</p>{% endif %}
+    {#- A viewer's outage with nothing in progress is said by the card below. -#}
+    {% set line = (upcoming|length ~ " coming soon" if upcoming else "") if outage and not can_abandon and not hero and not queue else subtitle %}
+    {% if line %}<p>{{ line }}</p>{% endif %}
   </div>
 
   {% if hero %}

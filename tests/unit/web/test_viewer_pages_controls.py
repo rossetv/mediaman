@@ -154,7 +154,7 @@ def test_an_outage_is_shown_to_every_role_and_never_as_all_caught_up(make_client
     if role == "admin":
         assert "reach Radarr and Sonarr" in html
     else:
-        assert "Downloads aren&#39;t available" in html
+        assert "Downloads can&#39;t be checked right now" in html
         assert "Radarr and Sonarr" not in html
 
 

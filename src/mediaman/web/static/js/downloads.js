@@ -63,35 +63,52 @@
     return rankOf(state ? state[1] : '');
   }
 
-  /* Rows keep their place among those of the same state. A row that moves and those it
-     passes slide to their places as a row that leaves does, as long as motion is wanted;
-     one just drawn (*fresh*) has no place to come from. */
-  function orderRows(list, fresh) {
-    var dom = buildDom();
+  /* Rows keep their place among those of the same state. */
+  function orderRows(list) {
     var rows = Array.prototype.slice.call(list.querySelectorAll('.dl-compact'));
     var ranks = rows.map(stateRank);
     var order = rows.map(function (_, i) { return i; }).sort(function (a, b) { return ranks[a] - ranks[b] || a - b; });
+    if (!order.some(function (at, i) { return at !== i; })) return;
     var next = list.firstElementChild;
     var active = document.activeElement;
-    var moves = order.some(function (at, i) { return at !== i; });
-    var from = moves && !dom.reducedMotion() ? rows.map(function (row) { return row.getBoundingClientRect().top; }) : null;
     /* A row put back in the list would play its entrance again, over the slide. */
-    if (from) rows.forEach(function (row) { row.classList.remove('dl-card-enter'); });
+    rows.forEach(function (row) { row.classList.remove('dl-card-enter'); });
     order.forEach(function (i) {
       if (rows[i] === next) next = next.nextElementSibling;
       else list.insertBefore(rows[i], next);
     });
-    if (from) rows.forEach(function (row, i) { if (fresh.indexOf(row) === -1) slideFrom(row, from[i]); });
     /* A row loses the focus in it when it moves. */
     if (active && document.activeElement !== active && list.contains(active)) active.focus({ preventScroll: true });
   }
 
-  /* A row that is now at another height than it was starts from there and eases to its place. */
+  /* Where each row of a list is seen, read before a poll changes any, as long as motion is
+     wanted. */
+  function placesOf(list) {
+    if (!list || buildDom().reducedMotion()) return [];
+    var top = list.getBoundingClientRect().top;
+    return Array.prototype.map.call(list.children, function (row) {
+      return { row: row, at: row.getBoundingClientRect().top - top };
+    });
+  }
+
+  /* Rows now elsewhere in their list than they were seen, whether they moved or one above
+     them changed height, start from there and ease to their places. */
+  function slideRows(list, places) {
+    if (!places.length) return;
+    var dom = buildDom();
+    var top = list.getBoundingClientRect().top;
+    places.forEach(function (place) {
+      if (place.row.parentNode === list && !dom.isCollapsing(place.row)) slideFrom(place.row, place.at + top);
+    });
+  }
+
   function slideFrom(row, top) {
+    var run = row._dlSlide = {};
+    /* Its place, without what is left of a slide still running. */
+    row.classList.remove('is-sliding');
+    row.style.transform = '';
     var by = top - row.getBoundingClientRect().top;
     if (!(Math.abs(by) >= 1)) return;
-    var run = row._dlSlide = {};
-    row.classList.remove('is-sliding');
     row.style.transform = 'translateY(' + by + 'px)';
     void row.offsetHeight;
     row.classList.add('is-sliding');
@@ -105,17 +122,18 @@
   }
 
   /* The server's line counts what it lists. While a viewer is told only that downloads are
-     not available, the rows beside it are those that may be missing. */
+     not available, the rows beside it are those that may be missing; with none, the card
+     says it, and the line is left to what is coming. */
   function subtitleFor(dom, data) {
     var viewer = !dom.canAbandonHere();
     if (!data.outage || !viewer) return data.subtitle;
     var active = shownIn(dom, document.getElementById('dl-hero-container'), '.dl-hero')
       .concat(shownIn(dom, document.getElementById('dl-queue-container'), '.dl-compact'));
     var coming = shownIn(dom, document.getElementById('dl-upcoming-container'), '.dl-upcoming-row');
-    if (!active.length) return data.subtitle;
-    var soon = coming.length ? ' · ' + coming.length + ' coming soon' : '';
-    return active.length + ' item' + (active.length !== 1 ? 's' : '') + ' in progress' + soon +
-      ' · some may be missing';
+    var soon = coming.length ? coming.length + ' coming soon' : '';
+    if (!active.length) return soon;
+    return active.length + ' item' + (active.length !== 1 ? 's' : '') + ' in progress' +
+      (soon ? ' · ' + soon : '') + ' · some may be missing';
   }
 
   function updateSubtitle(dom, header, text) {
@@ -142,6 +160,8 @@
     var emptyContainer = document.getElementById('dl-empty-container');
     var recentContainer = document.getElementById('dl-recent-container');
     var header = root.querySelector('.ph');
+    var queuePlaces = placesOf(document.getElementById('dl-queue-list'));
+    var upcomingPlaces = placesOf(document.getElementById('dl-upcoming-list'));
 
     /* Hero — the card is rebuilt when the container was emptied by an
        earlier poll that had no hero. */
@@ -198,12 +218,11 @@
           if (dom.isCollapsing(row)) dom.reveal(row);
           renderRow().updateCompactRow(row, item);
         } else {
-          row = dom.buildCompactRow(item);
-          list.appendChild(row);
-          added.push(row);
+          added.push(dom.placeInOrder(list, dom.buildCompactRow(item), queue, i));
         }
       }
-      orderRows(list, added);
+      orderRows(list);
+      slideRows(list, queuePlaces);
       if (!opening) added.forEach(dom.reveal);
       dom.dropAbsent(list.querySelectorAll('.dl-compact'), present);
       if (opening) dom.reveal(queueContainer);
@@ -234,6 +253,8 @@
 
     /* Upcoming */
     renderRecent().updateUpcomingList(root, data);
+    var upcomingList = document.getElementById('dl-upcoming-list');
+    if (upcomingList) slideRows(upcomingList, upcomingPlaces);
 
     /* Recent */
     if (data.recent) renderRecent().updateRecent(recentContainer, data.recent);

@@ -10,6 +10,14 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
+
+from fastapi.templating import Jinja2Templates
+from fastapi.testclient import TestClient
+
+from mediaman.web.auth.session_store import create_session
+from mediaman.web.routes.downloads import router as downloads_router
+from tests.helpers.factories import insert_admin_user
 
 HARNESS = Path(__file__).parent / "js" / "downloads_harness.js"
 CSS = Path(__file__).parents[3] / "src/mediaman/web/static/css"
@@ -103,7 +111,8 @@ def test_an_admin_and_a_viewer_are_shown_the_same_rows_in_an_outage() -> None:
 
 
 def test_through_an_outage_rows_stay_in_order_of_state() -> None:
-    assert _run("outageOrder")["rows"] == ["sonarr:q4", "Other.2024", "sonarr:q2"]
+    # a new row takes its place in the server's list, within its state
+    assert _run("outageOrder")["rows"] == ["Other.2024", "sonarr:q4", "sonarr:q2"]
 
 
 def test_what_a_service_answers_in_part_is_drawn_from_the_answer() -> None:
@@ -420,6 +429,62 @@ def test_a_row_that_changes_place_slides_with_those_it_passes_unless_motion_is_o
         leave
         and f"transform {leave[1]}" in css.split(".dl-compact.is-sliding {", 1)[1].split("}", 1)[0]
     )
+
+
+def test_rows_below_a_row_that_grows_slide_down_unless_motion_is_off() -> None:
+    out = _run("rowGrows")
+    assert out["moving"]["sliding"] == [False, True]
+    assert out["moving"]["from"] == ["", "translateY(-43px)"]
+    assert out["reduced"]["sliding"] == [False, False]
+
+
+def test_a_row_that_moves_again_mid_slide_starts_from_where_it_is_seen() -> None:
+    assert _run("slideAgain") == [["q2", "translateY(40px)"], ["q1", "translateY(-100px)"]]
+
+
+def test_rows_that_come_back_take_the_servers_order() -> None:
+    out = _run("returnOrder")
+    assert out["upcoming"] == ["u1", "u2", "u3"]
+    assert out["queue"] == ["q1", "q2", "q3"]
+
+
+def test_a_viewers_outage_with_nothing_in_progress_is_said_once() -> None:
+    out = _run("viewerOutageLine")
+    assert out["viewer"] == []
+    assert out["viewerSoon"] == ["1 coming soon"]
+    assert out["admin"] == ["Can't reach Radarr"]
+
+
+def test_the_server_says_a_viewers_outage_once(app_factory, conn) -> None:
+    insert_admin_user(conn, username="person", role="viewer")
+    app = app_factory(downloads_router, conn=conn)
+    app.state.templates = Jinja2Templates(directory=str(CSS.parents[1] / "templates"))
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, "person"))
+    down = {
+        "hero": None,
+        "queue": [],
+        "upcoming": [],
+        "recent": [],
+        "subtitle": "Can't reach Radarr",
+        "unreachable": ["Radarr"],
+        "refused": [],
+        "outage": "Can't reach Radarr",
+        "downloads_set_up": {"movies": True, "shows": True},
+    }
+    with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=down):
+        page = client.get("/downloads").text
+    header = page.split('class="ph"', 1)[1].split("</div>", 1)[0]
+    assert "<p>" not in header
+    assert "Downloads can&#39;t be checked right now" in page
+    assert "Radarr" not in page
+
+
+def test_in_forced_colours_a_row_has_the_edge_the_top_card_has() -> None:
+    forced = (CSS / "_dl.css").read_text().split("@media (forced-colors: active) {", 1)[1]
+    edges = re.findall(r"([^{}]+)\{[^}]*border: 1px solid CanvasText", forced)
+    assert any(".dl-hero" in sel for sel in edges)
+    assert any(re.search(r"(^|,)\s*\.dl-row\s*(,|$)", sel) for sel in edges)
 
 
 def test_a_poster_that_is_missing_or_does_not_load_is_stood_for_by_a_mark() -> None:

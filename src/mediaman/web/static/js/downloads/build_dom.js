@@ -20,6 +20,7 @@
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.recentWords(r)            the line under a recent item's title
  *   MM.downloads.buildDom.buildEmptyState(outage, setUp, refused)
+ *   MM.downloads.buildDom.placeInOrder(list, row, items, at)  a new row where the server lists it
  *   MM.downloads.buildDom.dropAbsent(rows, present)  close the rows the payload no longer lists
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
@@ -730,6 +731,16 @@
     if (hero && hero.updateSearchHint) hero.updateSearchHint(card, item);
   }
 
+  /* Put a new row of `items[at]` where the server lists it: before the row of the first item
+     listed after it that has one, else last. */
+  function placeInOrder(list, row, items, at) {
+    for (var i = at + 1; i < items.length; i++) {
+      var next = MM.dom.findByAttr(list, 'data-dl-id', items[i].id);
+      if (next && next.parentNode === list) return list.insertBefore(row, next);
+    }
+    return list.appendChild(row);
+  }
+
   /* Close the rows whose item is gone. `present` maps the ids the payload has to true, or
      to false for one shown elsewhere on the page. With none left to show, the rows are not
      closed one by one, since the section closes with them. */
@@ -825,6 +836,7 @@
     buildEmptyState:      buildEmptyState,
     canAbandonHere:       canAbandonHere,
     reducedMotion:        reducedMotion,
+    placeInOrder:         placeInOrder,
     dropAbsent:           dropAbsent,
     buildUpcomingRow:     buildUpcomingRow,
     buildCompactRow:      buildCompactRow,
