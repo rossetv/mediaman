@@ -496,8 +496,13 @@ class TestAsk:
 
     def test_a_refused_key_ends_the_run_as_unavailable(self, amy, monkeypatch):
         self._openai_fails(monkeypatch, SafeHTTPError(401, "", "https://api.openai.com"))
-        found = _ask(amy)
-        assert (found["status"], found.get("error")) == ("failed", "unavailable")
+        assert _ask(amy)["error"] == "unavailable"
+
+    def test_a_key_known_refused_offers_no_question(self, amy, model, monkeypatch):
+        monkeypatch.setattr(openai_client, "_refused_key", openai_client._digest("sk-test"))
+        assert amy.get(BASE).json()["available"] is False
+        assert _ask(amy)["error"] == "unavailable"
+        assert model.prompts == []
 
     def test_openai_out_of_reach_is_a_failure_that_may_be_tried_again(self, amy, monkeypatch):
         self._openai_fails(monkeypatch, requests.Timeout("slow"))
@@ -691,6 +696,7 @@ class TestRuns:
     ):
         monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: None)
         monkeypatch.setattr(prompts, "call_openai", model)
+        monkeypatch.setattr(prompts, "ask_openai", model)
         _own(conn, 1, 2, 3, 5, 6)
         for tmdb_id in (1, 2, 3, 5, 6):
             _play(conn, str(100 + tmdb_id))

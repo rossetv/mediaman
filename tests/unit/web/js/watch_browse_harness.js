@@ -789,6 +789,7 @@ const scenarios = {
       few: await at(MINE.few),
       noKeyViewer: await at(MINE.noKey),
       noKeyAdmin: await at(MINE.noKey, { admin: true }),
+      refused: await at({ ...MINE.noKey, reason: 'unavailable' }),
       off: !!rec(off.doc).querySelector('.rec-line'),
     };
   },

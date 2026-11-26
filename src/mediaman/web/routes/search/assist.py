@@ -30,7 +30,7 @@ from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai import search_assist as ai
-from mediaman.services.openai.client import OpenAIUnavailable, get_openai_key
+from mediaman.services.openai.client import OpenAIUnavailable, get_openai_key, key_refused
 from mediaman.services.openai.recommendations.plays import person_plays
 from mediaman.services.openai.search_assist import tonight
 from mediaman.services.rate_limit import ActionRateLimiter
@@ -116,8 +116,13 @@ def _has_openai_key(request: Request, conn: sqlite3.Connection) -> bool:
 
 
 def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
-    """TMDB's client where the AI can be used: it answers only with titles TMDB knows."""
-    if repo.switched_off(conn) or not _has_openai_key(request, conn):
+    """TMDB's client where the AI can be used: it answers only with titles TMDB knows. Not
+    while OpenAI is known to refuse the key."""
+    if (
+        repo.switched_off(conn)
+        or not _has_openai_key(request, conn)
+        or key_refused(conn, _secret(request))
+    ):
         return None
     return TmdbClient.from_db(conn, _secret(request), timeout=_TMDB_TIMEOUT_S, retry=False)
 

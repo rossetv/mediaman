@@ -780,6 +780,7 @@
     if (mine.reason === 'daily_limit' && state === 'cooldown') return 'That’s all the refreshes for now.';
     if (mine.reason === 'not_enough_plays') return ((payload.items || []).length && !ownOf(payload) ? 'For everyone. ' : '') + 'Play five titles and these become yours.';
     if (mine.reason === 'not_configured' && isAdmin) return NO_KEY;
+    if (mine.reason === 'unavailable') return OFF;
     if (ownFailed) return ownOff ? OFF : 'Couldn’t make new ones.' + (state === 'ready' ? ' Try again.' : '');
     var items = payload.items || [];
     if (ownOf(payload)) {

@@ -13,7 +13,7 @@ import requests
 from plexapi.exceptions import PlexApiException
 
 from mediaman.core.time import now_utc
-from mediaman.services.openai.client import get_openai_key
+from mediaman.services.openai.client import OpenAIUnavailable, get_openai_key, key_refused
 from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations._types import RecommendationItem
 from mediaman.services.openai.recommendations.enrich import (
@@ -102,10 +102,13 @@ def refresh_people(
     clock: Callable[[], float] = time.monotonic,
 ) -> int:
     """Make the picks of up to ten people one after another, none begun after five minutes;
-    returns for how many. One person's failure leaves their old picks and the others alone."""
+    returns for how many. One person's failure leaves their old picks and the others alone;
+    no answer from OpenAI ends the scan's picks, since the next person would get none either."""
     try:
         get_openai_key(conn, secret_key)
     except ValueError:
+        return 0
+    if key_refused(conn, secret_key):
         return 0
     started = clock()
     made = 0
@@ -116,6 +119,8 @@ def refresh_people(
             run = user_picks.start_run(conn, username, "scan", now_utc())
             if isinstance(run, int):
                 made += make_picks(conn, username, plex_client, run, secret_key=secret_key) > 0
+        except OpenAIUnavailable:
+            break  # the client has said why in one line
         except Exception:  # rationale: one bad run must not cost the others theirs
             logger.exception("Making a person's picks failed")
     return made
@@ -131,12 +136,17 @@ def make_picks(
     clock: Callable[[], float] = time.monotonic,
 ) -> int:
     """Make *username*'s picks as run *run_id*, ending it; returns how many. With none, their
-    earlier batch stays."""
+    earlier batch stays. A run that OpenAI refused the key for ends "unavailable", which holds
+    nobody back; OpenAIUnavailable is raised again."""
     count = 0
+    failed = "failed"
     try:
         count = _make(conn, username, plex_client, run_id, secret_key, clock)
+    except OpenAIUnavailable as exc:
+        failed = "unavailable" if exc.refused else "failed"
+        raise
     finally:
-        user_picks.finish_run(conn, run_id, "done" if count else "failed", now_utc())
+        user_picks.finish_run(conn, run_id, "done" if count else failed, now_utc())
     return count
 
 

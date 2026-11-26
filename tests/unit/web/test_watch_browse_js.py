@@ -210,6 +210,10 @@ def test_the_line_says_why_there_are_no_new_picks_to_be_had() -> None:
     )
     assert (out["noKeyViewer"]["text"], out["noKeyViewer"]["button"]) == ("For everyone.", None)
     assert "OpenAI key" in out["noKeyAdmin"]["text"]
+    assert (out["refused"]["text"], out["refused"]["button"]) == (
+        "AI isn’t available right now.",
+        None,
+    )
     assert {v["posts"] for k, v in out.items() if k != "off"} == {0}
     assert out["off"] is False
 
