@@ -389,13 +389,22 @@ const scenarios = {
     h.ctx.MM.api = { put: () => Promise.reject({ status: 422, data: { detail } }), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
     h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    // An 844px screen: the row sits clear of the bar until the bar grows from 80px to 231px to hold the error.
+    bar.getBoundingClientRect = () => ({ top: 844 - (bar.classList.contains('is-error') ? 231 : 80), bottom: 844 });
+    row.place = { top: 700, bottom: 744 };
+    h.ctx.scrollBy = (x, y) => { row.place = { top: row.place.top - y, bottom: row.place.bottom - y }; };
     h.load('settings/savebar.js');
     h.ctx.MM.settings.savebar.init({});
     input.value = 'http://localhost'; input.fire('input');
     save.focus();
     save.fire('click');
     await h.flush();
-    return { revealed: h.doc.revealed.map((r) => r[0]), focus: h.doc.activeElement && h.doc.activeElement.id };
+    h.timers.splice(0).filter((t) => t.ms === 16).forEach((t) => t.fn());
+    return {
+      revealed: h.doc.revealed.map((r) => r[0]),
+      focus: h.doc.activeElement && h.doc.activeElement.id,
+      roomAboveBar: bar.getBoundingClientRect().top - row.place.bottom,
+    };
   },
 
   // The settings a save sends.

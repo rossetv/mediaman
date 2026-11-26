@@ -454,7 +454,14 @@
     var first = data && Array.isArray(data.detail) && data.detail[0];
     var loc = first && Array.isArray(first.loc) ? first.loc.filter(function (p) { return p !== 'body'; }) : [];
     var field = typeof loc[0] === 'string' && document.getElementById(loc[0]);
-    if (field) (field.closest('.setg-row') || field).scrollIntoView({ block: 'nearest' });
+    if (!field) return;
+    var row = field.closest('.setg-row') || field;
+    // A frame on, the bar has grown to hold the error, which the page's room for it does not know yet.
+    requestAnimationFrame(function () {
+      row.scrollIntoView({ block: 'nearest' });
+      var under = savebar ? row.getBoundingClientRect().bottom - savebar.getBoundingClientRect().top + 11 : 0;
+      if (under > 0) window.scrollBy(0, under);
+    });
   }
 
   function init(opts) {
