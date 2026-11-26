@@ -68,13 +68,18 @@ def payload_for(
 
 def with_retrying(conn: sqlite3.Connection, data: DownloadsResponse) -> DownloadsResponse:
     """*data* with each download that needs attention saying whether mediaman will look for
-    another copy of it unasked."""
+    another copy of it unasked: not while another copy of its title still downloads."""
+    items = [data["hero"], *data["queue"]] if data["hero"] else data["queue"]
+    downloading = {i.get("retry_key") for i in items if i.get("state") == "downloading"}
 
     def marked(item: dict[str, object]) -> dict[str, object]:
         key = item.get("retry_key")
         if item.get("state") != "needs_attention" or not isinstance(key, str) or not key:
             return item
-        return {**item, "retrying": will_retry(conn, key, [str(item.get("attention") or "")])}
+        retrying = key not in downloading and will_retry(
+            conn, key, [str(item.get("attention") or "")]
+        )
+        return {**item, "retrying": retrying}
 
     return cast(
         DownloadsResponse,

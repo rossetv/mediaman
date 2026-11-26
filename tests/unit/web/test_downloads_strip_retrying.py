@@ -47,3 +47,27 @@ def test_a_download_whose_tries_are_spent_is_not_said_to_be_tried_again(stuck, v
     )
     conn.commit()
     assert _item(viewer)["retrying"] is False
+
+
+def test_a_stuck_copy_beside_another_still_downloading_is_not_said_to_be_tried_again(
+    services,  # noqa: F811
+    stuck,
+    viewer,  # noqa: F811
+    conn,
+):
+    radarr = services[0]
+    (record,) = radarr.get_queue.return_value
+    downloading = {
+        **record,
+        "status": "downloading",
+        "trackedDownloadStatus": "ok",
+        "trackedDownloadState": "downloading",
+        "statusMessages": [],
+        "sizeleft": 400,
+        "downloadId": "12",
+    }
+    radarr.get_queue.return_value = [record, downloading]
+    items = _get(viewer).json()["items"]
+
+    held = [i for i in items if i["state"] == "needs_attention"]
+    assert held and all(i["retrying"] is False for i in held)

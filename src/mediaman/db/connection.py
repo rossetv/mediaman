@@ -149,6 +149,8 @@ _ADDED_COLUMNS = (
     ("admin_sessions", "device_label", "TEXT"),
     ("admin_sessions", "public_id", "TEXT"),
     ("audit_log", "actor_id", "INTEGER"),
+    ("arr_import_retries", "tried_at", "TEXT"),
+    ("arr_import_retries", "tried_episodes", "TEXT"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.
