@@ -43,16 +43,36 @@ _FAILURES_MAX = 2
 # How long the wait for a check lasts before a stop is looked for again.
 _POLL_S = 0.25
 # A question about the asker ("films I would like", "something like what we watched").
-_PERSONAL_RE = re.compile(r"\b(?:i|me|my|mine|myself|we|our|ours)\b", re.IGNORECASE)
+_PRONOUNS = frozenset({"i", "me", "my", "mine", "myself", "we", "our", "ours"})
+_WORD_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?")
+# Words a roman numeral follows: "World War I", "Episode I".
+_NUMBERED = frozenset({"part", "episode", "chapter", "war", "volume", "vol", "book", "act"})
 # "Because you liked Alibi: ...": a claim of what the person liked, or else played. A title
 # may hold ": " too.
 _LEAD_RE = re.compile(r"^because you(?:'ve| have)? (?P<how>\w+) ", re.IGNORECASE)
 _LIKED = frozenset({"liked", "loved", "enjoyed", "adored", "rated"})
 _COLON_RE = re.compile(r"\s*:\s+")
+# Where a lead without a colon may end: "Because you liked Alibi, a ..." or "... Alibi – a ...".
+_CUT_RE = re.compile(r"\s*,\s+|\s+[-–—]\s+")
 
 
 def is_personal(text: str) -> bool:
-    return bool(_PERSONAL_RE.search(text))
+    """Whether *text* speaks of the asker; a pronoun that is part of a title does not count:
+    one after "like" ("films like Me Before You") or a numeral ("World War I", "Rocky I")."""
+    found = _WORD_RE.findall(text)
+    for at, word in enumerate(found):
+        head, _, tail = word.partition("'")
+        if head.casefold() not in _PRONOUNS:
+            continue
+        before = found[at - 1] if at else ""
+        if before.casefold() == "like":
+            continue
+        numeral = word == "I" and (
+            before.casefold() in _NUMBERED or (at == len(found) - 1 and before[:1].isupper())
+        )
+        if not numeral:
+            return True
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +88,8 @@ class Question:
     narrowing: tuple[str, ...] = ()
     #: Titles left out of the answer by (kind, TMDB id): of a personal question, those played.
     skip: frozenset[tuple[str, int]] = frozenset()
+    #: As *skip*, by (kind, normalised title), for those TMDB was never matched to.
+    skip_titles: frozenset[tuple[str, str]] = frozenset()
 
 
 class AnswerTitle(TypedDict):
@@ -81,6 +103,8 @@ class AnswerTitle(TypedDict):
     season_count: int | None
     genre: str | None
     reason: str
+    #: The "Because you liked <title>" *reason* starts with, kept as it names one of theirs.
+    reason_lead: str | None
 
 
 class AssistAnswer(TypedDict):
@@ -215,11 +239,11 @@ def make_answer(
                     # Counted as checks end, so the first two to fail end it, whichever they are.
                     failures += 1
                     continue
-                if title is None or (title["media_type"], title["tmdb_id"]) in question.skip:
+                if title is None or _skipped(title, question):
                     continue
-                reason = _honest(title["reason"], known)
+                reason, lead = _honest(title["reason"], known)
                 if reason:
-                    title["reason"] = reason
+                    title["reason"], title["reason_lead"] = reason, lead
                     checked[at] = title
             if done:
                 found_so_far(_in_order(checked))
@@ -245,23 +269,36 @@ def _in_order(checked: dict[int, AnswerTitle]) -> list[AnswerTitle]:
     return list(seen.values())
 
 
-def _honest(reason: str, taste: Taste) -> str:
-    """*reason* without a "Because you liked <title>:" that names no title of the person's
-    own: one they liked for "liked", one they played for "watched" and the like. Empty when
-    nothing is left of it."""
+def _skipped(title: AnswerTitle, question: Question) -> bool:
+    kind = title["media_type"]
+    named = (kind, normalise_title(title["title"]))
+    return (kind, title["tmdb_id"]) in question.skip or named in question.skip_titles
+
+
+def _honest(reason: str, taste: Taste) -> tuple[str, str | None]:
+    """*reason* without a "Because you liked <title>" lead that names no title of the person's
+    own: one they liked for "liked", one they played for "watched" and the like; and the lead
+    when it was kept. Empty when nothing is left of it."""
     lead = _LEAD_RE.match(reason)
     if lead is None:
-        return reason
+        return reason, None
     theirs = taste.liked if lead["how"].casefold() in _LIKED else taste.played
     after = reason[lead.end() :]
     colons = list(_COLON_RE.finditer(after))
-    if not colons:
-        # Not the shape asked for: the claim runs through the whole of it.
-        return reason if names_any(reason, theirs) else ""
-    if any(_is_one_of(after[: c.start()], theirs) for c in colons):
-        return reason
-    rest = after[colons[-1].end() :]
-    return rest[:1].upper() + rest[1:] if words(rest) else ""
+    # Without a colon, not the shape asked for: the title ends at a comma or a dash, if anywhere.
+    cuts = colons or list(_CUT_RE.finditer(after))
+    # The last that names one of theirs: a title may hold ": " or ", " too.
+    for cut in reversed(cuts):
+        if _is_one_of(after[: cut.start()], theirs):
+            return reason, reason[: lead.end() + cut.start()]
+    if colons:
+        rest = after[colons[-1].end() :]
+    elif names_any(reason, theirs):
+        return reason, None
+    else:
+        # Only the lead goes: up to where it ends, or the words that make it.
+        rest = after[cuts[0].end() :] if cuts else after
+    return (rest[:1].upper() + rest[1:] if words(rest) else ""), None
 
 
 def _is_one_of(named: str, titles: Sequence[str]) -> bool:
@@ -323,4 +360,5 @@ def _checked(client: TmdbClient, item: dict[str, object], question: Question) ->
         season_count=meta["season_count"],
         genre=next(iter(meta["genres"]), None),
         reason=reason,
+        reason_lead=None,
     )

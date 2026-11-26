@@ -164,14 +164,15 @@ def phrases_due(conn: sqlite3.Connection, user_id: int, now: datetime) -> bool:
 
 def taste_stamp(conn: sqlite3.Connection, user_id: int, username: str) -> str:
     """What changes when the person's taste does: a play that counts, or a rating. A saved
-    position alone changes nothing of it."""
+    position alone changes nothing of it: plays are counted, as every save while playing moves
+    their times."""
     row = conn.execute(
         "SELECT (SELECT MAX(updated_at) FROM user_ratings WHERE user_id = :id),"
         " (SELECT COUNT(*) FROM user_ratings WHERE user_id = :id),"
-        " (SELECT MAX(credited_at) FROM watch_progress WHERE username = :name),"
-        " (SELECT MAX(seen_at) FROM watch_progress WHERE username = :name),"
-        " (SELECT MAX(viewed_at) FROM plex_plays WHERE username = :name),"
-        " (SELECT MAX(played_at) FROM played_titles WHERE username = :name)",
+        " (SELECT COUNT(*) FROM watch_progress WHERE username = :name"
+        " AND (credited_at IS NOT NULL OR seen_at IS NOT NULL OR watched = 1)),"
+        " (SELECT COUNT(*) FROM plex_plays WHERE username = :name),"
+        " (SELECT COUNT(*) FROM played_titles WHERE username = :name)",
         {"id": user_id, "name": username},
     ).fetchone()
     return "|".join(str(v) for v in row)
