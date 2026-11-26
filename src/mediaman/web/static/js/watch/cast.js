@@ -1,8 +1,8 @@
 /* Watch: the people of a title, in its detail, on MMWatch.cast. Resting on one,
  * or coming to one by the keyboard, opens a card out of their photo; a press
  * opens their page (watch/explore.js), to which the photo flies, and from which
- * it flies home. What a card says is asked for once a person, two at a time.
- * Needs watch/core.js; used by watch/detail.js, which holds the overlay.
+ * it flies home; so does a scroll down over the card. What a card says is asked for once a person, two at a time.
+ * Needs watch/core.js and watch/carry.js; used by watch/detail.js, which holds the overlay.
  */
 (function () {
   'use strict';
@@ -355,6 +355,7 @@
     folding = null;
     if (was) was.item.removeAttribute('aria-describedby');
     live = p;
+    openedAt = now();
     card.hidden = false;
     if (!shown || shown.of !== p || shown.state !== stateOf(p)) draw(p);
     if (was) {
@@ -496,6 +497,58 @@
     disarm();
     close();
   });
+  /* ── A scroll down over an open card opens their page, as one over a title's preview opens
+     the title's. Wheel events less than GAP_MS apart are one scroll; its first says whose it is,
+     and it stays theirs to its last, momentum and all: one begun on the title's page goes on
+     scrolling it over any card it passes, and the rest of one that opened a page moves nothing. */
+
+  var GAP_MS = 180;
+  var READY_MS = 100; // how long the card has stood open, to have been seen
+  var stream = null;  // { mine, sum, notches, at, done }
+  var openedAt = 0;
+
+  function px(e, delta) { return delta * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? window.innerHeight : 1); }
+
+  function gapOf(s) { return s.done ? GAP_MS * 2 : GAP_MS; }
+
+  function heard(e) {
+    var dy = px(e, e.deltaY);
+    if (!stream || e.timeStamp - stream.at > gapOf(stream)) {
+      stream = {
+        mine: !!live && isShown() && card.contains(e.target) && dy > Math.abs(px(e, e.deltaX)) &&
+          !e.shiftKey && !e.ctrlKey && !e.metaKey && now() - openedAt >= READY_MS,
+        sum: 0, notches: e.deltaMode === 1 || Math.abs(dy) >= 60, at: 0, done: false
+      };
+    }
+    stream.at = e.timeStamp;
+    if (stream.mine) stream.sum += dy;
+  }
+
+  function scrolledOpen(e) {
+    if (!stream || !stream.mine) return;
+    if (e.cancelable) e.preventDefault();
+    if (stream.done || !live || (stream.sum < watch.carry.OPENS && !stream.notches)) return;
+    stream.done = true;
+    window.addEventListener('wheel', eatRest, { passive: false });
+    untilStill();
+    openPerson(live);
+  }
+
+  function eatRest(e) {
+    if (stream && stream.done && e.cancelable) e.preventDefault();
+  }
+
+  function untilStill() {
+    setTimeout(function () {
+      if (stream && stream.done && performance.now() - stream.at <= gapOf(stream)) untilStill();
+      else window.removeEventListener('wheel', eatRest);
+    }, GAP_MS);
+  }
+
+  window.addEventListener('wheel', heard, { passive: true, capture: true });
+  // Not passive only over the card.
+  card.addEventListener('wheel', scrolledOpen, { passive: false });
+
   root.addEventListener('focusin', function (e) {
     var p = personAt(e.target);
     if (!p || now() < quietUntil || !p.item.matches(':focus-visible')) return;

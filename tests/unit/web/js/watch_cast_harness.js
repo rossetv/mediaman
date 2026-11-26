@@ -51,7 +51,10 @@ function load(cast = CAST, motion = false) {
     requestAnimationFrame: (fn) => fn(),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     matchMedia: () => ({ matches: !motion }), // reduced motion: nothing flies
-    addEventListener: () => {},
+    performance: { now: () => clock.now },
+    listeners: {},
+    addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); },
+    removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); },
     innerHeight: 900,
     MMWatch: {
       address: { layer() {} },
@@ -68,7 +71,7 @@ function load(cast = CAST, motion = false) {
   Object.defineProperty(Object.getPrototypeOf(root.style), 'setProperty', { value() {}, configurable: true });
   vm.createContext(ctx);
   const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/explore.js'].forEach(run);
+  ['core/dom.js', 'watch/core.js', 'watch/explore.js', 'watch/carry.js'].forEach(run);
   Object.assign(ctx.MMWatch.explore, stubs.explore);
   ctx.MMWatch.detail = stubs.detail;
   run('watch/cast.js');
@@ -77,6 +80,14 @@ function load(cast = CAST, motion = false) {
   const item = (i) => root.querySelectorAll('.ttl-cast__item')[i];
   const fire = (type, e) => (root.listeners[type] || []).forEach((fn) => fn(e));
   const over = (target, kind) => fire('pointermove', { target, pointerType: kind || 'mouse' });
+  /* A wheel event over *target*: the window hears it first, then it goes up from the target. Says whether it was kept from scrolling. */
+  const wheel = (target, deltaY, extra) => {
+    const e = { target, deltaY, deltaX: 0, deltaMode: 0, timeStamp: clock.now, cancelable: true, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; }, ...extra };
+    (ctx.listeners.wheel || []).slice().forEach((fn) => fn(e));
+    for (let a = target; a; a = a.parentNode) (a.listeners.wheel || []).forEach((fn) => fn(e));
+    return e.defaultPrevented;
+  };
   async function wait(ms) {
     const end = clock.now + ms;
     for (;;) {
@@ -100,7 +111,7 @@ function load(cast = CAST, motion = false) {
       known: pane.querySelectorAll('button.cast-card__poster').map((b) => b.getAttribute('aria-label')),
       failed: text('.cast-card__failed'), loading: pane.querySelectorAll('.skel').length > 0 };
   };
-  return { ctx, doc, root, q, item, fire, over, wait, asked, answer, card, opened, people, cast: ctx.MMWatch.cast,
+  return { ctx, doc, root, q, item, fire, over, wheel, wait, asked, answer, card, opened, people, cast: ctx.MMWatch.cast,
     words: () => q('#ttl-cast-words').textContent };
 }
 
@@ -266,6 +277,49 @@ const scenarios = {
     p.over(p.item(0));
     await p.wait(300);
     return { soon, still, then: !!p.card() };
+  },
+
+  // Scrolled down over an open card, a little at a time and then by a wheel's notch.
+  async scrolledOpen() {
+    const p = load();
+    p.over(p.item(0));
+    await p.wait(450);
+    const pane = () => p.q('.cast-card__pane');
+    const kept = [];
+    for (let i = 0; i < 4; i++) { kept.push(p.wheel(pane(), 30)); await p.wait(10); }
+    const short = p.people.length;
+    kept.push(p.wheel(pane(), 30));
+    const after = p.people.map(([who]) => who.name);
+    await p.wait(10);
+    const rest = p.wheel(p.doc.getElementById('watch-results'), 40);
+    await p.wait(1000);
+    const fresh = p.wheel(p.doc.getElementById('watch-results'), 40);
+    p.over(p.item(1));
+    await p.wait(450);
+    p.wheel(pane(), 3, { deltaMode: 1 });
+    return { kept, short, after, rest, fresh, notch: p.people.map(([who]) => who.name) };
+  },
+
+  // Scrolls that are the page's: begun off the card, up, sideways, with a key, or as the card has just opened.
+  async scrolledPast() {
+    const p = load();
+    const pane = () => p.q('.cast-card__pane');
+    p.over(p.item(0));
+    await p.wait(290);
+    const early = p.wheel(pane(), 200);
+    await p.wait(400);
+    const out = { early };
+    p.wheel(p.q('.ttl__sec-title'), 30);
+    await p.wait(10);
+    out.passing = p.wheel(pane(), 200);
+    await p.wait(400);
+    out.up = p.wheel(pane(), -200);
+    await p.wait(400);
+    out.sideways = p.wheel(pane(), 20, { deltaX: 200 });
+    await p.wait(400);
+    out.zoom = p.wheel(pane(), 200, { ctrlKey: true });
+    await p.wait(400);
+    return Object.assign(out, { people: p.people.length, card: !!p.card() });
   },
 
   // The pointer has left a person by the time a busy page comes to open their card.

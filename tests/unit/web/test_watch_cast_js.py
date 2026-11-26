@@ -143,3 +143,24 @@ def test_a_person_the_pointer_left_before_the_next_frame_opens_no_card() -> None
         "rested": "Tomas Adeyemi",
         "asked": ["9002"],
     }
+
+
+def test_a_scroll_down_over_an_open_card_opens_their_page_and_its_rest_moves_nothing() -> None:
+    out = _run("scrolledOpen")
+    assert out["kept"] == [True] * 5
+    assert (out["short"], out["after"]) == (0, ["Mara Ellison"])
+    # What is left of that scroll does not move the page it opened; the next scroll does.
+    assert (out["rest"], out["fresh"]) == (True, False)
+    assert out["notch"] == ["Mara Ellison", "Tomas Adeyemi"]
+
+
+def test_a_scroll_that_is_the_title_pages_own_passes_over_a_card_and_opens_nothing() -> None:
+    assert _run("scrolledPast") == {
+        "early": False,
+        "passing": False,
+        "up": False,
+        "sideways": False,
+        "zoom": False,
+        "people": 0,
+        "card": True,
+    }
