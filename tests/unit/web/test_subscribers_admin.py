@@ -366,6 +366,20 @@ class TestSendNewsletterOutcome:
         assert resp.json()["ok"] is False
         assert not self._audit_rows(conn)
 
+    def test_an_empty_base_url_is_a_400_that_names_the_field(self, authed_client, app):
+        conn = app.state.db
+        self._configure(conn)
+        conn.execute("UPDATE settings SET value = '' WHERE key = 'base_url'")
+        conn.commit()
+        _insert_subscriber(conn, "a@example.com", active=1)
+
+        resp = self._send(authed_client, ["a@example.com"])
+
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "base_url_missing"
+        assert "Base URL" in resp.json()["message"]
+        assert "General & Schedule" in resp.json()["message"]
+
     def test_every_send_failing_is_an_error_with_no_audit(self, authed_client, app):
         conn = app.state.db
         self._configure(conn)
