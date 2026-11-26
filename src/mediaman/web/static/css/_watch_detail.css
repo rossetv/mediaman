@@ -634,11 +634,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl .watch-ep__meta { flex-basis: 100%; order: 2; }
 /* A fact moves to a line of its own whole, and only one wider than the column breaks. */
 .ttl .watch-ep__fact { display: inline-block; max-width: 100%; }
-/* The dot ends the fact before it, so a line that wraps never begins with one. Below 390 the
-   column is too narrow for it: the facts stand one to a line without. */
-@media (min-width: 390px) {
-  .ttl .watch-ep__fact:not(:last-child)::after { content: "\00a0·"; }
-}
+/* The dot ends the fact before it, so a line that wraps never begins with one, and the facts
+   stay told apart where they share a line however narrow the phone. */
+.ttl .watch-ep__fact:not(:last-child)::after { content: "\00a0·"; }
 .ttl .watch-ep__state { order: 1; padding: 3px 10px; font-weight: 600; }
 .ttl .watch-ep__about { grid-area: about; margin-top: 4px; font-size: 14px; color: var(--t2); overflow-wrap: anywhere; }
 

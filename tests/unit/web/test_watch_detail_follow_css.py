@@ -18,14 +18,11 @@ def test_a_genre_link_reaches_44_px_from_its_line() -> None:
     assert "clip-path: inset(-14px -20px -14px var(--dot))" in DETAIL
 
 
-def test_an_episodes_dot_ends_the_fact_before_it_and_only_where_the_column_has_room() -> None:
-    block = re.search(
-        r"@media \(min-width: 390px\) \{\s*(\.ttl \.watch-ep__fact[^{]*)\{([^}]*)\}", DETAIL
-    )
-    assert block, "no dot rule"
-    assert block.group(1).strip() == ".ttl .watch-ep__fact:not(:last-child)::after"
+def test_an_episodes_dot_ends_the_fact_before_it_at_every_width() -> None:
+    rule = re.search(r"\n(\.ttl \.watch-ep__fact:not\(:last-child\)::after) \{([^}]*)\}", DETAIL)
+    assert rule, "no dot rule outside a media query"
     # A no-break space keeps it from standing alone on a line.
-    assert r'content: "\00a0·"' in block.group(2)
+    assert r'content: "\00a0·"' in rule.group(2)
     assert "::before" not in DETAIL.split(".ttl .watch-ep__fact", 1)[1].split("}", 1)[0]
 
 
