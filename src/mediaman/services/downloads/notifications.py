@@ -269,20 +269,16 @@ def _build_mailgun_client(
     is not configured. An empty from-address counts as misconfigured because most MTAs
     reject an empty From header.
     """
-    from mediaman.services.infra import get_string_setting
-    from mediaman.services.mail.mailgun import MailgunClient
+    from mediaman.services.mail.mailgun import load_mailgun_client
 
-    mailgun_domain = get_string_setting(conn, "mailgun_domain", secret_key=secret_key)
-    mailgun_key = get_string_setting(conn, "mailgun_api_key", secret_key=secret_key)
-    mailgun_from = get_string_setting(conn, "mailgun_from_address", secret_key=secret_key)
-    if not mailgun_domain or not mailgun_key or not mailgun_from:
+    client = load_mailgun_client(conn, secret_key)
+    if client is None:
         logger.debug("Download notifications skipped — Mailgun not configured")
         # Single bulk UPDATE + single commit instead of N round-trips.
         # On a backlog of dozens of pending rows the per-row path used
         # to issue one fsync each.
         _release_claims_bulk(conn, pending)
-        return None
-    return MailgunClient(mailgun_domain, mailgun_key, mailgun_from)
+    return client
 
 
 def _partition_runnable(
