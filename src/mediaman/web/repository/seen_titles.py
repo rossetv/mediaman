@@ -211,7 +211,10 @@ def change_part(
         if seen:
             if reached is None:
                 return None
-            if listed:
+            if listed and part.episode is None and not before.in_library:
+                # Only a mark made whole outside the library has a season that can be whole.
+                del episodes[part.season]
+            elif listed:
                 episodes[part.season] = reached | one
             elif not reached and part.season not in not_held:
                 del episodes[part.season]
