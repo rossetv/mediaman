@@ -987,7 +987,7 @@ const scenarios = {
   // A player that never answers, or says it cannot play, goes back to the artwork and says so; one that answers plays on.
   async trailerStuck() {
     const origin = 'https://www.youtube-nocookie.com';
-    const run = async (then) => {
+    const run = async (then, how = {}) => {
       const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
       p.run();
       await openCard(p, 'tmdb-movie-77');
@@ -997,19 +997,27 @@ const scenarios = {
       frame.contentWindow = { postMessage: (m) => { if (JSON.parse(m).event === 'listening') listening++; } };
       const say = (d) => p.message({ origin, source: frame.contentWindow, data: JSON.stringify(d) });
       const due = (ms) => p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
-      (frame.listeners.load || []).forEach((fn) => fn({}));
+      // A slow connection: the player's own wait has passed before its frame has even loaded.
+      if (how.slow) due(8000);
+      if (how.never) due(20000);
+      else (frame.listeners.load || []).forEach((fn) => fn({}));
+      const loaded = p.ttl().classList.contains('is-trailer');
       then(p, say);
       due(250);
       const asked = listening;
       due(8000);
-      return { playing: p.ttl().classList.contains('is-trailer'), told: p.toasts.map((t) => t.message),
+      const out = { playing: p.ttl().classList.contains('is-trailer'), told: p.toasts.map((t) => t.message),
         focus: p.doc.activeElement.getAttribute('data-ttl-act'), asked };
+      return how.slow ? { loaded, ...out } : out;
     };
     return {
       silent: await run(() => {}),
       heard: await run((p, say) => say({ event: 'onReady' })),
       refused: await run((p, say) => say({ event: 'onError', info: 150 })),
       stopped: await run((p) => p.key('Escape')),
+      slowThenHeard: await run((p, say) => say({ event: 'onReady' }), { slow: true }),
+      slowThenSilent: await run(() => {}, { slow: true }),
+      neverLoads: await run(() => {}, { never: true }),
     };
   },
 

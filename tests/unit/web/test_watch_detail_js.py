@@ -1697,6 +1697,17 @@ def test_a_trailer_whose_player_never_answers_or_cannot_play_goes_back_to_the_ar
     assert out["refused"] == {**gone, "asked": 1}
     assert out["heard"] == {"playing": True, "told": [], "focus": None, "asked": 1}
     assert out["stopped"]["told"] == []
+    # A frame slow to load is waited for: the player's wait starts once it has loaded.
+    assert out["slowThenHeard"] == {
+        "loaded": True,
+        "playing": True,
+        "told": [],
+        "focus": None,
+        "asked": 1,
+    }
+    assert out["slowThenSilent"] == {"loaded": True, **gone, "asked": 2}
+    # One that never loads gives way in the end.
+    assert out["neverLoads"] == {**gone, "asked": 0}
 
 
 def test_a_title_s_page_brings_its_cards_up_to_what_it_learns_of_it_not_to_its_preview() -> None:

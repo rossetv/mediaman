@@ -50,8 +50,10 @@
   var AHEAD_REFUSED_MS = 60000;
   /* How long after a close the next press of a double click can still come. */
   var DOUBLE_CLICK_MS = 600;
-  /* How long a trailer's player has to answer before it is taken to have failed to load. */
+  /* How long a trailer's player has to answer once its frame has loaded, and how long a frame
+     that never loads is waited for, before the trailer is taken to have failed. */
   var TRAILER_STUCK_MS = 8000;
+  var TRAILER_LOAD_MS = 20000;
   var LISTEN_MS = 250;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
 
@@ -3010,12 +3012,18 @@
     frame.setAttribute('referrerpolicy', 'strict-origin');
     frame.setAttribute('allowfullscreen', '');
     // YouTube's player reports its state only to a page that has asked, and may not be ready to hear it at once.
-    frame.addEventListener('load', function listen() {
+    function listen() {
       if (!trailerStuck || !player.contains(frame)) return;
       tellFrame(frame, { event: 'listening' });
       setTimeout(listen, LISTEN_MS);
+    }
+    frame.addEventListener('load', function () {
+      if (!trailerStuck || !player.contains(frame)) return;
+      clearTimeout(trailerStuck);
+      trailerStuck = setTimeout(failTrailer, TRAILER_STUCK_MS);
+      listen();
     });
-    trailerStuck = setTimeout(failTrailer, TRAILER_STUCK_MS);
+    trailerStuck = setTimeout(failTrailer, TRAILER_LOAD_MS);
     player.appendChild(frame);
     player.setAttribute('aria-hidden', 'false');
     easeHero(function () { root.classList.add('is-trailer'); });
