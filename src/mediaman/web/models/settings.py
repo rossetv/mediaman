@@ -67,7 +67,6 @@ _HOME_NETWORKS = tuple(
         "192.168.0.0/16",
         "100.64.0.0/10",
         "fc00::/7",
-        "fe80::/10",
     )
 )
 
@@ -111,6 +110,12 @@ def _validate_tv_address(v: str) -> str:
             raise ValueError("must be a home address and not localhost")
         if ip.is_multicast:
             raise ValueError("must be a home address")
+        # Without the zone a browser cannot give, no TV can reach a link-local address.
+        if ip.version == 6 and ip.is_link_local:
+            raise ValueError(
+                "must be a home address and not a link-local one: "
+                "use this server's other address or its name"
+            )
         if parts.scheme != "https" and not any(ip in net for net in _HOME_NETWORKS):
             raise ValueError(
                 "must be a home address and not one of another network: "

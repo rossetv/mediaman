@@ -261,7 +261,7 @@ const scenarios = {
     const hint = p.doc.getElementById('tv-address-hint');
     return ['http://localhost:8282', 'https://mediaman.example', 'http://192.168.1.10', 'http://tv.example.com:8282',
       'http://203.0.113.5', 'http://[2001:db8::1]', 'watch.example.org', 'http://u:p@192.168.1.10', 'http://172.31.0.2', 'https:',
-      'https://203.0.113.5', 'http://100.64.1.2', 'http://[fd00::5]:8282', 'http://nas.local:8282', 'http://mediaman:8282'].map((v) => {
+      'https://203.0.113.5', 'http://100.64.1.2', 'http://[fd00::5]:8282', 'http://nas.local:8282', 'http://mediaman:8282', 'https://[FE80::1]'].map((v) => {
       input.value = v;
       p.fire(input, 'input');
       return [input.getAttribute('aria-invalid'), hint.textContent];

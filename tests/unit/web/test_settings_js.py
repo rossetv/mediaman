@@ -230,6 +230,7 @@ _REFUSED_TV_ADDRESSES = {
     "http://watch.example.org": "With http, use a .local name, a one-word name",
     "https://localhost": "localhost",
     "https://[::1]": "localhost",
+    "http://[fe80::1]:8282": "this server’s other address or its name",
     "https://:8282": "needs a server name",
     "http://[fd00::1%25en0]": "such as http://192.168.1.10:8282, or a name with https",
     "https://1.2.3": "such as http://192.168.1.10:8282, or a name with https",

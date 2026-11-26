@@ -391,6 +391,8 @@
       'the dots are 1 to 63 of them, with no hyphen first or last.'],
     [/home address and not localhost/i, 'cannot be localhost: to a TV, that means itself. Use this server’s home ' +
       'address, such as http://192.168.1.10:8282.'],
+    [/home address and not a link-local/i, 'cannot be an fe80 address: a TV can’t reach it. Use this server’s ' +
+      'other address or its name, such as http://[fd00::10]:8282 or http://nas.local:8282.'],
     [/home address and not one of another/i, 'must be an address of your home network with http, such as ' +
       'http://192.168.1.10:8282 or http://[fd00::10]:8282. With https, any address works.'],
     [/home address, or a name with https/i, 'needs https:// and not http:// before a name like this. With http, ' +

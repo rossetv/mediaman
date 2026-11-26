@@ -557,9 +557,11 @@
       var host = (/^https?:\/\/(?:[^/?#]*@)?(\[[^\]]*\]|[^/:?#]*)/i.exec(value) || [])[1] || '';
       if (/^(localhost|.*\.localhost|127\..*|\[::1\])\.?$/i.test(host)) {
         bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address.';
+      } else if (/^\[fe[89ab]/i.test(host)) {
+        bad = 'A TV can’t reach an fe80 address. Use this server’s other address or its name.';
       } else if (/^http:/i.test(value) && (/^\d+(\.\d+){3}$/.test(host) &&
           !/^(10|192\.168|172\.(1[6-9]|2\d|3[01])|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./.test(host) ||
-          /^\[/.test(host) && !/^\[(f[cd]|fe[89ab])/i.test(host))) {
+          /^\[/.test(host) && !/^\[f[cd]/i.test(host))) {
         bad = 'This is not an address of your home network. With http, use a home address, or use https.';
       } else if (!/^https?:/i.test(value) && /\w\.\w/.test(value)) {
         bad = 'Start with http:// before a home address, or https:// before a name.';

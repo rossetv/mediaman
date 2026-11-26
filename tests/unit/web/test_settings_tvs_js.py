@@ -142,10 +142,12 @@ def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
     assert bare[0] == "true"
     assert "https:// before a name" in bare[1]
     assert login[0] is home[0] is begun[0] is None
-    public_s, *home_kinds = said[10:]
+    public_s, *home_kinds, link_local = said[10:]
     assert public_s[0] is None
     assert "https" in public_s[1]
     assert [kind[0] for kind in home_kinds] == [None] * 4
+    assert link_local[0] == "true"
+    assert "other address or its name" in link_local[1]
 
 
 def test_the_save_bar_saves_the_settings_and_minds_nothing_typed_to_add_a_tv() -> None:
