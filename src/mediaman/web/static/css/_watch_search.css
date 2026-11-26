@@ -50,7 +50,8 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
   position: absolute;
   z-index: 1;
   left: 50%;
-  top: calc((var(--nav-h) - var(--ph)) / 2);
+  /* In the middle of the bar below a phone's notch, where its islands are. */
+  top: calc((var(--nav-h) + env(safe-area-inset-top, 0px) - var(--ph)) / 2);
   width: var(--wopen);
   height: calc(var(--ph) + var(--grow));
   margin-left: calc(var(--wopen) / -2);
@@ -238,7 +239,7 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
   .wbar .watch-search.is-focus {
     position: fixed;
     left: var(--pad);
-    top: calc(10px + var(--seen-top, 0px));
+    top: calc(10px + env(safe-area-inset-top, 0px) + var(--seen-top, 0px));
     width: calc(100% - 2 * var(--pad));
     animation: watch-search-grow var(--dur-slow) var(--ease-out);
   }
@@ -309,8 +310,8 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
     --sheet-w: calc(100% - 2 * var(--pad));
     position: fixed;
     left: var(--pad);
-    top: calc(72px + var(--seen-top, 0px));
-    max-height: calc(var(--seen, 100dvh) - 84px);
+    top: calc(72px + env(safe-area-inset-top, 0px) + var(--seen-top, 0px));
+    max-height: calc(var(--seen, 100dvh) - 84px - env(safe-area-inset-top, 0px));
     padding: 15px 13px;
   }
 }

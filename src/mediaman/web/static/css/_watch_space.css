@@ -96,7 +96,7 @@ html.has-space { overflow: hidden; }
 /* The Keep menu and the toasts stay above the panel; the toasts beside it. */
 html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 @media (min-width: 700px) {
-  html.has-space body .ui-toast-host { right: auto; left: 24px; }
+  html.has-space body .ui-toast-host { right: auto; left: max(24px, env(safe-area-inset-left, 0px)); }
 }
 @media (max-width: 699.98px) {
   html.has-space body .ui-toast-host { --toast-top: 60px; top: var(--toast-top); bottom: auto; justify-content: flex-start; }
@@ -115,9 +115,9 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 .space.is-open .space__veil { opacity: 1; }
 .space__panel {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
   width: min(520px, calc(100vw - 24px));
   display: flex;
   flex-direction: column;

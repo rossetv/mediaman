@@ -109,7 +109,7 @@ button.ask__row:active { transform: scale(.99); }
 .ask__below:hover { background: var(--s5); }
 .ask__below > .ico:first-child { color: color-mix(in srgb, var(--purple) 45%, var(--t1)); }
 .ask__below > .ico:last-child { color: var(--t2); }
-html.has-tv-mini .ask__below { bottom: 96px; }
+html.has-tv-mini .ask__below { bottom: calc(80px + max(16px, env(safe-area-inset-bottom, 0px))); }
 @keyframes watch-ask-below { from { opacity: 0; transform: translateY(12px) scale(.96); } }
 /* An AI pick: a sparkle before its title, which wraps at its words as any card's. */
 .watch-card__spark { display: inline-block; margin-right: 5px; color: color-mix(in srgb, var(--purple) 35%, var(--t1)); font-size: .9em; vertical-align: -.05em; animation: watch-ask-spark var(--dur-slow) var(--ease-pop, var(--ease-out)) .12s backwards; }
