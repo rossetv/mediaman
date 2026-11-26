@@ -13,7 +13,8 @@ const STAGE = template('tv.html').match(/<main id="s">(.*?)<\/main>/s)[1]
   .replace(/\{% include "([^"]+)" %\}/g, (all, name) => template(name)).replace(/\{#.*?#\}/gs, '');
 
 // `full`: the browser has the Fullscreen API and goes full screen a moment after it is asked;
-// 'refuse' is one that rejects the request, 'webkit' one with only the prefixed API.
+// 'refuse' is one that rejects the request, 'webkit' one with only the prefixed API and
+// 'webkitOld' one with only the older prefixed API, whose S is a capital.
 function tv({ kept = null, plays = true, full = false } = {}) {
   const order = [];
   let time = 1e12;
@@ -51,7 +52,6 @@ function tv({ kept = null, plays = true, full = false } = {}) {
   Object.defineProperty(video, 'src', { get() { return this.attrs.src; }, set(v) { this.attrs.src = v; } });
   nodes.v = video;
   nodes.s = element();
-  nodes.f = element();
   // The page before: what was drawn on the stage, moved with the nodes it had.
   nodes.o = Object.assign(element(), {
     held: [],
@@ -84,14 +84,15 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     },
   };
   const fullAsks = [];
-  const prefixed = full === 'webkit';
+  const prefixed = full === 'webkit' || full === 'webkitOld';
   const changed = () => (document.on[prefixed ? 'webkitfullscreenchange' : 'fullscreenchange'] || []).forEach((fn) => fn({}));
-  const inFull = prefixed ? 'webkitFullscreenElement' : 'fullscreenElement';
+  const inFull = { webkit: 'webkitFullscreenElement', webkitOld: 'webkitCurrentFullScreenElement' }[full] || 'fullscreenElement';
+  const ask = { webkit: 'webkitRequestFullscreen', webkitOld: 'webkitRequestFullScreen' }[full] || 'requestFullscreen';
   document.documentElement = element();
   if (full) {
-    document.fullscreenEnabled = true;
+    if (!prefixed) document.fullscreenEnabled = true;
     document[inFull] = null;
-    document.documentElement[prefixed ? 'webkitRequestFullscreen' : 'requestFullscreen'] = function () {
+    document.documentElement[ask] = function () {
       fullAsks.push(this === document.documentElement ? 'root' : 'other');
       order.push('full');
       if (full === 'refuse') return { then(ok, no) { later(() => no(new Error('no')), 10); } };
@@ -130,7 +131,6 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     sent, answers, video, store, fullAsks, order,
     leaveFull() { document[inFull] = null; changed(); },
     ov: () => (document.getElementById('ov') || {}).className,
-    hint: () => nodes.f.className,
     run() { vm.runInContext(SOURCE, vm.createContext(ctx)); return this; },
     qr: (text) => ctx.window.MMTv.qr(text),
     // Steps the clock, and lets what was promised come.
@@ -157,6 +157,7 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     held: () => (document.activeElement || {}).id,
     point: (id, x) => document.onmousemove({ target: { nodeType: 3, parentNode: document.getElementById(id) }, clientX: x, clientY: 0 }),
     click: (id) => document.onclick({ target: document.getElementById(id) }),
+    clickPage: () => document.onclick({ target: body }),
     left: () => nodes.o.innerHTML,
     leaving: () => nodes.o.held.map((n) => [n.id, n.style]),
     entering: () => nodes.s.className,
@@ -193,7 +194,7 @@ const film = (more) => ({
 });
 const GONE = [404, { ok: false, error: 'not_found' }];
 const OK = 13, LEFT = 37, RIGHT = 39, BACK = 10009;
-const FIXED = ['v', 's', 'o', 'f'];
+const FIXED = ['v', 's', 'o'];
 
 async function playing(more) {
   const t = tv({ kept: 'old' });
@@ -802,46 +803,51 @@ const scenarios = {
     await t.step(1500);
     return { said, state, now: t.last('poll').body.report.state };
   },
-  // The first press goes full screen and does nothing else; polls never ask.
+  // Each press acts as ever, and the first also asks, quietly, for full screen; polls never ask.
   async fullByKey() {
     const t = tv({ kept: 'old', full: true });
     t.answers.poll = () => ready({ poll_ms: 1000, commands: t.commands || [] });
     t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
     t.run();
     await t.step(100);
-    const before = { hint: t.hint(), asks: t.fullAsks.length };
+    const before = t.fullAsks.length;
     t.commands = [{ id: 3, kind: 'volume', level: 0.5 }];
     await t.step(5000);
     const polled = t.fullAsks.length;
     t.key(OK);
-    const first = { asks: t.fullAsks.slice(), said: t.says() };
+    const first = { asks: t.fullAsks.slice() };
     await t.step(100);
-    const full = t.hint();
-    t.key(OK);
+    first.said = t.says();
+    t.key(RIGHT);
     await t.step(100);
-    return { before, polled, first, full, asks: t.fullAsks.length, then: t.says() };
+    return { before, polled, first, asks: t.fullAsks.length };
   },
-  async fullHint(where) {
-    const t = tv({ kept: 'old', full: where !== 'none' });
-    t.answers.poll = () => ready({ play: t.now });
-    t.now = where === 'idle' || where === 'none' ? null : film();
+  // A remote that points sends a click at OK, and no key: a click on a button or on the page asks.
+  async fullByClick(where) {
+    const t = tv({ kept: 'old', full: true });
+    t.answers.poll = () => ready({ poll_ms: 2000 });
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(100);
+    const said = t.says();
+    if (where === 'button') t.click('b0'); else t.clickPage();
+    const asks = t.fullAsks.slice();
+    await t.step(100);
+    t.clickPage();
+    return { said, asks, then: t.says(), after: t.fullAsks.length };
+  },
+  // A film starts by itself, with nothing on the page that asks for a press.
+  async fullUnasked() {
+    const t = tv({ kept: 'old', full: true });
+    t.answers.poll = () => ready({ play: film() });
     t.run();
     await t.step(50);
-    if (t.now) { t.video.fire('loadedmetadata'); t.video.fire('playing'); }
-    await t.step(600);
-    const at = t.hint();
-    await t.step(5000);
-    const later = t.hint();
-    const said = t.says();
-    t.key(OK);
-    await t.step(100);
-    const full = t.hint();
-    t.leaveFull();
-    const left = t.hint();
-    await t.step(5000);
-    return { at, later, full, left, said, pressed: t.says(), after: t.hint(), asks: t.fullAsks.length };
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(6000);
+    return { calls: t.video.calls, paused: t.video.paused, asks: t.fullAsks.length, said: t.says() };
   },
-  // A refused request swallows one press, and a minute on the page asks again.
+  // A refused request is not made again for a minute.
   async fullRefused() {
     const t = tv({ kept: 'old', full: 'refuse' });
     t.answers.poll = () => ready({ poll_ms: 2000 });
@@ -850,30 +856,26 @@ const scenarios = {
     await t.step(100);
     t.key(OK);
     await t.step(100);
-    const refused = { hint: t.hint(), asks: t.fullAsks.length, said: t.says() };
-    t.key(OK);
-    await t.step(100);
-    const next = { asks: t.fullAsks.length, said: t.says() };
+    const refused = { asks: t.fullAsks.length, said: t.says() };
     await t.step(30000);
-    const soon = { hint: t.hint() };
     t.key(RIGHT);
-    soon.asks = t.fullAsks.length;
+    const soon = t.fullAsks.length;
     await t.step(40000);
-    const later = { hint: t.hint() };
     t.key(RIGHT);
-    return { refused, next, soon, later, asks: t.fullAsks.length };
+    return { refused, soon, asks: t.fullAsks.length };
   },
-  async fullWebkit() {
-    const t = tv({ kept: 'old', full: 'webkit' });
+  async fullWebkit(kind) {
+    const t = tv({ kept: 'old', full: kind });
     t.answers.poll = () => ready({ poll_ms: 2000 });
     t.run();
     await t.step(100);
-    const before = t.hint();
-    t.key(OK);
+    t.key(RIGHT);
     await t.step(100);
-    const full = t.hint();
+    t.key(LEFT);
+    const inFull = t.fullAsks.length;
     t.leaveFull();
-    return { before, asks: t.fullAsks.slice(), full, left: t.hint() };
+    t.key(RIGHT);
+    return { inFull, asks: t.fullAsks.slice() };
   },
   // An arrow is the first press of a film that has hidden its controls.
   async fullFirstArrow() {
@@ -914,8 +916,6 @@ const scenarios = {
     await t.step(100);
     t.key(OK);
     await t.step(100);
-    t.key(OK);
-    await t.step(100);
     const code = t.says();
     t.leaveFull();
     t.key(BACK);
@@ -930,11 +930,11 @@ const scenarios = {
     if (!blocked) { t.video.fire('loadedmetadata'); t.video.fire('playing'); }
     await t.step(600);
     t.video.refuse = false;
-    const said = t.says(), hint = t.hint();
+    const said = t.says();
     t.video.calls.length = 0;
     t.order.length = 0;
     t.key(OK);
-    return { said, hint, order: t.order.slice(), calls: t.video.calls, asks: t.fullAsks.length, then: t.says() };
+    return { said, order: t.order.slice(), calls: t.video.calls, asks: t.fullAsks.length, then: t.says() };
   },
   async keys() {
     const t = await playing();

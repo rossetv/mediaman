@@ -27,7 +27,6 @@
   var body = document.body;
   var stage = document.getElementById('s');
   var leaving = document.getElementById('o');
-  var hintNode = document.getElementById('f');
   var video = document.getElementById('v');
   var base = body.getAttribute('data-base') || (location.protocol + '//' + location.host);
 
@@ -958,7 +957,7 @@
   }
   function overlay(paused) {
     return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot">' +
-      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' + (fullDue() ? ' in full screen' : '') : glyph('pause') + 'Paused') + '</div>' : '') +
+      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused') + '</div>' : '') +
       '<div class="bar"><div class="p" id="pr"></div>' + markNodes() + '</div><div class="tms"><span id="el"></span><span id="re"></span></div>' +
       offer([[glyph('back') + '10 s', 'b'], [glyph(paused ? 'play' : 'pause') + (paused ? 'Play' : 'Pause'), 'p'], [glyph('fwd') + '10 s', 'f'], [glyph('stop') + 'Stop', 's']]) +
       '</div></div>';
@@ -1067,7 +1066,6 @@
       paint();
     }
     if (name !== shown) {
-      if (FILM[name] && !FILM[shown]) hintFor();
       shown = name;
       rouse();
       if (name === 'play' || name === 'pause') wake();
@@ -1075,7 +1073,6 @@
     if (pending) put('cd', codeLine());
     if (play) { put('in', nextLine()); bar(); dress(); }
     hush();
-    hint();
   }
 
   /* The page before fades out under the new one, which fades in. */
@@ -1138,58 +1135,37 @@
 
   /* ── full screen ── */
 
-  // The browser's own bars go only for the whole page, and only at a key's press: a poll is not one.
+  // The first press of any kind asks, unseen, for the whole page full screen: a poll is not a press,
+  // and a TV that hides its browser's bars itself loses nothing. Older browsers name it otherwise.
   var root = document.documentElement;
-  var canFull = Boolean(root && (root.requestFullscreen || root.webkitRequestFullscreen) &&
-    document.fullscreenEnabled !== false && document.webkitFullscreenEnabled !== false);
+  var askFull = root && (root.requestFullscreen || root.webkitRequestFullscreen || root.webkitRequestFullScreen ||
+    root.mozRequestFullScreen || root.msRequestFullscreen);
+  var canFull = Boolean(askFull) && document.fullscreenEnabled !== false && document.webkitFullscreenEnabled !== false;
   var fullAsked = false;     // since the page last left full screen
   var RETRY_MS = 60000;
   var retryAt = Infinity;    // when a refused request may be made again
-  var FILM = { play: 1, pause: 1, buf: 1 };
-  var hintTimer = null, hintGone = false;
 
   function isFull() {
-    return Boolean(document.fullscreenElement || document.webkitFullscreenElement || document.webkitIsFullScreen);
+    return Boolean(document.fullscreenElement || document.webkitFullscreenElement || document.webkitCurrentFullScreenElement ||
+      document.webkitIsFullScreen || document.mozFullScreenElement || document.msFullscreenElement);
   }
-  function fullDue() { return canFull && !isFull() && (!fullAsked || now() >= retryAt); }
-  /* Whether the press asked for full screen. */
   function goFull() {
-    if (!fullDue()) return false;
+    if (!canFull || isFull() || (fullAsked && now() < retryAt)) return;
     fullAsked = true;
     retryAt = Infinity;
     try {
-      var asking = (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+      var asking = askFull.call(root);
       if (asking && asking.then) asking.then(null, refusedFull);
-    } catch (e) { refusedFull(); return false; }
-    return true;
+    } catch (e) { refusedFull(); }
   }
-  function refusedFull() {
-    retryAt = now() + RETRY_MS;
-    show();
-  }
-  function fullChanged() {
-    if (!isFull()) {
-      fullAsked = false;
-      if (FILM[shown]) hintFor();
-    }
-    show();
-  }
-  document.addEventListener('fullscreenchange', fullChanged);
-  document.addEventListener('webkitfullscreenchange', fullChanged);
-  document.addEventListener('fullscreenerror', refusedFull);
-  document.addEventListener('webkitfullscreenerror', refusedFull);
-
-  /* Over a film the hint goes with the controls; a page that waits keeps it. */
-  function hintFor() {
-    hintGone = false;
-    clearTimeout(hintTimer);
-    hintTimer = setTimeout(function () { hintGone = true; hint(); }, OVERLAY_MS);
-  }
-  function hint() {
-    // A film the browser would not start says it in its own words.
-    var on = fullDue() && !blocked && !(FILM[shown] && hintGone);
-    if (hintNode) hintNode.className = on ? 'fs on' : 'fs';
-  }
+  function refusedFull() { retryAt = now() + RETRY_MS; }
+  function fullChanged() { if (!isFull()) fullAsked = false; }
+  ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(function (name) {
+    document.addEventListener(name, fullChanged);
+  });
+  ['fullscreenerror', 'webkitfullscreenerror', 'mozfullscreenerror', 'MSFullscreenError'].forEach(function (name) {
+    document.addEventListener(name, refusedFull);
+  });
 
   /* ── keys ── */
 
@@ -1250,14 +1226,15 @@
   }
 
   document.onkeydown = function (e) {
-    var key = e.keyCode, used = true, light = pressed();
+    var key = e.keyCode;
     var isBack = key === 10009 || key === 461 || key === 27 || key === 8;
-    var ok = key === 13 || key === 32;
-    var asks = !isBack && !e.repeat, wasBlocked = blocked;
-    // The press that takes the page full screen does nothing else, but on the pages where it is harmless.
-    // A browser that wants a key before it plays is asked to play first: the request may use the press up.
-    var full = asks && !wasBlocked && goFull() && shown !== 'conn' && shown !== 'restarted';
-    if ((light || full) && ok) { e.preventDefault(); return; }
+    pressedKey(e, key, isBack);
+    // After the press has done its work: a browser that wants a key before it plays plays first.
+    if (!isBack && !e.repeat) goFull();
+  };
+  function pressedKey(e, key, isBack) {
+    var used = true, light = pressed();
+    if (light && (key === 13 || key === 32)) { e.preventDefault(); return; }
     if (shown === 'restarted') act('i');
     else if (MEDIA[key]) media(MEDIA[key]);
     else if (isBack) used = back();
@@ -1270,9 +1247,8 @@
       if (shown === 'play') wake();
       if (buttons[focus] && !e.repeat) act(buttons[focus][1]);
     } else used = key === 38 || key === 40;
-    if (asks && wasBlocked) goFull();
     if (used) e.preventDefault();
-  };
+  }
 
   // Some browsers click at this, whatever became of the press.
   document.onkeyup = function (e) {
@@ -1297,7 +1273,12 @@
   document.onmousedown = function () {
     litByDown = lights() || now() < litUntil;
   };
+  // A remote that points sends a click at OK, and no key.
   document.onclick = function (e) {
+    clicked(e);
+    goFull();
+  };
+  function clicked(e) {
     var light = pressed() || litByDown || now() < litUntil;
     litByDown = false;
     litUntil = 0;
@@ -1307,7 +1288,7 @@
     if (n < 0) return;
     moveTo(n);
     act(buttons[n][1]);
-  };
+  }
   var pointedAt = '';
   document.onmousemove = function (e) {
     // A page that changes under a pointer that lies still tells of a move too.
@@ -1334,7 +1315,6 @@
     stage.style.transform = move;
     leaving.style.webkitTransform = move;
     leaving.style.transform = move;
-    if (hintNode) { hintNode.style.webkitTransform = move; hintNode.style.transform = move; }
   }
   window.onresize = fit;
   fit();
