@@ -391,10 +391,10 @@
       'the dots are 1 to 63 of them, with no hyphen first or last.'],
     [/home address and not localhost/i, 'cannot be localhost: to a TV, that means itself. Use this server’s home ' +
       'address, such as http://192.168.1.10:8282.'],
-    [/home address and not one of another/i, 'must be an address of your home network: one that starts with 10, ' +
-      '172.16 to 172.31, or 192.168. A name with https may be anywhere.'],
-    [/home address, or a name with https/i, 'needs https:// and not http:// before a name. With http, use this ' +
-      'server’s home address, such as http://192.168.1.10:8282.'],
+    [/home address and not one of another/i, 'must be an address of your home network with http, such as ' +
+      'http://192.168.1.10:8282 or http://[fd00::10]:8282. With https, any address works.'],
+    [/home address, or a name with https/i, 'needs https:// and not http:// before a name like this. With http, ' +
+      'use a .local name, a one-word name or this server’s home address, such as http://192.168.1.10:8282.'],
     [/must be a home address/i, 'must be this server’s home address, such as http://192.168.1.10:8282, or a name ' +
       'with https, such as https://mediaman.example.com.'],
     [/invalid URL/i, 'is not a valid address.'],

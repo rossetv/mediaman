@@ -225,12 +225,13 @@ _REFUSED_TV_ADDRESSES = {
     "https://my_server.example": "letters a to z, digits, dots and hyphens",
     "https://bücher.example": "no letters other than a to z",
     "https://a b.example": "no spaces",
-    "http://203.0.113.5": "home network",
-    "https://203.0.113.5": "home network",
-    "http://watch.example.org": "https:// and not http:// before a name",
+    "http://203.0.113.5": "With https, any address works",
+    "http://[2001:db8::1]": "With https, any address works",
+    "http://watch.example.org": "With http, use a .local name, a one-word name",
     "https://localhost": "localhost",
+    "https://[::1]": "localhost",
     "https://:8282": "needs a server name",
-    "http://[2001:db8::1]": "such as http://192.168.1.10:8282, or a name with https",
+    "http://[fd00::1%25en0]": "such as http://192.168.1.10:8282, or a name with https",
     "https://1.2.3": "such as http://192.168.1.10:8282, or a name with https",
 }
 

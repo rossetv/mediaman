@@ -60,7 +60,15 @@ def _validate_url(v: str | None) -> str | None:
 
 
 _HOME_NETWORKS = tuple(
-    ipaddress.IPv4Network(net) for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ipaddress.ip_network(net)
+    for net in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "fc00::/7",
+        "fe80::/10",
+    )
 )
 
 
@@ -90,12 +98,25 @@ def _validate_tv_address(v: str) -> str:
     if not host.rstrip("."):
         raise ValueError("URL must include a host")
     try:
-        ip = ipaddress.IPv4Address(host)
+        ip: ipaddress.IPv4Address | ipaddress.IPv6Address | None = ipaddress.ip_address(host)
     except ValueError:
         ip = None
-    if ip is not None and not any(ip in net for net in _HOME_NETWORKS):
-        raise ValueError("must be a home address and not one of another network")
-    if ip is None:
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.scope_id:
+            raise ValueError("must be a home address")
+        host = f"[{ip}]"
+        ip = ip.ipv4_mapped or ip
+    if ip is not None:
+        if ip.is_loopback or ip.is_unspecified:
+            raise ValueError("must be a home address and not localhost")
+        if ip.is_multicast:
+            raise ValueError("must be a home address")
+        if parts.scheme != "https" and not any(ip in net for net in _HOME_NETWORKS):
+            raise ValueError(
+                "must be a home address and not one of another network: "
+                "with http use a home address, or with https any address"
+            )
+    else:
         host = host.rstrip(".")
         # A last part like a number makes the whole an address in some other spelling.
         if ":" in host or _NUMBER_RE.fullmatch(host.rpartition(".")[2]):
@@ -104,8 +125,12 @@ def _validate_tv_address(v: str) -> str:
             raise ValueError("must be a home address or a valid name")
         if host == "localhost" or host.endswith(".localhost"):
             raise ValueError("must be a home address and not localhost")
-        if parts.scheme != "https":
-            raise ValueError("must be a home address, or a name with https")
+        # A .local or one-word name is found only on the home network, as a home address is.
+        if parts.scheme != "https" and "." in host and not host.endswith(".local"):
+            raise ValueError(
+                "must be a home address, or a name with https: "
+                "with http use a .local name, a one-word name or a home address"
+            )
     if port == 0:
         raise ValueError("must be a home address with a port in use")
     return f"{parts.scheme}://{host}" + (f":{port}" if port is not None else "")
