@@ -183,6 +183,18 @@
   /* The preview *p* and the page drawn for it, made ready to be drawn anywhere between the two.
      Returns draw(place) and end(place), which leaves the page as it is drawn without one. */
   function stage(p) {
+    var made = {};
+    try {
+      return build(p, made);
+    } catch (err) {
+      // What it had already put on the page goes, so the page opens as it is.
+      if (made.end) made.end(0);
+      p.n.classList.remove('is-carried');
+      throw err;
+    }
+  }
+
+  function build(p, made) {
     var sheet = root.querySelector('.ttl__sheet');
     var hero = root.querySelector('.ttl__hero');
     var dim = document.querySelector('.ttl__dim');
@@ -191,6 +203,7 @@
     var undo = [];
     var late = []; // the page's pieces under its title, whose dots come after them
     var hushed = []; // the card's pieces of it, whose words go at once
+    made.end = end;
 
     function rect(n) {
       var r = n.getBoundingClientRect();
@@ -712,7 +725,7 @@
       sheet.style.removeProperty('--cry-clip');
       late.forEach(function (n) { n.style.removeProperty('--cry-dot'); });
       dim.style.opacity = '';
-      [ghost, plate, shade].concat(marks, underNode || []).forEach(function (n) { n.remove(); });
+      [ghost, plate, shade].concat(marks || [], underNode || []).forEach(function (n) { if (n) n.remove(); });
       moves.forEach(function (q) {
         q.n.classList.remove('cry-move');
         if (!at || q.n !== whole) q.n.style.transform = q.n.style.opacity = q.n.style.clipPath = '';
