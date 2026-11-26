@@ -224,18 +224,43 @@
         rows.close(newsletterPanel, clearStatus);
       }
 
-      // A send needs the Base URL that is set in General & Schedule; say so while it is empty.
-      var baseUrlField = document.getElementById('base_url');
+      // A send needs Email (Mailgun) and a Base URL; say what is missing in the words the
+      // server answers with, or that a change waits for Save Settings.
+      var setupFields = ['mailgun_domain', 'mailgun_api_key', 'mailgun_from_address', 'base_url']
+        .map(function (id) { return document.getElementById(id); });
+      var baseUrlField = setupFields[3];
       var baseNote = document.getElementById('newsletter-base-note');
+      function setupNeeds() {
+        var needs = [];
+        if (setupFields.slice(0, 3).some(function (f) { return f && !f.value.trim(); })) {
+          needs.push('set up Email (Mailgun) under Integrations');
+        }
+        var url = baseUrlField ? baseUrlField.value.trim() : '';
+        if (baseUrlField && !url) needs.push('set Base URL under General & Schedule');
+        else if (url && !/^https?:\/\//i.test(url)) needs.push('make Base URL start with http:// or https://');
+        if (needs.length) {
+          var text = needs.join(' and ') + ' first';
+          return text.charAt(0).toUpperCase() + text.slice(1);
+        }
+        var sb = MM.settings.savebar;
+        var unsaved = sb && sb.isEdited && setupFields.some(function (f) { return f && sb.isEdited(f); });
+        return unsaved ? 'Save Settings first, so the new email or Base URL settings are used' : '';
+      }
       function noteBaseUrl() {
         if (!baseNote) return;
         baseNote.replaceChildren();
-        if (!baseUrlField || baseUrlField.value.trim()) return;
-        var msg = makeMsg('Set Base URL under General & Schedule first', 'err');
+        var text = setupNeeds();
+        // The answer beside the button may already say it: show the sentence once.
+        if (!text || (newsletterStatus && newsletterStatus.textContent === text)) return;
+        var msg = makeMsg(text, 'err');
         msg.style.marginTop = '8px';
         baseNote.appendChild(msg);
       }
-      if (baseUrlField) baseUrlField.addEventListener('input', noteBaseUrl);
+      // A changed setting makes the last answer stale. A save happens away from the panel, so the
+      // note is read again when the person comes back to it.
+      setupFields.forEach(function (f) {
+        if (f) f.addEventListener('input', function () { noteBaseUrl(); clearUnlessSending(); });
+      });
 
       // A panel that is sending cannot be closed from its own buttons.
       function sending() { return !!(btnConfirmNL && btnConfirmNL.disabled); }
@@ -257,6 +282,9 @@
       // A changed choice of recipients makes the last message stale, unless a send is under way.
       function clearUnlessSending() { if (!sending()) clearStatus(); }
       if (newsletterPanel) newsletterPanel.addEventListener('change', clearUnlessSending);
+      if (newsletterPanel) ['focusin', 'pointerdown'].forEach(function (type) {
+        newsletterPanel.addEventListener(type, function () { if (!sending()) noteBaseUrl(); });
+      });
 
       // Fetch-token guards against a race where the user closes and re-opens
       // the panel before the previous /api/subscribers response arrives.
@@ -441,7 +469,9 @@
           .catch(function (err) {
             enableConfirm();
             btnConfirmNL.textContent = 'Send newsletter';
-            answer(MM.api.messageOf(err, "Couldn't send. Try again."), 'err');
+            var said = MM.api.messageOf(err, "Couldn't send. Try again.");
+            answer(said, 'err');
+            noteBaseUrl();
           });
       }
 

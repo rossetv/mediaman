@@ -352,6 +352,55 @@ const scenarios = {
     return out;
   },
 
+  // The panel names everything missing, as the server does, and says a typed value waits for a save.
+  async setupNotes() {
+    const p = await newsletter();
+    const note = () => p.id('newsletter-base-note').textContent;
+    const set = (id, v) => { p.id(id).value = v; p.fire(p.id(id), 'input'); };
+    const out = {};
+    p.ctx.MM.settings.savebar = { isEdited: () => false };
+    set('mailgun_api_key', '');
+    out.noMail = note();
+    set('base_url', '');
+    out.nothing = note();
+    set('base_url', 'ftp://x');
+    out.mailAndFtp = note();
+    set('mailgun_api_key', 'x');
+    out.ftp = note();
+    set('base_url', 'https://media.example.com');
+    p.ctx.MM.settings.savebar.isEdited = (el) => el.id === 'base_url';
+    set('base_url', 'https://media.example.org');
+    out.unsaved = note();
+    p.ctx.MM.settings.savebar.isEdited = () => false;
+    set('base_url', 'https://media.example.net');
+    out.saved = note();
+    return out;
+  },
+
+  // A send refused for the reason the note gives says it once, beside the button.
+  async refusedOnce() {
+    const p = await newsletter();
+    const words = 'Set Base URL under General & Schedule first';
+    p.id('base_url').value = '';
+    p.ctx.MM.api.post = () => refused('base_url_missing', words, 400);
+    p.ctx.MM.api.messageOf = (e) => e.message;
+    p.ctx.MM.dom.stillAt = () => true;
+    p.click(p.id('btn-send-newsletter'));
+    await settle();
+    p.click(p.id('btn-send-newsletter'));
+    await settle();
+    const before = p.id('newsletter-base-note').textContent;
+    p.click(p.id('btn-confirm-newsletter'));
+    await settle();
+    const out = { before, note: p.id('newsletter-base-note').textContent, status: p.id('newsletter-send-status').textContent };
+    p.fire(p.id('newsletter-send-panel'), 'focusin');
+    out.noteAfterFocus = p.id('newsletter-base-note').textContent;
+    p.id('base_url').value = 'ftp://x';
+    p.fire(p.id('base_url'), 'input');
+    out.changed = { note: p.id('newsletter-base-note').textContent, status: p.id('newsletter-send-status').textContent };
+    return out;
+  },
+
   // What the dialog says of removing someone who gets the newsletter, and of one who opted out.
   async removalWords() {
     const p = await newsletter([1]);
@@ -400,9 +449,11 @@ async function newsletter(people) {
         ['button', { id: 'btn-cancel-newsletter' }, 'Cancel'],
         ['button', { id: 'btn-confirm-newsletter' }, 'Send newsletter'],
         ['span', { id: 'newsletter-send-status' }]],
-      ['input', { id: 'base_url' }],
+      ['input', { id: 'base_url' }], ['input', { id: 'mailgun_domain' }],
+      ['input', { id: 'mailgun_api_key' }], ['input', { id: 'mailgun_from_address' }],
     ], ['rows', 'newsletter']);
     p.id('base_url').value = 'https://media.example.com';
+    ['mailgun_domain', 'mailgun_api_key', 'mailgun_from_address'].forEach((id) => { p.id(id).value = 'x'; });
     let failing = 0;
     let subs = (people || [1, 2]).map((n) => ({ id: n, email: 'p' + n + '@example.com', active: true }));
     const errors = [];

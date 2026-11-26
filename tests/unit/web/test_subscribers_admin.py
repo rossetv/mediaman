@@ -393,8 +393,40 @@ class TestSendNewsletterOutcome:
 
         assert resp.status_code == 400
         assert resp.json()["error"] == "mailgun_not_configured"
-        assert "not set up" in resp.json()["message"]
-        assert "Base URL" in resp.json()["message"]
+        assert resp.json()["message"] == (
+            "Set up Email (Mailgun) under Integrations"
+            " and set Base URL under General & Schedule first"
+        )
+
+    def test_nothing_set_up_names_the_email_and_the_base_url(self, authed_client, app):
+        conn = app.state.db
+        _insert_subscriber(conn, "a@example.com", active=1)
+
+        resp = self._send(authed_client, ["a@example.com"])
+
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "mailgun_not_configured"
+        assert resp.json()["message"] == (
+            "Set up Email (Mailgun) under Integrations"
+            " and set Base URL under General & Schedule first"
+        )
+
+    def test_missing_email_beside_a_base_url_that_is_not_a_web_address_names_both(
+        self, authed_client, app
+    ):
+        conn = app.state.db
+        self._configure(conn)
+        conn.execute("DELETE FROM settings WHERE key = 'mailgun_api_key'")
+        conn.execute("UPDATE settings SET value = 'ftp://x' WHERE key = 'base_url'")
+        conn.commit()
+        _insert_subscriber(conn, "a@example.com", active=1)
+
+        resp = self._send(authed_client, ["a@example.com"])
+
+        assert resp.json()["message"] == (
+            "Set up Email (Mailgun) under Integrations"
+            " and make Base URL start with http:// or https:// first"
+        )
 
     def test_a_base_url_that_is_not_a_web_address_is_named(self, authed_client, app):
         conn = app.state.db
