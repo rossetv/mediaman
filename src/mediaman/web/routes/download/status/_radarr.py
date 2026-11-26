@@ -62,14 +62,16 @@ def _radarr_queue_item(queue: list[ArrQueueItem], tmdb_id: int) -> DownloadItem 
     return None
 
 
-def _radarr_searching_item(movie: RadarrMovie | None) -> DownloadItem:
+def _radarr_searching_item(
+    movie: RadarrMovie | None, *, finding_copy: bool = False
+) -> DownloadItem:
     title = (movie or {}).get("title", "")
     return build_item(
         dl_id=f"radarr:{title}" if title else "",
         title=title,
         media_type="movie",
         poster_url="",
-        state="searching",
+        state="finding_copy" if finding_copy else "searching",
         progress=0,
         eta="",
         size_done="",

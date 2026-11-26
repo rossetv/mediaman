@@ -5,6 +5,7 @@ build_sonarr_from_db stays patchable.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from mediaman.core.format import format_bytes
@@ -134,6 +135,8 @@ def _sonarr_series_fallback(
     tmdb_id: int,
     season_number: int | None = None,
     tvdb_id: int | None = None,
+    *,
+    finding_copy: Callable[[int], bool] | None = None,
 ) -> DownloadItem:
     all_series = client.get_series()
     matched = next(
@@ -160,7 +163,13 @@ def _sonarr_series_fallback(
             title=s_title,
             media_type="series",
             poster_url="",
-            state="searching",
+            state=(
+                "finding_copy"
+                if finding_copy
+                and isinstance(matched.get("id"), int)
+                and finding_copy(matched["id"])
+                else "searching"
+            ),
             progress=0,
             eta="",
             size_done="",

@@ -21,6 +21,7 @@ from mediaman.crypto import generate_poll_token, validate_poll_token
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.services.arr.finding_copy import is_finding_copy
 from mediaman.services.downloads.download_format import build_item
 from mediaman.services.downloads.download_format._types import DownloadItem, state_label
 from mediaman.services.downloads.notifications import requested_tvdb_id
@@ -123,7 +124,10 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
     if queued is not None:
         return queued
 
-    return _radarr_searching_item(movie)
+    movie_id = movie.get("id") if movie else None
+    return _radarr_searching_item(
+        movie, finding_copy=isinstance(movie_id, int) and is_finding_copy(conn, "radarr", movie_id)
+    )
 
 
 def _sonarr_status(
@@ -140,7 +144,13 @@ def _sonarr_status(
     if ep_entries:
         return _sonarr_aggregate(series_title, ep_entries)
 
-    found = _sonarr_series_fallback(client, tmdb_id, season_number, tvdb_id)
+    found = _sonarr_series_fallback(
+        client,
+        tmdb_id,
+        season_number,
+        tvdb_id,
+        finding_copy=lambda series_id: is_finding_copy(conn, "sonarr", series_id, season_number),
+    )
     return _playable(conn, secret_key, found, "tv", tmdb_id)
 
 

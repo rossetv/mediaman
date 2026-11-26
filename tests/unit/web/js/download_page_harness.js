@@ -200,6 +200,14 @@ const SCENARIOS = {
     await p.poll({ state: 'needs_attention', progress: 100, eta: '' });
     return seen(p);
   },
+  async finding() {
+    const p = page();
+    p.start();
+    await settle();
+    await press(p);
+    await p.poll({ state: 'finding_copy', progress: 0, eta: '' });
+    return seen(p);
+  },
   async eta() {
     const p = page();
     p.start();

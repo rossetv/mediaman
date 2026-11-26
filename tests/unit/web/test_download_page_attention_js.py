@@ -15,3 +15,10 @@ def test_it_says_it_needs_attention_with_no_bar_and_no_colour_of_almost_ready() 
         "Needs attention",
     )
     assert seen["colour"] < almost["colour"]
+
+
+def test_a_download_being_found_another_copy_of_is_not_called_searching() -> None:
+    seen = _run("finding")
+    assert (seen["bar"], seen["said"]) == (False, "Finding another copy")
+    assert "Finding another copy" in seen["words"]
+    assert "Searching" not in seen["words"]

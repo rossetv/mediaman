@@ -30,7 +30,7 @@
 
   /* How long the last step is seen before the way to watch takes the steps' place. */
   var DONE_AFTER_MS = 900;
-  var STEP_OF = { searching: 1, queued: 1, downloading: 2, almost_ready: 2, needs_attention: 2, ready: 4 };
+  var STEP_OF = { searching: 1, queued: 1, finding_copy: 1, downloading: 2, almost_ready: 2, needs_attention: 2, ready: 4 };
 
   var page = document.querySelector('.share-page');
   var hero = document.querySelector('.share-hero');
@@ -191,7 +191,8 @@
       else li.removeAttribute('aria-current');
     });
     steps.classList.toggle('is-all', data.state === 'ready');
-    MM.dom.setText(steps.children[1].querySelector('span'), data.state === 'queued' ? 'Queued' : 'Searching');
+    var second = { queued: 'Queued', finding_copy: 'Finding another copy' }[data.state] || 'Searching';
+    MM.dom.setText(steps.children[1].querySelector('span'), second);
     var third = { almost_ready: 'Almost ready', needs_attention: 'Needs attention' }[data.state] || 'Downloading';
     MM.dom.setText(steps.children[2].querySelector('span'), third);
 
@@ -207,7 +208,7 @@
     drawEpisodes(data);
 
     colour(running ? 0.25 + 0.0065 * done : data.state === 'ready' ? 1 : data.state === 'almost_ready' ? 0.92 : 0.25);
-    say({ 1: data.state === 'queued' ? 'Queued' : 'Searching', 2: third, 4: 'Ready to watch' }[at]);
+    say({ 1: second, 2: third, 4: 'Ready to watch' }[at]);
   }
 
   /* The words stand at the hero's foot: while the list is open they keep their place, and the
