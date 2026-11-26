@@ -561,12 +561,13 @@ def test_tonight_s_controls_are_44px_to_press_inside_what_clips_them() -> None:
     assert "align-self: stretch" in _of(".tn__foot > .txt", sheet=ASK)
 
 
-def test_the_panel_s_headings_and_a_film_s_length_stay_on_one_line_with_large_text() -> None:
+def test_the_panel_s_headings_stay_on_one_line_with_large_text() -> None:
     assert "flex: none" in _of(".watch-sheet__head > .watch-sheet__title", sheet=ASK)
-    assert "white-space: nowrap" in _of(".tn__art > span", sheet=ASK)
-    # The picture is as wide as it needs.
-    assert "position: relative" in _of(".tn__art > span", sheet=ASK)
-    assert "min-width: 104px" in _of(".tn__art", "(max-width: 599.98px)", ASK)
+
+
+def test_tonight_s_posters_are_three_to_a_line_on_a_phone() -> None:
+    assert "repeat(6, minmax(0, 1fr))" in _of(".tn__list", sheet=ASK)
+    assert "repeat(3, minmax(0, 1fr))" in _of(".tn__list", "(max-width: 599.98px)", ASK)
 
 
 REMOTE = SHEET.with_name("_tv_remote.css")

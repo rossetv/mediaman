@@ -1242,24 +1242,40 @@ def test_tonight_shows_what_fits_the_time_pressed_last() -> None:
     out = _run("tonight")
     assert out["first"] == "watch-option-tonight-0"
     assert out["times"] == ["option,false", "option,false", "option,true", "option,false"]
-    assert out["sent"] == ["/tonight?minutes=60", "/tonight?minutes=120"]
-    assert out["cards"] == [
-        ["Film 1", "/watch/movie/1", "<i>why</i>"],
-        ["Film 2", "/", "<i>why</i>"],
-        ["Film 3", "/watch/movie/3", "<i>why</i>"],
+    assert out["sent"] == [
+        ["/tonight?minutes=60", "/tonight?minutes=120"],
+        ["/tonight/elsewhere?minutes=60", "/tonight/elsewhere?minutes=120"],
     ]
-    assert out["sub"][:2] == ["2020 · Drama, ends T", "TV · season 1, ends T"]
     assert out["opened"] == [["movie-1"], True]
+
+
+def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_library() -> None:
+    out = _run("tonight")
+    assert out["groups"] == ["Ready to play", "Not in your libraryOpen one to download it"]
+    assert out["ready"] == [
+        ["Film 1", "/watch/movie/1", "2020 · 1 h 40 min", "option"],
+        ["Film 2", "/", "S7 · E4 · 43 min", "option"],
+        ["Film 3", "/watch/movie/3", "S2 · E3 · 20 min left", "option"],
+    ]
+    assert out["away"] == [
+        ["Away 1", "#title=tmdb-movie-1", "Movie · 1 h 35 min", "option"],
+        ["Away 2", "#title=tmdb-tv-2", "TV · 22 min episodes", "option"],
+    ]
+    # Their buttons would stand among the options.
+    assert out["tools"] == 0
 
 
 def test_tonight_has_others_and_says_when_little_or_nothing_fits() -> None:
     out = _run("tonight")
-    assert out["foot"] == ["All in your library, none seen", "The others"]
-    assert out["more"] == "/tonight?minutes=120&skip=3"
-    assert out["back"][1] == "Back to the first"
-    assert out["few"] == ["Only 1 unseen title fits in an hour and a half", None]
+    assert out["foot"] == ["", "Six others"]
+    # The others of the library: what is not in it stays, and is not asked again.
+    assert out["more"] == ["/tonight?minutes=120&skip=6", 2]
+    assert out["back"] == [["", "Back to the first"], 2]
+    # What is not in the library failing leaves what is, and says nothing.
+    assert out["few"] == [["Only 1 title fits in an hour and a half", None], 1, None, 0]
     assert "The shortest is Film 4, 1 h 28 min." in out["none"][0]
     assert out["way"] == "/tonight?minutes=90"
+    assert out["evening"] == "/tonight?minutes=720"
     assert out["failed"].startswith("Couldn’t look just now")
 
 

@@ -2846,7 +2846,8 @@ scenarios.askRecorded = async () => {
 };
 
 scenarios.tonight = async () => {
-  const item = (n, more) => ({ ref: 'movie-' + n, kind: 'movie', title: 'Film ' + n, year: 2020, minutes: 100, season: null, genre: 'Drama', reason: '<i>why</i>', poster_url: '/api/poster/' + n, href: '/watch/movie/' + n, ...more });
+  const item = (n, more) => ({ ref: 'movie-' + n, kind: 'movie', title: 'Film ' + n, year: 2020, minutes: 100, season: null, episode: null, left: false, genre: 'Drama', reason: 'why', poster_url: '/api/poster/' + n, href: '/watch/movie/' + n, in_library: true, tmdb_ref: 'tmdb-movie-' + n, ...more });
+  const away = (n, more) => ({ ref: 'tmdb-movie-' + n, kind: 'movie', title: 'Away ' + n, year: 2021, minutes: 95, in_library: false, library_ref: null, href: null, poster_url: '/img/' + n, can_download: false, ...more });
   const p = await asking();
   p.press(); await settle();
   const out = {};
@@ -2856,36 +2857,50 @@ scenarios.tonight = async () => {
   click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[0]);
   click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[2]);
   out.times = times();
-  out.sent = p.sent('/tonight').map((c) => c[1]);
-  // The answer to the time pressed before is not shown.
-  const [slow, now] = p.calls.filter((c) => c.url.includes('/tonight'));
-  now.resolve({ items: [item(1), item(2, { kind: 'show', season: 1, href: '//evil.test' }), item(3)], total: 5, more: true, shortest: null });
+  const library = () => p.sent('/tonight?').map((c) => c[1]);
+  const elsewhere = () => p.sent('/tonight/elsewhere').map((c) => c[1]);
+  out.sent = [library(), elsewhere()];
+  // The answers to the time pressed before are not shown; what is not in the library comes first here, and goes under.
+  const [slowAway, nowAway] = p.calls.filter((c) => c.url.includes('/tonight/elsewhere'));
+  nowAway.resolve({ items: [away(1, { can_download: true }), away(2, { kind: 'show', ref: 'tmdb-tv-2', minutes: 22 })] });
+  slowAway.resolve({ items: [away(9)] });
+  await settle();
+  const [slow, now] = p.calls.filter((c) => c.url.includes('/tonight?'));
+  now.resolve({ items: [item(1), item(2, { kind: 'show', season: 7, episode: 4, minutes: 43, href: '//evil.test' }), item(3, { kind: 'show', season: 2, episode: 3, minutes: 20, left: true })], total: 13, more: true, shortest: null });
   await settle();
   slow.resolve({ items: [item(9)], total: 1, more: false, shortest: null });
   await settle();
-  const cards = () => p.sheet.querySelectorAll('.tn__card').map((a) => [a.querySelector('b').textContent, a.href, a.querySelector('p').textContent]);
+  const cards = (i) => {
+    const part = p.sheet.querySelectorAll('.tn__part')[i];
+    return part ? part.querySelectorAll('.watch-card__link').map((a) => [a.querySelector('.watch-card__title').textContent, a.href, a.querySelector('.watch-card__sub').textContent, a.getAttribute('role')]) : null;
+  };
   const foot = () => [p.sheet.querySelector('.tn__foot').querySelector('span').textContent, p.sheet.querySelector('.tn__foot').querySelector('.txt').hidden ? null : p.sheet.querySelector('.tn__foot').querySelector('.txt').textContent];
-  out.cards = cards();
-  out.sub = p.sheet.querySelectorAll('.tn__card').map((a) => a.querySelector('small').textContent.replace(/\d\d:\d\d/, 'T'));
+  out.groups = p.sheet.querySelectorAll('.tn__group').map((g) => g.textContent);
+  out.ready = cards(0);
+  out.away = cards(1);
+  out.tools = p.sheet.querySelectorAll('.tn .card-tool').length;
   out.foot = foot();
   const opened = [];
   p.ctx.MMWatch.detail = { open: (ref) => opened.push(ref) };
-  click(p.doc, p.sheet.querySelector('.tn__card'));
+  click(p.doc, p.sheet.querySelector('.tn .watch-card__link'));
   out.opened = [opened, p.sheet.inert];
-  const answer = async (payload) => { await p.answer('/tonight', payload); };
+  const answer = async (payload) => { await p.answer('/tonight?', payload); };
   click(p.doc, p.sheet.querySelector('.tn__foot').querySelector('.txt'));
-  out.more = p.sent('/tonight').map((c) => c[1]).pop();
-  await answer({ items: [item(4), item(5)], total: 5, more: false, shortest: null });
-  out.back = foot();
+  out.more = [library().pop(), elsewhere().length];
+  await answer({ items: [item(4), item(5)], total: 13, more: false, shortest: null });
+  out.back = [foot(), cards(1).length];
   click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[1]);
   await answer({ items: [item(1)], total: 1, more: false, shortest: null });
-  out.few = foot();
+  await p.fail('/tonight/elsewhere', 'tmdb_request_failed', {}, 502);
+  out.few = [foot(), cards(0).length, cards(1), p.sheet.querySelectorAll('[role="alert"]').length];
   click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[0]);
   await answer({ items: [], total: 0, more: false, shortest: item(4, { minutes: 88 }) });
   out.none = [p.sheet.querySelector('.tn__none').textContent];
   click(p.doc, p.sheet.querySelector('.tn__none').querySelector('.chip'));
-  out.way = p.sent('/tonight').map((c) => c[1]).pop();
-  await p.fail('/tonight', 'network_error', {}, 0);
+  out.way = library().pop();
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[3]);
+  out.evening = library().pop();
+  await p.fail('/tonight?', 'network_error', {}, 0);
   out.failed = p.sheet.querySelector('.tn__none').textContent;
   return out;
 };

@@ -328,6 +328,7 @@
     if (p.card.poster) picture.appendChild(image('pv__still', p.card.poster));
     p.body = shell.appendChild(el('div', 'pv__body'));
     if (p.card.pick) n.classList.add('pv--reason');
+    if (link.closest('.watch-sheet')) n.classList.add('pv--over');
     if (!known(SCROLLED)) p.hint = shell.appendChild(hint());
     shell.appendChild(posterCopy(p));
     if (watch.marks && watch.marks.canRate(p.card.ref, link)) rating(p);

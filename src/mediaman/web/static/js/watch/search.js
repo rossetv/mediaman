@@ -908,12 +908,11 @@
             if (!detail) return false;
             leaveSheet();
             // On a phone the focus would bring its keyboard back.
-            detail.open(item.ref, { origin: core.coarsePointer() ? null : input, title: item.title, kind: item.kind });
+            detail.open(item.ref, { origin: core.coarsePointer() ? null : input, title: item.title, kind: item.kind, season: item.season || undefined });
             return true;
           }
         });
       }
-      evening.refresh();
       sheet.appendChild(evening.node);
     }
 

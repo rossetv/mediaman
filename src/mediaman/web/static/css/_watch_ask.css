@@ -36,24 +36,19 @@
 .tn.is-on > .tn__out { grid-template-rows: 1fr; }
 .tn__out > div { min-height: 0; margin: 0 -4px; padding: 0 4px; overflow: hidden; }
 .tn__out .is-old { opacity: .5; transition: opacity var(--dur-fast) var(--ease-out) .1s; }
-.tn__list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding-top: 14px; }
-.tn__card { display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-lg); background: var(--s3); color: inherit; text-align: left; transition: background-color var(--dur-fast) var(--ease-out); animation: watch-ask-rise var(--dur-slow) var(--ease-out) backwards; }
-.tn__card:is(:hover, .is-picked) { background: var(--s4); }
-.tn__card--skel { height: 190px; background: var(--s3); }
-.tn__art { position: relative; display: grid; align-items: end; justify-items: start; aspect-ratio: 16 / 9; background: var(--s4); }
-.tn__art > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%; }
-.tn__art > span { position: relative; margin: 8px; padding: 2px 8px; border-radius: var(--r-pill); background: rgba(0, 0, 0, .72); color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.tn__card > div { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; padding: 10px 12px 12px; overflow-wrap: anywhere; }
-.tn__card b { font-size: 14px; font-weight: 600; line-height: 1.25; }
-.tn__card small { font-size: 12px; color: var(--t3); }
-.tn__card p { margin-top: 3px; font-size: 13px; line-height: 1.4; color: var(--t2); }
+.tn__group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 16px 0 10px; font-size: 13px; font-weight: 600; color: var(--t2); }
+.tn__group > small { font-weight: 400; color: var(--t3); }
+.tn__list { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px 10px; }
+.tn__list[aria-hidden] { padding-top: 16px; }
+.tn__card { animation: watch-ask-rise var(--dur-slow) var(--ease-out) backwards; }
+.tn .watch-card__link.is-picked > .watch-card__poster { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tn__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0 4px; font-size: 13px; color: var(--t3); }
 /* What clips the list cuts whatever reaches out of its line. */
 .tn__foot > .txt { align-self: stretch; }
 .tn__foot > .txt::after { inset: 0 -8px; }
 .tn__none { padding: 16px 4px 2px; font-size: 14px; line-height: 1.45; color: var(--t2); }
 .tn__none > button { margin-top: 10px; }
-:is(.tn__seg > button, .tn__card, .txt, .tn__none > .chip).is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+:is(.tn__seg > button, .txt, .tn__none > .chip).is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
 .txt.is-picked { outline-offset: 4px; }
 @keyframes watch-ask-rise { from { opacity: 0; transform: translateY(10px); } }
 
@@ -130,12 +125,7 @@ button.ask__row:active { transform: scale(.99); }
 @media (max-width: 599.98px) {
   .tn__head { flex-direction: column; align-items: stretch; }
   .tn__seg > button { min-width: 0; padding: 0 4px; line-height: 1.15; white-space: normal; overflow-wrap: anywhere; }
-  .tn__list { grid-template-columns: minmax(0, 1fr); }
-  .tn__card { flex-direction: row; }
-  .tn__card--skel { height: 92px; }
-  /* As wide as the length needs with large text. */
-  .tn__art { flex: none; min-width: 104px; aspect-ratio: auto; }
-  .tn__art > span { margin-inline: 6px; padding-inline: 6px; }
+  .tn__list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ask__key { display: none; }
   .ask__row { min-height: 60px; }
   .ans { min-height: 140px; }
@@ -146,6 +136,8 @@ button.ask__row:active { transform: scale(.99); }
   .refine.is-wrap > * { flex: initial; }
 }
 @media (max-width: 419.98px) { .tn__seg > button { padding: 0; font-size: 12.5px; } }
+/* Two where three would cut a long word of a title, as the grid does. */
+@media (max-width: 389.98px) { .tn__list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* ── Still ── */
 
@@ -158,11 +150,11 @@ button.ask__row:active { transform: scale(.99); }
 }
 
 @media (forced-colors: active) {
-  .tn__card,
   .ans__go,
   .ask__key { border: 1px solid ButtonText; }
   .tn__seg { outline: 1px solid ButtonText; }
   .tn__seg > button[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .tn .watch-card__link.is-picked > .watch-card__poster { outline-color: Highlight; }
   .chip[aria-pressed="true"] { forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText; }
   button.ask__row.is-picked { outline: 2px solid Highlight; outline-offset: -2px; }
   .ask__mark > .ico,
