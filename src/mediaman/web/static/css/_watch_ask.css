@@ -105,11 +105,11 @@ button.ask__row:active { transform: scale(.99); }
 .ask__skel:nth-child(8n) .skel::after { animation-delay: .56s; }
 .ask__none { grid-column: 1 / -1; font-size: 15px; color: var(--t2); }
 /* Over the foot of the screen while the titles that came last are below it. */
-.ask__below { position: fixed; z-index: 30; left: 50%; bottom: calc(var(--foot) + max(20px, env(safe-area-inset-bottom))); translate: -50% 0; gap: 7px; padding: 0 18px 0 16px; border-color: var(--hair-strong); background: var(--s4); color: var(--t1); font-weight: 500; white-space: nowrap; box-shadow: 0 8px 24px color-mix(in srgb, var(--scrim) 45%, transparent); animation: watch-ask-below var(--dur) var(--ease-spring, var(--ease-out)) backwards; }
+.ask__below { position: fixed; z-index: 30; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); translate: -50% 0; gap: 7px; padding: 0 18px 0 16px; border-color: var(--hair-strong); background: var(--s4); color: var(--t1); font-weight: 500; white-space: nowrap; box-shadow: var(--shadow-card); animation: watch-ask-below var(--dur) var(--ease-spring, var(--ease-out)) backwards; }
 .ask__below:hover { background: var(--s5); }
 .ask__below > .ico:first-child { color: color-mix(in srgb, var(--purple) 45%, var(--t1)); }
 .ask__below > .ico:last-child { color: var(--t2); }
-html.has-tv-mini .ask__below { bottom: calc(var(--foot) + 96px); }
+html.has-tv-mini .ask__below { bottom: 96px; }
 @keyframes watch-ask-below { from { opacity: 0; transform: translateY(12px) scale(.96); } }
 /* An AI pick: a sparkle before its title, which wraps at its words as any card's. */
 .watch-card__spark { display: inline-block; margin-right: 5px; color: color-mix(in srgb, var(--purple) 35%, var(--t1)); font-size: .9em; vertical-align: -.05em; animation: watch-ask-spark var(--dur-slow) var(--ease-pop, var(--ease-out)) .12s backwards; }
