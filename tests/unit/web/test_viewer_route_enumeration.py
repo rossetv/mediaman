@@ -18,6 +18,7 @@ from mediaman.main import create_app
 #: What a viewer may reach, written out independently of the guard.
 _VIEWER_MAY_REACH = {
     ("GET", "/"),
+    ("HEAD", "/"),
     ("GET", "/watch"),
     ("HEAD", "/watch"),
     ("GET", "/watch/show/{show_key}"),

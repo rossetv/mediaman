@@ -19,9 +19,6 @@ from concurrent.futures import Future
 from dataclasses import dataclass, field, replace
 from typing import cast
 
-import requests
-
-from mediaman.services.arr import ArrError
 from mediaman.services.arr import build as arr_build
 from mediaman.services.arr._types import ArrQueueItem, SonarrSeries
 from mediaman.services.arr.base import ArrClient
@@ -43,7 +40,6 @@ from mediaman.services.arr.state import (
     build_sonarr_cache,
     compute_download_state,
 )
-from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +52,6 @@ RETRY_WAIT_S = 1.0
 #: place of an older one began pages wait for it.
 OLD_S = 300.0
 OLD_WAIT_S = 10.0
-_ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, sqlite3.Error, ValueError)
 
 _lock = threading.Lock()
 _memo: dict[str, _Held] = {}
@@ -160,7 +155,7 @@ def _client(
 ) -> ArrClient | None:
     try:
         return build(conn, secret_key)
-    except _ARR_ERRORS:
+    except Exception:
         logger.warning("watch: an arr client cannot be set up", exc_info=True)
         return None
 
@@ -169,7 +164,7 @@ def _radarr(client: ArrClient | None) -> tuple[RadarrCaches, bool]:
     """Radarr's caches, and whether it is set up and answered."""
     try:
         return build_radarr_cache(client), client is not None
-    except _ARR_ERRORS:
+    except Exception:
         logger.warning("watch: Radarr unavailable; titles show no Radarr state", exc_info=True)
         return build_radarr_cache(None), False
 
@@ -218,7 +213,7 @@ def _sonarr(client: ArrClient | None) -> _Sonarr:
         read = _SonarrRead(client)
         caches = build_sonarr_cache(cast(ArrClient, read))
         return _Sonarr(caches, queued_seasons(read.queue), frozenset(read.odd_shows), True)
-    except _ARR_ERRORS:
+    except Exception:
         logger.warning("watch: Sonarr unavailable; titles show no Sonarr state", exc_info=True)
         return none
 

@@ -878,7 +878,7 @@ def old_watch_address(request: Request) -> Response:
     return RedirectResponse("/" + (f"?{query}" if query else ""), status_code=301)
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def watch_page(
     request: Request,
     view: str = "rows",
@@ -1155,7 +1155,7 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
         return resolved
     if not is_valid_key(show_key):
         raise HTTPException(status_code=404)
-    return RedirectResponse(_title_address(f"show-{show_key}", season))
+    return RedirectResponse(_title_address(f"show-{show_key}", season), status_code=301)
 
 
 @router.get("/watch/movie/{key}")
@@ -1166,7 +1166,7 @@ def movie_page(request: Request, key: str) -> Response:
         return resolved
     if not is_valid_key(key):
         raise HTTPException(status_code=404)
-    return RedirectResponse(_title_address(f"movie-{key}"))
+    return RedirectResponse(_title_address(f"movie-{key}"), status_code=301)
 
 
 def _is_on_a_tv(conn: sqlite3.Connection, username: str, rating_key: str) -> bool:
