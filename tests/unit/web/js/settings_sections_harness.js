@@ -352,6 +352,36 @@ const scenarios = {
     return out;
   },
 
+  // Escape shuts the open panel from the button that opened it, but not while a send is under way.
+  async escapeFromOpener() {
+    const p = await newsletter();
+    const opener = p.id('btn-send-newsletter');
+    const panel = p.id('newsletter-send-panel');
+    const look = () => ({
+      open: p.ctx.MM.settings.rows.isOpen(panel),
+      label: opener.textContent,
+      expanded: opener.getAttribute('aria-expanded'),
+      focused: p.doc.activeElement === opener,
+    });
+    const out = { before: look() };
+    opener.focus();
+    p.id('btn-confirm-newsletter').disabled = true;
+    p.fire(opener, 'keydown', { key: 'Escape' });
+    await settle();
+    out.sending = look();
+    p.id('btn-confirm-newsletter').disabled = false;
+    p.fire(opener, 'keydown', { key: 'Enter' });
+    await settle();
+    out.otherKey = look();
+    p.fire(opener, 'keydown', { key: 'Escape' });
+    await settle();
+    out.after = look();
+    p.fire(opener, 'keydown', { key: 'Escape' });
+    await settle();
+    out.again = look();
+    return out;
+  },
+
   // The panel names everything missing, as the server does, and says a typed value waits for a save.
   async setupNotes() {
     const p = await newsletter();

@@ -277,11 +277,14 @@
         closeNewsletter();
         if (btnSendNL) btnSendNL.focus();
       });
-      if (newsletterPanel) newsletterPanel.addEventListener('keydown', function (e) {
+      // Escape shuts the panel from inside it, and from the button that opened it.
+      function escapeCloses(e) {
         if (e.key !== 'Escape' || sending() || !rows.isOpen(newsletterPanel)) return;
         closeNewsletter();
         if (btnSendNL) btnSendNL.focus();
-      });
+      }
+      if (newsletterPanel) newsletterPanel.addEventListener('keydown', escapeCloses);
+      if (btnSendNL && newsletterPanel) btnSendNL.addEventListener('keydown', escapeCloses);
       // A changed choice of recipients makes the last message stale, unless a send is under way.
       function clearUnlessSending() { if (!sending()) clearStatus(); }
       if (newsletterPanel) newsletterPanel.addEventListener('change', clearUnlessSending);

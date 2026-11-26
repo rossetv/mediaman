@@ -317,6 +317,18 @@ def test_the_send_panel_asks_for_the_base_url_while_it_is_empty_and_escape_shuts
     assert out["escape"] == {"open": False, "expanded": "false", "focused": True}
 
 
+def test_escape_on_the_button_that_opened_the_send_panel_shuts_it() -> None:
+    out = _run("escapeFromOpener")
+    opened = {"open": True, "label": "Close", "expanded": "true", "focused": True}
+    shut = {"open": False, "label": "Select recipients", "expanded": "false", "focused": True}
+    assert out["before"] == opened
+    # nothing happens while the send is under way, or for another key
+    assert out["sending"] == opened
+    assert out["otherKey"] == opened
+    assert out["after"] == shut
+    assert out["again"] == shut
+
+
 def test_the_send_panel_names_what_is_missing_as_the_server_does() -> None:
     out = _run("setupNotes")
     mail = "set up Email (Mailgun) under Integrations"
