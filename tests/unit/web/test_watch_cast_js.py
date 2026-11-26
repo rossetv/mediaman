@@ -175,3 +175,20 @@ def test_where_things_may_move_the_card_goes_with_the_scroll_and_settles_back_sh
     assert out["going"] == {"scale": True, "opened": 0}
     assert out["back"] == {"scale": "", "opened": 0}
     assert out["opened"] == ["Mara Ellison"]
+
+
+def test_a_carried_card_rises_straight_up_about_its_own_middle_wherever_it_stands() -> None:
+    out = _run("carriedAtAnOffset")
+    assert out["grown"] is True
+    assert abs(out["middle"][0] - out["stands"][0]) < 1
+    assert abs(out["middle"][1] - (out["stands"][1] - 64 * out["at"])) < 1
+
+
+def test_a_carried_card_hands_its_photo_to_the_flight_and_fades_without_a_blank_frame() -> None:
+    out = _run("carriedHandOff")
+    assert out is not None
+    assert out["left"] == 1
+    assert out["ownPhoto"] == [0]
+    assert out["fadesOut"] is True
+    assert 150 <= out["ms"] <= 300
+    assert out["afterwards"] == 0

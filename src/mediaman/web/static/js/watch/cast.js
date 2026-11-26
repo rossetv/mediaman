@@ -270,6 +270,7 @@
   }
 
   var shown = null; // the pane on show: { node, of, state }
+  var standsAt = { x: 0, y: 0 }; // the open card's place in the scroller
 
   /* The card's contents for *p*. The same person's details arriving: the photo
      and the name stay and the rest is replaced under them. Another person's
@@ -337,7 +338,8 @@
         else y = Math.max(top, Math.min(bottom - h, a.top - EDGE - h));
       }
     }
-    card.style.setProperty('--to', 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)');
+    standsAt = { x: Math.round(x), y: Math.round(y) };
+    card.style.setProperty('--to', 'translate(' + standsAt.x + 'px,' + standsAt.y + 'px)');
     foldTo(p);
   }
 
@@ -566,10 +568,14 @@
     return core.reduceMotion() || window.matchMedia('(forced-colors: active)').matches || window.innerWidth < 700 || window.innerHeight <= 500;
   }
 
-  /* The card rises and grows with the scroll, *at* of the way to their page. */
+  /* The card rises and grows about its own middle with the scroll, *at* of the way to their page.
+     The scale is about the scroller's corner and takes the card's place with it, so the translate
+     takes back what it adds to the place as well as to the size. */
   function lift(at) {
     var s = 1 + GROW * at;
-    card.style.translate = Math.round((1 - s) * card.offsetWidth / 2) + 'px ' + ((1 - s) * shell.offsetHeight / 2 - LIFT * at) + 'px';
+    var x = (1 - s) * (standsAt.x + card.offsetWidth / 2);
+    var y = (1 - s) * (standsAt.y + shell.offsetHeight / 2) - LIFT * at;
+    card.style.translate = x.toFixed(2) + 'px ' + y.toFixed(2) + 'px';
     card.style.scale = String(s);
   }
 
@@ -662,6 +668,7 @@
     var held = live === p && shown ? shown.node.querySelector('.cast-face') : p.face;
     var from = held.getBoundingClientRect();
     var facts = known[p.id] && known[p.id].person;
+    if (held !== p.face) fadeAround(held);
     drop();
     // What Back will find the focus on; Safari leaves a pressed button without it.
     quietUntil = now() + QUIET_MS;
@@ -671,6 +678,22 @@
     if (!photo) return;
     photo.style.visibility = 'hidden';
     fly(p, from, photo.getBoundingClientRect(), null, function () { photo.style.visibility = ''; });
+  }
+
+  /* The open card, as it stands, fades out around its photo *held*, which goes on as the one in
+     the air: no frame shows neither. */
+  function fadeAround(held) {
+    if (plain() || !isShown() || !card.animate) return;
+    var faces = toArray(card.querySelectorAll('.cast-face'));
+    var ghost = card.cloneNode(true);
+    toArray(ghost.querySelectorAll('.cast-face'))[faces.indexOf(held)].style.visibility = 'hidden';
+    ghost.inert = true;
+    ghost.style.pointerEvents = 'none';
+    root.appendChild(ghost);
+    var fade = ghost.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: core.tokenMs('--dur', 200), easing: core.token('--ease-out', 'ease-out'), fill: 'forwards'
+    });
+    fade.onfinish = function () { ghost.remove(); };
   }
 
   /* Back in the detail from a page that *key* opened: their photo comes home from it. */
