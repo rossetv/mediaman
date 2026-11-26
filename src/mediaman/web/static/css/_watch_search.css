@@ -566,7 +566,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .watch-try--for > .watch-line { flex: none; width: 17px; height: 17px; color: var(--accent-hi); }
 .watch-try--for > .watch-face { flex: none; width: 24px; height: 24px; margin-left: -5px; font-size: 10px; }
 .watch-sheet__hint { margin: 12px 4px 0; font-size: 13px; line-height: 1.4; color: var(--t3); }
-.watch-tile--fav { background: color-mix(in srgb, var(--accent) 13%, var(--s3)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent); }
+.watch-tile--fav { background: color-mix(in srgb, var(--accent) 13%, var(--s3)); outline: 1px solid color-mix(in srgb, var(--accent) 34%, transparent); outline-offset: -1px; }
 .watch-tile--fav > .watch-line { color: var(--accent-hi); }
 .watch-tile__text { position: relative; display: flex; flex-direction: column; min-width: 0; gap: 2px; }
 .watch-tile__text > b { font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }

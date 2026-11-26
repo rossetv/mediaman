@@ -625,10 +625,16 @@
       core.caption(node.querySelector('.watch-card__sub'), 'TV · ' + t.season_count + (t.season_count === 1 ? ' season' : ' seasons'));
     }
     markPick(node, x);
-    var sub = node.querySelector('.watch-card__sub');
-    if (x.why && sub) sub.after(whyLine(x.why));
-    else if (x.why) node.appendChild(whyLine(x.why));
+    addWhy(node, x);
     return node;
+  }
+
+  /* The why goes under a card once, so a card drawn while checking keeps its place when the answer says why. */
+  function addWhy(node, x) {
+    if (!x.why || node.querySelector('.watch-card__why')) return;
+    var sub = node.querySelector('.watch-card__sub');
+    if (sub) sub.after(whyLine(x.why));
+    else node.appendChild(whyLine(x.why));
   }
 
   /* Why the AI picked it, under the card; "Because you liked …" leads where it says so. */
@@ -675,9 +681,9 @@
   function cardRows(list) {
     return list.map(function (x) {
       return {
-        key: refOf(x.t), sig: JSON.stringify([x.t, x.late, x.why]), keepFocus: true,
+        key: refOf(x.t), sig: JSON.stringify([x.t, x.late]), keepFocus: true,
         make: function () { return card(x); },
-        update: function (node) { markPick(node, x); }
+        update: function (node) { markPick(node, x); addWhy(node, x); }
       };
     });
   }
