@@ -205,6 +205,7 @@
     touched = true;
     save.setAttribute('aria-disabled', 'true');
     MM.api.patch('/api/tvs/' + tv.id, { name: wanted }).then(function (data) {
+      clearTimeout(nameWhy.pending);
       naming.hidden = true;
       done.hidden = false;
       document.getElementById('pair-ready-name').textContent = data.tv.name + ' is ready';

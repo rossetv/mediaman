@@ -8,6 +8,11 @@ const { makeDocument, build, settle } = require('./fake_dom.js');
 
 const FILE = path.resolve(__dirname, '../../../../src/mediaman/web/static/js/pair.js');
 
+let timerId = 0;
+let held = null;
+const cancelled = new Set();
+const runHeld = () => { held.splice(0).forEach(([id, fn]) => { if (!cancelled.has(id)) fn(); }); };
+
 function page(hash, answers, yes = true, owned = Promise.resolve({ tvs: [] })) {
   const doc = makeDocument();
   const input = (id) => ['input', { id }];
@@ -37,7 +42,13 @@ function page(hash, answers, yes = true, owned = Promise.resolve({ tvs: [] })) {
     document: doc, location, history: { replaceState: (a, b, url) => { replaced.push(url); location.hash = ''; } },
     MM: { api: { get: () => (Array.isArray(owned) ? owned.shift() : owned), post: answer, patch: answer, messageOf: (e, d) => (e && e.words) || d } },
     UIFeedback: { confirm: (o) => { asked.push(o.body); return Promise.resolve(yes); } },
-    setTimeout: (fn) => { Promise.resolve().then(fn); return 0; }, clearTimeout() {},
+    setTimeout: (fn) => {
+      const id = ++timerId;
+      if (held) held.push([id, fn]);
+      else Promise.resolve().then(() => { if (!cancelled.has(id)) fn(); });
+      return id;
+    },
+    clearTimeout: (id) => { cancelled.add(id); },
     window: { addEventListener: (t, fn) => { listeners[t] = fn; } },
   });
   vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
@@ -203,6 +214,24 @@ const scenarios = {
     p.fire('pair-name-form', 'submit');
     await settle();
     return { failed, empty: writes };
+  },
+  async lateError() {
+    held = [];
+    const p = page('#482916', [TV, { error: 'x', words: 'Away' }, { error: 'x', words: 'Away' }, { tv: { id: 7, name: 'Den' } }], true);
+    p.fire('pair-form', 'submit');
+    await settle();
+    p.fire('pair-name-form', 'submit');
+    await settle();
+    p.$('pair-name').value = 'Attic';
+    p.$('pair-name').listeners.input.forEach((fn) => fn({}));
+    runHeld();
+    const typed = p.$('pair-name-why').textContent;
+    p.fire('pair-name-form', 'submit');
+    await settle();
+    p.fire('pair-name-form', 'submit');
+    await settle();
+    runHeld();
+    return { typed, saved: [p.shown(), p.$('pair-name-why').textContent] };
   },
   async badList() {
     const out = [];

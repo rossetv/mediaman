@@ -127,6 +127,12 @@ def test_a_second_press_of_save_tells_the_person_again() -> None:
     assert out["empty"] == ["", "Give it a name.", "", "Give it a name."]
 
 
+def test_a_late_error_is_not_written_over_what_was_typed_or_a_save_that_went_through() -> None:
+    out = _run("lateError")
+    assert out["typed"] == ""
+    assert out["saved"] == [["pair-done"], ""]
+
+
 def test_a_malformed_list_leaves_the_name_form_as_it_was() -> None:
     out = _run("badList")
     assert out == [[["pair-name-form"], "Living room"]] * 4
