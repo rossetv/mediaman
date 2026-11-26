@@ -87,6 +87,7 @@ from mediaman.web.routes.watch.pages import (
     seasons_leaving,
 )
 from mediaman.web.routes.watch.title_seasons import (
+    ARR_WAIT_S,
     begin_arr_view,
     fill_season_status,
     missing_seasons,
@@ -838,9 +839,10 @@ def _tmdb_title(
 ) -> dict[str, Any]:
     """A TMDB title (*kind* "movie" or "tv"). Raises TmdbUnavailable, and disk_cache.Refused
     when TMDB would be asked and *allow_fetch* says no."""
+    arr = begin_arr_view(conn, request.app.state.config.secret_key)
     fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
     return _title_of_fields(
-        request, conn, username, client, ref, kind, tmdb_id, download_url, fields
+        request, conn, username, client, ref, kind, tmdb_id, download_url, fields, arr
     )
 
 
@@ -854,11 +856,14 @@ def _title_of_fields(
     tmdb_id: int,
     download_url: str | None,
     fields: dict[str, Any],
+    begun: Callable[[], catalog.ArrView] | None = None,
 ) -> dict[str, Any]:
+    """The title's answer; *begun* collects the Radarr and Sonarr view begun before TMDB was
+    asked. A slow one does not hold the page: its download state comes on a later answer."""
     out = _payload(ref, "movie" if kind == "movie" else "show", client is not None)
     _fill_fields(out, request, conn, kind, tmdb_id, fields)
-    # A slow Radarr or Sonarr does not hold the page: its download state comes on a later answer.
-    arr = begin_arr_view(conn, request.app.state.config.secret_key)()
+    secret = request.app.state.config.secret_key
+    arr = begun() if begun else catalog.arr_view(conn, secret, wait_s=ARR_WAIT_S)
     index = catalog.library_index(
         conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
     )

@@ -1628,7 +1628,7 @@ class TestSeasonStatus:
     def test_a_library_show_lists_the_seasons_it_lacks_apart_and_what_asks_for_them(
         self, viewer, library, tmdb, plex, arr, monkeypatch
     ):
-        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 30)
+        monkeypatch.setattr(title_seasons, "ARR_WAIT_S", 30)
         tmdb.tvdb_to_tmdb = {5500: 77}
         tmdb.detail[77]["seasons"] += [
             {"season_number": 3, "episode_count": 8, "air_date": "2020-01-01"},
@@ -1653,7 +1653,7 @@ class TestSeasonStatus:
     def test_where_sonarr_is_not_set_up_there_is_no_way_to_ask(
         self, viewer, library, tmdb, plex, arr, monkeypatch
     ):
-        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 30)
+        monkeypatch.setattr(title_seasons, "ARR_WAIT_S", 30)
         library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
         library.commit()
         monkeypatch.setattr(arr, "get_series", MagicMock(side_effect=SafeHTTPError(503, "", "")))
@@ -1678,7 +1678,7 @@ class TestSeasonStatus:
                 waited_for.append("sonarr")
             return []
 
-        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 0.01)
+        monkeypatch.setattr(title_seasons, "ARR_WAIT_S", 0.01)
         monkeypatch.setattr(arr, "get_series", get_series)
         body = viewer.get("/api/watch/title/show-500").json()
         page_came.set()
@@ -1789,7 +1789,7 @@ class TestTitleDownload:
         released = threading.Event()
         real = arr.get_movies
         monkeypatch.setattr(arr, "get_movies", lambda: (released.wait(10), real())[1])
-        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 0.05)
+        monkeypatch.setattr(title_seasons, "ARR_WAIT_S", 0.05)
         try:
             started = time.monotonic()
             first = viewer.get("/api/watch/title/tmdb-movie-12").json()
@@ -1805,6 +1805,22 @@ class TestTitleDownload:
         assert (first["download"]["state"], first["download"]["answered"]) == (None, False)
         later = viewer.get("/api/watch/title/tmdb-movie-12").json()["download"]
         assert (later["state"], later["answered"]) == ("queued", True)
+
+    def test_radarr_is_asked_while_tmdb_is(self, viewer, tmdb, arr, monkeypatch):
+        radarr_asked = threading.Event()
+        real_movies, real_details = arr.get_movies, tmdb.details_or_raise
+        overlapped: list[bool] = []
+        monkeypatch.setattr(arr, "get_movies", lambda: (radarr_asked.set(), real_movies())[1])
+
+        def details_or_raise(media_type, tmdb_id):
+            overlapped.append(radarr_asked.wait(2))
+            return real_details(media_type, tmdb_id)
+
+        monkeypatch.setattr(tmdb, "details_or_raise", details_or_raise)
+        download = viewer.get("/api/watch/title/tmdb-movie-12").json()["download"]
+
+        assert overlapped == [True]
+        assert download["answered"] is True
 
     def test_an_unreachable_arr_is_not_answered(self, viewer, tmdb, arr):
         arr.down = True
