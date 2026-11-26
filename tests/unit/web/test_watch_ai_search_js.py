@@ -29,7 +29,7 @@ def test_similar_to_names_the_title_and_shows_tmdbs_like_it_before_the_ai_is_ask
     assert offered["cards"] == ["Love Is Blind", "Married at First Sight"]
 
 
-def test_while_the_ai_looks_tmdbs_titles_stay_with_outlines_after_them_and_each_step_is_said() -> None:
+def test_while_the_ai_looks_tmdbs_titles_stay_with_outlines_and_each_step_is_said() -> None:
     out = _run("similar")
     thinking = out["thinking"]
     assert thinking["head"] == "Because you like 90 Day Fiancé | Reading what you watch…"
