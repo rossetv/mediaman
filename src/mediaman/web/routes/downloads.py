@@ -212,6 +212,7 @@ def downloads_page(request: Request) -> Response:
             "recent": data["recent"],
             "subtitle": data["subtitle"],
             "outage": data["outage"],
+            "refused": data["refused"],
             "downloads_set_up": data["downloads_set_up"],
             "strip": ring,
             "can_abandon": can_abandon,

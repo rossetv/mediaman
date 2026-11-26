@@ -158,6 +158,25 @@ def test_an_outage_is_shown_to_every_role_and_never_as_all_caught_up(make_client
         assert "Radarr and Sonarr" not in html
 
 
+@pytest.mark.parametrize(
+    ("role", "said"),
+    [
+        ("admin", "Check the details for Radarr in"),
+        ("viewer", "This page keeps trying."),
+    ],
+)
+def test_a_refused_key_is_drawn_from_the_first_render_and_named_to_an_admin_alone(
+    make_client, role, said
+):
+    line = "Can't sign in to Radarr"
+    down = dict(_payload(), hero=None, queue=[], outage=line, subtitle=line, refused=["Radarr"])
+    with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=down):
+        html = make_client(downloads_router, role).get("/downloads").text
+
+    assert said in html
+    assert ("Radarr" in html) is (role == "admin")
+
+
 @pytest.mark.parametrize("role", ["admin", "viewer"])
 def test_the_ring_on_the_downloads_page_begins_with_what_the_page_was_drawn_from(make_client, role):
     strip.on_page.clear()
