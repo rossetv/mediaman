@@ -16,11 +16,9 @@ from tests.helpers.factories import insert_download_notification, insert_setting
 def conn(tmp_path, monkeypatch):
     from mediaman.db import init_db
     from mediaman.services.downloads import _notification_claims
-    from mediaman.services.downloads._notification_backoff import _backoff_state
 
     monkeypatch.setattr(_notification_claims, "_batch_stamps", set())
     monkeypatch.setattr(_notification_claims, "_sent_unrecorded", {})
-    _backoff_state.clear()
     conn = init_db(str(tmp_path / "mm.db"))
     insert_settings(
         conn,
@@ -34,7 +32,6 @@ def conn(tmp_path, monkeypatch):
         )
     yield conn
     conn.close()
-    _backoff_state.clear()
 
 
 @pytest.fixture
