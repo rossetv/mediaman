@@ -549,22 +549,43 @@
 
   /* ── the address TVs use ── */
 
-  // The IPv4 address an IPv6 host wraps (::ffff:a.b.c.d or ::ffff:hhhh:hhhh), or ''.
-  function mappedV4(host) {
-    var m = /^\[(?:::|(?:0{1,4}:){5})ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))\]$/i.exec(host);
-    if (!m) return '';
-    if (m[1]) return m[1];
-    var hi = parseInt(m[2], 16);
-    var lo = parseInt(m[3], 16);
-    return [hi >> 8, hi & 255, lo >> 8, lo & 255].join('.');
+  // A bracketed IPv6 literal as its eight 16-bit groups ([] if it is not one): every spelling of ::, zeros
+  // left out, and a dotted IPv4 on the end.
+  function v6Groups(host) {
+    var h = host.slice(1, -1).toLowerCase();
+    var dotted = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+    if (dotted) {
+      if ([2, 3, 4, 5].some(function (k) { return +dotted[k] > 255; })) return [];
+      h = dotted[1] + ((+dotted[2] << 8) + +dotted[3]).toString(16) + ':' + ((+dotted[4] << 8) + +dotted[5]).toString(16);
+    }
+    var halves = h.split('::');
+    if (halves.length > 2) return [];
+    var side = function (t) { return t ? t.split(':') : []; };
+    var head = side(halves[0]);
+    var tail = halves.length === 2 ? side(halves[1]) : [];
+    var fill = 8 - head.length - tail.length;
+    if (halves.length === 2 ? fill < 1 : fill !== 0) return [];
+    var all = head.concat(new Array(fill > 0 ? fill : 0).fill('0'), tail);
+    return all.every(function (g) { return /^[0-9a-f]{1,4}$/.test(g); })
+      ? all.map(function (g) { return parseInt(g, 16); }) : [];
   }
 
-  // An IPv6 host no TV can be at: unspecified, multicast (ff00::/8), or an IPv4 one wrapped in it that is itself refused.
+  // The IPv4 address an IPv6 host wraps (::ffff:a.b.c.d in any spelling), or ''.
+  function mappedV4(host) {
+    var g = host.charAt(0) === '[' ? v6Groups(host) : [];
+    if (g.length !== 8 || g[5] !== 0xffff || g.slice(0, 5).some(Boolean)) return '';
+    return [g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255].join('.');
+  }
+
+  // An IPv6 host the server refuses a TV at: unspecified, loopback, multicast (ff00::/8), or an IPv4 one
+  // wrapped in it that is itself unspecified, loopback or multicast.
   function v6Refused(host) {
-    var h = host.slice(1, -1).toLowerCase();
-    if (h === '::' || /^(?:0{1,4}:){7}0{1,4}$/.test(h) || /^ff[0-9a-f]{2}:/.test(h)) return true;
+    var g = v6Groups(host);
+    if (g.length !== 8) return false;
+    if (!g.slice(0, 7).some(Boolean) && g[7] <= 1) return true;
+    if ((g[0] & 0xff00) === 0xff00) return true;
     var v4 = mappedV4(host);
-    return !!v4 && IPV4.test(v4) && (v4 === '0.0.0.0' || /^(?:22[4-9]|23\d)\./.test(v4));
+    return !!v4 && (v4 === '0.0.0.0' || /^(?:127|22[4-9]|23\d)\./.test(v4));
   }
 
   // The shapes the server refuses on Save, said as they are typed.

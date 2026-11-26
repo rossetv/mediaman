@@ -285,10 +285,14 @@ const scenarios = {
       'http://nas.local:8282/app', 'http://nas..local:8282', 'http://-nas.local:8282', 'https://nas.local?x=1', 'http://nas.local:70000',
       'https://10.999.0.300', 'https://nas.0x1f', 'https://a b.example.com', 'http://:8282', 'https://0.0.0.0', 'https://224.0.0.1',
       'https://239.255.255.250', 'https://[::]', 'https://[0:0:0:0:0:0:0:0]', 'https://[ff02::1]', 'https://[ff00::1]:8282',
-      'https://[::ffff:0.0.0.0]', 'https://[::ffff:224.0.0.1]', 'https://[::ffff:e000:1]', 'http://[::ffff:7f00:1]'];
+      'https://[::ffff:0.0.0.0]', 'https://[::ffff:224.0.0.1]', 'https://[::ffff:e000:1]', 'http://[::ffff:7f00:1]',
+      'https://[::0]', 'https://[0::]', 'https://[::0.0.0.0]', 'https://[0::0]', 'https://[0:0:0:0:0:0:0:1]', 'https://[0::1]',
+      'https://[::0001]', 'https://[0::ffff:7f00:1]', 'https://[0:0::ffff:e000:1]', 'https://[::0:ffff:e000:1]',
+      'https://[::1]', 'https://[::ffff:127.0.0.1]', 'https://[FF02::1]'];
     const taken = ['http://nas.local:8282', 'http://nas.local:8282/', 'https://nas.example.com', 'http://192.168.1.10:8282',
       'https://203.0.113.5', 'http://[fd00::5]:8282', 'https://nas.example.com.', 'http://nas.local:', 'http://', 'https://0.0.0.1', 'https://240.0.0.1',
-      'https://[ff:1::1]', 'http://[::ffff:c0a8:105]:8282'];
+      'https://[ff:1::1]', 'http://[::ffff:c0a8:105]:8282',
+      'https://[2001:db8::1]', 'https://[::2]', 'https://[0::ffff:c0a8:105]', 'https://[::ffff:8.8.8.8]', 'https://[1::]'];
     const out = { refused: refused.map(read), taken: taken.map(read) };
     const said = (v) => { read(v); return hint.textContent; };
     out.noHost = said('http://:8282');
