@@ -5068,6 +5068,21 @@ const scenarios = {
     return out;
   },
 
+  /* The server was busy, and a TV took the video before the wait it asked for was over. */
+  async away_airplay_busy(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const v = p.video;
+    await streamPlays(p, 30);
+    const h = p.hlsList[0];
+    h.emit('hlsError', loadError('fragLoadError', 429, { error: 'rate_limited' }, { 'retry-after': '3' }));
+    const loads = h.loads.length;
+    p.elsewhere.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+    await settle();
+    p.tick(4000);
+    await settle();
+    return { stopped: h.stopped, loads: h.loads.length - loads };
+  },
+
   away_airplay_replaced: (p) => ownTvEnds(p, { ok: false, error: 'replaced', by: 'another-page' }),
   away_airplay_gone: (p) => ownTvEnds(p, { error: 'gone' }),
 

@@ -1639,7 +1639,11 @@
       stopWatching();
       if (noneTooLong()) { fail(MSG_BUSY); return; }
       h.stopLoad();
-      setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
+      setTimeout(function () {
+        /* A TV that took the video meanwhile reads the stream itself. */
+        if (airplayed()) return;
+        loadAgain(h, data.details);
+      }, retryAfterMs(data));
       return;
     }
     /* Leaving the page cancels its requests too, before it says that it is left. */
