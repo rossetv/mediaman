@@ -283,10 +283,16 @@ const scenarios = {
     };
     const refused = ['http://[fd00::1%25eth0]:8282', 'http://nas.123:8282', 'http://nas.local:0', 'http://user:pw@nas.local:8282',
       'http://nas.local:8282/app', 'http://nas..local:8282', 'http://-nas.local:8282', 'https://nas.local?x=1', 'http://nas.local:70000',
-      'https://10.999.0.300', 'https://nas.0x1f', 'https://a b.example.com'];
+      'https://10.999.0.300', 'https://nas.0x1f', 'https://a b.example.com', 'http://:8282', 'https://0.0.0.0', 'https://224.0.0.1',
+      'https://239.255.255.250'];
     const taken = ['http://nas.local:8282', 'http://nas.local:8282/', 'https://nas.example.com', 'http://192.168.1.10:8282',
-      'https://203.0.113.5', 'http://[fd00::5]:8282', 'https://nas.example.com.', 'http://nas.local:'];
-    return { refused: refused.map(read), taken: taken.map(read), hint: hint.textContent };
+      'https://203.0.113.5', 'http://[fd00::5]:8282', 'https://nas.example.com.', 'http://nas.local:', 'http://', 'https://0.0.0.1', 'https://240.0.0.1'];
+    const out = { refused: refused.map(read), taken: taken.map(read) };
+    const said = (v) => { read(v); return hint.textContent; };
+    out.noHost = said('http://:8282');
+    out.unspecified = said('https://0.0.0.0');
+    out.multicast = said('https://224.0.0.1');
+    return out;
   },
   // Which addresses the add dialog takes as a home one.
   async homeAddresses() {

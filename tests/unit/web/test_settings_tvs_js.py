@@ -162,8 +162,11 @@ def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
 
 def test_an_address_the_server_would_refuse_is_marked_as_typed_and_one_it_takes_is_not() -> None:
     out = _run("shapes")
-    assert out["refused"] == [True] * 12
-    assert out["taken"] == [False] * 8
+    assert out["refused"] == [True] * 16
+    assert out["taken"] == [False] * 11
+    assert out["noHost"].startswith("URL must include a host.")
+    assert out["unspecified"].startswith("That address can’t be used")
+    assert out["multicast"].startswith("That address can’t be used")
 
 
 def test_the_add_dialog_sends_only_numbers_a_home_address_can_have() -> None:

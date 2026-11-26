@@ -564,7 +564,10 @@
     if (parts[2] && (+parts[2] < 1 || +parts[2] > 65535)) return 'That port can’t be used.' + sample;
     if (host.charAt(0) === '[') return host.indexOf('%') >= 0 ? 'A TV can’t use this kind of address.' + sample : '';
     host = host.replace(/\.$/, '');
-    if (!host || IPV4.test(host)) return '';
+    if (!host) return authority ? 'URL must include a host.' + sample : '';
+    if (IPV4.test(host)) {
+      return host === '0.0.0.0' || /^(?:22[4-9]|23\d)\./.test(host) ? 'That address can’t be used by a TV.' + sample : '';
+    }
     if (/^(?:\d+|0x[0-9a-f]*)$/i.test(host.slice(host.lastIndexOf('.') + 1)) || !NAME.test(host)) {
       return 'That isn’t a valid address.' + sample;
     }

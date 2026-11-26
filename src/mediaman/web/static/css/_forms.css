@@ -22,10 +22,7 @@
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"]), select, textarea):not(:disabled) {
   --hair: var(--field-edge);
 }
-.inp,
-.form-input,
-.form-select,
-.threshold-input {
+.inp {
   background-color: var(--s2);
   border: 1px solid var(--hair);
   border-radius: var(--r-sm);
@@ -37,24 +34,15 @@
   transition: border-color var(--dur-fast) var(--ease-out),
               background var(--dur-fast) var(--ease-out);
 }
-.inp:focus,
-.form-input:focus,
-.form-select:focus,
-.threshold-input:focus {
+.inp:focus {
   border-color: var(--accent);
   background-color: var(--s3);
 }
 @media (max-width: 639.98px), (pointer: coarse) {
   /* 16px stops iOS zooming the page when a field is focused */
-  .inp,
-  .form-input,
-  .form-select,
-  .threshold-input { font-size: 16px; }
+  .inp { font-size: 16px; }
 }
-.inp:disabled,
-.form-input:disabled,
-.form-select:disabled,
-.threshold-input:disabled {
+.inp:disabled {
   color: var(--t3);
   cursor: not-allowed;
 }
