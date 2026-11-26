@@ -435,6 +435,7 @@ def test_an_admin_sees_the_tvs_of_others_and_unpairs_one_only_after_a_yes() -> N
 
 def test_a_tv_is_renamed_in_its_row_and_a_failure_keeps_what_was_typed() -> None:
     out = _run("tvRename")
+    assert out["drawn"][1:] == ["Cancel", "Save"]
     assert out["empty"] == [0, "true"]
     assert out["failed"] == [1, ["error: Could not rename it. Try again."], True]
     assert out["sent"] == ["/api/tvs/1", {"name": "Den"}]
@@ -444,6 +445,7 @@ def test_a_tv_is_renamed_in_its_row_and_a_failure_keeps_what_was_typed() -> None
 
 def test_an_unpaired_tv_leaves_the_list_and_the_last_takes_the_section_with_it() -> None:
     out = _run("tvUnpair")
+    assert out["look"] == ["btn btn--danger btn--sm", "btn btn--ghost btn--sm"]
     assert out["failed"] == [2, ["error: Could not unpair it. Try again."]]
     assert out["one"] == [1, False, ["Unpaired. That TV now says it was signed out."]]
     assert out["sent"] == ["/api/tvs/1", "/api/tvs/1", "/api/tvs/2"]

@@ -293,7 +293,11 @@ def test_a_title_finds_more_like_itself_beside_play_once_there_is_an_ai_to_ask()
         "before": False,
         "acts": ["primary", "like"],
         "focus": "primary",
-        "asked": ["movie-120", "tmdb-movie-77", "tmdb-movie-77"],
+        "asked": [
+            ["movie-120", "Glass Harbour: Restored", "/api/watch/poster/120"],
+            ["tmdb-movie-77", "Meridian", None],
+            ["tmdb-movie-77", "Meridian", None],
+        ],
         "off": False,
     }
 
@@ -870,6 +874,9 @@ def test_an_episode_says_what_it_is_about_when_it_aired_and_what_was_seen_of_it(
     # Only the episode Play plays is the one to continue.
     assert (other["state"], other["about"], other["more"]) == ("In progress", None, 0)
     assert (unaired["state"], unaired["meta"]) == (None, "50 min · Airs 2 Jan 2999")
+    # Each fact is held whole, so a narrow row breaks only between them.
+    assert watched["facts"] == ["50 min", "4 May 2019"]
+    assert begun["facts"] == ["50 min", "30 min left"]
 
 
 def test_a_row_is_one_link_whose_description_is_not_in_its_name() -> None:
@@ -1465,12 +1472,12 @@ def test_the_director_leads_to_their_titles_and_back() -> None:
 
 def test_ratings_that_come_late_take_the_places_held_for_them_and_reach_no_other_title() -> None:
     out = _run("lateRatings")
-    waiting = ["★IMDb 10.0", "🍅RT 100%", "Metascore 100"]
-    assert out["before"] == {"shown": ["★TMDB 7.4"], "line": True, "waiting": waiting}
+    # Their line is held, with no stand-in for a rating that may never come.
+    assert out["before"] == {"shown": ["★TMDB 7.4"], "line": True, "held": True, "waiting": []}
     assert out["asked"] == 1
     shown = ["★TMDB 7.4", "★IMDb 8.3", "🍅RT 91%"]
-    assert out["after"] == {"shown": shown, "line": True, "waiting": []}
-    assert out["failed"] == {"shown": ["★TMDB 7.4"], "line": True, "waiting": []}
+    assert out["after"] == {"shown": shown, "line": True, "held": False, "waiting": []}
+    assert out["failed"] == {"shown": ["★TMDB 7.4"], "line": True, "held": False, "waiting": []}
     assert out["renewed"] == ["★IMDb 8.2", "★TMDB 7.4", "Metascore 70"]
     assert out["brief"] == ["Meta", "true"]
     assert out["moved"] == "★IMDb 5.0"
@@ -1479,8 +1486,8 @@ def test_ratings_that_come_late_take_the_places_held_for_them_and_reach_no_other
 
 def test_no_place_is_left_for_ratings_when_none_came() -> None:
     out = _run("lateRatings")
-    assert (out["held"]["line"], len(out["held"]["waiting"])) == (True, 3)
-    assert out["empty"] == {"shown": [], "line": False, "waiting": []}
+    assert (out["held"]["line"], out["held"]["held"]) == (True, True)
+    assert out["empty"] == {"shown": [], "line": False, "held": False, "waiting": []}
 
 
 def test_late_ratings_are_no_longer_asked_for_once_the_title_is_left_and_again_when_it_is_back() -> (
@@ -1488,7 +1495,7 @@ def test_late_ratings_are_no_longer_asked_for_once_the_title_is_left_and_again_w
 ):
     out = _run("lateRatings")
     assert out["dropped"] == [True, True]
-    assert out["again"] == [2, 3]
+    assert out["again"] == [2, True]
 
 
 def test_a_title_s_thumbs_stand_between_its_actions_and_its_overview_from_the_start() -> None:
@@ -1666,3 +1673,95 @@ def test_a_title_opened_on_what_was_asked_ahead_and_then_refused_is_asked_again_
         "director": "DirectorAda Rimmington",
         "failed": False,
     }
+
+
+def test_a_refused_early_ask_stops_asking_ahead_for_a_minute_but_never_holds_back_an_opening() -> (
+    None
+):
+    assert _run("aheadBacksOff") == {
+        "meanwhile": 1,
+        "drawn": 1,
+        "after": ["/api/watch/title/movie-2?ahead=1"],
+    }
+
+
+def test_a_title_asked_ahead_and_not_found_is_not_asked_again_when_opened() -> None:
+    assert _run("aheadNotFoundOnOpen") == {"asked": 1, "failed": True}
+
+
+def test_a_trailer_whose_player_never_answers_or_cannot_play_goes_back_to_the_artwork() -> None:
+    out = _run("trailerStuck")
+    gone = {"playing": False, "told": ["Trailer unavailable."], "focus": "trailer"}
+    # Asked again to report while it has not answered; not once it has.
+    assert out["silent"] == {**gone, "asked": 2}
+    assert out["refused"] == {**gone, "asked": 1}
+    assert out["heard"] == {"playing": True, "told": [], "focus": None, "asked": 1}
+    assert out["stopped"]["told"] == []
+    # A frame slow to load is waited for: the player's wait starts once it has loaded.
+    assert out["slowThenHeard"] == {
+        "loaded": True,
+        "playing": True,
+        "told": [],
+        "focus": None,
+        "asked": 1,
+    }
+    assert out["slowThenSilent"] == {"loaded": True, **gone, "asked": 2}
+    # One that never loads gives way in the end.
+    assert out["neverLoads"] == {**gone, "asked": 0}
+
+
+def test_a_trailer_shows_a_named_loading_mark_until_its_player_speaks_or_it_gives_way() -> None:
+    out = _run("trailerLoadingMark")
+    mark = {"text": "Loading trailer", "role": "status", "spinner": True}
+    # From the moment the frame is added, through its load, until the player's first word.
+    assert out["waiting"] == {"pressed": mark, "loaded": mark, "after": mark, "playing": True}
+    for answer, playing in (("heard", True), ("refused", False)):
+        assert out[answer] == {"pressed": mark, "loaded": mark, "after": None, "playing": playing}
+    # Gone when the wait ends, whether the player stayed silent or the frame never loaded.
+    for ended in ("silent", "never", "closed"):
+        assert out[ended]["pressed"] == mark
+        assert out[ended]["after"] is None
+        assert out[ended]["playing"] is False
+
+
+def test_a_title_s_page_brings_its_cards_up_to_what_it_learns_of_it_not_to_its_preview() -> None:
+    assert _run("arrivalPaints") == {"drawn": [], "opened": [["movie/120", True]]}
+
+
+def test_on_a_phone_an_admin_s_leaving_line_takes_them_to_the_keep_below() -> None:
+    out = _run("leavingToKeep")
+    words = "Leaving in 3 days. Keep it to stop the deletion."
+    assert out["phone"] == {
+        "words": words,
+        "link": "Keep it to stop the deletion",
+        "focus": "admin-keep",
+    }
+    # A phone on its side stacks the page too, so it is a link there as well.
+    assert out["sideways"] == out["phone"]
+    assert out["wide"]["link"] is None and out["viewer"]["link"] is None
+    assert out["wide"]["words"] == words
+    # Before the Keep has come there is nowhere to take the focus.
+    assert out["waiting"]["link"] == "Keep it to stop the deletion"
+    assert out["waiting"]["focus"] != "admin-keep"
+
+
+def test_a_title_s_page_takes_its_rating_from_the_server_each_time_it_loads() -> None:
+    assert _run("ratedElsewhere") == {"first": [1, 1], "again": [2, -2]}
+
+
+def test_a_film_opened_before_radarr_answered_is_asked_once_more_and_drawn_in_place() -> None:
+    out = _run("radarrLate")
+    assert out["late"] == {
+        "waits": 1,
+        "asked": 2,
+        "primary": "Queued",
+        "focus": "primary",
+        "told": 1,
+    }
+    # Radarr had answered: nothing more is asked.
+    assert (out["answered"]["waits"], out["answered"]["asked"]) == (0, 1)
+    # Another title opened meanwhile: the late answer is dropped.
+    assert (out["moved"]["asked"], out["moved"]["told"]) == (2, 0)
+    assert out["moved"]["primary"] == "Resume S2 · E4"
+    # Download pressed meanwhile: what it started stands.
+    assert (out["pressed"]["asked"], out["pressed"]["primary"]) == (1, "Queued")

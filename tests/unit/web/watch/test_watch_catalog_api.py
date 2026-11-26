@@ -1217,6 +1217,56 @@ class TestTmdbTitle:
 
         assert codes == [200, 200, 429]
 
+    def test_a_title_asked_for_ahead_spends_none_of_the_query_limit(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
+        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(1, 60))
+
+        ahead = viewer.get("/api/watch/title/tmdb-movie-12?ahead=1").status_code
+        opened = viewer.get("/api/watch/title/tmdb-movie-11").status_code
+
+        assert (ahead, opened) == (200, 200)
+
+    def test_titles_asked_for_ahead_share_the_days_title_lookups_with_opens(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+        monkeypatch.setattr(catalog_api, "_TITLE_DAY_LIMITER", ActionRateLimiter(1, 60))
+
+        ahead = viewer.get("/api/watch/title/tmdb-movie-12?ahead=1").status_code
+        opened = viewer.get("/api/watch/title/tmdb-movie-11").status_code
+        held = viewer.get("/api/watch/title/tmdb-movie-12").status_code
+
+        assert (ahead, opened, held) == (200, 429, 200)
+
+    def test_an_open_the_query_limit_refuses_spends_none_of_the_days_title_lookups(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
+        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(0, 60))
+        monkeypatch.setattr(catalog_api, "_TITLE_DAY_LIMITER", ActionRateLimiter(1, 60))
+
+        opened = viewer.get("/api/watch/title/tmdb-movie-11").status_code
+        ahead = viewer.get("/api/watch/title/tmdb-movie-12?ahead=1").status_code
+
+        assert (opened, ahead) == (429, 200)
+
+    def test_the_ahead_limit_counts_the_person_whatever_address_they_give(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_api, "_AHEAD_LIMITER", ActionRateLimiter(1, 60))
+
+        codes = [
+            viewer.get(
+                "/api/watch/title/tmdb-movie-12?ahead=1", headers={"X-Forwarded-For": address}
+            ).status_code
+            for address in ("10.0.0.1", "10.0.0.2")
+        ]
+
+        assert codes == [200, 429]
+
     @pytest.mark.parametrize("ref", ["tmdb-movie-12", "tmdb-tv-77", "movie-100", "show-500"])
     def test_a_title_never_waits_for_omdb_and_says_its_ratings_are_to_come(
         self, viewer, library, tmdb, arr, plex, monkeypatch, ref
@@ -1603,7 +1653,7 @@ class TestSeasonStatus:
     def test_a_library_show_lists_the_seasons_it_lacks_apart_and_what_asks_for_them(
         self, viewer, library, tmdb, plex, arr, monkeypatch
     ):
-        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 30)
+        monkeypatch.setattr(title_seasons, "ARR_WAIT_S", 30)
         tmdb.tvdb_to_tmdb = {5500: 77}
         tmdb.detail[77]["seasons"] += [
             {"season_number": 3, "episode_count": 8, "air_date": "2020-01-01"},
@@ -1628,7 +1678,7 @@ class TestSeasonStatus:
     def test_where_sonarr_is_not_set_up_there_is_no_way_to_ask(
         self, viewer, library, tmdb, plex, arr, monkeypatch
     ):
-        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 30)
+        monkeypatch.setattr(title_seasons, "ARR_WAIT_S", 30)
         library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
         library.commit()
         monkeypatch.setattr(arr, "get_series", MagicMock(side_effect=SafeHTTPError(503, "", "")))
@@ -1653,7 +1703,7 @@ class TestSeasonStatus:
                 waited_for.append("sonarr")
             return []
 
-        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 0.01)
+        monkeypatch.setattr(title_seasons, "ARR_WAIT_S", 0.01)
         monkeypatch.setattr(arr, "get_series", get_series)
         body = viewer.get("/api/watch/title/show-500").json()
         page_came.set()
@@ -1756,6 +1806,46 @@ class TestTitleDownload:
         download = viewer.get("/api/watch/title/tmdb-movie-12").json()["download"]
 
         assert (download["state"], download["pct"], download["answered"]) == (None, None, True)
+
+    def test_a_film_opens_at_once_while_radarr_hangs_and_a_later_open_has_its_state(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        arr.movies = [{"tmdbId": 12, "hasFile": False, "monitored": True}]
+        released = threading.Event()
+        real = arr.get_movies
+        monkeypatch.setattr(arr, "get_movies", lambda: (released.wait(10), real())[1])
+        monkeypatch.setattr(title_seasons, "ARR_WAIT_S", 0.05)
+        try:
+            started = time.monotonic()
+            first = viewer.get("/api/watch/title/tmdb-movie-12").json()
+            took = time.monotonic() - started
+        finally:
+            released.set()
+            for thread in threading.enumerate():
+                if thread.name == "watch-arr":
+                    thread.join(5)
+
+        assert took < 5
+        assert first["title"] == "Glass Onion"
+        assert (first["download"]["state"], first["download"]["answered"]) == (None, False)
+        later = viewer.get("/api/watch/title/tmdb-movie-12").json()["download"]
+        assert (later["state"], later["answered"]) == ("queued", True)
+
+    def test_radarr_is_asked_while_tmdb_is(self, viewer, tmdb, arr, monkeypatch):
+        radarr_asked = threading.Event()
+        real_movies, real_details = arr.get_movies, tmdb.details_or_raise
+        overlapped: list[bool] = []
+        monkeypatch.setattr(arr, "get_movies", lambda: (radarr_asked.set(), real_movies())[1])
+
+        def details_or_raise(media_type, tmdb_id):
+            overlapped.append(radarr_asked.wait(2))
+            return real_details(media_type, tmdb_id)
+
+        monkeypatch.setattr(tmdb, "details_or_raise", details_or_raise)
+        download = viewer.get("/api/watch/title/tmdb-movie-12").json()["download"]
+
+        assert overlapped == [True]
+        assert download["answered"] is True
 
     def test_an_unreachable_arr_is_not_answered(self, viewer, tmdb, arr):
         arr.down = True

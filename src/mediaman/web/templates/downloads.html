@@ -19,7 +19,9 @@
 
   <div class="ph">
     <h1>Downloads</h1>
-    {% if subtitle %}<p>{{ subtitle }}</p>{% endif %}
+    {#- A viewer's outage with nothing in progress is said by the card below. -#}
+    {% set line = (upcoming|length ~ " coming soon" if upcoming else "") if outage and not can_abandon and not hero and not queue else subtitle %}
+    {% if line %}<p>{{ line }}</p>{% endif %}
   </div>
 
   {% if hero %}
@@ -32,7 +34,7 @@
 
   {% if queue %}
   <div id="dl-queue-container">
-    <h2 class="dl-compact-header">Also downloading</h2>
+    <h2 class="dl-compact-header">{{ "Up next" if queue|rejectattr("state", "ne", "queued")|list|length == queue|length else "Also in progress" }}</h2>
     <div class="dl-compact-list" id="dl-queue-list">
       {% for item in queue %}
       {% include "_dl_compact_row.html" %}
@@ -45,7 +47,12 @@
       The container is always present so the poll loop just fills or
       clears it; #dl-root child order stays fixed. -#}
   <div id="dl-empty-container" role="status">
-    {% if outage and not hero and not queue %}
+    {% if downloads_set_up and not downloads_set_up.movies and not downloads_set_up.shows and not hero and not queue %}
+    {{ c.empty("Downloads aren’t set up", 'Connect Radarr or Sonarr in <a href="/settings#setg-integrations">Settings</a>.' if can_abandon else "Ask whoever runs mediaman to set it up.", icon_svg=dl_empty_icon) }}
+    {% elif outage and refused and can_abandon and not hero and not queue %}
+    {% set shut = (refused[:-1]|join(", ") ~ " and " ~ refused[-1]) if refused|length > 1 else refused[0] %}
+    {{ c.empty("Downloads can't be checked right now", 'Check the details for ' ~ shut ~ ' in <a href="/settings#setg-integrations">Settings</a>.', icon_svg=dl_outage_icon) }}
+    {% elif outage and not hero and not queue %}
     {{ c.empty("Downloads can't be checked right now", "This page keeps trying.", icon_svg=dl_outage_icon) }}
     {% elif not hero and not queue %}
     {{ c.empty("All caught up", "Nothing downloading right now.", icon_svg=dl_empty_icon) }}

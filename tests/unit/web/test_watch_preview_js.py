@@ -673,6 +673,12 @@ def test_a_gentle_scroll_on_a_busy_page_opens_it_once_and_never_runs_back_on_the
     assert _run("busyPage") == {"steps": ["draw movie-1", "end", "open"], "back": False}
 
 
+def test_a_page_whose_hand_cannot_be_staged_is_undrawn_and_opens_plainly() -> None:
+    out = _run("stageThrows")
+    assert out["steps"] == ["draw movie-1", "undraw"]
+    assert out["details"] == ["movie-1"]
+
+
 def test_with_less_motion_a_notched_wheel_opens_the_page_at_its_first_notch() -> None:
     assert _run("plainNotches") == [[True, 1]] * 3
 

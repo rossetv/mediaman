@@ -241,9 +241,9 @@ def _empty(conn: sqlite3.Connection, type_: str, admin: bool) -> dict[str, str]:
         }
     return {
         "title": "Your library is empty",
-        "text": "Run a scan from Storage to pull in media from Plex.",
-        "link": "Open Storage",
-        "href": "/watch#storage",
+        "text": "Press Sync now in Settings to pull in media from Plex.",
+        "link": "Open Settings",
+        "href": "/settings#setg-general",
     }
 
 

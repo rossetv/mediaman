@@ -148,6 +148,7 @@ const scenarios = {
     push(buttonOf(row, 'Rename'));
     const form = row.querySelector('form');
     const input = row.querySelector('input');
+    const drawn = form.childNodes.map((n) => n.textContent || n.tagName.toLowerCase());
     const submit = () => form.listeners.submit.forEach((fn) => fn({ preventDefault() {} }));
     input.value = '  ';
     submit();
@@ -160,13 +161,14 @@ const scenarios = {
     answer = (body) => Promise.resolve({ tv: { id: 1, name: body.name } });
     submit();
     await settle();
-    return { empty, failed, sent: sent[1], name: row.querySelector('.me-lbl').textContent, label: buttonOf(row, 'Rename').getAttribute('aria-label'), toasts: p.toasts };
+    return { drawn, empty, failed, sent: sent[1], name: row.querySelector('.me-lbl').textContent, label: buttonOf(row, 'Rename').getAttribute('aria-label'), toasts: p.toasts };
   },
   async tvUnpair() {
     const sent = [];
     let answer = () => Promise.reject({ status: 500 });
     const p = page(tvApi([tvOf(1, 'A'), tvOf(2, 'B')], [], { delete: (url) => { sent.push(url); return answer(); } }), { tvs: 'viewer' });
     await settle();
+    const look = [buttonOf(tvRows(p)[0], 'Unpair').className, buttonOf(tvRows(p)[0], 'Rename').className];
     const press = async () => {
       push(buttonOf(tvRows(p)[0], 'Unpair'));
       await settle();
@@ -181,7 +183,7 @@ const scenarios = {
     // already unpaired by someone else
     answer = () => Promise.reject({ status: 404 });
     await press();
-    return { failed, one, sent, last: [tvRows(p).length, p.$('account-tvs').hidden], asked: p.asked.length, kept, dropped: p.dropped };
+    return { look, failed, one, sent, last: [tvRows(p).length, p.$('account-tvs').hidden], asked: p.asked.length, kept, dropped: p.dropped };
   },
   async sessions() {
     const here = session(9, { current: true });

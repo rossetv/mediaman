@@ -297,11 +297,7 @@ def test_a_line_height_in_px_is_not_taken_for_a_multiple_of_the_font_size(
 
 
 def test_download_links_and_settings_fields_are_44px_below_700px() -> None:
-    # A line of text, reached 15px above and below.
-    link = (".dl-search-hint", ".dl-arr-link")
-    line = _smallest_line(_smallest("font-size", *link), *link, "body")
-    assert _phone_sets(".dl-arr-link::after", "inset", "-15px -6px")
-    assert line + 2 * 15 >= 44
+    assert _phone_sets(".dl-arr-link", "min-height", "44px")
     assert _phone_sets(".setg-pg .inp", "min-height", "44px")
 
 

@@ -58,6 +58,10 @@ def bootstrap_db(app: FastAPI, config: Config) -> None:
     db_path = str(Path(config.data_dir) / "mediaman.db")
     conn = init_db(db_path)
     logger.info("DB initialised at %s", db_path)
+    if conn.execute("SELECT 1 FROM admin_users LIMIT 1").fetchone() is None:
+        logger.info(
+            "No users yet: create one with docker compose exec mediaman mediaman-create-user"
+        )
     set_connection(conn)
     app.state.config = config
     app.state.db = conn

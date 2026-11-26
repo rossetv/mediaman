@@ -11,6 +11,10 @@
 @media (max-width: 599.98px) {
   .watch-grid-host > .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
 }
+/* Two where three would leave a title under 94px, which cuts a long word such as "Cartographer's". */
+@media (max-width: 389.98px) {
+  .watch-grid-host > .watch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .watch-grid-host > .watch-grid:focus { outline: none; }
 .watch-grid-host[aria-busy="true"] > .watch-grid { opacity: .5; transition-delay: .1s; }
 /* The loader's placeholders are the size of a card: a poster over one line of its caption. */
@@ -143,6 +147,10 @@
   .watch-all__tools { margin-right: -10px; }
   .watch-all__tools .row-tool { gap: 5px; padding: 0 10px 0 6px; background: none; }
   .watch-all__menu { margin-left: 0; }
+}
+/* Little height: the head goes with the page, as the bar does. */
+@media (max-height: 500px) {
+  .watch-all__head { position: relative; top: 0; }
 }
 @media (max-width: 359.98px) {
   .watch-all__title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; font-size: 15px; white-space: normal; }

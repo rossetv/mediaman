@@ -937,7 +937,7 @@
       var clear = q('.hx-x', menu);
       clear.addEventListener('click', function () {
         field.value = '';
-        field.focus();
+        field.focus({ preventScroll: true });
         typedIn();
       });
       none.addEventListener('click', function (e) {
@@ -977,7 +977,7 @@
         var b = fields[1].value;
         if (!a && !b) return;
         wrong.hidden = !(a && b && a > b);
-        if (!wrong.hidden) { fields[0].focus(); return; }
+        if (!wrong.hidden) { fields[0].focus({ preventScroll: true }); return; }
         choose('date', a + '..' + b);
       });
       menu.appendChild(form);
@@ -1050,7 +1050,7 @@
         var at = stops.indexOf(document.activeElement);
         if (e.shiftKey) at = at <= 0 ? stops.length - 1 : at - 1;
         else at = (at + 1) % stops.length;
-        stops[at].focus();
+        stops[at].focus({ preventScroll: true });
         return;
       }
       var edge = e.key === 'Home' || e.key === 'End';
@@ -1131,7 +1131,7 @@
       }).join('\n');
       copyText(text).then(function () {
         btn.focus();
-        if (window.UIFeedback) window.UIFeedback.toast('Details copied', { variant: 'success' });
+        if (window.UIFeedback) window.UIFeedback.toast('Details copied.', { variant: 'success' });
       }, function () {
         btn.focus();
         if (window.UIFeedback) window.UIFeedback.error('Could not copy. Select the text and copy it by hand.');
@@ -1177,7 +1177,7 @@
         input.value = '';
         searchNow();
         search.classList.remove('has-q');
-        input.focus();
+        input.focus({ preventScroll: true });
       }
     });
 
@@ -1218,7 +1218,7 @@
       if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || menuOf || tools.hidden) return;
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || document.querySelector('.profile-menu[open]')) return;
       e.preventDefault();
-      input.focus();
+      input.focus({ preventScroll: true });
     });
 
     window.addEventListener('scroll', function () {

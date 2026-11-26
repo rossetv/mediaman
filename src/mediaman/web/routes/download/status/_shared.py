@@ -22,6 +22,13 @@ def _format_timeleft(timeleft: str) -> str:
     return f"~{max(1, secs)} sec remaining"
 
 
+def _eta(state: str, timeleft: str) -> str:
+    """The time left of a download in *state*: none while it waits its turn."""
+    if state == "almost_ready":
+        return "Post-processing…"
+    return "" if state == "queued" else _format_timeleft(timeleft)
+
+
 def _safe_int(value: object) -> int:
     """Coerce value to a non-negative int, defaulting to 0. Arr responses may carry size fields
     as strings or null; ints, floats and numeric strings are accepted, everything else

@@ -193,37 +193,50 @@ _NZBGET_POST_PROCESSING = (
 
 
 def map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
+    """The state of a download NZBGet holds, by its NZBGet status."""
     if not has_nzbget_match or nzbget_status is None:
         return "searching"
-    upper = nzbget_status.upper()
-    if any(stage in upper for stage in _NZBGET_POST_PROCESSING):
-        return "almost_ready"
-    if any(stage in upper for stage in ("DOWNLOADING", "PAUSED", "FETCHING")):
-        return "downloading"
-    return "searching"
+    return map_arr_status(nzbget_status)
 
 
 def map_arr_status(status: str, tracked_state: str = "") -> str:
-    """Map a Radarr/Sonarr queue item to a user-facing state, checking both status and
-    trackedDownloadState because versions populate them differently.
+    """The one mapping of a download's status to its state, for an NZBGet status or a
+    Radarr/Sonarr queue item, whose status and trackedDownloadState are both read because
+    versions populate them differently. One waiting its turn or paused is "queued".
     """
     lower = (status or "").lower()
     tracked = (tracked_state or "").lower()
 
     if tracked in ("importing", "importpending", "imported"):
         return "almost_ready"
-    if tracked == "downloading":
-        return "downloading"
-
-    if lower == "downloading":
-        return "downloading"
-    if lower == "completed":
+    if lower == "completed" or any(stage.lower() in lower for stage in _NZBGET_POST_PROCESSING):
         return "almost_ready"
-
+    # Failed, or held by no download client: nothing is coming in, whatever is tracked.
+    if lower in ("failed", "downloadclientunavailable"):
+        return "searching"
+    # Radarr and Sonarr track as downloading what their download client holds but has not begun.
     if lower in ("queued", "paused", "delay"):
+        return "queued"
+    if lower in ("downloading", "fetching") or tracked == "downloading":
         return "downloading"
-
     return "searching"
+
+
+def map_queue_state(entries: Sequence[_ArrLike]) -> str:
+    """The state of a download of Radarr's or Sonarr's queue entries, a film's one or a show's
+    episodes, each with its "status" and "tracked_state": by the one mapping, of the entry
+    furthest along."""
+    statuses = [str(e.get("status") or "") for e in entries]
+    tracked = [str(e.get("tracked_state") or "") for e in entries]
+    status = next(
+        (s for s in statuses if s.lower() in ("downloading", "completed")),
+        statuses[0] if statuses else "",
+    )
+    state = next(
+        (t for t in tracked if t.lower() in ("downloading", "importing", "importpending")),
+        tracked[0] if tracked else "",
+    )
+    return map_arr_status(status, state)
 
 
 def map_episode_state(ep: _ArrLike) -> str:

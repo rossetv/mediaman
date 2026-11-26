@@ -474,6 +474,8 @@
   resetVideo(startS);
 
   function duration() {
+    /* Plex's length can differ from the file's; at the end the file's own is what the clock reaches. */
+    if (video.ended && isFinite(video.duration) && video.duration > 0) return video.duration;
     if (item.duration_s > 0) return item.duration_s;
     return isFinite(video.duration) ? video.duration : 0;
   }
@@ -1948,6 +1950,7 @@
       return;
     }
     dropAim();
+    render();
     endSaved = saveProgress();
     watchedHere();
     showSkip();
@@ -1975,7 +1978,7 @@
     els.played.style.width = pct + '%';
     els.thumb.style.left = pct + '%';
     els.elapsed.textContent = fmt(pos);
-    els.remaining.textContent = '-' + fmt(d - pos);
+    els.remaining.textContent = (d - pos < 1 ? '' : '-') + fmt(d - pos);
     els.seek.setAttribute('aria-valuenow', String(Math.round(pos)));
     showSkip();
     var chapter = showChapter(pos);
@@ -2366,6 +2369,7 @@
     MM.dom.setIcon(els.mute.querySelector('.ico'), silent ? 'i-volume-xmark' : 'i-volume-high');
     var level = video.muted ? 0 : video.volume;
     els.volume.value = level;
+    els.volume.setAttribute('aria-valuetext', video.muted ? 'Muted' : Math.round(level * 100) + '%');
     els.volume.style.setProperty('--fill', level * 100 + '%');
   }
   els.mute.addEventListener('click', function () {
@@ -2464,7 +2468,7 @@
         /* The next episode may have taken over, and the pill gone with this one. */
         if (moveFocus) (root.contains(keepTrigger) ? keepTrigger : els.play).focus();
         undoing = false;
-        if (window.UIFeedback) window.UIFeedback.toast('Keep undone', { variant: 'info' });
+        if (window.UIFeedback) window.UIFeedback.toast('Keep undone.', { variant: 'info' });
       }).catch(function (err) {
         undoing = false;
         var msg = MM.api.messageOf(err, 'Could not undo. It stays kept for ' + days + ' days.');
@@ -3938,7 +3942,7 @@
           : 'It was off, asleep or away from its browser for 2 minutes, so it stopped' + after + '.'],
       taken: ['Someone else is using ' + name, (way || kind === 'older' ? 'They started something on it, and yours stopped' : 'They paired it, and yours stopped') + after + '.'],
       unpaired: kind === 'older' ? [name + ' can’t be used now', 'An admin removed it or turned older TVs off. Yours stopped' + after + '.']
-        : [name + ' was unpaired', 'It was forgotten in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
+        : [name + ' was unpaired', 'It was unpaired in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
       moved: ['You’re watching on another device', 'It goes on there, so ' + name + ' stopped' + after + '.'],
       still: [name + ' stopped by itself', 'Nobody answered, so it stopped' + after + '.'],
       silent: [name + ' stopped answering', 'It came back, but said nothing of what it plays for 10 minutes. It may still be playing there.'],

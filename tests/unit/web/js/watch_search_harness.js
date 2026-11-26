@@ -2724,6 +2724,25 @@ scenarios.askNothing = async () => {
   return out;
 };
 
+scenarios.askOutcomes = async () => {
+  const run = async (end) => {
+    const p = await asking();
+    await p.ask(Q);
+    await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+    await p.poll(end);
+    const again = p.doc.querySelector('.ask__row .chip');
+    const out = { head: p.head(), again: again && again.textContent, kept: p.input.value };
+    p.type(Q + ' too');
+    out.offered = p.head() !== null;
+    return out;
+  };
+  return {
+    refused: await run({ status: 'failed', run_id: 7, error: 'unavailable' }),
+    failed: await run({ status: 'failed', run_id: 7 }),
+    empty: await run({ status: 'done', owned: [], others: [], chips: [], instead: [] }),
+  };
+};
+
 scenarios.askNarrow = async () => {
   const p = await asking();
   const chip = (text) => p.doc.querySelectorAll('.chip').find((b) => b.getAttribute('data-chip') === text);

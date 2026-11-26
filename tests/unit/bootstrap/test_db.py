@@ -182,3 +182,32 @@ def test_bootstrap_db_does_not_log_initialised_when_the_database_is_refused(
         )
 
     assert "DB initialised" not in caplog.text
+
+
+def _bootstrap(tmp_path, caplog):
+    import logging
+    from types import SimpleNamespace
+
+    from mediaman.bootstrap.db import bootstrap_db
+
+    app = SimpleNamespace(state=SimpleNamespace())
+    with caplog.at_level(logging.INFO, logger="mediaman.bootstrap.db"):
+        bootstrap_db(app, SimpleNamespace(data_dir=str(tmp_path), secret_key="x"))
+    app.state.db.close()
+    return [r.getMessage() for r in caplog.records if "mediaman-create-user" in r.getMessage()]
+
+
+def test_startup_with_no_users_names_the_create_user_command(tmp_path, caplog):
+    assert _bootstrap(tmp_path, caplog) == [
+        "No users yet: create one with docker compose exec mediaman mediaman-create-user"
+    ]
+
+
+def test_startup_with_a_user_says_nothing_about_creating_one(tmp_path, caplog):
+    from mediaman.db import init_db
+    from mediaman.web.auth.password_hash import create_user
+
+    conn = init_db(str(tmp_path / "mediaman.db"))
+    create_user(conn, "admin", "password1234", enforce_policy=False)
+    conn.close()
+    assert _bootstrap(tmp_path, caplog) == []

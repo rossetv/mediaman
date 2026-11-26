@@ -28,7 +28,7 @@ const whose = (i) => {
 };
 const item = (id, more) => { const i = raw(id, more); return { who: whose(i), ...i }; };
 const raw = (id, more) => ({
-  id, action: 'downloaded', action_label: 'downloaded', line_title: 'Film ' + id, title: 'Film ' + id, summary: 'Added to Radarr',
+  id, action: 'downloaded', action_label: 'downloaded', line_title: 'Film ' + id, title: 'Film ' + id, summary: 'Added to downloads',
   is_security: false, created_at: '2026-11-24T20:15:03Z', actor: 'ana', avatar: '/a/1', ip: null,
   fields: [at('2026-11-24T20:15:03Z'), { key: 'who', label: 'Who', value: 'ana', empty: false }, { key: 'space', label: 'Space freed', value: 'Not recorded', empty: true },
     { key: 'record', label: 'Stored record', value: '<i>', empty: false }], ...more,
@@ -286,6 +286,15 @@ const scenarios = {
     const bad = open({ search: '?since=soon', filters: { since: 'soon' } });
     return { ...out, bad: bad.q('[data-menu="date"]').textContent };
   },
+  search_focus: async () => {
+    const h = open({});
+    const asked = [];
+    h.input.focus = (o) => { asked.push(o && o.preventScroll === true); };
+    h.fire(h.doc, 'keydown', { key: '/', target: h.doc.body });
+    h.input.value = 'x';
+    click(h.doc, h.q('.hx-search .hx-x'));
+    return { asked };
+  },
   focus: async () => {
     const out = {};
     const only = async (key, sel) => {
@@ -374,6 +383,24 @@ const scenarios = {
     key('Home');
     out.home = h.doc.activeElement.getAttribute('data-v');
     return out;
+  },
+  menuKeysScroll: async () => {
+    const h = open({});
+    const menu = h.q('.hx-menu');
+    h.press('[data-menu="title"]');
+    h.menus[0].resolve({ options: ['A', 'B', 'C'].map((v) => ({ value: v, label: v, count: 1 })), more: false });
+    await settle();
+    const asked = [];
+    menu.querySelectorAll('.hx-opt').forEach((o) => {
+      const real = o.focus.bind(o);
+      o.focus = (opts) => { asked.push(!!(opts && opts.preventScroll)); real(opts); };
+    });
+    const key = (k) => h.fire(menu, 'keydown', { key: k, target: h.doc.activeElement });
+    key('ArrowDown');
+    key('ArrowDown');
+    key('End');
+    key('Home');
+    return { asked };
   },
   titlesRetry: async () => {
     const h = open({});

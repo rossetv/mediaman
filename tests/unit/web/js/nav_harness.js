@@ -8,20 +8,20 @@ const { makeDocument, build, click } = require('./fake_dom.js');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-function page(isPhone, downloading) {
+function page(isPhone, downloading, reduced) {
   const doc = makeDocument();
   const button = ['button', { class: 'profile-btn', id: 'button', 'aria-expanded': 'false', 'aria-label': 'Profile menu, robin' },
     ['span', { class: 'avatar' }, 'R'], ['span', { class: 'profile-ring', id: 'ring' }], ['span', { class: 'profile-count', id: 'count' }]];
   const item = (id, tag) => [tag, { id, role: 'menuitem', href: '/' + id, tabindex: '-1' }, id];
   doc.body.appendChild(build(doc, ['header', { id: 'top' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
-    ['div', { id: 'panel' }, ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), ['span', { id: 'profile-note', hidden: '' }], item('logout', 'button')]]));
+    ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), ['span', { id: 'profile-note', hidden: '' }], item('logout', 'button')]]));
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x']]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
   const $ = (id) => doc.getElementById(id);
   $('already-inert').inert = true;
   const media = { matches: isPhone, on: [], addEventListener(t, fn) { this.on.push(fn); } };
-  const win = { listeners: {}, location: { hash: '' }, matchMedia: () => media, addEventListener(t, fn) { win.listeners[t] = fn; } };
+  const win = { listeners: {}, location: { hash: '' }, matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
   if (downloading) win.MM = { downloading };
   win.visualViewport = { height: 800, scale: 1, addEventListener(t, fn) { win.listeners['seen ' + t] = fn; } };
   const images = [];
@@ -212,6 +212,47 @@ const scenarios = {
     p.clock.now += 200;
     p.click('profile-menu', { detail: 1 });
     return { quick: at(true, 300, { detail: 1 }), slow: at(true, 500, { detail: 1 }), key: at(true, 100, { detail: 0 }), desktop: at(false, 100, { detail: 1 }), open: p.open() };
+  },
+  // The handle drags the panel after the finger.
+  drag() {
+    // steps: [y, ms since the last step]; the finger lifts `lift` ms after the last one.
+    const run = (steps, lift, reduced, lose) => {
+      const p = page(true, null, reduced);
+      p.click('button');
+      const handle = p.$('handle');
+      const panel = p.$('panel');
+      const send = (type, y) => (handle.listeners[type] || []).forEach((fn) => fn({ type, pointerId: 1, button: 0, clientY: y }));
+      send('pointerdown', 100);
+      if (lose) { send('pointermove', 150); send('lostpointercapture', 150); return { open: p.open(), transform: p.$('panel').style.transform, after: (send('pointerup', 150), p.open()) }; }
+      const follow = [];
+      steps.forEach(([y, ms]) => { p.clock.now += ms; send('pointermove', y); follow.push(panel.style.transform); });
+      p.clock.now += lift;
+      send('pointerup', steps[steps.length - 1][0]);
+      const out = { follow, open: p.open(), transform: panel.style.transform };
+      const log = [];
+      const style = panel.style;
+      panel.style = new Proxy(style, { set(t, k, v) { log.push(k + '=' + v); t[k] = v; return true; } });
+      Object.defineProperty(panel, 'offsetWidth', { get() { log.push('layout'); return 0; } });
+      const set = p.$('profile-menu').setAttribute;
+      p.$('profile-menu').setAttribute = function (k, v) { if (k === 'open') log.push('open'); return set.call(this, k, v); };
+      p.click('button');
+      out.reopened = { open: p.open(), transform: panel.style.transform, log };
+      return out;
+    };
+    return {
+      far: run([[130, 10], [220, 10]], 10, false),
+      short: run([[110, 10], [140, 10]], 400, false),
+      slow: run([[110, 300], [160, 300], [175, 300]], 50, false),
+      upward: run([[60, 10]], 10, false),
+      // a pause, then a short quick flick
+      flick: run([[100, 600], [115, 40], [140, 44]], 0, false),
+      still: run([[130, 10], [220, 10]], 10, true),
+      // pulled far down slowly, then flicked back up
+      lost: run([], 0, false, true),
+      back: run([[150, 300], [220, 300], [185, 30]], 10, false),
+      // a slow release past the distance still shuts
+      slowFar: run([[150, 300], [220, 300], [215, 300]], 10, false),
+    };
   },
   // Off, the ring is set where it begins; on, it eases from where it stands.
   ringComesBack() {

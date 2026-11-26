@@ -319,7 +319,7 @@
         else if (data.status === 'cancelled') {
           ended(g);
           changed(g.item);
-        } else refuse(g, null);
+        } else refuse(g, data.error === 'unavailable' ? data : null);
       }, function (err) {
         if (g.left) return;
         var gone = err && err.status >= 400 && err.status < 500 && err.status !== 429;

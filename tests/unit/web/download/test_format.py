@@ -45,12 +45,12 @@ class TestStateMapping:
         assert map_state(nzbget_status="PP_QUEUED", has_nzbget_match=True) == "almost_ready"
 
     def test_queued_state(self):
-        """NZBGet status is QUEUED → searching (not yet actively downloading)."""
-        assert map_state(nzbget_status="QUEUED", has_nzbget_match=True) == "searching"
+        """NZBGet status is QUEUED → queued: it waits its turn."""
+        assert map_state(nzbget_status="QUEUED", has_nzbget_match=True) == "queued"
 
     def test_paused_state(self):
-        """NZBGet status is PAUSED → downloading (still has progress)."""
-        assert map_state(nzbget_status="PAUSED", has_nzbget_match=True) == "downloading"
+        """NZBGet status is PAUSED → queued: nothing comes in."""
+        assert map_state(nzbget_status="PAUSED", has_nzbget_match=True) == "queued"
 
 
 class TestBuildItem:
@@ -146,8 +146,8 @@ class TestHeroSelection:
         assert hero["id"] == "r:A"
         assert rest == []
 
-    def test_highest_progress_downloading_is_hero(self):
-        """The actively downloading item with the highest progress wins."""
+    def test_a_downloading_item_is_hero_by_its_title(self):
+        """An actively downloading item wins, by its title rather than how far along it is."""
         items = [
             build_item(
                 dl_id="r:A",
@@ -184,7 +184,7 @@ class TestHeroSelection:
             ),
         ]
         hero, rest = select_hero(items)
-        assert hero["id"] == "r:C"
+        assert hero["id"] == "r:B"
         assert len(rest) == 2
 
     def test_no_downloading_picks_first(self):

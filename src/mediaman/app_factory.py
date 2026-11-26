@@ -448,6 +448,7 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.watch.pages import router as watch_pages_router
     from mediaman.web.routes.watch.preview_api import router as watch_preview_api_router
     from mediaman.web.routes.watch.recommended_api import router as watch_recommended_api_router
+    from mediaman.web.routes.watch.signed_image_api import router as signed_image_api_router
     from mediaman.web.routes.watch.stream_api import router as watch_stream_api_router
     from mediaman.web.routes.watch.title_preview_api import router as watch_title_preview_api_router
 
@@ -487,6 +488,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(seen_router)
     app.include_router(watch_library_row_api_router)
     app.include_router(watch_image_api_router)
+    app.include_router(signed_image_api_router)
     app.include_router(watch_catalog_api_router)
     app.include_router(watch_recommended_api_router)
     app.include_router(watch_asked_api_router)

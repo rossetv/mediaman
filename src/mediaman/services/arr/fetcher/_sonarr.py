@@ -185,6 +185,7 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
                 "sizeleft": sizeleft,
                 "size_str": format_bytes(size),
                 "status": status,
+                "tracked_state": q.get("trackedDownloadState") or "",
                 "download_id": q.get("downloadId", ""),
                 "season_number": int(season_num) if season_num is not None else 0,
             },
@@ -324,6 +325,8 @@ def _build_still_searching_cards(
             release_label=release_label,
         )
         card["stuck_seasons"] = seasons
+        if tmdb_id := series.get("tmdbId"):
+            card["tmdb_id"] = tmdb_id
         items.append(card)
     return items
 

@@ -969,7 +969,7 @@
       var card = {
         lost: [n + ' stopped answering', 'It was off, asleep or away from its browser for 2 minutes, so it stopped' + after + '.'],
         taken: ['Someone else is using ' + n, 'They paired it, and yours stopped' + after + '.'],
-        unpaired: [n + ' was unpaired', 'It was forgotten in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
+        unpaired: [n + ' was unpaired', 'It was unpaired in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
         moved: ['You’re watching on another device', 'It goes on there, so ' + n + ' stopped' + after + '.'],
         still: [n + ' stopped by itself', 'Nobody answered, so it stopped' + after + '.'],
         signed_out: [n + ' stopped', 'You signed out everywhere, which ends what plays on a TV.'],

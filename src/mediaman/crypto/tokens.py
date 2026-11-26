@@ -27,6 +27,7 @@ import hmac
 import json
 import logging
 import math
+import re
 import secrets
 import threading
 import time
@@ -82,6 +83,13 @@ class PosterTokenPayload(TypedDict):
     """UNIX timestamp at which the token expires."""
 
 
+class TmdbImageTokenPayload(TypedDict):
+    img: str
+    """TMDB picture authorised, as ``"<size>/<file name>"``."""
+    exp: int | float
+    """UNIX timestamp at which the token expires."""
+
+
 class PollTokenPayload(TypedDict):
     """Payload carried by a short-lived polling-capability token."""
 
@@ -128,6 +136,7 @@ class TokenPayload(TypedDict, total=False):
     media_item_id: str
     action_id: int
     rk: str
+    img: str
     mid: str
     svc: str
     nonce: str
@@ -153,6 +162,15 @@ _TOKEN_PURPOSE_DOWNLOAD = b"mediaman-token-download-v1"
 _TOKEN_PURPOSE_UNSUBSCRIBE = b"mediaman-token-unsubscribe-v1"
 _TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
 _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
+_TOKEN_PURPOSE_TMDB_IMAGE = b"mediaman-token-tmdb-image-v1"
+
+# As long as a mailed poster's signature (generate_poster_token's default) lasts.
+_MAIL_PICTURE_TTL_DAYS = 180
+
+# A TMDB picture's path ("/abc.jpg") or its image.tmdb.org address at any size.
+_TMDB_IMAGE_RE = re.compile(
+    r"(?:https://image\.tmdb\.org/t/p/[a-z0-9]{1,16})?/([A-Za-z0-9_-]{1,64}\.(?:jpg|jpeg|png|webp))"
+)
 
 # Already-sent and pending keep links are rebuilt from these, so they must not change.
 _KEEP_TOKEN_MIN_TTL = timedelta(days=30)
@@ -162,7 +180,7 @@ _SUBKEY_CACHE_MAX_ENTRIES = 64
 
 # Per-process HMAC sub-key cache; avoids re-deriving for every token validation.
 # Single-worker invariant. The entry count is bounded by
-# N_PURPOSES (5) × N_KEY_ROTATIONS — well below 64 in practice, so the
+# N_PURPOSES (6) × N_KEY_ROTATIONS — well below 64 in practice, so the
 # clear-all eviction path is never triggered in production; a comment rather
 # than lru_cache suffices here.
 # The cache key is a SHA-256 digest of the master secret, NOT the raw
@@ -462,6 +480,61 @@ def sign_poster_url(rating_key: str, secret_key: str, *, whole_days: bool = Fals
         rating_key=rating_key, secret_key=secret_key, whole_days=whole_days
     )
     return f"/api/poster/{rating_key}?sig={token}"
+
+
+def generate_tmdb_image_token(*, size: str, name: str, expires_at: int, secret_key: str) -> str:
+    """Issue a token for one TMDB picture at one size. Its expiry is *expires_at* rounded up to
+    a whole day (UTC), so each one issued for a picture on a day is the same and a browser finds
+    it in its cache.
+    """
+    exp = expires_at + (-expires_at % 86400)
+    payload = {"img": f"{size}/{name}", "exp": exp}
+    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_TMDB_IMAGE)
+
+
+def validate_tmdb_image_token(token: str, secret_key: str) -> TmdbImageTokenPayload | None:
+    """Validate and decode a token produced by generate_tmdb_image_token; ``None`` when it is
+    invalid, expired or tampered. Callers check ``payload["img"]`` names the picture asked for.
+    """
+    result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_TMDB_IMAGE)
+    return cast(TmdbImageTokenPayload, result) if result is not None else None
+
+
+def sign_tmdb_image_url(
+    image: object, size: str, secret_key: str, *, expires_at: int
+) -> str | None:
+    """The app's own signed address of a TMDB picture at *size*, given its path ("/abc.jpg") or
+    its image.tmdb.org address; None for anything else.
+    """
+    match = _TMDB_IMAGE_RE.fullmatch(image) if isinstance(image, str) else None
+    if match is None:
+        return None
+    name = match.group(1)
+    token = generate_tmdb_image_token(
+        size=size, name=name, expires_at=expires_at, secret_key=secret_key
+    )
+    return f"/api/img/tmdb/{size}/{name}?sig={token}"
+
+
+def site_tmdb_image_url(
+    image: object, size: str, secret_key: str, base_url: str, *, expires_at: int
+) -> str | None:
+    """sign_tmdb_image_url's address made absolute with the site address *base_url*; None
+    when *base_url* is no http or https address, there is no key, or *image* is no TMDB picture.
+    """
+    site = base_url.strip().rstrip("/")
+    if not secret_key or not site.lower().startswith(("http://", "https://")):
+        return None
+    signed = sign_tmdb_image_url(image, size, secret_key, expires_at=expires_at)
+    return f"{site}{signed}" if signed else None
+
+
+def mail_tmdb_image_url(image: object, size: str, secret_key: str, base_url: str) -> str | None:
+    """site_tmdb_image_url for a mail, which is read again long after it is sent, with no
+    session: it lasts as long as a mail's signed posters do.
+    """
+    expires_at = int(time.time()) + _MAIL_PICTURE_TTL_DAYS * 86400
+    return site_tmdb_image_url(image, size, secret_key, base_url, expires_at=expires_at)
 
 
 def generate_poll_token(

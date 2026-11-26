@@ -229,13 +229,16 @@ _REFUSED_TV_ADDRESSES = {
     "https://my_server.example": "letters a to z, digits, dots and hyphens",
     "https://bücher.example": "no letters other than a to z",
     "https://a b.example": "no spaces",
-    "http://203.0.113.5": "home network",
-    "https://203.0.113.5": "home network",
-    "http://watch.example.org": "https:// and not http:// before a name",
+    "http://203.0.113.5": "needs https:// before an address on the internet",
+    "http://[2001:db8::1]": "needs https:// before an address on the internet",
+    "http://watch.example.org": "ends in .local, .lan, .home.arpa or .internal",
     "https://localhost": "localhost",
+    "https://[::1]": "localhost",
+    "http://[fe80::1]:8282": "a kind of address a TV can’t reach. Use this server’s home address or its name",
     "https://:8282": "needs a server name",
-    "http://[2001:db8::1]": "such as http://192.168.1.10:8282, or a name with https",
-    "https://1.2.3": "such as http://192.168.1.10:8282, or a name with https",
+    "http://[fd00::1%25en0]": "must be this server’s home address or its name, such as http://nas.local:8282",
+    "https://1.2.3": "must be this server’s home address or its name, such as http://nas.local:8282",
+    "http://169.254.1.1": "is an address a device gives itself, and it changes",
 }
 
 
@@ -248,6 +251,16 @@ def test_a_refused_tv_address_is_told_what_is_wrong_with_it() -> None:
     told = dict(zip(_REFUSED_TV_ADDRESSES, _run("tvAddressError", json.dumps(said)), strict=True))
     wrong = {t: w for t, w in told.items() if _REFUSED_TV_ADDRESSES[t] not in w}
     assert wrong == {}
+    assert [w for w in told.values() if "192.168.1.10" in w or "example.com" in w] == []
+    assert "internet" not in told["http://169.254.1.1"]
+
+
+def test_a_refused_save_brings_the_refused_field_out_from_under_the_bar() -> None:
+    assert _run("refusedInView") == {
+        "revealed": ["setg-row"],
+        "focus": "btn-save",
+        "roomAboveBar": 11,
+    }
 
 
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
@@ -946,3 +959,7 @@ def test_a_failed_test_names_the_service_once_for_a_screen_reader() -> None:
     assert out["inside"] == ["", "No Plex server answered at this address."]
     assert out["nameless"] == ["", "Not reachable"]
     assert out["longerWord"] == ["", "Plex: Plexamp answered."]
+
+
+def test_a_finished_save_tells_the_newsletter_panel() -> None:
+    assert _run("savedTellsNewsletter") == {"told": 1}

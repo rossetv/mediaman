@@ -26,6 +26,7 @@ _VIEWER_MAY_REACH = {
     ("POST", "/api/watch/unkeep"),
     ("GET", "/api/watch/thumb/{rating_key}"),
     ("GET", "/api/watch/img/tmdb/{size}/{name}"),
+    ("GET", "/api/img/tmdb/{size}/{name}"),
     ("GET", "/api/watch/search/tmdb"),
     ("GET", "/api/watch/discover"),
     ("GET", "/api/watch/title/{ref}"),

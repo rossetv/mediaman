@@ -350,3 +350,7 @@ def test_a_rating_set_from_elsewhere_shows_in_the_sets_still_there() -> None:
     assert (out["a"], out["gone"]) == ([0], [])
     assert out["log"] == ["PUT /movie-1 -2"]
     assert (out["event"]["phase"], out["event"]["level"]) == ("pending", -2)
+
+
+def test_a_title_known_already_is_asked_about_again_only_when_the_reader_says_so() -> None:
+    assert _run("readAgain") == {"plain": 0, "again": 1, "on": [1], "level": -1}

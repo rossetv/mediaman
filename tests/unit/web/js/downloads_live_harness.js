@@ -118,7 +118,8 @@ const scenarios = {
     const poll = (episodes, extra) => p.upd({ hero: item('h'), queue: [item('q', { media_type: 'series', episodes, ...extra })] });
     const look = () => ({
       rows: p.qa('.dl-compact .dl-ep-row').map((r) => r.children.map((c) => c.textContent.trim()).join('|')),
-      toggle: p.text('.dl-compact [data-v="ep-toggle"]'), count: p.text('.dl-compact [data-v="ep-count"]'),
+      toggle: p.text('.dl-compact [data-v="ep-toggle"]'), inline: p.qa('.dl-compact [data-v="ep-count"]').length,
+      inside: p.qa('.dl-compact-row [data-v="ep-toggle"]').length + p.qa('.dl-compact-row [data-v="ep-list"]').length,
       open: !!p.q('.dl-compact [data-v="ep-list"]') && !p.q('.dl-compact [data-v="ep-list"]').hidden,
     });
     poll([ep('S01E01', { state: 'downloading', progress: 20 })]);
@@ -203,7 +204,7 @@ const scenarios = {
     const run = async (ms) => { const t = p.timers.find((x) => x.ms === ms); if (!t) return false; p.timers.splice(p.timers.indexOf(t), 1); t.fn(); await settle(); return true; };
     const answer = async (n, data) => { calls[n].resolve({ subtitle: '1 item in progress', hero: item('h', { eta: '5 min' }), queue: [], upcoming: [], recent: [], unreachable: [], outage: '', ...data }); await settle(); };
     const fail = async (n) => { calls[n].reject(new Error('down')); await settle(); };
-    const look = () => [p.text('.ph p'), p.qa('.is-held').length, p.qa('.dl-recent-item').length];
+    const look = () => [p.text('.ph p'), p.qa('.dl-hero').length, p.qa('.dl-recent-item').length, p.text('.dl-hero [data-v="eta"]')];
     const out = {};
     await run(2000); await fail(0);
     out.once = look();

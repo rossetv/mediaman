@@ -1,4 +1,4 @@
-"""The TVs & Casting section shows each state of a check, and asks before it forgets a TV.
+"""The TVs & Casting section shows each state of a check, and asks before it unpairs a TV.
 
 The real script runs under node against a small fake DOM.
 """
@@ -6,6 +6,7 @@ The real script runs under node against a small fake DOM.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -92,11 +93,11 @@ def test_checking_a_kept_tv_shows_whether_it_answered() -> None:
     got = _run("checked")
     assert got["off"] == ["ok", "no"]
     assert got["on"] == ["ok", "ok"]
-    assert "Last seen today" in got["says"]
+    assert re.search(r"Last seen today, \d\d:\d\d\.", got["says"])
     assert "Older TV at 192.168.1.77" in got["says"]
 
 
-def test_a_tv_is_forgotten_only_after_a_question_and_each_kind_at_its_own_address() -> None:
+def test_a_tv_is_unpaired_only_after_a_question_and_each_kind_at_its_own_address() -> None:
     got = _run("forget")
     assert (got["asked"], got["kept"]) == (False, 2)
     assert got["deleted"] == ["/api/settings/older-tvs/2", "/api/tvs/1"]
@@ -104,26 +105,58 @@ def test_a_tv_is_forgotten_only_after_a_question_and_each_kind_at_its_own_addres
     assert got["dropped"] == [2, 1]
 
 
+def test_cancel_comes_first_in_each_panel_and_the_question_starts_on_it() -> None:
+    got = _run("order")
+    assert got["sure"] == [["Cancel", "Unpair this TV"], True]
+    assert got["rename"][-2:] == ["Cancel", "Save"]
+    assert got["add"] == ["Cancel", "Add this TV"]
+
+
+def test_a_tv_is_unpaired_in_the_same_word_profile_and_the_tv_use() -> None:
+    got = _run("order")
+    assert "Unpair" in got["row"]
+    said = " ".join(got["words"])
+    assert "Unpair Living room?" in said
+    assert "Couldn’t unpair it." in said
+    assert "forget" not in said.lower()
+    assert "You can add it again by its address." in got["older"]
+
+
 def test_a_rename_that_failed_keeps_what_was_typed() -> None:
     assert _run("rename") == {"failed": True, "name": "Den"}
 
 
 def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
-    local, https, http, named, public, public_s, bare, login, home, begun = _run("address")
+    said = _run("address")
+    local, https, http, named, public, public_6, bare, login, home, begun = said[:10]
     assert local[0] == "true"
     assert "localhost" in local[1]
     assert https[0] is None
     assert "https" in https[1]
     assert http[0] is None
-    assert "Plain http" in http[1]
+    assert http[1] == "Older TVs can use this only while Plain http for older TVs is on."
     assert named[0] == "true"
     assert "https://" in named[1]
-    for said in (public, public_s):
-        assert said[0] == "true"
-        assert "home network" in said[1]
+    for refused in (public, public_6):
+        assert refused[0] == "true"
+        assert "needs https://" in refused[1]
     assert bare[0] == "true"
     assert "https:// before a name" in bare[1]
     assert login[0] is home[0] is begun[0] is None
+    public_s, *home_kinds, link_local = said[10:16]
+    assert public_s[0] is None
+    assert "https" in public_s[1]
+    assert [kind[0] for kind in home_kinds] == [None] * 4
+    assert link_local[0] == "true"
+    assert "can’t reach this kind of address" in link_local[1]
+    assert "fe80" not in link_local[1]
+    *home_names, foreign_name, foreign_mapped = said[16:22]
+    assert [kind[0] for kind in home_names] == [None] * 4
+    assert foreign_name[0] == foreign_mapped[0] == "true"
+    self_given = said[22]
+    assert self_given[0] == "true"
+    assert "gives itself" in self_given[1]
+    assert "internet" not in self_given[1]
 
 
 def test_the_save_bar_saves_the_settings_and_minds_nothing_typed_to_add_a_tv() -> None:

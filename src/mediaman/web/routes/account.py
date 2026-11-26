@@ -12,6 +12,7 @@ from starlette.responses import Response
 
 from mediaman.core.format import format_day_month
 from mediaman.services.avatars import drawn
+from mediaman.services.mail.mailgun import load_mailgun_client
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.auth.password_hash._change_password import password_changed_at
@@ -68,6 +69,8 @@ def account_page(request: Request) -> Response:
         {
             "username": username,
             "email": get_user_email(conn, username),
+            "mail_ready": load_mailgun_client(conn, request.app.state.config.secret_key)
+            is not None,
             "password_changed": _password_changed(conn, username),
             "picture": _picture(conn, username),
             "role": getattr(request.state, "user_role", "admin"),

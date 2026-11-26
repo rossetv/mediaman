@@ -27,6 +27,13 @@ from mediaman.web.routes.download.status import _sonarr_series_fallback
 from mediaman.web.routes.download.submit import _DOWNLOAD_LIMITER_POST
 from tests.helpers.factories import insert_audit_log
 
+
+@pytest.fixture(autouse=True)
+def _the_library_holds_every_title(monkeypatch):
+    """A title its service has the file of is in the library here, to be played."""
+    monkeypatch.setattr("mediaman.web.routes.download.status.library_title", lambda *a: "movie-1")
+
+
 _CONFIRM = "mediaman.web.routes.download.confirm"
 _SUBMIT = "mediaman.web.routes.download.submit"
 
@@ -386,7 +393,7 @@ class TestSubmitRefusedForAHeldTitle:
         token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
 
         assert resp.status_code == 409
-        assert "already exists" in resp.json()["error"]
+        assert "has already been added" in resp.json()["error"]
         radarr.remonitor_movie.assert_not_called()
         radarr.add_movie.assert_not_called()
         assert _consumed(token)
@@ -400,7 +407,7 @@ class TestSubmitRefusedForAHeldTitle:
         token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
 
         assert resp.status_code == 409
-        assert "already exists" in resp.json()["error"]
+        assert "has already been added" in resp.json()["error"]
         assert "poll_token" in resp.json()
         radarr.add_movie.assert_not_called()
         assert _consumed(token)
@@ -442,7 +449,7 @@ class TestSubmitRefusedForAHeldTitle:
 
         sonarr.add_series.assert_called_once()
         assert resp.status_code == 409
-        assert "already exists" in resp.json()["error"]
+        assert "has already been added" in resp.json()["error"]
         assert _consumed(token)
 
     def test_a_400_for_a_series_sonarr_holds_but_will_not_fetch_is_already_exists_and_frees_the_link(
@@ -458,7 +465,7 @@ class TestSubmitRefusedForAHeldTitle:
 
         sonarr.add_series.assert_called_once()
         assert resp.status_code == 409
-        assert "already exists" in resp.json()["error"]
+        assert "has already been added" in resp.json()["error"]
         assert not _consumed(token)
 
     @pytest.mark.parametrize("media_type", ["movie", "tv"])

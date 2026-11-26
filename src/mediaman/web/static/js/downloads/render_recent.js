@@ -90,11 +90,8 @@
     var container = document.getElementById('dl-upcoming-container');
     var upcoming = data.upcoming || [];
 
-    var shown = container ? container.querySelectorAll('.dl-upcoming-row') : [];
     if (upcoming.length === 0) {
-      if (container && !d.isCollapsing(container) && !d.dropAbsent(shown, {}, data)) {
-        d.collapseAway(container);
-      }
+      if (container && !d.isCollapsing(container)) d.collapseAway(container);
       return;
     }
 
@@ -132,11 +129,11 @@
         if (d.isCollapsing(rowEl)) d.reveal(rowEl);
         row().updateUpcomingRow(rowEl, item);
       } else {
-        rowEl = listEl.appendChild(d.buildUpcomingRow(item));
+        rowEl = d.placeInOrder(listEl, d.buildUpcomingRow(item), upcoming, i);
         if (!opening) d.reveal(rowEl);
       }
     }
-    d.dropAbsent(listEl.querySelectorAll('.dl-upcoming-row'), present, data);
+    d.dropAbsent(listEl.querySelectorAll('.dl-upcoming-row'), present);
     if (opening) d.reveal(container);
   }
 

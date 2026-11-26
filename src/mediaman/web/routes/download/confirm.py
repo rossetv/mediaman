@@ -14,7 +14,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from mediaman.crypto import generate_poll_token, validate_download_token
+from mediaman.crypto import (
+    generate_poll_token,
+    sign_tmdb_image_url,
+    site_tmdb_image_url,
+    validate_download_token,
+)
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import RadarrMovie, SonarrSeries
@@ -33,7 +38,7 @@ from mediaman.services.arr.state import (
     season_on_disk,
 )
 from mediaman.services.downloads.notifications import has_unsent_notification, requested_tvdb_id
-from mediaman.services.infra import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError, get_string_setting
 from mediaman.services.media_meta.item_enrichment import (
     enrich_redownload_item,
     fill_backdrop,
@@ -175,10 +180,10 @@ def _distinct(names: list[str]) -> list[str]:
 
 
 def _photo_url(path: object) -> str | None:
-    """TMDB's address of the photo a stored cast entry names; None for what is no image name."""
+    """The photo path a stored cast entry names; None for what is no image name."""
     if not isinstance(path, str) or not _PHOTO_PATH_RE.fullmatch(path):
         return None
-    return f"https://image.tmdb.org/t/p/w185{path}"
+    return path
 
 
 def _coerce_cast(value: object) -> list[dict[str, str | None]]:
@@ -305,6 +310,26 @@ def _enrich_item_fields(item: dict[str, object]) -> None:
             item["cast_list"] = _coerce_cast(json.loads(cast_value))
         except (json.JSONDecodeError, TypeError):
             item["cast_list"] = []
+
+
+def _own_pictures(
+    item: dict[str, object], secret_key: str, expires_at: int, base_url: str
+) -> str | None:
+    """Point the item's poster, backdrop and cast photos at the app's own signed picture route,
+    valid as long as the link, so a visitor's browser never asks TMDB; what is no TMDB picture
+    is dropped. Returns the absolute address of the link's preview picture, or None with no
+    usable site address.
+    """
+    poster, backdrop = item.get("poster_url"), item.get("backdrop_url")
+    item["poster_url"] = sign_tmdb_image_url(poster, "w500", secret_key, expires_at=expires_at)
+    item["backdrop_url"] = sign_tmdb_image_url(backdrop, "w1280", secret_key, expires_at=expires_at)
+    for member in cast("list[dict[str, str | None]]", item["cast_list"]):
+        member["photo_url"] = sign_tmdb_image_url(
+            member["photo_url"], "w185", secret_key, expires_at=expires_at
+        )
+    return site_tmdb_image_url(
+        backdrop, "w1280", secret_key, base_url, expires_at=expires_at
+    ) or site_tmdb_image_url(poster, "w500", secret_key, base_url, expires_at=expires_at)
 
 
 def _season_state(series: SonarrSeries, season_number: int) -> str | None:
@@ -478,6 +503,12 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     _enrich_item_fields(item)
     item["description"] = tidy_summary(cast("str | None", item["description"]))
     fill_backdrop(item, conn, config.secret_key)
+    preview_url = _own_pictures(
+        item,
+        config.secret_key,
+        int(payload["exp"]),
+        get_string_setting(conn, "base_url", secret_key=config.secret_key),
+    )
     season = deleted_season(conn, payload)
     item["season_number"] = season.season_number if season else None
 
@@ -513,5 +544,6 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             "item": item,
             "token": token,
             "poll_token": _poll_token(item, tmdb_id, config.secret_key),
+            "preview_url": preview_url,
         },
     )

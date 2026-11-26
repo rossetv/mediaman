@@ -20,6 +20,7 @@ from mediaman.db import (
     open_thread_connection,
     start_refresh_run,
 )
+from mediaman.services.openai.client import OpenAIUnavailable
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
 from mediaman.services.openai.recommendations.throttle import (
     RECOMMENDATION_REFRESH_COOLDOWN_HOURS,
@@ -111,7 +112,16 @@ def _run_refresh(db_path: str, secret_key: str, run_id: int, stop_event: threadi
     result: dict[str, object]
     manual_refresh_recorded = False
     try:
-        count = refresh_recommendations(thread_conn, secret_key=thread_secret_key)
+        try:
+            count = refresh_recommendations(thread_conn, secret_key=thread_secret_key)
+            no_recs = "OpenAI returned no recommendations this time. Try again later."
+        except OpenAIUnavailable as exc:
+            count = 0
+            no_recs = (
+                "OpenAI needs a working API key. Check the key, then try again."
+                if exc.refused
+                else "OpenAI didn't answer. Try again in a few minutes."
+            )
         if count > 0:
             result = {"ok": True, "count": count}
             # Cooldown only counts on success — a failure must not
@@ -121,14 +131,8 @@ def _run_refresh(db_path: str, secret_key: str, run_id: int, stop_event: threadi
             manual_refresh_recorded = True
             finish_refresh_run(thread_conn, run_id, "done")
         else:
-            # Zero rows generated means OpenAI returned nothing
-            # usable (quota, key, network, or web-search batch
-            # rejected). Treat as failure: don't burn the 24h
-            # cooldown, surface a real error so the user can retry.
-            no_recs = (
-                "OpenAI returned no recommendations. Check the OpenAI "
-                "API key, quota, and server logs, then try again."
-            )
+            # No answer, or nothing usable in it: don't burn the 24h
+            # cooldown, surface a real error so the admin can retry.
             result = {"ok": False, "error": no_recs, "message": no_recs}
             finish_refresh_run(thread_conn, run_id, "error", "no recommendations generated")
     except Exception as exc:  # rationale: background job runner; a single bad refresh must not leak a stuck "running" lease or crash the thread.

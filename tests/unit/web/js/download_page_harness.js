@@ -174,6 +174,10 @@ const SCENARIOS = {
     p.payload = { state: 'searching' };
     await press(p);
     const out = { searching: seen(p) };
+    await p.poll({ state: 'queued', progress: 0, eta: '' });
+    out.queued = seen(p);
+    await p.poll({ state: 'searching' });
+    out.searchedAgain = seen(p);
     await p.poll(RUNNING);
     out.downloading = seen(p);
     await p.poll({ ...RUNNING, progress: 80, eta: '' });

@@ -30,7 +30,9 @@
     var d = dom();
     var hint = d.q('[data-v="search-hint"]', card);
     if (!hint) return;
-    if (item.state !== 'searching' || (!item.search_hint && !item.arr_link)) {
+    /* The link into Radarr or Sonarr is an admin's alone; for anyone else it is never drawn. */
+    var link = d.canAbandonHere() ? item.arr_link : '';
+    if (item.state !== 'searching' || (!item.search_hint && !link)) {
       d.passFocus(hint);
       hint.hidden = true;
       return;
@@ -43,6 +45,9 @@
     if (!text) {
       text = document.createElement('span');
       text.setAttribute('data-v', 'search-hint-text');
+      hint.appendChild(text);
+    }
+    if (link && !a) {
       sep = document.createElement('span');
       sep.className = 'dl-hint-sep';
       sep.setAttribute('data-v', 'search-hint-sep');
@@ -52,15 +57,18 @@
       a.setAttribute('data-v', 'arr-link');
       a.target = '_blank';
       a.rel = 'noopener';
-      [text, sep, a].forEach(function (part) { hint.appendChild(part); });
+      hint.appendChild(sep);
+      hint.appendChild(a);
     }
     d.setText(text, item.search_hint || '');
-    sep.hidden = !item.search_hint || !item.arr_link;
-    if (!item.arr_link) d.passFocus(a);
-    a.hidden = !item.arr_link;
-    if (item.arr_link) {
-      a.href = item.arr_link;
-      d.setText(a, 'View in ' + (item.arr_source || 'Radarr/Sonarr') + ' ↗');
+    if (sep) sep.hidden = !item.search_hint || !link;
+    if (a) {
+      if (!link) d.passFocus(a);
+      a.hidden = !link;
+      if (link) {
+        a.href = link;
+        d.setText(a, 'View in ' + (item.arr_source || 'Radarr/Sonarr') + ' ↗');
+      }
     }
   }
 
@@ -78,7 +86,6 @@
       d.closeEpisodes(card);
       card.setAttribute('data-dl-id', item.id);
     }
-    d.unmarkHeld(card);
 
     d.syncArt(card, item);
 

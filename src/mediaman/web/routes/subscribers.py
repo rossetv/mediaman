@@ -19,7 +19,8 @@ from mediaman.core.audit import security_event, security_event_or_raise
 from mediaman.core.time import now_iso
 from mediaman.crypto import validate_unsubscribe_token
 from mediaman.db import get_db
-from mediaman.services.infra import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError, get_string_setting
+from mediaman.services.mail.mailgun import load_mailgun_client
 from mediaman.services.mail.newsletter import NewsletterConfigError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.services.rate_limit.instances import (
@@ -56,6 +57,7 @@ router = APIRouter()
 #: "already inactive", and "not found" cases, so the endpoint cannot be used
 #: as a subscriber-membership oracle.
 _UNSUB_CONFIRMATION_MSG = "If that address was subscribed, it has now been removed."
+_UNSUB_ALREADY_MSG = "This address is already unsubscribed."
 
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
@@ -195,6 +197,31 @@ def api_remove_subscriber(
     return respond_ok()
 
 
+def _setup_fault_answer(conn: sqlite3.Connection, secret_key: str) -> JSONResponse | None:
+    """Name everything a send is waiting for in settings, or None when the settings are fine.
+
+    The newsletter panel words the same needs the same way, so what it says before a send
+    and what the answer says after one agree.
+    """
+    base_url = get_string_setting(conn, "base_url", secret_key=secret_key)
+    needs = []
+    mail_missing = load_mailgun_client(conn, secret_key) is None
+    if mail_missing:
+        needs.append("set up Email (Mailgun) under Integrations")
+    if not base_url:
+        needs.append("set Base URL under General & Schedule")
+    elif not base_url.lower().startswith(("http://", "https://")):
+        needs.append("make Base URL start with http:// or https://")
+    if not needs:
+        return None
+    text = " and ".join(needs)
+    if mail_missing:
+        code = "mailgun_not_configured"
+    else:
+        code = "base_url_missing" if not base_url else "base_url_invalid"
+    return respond_err(code, status=400, message=f"{text[0].upper()}{text[1:]} first")
+
+
 @router.post("/api/newsletter/send")
 def api_send_newsletter(
     request: Request,
@@ -245,13 +272,16 @@ def api_send_newsletter(
     ) as exc:
         if isinstance(exc, NewsletterConfigError):
             _NEWSLETTER_LIMITER.release(admin, reserved)
+            fault = _setup_fault_answer(conn, config.secret_key)
+            if fault is not None:
+                return fault
         logger.exception("Manual newsletter send failed")
         return respond_err("send_failed", status=502, message="Newsletter send failed")
 
     if not result.configured:
         _NEWSLETTER_LIMITER.release(admin, reserved)
-        return respond_err(
-            "mailgun_not_configured", status=400, message="Email sending is not set up"
+        return _setup_fault_answer(conn, config.secret_key) or respond_err(
+            "mailgun_not_configured", status=400, message="Set up Email (Mailgun) first"
         )
     if result.attempted == 0:
         return respond_ok({"sent_to": 0, "message": "Nothing to send right now"})
@@ -318,6 +348,11 @@ def unsubscribe_page(request: Request, token: str = "", email: str = "") -> HTML
     email_from_token = payload.get("email", "").lower()
     if not email_from_token:
         return _generic_invalid_response(request)
+
+    sub_status = find_subscriber_status_by_email(get_db(), email_from_token)
+    # An unknown address gets the same page, so the link is no oracle for who is listed.
+    if sub_status is None or not sub_status[1]:
+        return _render_result(request, _UNSUB_ALREADY_MSG, success=True)
 
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(

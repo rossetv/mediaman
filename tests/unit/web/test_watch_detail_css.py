@@ -197,10 +197,19 @@ def test_the_facts_labels_beside_a_title_have_one_width_before_and_after_they_co
     assert "grid-template-columns: 112px " in _of(".ttl-facts__list")
 
 
-def test_a_rating_still_to_come_shows_no_figure_and_is_outlined_in_forced_colours() -> None:
-    assert "visibility: hidden" in _of(".ttl__ratings-wait > .ttl-rating > *")
-    forced = _of(".ttl__ratings-wait > .ttl-rating", "(forced-colors: active)")
-    assert "outline: 1px solid" in forced
+def test_the_line_held_for_ratings_draws_nothing_in_any_colours() -> None:
+    every = [
+        selector
+        for media in (None, "(forced-colors: active)")
+        for selectors, _ in _rules(media)
+        for selector in selectors
+    ]
+    # Nothing stands in it for a rating the title may not have, so forced colours have nothing to outline.
+    assert not [
+        s for s in every if s.startswith(".ttl__ratings-wait") and s != ".ttl__ratings-wait"
+    ]
+    assert not re.search(r"background|border|outline|box-shadow", _of(".ttl__ratings-wait"))
+    assert not _of(".ttl__ratings-wait", "(forced-colors: active)")
 
 
 def test_metascore_is_said_shorter_on_a_phone_and_still_read_in_full() -> None:
@@ -209,10 +218,11 @@ def test_metascore_is_said_shorter_on_a_phone_and_still_read_in_full() -> None:
     assert not _of(".ttl-rating__full") + _of(".ttl-rating__brief::after")
 
 
-def test_the_ratings_still_to_come_hold_one_line() -> None:
+def test_the_ratings_still_to_come_hold_one_line_beside_those_already_there() -> None:
     line = _of(".ttl__ratings-wait")
     assert "height: calc(1lh + 8px)" in line
-    assert "overflow: hidden" in line
+    assert "font-size: 12px" in line  # the pills' own, so 1lh is their line
+    assert "flex: 1 1 0" in line and "min-width: 0" in line
 
 
 def test_what_waits_for_room_comes_at_once_where_nothing_moves() -> None:
@@ -262,3 +272,22 @@ def test_a_page_opened_over_a_playing_trailer_never_shows_its_own_picture_first(
 
 def test_a_downloads_sizes_line_holds_its_room_until_they_are_known() -> None:
     assert "min-height: 1lh" in _of(".dl-progress__line")
+
+
+def test_an_episode_fact_stays_whole_where_it_fits_and_breaks_rather_than_overflow() -> None:
+    fact = _of(".ttl .watch-ep__fact")
+    # Laid out whole, it moves to a line of its own before it is broken; only one wider than
+    # the column is broken inside.
+    assert "display: inline-block" in fact
+    assert "max-width: 100%" in fact
+    every = "".join((STYLES / name).read_text(encoding="utf-8") for name in (*SHEETS, "_watch.css"))
+    rules = re.findall(r"([^{}]*watch-ep__fact[^{}]*)\{([^{}]*)\}", every)
+    assert rules and not [body for _, body in rules if "nowrap" in body]
+
+
+def test_a_trailers_loading_mark_covers_its_frame_and_takes_no_clicks() -> None:
+    mark = _of(".ttl__wait")
+    assert "grid-area: 1 / 1" in mark  # the frame's own cell, drawn after it, so it is on top
+    assert "background: var(--scrim)" in mark  # opaque, so the frame's error page never shows
+    assert "pointer-events: none" in mark
+    assert "width: min(100cqw, 100cqh * 16 / 9)" in mark and "aspect-ratio: 16 / 9" in mark

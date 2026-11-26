@@ -46,6 +46,20 @@ def _all_values(view) -> str:
     return " ".join(str(f["value"]) for f in view.fields)
 
 
+@pytest.mark.parametrize("service", ["Radarr", "Sonarr"])
+def test_an_added_line_reads_added_to_downloads_old_rows_too(service):
+    view = _describe(
+        action="requested",
+        action_label="Requested",
+        detail=f"Added 'Dune' to {service} by amy",
+        is_security=False,
+        title="Dune",
+        media_item_id="radarr:Dune",
+    )
+
+    assert view.summary == "Added to downloads"
+
+
 class TestDetailList:
     def test_security_event_lists_who_ip_time_and_id(self):
         fields = _by_label(_describe())

@@ -18,6 +18,10 @@
 }
 
 /* Form inputs */
+/* Every page's own field rule draws its border in --hair: on a field that hairline is the edge. */
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"]), select, textarea):not(:disabled) {
+  --hair: var(--field-edge);
+}
 .inp,
 .form-input,
 .form-select,
@@ -144,6 +148,8 @@ select.inp,
   z-index: 1;
 }
 .tog.on { background: var(--success); }
+/* The off track's edge: an outline, so the switch's box and the knob's place stay as they are. */
+.tog:not(.on, :focus-visible) { outline: 1px solid var(--field-edge); outline-offset: -1px; }
 .tog.on::after { transform: translateX(18px); }
 /* The 26px switch keeps its look; an invisible 44px hit area on touch widths. */
 @media (max-width: 699.98px) {

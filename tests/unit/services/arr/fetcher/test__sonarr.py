@@ -252,6 +252,11 @@ class TestFetchSonarrQueueSearching:
         cards = fetch_sonarr_queue(client)
         assert any(c["title"] == "House of the Dragon" for c in cards)
 
+    def test_a_searching_show_carries_its_tmdb_id_for_its_poster(self):
+        client = _client(series=[_searching_series(tmdbId=77)])
+        (card,) = fetch_sonarr_queue(client)
+        assert card["tmdb_id"] == 77
+
     def test_unmonitored_series_excluded(self):
         series = [
             {

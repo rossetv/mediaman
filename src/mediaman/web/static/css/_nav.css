@@ -253,26 +253,40 @@
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     transform: none;
+    /* The sheet floats clear of where the avatar stands, so no row lies on its spot. */
+    padding: 0 8px max(8px, calc(var(--foot) - var(--foot-gap) + 8px));
   }
   .profile-panel {
     width: 100%;
     max-width: 520px;
-    max-height: 85vh;
-    max-height: 85dvh;
-    padding: 8px 12px calc(16px + env(safe-area-inset-bottom, 0px));
-    border-width: 1px 0 0;
-    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    max-height: calc(100vh - var(--foot) + var(--foot-gap) - 24px);
+    max-height: calc(100dvh - var(--foot) + var(--foot-gap) - 24px);
+    padding: 8px 12px;
+    border-width: 1px;
+    border-radius: var(--r-lg);
     transform: translateY(24px);
     transition: transform var(--dur-fast) var(--ease-out);
   }
   .profile-menu[open] .profile-panel { transform: none; transition-duration: var(--dur); }
+  /* A strip to take hold of that a thumb fits, with the small bar drawn in it. */
   .profile-handle {
     display: block;
+    height: 44px;
+    margin: -8px -12px -12px;
+    position: relative;
+    touch-action: none;
+    cursor: grab;
+  }
+  .profile-handle::before {
+    content: "";
+    position: absolute;
+    top: 16px;
+    left: 50%;
     width: 36px;
     height: 4px;
+    margin-left: -18px;
     border-radius: var(--r-pill);
     background: var(--hair-strong);
-    margin: 4px auto 8px;
   }
   .profile-close {
     display: grid;

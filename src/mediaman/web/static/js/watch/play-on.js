@@ -534,8 +534,8 @@
     if (s.again || s.take) box.appendChild(el('br'));
     if (s.again) addKeyed(box, 'again', 'btn btn--secondary btn--sm', 'Try again', s.again);
     if (s.take) {
-      addKeyed(box, 'take', 'btn btn--danger btn--sm', 'Play here anyway', s.take);
       addKeyed(box, 'unsay', 'btn btn--ghost btn--sm', 'Cancel', function () { say = null; draw(); });
+      addKeyed(box, 'take', 'btn btn--danger btn--sm', 'Play here anyway', s.take);
     }
     return box;
   }
@@ -767,13 +767,13 @@
       if (p.code.length === 6) pair(p, false);
     });
     if (p.take) {
-      addKeyed(box, 'take', 'btn btn--danger', 'Pair it with me', function () { pair(p, true); });
       addKeyed(box, 'unsay', 'btn btn--ghost', 'Cancel', function () {
         p.take = false;
         p.code = p.why = '';
         draw();
         focusKey('code');
       });
+      addKeyed(box, 'take', 'btn btn--danger', 'Pair it with me', function () { pair(p, true); });
     }
   }
 
@@ -803,7 +803,7 @@
       p.busy = false;
       if (!sheet || sheet.pairing !== p) return;
       draw();
-      focusKey(p.tv ? 'play' : p.take ? 'take' : 'code');
+      focusKey(p.tv ? 'play' : p.take ? 'unsay' : 'code');
     });
   }
 

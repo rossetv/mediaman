@@ -269,20 +269,16 @@ def _build_mailgun_client(
     is not configured. An empty from-address counts as misconfigured because most MTAs
     reject an empty From header.
     """
-    from mediaman.services.infra import get_string_setting
-    from mediaman.services.mail.mailgun import MailgunClient
+    from mediaman.services.mail.mailgun import load_mailgun_client
 
-    mailgun_domain = get_string_setting(conn, "mailgun_domain", secret_key=secret_key)
-    mailgun_key = get_string_setting(conn, "mailgun_api_key", secret_key=secret_key)
-    mailgun_from = get_string_setting(conn, "mailgun_from_address", secret_key=secret_key)
-    if not mailgun_domain or not mailgun_key or not mailgun_from:
+    client = load_mailgun_client(conn, secret_key)
+    if client is None:
         logger.debug("Download notifications skipped — Mailgun not configured")
         # Single bulk UPDATE + single commit instead of N round-trips.
         # On a backlog of dozens of pending rows the per-row path used
         # to issue one fsync each.
         _release_claims_bulk(conn, pending)
-        return None
-    return MailgunClient(mailgun_domain, mailgun_key, mailgun_from)
+    return client
 
 
 def _partition_runnable(
@@ -523,6 +519,7 @@ def _process_one_notification(
     sonarr_series_index: list[SonarrSeries] | None = None,
     radarr_index: dict[int, RadarrMovie] | None = None,
     base_url: str = "",
+    secret_key: str = "",
 ) -> None:
     """Check availability, send the email and mark one claimed row.
 
@@ -568,7 +565,7 @@ def _process_one_notification(
         # without touching runtime behaviour.
         movie_typed = cast("RadarrMovie | None", movie)
         subject, html = _build_email_payload(
-            row, movie_typed, suggestions_by_tmdb, template, base_url
+            row, movie_typed, suggestions_by_tmdb, template, base_url, secret_key
         )
         # The claim may be old by now (a long batch, slow Arr lookups): refresh it so
         # reconcile does not free a row whose email is going out.
@@ -677,6 +674,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             sonarr_series_index=sonarr_series_index,
             radarr_index=radarr_index,
             base_url=base_url,
+            secret_key=secret_key,
         )
 
 

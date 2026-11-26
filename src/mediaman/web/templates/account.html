@@ -37,7 +37,7 @@
           <div class="me-line me-line--stack">
             <div class="me-txt">
               <label class="me-lbl" for="account-email">Email</label>
-              <div class="me-sub" id="account-email-sub">Where download alerts go. Leave empty to turn them off.</div>
+              <div class="me-sub" id="account-email-sub">{% if mail_ready %}Where download alerts go. Leave empty to turn them off.{% elif role == "admin" %}Email isn't set up, so no alerts are sent. Set it up under Email (Mailgun) in Settings.{% else %}Email isn't set up on this server, so no alerts are sent. Ask an admin.{% endif %}</div>
             </div>
             <div class="me-end">
               <input class="inp" type="email" id="account-email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="{{ email or '' }}" aria-describedby="account-email-sub account-email-result">

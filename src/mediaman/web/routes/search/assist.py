@@ -30,7 +30,7 @@ from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai import search_assist as ai
-from mediaman.services.openai.client import get_openai_key
+from mediaman.services.openai.client import OpenAIUnavailable, get_openai_key, key_refused
 from mediaman.services.openai.recommendations.plays import person_plays
 from mediaman.services.openai.search_assist import tonight
 from mediaman.services.rate_limit import ActionRateLimiter
@@ -72,6 +72,7 @@ class _Asked:
     base: str
     at: datetime
     answer: dict[str, Any] | None = None
+    key_refused: bool = False
 
 
 _asked: dict[int, _Asked] = {}
@@ -115,8 +116,13 @@ def _has_openai_key(request: Request, conn: sqlite3.Connection) -> bool:
 
 
 def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
-    """TMDB's client where the AI can be used: it answers only with titles TMDB knows."""
-    if repo.switched_off(conn) or not _has_openai_key(request, conn):
+    """TMDB's client where the AI can be used: it answers only with titles TMDB knows. Not
+    while OpenAI is known to refuse the key."""
+    if (
+        repo.switched_off(conn)
+        or not _has_openai_key(request, conn)
+        or key_refused(conn, _secret(request))
+    ):
         return None
     return TmdbClient.from_db(conn, _secret(request), timeout=_TMDB_TIMEOUT_S, retry=False)
 
@@ -501,7 +507,13 @@ def _answer(
         def taste() -> ai.Taste:
             return repo.taste_of(own, user_id, _played(own, username))
 
-        made = ai.make_answer(own, client, question, taste, secret_key=secret_key, stopped=stopped)
+        try:
+            made = ai.make_answer(
+                own, client, question, taste, secret_key=secret_key, stopped=stopped
+            )
+        except OpenAIUnavailable as exc:
+            asked.key_refused = exc.refused
+            return
         if made is None:
             return
         asked.answer = cast(dict[str, Any], made)
@@ -526,6 +538,8 @@ def api_run(
     asked = _asked.get(run_id)
     if status is None or (status == "done" and asked is None):
         return _not_found()
+    if status == "failed" and asked is not None and asked.key_refused:
+        return respond_ok({"status": status, "run_id": run_id, "error": "unavailable"})
     if status != "done" or asked is None:
         return respond_ok({"status": status, "run_id": run_id})
     stored = _fetch(conn, user_id, asked.kind, asked.key)

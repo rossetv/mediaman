@@ -55,11 +55,11 @@
   function when(iso) {
     var at = new Date(iso);
     if (isNaN(at)) return '';
-    var time = at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    var time = at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     var days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 864e5);
     if (days <= 0) return 'today, ' + time;
-    if (days < 7) return at.toLocaleDateString(undefined, { weekday: 'long' }) + ', ' + time;
-    return at.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+    if (days < 7) return at.toLocaleDateString('en-GB', { weekday: 'long' }) + ', ' + time;
+    return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
   }
 
   function seen(tv) {
@@ -143,7 +143,7 @@
     switch (err.error) {
       case 'no_fetch':
         return ['no', 'It couldn’t reach mediaman',
-          'Check the address TVs use, below. It must start with http:// and a home address, or https:// and a name, ' +
+          'Check the address TVs use, below. It must start with http:// and this server’s home address or name, or with https://, ' +
           'and work from your home network. Many older TVs refuse https.'];
       case 'no_picture':
         return ['no', 'It didn’t show a test picture', err.message + ' You can still add it and try a film.'];
@@ -261,13 +261,13 @@
       acts.appendChild(check);
     }
     var rename = button('Rename', 'ghost', editName);
-    var forget = button('Forget', 'danger', ask);
+    var unpair = button('Unpair', 'danger', ask);
     acts.appendChild(rename);
-    acts.appendChild(forget);
+    acts.appendChild(unpair);
     nameButtons();
 
     function nameButtons() {
-      [check, rename, forget].forEach(function (b) {
+      [check, rename, unpair].forEach(function (b) {
         if (b) b.setAttribute('aria-label', (b.dataset.label || b.textContent) + ' ' + tv.name);
       });
     }
@@ -332,8 +332,8 @@
         if (e.key === 'Escape') { e.preventDefault(); done(); }
       });
       box.appendChild(input);
-      box.appendChild(save);
       box.appendChild(button('Cancel', 'ghost', done));
+      box.appendChild(save);
       box.appendChild(status);
       line.replaceChildren(ico, box);
       input.focus();
@@ -346,27 +346,27 @@
       clear('.tv-sure');
       var sure = el('div', 'tv-sure');
       sure.setAttribute('role', 'alertdialog');
-      sure.setAttribute('aria-label', 'Forget ' + tv.name + '?');
-      var words = el('p', '', 'Forget ' + tv.name + '? It stops playing at once and is gone from everyone’s list. ' +
+      sure.setAttribute('aria-label', 'Unpair ' + tv.name + '?');
+      var words = el('p', '', 'Unpair ' + tv.name + '? It stops playing at once and is gone from everyone’s list. ' +
         (tv.kind === 'older' ? 'You can add it again by its address.' : 'To use it again, pair it with a new code.'));
-      var yes = button('Forget this TV', 'danger', remove);
+      var yes = button('Unpair this TV', 'danger', remove);
       var no = button('Cancel', 'ghost', cancel);
       var status = el('p', 'tv-err');
       status.setAttribute('role', 'alert');
       var two = el('div');
-      two.appendChild(yes);
       two.appendChild(no);
+      two.appendChild(yes);
       sure.appendChild(words);
       sure.appendChild(two);
       sure.appendChild(status);
 
       function cancel() {
         go(sure, function () { sure.remove(); });
-        forget.focus();
+        unpair.focus();
       }
       function remove() {
         if (isBusy(yes)) return;
-        setBusy(yes, 'Forgetting…');
+        setBusy(yes, 'Unpairing…');
         MM.api.delete(urlOf(tv)).catch(function (err) {
           // Gone already is what was asked for.
           if (err.error !== 'not_found') throw err;
@@ -377,10 +377,10 @@
             fallback: addBtn,
             done: function () { if (!wrap.querySelector('.tv-li')) showEmpty(); },
           });
-          window.UIFeedback.success(tv.name + ' is forgotten.');
+          window.UIFeedback.success(tv.name + ' is unpaired.');
         }, function (err) {
           setBusy(yes, '');
-          status.textContent = MM.api.messageOf(err, 'Couldn’t forget it. Try again.');
+          status.textContent = MM.api.messageOf(err, 'Couldn’t unpair it. Try again.');
         });
       }
       sure.addEventListener('keydown', function (e) {
@@ -422,8 +422,8 @@
     var end = el('div', 'tv-add-end');
     var add = button('Add this TV', 'primary', commit);
     add.disabled = true;
-    end.appendChild(add);
     end.appendChild(button('Cancel', 'ghost', close));
+    end.appendChild(add);
     var status = el('p', 'tv-err');
     status.setAttribute('role', 'alert');
 
@@ -555,20 +555,30 @@
       var bad = '';
       var warn = '';
       var host = (/^https?:\/\/(?:[^/?#]*@)?(\[[^\]]*\]|[^/:?#]*)/i.exec(value) || [])[1] || '';
+      var mapped = /^\[::ffff:(\d+(\.\d+){3})\]$/i.exec(host);
+      if (mapped) host = mapped[1];
       if (/^(localhost|.*\.localhost|127\..*|\[::1\])\.?$/i.test(host)) {
-        bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address.';
-      } else if (/^\d+(\.\d+){3}$/.test(host) && !/^(10|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(host)) {
-        bad = 'This is not an address of your home network. Use one that starts with 10, 172.16 to 172.31, or 192.168.';
+        bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address or its name.';
+      } else if (/^\[fe[89ab]/i.test(host)) {
+        bad = 'A TV can’t reach this kind of address. Use this server’s home address or its name, such as http://nas.local:8282.';
+      } else if (/^http:/i.test(value) && /^169\.254\./.test(host)) {
+        bad = 'A device gives itself this address, and it changes, so TVs can’t rely on it. Use this server’s home ' +
+          'address or its name, such as http://nas.local:8282.';
+      } else if (/^http:/i.test(value) && (/^\d+(\.\d+){3}$/.test(host) &&
+          !/^(10|192\.168|172\.(1[6-9]|2\d|3[01])|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./.test(host) ||
+          /^\[/.test(host) && !/^\[f[cd]/i.test(host))) {
+        bad = 'This address is on the internet, so it needs https://. With http://, use this server’s home address or its name.';
       } else if (!/^https?:/i.test(value) && /\w\.\w/.test(value)) {
         bad = 'Start with http:// before a home address, or https:// before a name.';
       } else if (/^https:/i.test(value)) {
         warn = refusedHttps && refusedHttps.address === value
           ? 'This starts with https. Older TVs often refuse it, and ' + refusedHttps.name + ' did.'
           : 'This starts with https. Older TVs often refuse it.';
-      } else if (/^http:/i.test(value) && /(^|\.)[a-z][^.]*\.?$/i.test(host)) {
-        bad = 'Before a name, use https:// and not http://. With http, use this server’s home address.';
+      } else if (/^http:/i.test(value) && /\.[a-z][^.]*\.?$/i.test(host) && !/\.(local|lan|internal|home\.arpa)\.?$/i.test(host)) {
+        bad = 'A name on the internet needs https://. With http://, use a home name: one word, or one that ends in .local, ' +
+          '.lan, .home.arpa or .internal.';
       } else if (/^http:/i.test(value) && document.getElementById('older_tvs_http').value !== 'true') {
-        warn = 'This starts with http, which older TVs may use only with Plain http for older TVs on.';
+        warn = 'Older TVs can use this only while Plain http for older TVs is on.';
       }
       hint.textContent = bad || warn || usual;
       hint.classList.toggle('is-bad', !!bad);

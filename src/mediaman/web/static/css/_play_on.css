@@ -81,7 +81,7 @@
 .play-on__pair li::before { content: counter(step); position: absolute; left: 0; top: -1px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--s4); font-size: 12px; font-weight: 600; color: var(--t1); }
 .play-on__pair li b { font-weight: 600; color: var(--t1); overflow-wrap: anywhere; }
 .play-on__code { position: relative; display: flex; gap: 8px; margin-bottom: 10px; }
-.play-on__code i { flex: 1; display: grid; place-items: center; height: 56px; border: 1px solid var(--hair-strong); border-radius: var(--r-md); background: var(--s1); font: 600 24px/1 var(--font-display); font-variant-numeric: tabular-nums; transition: border-color var(--dur-fast) var(--ease-out); }
+.play-on__code i { flex: 1; display: grid; place-items: center; height: 56px; border: 1px solid var(--field-edge); border-radius: var(--r-md); background: var(--s1); font: 600 24px/1 var(--font-display); font-variant-numeric: tabular-nums; transition: border-color var(--dur-fast) var(--ease-out); }
 .play-on__code i:nth-of-type(4) { margin-left: 10px; }
 .play-on__code i.at { border-color: var(--accent); }
 .play-on__code.is-bad i { border-color: var(--danger-text); }

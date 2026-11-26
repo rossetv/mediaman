@@ -26,8 +26,13 @@
 }
 .wbar .brand { margin-right: auto; }
 
+/* What the keyboard comes to clears the bar, and All titles' 64px head under it. A child
+   combinator: the page's own mutations never test it again. */
+html:has(> body[data-page="watch"]) { --bar-clear: calc(var(--nav-h) + 80px); scroll-padding-top: var(--bar-clear); }
+/* None while the focus is in a bar or a head, which are in sight already: it would scroll the page. */
+html:has(> body[data-page="watch"] :is(.wbar, .watch-all__head) :focus) { scroll-padding-top: 0; }
 /* Where the skip link goes. */
-#main-content { scroll-margin-top: var(--nav-h); }
+#main-content { scroll-margin-top: calc(var(--nav-h) - var(--bar-clear, 0px)); }
 
 /* The field stands in the middle and grows over the page: a little under the pointer, wide
    and tall with the focus. It is drawn at its full size and cut down to the one it has:
@@ -179,8 +184,6 @@
   .wbar .watch-search { --bl: calc(var(--l) - var(--pad) + 16px); --br: calc(100cqw + var(--pad) - var(--r) + 8px); left: var(--pad); margin-left: 0; }
   .wbar .watch-search.is-focus { --bl: 0px; --br: 0px; }
   .wbar:has(> .watch-search.is-focus) > :is(.brand, .space-meter) { opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out); }
-  /* On the page alone: padding on the whole would scroll it for the focus in the bar too. */
-  .watch-page > :not(#watch-detail) :is(a, button, input, select, textarea, [tabindex]):not(.watch-all__head *, [role="menu"] *) { scroll-margin-top: 68px; }
 }
 @media (min-width: 700px) and (max-width: 1099.98px) {
   .wbar:has(> .watch-search.is-focus) > .profile-btn { opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out); }
@@ -227,8 +230,8 @@
 /* Little height: the bar goes with the page. */
 @media (max-height: 500px) {
   .wbar { position: relative; }
+  html:has(> body[data-page="watch"]) { --bar-clear: 0px; }
   #main-content { scroll-margin-top: 0; }
-  .watch-page > :not(#watch-detail) :is(a, button, input, select, textarea, [tabindex]):not(.watch-all__head *, [role="menu"] *) { scroll-margin-top: 0; }
   .watch-page .watch-all { min-height: 100vh; min-height: 100dvh; }
   .watch-page .watch-all__head { top: 0; }
 }
@@ -467,6 +470,10 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   .watch-badge--state { right: 6px; }
   /* Three across on a phone. */
   .results-page .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
+}
+/* Two where three would leave a title under 94px, which cuts a long word such as "Cartographer's". */
+@media (max-width: 389.98px) {
+  .results-page .watch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ── Still ── */

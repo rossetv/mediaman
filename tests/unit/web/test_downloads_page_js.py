@@ -7,10 +7,20 @@ the page ends up showing, not how the scripts are written.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
+
+from fastapi.templating import Jinja2Templates
+from fastapi.testclient import TestClient
+
+from mediaman.web.auth.session_store import create_session
+from mediaman.web.routes.downloads import router as downloads_router
+from tests.helpers.factories import insert_admin_user
 
 HARNESS = Path(__file__).parent / "js" / "downloads_harness.js"
+CSS = Path(__file__).parents[3] / "src/mediaman/web/static/css"
 
 
 def _run(scenario: str) -> dict:
@@ -71,76 +81,38 @@ def test_hero_and_queue_close_in_place_while_the_empty_state_opens() -> None:
     }
 
 
-def test_an_outage_keeps_live_sections_and_never_reads_as_all_caught_up() -> None:
+def test_in_an_outage_the_page_shows_what_the_server_lists_and_never_reads_as_all_caught_up() -> (
+    None
+):
     out = _run("outage")
-    assert out["held"] == {"hero": 1, "queue": 1, "upcoming": 1, "cards": []}
-    assert out["back"] == {"hero": 0, "queue": 0, "upcoming": 0}
-    # a download of a service that does answer is really over
-    assert out["finishedElsewhere"] == 0
+    # what the answer leaves out goes, as any row does; the card says why
+    assert out["gone"] == {
+        "hero": 0,
+        "queue": 0,
+        "upcoming": 0,
+        "cards": ["Downloads can't be checked right now"],
+    }
+    # and comes back as a new row does when the service answers
+    assert out["back"] == {"hero": 1, "queue": 1, "upcoming": 1}
     assert [len(c) for c in out["cards"]] == [1, 1, 1]
     assert out["cards"][0] == out["cards"][2] == ["All caught up"]
     assert out["cards"][1] != ["All caught up"]
 
 
-def test_an_outage_holds_only_the_rows_of_the_service_that_is_down() -> None:
+def test_an_admin_and_a_viewer_are_shown_the_same_rows_in_an_outage() -> None:
     out = _run("outageRows")
-    # the rest of the list goes on as usual
-    assert out["some"] == {
+    assert out["admin"] == out["viewer"]
+    assert out["viewer"]["during"] == {
         "hero": ["sonarr:h1"],
-        "queue": ["radarr:q1", "sonarr:q2"],
-        "upcoming": ["radarr:u1", "sonarr:u2"],
+        "queue": ["sonarr:q2"],
+        "upcoming": ["sonarr:u2"],
     }
-    # a row that became the hero is not shown twice
-    assert out["promoted"] == {
-        "hero": ["sonarr:q2"],
-        "queue": ["radarr:q1"],
-        "upcoming": ["radarr:u1"],
-    }
-    # nothing of a service that answers is kept
-    assert out["nothingElse"] == {"hero": [], "queue": ["radarr:q1"], "upcoming": ["radarr:u1"]}
-    assert out["over"] == {"hero": [], "queue": [], "upcoming": []}
+    assert sorted(out["viewer"]["back"]["queue"]) == ["radarr:q1", "sonarr:q2", "sonarr:q3"]
 
 
-def test_a_hero_whose_service_went_down_stays_as_a_row_until_it_is_back() -> None:
-    out = _run("outageRows")
-    assert out["displaced"] == {"hero": ["sonarr:q2"], "queue": ["radarr:h1"], "upcoming": []}
-    assert out["stays"] == out["displaced"]
-    assert out["back"] == {"hero": ["radarr:h1"], "queue": ["sonarr:q2"], "upcoming": []}
-    # one that was over before the outage does not come back
-    assert out["ended"] == {"hero": ["sonarr:q9"], "queue": [], "upcoming": []}
-
-
-def test_what_an_outage_keeps_is_dimmed_and_counts_nothing_down() -> None:
-    out = _run("outageDim")
-    # id, dimmed, ETA, search countdown shown
-    live = [
-        ["radarr:h1", False, "~1 min", False],
-        ["sonarr:q2", False, "~2 min", False],
-        ["radarr:q3", False, "", True],
-        ["radarr:u1", False, "", False],
-    ]
-    assert out["up"] == live
-    assert out["down"] == [[row[0], True, "", False] for row in live]
-    assert out["back"] == live
-    # a hero whose service went down is dimmed as a row, the one that took over is not
-    assert out["demoted"][0] == ["sonarr:q2", False, "~2 min", False]
-    assert ["radarr:h1", True, "", False] in out["demoted"]
-
-
-def test_through_an_outage_rows_stay_in_order_and_the_line_above_counts_them() -> None:
-    out = _run("outageOrder")
-    # downloading first, the held hero ahead of the new ones; then searching as it was
-    assert out["part"] == {
-        "line": "6 items in progress · 2 coming soon · can't reach Radarr",
-        "rows": ["radarr:h1", "sonarr:q4", "Other.2024", "sonarr:q2", "radarr:q3"],
-    }
-    assert out["alone"] == {
-        "line": "2 items in progress · 1 coming soon · can't reach Radarr",
-        "rows": ["radarr:h1", "radarr:q3"],
-    }
-    assert out["back"] == "1 item in progress"
-    # a title still searched for does not take the place of a held download
-    assert out["keeps"] == {"hero": "radarr:h1", "dimmed": True, "rows": ["sonarr:q1"]}
+def test_through_an_outage_rows_stay_in_order_of_state() -> None:
+    # a new row takes its place in the server's list, within its state
+    assert _run("outageOrder")["rows"] == ["Other.2024", "sonarr:q4", "sonarr:q2"]
 
 
 def test_what_a_service_answers_in_part_is_drawn_from_the_answer() -> None:
@@ -148,15 +120,6 @@ def test_what_a_service_answers_in_part_is_drawn_from_the_answer() -> None:
     assert out["rows"] == ["radarr:h1", "radarr:u1"]
     assert out["pct"] == "50%"
     assert out["upcoming"] == []
-
-
-def test_a_held_download_that_nzbget_still_lists_is_shown_once() -> None:
-    assert _run("outageNzb")["rows"] == [
-        "radarr:q1",
-        "sonarr:q3",
-        "Dune.Part.Two.2024",
-        "Edit.2020",
-    ]
 
 
 def test_a_poll_update_keeps_the_size_of_the_state_pill() -> None:
@@ -249,7 +212,7 @@ def test_a_show_is_called_ready_only_while_it_is_known_to_be() -> None:
     out = _run("recent")
     ready = ["Ready to watch", True]
     assert out["part"] == [["Some episodes ready", False], ready]
-    assert out["unknown"] == [["Added", False], ready]
+    assert out["unknown"] == [["In your library soon", False], ready]
     assert out["whole"] == [ready, ready]
 
 
@@ -264,9 +227,9 @@ def test_confirm_says_it_is_working_and_recovers_on_failure() -> None:
 
 def test_rebuilt_hero_shows_the_same_stats_as_the_server_rendered_one() -> None:
     out = _run("hero")
-    assert out["full"] == ["30% complete", "1 GB of 3 GB", "ETA 5 min"]
+    assert out["full"] == ["30% complete", "1 GB of 3 GB", "5 min"]
     assert out["noEta"] == ["30% complete", "1 GB of 3 GB"]
-    assert out["noSize"] == ["30% complete", " of ", "ETA 5 min"]
+    assert out["noSize"] == ["30% complete", " of ", "5 min"]
 
 
 def test_a_successful_abandon_closes_the_dialog_and_refreshes_the_page() -> None:
@@ -393,3 +356,174 @@ def test_the_season_picker_ticks_only_seasons_with_missing_aired_episodes() -> N
         ["Season 4", "Not aired yet", False, "false"],
     ]
     assert out["label"] == "Abandon 2 seasons"
+
+
+def test_the_stop_dialog_names_the_service_and_claims_nothing_about_release_or_library() -> None:
+    words = _run("abandonWords")
+    assert "Radarr" in words["movie upcoming"] and "Sonarr" not in words["movie upcoming"]
+    assert "Sonarr" in words["series upcoming"] and "Radarr" not in words["series upcoming"]
+    assert "Sonarr" in words["series"] and "Radarr" in words["movie"]
+    for text in words.values():
+        assert "released" not in text and "library" not in text
+
+
+def test_a_failed_stop_tracking_says_stop_tracking_and_keeps_the_servers_words() -> None:
+    assert _run("abandonFailureWords") == [
+        "Couldn’t stop tracking. Try again.",
+        "Couldn’t abandon. Try again.",
+        "Radarr is down.",
+    ]
+
+
+def test_with_no_radarr_and_no_sonarr_the_page_says_downloads_are_not_set_up() -> None:
+    out = _run("notSetUp")
+    assert out["admin"] == {
+        "h3": "Downloads aren’t set up",
+        "p": "Connect Radarr or Sonarr in Settings.",
+        "link": "/settings#setg-integrations",
+    }
+    assert out["viewer"] == {
+        "h3": "Downloads aren’t set up",
+        "p": "Ask whoever runs mediaman to set it up.",
+        "link": None,
+    }
+    # one service set up, or no answer about it: the page is as it was
+    for key in ("films", "shows", "missing"):
+        assert out[key]["h3"] == "All caught up"
+
+
+def test_the_top_cards_fading_copy_is_laid_out_in_the_cards_own_box() -> None:
+    out = _run("heroSwap")
+    assert out["moving"]["ghosts"] == [""]
+    assert out["reduced"]["ghosts"] == []
+    css = (CSS / "_dl.css").read_text()
+    rule = css.split(".dl-hero-ghost__card {", 1)[1].split("}", 1)[0]
+    assert "inset: 0;" in rule and "min-height" not in rule and "height:" not in rule
+
+
+def test_the_new_content_of_the_top_card_waits_for_the_old_to_fade() -> None:
+    out = _run("heroSwap")
+    assert out["moving"]["swapping"] and not out["moving"]["later"]
+    assert not out["reduced"]["swapping"]
+    css = (CSS / "_dl.css").read_text()
+    fade = re.search(r"\.dl-hero-ghost \{[^}]*animation: dl-hero-out var\(--(dur[-\w]*)\)", css)
+    came = re.search(
+        r"\.dl-hero\.is-swapping \.dl-hero-content \{ animation: dl-hero-in \S+ \S+ var\(--(dur[-\w]*)\) backwards",
+        css,
+    )
+    assert fade and came and fade[1] == came[1], "it begins as the old has gone"
+
+
+def test_a_row_that_changes_place_slides_with_those_it_passes_unless_motion_is_off() -> None:
+    out = _run("rowSlide")
+    assert out["moving"]["order"] == ["q3", "q1", "q2"]
+    assert out["moving"]["sliding"] == [True, True, False]
+    # a row put back in the list would play its entrance again, over the slide
+    assert out["moving"]["entering"] == [False, False, False]
+    assert out["reduced"]["sliding"] == [False, False, False]
+    css = (CSS / "_dl.css").read_text()
+    leave = re.search(
+        r"\.dl-fold \{[^}]*transition: height (var\(--dur-slow\) var\(--ease-out\))", css
+    )
+    assert (
+        leave
+        and f"transform {leave[1]}" in css.split(".dl-compact.is-sliding {", 1)[1].split("}", 1)[0]
+    )
+
+
+def test_rows_below_a_row_that_grows_slide_down_unless_motion_is_off() -> None:
+    out = _run("rowGrows")
+    assert out["moving"]["sliding"] == [False, True]
+    assert out["moving"]["from"] == ["", "translateY(-43px)"]
+    assert out["reduced"]["sliding"] == [False, False]
+
+
+def test_a_row_that_moves_again_mid_slide_starts_from_where_it_is_seen() -> None:
+    assert _run("slideAgain") == [["q2", "translateY(40px)"], ["q1", "translateY(-100px)"]]
+
+
+def test_rows_that_come_back_take_the_servers_order() -> None:
+    out = _run("returnOrder")
+    assert out["upcoming"] == ["u1", "u2", "u3"]
+    assert out["queue"] == ["q1", "q2", "q3"]
+
+
+def test_a_viewers_outage_with_nothing_in_progress_is_said_once() -> None:
+    out = _run("viewerOutageLine")
+    assert out["viewer"] == []
+    assert out["viewerSoon"] == ["1 coming soon"]
+    assert out["admin"] == ["Can't reach Radarr"]
+
+
+def test_the_server_says_a_viewers_outage_once(app_factory, conn) -> None:
+    insert_admin_user(conn, username="person", role="viewer")
+    app = app_factory(downloads_router, conn=conn)
+    app.state.templates = Jinja2Templates(directory=str(CSS.parents[1] / "templates"))
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, "person"))
+    down = {
+        "hero": None,
+        "queue": [],
+        "upcoming": [],
+        "recent": [],
+        "subtitle": "Can't reach Radarr",
+        "unreachable": ["Radarr"],
+        "refused": [],
+        "outage": "Can't reach Radarr",
+        "downloads_set_up": {"movies": True, "shows": True},
+    }
+    with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=down):
+        page = client.get("/downloads").text
+    header = page.split('class="ph"', 1)[1].split("</div>", 1)[0]
+    assert "<p>" not in header
+    assert "Downloads can&#39;t be checked right now" in page
+    assert "Radarr" not in page
+
+
+def test_in_forced_colours_a_row_has_the_edge_the_top_card_has() -> None:
+    forced = (CSS / "_dl.css").read_text().split("@media (forced-colors: active) {", 1)[1]
+    edges = re.findall(r"([^{}]+)\{[^}]*border: 1px solid CanvasText", forced)
+    assert any(".dl-hero" in sel for sel in edges)
+    assert any(re.search(r"(^|,)\s*\.dl-row\s*(,|$)", sel) for sel in edges)
+
+
+def test_a_poster_that_is_missing_or_does_not_load_is_stood_for_by_a_mark() -> None:
+    out = _run("posterMark")
+    assert out["hero"] == [["IMG.", "SPAN.dl-poster-mark"]]
+    assert out["rows"] == [["SPAN.dl-poster-mark"], ["IMG.", "SPAN.dl-poster-mark"]]
+    css = (CSS / "_dl.css").read_text()
+    assert "img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }" in css
+
+
+def test_the_queues_heading_is_true_of_its_rows() -> None:
+    assert _run("queueHeading") == {"queued": "Up next", "mixed": "Also in progress"}
+
+
+def test_a_refused_key_sends_an_admin_to_settings_and_does_not_say_it_keeps_trying() -> None:
+    out = _run("refusedKey")
+    link = "/settings#setg-integrations"
+    assert out["admin"] == {"p": "Check the details for Sonarr in Settings.", "link": link}
+    assert out["two"]["p"] == "Check the details for Radarr and Sonarr in Settings."
+    assert out["down"] == out["viewer"] == {"p": "This page keeps trying.", "link": None}
+
+
+def test_a_viewer_is_told_rows_may_be_missing_not_which_service_is_down() -> None:
+    out = _run("viewerLine")
+    assert out["viewer"] == "2 items in progress · 1 coming soon · some may be missing"
+    assert out["admin"] == "server words"
+
+
+def test_only_an_admins_rows_hold_a_link_into_radarr_or_sonarr() -> None:
+    assert _run("arrLink") == {"admin": 2, "viewer": 0}
+
+
+def test_a_queued_episode_reads_as_a_queued_row_does() -> None:
+    css = (CSS / "_dl.css").read_text()
+    pill = css.split(".dl-ep-status-pill.queued {", 1)[1].split("}", 1)[0]
+    assert "warning" not in pill
+
+
+def test_a_long_title_wraps_on_a_narrow_phone() -> None:
+    css = (CSS / "_dl.css").read_text()
+    narrow = css.split("@media (max-width: 374.98px) {", 1)[1].split("\n}\n", 1)[0]
+    assert "white-space: normal" in narrow.split(".dl-row-title {", 1)[1].split("}", 1)[0]

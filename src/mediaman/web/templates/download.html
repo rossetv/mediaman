@@ -4,7 +4,6 @@
 
 {% if state == "confirm" %}
 {% set season = none if item.season_number is not defined or item.season_number is none else 'Specials' if item.season_number == 0 else 'Season %d' % item.season_number %}
-{% set poster = (item.poster_url or '') | replace('/w300/', '/w500/') | replace('/w200/', '/w500/') %}
 {% set watch_href = '/watch' ~ ('#title=tmdb-%s-%d' % ('movie' if item.media_type == 'movie' else 'tv', item.tmdb_id) if item.tmdb_id is integer else '') %}
 {% endif %}
 
@@ -21,13 +20,11 @@
 <link rel="stylesheet" href="/static/css/_watch_cast.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_share.css?v={{ static_v }}">
 {% if state == "confirm" %}
-{% set wide = item.backdrop_url if (item.backdrop_url or '').startswith('https://image.tmdb.org/') %}
-{% set preview = wide or (poster if poster.startswith('https://image.tmdb.org/')) %}
 <meta property="og:site_name" content="mediaman">
 <meta property="og:type" content="website">
 <meta property="og:title" content="{{ item.title }}{% if season %} · {{ season }}{% endif %}">
-{% if preview %}<meta property="og:image" content="{{ preview }}">{% endif %}
-<meta name="twitter:card" content="{{ 'summary_large_image' if wide else 'summary' }}">
+{% if preview_url %}<meta property="og:image" content="{{ preview_url }}">{% endif %}
+<meta name="twitter:card" content="{{ 'summary_large_image' if preview_url and item.backdrop_url else 'summary' }}">
 {% endif %}
 {% endblock %}
 
@@ -101,7 +98,7 @@
 {% set has_body = item.description or item.reason or item.director or item.cast_list %}
 <div class="watch-page watch-detail share-page{% if not has_body %} is-only{% endif %}{% if item.download_state == 'queued' %} is-searching{% endif %}">
   <section class="watch-banner share-hero">
-    {{ share.pictures(item.backdrop_url, poster) }}
+    {{ share.pictures(item.backdrop_url, item.poster_url) }}
     <div class="watch-banner__body"><div class="watch-hero__info share-info">
       {# Every download link but a re-download's was made for a recommendation. #}
       <span class="ttl__kind">{{ 'Movie' if item.media_type == 'movie' else 'TV series' }}{% if item.action == "download" %} · AI pick{% endif %}</span>

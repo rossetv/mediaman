@@ -1,4 +1,4 @@
-"""The posters of the Downloads page: TMDB's come through mediaman, others as they are."""
+"""The posters of the Downloads page: TMDB's come through mediaman, and no other service's."""
 
 from __future__ import annotations
 
@@ -41,11 +41,15 @@ _PAYLOAD = {
     "recent": [_item(f"{_TMDB}/done.jpg")],
     "subtitle": "",
     "unreachable": [],
+    "refused": [],
     "outage": "",
+    "downloads_set_up": {"movies": True, "shows": True},
 }
 
 
-def test_tmdb_posters_are_loaded_through_mediaman_and_the_items_keep_their_own(app_factory, conn):
+def test_tmdb_posters_are_loaded_through_mediaman_and_no_other_address_is_passed_on(
+    app_factory, conn
+):
     insert_admin_user(conn, username="person")
     app = app_factory(downloads_router, conn=conn)
     templates = Path(mediaman.__file__).parent / "web/templates"
@@ -59,7 +63,8 @@ def test_tmdb_posters_are_loaded_through_mediaman_and_the_items_keep_their_own(a
 
     proxy = "/api/watch/img/tmdb/w342"
     assert api["hero"]["poster_url"] == f"{proxy}/hero.jpg"
-    assert [i["poster_url"] for i in api["queue"]] == [f"{proxy}/row.jpg", _THETVDB, ""]
+    assert [i["poster_url"] for i in api["queue"]] == [f"{proxy}/row.jpg", "", ""]
+    assert "thetvdb" not in page
     assert api["upcoming"][0]["poster_url"] == f"{proxy}/soon.jpg"
     assert api["recent"][0]["poster_url"] == f"{proxy}/done.jpg"
     assert "image.tmdb.org" not in page
@@ -77,12 +82,15 @@ def test_the_server_draws_what_is_ready_of_a_recent_show_as_the_polls_do(app_fac
     client.cookies.set("session_token", create_session(conn, "person"))
     recent = [{**_item(""), "readiness": ready} for ready in ("part", "unknown", "ready")]
     built = {**deepcopy(_PAYLOAD), "recent": recent}
-    with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=built):
+    with (
+        patch("mediaman.web.routes.downloads.build_downloads_response", return_value=built),
+        patch("mediaman.web.routes.downloads._in_library", return_value=True),
+    ):
         grid = client.get("/downloads").text.split('id="dl-recent"')[1]
 
     assert re.findall(r'dl-recent-sub[^"]*">([^<]+)<', grid) == [
         "Some episodes ready",
-        "Added",
+        "In your library soon",
         "Ready to watch",
     ]
     assert grid.count("dl-recent-sub--plain") == 2

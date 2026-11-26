@@ -12,8 +12,9 @@ from fastapi.testclient import TestClient
 
 from mediaman.core.time import now_iso, now_utc
 from mediaman.services import watch_catalog as catalog
-from mediaman.services.infra import ConfigDecryptError, SSRFRefused
+from mediaman.services.infra import ConfigDecryptError, SafeHTTPError, SSRFRefused
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.openai import client as openai_client
 from mediaman.services.openai.recommendations import prompts, user_picks
 from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
@@ -401,6 +402,7 @@ class TestRefresh:
         monkeypatch.setattr(own.threading, "Thread", AtOnce)
         monkeypatch.setattr(own, "build_plex_from_db", lambda *_a: None)
         monkeypatch.setattr(prompts, "call_openai", call)
+        monkeypatch.setattr(prompts, "ask_openai", call)
         monkeypatch.setattr("mediaman.services.media_meta.omdb.fetch_ratings", lambda *_a, **_k: {})
         monkeypatch.setattr(
             FakeTmdb,
@@ -499,11 +501,62 @@ class TestRefresh:
         self, people, conn, openai, monkeypatch
     ):
         self._play(conn, "amy", 5)
-        monkeypatch.setattr(prompts, "call_openai", lambda *_a, **_k: [])
+        monkeypatch.setattr(prompts, "ask_openai", lambda *_a, **_k: [])
         people["amy"].post("/api/watch/picks/refresh")
 
         status = people["amy"].get("/api/watch/picks/refresh").json()
         assert (status["status"], status["my_refresh"]["available"]) == ("failed", True)
+        assert "error" not in status
+
+    @pytest.mark.parametrize(
+        ("exc", "error"),
+        [
+            (SafeHTTPError(401, "", "https://api.openai.com"), "unavailable"),
+            (requests.Timeout("slow"), None),
+        ],
+    )
+    def test_a_refused_key_says_unavailable_and_nothing_else_does(
+        self, people, conn, openai, monkeypatch, exc, error
+    ):
+        def post(*_a, **_k):
+            raise exc
+
+        self._play(conn, "amy", 5)
+        monkeypatch.setattr(openai_client, "_refused_key", None)
+        monkeypatch.setattr(openai_client._OPENAI_CLIENT, "post", post)
+        monkeypatch.setattr(prompts, "ask_openai", openai_client.ask_openai)
+        people["amy"].post("/api/watch/picks/refresh")
+
+        status = people["amy"].get("/api/watch/picks/refresh").json()
+        assert (status["status"], status.get("error")) == ("failed", error)
+
+    def test_a_failure_says_its_own_cause_not_an_older_refusal(
+        self, people, conn, openai, monkeypatch
+    ):
+        def post(*_a, **_k):
+            raise requests.Timeout("slow")
+
+        self._play(conn, "amy", 5)
+        monkeypatch.setattr(openai_client._OPENAI_CLIENT, "post", post)
+        monkeypatch.setattr(prompts, "ask_openai", openai_client.ask_openai)
+        people["amy"].post("/api/watch/picks/refresh")
+        # Refused meanwhile, by another call.
+        monkeypatch.setattr(openai_client, "_refused_key", openai_client._digest("sk-test"))
+
+        status = people["amy"].get("/api/watch/picks/refresh").json()
+        assert (status["status"], status.get("error")) == ("failed", None)
+
+    def test_a_key_known_refused_offers_no_refresh_and_uses_no_try(
+        self, people, conn, openai, monkeypatch
+    ):
+        self._play(conn, "amy", 5)
+        monkeypatch.setattr(openai_client, "_refused_key", openai_client._digest("sk-test"))
+
+        mine = people["amy"].get("/api/watch/picks/refresh").json()["my_refresh"]
+        assert (mine["available"], mine["reason"]) == (False, "unavailable")
+        resp = people["amy"].post("/api/watch/picks/refresh")
+        assert (resp.status_code, resp.json()["error"]) == (409, "unavailable")
+        assert conn.execute("SELECT COUNT(*) FROM user_pick_runs").fetchone()[0] == 0
 
     @pytest.mark.parametrize(
         ("plays", "setting", "reason"),

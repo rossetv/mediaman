@@ -525,24 +525,26 @@ CONTROLS = ":is(a, button, input, select, textarea, [tabindex])"
 
 
 def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scroll_it() -> None:
-    css = BAR.read_text(encoding="utf-8")
-    rules = re.findall(r"([^{}]*)\{ scroll-margin-top: [^}]*\}", css)
-    page = [r.strip() for r in rules if CONTROLS in r]
-    assert len(page) == 2
-    for selector in page:
-        assert selector.endswith(':not(.watch-all__head *, [role="menu"] *)')
+    page = 'html:has(> body[data-page="watch"])'
+    assert "scroll-padding-top: var(--bar-clear)" in _of(page, sheet=BAR)
+    # While the focus is in the bar or All titles' head, the page has no padding to scroll for.
+    held = 'html:has(> body[data-page="watch"] :is(.wbar, .watch-all__head) :focus)'
+    assert "scroll-padding-top: 0" in _of(held, sheet=BAR)
     sticky = {
         head.strip()
         for sheet in SHEET.parent.glob("_watch*.css")
         for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", sheet.read_text(encoding="utf-8"))
         if "position: sticky" in body
     }
-    # The bar of a title's overlay is in #watch-detail, which the rule leaves out.
+    # A title's overlay scrolls itself, under its own padding for its bar.
     assert sticky == {".watch-all__head", ".ttl__bar"}
 
 
 def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
-    assert "scroll-margin-top: var(--nav-h)" in _of("#main-content", sheet=BAR)
+    # The page's padding and this margin come to the bar's height.
+    assert "scroll-margin-top: calc(var(--nav-h) - var(--bar-clear, 0px))" in _of(
+        "#main-content", sheet=BAR
+    )
     # One line at every width, and nothing at the top of a phone.
     assert "scroll-margin-top" not in _of("#main-content", "(max-width: 1099.98px)", BAR)
     nav = SHEET.with_name("_nav.css")
