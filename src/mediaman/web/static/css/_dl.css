@@ -539,8 +539,11 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
   .dl-hero-title { overflow-wrap: anywhere; }
   /* The dash would take the room the search state needs to stay on one line. */
   .dl-row--has-abandon .dl-compact-pct--muted { display: none; }
-  /* The episodes' names need the card's whole width. */
+  /* The episodes' names need the card's whole width, and the mini bar's room: the pill says
+     the percentage. */
   .dl-compact-row > .dl-compact-episodes { grid-column: 1 / -1; }
+  .dl-ep-mini-bar { display: none; }
+  .dl-ep-status-pill { grid-column: 3 / -1; }
 }
 
 /* Narrow phones: a state on one line needs more than the column beside the poster, so the
@@ -570,9 +573,6 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
   .dl-compact > .dl-row .dl-row-meta,
   .dl-compact > .dl-row .dl-search-hint,
   .dl-compact > .dl-row .dl-row-bar { grid-column: 1 / -1; margin-top: 0; }
-  /* The pill says the percentage; the name needs the room. */
-  .dl-ep-mini-bar { display: none; }
-  .dl-ep-status-pill { grid-column: 3 / -1; }
 }
 
 /* A release date on one line leaves the title no room beside "Scheduled". */
