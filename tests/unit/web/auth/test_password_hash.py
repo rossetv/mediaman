@@ -28,7 +28,9 @@ from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
 
 @pytest.fixture
 def conn(db_path):
-    return init_db(str(db_path))
+    c = init_db(str(db_path))
+    yield c
+    c.close()
 
 
 class TestCreateUser:

@@ -25,13 +25,15 @@ from mediaman.web.auth.session_store import (
     list_sessions_for,
     validate_session,
 )
+from tests.helpers.opened_dbs import close_opened_dbs  # noqa: F401
 
 
 @pytest.fixture
 def conn(db_path):
     c = init_db(str(db_path))
     create_user(c, "alice", "pass", enforce_policy=False)
-    return c
+    yield c
+    c.close()
 
 
 class TestValidateSessionReadOnlyByDefault:

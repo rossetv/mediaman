@@ -5,6 +5,7 @@ from mediaman.web.auth.password_policy import (
     password_issues,
     policy_summary,
 )
+from tests.helpers.opened_dbs import close_opened_dbs  # noqa: F401
 
 
 class TestCommonPasswordsDataFile:

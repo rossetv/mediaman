@@ -22,6 +22,7 @@ from mediaman.bootstrap.validators import (
 from mediaman.bootstrap.validators import (
     validate_sync_interval as _validate_sync_interval,
 )
+from tests.helpers.opened_dbs import close_opened_dbs  # noqa: F401
 
 
 class TestValidateScanTime:

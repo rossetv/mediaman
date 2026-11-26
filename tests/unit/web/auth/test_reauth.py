@@ -25,7 +25,8 @@ from mediaman.web.auth.session_store import _hash_token
 def conn(db_path):
     c = init_db(str(db_path))
     create_user(c, "alice", "correct-password-99", enforce_policy=False)
-    return c
+    yield c
+    c.close()
 
 
 class TestReauthWindow:

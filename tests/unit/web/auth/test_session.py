@@ -16,11 +16,14 @@ from mediaman.web.auth.session_store import (
     destroy_session,
     validate_session,
 )
+from tests.helpers.opened_dbs import close_opened_dbs  # noqa: F401
 
 
 @pytest.fixture
 def conn(db_path):
-    return init_db(str(db_path))
+    c = init_db(str(db_path))
+    yield c
+    c.close()
 
 
 class TestCreateUser:

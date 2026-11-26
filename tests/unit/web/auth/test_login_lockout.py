@@ -22,11 +22,14 @@ from mediaman.web.auth.login_lockout import (
 )
 from mediaman.web.auth.password_hash import authenticate, change_password, create_user
 from mediaman.web.auth.reauth import verify_reauth_password
+from tests.helpers.opened_dbs import close_opened_dbs  # noqa: F401
 
 
 @pytest.fixture
 def conn(db_path):
-    return init_db(str(db_path))
+    c = init_db(str(db_path))
+    yield c
+    c.close()
 
 
 class TestCounterMechanics:
