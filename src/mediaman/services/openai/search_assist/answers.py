@@ -58,14 +58,16 @@ _CUT_RE = re.compile(r"\s*,\s+|\s+[-–—]\s+")
 
 def is_personal(text: str) -> bool:
     """Whether *text* speaks of the asker; a pronoun that is part of a title does not count:
-    one after "like" ("films like Me Before You") or a numeral ("World War I", "Rocky I")."""
+    a capitalised one after "like" ("films like Me Before You") or a numeral ("World War I",
+    "Rocky I")."""
     found = _WORD_RE.findall(text)
     for at, word in enumerate(found):
         head, _, tail = word.partition("'")
         if head.casefold() not in _PRONOUNS:
             continue
         before = found[at - 1] if at else ""
-        if before.casefold() == "like":
+        # "I" is capitalised wherever it stands, so it says nothing of a title.
+        if before.casefold() == "like" and head[:1].isupper() and head != "I":
             continue
         numeral = word == "I" and (
             before.casefold() in _NUMBERED or (at == len(found) - 1 and before[:1].isupper())
@@ -285,10 +287,12 @@ def _honest(reason: str, taste: Taste) -> tuple[str, str | None]:
     theirs = taste.liked if lead["how"].casefold() in _LIKED else taste.played
     after = reason[lead.end() :]
     colons = list(_COLON_RE.finditer(after))
-    # Without a colon, not the shape asked for: the title ends at a comma or a dash, if anywhere.
-    cuts = colons or list(_CUT_RE.finditer(after))
+    # Not the shape asked for, or a title that holds ": " itself: the title ends at a comma or a
+    # dash, if anywhere.
+    commas = list(_CUT_RE.finditer(after))
+    cuts = colons or commas
     # The last that names one of theirs: a title may hold ": " or ", " too.
-    for cut in reversed(cuts):
+    for cut in [*reversed(colons), *reversed(commas)]:
         if _is_one_of(after[: cut.start()], theirs):
             return reason, reason[: lead.end() + cut.start()]
     if colons:

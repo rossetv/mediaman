@@ -234,13 +234,17 @@ NEW_HOPE = "Star Wars: Episode IV – A New Hope"
         (f"Because you liked {NEW_HOPE}: space opera again.", f"Because you liked {NEW_HOPE}"),
         ("Because you've watched Harbour, the same slow town.", "Because you've watched Harbour"),
         ("Because you liked Made Up Film: another tight heist.", None),
+        (
+            "Because you liked Star Wars: Episode IV, a space epic.",
+            "Because you liked Star Wars: Episode IV",
+        ),
         ("A tight heist in one night.", None),
     ],
 )
 def test_the_lead_kept_is_given_with_the_whole_reason(model, monkeypatch, reason, lead):
     model["items"] = [_item(NAMES[0], reason)]
     _check_with(monkeypatch, lambda item, at: _found(item, at + 1))
-    taste = Taste(liked=["Alibi", NEW_HOPE], played=["Harbour"])
+    taste = Taste(liked=["Alibi", NEW_HOPE, "Star Wars: Episode IV"], played=["Harbour"])
     (title,) = _answer(Question(text="films I would like"), taste)["titles"]
     assert title["reason_lead"] == lead
     assert title["reason"].startswith(lead or "") and title["reason"].endswith(reason[-8:])
@@ -311,6 +315,9 @@ def test_a_plain_question_uses_their_taste_only_to_choose(model, monkeypatch):
         ("a heist that goes wrong", False),
         ("films like Inside Out", False),
         ("films like Me Before You", False),
+        ("shows like my favourites", True),
+        ("someone like me", True),
+        ("films like I would pick", True),
         ("World War I films", False),
         ("Rocky I", False),
         ("Star Wars Episode I and its sequels", False),

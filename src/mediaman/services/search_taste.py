@@ -100,16 +100,16 @@ def search_taste(
 
 
 def _stamp(conn: sqlite3.Connection, username: str, user_id: int) -> tuple[Any, ...]:
-    """What changes when the person plays or rates something; quick to read."""
+    """What changes when the person plays or rates something; quick to read. Plays are
+    counted, not timed: every save of a position while playing moves their times."""
     return tuple(
         conn.execute(
             "SELECT (SELECT MAX(updated_at) FROM user_ratings WHERE user_id = :id),"
             " (SELECT COUNT(*) FROM user_ratings WHERE user_id = :id),"
-            " (SELECT MAX(updated_at) FROM watch_progress WHERE username = :name),"
-            " (SELECT MAX(credited_at) FROM watch_progress WHERE username = :name),"
-            " (SELECT MAX(seen_at) FROM watch_progress WHERE username = :name),"
-            " (SELECT MAX(viewed_at) FROM plex_plays WHERE username = :name),"
-            " (SELECT MAX(played_at) FROM played_titles WHERE username = :name)",
+            " (SELECT COUNT(*) FROM watch_progress WHERE username = :name"
+            " AND (credited_at IS NOT NULL OR seen_at IS NOT NULL OR watched = 1)),"
+            " (SELECT COUNT(*) FROM plex_plays WHERE username = :name),"
+            " (SELECT COUNT(*) FROM played_titles WHERE username = :name)",
             {"id": user_id, "name": username},
         ).fetchone()
     )

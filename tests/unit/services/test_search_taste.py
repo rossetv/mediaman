@@ -13,6 +13,7 @@ from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai import client as openai_client
 from mediaman.services.search_taste import DEFAULT_ORDER, search_taste
 from mediaman.services.watch_catalog import GENRES, _title_meta
+from mediaman.web.repository.watch_progress import save_progress
 from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
 
 NOW = datetime(2026, 6, 15, 12, tzinfo=UTC)
@@ -327,6 +328,37 @@ def test_a_second_load_with_nothing_new_reads_neither_the_plays_nor_the_whole_li
 
     assert _taste(conn, "ann", user_id) == first
     assert reads == []
+
+
+def test_a_saved_position_alone_does_not_read_the_plays_again_but_a_new_credit_does(
+    conn, lib, monkeypatch
+):
+    user_id, played, _ = _person(conn, "ann")
+    for tmdb_id in (1, 2, 3, 4, 5):
+        lib(tmdb_id, ["comedy"])
+    for tmdb_id in (1, 2, 3):
+        played(tmdb_id, 1)
+
+    def save(key, minute, played_s):
+        save_progress(
+            conn, username="ann", rating_key=key, media_item_id=key, show_rating_key=None,
+            position_s=60.0 * minute, duration_s=6000.0, played_s=played_s,
+            now=NOW + timedelta(minutes=minute),
+        )  # fmt: skip
+
+    save("4", 10, 600.0)
+    save("5", 10, 0.0)
+    _taste(conn, "ann", user_id)
+    reads = _counting(monkeypatch, taste_mod, "person_plays")
+
+    save("4", 11, 660.0)
+    save("5", 11, 60.0)
+    _taste(conn, "ann", user_id)
+    assert reads == []
+
+    save("5", 12, 360.0)
+    _taste(conn, "ann", user_id)
+    assert reads == ["person_plays"]
 
 
 @pytest.mark.parametrize("change", ["play", "rating"])
