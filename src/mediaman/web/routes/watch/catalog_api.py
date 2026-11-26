@@ -993,7 +993,7 @@ def api_watch_title(
             return without_tmdb(respond_err("tmdb_not_configured", status=503))
         media_type, _, tmdb_id = rest.partition("-")
         # Any id can be asked for, so only a title TMDB must answer counts against the limit;
-        # a cached one is free.
+        # a cached one is free. One asked for ahead was counted against its own limit.
         return respond_ok(
             _tmdb_title(
                 request,
@@ -1004,7 +1004,7 @@ def api_watch_title(
                 media_type,
                 int(tmdb_id),
                 None,
-                lambda: _QUERY_LIMITER.check(username),
+                None if ahead else lambda: _QUERY_LIMITER.check(username),
             )
         )
     except disk_cache.Refused:

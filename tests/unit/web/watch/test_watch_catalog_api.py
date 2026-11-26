@@ -1217,6 +1217,31 @@ class TestTmdbTitle:
 
         assert codes == [200, 200, 429]
 
+    def test_a_title_asked_for_ahead_spends_none_of_the_query_limit(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
+        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(1, 60))
+
+        ahead = viewer.get("/api/watch/title/tmdb-movie-12?ahead=1").status_code
+        opened = viewer.get("/api/watch/title/tmdb-movie-11").status_code
+
+        assert (ahead, opened) == (200, 200)
+
+    def test_the_ahead_limit_counts_the_person_whatever_address_they_give(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_api, "_AHEAD_LIMITER", ActionRateLimiter(1, 60))
+
+        codes = [
+            viewer.get(
+                "/api/watch/title/tmdb-movie-12?ahead=1", headers={"X-Forwarded-For": address}
+            ).status_code
+            for address in ("10.0.0.1", "10.0.0.2")
+        ]
+
+        assert codes == [200, 429]
+
     @pytest.mark.parametrize("ref", ["tmdb-movie-12", "tmdb-tv-77", "movie-100", "show-500"])
     def test_a_title_never_waits_for_omdb_and_says_its_ratings_are_to_come(
         self, viewer, library, tmdb, arr, plex, monkeypatch, ref
