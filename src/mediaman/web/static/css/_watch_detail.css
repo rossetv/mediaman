@@ -211,7 +211,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* The certificate sits closer than a dot's width, and still clears the margin when it starts a line. */
 .ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
 :is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out), visibility var(--dur); }
-:is(.ttl__genre, .ttl__director)::after { content: ""; position: absolute; inset: -12px -3px; }
+:is(.ttl__genre, .ttl__director)::after { content: ""; position: absolute; inset: -14px -3px; }
 :is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 :is(.ttl__genre, .ttl__director):active { opacity: .6; }
 @media (hover: hover) { :is(.ttl__genre, .ttl__director):hover { color: var(--t1); text-decoration-color: currentColor; } }
@@ -634,6 +634,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl .watch-ep__meta { flex-basis: 100%; order: 2; }
 /* A fact moves to a line of its own whole, and only one wider than the column breaks. */
 .ttl .watch-ep__fact { display: inline-block; max-width: 100%; }
+/* The dot ends the fact before it, so a line that wraps never begins with one. Below 390 the
+   column is too narrow for it: the facts stand one to a line without. */
+@media (min-width: 390px) {
+  .ttl .watch-ep__fact:not(:last-child)::after { content: "\00a0·"; }
+}
 .ttl .watch-ep__state { order: 1; padding: 3px 10px; font-weight: 600; }
 .ttl .watch-ep__about { grid-area: about; margin-top: 4px; font-size: 14px; color: var(--t2); overflow-wrap: anywhere; }
 

@@ -6,7 +6,7 @@
 .ttl-cast { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 18px 12px; }
 .ttl-cast__item { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 4px 0; border-radius: var(--r-md); text-align: center; }
 .ttl-cast__avatar { position: relative; display: block; width: 64px; height: 64px; border-radius: 50%; font-size: 16px; transition: transform var(--dur) var(--ease-out); }
-.ttl-cast__name { max-width: 100%; overflow-wrap: anywhere; font-size: 12px; font-weight: 500; line-height: 16px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.ttl-cast__name { max-width: 100%; overflow-wrap: break-word; hyphens: auto; font-size: 12px; font-weight: 500; line-height: 16px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 .ttl-cast__char { max-width: 100%; margin-top: -2px; overflow-wrap: anywhere; font-size: 11px; line-height: 15px; color: var(--t3); }
 .ttl-cast__name-skel { width: 70%; height: 10px; }
 button.ttl-cast__item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -107,6 +107,10 @@ button.cast-card__poster:active { transform: scale(.98); }
 @media (max-width: 699.98px) {
   .ttl-cast { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .ttl-cast__avatar { width: 56px; height: 56px; }
+}
+/* Four would leave a name like Understudy too wide for its column, to be broken. */
+@media (max-width: 359.98px) {
+  .ttl-cast { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 /* A short window has no room for the posters above or below a photo. */
 @media (max-height: 500px) {

@@ -898,12 +898,12 @@ def test_a_season_pill_swaps_the_episodes_in_place_and_keeps_focus() -> None:
 
 def test_an_episode_says_what_it_is_about_when_it_aired_and_what_was_seen_of_it() -> None:
     watched, begun, other, unaired = _run("seasonTexts")["rows"]
-    assert (watched["about"], watched["meta"]) == ("It <i>begins</i>.", "50 min · 4 May 2019")
+    assert (watched["about"], watched["meta"]) == ("It <i>begins</i>.", "50 min 4 May 2019")
     assert (watched["tick"], watched["state"]) == (True, None)
-    assert (begun["state"], begun["meta"]) == ("Continue", "50 min · 30 min left")
+    assert (begun["state"], begun["meta"]) == ("Continue", "50 min 30 min left")
     # Only the episode Play plays is the one to continue.
     assert (other["state"], other["about"], other["more"]) == ("In progress", None, 0)
-    assert (unaired["state"], unaired["meta"]) == (None, "50 min · Airs 2 Jan 2999")
+    assert (unaired["state"], unaired["meta"]) == (None, "50 min Airs 2 Jan 2999")
     # Each fact is held whole, so a narrow row breaks only between them.
     assert watched["facts"] == ["50 min", "4 May 2019"]
     assert begun["facts"] == ["50 min", "30 min left"]
@@ -941,7 +941,7 @@ def test_a_text_opened_stays_open_as_its_season_is_drawn_again_and_no_longer() -
 
 def test_a_seasons_words_come_into_the_rows_on_show_and_leave_the_focus() -> None:
     out = _run("lateWords")
-    said = [["50 min · 4 May 2019", "About one.", 1], ["50 min", None, 0]]
+    said = [["50 min 4 May 2019", "About one.", 1], ["50 min", None, 0]]
     assert (out["before"]["text"], out["before"]["rows"][0]) == (None, ["50 min", None, 0])
     assert out["came"] == {"facts": "2017 · 2 episodes", "text": "Words on 2", "rows": said}
     assert out["same"] == [True, True, 1]
@@ -964,7 +964,7 @@ def test_a_mark_made_while_a_seasons_words_come_outlives_them() -> None:
         "about": "About it.",
         "season": "Told.",
         "facts": "2017 · 2 episodes",
-        "left": "50 min · 10 min left",
+        "left": "50 min 10 min left",
     }
     assert _run("markBeforeWords") == {"own": [held, held], "picked": [held, held]}
 
@@ -1619,10 +1619,10 @@ def test_a_film_queued_elsewhere_on_the_page_is_queued_in_its_panel() -> None:
 def test_a_title_still_looked_for_says_so_as_its_card_does() -> None:
     queued = ["Queued", "Waiting for a download slot. Follow it in Downloads."]
     assert _run("lookedFor") == {
-        "searching": ["Looking for the best version", "Follow it in Downloads."],
+        "searching": ["Looking for a copy", "Follow it in Downloads."],
         "redrawn": False,  # nothing new: an open menu stays
         "stuck": [
-            "Looking for the best version",
+            "Looking for a copy",
             "Nothing found yet · next attempt in ~4h. Follow it in Downloads.",
         ],
         "queued": queued,
@@ -1879,8 +1879,8 @@ def test_a_film_opened_before_radarr_answered_is_asked_once_more_and_drawn_in_pl
     # Another title opened meanwhile: the late answer is dropped.
     assert (out["moved"]["asked"], out["moved"]["told"]) == (2, 0)
     assert out["moved"]["primary"] == "Resume S2 · E4"
-    # Download pressed meanwhile: what it started stands.
-    assert (out["pressed"]["asked"], out["pressed"]["primary"]) == (1, "Queued")
+    # No Download to press until Radarr has answered; its answer then brings it.
+    assert (out["pressed"]["asked"], out["pressed"]["primary"]) == (2, "Download")
 
 
 def test_a_title_opens_and_closes_without_touching_every_card_on_the_page() -> None:

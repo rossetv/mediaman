@@ -94,7 +94,7 @@ def test_a_season_to_be_ticked_is_tall_enough_for_a_finger() -> None:
 
 def test_a_long_cast_name_wraps_inside_its_own_column() -> None:
     body = _of(".ttl-cast__name")
-    assert "overflow-wrap: anywhere" in body
+    assert "overflow-wrap: break-word" in body
 
 
 def test_close_stands_above_a_trailer_and_not_on_it() -> None:

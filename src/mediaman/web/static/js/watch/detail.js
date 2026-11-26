@@ -35,7 +35,8 @@
   var DOWNLOAD_GRACE_MS = 30000;
   var PENDING_MS = 2000;  // between readings of a title whose seasons' states are still to come
   var PENDING_ASKS = 5;
-  var ARR_LATE_MS = 2000; // till a title the Arr had not answered for is asked again, once
+  var ARR_LATE_ASKS = 3;
+  var ARR_LATE_MS = 2000; // till a title the Arr had not answered for is asked again, and then twice as long, ARR_LATE_ASKS times
   var LATER_MS = 5000;    // till what another request is said to ask for is looked for again
   var CHECK_MS = 600;     // how long a check that was asked for shows at least
   var COPIED_MS = 2000;
@@ -1225,6 +1226,7 @@
     box.appendChild(icon('i-circle-exclamation'));
     box.appendChild(el('p', 'ttl__failed-line', "Couldn't load details"));
     var why = err && err.status === 404 ? 'This title is not available any more.'
+      : err && err.status === 429 ? 'Too many lookups for now. Try again in a while.'
       : err && err.error === 'tmdb_not_configured' ? 'Titles outside the library need TMDB, which is not set up.'
       : err && err.error === 'network_error' ? err.message
       : 'Something went wrong. Try again in a moment.';
@@ -1739,10 +1741,20 @@
   }
 
   /* On a phone, either way up, an admin's Keep is far below, in the facts that come after the actions. */
+  function stackedNow() { return window.matchMedia('(max-width: 699.98px), (max-height: 500px)').matches; } // as the sheet's own layout
+
+  /* A window resized or a phone turned: Keep becomes a link, or a plain word, as the layout now is. */
+  function followKeepLink() {
+    if (!isOpen || !cur || cur.stacked === undefined || stackedNow() === cur.stacked) return;
+    var line = root.querySelector('.ttl__leaving');
+    var leaves = leavingNow();
+    if (line && leaves) line.children[line.children.length - 1].replaceWith(leavingWords(leaves));
+  }
+
   function leavingWords(leaves) {
     var words = el('span', '', leavingText(leaves) + ' ');
     var api = window.MMWatch.admin;
-    var stacked = window.matchMedia('(max-width: 699.98px), (max-height: 500px)').matches; // as the sheet's own layout
+    var stacked = cur.stacked = stackedNow();
     if (!api || !api.keep || !hasFacts(cur) || !stacked) {
       words.appendChild(document.createTextNode('Keep it to stop the deletion.'));
       return words;
@@ -1906,6 +1918,8 @@
   function offersDownload(d) {
     var k = stateOf(cur.ref);
     if (d.in_library || cur.justAdded || !d.download || k.state || k.tracked) return false;
+    // Until the Arr has said whether it holds the title, Download could ask for what it already has.
+    if (d.download.answered === false) return false;
     if (d.kind === 'movie') return true;
     return !d.sonarr_tracked && !allHeld(d);
   }
@@ -2015,7 +2029,7 @@
     }
     if (k.state === 'queued') {
       var looked = lookedFor(cur, ['searching', 'stuck']);
-      actions.appendChild(looked ? statePill('dl-state--queued', 'Looking for the best version', 'i-magnifying-glass')
+      actions.appendChild(looked ? statePill('dl-state--queued', 'Looking for a copy', 'i-magnifying-glass')
         : statePill('dl-state--queued', 'Queued', 'i-clock'));
       under.appendChild(followNote(!looked ? 'Waiting for a download slot. '
         : looked.state === 'stuck' ? window.MMWatch.downloading.line(looked) + '. ' : ''));
@@ -2051,6 +2065,15 @@
     }
     if (tv && allHeld(d)) {
       actions.appendChild(statePill('dl-state--done', 'All seasons in library', 'i-circle-check'));
+      return;
+    }
+    if (d.download.answered === false) {
+      // Asked again meanwhile (askLate): Download waits for what the Arr says.
+      var wait = statusLine('Checking if it is asked for', 'i-clock');
+      wait.setAttribute('role', 'status');
+      wait.setAttribute('tabindex', '-1');
+      wait.setAttribute('data-ttl-act', 'primary');
+      under.appendChild(wait);
       return;
     }
     var dl = button('btn btn--lg btn--primary ttl__download', '', 'i-download');
@@ -2939,16 +2962,20 @@
 
   /* The open title's first answer came before the Arr's: what it knows of the download comes
      on one more, unless a Download pressed meanwhile has said more. */
-  function askLate(c) {
+  function askLate(c, n) {
+    n = n || 0;
     c.askedLate = true;
     var ref = c.ref;
     var k = stateOf(ref);
     var sent = k.sentAt;
     var unpressed = function () { return k.sentAt === sent; };
+    var next = function (data) {
+      if (n + 1 < ARR_LATE_ASKS && (!data || (data.download && data.download.answered === false))) askLate(c, n + 1);
+    };
     setTimeout(function () {
       if (c !== cur || !isOpen || c.ref !== ref || !unpressed()) return;
-      askAgain(c, unpressed).catch(function () {});
-    }, ARR_LATE_MS);
+      askAgain(c, unpressed).then(next, function () { next(); });
+    }, ARR_LATE_MS * Math.pow(2, n));
   }
 
   /* Ask the open title again and show what its reply says, if *still* (when given) holds. */
@@ -2957,10 +2984,14 @@
     var asks = c.asks;
     return get(apiUrl(ref)).then(function (data) {
       if (c !== cur || !isOpen || c.ref !== ref || asks !== c.asks || (still && !still())) return;
-      if (!takeReply(ref, data)) return;
-      c.movedAt = Date.now();
-      redrawActions(ref);
-      if (data.library_ref) refresh();
+      var waited = !!c.data && !!c.data.download && c.data.download.answered === false && !!data.download && data.download.answered !== false;
+      var moved = takeReply(ref, data);
+      if (moved || waited) {
+        c.movedAt = Date.now();
+        redrawActions(ref);
+        if (data.library_ref) refresh();
+      }
+      return data;
     });
   }
 
@@ -3296,7 +3327,7 @@
     if (e.state === 'in_progress' && e.minutes_left) facts.push(dur(e.minutes_left) + ' left');
     node.textContent = '';
     facts.forEach(function (fact, i) {
-      if (i) node.appendChild(document.createTextNode(' · '));
+      if (i) node.appendChild(document.createTextNode(' '));
       node.appendChild(el('span', 'watch-ep__fact', fact));
     });
     return node;
@@ -4082,6 +4113,7 @@
   }
   root.addEventListener('scroll', markPast, { passive: true });
   window.addEventListener('resize', markPast);
+  window.addEventListener('resize', followKeepLink);
 
   /* ── Clicks ── */
 
