@@ -871,7 +871,7 @@
       var info = el('div', 'space-notice space-notice--info');
       info.setAttribute('role', 'status');
       out.push(add(info, MM.dom.icon('i-circle-info'),
-        el('p', '', 'Deletions are off: set the delete folders in Settings (or MEDIAMAN_DELETE_ROOTS) to the folders mediaman may delete from.')));
+        el('p', '', 'Deletions are off: set MEDIAMAN_DELETE_ROOTS to the folders mediaman may delete from.')));
     }
     if (stats.dry_run) {
       var dry = el('div', 'space-notice space-notice--info');
