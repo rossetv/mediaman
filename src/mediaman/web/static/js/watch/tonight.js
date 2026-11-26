@@ -11,11 +11,12 @@
   var el = core.el;
 
   var TIMES = [
+    { name: '30 min', minutes: 30, said: 'half an hour' },
     { name: '1 h', minutes: 60, said: 'an hour' },
     { name: '1½ h', minutes: 90, said: 'an hour and a half' },
     { name: '2 h', minutes: 120, said: 'two hours' },
     // The most the server takes: no limit.
-    { name: 'All evening', minutes: 720, said: 'an evening', short: 'Evening' }
+    { name: 'All evening', minutes: 720, said: 'an evening', short: 'Night' }
   ];
   var SET = 6; // outlines while the first set comes: the server says how many a set holds
   var COUNTS = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'];
@@ -106,8 +107,8 @@
       MM.api.get('/api/search/assist/tonight/elsewhere?minutes=' + minutes).then(function (data) {
         if (minutes === awayFor) drawAway(data.items || []);
       }, function () {
-        // The library's own are what count.
-        if (minutes === awayFor) drawAway([]);
+        // The library's own are what count. The time is forgotten so Try again asks again.
+        if (minutes === awayFor) { awayFor = 0; drawAway([]); }
       });
     }
 

@@ -195,6 +195,7 @@ def test_after_a_retry_focus_goes_to_the_rebuilt_group() -> None:
     assert out["whileLoading"] is True  # nowhere to go until the answer is in
     assert out["tmdbOk"] == "results-group__title|Available to download"
     assert out["tmdbOkInGroup"] is True
+    assert out["heldPage"] == {"preventScroll": True}
     assert out["headingFocusable"] == -1
     assert out["failedAgain"] is True
     assert out["library"] == "results-group__title|In your library"
@@ -207,6 +208,7 @@ def test_both_searches_failing_is_one_line_with_one_try_again_that_runs_both() -
     assert out["status"] == "Couldn’t search just now."
     assert out["retryUrls"] == ["/api/watch/search?q=orchard", "/api/watch/search/tmdb?q=orchard"]
     assert out["focus"] is True
+    assert out["heldPage"] == {"preventScroll": True}
 
 
 def test_an_empty_library_with_tmdb_down_says_so_in_the_status_and_above_the_error() -> None:
@@ -1044,6 +1046,12 @@ def test_without_a_key_nothing_of_the_ai_shows() -> None:
     assert heads == ["Recent", "Browse by category", "Your library", "Or try", "More categories"]
 
 
+def test_tonight_shows_without_an_ai_where_tmdb_is_set() -> None:
+    shown, heads = _run("askPanel")["noAi"]
+    assert shown is True
+    assert "Browse by category" in heads
+
+
 def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
     out = _run("askAnswered")
     assert out["sent"] == [["POST", "/ask", {"q": Q}]]
@@ -1249,7 +1257,14 @@ def test_a_search_is_kept_when_it_is_meant_and_not_at_every_key() -> None:
 def test_tonight_shows_what_fits_the_time_pressed_last() -> None:
     out = _run("tonight")
     assert out["first"] == "watch-option-tonight-0"
-    assert out["times"] == ["option,false", "option,false", "option,true", "option,false"]
+    assert out["names"] == ["30 min", "1 h", "1½ h", "2 h", "All evening"]
+    assert out["times"] == [
+        "option,false",
+        "option,false",
+        "option,false",
+        "option,true",
+        "option,false",
+    ]
     assert out["sent"] == [
         ["/tonight?minutes=60", "/tonight?minutes=120"],
         ["/tonight/elsewhere?minutes=60", "/tonight/elsewhere?minutes=120"],
@@ -1279,7 +1294,7 @@ def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_l
         ["Film 3", "/watch/movie/3", "S2 · E3 · 20 min left", "option"],
     ]
     # Where "All evening" would wrap, the panel shows this word in its place.
-    assert out["short"] == [None, None, None, "Evening"]
+    assert out["short"] == [None, None, None, None, "Night"]
     assert out["away"] == [
         ["Away 1", "#title=tmdb-movie-1", "Movie · 1 h 35 min", "option"],
         ["Away 2", "#title=tmdb-tv-2", "TV · 22 min episodes", "option"],
@@ -1303,6 +1318,8 @@ def test_tonight_has_others_and_says_when_little_or_nothing_fits() -> None:
     assert out["way"] == "/tonight?minutes=90"
     assert out["evening"] == "/tonight?minutes=720"
     assert out["failed"].startswith("Couldn’t look just now")
+    # Try again asks for what is not in the library too, where that failed.
+    assert out["retried"] == [1, 2]
 
 
 def test_titles_like_one_have_a_page_that_back_leaves() -> None:
@@ -1444,3 +1461,8 @@ def test_an_answer_offers_no_download_of_a_kind_that_cannot_be_downloaded() -> N
     out = _run("askNoDownload")
     assert out["films"] == [["In your library", ""], ["Not in your library", ""]]
     assert out["shows"][1] == ["Not in your library", "Open one to download it"]
+
+
+def test_the_field_hint_for_asking_is_short_enough_for_a_narrow_phone() -> None:
+    # 320 wide shows about 25 characters of it before it is cut mid-word.
+    assert len(_run("askPanel")["hint"]) <= 22

@@ -752,9 +752,10 @@ class TestRuns:
             for resp in (
                 self._start(client),
                 client.post(f"{BASE}/like", json={"ref": "tmdb-movie-2"}),
-                client.get(f"{BASE}/tonight", params={"minutes": 120}),
             ):
                 assert (resp.status_code, resp.json()["error"]) == (409, "unavailable")
+            assert found["tonight"] is True
+            assert client.get(f"{BASE}/tonight", params={"minutes": 120}).status_code == 200
         assert model.prompts == []
         # What is sent for recommendations is still theirs to stop.
         assert people["amy"].get(f"{BASE}/history").json()["available"] is True
@@ -983,11 +984,15 @@ class TestNoKey:
         for resp in (
             amy.post(f"{BASE}/ask", json={"q": Q}),
             amy.post(f"{BASE}/like", json={"ref": "tmdb-movie-2"}),
-            amy.get(f"{BASE}/tonight", params={"minutes": 120}),
             amy.get(f"{BASE}/runs/1"),
         ):
             # Why is an admin's to know: amy has nothing to set.
             assert resp.json() == {"ok": False, "error": "unavailable"}
+        # Tonight uses no model: it needs TMDB alone.
+        assert found["tonight"] is (lacking == "openai")
+        for path in ("tonight", "tonight/elsewhere"):
+            resp = amy.get(f"{BASE}/{path}", params={"minutes": 120})
+            assert (resp.status_code == 200) is (lacking == "openai")
         assert model.prompts == []
         assert amy.delete(f"{BASE}/searches").status_code == 200
         assert amy.put(f"{BASE}/history", json={"enabled": False}).status_code == 200

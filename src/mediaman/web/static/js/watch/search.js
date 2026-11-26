@@ -32,7 +32,7 @@
   var CATEGORIES_FAILED = 'Couldn’t load the categories just now.';
   var LABEL = 'Search films and shows';
   var SHORT_LABEL = 'Search';
-  var ASK_HINT = 'Search, or ask for something';
+  var ASK_HINT = 'Search, or just ask';
   var EXAMPLES = ['popular action movies', 'an actor’s name', 'comedies to watch tonight', 'something scary'];
   var TRIES = ['popular action movies', 'popular comedy movies', 'top rated sci-fi'];
   var NO_TITLE = 'no-title'; // the line under people who were found alone
@@ -999,7 +999,7 @@
       if (!waiting) rememberPeople(all);
       var offers = !!knows && knows.available;
       sheet.textContent = '';
-      if (offers) drawTonight();
+      if (knows && knows.tonight) drawTonight();
       if (knows) drawRecent(knows.recent, again);
       if (offers) drawTries(true, knows, again, 60);
       drawPart('Browse by category', 'watch-tiles', waiting ? times(FIRST.length, tileOutline) : first.map(genreTile));
@@ -1626,7 +1626,7 @@
       leave();
       hold('failed', 'Search results');
       live.node.appendChild(failure(text, function () {
-        input.focus();
+        input.focus({ preventScroll: true });
         run();
       }));
       rise(live.node);
@@ -1811,7 +1811,7 @@
       if (a && a !== document.body && document.body.contains(a)) return;
       var target = live.grid.querySelector('[data-results-fail="' + which + '"] .watch-results__retry') ||
         live.grid.querySelector('[data-results-head="' + which + '"] .results-group__title');
-      if (target) target.focus();
+      if (target) target.focus({ preventScroll: true });
     }
 
     /* Ask for one part of search *c*; what an earlier answer gave stays until this one is in. */

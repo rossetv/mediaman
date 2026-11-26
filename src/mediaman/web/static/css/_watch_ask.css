@@ -27,8 +27,8 @@
 .tn { padding: 14px; border: 1px solid var(--hair); border-radius: 16px; background: var(--s2); }
 .tn__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .tn__head > b { font-size: 15px; font-weight: 600; }
-.tn__seg { position: relative; display: grid; grid-template-columns: repeat(4, 1fr); padding: 3px; border-radius: 22px; background: var(--rgba-overlay-sm); }
-.tn__seg > i { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 4); border-radius: 19px; background: var(--s5); opacity: 0; transition: transform var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
+.tn__seg { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); padding: 3px; border-radius: 22px; background: var(--rgba-overlay-sm); }
+.tn__seg > i { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 5); border-radius: 19px; background: var(--s5); opacity: 0; transition: transform var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
 .tn__seg > button { position: relative; min-width: 72px; min-height: 38px; padding: 0 10px; border-radius: 19px; color: var(--t2); font-size: 13px; font-weight: 500; white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
 .tn__seg > button::after { content: ""; position: absolute; inset: -3.5px 0; }
 .tn__seg > button:is([aria-checked="true"], :hover, .is-picked) { color: var(--t1); }

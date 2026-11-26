@@ -130,8 +130,9 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   input.value = opened;
   ['focus', 'blur'].forEach((type) => {
     const plain = Node.prototype[type];
-    input[type] = () => {
+    input[type] = (opts) => {
       const was = doc.activeElement === input;
+      if (type === 'focus') (input.focusOpts = input.focusOpts || []).push(opts);
       plain.call(input);
       if (was !== (type === 'focus')) (input.listeners[type] || []).forEach((fn) => fn({}));
     };
@@ -476,6 +477,9 @@ const scenarios = {
     await settle();
     const retry = tmdb.doc.querySelector('.watch-results__retry');
     retry.focus();
+    const moved = [];
+    const plainFocus = Node.prototype.focus;
+    Node.prototype.focus = function (o) { moved.push(o); return plainFocus.call(this, o); };
     click(tmdb.doc, retry);
     await settle();
     out.whileLoading = tmdb.doc.activeElement === retry;
@@ -483,6 +487,8 @@ const scenarios = {
     out.tmdbOk = active(tmdb);
     out.tmdbOkInGroup = tmdb.doc.querySelectorAll('.results-group__head')[1].contains(tmdb.doc.activeElement);
     out.headingFocusable = tmdb.doc.activeElement.tabIndex;
+    Node.prototype.focus = plainFocus;
+    out.heldPage = moved.slice(-1)[0];
 
     const again = load(ADMIN);
     await again.search('orchard');
@@ -531,6 +537,7 @@ const scenarios = {
     await settle();
     out.retryUrls = p.calls.slice(before).map((c) => c.url);
     out.focus = p.doc.activeElement === p.input;
+    out.heldPage = p.input.focusOpts.slice(-1)[0];
     return out;
   },
 
@@ -2301,7 +2308,7 @@ function withMotion(p) {
 
 // ── Ask AI ──
 
-const ASSIST = { account: 'a1', available: true, history: true, records: true, recent: ['heist', 'tessera'], personal: true, phrases: ['a heist that goes wrong, gently', 'more by Ilse'], min_words: 3 };
+const ASSIST = { account: 'a1', available: true, tonight: true, history: true, records: true, recent: ['heist', 'tessera'], personal: true, phrases: ['a heist that goes wrong, gently', 'more by Ilse'], min_words: 3 };
 const Q = 'a gentle heist film';
 const HELD = { ref: 'tmdb-movie-1', library_ref: 'movie-1', in_library: true, kind: 'movie', title: 'Nine Locks', year: 2021, minutes: 104, reason: 'The vault opens first time.', href: '/watch/movie/1', play_href: '/watch/play/1', poster_url: '/api/poster/1', download_state: null };
 const OTHER = { ref: 'tmdb-movie-2', library_ref: null, in_library: false, kind: 'movie', title: '<b>Thunder</b>', year: 2023, minutes: 60, reason: '<img src=x onerror=alert(1)>', href: 'javascript:alert(1)', play_href: null, poster_url: '//evil.test/p.jpg', download_state: null };
@@ -2807,9 +2814,13 @@ scenarios.askPanel = async () => {
   const stranger = await asking({ personal: false, recent: [], phrases: ['popular action movies'] });
   stranger.press(); await settle();
   out.stranger = stranger.sheet.querySelectorAll('.watch-try').filter(isTry).map((n) => [n.textContent, n.classList.contains('watch-try--ai')]);
-  const off = await asking({ available: false });
+  const off = await asking({ available: false, tonight: false });
   off.press(); await settle();
   out.off = [off.sheet.querySelector('.tn'), off.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent)];
+  // Tonight asks nothing of the model: TMDB alone is enough for it.
+  const noAi = await asking({ available: false, why: 'no_key' });
+  noAi.press(); await settle();
+  out.noAi = [noAi.sheet.querySelector('.tn') !== null, noAi.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent)];
   return out;
 };
 
@@ -2855,10 +2866,11 @@ scenarios.tonight = async () => {
   p.key('ArrowDown');
   out.first = p.input.getAttribute('aria-activedescendant');
   const times = () => p.sheet.querySelectorAll('.tn__seg button').map((b) => [b.getAttribute('role'), b.getAttribute('aria-checked')].join());
-  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[0]);
-  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[2]);
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[1]);
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[3]);
   out.times = times();
   out.short = p.sheet.querySelectorAll('.tn__seg button').map((b) => b.getAttribute('data-short'));
+  out.names = p.sheet.querySelectorAll('.tn__seg button').map((b) => b.textContent);
   const library = () => p.sent('/tonight?').map((c) => c[1]);
   const elsewhere = () => p.sent('/tonight/elsewhere').map((c) => c[1]);
   out.sent = [library(), elsewhere()];
@@ -2891,25 +2903,34 @@ scenarios.tonight = async () => {
   out.more = [library().pop(), elsewhere().length];
   await answer({ items: [item(4), item(5)], total: 13, more: false, shortest: null });
   out.back = [foot(), cards(1).length];
-  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[1]);
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[2]);
   // What is not in the library for the time before stays, dimmed, till its own comes.
   out.keptAway = [(cards(1) || []).length, p.sheet.querySelectorAll('.tn [aria-busy="true"]').length];
   await answer({ items: [item(1)], total: 1, more: false, checked: true, shortest: null });
   await p.fail('/tonight/elsewhere', 'tmdb_request_failed', {}, 502);
   out.few = [foot(), cards(0).length, cards(1), p.sheet.querySelectorAll('[role="alert"]').length];
   // Where some running times were not looked up, it is not said that only these fit.
-  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[2]);
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[3]);
   await answer({ items: [item(1)], total: 1, more: false, checked: false, shortest: null });
   out.unchecked = foot();
-  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[0]);
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[1]);
   await answer({ items: [], total: 0, more: false, shortest: item(4, { minutes: 88 }) });
   out.none = [p.sheet.querySelector('.tn__none').textContent];
   click(p.doc, p.sheet.querySelector('.tn__none').querySelector('.chip'));
   out.way = library().pop();
-  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[3]);
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[4]);
   out.evening = library().pop();
   await p.fail('/tonight?', 'network_error', {}, 0);
   out.failed = p.sheet.querySelector('.tn__none').textContent;
+  // A time asked again after the not-in-library row failed asks for that row again.
+  const q = await asking();
+  q.press(); await settle();
+  click(q.doc, q.sheet.querySelectorAll('.tn__seg button')[1]);
+  await q.fail('/tonight/elsewhere', 'network_error', {}, 0);
+  await q.fail('/tonight?', 'network_error', {}, 0);
+  const before = q.sent('/tonight/elsewhere').length;
+  click(q.doc, q.sheet.querySelector('.tn__none').querySelector('.chip'));
+  out.retried = [before, q.sent('/tonight/elsewhere').length];
   return out;
 };
 
