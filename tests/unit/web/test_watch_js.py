@@ -17,33 +17,6 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_a_season_switch_shows_the_quiet_line_then_the_real_one_in_the_same_slot() -> None:
-    out = _run("season")
-    assert out["second"] == {
-        "text": "Season 1 leaves in 3 days",
-        "kept": False,
-        "other": True,
-        "keep": False,
-        "beforeActions": True,
-    }
-    assert out["back"]["text"].startswith("Leaving in 3 days")
-    assert (out["back"]["other"], out["back"]["keep"]) == (False, True)
-    assert out["back"]["beforeActions"] is True
-
-
-def test_the_season_tabs_are_one_line_that_shows_the_picked_one() -> None:
-    assert _run("seasonLine") == {
-        "row": True,
-        "opened": [],
-        "cutOff": [{"left": 300, "behavior": "smooth"}],
-    }
-
-
-def test_undo_after_moving_to_another_season_leaves_that_season_line_alone() -> None:
-    second = _run("undoElsewhere")["second"]
-    assert (second["text"], second["other"]) == ("Season 1 leaves in 3 days", True)
-
-
 def test_the_kept_line_is_marked_kept_until_undo() -> None:
     out = _run("kept")
     assert (out["kept"]["text"], out["kept"]["kept"]) == ("Kept for 7 days", True)

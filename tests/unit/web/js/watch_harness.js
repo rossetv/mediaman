@@ -76,7 +76,7 @@ function load(opts = {}) {
   doc.dispatchEvent = (e) => told.push([e.type, e.detail.id]);
   ctx.window = ctx;
   vm.createContext(ctx);
-  return { ctx, doc, toasts, timers, told, run: () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/marks.js', 'watch/search.js', 'watch/seasons.js', 'watch.js']
+  return { ctx, doc, toasts, timers, told, run: () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/marks.js', 'watch/search.js', 'watch.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx)) };
 }
 
@@ -91,8 +91,6 @@ function lineState(doc) {
     beforeActions: line.nextElementSibling === doc.querySelector('.watch-hero__info .watch-actions'),
   };
 }
-
-function pill(doc, n) { return doc.querySelectorAll('.watch-seasons a.watch-pill')[n - 1]; }
 
 async function keepFromLine(page) {
   click(page.doc, page.doc.querySelector('[data-watch-leaving] [data-watch-keep]'));
@@ -559,52 +557,6 @@ const scenarios = {
     rest.left = 80;
     on();
     return { moved, again: anims[anims.length - 1].frames[0].transform };
-  },
-
-  // Season 1 is leaving, Season 2 is not: the line's slot stays through the swap and back.
-  async season() {
-    const page = load();
-    page.doc.body.appendChild(showPage(page.doc, 1, leavingLine(3)));
-    page.run();
-    const first = lineState(page.doc);
-    click(page.doc, pill(page.doc, 2));
-    await settle();
-    const second = lineState(page.doc);
-    click(page.doc, pill(page.doc, 1));
-    await settle();
-    return { first, second, back: lineState(page.doc) };
-  },
-
-  // The season tabs as one scrolling line: where it stands at first and after a press on a tab
-  // that is cut off, then on one wholly in view.
-  async seasonLine() {
-    const page = load({ motion: true });
-    page.doc.body.appendChild(showPage(page.doc, 1, leavingLine(3)));
-    const nav = page.doc.querySelector('.watch-seasons');
-    const moves = [];
-    nav.scrollLeft = 0;
-    nav.scrollTo = (o) => { nav.scrollLeft = o.left; moves.push(o); };
-    Object.defineProperty(nav, 'clientWidth', { value: 300 });
-    [1, 2].forEach((n) => { pill(page.doc, n).offsetLeft = n === 1 ? 0 : 400; Object.defineProperty(pill(page.doc, n), 'offsetWidth', { value: 100 }); });
-    page.run();
-    const out = { row: nav.parentNode.classList.contains('watch-row__viewport') && nav.classList.contains('watch-row__scroll'), opened: moves.splice(0) };
-    click(page.doc, pill(page.doc, 2));
-    await settle();
-    out.cutOff = moves.splice(0);
-    return out;
-  },
-
-  // A Keep from the line, then Undo after moving to a season that is not leaving.
-  async undoElsewhere() {
-    const page = load();
-    page.doc.body.appendChild(showPage(page.doc, 1, leavingLine(3)));
-    page.run();
-    await keepFromLine(page);
-    click(page.doc, pill(page.doc, 2));
-    await settle();
-    page.toasts[0].opts.action.onClick();
-    await settle();
-    return { second: lineState(page.doc) };
   },
 
   // Keep from the line, then Undo.

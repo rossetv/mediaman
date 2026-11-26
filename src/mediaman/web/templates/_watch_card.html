@@ -71,16 +71,6 @@
 <span class="watch-badge watch-badge--watched">{{ icon("i-eye") }}<span class="watch-badge__word">Watched</span></span>
 {%- endmacro %}
 
-{# An episode's toggle: the eye, and the word once watched. #}
-{% macro mark_toggle(kind, key, watched, name) -%}
-<button type="button" class="watch-mark" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="Mark {{ name }} as watched" title="Mark as {{ 'not ' if watched else '' }}watched">{{ icon("i-eye") }}<span class="watch-mark__word">Watched</span></button>
-{%- endmacro %}
-
-{# A button toggle: both its labels are laid out, so its width never changes. #}
-{% macro mark_button(kind, key, watched, name, label="Mark as watched", class="btn btn--lg watch-btn--grey") -%}
-<button type="button" class="{{ class }} watch-mark-btn" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="{{ label }}"><span class="watch-mark-btn__faces"><span class="watch-mark-btn__off">{{ icon("i-eye") }}{{ label }}</span><span class="watch-mark-btn__on">{{ icon("i-eye") }}Watched</span></span></button>
-{%- endmacro %}
-
 {# A level's thumb, as ratings.js draws it. *on*: the person's own. #}
 {% macro thumb(level, on) -%}
 {%- set hand = "M3 11.6c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4v7.2c0 .8-.6 1.4-1.4 1.4S3 19.6 3 18.8ZM8.4 11.2l3.2-6.8C12 3.5 12.6 3 13.4 3c1.3 0 2.2 1 2.2 2.4 0 1.4-.5 2.7-.9 3.8h3.9c1.6 0 2.7 1.4 2.4 2.9l-1.1 5.6c-.3 1.5-1.5 2.5-3 2.5h-5.7c-1 0-1.9-.3-2.8-.8Z" -%}
@@ -184,13 +174,4 @@
   <h1 class="watch-state__title">No longer available</h1>
   <p class="watch-state__text">{{ text }}</p>
 </section>
-{%- endmacro %}
-
-{# "Leaving in N days · Keep" line for a show page or a movie page. #}
-{% macro leaving_line(leaving, title="") -%}
-<p class="watch-leaving" data-watch-leaving>
-  <span class="watch-leaving__text">{{ leaving_text(leaving.days) }}</span>
-  <span aria-hidden="true">·</span>
-  {{ keep_button(leaving.keep_id, title) }}
-</p>
 {%- endmacro %}
