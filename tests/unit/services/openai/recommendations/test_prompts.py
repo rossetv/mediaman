@@ -345,14 +345,45 @@ class TestPersonalPrompt:
             ],
         )
         history = [
-            {"title": "Alpha", "type": "movie"},
-            {"title": "Beta", "type": "movie"},
+            {"title": "Alpha", "type": "movie", "note": "finished"},
+            {"title": "Beta", "type": "movie", "note": "watched again"},
             {"title": "Sour", "type": "movie", "disliked": True},
         ]
 
         picks = prompts.generate_personal(None, make_portrait(history))
 
         assert [p["reason"] for p in picks] == [why, "", "", "", ""]
+
+    @pytest.mark.parametrize(
+        ("reason", "kept"),
+        [
+            ("You loved Alpha, and Denis Villeneuve brings the same quiet awe here.", True),
+            ("You loved Alpha, and 2001 fans will find the same slow wonder.", True),
+            ("You loved Alpha and Gravity, and this is the same quiet dread.", False),
+            ("You loved Alpha, and Gravity.", False),
+            ("Alpha again: you've been watching Gravity, and this is the same lone fight.", False),
+            ("Alpha again, and you're a fan of Gravity, so this is the same lone fight.", False),
+            ("Made for fans of Alpha and Gravity like you: one long lone fight.", False),
+            ("Made for fans of Alpha like you: one long lone fight.", True),
+            ("You loved Gamma, and this is the same quiet dread.", False),
+            ("You watched Gamma, and this is the same quiet dread.", True),
+        ],
+    )
+    def test_a_reason_claims_only_what_they_played_and_loved_only_what_they_finished(
+        self, monkeypatch, reason, kept
+    ):
+        _answering(
+            monkeypatch,
+            [{"title": "P", "media_type": "movie", "reason": reason, "because_of": ["H1", "H2"]}],
+        )
+        history = [
+            {"title": "Alpha", "type": "movie", "note": "finished"},
+            {"title": "Gamma", "type": "movie", "note": "left part way"},
+        ]
+
+        [pick] = prompts.generate_personal(None, make_portrait(history))
+
+        assert pick["reason"] == (reason if kept else "")
 
     def test_a_reason_naming_another_pick_of_the_answer_is_blanked(self, monkeypatch):
         tied = "Shares Alpha's slow nights, but Tallow Hill is louder."

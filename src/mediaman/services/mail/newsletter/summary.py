@@ -21,7 +21,9 @@ from mediaman.core.format import rk_from_audit_detail as _extract_rk_from_detail
 from mediaman.core.format import title_from_audit_detail as _extract_title_from_detail
 from mediaman.crypto import mail_tmdb_image_url, sign_poster_url
 from mediaman.services.infra import SafeHTTPError
+from mediaman.services.openai.recommendations.reasons import names_any
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
+from mediaman.services.openai.recommendations.taste import disliked_titles
 from mediaman.services.openai.recommendations.user_picks import PICKS_LAST, fetch_picks
 
 from ._time import _parse_days_ago
@@ -307,7 +309,8 @@ def load_own_picks(
     """The latest own picks with a TMDB id, not over 28 days old, of each address that is
     exactly one person's, by address.
 
-    A title they rated a strong no is left out, and one they rated down comes last.
+    A title they rated a strong no is left out, and one they rated down comes last. A reason
+    that names a title they rated down is left out, since it would give that as why.
     An address of nobody, or of more than one person, has none. A card holds neither the
     pick's id nor the titles that led to it: the email and its links can be passed on.
     """
@@ -328,6 +331,7 @@ def load_own_picks(
                 )
             }
             picks.sort(key=lambda p: (p["media_type"], p["tmdb_id"]) in levels)
+            disliked = disliked_titles(conn, people[0]["username"])
             found[email] = [
                 _rec_item(p, None, base_url, secret_key)
                 for p in picks
@@ -335,6 +339,9 @@ def load_own_picks(
                 and str(p["batch_id"]) >= oldest
                 and levels.get((p["media_type"], p["tmdb_id"])) != -2
             ]
+            for item in found[email]:
+                if item["reason"] and names_any(item["reason"], disliked):
+                    item["reason"] = None
     return found
 
 

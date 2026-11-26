@@ -323,10 +323,10 @@ class TestDetail:
             (
                 "A crew of three on a station, with the silences of Alpha.",
                 '["Alpha", "Beta"]',
-                "Picked for you because you watched Alpha and Beta.",
+                "You watched Alpha and Beta.",
             ),
-            (None, '["Alpha"]', "Picked for you because you watched Alpha."),
-            (None, None, "Picked for you from what you’ve been watching."),
+            (None, '["Alpha"]', "You watched Alpha."),
+            (None, None, "From what you’ve been watching lately."),
         ],
     )
     def test_the_card_says_why_it_suits_them_and_never_the_plot(
@@ -360,7 +360,7 @@ class TestDetail:
         body = people["amy"].get(f"/api/watch/title/pick-{pick}").json()
 
         assert (body["why"], body["because_of"]) == (
-            "Picked for you because you watched Alpha.",
+            "You watched Alpha.",
             ["Alpha"],
         )
 

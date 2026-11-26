@@ -514,7 +514,7 @@ class TestPicks:
 
         body = _preview(viewer, f"pick-{pick}").json()
 
-        assert body["why"] == "Picked for you because you watched Alpha and Beta."
+        assert body["why"] == "You watched Alpha and Beta."
 
     def test_another_persons_pick_is_the_404_of_none_even_to_an_admin(
         self, app, viewer, library, tmdb, plex

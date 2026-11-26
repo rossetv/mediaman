@@ -29,17 +29,36 @@ _EMPTY_WORDS = re.compile(
 )
 # Speaking to the person: only a reason for them alone that names what led to the pick may.
 _SECOND_PERSON = re.compile(r"\b(?:you|your|yours|yourself|because)\b", re.IGNORECASE)
+# What stands for a title that led to the pick once it is taken out of a reason: a character
+# no title or word holds.
+_MARK = "\ue000"
 # "You loved ...": a claim about what the person played, whose object must be a title that
-# led to the pick (each is "X" by then).
-_CLAIM_RE = re.compile(
-    r"\byou(?:'ve|'d|\s+have|\s+had)?(?:\s+(?:also|both|really|clearly|already|once|just))*\s+"
-    r"(?:loved|liked|enjoyed|watched|played|saw|seen|rated|finished|binged|rewatched|adored"
-    r"|devoured|stayed with|stuck with|sat through|went for|took to)\s+(?P<rest>[^.!?;]*)",
-    re.IGNORECASE,
+# led to the pick (each is _MARK by then). *love* marks the claims of having loved it.
+_ADVERBS = r"(?:\s+(?:also|both|really|clearly|already|once|just|truly))*"
+_CLAIM_RES = (
+    re.compile(
+        rf"\byou(?:'ve|'d|\s+have|\s+had)?{_ADVERBS}\s+(?:(?P<love>loved|adored|devoured)"
+        r"|liked|enjoyed|watched|played|saw|seen|rated|finished|binged|rewatched|stayed with"
+        r"|stuck with|sat through|went for|took to"
+        r"|been\s+(?:watching|enjoying|playing|(?P<loving>loving)))\s+(?P<rest>[^.!?;]*)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:you're|you\s+are|as)\s+(?:a\s+)?(?:big\s+|huge\s+|real\s+)?fan\s+of\s+"
+        r"(?P<rest>[^.!?;]*)",
+        re.IGNORECASE,
+    ),
 )
+# "Fans of ... like you": the titles between are claimed, and nothing else may be there.
+_FANS_LIKE_YOU_RE = re.compile(r"\bfans?\s+of\s+(?P<rest>[^.!?;]*?)\s+like\s+you\b", re.IGNORECASE)
 _CLAIMED_RE = re.compile(
     r"(?:(?:both|all of|every (?:season|episode) of|the whole of)\s+)?"
-    r"X(?:\s*(?:,\s*and|,|and|&)\s*X)*\b(?!\s*(?:,\s*and|,|and|&)\s*(?:the\s+)?[A-Z0-9])"
+    rf"{_MARK}(?:\s*(?:,\s*and|,|and|&)\s*{_MARK})*"
+)
+# One more name after the claimed titles, where its clause ends: one more title claimed.
+_ONE_MORE_RE = re.compile(
+    r"\s*(?:,\s*and|,|and|&)\s*(?:the\s+)?[A-Z0-9][\w'’:-]*"
+    r"(?:\s+(?:of|the|a|an|in|on|to|&|[A-Z0-9][\w'’:-]*))*\s*(?:,|$)"
 )
 # What would word a pick everyone sees as one made for a person or this household.
 _PERSONAL_WORDS = re.compile(
@@ -87,14 +106,16 @@ def checked_reason(
     own_titles: Iterable[str] = (),
     shared: bool = False,
     description: str | None = None,
+    loved: Iterable[str] | None = None,
 ) -> str:
     """*reason* as it may be shown, cut to whole sentences; empty when it holds an address, an
     id, markdown or an empty phrase, names one of *sent_titles* that is none of *own_titles*
     (the titles that led to the pick), copies *description*, or cannot be cut. It may speak to
     the person ("you") only when it is for them alone and names one of *own_titles*, and may
-    say they played or loved only those. A *shared* pick's may not sound made for one person.
+    say they played only those, and loved only those of *loved* where that is given. A
+    *shared* pick's may not sound made for one person.
     """
-    if _REASON_REFUSED.search(reason) or _copies(reason, description):
+    if _REASON_REFUSED.search(reason) or _copies(reason, description) or _MARK in reason:
         return ""
     own = list(own_titles)
     # "You" can be the title that led to the pick.
@@ -103,7 +124,11 @@ def checked_reason(
         return ""
     if _SECOND_PERSON.search(spellings[0]) and (shared or spellings[0] == _spellings(reason)[0]):
         return ""
-    if any(not _CLAIMED_RE.match(m["rest"]) for m in _CLAIM_RE.finditer(spellings[0])):
+    if not _claims_only(spellings[0], loved=False):
+        return ""
+    if loved is not None and not _claims_only(
+        _without(_spellings(reason)[0], list(loved)), loved=True
+    ):
         return ""
     if any(_names(spellings, title) for title in sent_titles if title not in own):
         return ""
@@ -115,7 +140,7 @@ def checked_reason(
 
 #: What the card of a pick made for everyone says: nothing of it came from this person.
 SHARED_WHY = "Chosen for everyone here, not from your own viewing."
-_NO_TITLES_WHY = "Picked for you from what you’ve been watching."
+_NO_TITLES_WHY = "From what you’ve been watching lately."
 
 
 def pick_why(
@@ -133,18 +158,38 @@ def pick_why(
         return SHARED_WHY
     down = {title.casefold() for title in disliked}
     led = [title for title in because_of if title.casefold() not in down]
-    spellings = _spellings(reason or "")
     if (
         reason
         and _SECOND_PERSON.search(reason)
         and is_tied(reason, led)
-        and not any(_names(spellings, title) for title in disliked)
+        and not names_any(reason, disliked)
     ):
         return reason
     if not led:
         return _NO_TITLES_WHY
     named = led[0] if len(led) == 1 else f"{', '.join(led[:-1])} and {led[-1]}"
-    return f"Picked for you because you watched {named}."
+    return f"You watched {named}."
+
+
+def names_any(reason: str, titles: Iterable[str]) -> bool:
+    """Whether *reason* names one of *titles*."""
+    spellings = _spellings(reason)
+    return any(_names(spellings, title) for title in titles)
+
+
+def _claims_only(text: str, *, loved: bool) -> bool:
+    """Whether every claim in *text* of what the person played (of what they loved, with
+    *loved*) names only titles marked as _MARK in it."""
+    for claim in _CLAIM_RES:
+        for m in claim.finditer(text):
+            if loved and not (m.groupdict().get("love") or m.groupdict().get("loving")):
+                continue
+            named = _CLAIMED_RE.match(m["rest"])
+            if named is None or _ONE_MORE_RE.match(m["rest"], named.end()):
+                return False
+    if loved:
+        return True
+    return all(_CLAIMED_RE.fullmatch(m["rest"]) for m in _FANS_LIKE_YOU_RE.finditer(text))
 
 
 def is_tied(reason: str, own_titles: Iterable[str]) -> bool:
@@ -183,7 +228,7 @@ def _without(text: str, titles: Sequence[str]) -> str:
     for title in titles:
         for spelled in dict.fromkeys(_spellings(title)):
             if spelled.strip():
-                text = re.sub(rf"(?<!\w){re.escape(spelled)}(?!\w)", "X", text)
+                text = re.sub(rf"(?<!\w){re.escape(spelled)}(?!\w)", _MARK, text)
     return text
 
 

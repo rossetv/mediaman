@@ -224,6 +224,7 @@ def parse_recommendations(
     sent_titles: Iterable[str] = (),
     titles_by_id: Mapping[str, str] | None = None,
     originals: Mapping[str, str] | None = None,
+    loved: Iterable[str] | None = None,
 ) -> list[RecommendationItem]:
     """Normalise and validate raw GPT recommendations to block prompt injection and
     control-character leakage: a title is at most 200 characters, and neither it nor the
@@ -232,7 +233,8 @@ def parse_recommendations(
 
     *sent_titles* are the titles the prompt named, *titles_by_id* those it gave an id and
     *originals* how those were spelled before sanitising. A reason may name none of them but
-    those that led to its pick, nor another pick of the answer.
+    those that led to its pick, nor another pick of the answer, and may say they loved only
+    those of *loved*, where it is given.
     """
     sent = list(sent_titles)
     # The other picks were never played, so no reason may name one either.
@@ -255,6 +257,7 @@ def parse_recommendations(
             [*sent, *(other for other in picked if other and other != raw_title.strip())],
             own_titles=own_spellings(because_of, originals or {}),
             shared=category == "trending",
+            loved=loved,
         )
 
         # Validate year from LLM output: must be an integer (or int-coercible
@@ -381,6 +384,8 @@ class Portrait:
     # How the titles that have an id were spelled before sanitising, by how they were sent.
     originals: Mapping[str, str]
     sent_titles: frozenset[str]
+    # Those a reason may say they loved: finished, watched again or rated up, as either spelling.
+    loved: frozenset[str] = frozenset()
 
 
 _LEVEL_WORDS = {-2: "strong no", -1: "not for me", 1: "likes it", 2: "loves it"}
@@ -438,6 +443,10 @@ def make_portrait(
         if title and not h.get("disliked") and (h["type"], h["title"]) not in disliked
     }
     originals = {t: str(h["title"]) for t, h in zip(titles[:count], watch_history, strict=False)}
+    loved = [
+        *(str(h["title"]) for h in watch_history[:count] if _was_loved(h)),
+        *(str(r["title"]) for r in rated if _is_liked(r)),
+    ]
     return Portrait(
         block=f"<BEGIN_PLEX_DATA>\n{data.rstrip()}\n<END_PLEX_DATA>",
         titles_by_id=by_id,
@@ -453,7 +462,26 @@ def make_portrait(
                 *(previous_titles or [])[:100],
             ]
         ),
+        loved=frozenset([*loved, *(sanitise_plex_string(t).strip() for t in loved)]),
     )
+
+
+def _was_loved(played: Mapping[str, object]) -> bool:
+    """Whether a play shows the person liked it: finished or watched again, or, of a show,
+    several episodes not left after."""
+    note = str(played.get("note") or "")
+    if played.get("disliked") or note.startswith("left"):
+        return False
+    return note in ("finished", "watched again") or (
+        played.get("type") != "movie" and note.endswith("episodes")
+    )
+
+
+def _is_liked(rating: Mapping[str, object]) -> bool:
+    level, stars = rating.get("level"), rating.get("stars")
+    if isinstance(level, int):
+        return level > 0
+    return isinstance(stars, int | float) and stars >= 4
 
 
 def _line(title: str, kind: object) -> str:
@@ -528,4 +556,5 @@ def generate_personal(
         sent_titles=portrait.sent_titles,
         titles_by_id=portrait.titles_by_id,
         originals=portrait.originals,
+        loved=portrait.loved,
     )
