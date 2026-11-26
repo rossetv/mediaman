@@ -879,7 +879,7 @@
 .player.has-no-volume :is([data-mute], .player-volume-slider) { display: none; }
 .player-air { z-index: -1; }
 .player.is-away { display: flex; flex-direction: column; overflow-y: auto; }
-.player.is-away :is(.player-video, .player-spinner, .player-hold, [data-fullscreen], .player-controls .player-play-on) { display: none !important; }
+.player.is-away :is(.player-video:not(.player-air), .player-spinner, .player-hold, [data-fullscreen], .player-controls .player-play-on) { display: none !important; }
 /* Out of sight but there: Safari sends to a TV only what the page shows. */
 .player.is-away .player-air { display: block !important; opacity: 0; pointer-events: none; }
 .player.is-away .player-top { position: relative; flex: none; padding-bottom: 12px; background: none; }
