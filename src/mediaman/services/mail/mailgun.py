@@ -49,8 +49,9 @@ def _validate_header_value(value: str, field: str) -> None:
 class MailgunClient:
     """Sends emails via the Mailgun HTTP API.
 
-    On 401 or 404 (Mailgun's answer for a domain registered in the other region) it
-    retries against the alternate region and remembers the working one.
+    On 404 (Mailgun's answer for a domain registered in the other region) a send
+    retries against the alternate region and remembers the working one. A 401 means
+    the key is wrong, so it is raised at once with no other region tried.
     """
 
     _EU_BASE = "https://api.eu.mailgun.net"

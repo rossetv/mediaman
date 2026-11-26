@@ -437,10 +437,28 @@ def test_viewing_time_starts_over_after_a_long_gap(manager, clock):
     assert manager.get(second, "alice").elapsed_s == 5
 
 
-def test_tidy_orphans_reports_zero_when_plex_is_down(manager, plex):
+def test_tidy_orphans_reports_zero_when_plex_is_down(manager, plex, caplog):
     plex.unreachable = True
 
-    assert manager.tidy_orphans() == 0
+    with caplog.at_level(logging.WARNING, logger=plex_stream.__name__):
+        assert manager.tidy_orphans() == 0
+    assert caplog.records
+
+
+def test_tidy_orphans_asks_nothing_and_warns_of_nothing_while_plex_is_not_set(plex, caplog):
+    manager = StreamManager(lambda: None, session=plex)
+
+    with caplog.at_level(logging.WARNING, logger=plex_stream.__name__):
+        assert manager.tidy_orphans() == 0
+    assert (caplog.records, plex.calls) == ([], [])
+
+
+def test_tidy_orphans_still_warns_of_a_plex_address_that_is_not_http(plex, caplog):
+    manager = StreamManager(lambda: ("ftp://plex.test", TOKEN), session=plex)
+
+    with caplog.at_level(logging.WARNING, logger=plex_stream.__name__):
+        assert manager.tidy_orphans() == 0
+    assert caplog.records
 
 
 def test_whole_lifecycle_writes_nothing_and_sends_the_token_only_in_a_header(manager, plex, clock):
@@ -518,6 +536,65 @@ def test_a_user_cannot_hold_more_than_the_per_user_limit(manager, plex):
 
     assert len(plex.calls_to("start.m3u8")) == starts
     _start(manager, user="bob", rating_key="99")
+
+
+def _session_of(plex, n: int) -> str:
+    return plex.calls_to("start.m3u8")[n]["params"]["session"]
+
+
+def test_at_the_limit_a_new_start_ends_the_person_s_stream_silent_longest(manager, plex, clock):
+    ids = [_start(manager, rating_key=str(k + 1)) for k in range(MAX_STREAMS_PER_USER)]
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS + 1
+    for kept in ids[1:]:
+        manager.get(kept, "alice")
+    clock.now += 5
+
+    new = _start(manager, rating_key="99")
+
+    assert manager.get(new, "alice")
+    with pytest.raises(StreamGone):
+        manager.get(ids[0], "alice")
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [_session_of(plex, 0)]
+    for kept in ids[1:]:
+        assert manager.get(kept, "alice")
+
+
+def test_at_the_limit_streams_still_in_use_are_never_ended(manager, plex, clock):
+    ids = [_start(manager, rating_key=str(k + 1)) for k in range(MAX_STREAMS_PER_USER)]
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS - 1
+
+    with pytest.raises(TooManyStreams):
+        _start(manager, rating_key="99")
+
+    assert plex.calls_to("stop") == []
+    for kept in ids:
+        assert manager.get(kept, "alice")
+
+
+def test_a_person_s_start_never_ends_another_person_s_silent_stream(manager, plex, clock):
+    for n in range(MAX_STREAMS_TOTAL):
+        _start(manager, user=f"user{n}")
+    clock.now += plex_stream.IDLE_TIMEOUT_SECONDS - 1
+
+    with pytest.raises(TooManyStreams):
+        _start(manager, user="one-more")
+
+    assert plex.calls_to("stop") == []
+
+
+def test_a_tv_s_paused_stream_is_not_ended_for_a_new_start(manager, plex, clock):
+    tv = _start(manager, rating_key="1", tv=plex_stream.TvTracks())
+    manager.playlist(tv, "alice")
+    others = [_start(manager, rating_key=str(k + 2)) for k in range(MAX_STREAMS_PER_USER - 1)]
+    # A paused TV reads nothing, and the phone that is its remote may be asleep.
+    clock.now += 20 * 60
+    for kept in others:
+        manager.get(kept, "alice")
+
+    with pytest.raises(TooManyStreams):
+        _start(manager, rating_key="99")
+
+    assert manager.get(tv, "alice")
 
 
 def test_the_limit_frees_up_when_a_stream_is_stopped(manager):
@@ -1749,11 +1826,93 @@ def test_stopping_a_stream_leaves_the_title_to_a_later_press_still_opening(manag
     assert refused == ["den-page"]
 
 
-def test_a_start_made_by_itself_is_refused_where_the_later_page_s_stream_was_reaped(manager, clock):
+def test_a_start_made_by_itself_goes_through_once_the_later_page_s_stream_was_reaped(
+    manager, clock
+):
+    # The phone took the episode, then was locked and went silent.
     phone = _start(manager, page="phone-page")
     _reap_one_idle(manager, clock)
     with pytest.raises(StreamGone):
         manager.stop(phone, "alice")
 
-    with pytest.raises(StreamReplaced):
-        _start(manager, page="tv-page", asked_ago=500.0)
+    laptop = _start(manager, page="laptop-page", asked_ago=500.0)
+
+    assert manager.get(laptop, "alice")
+
+
+def test_a_start_made_by_itself_goes_through_once_the_later_page_s_stream_was_ended(manager, clock):
+    phone = _start(manager, page="phone-page")
+    clock.now += 1
+    manager.end(phone, "alice")
+
+    laptop = _start(manager, page="laptop-page", asked_ago=5.0)
+
+    assert manager.get(laptop, "alice")
+
+
+def test_a_stream_ended_to_make_room_keeps_its_late_save_and_gives_up_its_claim(manager, clock):
+    phone = _start(manager, rating_key="1", page="phone-page")
+    others = [_start(manager, rating_key=str(k + 2)) for k in range(MAX_STREAMS_PER_USER - 1)]
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS + 1
+    for kept in others:
+        manager.get(kept, "alice")
+    manager.stop(_start(manager, rating_key="99"), "alice")
+
+    assert manager.reaped(phone, "alice").rating_key == "1"
+    laptop = _start(manager, rating_key="1", page="laptop-page", asked_ago=200.0)
+    assert manager.get(laptop, "alice")
+
+
+def test_starts_at_once_against_one_silent_stream_take_its_place_only_once(manager, plex, clock):
+    silent = _start(manager, rating_key="1")
+    live = [_start(manager, rating_key=str(k + 2)) for k in range(MAX_STREAMS_PER_USER - 1)]
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS + 1
+    for kept in live:
+        manager.get(kept, "alice")
+    live_sessions = {_session_of(plex, n) for n in (1, 2)}
+    starts = 3
+    # Every start is inside Plex before any is stored, so all of them passed the first check.
+    opened = threading.Barrier(starts, timeout=5)
+    plex.on_start = lambda session: opened.wait()
+    results: list[object] = [None] * starts
+
+    def start(n: int) -> None:
+        try:
+            results[n] = _start(manager, rating_key=str(90 + n))
+        except TooManyStreams as exc:
+            results[n] = exc
+
+    threads = [threading.Thread(target=start, args=(n,)) for n in range(starts)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    started = [r for r in results if isinstance(r, str)]
+    assert len(started) == 1
+    assert sum(isinstance(r, TooManyStreams) for r in results) == starts - 1
+    for kept in [*live, *started]:
+        assert manager.get(kept, "alice")
+    with pytest.raises(StreamGone):
+        manager.get(silent, "alice")
+    stopped = {c["params"]["session"] for c in plex.calls_to("stop")}
+    assert not stopped & live_sessions
+
+
+def test_with_the_server_full_a_person_s_start_takes_their_own_silent_stream_s_place(
+    manager, plex, clock
+):
+    silent = _start(manager, rating_key="1")
+    live = [_start(manager, rating_key=str(k + 2)) for k in range(MAX_STREAMS_PER_USER - 1)]
+    for n in range(MAX_STREAMS_TOTAL - MAX_STREAMS_PER_USER):
+        _start(manager, user=f"user{n}")
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS + 1
+    for kept in live:
+        manager.get(kept, "alice")
+
+    new = _start(manager, rating_key="99")
+
+    assert manager.get(new, "alice")
+    with pytest.raises(StreamGone):
+        manager.get(silent, "alice")
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [_session_of(plex, 0)]

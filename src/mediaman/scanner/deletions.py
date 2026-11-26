@@ -346,7 +346,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
             # phantom "deleted" audit row. Reset to pending and shout.
             logger.error(
                 "engine.delete.recover id=%s path=%r — files absent but a tracked path "
-                "is outside the configured delete_allowed_roots (or roots are "
+                "is outside the configured MEDIAMAN_DELETE_ROOTS (or roots are "
                 "unconfigured). Refusing to fabricate a 'deleted' audit entry; "
                 "reverting status to 'pending' for operator review.",
                 row.id,
@@ -1429,7 +1429,7 @@ class DeletionExecutor:
             if rows:
                 logger.error(
                     "Skipping %d pending deletion(s): no delete folders are configured. "
-                    "Set the MEDIAMAN_DELETE_ROOTS env var or the delete_allowed_roots setting.",
+                    "Set the MEDIAMAN_DELETE_ROOTS env var (colon-separated).",
                     len(rows),
                 )
         else:

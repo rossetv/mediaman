@@ -283,6 +283,9 @@
 
   /* ── The meter ── */
 
+  // Nothing to read because no library folder is set, which is not a failed disk.
+  function noPaths() { return !stats.storage.readable && !stats.storage.disks.length; }
+
   function meters() { return toArray(document.querySelectorAll('[data-space-open]')); }
 
   function renderMeters() {
@@ -294,13 +297,14 @@
       b.className = 'space-meter' + (busy ? ' space-meter--scanning' : '');
       if (busy) b.setAttribute('aria-busy', 'true');
       if (!stats || !stats.storage.readable) {
-        var text = !stats || !stats.show_storage ? 'Storage' : 'Can’t read storage';
+        var unset = !!stats && stats.show_storage && noPaths();
+        var text = !stats || !stats.show_storage ? 'Storage' : unset ? 'No library paths' : 'Can’t read storage';
         if (text !== 'Storage' || !stats) b.classList.add('space-meter--off');
-        var words = el('span', 'space-meter__free', text === 'Storage' ? text : 'Can’t read');
-        if (text !== 'Storage') words.append(el('span', 'space-meter__word', ' storage'));
+        var words = el('span', 'space-meter__free', text === 'Storage' ? text : unset ? text : 'Can’t read');
+        if (!unset && text !== 'Storage') words.append(el('span', 'space-meter__word', ' storage'));
         add(b, MM.dom.icon('i-hard-drive'), words);
         b.setAttribute('aria-label', !stats ? 'Storage, could not be loaded' + leavingLabel()
-          : (text === 'Storage' ? text : 'Storage: the disks can’t be read') + marks(b) + leavingLabel());
+          : (text === 'Storage' ? text : unset ? 'No library paths. Storage' : 'Storage: the disks can’t be read') + marks(b) + leavingLabel());
         return;
       }
       var s = stats.storage;
@@ -973,10 +977,17 @@
     Z = { body: body, segs: [] };
     if (!s.readable) {
       var say = el('div', 'space-say');
-      var again = button('btn btn--secondary', 'Try again', tryAgain);
-      again.prepend(MM.dom.icon('i-rotate-right'));
-      body.append(add(say, el('b', '', 'Can’t read the disks right now.'),
-        el('span', '', 'The library sizes below come from the last scan. Free space is unknown until the disks answer.'), again));
+      if (noPaths()) {
+        var set = el('a', 'btn btn--secondary', 'Set library paths in Settings');
+        set.href = '/settings#setg-libraries';
+        body.append(add(say, el('b', '', 'No library paths are set.'),
+          el('span', '', 'The library sizes below come from the last scan. Free space is unknown until a library path is set.'), set));
+      } else {
+        var again = button('btn btn--secondary', 'Try again', tryAgain);
+        again.prepend(MM.dom.icon('i-rotate-right'));
+        body.append(add(say, el('b', '', 'Can’t read the disks right now.'),
+          el('span', '', 'The library sizes below come from the last scan. Free space is unknown until the disks answer.'), again));
+      }
     } else {
       Z.fig = el('div', 'space-fig');
       Z.fig.setAttribute('aria-hidden', 'true');

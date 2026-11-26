@@ -86,6 +86,10 @@ COPY_FAILURE_KEEP_SECONDS = 60.0
 
 MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
+# A playing player saves its place every 10 s and tries a lost connection again for 60 s, so a
+# stream silent longer is no longer fetched: at the limit, a new start of its person's ends it.
+# One a TV reads waits out TV_IDLE_TIMEOUT_SECONDS.
+REPLACEABLE_AFTER_SECONDS = 90.0
 _POOL_MAXSIZE = 32
 
 # A segment is read whole on a worker thread, and the pages share those (40 by default), so reads
@@ -567,7 +571,9 @@ class StreamManager:
         asked = quality
         base, token = creds
         with self._lock:
-            self._check_room(user)
+            ended = self._make_room(user)
+        for stream in ended:
+            self._call_quietly("stop", stream.session_id)
         deadline = self._clock() + START_DEADLINE_SECONDS
         refused = False
         for attempt in range(2):
@@ -607,8 +613,9 @@ class StreamManager:
                 self._replaced[stream_id] = (self._clock(), (user, rating_key), order)
             else:
                 replaced = self._replace_same_item(user, rating_key, order)
+                ended = []
                 try:
-                    self._check_room(user)
+                    ended = self._make_room(user)
                 except TooManyStreams:
                     full = True
                 else:
@@ -638,7 +645,7 @@ class StreamManager:
         if beaten:
             self._call_quietly("stop", session_id)
             return stream_id
-        for old_session in replaced.values():
+        for old_session in [*replaced.values(), *(s.session_id for s in ended)]:
             self._call_quietly("stop", old_session)
         if full:
             # Concurrent starts can all pass the first check; the one that loses gives its session back.
@@ -657,12 +664,29 @@ class StreamManager:
         self._replaced.update((sid, (now, (user, rating_key), order)) for sid in ids)
         return {sid: self._streams.pop(sid).session_id for sid in ids}
 
-    def _check_room(self, user: str) -> None:
-        """Raise ``TooManyStreams`` if a new stream would pass a limit; the lock must be held."""
-        if len(self._streams) >= MAX_STREAMS_TOTAL:
+    def _make_room(self, user: str) -> list[_Stream]:
+        """Make room for a new stream of *user*'s; the lock must be held.
+
+        At *user*'s limit, their stream silent longest is ended as reaped, if nothing fetches it
+        any more; the ended are returned, to stop on Plex. Raises ``TooManyStreams`` if a new
+        stream would still pass a limit.
+        """
+        now = self._clock()
+        own = [(sid, s) for sid, s in self._streams.items() if s.user == user]
+        ending: list[str] = []
+        if len(own) >= MAX_STREAMS_PER_USER:
+            silent = [
+                (s.last_access, sid)
+                for sid, s in own
+                if now - s.last_access
+                > (TV_IDLE_TIMEOUT_SECONDS if s.tv_read else REPLACEABLE_AFTER_SECONDS)
+            ]
+            if not silent:
+                raise TooManyStreams(f"at most {MAX_STREAMS_PER_USER} streams can be open at once")
+            ending = [min(silent)[1]]
+        if len(self._streams) - len(ending) >= MAX_STREAMS_TOTAL:
             raise TooManyStreams("too many streams are open")
-        if sum(1 for s in self._streams.values() if s.user == user) >= MAX_STREAMS_PER_USER:
-            raise TooManyStreams(f"at most {MAX_STREAMS_PER_USER} streams can be open at once")
+        return self._end(ending, now)
 
     def playlist(self, stream_id: str, user: str, *, base_path: str | None = None) -> str:
         """Return the media playlist with every URI rewritten to mediaman's segment route.
@@ -879,8 +903,16 @@ class StreamManager:
         self._call_quietly("stop", stream.session_id)
 
     def _end(self, ids: list[str], now: float) -> list[_Stream]:
-        """Drop the streams as reaped and return them, to stop on Plex; the lock must be held."""
+        """Drop the streams as reaped and return them, to stop on Plex; the lock must be held.
+
+        As with a stop, their pages give up their claim on the items, so another page's own
+        start of one plays.
+        """
         ended = {sid: self._streams.pop(sid) for sid in ids}
+        for stream in ended.values():
+            viewing = self._viewings.get(stream.item)
+            if viewing is not None:
+                viewing.asked = float("-inf")
         self._reaped = {
             sid: kept for sid, kept in self._reaped.items() if now - kept[0] <= VIEWING_KEEP_SECONDS
         }
@@ -934,8 +966,12 @@ class StreamManager:
     def tidy_orphans(self) -> int:
         """Stop Plex transcode sessions mediaman started but no longer tracks; return how many.
 
-        Meant for startup, so Plex trouble is logged and reported as 0 rather than raised.
+        Meant for startup, so Plex trouble is logged and reported as 0 rather than raised; while
+        Plex is not set up there is nothing to tidy, and nothing is said.
         """
+        creds = self._credentials()
+        if creds is None or not creds[0] or not creds[1]:
+            return 0
         try:
             base, token = self._creds()
             raw = self._get(

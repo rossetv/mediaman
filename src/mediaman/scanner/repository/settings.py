@@ -9,6 +9,9 @@ import sqlite3
 
 logger = logging.getLogger(__name__)
 
+# The roots are read several times each scan; that deletion is off is said once.
+_said_deletion_off = False
+
 
 def read_setting(conn: sqlite3.Connection, key: str) -> str | None:
     """Return the raw ``settings.value`` for *key*, or ``None`` if absent.
@@ -31,35 +34,25 @@ def read_delete_allowed_roots_setting(
     *,
     quiet: bool = False,
 ) -> list[str]:
-    """Read ``delete_allowed_roots`` from settings / env.
+    """Read the folders scheduled deletion may delete from.
 
-    Precedence (intentionally inverse of the more common "env wins"
-    convention):
-
-    1. The ``delete_allowed_roots`` row in the ``settings`` table — a
-       JSON array of absolute path strings — wins when present and
-       non-empty. The settings table is the operator's UI-managed
-       source of truth, and we want a value set in the admin UI to
-       beat any leftover value in the container environment.
-    2. The ``MEDIAMAN_DELETE_ROOTS`` environment variable — colon /
-       semicolon separated paths — is consulted only when the DB row
-       is missing or empty. This lets a fresh container start with a
-       sensible bootstrap set before the operator has logged in to
-       configure them in the UI.
-    3. If both are empty we return ``[]`` and log a loud error: the
-       caller must treat an empty list as fail-closed and refuse every
-       deletion (path safety contract). Letting an unconfigured
-       installation silently accept ``/`` would be catastrophic. The
-       error is logged unless ``quiet`` is true.
+    1. A ``delete_allowed_roots`` row in the ``settings`` table (a JSON
+       array of absolute path strings) wins when present and non-empty.
+       Nothing in mediaman writes that row, so on an install it is only
+       there if someone put it into the database by hand.
+    2. Otherwise the ``MEDIAMAN_DELETE_ROOTS`` environment variable,
+       colon / semicolon separated paths, which is how a person sets them.
+    3. If both are empty we return ``[]``: the caller must treat an empty
+       list as fail-closed and refuse every deletion (path safety
+       contract). Letting an unconfigured installation silently accept
+       ``/`` would be catastrophic. With the variable unset, which is the
+       default install, that scheduled deletion is off is logged at info,
+       once per process;
+       set with nothing valid in it, an error is logged.
 
     ``quiet=True`` silences every log line of this read (bad JSON, an
     unparseable env var, nothing configured) for read-only callers such as
     the storage panel; the returned list is the same.
-
-    Documenting the precedence inline so anyone reading the deletion
-    path can confirm at a glance that the unusual order — DB beats env
-    — is deliberate: the admin UI value must not be silently overridden
-    by a stale container env var.
     """
     row = conn.execute("SELECT value FROM settings WHERE key='delete_allowed_roots'").fetchone()
     roots: list[str] = []
@@ -77,6 +70,7 @@ def read_delete_allowed_roots_setting(
                     row["value"],
                     exc_info=True,
                 )
+    env_val = ""
     if not roots:
         env_val = os.environ.get("MEDIAMAN_DELETE_ROOTS", "")
         if env_val:
@@ -92,10 +86,11 @@ def read_delete_allowed_roots_setting(
                     "parsed from %r — deletions will be refused.",
                     env_val,
                 )
-    if not roots and not quiet:
-        logger.error(
-            "MEDIAMAN_DELETE_ROOTS is not configured, so all deletions will be refused. "
-            "Set the MEDIAMAN_DELETE_ROOTS env var (colon-separated paths) "
-            "or the delete_allowed_roots setting (JSON list) to re-enable deletions."
+    global _said_deletion_off
+    if not roots and not env_val and not quiet and not _said_deletion_off:
+        _said_deletion_off = True
+        logger.info(
+            "Scheduled deletion is off until MEDIAMAN_DELETE_ROOTS is set "
+            "(the folders it may delete from, separated by ':')."
         )
     return roots

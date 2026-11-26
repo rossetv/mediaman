@@ -1140,6 +1140,7 @@
         row.appendChild(el('span', 'pill pill--kept', 'Kept'));
       } else {
         var del = button('btn btn--danger btn--sm', 'Delete');
+        del.setAttribute('aria-label', 'Delete ' + name.textContent);
         del.addEventListener('click', function () {
           del.focus(); // Safari does not focus a button that is clicked, so a cancel would lose the place
           confirmDelete(String(s.id), title + ' — ' + name.textContent,

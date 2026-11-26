@@ -434,6 +434,8 @@ const scenarios = {
     return {
       opened,
       deletes: buttons.length,
+      deleteName: buttons[0].getAttribute('aria-label'),
+      deleteWord: buttons[0].textContent,
       closed: !dialog.classList.contains('active'),
       confirm: p.confirms[0].title,
       call: p.calls.find((c) => c[0] === 'post'),

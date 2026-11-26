@@ -215,6 +215,15 @@ class TestStorage:
         assert out["free"] == "1.4 TBfree of 8 TB"
         assert out["focused"] == "space-tab-storage"
 
+    def test_no_library_paths_set_points_to_settings_and_offers_no_retry(self):
+        out = _run("noPaths")
+        assert out["meter"][0] == "No library paths"
+        assert out["meter"][1].startswith("No library paths") and "Storage" in out["meter"][1]
+        assert "Set library paths in Settings" in out["text"]
+        assert "Can’t read" not in out["text"]
+        assert out["href"] == "/settings#setg-libraries"
+        assert out["retry"] == 0
+
     def test_the_missing_folders_and_deletions_off_stand_on_top_of_storage_and_scheduled(self):
         pane = {
             "roots": [

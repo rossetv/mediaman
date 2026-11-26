@@ -686,6 +686,13 @@ const scenarios = {
     await p.click(again);
     return { was, free: p.one('.space-fig__n').textContent, focused: p.focused() };
   },
+  async noPaths() {
+    const p = await page(undefined, (s) => { s.storage = storage({ readable: false, disks: [] }); });
+    const meter = [p.meter(), p.$('meter').getAttribute('aria-label')];
+    await p.click(p.$('meter'));
+    const link = p.one('#space-storage .space-say a');
+    return { meter, text: p.one('#space-storage .space-say').textContent, href: link && link.href, retry: p.all('#space-storage .space-say button').length };
+  },
   async panelFails() {
     const p = await page(undefined, (s) => { s.fail = { '/api/dashboard': 'down' }; });
     await p.click(p.$('meter'));

@@ -30,6 +30,8 @@
   var pills = [].slice.call(naming.querySelectorAll('.fpill'));
   var busy = false;
   var tv = null;
+  var others = [];
+  var touched = false;
 
   function paint() {
     [].forEach.call(boxes.querySelectorAll('i'), function (box, n) {
@@ -38,8 +40,19 @@
     });
   }
 
-  function say(node, text, bad) {
-    node.className = bad ? 'pair__why bad' : 'pair__why';
+  // `again` is an answer to a press: it is cleared and then written, so a status that has the same
+  // words as before is still read out. A hint is written only when its words change.
+  function say(node, text, bad, again) {
+    var cls = bad ? 'pair__why bad' : 'pair__why';
+    clearTimeout(node.pending);
+    if (again) {
+      node.className = cls;
+      node.textContent = '';
+      node.pending = setTimeout(function () { node.textContent = text; }, 80);
+      return;
+    }
+    if (node.className === cls && node.textContent === text) return;
+    node.className = cls;
     node.textContent = text;
   }
 
@@ -58,7 +71,7 @@
   function refuse(text) {
     show('');
     boxes.classList.add('is-bad');
-    say(why, text, true);
+    say(why, text, true, true);
   }
 
   function setBusy(on) {
@@ -96,7 +109,7 @@
         // The code may still be good: one press sends it again.
         var kept = typed;
         show(kept);
-        say(why, MM.api.messageOf(err, LATER), true);
+        say(why, MM.api.messageOf(err, LATER), true, true);
       }
     });
   }
@@ -109,14 +122,47 @@
     });
   }
 
+  function same(a, b) {
+    // The server keeps a name with its runs of spaces made one.
+    return a.split(/\s+/).join(' ').trim().toLowerCase() === b.split(/\s+/).join(' ').trim().toLowerCase();
+  }
+
+  function taken(wanted) {
+    return others.some(function (other) { return same(other, wanted); });
+  }
+
+  function repeats() {
+    say(nameWhy, taken(name.value) ? 'You already have a TV with this name. You can still use it.' : '');
+  }
+
+  function firstFree() {
+    var pick = 'Living room';
+    for (var n = 2; taken(pick); n++) pick = 'Living room ' + n;
+    return pick;
+  }
+
   function paired(got) {
     tv = got;
+    others = [];
+    touched = false;
     form.hidden = true;
     naming.hidden = false;
     // A TV paired again has its name.
     name.value = got.name === 'TV' ? 'Living room' : got.name;
+    say(nameWhy, '');
     mark();
     document.getElementById('pair-ok').focus({ preventScroll: true });
+    // The list only helps: whatever it does, the form stays as shown.
+    MM.api.get('/api/tvs').then(function (data) {
+      if (tv !== got || naming.hidden || !data || !Array.isArray(data.tvs)) return;
+      others = data.tvs.filter(function (t) { return t && t.id !== got.id && typeof t.name === 'string'; })
+        .map(function (t) { return t.name; });
+      if (got.name === 'TV' && !touched) {
+        name.value = firstFree();
+        mark();
+      }
+      if (touched && !busy && nameWhy.className.indexOf('bad') < 0) repeats();
+    }).catch(function () {});
   }
 
   form.addEventListener('submit', function (e) {
@@ -135,11 +181,14 @@
   pills.forEach(function (pill) {
     pill.addEventListener('click', function () {
       name.value = pill.textContent.trim();
+      touched = true;
+      repeats();
       mark();
     });
   });
   name.addEventListener('input', function () {
-    say(nameWhy, '');
+    touched = true;
+    repeats();
     mark();
   });
 
@@ -148,19 +197,21 @@
     if (busy) return;
     var wanted = name.value.trim();
     if (!wanted) {
-      say(nameWhy, 'Give it a name.', true);
+      say(nameWhy, 'Give it a name.', true, true);
       name.focus();
       return;
     }
     busy = true;
+    touched = true;
     save.setAttribute('aria-disabled', 'true');
     MM.api.patch('/api/tvs/' + tv.id, { name: wanted }).then(function (data) {
+      clearTimeout(nameWhy.pending);
       naming.hidden = true;
       done.hidden = false;
       document.getElementById('pair-ready-name').textContent = data.tv.name + ' is ready';
       document.getElementById('pair-ready').focus({ preventScroll: true });
     }, function (err) {
-      say(nameWhy, MM.api.messageOf(err, LATER), true);
+      say(nameWhy, MM.api.messageOf(err, LATER), true, true);
     }).then(function () {
       busy = false;
       save.removeAttribute('aria-disabled');

@@ -332,7 +332,7 @@ class TestExecuteDeletions:
         assert row is not None
 
         messages = " ".join(r.getMessage() for r in caplog.records)
-        assert "delete_allowed_roots" in messages
+        assert "delete_allowed_roots" not in messages
         assert "MEDIAMAN_DELETE_ROOTS" in messages
 
     def test_scanner_continues_after_skip_when_one_item_has_bad_root(
