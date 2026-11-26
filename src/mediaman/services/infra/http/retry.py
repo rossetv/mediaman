@@ -205,14 +205,16 @@ def _handle_transport_error(
     budget is exhausted or *retry_transport_error* rejects the exception,
     raises the ``make_error`` exception.
     """
+    retry = attempt + 1 < attempts and (retry_transport_error is None or retry_transport_error(exc))
     logger.warning(
-        "HTTP %s %s transport error: %s",
+        "HTTP %s %s transport error: %s — %s",
         method,
         _safe_path(url),
         type(exc).__name__,
+        "retrying" if retry else f"giving up on attempt {attempt + 1}",
     )
     state.last_exc = exc
-    if attempt + 1 < attempts and (retry_transport_error is None or retry_transport_error(exc)):
+    if retry:
         time.sleep(_compute_delay(attempt, jitter_strategy=jitter_strategy))
         return
     raise make_error(
@@ -421,6 +423,19 @@ def dispatch_loop(
             )
             continue
 
+        if attempt:
+            if 200 <= response.status_code < 300:
+                logger.info(
+                    "HTTP %s %s succeeded on attempt %d", method, _safe_path(url), attempt + 1
+                )
+            else:
+                logger.warning(
+                    "HTTP %s %s returned %s on attempt %d — giving up",
+                    method,
+                    _safe_path(url),
+                    response.status_code,
+                    attempt + 1,
+                )
         return _finalise_response(response, body, url=url, make_error=make_error)
 
     # All retries exhausted on a retryable status.
