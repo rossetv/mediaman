@@ -176,6 +176,15 @@
   }
   function attr(el, key, value) { if (el.getAttribute(key) !== value) el.setAttribute(key, value); }
   function say(text) { global.UIFeedback.toast(text); }
+  /* Over the remote a toast stands under its title (_tv_remote.css): one said as it closes is
+     shown once it has gone, where it stays. */
+  var afterClose = [];
+  function sayClosing(text) {
+    if (!isOpen) { say(text); return; }
+    afterClose.push(text);
+    close();
+  }
+  function sayHeld() { afterClose.splice(0).forEach(say); }
 
   /* ── what the person set, until the TV has ── */
 
@@ -222,7 +231,7 @@
       closeMenu();
     }
     if (p) {
-      if (!isOpen && p.replaced && before && before.play_id !== p.play_id) say(tookOver(p) + ' on ' + name() + '. ' + keptIn(p.replaced));
+      if (p.replaced && before && before.play_id !== p.play_id) say(tookOver(p) + ' on ' + name() + '. ' + keptIn(p.replaced));
       gone = null;
       seen = p;
       place = { s: p.position_s || 0, at: now() };
@@ -252,15 +261,13 @@
     var stopper = reason === 'stopped' && last && last.stopped_by !== me && last.stopped_by;
     var theirs = what.mine === false;
     if (reason === 'stopped' && (isOpen || stopper)) {
-      if (!stopper) say(place_kept('Stopped.', last, theirs ? what.by : null));
-      else if (theirs) say(stopper + ' stopped ' + (what.title || 'it') + '. ' + (what.by && what.by !== stopper ? what.by + '’s' : 'Their') + ' place is kept.');
-      else say(place_kept(stopper + ' stopped ' + (what.title || 'it') + ' on ' + name() + '.', last));
-      if (isOpen) close();
+      if (!stopper) sayClosing(place_kept('Stopped.', last, theirs ? what.by : null));
+      else if (theirs) sayClosing(stopper + ' stopped ' + (what.title || 'it') + '. ' + (what.by && what.by !== stopper ? what.by + '’s' : 'Their') + ' place is kept.');
+      else sayClosing(place_kept(stopper + ' stopped ' + (what.title || 'it') + ' on ' + name() + '.', last));
     } else if (reason && reason !== 'stopped' && (isOpen || reason !== 'moved' && !(seen && seen.play_id === dismissed))) {
       gone = was;
     } else if (isOpen) {
-      say('Nothing is playing on ' + name() + ' now.');
-      close();
+      sayClosing('Nothing is playing on ' + name() + ' now.');
     }
   }
 
@@ -290,12 +297,12 @@
     var d = err.data || {};
     if (err.status === 410 && UNPAIRED.indexOf(d.reason || err.error) !== -1) {
       var id = tv.id;
-      say(unpaired(Object.assign({ reason: err.error }, d)));
+      var told = unpaired(Object.assign({ reason: err.error }, d));
       leaving = null;
       gone = null;
       tv = null;
       others = others.filter(function (t) { return t.id !== id; });
-      close();
+      sayClosing(told);
       return;
     }
     if (err.status === 410) over(err.error, err.data && err.data.last);
@@ -580,8 +587,7 @@
     function done(last) {
       leaving = null;
       if (then) { then(last || p); return; }
-      say(was.ended ? 'Disconnected from ' + was.name + '.' : place_kept('Stopped.', last, p.mine === false ? p.by : null));
-      close();
+      sayClosing(was.ended ? 'Disconnected from ' + was.name + '.' : place_kept('Stopped.', last, p.mine === false ? p.by : null));
       render();
       tick();
     }
@@ -643,7 +649,7 @@
       },
       failed: function () {
         handing = false;
-        if (isOpen && !play() && !gone) { say('Nothing is playing on ' + name() + ' now.'); close(); tick(); }
+        if (isOpen && !play() && !gone) { sayClosing('Nothing is playing on ' + name() + ' now.'); tick(); }
       },
       started: function (t) {
         handing = false;
@@ -1479,6 +1485,7 @@
       follow();
       if (exit) clearTimeout(exit);
       exit = null;
+      sayHeld();
       root.classList.remove('is-leaving');
       root.inert = false;
       showRemote(true);
@@ -1512,7 +1519,7 @@
     root.inert = true;
     // A button clicked in Safari takes no focus, so there was none to give back.
     if ((document.activeElement === document.body || root.contains(document.activeElement)) && !mini.hidden && !miniLeaving) m('[data-open]').focus({ preventScroll: true });
-    exit = setTimeout(function () { exit = null; showRemote(false); }, EXIT_MS);
+    exit = setTimeout(function () { exit = null; showRemote(false); sayHeld(); }, EXIT_MS);
     schedule();
   }
   global.ModalA11y.register('tv-remote', close);

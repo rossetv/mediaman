@@ -98,6 +98,8 @@ async function page(opts = {}) {
     return { id, tv: copy(tv) };
   }
   const toasts = [];
+  // Whether each toast was said over the remote, which places it under the remote's title.
+  const overRemote = [];
   // A step is made later, as a browser makes it.
   const history = {
     entries: [opts.state ? { ...opts.state } : { mm: { id: 'a' } }], index: 0,
@@ -123,7 +125,7 @@ async function page(opts = {}) {
     sessionStorage: { getItem: (k) => session[k] || null, setItem: (k, v) => { session[k] = v; } },
     matchMedia: (q) => ({ matches: !!opts.still && /reduced-motion/.test(q) }),
     addEventListener(t, fn) { win.listeners[t] = fn; },
-    UIFeedback: { toast: (t) => toasts.push(t), error: (t) => toasts.push('! ' + t) },
+    UIFeedback: { toast: (t) => { toasts.push(t); overRemote.push(doc.documentElement.classList.contains('has-tv-rem')); }, error: (t) => toasts.push('! ' + t) },
     ModalA11y: { register() {}, onOpened() {}, onClosed() {} },
     MM: { api: { get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
   };
@@ -197,7 +199,7 @@ async function page(opts = {}) {
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
-    $, doc, win, api, pages, toasts, history, heardByPage, cast,
+    $, doc, win, api, pages, toasts, overRemote, history, heardByPage, cast,
     async step(by) { history.go(by); await p.pass(20); },
     trail: () => ({ at: history.index, entries: history.entries.length, open: p.isOpen(), menu: p.seen('[data-po]') }),
     seen: (sel) => !p.$(sel).hidden && !p.$(sel).classList.contains('is-leaving'),
@@ -412,6 +414,8 @@ const scenarios = {
     await p.open();
     Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay({ position_s: 1268 }), reason: 'stopped' } });
     await p.pass(1100);
+    // Said once the remote has gone.
+    await p.pass(300);
     return { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts };
   },
   // The real sheet opened from a button low on a phone held sideways (874 by 402), as tall as it is.
@@ -481,7 +485,7 @@ const scenarios = {
       const hidden = open ? p.$('#tv-remote').hidden : p.$('#tv-mini').hidden;
       const reads = p.reads().length;
       await p.pass(30000);
-      out[why + (open ? 'Open' : '')] = { leaving, hidden, toasts: p.toasts, asksOn: p.reads().length - reads };
+      out[why + (open ? 'Open' : '')] = { leaving, hidden, toasts: p.toasts, over: p.overRemote, asksOn: p.reads().length - reads };
     }
     return out;
   },
@@ -497,7 +501,7 @@ const scenarios = {
         started_by: 'maren', replaced: { title: 'Glass Orchard', place_kept: true },
       });
       await p.pass(5100);
-      out[open ? 'remote' : 'bar'] = { toasts: p.toasts, hint: p.$('[data-hint]').textContent };
+      out[open ? 'remote' : 'bar'] = { toasts: p.toasts, over: p.overRemote, hint: p.$('[data-hint]').textContent };
     }
     const q = await page({ tvs: [aTv({ play: aPlay({ mine: false, by: 'maren', started_by: 'maren', replaced: { title: 'Glass Orchard' } }) })] });
     await q.pass(5100);
@@ -1131,6 +1135,7 @@ const scenarios = {
     await p.press('[data-stop]');
     go();
     await p.pass(600);
+    await p.pass(300);
     return { ...out, after: [p.isOpen(), p.bar().says], sent: p.sent(), did: p.cast.did, toasts: p.toasts };
   },
   async castLost() {
@@ -1264,7 +1269,7 @@ const scenarios = {
     g.host.before({ id: 8 });
     g.host.failed();
     Object.assign(g.p.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'stopped' } });
-    await g.p.pass(1100);
+    await g.p.pass(1400);
     out.failedThenStopped = g.p.toasts.length;
     // Another that plays is not shown while one is moved.
     const m = await make({ cast: { now: aCast() } });
@@ -1311,7 +1316,7 @@ const scenarios = {
     s.p.win.MM.tvRemote.open(9);
     await settle();
     Object.assign(s.p.api.tvs[1], { play: null, last: { ...aPlay(), reason: 'stopped' } });
-    await s.p.pass(1100);
+    await s.p.pass(1400);
     out.said = s.p.toasts;
     const u = await make({ tvs: [aTv({ play: aPlay({ state: 'upnext', next: { rating_key: '9002', season: 1, episode: 5, title: 'x' } }) })] });
     u.host.before({ id: 8 });
