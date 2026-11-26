@@ -7,6 +7,7 @@
  *   - Auto-test configured services on page load, and those a save has changed
  *   - Plex library sync button (#btn-sync-library), with the server's reason on failure
  *   - Refresh of the shared picks (#btn-refresh-picks), with how long until the next
+ *   - The line by the AI switch (#setg-ai-need): a key to save, or the one OpenAI refused
  *   - Rail badge counting the services whose check failed
  *
  * Cross-module dependencies:
@@ -241,6 +242,58 @@
     });
   }
 
+  /* ── The line by the AI switch ── */
+  var aiRefused = false;
+
+  function aiLine() { return document.getElementById('setg-ai-need'); }
+
+  /* What the switch, as it now stands, lacks from OpenAI: the key OpenAI refused, or a stored key. */
+  function drawAiNeed() {
+    var line = aiLine();
+    if (!line) return;
+    var sw = document.querySelector('[data-target="suggestions_enabled"]');
+    var on = !sw || sw.getAttribute('aria-checked') === 'true';
+    var need = aiRefused ? 'refused' : on && !picks.hasKey ? 'key' : '';
+    if (line.getAttribute('data-need') === need) return;
+    line.setAttribute('data-need', need);
+    line.classList.toggle('is-open', !!need);
+    if (!need) return; // The words stay while the line shuts.
+    var text = line.querySelector('p');
+    var link = document.createElement('a');
+    link.href = '#intg-openai';
+    link.textContent = need === 'refused' ? 'OpenAI card' : 'OpenAI key';
+    text.textContent = '';
+    text.append(need === 'refused' ? 'OpenAI refused the key. Check it in the ' : 'Needs an ', link, '.');
+  }
+
+  function goToOpenAi() {
+    var card = document.getElementById('intg-openai');
+    var fold = card && card.querySelector('.intg-fold');
+    if (!fold) return;
+    if (card.classList.contains('is-collapsed')) fold.click();
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    card.scrollIntoView({ block: 'start', behavior: still ? 'auto' : 'smooth' });
+    fold.focus({ preventScroll: true });
+  }
+
+  function startAiNeed() {
+    var line = aiLine();
+    if (!line) return;
+    aiRefused = line.getAttribute('data-need') === 'refused';
+    readPicksSettings(fieldValue);
+    // On the document, so the switch has flipped by the time the line is drawn.
+    ['click', 'keydown'].forEach(function (type) {
+      document.addEventListener(type, function (e) {
+        if (e.target && e.target.closest && e.target.closest('[data-target="suggestions_enabled"]')) drawAiNeed();
+      });
+    });
+    line.addEventListener('click', function (e) {
+      if (!e.target.closest('a[href="#intg-openai"]')) return;
+      e.preventDefault();
+      goToOpenAi();
+    });
+  }
+
   MM.settings.integrations = {
 
     setConnStatus: function (service, tone, label) {
@@ -316,6 +369,8 @@
     recheck: function (keys, values) {
       readPicksSettings(function (id) { return values[id]; });
       drawPicks();
+      if (keys.indexOf('openai_api_key') !== -1) aiRefused = false;
+      drawAiNeed();
       autoTest(AUTO_CHECKS.filter(function (c) {
         return c.fields.concat(c.also || []).some(function (key) { return keys.indexOf(key) !== -1; });
       }), function (id) { return values[id]; });
@@ -379,6 +434,7 @@
 
       autoTest(AUTO_CHECKS, fieldValue);
       startPicks();
+      startAiNeed();
 
       var syncBtn = document.getElementById('btn-sync-library');
       if (syncBtn) syncBtn.addEventListener('click', function () {

@@ -211,6 +211,26 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .setg-row-lbl { font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
 .setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 4px; line-height: 1.5; max-width: 58ch; }
 .setg-pg .setg-row-sub a { color: var(--accent); }
+/* What the AI switch lacks: the line grows and shrinks its own height, so the rows below slide. */
+.setg-pg .ai-need {
+  --ai-need-gap: 0px;
+  grid-column: 1;
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: calc(-1 * var(--ai-need-gap));
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-rows var(--dur-slow) var(--ease-out), margin-top var(--dur-slow) var(--ease-out),
+              opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.setg-pg .ai-need.is-open { grid-template-rows: 1fr; margin-top: 0; opacity: 1; visibility: visible; transition-delay: 0s; }
+/* Room on every side for the link's focus ring, which the shut line would clip. */
+.setg-pg .ai-need > div { min-height: 0; overflow: hidden; margin-inline: -4px; }
+.setg-pg .ai-need p { padding: 6px 4px 4px; color: var(--t2); }
+@media (max-width: 639.98px) {
+  .setg-pg .ai-need { --ai-need-gap: 10px; }
+  .setg-pg .ai-need p { padding-top: 0; }
+}
 @media (max-width: 639.98px) {
   .setg-pg .setg-row { grid-template-columns: 1fr; gap: 10px; }
   .setg-pg .setg-row > :last-child { width: 100%; }
