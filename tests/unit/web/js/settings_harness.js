@@ -1254,6 +1254,28 @@ const scenarios = {
     return { emailCancel: shut(email, cancel), emailAgain: shut(email, email), addCancel: shut(add, addCancel), addAgain: shut(add, add) };
   },
 
+  // Escape shuts the e-mail fold of a Team row and gives the focus back to its button.
+  async emailEscape() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    h.add('div', { id: 'user-list' });
+    h.add('main', { id: 'main' });
+    userForm(h);
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer', email: '' }] }) };
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const row = names(h.doc.getElementById('user-list'), 'usr-row')[0];
+    const opener = row.querySelector('[data-user-action="email"]');
+    const form = row.querySelector('form');
+    opener.fire('click');
+    h.drain();
+    const opened = opener.getAttribute('aria-expanded');
+    form.fire('keydown', { key: 'a' });
+    form.fire('keydown', { key: 'Escape' });
+    h.drain();
+    return { opened, expanded: opener.getAttribute('aria-expanded'), focused: h.doc.activeElement === opener };
+  },
+
   // How many libraries are said to be selected, by what Plex answers.
   async libraryCount() {
     const count = async (answer) => {

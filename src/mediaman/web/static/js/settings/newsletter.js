@@ -215,6 +215,7 @@
         if (!newsletterPanel) return;
         rows.openInView(newsletterPanel);
         paintToggle(true);
+        noteBaseUrl();
         openRecipients();
       }
       function closeNewsletter() {
@@ -222,6 +223,19 @@
         paintToggle(false);
         rows.close(newsletterPanel, clearStatus);
       }
+
+      // A send needs the Base URL that is set in General & Schedule; say so while it is empty.
+      var baseUrlField = document.getElementById('base_url');
+      var baseNote = document.getElementById('newsletter-base-note');
+      function noteBaseUrl() {
+        if (!baseNote) return;
+        baseNote.replaceChildren();
+        if (!baseUrlField || baseUrlField.value.trim()) return;
+        var msg = makeMsg('Set Base URL under General & Schedule first', 'err');
+        msg.style.marginTop = '8px';
+        baseNote.appendChild(msg);
+      }
+      if (baseUrlField) baseUrlField.addEventListener('input', noteBaseUrl);
 
       // A panel that is sending cannot be closed from its own buttons.
       function sending() { return !!(btnConfirmNL && btnConfirmNL.disabled); }
@@ -232,6 +246,11 @@
       });
       if (btnCancelNL) btnCancelNL.addEventListener('click', function () {
         if (sending()) return;
+        closeNewsletter();
+        if (btnSendNL) btnSendNL.focus();
+      });
+      if (newsletterPanel) newsletterPanel.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape' || sending() || !rows.isOpen(newsletterPanel)) return;
         closeNewsletter();
         if (btnSendNL) btnSendNL.focus();
       });
