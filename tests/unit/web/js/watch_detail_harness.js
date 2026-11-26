@@ -999,7 +999,7 @@ const scenarios = {
       const due = (ms) => p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
       // A slow connection: the player's own wait has passed before its frame has even loaded.
       if (how.slow) due(8000);
-      if (how.never) due(20000);
+      if (how.never) due(12000);
       else (frame.listeners.load || []).forEach((fn) => fn({}));
       const loaded = p.ttl().classList.contains('is-trailer');
       then(p, say);
@@ -1047,7 +1047,7 @@ const scenarios = {
       heard: await run(({ say }) => say({ event: 'onReady' })),
       refused: await run(({ say }) => say({ event: 'onError', info: 150 })),
       silent: await run(({ due }) => { due(8000); }),
-      never: await run(({ due }) => { due(20000); }, false),
+      never: await run(({ due }) => { due(12000); }, false),
       closed: await run(({ p }) => p.key('Escape')),
       waiting: await run(() => {}),
     };

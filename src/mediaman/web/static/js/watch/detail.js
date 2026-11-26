@@ -53,7 +53,7 @@
   /* How long a trailer's player has to answer once its frame has loaded, and how long a frame
      that never loads is waited for, before the trailer is taken to have failed. */
   var TRAILER_STUCK_MS = 8000;
-  var TRAILER_LOAD_MS = 20000;
+  var TRAILER_LOAD_MS = 12000;
   var LISTEN_MS = 250;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
 
