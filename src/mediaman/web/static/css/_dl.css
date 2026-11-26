@@ -250,7 +250,8 @@
 .dl-compact-list { display: flex; flex-direction: column; gap: 8px; }
 
 /* The "nothing downloading" empty state uses the shared .empty primitive
-   (the c.empty() macro) — no bespoke rule here. */
+   (the c.empty() macro); only its line is kept from ending on one word. */
+#dl-empty-container .empty p { text-wrap: pretty; }
 
 /* A row with an episodes button is further from the next than from its button. The space
    is the next row's and folds away with either of the two: `:where` lets .is-folded win. */
