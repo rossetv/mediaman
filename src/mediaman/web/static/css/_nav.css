@@ -107,6 +107,8 @@
 /* Profile button: avatar, name and a chevron at the end of the bar. Below 900px
    only the avatar shows, in a 44px target, and its island is round. */
 .profile-btn {
+  position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   gap: 12px;
@@ -121,16 +123,56 @@
   transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .profile-btn[aria-expanded="true"] { color: var(--t1); }
-@media (hover: hover) { .profile-btn:hover { color: var(--t1); } }
 .profile-btn:active { transform: scale(.97); }
 .profile-btn:focus-visible { outline-offset: 2px; border-radius: var(--r-pill); }
 .profile-btn-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.profile-btn > .ico { font-size: 10px; transition: transform var(--dur-fast) var(--ease-out); }
+.profile-btn > .ico { font-size: 10px; transition: transform var(--dur) var(--ease-out); }
 .profile-btn[aria-expanded="true"] > .ico { transform: rotate(180deg); }
+
+/* A lit pill grows out to the island's edge round the profile button and the storage meter under
+   a pointer, as the search field grows (on Watch, on its spring: _watch_space.css). It grows by a
+   transform, so nothing beside it moves. */
+.profile-btn::before,
+.space-meter::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -1px -1px -1px -2px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--t1) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--t1) 12%, transparent);
+  border-top-color: color-mix(in srgb, var(--t1) 22%, transparent);
+  opacity: 0;
+  transform: scale(.9, .82);
+  pointer-events: none;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out);
+}
+.profile-btn[aria-expanded="true"]::before,
+.profile-btn:active::before,
+.space-meter[aria-expanded="true"]::before,
+.space-meter:active::before { opacity: 1; transform: none; }
+.profile-ava { transition: transform var(--dur-slow) var(--ease-out); }
+@media (hover: hover) {
+  .profile-btn:hover { color: var(--t1); }
+  /* A keyboard gets the pointer's pill. Not on a touch screen, where a sheet closing hands the
+     focus back to its button and the pill would stay lit after the tap. */
+  .profile-btn:hover::before,
+  .profile-btn:focus-visible::before,
+  .space-meter:hover::before,
+  .space-meter:focus-visible::before { opacity: 1; transform: none; }
+  /* The ring a shade brighter, the picture's edge lit. */
+  .profile-btn:hover .profile-ring { filter: brightness(1.3) saturate(1.15); }
+  .profile-btn:hover .avatar { outline-color: color-mix(in srgb, var(--t1) 45%, transparent); }
+  /* The picture and its ring come forward; the chevron points down. */
+  .profile-btn:hover .profile-ava,
+  .profile-btn:focus-visible .profile-ava { transform: scale(1.07); }
+  .profile-btn:hover:not([aria-expanded="true"]) > .ico { transform: translateY(2px); }
+}
 .profile-btn.on .avatar,
 .profile-btn[aria-expanded="true"] .avatar { outline-color: var(--t1); }
 @media (max-width: 899.98px) {
   .profile-btn { padding: 0; }
+  .profile-btn::before { inset: -1px; }
   .profile-btn-name,
   .profile-btn > .ico { display: none; }
 }
@@ -178,9 +220,9 @@
   opacity: 0;
   transform: scale(.86);
   pointer-events: none;
-  transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out), --ring var(--dur-slow) var(--ease-out);
+  transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out), --ring var(--dur-slow) var(--ease-out), filter var(--dur) var(--ease-out);
 }
-.profile-ring.is-set { transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
+.profile-ring.is-set { transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out), filter var(--dur) var(--ease-out); }
 .profile-ring.is-on { opacity: 1; transform: none; }
 .profile-ring.is-ready { --ring-tone: var(--success); }
 .profile-ring.is-waiting { --ring-tone: var(--warning); }
@@ -361,6 +403,12 @@
   .profile-count { transition: none; }
   .nav-glass .brand { transition: none; }
   .nav-back:hover > .ico { transform: none; }
+  /* The pill still lights, but nothing grows. */
+  .profile-btn::before,
+  .space-meter::before,
+  .profile-btn:hover .profile-ava,
+  .profile-btn:focus-visible .profile-ava,
+  .profile-btn:hover:not([aria-expanded="true"]) > .ico { transform: none; }
   .profile-menu,
   .profile-panel { transform: none; }
   .avatar--pic img.is-new { animation: none; }
