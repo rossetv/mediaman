@@ -855,6 +855,11 @@ def test_a_keep_offers_undo_unless_the_server_says_there_is_none(season, reply, 
     assert out == {"pill": "Kept for 7 days", "said": "Kept until", "undo": undo}
 
 
+def test_the_page_says_while_keeps_menu_is_open_and_only_then(season):
+    out = run(season["/watch/play/503"], "keep_menu_marks_page", plays="{}")
+    assert out == {"open": True, "otherMenu": False, "reopened": True, "closed": False}
+
+
 def test_a_keep_says_for_how_long_on_its_pill_and_until_when_in_the_toast(markup, season):
     pages = {**season, "/plain": season["/watch/play/504"]}
     pill, toast = run(markup, "keep_undone", plays="here", pages=pages)["said"]

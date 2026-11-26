@@ -54,6 +54,12 @@ def test_discard_puts_back_the_last_saved_values() -> None:
     assert out["afterSaveDiscard"] == {"value": "http://c", "flag": True}
 
 
+def test_the_page_says_when_the_bar_is_up_and_when_it_is_gone() -> None:
+    out = _run("savebar")
+    assert out["pageWhileDirty"] is True
+    assert out["pageAfterDiscard"] is False
+
+
 def test_the_pages_room_for_the_bar_follows_the_bars_height() -> None:
     assert _run("savebarRoom") == [{"--savebar-h": "61px"}, {"--savebar-h": "258px"}]
 

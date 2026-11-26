@@ -129,6 +129,7 @@ class El {
 function build() {
   const timers = [];
   const docListeners = {};
+  const htmlClasses = new Set();
   const doc = {
     activeElement: null,
     createElement: (t) => new El(t, doc),
@@ -140,7 +141,14 @@ function build() {
     listeners: docListeners,
     capturing: new Set(),
     revealed: [],
-    documentElement: { clientHeight: 844, classList: { add() {}, toggle() {} } },
+    documentElement: {
+      clientHeight: 844,
+      classes: htmlClasses,
+      classList: {
+        add: (c) => { htmlClasses.add(c); },
+        toggle: (c, on) => { if (on) htmlClasses.add(c); else htmlClasses.delete(c); },
+      },
+    },
     dispatchEvent: (e) => { (docListeners[e.type] || []).forEach((fn) => fn(e)); },
     addEventListener: (t, fn, capture) => {
       (docListeners[t] = docListeners[t] || []).push(fn);
@@ -356,8 +364,10 @@ const scenarios = {
     const edit = (v, c) => { input.value = v; box.checked = c; input.fire('input'); };
     edit('http://b', false);
     const dirty = bar.classList.contains('on');
+    const pageWhileDirty = h.doc.documentElement.classes.has('has-savebar');
     discard.fire('click');
     await h.flush();
+    const pageAfterDiscard = h.doc.documentElement.classes.has('has-savebar');
     const afterDiscard = { value: input.value, checked: box.checked, dirty: bar.classList.contains('on') };
     // save a new value, then edit again and discard: back to the saved value
     edit('http://c', true);
@@ -372,7 +382,7 @@ const scenarios = {
     edit('http://e', false);
     discard.fire('click');
     await h.flush();
-    return { dirty, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
+    return { dirty, pageWhileDirty, pageAfterDiscard, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
   },
 
   // A refused save shows the field it refused, out from under the bar, and leaves the focus where it was.

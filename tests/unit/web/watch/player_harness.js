@@ -3603,6 +3603,22 @@ const scenarios = {
     return out;
   },
 
+  /* The page says while Keep's menu is open, for the toasts to make way, and not for another menu. */
+  async keep_menu_marks_page(p) {
+    p.held.keep = JSON.parse(p.win.serverPlays);
+    await streamPlays(p, 0);
+    const marked = () => doc.documentElement.classList.contains('has-player-keep-open');
+    const keep = p.q('[data-keep]').querySelector('[data-menu-trigger]');
+    press(keep);
+    const open = marked();
+    press(p.q('[data-quality-btn]'));
+    const otherMenu = marked();
+    press(keep);
+    const reopened = marked();
+    press(keep);
+    return { open, otherMenu, reopened, closed: marked() };
+  },
+
   /* What the toast of a keep offers, by what the server says of undoing it. */
   async keep_offers(p) {
     p.held.keep = JSON.parse(p.win.serverPlays);
