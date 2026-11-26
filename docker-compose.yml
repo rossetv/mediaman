@@ -5,9 +5,8 @@ services:
     build: .
     image: mediaman:latest
     container_name: mediaman
-    # Passes every MEDIAMAN_ variable from .env into the container (needs
-    # Compose 2.24 or later); the entries below add defaults for the ones
-    # the compose file itself uses.
+    # Passes every line of .env into the container; needs Docker Compose
+    # 2.24 or later. The entries below add defaults for the ones this file uses.
     env_file:
       - path: .env
         required: false
