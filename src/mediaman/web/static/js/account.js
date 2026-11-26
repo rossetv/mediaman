@@ -591,7 +591,7 @@
       save.type = 'submit';
       var cancel = el('button', 'btn btn--ghost btn--sm', 'Cancel');
       cancel.type = 'button';
-      [input, save, cancel].forEach(function (node) { form.appendChild(node); });
+      [input, cancel, save].forEach(function (node) { form.appendChild(node); });
       row.appendChild(form);
       function shut() {
         if (isBusy(save)) return;

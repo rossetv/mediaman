@@ -435,6 +435,7 @@ def test_an_admin_sees_the_tvs_of_others_and_unpairs_one_only_after_a_yes() -> N
 
 def test_a_tv_is_renamed_in_its_row_and_a_failure_keeps_what_was_typed() -> None:
     out = _run("tvRename")
+    assert out["drawn"][1:] == ["Cancel", "Save"]
     assert out["empty"] == [0, "true"]
     assert out["failed"] == [1, ["error: Could not rename it. Try again."], True]
     assert out["sent"] == ["/api/tvs/1", {"name": "Den"}]

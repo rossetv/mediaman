@@ -148,6 +148,7 @@ const scenarios = {
     push(buttonOf(row, 'Rename'));
     const form = row.querySelector('form');
     const input = row.querySelector('input');
+    const drawn = form.childNodes.map((n) => n.textContent || n.tagName.toLowerCase());
     const submit = () => form.listeners.submit.forEach((fn) => fn({ preventDefault() {} }));
     input.value = '  ';
     submit();
@@ -160,7 +161,7 @@ const scenarios = {
     answer = (body) => Promise.resolve({ tv: { id: 1, name: body.name } });
     submit();
     await settle();
-    return { empty, failed, sent: sent[1], name: row.querySelector('.me-lbl').textContent, label: buttonOf(row, 'Rename').getAttribute('aria-label'), toasts: p.toasts };
+    return { drawn, empty, failed, sent: sent[1], name: row.querySelector('.me-lbl').textContent, label: buttonOf(row, 'Rename').getAttribute('aria-label'), toasts: p.toasts };
   },
   async tvUnpair() {
     const sent = [];
