@@ -1048,13 +1048,14 @@ scenarios.newRowMidList = async function () {
 // one Radarr or Sonarr will not import says so, with what is wrong and where to fix it for an
 // admin alone, and has no bar of progress
 scenarios.needsAttention = async function () {
-  const look = (admin) => {
+  const look = (admin, retrying = false) => {
     const p = pageRig(true);
     if (!admin) p.h.root.setAttribute('data-can-abandon', 'false');
     const held = {
       state: 'needs_attention', state_label: 'Needs attention', progress: 100, eta: '',
       attention: admin ? 'Review file name or manually import' : '',
       attention_hint: admin ? 'Fix it in Sonarr: Activity → Queue' : '',
+      retrying,
       episodes: [{ label: 'S12E01', title: 'One', state: 'needs_attention', progress: 100 }],
     };
     p.upd({ hero: item('h', held), queue: [item('q', held)] });
@@ -1075,7 +1076,11 @@ scenarios.needsAttention = async function () {
     };
     return { hero: of(p.byId('dl-hero-container').querySelector('.dl-hero')), row: of(p.byId('dl-queue-list').querySelector('.dl-compact')) };
   };
-  return { admin: look(true), viewer: look(false) };
+  return {
+    admin: look(true),
+    viewer: look(false),
+    retrying: { admin: look(true, true), viewer: look(false, true) },
+  };
 };
 
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

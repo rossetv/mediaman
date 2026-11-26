@@ -100,15 +100,18 @@ def _page_payload(
     TMDB or another service, and films of one title by their labels; and what the header's
     ring is told of them. A recent download the library does not hold yet was only added. A
     viewer is told of a service that does not answer only that downloads are not available.
-    Copies: completion detection keeps the items as they came.
+    One that needs attention says whether mediaman will look for another copy; the key that is
+    read by is the server's alone. Copies: completion detection keeps the items as they came.
     """
     asked_at = strip.on_page.now()
-    data = build_downloads_response(conn, secret_key)
+    data = with_retrying(conn, build_downloads_response(conn, secret_key))
     index = library_of(conn, secret_key)
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         title = item.get("label") or item["title"]
-        return {**item, "title": title, "poster_url": _poster(item, index)}
+        page_item = {**item, "title": title, "poster_url": _poster(item, index)}
+        page_item.pop("retry_key", None)
+        return page_item
 
     page: DownloadsResponse = {
         **data,
@@ -128,7 +131,7 @@ def _page_payload(
         page["subtitle"] = (
             f"{downloads_subtitle(rows, coming)} · some may be missing" if rows else soon
         )
-    return page, _ring(with_retrying(conn, data), asked_at, index, admin=admin)
+    return page, _ring(data, asked_at, index, admin=admin)
 
 
 def _former_id(item: dict[str, object]) -> str | None:
@@ -197,7 +200,6 @@ def _for_viewer(payload: DownloadsResponse) -> None:
         )
         item.pop("tmdb_id", None)
         item.pop("queued_since", None)
-        item.pop("retry_key", None)
     for item in [*items, *payload["recent"]]:
         item.update(strip.for_viewer(item))
 

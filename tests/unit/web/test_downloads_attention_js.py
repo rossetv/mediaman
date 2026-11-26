@@ -42,3 +42,9 @@ def test_it_shows_no_full_bar_and_its_episodes_say_why(page, card) -> None:
     assert shown["bar"] is False
     assert shown["pct"] in (None, "—")
     assert shown["episode"] == "Needs attention"
+
+
+@pytest.mark.parametrize("card", ["hero", "row"])
+@pytest.mark.parametrize("who", ["admin", "viewer"])
+def test_one_mediaman_will_retry_says_so_in_place_of_where_to_fix_it(page, card, who) -> None:
+    assert page["retrying"][who][card]["fix"] == "mediaman will look for another copy"

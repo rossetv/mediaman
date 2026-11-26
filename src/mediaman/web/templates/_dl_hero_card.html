@@ -44,8 +44,9 @@
       </div>
 
       {% if item.state == 'needs_attention' %}
-      <div class="dl-search-hint" data-v="search-hint" {% if not (item.attention or item.attention_hint) %}hidden{% endif %}>
-        <span data-v="search-hint-text" {% if not item.attention %}hidden{% endif %}>{{ item.attention }}</span>{% if item.attention_hint %}<span class="dl-attention-hint" data-v="attention-hint">{{ item.attention_hint }}</span>{% endif %}
+      {% set fix = 'mediaman will look for another copy' if item.retrying else item.attention_hint %}
+      <div class="dl-search-hint" data-v="search-hint" {% if not (item.attention or fix) %}hidden{% endif %}>
+        <span data-v="search-hint-text" {% if not item.attention %}hidden{% endif %}>{{ item.attention }}</span>{% if fix %}<span class="dl-attention-hint" data-v="attention-hint">{{ fix }}</span>{% endif %}
       </div>
       {% else %}
       <div class="dl-search-hint" data-v="search-hint"
