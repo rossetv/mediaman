@@ -201,7 +201,10 @@ function load(opts = {}) {
     AbortController: class { constructor() { this.signal = {}; } abort() { this.signal.aborted = true; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
-    matchMedia: (q) => ({ matches: (!opts.narrow && /min-width/.test(q)) || (!!opts.still && /reduced-motion/.test(q)) }),
+    // A wide, tall screen unless the scenario says it is narrow, or short as a phone on its side.
+    matchMedia: (q) => ({ matches: q.split(',').some((either) => either.split(' and ').every((f) =>
+      /min-width/.test(f) ? !opts.narrow : /max-width/.test(f) ? !!opts.narrow : /min-height/.test(f) ? !opts.short
+        : /max-height/.test(f) ? !!opts.short : /reduced-motion/.test(f) ? !!opts.still : false)) }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900,
     innerWidth: 1280,
@@ -2743,6 +2746,7 @@ const scenarios = {
     };
     return {
       phone: await run({ admin: true, narrow: true }),
+      sideways: await run({ admin: true, short: true }),
       wide: await run({ admin: true }),
       viewer: await run({ narrow: true }),
       waiting: await run({ admin: true, narrow: true, facts: () => new Promise(() => {}) }),

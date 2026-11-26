@@ -1711,6 +1711,8 @@ def test_on_a_phone_an_admin_s_leaving_line_takes_them_to_the_keep_below() -> No
         "link": "Keep it to stop the deletion",
         "focus": "admin-keep",
     }
+    # A phone on its side stacks the page too, so it is a link there as well.
+    assert out["sideways"] == out["phone"]
     assert out["wide"]["link"] is None and out["viewer"]["link"] is None
     assert out["wide"]["words"] == words
     # Before the Keep has come there is nowhere to take the focus.

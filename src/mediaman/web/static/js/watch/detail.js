@@ -1697,11 +1697,12 @@
     return a;
   }
 
-  /* On a phone an admin's Keep is far below, in the facts that come after the actions. */
+  /* On a phone, either way up, an admin's Keep is far below, in the facts that come after the actions. */
   function leavingWords(leaves) {
     var words = el('span', '', leavingText(leaves) + ' ');
     var api = window.MMWatch.admin;
-    if (!isAdmin || !api || !api.keep || !hasFacts(cur) || wide()) {
+    var stacked = window.matchMedia('(max-width: 699.98px), (max-height: 500px)').matches; // as the sheet's own layout
+    if (!api || !api.keep || !hasFacts(cur) || !stacked) {
       words.appendChild(document.createTextNode('Keep it to stop the deletion.'));
       return words;
     }
