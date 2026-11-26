@@ -379,18 +379,13 @@ def test_try_again_in_the_sheet_stands_out_from_its_box() -> None:
     assert _contrast(grey(_rule(css, ".play-on__say .btn--secondary")), box) >= 1.2
 
 
-def test_the_row_of_controls_with_the_tv_button_fits_the_narrowest_phone() -> None:
+def test_a_full_row_of_controls_gives_way_by_what_it_holds_and_not_by_the_width_alone() -> None:
+    # The Subtitles pill, the next episode and the TV button each take room, so the row gives
+    # way by the steps player.js sets as it measures: mute, then the pills, then the skips.
     css = _text("_player.css")
-    # Six 44px targets and the quality pill are wider than the row at 320 unless the row
-    # takes some of the page's side padding and the pill gives up its own.
-    m = re.search(
-        r"@media \(max-width: 349\.98px\) and \(pointer: coarse\) \{([^@]*?)\n\}", css, re.S
-    )
-    assert m, "no rule for the narrowest touch screens"
-    body = m.group(1)
-    assert re.search(r"\.player-controls \{ margin-inline: -(\d+)px; \}", body)
-    assert ".player-play-on:not([hidden])" in body
-    assert re.search(r"\.player-pill \{ padding: 0; \}", body)
-    side = int(re.search(r"margin-inline: -(\d+)px", body).group(1))
-    row = 320 - 2 * 12 + 2 * side
-    assert row >= 6 * 44 + 44
+    row = ".player:not(.is-away) .player-controls"
+    assert "display: none" in _rule(css, f"{row}.is-snug .player-volume")
+    assert "margin-inline: -8px" in _rule(css, f"{row}.is-tight")
+    assert "padding: 0 4px" in _rule(css, f"{row}.is-tight .player-opt .player-pill")
+    assert "display: none" in _rule(css, f"{row}.is-crowded .player-btn--skip")
+    assert re.search(r"min-width:\s*44px", _rule(css, ".player-pill"))

@@ -33,11 +33,12 @@ def test_fields_are_16px_on_touch_screens_whatever_their_width() -> None:
         assert any(selector in b and "font-size: 16px" in b for b in touch), sheet
 
 
-def test_player_keeps_the_mute_on_touch_and_drops_it_only_where_the_row_is_full() -> None:
+def test_player_keeps_the_mute_on_touch_and_leaves_its_room_to_be_measured() -> None:
     blocks = _blocks("_player.css")
-    mute = [head.strip() for head, b in blocks if re.search(r"\.player-volume\s*\{", b)]
-    assert "(max-width: 399.98px) and (pointer: coarse)" in mute
-    assert "(pointer: coarse)" not in mute
+    mute = [
+        head.strip() for head, b in blocks if re.search(r"\.player-volume\s*\{\s*display: none", b)
+    ]
+    assert mute == []
     assert any(
         "(max-width: 419.98px) and (pointer: coarse)" in head and "gap: 0" in b
         for head, b in blocks

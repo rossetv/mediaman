@@ -808,18 +808,15 @@
 @media (max-width: 350px), (max-width: 419.98px) and (pointer: coarse) {
   .player-controls { gap: 0; }
 }
-/* Under 400 the 44px buttons and the mute do not fit one row: the mute goes, as it did before. */
-@media (max-width: 399.98px) and (pointer: coarse) {
-  .player:not(.is-away) .player-volume { display: none; }
-}
 @media (max-width: 350px) and (pointer: fine) {
   .player-controls .player-btn:not([data-fullscreen]) { min-width: 38px; }
 }
-/* With the TV button too, six 44px targets and the quality pill need 308px: the row takes 8px of the page's side padding. */
-@media (max-width: 349.98px) and (pointer: coarse) {
-  .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-controls { margin-inline: -8px; }
-  .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-pill { padding: 0; }
-}
+/* What player.js sets, step by step, while the row has no room for every control. */
+.player:not(.is-away) .player-controls.is-snug .player-volume { display: none; }
+.player:not(.is-away) .player-controls.is-tight { gap: 0; margin-inline: -8px; }
+.player:not(.is-away) .player-controls.is-tight .player-opt .player-pill { padding: 0 4px; }
+/* Not a second line, which would run into the pills and cards stacked over the row. */
+.player:not(.is-away) .player-controls.is-crowded .player-btn--skip { display: none; }
 
 /* A phone on its side: the next-episode card keeps to the right, its picture beside the words. */
 @media (max-height: 520px) {
