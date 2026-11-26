@@ -123,7 +123,15 @@ WIDE_INSETS = [SIDEWAYS_TALL, UPRIGHT]
 def test_the_search_sheet_ends_where_it_did_whatever_the_top_inset_pushes_it_down(
     phone, insets
 ) -> None:
-    assert _sheet_foot(insets, phone, False) == _sheet_foot(NO_INSETS, phone, False)
+    level = {**insets, "top": 0}
+    assert _sheet_foot(insets, phone, False) == _sheet_foot(level, phone, False)
+
+
+@pytest.mark.parametrize(("phone", "insets"), [(p, i) for p in (False, True) for i in WIDE_INSETS])
+def test_the_search_sheet_ends_above_the_home_indicator_with_its_rounded_edge_on_screen(
+    phone, insets
+) -> None:
+    assert _sheet_foot(insets, phone, False) <= SCREEN - max(16, insets["bottom"])
 
 
 @pytest.mark.parametrize(("phone", "insets"), [(p, i) for p in (False, True) for i in WIDE_INSETS])

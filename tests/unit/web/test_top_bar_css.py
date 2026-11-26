@@ -57,3 +57,16 @@ def test_settings_scrolls_nothing_for_a_step_back_into_the_bar() -> None:
 
 def test_no_sheet_leans_on_a_height_at_the_foot_that_is_never_set() -> None:
     assert [p.name for p in CSS.glob("*.css") if "--foot" in p.read_text(encoding="utf-8")] == []
+
+
+def test_the_logo_back_and_profile_buttons_dim_under_a_pointer_only() -> None:
+    # A tap on a phone leaves :hover on, so a rule outside the media query would stay dimmed.
+    css = _css("_nav.css")
+    outside = re.sub(
+        r"@media \((?:hover: hover|prefers-reduced-motion: reduce)\) \{(?:[^{}]|\{[^{}]*\})*\}",
+        "",
+        css,
+    )
+    for selector in (".brand", ".nav-back", ".nav-noscript", ".profile-btn"):
+        assert not re.search(re.escape(selector) + r":hover", outside), selector
+        assert re.search(r"@media \(hover: hover\) \{[^@]*" + re.escape(selector) + ":hover", css)

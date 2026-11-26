@@ -46,7 +46,7 @@
   transition: transform var(--dur-slow) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .nav-glass.is-scrolled .brand { transform: none; }
-.nav-glass .brand:hover { color: color-mix(in srgb, var(--t1) 85%, transparent); }
+@media (hover: hover) { .nav-glass .brand:hover { color: color-mix(in srgb, var(--t1) 85%, transparent); } }
 .nav-glass .brand:active { color: color-mix(in srgb, var(--t1) 65%, transparent); }
 .nav-glass .brand > .ico { filter: drop-shadow(0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent)); }
 /* Its own island once the page has moved under it, where a poster could take its words. */
@@ -85,9 +85,11 @@
 .nav-back { margin-right: auto; }
 .nav-noscript { padding: 0 18px; }
 .nav-back > .ico { font-size: 11px; transition: transform var(--dur) var(--ease-out); }
-.nav-back:hover,
-.nav-noscript:hover { background: color-mix(in srgb, var(--s4) 60%, transparent); }
-.nav-back:hover > .ico { transform: translateX(-2px); }
+@media (hover: hover) {
+  .nav-back:hover,
+  .nav-noscript:hover { background: color-mix(in srgb, var(--s4) 60%, transparent); }
+  .nav-back:hover > .ico { transform: translateX(-2px); }
+}
 .nav-back:active { transform: scale(.97); }
 .nav-back:focus-visible { outline-offset: 2px; border-radius: var(--r-pill); }
 
@@ -120,8 +122,8 @@
   color: var(--t2);
   transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.profile-btn:hover,
 .profile-btn[aria-expanded="true"] { color: var(--t1); }
+@media (hover: hover) { .profile-btn:hover { color: var(--t1); } }
 .profile-btn:active { transform: scale(.97); }
 .profile-btn:focus-visible { outline-offset: 2px; border-radius: var(--r-pill); }
 .profile-btn-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

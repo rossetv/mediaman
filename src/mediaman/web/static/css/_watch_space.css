@@ -184,6 +184,10 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--s5) transparent;
+  /* A fade at the foot while more is below: the shade stays on the pane, the cover goes with the content's end. */
+  background:
+    linear-gradient(var(--s1), var(--s1)) local 0 100% / 100% 36px no-repeat,
+    linear-gradient(to bottom, transparent, color-mix(in srgb, var(--t1) 10%, var(--s1))) scroll 0 100% / 100% 32px no-repeat;
   opacity: 0;
   pointer-events: none;
   transform: translateX(calc(var(--dir, 1) * 14px));
@@ -485,6 +489,20 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
 
 /* A panel too short to hold the stage scrolls; on a phone on its side the sheet is the whole screen. */
 @media (max-height: 760px) and (min-width: 700px) { .space-stage { min-height: 600px; } }
+
+/* A phone on its side: the head is smaller, so the list of categories starts inside the pane. */
+@media (max-height: 500px) {
+  .space__head { padding-top: 6px; padding-bottom: 2px; }
+  .space-pane { padding-top: 4px; padding-bottom: 12px; }
+  .space-notice { padding: 8px 12px; margin-bottom: 10px; }
+  .space-fig { min-height: 52px; margin-bottom: 2px; }
+  .space-fig__n { font-size: 28px; }
+  .space-fig__n small { font-size: 15px; }
+  .space-fig__line { margin-top: 2px; }
+  .space-bar, .space-seg { height: 44px; }
+  .space-seg::before { inset: 11px 0; }
+  .space__foot { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
+}
 
 /* ── Phone: a bottom sheet ── */
 
