@@ -82,6 +82,10 @@ a.cast-card__poster:active { transform: scale(.98); }
 .explore-gathering__out:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xxs); }
 .explore-years { position: relative; flex: none; }
 .explore-years__select { height: 44px; padding: 0 34px 0 16px; border: 0; border-radius: var(--r-pill); background: var(--s2); color: var(--t2); font: 500 14px var(--font-text); appearance: none; -webkit-appearance: none; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+@media (max-width: 639.98px), (pointer: coarse) {
+  /* 16px stops iOS zooming the page when a field is focused */
+  .explore-years__select { font-size: 16px; }
+}
 .explore-years__select:hover { color: var(--t1); }
 .explore-years__select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .explore-years > .ico { position: absolute; right: 13px; top: 16px; font-size: 12px; color: var(--t3); pointer-events: none; }

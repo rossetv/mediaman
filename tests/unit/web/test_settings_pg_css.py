@@ -346,3 +346,17 @@ def test_no_stylesheet_styles_the_unused_form_input_select_and_threshold_classes
         text = sheet.read_text()
         for name in (".form-input", ".form-select", ".threshold-input"):
             assert name not in text, (sheet.name, name)
+
+
+def test_the_share_link_field_and_the_years_select_are_16px_where_touch_would_zoom() -> None:
+    for sheet, field in (
+        ("_watch_detail.css", r"\.ttl-share__input"),
+        ("_watch_explore.css", r"\.explore-years__select"),
+    ):
+        css = _strip(sheet)
+        pattern = (
+            r"@media \(max-width: 639\.98px\), \(pointer: coarse\) \{\s*"
+            + field
+            + r" \{[^{}]*font-size: 16px"
+        )
+        assert re.search(pattern, css), sheet

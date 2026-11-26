@@ -558,6 +558,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl-share { display: flex; flex-direction: column; gap: 6px; max-width: 520px; }
 .ttl-share__label { font-size: 13px; color: var(--t2); }
 .ttl-share__input { min-height: 44px; font-size: 14px; }
+@media (max-width: 639.98px), (pointer: coarse) {
+  /* 16px stops iOS zooming the page when a field is focused */
+  .ttl-share__input { font-size: 16px; }
+}
 
 /* ── Admin facts (admins only) ── */
 
