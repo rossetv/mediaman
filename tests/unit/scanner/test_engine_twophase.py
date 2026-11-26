@@ -70,6 +70,9 @@ class TestDeleteRootsSeparator:
         monkeypatch,
         caplog,
     ):
+        import mediaman.scanner.repository.settings as roots_settings
+
+        monkeypatch.setattr(roots_settings, "_said_deletion_off", False)
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
         with caplog.at_level("INFO", logger="mediaman"):
             roots = repository.read_delete_allowed_roots_setting(conn)

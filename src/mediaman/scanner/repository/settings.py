@@ -9,6 +9,9 @@ import sqlite3
 
 logger = logging.getLogger(__name__)
 
+# The roots are read several times each scan; that deletion is off is said once.
+_said_deletion_off = False
+
 
 def read_setting(conn: sqlite3.Connection, key: str) -> str | None:
     """Return the raw ``settings.value`` for *key*, or ``None`` if absent.
@@ -43,7 +46,8 @@ def read_delete_allowed_roots_setting(
        list as fail-closed and refuse every deletion (path safety
        contract). Letting an unconfigured installation silently accept
        ``/`` would be catastrophic. With the variable unset, which is the
-       default install, that scheduled deletion is off is logged at info;
+       default install, that scheduled deletion is off is logged at info,
+       once per process;
        set with nothing valid in it, an error is logged.
 
     ``quiet=True`` silences every log line of this read (bad JSON, an
@@ -82,7 +86,9 @@ def read_delete_allowed_roots_setting(
                     "parsed from %r — deletions will be refused.",
                     env_val,
                 )
-    if not roots and not env_val and not quiet:
+    global _said_deletion_off
+    if not roots and not env_val and not quiet and not _said_deletion_off:
+        _said_deletion_off = True
         logger.info(
             "Scheduled deletion is off until MEDIAMAN_DELETE_ROOTS is set "
             "(the folders it may delete from, separated by ':')."

@@ -489,6 +489,12 @@ class TestIsShowKept:
 
 
 class TestReadDeleteAllowedRoots:
+    @pytest.fixture(autouse=True)
+    def _deletion_off_not_yet_said(self, monkeypatch):
+        import mediaman.scanner.repository.settings as roots_settings
+
+        monkeypatch.setattr(roots_settings, "_said_deletion_off", False)
+
     def test_reads_json_from_db(self, conn, monkeypatch):
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
         conn.execute(
@@ -529,6 +535,20 @@ class TestReadDeleteAllowedRoots:
         message = caplog.records[0].getMessage()
         assert "MEDIAMAN_DELETE_ROOTS" in message
         assert "delete_allowed_roots" not in message
+
+    def test_deletion_off_is_said_once_however_often_the_roots_are_read(
+        self, conn, monkeypatch, caplog
+    ):
+        import logging
+
+        conn.execute("DELETE FROM settings WHERE key='delete_allowed_roots'")
+        conn.commit()
+        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
+        with caplog.at_level(logging.DEBUG, logger="mediaman.scanner.repository.settings"):
+            repository.read_delete_allowed_roots_setting(conn)
+            roots = repository.read_delete_allowed_roots_setting(conn)
+        assert roots == []
+        assert [r.levelno for r in caplog.records] == [logging.INFO]
 
     def test_an_env_var_with_no_valid_root_is_an_error_and_not_called_unset(
         self, conn, monkeypatch, caplog
