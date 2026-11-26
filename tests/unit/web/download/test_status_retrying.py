@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import generate_poll_token
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.download import reset_download_caches
 from mediaman.web.routes.download import router as download_router
 from tests.helpers.factories import insert_settings
@@ -42,32 +44,41 @@ def conn(db_path):
 
 
 @pytest.fixture
-def poll(conn, secret_key):
+def app_of(conn, secret_key):
+    """The status API, with Sonarr's and Radarr's queue the list given."""
     reset_download_caches()
     app = FastAPI()
     app.include_router(download_router)
     app.state.config = Config(secret_key=secret_key)
     app.state.db = conn
     sonarr, radarr = MagicMock(), MagicMock()
-
-    def ask(service: str, queue: list[dict]) -> dict:
-        reset_download_caches()
-        (sonarr if service == "sonarr" else radarr).get_queue.return_value = queue
-        tmdb_id = 63726 if service == "sonarr" else 550
-        token = generate_poll_token(
-            media_item_id="", service=service, tmdb_id=tmdb_id, secret_key=secret_key
-        )
-        url = f"/api/download/status?service={service}&tmdb_id={tmdb_id}&poll_token={token}"
-        return TestClient(app).get(url).json()
-
     radarr.get_movie_by_tmdb.return_value = {"id": 3, "tmdbId": 550, "hasFile": False}
+
+    def of(queue: list[dict]) -> FastAPI:
+        reset_download_caches()
+        sonarr.get_queue.return_value = radarr.get_queue.return_value = queue
+        return app
+
     status = "mediaman.web.routes.download.status"
     with (
         patch(f"{status}.build_sonarr_from_db", return_value=sonarr),
         patch(f"{status}.build_radarr_from_db", return_value=radarr),
     ):
-        yield ask
+        yield of
     reset_download_caches()
+
+
+@pytest.fixture
+def poll(app_of, secret_key):
+    def ask(service: str, queue: list[dict]) -> dict:
+        tmdb_id = 63726 if service == "sonarr" else 550
+        token = generate_poll_token(
+            media_item_id="", service=service, tmdb_id=tmdb_id, secret_key=secret_key
+        )
+        url = f"/api/download/status?service={service}&tmdb_id={tmdb_id}&poll_token={token}"
+        return TestClient(app_of(queue)).get(url).json()
+
+    return ask
 
 
 def _tried(conn, key: str, tries: int) -> None:
@@ -107,3 +118,14 @@ def test_a_stuck_film_is_tried_again_only_while_it_has_tries_left(poll, conn):
     conn.execute("UPDATE arr_import_retries SET tries = 0")
     conn.commit()
     assert poll("radarr", [film])["retrying"] is True
+
+
+def test_a_signed_in_viewer_is_not_told_what_sonarr_says(app_of, conn):
+    create_user(conn, "vera", "password1234", enforce_policy=False)
+    conn.execute("UPDATE admin_users SET role = 'viewer' WHERE username = 'vera'")
+    conn.commit()
+    client = TestClient(app_of([_stuck()]))
+    client.cookies.set("session_token", create_session(conn, "vera"))
+    data = client.get("/api/download/status?service=sonarr&tmdb_id=63726").json()
+    assert data["state"] == "needs_attention"
+    assert (data["attention"], data["attention_hint"]) == ("", "")

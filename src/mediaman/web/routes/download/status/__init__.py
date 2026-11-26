@@ -28,6 +28,7 @@ from mediaman.services.downloads.notifications import requested_tvdb_id
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.responses import respond_err
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
 from mediaman.web.routes.download._season import season_of_media_id
@@ -308,7 +309,7 @@ def download_status(
         # and surface as a 500 to the polling client.
         logger.exception("download_status error (service=%s tmdb_id=%s)", service, tmdb_id)
         result = _UNKNOWN_ITEM
-    if not admin:
+    if not admin or get_user_role(conn, admin) != "admin":
         # What Radarr or Sonarr says is wrong is an admin's to read and act on.
         result = {**result, "arr_source": "", "attention": "", "attention_hint": ""}
 
