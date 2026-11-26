@@ -1305,7 +1305,7 @@ const scenarios = {
     code.value = '123456';
     await pair.on('.play-on [data-key="code"]', 'input', {});
     await settle();
-    return { busy: keys(busy), pair: keys(pair) };
+    return { busy: keys(busy), pair: keys(pair), focus: pair.doc.activeElement.getAttribute('data-key') };
   },
   async paintsTitles() {
     const p = await page();

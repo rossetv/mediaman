@@ -803,7 +803,7 @@
       p.busy = false;
       if (!sheet || sheet.pairing !== p) return;
       draw();
-      focusKey(p.tv ? 'play' : p.take ? 'take' : 'code');
+      focusKey(p.tv ? 'play' : p.take ? 'unsay' : 'code');
     });
   }
 

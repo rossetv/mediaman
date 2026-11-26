@@ -589,4 +589,9 @@ def test_both_are_hidden_until_something_plays(node_id: str) -> None:
 
 
 def test_cancel_comes_before_taking_a_tv_from_someone() -> None:
-    assert _run("takeOrder") == {"busy": ["unsay", "take"], "pair": ["unsay", "take"]}
+    got = _run("takeOrder")
+    assert (got["busy"], got["pair"]) == (["unsay", "take"], ["unsay", "take"])
+
+
+def test_a_pairing_that_would_take_a_tv_from_someone_starts_on_cancel() -> None:
+    assert _run("takeOrder")["focus"] == "unsay"
