@@ -430,6 +430,8 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
     emit(name, data) {
       /* Like hls.js: loading starts at the configured place, once the levels are known. */
       if (name === 'hlsManifestParsed') this.startsAt = this.config.startPosition;
+      /* Like hls.js: stopped, it loads nothing, so nothing it loads fails. */
+      if (name === 'hlsError' && this.stopped) return;
       if (this.handlers[name]) this.handlers[name](name, data || {});
     }
     loadSource(src) { this.src = src; }
@@ -4963,7 +4965,7 @@ const scenarios = {
     await settle();
     out.whileOnTv = {
       starts: p.starts().length, stops: p.calls.filter((c) => /\/stop$/.test(c.url)).length,
-      casts: e.starts().length, hls: p.hlsList.length,
+      casts: e.starts().length, hls: p.hlsList.length, stopped: h.stopped,
       saved: p.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => c.body).pop(),
     };
     /* The TV gives the picture back: hls.js plays it here again from where the TV got to. */
@@ -5009,6 +5011,85 @@ const scenarios = {
     await settle();
     return { offered: offered, at: v.currentTime, stopped: h.stopped, streams: p.hlsList.length };
   },
+
+  /* While the TV plays, the stream ends here with a 410: taken by another page, or gone. */
+  /* Safari says a target took the video, and plays it on here: a sound-only one, such as a
+     HomePod, or a TV lost before the switch. `back` is the change back that follows at once. */
+  async away_airplay_stays(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const v = p.video;
+    const e = p.elsewhere;
+    await streamPlays(p, 30);
+    const h = p.hlsList[0];
+    v.currentTime = 34;
+    e.ownOnTv(true, v);
+    await settle();
+    const out = { held: h.stopped };
+    v.currentTime = 35;
+    p.tick(1000);
+    e.ownOnTv(false, v);
+    await settle();
+    out.back = { stopped: h.stopped, from: h.loads[h.loads.length - 1], starts: p.starts().length };
+    /* Again, and Safari stays on what hls.js feeds with the target kept. */
+    e.ownOnTv(true, v);
+    await settle();
+    v.currentTime = 40;
+    p.tick(6000);
+    await settle();
+    out.stayed = { stopped: h.stopped, from: h.loads[h.loads.length - 1], starts: p.starts().length };
+    /* hls.js is the player's again: a lost connection is no longer the TV's to ignore. */
+    h.emit('hlsError', loadError('fragLoadError', 0));
+    out.lostSeen = h.stopped;
+    return out;
+  },
+
+  /* The TV takes the video only after the player went on loading here. */
+  async away_airplay_late(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const v = p.video;
+    const e = p.elsewhere;
+    await streamPlays(p, 30);
+    const h = p.hlsList[0];
+    e.ownOnTv(true, v);
+    await settle();
+    p.tick(6000);
+    await settle();
+    const out = { loading: !h.stopped };
+    v.currentSrc = 'http://mm/api/cast/A1/index.m3u8';
+    fire(v, 'loadedmetadata');
+    await settle();
+    out.stopped = h.stopped;
+    p.tick(6000);
+    await settle();
+    out.still = h.stopped;
+    e.ownOnTv(false, v);
+    await settle();
+    out.starts = p.starts().length;
+    return out;
+  },
+
+  /* The server was busy, and a TV took the video before the wait it asked for was over. */
+  async away_airplay_busy(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const v = p.video;
+    await streamPlays(p, 30);
+    const h = p.hlsList[0];
+    h.emit('hlsError', loadError('fragLoadError', 429, { error: 'rate_limited' }, { 'retry-after': '3' }));
+    const loads = h.loads.length;
+    p.elsewhere.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+    await settle();
+    p.tick(4000);
+    await settle();
+    return { stopped: h.stopped, loads: h.loads.length - loads };
+  },
+
+  /* The connection was lost, by a segment or the playlist, and a TV took the video before the
+     player tried again. */
+  away_airplay_lost: (p) => lostBeforeTv(p, 'fragLoadError'),
+  away_airplay_lost_playlist: (p) => lostBeforeTv(p, 'manifestLoadError'),
+
+  away_airplay_replaced: (p) => ownTvEnds(p, { ok: false, error: 'replaced', by: 'another-page' }),
+  away_airplay_gone: (p) => ownTvEnds(p, { error: 'gone' }),
 
   /* Chrome, or Safari without ManagedMediaSource: no address for a TV, and no change. */
   async away_airplay_plain(p) {
@@ -6366,6 +6447,44 @@ const scenarios = {
     return introState(p);
   },
 };
+
+/* The player's own video plays on an AirPlay TV, and its stream answers 410 with *body*. */
+async function lostBeforeTv(p, details) {
+  p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+  const v = p.video;
+  await streamPlays(p, 30);
+  const h = p.hlsList[0];
+  h.emit('hlsError', loadError(details, 0));
+  const loads = h.loads.length;
+  p.elsewhere.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+  await settle();
+  p.tick(4000);
+  await settle();
+  return {
+    stopped: h.stopped, loads: h.loads.length - loads, hls: p.hlsList.length,
+    offered: v.querySelectorAll('source').map((s) => s.src),
+  };
+}
+
+async function ownTvEnds(p, body) {
+  p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+  const v = p.video;
+  await streamPlays(p, 30);
+  p.elsewhere.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+  await settle();
+  p.replies.push({ ok: { stream_id: 's2', playlist: '/p2', airplay: '/api/cast/A2/index.m3u8' } });
+  /* hls.js is stopped and hears nothing: the TV is refused, and Safari says the video failed. */
+  const playlist = p.hlsList[0].src;
+  p.pages[playlist] = { status: 410, html: JSON.stringify(body) };
+  /* The 410 the TV's reads met: the stopped hls.js says nothing of it. */
+  p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, body));
+  fire(v, 'error');
+  await settle();
+  return {
+    message: messageState(p), starts: p.starts().length, destroyed: p.hlsList[0].destroyed,
+    asked: p.calls.filter((c) => c.page && c.url === playlist).length,
+  };
+}
 
 function introState(p) {
   return { intro: p.root.classList.contains('is-intro'), starting: p.root.classList.contains('is-starting'), loading: p.root.classList.contains('is-loading') };

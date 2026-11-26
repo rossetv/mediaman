@@ -2364,7 +2364,7 @@ def test_airplay_in_the_sheet_sends_the_players_own_video_to_the_tv(markup):
 def test_while_the_tv_plays_nothing_here_restarts_and_the_place_is_saved(markup):
     out = elsewhere(markup, "away_airplay_own", "mms")
     saved = out["whileOnTv"].pop("saved")
-    assert out["whileOnTv"] == {"starts": 1, "stops": 0, "casts": 0, "hls": 1}
+    assert out["whileOnTv"] == {"starts": 1, "stops": 0, "casts": 0, "hls": 1, "stopped": True}
     assert saved["stream_id"] == "s1"
     assert saved["position_s"] > 40
 
@@ -2383,6 +2383,47 @@ def test_another_quality_while_the_tv_plays_goes_on_there_at_the_same_place(mark
     out = elsewhere(markup, "away_airplay_own_quality", "mms")
     assert out["offered"] == ["blob:mms", "/api/cast/A2/index.m3u8"]
     assert (out["at"], out["stopped"], out["streams"]) == (300, True, 2)
+
+
+def test_a_target_that_leaves_the_video_here_has_hls_load_again_from_the_place(markup):
+    out = elsewhere(markup, "away_airplay_stays", "mms")
+    assert out["held"] is True
+    # Back at once, from what hls.js feeds: it loads again, with no new stream.
+    assert out["back"] == {"stopped": False, "from": 35, "starts": 1}
+    # Kept, while Safari stays on what hls.js feeds: it loads again a moment later.
+    assert out["stayed"] == {"stopped": False, "from": 40, "starts": 1}
+    assert out["lostSeen"] is True
+
+
+def test_a_tv_that_takes_the_video_late_stops_the_loading_here_again(markup):
+    out = elsewhere(markup, "away_airplay_late", "mms")
+    assert out == {"loading": True, "stopped": True, "still": True, "starts": 2}
+
+
+def test_a_wait_the_busy_server_asked_for_loads_nothing_once_the_tv_plays(markup):
+    out = elsewhere(markup, "away_airplay_busy", "mms")
+    assert out == {"stopped": True, "loads": 0}
+
+
+@pytest.mark.parametrize("scenario", ["away_airplay_lost", "away_airplay_lost_playlist"])
+def test_a_try_after_a_lost_connection_loads_nothing_once_the_tv_plays(markup, scenario):
+    out = elsewhere(markup, scenario, "mms")
+    assert out == {
+        "stopped": True,
+        "loads": 0,
+        "hls": 1,
+        "offered": ["blob:mms", "/api/cast/A1/index.m3u8"],
+    }
+
+
+def test_a_title_taken_by_another_page_while_the_tv_plays_says_so_here(markup):
+    out = elsewhere(markup, "away_airplay_replaced", "mms")
+    assert out == {"message": REPLACED, "starts": 1, "destroyed": True, "asked": 1}
+
+
+def test_a_stream_gone_while_the_tv_plays_is_started_again(markup):
+    out = elsewhere(markup, "away_airplay_gone", "mms")
+    assert (out["message"], out["starts"], out["asked"]) == (None, 2, 1)
 
 
 @pytest.mark.parametrize("mode", ["tvs", "plain"])

@@ -828,3 +828,34 @@ def test_a_players_airplay_address_reads_its_own_stream_alone(alice, tv):
     assert tv.get(second["airplay"]).status_code == 200
     # The stream's id is no ticket.
     assert tv.get(f"/api/cast/{first['stream_id']}/index.m3u8").status_code == 404
+
+
+def test_an_airplay_address_that_ran_out_is_refused_and_leaves_the_players_stream(alice, tv, clock):
+    started = _watch(alice, airplay=True)
+    url = started["airplay"]
+    assert tv.get(url).status_code == 200
+    clock.now += TICKET_SECONDS
+    # Whoever still holds the old address reads nothing, and ends nothing.
+    for path in (url, _segment_url(url), url):
+        assert tv.get(path).status_code == 404
+    assert alice.get(started["playlist"]).status_code == 200
+
+
+@pytest.mark.parametrize("address", [str, _segment_url], ids=["playlist", "segment"])
+def test_a_paused_airplay_tv_keeps_the_stream_as_long_as_a_cast(alice, tv, clock, address):
+    started = _watch(alice, airplay=True)
+    assert tv.get(address(started["airplay"])).status_code == 200
+    # A paused TV reads nothing, and a paused phone saves nothing.
+    clock.now += TV_IDLE_TIMEOUT_SECONDS - 1
+    assert plex_stream.get_stream_manager().reap() == 0
+    assert tv.get(started["airplay"]).status_code == 200
+
+
+def test_a_player_that_may_airplay_but_reads_alone_is_reaped_as_any_player(alice, tv, clock):
+    started = _watch(alice, airplay=True)
+    playlist = alice.get(started["playlist"])
+    segment = next(line for line in playlist.text.splitlines() if line.startswith("/"))
+    assert alice.get(segment).status_code == 200
+    tv.head(started["airplay"])
+    clock.now += IDLE_TIMEOUT_SECONDS + 1
+    assert plex_stream.get_stream_manager().reap() == 1

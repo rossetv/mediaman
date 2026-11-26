@@ -335,8 +335,11 @@ def _start(
             quality, rows = playing, without_original(rows)
     airplay = None
     if body.airplay:
-        # Bound to this one stream and this session: it ends with either, as a Cast's does.
-        token = get_ticket_store().issue(stream_id, username, session_hash, live=stream_lives)
+        # Bound to this one stream and this session: it ends with either, as a Cast's does. The
+        # stream is the player's, so the ticket's running out leaves it.
+        token = get_ticket_store().issue(
+            stream_id, username, session_hash, live=stream_lives, holds_stream=False
+        )
         airplay = f"/api/cast/{token}/index.m3u8"
     return respond_ok(
         {
@@ -398,10 +401,15 @@ async def _claim_read(manager: StreamManager, read: SegmentRead) -> None:
             del _waiting[stream_id]
 
 
-async def _read_segment(request: Request, stream_id: str, user: str, name: str) -> Response:
-    """Read a segment for as long as the client waits for it; its stream's end raises."""
+async def _read_segment(
+    request: Request, stream_id: str, user: str, name: str, *, by_tv: bool = False
+) -> Response:
+    """Read a segment for as long as the client waits for it; its stream's end raises.
+
+    *by_tv* is a read by a TV with a ticket, as ``StreamManager.playlist``'s.
+    """
     manager = get_stream_manager()
-    read = SegmentRead(stream_id, user)
+    read = SegmentRead(stream_id, user, by_tv=by_tv)
     watch = asyncio.create_task(_cancel_on_disconnect(request, read))
     try:
         await _claim_read(manager, read)
