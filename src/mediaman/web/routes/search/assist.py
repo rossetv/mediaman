@@ -127,6 +127,10 @@ def _has_openai_key(request: Request, conn: sqlite3.Connection) -> bool:
     return True
 
 
+def _tmdb(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
+    return TmdbClient.from_db(conn, _secret(request), timeout=_TMDB_TIMEOUT_S, retry=False)
+
+
 def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
     """TMDB's client where the AI can be used: it answers only with titles TMDB knows. Not
     while OpenAI is known to refuse the key."""
@@ -136,7 +140,7 @@ def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
         or key_refused(conn, _secret(request))
     ):
         return None
-    return TmdbClient.from_db(conn, _secret(request), timeout=_TMDB_TIMEOUT_S, retry=False)
+    return _tmdb(request, conn)
 
 
 def _forget(user_id: int) -> None:
@@ -260,6 +264,8 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
         {
             "account": _account(request, user_id, username),
             "available": available,
+            # Tonight needs TMDB alone: the model has no part in it.
+            "tonight": _tmdb(request, conn) is not None,
             "why": None if available else _why_off(request, conn, username),
             "history": repo.uses_history(conn, user_id),
             "records": _records(request, conn, user_id),
@@ -700,9 +706,9 @@ def api_tonight(
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
-    client = _client(request, conn)
+    client = _tmdb(request, conn)
     if client is None:
-        return _unavailable(request, conn, username)
+        return respond_err("unavailable", status=409)
     if not _TONIGHT_LIMITER.check(username):
         return _too_many()
     index = _index(conn, client)
@@ -744,9 +750,9 @@ def api_tonight_elsewhere(
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
-    client = _client(request, conn)
+    client = _tmdb(request, conn)
     if client is None:
-        return _unavailable(request, conn, username)
+        return respond_err("unavailable", status=409)
     if not _ELSEWHERE_LIMITER.check(username):
         return _too_many()
     own = person_marks(conn, username)

@@ -18,10 +18,22 @@
   font-size: 13px;
   color: var(--t2);
   white-space: nowrap;
+  isolation: isolate;
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.space-meter:hover,
-.space-meter[aria-expanded="true"] { background: var(--s2); color: var(--t1); }
+/* Its lit pill is drawn with the profile button's (_nav.css). Here, beside the search field, both
+   grow on the field's spring. */
+.space-meter[aria-expanded="true"] { color: var(--t1); }
+.wbar .space-meter::before,
+.wbar .profile-btn::before { transition: opacity var(--dur) var(--ease-out), transform var(--dur-open) var(--ease-spring); }
+.wbar .profile-ava { transition: transform var(--dur-open) var(--ease-spring); }
+/* Under a pointer the bar thickens a hair and its fill brightens; the sign comes forward. */
+@media (hover: hover) {
+  .space-meter:hover { color: var(--t1); }
+  .space-meter:hover .space-meter__fill { filter: brightness(1.22) saturate(1.1); }
+  .space-meter:hover .space-meter__bar { transform: scaleY(1.34); }
+  .space-meter:hover > .ico { transform: scale(1.12); }
+}
 .space-meter:active { transform: scale(.97); }
 .space-meter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-pill); }
 .space-meter__skel { width: 128px; height: 8px; border-radius: var(--r-pill); background: var(--s3); }
@@ -32,6 +44,7 @@
   border-radius: var(--r-pill);
   background: color-mix(in srgb, var(--t1) 16%, transparent);
   overflow: hidden;
+  transition: transform var(--dur-open) var(--ease-spring);
 }
 .space-meter__fill {
   display: block;
@@ -40,8 +53,9 @@
   background: color-mix(in srgb, var(--t1) 82%, transparent);
   transform: scaleX(var(--used, 0));
   transform-origin: 0 50%;
+  transition: filter var(--dur) var(--ease-out);
 }
-.space-meter > .ico { font-size: 14px; }
+.space-meter > .ico { font-size: 14px; transition: transform var(--dur-open) var(--ease-spring); }
 .space-meter__leaving { color: var(--t3); }
 .space-meter__leaving::before { content: "·"; margin-right: 10px; }
 .space-meter--warn .space-meter__fill { background: var(--orange); }
@@ -96,10 +110,10 @@ html.has-space { overflow: hidden; }
 /* The Keep menu and the toasts stay above the panel; the toasts beside it. */
 html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 @media (min-width: 700px) {
-  html.has-space body .ui-toast-host { right: auto; left: 24px; }
+  html.has-space body .ui-toast-host { right: auto; left: max(24px, env(safe-area-inset-left, 0px)); }
 }
 @media (max-width: 699.98px) {
-  html.has-space body .ui-toast-host { --toast-top: 60px; top: var(--toast-top); bottom: auto; justify-content: flex-start; }
+  html.has-space body .ui-toast-host { --toast-top: calc(60px + env(safe-area-inset-top, 0px)); top: var(--toast-top); bottom: auto; justify-content: flex-start; }
 }
 
 .space { position: fixed; inset: 0; z-index: var(--z-modal-backdrop); }
@@ -115,9 +129,9 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 .space.is-open .space__veil { opacity: 1; }
 .space__panel {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
   width: min(520px, calc(100vw - 24px));
   display: flex;
   flex-direction: column;
@@ -184,6 +198,10 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--s5) transparent;
+  /* A fade at the foot while more is below: the shade stays on the pane, the cover goes with the content's end. */
+  background:
+    linear-gradient(var(--s1), var(--s1)) local 0 100% / 100% 36px no-repeat,
+    linear-gradient(to bottom, transparent, color-mix(in srgb, var(--t1) 10%, var(--s1))) scroll 0 100% / 100% 32px no-repeat;
   opacity: 0;
   pointer-events: none;
   transform: translateX(calc(var(--dir, 1) * 14px));
@@ -486,6 +504,20 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
 /* A panel too short to hold the stage scrolls; on a phone on its side the sheet is the whole screen. */
 @media (max-height: 760px) and (min-width: 700px) { .space-stage { min-height: 600px; } }
 
+/* A phone on its side: the head is smaller, so the list of categories starts inside the pane. */
+@media (max-height: 500px) {
+  .space__head { padding-top: 6px; padding-bottom: 2px; }
+  .space-pane { padding-top: 4px; padding-bottom: 12px; }
+  .space-notice { padding: 8px 12px; margin-bottom: 10px; }
+  .space-fig { min-height: 52px; margin-bottom: 2px; }
+  .space-fig__n { font-size: 28px; }
+  .space-fig__n small { font-size: 15px; }
+  .space-fig__line { margin-top: 2px; }
+  .space-bar, .space-seg { height: 44px; }
+  .space-seg::before { inset: 11px 0; }
+  .space__foot { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
+}
+
 /* ── Phone: a bottom sheet ── */
 
 @media (max-width: 699.98px) {
@@ -542,6 +574,8 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
 @media (prefers-reduced-motion: reduce) {
   .space__panel,
   .space-pane { transform: none; }
+  .space-meter:hover .space-meter__bar,
+  .space-meter:hover > .ico { transform: none; }
   .space-meter--scanning > :is(.space-meter__bar, .ico:first-child),
   .space__scan.is-busy > .ico { animation: loading-pulse 1.6s ease-in-out infinite !important; }
 }

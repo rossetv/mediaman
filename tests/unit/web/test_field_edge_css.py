@@ -104,9 +104,9 @@ def test_under_a_short_window_historys_tools_and_all_titles_head_go_with_the_pag
     assert "position: relative" in _of(".watch-all__head", "_watch_grid.css", short)
 
 
-def test_all_titles_goes_two_across_wherever_three_would_cut_a_long_title_word() -> None:
-    # "Cartographer's" at 12px bold is 92px; a card is a third of the window less its 20px
-    # sides and two 10px gaps, and the title sits 8px inside the poster on each side.
+def test_all_titles_goes_two_across_only_where_a_poster_would_be_tiny() -> None:
+    # One rule from 360 wide up, so a phone's posters match across 360-440; a very long word
+    # breaks inside its card there (overflow-wrap) rather than the columns changing by width.
     two = [
         m
         for m in re.finditer(
@@ -117,9 +117,83 @@ def test_all_titles_goes_two_across_wherever_three_would_cut_a_long_title_word()
     ]
     assert len(two) == 1
     first_three = float(two[0][1]) + 0.02
-    assert (first_three - 2 * 20 - 2 * 10) / 3 - 2 * 8 >= 93
+    assert first_three <= 360
+    assert (first_three - 2 * 20 - 2 * 10) / 3 >= 100
 
 
 def test_search_results_go_two_across_where_all_titles_does() -> None:
-    narrow = _of(".results-page .watch-grid", "_watch_search.css", "(max-width: 389.98px)")
+    narrow = _of(".results-page .watch-grid", "_watch_search.css", "(max-width: 359.98px)")
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in narrow
+
+
+def test_ask_goes_two_across_where_the_grids_do() -> None:
+    narrow = _of(".ask .watch-grid", "_watch_ask.css", "(max-width: 359.98px)")
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in narrow
+    assert "389.98" not in (CSS / "_watch_ask.css").read_text()
+
+
+def test_settings_fields_are_16px_on_a_coarse_pointer_at_any_width() -> None:
+    rules = _of(".setg-pg .inp", "_settings_pg.css", "(pointer: coarse)")
+    assert "font-size: 16px" in rules
+
+
+def test_the_search_hint_shrinks_to_fit_the_narrowest_phone() -> None:
+    assert "font-size: 15px" in _of(
+        ".watch-search__ph", "_watch_search.css", "(max-width: 359.98px)"
+    )
+
+
+def test_an_integration_header_gives_up_its_mark_to_keep_every_control_in_view() -> None:
+    narrow = _of(
+        ".setg-pg .intg-card .intg-card-hd .glyph", "_settings_pg.css", "(max-width: 239.98px)"
+    )
+    assert "display: none" in narrow
+
+
+def test_downloading_cards_sit_on_canvas_in_forced_colours() -> None:
+    media = "(forced-colors: active)"
+    assert "background: Canvas" in _of(".dw__link::before", "_watch_downloading.css", media)
+    assert "forced-color-adjust" not in _of(".dw__text", "_watch_downloading.css", media)
+
+
+def test_a_long_name_that_cannot_fit_its_column_breaks_at_a_syllable_with_a_hyphen() -> None:
+    # A card's title and a person's name break only where hyphens allows, so "Cartographer's"
+    # or "Bartholomew" never loses its last letter to a line of its own.
+    named = [
+        (".watch-card__title", "_watch_grid.css"),
+        (".watch-person__name", "_watch_grid.css"),
+        (".ttl-cast__name", "_watch_cast.css"),
+        (".ttl-cast__char", "_watch_cast.css"),
+        (".cast-card__name", "_watch_cast.css"),
+        (".cast-card__role", "_watch_cast.css"),
+        (".cast-card__poster-name", "_watch_cast.css"),
+    ]
+    for selector, sheet in named:
+        body = _of(selector, sheet)
+        assert "hyphens: auto" in body, selector
+        assert "-webkit-hyphens: auto" in body, selector
+    # Only a long word is hyphenated, so "Station" is never split where it would fit whole.
+    root = _of(":root", "_watch_grid.css")
+    assert "hyphenate-limit-chars: 11 5 4" in root
+    assert "-webkit-hyphenate-limit-before: 5" in root
+
+
+def test_a_phone_s_three_across_titles_are_wide_enough_for_cartographer_s() -> None:
+    grid = _of(".watch-grid-host > .watch-grid", "_watch_grid.css", "(max-width: 599.98px)")
+    assert "repeat(3, minmax(0, 1fr))" in grid
+    gap = int(re.search(r"gap: \d+px (\d+)px", grid).group(1))
+    pad = int(re.search(r"--pad:\s*max\(clamp\((\d+)px,\s*4vw", _token_sheet()).group(1))
+    # At 360 the page's 4vw is under the clamp's floor, so the floor is the side padding.
+    assert pad > 0.04 * 360
+    column = (360 - 2 * pad - 2 * gap) / 3
+    size = int(
+        re.search(
+            r"font-size: (\d+)px", _of(".watch-card__title", "_watch.css", "(max-width: 599.98px)")
+        ).group(1)
+    )
+    # "Cartographer" in bold is about 6.3 times the font size wide.
+    assert column >= 6.3 * size + 18
+
+
+def _token_sheet() -> str:
+    return (CSS / "_tokens.css").read_text(encoding="utf-8")

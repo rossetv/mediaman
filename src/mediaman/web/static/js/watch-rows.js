@@ -393,6 +393,21 @@
 
   // Rows put on the page later (the Discover rows) are started by whoever adds them.
   window.MMWatch = window.MMWatch || {};
-  window.MMWatch.rows = { init: initRow };
+  /* A row of cards that is not a page row (Tonight's) wears the same has-prev / has-next: *scroller* is its
+     own viewport, and the classes say which ends have more beyond them. */
+  function followEdges(scroller) {
+    var queued = false;
+    function schedule() {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(function () { queued = false; refresh(scroller, scroller); });
+    }
+    scroller.addEventListener('scroll', schedule, { passive: true });
+    if ('ResizeObserver' in window) new ResizeObserver(schedule).observe(scroller);
+    else window.addEventListener('resize', schedule);
+    refresh(scroller, scroller);
+  }
+
+  window.MMWatch.rows = { init: initRow, followEdges: followEdges };
   Array.prototype.forEach.call(page.querySelectorAll('.watch-row__viewport'), initRow);
 })();

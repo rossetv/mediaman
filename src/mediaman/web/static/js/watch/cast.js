@@ -1,8 +1,8 @@
 /* Watch: the people of a title, in its detail, on MMWatch.cast. Resting on one,
  * or coming to one by the keyboard, opens a card out of their photo; a press
  * opens their page (watch/explore.js), to which the photo flies, and from which
- * it flies home. What a card says is asked for once a person, two at a time.
- * Needs watch/core.js; used by watch/detail.js, which holds the overlay.
+ * it flies home; so does a scroll down over the card. What a card says is asked for once a person, two at a time.
+ * Needs watch/core.js and watch/carry.js; used by watch/detail.js, which holds the overlay.
  */
 (function () {
   'use strict';
@@ -270,6 +270,7 @@
   }
 
   var shown = null; // the pane on show: { node, of, state }
+  var standsAt = { x: 0, y: 0 }; // the open card's place in the scroller
 
   /* The card's contents for *p*. The same person's details arriving: the photo
      and the name stay and the rest is replaced under them. Another person's
@@ -317,7 +318,8 @@
   }
 
   /* Above the photo, so that the row stays free to move along; under the person
-     where there is no room. */
+     where there is no room; beside them where there is neither, so that the photo
+     the pointer rests on stays clear. */
   function place(p) {
     var a = box(p.avatar);
     var below = box(p.item);
@@ -329,9 +331,15 @@
     var y = a.top - EDGE - h;
     if (y < top) {
       y = below.top + below.height + 8;
-      if (y + h > bottom) y = Math.max(top, Math.min(bottom - h, a.top - EDGE - h));
+      if (y + h > bottom) {
+        y = Math.max(top, Math.min(bottom - h, a.top + a.height / 2 - h / 2));
+        if (below.left + below.width + 8 + w <= root.clientWidth - EDGE) x = below.left + below.width + 8;
+        else if (below.left - 8 - w >= EDGE) x = below.left - 8 - w;
+        else y = Math.max(top, Math.min(bottom - h, a.top - EDGE - h));
+      }
     }
-    card.style.setProperty('--to', 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)');
+    standsAt = { x: Math.round(x), y: Math.round(y) };
+    card.style.setProperty('--to', 'translate(' + standsAt.x + 'px,' + standsAt.y + 'px)');
     foldTo(p);
   }
 
@@ -355,6 +363,8 @@
     folding = null;
     if (was) was.item.removeAttribute('aria-describedby');
     live = p;
+    openedAt = now();
+    reached = false;
     card.hidden = false;
     if (!shown || shown.of !== p || shown.state !== stateOf(p)) draw(p);
     if (was) {
@@ -391,6 +401,7 @@
 
   function close() {
     if (!live) return;
+    putDown();
     var p = live;
     live = null;
     folding = p;
@@ -414,6 +425,7 @@
 
   /* Gone at once: what it stands on is drawn again or goes. */
   function drop() {
+    putDown();
     disarm();
     clearTimeout(closeTimer);
     closeTimer = null;
@@ -470,6 +482,7 @@
     if (e.pointerType !== 'mouse') return;
     byKeys = false;
     var p = personAt(e.target);
+    if (live && card.contains(e.target) && !onPhoto(live, e)) reached = true;
     if (p || card.contains(e.target)) {
       clearTimeout(closeTimer);
       closeTimer = null;
@@ -496,6 +509,107 @@
     disarm();
     close();
   });
+  /* ── A scroll down over an open card opens their page, as one over a title's preview opens
+     the title's. Wheel events less than GAP_MS apart are one scroll; its first says whose it is,
+     and it stays theirs to its last, momentum and all: one begun on the title's page goes on
+     scrolling it over any card it passes, and the rest of one that opened a page moves nothing. */
+
+  var GAP_MS = 180;
+  var READY_MS = 100; // how long the card has stood open, to have been seen
+  var REST_MS = 170;  // a scroll that has stopped short of opening it
+  var NOTCH_REST_MS = 520; // the same of a wheel, whose next notch may be half a second away
+  var LIFT = 64;      // px the card rises, all the way to their page
+  var GROW = 0.1;
+  var carried = null; // the card going with the scroll: { p, motion }
+  var stream = null;  // { mine, sum, notches, at, done }
+  var openedAt = 0;
+  var reached = false; // the pointer has come onto the card, not only rested on the photo it opened from
+
+  function onPhoto(p, e) {
+    var r = p.avatar.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  }
+
+  function px(e, delta) { return delta * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? window.innerHeight : 1); }
+
+  function gapOf(s) { return s.done ? GAP_MS * 2 : GAP_MS; }
+
+  function heard(e) {
+    var dy = px(e, e.deltaY);
+    if (!stream || e.timeStamp - stream.at > gapOf(stream)) {
+      stream = {
+        mine: !!live && isShown() && reached && card.contains(e.target) && dy > Math.abs(px(e, e.deltaX)) &&
+          !e.shiftKey && !e.ctrlKey && !e.metaKey && now() - openedAt >= READY_MS,
+        sum: 0, notches: e.deltaMode === 1 || Math.abs(dy) >= 60, at: 0, done: false
+      };
+    }
+    stream.at = e.timeStamp;
+    if (stream.mine) stream.sum += dy;
+  }
+
+  function scrolledOpen(e) {
+    if (!stream || !stream.mine) return;
+    if (e.cancelable) e.preventDefault();
+    if (stream.done || !live) return;
+    if (plain()) {
+      // Nothing moves to show it is under way: a notch, its own scroll, is enough.
+      if (stream.sum >= watch.carry.OPENS || stream.notches) arrive(live);
+      return;
+    }
+    if (!carried) {
+      var p = live;
+      carried = { p: p, motion: watch.carry.motion(lift, function (at) { if (at) arrive(p); else putDown(); }) };
+    }
+    carried.motion.push(px(e, e.deltaY), stream.notches ? NOTCH_REST_MS : REST_MS);
+  }
+
+  /* It opens without following the hand where that is asked not to move, or is not drawn. */
+  function plain() {
+    return core.reduceMotion() || window.matchMedia('(forced-colors: active)').matches || window.innerWidth < 700 || window.innerHeight <= 500;
+  }
+
+  /* The card rises and grows about its own middle with the scroll, *at* of the way to their page.
+     The scale is about the scroller's corner and takes the card's place with it, so the translate
+     takes back what it adds to the place as well as to the size. */
+  function lift(at) {
+    var s = 1 + GROW * at;
+    var x = (1 - s) * (standsAt.x + card.offsetWidth / 2);
+    var y = (1 - s) * (standsAt.y + shell.offsetHeight / 2) - LIFT * at;
+    card.style.translate = x.toFixed(2) + 'px ' + y.toFixed(2) + 'px';
+    card.style.scale = String(s);
+  }
+
+  /* Back where it stood. */
+  function putDown() {
+    if (!carried) return;
+    carried.motion.stop();
+    carried = null;
+    card.style.translate = card.style.scale = '';
+  }
+
+  /* Their page opens, the photo flying to it from where the card has risen to. */
+  function arrive(p) {
+    if (stream && stream.mine) stream.done = true;
+    window.addEventListener('wheel', eatRest, { passive: false });
+    untilStill();
+    openPerson(p);
+  }
+
+  function eatRest(e) {
+    if (stream && stream.done && e.cancelable) e.preventDefault();
+  }
+
+  function untilStill() {
+    setTimeout(function () {
+      if (stream && stream.done && performance.now() - stream.at <= gapOf(stream)) untilStill();
+      else window.removeEventListener('wheel', eatRest);
+    }, GAP_MS);
+  }
+
+  window.addEventListener('wheel', heard, { passive: true, capture: true });
+  // Not passive only over the card.
+  card.addEventListener('wheel', scrolledOpen, { passive: false });
+
   root.addEventListener('focusin', function (e) {
     var p = personAt(e.target);
     if (!p || now() < quietUntil || !p.item.matches(':focus-visible')) return;
@@ -516,19 +630,21 @@
 
   function inSight(r) { return r.width > 0 && r.top + r.height > 0 && r.top < window.innerHeight; }
 
-  /* From the box *from* to the box *to*, or from wherever it is in the air. */
-  function fly(p, from, to, home, done) {
+  /* From the box *from* to the box *to*, or from wherever it is in the air: *face* is what flies,
+     where nothing is in the air yet. */
+  function fly(face, from, to, home, done) {
     if (core.reduceMotion() || !inSight(to) || !(flight || inSight(from))) {
       if (flight) flight.node.remove();
       flight = null;
       done();
       return;
     }
+    var fresh = !flight;
     if (flight) {
       flight.home = home;
       flight.done();
     } else {
-      flight = { node: p.face.cloneNode(true), home: home, turn: 0 };
+      flight = { node: face, home: home, turn: 0 };
       flight.node.classList.add('cast-fly');
       flight.node.setAttribute('aria-hidden', 'true');
       flight.node.style.transition = 'none';
@@ -541,6 +657,7 @@
     var turn = ++mine.turn;
     mine.done = done;
     mine.node.style.transform = at(to);
+    if (fresh) steady([mine.node]);
     whenStill([mine.node], function () {
       if (flight !== mine || mine.turn !== turn) return;
       flight = null;
@@ -549,11 +666,43 @@
     });
   }
 
+  /* A copy of the strip's photo *face* to fly, its picture fetched at once. */
+  function copyOf(face) {
+    var copy = face.cloneNode(true);
+    var img = copy.querySelector('img');
+    if (img) img.removeAttribute('loading');
+    return copy;
+  }
+
+  /* What moves on *nodes* is held where it starts until the next frame, and stands still through a
+     slow frame after it instead of leaping over it: making and drawing the person's page can take
+     150 ms or more, which Safari counts as gone by. */
+  var FRAME_MS = 1000 / 60;
+  var SLOW_MS = 50;
+  function steady(nodes) {
+    var clock = document.timeline;
+    if (!clock) return;
+    var moves = nodes.reduce(function (all, n) { return all.concat(n.getAnimations ? n.getAnimations() : []); }, []);
+    moves.forEach(function (m) { m.startTime = null; });
+    var last = null;
+    var frames = 3;
+    requestAnimationFrame(function frame(t) {
+      var slow = last !== null && t - last > SLOW_MS;
+      moves.forEach(function (m) {
+        if (m.playState === 'paused') m.startTime = clock.currentTime;
+        else if (slow && m.playState === 'running') m.startTime += t - last - FRAME_MS;
+      });
+      last = t;
+      if (--frames) requestAnimationFrame(frame);
+    });
+  }
+
   function openPerson(p) {
     if (!watch.explore) return;
     var held = live === p && shown ? shown.node.querySelector('.cast-face') : p.face;
     var from = held.getBoundingClientRect();
     var facts = known[p.id] && known[p.id].person;
+    var ghost = held !== p.face ? fadeAround(held) : null;
     drop();
     // What Back will find the focus on; Safari leaves a pressed button without it.
     quietUntil = now() + QUIET_MS;
@@ -562,7 +711,35 @@
     var photo = document.querySelector('#watch-results .explore-photo');
     if (!photo) return;
     photo.style.visibility = 'hidden';
-    fly(p, from, photo.getBoundingClientRect(), null, function () { photo.style.visibility = ''; });
+    // The card's own photo, already drawn, is the one that flies.
+    fly(held === p.face ? copyOf(held) : held, from, photo.getBoundingClientRect(), null, function () { photo.style.visibility = ''; });
+    if (ghost) steady([ghost]);
+  }
+
+  /* The open card, as it stands, fades out around its photo *held*, which goes on as the one in
+     the air: no frame shows neither. Its copy keeps each part as it is on screen, so that nothing
+     in it moves but the fade. Says the copy, if there is one. */
+  function fadeAround(held) {
+    if (plain() || !isShown() || !card.animate) return null;
+    var faces = toArray(card.querySelectorAll('.cast-face'));
+    var MOVING = '.in, .is-arriving, .is-new, .is-old';
+    var moving = toArray(card.querySelectorAll(MOVING));
+    var ghost = card.cloneNode(true);
+    toArray(ghost.querySelectorAll(MOVING)).forEach(function (n, i) {
+      var was = window.getComputedStyle(moving[i]);
+      n.classList.remove('in', 'is-arriving', 'is-new', 'is-old');
+      n.style.opacity = was.getPropertyValue('opacity');
+      n.style.transform = was.getPropertyValue('transform');
+    });
+    toArray(ghost.querySelectorAll('.cast-face'))[faces.indexOf(held)].style.visibility = 'hidden';
+    ghost.inert = true;
+    ghost.style.pointerEvents = 'none';
+    root.appendChild(ghost);
+    var fade = ghost.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: core.tokenMs('--dur', 200), easing: core.token('--ease-out', 'ease-out'), fill: 'forwards'
+    });
+    fade.onfinish = function () { ghost.remove(); };
+    return ghost;
   }
 
   /* Back in the detail from a page that *key* opened: their photo comes home from it. */
@@ -575,7 +752,7 @@
     if (!photo && !flight) return;
     var from = photo && photo.getBoundingClientRect();
     p.item.classList.add('is-out', 'is-away');
-    fly(p, from, homeOf(p), key, function () {
+    fly(copyOf(p.face), from, homeOf(p), key, function () {
       people.forEach(function (one) {
         if (one.key !== key) return;
         one.item.classList.remove('is-away');

@@ -460,7 +460,8 @@
             if (failed) {
               syncBtn.textContent = failed.toLocaleString('en-GB') + ' failed';
               window.UIFeedback.error((synced ? 'Synced ' + items : 'Nothing synced') + ', ' +
-                failed.toLocaleString('en-GB') + ' failed. Mediaman’s log says which.');
+                failed.toLocaleString('en-GB') + ' failed. Mediaman’s log says which.',
+                { duration: 8000 });
             } else if (!synced) {
               syncBtn.textContent = '0 synced';
               // A person has to act on this, so it stays longer than a passing note.
@@ -473,7 +474,7 @@
           })
           .catch(function (err) {
             syncBtn.textContent = 'Failed';
-            window.UIFeedback.error(MM.api.messageOf(err, 'Library sync failed'));
+            window.UIFeedback.error(MM.api.messageOf(err, 'Library sync failed'), { duration: 8000 });
           })
           .then(function () {
             setTimeout(function () {

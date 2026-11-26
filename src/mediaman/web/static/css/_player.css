@@ -766,7 +766,7 @@
 }
 
 /* No volume slider where there is no room, or on touch screens, where the
-   device's own buttons set the volume. */
+   device's own buttons set the volume. The mute stays: it works on a phone. */
 @media (max-width: 767px), (pointer: coarse) {
   .player-volume-slider { display: none; }
 }
@@ -805,10 +805,18 @@
 }
 
 /* The narrowest phones: every control keeps its height and its place in the row. */
-@media (max-width: 350px) {
+@media (max-width: 350px), (max-width: 419.98px) and (pointer: coarse) {
   .player-controls { gap: 0; }
+}
+@media (max-width: 350px) and (pointer: fine) {
   .player-controls .player-btn:not([data-fullscreen]) { min-width: 38px; }
 }
+/* What player.js sets, step by step, while the row has no room for every control. */
+.player:not(.is-away) .player-controls.is-snug .player-volume { display: none; }
+.player:not(.is-away) .player-controls.is-tight { gap: 0; margin-inline: -8px; }
+.player:not(.is-away) .player-controls.is-tight .player-opt .player-pill { padding: 0 4px; }
+/* Not a second line, which would run into the pills and cards stacked over the row. */
+.player:not(.is-away) .player-controls.is-crowded .player-btn--skip { display: none; }
 
 /* A phone on its side: the next-episode card keeps to the right, its picture beside the words. */
 @media (max-height: 520px) {
@@ -1026,7 +1034,7 @@
 @media (max-width: 899.98px) {
   .player.is-away .player-away { gap: 18px; padding: 8px 20px 0; }
   .player-away-art { width: min(100%, 520px); }
-  .player.is-away .player-bottom { width: 100%; padding: 14px max(20px, calc(50% - 280px)) max(18px, env(safe-area-inset-bottom)); }
+  .player.is-away .player-bottom { width: 100%; padding: 14px max(20px, calc(50% - 280px), env(safe-area-inset-right, 0px)) max(18px, env(safe-area-inset-bottom)) max(20px, calc(50% - 280px), env(safe-area-inset-left, 0px)); }
   .player.is-away .player-controls { flex-wrap: wrap; justify-content: center; gap: 4px 10px; }
   .player.is-away .player-spacer { display: none; }
   .player.is-away .player-brk { display: block; flex-basis: 100%; height: 0; }
@@ -1104,7 +1112,7 @@
   .player.is-on-tv .player-controls > :is(.player-volume, .player-brk--1) { display: none; }
 }
 @media (max-width: 899.98px) and (max-height: 520px) {
-  .player.is-away .player-bottom { padding: 8px 20px max(10px, env(safe-area-inset-bottom)); }
+  .player.is-away .player-bottom { padding: 8px max(20px, env(safe-area-inset-right, 0px)) max(10px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left, 0px)); }
   .player.is-away :is(.player-brk--1, .player-brk--3) { display: none; }
   .player.is-away .player-volume { flex: 0 1 300px; }
   .player.is-away [data-play] { width: 56px; height: 56px; }
@@ -1119,7 +1127,7 @@
   .player.is-away:has(.player-skip:not([hidden])) .player-away-say { visibility: hidden; }
 }
 /* One control more in the row. */
-@media (max-width: 600px) {
+@media (max-width: 600px) and (pointer: fine) {
   .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-btn { min-width: 38px; }
   .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-pill { padding: 0 8px; }
   .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-controls { gap: 0; }

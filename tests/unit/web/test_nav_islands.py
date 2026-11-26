@@ -104,7 +104,6 @@ def test_the_bar_draws_no_row_of_its_own_and_lets_a_press_between_its_islands_th
 
 
 def test_no_page_has_a_strip_at_the_foot_of_a_phone() -> None:
-    assert set(re.findall(r"--foot: ([^;]+);", _css(NAV))) == {"0px"}
     for template, ctx in (("_nav.html", {}), ("_watch_bar.html", {"is_admin": True, "q": ""})):
         html = _TEMPLATES.env.get_template(template).render(request=_request("/"), **ctx)
         assert "nav-foot" not in html
@@ -236,20 +235,16 @@ def test_the_logo_s_glass_keeps_as_far_from_the_edge_as_the_end_island() -> None
     assert re.search(r"padding: 0 1\dpx", _of(".nav-glass .brand", css))
 
 
-def test_at_rest_the_logo_stands_on_the_page_s_edge_and_slides_into_its_island_once_scrolled() -> (
-    None
-):
+def test_the_logo_stands_on_the_page_s_edge_and_never_moves_as_its_island_fades_in() -> None:
     css = _css(NAV)
     brand = _of(".nav-glass .brand", _outside(css))
     room = re.search(r"padding: 0 (\d+)px", brand).group(1)  # type: ignore[union-attr]
 
-    # Drawn its own padding to the left, the logo starts where the headings do.
-    assert f"transform: translateX(-{room}px)" in brand
-    assert "transition: transform" in brand
-    assert "transform: none" in _of(".nav-glass.is-scrolled .brand", _outside(css))
-    assert "transition: none" in _of(
-        ".nav-glass .brand", _inside(css, "prefers-reduced-motion: reduce")
-    )
+    # Its own padding is pulled out past the edge, so the logo starts where the headings do.
+    assert re.search(rf"margin: 0 \d+px 0 -{room}px", brand)
+    assert "transform" not in brand
+    assert "transform" not in _of(".nav-glass.is-scrolled .brand", _outside(css))
+    assert "transform" not in _of(".wbar .brand", _css(CSS / "_watch_search.css"))
 
 
 def test_on_a_phone_the_end_island_is_never_narrower_than_what_it_holds() -> None:

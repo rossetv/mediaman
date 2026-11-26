@@ -271,6 +271,46 @@ const scenarios = {
       return [input.getAttribute('aria-invalid'), hint.textContent];
     });
   },
+  // What the live hint says of each address the server refuses on Save, and of ones it takes.
+  async shapes() {
+    const p = await page({});
+    const input = p.doc.getElementById('tv_address');
+    const hint = p.doc.getElementById('tv-address-hint');
+    const read = (v) => {
+      input.value = v;
+      p.fire(input, 'input');
+      return input.getAttribute('aria-invalid') === 'true';
+    };
+    const refused = ['http://[fd00::1%25eth0]:8282', 'http://nas.123:8282', 'http://nas.local:0', 'http://user:pw@nas.local:8282',
+      'http://nas.local:8282/app', 'http://nas..local:8282', 'http://-nas.local:8282', 'https://nas.local?x=1', 'http://nas.local:70000',
+      'https://10.999.0.300', 'https://nas.0x1f', 'https://a b.example.com', 'http://:8282', 'https://0.0.0.0', 'https://224.0.0.1',
+      'https://239.255.255.250', 'https://[::]', 'https://[0:0:0:0:0:0:0:0]', 'https://[ff02::1]', 'https://[ff00::1]:8282',
+      'https://[::ffff:0.0.0.0]', 'https://[::ffff:224.0.0.1]', 'https://[::ffff:e000:1]', 'http://[::ffff:7f00:1]',
+      'https://[::0]', 'https://[0::]', 'https://[::0.0.0.0]', 'https://[0::0]', 'https://[0:0:0:0:0:0:0:1]', 'https://[0::1]',
+      'https://[::0001]', 'https://[0::ffff:7f00:1]', 'https://[0:0::ffff:e000:1]', 'https://[::0:ffff:e000:1]',
+      'https://[::1]', 'https://[::ffff:127.0.0.1]', 'https://[FF02::1]'];
+    const taken = ['http://nas.local:8282', 'http://nas.local:8282/', 'https://nas.example.com', 'http://192.168.1.10:8282',
+      'https://203.0.113.5', 'http://[fd00::5]:8282', 'https://nas.example.com.', 'http://nas.local:', 'http://', 'https://0.0.0.1', 'https://240.0.0.1',
+      'https://[ff:1::1]', 'http://[::ffff:c0a8:105]:8282',
+      'https://[2001:db8::1]', 'https://[::2]', 'https://[0::ffff:c0a8:105]', 'https://[::ffff:8.8.8.8]', 'https://[1::]'];
+    const out = { refused: refused.map(read), taken: taken.map(read) };
+    const said = (v) => { read(v); return hint.textContent; };
+    out.noHost = said('http://:8282');
+    out.unspecified = said('https://0.0.0.0');
+    out.multicast = said('https://224.0.0.1');
+    return out;
+  },
+  // Which addresses the add dialog takes as a home one.
+  async homeAddresses() {
+    const out = {};
+    for (const v of ['192.168.1.44', '10.255.0.7', '172.16.0.20', '10.999.0.300', '192.168.1.256', '10.0.0.1.5', '172.32.0.1']) {
+      const p = await page({ [CHECK]: FOUND, [PICTURE]: FROM });
+      await p.add(v);
+      await settle();
+      out[v] = p.calls.some((c) => c[0] === 'POST' && c[1] === '/api/settings/older-tvs/check');
+    }
+    return out;
+  },
   // The page's own save bar, with the section's fields and one of the add form's.
   async saved() {
     const doc = makeDocument();

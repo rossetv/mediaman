@@ -4315,6 +4315,21 @@
     [q('.player-top'), q('.player-away-say'), q('.player-bottom'), els.rateSet].forEach(function (el) { sizes.observe(el); });
   }
 
+  /* A row of controls with no room for them all gives up the mute first, as the phone's own
+     buttons mute too, then shortens its pills, and last gives up the skips, as the bar seeks. */
+  var controlRow = q('.player-controls');
+  var FITS = ['is-snug', 'is-tight', 'is-crowded'];
+  function fitRow() {
+    FITS.forEach(function (name) { controlRow.classList.remove(name); });
+    for (var i = 0; i < FITS.length && controlRow.scrollWidth > controlRow.clientWidth; i++) controlRow.classList.add(FITS[i]);
+  }
+  if (window.ResizeObserver) {
+    /* Its children too: a control shown, hidden or relabelled leaves the row's own size as it was. */
+    /* In the next frame: changing a step changes the row's size, and WebKit logs a loop otherwise. */
+    var rowSizes = new ResizeObserver(function () { window.requestAnimationFrame(fitRow); });
+    [controlRow].concat(Array.prototype.slice.call(controlRow.children)).forEach(function (el) { rowSizes.observe(el); });
+  }
+
   function paintAway() {
     var on = isAway();
     root.classList.toggle('is-away', on);

@@ -46,10 +46,7 @@ def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
     )
     # no other rule sets it to a size of its own
     assert css.count("scroll-padding-bottom") == 1
-    # on a phone the bar stands on the one at the foot
-    below = "var(--foot)"
-    phone = css[css.index(f".setg-pg .savebar {{ bottom: {below};") :]
-    assert f"html.has-savebar {{ --savebar-below: {below}; }}" in phone
+    assert "var(--foot)" not in css
 
 
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
@@ -238,7 +235,7 @@ def test_blocks_add_no_scroll_margin_on_top_of_the_page_scroll_padding() -> None
 
 def test_every_select_draws_its_own_chevron_clear_of_the_edge() -> None:
     forms = re.sub(r"/\*.*?\*/", "", (CSS / "_forms.css").read_text(), flags=re.S)
-    rule = re.search(r"select\.inp,\s*\.form-select \{([^{}]*)\}", forms)
+    rule = re.search(r"select\.inp \{([^{}]*)\}", forms)
     assert rule and "appearance: none" in rule.group(1)
     assert "background-position: right 12px center" in rule.group(1)
     forced = re.search(r"@media \(forced-colors: active\) \{[^{}]*\{([^{}]*)\}", forms)
@@ -250,7 +247,7 @@ def test_no_field_rule_wipes_the_select_chevron() -> None:
         css = re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(), flags=re.S)
         for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
             fields = [p.strip() for p in head.split(",")]
-            if any(re.search(r"(\.inp|\.form-select)(:focus)?$", f) for f in fields):
+            if any(re.search(r"(\.inp)(:focus)?$", f) for f in fields):
                 shorthand = re.search(r"(?<![\w-])background\s*:", body)
                 assert not shorthand or "background-image" in body, (sheet, fields)
 
@@ -312,3 +309,56 @@ def test_a_panel_folds_at_the_speed_of_the_other_folds() -> None:
         r"prefers-reduced-motion: reduce\)\s*\{\s*\.setg-pg \.setg-fold \{ transition: none; \}"
     )
     assert re.search(reduced, PANELS)
+
+
+def _strip(sheet: str) -> str:
+    return re.sub(r"/\*.*?\*/", "", (CSS / sheet).read_text(), flags=re.S)
+
+
+def test_a_disabled_settings_field_keeps_the_dimmed_colour() -> None:
+    css = _strip("_settings_pg.css")
+    rule = re.search(r"\.setg-pg \.inp:disabled \{([^{}]*)\}", css)
+    assert rule and "color: var(--t3)" in rule.group(1)
+
+
+def test_the_monospace_settings_field_is_16px_where_touch_would_zoom() -> None:
+    css = _strip("_settings_pg.css")
+    base = re.search(r"^\.setg-pg \.inp--mono \{[^{}]*font-size: 13px;[^{}]*\}", css, flags=re.M)
+    assert base
+    # Top level and after the 13px rule, or the same-weight 13px rule wins.
+    rule = re.compile(
+        r"^@media \(max-width: 639\.98px\), \(pointer: coarse\) \{\s*"
+        r"\.setg-pg \.inp--mono \{[^{}]*font-size: 16px[^{}]*\}\s*\}",
+        flags=re.M,
+    )
+    assert rule.search(css, base.end())
+
+
+def test_the_history_search_field_is_16px_on_a_touch_screen_of_any_width() -> None:
+    css = _strip("_history.css")
+    rule = re.search(
+        r"@media \(pointer: coarse\) and \(min-width: 700px\) \{(?:[^{}]*\{[^{}]*\})*?\s*\.hx-search input \{\s*font-size: 16px;",
+        css,
+    )
+    assert rule
+
+
+def test_no_stylesheet_styles_the_unused_form_input_select_and_threshold_classes() -> None:
+    for sheet in CSS.glob("*.css"):
+        text = sheet.read_text()
+        for name in (".form-input", ".form-select", ".threshold-input"):
+            assert name not in text, (sheet.name, name)
+
+
+def test_the_share_link_field_and_the_years_select_are_16px_where_touch_would_zoom() -> None:
+    for sheet, field in (
+        ("_watch_detail.css", r"\.ttl-share__input"),
+        ("_watch_explore.css", r"\.explore-years__select"),
+    ):
+        css = _strip(sheet)
+        pattern = (
+            r"@media \(max-width: 639\.98px\), \(pointer: coarse\) \{\s*"
+            + field
+            + r" \{[^{}]*font-size: 16px"
+        )
+        assert re.search(pattern, css), sheet

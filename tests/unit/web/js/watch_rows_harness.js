@@ -166,6 +166,8 @@ function row(count, { keep = false, skeleton = false, reduced = true } = {}) {
     },
     blur: () => fire(doc.activeElement, 'focusout', { relatedTarget: null }),
     scrolled: () => fire(scroller, 'scroll'),
+    follow: () => ctx.MMWatch.rows.followEdges(scroller),
+    ends: () => [scroller.classList.contains('has-prev'), scroller.classList.contains('has-next')],
     next: () => scroller.parentNode.classList.contains('has-next'),
     prev: () => scroller.parentNode.classList.contains('has-prev'),
     snaps: () => scroller.style.scrollSnapType !== 'none',
@@ -215,6 +217,15 @@ const scenarios = {
     };
     const last = 3 * (100 + GAP);
     return { start: along(0, 0), one: along(100 + GAP, 100 + GAP), back: along(100 + GAP, 0), end: along(last, last) };
+  },
+
+  // A row that is its own viewport (Tonight's) says which ends have more beyond them, as page rows do.
+  followEdges() {
+    const r = row(6);
+    r.follow();
+    const at = (left) => { r.scroller.scrollLeft = left; r.scrolled(); return r.ends(); };
+    const last = 3 * (100 + GAP);
+    return { start: r.ends(), middle: at(100 + GAP), end: at(last), back: at(0) };
   },
 
   keys() {

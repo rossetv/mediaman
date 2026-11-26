@@ -16,7 +16,11 @@
   MM.settings = MM.settings || {};
 
   var OLDER = '/api/settings/older-tvs';
-  var HOME = /^(10\.\d{1,3}|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}$/;
+  var OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
+  var HOME = new RegExp('^(?:10\\.' + OCTET + '|192\\.168|172\\.(?:1[6-9]|2\\d|3[01]))\\.' + OCTET + '\\.' + OCTET + '$');
+  var LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+  var NAME = new RegExp('^(?=.{1,253}$)' + LABEL + '(?:\\.' + LABEL + ')*$', 'i');
+  var IPV4 = new RegExp('^(?:' + OCTET + '\\.){3}' + OCTET + '$');
   var NETWORKS = 'mediaman must run in a container with a network of its own, as Docker gives one. ' +
     'Host networking, macvlan on the home network and an install without a container can’t reach TVs.';
   var ICONS = {
@@ -545,6 +549,73 @@
 
   /* ── the address TVs use ── */
 
+  // A bracketed IPv6 literal as its eight 16-bit groups ([] if it is not one): every spelling of ::, zeros
+  // left out, and a dotted IPv4 on the end.
+  function v6Groups(host) {
+    var h = host.slice(1, -1).toLowerCase();
+    var dotted = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+    if (dotted) {
+      if ([2, 3, 4, 5].some(function (k) { return +dotted[k] > 255; })) return [];
+      h = dotted[1] + ((+dotted[2] << 8) + +dotted[3]).toString(16) + ':' + ((+dotted[4] << 8) + +dotted[5]).toString(16);
+    }
+    var halves = h.split('::');
+    if (halves.length > 2) return [];
+    var side = function (t) { return t ? t.split(':') : []; };
+    var head = side(halves[0]);
+    var tail = halves.length === 2 ? side(halves[1]) : [];
+    var fill = 8 - head.length - tail.length;
+    if (halves.length === 2 ? fill < 1 : fill !== 0) return [];
+    var all = head.concat(new Array(fill > 0 ? fill : 0).fill('0'), tail);
+    return all.every(function (g) { return /^[0-9a-f]{1,4}$/.test(g); })
+      ? all.map(function (g) { return parseInt(g, 16); }) : [];
+  }
+
+  // The IPv4 address an IPv6 host wraps (::ffff:a.b.c.d in any spelling), or ''.
+  function mappedV4(host) {
+    var g = host.charAt(0) === '[' ? v6Groups(host) : [];
+    if (g.length !== 8 || g[5] !== 0xffff || g.slice(0, 5).some(Boolean)) return '';
+    return [g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255].join('.');
+  }
+
+  // An IPv6 host the server refuses a TV at: unspecified, loopback, multicast (ff00::/8), or an IPv4 one
+  // wrapped in it that is itself unspecified, loopback or multicast.
+  function v6Refused(host) {
+    var g = v6Groups(host);
+    if (g.length !== 8) return false;
+    if (!g.slice(0, 7).some(Boolean) && g[7] <= 1) return true;
+    if ((g[0] & 0xff00) === 0xff00) return true;
+    var v4 = mappedV4(host);
+    return !!v4 && (v4 === '0.0.0.0' || /^(?:127|22[4-9]|23\d)\./.test(v4));
+  }
+
+  // The shapes the server refuses on Save, said as they are typed.
+  function wrongShape(value) {
+    var rest = /^https?:\/\/(.*)$/i.exec(value);
+    if (!rest) return '';
+    var at = /^([^/?#]*)(.*)$/.exec(rest[1]);
+    var authority = at[1];
+    var sample = ' Use this server’s home address or its name, such as http://nas.local:8282.';
+    if (authority.indexOf('@') >= 0) return 'Leave out the sign-in.' + sample;
+    if (at[2] && at[2] !== '/') return 'Leave nothing after the address, not even a path.' + sample;
+    var parts = /^(\[[^\]]*\]|[^:]*)(?::(\d*))?$/.exec(authority);
+    if (!parts) return 'That isn’t a valid address.' + sample;
+    var host = parts[1];
+    if (parts[2] && (+parts[2] < 1 || +parts[2] > 65535)) return 'That port can’t be used.' + sample;
+    if (host.charAt(0) === '[') {
+      if (host.indexOf('%') >= 0) return 'A TV can’t use this kind of address.' + sample;
+      return v6Refused(host) ? 'That address can’t be used by a TV.' + sample : '';
+    }
+    host = host.replace(/\.$/, '');
+    if (!host) return authority ? 'URL must include a host.' + sample : '';
+    if (IPV4.test(host)) {
+      return host === '0.0.0.0' || /^(?:22[4-9]|23\d)\./.test(host) ? 'That address can’t be used by a TV.' + sample : '';
+    }
+    if (/^(?:\d+|0x[0-9a-f]*)$/i.test(host.slice(host.lastIndexOf('.') + 1)) || !NAME.test(host)) {
+      return 'That isn’t a valid address.' + sample;
+    }
+    return '';
+  }
+
   function wireAddress() {
     var input = document.getElementById('tv_address');
     var hint = document.getElementById('tv-address-hint');
@@ -555,8 +626,7 @@
       var bad = '';
       var warn = '';
       var host = (/^https?:\/\/(?:[^/?#]*@)?(\[[^\]]*\]|[^/:?#]*)/i.exec(value) || [])[1] || '';
-      var mapped = /^\[::ffff:(\d+(\.\d+){3})\]$/i.exec(host);
-      if (mapped) host = mapped[1];
+      host = mappedV4(host) || host;
       if (/^(localhost|.*\.localhost|127\..*|\[::1\])\.?$/i.test(host)) {
         bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address or its name.';
       } else if (/^\[fe[89ab]/i.test(host)) {
@@ -570,6 +640,8 @@
         bad = 'This address is on the internet, so it needs https://. With http://, use this server’s home address or its name.';
       } else if (!/^https?:/i.test(value) && /\w\.\w/.test(value)) {
         bad = 'Start with http:// before a home address, or https:// before a name.';
+      } else if (wrongShape(value)) {
+        bad = wrongShape(value);
       } else if (/^https:/i.test(value)) {
         warn = refusedHttps && refusedHttps.address === value
           ? 'This starts with https. Older TVs often refuse it, and ' + refusedHttps.name + ' did.'

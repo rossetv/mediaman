@@ -20,7 +20,7 @@
 .explore-facts[data-room]::after { content: attr(data-room); visibility: hidden; }
 .explore-photo.watch-face { width: 128px; height: 128px; font-size: 46px; transform-origin: 0 0; transition: none; }
 /* A person: what is said of them stands beside the photo where there is room, under it on a phone. */
-.explore--person .explore-head { display: grid; grid-template-columns: auto minmax(0, 640px) auto; grid-template-rows: auto 1fr; gap: 10px 24px; justify-content: start; align-items: start; }
+.explore--person .explore-head { display: grid; grid-template-columns: auto minmax(0, 640px); grid-template-rows: auto 1fr; gap: 10px 24px; justify-content: start; align-items: start; }
 .explore--person .explore-photo { grid-row: 1 / 3; }
 .explore--person .explore-head:has(> .explore-story[hidden]) > .explore-head__text { grid-row: 1 / 3; align-self: center; }
 .explore-born { min-height: 1.47em; margin-top: 2px; font-size: 14px; color: var(--t3); }
@@ -38,22 +38,24 @@
 .explore-more.is-unknown { visibility: hidden; }
 .explore-more:hover { color: var(--accent-hi); }
 .explore-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
-.explore-known { grid-area: 1 / 3 / 3; width: 344px; margin-left: 24px; }
-.explore-known > .cast-card__label { margin-bottom: 8px; }
-a.cast-card__poster:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-a.cast-card__poster:active { transform: scale(.98); }
-@media (hover: hover) { a.cast-card__poster:hover { transform: scale(1.04); } }
-.explore-head.is-told > :is(.explore-story, .explore-known),
+.explore-head.is-told > .explore-story,
+.explore-head.is-told ~ .explore-known,
 .explore-head.is-told .explore-born { animation: cast-in var(--dur) var(--ease-out); }
-@media (max-width: 1099.98px) {
-  .explore-known { grid-area: 3 / 2; width: min(344px, 100%); margin: 6px 0 0; }
+/* What they are known for: a Watch row, its cards as large as the rows' and running to the screen's edges. */
+.explore-known { container-type: inline-size; margin: 0 calc(-1 * var(--pad)) 32px; }
+.explore-known > .results-group__head { margin: 0 0 12px; padding: 0 var(--pad); }
+@media (hover: none), (pointer: coarse) {
+  .explore-known { --watch-peek: 4.4; --watch-card-w: clamp(112px, calc((100cqi - var(--pad)) / var(--watch-peek) - var(--watch-gap)), 170px); }
+}
+@media (hover: none) and (max-width: 599.98px), (pointer: coarse) and (max-width: 599.98px) {
+  .explore-known { --watch-peek: 2.5; }
 }
 @media (max-width: 599.98px) {
   .explore--person .explore-head { grid-template-columns: auto minmax(0, 1fr); gap: 14px 16px; }
   .explore--person .explore-head > :is(.explore-photo, .explore-head__text) { grid-row: 1 !important; }
   .explore--person .explore-head > .explore-head__text { align-self: center; }
   .explore-story { grid-area: 2 / 1 / 3 / 3; }
-  .explore-known { grid-area: 3 / 1 / 4 / 3; width: min(264px, 100%); margin: 0; }
+  .explore-known { margin-bottom: 26px; }
 }
 /* Who it is, until the answer is in. */
 .explore.is-unknown .explore-title { width: min(260px, 50vw); border-radius: var(--r-sm); background: var(--s2); }
@@ -82,6 +84,10 @@ a.cast-card__poster:active { transform: scale(.98); }
 .explore-gathering__out:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xxs); }
 .explore-years { position: relative; flex: none; }
 .explore-years__select { height: 44px; padding: 0 34px 0 16px; border: 0; border-radius: var(--r-pill); background: var(--s2); color: var(--t2); font: 500 14px var(--font-text); appearance: none; -webkit-appearance: none; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+@media (max-width: 639.98px), (pointer: coarse) {
+  /* 16px stops iOS zooming the page when a field is focused */
+  .explore-years__select { font-size: 16px; }
+}
 .explore-years__select:hover { color: var(--t1); }
 .explore-years__select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .explore-years > .ico { position: absolute; right: 13px; top: 16px; font-size: 12px; color: var(--t3); pointer-events: none; }
@@ -93,8 +99,7 @@ a.cast-card__poster:active { transform: scale(.98); }
   .explore-photo.watch-face { width: 88px; height: 88px; font-size: 32px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .explore-back > .ico,
-  a.cast-card__poster:is(:hover, :active) { transform: none !important; }
+  .explore-back > .ico { transform: none !important; }
 }
 @media (forced-colors: active) {
   .explore-seg,

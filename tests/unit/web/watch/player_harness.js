@@ -27,6 +27,7 @@ function decode(s) {
 class Node {
   constructor() { this.parentNode = null; this.childNodes = []; this.listeners = {}; }
   get firstChild() { return this.childNodes[0] || null; }
+  get children() { return this.childNodes.filter((n) => n instanceof Element); }
   appendChild(child) {
     if (child.isFragment) { child.childNodes.slice().forEach((c) => this.appendChild(c)); return child; }
     if (child.parentNode) child.parentNode.childNodes.splice(child.parentNode.childNodes.indexOf(child), 1);
@@ -6676,6 +6677,30 @@ const scenarios = {
     await settle();
     p.tick(400);
     return { out: out, reflows: reflows, intro: cl.contains('is-intro') };
+  },
+
+  /* The row of controls gives way a step at a time, as far as its room needs and no further. */
+  async row_fit(p) {
+    const row = p.q('.player-controls');
+    const steps = ['is-snug', 'is-tight', 'is-crowded'];
+    const has = (c) => row.classList.contains(c);
+    // What the controls need at each step; the CSS decides the real widths.
+    const need = () => (has('is-crowded') ? 300 : has('is-tight') ? 350 : has('is-snug') ? 380 : 420);
+    let room = 0;
+    Object.defineProperty(row, 'scrollWidth', { get: () => Math.max(need(), room) });
+    Object.defineProperty(row, 'clientWidth', { get: () => room });
+    const at = async (w) => { room = w; p.win.sized.filter((s) => s.el === row).forEach((s) => s.fn()); p.tick(16); return steps.filter(has); };
+    const watched = (sel) => p.win.sized.some((s) => s.el === row.querySelector(sel));
+    // The observer's own call only asks for a fit in the next frame.
+    room = 320;
+    p.win.sized.filter((s) => s.el === row).forEach((s) => s.fn());
+    const early = steps.filter(has);
+    p.tick(16);
+    return {
+      early: early,
+      widths: [await at(440), await at(400), await at(360), await at(320), await at(200), await at(440)],
+      watched: ['[data-tracks]', '[data-play-on]', '[data-slot="next"]', '.player-volume'].map(watched),
+    };
   },
 
   /* Sent to a TV as it starts: the page shows what it shows today. */

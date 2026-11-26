@@ -352,12 +352,13 @@ def test_the_note_is_read_again_after_a_save_and_when_focus_or_a_pointer_returns
     assert (out["afterSave"], out["afterFocus"], out["afterPointer"]) == ("", "", "")
 
 
-def test_a_refused_send_says_the_missing_setting_once() -> None:
+def test_a_refused_send_says_the_missing_setting_once_where_the_note_stood() -> None:
     out = _run("refusedOnce")
-    assert out["before"] == "Set Base URL under General & Schedule first"
-    assert out["note"] == ""
-    assert out["status"] == "Set Base URL under General & Schedule first"
-    assert out["noteAfterFocus"] == ""
+    words = "Set Base URL under General & Schedule first"
+    assert out["before"] == words
+    assert out["note"] == words
+    assert out["status"] == ""
+    assert out["noteAfterFocus"] == words
     # a changed setting makes the answer stale and the note speaks for the new state
     assert out["changed"] == {
         "note": "Make Base URL start with http:// or https:// first",

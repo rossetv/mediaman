@@ -48,3 +48,15 @@ def test_the_off_chip_keeps_its_words_and_icon_in_the_text_colour_when_colours_a
     forced = css.split("@media (forced-colors: active)")[1]
     rule = ".space-meter--off .space-meter__free, .space-meter--off > .ico { color: ButtonText; }"
     assert rule in forced
+
+
+def test_a_short_screen_gets_a_smaller_head_and_every_pane_fades_at_its_foot() -> None:
+    css = re.sub(r"/\*.*?\*/", "", SHEET.read_text(encoding="utf-8"), flags=re.S)
+    short = re.search(r"@media \(max-height: 500px\) \{((?:[^{}]|\{[^{}]*\})*)\}", css)
+    assert short
+    assert re.search(r"\.space-fig \{[^}]*min-height: (\d+)px", short.group(1))
+    assert int(re.search(r"\.space-fig__n \{ font-size: (\d+)px", short.group(1)).group(1)) < 40
+    pane = _declarations(".space-pane")
+    # The cover goes with the content's end, the shade stays on the pane's edge.
+    assert re.search(r"\blocal\b", pane)
+    assert re.search(r"\bscroll\b", pane)

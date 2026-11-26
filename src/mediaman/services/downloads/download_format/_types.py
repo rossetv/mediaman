@@ -9,7 +9,7 @@ from typing import Any, NotRequired, TypedDict
 #: poll-loop JS (via the same field on the JSON response). Order matters
 #: only as documentation; lookup is by key.
 DOWNLOAD_STATE_LABELS: dict[str, str] = {
-    "searching": "Looking for the best version",
+    "searching": "Looking for a copy",
     "queued": "Queued",
     "downloading": "Downloading",
     "almost_ready": "Almost ready",

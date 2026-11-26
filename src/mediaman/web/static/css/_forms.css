@@ -22,10 +22,7 @@
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"]), select, textarea):not(:disabled) {
   --hair: var(--field-edge);
 }
-.inp,
-.form-input,
-.form-select,
-.threshold-input {
+.inp {
   background-color: var(--s2);
   border: 1px solid var(--hair);
   border-radius: var(--r-sm);
@@ -37,20 +34,20 @@
   transition: border-color var(--dur-fast) var(--ease-out),
               background var(--dur-fast) var(--ease-out);
 }
-.inp:focus,
-.form-input:focus,
-.form-select:focus,
-.threshold-input:focus {
+.inp:focus {
   border-color: var(--accent);
   background-color: var(--s3);
 }
-@media (max-width: 639.98px) {
+@media (max-width: 639.98px), (pointer: coarse) {
   /* 16px stops iOS zooming the page when a field is focused */
   .inp { font-size: 16px; }
 }
+.inp:disabled {
+  color: var(--t3);
+  cursor: not-allowed;
+}
 /* Its own chevron: the native arrow ignores the padding and touches the edge. */
-select.inp,
-.form-select {
+select.inp {
   cursor: pointer;
   padding-right: 34px;
   appearance: none;
@@ -60,11 +57,8 @@ select.inp,
 }
 /* The chevron's fixed colour could vanish on the person's own palette. */
 @media (forced-colors: active) {
-  select.inp,
-  .form-select { appearance: auto; background-image: none; }
+  select.inp { appearance: auto; background-image: none; }
 }
-.form-select--sm { min-width: 140px; }
-.form-select--md { min-width: 200px; }
 
 .form-row {
   display: grid;
@@ -95,7 +89,6 @@ select.inp,
 .form-help a, .form-hint a { color: var(--accent); }
 
 .field-with-toggle { position: relative; display: flex; }
-.field-with-toggle .form-input { flex: 1; padding-right: 60px; }
 .secret-toggle {
   position: absolute;
   right: 8px;
@@ -123,7 +116,6 @@ select.inp,
 .threshold-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .threshold-name { font-weight: 500; font-size: 14px; }
 .threshold-desc { color: var(--t3); font-size: 12px; line-height: 1.4; }
-.threshold-input { width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
 .threshold-unit  { color: var(--t3); font-size: 13px; }
 
 .tog {

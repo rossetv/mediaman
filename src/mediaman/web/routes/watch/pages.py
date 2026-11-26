@@ -1013,7 +1013,10 @@ def watch_page(
             grid = _row_grid(
                 conn, username, libraries, opened, entries.get(row_id), asked.get("sort")
             )
-    downloading = strip.shared.last()
+    answer = strip.shared.last()
+    downloading = (
+        payload_for(conn, request.app.state.config.secret_key, username, answer) if answer else None
+    )
     library_total = sum(count_titles(conn).values()) if is_admin else len(titles)
     return _render(
         request,
@@ -1031,6 +1034,8 @@ def watch_page(
             "tmdb_configured": tmdb_configured,
             "picks_on": picks_on,
             "asked_waiting": set_up and asked_waiting,
+            # How many cards the Downloading row opens with, so their room is kept from the start.
+            "downloading_held": len(downloading["items"]) if downloading else 0,
             "grid": grid,
             "library_types": [t for t in all_titles.TYPES if is_admin or not t[2]],
             "library_total": library_total,
@@ -1045,11 +1050,7 @@ def watch_page(
                 if grid
                 else None,
                 "settings_tmdb_href": "/settings#setg-integrations" if is_admin else None,
-                "downloading": payload_for(
-                    conn, request.app.state.config.secret_key, username, downloading
-                )
-                if downloading
-                else None,
+                "downloading": downloading,
             },
         },
     )

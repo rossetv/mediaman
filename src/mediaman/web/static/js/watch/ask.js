@@ -36,7 +36,7 @@
 
   /* ── What the panel knows ── */
 
-  var state = null; // { account, available, records, recent, phrases, min_words }
+  var state = null; // { account, available, tonight, records, recent, phrases, min_words }
   var loading = null;
   var wipes = 0; // times the searches were forgotten
   var pageLeft = false; // the page is being left for the next person's
@@ -52,6 +52,7 @@
       state = {
         account: data.account || '',
         available: data.available === true,
+        tonight: data.tonight === true,
         records: data.records === true,
         recent: data.recent || [],
         phrases: data.personal && data.phrases ? data.phrases : [],

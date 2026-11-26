@@ -195,6 +195,7 @@ def test_after_a_retry_focus_goes_to_the_rebuilt_group() -> None:
     assert out["whileLoading"] is True  # nowhere to go until the answer is in
     assert out["tmdbOk"] == "results-group__title|Available to download"
     assert out["tmdbOkInGroup"] is True
+    assert out["heldPage"] == {"preventScroll": True}
     assert out["headingFocusable"] == -1
     assert out["failedAgain"] is True
     assert out["library"] == "results-group__title|In your library"
@@ -207,6 +208,7 @@ def test_both_searches_failing_is_one_line_with_one_try_again_that_runs_both() -
     assert out["status"] == "Couldn’t search just now."
     assert out["retryUrls"] == ["/api/watch/search?q=orchard", "/api/watch/search/tmdb?q=orchard"]
     assert out["focus"] is True
+    assert out["heldPage"] == {"preventScroll": True}
 
 
 def test_an_empty_library_with_tmdb_down_says_so_in_the_status_and_above_the_error() -> None:
@@ -528,6 +530,41 @@ def test_nothing_stands_where_nothing_is_known_of_a_person() -> None:
     out = _run("personAbout")
     for state in ("bare", "failed"):
         assert (out[state]["hidden"], out[state]["skeletons"]) == ([True, True, True], 0)
+
+
+def test_what_a_person_is_known_for_is_a_row_of_watch_cards_under_who_they_are() -> None:
+    out = _run("personKnownRow")
+    assert out["cards"] == ["movie-1", "tmdb-movie-9"]
+    assert (out["inHead"], out["beforeTitles"]) == (False, True)
+
+
+def test_who_a_person_is_comes_though_their_titles_wait_below_the_fold() -> None:
+    out = _run("personKnownRow")
+    assert (out["title"], out["grid"]) == ("Mara Ellison", 0)
+
+
+def test_a_person_who_cannot_be_had_is_said_so_though_their_titles_wait_below_the_fold() -> None:
+    out = _run("personEarlyFails")
+    assert out["failed"] == {
+        "title": "Couldn’t load this person",
+        "skeletons": 0,
+        "known": True,
+        "stopped": False,
+    }
+    assert (out["gone"]["title"], out["gone"]["stopped"]) == ("Person not found", True)
+
+
+def test_a_first_answer_about_someone_no_longer_open_is_not_shown() -> None:
+    out = _run("personEarlyStale")
+    for how in ("answer", "fail"):
+        assert out[how] == {
+            "title": "Tomas Adeyemi",
+            "facts": "",
+            "known": 0,
+            "bio": True,
+            "token": "Tomas Adeyemi",
+            "said": False,
+        }, how
 
 
 def test_no_titles_are_counted_of_a_person_who_has_none() -> None:
@@ -979,6 +1016,10 @@ def test_what_the_open_field_covers_can_have_the_focus() -> None:
         assert "pointer-events: none" in body and "visibility" not in body
 
 
+def test_the_field_is_measured_again_when_the_bars_padding_moves_the_islands() -> None:
+    assert _run("barPaddingWatched") is True
+
+
 def test_the_field_stays_between_the_brand_and_the_meter_which_drops_its_words_for_it() -> None:
     out = _run("barBetween")
     assert out["wide"] == [
@@ -1042,6 +1083,12 @@ def test_without_a_key_nothing_of_the_ai_shows() -> None:
     tonight, heads = _run("askPanel")["off"]
     assert tonight is None
     assert heads == ["Recent", "Browse by category", "Your library", "Or try", "More categories"]
+
+
+def test_tonight_shows_without_an_ai_where_tmdb_is_set() -> None:
+    shown, heads = _run("askPanel")["noAi"]
+    assert shown is True
+    assert "Browse by category" in heads
 
 
 def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
@@ -1249,7 +1296,14 @@ def test_a_search_is_kept_when_it_is_meant_and_not_at_every_key() -> None:
 def test_tonight_shows_what_fits_the_time_pressed_last() -> None:
     out = _run("tonight")
     assert out["first"] == "watch-option-tonight-0"
-    assert out["times"] == ["option,false", "option,false", "option,true", "option,false"]
+    assert out["names"] == ["30 min", "1 h", "1½ h", "2 h", "All evening"]
+    assert out["times"] == [
+        "option,false",
+        "option,false",
+        "option,false",
+        "option,true",
+        "option,false",
+    ]
     assert out["sent"] == [
         ["/tonight?minutes=60", "/tonight?minutes=120"],
         ["/tonight/elsewhere?minutes=60", "/tonight/elsewhere?minutes=120"],
@@ -1269,9 +1323,20 @@ def test_tonight_shows_what_fits_the_time_pressed_last() -> None:
     assert out["opened"] == [["movie-1"], True]
 
 
+def test_tonight_names_its_longest_time_the_same_in_its_long_short_and_spoken_words() -> None:
+    source = (Path(__file__).parents[3] / "src/mediaman/web/static/js/watch/tonight.js").read_text(
+        encoding="utf-8"
+    )
+    assert "name: 'All evening'" in source
+    assert "short: 'Evening'" in source
+    assert "said: 'the evening'" in source
+
+
 def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_library() -> None:
     out = _run("tonight")
     assert out["groups"] == ["Ready to play", "Not in your libraryOpen one to download it"]
+    # Each row of cards has its ends marked as the page's rows do (one for the set that was replaced).
+    assert out["followed"] == ["tn__list"] * len(out["followed"]) and len(out["followed"]) >= 2
     assert out["ready"] == [
         ["Film 1", "/watch/movie/1", "2020 · 1 h 40 min", "option"],
         ["Film 2", "/", "S7 · E4 · 43 min", "option"],
@@ -1279,7 +1344,7 @@ def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_l
         ["Film 3", "/watch/movie/3", "S2 · E3 · 20 min left", "option"],
     ]
     # Where "All evening" would wrap, the panel shows this word in its place.
-    assert out["short"] == [None, None, None, "Evening"]
+    assert out["short"] == [None, None, None, None, "Evening"]
     assert out["away"] == [
         ["Away 1", "#title=tmdb-movie-1", "Movie · 1 h 35 min", "option"],
         ["Away 2", "#title=tmdb-tv-2", "TV · 22 min episodes", "option"],
@@ -1303,6 +1368,8 @@ def test_tonight_has_others_and_says_when_little_or_nothing_fits() -> None:
     assert out["way"] == "/tonight?minutes=90"
     assert out["evening"] == "/tonight?minutes=720"
     assert out["failed"].startswith("Couldn’t look just now")
+    # Try again asks for what is not in the library too, where that failed.
+    assert out["retried"] == [1, 2]
 
 
 def test_titles_like_one_have_a_page_that_back_leaves() -> None:
@@ -1444,3 +1511,8 @@ def test_an_answer_offers_no_download_of_a_kind_that_cannot_be_downloaded() -> N
     out = _run("askNoDownload")
     assert out["films"] == [["In your library", ""], ["Not in your library", ""]]
     assert out["shows"][1] == ["Not in your library", "Open one to download it"]
+
+
+def test_the_field_hint_for_asking_is_short_enough_for_a_narrow_phone() -> None:
+    # 320 wide shows about 25 characters of it before it is cut mid-word.
+    assert len(_run("askPanel")["hint"]) <= 22

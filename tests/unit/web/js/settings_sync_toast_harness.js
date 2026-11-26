@@ -21,7 +21,7 @@ const SRC = path.resolve(__dirname, '../../../../src/mediaman/web/static/js/sett
     matchMedia: () => ({ matches: false }),
     UIFeedback: { toast: raise('toast'), success: raise('success'), error: raise('error') },
     MM: {
-      api: { post: () => Promise.resolve(JSON.parse(process.argv[2])), get: () => Promise.resolve({}), messageOf: (e, w) => w },
+      api: { post: () => (JSON.parse(process.argv[2]) === 'reject' ? Promise.reject({}) : Promise.resolve(JSON.parse(process.argv[2]))), get: () => Promise.resolve({}), messageOf: (e, w) => w },
       dom: { focusStillIn: () => false },
       settings: { rows: {}, savebar: { isEdited: () => false } },
     },

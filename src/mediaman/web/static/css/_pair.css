@@ -1,5 +1,5 @@
 /* Pair a TV: the code it shows, then its name. */
-.pair-pg { display: grid; justify-items: center; padding: 48px 20px calc(72px + var(--foot)); }
+.pair-pg { display: grid; justify-items: center; padding: 48px 20px 72px; }
 .pair { width: 100%; max-width: 380px; }
 /* Each step as it is shown. */
 .pair form, #pair-done { animation: pair-in var(--dur) var(--ease-out); }

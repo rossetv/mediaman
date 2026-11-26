@@ -14,7 +14,7 @@ FORCED = "(forced-colors: active)"
 def _of(selector: str, media: str | None = None, sheet: Path = SHEET) -> str:
     """The declarations of *selector* outside any `@media`, or inside those asking for *media*."""
     css = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.S)
-    blocks = r"@media ([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}"
+    blocks = r"@(?:media|container) ([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}"
     text = (
         "".join(body for query, body in re.findall(blocks, css) if media in query)
         if media
@@ -548,7 +548,10 @@ def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
     # One line at every width, a phone's islands included.
     assert "scroll-margin-top" not in _of("#main-content", "(max-width: 1099.98px)", BAR)
     nav = SHEET.with_name("_nav.css")
-    assert int(re.search(r"--nav-h: (\d+)px", _of(":root", "(max-width: 699.98px)", nav))[1]) >= 52
+    assert (
+        int(re.search(r"--nav-h: calc\((\d+)px", _of(":root", "(max-width: 699.98px)", nav))[1])
+        >= 52
+    )
 
 
 ASK = SHEET.with_name("_watch_ask.css")
@@ -578,9 +581,33 @@ def test_tonight_s_titles_break_between_words_on_cards_as_wide_as_the_rows() -> 
 
 
 def test_tonight_s_longest_time_has_a_shorter_word_where_it_would_wrap() -> None:
-    narrow = "(max-width: 359.98px)"
+    narrow = "(max-width: 409.98px)"
     assert "font-size: 0" in _of(".tn__seg > button[data-short]", narrow, ASK)
     assert "attr(data-short)" in _of(".tn__seg > button[data-short]::before", narrow, ASK)
+    # The width it is judged by is the panel's own, so it holds at any page width.
+    assert "container-type: inline-size" in _of(".tn__head", sheet=ASK)
+    assert "white-space: normal" not in _of(".tn__seg > button", "(max-width: 599.98px)", ASK)
+    assert "white-space: nowrap" in _of(".tn__seg > button", sheet=ASK)
+
+
+def test_tonight_s_times_wrap_rather_than_overlap_where_five_44px_ones_do_not_fit() -> None:
+    narrow = "(max-width: 259.98px)"
+    assert "flex-wrap: wrap" in _of(".tn__seg", narrow, ASK)
+    assert "flex: 1 0 44px" in _of(".tn__seg > button", narrow, ASK)
+    assert "display: none" in _of(".tn__seg > i", narrow, ASK)
+    assert "background: var(--s5)" in _of('.tn__seg > button[aria-checked="true"]', narrow, ASK)
+
+
+def test_tonight_s_five_times_keep_44px_each_at_320() -> None:
+    # Box padding 10 each side, border 1, page padding 16: the segment's room is left over.
+    assert "padding-inline: 10px" in _of(".tn", "(max-width: 339.98px)", ASK)
+
+
+def test_tonight_s_row_of_cards_fades_at_its_edge_on_a_phone() -> None:
+    row = _of(".tn__list", "(max-width: 599.98px)", ASK)
+    assert "var(--watch-fade-l)" in row and "var(--watch-fade-r)" in row
+    assert "--watch-fade-l" in _of(".tn__list.has-prev", "(max-width: 599.98px)", ASK)
+    assert "--watch-fade-r" in _of(".tn__list.has-next", "(max-width: 599.98px)", ASK)
 
 
 def test_an_ai_pick_s_sparkle_has_a_backplate_of_its_own_in_forced_colours() -> None:
@@ -615,13 +642,20 @@ def _last(name: str, css: str) -> str:
     return re.findall(rf"(?<![\w-]){re.escape(name)}:\s*([^;]+)", css)[-1]
 
 
+def _bar_px(value: str) -> str:
+    """The bar's own height: what `--nav-h` holds, less the inset at the top of a phone."""
+    return re.sub(r"calc\((\d+px) \+ env\(safe-area-inset-top, 0px\)\)", r"\1", value)
+
+
 def _px(value: str, narrow: bool, height: int) -> float:
     """What a length comes to in pixels in a window *height* high, on a phone if *narrow*."""
     nav = SHEET.with_name("_nav.css")
-    nav_h = _last("--nav-h", _of(":root", PHONE, nav) if narrow else _of(":root", sheet=nav))
+    nav_h = _bar_px(
+        _last("--nav-h", _of(":root", PHONE, nav) if narrow else _of(":root", sheet=nav))
+    )
     value = re.sub(r"env\([^()]*\)", "0px", value)
     # No phone has a bar at its foot.
-    for name, px in (("--foot", "0px"), ("--nav-h", nav_h), ("--seen", "100dvh")):
+    for name, px in (("--nav-h", nav_h), ("--seen", "100dvh")):
         value = re.sub(rf"var\({name}(?:, [^()]+)?\)", px, value)
     value = value.replace("var(--seen-top, 0px)", "0px").replace("calc", "")
     value = re.sub(r"([\d.]+)dvh", lambda m: str(float(m[1]) / 100 * height), value)
@@ -656,7 +690,9 @@ def test_a_phone_s_tv_bar_is_off_the_foot_and_below_toasts_and_what_is_scrolled_
     assert _px(_last("bottom", bar), True, height) >= 8
     over = _bar_top(True, height)
     nav_h = int(
-        _last("--nav-h", _of(":root", PHONE, SHEET.with_name("_nav.css"))).removesuffix("px")
+        _bar_px(_last("--nav-h", _of(":root", PHONE, SHEET.with_name("_nav.css")))).removesuffix(
+            "px"
+        )
     )
     assert over <= height - nav_h  # under the bar at the top
     toast = _of(f"{BAR_SHOWN}.has-watch-search .ui-toast-host", PHONE, REMOTE)
@@ -675,8 +711,8 @@ def test_an_error_page_is_as_high_as_the_screen_less_the_nav_at_every_width() ->
 def test_the_nav_s_height_is_set_in_the_nav_sheet_alone() -> None:
     css = SHEET.parent
     assert "--nav-h:" not in _of(":root", sheet=css / "_tokens.css")
-    assert _last("--nav-h", _of(":root", sheet=css / "_nav.css")) == "72px"
-    assert _last("--nav-h", _of(":root", PHONE, css / "_nav.css")) == "64px"
+    assert _bar_px(_last("--nav-h", _of(":root", sheet=css / "_nav.css"))) == "72px"
+    assert _bar_px(_last("--nav-h", _of(":root", PHONE, css / "_nav.css"))) == "64px"
 
 
 def test_a_row_kept_at_its_start_does_not_snap_whatever_its_script_sets_inline() -> None:

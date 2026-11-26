@@ -1630,6 +1630,40 @@ def test_what_is_downloading_comes_with_the_page_between_continue_watching_and_w
     assert "/static/css/_watch_downloading.css" in html
 
 
+def _downloading_slot(html: str) -> str:
+    return re.search(r'<div class="[^"]*" id="watch-downloading"[^>]*>', html)[0]
+
+
+def test_the_downloading_row_holds_its_room_from_the_start_with_a_card_for_each_title(
+    app_factory, conn, library, plex, monkeypatch
+):
+    """So the rows under it do not move when watch/downloading.js draws it."""
+    items = tuple(
+        strip.StripItem(key=f"radarr::{n}", title=t, kind="movie", state="downloading")
+        for n, t in enumerate(("Dune", "Sicario", "Arrival"))
+    )
+    held = strip.Shared()
+    held.get(lambda _before: strip.Strip(items))
+    monkeypatch.setattr(strip, "shared", held)
+
+    html = _page(app_factory, conn, monkeypatch, "/", "aoife").text
+
+    slot = _downloading_slot(html)
+    assert "is-open" in slot and "hidden" not in slot
+    assert html.count("dlx-skel__card") == 3
+
+
+def test_the_downloading_row_holds_no_room_while_nothing_is_known(
+    app_factory, conn, library, plex, monkeypatch
+):
+    monkeypatch.setattr(strip, "shared", strip.Shared())
+
+    html = _page(app_factory, conn, monkeypatch, "/", "aoife").text
+
+    assert "hidden" in _downloading_slot(html)
+    assert "dlx-skel" not in html
+
+
 def test_the_place_of_what_was_asked_for_is_held_only_for_whoever_asked(
     app_factory, conn, library, plex, monkeypatch
 ):

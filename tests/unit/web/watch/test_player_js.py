@@ -3344,3 +3344,21 @@ def test_a_titles_button_says_what_it_is_and_whether_a_tv_plays_it(markup):
     assert (out["key"], out["label"], out["isOn"]) == ("501", "Play on a TV", False)
     out = elsewhere(markup, "away_title_ways", "playing")
     assert (out["label"], out["isOn"]) == ("Playing on a TV", True)
+
+
+def test_a_full_row_of_controls_gives_up_the_mute_then_shortens_its_pills_then_drops_the_skips(
+    markup,
+):
+    out = run(markup, "row_fit")
+    # Not inside the observer's own call: a change there logs a ResizeObserver loop in WebKit.
+    assert out["early"] == []
+    assert out["widths"] == [
+        [],
+        ["is-snug"],
+        ["is-snug", "is-tight"],
+        ["is-snug", "is-tight", "is-crowded"],
+        ["is-snug", "is-tight", "is-crowded"],
+        [],
+    ]
+    # A control shown, hidden or relabelled is seen even where the row keeps its own size.
+    assert out["watched"] == [True, True, True, True]
