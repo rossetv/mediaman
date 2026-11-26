@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from time import monotonic
 
 import pytest
 import requests
@@ -165,6 +166,8 @@ def _world(monkeypatch):
     monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_a: None)
     monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_a: None)
     monkeypatch.setattr(assist.threading, "Thread", InlineThread)
+    monkeypatch.setattr(openai_client, "_refused_key", None)
+    monkeypatch.setattr(openai_client, "_refused_at", 0.0)
     yield
     catalog.invalidate()
 
@@ -564,6 +567,7 @@ class TestAsk:
 
     def test_a_key_known_refused_offers_no_question(self, amy, model, monkeypatch):
         monkeypatch.setattr(openai_client, "_refused_key", openai_client._digest("sk-test"))
+        monkeypatch.setattr(openai_client, "_refused_at", monotonic())
         assert amy.get(BASE).json()["available"] is False
         assert _ask(amy)["error"] == "unavailable"
         assert model.prompts == []
