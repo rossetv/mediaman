@@ -116,7 +116,7 @@ def test_a_save_without_the_tmdb_api_key_keeps_the_one_stored(
 # Sync now's toasts
 
 
-def _sync_toasts(reply: dict) -> list[dict]:
+def _sync_toasts(reply: dict | str) -> list[dict]:
     harness = Path(__file__).parent / "js/settings_sync_toast_harness.js"
     out = subprocess.run(
         ["node", str(harness), json.dumps(reply)],
@@ -132,3 +132,12 @@ def test_the_toast_that_asks_for_libraries_stays_long_enough_to_act_on() -> None
     (toast,) = _sync_toasts({"ok": True, "synced": 0, "errors": 0, "removed": 0})
     assert "Libraries & Paths" in toast["message"]
     assert toast["duration"] >= 8000
+
+
+def test_the_toasts_of_a_failed_sync_stay_long_enough_to_read() -> None:
+    (some,) = _sync_toasts({"ok": True, "synced": 3, "errors": 2, "removed": 0})
+    assert some["kind"] == "error" and some["duration"] >= 8000
+    (none,) = _sync_toasts({"ok": True, "synced": 0, "errors": 2, "removed": 0})
+    assert none["kind"] == "error" and none["duration"] >= 8000
+    (lost,) = _sync_toasts("reject")
+    assert lost["kind"] == "error" and lost["duration"] >= 8000
