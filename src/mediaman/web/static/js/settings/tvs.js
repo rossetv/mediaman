@@ -549,6 +549,24 @@
 
   /* ── the address TVs use ── */
 
+  // The IPv4 address an IPv6 host wraps (::ffff:a.b.c.d or ::ffff:hhhh:hhhh), or ''.
+  function mappedV4(host) {
+    var m = /^\[(?:::|(?:0{1,4}:){5})ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))\]$/i.exec(host);
+    if (!m) return '';
+    if (m[1]) return m[1];
+    var hi = parseInt(m[2], 16);
+    var lo = parseInt(m[3], 16);
+    return [hi >> 8, hi & 255, lo >> 8, lo & 255].join('.');
+  }
+
+  // An IPv6 host no TV can be at: unspecified, multicast (ff00::/8), or an IPv4 one wrapped in it that is itself refused.
+  function v6Refused(host) {
+    var h = host.slice(1, -1).toLowerCase();
+    if (h === '::' || /^(?:0{1,4}:){7}0{1,4}$/.test(h) || /^ff[0-9a-f]{2}:/.test(h)) return true;
+    var v4 = mappedV4(host);
+    return !!v4 && IPV4.test(v4) && (v4 === '0.0.0.0' || /^(?:22[4-9]|23\d)\./.test(v4));
+  }
+
   // The shapes the server refuses on Save, said as they are typed.
   function wrongShape(value) {
     var rest = /^https?:\/\/(.*)$/i.exec(value);
@@ -562,7 +580,10 @@
     if (!parts) return 'That isn’t a valid address.' + sample;
     var host = parts[1];
     if (parts[2] && (+parts[2] < 1 || +parts[2] > 65535)) return 'That port can’t be used.' + sample;
-    if (host.charAt(0) === '[') return host.indexOf('%') >= 0 ? 'A TV can’t use this kind of address.' + sample : '';
+    if (host.charAt(0) === '[') {
+      if (host.indexOf('%') >= 0) return 'A TV can’t use this kind of address.' + sample;
+      return v6Refused(host) ? 'That address can’t be used by a TV.' + sample : '';
+    }
     host = host.replace(/\.$/, '');
     if (!host) return authority ? 'URL must include a host.' + sample : '';
     if (IPV4.test(host)) {
@@ -584,8 +605,7 @@
       var bad = '';
       var warn = '';
       var host = (/^https?:\/\/(?:[^/?#]*@)?(\[[^\]]*\]|[^/:?#]*)/i.exec(value) || [])[1] || '';
-      var mapped = /^\[::ffff:(\d+(\.\d+){3})\]$/i.exec(host);
-      if (mapped) host = mapped[1];
+      host = mappedV4(host) || host;
       if (/^(localhost|.*\.localhost|127\..*|\[::1\])\.?$/i.test(host)) {
         bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address or its name.';
       } else if (/^\[fe[89ab]/i.test(host)) {

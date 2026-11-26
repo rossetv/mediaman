@@ -79,3 +79,16 @@ def test_on_a_narrow_phone_the_button_is_the_only_extra_column() -> None:
 def test_on_a_phone_an_episodes_name_has_the_mini_bars_room() -> None:
     assert _value(PHONE, ".dl-ep-mini-bar", "display") == "none"
     assert _value(PHONE, ".dl-ep-status-pill", "grid-column") == "3 / -1"
+
+
+def test_upcoming_row_gives_the_title_a_full_line_below_260px():
+    """With the poster and the button sharing a line, the title keeps the row's width and the
+    button is no longer laid over the pill."""
+    tiny = _media("(max-width: 259.98px)")
+    assert _value(tiny, ".dl-upcoming-row > .dl-row-info", "grid-area") == "2 / 1 / 3 / -1"
+    assert _value(tiny, ".dl-upcoming-row > .pill", "grid-area") == "3 / 1 / 4 / -1"
+    assert _value(tiny, ".dl-upcoming-row > .dl-row-abandon", "position") == "static"
+    assert _value(tiny, ".dl-upcoming-row > .dl-row-abandon", "grid-area") == "1 / 3"
+    # The row's right padding no longer reserves the button's column.
+    assert _value(tiny, ".dl-upcoming-row.dl-row--has-abandon", "padding") == "12px"
+    assert _value(tiny, ".dl-upcoming-row .dl-row-title", "white-space") == "normal"
