@@ -164,3 +164,7 @@ def test_a_scroll_that_is_the_title_pages_own_passes_over_a_card_and_opens_nothi
         "people": 0,
         "card": True,
     }
+
+
+def test_a_scroll_with_the_pointer_still_on_the_photo_under_its_card_opens_nothing() -> None:
+    assert _run("scrolledOnThePhoto") == {"still": False, "opened": 0, "moved": True, "then": 1}

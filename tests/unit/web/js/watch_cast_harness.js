@@ -79,7 +79,7 @@ function load(cast = CAST, motion = false) {
   const q = (sel) => root.querySelector(sel);
   const item = (i) => root.querySelectorAll('.ttl-cast__item')[i];
   const fire = (type, e) => (root.listeners[type] || []).forEach((fn) => fn(e));
-  const over = (target, kind) => fire('pointermove', { target, pointerType: kind || 'mouse' });
+  const over = (target, kind, clientX, clientY) => fire('pointermove', { target, pointerType: kind || 'mouse', clientX, clientY });
   /* A wheel event over *target*: the window hears it first, then it goes up from the target. Says whether it was kept from scrolling. */
   const wheel = (target, deltaY, extra) => {
     const e = { target, deltaY, deltaX: 0, deltaMode: 0, timeStamp: clock.now, cancelable: true, defaultPrevented: false,
@@ -285,6 +285,7 @@ const scenarios = {
     p.over(p.item(0));
     await p.wait(450);
     const pane = () => p.q('.cast-card__pane');
+    p.over(pane(), 'mouse', 100, 100);
     const kept = [];
     for (let i = 0; i < 4; i++) { kept.push(p.wheel(pane(), 30)); await p.wait(10); }
     const short = p.people.length;
@@ -296,8 +297,24 @@ const scenarios = {
     const fresh = p.wheel(p.doc.getElementById('watch-results'), 40);
     p.over(p.item(1));
     await p.wait(450);
+    p.over(pane(), 'mouse', 100, 100);
     p.wheel(pane(), 3, { deltaMode: 1 });
     return { kept, short, after, rest, fresh, notch: p.people.map(([who]) => who.name) };
+  },
+
+  // A card with no room above or under the person stands over the photo the pointer rests on: a scroll there is the page's.
+  async scrolledOnThePhoto() {
+    const p = load();
+    const pane = () => p.q('.cast-card__pane');
+    p.over(p.item(0), 'mouse', 10, 10);
+    await p.wait(450);
+    p.over(pane(), 'mouse', 10, 10);
+    const still = p.wheel(pane(), 200);
+    const opened = p.people.length;
+    await p.wait(400);
+    p.over(pane(), 'mouse', 100, 100);
+    const moved = p.wheel(pane(), 200);
+    return { still, opened, moved, then: p.people.length };
   },
 
   // Scrolls that are the page's: begun off the card, up, sideways, with a key, or as the card has just opened.
@@ -306,6 +323,7 @@ const scenarios = {
     const pane = () => p.q('.cast-card__pane');
     p.over(p.item(0));
     await p.wait(290);
+    p.over(pane(), 'mouse', 100, 100);
     const early = p.wheel(pane(), 200);
     await p.wait(400);
     const out = { early };

@@ -317,7 +317,8 @@
   }
 
   /* Above the photo, so that the row stays free to move along; under the person
-     where there is no room. */
+     where there is no room; beside them where there is neither, so that the photo
+     the pointer rests on stays clear. */
   function place(p) {
     var a = box(p.avatar);
     var below = box(p.item);
@@ -329,7 +330,12 @@
     var y = a.top - EDGE - h;
     if (y < top) {
       y = below.top + below.height + 8;
-      if (y + h > bottom) y = Math.max(top, Math.min(bottom - h, a.top - EDGE - h));
+      if (y + h > bottom) {
+        y = Math.max(top, Math.min(bottom - h, a.top + a.height / 2 - h / 2));
+        if (below.left + below.width + 8 + w <= root.clientWidth - EDGE) x = below.left + below.width + 8;
+        else if (below.left - 8 - w >= EDGE) x = below.left - 8 - w;
+        else y = Math.max(top, Math.min(bottom - h, a.top - EDGE - h));
+      }
     }
     card.style.setProperty('--to', 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)');
     foldTo(p);
@@ -356,6 +362,7 @@
     if (was) was.item.removeAttribute('aria-describedby');
     live = p;
     openedAt = now();
+    reached = false;
     card.hidden = false;
     if (!shown || shown.of !== p || shown.state !== stateOf(p)) draw(p);
     if (was) {
@@ -471,6 +478,7 @@
     if (e.pointerType !== 'mouse') return;
     byKeys = false;
     var p = personAt(e.target);
+    if (live && card.contains(e.target) && !onPhoto(live, e)) reached = true;
     if (p || card.contains(e.target)) {
       clearTimeout(closeTimer);
       closeTimer = null;
@@ -506,6 +514,12 @@
   var READY_MS = 100; // how long the card has stood open, to have been seen
   var stream = null;  // { mine, sum, notches, at, done }
   var openedAt = 0;
+  var reached = false; // the pointer has come onto the card, not only rested on the photo it opened from
+
+  function onPhoto(p, e) {
+    var r = p.avatar.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  }
 
   function px(e, delta) { return delta * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? window.innerHeight : 1); }
 
@@ -515,7 +529,7 @@
     var dy = px(e, e.deltaY);
     if (!stream || e.timeStamp - stream.at > gapOf(stream)) {
       stream = {
-        mine: !!live && isShown() && card.contains(e.target) && dy > Math.abs(px(e, e.deltaX)) &&
+        mine: !!live && isShown() && reached && card.contains(e.target) && dy > Math.abs(px(e, e.deltaX)) &&
           !e.shiftKey && !e.ctrlKey && !e.metaKey && now() - openedAt >= READY_MS,
         sum: 0, notches: e.deltaMode === 1 || Math.abs(dy) >= 60, at: 0, done: false
       };
