@@ -121,6 +121,12 @@ def test_the_hint_keeps_two_lines_of_room_and_the_chosen_pill_shows_in_forced_co
     assert "background: Highlight" in forced and "color: HighlightText" in forced
 
 
+def test_a_second_press_of_save_tells_the_person_again() -> None:
+    out = _run("repeatedErrors")
+    assert out["failed"] == ["", "Away", "", "Away"]
+    assert out["empty"] == ["", "Give it a name.", "", "Give it a name."]
+
+
 def test_a_malformed_list_leaves_the_name_form_as_it_was() -> None:
     out = _run("badList")
     assert out == [[["pair-name-form"], "Living room"]] * 4

@@ -37,6 +37,7 @@ function page(hash, answers, yes = true, owned = Promise.resolve({ tvs: [] })) {
     document: doc, location, history: { replaceState: (a, b, url) => { replaced.push(url); location.hash = ''; } },
     MM: { api: { get: () => (Array.isArray(owned) ? owned.shift() : owned), post: answer, patch: answer, messageOf: (e, d) => (e && e.words) || d } },
     UIFeedback: { confirm: (o) => { asked.push(o.body); return Promise.resolve(yes); } },
+    setTimeout: (fn) => { Promise.resolve().then(fn); return 0; }, clearTimeout() {},
     window: { addEventListener: (t, fn) => { listeners[t] = fn; } },
   });
   vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
@@ -181,6 +182,27 @@ const scenarios = {
       if (spaced === null) spaced = text;
     }
     return { writes, text, spaced };
+  },
+  async repeatedErrors() {
+    const p = page('#482916', [TV, { error: 'x', words: 'Away' }, { error: 'x', words: 'Away' }], true);
+    p.fire('pair-form', 'submit');
+    await settle();
+    const why = p.$('pair-name-why');
+    const writes = [];
+    let text = why.textContent;
+    Object.defineProperty(why, 'textContent', { get: () => text, set: (v) => { writes.push(v); text = v; } });
+    p.fire('pair-name-form', 'submit');
+    await settle();
+    p.fire('pair-name-form', 'submit');
+    await settle();
+    const failed = writes.slice();
+    writes.length = 0;
+    p.$('pair-name').value = '  ';
+    p.fire('pair-name-form', 'submit');
+    await settle();
+    p.fire('pair-name-form', 'submit');
+    await settle();
+    return { failed, empty: writes };
   },
   async badList() {
     const out = [];

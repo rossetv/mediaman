@@ -40,9 +40,17 @@
     });
   }
 
-  function say(node, text, bad) {
+  // `again` is an answer to a press: it is cleared and then written, so a status that has the same
+  // words as before is still read out. A hint is written only when its words change.
+  function say(node, text, bad, again) {
     var cls = bad ? 'pair__why bad' : 'pair__why';
-    // A status read out again for the same words is noise.
+    clearTimeout(node.pending);
+    if (again) {
+      node.className = cls;
+      node.textContent = '';
+      node.pending = setTimeout(function () { node.textContent = text; }, 80);
+      return;
+    }
     if (node.className === cls && node.textContent === text) return;
     node.className = cls;
     node.textContent = text;
@@ -63,7 +71,7 @@
   function refuse(text) {
     show('');
     boxes.classList.add('is-bad');
-    say(why, text, true);
+    say(why, text, true, true);
   }
 
   function setBusy(on) {
@@ -101,7 +109,7 @@
         // The code may still be good: one press sends it again.
         var kept = typed;
         show(kept);
-        say(why, MM.api.messageOf(err, LATER), true);
+        say(why, MM.api.messageOf(err, LATER), true, true);
       }
     });
   }
@@ -189,7 +197,7 @@
     if (busy) return;
     var wanted = name.value.trim();
     if (!wanted) {
-      say(nameWhy, 'Give it a name.', true);
+      say(nameWhy, 'Give it a name.', true, true);
       name.focus();
       return;
     }
@@ -202,7 +210,7 @@
       document.getElementById('pair-ready-name').textContent = data.tv.name + ' is ready';
       document.getElementById('pair-ready').focus({ preventScroll: true });
     }, function (err) {
-      say(nameWhy, MM.api.messageOf(err, LATER), true);
+      say(nameWhy, MM.api.messageOf(err, LATER), true, true);
     }).then(function () {
       busy = false;
       save.removeAttribute('aria-disabled');
