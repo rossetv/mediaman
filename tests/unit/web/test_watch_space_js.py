@@ -218,7 +218,7 @@ class TestStorage:
     def test_no_library_paths_set_points_to_settings_and_offers_no_retry(self):
         out = _run("noPaths")
         assert out["meter"][0] == "No library paths"
-        assert out["meter"][1].startswith("No library paths")
+        assert out["meter"][1].startswith("No library paths") and "Storage" in out["meter"][1]
         assert "Set library paths in Settings" in out["text"]
         assert "Can’t read" not in out["text"]
         assert out["href"] == "/settings#setg-libraries"

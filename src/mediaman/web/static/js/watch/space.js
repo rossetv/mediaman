@@ -304,7 +304,7 @@
         if (!unset && text !== 'Storage') words.append(el('span', 'space-meter__word', ' storage'));
         add(b, MM.dom.icon('i-hard-drive'), words);
         b.setAttribute('aria-label', !stats ? 'Storage, could not be loaded' + leavingLabel()
-          : (text === 'Storage' ? text : unset ? 'No library paths' : 'Storage: the disks can’t be read') + marks(b) + leavingLabel());
+          : (text === 'Storage' ? text : unset ? 'No library paths. Storage' : 'Storage: the disks can’t be read') + marks(b) + leavingLabel());
         return;
       }
       var s = stats.storage;
