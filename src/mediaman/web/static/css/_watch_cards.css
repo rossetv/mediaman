@@ -353,6 +353,11 @@ html.is-grid-moving .card-tool { pointer-events: none; }
 }
 
 @media (forced-colors: active) {
+  /* The title keeps its white on the poster's darkened foot: the system's colours would take the
+     dark away and put a plate behind each line. */
+  .watch-card__poster::after,
+  .watch-card__title { forced-color-adjust: none; }
+  .watch-card__title { color: var(--t1); }
   .card-tool { color: ButtonText; }
   .card-tool::before { border: 1px solid ButtonBorder; background: ButtonFace; }
   .card-tool > .rate-th { --th-bg: ButtonFace !important; forced-color-adjust: none; }
