@@ -12,7 +12,8 @@ const NEEDS = ['p', {}, 'Needs an ', ['a', { href: '#intg-openai' }, 'OpenAI key
 const REFUSED = ['p', {}, 'OpenAI refused the key. Check it in the ', ['a', { href: '#intg-openai' }, 'OpenAI card'], '.'];
 
 // The page as served: *need* is what the server found the switch lacks ('', 'key' or 'refused').
-async function load({ key = '', on = true, need = 'key' } = {}) {
+// *tested* is how the OpenAI Test answers: true for a pass, false for a failure.
+async function load({ key = '', on = true, need = 'key', tested } = {}) {
   const doc = makeDocument();
   const add = (spec) => doc.body.appendChild(build(doc, spec));
   add(['input', { id: 'openai_api_key' }]).value = key;
@@ -28,7 +29,8 @@ async function load({ key = '', on = true, need = 'key' } = {}) {
   add(['div', { id: 'setg-ai-need', class: 'setg-row-sub ai-need' + (need ? ' is-open' : ''), 'data-need': need },
     ['div', {}, need === 'refused' ? REFUSED : NEEDS]]);
   const card = add(['div', { id: 'intg-openai', class: 'intg-card is-collapsed' },
-    ['div', { class: 'intg-card-hd', 'data-intg-toggle': '' }, ['h3', {}, ['button', { id: 'openai-fold', class: 'intg-fold' }, 'OpenAI']]]]);
+    ['div', { class: 'intg-card-hd', 'data-intg-toggle': '' }, ['h3', {}, ['button', { id: 'openai-fold', class: 'intg-fold' }, 'OpenAI']],
+      ['button', { class: 'btn-test', 'data-test-service': 'openai' }, 'Test']]]);
   const p = { doc, sw, input, card, opened: 0, scrolled: false };
   const fold = card.querySelector('.intg-fold');
   fold.click = () => click(doc, fold);
@@ -39,7 +41,14 @@ async function load({ key = '', on = true, need = 'key' } = {}) {
     setTimeout: () => 0, clearTimeout: () => {},
     matchMedia: () => ({ matches: false }),
     UIFeedback: { toast() {}, success() {}, error() {} },
-    MM: { api: { get: () => new Promise(() => {}), post: () => new Promise(() => {}), messageOf: (e, w) => w } },
+    MM: { api: {
+      get: () => new Promise(() => {}),
+      post: (url) => {
+        if (tested === undefined || url !== '/api/settings/test/openai') return new Promise(() => {});
+        return tested ? Promise.resolve({ ok: true }) : Promise.reject(Object.assign(new Error('x'), { status: 200 }));
+      },
+      messageOf: (e, w) => w,
+    } },
   };
   ctx.window = ctx;
   vm.createContext(ctx);
@@ -81,6 +90,15 @@ const scenarios = {
     r.recheck(['openai_api_key'], { openai_api_key: '', suggestions_enabled: 'true' });
     out.keyCleared = r.look();
     return out;
+  },
+  async tested() {
+    const at = async (tested) => {
+      const p = await load({ key: '****', need: 'refused', tested });
+      click(p.doc, p.doc.querySelector('[data-test-service="openai"]'));
+      await settle();
+      return p.look();
+    };
+    return { passed: await at(true), failed: await at(false) };
   },
   async link() {
     const p = await load();

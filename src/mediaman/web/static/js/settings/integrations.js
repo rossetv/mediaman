@@ -317,6 +317,11 @@
         if (stEl) stEl.textContent = label;
       });
       MM.settings.integrations.paintRailCount();
+      // OpenAI took the saved key, which the server has forgotten refusing.
+      if (service === 'openai' && tone === 'ok' && aiRefused) {
+        aiRefused = false;
+        drawAiNeed();
+      }
     },
 
     paintRailCount: function () {

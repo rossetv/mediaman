@@ -7,13 +7,14 @@ import re
 import subprocess
 from pathlib import Path
 from time import monotonic
+from unittest.mock import MagicMock, patch
 
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
 from mediaman.app_factory import _TEMPLATE_DIR
 from mediaman.services.openai import client as openai_client
-from mediaman.web.routes.settings import router
+from mediaman.web.routes.settings import _TEST_CACHE, router
 from tests.helpers.factories import insert_settings
 
 HARNESS = Path(__file__).parent / "js" / "settings_ai_need_harness.js"
@@ -24,6 +25,7 @@ REFUSED = "OpenAI refused the key. Check it in the OpenAI card."
 @pytest.fixture
 def client(app_factory, authed_client, conn, templates_stub, monkeypatch):
     monkeypatch.setattr(openai_client, "_refused_key", None)
+    _TEST_CACHE.clear()
     app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
     return authed_client(app, conn)
 
@@ -86,3 +88,19 @@ def test_a_saved_key_ends_the_need_and_a_new_key_ends_the_refusal() -> None:
 def test_the_link_opens_the_openai_card_and_moves_there() -> None:
     out = _run("link")
     assert out == {"prevented": True, "opened": 1, "focus": "openai-fold", "scrolled": True}
+
+
+def test_a_passing_openai_test_takes_the_refused_line_away_and_a_failing_one_keeps_it() -> None:
+    out = _run("tested")
+    assert out["passed"]["open"] is False
+    assert out["failed"] == {"open": True, "text": REFUSED}
+
+
+def test_a_passing_openai_test_forgets_the_refusal_of_that_key(client, conn, monkeypatch) -> None:
+    insert_settings(conn, openai_api_key="sk-validkey1234")
+    monkeypatch.setattr(openai_client, "_refused_key", openai_client._digest("sk-validkey1234"))
+    monkeypatch.setattr(openai_client, "_refused_at", monotonic())
+    answer = MagicMock(status_code=200, headers={}, _content=b"{}", _content_consumed=True)
+    with patch("mediaman.services.infra.http.client._dispatch", return_value=answer):
+        assert client.post("/api/settings/test/openai").json()["ok"] is True
+    assert openai_client.key_refused(conn) is False

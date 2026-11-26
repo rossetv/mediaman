@@ -240,6 +240,13 @@ def key_refused(conn: sqlite3.Connection | None, secret_key: str | None = None) 
     )
 
 
+def clear_refusal(api_key: str) -> None:
+    """Forget a refusal of *api_key*, once OpenAI has taken it."""
+    global _refused_key
+    if _refused_key == _digest(api_key):
+        _refused_key = None
+
+
 def _log_error(exc: Exception) -> None:
     """One plain line for what OpenAI or the network did; a traceback only for the rest."""
     if isinstance(exc, SafeHTTPError):
