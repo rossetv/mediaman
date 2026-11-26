@@ -293,7 +293,11 @@ def test_a_title_finds_more_like_itself_beside_play_once_there_is_an_ai_to_ask()
         "before": False,
         "acts": ["primary", "like"],
         "focus": "primary",
-        "asked": ["movie-120", "tmdb-movie-77", "tmdb-movie-77"],
+        "asked": [
+            ["movie-120", "Glass Harbour", "/api/watch/poster/120"],
+            ["tmdb-movie-77", "Meridian", None],
+            ["tmdb-movie-77", "Meridian", None],
+        ],
         "off": False,
     }
 
