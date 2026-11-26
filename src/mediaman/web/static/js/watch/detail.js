@@ -890,6 +890,8 @@
       settleHero();
       renderContent(true, old);
     }
+    // Its cards may have been drawn before it was marked elsewhere.
+    if (!data.draft && core.markOf(data) && window.MMWatch.marks) window.MMWatch.marks.paint(core.markOf(data), !!data.watched);
     if (c.atEpisodes) toEpisodes();
     if (hasFacts(c)) loadFacts(c);
     if (pollable()) schedulePoll(0);

@@ -1082,6 +1082,19 @@ const scenarios = {
     return { loaded: loaded.hash, afterBack, closed: p.ttl().classList.contains('is-leaving'), end: p.loc.hash };
   },
 
+  // What a title's page learns of it, watched elsewhere since its card was drawn, its cards are brought up to: not from its preview alone.
+  async arrivalPaints() {
+    const watched = Object.assign({}, LIB_MOVIE, { watched: true, mark_kind: 'movie', mark_key: '120' });
+    const p = carried({ data: watched });
+    const painted = [];
+    p.ctx.MMWatch.marks = { paint: (mark, w) => painted.push([mark, w]) };
+    p.draw();
+    const drawn = painted.slice();
+    p.detail.openDrawn();
+    await settle();
+    return { drawn, opened: painted };
+  },
+
   // A library show's own toggles, then what a mark made elsewhere or here brings back.
   async marks() {
     const eps = (n, watched) => [{ number: 1, key: String(n), title: 'Ep ' + n, minutes: 45, state: watched ? 'watched' : 'none', watched, href: '/watch/play/' + n }];
@@ -1110,6 +1123,7 @@ const scenarios = {
     const say = (ref) => p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'tmdb-tv-9', refs: ['tmdb-tv-9', ref] } });
     say('show-9');
     const otherTitle = p.gets.length - gets;
+    painted.length = 0;
     say('show-300');
     await settle();
     const after = { toggles: toggles(), play: primary(p).text, episode: p.text('.watch-ep__title'), tab: p.q('.watch-pill[data-season="1"]').getAttribute('aria-label'),
