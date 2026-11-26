@@ -401,10 +401,15 @@ async def _claim_read(manager: StreamManager, read: SegmentRead) -> None:
             del _waiting[stream_id]
 
 
-async def _read_segment(request: Request, stream_id: str, user: str, name: str) -> Response:
-    """Read a segment for as long as the client waits for it; its stream's end raises."""
+async def _read_segment(
+    request: Request, stream_id: str, user: str, name: str, *, by_tv: bool = False
+) -> Response:
+    """Read a segment for as long as the client waits for it; its stream's end raises.
+
+    *by_tv* is a read by a TV with a ticket, as ``StreamManager.playlist``'s.
+    """
     manager = get_stream_manager()
-    read = SegmentRead(stream_id, user)
+    read = SegmentRead(stream_id, user, by_tv=by_tv)
     watch = asyncio.create_task(_cancel_on_disconnect(request, read))
     try:
         await _claim_read(manager, read)

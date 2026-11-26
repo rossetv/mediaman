@@ -267,7 +267,7 @@ def cast_playlist(request: Request, ticket: str) -> Response:
         return _head(_PLAYLIST_TYPE)
     try:
         text = get_stream_manager().playlist(
-            held.stream_id, held.user, base_path=f"/api/cast/{ticket}"
+            held.stream_id, held.user, base_path=f"/api/cast/{ticket}", by_tv=True
         )
     except StreamGone:
         return _refused(request)
@@ -285,6 +285,6 @@ async def cast_segment(request: Request, ticket: str, name: str) -> Response:
         content_type = segment_type(name)
         if request.method == "HEAD":
             return _head(content_type)
-        return _for_tv(await _read_segment(request, held.stream_id, held.user, name))
+        return _for_tv(await _read_segment(request, held.stream_id, held.user, name, by_tv=True))
     except (ValueError, StreamGone):
         return _refused(request)
