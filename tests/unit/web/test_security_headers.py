@@ -96,11 +96,7 @@ class TestSecurityHeadersMiddleware:
             "script-src": "script-src 'self'",
             "style-src": "style-src 'self'",
             "style-src-attr": "style-src-attr 'unsafe-inline'",
-            "img-src": (
-                "img-src 'self' data: blob: https://image.tmdb.org https://i.ytimg.com "
-                "https://www.gravatar.com https://mediacover.radarr.video "
-                "https://mediacover.sonarr.video https://artworks.thetvdb.com"
-            ),
+            "img-src": "img-src 'self' data: blob: https://i.ytimg.com https://www.gravatar.com",
             "connect-src": "connect-src 'self'",
             "media-src": "media-src 'self' blob:",
             "frame-src": "frame-src https://www.youtube-nocookie.com",
@@ -1077,10 +1073,19 @@ class TestCspImgSrc:
             f"img-src still contains bare 'https:' wildcard — tokens: {tokens}"
         )
 
-    def test_csp_allows_tmdb(self):
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "image.tmdb.org",
+            "mediacover.radarr.video",
+            "mediacover.sonarr.video",
+            "artworks.thetvdb.com",
+        ],
+    )
+    def test_csp_lets_in_no_picture_the_app_proxies_itself(self, host):
         from mediaman.web.middleware.security_headers import _CSP
 
-        assert "image.tmdb.org" in _CSP
+        assert host not in _CSP
 
     def test_csp_allows_ytimg(self):
         from mediaman.web.middleware.security_headers import _CSP
@@ -1140,9 +1145,7 @@ class TestGoogleCastScripts:
         return (
             f"script-src 'self' 'nonce-{nonce}'; style-src 'self' 'nonce-{nonce}'; "
             "style-src-attr 'unsafe-inline'; default-src 'self'; "
-            "img-src 'self' data: blob: https://image.tmdb.org https://i.ytimg.com "
-            "https://www.gravatar.com https://mediacover.radarr.video "
-            "https://mediacover.sonarr.video https://artworks.thetvdb.com; "
+            "img-src 'self' data: blob: https://i.ytimg.com https://www.gravatar.com; "
             "connect-src 'self'; media-src 'self' blob:; "
             "frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; "
             "object-src 'none'; base-uri 'self'; form-action 'self'"
