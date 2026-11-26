@@ -1173,6 +1173,34 @@ def test_a_link_that_names_a_season_opens_the_show_on_it() -> None:
     assert out["failed"] == {**own, "asked": 1}
 
 
+def test_a_library_title_says_what_its_own_page_said_of_it() -> None:
+    out = _run("ownPageFacts")
+    show = out["show"]
+    # An episode seen before and begun again says both, and plays on from where it is.
+    assert (show["href"], show["bar"]) == ("/watch/play/21?resume=1", True)
+    assert (show["state"], show["name"]) == ("In progress", "Spring Tide, watched")
+    # A watched season's tab keeps its words and adds an eye, and says so to a screen reader.
+    assert show["tab"] == ["Season 1, watched", "Season 1", 1]
+    # The season tabs stand with the episodes, not on the picture.
+    assert show["tabsInHero"] == 0
+    assert show["toggles"] == [
+        "Mark show as watched",
+        "Mark season as watched",
+        "Mark Spring Tide as watched",
+    ]
+    assert out["left"] == "31 min left"
+    assert out["gone"] == "This title is not available any more."
+
+
+def test_an_address_that_names_a_season_opens_the_show_on_it() -> None:
+    assert _run("openOnSeasonByAddress") == {
+        "open": True,
+        "title": "/api/watch/title/show-300",
+        "on": ["Season 1"],
+        "first": True,
+    }
+
+
 def test_the_bar_of_close_is_left_alone_while_a_title_goes() -> None:
     assert _run("turnedWhileLeaving") is False
 

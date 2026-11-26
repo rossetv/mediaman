@@ -30,6 +30,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexShow,
     PlexUnavailable,
 )
+from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.tv import players
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.middleware.viewer_guard import ViewerGuardMiddleware
@@ -39,7 +40,7 @@ from mediaman.web.repository.watch_progress import (
     mark_watched,
     save_progress,
 )
-from mediaman.web.routes.watch import list_page, pages
+from mediaman.web.routes.watch import catalog_api, list_page, pages
 from tests.helpers.factories import (
     insert_admin_user,
     insert_download_notification,
@@ -635,6 +636,8 @@ class TestWatchRows:
             "/#title=movie-1/x",
             "/#title=tmdb-show-1",
             "/#title=rec-1&x=1",
+            "/#title=movie-1&season=2",
+            "/#title=show-1&season=",
             "/#x=movie-1",
             "/?q=a%0d%0ab",
             "/?q=a%C2%85b",
@@ -660,6 +663,7 @@ class TestWatchRows:
         [
             "/#title=movie-100",
             "/#title=show-500",
+            "/#title=show-500&season=2",
             "/#title=tmdb-tv-7",
             "/#title=rec-3",
             "/#title=pick-3",
@@ -926,10 +930,8 @@ class TestMarks:
         _mark(conn, *season1, season="301", show="300")
 
         [card] = _rows(get("/").json())["Continue watching"]
-        show = get("/watch/show/300").json()
 
         assert (card["subtitle"], card["mark_key"]) == ("S2 · E1", "3101")
-        assert show["primary"]["label"] == "Play S2 · E1"
 
     def test_reading_past_seen_episodes_stays_within_the_page_budget(
         self, get, conn, plex, monkeypatch
@@ -957,78 +959,154 @@ class TestMarks:
         assert 0 < len(calls) <= pages._PLEX_LOOKUP_BUDGET
 
 
-class TestShowPage:
-    def test_the_main_button_skips_a_first_episode_already_seen(self, get, conn):
-        _mark(conn, "511")
-        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E2"
+@pytest.fixture
+def title(app_factory, conn, library, plex, monkeypatch):
+    """GET *path* of the title API, as Watch's title page asks it, signed in as *user*."""
+    monkeypatch.setattr(pages, "now_utc", lambda: NOW)
+    monkeypatch.setattr(catalog_api, "now_utc", lambda: NOW)
+    monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: None)
+    app = app_factory(catalog_api.router, conn=conn)
 
-    def test_a_seen_episode_reopened_for_a_moment_gives_way_to_the_next_unseen(self, get, conn):
+    def _get(path: str, user: str = "aoife"):
+        client = TestClient(app)
+        client.cookies.set("session_token", create_session(conn, user))
+        return client.get(path)
+
+    return _get
+
+
+_PLAY_FROM_TITLE = "from=%2F%23title%3Dshow-500"
+
+
+class TestOldTitleAddresses:
+    """A title's own address of before opens Watch's title page."""
+
+    @pytest.fixture
+    def old(self, app_factory, conn, library):
+        app = app_factory(pages.router, conn=conn)
+
+        def _get(path: str):
+            client = TestClient(app, follow_redirects=False)
+            client.cookies.set("session_token", create_session(conn, "aoife"))
+            return client.get(path)
+
+        return _get
+
+    @pytest.mark.parametrize(
+        ("path", "there"),
+        [
+            ("/watch/movie/100", "/#title=movie-100"),
+            ("/watch/show/500", "/#title=show-500"),
+            ("/watch/show/500?season=2", "/#title=show-500&season=2"),
+        ],
+    )
+    def test_it_opens_the_title_on_watch_and_keeps_its_season(self, old, path, there):
+        resp = old(path)
+
+        assert resp.status_code in (302, 307)
+        assert resp.headers["location"] == there
+
+    @pytest.mark.parametrize("path", ["/watch/movie/abc", "/watch/show/1-2", "/watch/show/abc"])
+    def test_an_address_that_names_no_title_is_not_found(self, old, path):
+        assert old(path).status_code == 404
+
+    def test_a_season_no_show_has_is_left_off(self, old):
+        assert old("/watch/show/500?season=99999").headers["location"] == "/#title=show-500"
+
+
+class TestShowTitle:
+    def test_the_main_button_skips_a_first_episode_already_seen(self, title, conn):
+        _mark(conn, "511")
+        assert title("/api/watch/title/show-500").json()["play"]["label"] == "Play S1 · E2"
+
+    def test_a_seen_episode_reopened_for_a_moment_gives_way_to_the_next_unseen(self, title, conn):
         _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
         _play(conn, "aoife", "511", position=10, duration=3000, item="501", show="500")
-        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E2"
+        assert title("/api/watch/title/show-500").json()["play"]["label"] == "Play S1 · E2"
 
-    def test_a_seen_episode_being_replayed_is_resumed(self, get, conn):
+    def test_a_seen_episode_being_replayed_is_resumed(self, title, conn):
         _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
         _play(conn, "aoife", "511", position=900, duration=3000, item="501", show="500")
-        assert get("/watch/show/500").json()["primary"]["label"] == "Resume S1 · E1"
+        assert title("/api/watch/title/show-500").json()["play"]["label"] == "Resume S1 · E1"
 
-    def test_after_the_last_episode_it_plays_an_earlier_one_never_seen(self, get, conn):
+    def test_after_the_last_episode_it_plays_an_earlier_one_never_seen(self, title, conn):
         _play(conn, "aoife", "522", position=3000, duration=3000, item="502", show="500")
-        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E1"
+        assert title("/api/watch/title/show-500").json()["play"]["label"] == "Play S1 · E1"
 
-    def test_with_every_episode_seen_it_starts_over(self, get, conn):
+    def test_with_every_episode_seen_it_starts_over(self, title, conn):
         _mark(conn, "511", "512")
         _mark(conn, "521", "522", season="502")
         _count_episodes(conn, s501=2, s502=2)
-        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E1"
+        assert title("/api/watch/title/show-500").json()["play"]["label"] == "Play S1 · E1"
 
-    def test_a_marked_episode_is_never_the_place_to_resume(self, get, conn):
+    def test_a_marked_episode_is_never_the_place_to_resume(self, title, conn):
         _play(conn, "aoife", "511", position=900, duration=3000, item="501", show="500")
         _mark(conn, "521", season="502")
-        assert get("/watch/show/500").json()["primary"]["label"] == "Resume S1 · E1"
+        assert title("/api/watch/title/show-500").json()["play"]["label"] == "Resume S1 · E1"
 
-    def test_a_show_with_only_a_later_episode_marked_begins_at_its_first(self, get, conn):
+    def test_a_show_with_only_a_later_episode_marked_begins_at_its_first(self, title, conn):
         _mark(conn, "521", season="502")
-        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E1"
+        assert title("/api/watch/title/show-500").json()["play"]["label"] == "Play S1 · E1"
 
-    def test_seasons_and_episodes_say_what_is_seen_and_what_to_mark(self, get, conn):
+    def test_the_next_episode_is_found_past_more_than_twenty_seen_ones(self, title, conn, plex):
+        season1 = [str(3000 + n) for n in range(1, 31)]
+        plex.add_show("300", "Long Run", {1: ("301", season1), 2: ("302", ["3101", "3102"])})
+        insert_media_item(
+            conn,
+            id="301",
+            plex_rating_key="301",
+            title="Long Run",
+            show_title="Long Run",
+            media_type="tv_season",
+            season_number=1,
+            show_rating_key="300",
+        )
+        _play(conn, "aoife", "3001", position=3000, duration=3000, item="301", show="300")
+        _mark(conn, *season1, season="301", show="300")
+
+        assert title("/api/watch/title/show-300").json()["play"]["label"] == "Play S2 · E1"
+
+    def test_seasons_and_episodes_say_what_is_seen_and_what_to_mark(self, title, conn):
         _mark(conn, "511", "512")
         _mark(conn, "521", season="502")
         _count_episodes(conn, s501=2, s502=2)
 
-        ctx = get("/watch/show/500").json()
+        body = title("/api/watch/title/show-500").json()
 
-        assert [(s["key"], s["watched"]) for s in ctx["seasons"]] == [("501", True), ("502", False)]
-        assert [(e["key"], e["watched"], e["state"]) for e in ctx["episodes"]] == [
+        assert [(s["key"], s["watched"]) for s in body["seasons"]] == [
+            ("501", True),
+            ("502", False),
+        ]
+        assert [(e["key"], e["watched"], e["state"]) for e in body["episodes"]] == [
             ("521", True, "watched"),
             ("522", False, "none"),
         ]
-        assert (ctx["show"]["watched"], ctx["show"]["mark_key"]) == (False, "500")
+        assert (body["watched"], body["mark_key"]) == (False, "500")
 
-    def test_a_replay_of_a_seen_episode_keeps_its_mark(self, get, conn):
+    def test_a_replay_of_a_seen_episode_keeps_its_mark(self, title, conn):
         for key, replayed in (("511", 10), ("512", 900)):
             _play(conn, "aoife", key, position=3000, duration=3000, item="501", show="500")
             _play(conn, "aoife", key, position=replayed, duration=3000, item="501", show="500")
 
-        episodes = get("/watch/show/500?season=1").json()["episodes"]
+        episodes = title("/api/watch/title/show-500/season/1").json()["episodes"]
 
         assert [(e["state"], e["watched"]) for e in episodes] == [
             ("watched", True),
             ("in_progress", True),
         ]
 
-    def test_a_new_episode_unmarks_its_season_before_any_scan(self, get, conn, plex):
+    def test_a_new_episode_unmarks_its_season_before_any_scan(self, title, conn, plex):
         _mark(conn, "521", "522", season="502")
         _count_episodes(conn, s502=1)
         plex.add_show(
             "500", "The Long Coast", {1: ("501", ["511"]), 2: ("502", ["521", "522", "523"])}
         )
 
-        ctx = get("/watch/show/500?season=2").json()
+        season = title("/api/watch/title/show-500/season/2").json()
 
-        assert ctx["seasons"][1]["watched"] is False
+        assert season["watched"] is False
 
-    def test_episode_states_and_resume_of_the_episode_in_progress(self, get, conn):
+    def test_episode_states_and_resume_of_the_episode_in_progress(self, title, conn):
         _play(
             conn,
             "aoife",
@@ -1041,58 +1119,63 @@ class TestShowPage:
         )
         _play(conn, "aoife", "512", position=1200, duration=3000, item="501", show="500")
 
-        ctx = get("/watch/show/500").json()
+        body = title("/api/watch/title/show-500").json()
 
-        assert ctx["primary"] == {
-            "label": "Resume S1 · E2",
-            "href": "/watch/play/512?resume=1&from=%2Fwatch%2Fshow%2F500",
-        }
-        assert [s["selected"] for s in ctx["seasons"]] == [True, False]
-        assert [e["state"] for e in ctx["episodes"]] == ["watched", "in_progress"]
-        assert ctx["episodes"][1]["minutes_left"] == 30
-        assert ctx["episodes"][0]["thumb_url"] == "/api/watch/thumb/511"
-        assert ctx["show"]["meta_line"] == "TV · 2021–2024 · 2 seasons · Drama"
-
-    def test_after_a_finished_episode_plays_the_next_one_in_its_season(self, get, conn):
-        _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
-
-        ctx = get("/watch/show/500").json()
-
-        assert ctx["primary"] == {
-            "label": "Play S2 · E1",
-            "href": "/watch/play/521?from=%2Fwatch%2Fshow%2F500",
-        }
-        assert [s["selected"] for s in ctx["seasons"]] == [False, True]
-        assert [e["state"] for e in ctx["episodes"]] == ["none", "none"]
-
-    def test_nothing_played_starts_at_the_first_episode(self, get):
-        ctx = get("/watch/show/500?season=2").json()
-
-        assert ctx["primary"] == {
-            "label": "Play S1 · E1",
-            "href": "/watch/play/511?from=%2Fwatch%2Fshow%2F500",
-        }
-        assert [e["number"] for e in ctx["episodes"]] == [1, 2]
-        assert (
-            ctx["episodes"][0]["href"] == "/watch/play/521?from=%2Fwatch%2Fshow%2F500%3Fseason%3D2"
+        assert (body["play"]["label"], body["play"]["href"]) == (
+            "Resume S1 · E2",
+            f"/watch/play/512?resume=1&{_PLAY_FROM_TITLE}",
+        )
+        assert [s["selected"] for s in body["seasons"]] == [True, False]
+        assert [e["state"] for e in body["episodes"]] == ["watched", "in_progress"]
+        assert body["episodes"][1]["minutes_left"] == 30
+        assert body["episodes"][0]["thumb_url"] == "/api/watch/thumb/511"
+        assert (body["year"], body["year_end"], body["season_count"], body["genres"]) == (
+            2021,
+            2024,
+            2,
+            ["Drama"],
         )
 
-    def test_scheduled_season_shows_leaving(self, get, conn):
+    def test_after_a_finished_episode_plays_the_next_one_in_its_season(self, title, conn):
+        _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
+
+        body = title("/api/watch/title/show-500").json()
+
+        assert (body["play"]["label"], body["play"]["href"]) == (
+            "Play S2 · E1",
+            f"/watch/play/521?{_PLAY_FROM_TITLE}",
+        )
+        assert [s["selected"] for s in body["seasons"]] == [False, True]
+        assert [e["state"] for e in body["episodes"]] == ["none", "none"]
+
+    def test_nothing_played_starts_at_the_first_episode(self, title):
+        body = title("/api/watch/title/show-500").json()
+        season = title("/api/watch/title/show-500/season/2").json()
+
+        assert (body["play"]["label"], body["play"]["href"]) == (
+            "Play S1 · E1",
+            f"/watch/play/511?{_PLAY_FROM_TITLE}",
+        )
+        assert [e["number"] for e in season["episodes"]] == [1, 2]
+        assert season["episodes"][0]["href"] == f"/watch/play/521?{_PLAY_FROM_TITLE}"
+
+    def test_scheduled_season_shows_leaving(self, title, conn):
         _schedule(conn, "502", 3)
 
-        assert get("/watch/show/500?season=1").json()["leaving"] is None
-        assert get("/watch/show/500?season=2").json()["leaving"] == {"days": 3, "keep_id": "502"}
+        body = title("/api/watch/title/show-500").json()
 
-    @pytest.mark.parametrize("key", ["700", "999", "abc"])
-    def test_show_outside_scanned_libraries_is_refused(self, get, key):
-        assert get(f"/watch/show/{key}").status_code == 404
+        assert body["leaving_seasons"] == [{"days": 3, "keep_id": "502", "season": 2}]
 
-    def test_plex_unreachable_sets_the_error(self, get, plex):
+    @pytest.mark.parametrize("key", ["700", "999"])
+    def test_show_outside_scanned_libraries_is_refused(self, title, key):
+        assert title(f"/api/watch/title/show-{key}").status_code == 404
+
+    def test_plex_unreachable_leaves_nothing_to_play(self, title, plex):
         plex.error = PlexUnavailable("Plex could not be reached")
 
-        ctx = get("/watch/show/500").json()
+        body = title("/api/watch/title/show-500").json()
 
-        assert ctx["watch_error"] == "unreachable"
+        assert (body["title"], body["play"], body["episodes"]) == ("The Long Coast", None, [])
 
 
 class TestOpenRow:
@@ -1135,37 +1218,36 @@ class TestOpenRow:
         assert get(f"/?{query}").json()["grid"] is None
 
 
-class TestMoviePage:
-    def test_in_progress_movie_offers_resume_with_time_left(self, get, conn):
+class TestMovieTitle:
+    def test_in_progress_movie_offers_resume_with_time_left(self, title, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
-        ctx = get("/watch/movie/100").json()
+        body = title("/api/watch/title/movie-100").json()
 
-        assert ctx["primary"] == {
-            "label": "Resume (80 min left)",
-            "href": "/watch/play/100?resume=1",
-        }
-        assert ctx["movie"]["minutes"] == 100
+        assert (body["play"]["label"], body["play"]["minutes_left"]) == ("Resume", 80)
+        assert body["play"]["href"].startswith("/watch/play/100?resume=1&")
+        assert body["runtime_min"] == 100
 
-    def test_watched_movie_offers_play(self, get, conn):
+    def test_watched_movie_offers_play(self, title, conn):
         _play(conn, "aoife", "100", position=5900, duration=6000, item="100")
 
-        assert get("/watch/movie/100").json()["primary"] == {
-            "label": "Play",
-            "href": "/watch/play/100",
-        }
+        play = title("/api/watch/title/movie-100").json()["play"]
 
-    def test_movie_gone_from_plex_is_no_longer_available(self, get, plex):
+        assert (play["label"], play["href"]) == (
+            "Play",
+            "/watch/play/100?from=%2F%23title%3Dmovie-100",
+        )
+
+    def test_movie_gone_from_plex_has_nothing_to_play(self, title, plex):
         del plex.items["100"]
 
-        ctx = get("/watch/movie/100").json()
+        body = title("/api/watch/title/movie-100").json()
 
-        assert ctx["not_available"] is True
-        assert ctx["movie"] is None
+        assert (body["title"], body["play"]) == ("Brightwater", None)
 
     @pytest.mark.parametrize("key", ["900", "501", "999"])
-    def test_movie_outside_scanned_libraries_is_refused(self, get, key):
-        assert get(f"/watch/movie/{key}").status_code == 404
+    def test_movie_outside_scanned_libraries_is_refused(self, title, key):
+        assert title(f"/api/watch/title/movie-{key}").status_code == 404
 
 
 class TestPlayerPage:
@@ -1282,6 +1364,15 @@ class TestPlayerPage:
         )
         assert ctx["back_href"] == "/watch/show/500?season=1"
 
+    def test_next_episode_in_another_season_opens_the_show_on_watch_on_that_season(self, get):
+        origin = quote("/#title=show-500&season=1", safe="")
+
+        ctx = get(f"/watch/play/512?from={origin}").json()
+
+        assert ctx["next"]["href"] == "/watch/play/521?from=" + quote(
+            "/#title=show-500&season=2", safe=""
+        )
+
     def test_next_episode_keeps_an_origin_that_has_no_season(self, get):
         ctx = get(f"/watch/play/512?from={quote('/', safe='')}").json()
 
@@ -1314,7 +1405,6 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     app_factory, conn, library, plex, monkeypatch
 ):
     monkeypatch.setattr(pages, "now_utc", lambda: NOW)
-    del plex.shows["500"]
     app = app_factory(
         pages.router,
         conn=conn,
@@ -1323,10 +1413,6 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     app.mount("/static", StaticFiles(directory=str(_WEB / "static")), name="static")
     client = TestClient(app)
     client.cookies.set("session_token", create_session(conn, "aoife"))
-
-    show = client.get("/watch/show/500")
-    assert show.status_code == 200
-    assert "This show is not in the library any more." in show.text
 
     # An episode is gone from Plex: the text must not call it a film.
     play = client.get("/watch/play/123456")
@@ -1341,40 +1427,6 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     assert play.status_code == 200
     assert "Can't reach Plex right now." in play.text
     assert re.search(r'<div [^>]*id="watch-page"[^>]* data-plex-unavailable[ >]', play.text)
-
-
-def _show_html(app_factory, conn, monkeypatch, url: str, *scheduled: tuple[str, int]) -> str:
-    monkeypatch.setattr(pages, "now_utc", lambda: NOW)
-    for media_item_id, days in scheduled:
-        _schedule(conn, media_item_id, days)
-    app = app_factory(
-        pages.router,
-        conn=conn,
-        state_extras={"templates": Jinja2Templates(directory=str(_WEB / "templates"))},
-    )
-    client = TestClient(app)
-    client.cookies.set("session_token", create_session(conn, "aoife"))
-    return client.get(url).text
-
-
-def test_show_page_has_no_leaving_line_when_no_season_is_leaving(
-    app_factory, conn, library, plex, monkeypatch
-):
-    html = _show_html(app_factory, conn, monkeypatch, "/watch/show/500?season=1")
-
-    assert "data-watch-leaving" not in html
-
-
-def test_a_season_that_is_not_leaving_says_quietly_which_one_is(
-    app_factory, conn, library, plex, monkeypatch
-):
-    html = _show_html(app_factory, conn, monkeypatch, "/watch/show/500?season=1", ("502", 3))
-
-    line = html[html.index("data-watch-leaving") : html.index('class="watch-actions"')]
-    assert "Season 2 leaves in 3 days" in line
-    assert "watch-leaving--other" in html
-    assert "data-watch-keep" not in line
-    assert "Leaving in" not in html
 
 
 def test_pages_render_with_the_real_templates(app_factory, conn, library, plex, monkeypatch):
@@ -1392,8 +1444,6 @@ def test_pages_render_with_the_real_templates(app_factory, conn, library, plex, 
 
     for path, text in [
         ("/", "Leaving in 2 days"),
-        ("/watch/show/500", "Resume S1 · E2"),
-        ("/watch/movie/100", "Leaving in 2 days"),
         ("/watch/play/512?resume=1", 'data-start-s="1200'),
     ]:
         resp = client.get(path)

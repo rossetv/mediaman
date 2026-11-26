@@ -188,12 +188,18 @@
 
   /* ── Address ── */
 
+  /* A show's address may name the season it opens on: #title=show-1&season=2. */
   function hashRef() {
-    var m = /^#title=(.+)$/.exec(window.location.hash || '');
+    var m = /^#title=([^&]+)(?:&season=[0-9]{1,4})?$/.exec(window.location.hash || '');
     if (!m) return null;
     var ref;
     try { ref = decodeURIComponent(m[1]); } catch (e) { return null; }
     return REF_RE.test(ref) ? ref : null;
+  }
+
+  function hashSeason() {
+    var m = /^#title=show-[0-9]{1,18}&season=([0-9]{1,4})$/.exec(window.location.hash || '');
+    return m ? Number(m[1]) : undefined;
   }
 
   function titleUrl(ref) { return address.url({}, 'title=' + encodeURIComponent(ref)); }
@@ -4065,7 +4071,7 @@
   /* A title the address opens: as it was left when Back leads to it. */
   function openAt(ref, how) {
     if (how === 'pop' && kept[ref]) comeBack(kept[ref]);
-    else open(ref, { pick: window.history.state && window.history.state.mmPick });
+    else open(ref, { pick: window.history.state && window.history.state.mmPick, season: hashSeason() });
   }
 
   address.layer({

@@ -107,9 +107,11 @@ _KEY_RE = re.compile(r"[0-9]{1,18}")
 # Watch's old address is still read, as a way back saved before Watch moved to the root.
 _ORIGIN_RE = re.compile(
     r"/(?P<old>watch)?(\?(?P<query>[^#]*))?"
-    r"(?P<hash>#title=((movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}|(rec|pick)-[0-9]{1,10}))?"
+    r"(?P<hash>#title=(movie-[0-9]{1,18}|show-[0-9]{1,18}(&season=[0-9]{1,4})?"
+    r"|tmdb-(movie|tv)-[0-9]{1,10}|(rec|pick)-[0-9]{1,10}))?"
     r"|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
 )
+_SEASON_RE = re.compile(r"([?&]season=)[0-9]+$")
 # What a Watch page's own address may carry, and how each value looks.
 _ORIGIN_PARAMS = {
     "all": r"[a-z_]{1,40}",
@@ -195,9 +197,7 @@ def play_href(rating_key: str, *, resume: bool = False, origin: str | None = Non
 def _origin_for(origin: str | None, episode: PlexEpisode) -> str | None:
     """*origin*, with a show page's season changed to the one *episode* is in."""
     if origin and episode.season_index is not None:
-        base, sep, _ = origin.partition("?season=")
-        if sep:
-            return f"{base}?season={episode.season_index}"
+        return _SEASON_RE.sub(rf"\g<1>{episode.season_index}", origin)
     return origin
 
 
@@ -1045,20 +1045,6 @@ def watch_page(
     )
 
 
-def _show_meta_line(listed: lib.LibraryShow, show: PlexShow) -> str:
-    parts = ["Anime" if listed.anime else "TV"]
-    if show.year_first and show.year_last and show.year_last != show.year_first:
-        parts.append(f"{show.year_first}–{show.year_last}")
-    elif show.year_first:
-        parts.append(str(show.year_first))
-    if show.seasons:
-        count = len(show.seasons)
-        parts.append("1 season" if count == 1 else f"{count} seasons")
-    if show.genre:
-        parts.append(show.genre)
-    return " · ".join(parts)
-
-
 def _primary_episode(
     plex: PlexWatch,
     show: PlexShow,
@@ -1144,180 +1130,32 @@ def _season_watched(
     return season is not None and season.watched
 
 
-@router.get("/watch/show/{show_key}", response_class=HTMLResponse)
+def _title_address(ref: str, season: int | None = None) -> str:
+    """Where Watch opens the title *ref*, on *season* when it names one."""
+    named = season is not None and 0 <= season <= 9999
+    return f"/#title={ref}" + (f"&season={season}" if named else "")
+
+
+@router.get("/watch/show/{show_key}")
 def show_page(request: Request, show_key: str, season: int | None = None) -> Response:
+    """A show's address of before: its page on Watch, on the season it names."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    username, conn = resolved
-    libraries = lib.scanned_library_ids(conn)
-    listed = lib.find_show(conn, libraries, show_key) if is_valid_key(show_key) else None
-    if listed is None:
+    if not is_valid_key(show_key):
         raise HTTPException(status_code=404)
-    ctx: dict[str, Any] = {
-        "username": username,
-        "is_admin": _is_admin(conn, username),
-        "back_href": "/",
-        "watch_error": None,
-        "not_available": False,
-        "show": None,
-        "primary": None,
-        "seasons": [],
-        "leaving": None,
-        "season_leaving": False,
-        "other_leaving": None,
-        "episodes": [],
-    }
-    episodes_cache: dict[str, list[PlexEpisode]] = {}
-    try:
-        plex = open_plex(request, conn)
-
-        def episodes_of(season_key: str) -> list[PlexEpisode]:
-            if season_key not in episodes_cache:
-                episodes_cache[season_key] = plex.get_season_episodes(season_key)
-            return episodes_cache[season_key]
-
-        show = plex.get_show(show_key)
-        if not is_in_libraries(show, libraries):
-            raise HTTPException(status_code=404)
-        progress = seen_titles.with_covered(
-            conn, username, libraries, show_key, show_progress(conn, username, show_key)
-        )
-        counted = lib.show_seen(conn, username, libraries, show_key=show_key).get(show_key)
-        primary, primary_season = _primary_episode(
-            plex, show, progress, episodes_of, f"/watch/show/{show_key}", counted
-        )
-        wanted = season if season is not None else primary_season
-        selected = next((s for s in show.seasons if s.index == wanted), None)
-        if selected is None and show.seasons:
-            selected = show.seasons[0]
-        episodes = episodes_of(selected.rating_key) if selected else []
-    except PlexItemNotFound:
-        ctx["not_available"] = True
-        return _render(request, "watch_show.html", ctx)
-    except PlexError as exc:
-        ctx["watch_error"] = plex_error_code(exc)
-        return _render(request, "watch_show.html", ctx)
-
-    leaving = None
-    now = now_utc()
-    # Any leaving season reserves the line's slot, so a switch to one never moves the controls.
-    seasons_leaving = [
-        p
-        for p in lib.pending_deletions(conn, libraries)
-        if p.show_key == show_key and p.season_number is not None
-    ]
-    if selected is not None:
-        season_id = lib.season_item_id(conn, libraries, show_key, selected.index)
-        if season_id is not None:
-            leaving = leaving_info(lib.pending_deletion(conn, libraries, season_id), now)
-    # On a season that is not leaving, the slot names the soonest one that is.
-    other_leaving = None
-    if leaving is None:
-        other = next(
-            (p for p in seasons_leaving if selected is None or p.season_number != selected.index),
-            None,
-        )
-        if other is not None:
-            ends = parse_execute_at(other.execute_at, default=now)
-            other_leaving = {"season": other.season_number, "days": days_left(ends, now)}
-    season_watched = {
-        s.rating_key: _season_watched(episodes_cache.get(s.rating_key), progress, counted, s.index)
-        for s in show.seasons
-    }
-    season_origin = f"/watch/show/{show_key}" + (f"?season={selected.index}" if selected else "")
-    ctx.update(
-        {
-            "show": {
-                "title": show.title or listed.title,
-                "meta_line": _show_meta_line(listed, show),
-                "summary": show.summary,
-                "poster_url": poster_url(show_key),
-                "watched": bool(season_watched) and all(season_watched.values()),
-                "mark_kind": "show",
-                "mark_key": show_key,
-            },
-            "primary": primary,
-            "seasons": [
-                {
-                    "number": s.index,
-                    "key": s.rating_key,
-                    "watched": season_watched[s.rating_key],
-                    "href": f"/watch/show/{show_key}?season={s.index}",
-                    "selected": s is selected,
-                }
-                for s in show.seasons
-            ],
-            "leaving": leaving,
-            "season_leaving": bool(seasons_leaving),
-            "other_leaving": other_leaving,
-            "episodes": [
-                _episode_row(e, progress.get(e.rating_key), season_origin) for e in episodes
-            ],
-        }
-    )
-    return _render(request, "watch_show.html", ctx)
+    return RedirectResponse(_title_address(f"show-{show_key}", season))
 
 
-def _movie_ctx(username: str, is_admin: bool) -> dict[str, Any]:
-    return {
-        "username": username,
-        "is_admin": is_admin,
-        "back_href": "/",
-        "watch_error": None,
-        "not_available": False,
-        "movie": None,
-        "primary": None,
-        "leaving": None,
-    }
-
-
-@router.get("/watch/movie/{key}", response_class=HTMLResponse)
+@router.get("/watch/movie/{key}")
 def movie_page(request: Request, key: str) -> Response:
+    """A film's address of before: its page on Watch."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    username, conn = resolved
-    libraries = lib.scanned_library_ids(conn)
-    if not is_valid_key(key) or lib.find_movie(conn, libraries, key) is None:
+    if not is_valid_key(key):
         raise HTTPException(status_code=404)
-    ctx = _movie_ctx(username, _is_admin(conn, username))
-    try:
-        item = open_plex(request, conn).get_item(key)
-    except PlexItemNotFound:
-        ctx["not_available"] = True
-        return _render(request, "watch_movie.html", ctx)
-    except PlexError as exc:
-        ctx["watch_error"] = plex_error_code(exc)
-        return _render(request, "watch_movie.html", ctx)
-    if item.type != "movie" or not is_in_libraries(item, libraries):
-        raise HTTPException(status_code=404)
-
-    progress = get_progress(conn, username, [key]).get(key)
-    if progress is not None and resumable(progress):
-        _, left = progress_fields(progress)
-        primary = {"label": f"Resume ({left} min left)", "href": play_href(key, resume=True)}
-    else:
-        primary = {"label": "Play", "href": play_href(key)}
-    now = now_utc()
-    ctx.update(
-        {
-            "movie": {
-                "title": item.title,
-                "year": item.year,
-                "minutes": _minutes(item.duration_s),
-                "summary": item.summary,
-                "poster_url": poster_url(key),
-                "watched": (progress is not None and progress.seen)
-                or key in seen_titles.seen_films(conn, username, libraries),
-                "mark_kind": "movie",
-                "mark_key": key,
-            },
-            "primary": primary,
-            "leaving": leaving_info(lib.pending_deletion(conn, libraries, key), now),
-        }
-    )
-    return _render(request, "watch_movie.html", ctx)
+    return RedirectResponse(_title_address(f"movie-{key}"))
 
 
 def _is_on_a_tv(conn: sqlite3.Connection, username: str, rating_key: str) -> bool:

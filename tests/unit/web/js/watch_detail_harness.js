@@ -3398,6 +3398,43 @@ const scenarios = {
       none: await run('/watch/show/300', one), gone: await run('/watch/show/300?season=9', one), failed: await run('/watch/show/300?season=1', new APIError(503, 'x')) };
   },
 
+  // What a library title says of itself that a page of its own used to: an episode begun again
+  // after it was seen, a watched season's tab, the toggles' names, a film's time left, a title gone.
+  async ownPageFacts() {
+    const show = Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300', watched: false,
+      seasons: LIB_SHOW.seasons.map((x) => Object.assign({}, x, { key: '30' + x.number, watched: x.number === 1 })),
+      episodes: [{ number: 1, key: '21', title: 'Spring Tide', minutes: 50, thumb_url: '/api/watch/thumb/21', state: 'in_progress', watched: true,
+        progress_pct: 40, minutes_left: 30, href: '/watch/play/21?resume=1' }] });
+    const p = load({ routes: { '/api/watch/title/show-300': show } });
+    p.run();
+    await openCard(p, 'show-300');
+    const a = p.q('.watch-ep');
+    const tab = p.q('.watch-pill[data-season="1"]');
+    const shown = { href: a.getAttribute('href'), bar: !!a.querySelector('progress'), name: a.querySelector('.watch-ep__title').textContent,
+      state: a.querySelector('.watch-ep__state').textContent, tab: [tab.getAttribute('aria-label'), tab.firstChild.textContent, tab.querySelectorAll('use').length],
+      tabsInHero: p.ttl().querySelectorAll('.ttl__hero .watch-pill').length,
+      toggles: p.ttl().querySelectorAll('[data-mark-toggle]').map((b) => b.getAttribute('aria-label')) };
+    const m = load({ hash: '#title=movie-120', routes: { '/api/watch/title/movie-120': Object.assign({}, LIB_MOVIE, {
+      play: { label: 'Resume', href: '/watch/play/120?resume=1', progress_pct: 60, minutes_left: 31 } }) } });
+    m.run();
+    await settle();
+    const g = load({});
+    g.run();
+    await openCard(g, 'show-300');
+    return { show: shown, left: m.text('.ttl__progress'), gone: g.text('.ttl__failed-why') };
+  },
+
+  // Opened by an address that names a season, as a show's address of before leads to it.
+  async openOnSeasonByAddress() {
+    const one = { key: '301', episodes: [{ ...LIB_SHOW.episodes[0], title: 'One One' }] };
+    const p = load({ hash: '#title=show-300&season=1', routes: { '/api/watch/title/show-300': LIB_SHOW, '/api/watch/title/show-300/season/1': one } });
+    p.run();
+    await settle();
+    return { open: !p.ttl().hidden, title: p.gets[0],
+      on: p.doc.querySelectorAll('.ttl .watch-pill').filter((n) => n.classList.contains('on')).map((n) => n.textContent),
+      first: p.q('.ttl .watch-episodes').textContent.includes('One One') };
+  },
+
   // The season a link names is slow: what shows while it is, what it changes when it comes, and
   // what Keep is of; then one that cannot be had.
   async openOnSlowSeason() {
