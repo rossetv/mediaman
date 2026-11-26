@@ -1,16 +1,18 @@
 """What the search sheet offers one person before anything is typed: every category in the order
 of what they watch, the few they watch most, and searches made from their own plays and ratings.
 
-Read from that person's rows alone, at each Watch page; no AI and no TMDB call (the library's
-genres and cast are already held, from title_meta).
+Read from that person's rows alone; no AI and no TMDB call (the library's genres and cast are
+already held, from title_meta). What their plays and ratings come to is held for the day, until
+they play or rate something: reading every play takes too long for each Watch page.
 """
 
 from __future__ import annotations
 
 import math
 import sqlite3
+import threading
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from mediaman.core.time import parse_iso_strict_utc
@@ -19,6 +21,8 @@ from mediaman.services.openai.recommendations.plays import person_plays
 
 # A play this many days old counts half as much as one today.
 HALF_LIFE_DAYS = 60.0
+# Older plays count under 0.0002 of one today: they are not read.
+_OLDEST = timedelta(days=730)
 FAVOURITES = 3
 CHIPS = 4
 # Played titles of the library it takes before the sheet speaks of a taste at all.
@@ -46,6 +50,11 @@ _NOUN = {
 }
 _KINDS = ("movie", "tv", "all")
 
+_Weights = tuple[dict[tuple[str, int], float], dict[tuple[str, int], str], set[tuple[str, int]]]
+_lock = threading.Lock()
+# (database file, user id, username) -> (what their rows were when read, the day, the weights).
+_held: dict[tuple[str, int, str], tuple[tuple[Any, ...], str, _Weights]] = {}
+
 
 def search_taste(
     conn: sqlite3.Connection, username: str, user_id: int, now: datetime
@@ -54,7 +63,7 @@ def search_taste(
     ``favourites``: the few to mark; ``chips``: plain suggested searches; ``like``: the title
     liked most lately, for "More like". Someone with too few plays gets the usual order alone."""
     known = catalog.library_known(conn)
-    weights, names, played = _weights(conn, username, user_id, now)
+    weights, names, played = _held_weights(conn, username, user_id, now)
     weights = {key: w for key, w in weights.items() if key in known}
     if sum(1 for key in played if key in known) < _ENOUGH:
         return {
@@ -90,21 +99,56 @@ def search_taste(
     }
 
 
-def _weights(
-    conn: sqlite3.Connection, username: str, user_id: int, now: datetime
-) -> tuple[dict[tuple[str, int], float], dict[tuple[str, int], str], set[tuple[str, int]]]:
-    """How much each title counts (its play, newer ones more, and the person's rating of it),
+def _stamp(conn: sqlite3.Connection, username: str, user_id: int) -> tuple[Any, ...]:
+    """What changes when the person plays or rates something; quick to read."""
+    return tuple(
+        conn.execute(
+            "SELECT (SELECT MAX(updated_at) FROM user_ratings WHERE user_id = :id),"
+            " (SELECT COUNT(*) FROM user_ratings WHERE user_id = :id),"
+            " (SELECT MAX(updated_at) FROM watch_progress WHERE username = :name),"
+            " (SELECT MAX(credited_at) FROM watch_progress WHERE username = :name),"
+            " (SELECT MAX(seen_at) FROM watch_progress WHERE username = :name),"
+            " (SELECT MAX(viewed_at) FROM plex_plays WHERE username = :name),"
+            " (SELECT MAX(played_at) FROM played_titles WHERE username = :name)",
+            {"id": user_id, "name": username},
+        ).fetchone()
+    )
+
+
+def _held_weights(conn: sqlite3.Connection, username: str, user_id: int, now: datetime) -> _Weights:
+    key = (str(conn.execute("PRAGMA database_list").fetchone()[2]), user_id, username)
+    stamp, day = _stamp(conn, username, user_id), now.date().isoformat()
+    with _lock:
+        held = _held.get(key)
+    if held is not None and held[:2] == (stamp, day):
+        return held[2]
+    found = _weights(conn, username, user_id, now)
+    with _lock:
+        _held[key] = (stamp, day, found)
+    return found
+
+
+def _decayed(at: datetime | None, now: datetime) -> float:
+    """What a play or rating made *at* counts for now, one of today counting 1."""
+    days = max(0.0, (now - at).total_seconds() / 86400) if at else HALF_LIFE_DAYS * 3
+    return float(0.5 ** (days / HALF_LIFE_DAYS))
+
+
+def _weights(conn: sqlite3.Connection, username: str, user_id: int, now: datetime) -> _Weights:
+    """How much each title counts (its play and the person's rating of it, newer ones more),
     the name of each, and which were played."""
     found: dict[tuple[str, int], float] = defaultdict(float)
     names: dict[tuple[str, int], str] = {}
     played: set[tuple[str, int]] = set()
+    oldest = now - _OLDEST
     for play in person_plays(conn, username):
         if play.tmdb_id is None:
             continue
-        key = (play.kind, play.tmdb_id)
         at = parse_iso_strict_utc(play.last_played)
-        days = max(0.0, (now - at).total_seconds() / 86400) if at else HALF_LIFE_DAYS * 3
-        weight = 0.5 ** (days / HALF_LIFE_DAYS)
+        if at is not None and at < oldest:
+            continue
+        key = (play.kind, play.tmdb_id)
+        weight = _decayed(at, now)
         if play.note.startswith("left"):
             weight *= 0.3
         elif play.note == "watched again":
@@ -113,10 +157,11 @@ def _weights(
         names.setdefault(key, play.title)
         played.add(key)
     for row in conn.execute(
-        "SELECT media_type, tmdb_id, level, title FROM user_ratings WHERE user_id = ?", (user_id,)
+        "SELECT media_type, tmdb_id, level, title, updated_at FROM user_ratings WHERE user_id = ?",
+        (user_id,),
     ):
         key = (row[0], row[1])
-        found[key] += _RATED.get(row[2], 0.0)
+        found[key] += _RATED.get(row[2], 0.0) * _decayed(parse_iso_strict_utc(row[4]), now)
         if row[3]:
             names.setdefault(key, row[3])
     return found, names, played
