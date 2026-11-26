@@ -211,13 +211,19 @@ def _progress_rows(conn) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def test_a_subtitle_plex_selected_by_itself_is_not_burned_into_the_players_stream(alice, plex):
+    # The item has a subtitle selected in Plex, such as a forced signs track; the player picks none.
+    assert _start(alice).status_code == 200
+    asked = [c["params"] for c in plex.calls if "subtitles" in c["params"]]
+    assert asked and {p["subtitles"] for p in asked} == {"none"}
+    assert not any("subtitleStreamID" in p for p in asked)
+
+
 def test_started_stream_plays_through_mediaman_with_no_store_headers(alice, plex):
     resp = _start(alice)
     assert resp.status_code == 200
     stream_id = resp.json()["stream_id"]
     assert resp.json()["playlist"] == f"/api/watch/stream/{stream_id}/index.m3u8"
-    # The item's selected subtitle is burned in.
-    assert {c["params"].get("subtitles") for c in plex.calls} >= {"burn"}
 
     playlist = alice.get(resp.json()["playlist"])
     assert playlist.status_code == 200

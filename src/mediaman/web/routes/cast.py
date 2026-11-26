@@ -130,13 +130,13 @@ def _start(
             subtitle is not None and subtitle not in {t["id"] for t in subtitles}
         ):
             return respond_err("track_unavailable", status=409)
-        burn = subtitle is not None or (body.subtitle is None and item.subtitle_selected)
         quality = "best" if body.quality == "auto" else body.quality
         stream_id = manager.start(
             username,
             body.rating_key,
             quality,
-            burn,
+            # Only a track the person picked: Plex selects some by itself, such as forced signs.
+            subtitle is not None,
             _progress_info(item),
             page=body.page,
             asked_ago=body.asked_s + manager.now() - began,
@@ -174,7 +174,7 @@ def _start(
             "duration_s": item.duration_s,
             "quality": body.quality,
             "audio": body.audio or _selected(audio),
-            "subtitle": (subtitle or _selected(subtitles)) if burn else None,
+            "subtitle": subtitle,
             "audio_tracks": audio,
             "subtitle_tracks": subtitles,
             "markers": [asdict(m) for m in item.markers],

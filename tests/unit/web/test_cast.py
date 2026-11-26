@@ -585,6 +585,18 @@ def test_without_a_choice_the_tracks_selected_in_plex_play(alice):
     assert (started["audio"], started["subtitle"]) == ("21", None)
 
 
+def test_a_subtitle_plex_selected_by_itself_is_not_burned_in_for_a_tv(alice, plex, monkeypatch):
+    # Plex selects a forced signs track on its own; the person picked no subtitles.
+    forced = ITEM.replace(
+        '<Stream id="31" streamType="3"', '<Stream id="31" streamType="3" selected="1" forced="1"'
+    )
+    monkeypatch.setitem(globals(), "ITEM", forced)
+    started = _cast(alice)
+    params = plex.decision()
+    assert params["subtitles"] == "none" and "subtitleStreamID" not in params
+    assert started["subtitle"] is None
+
+
 @pytest.mark.parametrize("choice", [{"audio": "31"}, {"subtitle": "999"}])
 def test_a_track_the_title_does_not_have_is_refused_before_anything_starts(alice, plex, choice):
     resp = _start(alice, **choice)

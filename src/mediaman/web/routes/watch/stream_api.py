@@ -311,7 +311,9 @@ def _start(
             username,
             body.rating_key,
             quality,
-            item.subtitle_selected,
+            # The player has no subtitle choice, and what Plex selects by itself (often forced
+            # signs) is no one's pick.
+            False,
             info,
             fallback=resolve_quality(without_original(rows), ORIGINAL),
             page=body.page,
