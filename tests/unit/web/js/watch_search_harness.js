@@ -64,7 +64,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     visualViewport,
     requestAnimationFrame: (fn) => fn(),
     MutationObserver: class { constructor(fn) { mutated.push(fn); } observe() {} disconnect() {} },
-    ResizeObserver: class { constructor(fn) { this.fn = fn; } observe() { observed.push(this.fn); } disconnect() {} },
+    ResizeObserver: class { constructor(fn) { this.fn = fn; } observe(node) { observed.push(this.fn); (observed.nodes = observed.nodes || []).push(node); } disconnect() {} },
     innerHeight: 800,
     categories,
     scrollY: 0,
@@ -2234,6 +2234,12 @@ async function between(width) {
   out.push([bar.classList.contains('is-tight')]);
   return out;
 }
+// The bar's padding moves the islands (the safe-area insets arrive late): it is watched.
+scenarios.barPaddingWatched = async () => {
+  const observed = [];
+  const p = await ready(ADMIN, '', null, undefined, { width: 874, observed });
+  return observed.nodes.includes(p.doc.querySelector('.wbar'));
+};
 scenarios.barBetween = async () => ({ wide: await between(1280), tablet: await between(768) });
 // On a phone a figure cut short would say another one.
 scenarios.barCutFigure = async () => {

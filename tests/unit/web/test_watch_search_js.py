@@ -981,6 +981,10 @@ def test_what_the_open_field_covers_can_have_the_focus() -> None:
         assert "pointer-events: none" in body and "visibility" not in body
 
 
+def test_the_field_is_measured_again_when_the_bars_padding_moves_the_islands() -> None:
+    assert _run("barPaddingWatched") is True
+
+
 def test_the_field_stays_between_the_brand_and_the_meter_which_drops_its_words_for_it() -> None:
     out = _run("barBetween")
     assert out["wide"] == [

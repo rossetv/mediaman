@@ -2199,11 +2199,11 @@
       if (!focused()) hintText.textContent = rest();
       fitAgain();
     });
-    // The meter's words arrive after the page, and change.
+    // The meter's words arrive after the page, and change; so do the bar's insets.
     if (window.ResizeObserver) {
       // In the next frame: it may change the meter's size itself.
       var sized = new window.ResizeObserver(function () { window.requestAnimationFrame(fitBetween); });
-      [end, bar.querySelector('.brand')].forEach(function (n) { sized.observe(n); });
+      [end, bar.querySelector('.brand'), bar].forEach(function (n) { sized.observe(n); });
     }
     bar.addEventListener('focusin', sync);
     bar.addEventListener('focusout', function () { setTimeout(sync); });
