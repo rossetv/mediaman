@@ -1228,6 +1228,31 @@ class TestTmdbTitle:
 
         assert (ahead, opened) == (200, 200)
 
+    def test_titles_asked_for_ahead_share_the_days_title_lookups_with_opens(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+        monkeypatch.setattr(catalog_api, "_TITLE_DAY_LIMITER", ActionRateLimiter(1, 60))
+
+        ahead = viewer.get("/api/watch/title/tmdb-movie-12?ahead=1").status_code
+        opened = viewer.get("/api/watch/title/tmdb-movie-11").status_code
+        held = viewer.get("/api/watch/title/tmdb-movie-12").status_code
+
+        assert (ahead, opened, held) == (200, 429, 200)
+
+    def test_an_open_the_query_limit_refuses_spends_none_of_the_days_title_lookups(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
+        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(0, 60))
+        monkeypatch.setattr(catalog_api, "_TITLE_DAY_LIMITER", ActionRateLimiter(1, 60))
+
+        opened = viewer.get("/api/watch/title/tmdb-movie-11").status_code
+        ahead = viewer.get("/api/watch/title/tmdb-movie-12?ahead=1").status_code
+
+        assert (opened, ahead) == (429, 200)
+
     def test_the_ahead_limit_counts_the_person_whatever_address_they_give(
         self, viewer, tmdb, arr, monkeypatch
     ):
