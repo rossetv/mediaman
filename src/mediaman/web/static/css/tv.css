@@ -105,3 +105,6 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
   .wm-man { stroke: currentColor; }
   .qr { forced-color-adjust: none; }
 }
+.ppl { display: block; margin-top: 36px; }
+.ppl i { display: inline-block; font-style: normal; font-size: 32px; line-height: 56px; color: #fff; background: #2e2e33; border-radius: 40px; padding: 6px 30px 6px 6px; margin: 0 10px; vertical-align: middle; }
+.ppl b { display: inline-block; width: 56px; height: 56px; line-height: 56px; border-radius: 50%; background: #0071e3; color: #fff; font-weight: 600; text-align: center; margin-right: 16px; vertical-align: top; }

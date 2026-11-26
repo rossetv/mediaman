@@ -174,7 +174,7 @@
 
   function about(tv) {
     if (tv.busy) return 'Playing for someone else';
-    if (tv.on && tv.play && tv.play.title && tv.play.state !== 'ended') return 'Playing ' + tv.play.title;
+    if (tv.on && tv.play && tv.play.title && tv.play.state !== 'ended') return 'Playing ' + tv.play.title + (tv.play.mine === false ? ' for ' + tv.play.by : '');
     if (isOlder(tv)) return tv.on ? 'Older TV, added by an admin' : 'Older TV. Not answering.';
     return tv.on ? 'On and ready' : lastSeen(tv);
   }
@@ -192,19 +192,22 @@
     };
   }
 
-  function busy(tv) {
+  function busy(tv, who) {
+    var by = who && who.by;
     return {
       id: idOf(tv),
-      title: 'Someone is watching on this TV',
-      line: ['Playing here stops what they’re watching.'],
+      title: by ? by + ' is watching ' + (who.title || 'something') : 'Someone is watching on this TV',
+      line: [by ? 'Play yours instead? Their place is kept, and they can go back to it from their phone.'
+        : 'Playing here stops what they’re watching.'],
       take: function () { startTv(tv, true); },
+      shared: Boolean(by),
     };
   }
 
   /* What is said where `tv` did not start, and what that `left`. */
   function refused(tv, err, left) {
     var code = err && err.error;
-    if (code === 'in_use') return busy(tv);
+    if (code === 'in_use') return busy(tv, err.data);
     if (isOlder(tv) && (code === 'tv_off' || code === 'unreachable')) return notOpen(tv);
     if (code === 'cant_play') {
       return {
@@ -541,7 +544,7 @@
     if (s.again) addKeyed(box, 'again', 'btn btn--secondary btn--sm', 'Try again', s.again);
     if (s.take) {
       addKeyed(box, 'unsay', 'btn btn--ghost btn--sm', 'Cancel', function () { say = null; draw(); });
-      addKeyed(box, 'take', 'btn btn--danger btn--sm', 'Play here anyway', s.take);
+      addKeyed(box, 'take', s.shared ? 'btn btn--primary btn--sm' : 'btn btn--danger btn--sm', s.shared ? 'Play mine instead' : 'Play here anyway', s.take);
     }
     return box;
   }

@@ -23,7 +23,8 @@ function page(hash, answers, yes = true, owned = Promise.resolve({ tvs: [] })) {
     ['form', { id: 'pair-name-form' }, ['p', { id: 'pair-ok', tabindex: '-1' }],
       ['button', { class: 'fpill' }, 'Living room'], ['button', { class: 'fpill' }, 'Bedroom TV'],
       input('pair-name'), ['p', { id: 'pair-name-why' }], ['button', { id: 'pair-save' }]],
-    ['div', { id: 'pair-done' }, ['p', { id: 'pair-ready', tabindex: '-1' }], ['span', { id: 'pair-ready-name' }]]]));
+    ['div', { id: 'pair-done' }, ['p', { id: 'pair-ready', tabindex: '-1' }], ['span', { id: 'pair-ready-name' }],
+      ['ul', { id: 'pair-people' }], ['p', { id: 'pair-people-say' }]]]));
   const $ = (id) => doc.getElementById(id);
   ['pair-agree', 'pair-name-form', 'pair-done', 'pair-ask'].forEach((id) => { $(id).hidden = true; });
   ['pair-form', 'pair-steps'].forEach((id) => { $(id).hidden = false; });
@@ -90,14 +91,14 @@ const scenarios = {
     await settle();
     return { early, out, last: p.sent[p.sent.length - 1], shown: p.shown() };
   },
-  async inUse() {
-    const yes = page('#482916', [{ error: 'in_use', data: { playing: true } }, TV]);
-    yes.fire('pair-form', 'submit');
+  async joined() {
+    const p = page('#482916', [{ tv: { id: 7, name: 'Living room', people: ['amy', 'bob'] } }]);
+    p.fire('pair-form', 'submit');
     await settle();
-    const no = page('#482916', [{ error: 'in_use', data: { playing: false } }], false);
-    no.fire('pair-form', 'submit');
-    await settle();
-    return { asked: yes.asked, sent: yes.sent.map((s) => s[1]), shown: yes.shown(), no: { asked: no.asked, sent: no.sent.length, code: no.$('pair-code').value, agree: !no.$('pair-agree').hidden } };
+    return {
+      asked: p.asked, sent: p.sent.map((s) => s[1]), shown: p.shown(), says: p.$('pair-ready-name').textContent,
+      people: p.$('pair-people').querySelectorAll('li').map((li) => li.textContent), listed: !p.$('pair-people').hidden,
+    };
   },
   async again() {
     const p = page('#482916', [{ tv: { id: 7, name: 'Den' } }, { error: 'x', words: 'Away' }]);

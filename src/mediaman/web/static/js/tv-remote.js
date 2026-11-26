@@ -772,7 +772,9 @@
           : p.state === 'still' ? 'Still watching on ' + name() + '?'
             : p.state === 'ended' || p.state === 'upnext' ? 'Finished on ' + name()
               : isLoading(p) ? 'Starting on ' + name()
-                : (isPaused() ? 'Paused on ' : 'Playing on ') + name();
+                : isPaused() && p.paused_by ? 'Paused by ' + p.paused_by
+                  : p.mine === false ? p.by + '’s · on ' + name()
+                    : (isPaused() ? 'Paused on ' : 'Playing on ') + name();
     mini.classList.toggle('is-bad', bad || away || !!p && p.state === 'failed');
     MM.dom.setText(m('[data-mini-title]'), title);
     MM.dom.setText(m('[data-mini-say]'), line1);
@@ -804,6 +806,7 @@
     if (p.state === 'upnext' && p.upnext_in_s == null) return name() + ' waits for you to choose.';
     if (p.state === 'ended') return name() + ' is ready for something else.';
     if (isLoading(p)) return 'Starting. This can take a few seconds.';
+    if (p.mine === false) return p.by + ' started this. You can pause, skip or stop it. It counts towards ' + p.by + '’s Continue watching.';
     if (isCast()) return 'You can leave this page. ' + (p.next ? 'Keep mediaman open for the next episode.' : 'The TV carries on.');
     return 'You can lock or close this device. The TV carries on.';
   }
@@ -872,7 +875,8 @@
     }
 
     setHidden(els.again, !isEnd);
-    setHidden(els.bring, isEnd);
+    // Another person's title goes on as theirs: it is not brought to this device.
+    setHidden(els.bring, isEnd || !!p && p.mine === false);
     els.bring.disabled = els.stop.disabled = !!leaving || coming;
     setHidden(els.playOn, !MM.playOn);
     els.playOn.classList.toggle('is-on', !!p && !bad);

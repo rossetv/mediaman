@@ -82,7 +82,7 @@ async function page(opts = {}) {
     const tv = api.tvs.find((t) => url.startsWith('/api/tvs/' + t.id) && !(api.goneIds || []).includes(t.id));
     if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, { last: api.gone && api.gone.last });
     if (method === 'GET') return { tv: copy(tv) };
-    if (api.refuse) throw new APIError(api.refuse, 409);
+    if (api.refuse) throw new APIError(api.refuse, 409, api.refusal);
     if (opts.sheet && /\/play$/.test(url)) {
       // As it begins there, it ends on the TV it was on.
       if (api.gives) Object.assign(api.tvs[0], { play: null, last: { ...aPlay(), reason: 'moved' } });
@@ -330,6 +330,18 @@ const scenarios = {
     p.api.tvs[0].play.state = 'playing';
     await p.pass(5000);
     out.other = p.bar().says;
+    return out;
+  },
+  async anothers() {
+    const p = await page();
+    Object.assign(p.api.tvs[0].play, { by: 'maren', mine: false, paused_by: null });
+    await p.pass(5000);
+    const says = p.bar().says;
+    await p.open();
+    const out = { says, bring: p.$('[data-bring]').hidden, hint: p.$('[data-hint]').textContent };
+    Object.assign(p.api.tvs[0].play, { state: 'paused', paused_by: 'maren' });
+    await p.pass(5000);
+    out.paused = p.bar().says;
     return out;
   },
   async refused() {
@@ -1324,6 +1336,17 @@ const scenarios = {
     await pair.on('.play-on [data-key="code"]', 'input', {});
     await settle();
     return { busy: keys(busy), pair: keys(pair), focus: pair.doc.activeElement.getAttribute('data-key') };
+  },
+  // The sheet: what it asks before it plays over a film of someone the TV is paired with too.
+  async takeNamed() {
+    const p = await page({ sheet: true, tvs: [aTv(), aTv({ id: 8, kind: 'page', name: 'Bedroom', play: null })] });
+    await p.open();
+    await p.press('#tv-remote [data-play-on]');
+    p.api.refuse = 'in_use';
+    p.api.refusal = { error: 'in_use', playing: true, by: 'maren', title: 'Dune' };
+    await p.press('.play-on [data-key="tv-8"]');
+    const take = p.$('.play-on [data-key="take"]');
+    return { said: p.$('.play-on').textContent, take: take.textContent, primary: take.className.includes('btn--primary') };
   },
   async paintsTitles() {
     const p = await page();

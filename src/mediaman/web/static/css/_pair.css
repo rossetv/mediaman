@@ -52,3 +52,13 @@
 @media (forced-colors: active) {
   .pair .fpill.on { forced-color-adjust: none; background: Highlight; color: HighlightText; }
 }
+.pair .pair__people { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; list-style: none; }
+.pair .pair__people li {
+  display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px;
+  border-radius: 999px; background: var(--s3); color: var(--t1); font-size: 14px; font-weight: 500;
+}
+.pair .pair__people li::before { content: none; }
+.pair__face {
+  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent-cta); color: #fff; font-size: 13px; font-weight: 600;
+}

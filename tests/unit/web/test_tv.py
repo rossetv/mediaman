@@ -183,8 +183,11 @@ class Tv:
         code, token = self.code()
         resp = person.post("/api/tvs/pair", json={"code": code, **body})
         assert resp.status_code == 200, resp.text
-        self.token = token
-        self.poll()
+        # A TV someone joined goes on under the token it holds.
+        if self.post("poll", token=token).json()["state"] == "joined":
+            self.poll()
+        else:
+            self.token = token
         return resp.json()["tv"]["id"]
 
     def poll(self, state=None, position_s=0.0, played_s=0.0, **body) -> dict:
@@ -320,32 +323,25 @@ def test_an_address_cannot_go_on_asking_for_codes(tv):
     assert tv.post("code").status_code == 429
 
 
-def test_another_persons_tv_is_taken_over_only_after_the_question(tv, home, amy, bob, manager):
+def test_a_second_person_who_pairs_joins_without_unpairing_or_stopping_the_first(
+    tv, home, amy, bob, manager
+):
     _play(amy, home)
     tv.poll("playing", 70)
     stream_id, _ = _stream_of(tv.token)
-    old_token = tv.token
     code, token = tv.code()
-    asked = bob.post("/api/tvs/pair", json={"code": code})
-    assert (asked.status_code, asked.json()) == (
-        409,
-        {"ok": False, "error": "in_use", "playing": True},
-    )
-    assert tv.poll()["owner"] == "amy"
-    assert _lives(manager, stream_id)
-
-    resp = bob.post("/api/tvs/pair", json={"code": code, "confirm": True})
-    assert resp.json()["tv"] == {"id": home, "name": "TV"}
-    assert tv.post("poll", token=old_token).status_code == 404
-    tv.token = token
+    resp = bob.post("/api/tvs/pair", json={"code": code, "name": "Bob's"})
+    assert resp.json()["tv"] == {"id": home, "name": "TV", "people": ["amy", "bob"]}
+    assert tv.post("poll", token=token).json()["state"] == "joined"
     ready = tv.poll()
-    assert (ready["owner"], ready["play"]) == ("bob", None)
-    assert not _lives(manager, stream_id)
-    told = amy.get(f"/api/tvs/{home}")
-    assert (told.status_code, told.json()["error"]) == (410, "taken")
-    assert told.json()["last"]["position_s"] == 70
-    assert _play(amy, home).status_code == 410
-    assert amy.get("/api/tvs").json()["tvs"] == []
+    assert (ready["owner"], ready["people"], ready["play"]["state"]) == (
+        "amy",
+        ["amy", "bob"],
+        "playing",
+    )
+    assert _lives(manager, stream_id)
+    for person in (amy, bob):
+        assert [t["id"] for t in person.get("/api/tvs").json()["tvs"]] == [home]
 
 
 def test_a_persons_own_tv_is_paired_again_without_a_question_under_its_name(tv, amy):
@@ -354,17 +350,25 @@ def test_a_persons_own_tv_is_paired_again_without_a_question_under_its_name(tv, 
     assert [(t["id"], t["name"]) for t in amy.get("/api/tvs").json()["tvs"]] == [(tv_id, "Bedroom")]
 
 
-def test_a_start_begun_before_the_tv_changed_hands_never_reaches_it(tv, home, amy, bob, plex):
+def test_a_film_started_as_someone_joins_the_tv_plays_on_it(tv, home, amy, bob, plex):
     code, token = tv.code()
 
-    def take_over():
+    def join():
         plex.on_start = lambda: None
-        bob.post("/api/tvs/pair", json={"code": code, "confirm": True})
+        assert bob.post("/api/tvs/pair", json={"code": code}).status_code == 200
         tv.post("poll", token=token)
 
-    plex.on_start = take_over
-    assert _play(amy, home).status_code == 409
-    tv.token = token
+    plex.on_start = join
+    assert _play(amy, home).status_code == 200
+    assert tv.poll()["play"]["by"] == "amy"
+
+
+def test_a_persons_own_tv_paired_again_by_them_alone_is_paired_anew(tv, home, amy, plex):
+    _play(amy, home)
+    old = tv.token
+    tv.pair(amy)
+    assert tv.token != old
+    assert tv.post("poll", token=old).status_code == 404
     assert tv.poll()["play"] is None
 
 
@@ -575,9 +579,10 @@ def test_a_film_another_start_replaced_as_the_session_ended_is_refused_as_signed
     assert _tv_of(amy, home)["play"]["rating_key"] == "102"
 
 
-def test_a_tv_that_changed_hands_meanwhile_keeps_its_name(tv, home, amy, bob, conn, person):
+def test_a_tv_that_passed_to_another_meanwhile_keeps_its_name(tv, home, amy, bob, conn, person):
     was = repo.find(conn, home)
-    tv.pair(bob, confirm=True)
+    tv.pair(bob)
+    assert amy.delete(f"/api/tvs/{home}").status_code == 200
     assert not repo.rename(conn, was, "Mine", username="amy")
     root = person("root", role="admin")
     assert not repo.rename(conn, was, "Root's", username="root")
@@ -615,20 +620,150 @@ def test_a_tv_paired_anew_meanwhile_is_neither_paired_over_nor_removed(tv, home,
 
 def test_the_audit_log_says_which_tv_and_whose(tv, amy, bob, person, conn):
     home = tv.pair(amy, name="Den")
-    tv.pair(bob, confirm=True, name="Attic")
-    person("root", role="admin").delete(f"/api/tvs/{home}")
+    tv.pair(bob, name="Attic")
+    _play(amy, home)
+    _play(bob, home, "102", confirm=True)
+    root = person("root", role="admin")
+    root.delete(f"/api/tvs/{home}/people/amy")
+    root.delete(f"/api/tvs/{home}")
     rows = conn.execute("SELECT action, actor FROM audit_log ORDER BY id").fetchall()
     assert [tuple(r) for r in rows] == [
         ("sec:tv.paired", "amy"),
-        ("sec:tv.taken_over", "bob"),
+        ("sec:tv.joined", "bob"),
+        ("sec:tv.play_replaced", "bob"),
+        ("sec:tv.left", "root"),
         ("sec:tv.unpaired", "root"),
     ]
     details = [r[0] for r in conn.execute("SELECT detail FROM audit_log ORDER BY id")]
     assert [json.loads(d[d.index("{") :]) for d in details] == [
         {"device": "Den", "user": "amy"},
+        {"device": "Den", "user": "bob"},
         {"device": "Den", "user": "amy"},
-        {"device": "Attic", "user": "bob"},
+        {"device": "Den", "user": "amy"},
+        {"device": "Den", "user": "bob"},
     ]
+
+
+# ── one TV, several people ──
+
+
+@pytest.fixture
+def shared(tv, home, bob):
+    """Amy's TV, which Bob joined: its id."""
+    tv.pair(bob)
+    return home
+
+
+def test_either_person_steers_what_the_other_started(tv, shared, amy, bob, conn):
+    _play(amy, shared)
+    tv.poll("playing", 70)
+    assert _command(bob, shared, "pause").status_code == 200
+    assert _command(bob, shared, "seek", position_s=300).status_code == 200
+    tv.poll()
+    assert tv.kinds == ["pause", "seek"]
+    tv.poll("paused", 300)
+    hers, his = _tv_of(amy, shared)["play"], _tv_of(bob, shared)["play"]
+    assert (hers["by"], hers["mine"], hers["paused_by"]) == ("amy", True, "bob")
+    assert (his["by"], his["mine"], his["paused_by"]) == ("amy", False, None)
+    assert _command(bob, shared, "stop").status_code == 200
+    assert tv.poll()["play"] is None
+    assert get_progress(conn, "amy", ["101"])["101"].position_s == 300
+    assert get_progress(conn, "bob", ["101"]) == {}
+
+
+def test_both_people_steer_at_the_same_moment(tv, shared, amy, bob):
+    _play(amy, shared)
+    tv.poll("playing", 70)
+    with ThreadPoolExecutor(2) as pool:
+        asked = [
+            pool.submit(_command, amy, shared, "volume", level=0.5),
+            pool.submit(_command, bob, shared, "seek", position_s=200),
+        ]
+    assert [a.result().status_code for a in asked] == [200, 200]
+    tv.poll()
+    assert sorted(tv.kinds) == ["seek", "volume"]
+
+
+def test_who_paused_it_is_forgotten_once_it_plays_again(tv, shared, amy, bob):
+    _play(amy, shared)
+    tv.poll("playing", 70)
+    _command(bob, shared, "pause")
+    tv.poll("paused", 70)
+    tv.poll("playing", 70)
+    tv.poll("paused", 75)
+    assert _tv_of(amy, shared)["play"]["paused_by"] is None
+
+
+def test_the_next_episode_the_other_asks_for_goes_on_as_the_starters(tv, shared, amy, bob):
+    _play(amy, shared, "501")
+    assert _command(bob, shared, "next").status_code == 200
+    play = _tv_of(bob, shared)["play"]
+    assert (play["rating_key"], play["by"]) == ("502", "amy")
+    assert _stream_of(tv.token)[1] == "amy"
+
+
+def test_starting_over_the_others_film_asks_first_by_name(tv, shared, amy, bob, conn):
+    _play(amy, shared)
+    tv.poll("playing", 70)
+    asked = _play(bob, shared, "102")
+    assert (asked.status_code, asked.json()) == (
+        409,
+        {"ok": False, "error": "in_use", "playing": True, "by": "amy", "title": "Film"},
+    )
+    assert _tv_of(bob, shared)["play"]["rating_key"] == "101"
+    assert _play(bob, shared, "102", confirm=True).status_code == 200
+    play = _tv_of(bob, shared)["play"]
+    assert (play["rating_key"], play["by"], play["mine"]) == ("102", "bob", True)
+    assert get_progress(conn, "amy", ["101"])["101"].position_s == 70
+    assert _tv_of(amy, shared)["play"]["mine"] is False
+
+
+def test_starting_over_ones_own_film_asks_nothing(tv, shared, amy):
+    _play(amy, shared)
+    tv.poll("playing", 70)
+    assert _play(amy, shared, "102").status_code == 200
+
+
+@pytest.mark.parametrize(("starter", "plays_on"), [("amy", True), ("bob", False)])
+def test_a_person_who_unpairs_leaves_the_others_the_tv_and_ends_only_their_own_film(
+    tv, shared, amy, bob, starter, plays_on
+):
+    _play({"amy": amy, "bob": bob}[starter], shared)
+    assert bob.delete(f"/api/tvs/{shared}").status_code == 200
+    assert (tv.poll()["play"] is not None) == plays_on
+    assert tv.poll()["people"] == ["amy"]
+    assert bob.get(f"/api/tvs/{shared}").status_code == 404
+    assert _tv_of(amy, shared)["people"] == ["amy"]
+
+
+def test_the_tv_unpairs_itself_for_everyone(tv, shared, amy, bob):
+    assert tv.post("unpair").status_code == 200
+    assert amy.get("/api/tvs").json()["tvs"] == bob.get("/api/tvs").json()["tvs"] == []
+
+
+def test_an_admin_unpairs_one_person_and_only_an_admin_may(tv, shared, amy, bob, person):
+    root = person("root", role="admin")
+    assert amy.delete(f"/api/tvs/{shared}/people/bob").status_code == 403
+    assert root.delete(f"/api/tvs/{shared}/people/carol").status_code == 404
+    assert root.delete(f"/api/tvs/{shared}/people/bob").status_code == 200
+    (listed,) = root.get("/api/tvs/all").json()["tvs"]
+    assert listed["people"] == ["amy"]
+    assert tv.poll()["people"] == ["amy"]
+    assert root.delete(f"/api/tvs/{shared}/people/amy").status_code == 200
+    assert tv.post("poll").status_code == 404
+
+
+@pytest.mark.parametrize("end", ["must_change", "removed"])
+def test_a_password_change_or_removal_unpairs_only_that_person(tv, shared, amy, bob, conn, end):
+    _play(bob, shared)
+    if end == "must_change":
+        set_must_change_password(conn, "amy", True)
+    else:
+        create_user(conn, "root", "password1234", enforce_policy=False)
+        (user_id,) = conn.execute("SELECT id FROM admin_users WHERE username='amy'").fetchone()
+        assert delete_user(conn, user_id, "root")
+    ready = tv.poll()
+    assert (ready["owner"], ready["people"], ready["play"]["by"]) == ("bob", ["bob"], "bob")
 
 
 # ── what ends a pairing ──

@@ -406,6 +406,28 @@ const scenarios = {
     await t.step(5000);
     return { shown, over, said, src, store: t.store, then: t.says() };
   },
+  async joined() {
+    const t = await playing();
+    const both = { people: ['maren', 'tobias'] };
+    t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'pairing', expires_in_s: 200, poll_ms: 2000 } : ready({ play: t.now, ...both }));
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.key(OK);
+    await t.step(500);
+    const src = t.video.attrs.src;
+    t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'joined', poll_ms: 2000 } : ready({ play: t.now, ...both }));
+    await t.step(3000);
+    const fresh = t.paths('poll').filter((c) => c.token === 'fresh').length;
+    await t.step(10000);
+    const after = t.paths('poll').filter((c) => c.token === 'fresh').length;
+    const u = tv({ kept: 'old' });
+    u.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'joined', poll_ms: 2000 } : ready(both));
+    u.run();
+    await u.step(1500);
+    u.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    u.key(OK);
+    await u.step(3000);
+    return { src, kept: t.video.attrs.src, store: t.store, more: after - fresh, idle: u.says(), polled: u.last('poll').token };
+  },
   async unpairedWithACodeShown() {
     const t = tv({ kept: 'old' });
     t.answers.poll = ready();

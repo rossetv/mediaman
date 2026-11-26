@@ -93,6 +93,14 @@ def test_a_refused_tv_is_signed_out_only_where_its_code_is_gone_too() -> None:
     assert "Signed out" in out["gone"] and out["store"] == {}
 
 
+def test_a_tv_someone_joins_keeps_its_token_and_its_film_and_says_who_can_play() -> None:
+    out = _run("joined")
+    assert out["src"] and out["kept"] == out["src"]
+    assert (out["store"]["mm-tv"], out["more"]) == ("old", 0)
+    assert "maren and tobias can play here" in out["idle"] and "482 916" not in out["idle"]
+    assert out["polled"] == "old"
+
+
 def test_a_film_gives_way_to_the_person_who_takes_the_tv_over() -> None:
     out = _run("takenOver")
     # what its owner starts shows over the code, which still works
