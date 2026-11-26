@@ -2356,9 +2356,9 @@ scenarios.askAnswered = async () => {
   out.head = p.head();
   const links = p.doc.querySelectorAll('.ask .watch-card__link');
   out.titles = links.map((n) => [n.querySelector('.watch-card__title').textContent, n.querySelector('.watch-card__sub').textContent, n.getAttribute('data-ai-why')]);
-  out.markup = links.map((n) => n.querySelector('.watch-card__title').children.length);
+  out.markup = links.map((n) => n.querySelector('.watch-card__title').children.filter((c) => !c.classList.contains('watch-card__spark')).length);
   out.links = links.map((n) => [n.getAttribute('data-title-ref'), n.href, n.querySelectorAll('img').length]);
-  out.marked = links.map((n) => n.querySelectorAll('.watch-card__spark .sr-only').map((s) => s.textContent));
+  out.marked = links.map((n) => n.querySelector('.watch-card__spark') ? n.querySelectorAll('.sr-only').map((s) => s.textContent) : []);
   out.said = p.said();
   out.recorded = p.sent('/searches');
   p.key('Enter'); await settle();
@@ -2865,7 +2865,7 @@ scenarios.tonight = async () => {
   slowAway.resolve({ items: [away(9)] });
   await settle();
   const [slow, now] = p.calls.filter((c) => c.url.includes('/tonight?'));
-  now.resolve({ items: [item(1), item(2, { kind: 'show', season: 7, episode: 4, minutes: 43, href: '//evil.test' }), item(3, { kind: 'show', season: 2, episode: 3, minutes: 20, left: true })], total: 13, more: true, shortest: null });
+  now.resolve({ items: [item(1), item(2, { kind: 'show', season: 7, episode: 4, minutes: 43, href: '//evil.test' }), item(3, { kind: 'show', season: 2, episode: 3, minutes: 20, left: true })], total: 13, more: true, next: 3, checked: true, shortest: null });
   await settle();
   slow.resolve({ items: [item(9)], total: 1, more: false, shortest: null });
   await settle();
@@ -2889,9 +2889,15 @@ scenarios.tonight = async () => {
   await answer({ items: [item(4), item(5)], total: 13, more: false, shortest: null });
   out.back = [foot(), cards(1).length];
   click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[1]);
-  await answer({ items: [item(1)], total: 1, more: false, shortest: null });
+  // What is not in the library for the time before stays, dimmed, till its own comes.
+  out.keptAway = [(cards(1) || []).length, p.sheet.querySelectorAll('.tn [aria-busy="true"]').length];
+  await answer({ items: [item(1)], total: 1, more: false, checked: true, shortest: null });
   await p.fail('/tonight/elsewhere', 'tmdb_request_failed', {}, 502);
   out.few = [foot(), cards(0).length, cards(1), p.sheet.querySelectorAll('[role="alert"]').length];
+  // Where some running times were not looked up, it is not said that only these fit.
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[2]);
+  await answer({ items: [item(1)], total: 1, more: false, checked: false, shortest: null });
+  out.unchecked = foot();
   click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[0]);
   await answer({ items: [], total: 0, more: false, shortest: item(4, { minutes: 88 }) });
   out.none = [p.sheet.querySelector('.tn__none').textContent];
@@ -3067,6 +3073,111 @@ scenarios.similarErrors = async () => {
     }),
     nothing: await end(true, (p) => p.reply('POST', '/ask', { status: 'done', owned: [], others: [], chips: [], instead: ['a reality dating show'] })),
   };
+};
+
+// When the AI's answer comes, what is on the page stays: the same cards in the same places, the AI's own after them.
+scenarios.answerKeeps = async () => {
+  const p = await asking();
+  await p.search(LIKE_Q);
+  await p.answer('/api/watch/similar', { tmdb_configured: true, title: NAMED, items: [BLIND, SIGHT] });
+  p.key('Enter'); await settle();
+  const links = () => p.doc.querySelectorAll('.ask .watch-card__link');
+  const groups = () => p.doc.querySelectorAll('.ask .ask__group');
+  const before = links();
+  const head = groups()[0];
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  await p.poll({ ...ANSWER, others: [{ ...SIGHT, reason: 'The same leap of faith.' }, OTHER] });
+  const after = links();
+  return { kept: before.map((n, i) => after[i] === n), head: groups().indexOf(head), cards: aiPlace(p).cards };
+};
+
+// One downloaded and on its way to the library is the library's, with no badge to say so again.
+scenarios.heldByDownload = async () => {
+  const p = await asking();
+  await p.search(LIKE_Q);
+  await p.answer('/api/watch/similar', { tmdb_configured: true, title: NAMED, items: [BLIND, { ...SIGHT, download_state: 'in_library' }] });
+  const out = aiPlace(p);
+  out.badges = p.doc.querySelectorAll('.ask .watch-badge--state').map((n) => n.textContent);
+  return out;
+};
+
+// An AI pick the library has says what a library card says of it.
+scenarios.aiShowMeta = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  const SHOW = { ...HELD, ref: 'tmdb-tv-1', library_ref: 'show-1', kind: 'show', title: 'Bramble', season_count: 2, href: '/watch/show/1' };
+  await p.reply('POST', '/ask', { ...ANSWER, owned: [SHOW], others: [] });
+  return { sub: p.doc.querySelector('.ask .watch-card__sub').textContent };
+};
+
+// Only "similar to", "more like" and "something like" name a title; a bare "like …" is searched for as it is.
+scenarios.likeWords = async () => {
+  const asked = async (q) => {
+    const p = await asking();
+    await p.search(q);
+    return p.calls.map((c) => decodeURIComponent(c.url)).filter((u) => /watch\/similar|watch\/search/.test(u));
+  };
+  return { bare: await asked('like crazy'), similar: await asked('similar to harrow lane'), something: await asked('something like crazy') };
+};
+
+// Where the AI is off, what it would have been asked says why, and is not told to check its spelling.
+scenarios.offSaid = async () => {
+  const run = async (who, why, page, q) => {
+    const p = await asking({ available: false, why }, { page: { is_admin: who === 'admin', ...page } });
+    await p.search(q);
+    await p.answer('/api/watch/search?', { items: [], total: 0 });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    const note = p.doc.querySelector('.ask__note--quiet');
+    const none = p.doc.querySelector('.results-page--none');
+    return {
+      note: note && note.closest('.ask').hidden === false ? note.textContent : null,
+      link: (p.doc.querySelector('.ask__note--quiet .ask__link') || {}).href || null,
+      none: none && !none.hidden ? none.textContent : null,
+      searched: p.calls.map((c) => decodeURIComponent(c.url)).filter((u) => /watch\/search\?/.test(u)),
+    };
+  };
+  return {
+    admin: await run('admin', 'no_key', {}, 'a gentle comedy for a sunny day'),
+    viewer: await run('viewer', null, {}, 'a gentle comedy for a sunny day'),
+    noTmdb: await run('admin', 'no_tmdb', { tmdb_configured: false }, 'similar to harrow lane'),
+  };
+};
+
+// Return on a title whose whole name was typed opens it, though the words could be asked of the AI.
+scenarios.exactReturn = async () => {
+  const p = await asking();
+  await p.search('salt and ember');
+  await p.answer('/api/watch/search?', { items: [{ ref: 'movie-5', title: 'Salt and Ember', href: '/watch/movie/5', subtitle: 'Movie · 2021' }], total: 1 });
+  await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+  const opened = [];
+  const found = p.doc.querySelector('.watch-suggestion--title');
+  if (found) found.addEventListener('click', () => opened.push(found.getAttribute('data-title-ref')));
+  const row = p.doc.querySelector('.ask__row');
+  const out = { rowPicked: !!row && row.classList.contains('is-picked') };
+  p.key('Enter'); await settle();
+  return { ...out, opened, asked: p.sent('/ask').length };
+};
+
+// The arrow keys reach the titles of an answer as they reach a search's suggestions.
+scenarios.arrowCards = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  await p.reply('POST', '/ask', ANSWER);
+  await p.answer('/api/watch/search?', { items: [], total: 0 });
+  await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+  const moved = p.key('ArrowDown');
+  const on = p.doc.querySelector('.ask .is-picked');
+  return { moved, on: on && on.getAttribute('data-title-ref'), active: !!on && p.input.getAttribute('aria-activedescendant') === on.id };
+};
+
+// The veil behind the open sheet stays to be pressed, though the page under it is hidden.
+scenarios.veilPressed = async () => {
+  const p = await ready(ADMIN);
+  p.press();
+  p.input.focus();
+  await settle();
+  const veil = p.$('watch-veil');
+  return { open: p.sheet.classList.contains('is-on'), inert: !!veil.inert, hidden: veil.getAttribute('aria-hidden') };
 };
 
 const name = process.argv[2];

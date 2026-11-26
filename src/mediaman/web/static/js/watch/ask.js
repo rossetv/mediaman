@@ -95,6 +95,9 @@
 
   function fits(text) { return available() && wordCount(text) >= state.min_words; }
 
+  /* Whether *text* is what the AI would be asked, were it on: a question, or "similar to …". */
+  function shaped(text) { return !!state && (wordCount(text) >= state.min_words || !!similarOf(text)); }
+
   function same(a, b) { return tidy(a).toLowerCase() === tidy(b).toLowerCase(); }
 
   /* Keep a search the person made, where their history is used. */
@@ -353,6 +356,9 @@
     if (!g.chip) {
       item.base = item.shown;
       item.instead = data.instead || [];
+      // What already stands on the page keeps its place: the later of the two comes after it.
+      var found = looked(item);
+      item.foundFirst = !!named(item) && found.items.length > 0;
     }
     item.state = g.chip || titles(item).length ? 'answer' : 'nothing';
     changed(item);
@@ -498,11 +504,12 @@
   /* ── The title a search names, and those like it ── */
 
   var SIMILAR_URL = '/api/watch/similar?q=';
-  var SIMILAR_RE = /^(?:(?:something|anything|shows?|films?|movies?|series|titles?)\s+)?(?:(?:similar|close)\s+to|(?:more\s+)?like)\s+(.+)$/i;
+  // A bare "like …" is a title's own words as often as not ("Like Crazy"): it is searched for as it is.
+  var SIMILAR_RE = /^(?:(?:(?:something|anything|shows?|films?|movies?|series|titles?)\s+)?(?:(?:similar|close)\s+to|more\s+like)|(?:something|anything|shows?|films?|movies?|series|titles?)\s+like)\s+(.+)$/i;
   var LOOKS = 20; // titles named that the page remembers
   var looks = new Map(); // by what was named: { state: loading or ok, title, items }
 
-  /* What "similar to …" or "like …" names, or ''. */
+  /* What "similar to …" or "more like …" names, or ''. */
   function similarOf(text) {
     var found = SIMILAR_RE.exec(tidy(text));
     return found && wordCount(found[1]) ? found[1] : '';
@@ -539,59 +546,75 @@
   var WAITING = 8; // poster outlines while the AI looks
   var WAITING_AFTER = 4; // of them after titles already shown
   var STAGGER_MS = 35;
-  var STAGES = { taste: 'Reading what you watch…', choosing: 'Choosing titles…', checking: 'Checking them on TMDB…' };
+  var STAGES = { taste: 'Reading what you watch…', choosing: 'Choosing titles…', checking: 'Checking the details…' };
 
   function titles(item) { return item.shown ? item.shown.owned.concat(item.shown.others) : []; }
 
   function refOf(t) { return (t.in_library && t.library_ref) || t.ref || ''; }
 
-  /* What the grid holds: the titles like the one named, where they stand, then the AI's picks; one
-     the AI picked of them too is its pick. *phase* is the question's. [{ t, ai }] */
+  // Of the library, or downloaded and on its way to it.
+  function isHeld(t) { return window.MMWatch.search.isHeld(t); }
+
+  /* What the grid holds: [{ t, ai, why, late }]. The titles like the one named and the AI's picks:
+     those of the two that came first, where they stand, then the rest of the other, *late*. One the AI
+     picked of the titles like it is its pick, *why* it picked it. *phase* is the question's. */
   function picks(item, phase) {
     var like = named(item);
     var found = like && !item.chip ? looked(item).items : [];
     var ai = phase === 'answer' ? titles(item) : [];
+    var aiFirst = ai.length > 0 && !item.foundFirst;
     var chosen = new Map();
     ai.forEach(function (t) { chosen.set(t.ref, t); });
     var seen = new Set();
     var all = [];
-    found.forEach(function (t) {
+    function add(t, pick, late) {
       if (seen.has(t.ref)) return;
       seen.add(t.ref);
-      var pick = chosen.get(t.ref);
-      all.push({ t: pick || t, ai: !!pick });
-    });
+      all.push({ t: t, ai: !!pick, why: (pick && pick.reason) || '', late: late });
+    }
+    function addFound() { found.forEach(function (t) { add(t, chosen.get(t.ref), aiFirst); }); }
+    if (!aiFirst) addFound();
     ai.forEach(function (t) {
       var itself = like && (t.ref === like.ref || (!!like.library_ref && t.library_ref === like.library_ref));
-      if (seen.has(t.ref) || itself) return;
-      seen.add(t.ref);
-      all.push({ t: t, ai: true });
+      if (!itself) add(t, t, !aiFirst && found.length > 0);
     });
+    if (aiFirst) addFound();
     return all;
   }
 
   function count(item, phase) {
     var all = picks(item, phase);
-    var held = all.filter(function (x) { return x.t.in_library; }).length;
+    var held = all.filter(function (x) { return isHeld(x.t); }).length;
     var n = all.length;
     return n + (n === 1 ? ' title' : ' titles') + (n ? ', ' + (held === n ? 'all' : held || 'none') + ' already here' : '');
   }
 
-  /* A poster card as every row has, marked where the AI picked it, with why in its preview and its page. */
+  /* Marks *node* as the AI's pick, once, with why in its preview and its page. */
+  function markPick(node, x) {
+    if (!x.ai || node.classList.contains('is-ai-pick')) return;
+    node.classList.add('is-ai-pick');
+    var link = node.querySelector('.watch-card__link');
+    if (x.why) link.setAttribute('data-ai-why', x.why);
+    var title = node.querySelector('.watch-card__title');
+    var spark = el('span', 'watch-card__spark');
+    spark.setAttribute('aria-hidden', 'true');
+    spark.appendChild(MM.dom.icon('i-sparkles'));
+    title.insertBefore(spark, title.firstChild);
+    title.after(el('span', 'sr-only', 'AI pick'));
+  }
+
+  /* A poster card as every row has, with what a library card says of a show. One in a group of
+     its own says too whether the library has it. */
   function card(x) {
     var search = window.MMWatch.search;
     var t = x.t;
-    var node = t.in_library
-      ? search.heldCard(Object.assign({}, t, { ref: refOf(t) }))
+    var node = isHeld(t)
+      ? (x.late ? search.tmdbCard : search.heldCard)(Object.assign({}, t, { ref: refOf(t) }))
       : search.tmdbCard(t);
-    if (!x.ai) return node;
-    node.classList.add('is-ai-pick');
-    var link = node.querySelector('.watch-card__link');
-    if (t.reason) link.setAttribute('data-ai-why', t.reason);
-    var spark = el('span', 'watch-card__spark');
-    spark.appendChild(MM.dom.icon('i-sparkles'));
-    spark.appendChild(el('span', 'sr-only', 'AI pick'));
-    node.querySelector('.watch-card__poster').appendChild(spark);
+    if (t.in_library && t.kind === 'show' && t.season_count) {
+      core.caption(node.querySelector('.watch-card__sub'), 'TV · ' + t.season_count + (t.season_count === 1 ? ' season' : ' seasons'));
+    }
+    markPick(node, x);
     return node;
   }
 
@@ -618,22 +641,34 @@
     };
   }
 
+  /* A card drawn already stays as it is, and is only marked once the AI picks it too. */
   function cardRows(list) {
     return list.map(function (x) {
-      return { key: refOf(x.t), sig: JSON.stringify([x.ai, x.t]), keepFocus: true, make: function () { return card(x); } };
+      return {
+        key: refOf(x.t), sig: JSON.stringify([x.t, x.late]), keepFocus: true,
+        make: function () { return card(x); },
+        update: function (node) { markPick(node, x); }
+      };
     });
   }
 
-  /* The grid's rows, grouped by whether the library has them; outlines follow while the AI looks.
+  /* The grid's rows, grouped by whether the library has them, then those that came later, so that
+     nothing on the page moves when they come; outlines follow while the AI looks.
      *can* is the page's can_download: those not in the library are offered for download only of a kind it allows. */
   function gridRows(item, phase, can) {
     var all = picks(item, phase);
-    var held = all.filter(function (x) { return x.t.in_library; });
-    var others = all.filter(function (x) { return !x.t.in_library; });
-    var some = others.some(function (x) { return can[x.t.kind] !== false; });
+    var lead = all.filter(function (x) { return !x.late; });
+    var late = all.filter(function (x) { return x.late; });
+    var held = lead.filter(function (x) { return isHeld(x.t); });
+    var others = lead.filter(function (x) { return !isHeld(x.t); });
+    late = late.filter(function (x) { return isHeld(x.t); }).concat(late.filter(function (x) { return !isHeld(x.t); }));
+    function note(list) {
+      return list.some(function (x) { return !isHeld(x.t) && can[x.t.kind] !== false; }) ? 'Open one to download it' : '';
+    }
     var rows = [];
     if (held.length) rows = rows.concat(groupRow('owned', 'In your library', '', held.length), cardRows(held));
-    if (others.length) rows = rows.concat(groupRow('others', 'Not in your library', some ? 'Open one to download it' : '', others.length), cardRows(others));
+    if (others.length) rows = rows.concat(groupRow('others', 'Not in your library', note(others), others.length), cardRows(others));
+    if (late.length) rows = rows.concat(groupRow('late', item.foundFirst ? 'AI picks' : 'Titles like it', note(late), late.length), cardRows(late));
     var found = looked(item);
     var waits = phase === 'thinking' || (!!found && found.state === 'loading' && phase !== 'refused');
     if (waits) {
@@ -690,16 +725,22 @@
     var drawn = null; // what *inside* holds: { item, phase, shape, grid, ... }
     views.push(v);
 
-    function fill(item, phase, nodes) {
+    /* *inside* holds *nodes*, with *part*, the titles, among them. What stays is not taken off the
+       page: the cards in it are not drawn again. */
+    function fill(item, phase, nodes, part) {
       var had = inside.contains(document.activeElement);
-      inside.textContent = '';
       nodes = nodes.filter(Boolean);
-      nodes.forEach(function (node) { inside.appendChild(node); });
+      core.toArray(inside.children).forEach(function (node) { if (nodes.indexOf(node) < 0) node.remove(); });
+      nodes.forEach(function (node, i) {
+        var at = inside.children[i] || null;
+        if (at !== node) inside.insertBefore(node, at);
+      });
+      if (part) part.node.removeAttribute('aria-hidden');
       host.hidden = !nodes.length;
-      drawn = nodes.length ? { item: item, phase: phase, shape: shapeOf(item) } : null;
+      drawn = nodes.length ? { item: item, phase: phase, shape: shapeOf(item), part: part || null, grid: part ? part.grid : null } : null;
       host.classList.toggle('is-thinking', phase === 'thinking');
       host.setAttribute('aria-busy', phase === 'thinking' ? 'true' : 'false');
-      if (had && nodes.length) nodes[0].focus({ preventScroll: true });
+      if (had && nodes.length && !inside.contains(document.activeElement)) nodes[0].focus({ preventScroll: true });
     }
 
     function say(text) { if (status.textContent !== text) status.textContent = text; }
@@ -740,7 +781,8 @@
       var phase = item.state;
       var here = drawn && drawn.shape === shapeOf(item) ? drawn : null;
       if (here && phase === 'new') {
-        inside.querySelector('b').textContent = rowTitle(item);
+        var title = inside.querySelector('.ask__words b');
+        if (title) title.textContent = rowTitle(item);
         drawn.item = item;
         drawGrid(item);
         return;
@@ -772,8 +814,10 @@
       return like ? face(like.poster_url) : null;
     }
 
-    /* The grid of titles, which every phase but a refusal of no title named has. */
-    function body() {
+    /* The grid of titles, which every phase but a refusal of no title named has. Of the same
+       question it is the one already drawn, cards and all. */
+    function body(item) {
+      if (drawn && drawn.item === item && drawn.part) return drawn.part;
       var node = el('div', 'ask__body');
       var grid = node.appendChild(el('div', 'watch-grid ask__grid'));
       return { node: node, grid: grid };
@@ -784,12 +828,13 @@
       window.MMWatch.search.glide(drawn.grid, gridRows(item, drawn.phase, opts.can || {}), null, STAGGER_MS);
     }
 
-    /* Under titles like the one named, where the AI is not to be asked: why not, for an admin with the way to it. */
-    function offNote() {
+    /* Where the AI would be asked and is not to be: why not, for an admin with the way to it. Under
+       titles like the one named, of the AI's picks alone. */
+    function offNote(like) {
       if (available()) return null;
       var off = offWords(state && state.why, opts.admin);
       var note = el('p', 'ask__note ask__note--quiet');
-      note.appendChild(document.createTextNode('AI picks: ' + off.title + '.' + (off.link ? ' ' + off.text + ' ' : '')));
+      note.appendChild(document.createTextNode((like ? 'AI picks: ' : '') + off.title + '.' + (off.link || !like ? ' ' + off.text : '') + (off.link ? ' ' : '')));
       if (off.link) {
         var a = note.appendChild(el('a', 'ask__link', off.link[0]));
         a.href = off.link[1];
@@ -811,14 +856,12 @@
           else opts.ask(v.item.value);
         });
       } else if (like) {
-        b = head(heading(item), 'Titles TMDB finds like it', null, pic(item));
+        b = head(heading(item), 'Titles like it', null, pic(item));
       }
-      var part = like ? body() : null;
-      fill(item, 'new', b ? [b, part && part.node, like && offNote()] : []);
-      if (drawn && part) {
-        drawn.grid = part.grid;
-        drawGrid(item);
-      }
+      var part = like ? body(item) : null;
+      var off = item.kind === 'ask' && shaped(item.value) ? offNote(!!like) : null;
+      fill(item, 'new', [b, part && part.node, off], part);
+      drawGrid(item);
       say('');
     }
 
@@ -847,10 +890,9 @@
         stop(item);
         opts.stopped(item);
       });
-      var part = body();
+      var part = body(item);
+      fill(item, 'thinking', [head(heading(item), waitText(item), b, pic(item)), part.node], part);
       if (!named(item)) part.node.setAttribute('aria-hidden', 'true');
-      fill(item, 'thinking', [head(heading(item), waitText(item), b, pic(item)), part.node]);
-      drawn.grid = part.grid;
       drawGrid(item);
       say(waitText(item));
     }
@@ -861,20 +903,19 @@
       var node = el('p', 'ask__foot');
       node.appendChild(MM.dom.icon('i-sparkles'));
       node.appendChild(document.createTextNode(named(item) && !item.chip
-        ? 'Marked titles are chosen by AI, each checked against TMDB. The rest are TMDB’s own.'
-        : 'Chosen by AI, each checked against TMDB.'));
+        ? 'Marked titles are chosen by AI and checked to be real. The rest are like the one you named.'
+        : 'Chosen by AI and checked to be real.'));
       return node;
     }
 
     function answer(item) {
-      var part = body();
+      var part = body(item);
       var refine = el('div', 'refine');
       refine.setAttribute('role', 'group');
       refine.setAttribute('aria-label', 'Narrow it');
       var note = el('p', 'ask__note');
       note.hidden = true;
-      fill(item, 'answer', [head(heading(item), '', null, pic(item)), part.node, note, refine, foot(item)]);
-      drawn.grid = part.grid;
+      fill(item, 'answer', [head(heading(item), '', null, pic(item)), part.node, note, refine, foot(item)], part);
       drawn.refine = refine;
       drawn.note = note;
       drawChips(item);
@@ -941,12 +982,9 @@
 
     /* What is like the title named stays under what came of the question. */
     function withLike(item, phase, nodes) {
-      var part = named(item) ? body() : null;
-      fill(item, phase, nodes.concat(part ? [part.node] : []));
-      if (part && drawn) {
-        drawn.grid = part.grid;
-        drawGrid(item);
-      }
+      var part = named(item) ? body(item) : null;
+      fill(item, phase, nodes.concat(part ? [part.node] : []), part);
+      drawGrid(item);
     }
 
     function nothing(item) {
@@ -982,6 +1020,7 @@
     state: function () { return state; },
     available: available,
     fits: fits,
+    shaped: shaped,
     record: record,
     forget: forget,
     kept: kept,

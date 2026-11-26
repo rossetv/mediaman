@@ -17,7 +17,8 @@
     // The most the server takes: no limit.
     { name: 'All evening', minutes: 720, said: 'an evening' }
   ];
-  var SET = 6;
+  var SET = 6; // outlines while the first set comes: the server says how many a set holds
+  var COUNTS = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'];
 
   function dur(minutes) { return window.MMWatch.ask.dur(minutes); }
 
@@ -95,13 +96,18 @@
     }
 
     /* The titles the library does not have, which come when they come, and are left out
-       quietly when they do not. */
+       quietly when they do not. Those of the time before stay, dimmed, till then: the panel
+       keeps its height. */
     function elsewhere(minutes) {
       awayFor = minutes;
-      away.textContent = '';
+      away.classList.add('is-old');
+      away.setAttribute('aria-busy', 'true');
       MM.api.get('/api/search/assist/tonight/elsewhere?minutes=' + minutes).then(function (data) {
         if (minutes === awayFor) drawAway(data.items || []);
-      }, function () { /* the library's own are what count */ });
+      }, function () {
+        // The library's own are what count.
+        if (minutes === awayFor) drawAway([]);
+      });
     }
 
     /* The list holds *nodes*; *more* has its place either way. */
@@ -152,7 +158,16 @@
     var NO_TOOLS = { tmdb_ref: null, mark_kind: null, mark_key: null };
 
     function readyCard(item, i) {
-      var card = search.card(Object.assign({}, item, NO_TOOLS, { subtitle: sub(item) }));
+      var begun = item.left && item.kind === 'show' && item.episode && item.minutes;
+      var card = search.card(Object.assign({}, item, NO_TOOLS, { subtitle: begun ? '' : sub(item) }));
+      // An episode begun says which, and on a line of its own what it has left: where a line
+      // is too narrow for both, "left" would go first and leave it as long as a whole one.
+      if (begun) {
+        var line = card.querySelector('.watch-card__sub');
+        line.classList.add('tn__sub--two');
+        line.appendChild(el('span', '', 'S' + item.season + ' · E' + item.episode));
+        line.appendChild(el('span', '', dur(item.minutes) + ' left'));
+      }
       card.classList.add('tn__card');
       return option(card, item, 'tonight-title-' + i, i);
     }
@@ -166,7 +181,9 @@
 
     function drawAway(items) {
       away.textContent = '';
-      if (!items.length) return;
+      away.classList.remove('is-old');
+      away.removeAttribute('aria-busy');
+      if (!items.length) { opts.gone(); return; }
       var can = items.some(function (item) { return item.can_download; });
       away.appendChild(group('Not in your library', can ? 'Open one to download it' : '', items.map(awayCard)));
       opts.gone();
@@ -176,9 +193,12 @@
       var items = data.items || [];
       var time = TIMES[at];
       if (!items.length) { none(data.shortest, time); return; }
-      next = data.more ? skip + SET : skip ? 0 : null;
-      var text = data.total < SET ? 'Only ' + data.total + (data.total === 1 ? ' title fits' : ' titles fit') + ' in ' + time.said : '';
-      more.textContent = next === 0 ? 'Back to the first' : data.total - next < SET ? 'The others' : 'Six others';
+      next = data.more ? data.next : skip ? 0 : null;
+      // Only where every running time was known is the count all that fits.
+      var text = data.checked && !data.more && !skip && items.length < SET
+        ? 'Only ' + data.total + (data.total === 1 ? ' title fits' : ' titles fit') + ' in ' + time.said : '';
+      more.textContent = next === 0 ? 'Back to the first'
+        : data.total - next <= items.length ? 'The others' : (COUNTS[items.length - 1] || items.length) + ' others';
       put([group('Ready to play', '', items.map(readyCard))], text, next !== null);
       opts.say(items.map(function (item) { return item.title; }).join(', ') + (text ? '. ' + text : ''));
     }

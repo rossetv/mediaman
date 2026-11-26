@@ -36,18 +36,19 @@ def test_while_the_ai_looks_tmdbs_titles_stay_with_outlines_and_each_step_is_sai
     assert thinking["cards"] == ["Love Is Blind", "Married at First Sight"]
     assert thinking["outlines"] > 0
     assert out["choosing"].endswith("Choosing titles…")
-    assert out["checking"].endswith("Checking them on TMDB…")
+    assert out["checking"].endswith("Checking the details…")
 
 
 def test_the_ais_picks_merge_in_marked_once_each_and_never_the_title_named() -> None:
     answered = _run("similar")["answered"]
+    # Those already shown keep their places; the AI's own come after them.
     assert answered["cards"] == [
-        "*Nine Locks (The vault opens first time.)",
         "Love Is Blind",
         "*Married at First Sight (The same leap of faith.)",
+        "*Nine Locks (The vault opens first time.)",
         "*<b>Thunder</b> (<img src=x onerror=alert(1)>)",
     ]
-    assert answered["groups"] == ["In your library", "Not in your library"]
+    assert answered["groups"] == ["Not in your library", "AI picks"]
     assert answered["outlines"] == 0
 
 

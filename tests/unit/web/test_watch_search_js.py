@@ -1260,7 +1260,8 @@ def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_l
     assert out["ready"] == [
         ["Film 1", "/watch/movie/1", "2020 · 1 h 40 min", "option"],
         ["Film 2", "/", "S7 · E4 · 43 min", "option"],
-        ["Film 3", "/watch/movie/3", "S2 · E3 · 20 min left", "option"],
+        # An episode begun: which, then on a line of its own what it has left.
+        ["Film 3", "/watch/movie/3", "S2 · E320 min left", "option"],
     ]
     assert out["away"] == [
         ["Away 1", "#title=tmdb-movie-1", "Movie · 1 h 35 min", "option"],
@@ -1272,12 +1273,15 @@ def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_l
 
 def test_tonight_has_others_and_says_when_little_or_nothing_fits() -> None:
     out = _run("tonight")
-    assert out["foot"] == ["", "Six others"]
+    # A set is as long as the server's: the next starts where it says.
+    assert out["foot"] == ["", "Three others"]
     # The others of the library: what is not in it stays, and is not asked again.
-    assert out["more"] == ["/tonight?minutes=120&skip=6", 2]
+    assert out["more"] == ["/tonight?minutes=120&skip=3", 2]
     assert out["back"] == [["", "Back to the first"], 2]
     # What is not in the library failing leaves what is, and says nothing.
     assert out["few"] == [["Only 1 title fits in an hour and a half", None], 1, None, 0]
+    assert out["unchecked"] == ["", None]
+    assert out["keptAway"] == [2, 1]
     assert "The shortest is Film 4, 1 h 28 min." in out["none"][0]
     assert out["way"] == "/tonight?minutes=90"
     assert out["evening"] == "/tonight?minutes=720"

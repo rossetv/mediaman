@@ -626,6 +626,7 @@
     var emptiedTimer = null;
     var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
+    var stopIds = 0;
     var people = new Map(); // everybody a search has named, by id
     var ai = window.MMWatch.ask || null;
     var downloads = window.MMWatch.downloading || null;
@@ -1027,9 +1028,10 @@
       clear.setAttribute('aria-label', on ? 'Close search' : 'Clear search');
       sheet.classList.toggle('is-on', on);
       sheet.inert = !on;
-      // Hidden from assistive tech, not made inert: that would restyle every card on the page.
+      // Hidden from assistive tech, not made inert: that would restyle every card on the page. The
+      // veil stays to be pressed: it closes the sheet, where a press through it would open what is under it.
       if (window.MM.inertPage) {
-        if (on) window.MM.inertPage.hold(bar, [browse, byId('watch-all')].filter(Boolean));
+        if (on) window.MM.inertPage.hold(bar, [browse, byId('watch-all'), veil].filter(Boolean));
         else window.MM.inertPage.release(bar);
       }
       sayList();
@@ -1152,7 +1154,8 @@
     /* A sentence is offered to the AI, or shows what came of it, while the search answers below. */
     function offerAsk(q) {
       if (!ai) return;
-      if (!ai.fits(q) && !(canExplore() && ai.similarOf(q))) { hideAsk(); return; }
+      // Where the AI is off, what it would have been asked is told why.
+      if (!ai.fits(q) && !(canExplore() && ai.similarOf(q)) && !(!ai.available() && ai.shaped(q))) { hideAsk(); return; }
       if (!asking) askPlace();
       asking.row(q);
       asking.pick(!picked);
@@ -1433,7 +1436,7 @@
         sayList();
         // While the person types they are not read out.
         if (c && !settled && !status.textContent) status.textContent = suggestionCount();
-        pick(at ? options().filter(function (n) { return n.id === at; })[0] || null : null);
+        pick(at ? stops().filter(function (n) { return n.id === at; })[0] || null : null);
       });
     }
 
@@ -1460,6 +1463,24 @@
       return root ? core.toArray(root.querySelectorAll('.watch-option')).filter(function (n) { return n.getClientRects().length; }) : [];
     }
 
+    /* What the arrow keys go through: the options, and over the results' suggestions the titles
+       an AI answer shows, as a card of the grid that they stand in. */
+    function stops() {
+      var all = options();
+      if (sheetOn || !asking || !asking.item) return all;
+      return core.toArray(asking.host.querySelectorAll('.ask__grid .watch-card__link')).filter(shows).concat(all);
+    }
+
+    function isCard(node) { return !!node && node.classList.contains('watch-card__link'); }
+
+    /* The suggested title whose name is all that was typed, if there is one: Return opens it. */
+    function exactTitle() {
+      var typed = folded(input.value);
+      return (typed && options().filter(function (n) {
+        return n.hasAttribute('data-title-ref') && folded(n.getAttribute('data-title') || '') === typed;
+      })[0]) || null;
+    }
+
     /* Tell the field's readers of the list that shows, if one does. */
     function sayList() {
       var open = options().length > 0;
@@ -1474,7 +1495,7 @@
       }
       var bar = live && live.kind === 'results' ? live.bar : null;
       if (bar) {
-        if (!sheetOn && node) {
+        if (!sheetOn && node && !isCard(node)) {
           var at = 'translateY(' + node.offsetTop + 'px)';
           if (!bar.classList.contains('is-on')) {
             // It shows where it is wanted, and glides from there.
@@ -1485,11 +1506,12 @@
           }
           bar.style.transform = at;
         }
-        bar.classList.toggle('is-on', !sheetOn && !!node);
+        bar.classList.toggle('is-on', !sheetOn && !!node && !isCard(node));
       }
       picked = node;
-      if (asking) asking.pick(!node);
+      if (asking) asking.pick(!node && !exactTitle());
       if (!node) { input.removeAttribute('aria-activedescendant'); return; }
+      if (!node.id) node.id = 'watch-stop-' + (++stopIds);
       node.classList.add('is-picked');
       node.setAttribute('aria-selected', 'true');
       input.setAttribute('aria-activedescendant', node.id);
@@ -1521,7 +1543,7 @@
 
     /* Whether the key moved the highlight. */
     function step(key) {
-      var all = options();
+      var all = stops();
       if (!all.length) return false;
       if (picked && !shows(picked)) pick(null);
       var across = key === 'ArrowLeft' || key === 'ArrowRight';
@@ -1530,12 +1552,13 @@
         pick(key === 'ArrowDown' ? all[0] : all[all.length - 1]);
         return true;
       }
-      if (sheetOn) {
+      if (sheetOn || isCard(picked)) {
         var to = beside(all, picked, key);
         if (to || key === 'ArrowUp') pick(to);
         return true;
       }
-      var strip = all.length > 1 && all[0].offsetTop === all[1].offsetTop;
+      var listed = options();
+      var strip = listed.length > 1 && listed[0].offsetTop === listed[1].offsetTop;
       if (across && !strip) return false;
       var i = all.indexOf(picked) + (key === 'ArrowDown' || key === 'ArrowRight' ? 1 : -1);
       pick(all[i] || null);
@@ -1637,7 +1660,7 @@
       return n ? n + (n === 1 ? ' suggestion' : ' suggestions') : '';
     }
 
-    function askHint() { return asking && asking.item && asking.offered() ? 'Press Return to ask AI' : ''; }
+    function askHint() { return asking && asking.item && asking.offered() && !exactTitle() ? 'Press Return to ask AI' : ''; }
 
     function readOut(c, all, coming) {
       var parts = coming ? [coming + ' downloading'] : [];
@@ -1793,7 +1816,7 @@
     /* Ask for one part of search *c*; what an earlier answer gave stays until this one is in. */
     function ask(c, part, url, read, failed) {
       c[part] = Object.assign({}, c[part], { state: 'loading' });
-      MM.api.get(url, { signal: c.ctrl.signal }).then(function (reply) {
+      (typeof url === 'function' ? url() : MM.api.get(url, { signal: c.ctrl.signal })).then(function (reply) {
         if (current !== c) return;
         c[part] = read(reply || {});
         paint(c);
@@ -1804,8 +1827,35 @@
       });
     }
 
+    /* *url*'s answers for what *c* searches for: of "similar to …", the title it names and all of its words too. */
+    function searchAll(c, url) {
+      return function () {
+        var words = c.find === c.q ? [c.q] : [c.find, c.q];
+        return Promise.all(words.map(function (w) { return MM.api.get(url + encodeURIComponent(w), { signal: c.ctrl.signal }); }))
+          .then(function (replies) { return replies.reduce(joined); });
+      };
+    }
+
+    function joined(a, b) {
+      a = a || {};
+      b = b || {};
+      var out = Object.assign({}, b, a);
+      ['items', 'held', 'people'].forEach(function (k) {
+        if (!a[k] && !b[k]) return;
+        var seen = new Set();
+        out[k] = (a[k] || []).concat(b[k] || []).filter(function (x) {
+          var id = x.ref || x.href || x.key || x.person_id;
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+      });
+      if (typeof a.total === 'number' || typeof b.total === 'number') out.total = Math.max(a.total || 0, b.total || 0, (out.items || []).length);
+      return out;
+    }
+
     function fetchLibrary(c) {
-      ask(c, 'lib', SEARCH_URL + encodeURIComponent(c.find), function (reply) {
+      ask(c, 'lib', searchAll(c, SEARCH_URL), function (reply) {
         return { state: 'ok', items: reply.items || [], total: reply.total };
       }, function (err) {
         return { state: 'failed', text: MM.api.messageOf(err, SEARCH_FAILED) };
@@ -1857,7 +1907,7 @@
     });
 
     function fetchTmdb(c) {
-      ask(c, 'tmdb', TMDB_URL + encodeURIComponent(c.find), function (reply) {
+      ask(c, 'tmdb', searchAll(c, TMDB_URL), function (reply) {
         if (reply.tmdb_configured === false) return { state: 'unconfigured' };
         var found = reply.people || [];
         found.forEach(function (p) { people.set(p.person_id, p); });
@@ -1935,8 +1985,8 @@
       var known = last && last.q === q ? last : null;
       var c = {
         q: q, ctrl: new AbortController(), refocus: null,
-        // Of "similar to …", the title it names is what is searched for.
-        find: (asking && asking.item && asking.item.like) || q,
+        // Of "similar to …", the title it names is searched for too, with or without the AI.
+        find: (ai && ai.similarOf(q)) || q,
         lib: known && { items: known.lib.items, total: known.lib.total }, tmdb: known && { items: known.tmdb.items, held: known.tmdb.held }, cat: null,
         // What is on the page already and fits may stay while TMDB is asked.
         before: last && !known ? gather(last).out.filter(function (x) { return begins(x.item.title, q.toLowerCase()); }) : []
@@ -2023,7 +2073,7 @@
     input.addEventListener('keydown', function (e) {
       if (composing(e)) return;
       if (/^Arrow/.test(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        if (e.key === 'ArrowDown' && !sheetOn && !options().length) {
+        if (e.key === 'ArrowDown' && !sheetOn && !stops().length) {
           openSheet(true);
           if (sheetOn) e.preventDefault();
         } else if (step(e.key)) {
@@ -2057,6 +2107,11 @@
         return;
       }
       if (tokened || !input.value) return;
+      var exact = exactTitle();
+      if (exact) {
+        exact.click();
+        return;
+      }
       clearTimeout(timer);
       run();
       var q = input.value.trim();
@@ -2272,7 +2327,8 @@
     sayList();
     showExamples();
     if (canExplore()) explore.categories();
-    if (ai && data.tmdb_configured === true) ai.load().then(askAgain);
+    // Without TMDB too: there is no AI then, and an admin is told why.
+    if (ai) ai.load().then(askAgain);
     window.MMWatch.search.like = like;
     window.MMWatch.search.canLike = canLike;
     // A value the browser put back (going back to the page) gets its results.

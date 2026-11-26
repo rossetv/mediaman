@@ -41,7 +41,8 @@
 .tn__list { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px 10px; }
 .tn__list[aria-hidden] { padding-top: 16px; }
 .tn__card { animation: watch-ask-rise var(--dur-slow) var(--ease-out) backwards; }
-.tn .watch-card__link.is-picked > .watch-card__poster { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tn__sub--two > span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+:is(.tn, .ask) .watch-card__link.is-picked > .watch-card__poster { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tn__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0 4px; font-size: 13px; color: var(--t3); }
 /* What clips the list cuts whatever reaches out of its line. */
 .tn__foot > .txt { align-self: stretch; }
@@ -63,7 +64,7 @@ button.ask__row.is-picked { border-color: var(--accent); background: var(--s3); 
 button.ask__row:active { transform: scale(.99); }
 .ask__mark { position: relative; flex: none; display: grid; place-items: center; width: 44px; height: 44px; overflow: hidden; border-radius: var(--r-md); background: var(--rgba-purple-bg); color: color-mix(in srgb, var(--purple) 55%, var(--t1)); font-size: 17px; }
 /* The title the others are like, as a small poster; the sparkle shows where it has none. */
-.ask__mark--art { width: 36px; height: 54px; margin-inline: 4px; border-radius: 6px; box-shadow: 0 0 0 1px var(--hair); }
+.ask__mark--art { width: 36px; height: 54px; margin-inline: 4px; border: 1px solid var(--hair); border-radius: 6px; }
 .ask__mark--art > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .ask__mark--art > img[data-broken] { display: none; }
 .ask__words { display: flex; flex: 1; flex-direction: column; gap: 1px; min-width: 0; }
@@ -99,10 +100,8 @@ button.ask__row:active { transform: scale(.99); }
 .ask__skel:nth-child(8n + 7) .skel::after { animation-delay: .48s; }
 .ask__skel:nth-child(8n) .skel::after { animation-delay: .56s; }
 .ask__none { grid-column: 1 / -1; font-size: 15px; color: var(--t2); }
-/* An AI pick: a sparkle on the poster's corner. */
-.watch-card__spark { position: absolute; right: 7px; bottom: 7px; z-index: 1; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--bg) 62%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--purple) 40%, transparent); color: color-mix(in srgb, var(--purple) 45%, var(--t1)); font-size: 12px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); animation: watch-ask-spark var(--dur-slow) var(--ease-pop, var(--ease-out)) .12s backwards; }
-.watch-bar ~ .watch-card__spark { bottom: 12px; }
-.is-ai-pick .watch-card__title { margin-right: 28px; }
+/* An AI pick: a sparkle before its title, which wraps at its words as any card's. */
+.watch-card__spark { display: inline-block; margin-right: 5px; color: color-mix(in srgb, var(--purple) 35%, var(--t1)); font-size: .9em; vertical-align: -.05em; animation: watch-ask-spark var(--dur-slow) var(--ease-pop, var(--ease-out)) .12s backwards; }
 @keyframes watch-ask-spark { from { opacity: 0; transform: scale(.4) rotate(-30deg); } }
 
 .refine { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
@@ -138,8 +137,6 @@ a.chip { text-decoration: none; }
   .ask__skel:nth-child(n + 7) { display: none; }
   .ask__group-note { flex-basis: 100%; }
   .ask__group-note::before { content: none; }
-  .watch-card__spark { right: 5px; bottom: 5px; width: 22px; height: 22px; font-size: 11px; }
-  .is-ai-pick .watch-card__title { margin-right: 22px; }
   .refine { flex-wrap: nowrap; margin-inline: calc(-1 * var(--pad)); padding-inline: var(--pad); overflow-x: auto; scrollbar-width: none; scroll-padding-inline: var(--pad); }
   .refine::-webkit-scrollbar { display: none; }
   .refine > * { flex: none; }
@@ -169,11 +166,10 @@ a.chip { text-decoration: none; }
 
 @media (forced-colors: active) {
   .ask__key,
-  .chip,
-  .watch-card__spark { border: 1px solid ButtonText; }
+  .chip { border: 1px solid ButtonText; }
   .tn__seg { outline: 1px solid ButtonText; }
   .tn__seg > button[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; }
-  .tn .watch-card__link.is-picked > .watch-card__poster { outline-color: Highlight; }
+  :is(.tn, .ask) .watch-card__link.is-picked > .watch-card__poster { outline-color: Highlight; }
   .chip[aria-pressed="true"] { forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText; }
   button.ask__row.is-picked { outline: 2px solid Highlight; outline-offset: -2px; }
   .ask__mark > .ico,
