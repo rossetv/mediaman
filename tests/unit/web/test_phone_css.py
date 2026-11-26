@@ -39,6 +39,11 @@ def test_player_keeps_the_mute_on_touch_and_leaves_its_room_to_be_measured() -> 
         head.strip() for head, b in blocks if re.search(r"\.player-volume\s*\{\s*display: none", b)
     ]
     assert mute == []
+    # The row hides it only when player.js measures no room for every control.
+    assert re.search(
+        r"\.player-controls\.is-snug \.player-volume\s*\{\s*display: none",
+        _plain("_player.css"),
+    )
     assert any(
         "(max-width: 419.98px) and (pointer: coarse)" in head and "gap: 0" in b
         for head, b in blocks

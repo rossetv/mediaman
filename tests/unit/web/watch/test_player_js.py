@@ -3140,6 +3140,8 @@ def test_a_full_row_of_controls_gives_up_the_mute_then_shortens_its_pills_then_d
     markup,
 ):
     out = run(markup, "row_fit")
+    # Not inside the observer's own call: a change there logs a ResizeObserver loop in WebKit.
+    assert out["early"] == []
     assert out["widths"] == [
         [],
         ["is-snug"],

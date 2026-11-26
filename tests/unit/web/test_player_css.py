@@ -389,3 +389,43 @@ def test_a_full_row_of_controls_gives_way_by_what_it_holds_and_not_by_the_width_
     assert "padding: 0 4px" in _rule(css, f"{row}.is-tight .player-opt .player-pill")
     assert "display: none" in _rule(css, f"{row}.is-crowded .player-btn--skip")
     assert re.search(r"min-width:\s*44px", _rule(css, ".player-pill"))
+
+
+def _px(body: str, prop: str) -> int:
+    return int(re.search(rf"(?<![\w-]){prop}:\s*(-?\d+)px", body).group(1))
+
+
+def test_every_control_fits_the_row_at_the_common_phone_widths_after_the_steps() -> None:
+    # With every control showing (Subtitles, next, TV button), work out the row's room from the
+    # step rules and the base rules, as player.js's measure does: what is left must not be < 0.
+    css = _text("_player.css")
+    btn = _px(_rule(css, ".player-btn"), "min-width")
+    pill_min = _px(_rule(css, ".player-pill"), "min-width")
+    phone_pad = 2 * int(
+        re.search(
+            r"\.player-pill \{ padding: 0 (\d+)px; \}", css.split("@media (max-width: 600px)")[1]
+        ).group(1)
+    )
+    row = ".player:not(.is-away) .player-controls"
+    tight_pad = 2 * int(
+        re.search(
+            r"padding: 0 (\d+)px", _rule(css, f"{row}.is-tight .player-opt .player-pill")
+        ).group(1)
+    )
+    tight_bleed = -2 * _px(_rule(css, f"{row}.is-tight"), "margin-inline")
+    # Widest words in the pills at 13 px: "Subtitles" and a resolution such as "1080p".
+    words = (64, 40)
+    gap_at = lambda w: 0 if w < 420 else 2  # noqa: E731  the narrow-phone rule and the 600 px rule
+
+    def left(width: int, steps: int) -> int:
+        buttons = 7 - (1 if steps >= 1 else 0) - (2 if steps >= 3 else 0)  # mute, then skips
+        pad = tight_pad if steps >= 2 else phone_pad
+        pills = sum(max(pill_min, t + pad) for t in words)
+        gap = 0 if steps >= 2 else gap_at(width)
+        room = width - 24 + (tight_bleed if steps >= 2 else 0)
+        return room - buttons * btn - pills - gap * 9
+
+    for width in (320, 360, 402, 440):
+        assert left(width, 3) >= 0, width
+    # The steps are what make it fit: with none of them the row is too full at 320.
+    assert left(320, 0) < 0

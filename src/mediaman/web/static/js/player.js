@@ -4100,7 +4100,8 @@
   }
   if (window.ResizeObserver) {
     /* Its children too: a control shown, hidden or relabelled leaves the row's own size as it was. */
-    var rowSizes = new ResizeObserver(fitRow);
+    /* In the next frame: changing a step changes the row's size, and WebKit logs a loop otherwise. */
+    var rowSizes = new ResizeObserver(function () { window.requestAnimationFrame(fitRow); });
     [controlRow].concat(Array.prototype.slice.call(controlRow.children)).forEach(function (el) { rowSizes.observe(el); });
   }
 

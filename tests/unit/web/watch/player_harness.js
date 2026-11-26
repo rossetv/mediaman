@@ -6258,10 +6258,16 @@ const scenarios = {
     let room = 0;
     Object.defineProperty(row, 'scrollWidth', { get: () => Math.max(need(), room) });
     Object.defineProperty(row, 'clientWidth', { get: () => room });
-    const at = (w) => { room = w; p.win.sized.filter((s) => s.el === row).forEach((s) => s.fn()); return steps.filter(has); };
+    const at = async (w) => { room = w; p.win.sized.filter((s) => s.el === row).forEach((s) => s.fn()); p.tick(16); return steps.filter(has); };
     const watched = (sel) => p.win.sized.some((s) => s.el === row.querySelector(sel));
+    // The observer's own call only asks for a fit in the next frame.
+    room = 320;
+    p.win.sized.filter((s) => s.el === row).forEach((s) => s.fn());
+    const early = steps.filter(has);
+    p.tick(16);
     return {
-      widths: [440, 400, 360, 320, 200, 440].map(at),
+      early: early,
+      widths: [await at(440), await at(400), await at(360), await at(320), await at(200), await at(440)],
       watched: ['[data-tracks]', '[data-play-on]', '[data-slot="next"]', '.player-volume'].map(watched),
     };
   },
