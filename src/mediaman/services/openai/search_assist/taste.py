@@ -35,6 +35,8 @@ class Taste:
     played: Sequence[str] = field(default_factory=tuple)
     liked: Sequence[str] = field(default_factory=tuple)
     disliked: Sequence[str] = field(default_factory=tuple)
+    #: Of what was played, what was left part way.
+    abandoned: Sequence[str] = field(default_factory=tuple)
 
     @property
     def is_empty(self) -> bool:
@@ -46,6 +48,7 @@ class Taste:
             "played": clean_list(self.played),
             "liked": clean_list(self.liked),
             "disliked": clean_list(self.disliked),
+            "abandoned": clean_list(self.abandoned),
         }
         return {name: values for name, values in found.items() if values}
 

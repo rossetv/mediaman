@@ -6,7 +6,7 @@ who they are. What comes back is validated, and every title is checked against T
 
 from __future__ import annotations
 
-from .answers import AssistAnswer, Question, make_answer
+from .answers import AssistAnswer, Question, is_personal, make_answer
 from .phrases import FIXED_PHRASES, make_phrases
 from .taste import Taste, words
 
@@ -15,6 +15,7 @@ __all__ = [
     "AssistAnswer",
     "Question",
     "Taste",
+    "is_personal",
     "make_answer",
     "make_phrases",
     "words",

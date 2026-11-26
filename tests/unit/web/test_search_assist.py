@@ -166,6 +166,8 @@ def _world(monkeypatch):
     monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_a: None)
     monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_a: None)
     monkeypatch.setattr(assist.threading, "Thread", InlineThread)
+    # Checks run in the run's own thread: a pool's threads would be InlineThreads too.
+    monkeypatch.setattr(answers, "CHECKERS", 1)
     monkeypatch.setattr(openai_client, "_refused_key", None)
     monkeypatch.setattr(openai_client, "_refused_at", 0.0)
     yield
@@ -847,8 +849,8 @@ class TestRuns:
     def test_a_run_cleared_while_its_taste_is_read_sends_nothing(self, amy, model, monkeypatch):
         real = repo.taste_of
 
-        def then_cleared(conn, user_id, played):
-            found = real(conn, user_id, played)
+        def then_cleared(conn, user_id, *taste):
+            found = real(conn, user_id, *taste)
             repo.clear_searches(conn, user_id)
             return found
 

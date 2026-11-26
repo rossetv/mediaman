@@ -118,7 +118,9 @@ def clear_searches(conn: sqlite3.Connection, user_id: int) -> None:
         _drop_made(conn, user_id)
 
 
-def taste_of(conn: sqlite3.Connection, user_id: int, played: list[str]) -> Taste:
+def taste_of(
+    conn: sqlite3.Connection, user_id: int, played: list[str], abandoned: Sequence[str] = ()
+) -> Taste:
     """What may be said of the person to the model: nothing when their history is not used."""
     if not uses_history(conn, user_id):
         return Taste()
@@ -132,6 +134,7 @@ def taste_of(conn: sqlite3.Connection, user_id: int, played: list[str]) -> Taste
         played=played[:_TASTE_LIMIT],
         liked=[r["title"] for r in rows if r["level"] > 0][:_TASTE_LIMIT],
         disliked=[r["title"] for r in rows if r["level"] < 0][:_TASTE_LIMIT],
+        abandoned=list(abandoned[:_TASTE_LIMIT]),
     )
 
 
@@ -157,6 +160,21 @@ def phrases_due(conn: sqlite3.Connection, user_id: int, now: datetime) -> bool:
 
 
 # --- Answers -------------------------------------------------------------------
+
+
+def taste_stamp(conn: sqlite3.Connection, user_id: int, username: str) -> str:
+    """What changes when the person's taste does: a play that counts, or a rating. A saved
+    position alone changes nothing of it."""
+    row = conn.execute(
+        "SELECT (SELECT MAX(updated_at) FROM user_ratings WHERE user_id = :id),"
+        " (SELECT COUNT(*) FROM user_ratings WHERE user_id = :id),"
+        " (SELECT MAX(credited_at) FROM watch_progress WHERE username = :name),"
+        " (SELECT MAX(seen_at) FROM watch_progress WHERE username = :name),"
+        " (SELECT MAX(viewed_at) FROM plex_plays WHERE username = :name),"
+        " (SELECT MAX(played_at) FROM played_titles WHERE username = :name)",
+        {"id": user_id, "name": username},
+    ).fetchone()
+    return "|".join(str(v) for v in row)
 
 
 def fetch_answer(
