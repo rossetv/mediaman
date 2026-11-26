@@ -120,10 +120,10 @@
 }
 /* A phone held sideways: tighter, so that a question under a row fits without scrolling. */
 @media (min-width: 700px) and (max-height: 500px) {
-  .play-on__row { min-height: 48px; padding-block: 4px; }
+  .play-on__row { min-height: 44px; padding-block: 2px; }
   .play-on__rule { margin-block: 4px; }
-  .play-on__say { margin-bottom: 6px; padding: 10px 12px; }
-  .play-on__say .btn { margin-top: 8px; }
+  .play-on__say { margin-bottom: 6px; padding: 8px 12px; line-height: 1.35; }
+  .play-on__say .btn { margin-top: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .play-on,

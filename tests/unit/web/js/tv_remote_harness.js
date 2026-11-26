@@ -80,7 +80,7 @@ async function page(opts = {}) {
     if (url === '/api/tvs') return { tvs: copy(api.tvs) };
     if (/^\/api\/(cast|watch)\//.test(url)) return { stream_id: 'c1', url: '/c1' };
     const tv = api.tvs.find((t) => url.startsWith('/api/tvs/' + t.id) && !(api.goneIds || []).includes(t.id));
-    if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, { last: api.gone && api.gone.last });
+    if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, (api.gone && api.gone.data) || { last: api.gone && api.gone.last });
     if (method === 'GET') return { tv: copy(tv) };
     if (api.refuse) throw new APIError(api.refuse, 409, api.refusal);
     if (opts.sheet && /\/play$/.test(url)) {
@@ -98,6 +98,8 @@ async function page(opts = {}) {
     return { id, tv: copy(tv) };
   }
   const toasts = [];
+  // Whether each toast was said over the remote, which places it under the remote's title.
+  const overRemote = [];
   // A step is made later, as a browser makes it.
   const history = {
     entries: [opts.state ? { ...opts.state } : { mm: { id: 'a' } }], index: 0,
@@ -123,7 +125,7 @@ async function page(opts = {}) {
     sessionStorage: { getItem: (k) => session[k] || null, setItem: (k, v) => { session[k] = v; } },
     matchMedia: (q) => ({ matches: !!opts.still && /reduced-motion/.test(q) }),
     addEventListener(t, fn) { win.listeners[t] = fn; },
-    UIFeedback: { toast: (t) => toasts.push(t), error: (t) => toasts.push('! ' + t) },
+    UIFeedback: { toast: (t) => { toasts.push(t); overRemote.push(doc.documentElement.classList.contains('has-tv-rem')); }, error: (t) => toasts.push('! ' + t) },
     ModalA11y: { register() {}, onOpened() {}, onClosed() {} },
     MM: { api: { get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
   };
@@ -197,7 +199,7 @@ async function page(opts = {}) {
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
-    $, doc, win, api, pages, toasts, history, heardByPage, cast,
+    $, doc, win, api, pages, toasts, overRemote, history, heardByPage, cast,
     async step(by) { history.go(by); await p.pass(20); },
     trail: () => ({ at: history.index, entries: history.entries.length, open: p.isOpen(), menu: p.seen('[data-po]') }),
     seen: (sel) => !p.$(sel).hidden && !p.$(sel).classList.contains('is-leaving'),
@@ -412,6 +414,8 @@ const scenarios = {
     await p.open();
     Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay({ position_s: 1268 }), reason: 'stopped' } });
     await p.pass(1100);
+    // Said once the remote has gone.
+    await p.pass(300);
     return { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts };
   },
   // The real sheet opened from a button low on a phone held sideways (874 by 402), as tall as it is.
@@ -446,6 +450,62 @@ const scenarios = {
       await p.pass(15000);
       out[by || 'nobody'] = { bar: p.bar().shown, toasts: p.toasts };
     }
+    return out;
+  },
+  // The other person stops their own film, with the bar alone and with the remote open.
+  async stopsTheirOwn() {
+    const out = {};
+    for (const open of [false, true]) {
+      const p = await page();
+      Object.assign(p.api.tvs[0].play, { by: 'maren', mine: false });
+      await p.pass(5100);
+      if (open) await p.open();
+      Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay({ position_s: 1268 }), reason: 'stopped', stopped_by: 'maren', mine: false } });
+      await p.pass(5100);
+      out[open ? 'remote' : 'bar'] = { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts };
+    }
+    return out;
+  },
+  // The person is unpaired from the TV as something plays on it, with the bar alone and with the remote open.
+  async unpaired() {
+    const out = {};
+    const told = {
+      removed: { reason: 'removed', by: 'maren', tv: 'Living room', stopped: 'Glass Orchard' },
+      left: { reason: 'left', by: null, tv: 'Living room', stopped: null },
+    };
+    for (const [why, open] of [['removed', false], ['removed', true], ['left', false]]) {
+      const p = await page();
+      await p.pass(5100);
+      if (open) await p.open();
+      p.api.tvs = [];
+      p.api.gone = { reason: why, data: told[why] };
+      await p.pass(open ? 1100 : 5100);
+      const leaving = open ? p.$('#tv-remote').classList.contains('is-leaving') : p.$('#tv-mini').classList.contains('is-leaving');
+      await p.pass(300);
+      const hidden = open ? p.$('#tv-remote').hidden : p.$('#tv-mini').hidden;
+      const reads = p.reads().length;
+      await p.pass(30000);
+      out[why + (open ? 'Open' : '')] = { leaving, hidden, toasts: p.toasts, over: p.overRemote, asksOn: p.reads().length - reads };
+    }
+    return out;
+  },
+  // Someone else starts their film over the person's own.
+  async takenOver() {
+    const out = {};
+    for (const open of [false, true]) {
+      const p = await page();
+      await p.pass(5100);
+      if (open) await p.open();
+      p.api.tvs[0].play = aPlay({
+        play_id: 'p2', state: 'starting', title: 'Dune', season: null, episode: null, mine: false, by: 'maren',
+        started_by: 'maren', replaced: { title: 'Glass Orchard', place_kept: true },
+      });
+      await p.pass(5100);
+      out[open ? 'remote' : 'bar'] = { toasts: p.toasts, over: p.overRemote, hint: p.$('[data-hint]').textContent };
+    }
+    const q = await page({ tvs: [aTv({ play: aPlay({ mine: false, by: 'maren', started_by: 'maren', replaced: { title: 'Glass Orchard' } }) })] });
+    await q.pass(5100);
+    out.loaded = q.toasts;
     return out;
   },
   // What the page says of the bar and the remote, for what makes room for them.
@@ -1075,6 +1135,7 @@ const scenarios = {
     await p.press('[data-stop]');
     go();
     await p.pass(600);
+    await p.pass(300);
     return { ...out, after: [p.isOpen(), p.bar().says], sent: p.sent(), did: p.cast.did, toasts: p.toasts };
   },
   async castLost() {
@@ -1208,7 +1269,7 @@ const scenarios = {
     g.host.before({ id: 8 });
     g.host.failed();
     Object.assign(g.p.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'stopped' } });
-    await g.p.pass(1100);
+    await g.p.pass(1400);
     out.failedThenStopped = g.p.toasts.length;
     // Another that plays is not shown while one is moved.
     const m = await make({ cast: { now: aCast() } });
@@ -1255,7 +1316,7 @@ const scenarios = {
     s.p.win.MM.tvRemote.open(9);
     await settle();
     Object.assign(s.p.api.tvs[1], { play: null, last: { ...aPlay(), reason: 'stopped' } });
-    await s.p.pass(1100);
+    await s.p.pass(1400);
     out.said = s.p.toasts;
     const u = await make({ tvs: [aTv({ play: aPlay({ state: 'upnext', next: { rating_key: '9002', season: 1, episode: 5, title: 'x' } }) })] });
     u.host.before({ id: 8 });

@@ -33,6 +33,7 @@ from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
 from mediaman.web.repository.avatars import avatar_urls
 from mediaman.web.responses import respond_err, respond_failure, respond_ok
+from mediaman.web.routes.tv import end_plays_of
 from mediaman.web.routes.users.passwords import rules_of
 from mediaman.web.routes.users.rate_limits import (
     _UNTICKETED_LIMITER,
@@ -250,6 +251,8 @@ def api_delete_user(
             "internal_error", status=500, message="Internal error during user deletion"
         )
     if deleted:
+        if target_username is not None:
+            end_plays_of(target_username, by=admin)
         logger.info("user.deleted actor=%s target_id=%d", _sanitise_log_field(admin), user_id)
         return respond_ok()
     _USER_MGMT_LIMITER.release(admin, reserved)

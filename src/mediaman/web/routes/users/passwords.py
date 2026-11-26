@@ -25,6 +25,7 @@ from mediaman.web.models.users import ChangePasswordBody
 from mediaman.web.repository import tv as tvs
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.plex_link import carry_attempt
+from mediaman.web.routes.tv import end_plays_of
 from mediaman.web.routes.users.rate_limits import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
@@ -130,7 +131,8 @@ def api_change_password(
     client_ip = request_ip
     # Read first: the change ends them.
     signed_out = _others_signed_in(conn, admin, session_token)
-    unpaired = [tv.name for tv in tvs.owned(conn, admin)]
+    paired = tvs.owned(conn, admin)
+    unpaired = [tv.name for tv in paired]
     if change_password(
         conn,
         admin,
@@ -140,6 +142,7 @@ def api_change_password(
         audit_ip=client_ip,
         audit_event="password.changed",
     ):
+        end_plays_of(admin, unpaired=paired)
         # Create a new session since the old ones were invalidated.
         new_token = create_session(
             conn,

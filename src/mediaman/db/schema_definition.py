@@ -95,6 +95,16 @@ BEGIN
     INSERT OR IGNORE INTO tv_people (tv_id, user_id, paired_at)
         VALUES (NEW.id, NEW.owner_id, NEW.created_at);
 END;
+-- An image from before several people could share a TV hands it over by changing both at once.
+CREATE TRIGGER IF NOT EXISTS tv_people_handed_over
+AFTER UPDATE OF token_hash, owner_id ON tvs
+WHEN NEW.kind = 'page' AND NEW.token_hash IS NOT OLD.token_hash
+    AND NEW.owner_id IS NOT OLD.owner_id
+BEGIN
+    DELETE FROM tv_people WHERE tv_id = NEW.id;
+    INSERT INTO tv_people (tv_id, user_id, paired_at)
+        VALUES (NEW.id, NEW.owner_id, COALESCE(NEW.last_seen_at, NEW.created_at));
+END;
 
 -- Here and not where passwords change, so that none of the ways to change one leaves a TV paired.
 CREATE TRIGGER IF NOT EXISTS tvs_end_with_password

@@ -411,9 +411,10 @@
     pending = null;
     pairings += 1;
     codes = 0;
-    if (!play) mode = 'conn';
     tell();
-    show();
+    // The code stays until the poll says who joined, which their page is drawn with at once.
+    if (play) show();
+    else mode = 'conn';
   }
 
   /* ── the poll ── */
@@ -1099,16 +1100,16 @@
 
   /* The page before fades out under the new one, which fades in. */
   function swap(moves) {
+    // A page drawn again as it fades in goes on fading in.
+    if (!moves || !shown) { if (!leftTimer) stage.className = ''; return; }
     clearTimeout(leftTimer);
     leaving.innerHTML = '';
-    stage.className = '';
-    if (!moves || !shown) return;
     stage.className = 'in';
     // The nodes themselves, with what was set on them; their ids are the new page's.
     while (stage.firstChild) leaving.appendChild(stage.firstChild);
     var nodes = leaving.getElementsByTagName('*');
     for (var i = 0; i < nodes.length; i++) nodes[i].removeAttribute('id');
-    leftTimer = setTimeout(function () { leaving.innerHTML = ''; }, 250);
+    leftTimer = setTimeout(function () { leftTimer = null; leaving.innerHTML = ''; }, 250);
   }
 
   function paint() {
