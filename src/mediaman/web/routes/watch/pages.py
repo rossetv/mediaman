@@ -44,9 +44,11 @@ from mediaman.services.media_meta.plex_watch import (
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
+from mediaman.services.search_taste import search_taste
 from mediaman.services.tv.players import get_players
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
+from mediaman.web.repository import search_assist as assist_repo
 from mediaman.web.repository import seen_titles
 from mediaman.web.repository import tv as tvs
 from mediaman.web.repository import watch_library as lib
@@ -1051,9 +1053,19 @@ def watch_page(
                 else None,
                 "settings_tmdb_href": "/settings#setg-integrations" if is_admin else None,
                 "downloading": downloading,
+                "taste": _search_taste(conn, username, now),
             },
         },
     )
+
+
+def _search_taste(conn: sqlite3.Connection, username: str, now: datetime) -> dict[str, Any] | None:
+    """The search sheet's picks for this person alone; none where they asked that their history
+    is not used."""
+    user_id = assist_repo.user_id_of(conn, username)
+    if user_id is None or not assist_repo.uses_history(conn, user_id):
+        return None
+    return search_taste(conn, username, user_id, now)
 
 
 def _primary_episode(

@@ -48,6 +48,7 @@ from ._title_meta import (
     Coverage,
     LibraryPeople,
     fill_title_meta,
+    library_known,
     library_people,
     library_titles,
 )
@@ -92,6 +93,7 @@ __all__ = [
     "library_href",
     "library_ids",
     "library_index",
+    "library_known",
     "library_people",
     "library_titles",
     "normalise_title",

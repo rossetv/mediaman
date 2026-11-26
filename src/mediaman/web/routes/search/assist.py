@@ -16,7 +16,7 @@ import re
 import sqlite3
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Annotated, Any, cast
 
@@ -62,6 +62,13 @@ _OWNED_CHIP = "Only in your library"
 _MIN_PLAYS = 3
 _TMDB_TIMEOUT_S = 5.0
 _LIKE_REF_RE = re.compile(r"^(movie|show)-([0-9]{1,18})$|^tmdb-(movie|tv)-([0-9]{1,10})$")
+_PUNCT_RE = re.compile(r"[^\w\s']+")
+# Words whose answer is another tomorrow: "new", "this year", a year.
+_RELATIVE_RE = re.compile(
+    r"\b(?:new|newest|newer|latest|recent|recently|upcoming|tonight|today|currently|right now"
+    r"|(?:this|last|next) (?:year|month|week|weekend|night)|(?:19|20)[0-9]{2})\b",
+    re.IGNORECASE,
+)
 
 _WRITE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
 _ASK_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
@@ -85,6 +92,8 @@ class _Asked:
     answer: dict[str, Any] | None = None
     key_refused: bool = False
     stage: str = ""
+    #: The titles checked so far, while it runs.
+    partial: list[Any] | None = None
 
 
 _asked: dict[int, _Asked] = {}
@@ -371,6 +380,12 @@ def _played(conn: sqlite3.Connection, username: str) -> list[str]:
     return [p.title for p in person_plays(conn, username)]
 
 
+def _taste(conn: sqlite3.Connection, user_id: int, username: str) -> ai.Taste:
+    plays = person_plays(conn, username)
+    left = [p.title for p in plays if p.note.startswith("left")]
+    return repo.taste_of(conn, user_id, [p.title for p in plays], left)
+
+
 def _make_phrases_later(
     request: Request, conn: sqlite3.Connection, user_id: int, username: str
 ) -> None:
@@ -417,10 +432,27 @@ def api_ask(
         return _unavailable(request, conn, username)
     if ai.words(text) < MIN_WORDS:
         return respond_err("too_short", status=400)
-    question = ai.Question(text=text)
-    return _answer(
-        request, conn, client, user_id, username, "ask", text.casefold(), question, body.refine
-    )
+    key = _question_key(text)
+    skip: frozenset[tuple[str, int]] = frozenset()
+    skip_titles: frozenset[tuple[str, str]] = frozenset()
+    if ai.is_personal(text) and repo.uses_history(conn, user_id):
+        # Answered from their taste, so asked afresh once it changes; never what they played.
+        key += "\n" + repo.taste_stamp(conn, user_id, username)
+        plays = person_plays(conn, username)
+        skip = frozenset((p.kind, p.tmdb_id) for p in plays if p.tmdb_id)
+        # A play's year is not known, so its title alone stands for it.
+        skip_titles = frozenset(
+            (p.kind, catalog.normalise_title(p.title)) for p in plays if not p.tmdb_id
+        )
+    if _RELATIVE_RE.search(text):
+        key += "\n" + now_utc().date().isoformat()
+    question = ai.Question(text=text, skip=skip, skip_titles=skip_titles)
+    return _answer(request, conn, client, user_id, username, "ask", key, question, body.refine)
+
+
+def _question_key(text: str) -> str:
+    """A question as it is found again: case, spacing and punctuation do not count."""
+    return " ".join(_PUNCT_RE.sub(" ", text.casefold()).split())
 
 
 @router.post("/api/search/assist/like")
@@ -513,13 +545,8 @@ def _answer(
         if refine == _OWNED_CHIP:
             return _done(request, conn, client, user_id, username, base, base, owned_only=True)
         key = _digest(request, kind, asked_key, refine.casefold())
-        question = ai.Question(
-            text=question.text,
-            like=question.like,
-            like_year=question.like_year,
-            like_key=question.like_key,
-            refine=refine,
-            narrowing=tuple(t["title"] for t in base["titles"]),
+        question = replace(
+            question, refine=refine, narrowing=tuple(t["title"] for t in base["titles"])
         )
     stored = _fetch(conn, user_id, kind, key)
     if stored is not None:
@@ -540,7 +567,7 @@ def _answer(
 
     def work(own: sqlite3.Connection, stopped: Callable[[], bool]) -> None:
         def taste() -> ai.Taste:
-            return repo.taste_of(own, user_id, _played(own, username))
+            return _taste(own, user_id, username)
 
         try:
             made = ai.make_answer(
@@ -551,6 +578,7 @@ def _answer(
                 secret_key=secret_key,
                 stopped=stopped,
                 stage=lambda step: setattr(asked, "stage", step),
+                found_so_far=lambda titles: setattr(asked, "partial", titles),
             )
         except OpenAIUnavailable as exc:
             asked.key_refused = exc.refused
@@ -590,7 +618,15 @@ def api_run(
         )
     if status != "done" or asked is None:
         # What it is doing, for the page to say: "taste", "choosing" or "checking".
-        stage = {"stage": asked.stage} if status == "running" and asked and asked.stage else {}
+        stage: dict[str, Any] = (
+            {"stage": asked.stage} if status == "running" and asked and asked.stage else {}
+        )
+        partial = asked.partial if status == "running" and asked else None
+        if partial:
+            # What is checked already shows while the rest is; chips and other searches after.
+            some = {"titles": partial, "chips": [], "instead": []}
+            shown = _shown(request, conn, client, username, some, some)
+            stage |= {k: shown[k] for k in ("owned", "others", "lead")}
         return respond_ok({"status": status, "run_id": run_id, **stage})
     stored = _fetch(conn, user_id, asked.kind, asked.key)
     if stored is None:
@@ -625,6 +661,19 @@ def _done(
 ) -> JSONResponse:
     """The stored answer as it stands now: what the library holds may have changed since, and
     so may the person's ratings. The chips are those of *base*, the answer before narrowing."""
+    return respond_ok(_shown(request, conn, client, username, stored, base, owned_only=owned_only))
+
+
+def _shown(
+    request: Request,
+    conn: sqlite3.Connection,
+    client: TmdbClient,
+    username: str,
+    stored: dict[str, Any],
+    base: dict[str, Any],
+    *,
+    owned_only: bool = False,
+) -> dict[str, Any]:
     libraries = lib.scanned_library_ids(conn)
     index = _index(conn, client)
     arr = _arr(request, conn)
@@ -646,15 +695,15 @@ def _done(
     chips = list(base["chips"])
     if len({c["in_library"] for c in before}) == 2:
         chips.append(_OWNED_CHIP)
-    return respond_ok(
-        {
-            "status": "done",
-            "owned": [c for c in shown if c["in_library"]],
-            "others": [c for c in shown if not (c["in_library"] or owned_only)],
-            "chips": chips,
-            "instead": stored["instead"],
-        }
-    )
+    return {
+        "status": "done",
+        "owned": [c for c in shown if c["in_library"]],
+        "others": [c for c in shown if not (c["in_library"] or owned_only)],
+        "chips": chips,
+        "instead": stored["instead"],
+        # The group of the best fit stands first.
+        "lead": "others" if shown and not shown[0]["in_library"] and not owned_only else "owned",
+    }
 
 
 def _card(
@@ -686,6 +735,8 @@ def _card(
         "season_count": title["season_count"],
         "genre": title["genre"],
         "reason": title["reason"],
+        # An answer kept from before the lead was given has none.
+        "reason_lead": title.get("reason_lead"),
         "play_href": play_href(film) if film else None,
     }
 

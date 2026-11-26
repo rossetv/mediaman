@@ -801,6 +801,20 @@ const scenarios = {
     return Object.assign(out, { posts: p.posts.map((x) => x.url), under: p.text('[data-ttl-part="under"]') });
   },
 
+  // Why a pick suits the person, as the server says it: their own pick's, and a shared one's.
+  async pickWhy() {
+    const open = async (ref, data) => {
+      const p = load({ hash: '#title=' + ref, routes: { ['/api/watch/title/' + ref]: data } });
+      p.run();
+      await settle();
+      return { head: p.text('.ttl__reason-head'), box: p.text('.ttl__reason'), because: p.text('.ttl__because') };
+    };
+    return {
+      own: await open('pick-9', Object.assign({}, OWN_PICK, { why: 'You loved Salt, and this is the same slow sea.' })),
+      shared: await open('rec-5', Object.assign({}, REC_DL, { why: 'Chosen for everyone here, not from your own viewing.' })),
+    };
+  },
+
   // What a pick's box says with less to say: no reason, and one title behind it.
   async pickWithLess() {
     const open = async (over) => {

@@ -119,6 +119,18 @@ def test_on_watch_one_bar_holds_the_search_and_the_storage_in_reading_order():
     assert "nav-back" not in html
 
 
+def test_the_ai_s_pill_is_a_button_out_of_tab_s_way_with_its_line_and_a_polite_status():
+    html = _watch_bar("viewer", is_admin=False, view="rows", q="")
+
+    pill = re.search(r'<button [^>]*id="watch-search-ai"[^>]*>', html).group(0)
+    assert 'type="button"' in pill and 'tabindex="-1"' in pill and 'aria-hidden="true"' in pill
+    # The line the field is described by while it is the AI's, and where it is said once.
+    assert re.search(
+        r'id="watch-search-ai-hint">AI search: Return asks AI for titles that fit<', html
+    )
+    assert re.search(r'<p class="sr-only" id="watch-search-mode" role="status"></p>', html)
+
+
 def test_a_viewer_s_bar_on_watch_has_the_search_and_no_storage():
     bar = _bar_of(_watch_bar("viewer", is_admin=False, view="rows", q=""))
 

@@ -78,3 +78,13 @@ def read_taste(conn: sqlite3.Connection, username: str) -> Taste:
         searches=tuple(r["phrase"] for r in searches),
         seen=tuple(Seen(*row) for row in seen),
     )
+
+
+def disliked_titles(conn: sqlite3.Connection, username: str) -> list[str]:
+    """The titles *username* rated down, which no reason may give them to like a pick by."""
+    rows = conn.execute(
+        "SELECT r.title FROM user_ratings r JOIN admin_users u ON u.id = r.user_id"
+        " WHERE u.username = ? AND r.level < 0 AND r.title IS NOT NULL",
+        (username,),
+    ).fetchall()
+    return [row[0] for row in rows]

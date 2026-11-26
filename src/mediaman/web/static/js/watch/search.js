@@ -648,6 +648,7 @@
       box.classList.toggle('is-focus', on);
       box.classList.toggle('has-value', !!input.value);
       box.classList.toggle('has-token', tokened);
+      setAi(aiFits(input.value.trim()));
       box.classList.toggle('is-open', on || ((!!input.value || tokened) && !asked()));
       // Another script may have hidden it; whether it shows is the bar's to say.
       clear.hidden = false;
@@ -814,11 +815,19 @@
     }
 
     function genreTile(genre, i) {
-      var b = option(el('button', 'watch-tile'), 'genre-' + genre.id);
+      var fav = isFavourite(genre.id);
+      var b = option(el('button', 'watch-tile' + (fav ? ' watch-tile--fav' : '')), 'genre-' + genre.id);
       b.type = 'button';
       b.appendChild(explore.icon(genre.id));
       var name = el('b', '', genre.name);
-      b.appendChild(name);
+      if (fav) {
+        var text = b.appendChild(el('span', 'watch-tile__text'));
+        text.appendChild(name);
+        text.appendChild(el('small', '', 'You watch a lot'));
+        b.setAttribute('aria-label', genre.name + ', one of your favourites');
+      } else {
+        b.appendChild(name);
+      }
       b.addEventListener('click', function () { explore.openGenre(genre.id, {}, name); });
       return staged(b, 40 + (i % 4 + Math.floor(i / 4)) * 24);
     }
@@ -969,6 +978,74 @@
       }), own ? el('small', '', 'From what you’ve watched and searched') : null);
     }
 
+    /* The person's own taste, made with the page from their plays and ratings; null where their
+       history is not to be used. */
+    function mine() { return !!data.taste && data.taste.personal === true; }
+
+    /* What their taste suggests, at the top, with the AI's phrases for them where there are any.
+       Nothing here asks the AI: "More like" and a phrase ask only when pressed. */
+    function drawForYou(knows, again) {
+      var taste = data.taste;
+      var nodes = [];
+      (taste.chips || []).forEach(function (c) {
+        var b = el('button', 'watch-try watch-try--for');
+        if (c.kind === 'genre') {
+          b.appendChild(explore.icon(c.genre));
+          var label = b.appendChild(el('span', '', c.text));
+          b.addEventListener('click', function () { explore.openGenre(c.genre, { type: c.type, sort: c.sort }, label); });
+        } else if (c.kind === 'person') {
+          var photo = b.appendChild(face(c.profile_url, c.name));
+          b.appendChild(el('span', '', c.text));
+          b.addEventListener('click', function () { explore.openPerson(c, photo); });
+        } else {
+          return;
+        }
+        nodes.push(b);
+      });
+      var liked = taste.like;
+      if (liked && canLike(liked.ref)) {
+        var b = el('button', 'watch-try watch-try--for watch-try--ai');
+        b.appendChild(MM.dom.icon('i-sparkles'));
+        b.appendChild(el('span', '', liked.text));
+        b.addEventListener('click', function () { leaveSheet(); like(liked.ref, liked.name, ''); });
+        // Second, after their first category.
+        nodes.splice(Math.min(1, nodes.length), 0, b);
+      }
+      var phrases = knows && knows.available && knows.personal !== false ? (knows.phrases || []).slice(0, 2) : [];
+      phrases.forEach(function (text) { nodes.push(phraseButton(text)); });
+      drawPart('For you', 'watch-tries', nodes.map(function (b, i) {
+        b.type = 'button';
+        option(b, 'for-' + i);
+        return again ? b : staged(b, 20 + i * 22);
+      }), el('small', '', 'From what you watch'));
+    }
+
+    /* Someone with too little watched yet: plain searches to start from. */
+    function drawNewcomer(again) {
+      drawPart('Try', 'watch-tries', TRIES.map(function (text, i) {
+        var b = option(tryButton(text), 'try-' + i);
+        return again ? b : staged(b, 60 + i * 22);
+      }));
+      sheet.appendChild(el('p', 'watch-sheet__hint', 'Watch a few things and ideas for you will show here.'));
+    }
+
+    /* The categories that lead: the usual ones, or the first of the person's own order. Only the
+       order is theirs: those after them all still show under More. */
+    function leading(genres) {
+      if (!ownOrder()) return FIRST.map(function (id) { return genres.filter(function (g) { return g.id === id; })[0]; }).filter(Boolean);
+      return byTaste(genres).slice(0, FIRST.length);
+    }
+
+    function ownOrder() { return mine() && Array.isArray(data.taste.order); }
+
+    function byTaste(genres) {
+      var order = data.taste.order;
+      var at = function (g) { var i = order.indexOf(g.id); return i < 0 ? order.length : i; };
+      return genres.slice().sort(function (a, b) { return at(a) - at(b); });
+    }
+
+    function isFavourite(id) { return mine() && (data.taste.favourites || []).indexOf(id) !== -1; }
+
     function peopleComing() {
       try { return !window.localStorage.getItem(NO_PEOPLE); } catch (e) { return true; }
     }
@@ -992,20 +1069,30 @@
       var at = picked && sheet.contains(picked) ? picked.id : null;
       sheetOf = { all: all, waiting: waiting, knows: knows };
       outdated = false;
-      var first = FIRST.map(function (id) { return all.genres.filter(function (g) { return g.id === id; })[0]; }).filter(Boolean);
+      var first = leading(all.genres);
       var more = all.genres.filter(function (g) { return first.indexOf(g) === -1; });
+      if (ownOrder()) more = byTaste(more);
       var folk = all.people.slice(0, PEOPLE);
       var held = waiting && peopleComing();
       if (!waiting) rememberPeople(all);
       var offers = !!knows && knows.available;
       sheet.textContent = '';
-      if (knows && knows.tonight) drawTonight();
-      if (knows) drawRecent(knows.recent, again);
-      if (offers) drawTries(true, knows, again, 60);
-      drawPart('Browse by category', 'watch-tiles', waiting ? times(FIRST.length, tileOutline) : first.map(genreTile));
+      if (!data.taste) {
+        // Their history is not to be used: the sheet as it is for anyone.
+        if (knows && knows.tonight) drawTonight();
+        if (knows) drawRecent(knows.recent, again);
+        if (offers) drawTries(true, knows, again, 60);
+      } else {
+        if (mine()) drawForYou(knows, again);
+        if (knows) drawRecent(knows.recent, again);
+        if (!mine()) drawNewcomer(again);
+        if (knows && knows.tonight) drawTonight();
+      }
+      drawPart('Browse by category', 'watch-tiles', waiting ? times(FIRST.length, tileOutline) : first.map(genreTile),
+        ownOrder() && !waiting ? el('small', '', 'Most watched first') : null);
       drawLibrary(again);
       drawPart('People in your library', 'watch-people', held ? times(PEOPLE, personOutline) : folk.map(personTile));
-      if (!offers) drawTries(false, knows, again, held || folk.length ? 190 : 130);
+      if (!offers && !data.taste) drawTries(false, knows, again, held || folk.length ? 190 : 130);
       drawPart('More categories', 'watch-tiles', more.map(genreTile));
       if (at) pick(byId(at));
     }
@@ -1151,9 +1238,48 @@
 
     function hideAsk() { if (asking && asking.item) asking.hide(); }
 
+    /* The field itself says when Return asks the AI: what is typed reads as a request. Where
+       there is no AI it never does. */
+    var aiMark = byId('watch-search-ai');
+    var aiMode = byId('watch-search-mode');
+    var aiOn = false;
+
+    function aiFits(q) { return !!ai && !!aiMark && !tokened && ai.fits(q) && !ai.similarOf(q); }
+
+    function setAi(on) {
+      if (on === aiOn || !aiMark) return;
+      aiOn = on;
+      box.classList.toggle('is-ai', on);
+      aiMark.classList.toggle('is-twinkle', on);
+      aiMark.tabIndex = on ? 0 : -1;
+      aiMark.setAttribute('aria-hidden', on ? 'false' : 'true');
+      if (on) input.setAttribute('aria-describedby', 'watch-search-ai-hint');
+      else input.removeAttribute('aria-describedby');
+      if (aiMode) aiMode.textContent = on ? 'AI search: Return asks AI for titles that fit' : '';
+    }
+
+    function askTyped() {
+      clearTimeout(timer);
+      run();
+      var q = input.value.trim();
+      record(q);
+      if (ai && ai.fits(q)) askNow(q);
+      // The keyboard on a phone covers the results.
+      if (core.coarsePointer()) input.blur();
+    }
+
+    if (aiMark) {
+      aiMark.addEventListener('click', function () { if (aiOn) askTyped(); });
+      // The AI is known only once its state is in.
+      document.addEventListener('mm:search-assist', function () { setAi(aiFits(input.value.trim())); });
+    }
+
     /* A sentence is offered to the AI, or shows what came of it, while the search answers below. */
     function offerAsk(q) {
       if (!ai) return;
+      setAi(aiFits(q));
+      // The field says what Return does: the row stands only for what came of asking.
+      if (unasked()) { hideAsk(); return; }
       // Where the AI is set up and fails, what it would have been asked is told why.
       if (!ai.fits(q) && !(canExplore() && ai.similarOf(q)) && !(ai.failing() && ai.shaped(q))) { hideAsk(); return; }
       if (!asking) askPlace();
@@ -1605,8 +1731,15 @@
     function showNothing(c, notSetUp) {
       leave();
       hold('none', 'Search results');
-      if (asking && asking.item) {
+      var asked = !!asking && !!asking.item;
+      if (asked || unasked()) {
         live.node.appendChild(el('p', 'results-none', 'No title has these words in its name.'));
+        if (!asked) {
+          var how = el('p', 'results-none results-none--ai');
+          how.appendChild(MM.dom.icon('i-sparkles'));
+          how.appendChild(document.createTextNode(core.coarsePointer() ? 'Tap Ask AI, or Search, for titles that fit.' : 'Press Return to ask AI for titles that fit.'));
+          live.node.appendChild(how);
+        }
         if (notSetUp) live.node.appendChild(hint(data));
         quietWhileAsked();
         rise(live.node);
@@ -1661,7 +1794,10 @@
       return n ? n + (n === 1 ? ' suggestion' : ' suggestions') : '';
     }
 
-    function askHint() { return asking && asking.item && asking.offered() && !exactTitle() ? 'Press Return to ask AI' : ''; }
+    function askHint() { return ((asking && asking.item && asking.offered()) || unasked()) && !exactTitle() ? 'Press Return to ask AI' : ''; }
+
+    /* The field is the AI's and what it holds is not asked yet. */
+    function unasked() { return aiOn && ai.question('ask', input.value.trim()).state === 'new'; }
 
     function readOut(c, all, coming) {
       var parts = coming ? [coming + ' downloading'] : [];
@@ -2117,13 +2253,7 @@
         exact.click();
         return;
       }
-      clearTimeout(timer);
-      run();
-      var q = input.value.trim();
-      record(q);
-      if (ai && ai.fits(q)) askNow(q);
-      // The keyboard on a phone covers the results.
-      if (core.coarsePointer()) input.blur();
+      askTyped();
     });
 
     // Only someone's own press or Tab opens the sheet: scripts put focus here too.

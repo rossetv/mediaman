@@ -1069,16 +1069,36 @@ def test_the_field_and_its_sheet_keep_to_what_a_keyboard_leaves_to_be_seen() -> 
 Q = "a gentle heist film"
 
 
-def test_a_question_is_offered_from_three_words_and_the_search_is_not_held_up_by_it() -> None:
+OFF = {"ai": False, "tab": -1, "hidden": "true", "described": None, "mode": ""}
+
+
+def test_a_request_turns_the_field_ai_from_three_words_in_place_of_an_ask_row() -> None:
     out = _run("askOffered")
-    assert (out["two"], out["less"]) == (None, None)
-    assert out["three"].startswith(f"Ask AI: “{Q}”")
-    assert out["picked"] is True  # what Return does
+    assert out["two"] == [None, OFF]
+    assert out["less"] == [None, OFF]
+    # No row of its own: the field turns the AI's, its pill a stop for Tab, and it is said once.
+    assert out["three"] == [
+        None,
+        {
+            "ai": True,
+            "tab": 0,
+            "hidden": "false",
+            "described": "watch-search-ai-hint",
+            "mode": "AI search: Return asks AI for titles that fit",
+        },
+    ]
+    assert out["like"] is False
     assert out["searched"] == ["/api/watch/search", "/api/watch/search/tmdb"]
 
 
+def test_return_or_the_pill_of_the_ai_field_asks_the_ai() -> None:
+    out = _run("askOffered")
+    assert out["enter"] == [Q]
+    assert out["pill"] == [Q]
+
+
 def test_without_a_key_nothing_of_the_ai_shows() -> None:
-    assert _run("askOffered")["without"] is None
+    assert _run("askOffered")["without"] == [None, False]
     # The sheet as ever, with the person's own searches before it.
     tonight, heads = _run("askPanel")["off"]
     assert tonight is None
@@ -1123,7 +1143,8 @@ def test_a_newer_question_stops_the_one_before_and_only_its_own_answer_shows() -
     assert out["asked"] == [Q, "a much newer question"]
     assert "Finishing your last question" in out["stopping"]
     assert out["head"].startswith("“a much newer question” | 2 titles")
-    assert (out["old"][0].startswith("Ask AI"), out["old"][1]) == (True, 0)
+    # Back at the old question the field offers it again, with no titles of the other's.
+    assert out["old"] == [None, 0, True]
 
 
 def test_a_question_can_be_stopped_even_before_its_run_is_known() -> None:
@@ -1145,7 +1166,7 @@ def test_a_question_left_for_another_page_is_shown_again_but_a_link_asks_nothing
     out = _run("askReloaded")
     assert out["mine"] == [Q]
     assert out["recorded"] == 0  # it was when it was asked
-    assert out["link"][0] == 0 and out["link"][1].startswith("Ask AI")
+    assert out["link"] == [0, None, True]  # offered by the field, not asked
     assert out["left"] == ["DELETE/runs/7"]
 
 
@@ -1396,7 +1417,7 @@ def test_what_is_remembered_is_the_person_s_own_and_goes_at_sign_out() -> None:
     out = _run("askNextPerson")
     # Nothing is asked, kept or stopped for the next person of the tab.
     assert (out["asked"], out["recorded"], out["runs"]) == (0, 0, 0)
-    assert out["head"].startswith("Ask AI")
+    assert (out["head"], out["field"]) == (None, True)  # offered by the field, not asked
     assert out["like"] == [0, "/"]
     assert out["kept"] is False
     assert out["signedOut"] == ["other"]
@@ -1415,7 +1436,7 @@ def test_a_card_of_an_answer_drawn_again_keeps_the_focus() -> None:
 
 def test_clearing_forgets_the_answers_and_the_question_remembered() -> None:
     out = _run("askForgotten")
-    assert out["head"].startswith("Ask AI")
+    assert (out["head"], out["field"]) == (None, True)  # offered anew by the field
     assert (out["kept"], out["asked"]) == (False, 0)
 
 
@@ -1436,8 +1457,11 @@ def test_titles_like_one_can_be_found_from_all_titles() -> None:
 
 def test_what_is_read_out_stands_outside_what_is_busy() -> None:
     out = _run("askStatus")
-    assert out["text"] == ["Reading what you watch…"]
-    assert out["busy"] == [False]
+    assert out["text"] == [
+        "AI search: Return asks AI for titles that fit",
+        "Reading what you watch…",
+    ]
+    assert out["busy"] == [False, False]
 
 
 def test_a_page_of_someone_else_s_is_left_when_it_is_looked_at_again() -> None:
@@ -1516,3 +1540,94 @@ def test_an_answer_offers_no_download_of_a_kind_that_cannot_be_downloaded() -> N
 def test_the_field_hint_for_asking_is_short_enough_for_a_narrow_phone() -> None:
     # 320 wide shows about 25 characters of it before it is cut mid-word.
     assert len(_run("askPanel")["hint"]) <= 22
+
+
+# ── For one person ──
+
+
+def test_the_sheet_leads_with_what_the_person_s_taste_suggests() -> None:
+    out = _run("forYou")["withAi"]
+    assert out["heads"][:3] == ["For you", "Recent", "Tonight"]
+    assert "Or try" not in out["heads"]
+    # Four made without the AI, "More like" after the first, then two of the AI's phrases.
+    assert [text for text, _ai, _role in out["forYou"]] == [
+        "Feel-good comedies",
+        "More like Rick and Morty",
+        "Top-rated sci-fi series",
+        "IVWith Ines Varga",
+        "New comedies",
+        "a heist that goes wrong, gently",
+        "more by Ilse",
+    ]
+    assert [ai for _text, ai, _role in out["forYou"]] == [
+        False,
+        True,
+        False,
+        False,
+        False,
+        True,
+        True,
+    ]
+    assert {role for _t, _a, role in out["forYou"]} == {"option"}
+
+
+def test_without_a_key_for_you_keeps_its_four_plain_searches_alone() -> None:
+    out = _run("forYou")["noKey"]
+    assert [text for text, _ai, _role in out["forYou"]] == [
+        "Feel-good comedies",
+        "Top-rated sci-fi series",
+        "IVWith Ines Varga",
+        "New comedies",
+    ]
+
+
+def test_a_suggestion_for_you_opens_its_category_sorted_its_person_or_titles_like_one() -> None:
+    out = _run("forYou")
+    assert out["opened"] == "/?genre=science-fiction&type=tv&sort=top_rated"
+    assert out["person"] == "/?person=77"
+    assert out["like"] == ["/?like=tmdb-tv-60625", [{"ref": "tmdb-tv-60625"}]]
+
+
+def test_categories_stand_in_the_person_s_order_and_none_is_left_out() -> None:
+    out = _run("forYou")["withAi"]
+    assert out["first"] == [
+        "comedy", "anime", "science-fiction", "fantasy", "animation", "family",
+        "action", "thriller", "drama", "crime", "romance", "documentary",
+    ]  # fmt: skip
+    assert out["more"] == ["mystery", "war", "horror"]  # rated down, last
+    assert out["favs"] == [
+        ["comedy", "You watch a lot", "Comedy, one of your favourites"],
+        ["anime", "You watch a lot", "Anime, one of your favourites"],
+    ]
+
+
+def test_a_new_person_is_given_plain_searches_and_told_why_with_the_usual_order() -> None:
+    out = _run("forYouNewbie")["newbie"]
+    assert "For you" not in out["heads"]
+    assert out["heads"][:4] == [
+        "Recent",
+        "Try",
+        "Watch a few things and ideas for you will show here.",
+        "Tonight",
+    ]
+    assert out["tries"] == [
+        ["popular action movies", False],
+        ["popular comedy movies", False],
+        ["top rated sci-fi", False],
+    ]
+    assert out["first"][:3] == ["action", "comedy", "thriller"]
+    assert out["more"] == ["anime", "mystery", "war"]
+    assert out["favs"] == []
+
+
+def test_with_history_not_used_the_sheet_is_as_it_is_for_anyone() -> None:
+    out = _run("forYouNewbie")["off"]
+    assert out["heads"][:3] == ["Tonight", "Recent", "Or try"]
+    assert (out["hint"], out["favs"]) == (None, [])
+
+
+def test_where_no_title_has_a_request_s_words_it_says_how_to_ask_the_ai() -> None:
+    out = _run("aiNoTitle")
+    none = "No title has these words in its name."
+    assert out["desk"] == [none, "Press Return to ask AI for titles that fit."]
+    assert out["phone"] == [none, "Tap Ask AI, or Search, for titles that fit."]

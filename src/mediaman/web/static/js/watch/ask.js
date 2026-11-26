@@ -327,7 +327,13 @@
         if (g.left) return;
         if (data.status === 'done') done(g, data);
         else if (data.status === 'running') {
-          if (data.stage && data.stage !== g.item.stage) {
+          var more = (data.owned || []).length + (data.others || []).length;
+          // What is checked already shows, the rest outlined after it. A narrowing keeps the answer it narrows.
+          if (!g.chip && more > titles(g.item).length) {
+            g.item.shown = { owned: data.owned || [], others: data.others || [], lead: data.lead };
+            g.item.stage = data.stage || g.item.stage;
+            changed(g.item);
+          } else if (data.stage && data.stage !== g.item.stage) {
             g.item.stage = data.stage;
             changed(g.item);
           }
@@ -356,7 +362,7 @@
     var item = g.item;
     ended(g);
     item.chip = item.pressed = g.chip;
-    item.shown = { owned: data.owned || [], others: data.others || [] };
+    item.shown = { owned: data.owned || [], others: data.others || [], lead: data.lead };
     item.chips = data.chips || [];
     if (!g.chip) {
       item.base = item.shown;
@@ -561,13 +567,13 @@
   // Of the library, or downloaded and on its way to it.
   function isHeld(t) { return window.MMWatch.search.isHeld(t); }
 
-  /* What the grid holds: [{ t, ai, why, late }]. The titles like the one named and the AI's picks:
+  /* What the grid holds: [{ t, ai, why, lead, late }]. The titles like the one named and the AI's picks:
      those of the two that came first, where they stand, then the rest of the other, *late*. One the AI
      picked of the titles like it is its pick, *why* it picked it. *phase* is the question's. */
   function picks(item, phase) {
     var like = named(item);
     var found = like && !item.chip ? looked(item).items : [];
-    var ai = phase === 'answer' ? titles(item) : [];
+    var ai = phase === 'answer' || phase === 'thinking' ? titles(item) : [];
     var aiFirst = ai.length > 0 && !item.foundFirst;
     var chosen = new Map();
     ai.forEach(function (t) { chosen.set(t.ref, t); });
@@ -576,7 +582,7 @@
     function add(t, pick, late) {
       if (seen.has(t.ref)) return;
       seen.add(t.ref);
-      all.push({ t: t, ai: !!pick, why: (pick && pick.reason) || '', late: late });
+      all.push({ t: t, ai: !!pick, why: (pick && pick.reason) || '', lead: (pick && pick.reason_lead) || '', late: late });
     }
     function addFound() { found.forEach(function (t) { add(t, chosen.get(t.ref), aiFirst); }); }
     if (!aiFirst) addFound();
@@ -619,7 +625,27 @@
       core.caption(node.querySelector('.watch-card__sub'), 'TV · ' + t.season_count + (t.season_count === 1 ? ' season' : ' seasons'));
     }
     markPick(node, x);
+    addWhy(node, x);
     return node;
+  }
+
+  /* The why goes under a card once, so a card drawn while checking keeps its place when the answer says why. */
+  function addWhy(node, x) {
+    if (!x.why || node.querySelector('.watch-card__why')) return;
+    var sub = node.querySelector('.watch-card__sub');
+    if (sub) sub.after(whyLine(x.why, x.lead));
+    else node.appendChild(whyLine(x.why, x.lead));
+  }
+
+  /* Why the AI picked it, under the card. The server names the "Because you liked …" it starts with,
+     whole, since a title may hold a colon of its own. */
+  function whyLine(text, lead) {
+    var p = el('p', 'watch-card__why');
+    if (lead && text.startsWith(lead + ':')) {
+      p.appendChild(el('b', '', lead));
+      p.appendChild(document.createTextNode(' · ' + text.slice(lead.length + 1).trim()));
+    } else p.textContent = text;
+    return p;
   }
 
   function outlineCard() {
@@ -657,7 +683,7 @@
       return {
         key: refOf(x.t), sig: JSON.stringify([x.t, x.late]), keepFocus: true,
         make: function () { return card(x); },
-        update: function (node) { markPick(node, x); }
+        update: function (node) { markPick(node, x); addWhy(node, x); }
       };
     });
   }
@@ -687,8 +713,14 @@
     var found = looked(item);
     var waits = phase === 'thinking' || (!!found && found.state === 'loading' && phase !== 'refused');
     var rows = [];
-    if (held.length) rows = rows.concat(groupRow('owned', 'In your library', '', held.length), cardRows(held));
-    if (others.length) rows = rows.concat(groupRow('others', 'Not in your library', note(others), others.length), cardRows(others));
+    var mine = held.length ? groupRow('owned', 'In your library', '', held.length) : null;
+    var get = others.length ? groupRow('others', 'Not in your library', note(others), others.length) : null;
+    // The group the best fit is in comes first, and keeps its place through a narrowing.
+    var said = item.base || item.shown;
+    var othersFirst = !!said && said.lead === 'others';
+    if (othersFirst && get) rows = rows.concat(get, cardRows(others));
+    if (mine) rows = rows.concat(mine, cardRows(held));
+    if (!othersFirst && get) rows = rows.concat(get, cardRows(others));
     if (late.length || (waits && all.length)) {
       var name = phase === 'thinking' || item.foundFirst ? 'AI picks' : 'Titles like it';
       rows = rows.concat(groupRow('late', name, mixNote(late), late.length), cardRows(late));
@@ -723,7 +755,7 @@
     items.forEach(function (item) {
       function set(s) {
         if (!s || !s.others.some(function (t) { return t.ref === e.detail.ref; })) return s;
-        return { owned: s.owned, others: s.others.map(now) };
+        return { owned: s.owned, others: s.others.map(now), lead: s.lead };
       }
       var all = item.shown === item.base;
       item.base = set(item.base);
@@ -941,6 +973,7 @@
         small.replaceWith(next);
       }
       say(text);
+      if (drawn.part && titles(item).length) drawn.part.node.removeAttribute('aria-hidden');
       drawGrid(item);
     }
 
@@ -952,7 +985,7 @@
       });
       var part = body(item);
       fill(item, 'thinking', [head(heading(item), waitText(item), b, pic(item)), part.node], part);
-      if (!named(item)) part.node.setAttribute('aria-hidden', 'true');
+      if (!named(item) && !titles(item).length) part.node.setAttribute('aria-hidden', 'true');
       drawGrid(item);
       say(waitText(item));
     }

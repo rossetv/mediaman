@@ -159,6 +159,17 @@ def test_an_own_pick_downloads_at_its_own_address_is_emailed_about_and_has_no_sh
     assert out["share"] is False
 
 
+def test_a_pick_says_why_it_suits_them_and_names_their_titles_once() -> None:
+    out = _run("pickWhy")
+    own, shared = out["own"], out["shared"]
+    assert own["head"] == "AI pickWhy you’ll like it"
+    assert own["box"].endswith("You loved Salt, and this is the same slow sea.")
+    assert "A slow mystery by the sea." not in own["box"]
+    assert own["because"] is None
+    assert shared["head"] == "AI pickWhy it’s here"
+    assert shared["box"].endswith("not from your own viewing.")
+
+
 def test_a_pick_is_labelled_even_with_no_reason_to_give() -> None:
     out = _run("pickWithLess")
     assert out["label"] == "AI pick"

@@ -507,6 +507,15 @@ class TestPicks:
         assert (body["reason"], body["overview"]) == ("Because.", "From TMDB.")
         assert body["download"]["request"] == {"url": f"/api/watch/picks/{pick}/download"}
 
+    def test_an_own_pick_says_why_it_suits_them_and_never_its_plot(
+        self, viewer, library, tmdb, plex
+    ):
+        pick = self._pick(library, reason=None, because_of='["Alpha", "Beta"]')
+
+        body = _preview(viewer, f"pick-{pick}").json()
+
+        assert body["why"] == "You watched Alpha and Beta."
+
     def test_another_persons_pick_is_the_404_of_none_even_to_an_admin(
         self, app, viewer, library, tmdb, plex
     ):
