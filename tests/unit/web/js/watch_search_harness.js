@@ -2308,9 +2308,9 @@ const ANSWER = { status: 'done', owned: [HELD], others: [OTHER], chips: ['Funnie
 
 /* A page with an AI. *more* changes what it knows. */
 async function asking(more, opts, opened, at) {
-  const { view, ...rest } = opts || {};
+  const { view, page, ...rest } = opts || {};
   const assist = { ...ASSIST, ...more };
-  const p = load({ ...ADMIN, view: view || 'rows' }, opened, at, undefined, { assist, ...rest });
+  const p = load({ ...ADMIN, ...page, view: view || 'rows' }, opened, at, undefined, { assist, ...rest });
   await settle();
   p.assist = assist;
   p.said = () => p.doc.querySelectorAll('.sr-only').filter((n) => n.getAttribute('role') === 'status').map((n) => n.textContent).join();
@@ -2924,6 +2924,19 @@ scenarios.noDownloadHeads = async () => {
   const early = p.heads();
   await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
   return { early, heads: p.heads(), status: p.status.textContent };
+};
+
+scenarios.askNoDownload = async () => {
+  const SHOW = { ...OTHER, ref: 'tmdb-tv-3', kind: 'show', title: 'Dockside' };
+  const p = await asking({}, { page: { can_download: { movie: false, show: true } } });
+  await p.ask(Q);
+  await p.reply('POST', '/ask', { ...ANSWER, others: [OTHER, SHOW] });
+  const goes = () => p.doc.querySelectorAll('.ans__go').map((n) => n.getAttribute('aria-label'));
+  const out = { go: goes() };
+  p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:title-changed', { detail: { ref: OTHER.ref, download_state: 'queued', download_pct: null } }));
+  await settle();
+  out.after = goes();
+  return out;
 };
 
 const name = process.argv[2];

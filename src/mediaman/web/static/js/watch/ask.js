@@ -617,7 +617,8 @@
     });
   });
 
-  function card(t) {
+  /* A title of a kind *can* says can't be downloaded gets no button: its picture opens it. */
+  function card(t, can) {
     var node = el('article', 'ans');
     var link = el('a', 'ans__p');
     link.setAttribute('data-title-ref', refOf(t));
@@ -643,11 +644,12 @@
     name.setAttribute('aria-hidden', 'true');
     text.appendChild(el('small', '', facts(t)));
     text.appendChild(el('p', '', t.reason));
-    node.appendChild(t.in_library ? playButton(t) : downloadButton(t));
+    if (t.in_library) node.appendChild(playButton(t));
+    else if (can[t.kind] !== false) node.appendChild(downloadButton(t));
     return node;
   }
 
-  function group(key, title, list) {
+  function group(key, title, list, can) {
     if (!list.length) return [];
     return [{
       key: 'head-' + key,
@@ -662,8 +664,11 @@
       return {
         key: t.ref,
         sig: JSON.stringify(Object.assign({}, t, { download_state: null, download_pct: null })),
-        make: function () { return card(t); },
-        update: function (node) { if (!t.in_library) drawCourse(node.querySelector('.ans__go'), t); }
+        make: function () { return card(t, can); },
+        update: function (node) {
+          var b = node.querySelector('.ans__go');
+          if (b && !t.in_library) drawCourse(b, t);
+        }
       };
     }));
   }
@@ -671,7 +676,7 @@
   /* ── The place of a question ── */
 
   /* *host*, which stands on the page, shows a question. *opts*: say(text) reads it out, ask(text) asks another,
-     stopped(item), and around(change) makes a change of height. */
+     stopped(item), around(change) makes a change of height, and can is the page's can_download. */
   function view(host, opts) {
     // Beside it: what is read out must not wait for what is busy.
     var status = el('p', 'sr-only');
@@ -799,7 +804,8 @@
     }
 
     function drawTitles(item) {
-      var rows = group('owned', 'In your library', item.shown.owned).concat(group('others', 'Not in your library', item.shown.others));
+      var can = opts.can || {};
+      var rows = group('owned', 'In your library', item.shown.owned, can).concat(group('others', 'Not in your library', item.shown.others, can));
       if (!rows.length) {
         rows = [{ key: 'none', sig: item.chip, make: function () { return el('p', 'ask__none', 'Nothing here fits “' + item.chip + '”'); } }];
       }

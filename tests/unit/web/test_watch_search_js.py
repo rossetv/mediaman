@@ -1397,3 +1397,9 @@ def test_titles_that_cannot_be_downloaded_are_not_called_available_to_download()
     assert "available to download" not in out["status"]
     assert "1 not in your library" in out["status"]
 
+
+def test_an_answer_offers_no_download_of_a_kind_that_cannot_be_downloaded() -> None:
+    out = _run("askNoDownload")
+    assert out["go"] == ["Play Nine Locks", "Download Dockside"]
+    # A change to the film's state draws no button for it either.
+    assert out["after"] == ["Play Nine Locks", "Download Dockside"]

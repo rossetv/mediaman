@@ -1130,7 +1130,7 @@
       ordinary.hidden = true;
       results.insertBefore(ordinary, results.firstChild);
       results.insertBefore(host, ordinary);
-      asking = ai.view(host, { ask: fillAsk, stopped: function () { ai.keep({ q: null }); }, around: around });
+      asking = ai.view(host, { can: can, ask: fillAsk, stopped: function () { ai.keep({ q: null }); }, around: around });
     }
 
     function hideAsk() { if (asking && asking.item) asking.hide(); }
@@ -1200,6 +1200,7 @@
       var host = node.appendChild(el('section', 'ask'));
       host.setAttribute('aria-label', 'More like ' + name);
       var place = ai.view(host, {
+        can: can,
         ask: fillAsk,
         stopped: function () { ai.keepLike({ ref: ref, name: name, poster: poster, asked: false }); },
         around: function (change, nodes) {
