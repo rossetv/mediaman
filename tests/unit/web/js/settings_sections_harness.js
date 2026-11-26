@@ -337,6 +337,7 @@ const scenarios = {
     field.value = '';
     await toggle();
     out.emptyOnOpen = note();
+    out.noteClass = p.id('newsletter-base-note').querySelector('.fld-sub').className;
     field.value = 'https://media.example.com';
     p.fire(field, 'input');
     out.typed = note();

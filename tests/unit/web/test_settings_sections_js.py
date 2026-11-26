@@ -312,6 +312,7 @@ def test_the_send_panel_asks_for_the_base_url_while_it_is_empty_and_escape_shuts
     out = _run("panelWords")
     assert out["filled"] == ""
     assert out["emptyOnOpen"] == "Set Base URL under General & Schedule first"
+    assert "is-err" in out["noteClass"].split()
     assert out["typed"] == ""
     assert out["cleared"] == "Set Base URL under General & Schedule first"
     assert out["escape"] == {"open": False, "expanded": "false", "focused": True}

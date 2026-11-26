@@ -34,8 +34,7 @@
 
       function makeMsg(text, tone) {
         var el = document.createElement('div');
-        el.className = 'fld-sub';
-        if (tone === 'err') el.style.color = 'var(--danger-text)';
+        el.className = tone === 'err' ? 'fld-sub is-err' : 'fld-sub';
         el.textContent = text;
         return el;
       }
