@@ -280,8 +280,8 @@
 
   /* Open the title *ref*. opts: origin (the card), title (what the card
      already knows), pick (the AI pick it was listed as, when *ref* is the
-     library's), push (add a history entry), atEpisodes (show its episodes),
-     season (the number of the season it opens on, if not the show's own choice). */
+     library's), why (what an AI that picked it in a search said of it), push (add a history entry),
+     atEpisodes (show its episodes), season (the number of the season it opens on, if not the show's own choice). */
   function open(ref, opts) {
     opts = opts || {};
     if (!REF_RE.test(ref)) return;
@@ -320,7 +320,8 @@
       keepIds: {},         // what has been offered to keep while it is open
       cardKeep: keepOnCard(opts.origin), // the season its card is of, by what keeps it
       pickRef: PICK_RE.test(ref) ? ref : PICK_RE.test(opts.pick || '') ? opts.pick : null,
-      pick: null,          // why it is a pick, once known: { reason, because, early }; early: its preview's, which names no titles
+      // why it is a pick, once known: { reason, because, early }; early: its preview's or its card's, which names no titles
+      pick: opts.why ? { reason: String(opts.why), because: [], early: true } : null,
       said: '',            // the words of it its preview was read by: they go on as they are
       noWide: false,       // its preview has tried its wide pictures: there is none
       onPick: null,
@@ -1443,7 +1444,7 @@
     var ratings = ratingsRow(d);
     if (ratings) main.appendChild(ratings);
     askRatings(cur);
-    if (cur.pickRef) main.appendChild(pickBox(cur.pick));
+    if (cur.pickRef || cur.pick) main.appendChild(pickBox(cur.pick));
     var words = cur.said || d.overview;
     if (words) main.appendChild(el('p', 'ttl__overview', words));
     if (d.draft && d.kind === 'movie') main.appendChild(el('p', 'ttl__credit')).appendChild(skel('skel--line', '200px'));
@@ -4089,7 +4090,7 @@
     if (!REF_RE.test(ref)) return;
     e.preventDefault();
     var season = /[?&]season=([0-9]{1,4})(?:&|$)/.exec(card.getAttribute('href') || '');
-    open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), pick: card.getAttribute('data-pick-ref'),
+    open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), pick: card.getAttribute('data-pick-ref'), why: card.getAttribute('data-ai-why'),
       season: season ? Number(season[1]) : undefined, atEpisodes: card.getAttribute('data-title-at') === 'episodes', push: true });
   });
 

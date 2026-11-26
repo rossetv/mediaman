@@ -133,7 +133,8 @@
       pct: bar ? bar.value : 0,
       leaving: textOf(poster, '.watch-badge__long'),
       poster: img && !img.hasAttribute('data-broken') ? img.getAttribute('src') : '',
-      pick: pickOf(link)
+      pick: pickOf(link),
+      why: link.getAttribute('data-ai-why') || '' // what the AI said of it, where a search's AI picked it
     };
   }
 
@@ -608,9 +609,10 @@
     p.actions = p.body.appendChild(el('div', (p.actions && p.actions.className) || 'pv__actions'));
     actions(p);
     if (p.rating) p.body.appendChild(p.rating.line);
-    if (!d && p.card.pick) p.body.appendChild(reason('')).appendChild(lines(['92%', '60%']));
-    else if (d && (d.reason || p.card.pick)) p.body.appendChild(reason(d.reason || ''));
-    p.n.classList.toggle('pv--reason', !!p.card.pick || !!(d && d.reason));
+    var why = (d && d.reason) || p.card.why;
+    if (!d && p.card.pick && !why) p.body.appendChild(reason('')).appendChild(lines(['92%', '60%']));
+    else if (why || (d && p.card.pick)) p.body.appendChild(reason(why || ''));
+    p.n.classList.toggle('pv--reason', !!p.card.pick || !!why);
     var words = d && (d.overview || d.tagline);
     if (words) p.body.appendChild(el('p', 'pv__text', words));
     else if (!d) p.body.appendChild(lines(p.card.pick ? ['96%', '70%'] : ['100%', '94%', '58%']));
@@ -962,7 +964,7 @@
 
   function openDetail(p) {
     if (!watch.detail) return;
-    watch.detail.open(p.card.ref, { origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick });
+    watch.detail.open(p.card.ref, { origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick, why: p.card.why });
     if (detailOpen()) handOver(p);
   }
 
@@ -1540,7 +1542,7 @@
   function pickUp(p) {
     var tmdb = cardOf(p.link).getAttribute('data-tmdb-ref');
     var drawn = watch.detail.draw(p.card.ref, {
-      origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick,
+      origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick, why: p.card.why,
       preview: p.data, poster: p.card.poster, noWide: !!p.media.querySelector('.pv__standin'), watched: seen(p), tmdbRef: tmdb || p.card.ref
     });
     if (!drawn) return false;

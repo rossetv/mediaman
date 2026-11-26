@@ -1047,10 +1047,11 @@ def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
     out = _run("askAnswered")
     assert out["sent"] == [["POST", "/ask", {"q": Q}]]
     assert out["search"] == 1  # beside the search itself
-    assert (out["thinking"].endswith("Looking for titles that fit"), out["busy"]) == (True, "true")
+    assert (out["thinking"].endswith("Reading what you watch…"), out["busy"]) == (True, "true")
     assert out["head"] == f"“{Q}” | 2 titles, 1 already here"
     assert [t[0] for t in out["titles"]] == ["Nine Locks", "<b>Thunder</b>"]
-    assert out["go"][0] == ["Play Nine Locks", "/watch/play/1"]
+    # Each is the poster card every row has, marked as the AI's pick.
+    assert out["marked"] == [["AI pick"], ["AI pick"]]
     assert out["said"] == "2 titles, 1 already here"
     assert out["recorded"] == [["POST", "/searches", {"q": Q}]]
     assert out["asksAgain"] == 1
@@ -1058,6 +1059,7 @@ def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
 
 def test_an_answer_s_words_stay_words_and_its_addresses_stay_on_the_site() -> None:
     out = _run("askAnswered")
+    # What the AI said of it goes with the card, as words, for its preview and its page.
     assert out["titles"][1][2] == "<img src=x onerror=alert(1)>"
     assert out["markup"] == [0, 0]
     assert out["links"] == [
@@ -1116,7 +1118,7 @@ def test_another_question_asked_meanwhile_is_the_one_that_goes_on() -> None:
     newer = "a much newer question"
     for asked, head, runs in _run("askTakeover")["other"]:
         assert asked == [Q, newer]
-        assert head.startswith(f"“{newer}” | Looking")
+        assert head.startswith(f"“{newer}” | Reading")
         assert runs == []  # nor is it stopped
 
 
@@ -1141,9 +1143,12 @@ def test_a_limit_names_the_number_in_force_and_when_it_ends() -> None:
 
 def test_a_limit_of_none_and_no_key_read_as_unavailable_and_offer_it_no_more() -> None:
     out = _run("askRefused")
+    # An admin is told where it is switched off; with no reason given, what anyone is told.
+    for way in ("zero", "everyoneZero"):
+        assert out[way]["head"].startswith("AI in search is switched off")
     for way in ("zero", "everyoneZero", "unavailable"):
-        assert out[way]["head"].startswith("AI isn’t available right now")
         assert (out[way]["again"], out[way]["offered"]) == (None, False)
+    assert out["unavailable"]["head"].startswith("AI isn’t available right now")
 
 
 def test_what_may_work_the_next_time_can_be_tried_again() -> None:
@@ -1192,11 +1197,10 @@ def test_a_chip_narrows_the_answer_and_pressed_again_gives_all_of_it_back() -> N
     assert out["none"][1] == "Nothing here fits “Only in your library”"
 
 
-def test_a_film_of_an_answer_is_downloaded_once_and_says_so() -> None:
+def test_a_film_of_an_answer_queued_from_its_page_says_so_on_its_card() -> None:
     out = _run("askDownload")
-    assert out["read"] == ["/api/watch/title/tmdb-movie-2"]
-    assert out["posted"] == [{"tmdb_id": 2}]
-    assert out["queued"] == ["Play Nine Locks", "<b>Thunder</b>: Queued"]
+    assert out["before"] == [[], []]
+    assert out["queued"] == [[], ["Queued"]]
 
 
 def test_the_sheet_opens_on_tonight_the_recent_searches_and_the_person_s_own_phrases() -> None:
@@ -1295,7 +1299,7 @@ def test_a_link_to_titles_like_one_asks_nothing_but_the_way_back_to_them_does() 
     assert out["linked"] == [0, "/", "browse"]
     assert out["again"][0] == ["movie-1"]
     assert out["again"][1:] == [
-        "More like Nine Locks | Looking for titles that fit",
+        "More like Nine Locks | Reading what you watch…",
         "Like Nine Locks",
     ]
 
@@ -1316,9 +1320,9 @@ def test_where_no_title_has_the_words_return_is_still_said_to_ask() -> None:
     assert out["asked"] == f"No matches for “{Q}”"
 
 
-def test_a_download_from_an_answer_keeps_the_focus_on_its_button() -> None:
+def test_a_card_of_an_answer_drawn_again_keeps_the_focus() -> None:
     out = _run("askFocus")
-    assert out == {"label": "<b>Thunder</b>: Queued", "there": True, "busy": None}
+    assert out == {"ref": "tmdb-movie-2", "there": True, "badge": "Queued"}
 
 
 def test_clearing_forgets_the_answers_and_the_question_remembered() -> None:
@@ -1344,7 +1348,7 @@ def test_titles_like_one_can_be_found_from_all_titles() -> None:
 
 def test_what_is_read_out_stands_outside_what_is_busy() -> None:
     out = _run("askStatus")
-    assert out["text"] == ["Looking for titles that fit"]
+    assert out["text"] == ["Reading what you watch…"]
     assert out["busy"] == [False]
 
 
@@ -1417,6 +1421,5 @@ def test_titles_that_cannot_be_downloaded_are_not_called_available_to_download()
 
 def test_an_answer_offers_no_download_of_a_kind_that_cannot_be_downloaded() -> None:
     out = _run("askNoDownload")
-    assert out["go"] == ["Play Nine Locks", "Download Dockside"]
-    # A change to the film's state draws no button for it either.
-    assert out["after"] == ["Play Nine Locks", "Download Dockside"]
+    assert out["films"] == [["In your library", ""], ["Not in your library", ""]]
+    assert out["shows"][1] == ["Not in your library", "Open one to download it"]

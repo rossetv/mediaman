@@ -24,7 +24,6 @@
   var POLL_TRIES = 5; // polls in a row that may fail
   var KEPT = 30; // questions this page remembers
   var RECENT = 6;
-  var WAITING = 3; // cards of the outline
   var STORE = 'mm.watch.ask'; // of this tab: what was asked and the run begun last, with whose they are
   var LIKES = 20; // pages of titles like one it remembers
   var LONGEST = 200; // of a question, as the server takes it
@@ -56,7 +55,8 @@
         records: data.records === true,
         recent: data.recent || [],
         phrases: data.personal && data.phrases ? data.phrases : [],
-        min_words: data.min_words || 3
+        min_words: data.min_words || 3,
+        why: data.why || null // why there is no AI, where there is none
       };
       if (available() !== was) sayAvailable();
     }).catch(function () { /* nothing of it is offered */ }).then(function () { loading = null; });
@@ -187,6 +187,8 @@
       state: 'new', // new, thinking, answer, nothing or refused
       chip: '', pressed: '', // the one the titles shown are narrowed by, and the one asked for
       narrowing: false, slow: false, waiting: false, note: '', refused: null,
+      stage: '', // the step of its answer the server is at
+      like: kind === 'ask' ? similarOf(value) : '', // what "similar to …" names
       base: null, shown: null, chips: [], instead: []
     };
     if (name) item.name = name;
@@ -263,6 +265,7 @@
     item.pressed = chip;
     item.note = '';
     item.refused = null;
+    item.stage = '';
     if (chip) item.narrowing = true;
     else item.state = 'thinking';
     changed(item);
@@ -315,11 +318,17 @@
       MM.api.get(URL + '/runs/' + run).then(function (data) {
         if (g.left) return;
         if (data.status === 'done') done(g, data);
-        else if (data.status === 'running') poll(g, run, POLL_TRIES);
+        else if (data.status === 'running') {
+          if (data.stage && data.stage !== g.item.stage) {
+            g.item.stage = data.stage;
+            changed(g.item);
+          }
+          poll(g, run, POLL_TRIES);
+        }
         else if (data.status === 'cancelled') {
           ended(g);
           changed(g.item);
-        } else refuse(g, data.error === 'unavailable' ? data : null);
+        } else refuse(g, data.error === 'unavailable' ? { error: data.error, data: data } : null);
       }, function (err) {
         if (g.left) return;
         var gone = err && err.status >= 400 && err.status < 500 && err.status !== 429;
@@ -359,8 +368,6 @@
     changed(item);
   }
 
-  function titles(item) { return item.shown ? item.shown.owned.concat(item.shown.others) : []; }
-
   /* ── Refusals, in words ── */
 
   function clock(at) { return at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
@@ -381,7 +388,7 @@
     var data = (err && err.data) || {};
     var limit = typeof data.limit === 'number' ? data.limit : null;
     if (code === 'unavailable' || ((code === 'limit' || code === 'limit_everyone') && limit === 0)) {
-      return { off: true, title: 'AI isn’t available right now', text: search };
+      return { off: true, why: code === 'unavailable' ? data.why || (state && state.why) : 'off', title: 'AI isn’t available right now', text: search };
     }
     if (code === 'limit') {
       return {
@@ -453,6 +460,22 @@
     return node;
   }
 
+  /* The poster of the title the others are like, in the mark's place. */
+  function face(url) {
+    var node = el('span', 'ask__mark ask__mark--art');
+    node.setAttribute('aria-hidden', 'true');
+    node.appendChild(MM.dom.icon('i-sparkles'));
+    var src = safePath(url);
+    if (src) {
+      var img = el('img');
+      img.src = src;
+      img.alt = '';
+      img.setAttribute('data-broken-on-error', '');
+      node.appendChild(img);
+    }
+    return node;
+  }
+
   function words(title, text) {
     var node = el('span', 'ask__words');
     node.appendChild(el('b', '', title));
@@ -460,11 +483,11 @@
     return node;
   }
 
-  /* What is asked, or what became of it, over the answer. */
-  function head(title, text, after) {
+  /* What is asked, or what became of it, over the answer; *pic* stands in the mark's place. */
+  function head(title, text, after, pic) {
     var node = el('div', 'ask__row');
     node.tabIndex = -1;
-    node.appendChild(mark());
+    node.appendChild(pic || mark());
     var said = words(title, text);
     said.classList.add('ask__swapin');
     node.appendChild(said);
@@ -472,211 +495,191 @@
     return node;
   }
 
-  function outline() {
-    var node = el('div', 'ask__body');
-    node.setAttribute('aria-hidden', 'true');
-    var grid = node.appendChild(el('div', 'ask__grid'));
-    grid.appendChild(el('div', 'ask__group')).appendChild(el('span', 'skel ask__skel-title'));
-    for (var i = 0; i < WAITING; i++) {
-      var card = grid.appendChild(el('div', 'ans ans--skel'));
-      card.appendChild(el('span', 'skel ans__p'));
-      var text = card.appendChild(el('div', 'ans__t'));
-      for (var n = 0; n < 4; n++) text.appendChild(el('span', 'skel'));
-    }
-    return node;
+  /* ── The title a search names, and those like it ── */
+
+  var SIMILAR_URL = '/api/watch/similar?q=';
+  var SIMILAR_RE = /^(?:(?:something|anything|shows?|films?|movies?|series|titles?)\s+)?(?:(?:similar|close)\s+to|(?:more\s+)?like)\s+(.+)$/i;
+  var LOOKS = 20; // titles named that the page remembers
+  var looks = new Map(); // by what was named: { state: loading or ok, title, items }
+
+  /* What "similar to …" or "like …" names, or ''. */
+  function similarOf(text) {
+    var found = SIMILAR_RE.exec(tidy(text));
+    return found && wordCount(found[1]) ? found[1] : '';
   }
 
-  function count(item) {
-    var all = titles(item).length;
-    var held = item.shown.owned.length;
-    return all + (all === 1 ? ' title' : ' titles') + (all ? ', ' + (held === all ? 'all' : held || 'none') + ' already here' : '');
+  function looked(item) { return item.like ? looks.get(item.like.toLowerCase()) || null : null; }
+
+  /* The title *item* names, once TMDB has told it: { ref, library_ref, title, kind, year, poster_url }. */
+  function named(item) {
+    var found = looked(item);
+    return found && found.state === 'ok' ? found.title : null;
   }
 
-  /* ── A title of the answer ── */
-
-  function facts(t) {
-    var long = t.kind === 'show'
-      ? t.season_count && t.season_count + (t.season_count === 1 ? ' season' : ' seasons')
-      : t.minutes && dur(t.minutes);
-    return [t.kind === 'show' ? 'TV' : 'Movie', t.year, long].filter(Boolean).join(' · ');
+  /* Ask for what *item* names and the titles like it, once for each name. One that failed is asked again. */
+  function lookSimilar(item) {
+    var key = item.like && item.like.toLowerCase();
+    if (!key || looks.has(key)) return;
+    var found = { state: 'loading', title: null, items: [] };
+    looks.set(key, found);
+    if (looks.size > LOOKS) looks.delete(looks.keys().next().value);
+    MM.api.get(SIMILAR_URL + encodeURIComponent(item.like)).then(function (data) {
+      found.state = 'ok';
+      found.title = data.title || null;
+      found.items = data.items || [];
+    }, function () {
+      looks.delete(key);
+    }).then(function () {
+      views.forEach(function (v) { if (v.item && v.item.like && v.item.like.toLowerCase() === key) v.draw(); });
+    });
   }
+
+  /* ── The titles shown ── */
+
+  var WAITING = 8; // poster outlines while the AI looks
+  var WAITING_AFTER = 4; // of them after titles already shown
+  var STAGGER_MS = 35;
+  var STAGES = { taste: 'Reading what you watch…', choosing: 'Choosing titles…', checking: 'Checking them on TMDB…' };
+
+  function titles(item) { return item.shown ? item.shown.owned.concat(item.shown.others) : []; }
 
   function refOf(t) { return (t.in_library && t.library_ref) || t.ref || ''; }
 
-  function openDetail(t, from) {
-    window.MMWatch.detail.open(refOf(t), { origin: from, title: t.title, kind: t.kind });
-  }
-
-  /* Play a held title: a film at once, a show where the person is in it. */
-  function playButton(t) {
-    var a = el('a', 'ans__go');
-    var film = safePath(t.play_href);
-    a.href = film || safePath(t.href) || '/';
-    a.setAttribute('aria-label', 'Play ' + t.title);
-    a.appendChild(MM.dom.icon('i-play'));
-    if (film) return a;
-    var ready = false;
-    a.addEventListener('click', function (e) {
-      if (ready || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      e.preventDefault();
-      if (a.hasAttribute('aria-busy')) return;
-      a.setAttribute('aria-busy', 'true');
-      MM.api.get('/api/watch/title/' + encodeURIComponent(refOf(t))).then(function (data) {
-        a.removeAttribute('aria-busy');
-        var to = safePath(data.play && data.play.href);
-        if (!to) { openDetail(t, a); return; }
-        ready = true;
-        a.href = to;
-        a.click();
-      }).catch(function () {
-        a.removeAttribute('aria-busy');
-        openDetail(t, a);
-      });
+  /* What the grid holds: the titles like the one named, where they stand, then the AI's picks; one
+     the AI picked of them too is its pick. *phase* is the question's. [{ t, ai }] */
+  function picks(item, phase) {
+    var like = named(item);
+    var found = like && !item.chip ? looked(item).items : [];
+    var ai = phase === 'answer' ? titles(item) : [];
+    var chosen = new Map();
+    ai.forEach(function (t) { chosen.set(t.ref, t); });
+    var seen = new Set();
+    var all = [];
+    found.forEach(function (t) {
+      if (seen.has(t.ref)) return;
+      seen.add(t.ref);
+      var pick = chosen.get(t.ref);
+      all.push({ t: pick || t, ai: !!pick });
     });
-    return a;
-  }
-
-  /* What a title not held is doing: *icon* and words, or null where it may be downloaded. */
-  function course(t) {
-    if (t.in_library || /^(in_library|partial)$/.test(t.download_state || '')) return ['i-check', 'In library'];
-    if (t.download_state === 'queued') return ['i-clock', 'Queued'];
-    if (t.download_state !== 'downloading') return null;
-    return ['i-clock', 'Downloading' + (typeof t.download_pct === 'number' ? ' ' + t.download_pct + '%' : '')];
-  }
-
-  function downloadButton(t) {
-    var b = button('ans__go');
-    b.addEventListener('click', function () {
-      // Which seasons of a show, or how far a download is, is in its detail.
-      if (course(b.of) || t.kind === 'show') openDetail(t, b);
-      else download(t, b);
+    ai.forEach(function (t) {
+      var itself = like && (t.ref === like.ref || (!!like.library_ref && t.library_ref === like.library_ref));
+      if (seen.has(t.ref) || itself) return;
+      seen.add(t.ref);
+      all.push({ t: t, ai: true });
     });
-    drawCourse(b, t);
-    return b;
+    return all;
   }
 
-  /* Where it stands: the same button, so that what has the focus keeps it. */
-  function drawCourse(b, t) {
-    var at = course(t);
-    var words = at ? at[1] : 'Download';
-    b.of = t;
-    if (b.getAttribute('title') === words) return;
-    b.className = 'ans__go ' + (at ? 'ans__go--ok' : 'ans__go--dl');
-    b.textContent = '';
-    b.appendChild(MM.dom.icon(at ? at[0] : 'i-download'));
-    b.setAttribute('aria-label', at ? t.title + ': ' + at[1] : 'Download ' + t.title);
-    b.setAttribute('title', words);
-    b.removeAttribute('aria-busy');
+  function count(item, phase) {
+    var all = picks(item, phase);
+    var held = all.filter(function (x) { return x.t.in_library; }).length;
+    var n = all.length;
+    return n + (n === 1 ? ' title' : ' titles') + (n ? ', ' + (held === n ? 'all' : held || 'none') + ' already here' : '');
   }
 
-  function download(t, b) {
-    if (b.hasAttribute('aria-busy')) return;
-    b.setAttribute('aria-busy', 'true');
-    MM.api.get('/api/watch/title/' + encodeURIComponent(t.ref)).then(function (data) {
-      var request = data.download && data.download.request;
-      var url = request && safePath(request.url);
-      if (!url) {
-        b.removeAttribute('aria-busy');
-        openDetail(t, b);
-        return;
-      }
-      return MM.api.post(url, request.body || undefined).then(function () {
-        core.toast(t.title + ' is queued.', { variant: 'success' });
-        tellQueued(t, data);
-      });
-    }).catch(function (err) {
-      b.removeAttribute('aria-busy');
-      var there = err && err.status === 409;
-      core.toast(MM.api.messageOf(err, 'Couldn’t add ' + t.title + '. Try again.'), { variant: there ? 'info' : 'error' });
-      if (there) tellQueued(t, {});
-    });
-  }
-
-  function tellQueued(t, data) {
-    document.dispatchEvent(new CustomEvent('mm:title-changed', {
-      detail: { ref: t.ref, download_state: 'queued', download_pct: null, title: t.title, kind: t.kind, year: data.year || t.year }
-    }));
-  }
-
-  document.addEventListener('mm:title-changed', function (e) {
-    items.forEach(function (item) {
-      function now(set) {
-        if (!set || !set.others.some(function (t) { return t.ref === e.detail.ref; })) return set;
-        return {
-          owned: set.owned,
-          others: set.others.map(function (t) {
-            if (t.ref !== e.detail.ref) return t;
-            return Object.assign({}, t, { download_state: e.detail.download_state, download_pct: e.detail.download_pct });
-          })
-        };
-      }
-      var all = item.shown === item.base;
-      item.base = now(item.base);
-      item.shown = all ? item.base : now(item.shown);
-      changed(item);
-    });
-  });
-
-  /* A title of a kind *can* says can't be downloaded gets no button: its picture opens it. */
-  function card(t, can) {
-    var node = el('article', 'ans');
-    var link = el('a', 'ans__p');
-    link.setAttribute('data-title-ref', refOf(t));
-    link.setAttribute('data-title', t.title);
-    link.setAttribute('aria-label', t.title);
-    if (t.kind === 'movie' || t.kind === 'show') link.setAttribute('data-kind', t.kind);
-    if (t.in_library) link.setAttribute('data-in-library', '');
-    link.href = safePath(t.href) || '#title=' + encodeURIComponent(refOf(t));
-    var art = link.appendChild(el('span', 'ans__art'));
-    var poster = safePath(t.poster_url);
-    if (poster) {
-      var img = el('img');
-      img.src = poster;
-      img.alt = '';
-      img.loading = 'lazy';
-      img.setAttribute('data-broken-on-error', '');
-      art.appendChild(img);
-    }
-    node.appendChild(link);
-    var text = node.appendChild(el('div', 'ans__t'));
-    var name = text.appendChild(el('b', '', t.title));
-    // The link says it.
-    name.setAttribute('aria-hidden', 'true');
-    text.appendChild(el('small', '', facts(t)));
-    text.appendChild(el('p', '', t.reason));
-    if (t.in_library) node.appendChild(playButton(t));
-    else if (can[t.kind] !== false) node.appendChild(downloadButton(t));
+  /* A poster card as every row has, marked where the AI picked it, with why in its preview and its page. */
+  function card(x) {
+    var search = window.MMWatch.search;
+    var t = x.t;
+    var node = t.in_library
+      ? search.heldCard(Object.assign({}, t, { ref: refOf(t) }))
+      : search.tmdbCard(t);
+    if (!x.ai) return node;
+    node.classList.add('is-ai-pick');
+    var link = node.querySelector('.watch-card__link');
+    if (t.reason) link.setAttribute('data-ai-why', t.reason);
+    var spark = el('span', 'watch-card__spark');
+    spark.appendChild(MM.dom.icon('i-sparkles'));
+    spark.appendChild(el('span', 'sr-only', 'AI pick'));
+    node.querySelector('.watch-card__poster').appendChild(spark);
     return node;
   }
 
-  function group(key, title, list, can) {
-    if (!list.length) return [];
-    return [{
+  function outlineCard() {
+    var node = el('div', 'watch-card watch-card--skel ask__skel');
+    node.setAttribute('aria-hidden', 'true');
+    node.appendChild(el('span', 'skel skel--poster'));
+    node.appendChild(el('span', 'skel skel--line'));
+    return node;
+  }
+
+  function groupRow(key, title, note, n) {
+    return {
       key: 'head-' + key,
+      sig: note,
       make: function () {
-        var node = el('div', 'ask__group');
-        node.appendChild(el('h2', '', title));
-        node.appendChild(el('small'));
+        var node = el('div', 'results-group__head ask__group');
+        node.appendChild(el('h2', 'results-group__title', title));
+        node.appendChild(el('span', 'results-group__count'));
+        if (note) node.appendChild(el('span', 'ask__group-note', note));
         return node;
       },
-      update: function (node) { node.querySelector('small').textContent = list.length; }
-    }].concat(list.map(function (t) {
-      return {
-        key: t.ref,
-        sig: JSON.stringify(Object.assign({}, t, { download_state: null, download_pct: null })),
-        make: function () { return card(t, can); },
-        update: function (node) {
-          var b = node.querySelector('.ans__go');
-          if (b && !t.in_library) drawCourse(b, t);
-        }
-      };
-    }));
+      update: function (node) { node.querySelector('.results-group__count').textContent = n + (n === 1 ? ' title' : ' titles'); }
+    };
   }
+
+  function cardRows(list) {
+    return list.map(function (x) {
+      return { key: refOf(x.t), sig: JSON.stringify([x.ai, x.t]), keepFocus: true, make: function () { return card(x); } };
+    });
+  }
+
+  /* The grid's rows, grouped by whether the library has them; outlines follow while the AI looks.
+     *can* is the page's can_download: those not in the library are offered for download only of a kind it allows. */
+  function gridRows(item, phase, can) {
+    var all = picks(item, phase);
+    var held = all.filter(function (x) { return x.t.in_library; });
+    var others = all.filter(function (x) { return !x.t.in_library; });
+    var some = others.some(function (x) { return can[x.t.kind] !== false; });
+    var rows = [];
+    if (held.length) rows = rows.concat(groupRow('owned', 'In your library', '', held.length), cardRows(held));
+    if (others.length) rows = rows.concat(groupRow('others', 'Not in your library', some ? 'Open one to download it' : '', others.length), cardRows(others));
+    var found = looked(item);
+    var waits = phase === 'thinking' || (!!found && found.state === 'loading' && phase !== 'refused');
+    if (waits) {
+      for (var i = 0; i < (all.length ? WAITING_AFTER : WAITING); i++) {
+        rows.push({ key: 'skel-' + i, make: outlineCard });
+      }
+    }
+    if (!rows.length && phase === 'answer' && item.chip) {
+      rows = [{ key: 'none', sig: item.chip, make: function () { return el('p', 'ask__none', 'Nothing here fits “' + item.chip + '”'); } }];
+    }
+    return rows;
+  }
+
+  /* What the person is told where the AI is off: its *code* is the server's. An admin is told what to set. */
+  function offWords(code, admin) {
+    if (!admin) return { title: 'AI isn’t available right now', text: 'Search works as always.' };
+    if (code === 'no_key') return { title: 'AI needs an OpenAI key', text: 'Add one in Settings, then ask again.', link: ['Open the OpenAI card', '/settings#intg-openai'] };
+    if (code === 'refused') return { title: 'OpenAI refused the key', text: 'Check it in the OpenAI card.', link: ['Open the OpenAI card', '/settings#intg-openai'] };
+    if (code === 'no_tmdb') return { title: 'AI needs TMDB', text: 'It checks every title it names against TMDB.', link: ['Set up TMDB', '/settings#setg-integrations'] };
+    if (code === 'off') return { title: 'AI in search is switched off', text: 'A daily limit is set to 0 in the OpenAI card.', link: ['Open the OpenAI card', '/settings#intg-openai'] };
+    return { title: 'AI isn’t available right now', text: 'Search works as always.' };
+  }
+
+  document.addEventListener('mm:title-changed', function (e) {
+    function now(t) {
+      if (t.ref !== e.detail.ref) return t;
+      return Object.assign({}, t, { download_state: e.detail.download_state, download_pct: e.detail.download_pct });
+    }
+    items.forEach(function (item) {
+      function set(s) {
+        if (!s || !s.others.some(function (t) { return t.ref === e.detail.ref; })) return s;
+        return { owned: s.owned, others: s.others.map(now) };
+      }
+      var all = item.shown === item.base;
+      item.base = set(item.base);
+      item.shown = all ? item.base : set(item.shown);
+    });
+    looks.forEach(function (found) { found.items = found.items.map(now); });
+    views.forEach(function (v) { if (v.item) v.draw(); });
+  });
 
   /* ── The place of a question ── */
 
   /* *host*, which stands on the page, shows a question. *opts*: say(text) reads it out, ask(text) asks another,
-     stopped(item), around(change) makes a change of height, and can is the page's can_download. */
+     plain(text) searches for it as it is, stopped(item), around(change) makes a change of height, can is the
+     page's can_download and admin whether the person may change the settings. */
   function view(host, opts) {
     // Beside it: what is read out must not wait for what is busy.
     var status = el('p', 'sr-only');
@@ -684,15 +687,16 @@
     host.parentNode.insertBefore(status, host);
     var inside = host.appendChild(el('div', 'ask__in'));
     var v = { host: host, item: null, draw: draw, row: row, show: show, hide: hide, pick: pick, offered: offered };
-    var drawn = null; // what *inside* holds: { item, phase, ... }
+    var drawn = null; // what *inside* holds: { item, phase, shape, grid, ... }
     views.push(v);
 
     function fill(item, phase, nodes) {
       var had = inside.contains(document.activeElement);
       inside.textContent = '';
-      nodes.forEach(function (node) { if (node) inside.appendChild(node); });
+      nodes = nodes.filter(Boolean);
+      nodes.forEach(function (node) { inside.appendChild(node); });
       host.hidden = !nodes.length;
-      drawn = nodes.length ? { item: item, phase: phase } : null;
+      drawn = nodes.length ? { item: item, phase: phase, shape: shapeOf(item) } : null;
       host.classList.toggle('is-thinking', phase === 'thinking');
       host.setAttribute('aria-busy', phase === 'thinking' ? 'true' : 'false');
       if (had && nodes.length) nodes[0].focus({ preventScroll: true });
@@ -716,28 +720,35 @@
     function row(text) { show(question('ask', text)); }
 
     /* Whether Return would ask what is shown. */
-    function offered() { return !!v.item && v.item.state === 'new'; }
+    function offered() { return !!v.item && v.item.state === 'new' && (v.item.kind === 'like' || fits(v.item.value)); }
 
     /* The row is what Return does, until the arrow keys are on something else. */
     function pick(on) {
-      var node = drawn && drawn.phase === 'new' ? inside.firstChild : null;
+      var node = drawn && drawn.phase === 'new' && inside.firstChild && inside.firstChild.tagName === 'BUTTON' ? inside.firstChild : null;
       if (node) node.classList.toggle('is-picked', on);
+    }
+
+    /* What is drawn the same way: a change of it is drawn anew. */
+    function shapeOf(item) {
+      var like = named(item);
+      return [item.state, like ? like.ref : '', offered()].join('|');
     }
 
     function draw() {
       var item = v.item;
       if (!item) return;
       var phase = item.state;
-      var here = drawn && drawn.phase === phase ? drawn : null;
+      var here = drawn && drawn.shape === shapeOf(item) ? drawn : null;
       if (here && phase === 'new') {
         inside.querySelector('b').textContent = rowTitle(item);
         drawn.item = item;
+        drawGrid(item);
         return;
       }
       if (here && here.item === item && phase === 'answer') { update(item); return; }
       if (here && here.item === item && phase === 'thinking') { wait(item); return; }
       opts.around(function () {
-        if (phase === 'new') fill(item, phase, [offer(item)]);
+        if (phase === 'new') offer(item);
         else if (phase === 'thinking') thinking(item);
         else if (phase === 'answer') answer(item);
         else if (phase === 'nothing') nothing(item);
@@ -745,34 +756,89 @@
       });
     }
 
+    function heading(item) {
+      var like = named(item);
+      if (like) return 'Because you like ' + like.title;
+      return item.kind === 'like' ? 'More like ' + item.name : '“' + item.value + '”';
+    }
+
     function rowTitle(item) {
+      if (named(item)) return heading(item);
       return item.kind === 'like' ? 'Find more like ' + item.name : 'Ask AI: “' + item.value + '”';
     }
 
-    function offer(item) {
-      var b = button('ask__row is-picked');
-      b.appendChild(mark());
-      b.appendChild(words(rowTitle(item), 'Real titles that fit, yours first'));
-      var key = b.appendChild(el('kbd', 'ask__key', 'return'));
-      key.setAttribute('aria-hidden', 'true');
-      b.addEventListener('click', function () {
-        if (v.item.kind === 'like') start(v.item);
-        else opts.ask(v.item.value);
-      });
-      say('');
-      return b;
+    function pic(item) {
+      var like = named(item);
+      return like ? face(like.poster_url) : null;
     }
 
-    function heading(item) { return item.kind === 'like' ? 'More like ' + item.name : '“' + item.value + '”'; }
+    /* The grid of titles, which every phase but a refusal of no title named has. */
+    function body() {
+      var node = el('div', 'ask__body');
+      var grid = node.appendChild(el('div', 'watch-grid ask__grid'));
+      return { node: node, grid: grid };
+    }
+
+    function drawGrid(item) {
+      if (!drawn || !drawn.grid) return;
+      window.MMWatch.search.glide(drawn.grid, gridRows(item, drawn.phase, opts.can || {}), null, STAGGER_MS);
+    }
+
+    /* Under titles like the one named, where the AI is not to be asked: why not, for an admin with the way to it. */
+    function offNote() {
+      if (available()) return null;
+      var off = offWords(state && state.why, opts.admin);
+      var note = el('p', 'ask__note ask__note--quiet');
+      note.appendChild(document.createTextNode('AI picks: ' + off.title + '.' + (off.link ? ' ' + off.text + ' ' : '')));
+      if (off.link) {
+        var a = note.appendChild(el('a', 'ask__link', off.link[0]));
+        a.href = off.link[1];
+      }
+      return note;
+    }
+
+    function offer(item) {
+      var like = named(item);
+      var b = null;
+      if (offered()) {
+        b = button('ask__row is-picked');
+        b.appendChild(pic(item) || mark());
+        b.appendChild(words(rowTitle(item), like ? 'Ask AI for picks that fit you too' : 'Real titles that fit, yours first'));
+        var key = b.appendChild(el('kbd', 'ask__key', 'return'));
+        key.setAttribute('aria-hidden', 'true');
+        b.addEventListener('click', function () {
+          if (v.item.kind === 'like') start(v.item);
+          else opts.ask(v.item.value);
+        });
+      } else if (like) {
+        b = head(heading(item), 'Titles TMDB finds like it', null, pic(item));
+      }
+      var part = like ? body() : null;
+      fill(item, 'new', b ? [b, part && part.node, like && offNote()] : []);
+      if (drawn && part) {
+        drawn.grid = part.grid;
+        drawGrid(item);
+      }
+      say('');
+    }
 
     function waitText(item) {
-      return item.waiting ? 'Finishing your last question first'
-        : item.slow ? 'Still looking. This one is taking longer than usual.' : 'Looking for titles that fit';
+      if (item.waiting) return 'Finishing your last question first…';
+      var stage = item.stage || 'taste';
+      var text = stage === 'taste' && !(state && state.records) ? 'Reading your question…' : STAGES[stage] || STAGES.taste;
+      return item.slow ? text + ' This one is taking longer than usual.' : text;
     }
 
+    /* The step it is at, in place of the one before. */
     function wait(item) {
-      inside.querySelector('small').textContent = waitText(item);
-      say(waitText(item));
+      var text = waitText(item);
+      var small = inside.querySelector('.ask__words small');
+      if (small && small.textContent !== text) {
+        var next = el('small', 'ask__step', text);
+        small.replaceWith(next);
+      }
+      say(text);
+      drawGrid(item);
     }
 
     function thinking(item) {
@@ -781,42 +847,44 @@
         stop(item);
         opts.stopped(item);
       });
-      fill(item, 'thinking', [head(heading(item), waitText(item), b), outline()]);
+      var part = body();
+      if (!named(item)) part.node.setAttribute('aria-hidden', 'true');
+      fill(item, 'thinking', [head(heading(item), waitText(item), b, pic(item)), part.node]);
+      drawn.grid = part.grid;
+      drawGrid(item);
       say(waitText(item));
     }
 
     function chip(text) { return button('chip', text); }
 
+    function foot(item) {
+      var node = el('p', 'ask__foot');
+      node.appendChild(MM.dom.icon('i-sparkles'));
+      node.appendChild(document.createTextNode(named(item) && !item.chip
+        ? 'Marked titles are chosen by AI, each checked against TMDB. The rest are TMDB’s own.'
+        : 'Chosen by AI, each checked against TMDB.'));
+      return node;
+    }
+
     function answer(item) {
-      var body = el('div', 'ask__body');
-      var grid = body.appendChild(el('div', 'ask__grid'));
+      var part = body();
       var refine = el('div', 'refine');
       refine.setAttribute('role', 'group');
       refine.setAttribute('aria-label', 'Narrow it');
       var note = el('p', 'ask__note');
       note.hidden = true;
-      fill(item, 'answer', [head(heading(item), ''), body, note, refine, el('p', 'ask__foot', 'Chosen by AI, each checked against TMDB.')]);
-      drawn.grid = grid;
+      fill(item, 'answer', [head(heading(item), '', null, pic(item)), part.node, note, refine, foot(item)]);
+      drawn.grid = part.grid;
       drawn.refine = refine;
       drawn.note = note;
       drawChips(item);
-      drawTitles(item);
-    }
-
-    function drawTitles(item) {
-      var can = opts.can || {};
-      var rows = group('owned', 'In your library', item.shown.owned, can).concat(group('others', 'Not in your library', item.shown.others, can));
-      if (!rows.length) {
-        rows = [{ key: 'none', sig: item.chip, make: function () { return el('p', 'ask__none', 'Nothing here fits “' + item.chip + '”'); } }];
-      }
-      drawn.shown = item.shown;
-      window.MMWatch.search.glide(drawn.grid, rows);
+      drawGrid(item);
       sayCount(item);
     }
 
     function sayCount(item) {
-      var text = item.narrowing ? 'Narrowing' : count(item);
-      inside.querySelector('small').textContent = text;
+      var text = item.narrowing ? 'Narrowing' : count(item, 'answer');
+      inside.querySelector('.ask__words small').textContent = text;
       drawn.note.hidden = !item.note;
       drawn.note.textContent = item.note;
       say(item.note || text);
@@ -825,8 +893,10 @@
     function update(item) {
       host.classList.toggle('is-refining', item.narrowing);
       drawChips(item);
-      if (drawn.shown === item.shown) { sayCount(item); return; }
-      opts.around(function () { drawTitles(item); }, [drawn.refine, drawn.refine.nextElementSibling]);
+      opts.around(function () {
+        drawGrid(item);
+        sayCount(item);
+      }, [drawn.refine, drawn.refine.nextElementSibling]);
     }
 
     function drawChips(item) {
@@ -853,30 +923,54 @@
       });
     }
 
+    /* The ways on from a question that came to nothing: its own, a plain search for the title it named, and a setting to change. */
+    function ways(item, own, link) {
+      var row = el('div', 'refine is-wrap ask__ways');
+      (own || []).forEach(function (b) { row.appendChild(b); });
+      if (item.like && opts.plain) {
+        var b = row.appendChild(chip('Search for “' + item.like + '”'));
+        b.insertBefore(MM.dom.icon('i-magnifying-glass'), b.firstChild);
+        b.addEventListener('click', function () { opts.plain(item.like); });
+      }
+      if (link) {
+        var a = row.appendChild(el('a', 'chip', link[0]));
+        a.href = link[1];
+      }
+      return row.children.length ? row : null;
+    }
+
+    /* What is like the title named stays under what came of the question. */
+    function withLike(item, phase, nodes) {
+      var part = named(item) ? body() : null;
+      fill(item, phase, nodes.concat(part ? [part.node] : []));
+      if (part && drawn) {
+        drawn.grid = part.grid;
+        drawGrid(item);
+      }
+    }
+
     function nothing(item) {
       var told = item.kind === 'like' ? 'Nothing real is like “' + item.name + '”.' : 'Nothing real matches “' + item.value + '”.';
-      var less = null;
-      if (item.instead.length) {
-        less = el('div', 'refine is-wrap');
-        item.instead.forEach(function (text) {
-          var b = less.appendChild(chip(text));
-          b.addEventListener('click', function () { opts.ask(text); });
-        });
-      }
-      fill(item, 'nothing', [head('No title fits all of that', 'Nothing was made up to fill the gap'),
-        el('p', 'ask__note', told + (less ? ' Dropping one part may be enough:' : '')), less]);
+      var less = item.instead.map(function (text) {
+        var b = chip(text);
+        b.addEventListener('click', function () { opts.ask(text); });
+        return b;
+      });
+      withLike(item, 'nothing', [head('No title fits all of that', 'Nothing was made up to fill the gap', null, pic(item)),
+        el('p', 'ask__note', told + (less.length ? ' Dropping one part may be enough:' : '')), ways(item, less)]);
       say('No title fits all of that');
     }
 
     function refused(item) {
       var why = item.refused;
+      var off = why.off ? offWords(why.why, opts.admin) : why;
       var b = null;
       if (why.again) {
         b = chip(why.again);
         b.addEventListener('click', function () { again(item); });
       }
-      fill(item, 'refused', [head(why.title, why.text, b)]);
-      say(why.title + '. ' + why.text);
+      withLike(item, 'refused', [head(off.title, off.text, b, pic(item)), ways(item, [], off.link)]);
+      say(off.title + '. ' + off.text);
     }
 
     host.hidden = true;
@@ -897,6 +991,8 @@
     question: question,
     start: start,
     view: view,
-    dur: dur
+    dur: dur,
+    similarOf: similarOf,
+    lookSimilar: lookSimilar
   };
 })();

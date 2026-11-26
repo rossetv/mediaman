@@ -306,12 +306,12 @@
 
   var glides = new WeakMap();
 
-  /* Make *root* hold *list*, [{ key, sig, make, update }], keeping the node of
-     each key that stays. What stays glides from where it is on the screen this
+  /* Make *root* hold *list*, [{ key, sig, make, update, keepFocus }], keeping the node of
+     each key that stays; one redrawn with *keepFocus* keeps the focus it had. What stays glides from where it is on the screen this
      instant, even mid-flight; what is new rises; what is gone fades. A change of
      *sig* redraws a node where it stands. *first* changes the page around them,
-     once it is known where they are. */
-  function glide(root, list, first) {
+     once it is known where they are. *step* is how far apart, in ms, the new ones rise. */
+  function glide(root, list, first, step) {
     var g = glides.get(root);
     if (!g) {
       g = { nodes: new Map(), ghosts: el('div', 'results-ghosts') };
@@ -357,8 +357,11 @@
       } else if (held.sig !== x.sig) {
         stopMoving(held);
         var node = x.make();
+        var had = x.keepFocus && held.node.contains(document.activeElement);
         if (held.node.parentNode) held.node.replaceWith(node);
         held.node = node;
+        var to = had && (node.querySelector('a') || node.querySelector('button') || node);
+        if (to && to.focus) to.focus({ preventScroll: true });
       }
       held.sig = x.sig;
       if (x.update) x.update(held.node);
@@ -386,7 +389,7 @@
     fresh.forEach(function (held) {
       if (!near(held.to)) return;
       held.rising = play(held.node, [{ opacity: 0, transform: 'translateY(14px) scale(.97)' }, { opacity: 1, transform: 'none' }], 240,
-        { delay: Math.min(n++, 10) * 22, fill: 'backwards' });
+        { delay: Math.min(n++, 10) * (step || 22), fill: 'backwards' });
     });
   }
 
@@ -1121,8 +1124,16 @@
     function around(change, nodes) {
       var move = flip(heldPage().concat(nodes || []));
       change();
-      ordinary.hidden = !asking.item;
+      quietWhileAsked();
       move();
+    }
+
+    /* While the AI looks, nothing is said of no title having the words: it may yet find some. */
+    function quietWhileAsked() {
+      var looking = !!asking && !!asking.item && asking.item.state === 'thinking';
+      var none = !!live && live.kind === 'none';
+      if (none) live.node.hidden = looking;
+      if (ordinary) ordinary.hidden = !(asking && asking.item) || (looking && none);
     }
 
     function askPlace() {
@@ -1133,7 +1144,7 @@
       ordinary.hidden = true;
       results.insertBefore(ordinary, results.firstChild);
       results.insertBefore(host, ordinary);
-      asking = ai.view(host, { can: can, ask: fillAsk, stopped: function () { ai.keep({ q: null }); }, around: around });
+      asking = ai.view(host, { can: can, admin: data.is_admin === true, ask: fillAsk, plain: fill, stopped: function () { ai.keep({ q: null }); }, around: around });
     }
 
     function hideAsk() { if (asking && asking.item) asking.hide(); }
@@ -1141,7 +1152,7 @@
     /* A sentence is offered to the AI, or shows what came of it, while the search answers below. */
     function offerAsk(q) {
       if (!ai) return;
-      if (!ai.fits(q)) { hideAsk(); return; }
+      if (!ai.fits(q) && !(canExplore() && ai.similarOf(q))) { hideAsk(); return; }
       if (!asking) askPlace();
       asking.row(q);
       asking.pick(!picked);
@@ -1204,6 +1215,7 @@
       host.setAttribute('aria-label', 'More like ' + name);
       var place = ai.view(host, {
         can: can,
+        admin: data.is_admin === true,
         ask: fillAsk,
         stopped: function () { ai.keepLike({ ref: ref, name: name, poster: poster, asked: false }); },
         around: function (change, nodes) {
@@ -1572,6 +1584,7 @@
       hold('none', 'Search results');
       if (asking && asking.item) {
         live.node.appendChild(el('p', 'results-none', 'No title has these words in its name.'));
+        quietWhileAsked();
         rise(live.node);
         status.textContent = ['No matches for “' + c.q + '”', askHint()].filter(Boolean).join('. ');
         return;
@@ -1792,7 +1805,7 @@
     }
 
     function fetchLibrary(c) {
-      ask(c, 'lib', SEARCH_URL + encodeURIComponent(c.q), function (reply) {
+      ask(c, 'lib', SEARCH_URL + encodeURIComponent(c.find), function (reply) {
         return { state: 'ok', items: reply.items || [], total: reply.total };
       }, function (err) {
         return { state: 'failed', text: MM.api.messageOf(err, SEARCH_FAILED) };
@@ -1844,7 +1857,7 @@
     });
 
     function fetchTmdb(c) {
-      ask(c, 'tmdb', TMDB_URL + encodeURIComponent(c.q), function (reply) {
+      ask(c, 'tmdb', TMDB_URL + encodeURIComponent(c.find), function (reply) {
         if (reply.tmdb_configured === false) return { state: 'unconfigured' };
         var found = reply.people || [];
         found.forEach(function (p) { people.set(p.person_id, p); });
@@ -1918,9 +1931,12 @@
       }
       showResults(q, inPlace);
       offerAsk(q);
+      if (asking && asking.item && asking.item.like) ai.lookSimilar(asking.item);
       var known = last && last.q === q ? last : null;
       var c = {
         q: q, ctrl: new AbortController(), refocus: null,
+        // Of "similar to …", the title it names is what is searched for.
+        find: (asking && asking.item && asking.item.like) || q,
         lib: known && { items: known.lib.items, total: known.lib.total }, tmdb: known && { items: known.tmdb.items, held: known.tmdb.held }, cat: null,
         // What is on the page already and fits may stay while TMDB is asked.
         before: last && !known ? gather(last).out.filter(function (x) { return begins(x.item.title, q.toLowerCase()); }) : []
@@ -2265,5 +2281,5 @@
     setTimeout(function () { if (view === 'results' && !live) show('browse'); });
   }
 
-  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, glide: glide, leavingBadge: leavingBadge, setLeaving: setLeaving, isHeld: isHeld, composing: composing };
+  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, heldCard: buildHeldCard, glide: glide, leavingBadge: leavingBadge, setLeaving: setLeaving, isHeld: isHeld, composing: composing };
 })();

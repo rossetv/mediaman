@@ -2326,7 +2326,8 @@ async function asking(more, opts, opened, at) {
   p.sent = (urlPart) => p.calls.filter((c) => c.url.includes(urlPart)).map((c) => [c.method || 'GET', c.url.replace('/api/search/assist', ''), c.body]);
   p.ask = async (q) => { p.type(q); p.key('Enter'); await settle(); };
   p.head = () => { const n = p.doc.querySelector('.ask__row'); return n && n.closest('.ask').hidden === false ? n.querySelector('.ask__words').children.map((c) => c.textContent).join(' | ') : null; };
-  p.cards = () => p.doc.querySelectorAll('.ans').map((n) => [n.closest('.ask__grid').children.filter((c) => c.className === 'ask__group').length, n.querySelector('.ans__t') && n.querySelector('.ans__t').textContent]);
+  p.cards = () => p.doc.querySelectorAll('.ask .watch-card__title').map((n) => n.textContent);
+  p.card = (ref) => p.doc.querySelectorAll('.ask .watch-card__link').find((n) => n.getAttribute('data-title-ref') === ref);
   p.poll = async (payload) => { p.wait(1200); await settle(); await p.reply('GET', '/runs/', payload); };
   return p;
 }
@@ -2353,10 +2354,11 @@ scenarios.askAnswered = async () => {
   await p.poll({ status: 'running', run_id: 7 });
   await p.poll(ANSWER);
   out.head = p.head();
-  out.titles = p.doc.querySelectorAll('.ans__t').map((n) => n.children.map((c) => c.textContent));
-  out.markup = p.doc.querySelectorAll('.ans__t').map((n) => n.querySelectorAll('img').length);
-  out.links = p.doc.querySelectorAll('.ans__p').map((n) => [n.getAttribute('data-title-ref'), n.href, n.querySelectorAll('img').length]);
-  out.go = p.doc.querySelectorAll('.ans__go').map((n) => [n.getAttribute('aria-label'), n.href]);
+  const links = p.doc.querySelectorAll('.ask .watch-card__link');
+  out.titles = links.map((n) => [n.querySelector('.watch-card__title').textContent, n.querySelector('.watch-card__sub').textContent, n.getAttribute('data-ai-why')]);
+  out.markup = links.map((n) => n.querySelector('.watch-card__title').children.length);
+  out.links = links.map((n) => [n.getAttribute('data-title-ref'), n.href, n.querySelectorAll('img').length]);
+  out.marked = links.map((n) => n.querySelectorAll('.watch-card__spark .sr-only').map((s) => s.textContent));
   out.said = p.said();
   out.recorded = p.sent('/searches');
   p.key('Enter'); await settle();
@@ -2549,13 +2551,11 @@ scenarios.askFocus = async () => {
   const p = await asking();
   await p.ask(Q);
   await p.reply('POST', '/ask', ANSWER);
-  const go = p.doc.querySelector('.ans__go--dl');
-  go.focus();
-  click(p.doc, go); await settle();
-  await p.answer('/api/watch/title/', { year: 2023, download: { request: { url: '/api/search/download', body: {} } } });
-  await p.reply('POST', '/api/search/download', {});
+  p.card(OTHER.ref).focus();
+  p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:title-changed', { detail: { ref: OTHER.ref, download_state: 'queued', download_pct: null } }));
+  await settle();
   const active = p.doc.activeElement;
-  return { label: active.getAttribute('aria-label'), there: p.doc.body.contains(active), busy: active.getAttribute('aria-busy') };
+  return { ref: active.getAttribute('data-title-ref'), there: p.doc.body.contains(active), badge: active.querySelector('.watch-badge--state').textContent };
 };
 
 scenarios.askForgotten = async () => {
@@ -2748,7 +2748,7 @@ scenarios.askOutcomes = async () => {
 scenarios.askNarrow = async () => {
   const p = await asking();
   const chip = (text) => p.doc.querySelectorAll('.chip').find((b) => b.getAttribute('data-chip') === text);
-  const now = () => [p.head().split(' | ')[1], p.doc.querySelectorAll('.ans__t').map((n) => n.children[0].textContent), p.doc.querySelectorAll('.refine .chip').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent)];
+  const now = () => [p.head().split(' | ')[1], p.cards(), p.doc.querySelectorAll('.refine .chip').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent)];
   await p.ask(Q);
   await p.reply('POST', '/ask', ANSWER);
   const out = {};
@@ -2772,13 +2772,11 @@ scenarios.askDownload = async () => {
   const p = await asking();
   await p.ask(Q);
   await p.reply('POST', '/ask', ANSWER);
-  click(p.doc, p.doc.querySelector('.ans__go--dl')); await settle();
-  click(p.doc, p.doc.querySelector('.ans__go--dl')); await settle();
-  const out = { read: p.sent('/api/watch/title/').map((c) => c[1]) };
-  await p.answer('/api/watch/title/', { year: 2023, download: { request: { url: '/api/search/download', body: { tmdb_id: 2 } } } });
-  out.posted = p.sent('/api/search/download').map((c) => c[2]);
-  await p.reply('POST', '/api/search/download', {});
-  out.queued = p.doc.querySelectorAll('.ans__go').map((n) => n.getAttribute('aria-label'));
+  const badges = () => p.doc.querySelectorAll('.ask .watch-card').map((n) => n.querySelectorAll('.watch-badge--state').map((b) => b.textContent));
+  const out = { before: badges() };
+  p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:title-changed', { detail: { ref: OTHER.ref, download_state: 'queued', download_pct: null } }));
+  await settle();
+  out.queued = badges();
   return out;
 };
 
@@ -2944,15 +2942,131 @@ scenarios.noDownloadHeads = async () => {
 
 scenarios.askNoDownload = async () => {
   const SHOW = { ...OTHER, ref: 'tmdb-tv-3', kind: 'show', title: 'Dockside' };
-  const p = await asking({}, { page: { can_download: { movie: false, show: true } } });
-  await p.ask(Q);
-  await p.reply('POST', '/ask', { ...ANSWER, others: [OTHER, SHOW] });
-  const goes = () => p.doc.querySelectorAll('.ans__go').map((n) => n.getAttribute('aria-label'));
-  const out = { go: goes() };
-  p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:title-changed', { detail: { ref: OTHER.ref, download_state: 'queued', download_pct: null } }));
-  await settle();
-  out.after = goes();
+  const note = async (others) => {
+    const p = await asking({}, { page: { can_download: { movie: false, show: true } } });
+    await p.ask(Q);
+    await p.reply('POST', '/ask', { ...ANSWER, others });
+    return p.doc.querySelectorAll('.ask__group').map((n) => [n.querySelector('.results-group__title').textContent, (n.querySelector('.ask__group-note') || {}).textContent || '']);
+  };
+  return { films: await note([OTHER]), shows: await note([OTHER, SHOW]) };
+};
+
+// ── Titles like one a search names ──
+
+const LIKE_Q = 'similar to 90 days fiance';
+const NAMED = { ref: 'tmdb-tv-70', library_ref: null, title: '90 Day Fiancé', kind: 'show', year: 2014, poster_url: '/api/watch/img/tmdb/w342/f.jpg' };
+const BLIND = { ref: 'tmdb-tv-71', library_ref: null, in_library: false, kind: 'show', title: 'Love Is Blind', year: 2020, href: null, poster_url: null, download_state: null };
+const SIGHT = { ...BLIND, ref: 'tmdb-tv-72', title: 'Married at First Sight' };
+
+/* What the AI's place shows: its head, the titles in it (* for an AI pick, with why), its outlines and its ways on. */
+function aiPlace(p) {
+  const host = p.doc.querySelector('.ask');
+  return {
+    head: p.head(),
+    face: !!p.doc.querySelector('.ask__row .ask__mark--art img'),
+    cards: p.doc.querySelectorAll('.ask .watch-card__link').map((n) => (n.querySelector('.watch-card__spark') ? '*' : '') + n.querySelector('.watch-card__title').textContent + (n.getAttribute('data-ai-why') ? ' (' + n.getAttribute('data-ai-why') + ')' : '')),
+    groups: p.doc.querySelectorAll('.ask .ask__group .results-group__title').map((n) => n.textContent),
+    outlines: p.doc.querySelectorAll('.ask .watch-card--skel').length,
+    ways: p.doc.querySelectorAll('.ask__ways .chip').map((n) => n.textContent + (n.href ? ' -> ' + n.href : '')),
+    note: (p.doc.querySelector('.ask__note--quiet') || {}).textContent || null,
+    shown: !!host && !host.hidden,
+  };
+}
+
+scenarios.similar = async () => {
+  const p = await asking();
+  await p.search(LIKE_Q);
+  const out = { asked: p.calls.map((c) => c.url).filter((u) => /similar|watch\/search/.test(u)) };
+  await p.answer('/api/watch/similar', { tmdb_configured: true, title: NAMED, items: [BLIND, SIGHT] });
+  out.offered = aiPlace(p);
+  p.key('Enter'); await settle();
+  out.thinking = aiPlace(p);
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  await p.poll({ status: 'running', run_id: 7, stage: 'choosing' });
+  out.choosing = p.head();
+  await p.poll({ status: 'running', run_id: 7, stage: 'checking' });
+  out.checking = p.head();
+  const named = { ...BLIND, ref: NAMED.ref, title: NAMED.title, reason: 'It is the one you named.' };
+  await p.poll({ ...ANSWER, others: [{ ...SIGHT, reason: 'The same leap of faith.' }, named, OTHER] });
+  out.answered = aiPlace(p);
+  out.foot = p.doc.querySelector('.ask__foot').textContent;
   return out;
+};
+
+// A title that is not named by anything is the AI's answer alone, as any question is.
+scenarios.similarUnnamed = async () => {
+  const p = await asking();
+  await p.search('similar to zzz qqq');
+  await p.answer('/api/watch/similar', { tmdb_configured: true, title: null, items: [] });
+  const out = { offered: aiPlace(p) };
+  p.key('Enter'); await settle();
+  await p.reply('POST', '/ask', ANSWER);
+  out.answered = aiPlace(p);
+  return out;
+};
+
+// Without the AI, the title named and those like it still show, and why there are no AI picks.
+scenarios.similarNoAi = async () => {
+  const run = async (admin) => {
+    const p = await asking({ available: false, why: 'no_key' }, { page: { is_admin: admin } });
+    await p.search(LIKE_Q);
+    await p.answer('/api/watch/similar', { tmdb_configured: true, title: NAMED, items: [BLIND] });
+    const out = aiPlace(p);
+    out.link = (p.doc.querySelector('.ask__note--quiet .ask__link') || {}).href || null;
+    out.enter = (p.key('Enter'), await settle(), p.sent('/ask').length);
+    return out;
+  };
+  return { admin: await run(true), viewer: await run(false) };
+};
+
+// While the AI looks, the plain search does not say that no title has the words; once it is done and there is none, it does.
+scenarios.pendingQuiet = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  await p.answer('/api/watch/search?', { items: [] });
+  await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+  const none = () => {
+    const n = p.doc.querySelector('.results-page--none');
+    const o = p.doc.querySelector('.ordinary');
+    return [!!n && !n.hidden && n.textContent, !!o && !o.hidden];
+  };
+  const out = { thinking: none() };
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  await p.poll(ANSWER);
+  out.answered = none();
+  return out;
+};
+
+// What went wrong, each with a way on: the AI off, a key refused, an answer that did not come, and nothing found.
+scenarios.similarErrors = async () => {
+  const end = async (admin, how) => {
+    const p = await asking({}, { page: { is_admin: admin } });
+    await p.search(LIKE_Q);
+    await p.answer('/api/watch/similar', { tmdb_configured: true, title: NAMED, items: [BLIND] });
+    p.key('Enter'); await settle();
+    await how(p);
+    const out = aiPlace(p);
+    out.search = p.doc.querySelectorAll('.ask__ways .chip').find((b) => /Search for/.test(b.textContent));
+    if (out.search) {
+      click(p.doc, out.search); await settle();
+      out.search = p.input.value;
+    }
+    return out;
+  };
+  const refusedKey = async (p) => {
+    await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+    await p.poll({ status: 'failed', run_id: 7, error: 'unavailable', why: 'refused' });
+  };
+  return {
+    keyAdmin: await end(true, refusedKey),
+    keyViewer: await end(false, refusedKey),
+    offAdmin: await end(true, (p) => p.fail('/ask', 'unavailable', { why: 'no_key' }, 409)),
+    late: await end(true, async (p) => {
+      await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+      for (let i = 0; i < 5; i++) { p.wait(1200); await settle(); await p.fail('/runs/7', 'network', {}, 0); }
+    }),
+    nothing: await end(true, (p) => p.reply('POST', '/ask', { status: 'done', owned: [], others: [], chips: [], instead: ['a reality dating show'] })),
+  };
 };
 
 const name = process.argv[2];

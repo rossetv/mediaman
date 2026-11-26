@@ -40,7 +40,7 @@ const showOf = (seasons) => ({
 
 function card(id, title, over = {}) {
   return ['article', { class: 'watch-card', id, ...(over.mark ? { 'data-mark': over.mark } : {}), ...(over.keep ? { 'data-keep-id': over.keep } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
-    ['a', { class: 'watch-card__link', href: over.href || '/watch#title=' + over.ref, ...(over.ref ? { 'data-title-ref': over.ref } : {}), ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie' } : {}) },
+    ['a', { class: 'watch-card__link', href: over.href || '/watch#title=' + over.ref, ...(over.ref ? { 'data-title-ref': over.ref } : {}), ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie' } : {}), ...(over.why ? { 'data-ai-why': over.why } : {}) },
       ['span', { class: 'watch-card__poster' }, ['img', { src: '/api/poster/1' }], ['span', { class: 'watch-card__title' }, title],
         ...(over.leaving ? [['span', { class: 'watch-badge watch-badge--leaving' }, ['span', { class: 'watch-badge__long' }, over.leaving]]] : []),
         ...(over.pct ? [['progress', { class: 'watch-bar', value: String(over.pct) }]] : [])],
@@ -62,6 +62,7 @@ const CARDS = [
   card('onAnother', 'The Long Coast', { href: '/watch/play/21', dismiss: 'show-2', sub: 'S1 · E4 · 23 min left' }),
   card('held', 'Held', { ref: 'movie-3', pick: 'rec-6' }),
   card('going', 'The Long Coast', { href: '/watch/play/22?resume=1', dismiss: 'show-2', mark: 'episode/22', pct: 40, sub: 'S2 · E4 · 23 min left' }),
+  card('aiPick', 'Dockside', { ref: 'tmdb-movie-9', why: 'Tense and kind, as you like them.' }),
 ];
 
 /* A page at rest. *opts*: api (ref to its answer: data, a status or nothing yet), reduced, forced, coarse, saveData.
@@ -810,6 +811,18 @@ const scenarios = {
     h.waiting['rec-5'](reply);
     await h.pass(50);
     return { held, reason: h.text('.pv__reason') };
+  },
+  /* A card the AI picked in a search: why, from the card, before the reply and after it, and on to its page. */
+  async aiWhy() {
+    const h = load({ api: { 'tmdb-movie-9': undefined } });
+    await h.rest('aiPick', 800);
+    const early = h.text('.pv__reason');
+    h.waiting['tmdb-movie-9']({ ...OUTSIDE, ref: 'tmdb-movie-9' });
+    await h.pass(50);
+    const late = h.text('.pv__reason');
+    h.pv().querySelector('[data-preview-more]').click();
+    h.doc.querySelector('.pv-menu [data-act="details"]').click();
+    return { early, late, why: h.origins[0].why };
   },
   /* The page moves on, with a preview open and with one about to. */
   async movedOn() {

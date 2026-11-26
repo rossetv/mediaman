@@ -853,6 +853,21 @@ const scenarios = {
     return { held, late, then, forward, reloaded: q.text('.ttl__because'), refused: f.text('.ttl__reason'), notAPick: r.text('.ttl__reason') };
   },
 
+  // A card the AI picked in a search says why on the title's page, from what the card carries.
+  async aiWhy() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    p.run();
+    const link = p.doc.querySelector('[data-title-ref="tmdb-movie-77"]');
+    link.setAttribute('data-ai-why', 'Slow and strange, as you like them.');
+    click(p.doc, link);
+    await settle();
+    const r = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    r.run();
+    click(r.doc, r.doc.querySelector('[data-title-ref="tmdb-movie-77"]'));
+    await settle();
+    return { why: p.text('.ttl__reason'), plain: !!r.q('.ttl__reason') };
+  },
+
   async oldRecommendationLink() {
     const p = load({ hash: '#recommendation-5', routes: { '/api/watch/title/rec-5': REC_DL } });
     p.run();
