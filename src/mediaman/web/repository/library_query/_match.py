@@ -73,11 +73,18 @@ def _spellings(text: str) -> tuple[str, str]:
 
 
 class TitleSearch:
-    """The titles of the library of *conn*, as compared with *query*."""
+    """The titles of the library of *conn*, as compared with *query*. *forgiving*: a title
+    may also differ from it by a plural or a small typo, which costs a search far more."""
 
-    def __init__(self, conn: sqlite3.Connection, query: str) -> None:
+    def __init__(self, conn: sqlite3.Connection, query: str, *, forgiving: bool = False) -> None:
         query = query[:MAX_SEARCH_TERM_LEN]
         self._wanted = _spellings(query)
+        # Each word typed, whether it is the last, and whether each word of a title is it,
+        # forgiven: titles share their words, and each is looked at once.
+        typed = self._wanted[0].split()
+        self._words: list[tuple[str, bool, dict[str, bool]]] | None = (
+            [(w, i == len(typed) - 1, {}) for i, w in enumerate(typed)] if forgiving else None
+        )
         # Where nothing but punctuation was typed, that is what to look for.
         self._typed = query.casefold().strip()
         items = conn.execute("SELECT COUNT(*) FROM media_items").fetchone()[0]
@@ -93,7 +100,25 @@ class TitleSearch:
         spellings = _folds.get(title)
         if spellings is None:
             spellings = _folds[title] = _spellings(title)
-        return _measure(spellings, self._wanted)
+        found = _exact(spellings, self._wanted)
+        if found is not None or self._words is None:
+            return found
+        return FORGIVEN if self._forgives(spellings[0].split()) else None
+
+    def _forgives(self, words: list[str]) -> bool:
+        """As ``forgiven``, of the words of a title."""
+        if not words or not self._words:
+            return False
+        for typed, last, known in self._words:
+            for word in words:
+                fits = known.get(word)
+                if fits is None:
+                    fits = known[word] = _word_fits(typed, word, last)
+                if fits:
+                    break
+            else:
+                return False
+        return True
 
 
 def title_distance(query: str, title: str) -> int | None:
@@ -101,7 +126,11 @@ def title_distance(query: str, title: str) -> int | None:
     wanted = _spellings(query[:MAX_SEARCH_TERM_LEN])
     if not wanted[0]:
         return None
-    return _measure(_spellings(title), wanted)
+    spellings = _spellings(title)
+    found = _exact(spellings, wanted)
+    if found is not None:
+        return found
+    return FORGIVEN if forgiven(wanted[0], spellings[0]) else None
 
 
 def loosened(query: str) -> str:
@@ -110,12 +139,11 @@ def loosened(query: str) -> str:
     return " ".join(_stem(w) for w in _spellings(query[:MAX_SEARCH_TERM_LEN])[0].split())
 
 
-def _measure(spellings: tuple[str, str], wanted: tuple[str, str]) -> int | None:
+def _exact(spellings: tuple[str, str], wanted: tuple[str, str]) -> int | None:
+    """How far a title is from the query, of a title that holds it as typed; else None."""
     pairs = zip(spellings, wanted, strict=True)
     found = [d for whole, want in pairs if (d := _distance(whole, want)) is not None]
-    if found:
-        return min(found)
-    return FORGIVEN if forgiven(wanted[0], spellings[0]) else None
+    return min(found) if found else None
 
 
 # After every title that holds what was typed.

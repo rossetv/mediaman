@@ -444,16 +444,24 @@ def find_show(conn: sqlite3.Connection, libraries: list[str], key: str) -> Libra
     return found[0] if found else None
 
 
+# Of the titles that hold what was typed, so few that the forgiving search is made too.
+_FEW = 3
+
+
 def search_library(
     conn: sqlite3.Connection, libraries: list[str], query: str, limit: int
 ) -> tuple[list[LibraryMovie | LibraryShow], int]:
     """The *limit* movies and shows whose titles come closest to *query* of those that contain
-    it (as TitleSearch reads both), then by title, and how many contain it."""
+    it (as TitleSearch reads both), then by title, and how many contain it. Where few contain
+    it, those that differ from it by a plural or a small typo are found too, after them."""
     search = TitleSearch(conn, query)
     found: list[LibraryMovie | LibraryShow] = [
         *_movies(conn, libraries, search=search),
         *_shows(conn, libraries, search=search),
     ]
+    if len(found) < _FEW:
+        search = TitleSearch(conn, query, forgiving=True)
+        found = [*_movies(conn, libraries, search=search), *_shows(conn, libraries, search=search)]
     found.sort(key=lambda item: (search.distance(item.title), sort_title(item.title), item.key))
     return found[:limit], len(found)
 
