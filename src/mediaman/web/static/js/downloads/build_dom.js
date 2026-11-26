@@ -469,14 +469,15 @@
     btn.setAttribute('data-kind', item.media_type === 'movie' ? 'movie' : 'series');
     btn.setAttribute('data-title', item.title || '');
     btn.setAttribute('data-stuck-seasons', JSON.stringify(item.stuck_seasons || []));
+    var label = btn.getAttribute('data-abandon-upcoming') ? 'Stop tracking' : 'Abandon search';
+    btn.setAttribute('aria-label', item.title ? label + ': ' + item.title : label);
+    btn.setAttribute('title', label);
   }
 
   function buildAbandonButton(item) {
     var btn = el('button', 'btn btn--icon btn--ghost');
     btn.type = 'button';
     btn.setAttribute('data-abandon-trigger', '');
-    btn.setAttribute('aria-label', 'Abandon search');
-    btn.setAttribute('title', 'Abandon search');
     fillAbandonButton(btn, item);
     btn.appendChild(MM.dom.icon('i-xmark'));
     return btn;
@@ -805,8 +806,6 @@
     btn.setAttribute('data-abandon-trigger', '');
     btn.setAttribute('data-abandon-upcoming', '1');
     fillAbandonButton(btn, item);
-    btn.setAttribute('aria-label', 'Stop tracking');
-    btn.setAttribute('title', 'Stop tracking');
     btn.appendChild(MM.dom.icon('i-xmark'));
     abandonWrap.appendChild(btn);
     row.appendChild(abandonWrap);

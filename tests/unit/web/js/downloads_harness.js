@@ -307,6 +307,28 @@ scenarios.abandonNamesTheTitle = async function () {
   return { built, updated: buttons(), sent: r.posts[0].body };
 };
 
+// each button's accessible name carries its title, built and refreshed
+scenarios.abandonNames = async function () {
+  const h = build(() => Promise.resolve({}));
+  ['core/dom.js', 'downloads/build_dom.js', 'downloads/render_hero.js', 'downloads/render_row.js', 'downloads/render_recent.js'].forEach(h.load);
+  h.ctx.MM.downloads.poll = { start: (cb) => { h.ctx.update = cb; } };
+  h.add('dl-empty-container'); h.add('dl-recent-container');
+  h.root.setAttribute('data-can-abandon', 'true');
+  h.load('downloads.js');
+  const names = () => h.root.querySelectorAll('[data-abandon-trigger]')
+    .map((b) => b.getAttribute('aria-label') + ' | ' + b.getAttribute('title')).sort();
+  const poll = (t) => h.ctx.update({
+    subtitle: '', recent: [],
+    hero: item('h', { title: 'Hero ' + t, abandon_visible: true }),
+    queue: [item('q', { title: 'Queue ' + t, abandon_visible: true })],
+    upcoming: [item('u', { title: 'Soon ' + t })],
+  });
+  poll('A');
+  const built = names();
+  poll('B');
+  return { built, updated: names() };
+};
+
 // another tab abandoned it first
 scenarios.abandonGone = async function () {
   const r = abandonRig();

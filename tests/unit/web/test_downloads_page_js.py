@@ -527,3 +527,14 @@ def test_a_long_title_wraps_on_a_narrow_phone() -> None:
     css = (CSS / "_dl.css").read_text()
     narrow = css.split("@media (max-width: 374.98px) {", 1)[1].split("\n}\n", 1)[0]
     assert "white-space: normal" in narrow.split(".dl-row-title {", 1)[1].split("}", 1)[0]
+
+
+def test_a_redrawn_abandon_button_is_named_by_its_title_and_follows_a_new_one() -> None:
+    out = _run("abandonNames")
+    assert out["built"] == [
+        "Abandon search: Hero A | Abandon search",
+        "Abandon search: Queue A | Abandon search",
+        "Stop tracking: Soon A | Stop tracking",
+    ]
+    assert [n.replace(" B", " A") for n in out["updated"]] == out["built"]
+    assert all(" B |" in n for n in out["updated"])
