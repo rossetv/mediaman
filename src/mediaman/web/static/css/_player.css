@@ -770,6 +770,10 @@
 @media (max-width: 767px), (pointer: coarse) {
   .player-volume-slider { display: none; }
 }
+/* A phone ignores the page's volume, so its mute does nothing: the row keeps 44px buttons. */
+@media (pointer: coarse) {
+  .player:not(.is-away) .player-volume { display: none; }
+}
 
 @media (max-width: 900px) {
   .player-chapter-name { display: none; }
@@ -807,6 +811,8 @@
 /* The narrowest phones: every control keeps its height and its place in the row. */
 @media (max-width: 350px) {
   .player-controls { gap: 0; }
+}
+@media (max-width: 350px) and (pointer: fine) {
   .player-controls .player-btn:not([data-fullscreen]) { min-width: 38px; }
 }
 
@@ -1119,7 +1125,7 @@
   .player.is-away:has(.player-skip:not([hidden])) .player-away-say { visibility: hidden; }
 }
 /* One control more in the row. */
-@media (max-width: 600px) {
+@media (max-width: 600px) and (pointer: fine) {
   .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-btn { min-width: 38px; }
   .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-pill { padding: 0 8px; }
   .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-controls { gap: 0; }

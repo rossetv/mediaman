@@ -44,9 +44,19 @@
   border-color: var(--accent);
   background-color: var(--s3);
 }
-@media (max-width: 639.98px) {
+@media (max-width: 639.98px), (pointer: coarse) {
   /* 16px stops iOS zooming the page when a field is focused */
-  .inp { font-size: 16px; }
+  .inp,
+  .form-input,
+  .form-select,
+  .threshold-input { font-size: 16px; }
+}
+.inp:disabled,
+.form-input:disabled,
+.form-select:disabled,
+.threshold-input:disabled {
+  color: var(--t3);
+  cursor: not-allowed;
 }
 /* Its own chevron: the native arrow ignores the padding and touches the edge. */
 select.inp,
