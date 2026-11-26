@@ -224,3 +224,26 @@ def test_a_film_radarr_dates_apart_from_the_library_namesake_is_not_opened_as_it
 
     assert library_title(index, "movie", 5, "Dune", arr=arr) is None
     assert _with_title(item, index, arr, shown=False).ref == "tmdb-movie-5"
+
+
+def test_a_film_the_library_holds_under_another_tmdb_id_is_not_opened_as_the_one_downloaded(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mediaman.web.routes.downloads_strip.title_art",
+        lambda key: {"poster_url": "", "backdrop_url": ""},
+    )
+    monkeypatch.setattr("mediaman.web.routes.downloads_strip._held", lambda kind, n: {})
+    monkeypatch.setattr(ArrView, "state", lambda self, kind, n: ("in_library", None))
+    arr = ArrView(
+        {
+            "radarr_movies": {},
+            "radarr_queue_tmdb_ids": set(),
+            "sonarr_series": {},
+            "sonarr_queue_tmdb_ids": set(),
+        }
+    )
+    index = LibraryIndex.build([("10", "Dune", 7)], [])
+    item = strip.StripItem(key="k", title="Dune", kind="movie", state="ready", tmdb_id=5)
+
+    assert _with_title(item, index, arr, shown=False).ref == "tmdb-movie-5"

@@ -35,9 +35,6 @@ router = APIRouter()
 # A title's ref has at most this many digits.
 _MAX_TMDB_ID = 9_999_999_999
 
-# The last index read, with the TMDB id of each of its titles that has one, by ref.
-_ids_held: tuple[catalog.LibraryIndex, dict[str, int]] | None = None
-
 
 @router.get("/api/downloads/strip")
 def api_downloads_strip(
@@ -185,8 +182,8 @@ def _with_title(
     held = index.library_ref(
         kind, item.tmdb_id, item.title, arr, year=_radarr_year(kind, item.tmdb_id, arr)
     )
-    if held is not None and _tmdb_ids(index).get(held, item.tmdb_id) != item.tmdb_id:
-        held = None
+    if kind == "movie" and index.tmdb_of.get(held or "", item.tmdb_id) != item.tmdb_id:
+        held = None  # a film is held under its own TMDB id; library_ref checks a show's
     held = held or library_title(index, kind, item.tmdb_id, item.title, arr=arr)
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
     art = _fanart(item, arr)
@@ -227,24 +224,13 @@ def library_title(
         return found
     by_title = index.movies_by_title if movie else index.shows_by_title
     held = by_title.get(catalog.normalise_title(title))
-    if held is None or (tmdb_id and held in _tmdb_ids(index)):
+    if held is None or (tmdb_id and held in index.tmdb_of):
         return None
     held_year = index.year_of.get(held)
     if held_year and not year and tmdb_id:
         year = _year_told(kind, tmdb_id, arr)
     # One apart is one title, dated by two of its releases.
     return None if year and held_year and abs(year - held_year) > 1 else held
-
-
-def _tmdb_ids(index: catalog.LibraryIndex) -> dict[str, int]:
-    """The TMDB id of each title of *index* that has one, by ref: read once for each index."""
-    global _ids_held
-    held = _ids_held
-    if held is not None and held[0] is index:
-        return held[1]
-    ids = {ref: n for by in (index.movies_by_tmdb, index.shows_by_tmdb) for n, ref in by.items()}
-    _ids_held = (index, ids)
-    return ids
 
 
 def _year_told(kind: str, tmdb_id: int, arr: catalog.ArrView | None) -> int | None:
