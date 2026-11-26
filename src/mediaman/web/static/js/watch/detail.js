@@ -1220,12 +1220,24 @@
     body.appendChild(failedBox(err));
   }
 
+  /* When the day's lookups come back, on the person's own clock; the day too if it is over 12 hours off. */
+  function backAt(seconds) {
+    var s = Number(seconds);
+    if (!(s > 0) || !isFinite(s)) return 'Try again tomorrow.';
+    var at = new Date(Date.now() + s * 1000);
+    var time = { hour: 'numeric', minute: '2-digit' };
+    if (s <= 12 * 3600) return 'Back at ' + at.toLocaleTimeString(undefined, time) + '.';
+    return 'Back ' + at.toLocaleString(undefined, { weekday: 'long', hour: time.hour, minute: time.minute }) + '.';
+  }
+
   function failedBox(err) {
     var box = el('div', 'ttl__failed fade-in');
     box.setAttribute('role', 'alert');
     box.appendChild(icon('i-circle-exclamation'));
-    box.appendChild(el('p', 'ttl__failed-line', "Couldn't load details"));
-    var why = err && err.status === 404 ? 'This title is not available any more.'
+    var dayUsed = !!err && err.status === 429 && err.error === 'title_day_limit';
+    box.appendChild(el('p', 'ttl__failed-line', dayUsed ? "Today's lookups are used up" : "Couldn't load details"));
+    var why = dayUsed ? backAt(err.data && err.data.retry_after)
+      : err && err.status === 404 ? 'This title is not available any more.'
       : err && err.status === 429 ? 'Too many lookups for now. Try again in a while.'
       : err && err.error === 'tmdb_not_configured' ? 'Titles outside the library need TMDB, which is not set up.'
       : err && err.error === 'network_error' ? err.message
