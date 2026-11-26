@@ -38,8 +38,8 @@ class _Form(HTMLParser):
 @pytest.mark.parametrize(
     ("router", "path", "form", "fields"),
     [
-        (account_router, "/account", "account-password-form", 2),
-        (settings_router, "/settings", "add-user-form", 2),
+        (account_router, "/account?pane=1", "account-password-form", 2),
+        (settings_router, "/settings?pane=1", "add-user-form", 2),
     ],
 )
 def test_each_field_that_can_be_refused_has_the_place_its_reason_is_said_in(

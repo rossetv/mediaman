@@ -276,8 +276,8 @@ def test_every_page_uses_default_container():
     `--wide` modifiers is forbidden after the width-consistency pass."""
     for name in (
         "downloads.html",
-        "history.html",
-        "settings.html",
+        "panes/_history.html",
+        "panes/_settings.html",
     ):
         tpl = _tpl(name)
         # Every page must mount its content inside .container (no modifier).

@@ -13,6 +13,7 @@ from starlette.requests import Request
 
 from mediaman.web.auth.password_hash import set_user_email
 from mediaman.web.routes.account import router as account_router
+from mediaman.web.routes.watch import pages as watch_pages
 from tests.helpers.factories import insert_admin_user
 
 _TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
@@ -329,7 +330,7 @@ class TestAccountPage:
         assert resp.headers["location"] == "/login?next=%2Faccount"
 
     def test_shows_who_you_are_and_the_change_password_form(self, client):
-        resp = client.get("/account")
+        resp = client.get("/account?pane=1")
 
         assert resp.status_code == 200
         assert "admin" in resp.text
@@ -344,26 +345,32 @@ class TestAccountPage:
         set_user_email(conn, "admin", "mine@example.com")
         set_user_email(conn, "other", "theirs@example.com")
 
-        resp = client.get("/account")
+        resp = client.get("/account?pane=1")
 
         assert 'value="mine@example.com"' in resp.text
         assert "theirs@example.com" not in resp.text
 
     def test_keeps_the_place_links_to_the_plex_account_go_to(self, client):
-        assert client.get("/account").text.count('id="plex"') == 1
+        assert client.get("/account?pane=1").text.count('id="plex"') == 1
 
-    def test_a_viewer_sees_the_viewer_menu_with_profile_highlighted(
-        self, app_factory, authed_client, conn
+    def test_a_viewer_at_the_profile_pane_gets_watch_with_the_viewer_menu_and_a_viewers_profile(
+        self, app_factory, viewer_client, conn
     ):
-        app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+        app = app_factory(
+            account_router, watch_pages.router, conn=conn, state_extras={"templates": _TEMPLATES}
+        )
 
         @app.middleware("http")
         async def _as_viewer(request, call_next):
             request.state.user_role = "viewer"
             return await call_next(request)
 
-        resp = authed_client(app, conn).get("/account")
+        client = viewer_client(app, conn)
+        watch = client.get("/?you=profile")
+        pane = client.get("/account?pane=1")
 
-        assert "Viewer" in resp.text
-        assert re.search(r'href="/account" aria-current="page"', resp.text)
-        assert 'href="/settings"' not in resp.text
+        assert watch.status_code == 200
+        assert re.search(r'<a class="brand" href="/" [^>]*aria-current="page"', watch.text)
+        assert re.search(r'href="/account"[^>]*>', watch.text)
+        assert 'href="/settings"' not in watch.text
+        assert "Viewer" in pane.text

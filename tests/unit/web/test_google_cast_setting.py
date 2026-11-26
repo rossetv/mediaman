@@ -43,9 +43,9 @@ def test_what_the_page_saves_opens_the_policy_and_off_closes_it(
     app, authed_client, conn, sent
 ) -> None:
     client = authed_client(app, conn, with_reauth=True)
-    off = client.get("/settings").text
+    off = client.get("/settings?pane=1").text
     assert client.put("/api/settings", json={"google_cast_enabled": sent}).json()["ignored"] == []
-    on = client.get("/settings").text
+    on = client.get("/settings?pane=1").text
     assert 'id="google_cast_enabled" value="false"' in off
     assert 'id="google_cast_enabled" value="true"' in on
     assert "https://www.gstatic.com/cv/js/sender/v1/cast_sender.js" in _csp()
@@ -56,7 +56,7 @@ def test_what_the_page_saves_opens_the_policy_and_off_closes_it(
 def test_an_admin_is_told_what_the_switch_lets_in_and_what_each_way_needs(
     app, authed_client, conn
 ) -> None:
-    html = authed_client(app, conn).get("/settings").text
+    html = authed_client(app, conn).get("/settings?pane=1").text
     needs = html.split('id="tv-needs"', 1)[1].split("</ul>", 1)[0]
     assert all(word in needs for word in ("Safari", "https", "Chrome", "MEDIAMAN_ALLOWED_HOSTS"))
     told = html.split('id="cast-lets"', 1)[1].split("</ul>", 1)[0]
@@ -69,7 +69,7 @@ def test_an_admin_is_told_what_the_switch_lets_in_and_what_each_way_needs(
 
 
 def test_an_admin_is_told_which_addresses_older_tvs_take(app, authed_client, conn) -> None:
-    html = authed_client(app, conn).get("/settings").text
+    html = authed_client(app, conn).get("/settings?pane=1").text
     hint = html.split('id="tv-address-hint"', 1)[1].split("</span>", 1)[0]
     needs = html.split("<b>An older TV:</b>", 1)[1].split("</li>", 1)[0]
     for said in (hint, needs):
@@ -156,13 +156,13 @@ def test_no_page_without_a_cast_or_a_person_is_marked(conn, path, stored, userna
 
 def test_the_settings_words_hold_both_states_of_the_switch(app, authed_client, conn) -> None:
     """They follow the press, before anything is saved, so the page needs both."""
-    html = authed_client(app, conn).get("/settings").text
+    html = authed_client(app, conn).get("/settings?pane=1").text
     assert 'class="tv-lets-off">What turning it on lets in:' in html
     assert 'class="tv-lets-on">On. What this lets in:' in html
 
 
 def test_an_admin_is_told_how_far_googles_script_reaches(app, authed_client, conn) -> None:
-    html = authed_client(app, conn).get("/settings").text
+    html = authed_client(app, conn).get("/settings?pane=1").text
     told = html.split('id="cast-lets"', 1)[1].split("</ul>", 1)[0]
     for said in (
         "see and do all that the person signed in there can",

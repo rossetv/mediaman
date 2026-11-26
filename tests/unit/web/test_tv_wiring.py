@@ -168,8 +168,11 @@ def test_a_page_of_another_origin_is_not_let_send_the_header(tv):
     assert resp.status_code >= 400
 
 
-@pytest.mark.parametrize("path", ["/account", "/pair"])
-def test_a_page_of_someone_signed_in_holds_the_remote_once(amy, path):
+@pytest.mark.parametrize("path", ["/?you=profile", "/pair"])
+def test_a_page_of_someone_signed_in_and_watch_under_a_pane_hold_the_remote_once(amy, conn, path):
+    # Watch would ask the Plex the TVs' fixture sets up for this person's plays.
+    conn.execute("DELETE FROM settings WHERE key LIKE 'plex%'")
+    conn.commit()
     page = amy.get(path, follow_redirects=False).text
     assert page.count('id="tv-mini"') == page.count('id="tv-remote"') == 1
     assert "/static/js/tv-remote.js" in page and "/static/css/_tv_remote.css" in page

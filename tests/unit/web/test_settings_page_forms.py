@@ -67,13 +67,13 @@ def _parse(html: str) -> _Page:
 @pytest.fixture
 def settings_html(app_factory, authed_client, conn) -> str:
     app = app_factory(settings_router, conn=conn, state_extras={"templates": _TEMPLATES})
-    return authed_client(app, conn).get("/settings").text
+    return authed_client(app, conn).get("/settings?pane=1").text
 
 
 @pytest.fixture
 def account_html(app_factory, authed_client, conn) -> str:
     app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
-    return authed_client(app, conn).get("/account").text
+    return authed_client(app, conn).get("/account?pane=1").text
 
 
 def test_team_form_submits_with_enter(settings_html):
@@ -91,8 +91,11 @@ def test_every_password_field_can_be_shown(page, request):
     for field in passwords:
         box = html.split(f'id="{field["id"]}"', 1)[1].split("</div>", 1)[0]
         assert re.search(rf'class="pwd-eye" [^>]*aria-controls="{field["id"]}"', box)
-    assert '<script src="/static/js/password-form.js?v=" defer></script>' in html
-    assert "/static/css/_password.css" in html
+    root = re.search(
+        r'<div data-you-group="\w+" data-styles="([^"]*)" data-scripts="([^"]*)"', html
+    )
+    assert "/static/js/password-form.js?v=" in root[2].split()
+    assert "/static/css/_password.css?v=" in root[1].split()
 
 
 def test_every_setting_on_the_page_is_sent_when_it_is_saved(settings_html):
@@ -125,7 +128,7 @@ def test_a_stored_model_outside_the_list_is_shown_not_swapped_for_the_first(
 
     insert_settings(conn, openai_model="gpt-5-retired")
     app = app_factory(settings_router, conn=conn, state_extras={"templates": _TEMPLATES})
-    html = authed_client(app, conn).get("/settings").text
+    html = authed_client(app, conn).get("/settings?pane=1").text
 
     select = re.search(r'<select[^>]*id="openai_model".*?</select>', html, re.S).group(0)
     assert re.search(

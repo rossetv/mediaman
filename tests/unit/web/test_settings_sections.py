@@ -61,7 +61,7 @@ class _Selects(HTMLParser):
 
 def _general(client) -> dict[str, list[tuple[str, str, bool]]]:
     """The choices of the general section, drawn from what the page is given."""
-    context = client.get("/settings").json()
+    context = client.get("/settings?pane=1").json()
     env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
     parser = _Selects()
     parser.feed(env.get_template("settings/_sec_general.html").render(**context))
@@ -290,7 +290,7 @@ def test_an_address_with_a_password_in_it_is_refused_for_that(client) -> None:
 
 
 def test_the_page_has_no_plex_or_nzbget_public_url_but_keeps_the_arr_ones(client) -> None:
-    context = client.get("/settings").json()
+    context = client.get("/settings?pane=1").json()
     env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
     html = env.get_template("settings/_sec_integrations.html").render(**context)
     for gone in ("plex_public_url", "nzbget_public_url"):
@@ -312,7 +312,7 @@ def test_a_save_without_the_removed_fields_keeps_what_is_stored(client, conn) ->
 
 
 def test_plex_url_is_as_wide_as_the_token_under_it_but_nzbget_url_spans_its_card(client) -> None:
-    context = client.get("/settings").json()
+    context = client.get("/settings?pane=1").json()
     env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
     html = env.get_template("settings/_sec_integrations.html").render(**context)
     assert re.search(r'<input class="inp inp--lg" id="plex_url"', html)

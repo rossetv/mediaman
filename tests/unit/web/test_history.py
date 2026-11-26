@@ -172,7 +172,7 @@ class TestHistoryPageClamp:
         client = TestClient(app, raise_server_exceptions=True)
         client.cookies.set("session_token", token)
 
-        resp = client.get("/history?page=10000")
+        resp = client.get("/history?pane=1&page=10000")
         assert resp.status_code == 200
         # Clamped to 1 (total_pages=1 for 3 rows).
         assert "page=1;" in resp.text
@@ -189,7 +189,7 @@ class TestHistoryPageClamp:
         client.cookies.set("session_token", token)
 
         # ``int("-5")`` is valid but max(1, -5) clamps the lower end.
-        resp = client.get("/history?page=-5")
+        resp = client.get("/history?pane=1&page=-5")
         assert "page=1;" in resp.text
 
 
@@ -532,7 +532,7 @@ class TestMergedKeepFilters:
             conn=conn,
             state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
         )
-        html = authed_client(app, conn).get("/history").text
+        html = authed_client(app, conn).get("/history?pane=1").text
         assert html.count(">Keeps<") == 1
         assert "?action=snoozed" not in html
         assert "?action=removed_show_keep" not in html
@@ -545,7 +545,7 @@ class TestHistoryFilterButtons:
             conn=conn,
             state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
         )
-        resp = authed_client(app, conn).get("/history")
+        resp = authed_client(app, conn).get("/history?pane=1")
         assert resp.status_code == 200
         offered = re.findall(r'href="/history\?action=(\w+)"', resp.text)
         assert offered == list(GROUPS)
@@ -594,7 +594,7 @@ def test_a_long_library_name_is_whole_in_the_details(app_factory, authed_client,
         state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
     )
 
-    html = authed_client(app, conn).get("/history").text
+    html = authed_client(app, conn).get("/history?pane=1").text
 
     assert re.search(rf"<dt>Title</dt><dd>{name}</dd>", html)
     assert '<span class="hx-l2">Plex failed to answer for it</span>' in html
@@ -659,7 +659,7 @@ class TestHistoryBadgesAndSecurityRows:
             conn=conn,
             state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
         )
-        resp = authed_client(app, conn).get("/history")
+        resp = authed_client(app, conn).get("/history?pane=1")
         assert resp.status_code == 200
         return resp.text
 
@@ -722,7 +722,7 @@ class TestHistoryPageMarkup:
             conn=conn,
             state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
         )
-        resp = authed_client(app, conn).get(f"/history{query}")
+        resp = authed_client(app, conn).get(f"/history{query or '?'}&pane=1")
         assert resp.status_code == 200
         return resp.text
 
@@ -812,7 +812,7 @@ class TestWhoReadsWhat:
     def test_a_viewers_page_holds_nothing_of_anyone_else(self, clients, conn):
         other = conn.execute("SELECT id FROM audit_log WHERE actor = 'bob'").fetchone()[0]
 
-        html = clients[1].get(f"/history?event={other}&user=bob").text
+        html = clients[1].get(f"/history?pane=1&event={other}&user=bob").text
 
         assert "Ana Film" in html
         assert "Bob Film" not in html
@@ -827,7 +827,7 @@ class TestWhoReadsWhat:
         conn.execute("UPDATE media_items SET plex_rating_key = 'plex-9' WHERE id = 'm1'")
         conn.commit()
 
-        page, api = clients[1].get("/history").text, clients[1].get("/api/history").text
+        page, api = clients[1].get("/history?pane=1").text, clients[1].get("/api/history").text
 
         island = json.loads(re.search(r'id="history-data">(.*?)</script>', page, re.S)[1])
         for items in (island["items"], json.loads(api)["items"]):
@@ -844,7 +844,7 @@ class TestWhoReadsWhat:
 
     def test_a_viewers_filters_are_those_of_what_they_can_do(self, clients):
         own, every = (
-            re.findall(r'href="/history\?action=(\w+)"', c.get("/history").text)
+            re.findall(r'href="/history\?action=(\w+)"', c.get("/history?pane=1").text)
             for c in reversed(clients)
         )
         assert own == ["plays", "downloads", "keeps", "sign_ins"]
@@ -894,7 +894,7 @@ class TestWhoReadsWhat:
         insert_audit_log(
             conn, action="snoozed", actor="ana", created_at="2020-01-01T00:00:00+00:00"
         )
-        page = clients[0].get("/history").text
+        page = clients[0].get("/history?pane=1").text
         assert '"~former:ana"' in page
         (item,) = clients[0].get("/api/history", params={"user": "~former:ana"}).json()["items"]
         assert item["who"] == {"value": "~former:ana", "name": "ana", "kind": "former"}
@@ -904,7 +904,9 @@ class TestWhoReadsWhat:
     def test_a_former_users_email_is_hidden_wherever_their_name_is_listed(self, clients, conn):
         insert_audit_log(conn, action="snoozed", actor="gone@mail.example")
         admin = clients[0]
-        island = re.search(r'id="history-data">(.*?)</script>', admin.get("/history").text, re.S)[1]
+        island = re.search(
+            r'id="history-data">(.*?)</script>', admin.get("/history?pane=1").text, re.S
+        )[1]
         menu = admin.get("/api/history/menu", params={"menu": "user"}).json()["options"]
         for people in (json.loads(island)["people"], menu):
             (former,) = [p for p in people if p["kind"] == "former"]

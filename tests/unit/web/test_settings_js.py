@@ -781,12 +781,13 @@ def test_a_late_check_of_the_old_settings_does_not_replace_the_new_ones() -> Non
     assert late == [2, ["ok", "Connected"], "Testing…"]
 
 
-def test_the_page_loads_each_script_once() -> None:
-    pages = [
-        (_TEMPLATE_DIR / name).read_text(encoding="utf-8")
-        for name in ("base.html", "settings.html")
-    ]
-    scripts = re.findall(r'<script src="([^"?]+)', "".join(pages))
+def test_the_settings_pane_and_the_page_under_it_load_each_script_once() -> None:
+    base = (_TEMPLATE_DIR / "base.html").read_text(encoding="utf-8")
+    pane = (_TEMPLATE_DIR / "panes" / "_settings.html").read_text(encoding="utf-8")
+    scripts = re.findall(r'<script src="([^"?]+)', base)
+    scripts += re.findall(
+        r"(/static/js/[^?\s\"]+)\?", re.search(r'data-scripts="([^"]+)"', pane)[1]
+    )
     assert "/static/js/settings/savebar.js" in scripts and "/static/js/core/dom.js" in scripts
     assert len(scripts) == len(set(scripts))
 

@@ -153,7 +153,7 @@ def test_keep_page_does_not_offer_forever_button():
 
 def test_settings_save_status_is_a_live_region():
     """A save confirmation in the bar must be spoken, not only shown."""
-    assert 'id="save-status" role="status"' in _tpl("settings.html")
+    assert 'id="save-status" role="status"' in _tpl("panes/_settings.html")
 
 
 def test_disk_threshold_inputs_name_their_library():

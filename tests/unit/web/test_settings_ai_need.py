@@ -32,7 +32,7 @@ def client(app_factory, authed_client, conn, templates_stub, monkeypatch):
 
 def _line(client) -> tuple[bool, str, list[str]]:
     """Whether the line shows, its words and where its links go, as the page is served."""
-    context = client.get("/settings").json()
+    context = client.get("/settings?pane=1").json()
     env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
     html = env.get_template("settings/_sec_general.html").render(**context)
     tag = re.search(r'<div [^>]*id="setg-ai-need"[^>]*>', html)
