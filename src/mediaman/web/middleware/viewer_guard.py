@@ -42,6 +42,7 @@ _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/watch/thumb/{rating_key}"),
         ("GET", "/api/watch/img/tmdb/{size}/{name}"),
         ("GET", "/api/watch/search/tmdb"),
+        ("GET", "/api/watch/similar"),
         ("GET", "/api/watch/discover"),
         ("GET", "/api/watch/title/{ref}"),
         ("GET", "/api/watch/title/{ref}/ratings"),

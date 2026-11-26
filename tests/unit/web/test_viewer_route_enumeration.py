@@ -30,6 +30,7 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/watch/img/tmdb/{size}/{name}"),
     ("GET", "/api/img/tmdb/{size}/{name}"),
     ("GET", "/api/watch/search/tmdb"),
+    ("GET", "/api/watch/similar"),
     ("GET", "/api/watch/discover"),
     ("GET", "/api/watch/title/{ref}"),
     ("GET", "/api/watch/title/{ref}/ratings"),
