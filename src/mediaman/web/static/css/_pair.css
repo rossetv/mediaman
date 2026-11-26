@@ -17,7 +17,7 @@
 .pair__code { position: relative; display: flex; gap: 8px; margin-bottom: 10px; }
 .pair__code i {
   flex: 1; min-width: 0; height: 56px; display: grid; place-items: center;
-  border: 1px solid var(--hair-strong); border-radius: var(--r-md); background: var(--s1);
+  border: 1px solid var(--field-edge); border-radius: var(--r-md); background: var(--s1);
   font: 600 24px/1 var(--font-display); font-variant-numeric: tabular-nums;
   transition: border-color var(--dur-fast) var(--ease-out);
 }

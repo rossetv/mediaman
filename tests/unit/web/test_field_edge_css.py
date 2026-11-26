@@ -73,9 +73,16 @@ def test_historys_search_and_its_menus_fields_have_an_edge() -> None:
         assert "border: 1px solid var(--hair);" in _of(field, "_history.css"), field
 
 
+def test_the_code_boxes_of_pairing_and_play_on_have_the_fields_edge() -> None:
+    assert "border: 1px solid var(--field-edge)" in _of(".pair__code i", "_pair.css")
+    assert "border: 1px solid var(--field-edge)" in _of(".play-on__code i", "_play_on.css")
+
+
 def test_an_off_switch_shows_its_track_and_an_on_one_its_colour_alone() -> None:
-    assert "box-shadow: inset 0 0 0 1px var(--field-edge)" in _of(".tog", "_forms.css")
-    assert "box-shadow: none" in _of(".tog.on", "_forms.css")
+    edge = _of(".tog:not(.on, :focus-visible)", "_forms.css")
+    assert "outline: 1px solid var(--field-edge)" in edge and "outline-offset: -1px" in edge
+    # Drawn without a border, so the switch keeps its size and the knob its place.
+    assert "border:" not in _of(".tog", "_forms.css")
 
 
 def test_on_history_the_keyboard_lands_clear_of_the_bar_and_tools_but_a_bars_own_control_stays_put() -> (
