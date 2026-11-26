@@ -154,3 +154,28 @@ def test_downloading_cards_sit_on_canvas_in_forced_colours() -> None:
     media = "(forced-colors: active)"
     assert "background: Canvas" in _of(".dw__link::before", "_watch_downloading.css", media)
     assert "forced-color-adjust" not in _of(".dw__text", "_watch_downloading.css", media)
+
+
+def test_a_long_name_that_cannot_fit_its_column_breaks_at_a_syllable_with_a_hyphen() -> None:
+    # A card's title and a person's name break only where hyphens allows, so "Cartographer's"
+    # or "Bartholomew" never loses its last letter to a line of its own.
+    named = [
+        (".watch-card__title", "_watch_grid.css"),
+        (".watch-person__name", "_watch_grid.css"),
+        (".ttl-cast__name", "_watch_cast.css"),
+        (".ttl-cast__char", "_watch_cast.css"),
+        (".cast-card__name", "_watch_cast.css"),
+        (".cast-card__role", "_watch_cast.css"),
+        (".cast-card__poster-name", "_watch_cast.css"),
+    ]
+    for selector, sheet in named:
+        body = _of(selector, sheet)
+        assert "hyphens: auto" in body, selector
+        assert "-webkit-hyphens: auto" in body, selector
+
+
+def test_a_phone_s_three_across_titles_are_wide_enough_for_cartographer_s() -> None:
+    # "Cartographer" in 12px bold is about 76px; the narrowest three-across card is 100px
+    # (360 less the page's 20px each side and two 10px gaps, over three), clear of it.
+    assert (360 - 2 * 20 - 2 * 10) / 3 >= 94
+    assert "font-size: 12px" in _of(".watch-card__title", "_watch.css", "(max-width: 599.98px)")
