@@ -144,6 +144,12 @@ def test_the_focus_goes_back_to_what_opened_a_dialog_without_scrolling_the_page(
     assert _run("scrolls") == {"preventScroll": True}
 
 
+def test_a_holder_of_cards_built_after_a_dialog_opened_is_spared_under_the_next_one() -> None:
+    out = _run("sparedLater")
+    assert "late" not in out["inert"]
+    assert "late" in out["hidden"]
+
+
 def test_what_a_dialog_spares_is_hidden_from_assistive_tech_not_made_inert_and_given_back() -> None:
     out = _run("spared")
     assert out["open"] == {"inert": ["closed-panel", "low", "plain"], "hidden": ["top", "list"]}

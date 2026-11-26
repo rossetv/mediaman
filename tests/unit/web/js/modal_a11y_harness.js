@@ -84,6 +84,15 @@ const scenarios = {
     p.ctx.MM.inertPage.release(p.$('inside'));
     return { open, over, closed: { inert: p.inert(), hidden: hiddenOnes(), top: p.$('top').getAttribute('aria-hidden') } };
   },
+  // What a dialog spares is asked for again as another dialog opens: a holder built after it is spared too.
+  sparedLater() {
+    const p = page();
+    p.$('inside').hidden = false;
+    p.ctx.MM.inertPage.hold(p.$('inside'), () => ['list', 'late'].map((id) => p.doc.getElementById(id)).filter(Boolean));
+    p.$('main').appendChild(build(p.doc, ['section', { id: 'late' }]));
+    p.confirm();
+    return { inert: p.inert(), hidden: p.doc.documentElement.descendants().filter((n) => n.getAttribute('aria-hidden') === 'true').map((n) => n.id) };
+  },
   // A confirm over a page whose storage panel is closed, and inert as it always is then.
   confirm() {
     const p = page();

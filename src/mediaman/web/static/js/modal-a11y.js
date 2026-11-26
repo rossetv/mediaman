@@ -39,7 +39,7 @@
   var registry = {};           // id -> { closeFn, and while open: node, lastTrigger }
   var open = [];               // the open modals, in open order
   var held = [];               // what the last of them has made inert
-  var spares = [];             // by open modal, what it hides from assistive tech in place of inert
+  var spares = [];             // by open modal, what it hides from assistive tech in place of inert, or a function of it
   var veiled = [];             // what is hidden so, with the aria-hidden it had
 
   function getModal(id) { return document.getElementById(id); }
@@ -100,12 +100,13 @@
     var keep = [topModal(), document.getElementById('ui-toast-host'), document.getElementById('watch-keep-menu')].filter(Boolean);
     Array.prototype.push.apply(keep, document.querySelectorAll('.ui-confirm-overlay.is-leaving'));
     if (tvBar()) keep.push(tvBar());
-    shutOut(document.body, keep, [].concat.apply([], spares));
+    shutOut(document.body, keep, [].concat.apply([], spares.map(function (s) { return typeof s === 'function' ? s() : s; })));
   }
 
   /* *spare*: what is too big to make inert at once (that restyles all it holds) and that the
      modal covers; Tab is held in the modal all the same. Spared under one modal, it is spared
-     under those over it. */
+     under those over it. A function is asked again each time the page is shut out, for what is
+     built after the modal opened. */
   function hold(modal, spare) {
     if (open.indexOf(modal) !== -1) return;
     open.push(modal);
