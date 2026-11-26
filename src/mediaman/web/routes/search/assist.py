@@ -35,6 +35,7 @@ from mediaman.services.openai.recommendations.plays import person_plays
 from mediaman.services.openai.search_assist import tonight
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import search_assist as repo
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.recommended import fetch_recommendations, group_into_batches
@@ -66,6 +67,8 @@ _WRITE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
 _ASK_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 _TONIGHT_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 _ELSEWHERE_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
+# The download states of a title Radarr or Sonarr has, as Watch's cards tell them.
+_HELD = frozenset({"in_library", "partial"})
 
 
 @dataclass(slots=True)
@@ -197,9 +200,12 @@ def _of_another(request: Request, user_id: int, username: str) -> JSONResponse |
     return respond_err("other_account", status=409)
 
 
-def _why_off(request: Request, conn: sqlite3.Connection) -> str:
+def _why_off(request: Request, conn: sqlite3.Connection, username: str) -> str | None:
     """Why the AI is not offered, for an admin to be told what to set: "off" (a daily limit
-    of 0), "no_key", "refused" (OpenAI refused the key) or "no_tmdb"."""
+    of 0), "no_key", "refused" (OpenAI refused the key) or "no_tmdb". None for anyone else,
+    who has nothing to set."""
+    if get_user_role(conn, username) != "admin":
+        return None
     if repo.switched_off(conn):
         return "off"
     if not _has_openai_key(request, conn):
@@ -209,8 +215,9 @@ def _why_off(request: Request, conn: sqlite3.Connection) -> str:
     return "no_tmdb"
 
 
-def _unavailable(request: Request, conn: sqlite3.Connection) -> JSONResponse:
-    return respond_err("unavailable", status=409, why=_why_off(request, conn))
+def _unavailable(request: Request, conn: sqlite3.Connection, username: str) -> JSONResponse:
+    why = _why_off(request, conn, username)
+    return respond_err("unavailable", status=409, **({"why": why} if why else {}))
 
 
 def _not_found() -> JSONResponse:
@@ -253,7 +260,7 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
         {
             "account": _account(request, user_id, username),
             "available": available,
-            "why": None if available else _why_off(request, conn),
+            "why": None if available else _why_off(request, conn, username),
             "history": repo.uses_history(conn, user_id),
             "records": _records(request, conn, user_id),
             "recent": repo.recent_searches(conn, user_id, repo.RECENT_SHOWN),
@@ -401,7 +408,7 @@ def api_ask(
         return refused
     client = _client(request, conn)
     if client is None:
-        return _unavailable(request, conn)
+        return _unavailable(request, conn, username)
     if ai.words(text) < MIN_WORDS:
         return respond_err("too_short", status=400)
     question = ai.Question(text=text)
@@ -423,7 +430,7 @@ def api_like(
         return refused
     client = _client(request, conn)
     if client is None:
-        return _unavailable(request, conn)
+        return _unavailable(request, conn, username)
     try:
         # Only a title TMDB is asked for counts against the limit; a cached one is free.
         question = _like_question(conn, client, body.ref, lambda: _ASK_LIMITER.check(username))
@@ -561,14 +568,19 @@ def api_run(
         return _not_found()
     client = _client(request, conn)
     if client is None:
-        return _unavailable(request, conn)
+        return _unavailable(request, conn, username)
     status = repo.run_status(conn, user_id, run_id, now_utc())
     asked = _asked.get(run_id)
     if status is None or (status == "done" and asked is None):
         return _not_found()
     if status == "failed" and asked is not None and asked.key_refused:
         return respond_ok(
-            {"status": status, "run_id": run_id, "error": "unavailable", "why": "refused"}
+            {
+                "status": status,
+                "run_id": run_id,
+                "error": "unavailable",
+                **({"why": "refused"} if get_user_role(conn, username) == "admin" else {}),
+            }
         )
     if status != "done" or asked is None:
         # What it is doing, for the page to say: "taste", "choosing" or "checking".
@@ -690,7 +702,7 @@ def api_tonight(
         return _not_found()
     client = _client(request, conn)
     if client is None:
-        return _unavailable(request, conn)
+        return _unavailable(request, conn, username)
     if not _TONIGHT_LIMITER.check(username):
         return _too_many()
     index = _index(conn, client)
@@ -711,6 +723,10 @@ def api_tonight(
             "items": [_tonight_card(c, held) for c in found.titles],
             "total": found.total,
             "more": found.total > skip + len(found.titles),
+            # Where the set after this one starts: the page pages by the server's sets.
+            "next": skip + len(found.titles),
+            # Whether *total* is all that fits: false where some running times were not looked up.
+            "checked": found.checked,
             "shortest": _tonight_card(found.shortest, held) if found.shortest else None,
         }
     )
@@ -730,7 +746,7 @@ def api_tonight_elsewhere(
         return _not_found()
     client = _client(request, conn)
     if client is None:
-        return _unavailable(request, conn)
+        return _unavailable(request, conn, username)
     if not _ELSEWHERE_LIMITER.check(username):
         return _too_many()
     own = person_marks(conn, username)
@@ -750,7 +766,8 @@ def api_tonight_elsewhere(
         (i, listed) for i in shelves
     ]:
         card = catalog.tmdb_card(item, index, arr)
-        if card is None or card["in_library"]:
+        # Downloaded and on its way to the library is the library's already.
+        if card is None or card["in_library"] or card.get("download_state") in _HELD:
             continue
         key = ("movie" if card["kind"] == "movie" else "tv", cast(int, item["id"]))
         if key in done or key in cards:

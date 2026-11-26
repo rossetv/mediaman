@@ -986,8 +986,8 @@ class TestNoKey:
             amy.get(f"{BASE}/tonight", params={"minutes": 120}),
             amy.get(f"{BASE}/runs/1"),
         ):
-            why = "no_key" if lacking == "openai" else "no_tmdb"
-            assert resp.json() == {"ok": False, "error": "unavailable", "why": why}
+            # Why is an admin's to know: amy has nothing to set.
+            assert resp.json() == {"ok": False, "error": "unavailable"}
         assert model.prompts == []
         assert amy.delete(f"{BASE}/searches").status_code == 200
         assert amy.put(f"{BASE}/history", json={"enabled": False}).status_code == 200
@@ -1008,9 +1008,10 @@ class TestTonight:
         self._get(amy, 120)  # TMDB is asked of a few titles at a time
         first = self._get(amy, 120)
         assert (len(first["items"]), first["total"], first["more"]) == (3, 4, True)
+        assert first["next"] == 3
         assert all(i["minutes"] <= 120 and i["reason"] for i in first["items"])
 
-        second = self._get(amy, 120, skip=3)
+        second = self._get(amy, 120, skip=first["next"])
         assert (len(second["items"]), second["more"]) == (1, False)
         seen = {i["title"] for i in first["items"] + second["items"]}
         assert seen == {"Nine Locks", "Alibi", "Train Job", "Harbour"}

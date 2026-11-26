@@ -86,6 +86,9 @@ class Evening:
     titles: list[Candidate]
     total: int
     shortest: Candidate | None
+    # Whether every title's running time was known: where some were not looked up this time,
+    # more may fit than *total* says.
+    checked: bool = True
 
 
 def known_titles(conn: sqlite3.Connection) -> dict[TitleKey, Known]:
@@ -99,8 +102,12 @@ def known_titles(conn: sqlite3.Connection) -> dict[TitleKey, Known]:
     return {key: Known(frozenset(found), ratings[key]) for key, found in genres.items()}
 
 
-def _facts_reader(client: TmdbClient, most: int = _ASKS) -> Callable[[TitleKey], Facts | None]:
+def _facts_reader(
+    client: TmdbClient, most: int = _ASKS, unread: set[TitleKey] | None = None
+) -> Callable[[TitleKey], Facts | None]:
+    """*unread* gathers the titles whose facts were not looked up, for want of asks or of TMDB."""
     reads = asks = 0
+    missed = set() if unread is None else unread
 
     def may_ask() -> bool:
         nonlocal asks
@@ -114,14 +121,19 @@ def _facts_reader(client: TmdbClient, most: int = _ASKS) -> Callable[[TitleKey],
         if held is not None:
             return held
         if reads >= _READS:
+            missed.add(key)
             return None
         reads += 1
         try:
             found: dict[str, Any] = details(client, *key, allow_fetch=may_ask, brief=True)
-        except (TitleNotFound, disk_cache.Refused):
+        except TitleNotFound:
+            return None
+        except disk_cache.Refused:
+            missed.add(key)
             return None
         except TmdbUnavailable:
             asks = most
+            missed.add(key)
             return None
         facts = Facts(found["runtime_min"], tuple(found["genres"]), found["director"])
         with _lock:
@@ -145,7 +157,8 @@ def evening(
     """Three of *candidates* that run no longer than *minutes*, after the first *skip* of
     them: the most like what the person enjoyed first, what they rated down last.
     *enjoyed* is the titles they liked or lately played, the most telling first."""
-    read = _facts_reader(client)
+    unread: set[TitleKey] = set()
+    read = _facts_reader(client, unread=unread)
     makers: dict[str, str] = {}
     liked_genres: dict[str, str] = {}
     for key, title in list(enjoyed.items())[:_TELLING]:
@@ -167,11 +180,14 @@ def evening(
         shared = len(held.genres & telling) if held else 0
         return (2, c.level < 0, -shared, -(held.rating if held else 0.0), c.title.casefold())
 
-    timed = [
-        replace(c, facts=facts)
-        for c in sorted(candidates, key=order)
-        if ((facts := read(c.key)) is not None and facts.minutes) or c.run
-    ]
+    timed: list[Candidate] = []
+    unknown = False
+    for c in sorted(candidates, key=order):
+        facts = read(c.key)
+        if (facts is not None and facts.minutes) or c.run:
+            timed.append(replace(c, facts=facts))
+        elif c.key in unread:
+            unknown = True
     fits = [c for c in timed if (c.minutes or 0) <= minutes]
     shortest = min(timed, key=lambda c: c.minutes or 0, default=None)
     chosen = fits[skip : skip + PER_SET]
@@ -179,6 +195,7 @@ def evening(
         [replace(c, reason=_reason(c, makers, liked_genres, shortest)) for c in chosen],
         len(fits),
         None if fits else shortest,
+        not unknown,
     )
 
 
