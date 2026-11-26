@@ -100,6 +100,7 @@ def _stand_in(name: str, result: FetchResult) -> bool:
         if kept is None or now - kept[0] > _STAND_IN_SECONDS or blip > _BLIP_SECONDS:
             return False
     result.cards.extend(kept[1])
+    result.stood_in.append(name)
     return True
 
 

@@ -88,12 +88,15 @@ class FetchResult:
     failed, with the cause.  Empty when all fetches succeeded.  ``unreachable``
     names every service whose list is missing or incomplete, for the page to show;
     ``refused`` those of them that answered 401 or 403, which refused their API key.
+    ``stood_in`` names the services whose cards are their last answer, given for a fetch that
+    failed, which may be out of date.
     """
 
     cards: list[ArrCard] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     unreachable: list[str] = field(default_factory=list)
     refused: list[str] = field(default_factory=list)
+    stood_in: list[str] = field(default_factory=list)
 
 
 class _ArrEpisodeRequired(TypedDict):

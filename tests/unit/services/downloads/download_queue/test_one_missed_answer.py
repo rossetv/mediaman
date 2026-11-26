@@ -68,3 +68,19 @@ def test_what_acts_on_an_item_is_never_shown_a_missed_answer_as_given(conn, serv
     data = build_downloads_response(conn, "k" * 64, steady=False)
     assert data["unreachable"] == ["Radarr"]
     assert "radarr:" not in str([data["hero"], *data["queue"]])
+
+
+def test_a_missed_answer_filled_by_the_last_starts_no_search(conn, services, monkeypatch):
+    radarr, _ = services
+    searched: list[str] = []
+    monkeypatch.setattr(
+        "mediaman.services.downloads.download_queue.maybe_trigger_search",
+        lambda _conn, item, **_kw: searched.append(item["dl_id"]),
+    )
+    build_downloads_response(conn, "k" * 64)
+    asked = list(searched)
+    radarr.get_queue.side_effect = requests.ConnectionError("down")
+    data = build_downloads_response(conn, "k" * 64)
+    assert data["unreachable"] == []
+    assert any(dl_id.startswith("radarr:") for dl_id in asked)
+    assert searched[len(asked) :] == [d for d in asked if not d.startswith("radarr:")]

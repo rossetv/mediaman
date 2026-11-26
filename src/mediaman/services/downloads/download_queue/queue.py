@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 
 from mediaman.services.arr.fetcher._base import ArrCard
 from mediaman.services.downloads.download_format._types import DownloadItem
@@ -160,6 +160,7 @@ def build_arr_items(
     secret_key: str,
     trigger_search: Callable[..., None],
     remembered: Sequence[ArrCard] = (),
+    reused: Collection[str] = (),
 ) -> tuple[list[DownloadItem], list[DownloadItem]]:
     """Match arr cards to NZBGet entries and build queue items, returning (items,
     upcoming_items). Matched NZB entries are marked _matched=True in place.
@@ -170,6 +171,9 @@ def build_arr_items(
 
     *remembered* are cards a service that did not answer gave before: one is listed only
     while NZBGet still holds its download, which it gives its name and art.
+
+    *reused* are the dl_ids of cards a service gave in its last answer, standing in for one it
+    missed: they may be out of date, so none starts a search.
     """
     from mediaman.services.downloads.download_format import (
         build_item,
@@ -231,7 +235,8 @@ def build_arr_items(
             trigger_search(conn, arr, matched_nzb=True, secret_key=secret_key)
         elif answered:
             items.append(_build_unmatched_arr_item_bound(arr, arr_base_urls_map))
-            trigger_search(conn, arr, matched_nzb=False, secret_key=secret_key)
+            if arr.get("dl_id") not in reused:
+                trigger_search(conn, arr, matched_nzb=False, secret_key=secret_key)
 
     return items, upcoming_items
 

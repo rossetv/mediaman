@@ -443,6 +443,11 @@ def build_downloads_response(
         secret_key,
         trigger_search=maybe_trigger_search,
         remembered=remembered,
+        reused=frozenset(
+            card["dl_id"]
+            for card in arr_result.cards
+            if _service_of(card["dl_id"]) in arr_result.stood_in
+        ),
     )
 
     matched_nzb_names = frozenset(cast(str, nzb["dl_id"]) for nzb in nzb_parsed if nzb["_matched"])
