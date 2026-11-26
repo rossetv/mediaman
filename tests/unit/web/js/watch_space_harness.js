@@ -442,13 +442,13 @@ const scenarios = {
       closed: await after(async (p) => { back(p); p.layer().close('pop'); }),
     };
   },
-  /* Only what stands clear of the bars is drawn, and no row the panel cuts off. */
+  /* Only what stands clear of the bar is drawn, and no row the panel cuts off. */
   async flightClipped() {
     const p = await flying((q) => {
-      const foot = q.doc.createElement('div');
-      foot.className = 'nav-foot';
-      q.doc.body.appendChild(foot);
-      place(foot, 0, 800, 390);
+      const bar = q.doc.createElement('header');
+      bar.className = 'nav-glass';
+      q.doc.body.appendChild(bar);
+      place(bar, 0, 0, 390, 64);
       place(q.$('space-storage'), 0, 0, 390, 100);
       const pics = q.all('.space-layer:not([inert]) .space-mini');
       place(pics[0], 0, 60, 30, 40);

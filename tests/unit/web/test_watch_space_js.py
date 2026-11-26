@@ -823,9 +823,9 @@ class TestSeeAll:
             "closed": landed,
         }
 
-    def test_is_drawn_clear_of_the_bars_and_without_the_rows_the_panel_cuts_off(self):
+    def test_is_drawn_clear_of_the_bar_and_without_the_rows_the_panel_cuts_off(self):
         out = _run("flightClipped")
-        assert out["clip"] == "inset(0px 0 100px)"
+        assert out["clip"] == "inset(64px 0 0px)"
         assert out["air"] == ["Big in full"]
 
     def test_heaviest_titles_that_came_meanwhile_are_drawn_after_the_landing(self):
