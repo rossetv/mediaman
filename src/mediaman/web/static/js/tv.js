@@ -1111,7 +1111,7 @@
   }
   function hush() {
     var node = document.getElementById('ov');
-    if (node) node.className = hidden && shown === 'play' ? 'ov hide' : 'ov';
+    if (node) node.className = (hidden && shown === 'play' ? 'ov hide' : 'ov') + (hintOn() ? ' fsb' : '');
   }
 
   // What plays, waits for a film or counts down; the rest are still pictures.
@@ -1143,17 +1143,20 @@
   var canFull = Boolean(root && (root.requestFullscreen || root.webkitRequestFullscreen) &&
     document.fullscreenEnabled !== false && document.webkitFullscreenEnabled !== false);
   var fullAsked = false;     // since the page last left full screen
+  var RETRY_MS = 60000;
+  var retryAt = Infinity;    // when a refused request may be made again
   var FILM = { play: 1, pause: 1, buf: 1 };
   var hintTimer = null, hintGone = false;
 
   function isFull() {
     return Boolean(document.fullscreenElement || document.webkitFullscreenElement || document.webkitIsFullScreen);
   }
-  function fullDue() { return canFull && !fullAsked && !isFull(); }
+  function fullDue() { return canFull && !isFull() && (!fullAsked || now() >= retryAt); }
   /* Whether the press asked for full screen. */
   function goFull() {
     if (!fullDue()) return false;
     fullAsked = true;
+    retryAt = Infinity;
     try {
       var asking = (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
       if (asking && asking.then) asking.then(null, refusedFull);
@@ -1161,7 +1164,7 @@
     return true;
   }
   function refusedFull() {
-    canFull = false;
+    retryAt = now() + RETRY_MS;
     show();
   }
   function fullChanged() {
@@ -1184,9 +1187,10 @@
   }
   function hint() {
     // A film the browser would not start says it in its own words.
-    var on = fullDue() && !blocked && !(FILM[shown] && hintGone);
-    if (hintNode) hintNode.className = on ? 'fs on' : 'fs';
+    if (hintNode) hintNode.className = hintOn() ? 'fs on' : 'fs';
+    hush();
   }
+  function hintOn() { return fullDue() && !blocked && !(FILM[shown] && hintGone); }
 
   /* ── keys ── */
 
@@ -1250,8 +1254,10 @@
     var key = e.keyCode, used = true, light = pressed();
     var isBack = key === 10009 || key === 461 || key === 27 || key === 8;
     var ok = key === 13 || key === 32;
-    // The press that takes the page full screen does nothing else, but where it was asked to play too.
-    var full = !isBack && !e.repeat && goFull() && !blocked;
+    var asks = !isBack && !e.repeat, wasBlocked = blocked;
+    // The press that takes the page full screen does nothing else, but on the pages where it is harmless.
+    // A browser that wants a key before it plays is asked to play first: the request may use the press up.
+    var full = asks && !wasBlocked && goFull() && shown !== 'conn' && shown !== 'restarted';
     if ((light || full) && ok) { e.preventDefault(); return; }
     if (shown === 'restarted') act('i');
     else if (MEDIA[key]) media(MEDIA[key]);
@@ -1265,6 +1271,7 @@
       if (shown === 'play') wake();
       if (buttons[focus] && !e.repeat) act(buttons[focus][1]);
     } else used = key === 38 || key === 40;
+    if (asks && wasBlocked) goFull();
     if (used) e.preventDefault();
   };
 

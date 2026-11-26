@@ -7,9 +7,11 @@ video::-webkit-media-controls { display: none !important; }
 #s, #o, #f { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; -webkit-transform-origin: 0 0; transform-origin: 0 0; }
 #o, #f { pointer-events: none; }
 /* Shown by tv.js alone, and only where the browser can go full screen. */
-.fs > div { position: absolute; right: 110px; top: 60px; font-size: 30px; line-height: 36px; color: #fff; background: #1d1d1f; background: rgba(29, 29, 31, .92); border: 2px solid transparent; border-radius: 40px; padding: 14px 32px 14px 26px; visibility: hidden; opacity: 0; transition: opacity .6s, visibility .6s; }
+.fs > div { position: absolute; right: 110px; top: 60px; font-size: 30px; line-height: 36px; color: #fff; background: #1d1d1f; background: rgba(29, 29, 31, .92); border: 2px solid transparent; border-radius: 40px; padding: 14px 32px 14px 26px; visibility: hidden; opacity: 0; transition: opacity .6s, visibility .6s, transform .2s; }
 .fs .i { width: 30px; height: 30px; vertical-align: -6px; margin-right: 14px; }
-.fs.on > div { visibility: visible; opacity: 1; transition: opacity .3s; }
+.fs.on > div { visibility: visible; opacity: 1; transition: opacity .3s, transform .2s; }
+/* Over a film, the title keeps clear of it. */
+.fsb .t1 { margin-right: 470px; }
 .in > div { -webkit-animation: in .2s ease-out; animation: in .2s ease-out; }
 #o > div { -webkit-animation: out .2s ease-out forwards; animation: out .2s ease-out forwards; }
 @-webkit-keyframes in { from { opacity: 0; } }
@@ -87,14 +89,16 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .dim:after { visibility: visible; opacity: .6; transition: opacity 12s ease-in-out; }
 .mid, .code, .top > div, .bot > div { transition: transform .2s; }
 .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: transform 4s ease-in-out; }
-.d1 .mid, .d1 .code, .d1 .top > div, .d1 .bot > div { -webkit-transform: translate(24px, -14px); transform: translate(24px, -14px); }
-.d2 .mid, .d2 .code, .d2 .top > div, .d2 .bot > div { -webkit-transform: translate(10px, 16px); transform: translate(10px, 16px); }
-.d3 .mid, .d3 .code, .d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-24px, -4px); transform: translate(-24px, -4px); }
+.dim .fs > div { transition: opacity .6s, visibility .6s, transform 4s ease-in-out; }
+.dim .fs.on > div { transition: opacity .3s, transform 4s ease-in-out; }
+.d1 .mid, .d1 .code, .d1 .fs > div, .d1 .top > div, .d1 .bot > div { -webkit-transform: translate(24px, -14px); transform: translate(24px, -14px); }
+.d2 .mid, .d2 .code, .d2 .fs > div, .d2 .top > div, .d2 .bot > div { -webkit-transform: translate(10px, 16px); transform: translate(10px, 16px); }
+.d3 .mid, .d3 .code, .d3 .fs > div, .d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-24px, -4px); transform: translate(-24px, -4px); }
 /* These lie nearer the edge, and stay 5% clear of it. */
-.d1 .top > div, .d1 .bot > div { -webkit-transform: translate(14px, -14px); transform: translate(14px, -14px); }
-.d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-14px, -4px); transform: translate(-14px, -4px); }
+.d1 .fs > div, .d1 .top > div, .d1 .bot > div { -webkit-transform: translate(14px, -14px); transform: translate(14px, -14px); }
+.d3 .fs > div, .d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-14px, -4px); transform: translate(-14px, -4px); }
 @media (prefers-reduced-motion: reduce) {
-  .b, .ov, .fs > div, .fs.on > div { transition: none; }
+  .b, .ov, .fs > div, .fs.on > div, .dim .fs > div, .dim .fs.on > div { transition: none; }
   .in > div, #o > div { animation: none; }
   .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
   #o { display: none; }
