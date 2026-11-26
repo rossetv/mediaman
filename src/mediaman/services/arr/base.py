@@ -172,7 +172,8 @@ class ArrClient(
     def searches_when_removed(self) -> bool:
         """Whether the service searches again by itself for what ``remove_from_queue`` removes:
         Sonarr before 4 and Radarr before 4.7.2 ignore ``skipRedownload`` and do, with their
-        "Redownload failed" on. False when that cannot be read; once read, kept."""
+        "Redownload failed" on. False when that cannot be read; once read, kept by this client: a
+        new client reads it again."""
         if self._searches_when_removed is None:
             try:
                 status = self._get("/api/v3/system/status", quick=True)
