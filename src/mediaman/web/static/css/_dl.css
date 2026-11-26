@@ -402,7 +402,8 @@
 .dl-card-enter { animation: dl-card-in var(--dur-slow) var(--ease-out); }
 @keyframes dl-card-in { from { opacity: 0; transform: translateY(6px); } }
 #dl-hero-container { position: relative; }
-/* As tall as the card gets, around the old card as tall as it was. */
+/* One box with the card it fades over, laid out as the card is, so titles and bars of the
+   two never lie out of line while the card's height moves. */
 .dl-hero-ghost {
   position: absolute;
   inset: 0;
@@ -414,10 +415,10 @@
 }
 .dl-hero-ghost__card {
   position: absolute;
-  inset: 0 0 auto;
-  min-height: 100%; /* its art goes on to the foot of a card that grows */
+  inset: 0;
   display: flex;
   align-items: flex-end;
+  gap: 28px;
   padding: 32px;
   background: var(--s2);
 }

@@ -19,7 +19,7 @@
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.recentWords(r)            the line under a recent item's title
- *   MM.downloads.buildDom.buildEmptyState(outage)
+ *   MM.downloads.buildDom.buildEmptyState(outage, setUp)
  *   MM.downloads.buildDom.held(id, title, data)    the item's service does not answer and nothing stands in for it
  *   MM.downloads.buildDom.markHeld(card)            dim a hero or row of a service that does not answer
  *   MM.downloads.buildDom.unmarkHeld(card)
@@ -221,23 +221,38 @@
      the download-tray glyph defined in downloads.html, so the poll-built
      card is identical to the server-rendered one. The #dl-empty-container
      owns the id — this builder returns only the inner card. */
-  /* Mirrors the two cards in downloads.html: nothing downloading, or a service
-     that cannot be reached, which the subtitle names. */
-  function buildEmptyState(outage) {
+  /* Mirrors the three cards in downloads.html: nothing downloading, a service that cannot
+     be reached (which the subtitle names), or neither Radarr nor Sonarr set up. */
+  function buildEmptyState(outage, setUp) {
+    var unset = !!setUp && !setUp.movies && !setUp.shows;
     var el = document.createElement('div');
     el.className = 'empty';
 
     var icon = document.createElement('div');
     icon.className = 'empty-ico';
-    icon.appendChild(MM.dom.icon(outage ? 'i-triangle-exclamation' : 'i-download'));
+    icon.appendChild(MM.dom.icon(outage && !unset ? 'i-triangle-exclamation' : 'i-download'));
     el.appendChild(icon);
 
     var h3 = document.createElement('h3');
-    h3.textContent = outage ? 'Downloads can\'t be checked right now' : 'All caught up';
+    h3.textContent = unset ? 'Downloads aren’t set up'
+      : outage ? 'Downloads can\'t be checked right now' : 'All caught up';
     el.appendChild(h3);
 
     var p = document.createElement('p');
-    p.textContent = outage ? 'This page keeps trying.' : 'Nothing downloading right now.';
+    if (unset) {
+      if (canAbandonHere()) {
+        p.appendChild(document.createTextNode('Connect Radarr or Sonarr in '));
+        var link = document.createElement('a');
+        link.href = '/settings';
+        link.textContent = 'Settings';
+        p.appendChild(link);
+        p.appendChild(document.createTextNode('.'));
+      } else {
+        p.textContent = 'Ask whoever runs mediaman to set it up.';
+      }
+    } else {
+      p.textContent = outage ? 'This page keeps trying.' : 'Nothing downloading right now.';
+    }
     el.appendChild(p);
 
     return el;
@@ -555,7 +570,6 @@
     ghost.setAttribute('aria-hidden', 'true');
     ghost.setAttribute('inert', '');
     var copy = el('div', 'dl-hero-ghost__card');
-    copy.style.height = card.getBoundingClientRect().height + 'px';
     Array.prototype.forEach.call(card.children, function (part) { copy.appendChild(part.cloneNode(true)); });
     ghost.appendChild(copy);
     ['id', 'data-v', 'data-ep', 'data-dl-id', 'data-abandon-trigger'].forEach(function (hook) {
@@ -594,12 +608,6 @@
     var episodes = item.episodes || [];
     var toggle = card.querySelector('[data-v="ep-toggle"]');
     var list = card.querySelector('[data-v="ep-list"]');
-    var count = card.querySelector('[data-v="ep-count"]');
-    if (count) {
-      MM.dom.setText(count, episodes.length ? episodeCount(episodes) : '');
-      count.hidden = !episodes.length;
-    }
-
     if (!episodes.length) {
       if (toggle) {
         passFocus(toggle);
@@ -670,9 +678,6 @@
     sizeInfo.appendChild(document.createTextNode(' of '));
     sizeInfo.appendChild(total);
     meta.appendChild(sizeInfo);
-    var count = el('span');
-    count.setAttribute('data-v', 'ep-count');
-    meta.appendChild(count);
     info.appendChild(meta);
 
     var hint = el('div', 'dl-search-hint');

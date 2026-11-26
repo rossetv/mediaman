@@ -108,24 +108,21 @@ def test_a_queued_shows_episodes_follow_each_poll_and_an_open_list_stays_open() 
     assert out["first"] == {
         "rows": ["S01E01|Title S01E01||20%"],
         "toggle": "1 episode",
-        "count": "1 episode",
         "open": True,
     }
     assert out["more"] == {
         "rows": ["S01E01|Title S01E01||Ready", "S01E02|Named late||Queued"],
         "toggle": "2 episodes",
-        "count": "2 episodes",
         "open": True,
     }
     assert out["pack"]["rows"] == ["S01E01|Title S01E01|In pack", "S01E02|Title S01E02|In pack"]
     assert out["pack"]["toggle"] == "2 episodes · pack download"
-    assert out["none"] == {"rows": [], "toggle": None, "count": "", "open": False}
+    assert out["none"] == {"rows": [], "toggle": None, "open": False}
 
 
 def test_a_row_drawn_without_episodes_gains_them() -> None:
     out = _run("rowEpisodes", hero=_item("h"), queue=[_item("q", media_type="series")])
     assert out["more"]["rows"] == ["S01E01|Title S01E01||Ready", "S01E02|Named late||Queued"]
-    assert out["more"]["count"] == "2 episodes"
 
 
 def test_an_episodes_button_added_by_a_poll_says_whether_it_is_open() -> None:
@@ -483,7 +480,7 @@ def test_on_a_phone_a_hero_that_changes_height_keeps_its_top_where_it_is() -> No
     assert room == card - 2 * padding
     assert "flex: none" in _in_media(phone, ".dl-hero-info")
     # the old card's ground goes on under it while the card grows
-    assert "min-height: 100%" in _rule(".dl-hero-ghost__card")
+    assert "inset: 0;" in _rule(".dl-hero-ghost__card")
 
 
 def test_the_ring_is_told_by_the_page_s_own_polls_and_of_those_that_fail() -> None:
