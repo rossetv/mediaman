@@ -114,6 +114,9 @@
   outline: 2px solid var(--accent-cta);
   outline-offset: -2px;
 }
+@media (forced-colors: active) {
+  .setg-pg .intg-card-hd:has(.intg-fold:focus-visible) { outline-color: Highlight; }
+}
 .setg-pg .intg-card-hd { transition: background var(--dur-fast) var(--ease-out); }
 .setg-pg .intg-card-hd:active { background: var(--rgba-overlay-xs); }
 .setg-pg .intg-card.is-collapsed .intg-card-hd { border-bottom: 0; }
@@ -469,6 +472,8 @@
 /* Wide enough for "Test saved" and "Select recipients", so the label changing moves nothing. */
 .setg-pg .btn-test[data-test-service] { min-width: 7.75em; }
 .setg-pg #btn-send-newsletter { min-width: 10.75em; }
+/* Wide enough for "Syncing…" and the longest result, so the card holds still while it runs. */
+.setg-pg #btn-sync-library { min-width: 9.5em; }
 
 @media (max-width: 699.98px) {
   .setg-pg .savebar .btn { min-height: 44px; }

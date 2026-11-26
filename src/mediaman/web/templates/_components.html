@@ -246,8 +246,9 @@
     <div class="hd-main">
       <div class="h-info">
         <h3><button type="button" class="intg-fold" aria-expanded="false"
-                    aria-controls="intg-body-{{ service }}">{{ title }}</button></h3>
-        {% if sub %}<div class="sub">{{ sub|safe }}</div>{% endif %}
+                    aria-controls="intg-body-{{ service }}"
+                    {%- if sub %} aria-describedby="intg-sub-{{ service }}"{% endif %}>{{ title }}</button></h3>
+        {% if sub %}<div class="sub" id="intg-sub-{{ service }}">{{ sub|safe }}</div>{% endif %}
       </div>
       <div class="hd-actions">
         {{ conn_pill(service) }}
@@ -295,7 +296,7 @@
   {% for row in (fields or []) %}
   <div class="fld-row{% if row|length == 1 %} fld-row--full{% endif %}">
     {% for f in row %}
-    {% set name = f.label if title in f.label else title ~ " " ~ f.label %}
+    {% set name = f.label if service in f.label|lower else title ~ " " ~ f.label %}
     {% call fld(f.label, sub=f.sub|default(""), optional=f.optional|default(false)) %}
       {% if f.kind == "secret" %}
         {{ inp_secret(f.id, value=settings.get(f.id, "") if settings else "", placeholder=f.placeholder|default(""), aria_label=name) }}

@@ -402,7 +402,9 @@
                 failed.toLocaleString('en-GB') + ' failed. Mediaman’s log says which.');
             } else if (!synced) {
               syncBtn.textContent = '0 synced';
-              window.UIFeedback.toast('Nothing synced. Choose libraries to scan under Libraries & Paths, then save.');
+              // A person has to act on this, so it stays longer than a passing note.
+              window.UIFeedback.toast('Nothing synced. Choose libraries to scan under Libraries & Paths, then save.',
+                { duration: 8000 });
             } else {
               syncBtn.textContent = 'Synced ✓';
               window.UIFeedback.success('Synced ' + items + ' from Plex.');
