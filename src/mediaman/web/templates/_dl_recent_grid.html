@@ -7,7 +7,7 @@
   <h2 class="dl-recent-header">Recently added</h2>
   <div class="dl-recent-grid">
     {% for item in recent %}
-    {% set words = {"part": "Some episodes ready", "unknown": "Added"}.get(item.readiness) %}
+    {% set words = {"part": "Some episodes ready", "unknown": "In your library soon"}.get(item.readiness) %}
     <div class="dl-recent-item">
       <div class="dl-recent-poster">
         {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" data-broken-on-error>{% endif %}

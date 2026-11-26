@@ -203,7 +203,7 @@ def test_a_show_is_called_ready_only_while_it_is_known_to_be() -> None:
     out = _run("recent")
     ready = ["Ready to watch", True]
     assert out["part"] == [["Some episodes ready", False], ready]
-    assert out["unknown"] == [["Added", False], ready]
+    assert out["unknown"] == [["In your library soon", False], ready]
     assert out["whole"] == [ready, ready]
 
 

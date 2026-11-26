@@ -90,7 +90,7 @@ def test_the_server_draws_what_is_ready_of_a_recent_show_as_the_polls_do(app_fac
 
     assert re.findall(r'dl-recent-sub[^"]*">([^<]+)<', grid) == [
         "Some episodes ready",
-        "Added",
+        "In your library soon",
         "Ready to watch",
     ]
     assert grid.count("dl-recent-sub--plain") == 2

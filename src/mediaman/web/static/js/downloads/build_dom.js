@@ -189,7 +189,7 @@
     if (window.DLPoster) window.DLPoster.apply(bg);
   }
 
-  var RECENT_WORDS = { part: 'Some episodes ready', unknown: 'Added' };
+  var RECENT_WORDS = { part: 'Some episodes ready', unknown: 'In your library soon' };
 
   function recentWords(r) { return RECENT_WORDS[r.readiness] || 'Ready to watch'; }
 
