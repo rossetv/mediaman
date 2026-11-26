@@ -199,7 +199,7 @@ class TestDownloadSubmitMovie:
         assert resp.status_code == 409
         body = resp.json()
         assert body["ok"] is False
-        assert "already downloaded or on its way" in body["error"]
+        assert "has already been added" in body["error"]
         assert "Radarr" not in body["error"]
         assert "poll_token" in body
 

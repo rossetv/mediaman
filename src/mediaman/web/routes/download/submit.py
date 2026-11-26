@@ -610,7 +610,7 @@ def _handle_already_exists_error(
         if isinstance(exc, _AlreadyThere) and exc.state:
             extra["download_state"] = exc.state
             extra["notify_by_email"] = exc.mail_to_come
-        said = f"'{title}' is already downloaded or on its way"
+        said = f"'{title}' has already been added"
         if season_number is not None:
             said = already_there(season_number, title)
         return respond_failure(said, status=409, **extra)
