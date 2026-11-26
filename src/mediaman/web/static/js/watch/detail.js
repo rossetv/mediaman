@@ -35,6 +35,7 @@
   var DOWNLOAD_GRACE_MS = 30000;
   var PENDING_MS = 2000;  // between readings of a title whose seasons' states are still to come
   var PENDING_ASKS = 5;
+  var ARR_LATE_MS = 2000; // till a title the Arr had not answered for is asked again, once
   var LATER_MS = 5000;    // till what another request is said to ask for is looked for again
   var CHECK_MS = 600;     // how long a check that was asked for shows at least
   var COPIED_MS = 2000;
@@ -894,6 +895,7 @@
     // Its cards may have been drawn before it was marked elsewhere.
     if (!data.draft && core.markOf(data) && window.MMWatch.marks) window.MMWatch.marks.paint(core.markOf(data), !!data.watched);
     if (c.atEpisodes) toEpisodes();
+    if (data.download && data.download.answered === false && !c.askedLate) askLate(c);
     if (hasFacts(c)) loadFacts(c);
     if (pollable()) schedulePoll(0);
   }
@@ -2851,12 +2853,26 @@
     askAgain(c).catch(function () {});
   }
 
-  /* Ask the open title again and show what its reply says. */
-  function askAgain(c) {
+  /* The open title's first answer came before the Arr's: what it knows of the download comes
+     on one more, unless a Download pressed meanwhile has said more. */
+  function askLate(c) {
+    c.askedLate = true;
+    var ref = c.ref;
+    var k = stateOf(ref);
+    var sent = k.sentAt;
+    var unpressed = function () { return k.sentAt === sent; };
+    setTimeout(function () {
+      if (c !== cur || !isOpen || c.ref !== ref || !unpressed()) return;
+      askAgain(c, unpressed).catch(function () {});
+    }, ARR_LATE_MS);
+  }
+
+  /* Ask the open title again and show what its reply says, if *still* (when given) holds. */
+  function askAgain(c, still) {
     var ref = c.ref;
     var asks = c.asks;
     return get(apiUrl(ref)).then(function (data) {
-      if (c !== cur || !isOpen || c.ref !== ref || asks !== c.asks) return;
+      if (c !== cur || !isOpen || c.ref !== ref || asks !== c.asks || (still && !still())) return;
       if (!takeReply(ref, data)) return;
       c.movedAt = Date.now();
       redrawActions(ref);

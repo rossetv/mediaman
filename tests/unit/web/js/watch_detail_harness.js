@@ -1266,6 +1266,49 @@ const scenarios = {
     return { answered: await run(true), unanswered: await run(false) };
   },
 
+  // A first answer before Radarr had: the page asks once more a little later, and draws what that says,
+  // unless the person has moved on or pressed Download meanwhile.
+  async radarrLate() {
+    const ref = 'tmdb-movie-77';
+    async function run(how) {
+      const answers = [];
+      let held = null;
+      const p = load({ routes: {
+        ['/api/watch/title/' + ref]: () => {
+          const first = !answers.length;
+          const dl = first && how !== 'answered' ? { state: null, answered: false } : { state: how === 'pressed' ? null : 'queued', answered: true };
+          const data = Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, dl) });
+          answers.push(dl);
+          if (!first && how === 'moved') return new Promise((resolve) => { held = () => resolve(data); });
+          return Promise.resolve(JSON.parse(JSON.stringify(data)));
+        },
+        '/api/watch/title/show-300': LIB_SHOW,
+      } });
+      p.run();
+      await openCard(p, ref);
+      p.q('[data-ttl-act="primary"]').focus();
+      const later = () => p.timers.filter((t) => t.fn && t.ms === 2000);
+      const waits = later().length;
+      if (how === 'pressed') {
+        click(p.doc, p.q('[data-ttl-act="primary"]'));
+        await settle();
+      }
+      later().forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+      await settle();
+      if (how === 'moved') {
+        await openCard(p, 'show-300');
+        if (held) held();
+        await settle();
+      }
+      later().forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+      await settle();
+      const asked = p.gets.filter((g) => g === '/api/watch/title/' + ref).length;
+      return { waits, asked, primary: primary(p).text, focus: p.doc.activeElement.getAttribute('data-ttl-act'),
+        told: p.events.filter((e) => e.ref === ref && e.download_state === 'queued').length };
+    }
+    return { late: await run('late'), answered: await run('answered'), moved: await run('moved'), pressed: await run('pressed') };
+  },
+
   // The status poll answers unknown (the Arr did not answer) for a queued download.
   async queuedThenUnknownOnPoll() {
     const p = load({ routes: {

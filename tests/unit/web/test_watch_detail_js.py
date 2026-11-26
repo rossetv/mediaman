@@ -1720,3 +1720,21 @@ def test_on_a_phone_an_admin_s_leaving_line_takes_them_to_the_keep_below() -> No
 
 def test_a_title_s_page_takes_its_rating_from_the_server_each_time_it_loads() -> None:
     assert _run("ratedElsewhere") == {"first": [1, 1], "again": [2, -2]}
+
+
+def test_a_film_opened_before_radarr_answered_is_asked_once_more_and_drawn_in_place() -> None:
+    out = _run("radarrLate")
+    assert out["late"] == {
+        "waits": 1,
+        "asked": 2,
+        "primary": "Queued",
+        "focus": "primary",
+        "told": 1,
+    }
+    # Radarr had answered: nothing more is asked.
+    assert (out["answered"]["waits"], out["answered"]["asked"]) == (0, 1)
+    # Another title opened meanwhile: the late answer is dropped.
+    assert (out["moved"]["asked"], out["moved"]["told"]) == (2, 0)
+    assert out["moved"]["primary"] == "Resume S2 · E4"
+    # Download pressed meanwhile: what it started stands.
+    assert (out["pressed"]["asked"], out["pressed"]["primary"]) == (1, "Queued")
