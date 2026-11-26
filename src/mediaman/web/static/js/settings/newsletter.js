@@ -249,8 +249,7 @@
         if (!baseNote) return;
         baseNote.replaceChildren();
         var text = setupNeeds();
-        // The answer beside the button may already say it: show the sentence once.
-        if (!text || (newsletterStatus && newsletterStatus.textContent === text)) return;
+        if (!text) return;
         var msg = makeMsg(text, 'err');
         msg.style.marginTop = '8px';
         baseNote.appendChild(msg);
@@ -475,7 +474,8 @@
             enableConfirm();
             btnConfirmNL.textContent = 'Send newsletter';
             var said = MM.api.messageOf(err, "Couldn't send. Try again.");
-            answer(said, 'err');
+            // The note above the buttons already says it: say it once, where it was.
+            if (said === setupNeeds()) clearStatus(); else answer(said, 'err');
             noteBaseUrl();
           });
       }
