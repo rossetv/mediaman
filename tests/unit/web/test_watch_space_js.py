@@ -230,10 +230,18 @@ class TestStorage:
                 "/m/<b>x</b> is empty or not mounted: 1 scheduled deletion is waiting",
                 "/media/tv is empty or not mounted: 3 scheduled deletions are waiting",
             ],
-            "off": "Deletions are off: set the delete folders in Settings (or MEDIAMAN_DELETE_ROOTS) "
+            "off": "Deletions are off: set MEDIAMAN_DELETE_ROOTS "
             "to the folders mediaman may delete from.",
         }
         assert _run("notices") == [pane, pane]
+
+    def test_the_deletions_off_notice_names_settings_only_if_settings_can_set_the_folders(self):
+        from mediaman.web.routes.settings.secrets import ALL_KEYS
+
+        off = _run("notices")[0]["off"]
+        assert "MEDIAMAN_DELETE_ROOTS" in off
+        if "delete_allowed_roots" not in ALL_KEYS:
+            assert "Settings" not in off
 
     def test_what_a_scan_would_not_delete_is_not_promised(self):
         out = _run("wouldFree")

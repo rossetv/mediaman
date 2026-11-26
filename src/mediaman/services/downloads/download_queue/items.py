@@ -223,7 +223,10 @@ def _build_unmatched_movie_item(
     abandon_visible_now: bool,
 ) -> DownloadItem:
     state = map_arr_status(
-        arr.get("status", ""), arr.get("tracked_state", ""), arr.get("tracked_status", "")
+        arr.get("status", ""),
+        arr.get("tracked_state", ""),
+        arr.get("tracked_status", ""),
+        arr.get("attention", ""),
     )
     if arr.get("finding_copy"):
         state = "finding_copy"

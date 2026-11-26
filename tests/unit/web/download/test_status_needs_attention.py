@@ -17,7 +17,7 @@ from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.download import reset_download_caches
 from mediaman.web.routes.download import router as download_router
 
-_WHY = "Single episode file contains all episodes in seasons. Review file name or manually import"
+_WHY = "No files found are eligible for import in /downloads/Alone.S12"
 _STUCK = {
     "title": "Alone.S12.1080p.WEB-DL",
     "series": {"id": 7, "title": "Alone", "tmdbId": 63726},

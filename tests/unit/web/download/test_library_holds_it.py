@@ -266,3 +266,56 @@ def test_a_film_added_in_radarr_is_dated_by_its_year_on_the_page_too(
     page = [r["readiness"] for r in client.get("/api/downloads").json()["recent"]]
 
     assert page == ["unknown"]
+
+
+def _mailed_page_state(conn, monkeypatch, *, radarr_year: int) -> str | None:
+    from mediaman.web.routes.download import confirm
+    from mediaman.web.routes.download.confirm import _resolve_download_state
+
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value, updated_at)"
+        " VALUES ('plex_libraries', '[1]', '2026-01-01')"
+    )
+    conn.commit()
+    movie = {"id": 12, "tmdbId": 12, "title": "Hollow Tide", "year": radarr_year, "hasFile": True}
+    monkeypatch.setattr(confirm, "read_download_state", lambda *a, **k: ("in_library", movie))
+    item: dict[str, object] = {"title": "Hollow Tide", "season_number": None}
+    _resolve_download_state(item, conn, 12, "k" * 64, "movie", None)
+    return item["download_state"]  # type: ignore[return-value]
+
+
+def test_the_mailed_page_on_a_fresh_load_waits_for_the_library_as_the_poll_does(
+    services, conn, monkeypatch
+):
+    assert _mailed_page_state(conn, monkeypatch, radarr_year=2024) == "queued"
+
+
+def test_the_mailed_page_says_already_in_the_library_once_the_library_holds_it(
+    services, conn, monkeypatch
+):
+    insert_media_item(
+        conn,
+        id="913",
+        title="Hollow Tide",
+        media_type="movie",
+        file_path="/media/movies/Hollow Tide (2024)/Hollow Tide.mkv",
+    )
+
+    assert _mailed_page_state(conn, monkeypatch, radarr_year=2024) == "in_library"
+
+
+def test_the_mailed_page_does_not_take_a_remake_in_the_library_for_the_film(
+    services, conn, monkeypatch
+):
+    insert_media_item(
+        conn,
+        id="913",
+        title="Hollow Tide",
+        media_type="movie",
+        file_path="/media/movies/Hollow Tide (2024)/Hollow Tide.mkv",
+    )
+    monkeypatch.setattr(
+        "mediaman.services.watch_catalog.held_details", lambda kind, n: {"year": 2024}
+    )
+
+    assert _mailed_page_state(conn, monkeypatch, radarr_year=2010) == "queued"

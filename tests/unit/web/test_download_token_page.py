@@ -25,6 +25,12 @@ from tests.helpers.factories import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _the_library_holds_every_title(monkeypatch):
+    """A title Radarr has the file of is in the library here."""
+    monkeypatch.setattr("mediaman.web.routes.download.confirm.library_title", lambda *a: "movie-1")
+
+
 def _valid_token(
     secret_key: str, title: str = "Dune", media_type: str = "movie", tmdb_id: int = 42
 ) -> str:
