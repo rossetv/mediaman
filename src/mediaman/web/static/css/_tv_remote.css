@@ -210,7 +210,7 @@ html:has(.tv-mini:not([hidden])):has(.setg-pg .savebar.on) { scroll-padding-bott
   body:has(> .tv-mini:not([hidden])) .ui-toast-host { --toast-bottom: 88px; }
   body:has(> .tv-mini:not([hidden])):has(.setg-rail) .ui-toast-host { --toast-bottom: 160px; }
   /* The search's sheet stands clear of it; a keyboard has it covered already. */
-  body:has(> .tv-mini:not([hidden])) .watch-sheet { max-height: min(var(--seen, 100dvh) - 88px, 100dvh - 160px); }
+  body:has(> .tv-mini:not([hidden])) .watch-sheet { max-height: min(var(--seen, 100dvh) - 88px, 100dvh - 166px); }
 }
 /* A title's page is over the whole page, and the bar over it. */
 html.has-ttl .tv-mini { z-index: calc(var(--z-modal) + 1); bottom: max(16px, env(safe-area-inset-bottom)); }

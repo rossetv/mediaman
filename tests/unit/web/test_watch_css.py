@@ -581,7 +581,7 @@ def _last(name: str, css: str) -> str:
 
 def _px(value: str, foot: int, height: int) -> float:
     """What a length of a window *height* high with *foot* at its foot comes to in pixels."""
-    wide_nav = _last("--nav-h", _of(":root", sheet=SHEET.with_name("_tokens.css")))
+    wide_nav = _last("--nav-h", _of(":root", sheet=SHEET.with_name("_nav.css")))
     value = re.sub(r"env\([^()]*\)", "0px", value)
     for name, px in (("--foot", f"{foot}px"), ("--nav-h", wide_nav), ("--seen", "100dvh")):
         value = re.sub(rf"var\({name}(?:, [^()]+)?\)", px, value)
@@ -623,10 +623,18 @@ def test_a_phone_s_tv_bar_is_above_the_foot_and_below_toasts_and_what_is_scrolle
     assert _px(_last("scroll-padding-bottom", scrolled), foot, 844) >= over
 
 
-def test_an_error_page_on_a_phone_is_as_high_as_the_screen_less_the_nav() -> None:
-    nav = _last("--nav-h", _of(":root", PHONE, SHEET.with_name("_nav.css")))
-    page = _of("body:has(> .nav-glass) .login-page", PHONE, SHEET.with_name("_error.css"))
-    assert _last("min-height", page) == f"calc(100vh - {nav})"
+def test_an_error_page_is_as_high_as_the_screen_less_the_nav_at_every_width() -> None:
+    error = SHEET.with_name("_error.css")
+    page = _of("body:has(> .nav-glass) .login-page", sheet=error)
+    assert _last("min-height", page) == "calc(100vh - var(--nav-h))"
+    assert _of("body:has(> .nav-glass) .login-page", PHONE, error) == ""
+
+
+def test_the_nav_s_height_is_set_in_the_nav_sheet_alone() -> None:
+    css = SHEET.parent
+    assert "--nav-h:" not in _of(":root", sheet=css / "_tokens.css")
+    assert _last("--nav-h", _of(":root", sheet=css / "_nav.css")) == "72px"
+    assert _last("--nav-h", _of(":root", PHONE, css / "_nav.css")) == "64px"
 
 
 def test_a_row_kept_at_its_start_does_not_snap_whatever_its_script_sets_inline() -> None:
