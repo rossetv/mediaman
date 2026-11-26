@@ -1075,7 +1075,8 @@ def test_an_empty_library_says_so_and_what_to_do_next(
     assert "Nothing to watch yet" in text
     assert says.lower() in text.lower()
     assert never.lower() not in text.lower()
-    assert ('href="/settings"' in text) is admin
+    assert ('href="/settings#setg-general"' in text) is admin
+    assert ("Sync now" in text) is admin
 
 
 def test_a_library_with_titles_or_a_plex_error_has_no_empty_state() -> None:
