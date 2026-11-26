@@ -1288,6 +1288,15 @@ def test_tonight_shows_what_fits_the_time_pressed_last() -> None:
     assert out["opened"] == [["movie-1"], True]
 
 
+def test_tonight_names_its_longest_time_the_same_in_its_long_short_and_spoken_words() -> None:
+    source = (Path(__file__).parents[3] / "src/mediaman/web/static/js/watch/tonight.js").read_text(
+        encoding="utf-8"
+    )
+    assert "name: 'All evening'" in source
+    assert "short: 'Evening'" in source
+    assert "said: 'the evening'" in source
+
+
 def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_library() -> None:
     out = _run("tonight")
     assert out["groups"] == ["Ready to play", "Not in your libraryOpen one to download it"]
@@ -1298,7 +1307,7 @@ def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_l
         ["Film 3", "/watch/movie/3", "S2 · E3 · 20 min left", "option"],
     ]
     # Where "All evening" would wrap, the panel shows this word in its place.
-    assert out["short"] == [None, None, None, None, "Night"]
+    assert out["short"] == [None, None, None, None, "Evening"]
     assert out["away"] == [
         ["Away 1", "#title=tmdb-movie-1", "Movie · 1 h 35 min", "option"],
         ["Away 2", "#title=tmdb-tv-2", "TV · 22 min episodes", "option"],

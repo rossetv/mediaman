@@ -14,7 +14,7 @@ FORCED = "(forced-colors: active)"
 def _of(selector: str, media: str | None = None, sheet: Path = SHEET) -> str:
     """The declarations of *selector* outside any `@media`, or inside those asking for *media*."""
     css = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.S)
-    blocks = r"@media ([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}"
+    blocks = r"@(?:media|container) ([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}"
     text = (
         "".join(body for query, body in re.findall(blocks, css) if media in query)
         if media
@@ -581,9 +581,23 @@ def test_tonight_s_titles_break_between_words_on_cards_as_wide_as_the_rows() -> 
 
 
 def test_tonight_s_longest_time_has_a_shorter_word_where_it_would_wrap() -> None:
-    narrow = "(max-width: 359.98px)"
+    narrow = "(max-width: 409.98px)"
     assert "font-size: 0" in _of(".tn__seg > button[data-short]", narrow, ASK)
     assert "attr(data-short)" in _of(".tn__seg > button[data-short]::before", narrow, ASK)
+    # The width it is judged by is the panel's own, so it holds at any page width.
+    assert "container-type: inline-size" in _of(".tn__head", sheet=ASK)
+    assert "white-space: normal" not in _of(".tn__seg > button", "(max-width: 599.98px)", ASK)
+    assert "white-space: nowrap" in _of(".tn__seg > button", sheet=ASK)
+
+
+def test_tonight_s_five_times_keep_44px_each_at_320() -> None:
+    # Box padding 10 each side, border 1, page padding 16: the segment's room is left over.
+    assert "padding-inline: 10px" in _of(".tn", "(max-width: 339.98px)", ASK)
+
+
+def test_tonight_s_row_of_cards_fades_at_its_edge_on_a_phone() -> None:
+    row = _of(".tn__list", "(max-width: 599.98px)", ASK)
+    assert "mask-image: linear-gradient(90deg" in row and "transparent" in row
 
 
 def test_an_ai_pick_s_sparkle_has_a_backplate_of_its_own_in_forced_colours() -> None:

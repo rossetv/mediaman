@@ -16,7 +16,7 @@
     { name: '1½ h', minutes: 90, said: 'an hour and a half' },
     { name: '2 h', minutes: 120, said: 'two hours' },
     // The most the server takes: no limit.
-    { name: 'All evening', minutes: 720, said: 'an evening', short: 'Night' }
+    { name: 'All evening', minutes: 720, said: 'the evening', short: 'Evening' }
   ];
   var SET = 6; // outlines while the first set comes: the server says how many a set holds
   var COUNTS = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'];

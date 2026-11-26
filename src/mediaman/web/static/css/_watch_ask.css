@@ -25,7 +25,7 @@
 /* ── Tonight ── */
 
 .tn { padding: 14px; border: 1px solid var(--hair); border-radius: 16px; background: var(--s2); }
-.tn__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.tn__head { container-type: inline-size; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .tn__head > b { font-size: 15px; font-weight: 600; }
 .tn__seg { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); padding: 3px; border-radius: 22px; background: var(--rgba-overlay-sm); }
 .tn__seg > i { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 5); border-radius: 19px; background: var(--s5); opacity: 0; transition: transform var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
@@ -140,11 +140,13 @@ a.chip { text-decoration: none; }
 @media (hover: none) { .ask__key { display: none; } }
 @media (max-width: 599.98px) {
   .tn__head { flex-direction: column; align-items: stretch; }
-  .tn__seg > button { min-width: 0; padding: 0 4px; line-height: 1.15; white-space: normal; overflow-wrap: anywhere; }
+  .tn__seg > button { min-width: 0; padding: 0 4px; }
   /* A row to swipe, as the page's own rows are on a phone: the next card peeks in. */
   .tn__list { display: flex; margin: -4px -4px; padding: 4px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding-inline: 4px; scrollbar-width: none; }
   .tn__list::-webkit-scrollbar { display: none; }
   .tn__list > .watch-card { flex: 0 0 120px; scroll-snap-align: start; }
+  /* The card at the edge fades out as the page's rows' do, so a cut one reads as more to swipe to. */
+  .tn__list { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
   .ask__key { display: none; }
   /* Two lines of its words and one of what it says under them: its height holds as Stop goes and they rewrap. */
   .ask__row { min-height: calc(2 * 1.3 * 16px + 1px + 1.35 * 13px + 18px); }
@@ -163,10 +165,15 @@ a.chip { text-decoration: none; }
   .refine.is-wrap > * { flex: initial; }
 }
 @media (max-width: 419.98px) { .tn__seg > button { padding: 0; font-size: 12.5px; } }
-/* Too narrow for "All evening" on one line: the shorter word shows, and the whole is still read out. */
-@media (max-width: 359.98px) {
+/* Too narrow for "All evening" on one line: "Evening" shows, and the whole is still read out. */
+@container (max-width: 409.98px) {
   .tn__seg > button[data-short] { font-size: 0; }
   .tn__seg > button[data-short]::before { content: attr(data-short); content: attr(data-short) / ""; font-size: 12.5px; }
+}
+/* The box's own padding gives way so five times keep 44 px each at 320. */
+@media (max-width: 339.98px) {
+  .tn { padding-inline: 10px; }
+  .tn__seg > button[data-short]::before { font-size: 11.5px; }
 }
 /* Two where three would cut a long word of a title, as the grid does. */
 @media (max-width: 359.98px) {
