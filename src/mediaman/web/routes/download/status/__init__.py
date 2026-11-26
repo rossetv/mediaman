@@ -27,8 +27,9 @@ from mediaman.services.downloads.download_format import (
     build_item,
     map_queue_state,
 )
-from mediaman.services.downloads.download_format._types import DownloadItem, state_label
+from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.notifications import requested_tvdb_id
+from mediaman.services.downloads.strip import WAITING_LINE
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
@@ -206,12 +207,12 @@ def _playable(
     year: int | None = None,
 ) -> DownloadItem:
     """*item*, ready only once the library holds its title, as Downloads and the strip say;
-    almost ready until then."""
+    until then almost ready, and said to be on its way to the library."""
     if item["state"] != "ready":
         return item
     if library_title(library_of(conn, secret_key), kind, tmdb_id, item["title"], year) is not None:
         return item
-    return {**item, "state": "almost_ready", "state_label": state_label("almost_ready")}
+    return {**item, "state": "almost_ready", "state_label": WAITING_LINE}
 
 
 def _cached_status(
