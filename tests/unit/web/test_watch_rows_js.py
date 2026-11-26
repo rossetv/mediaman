@@ -96,3 +96,13 @@ def test_cards_that_load_or_leave_neither_add_a_tab_stop_nor_lose_the_row() -> N
     assert out["loaded"] == {"at": "link 4", "stops": [], "end": "link 8"}
     assert out["taken"] == ["row"]
     assert out["again"] == "link 5"
+
+
+def test_a_row_that_is_its_own_viewport_marks_only_the_ends_with_more_beyond_them() -> None:
+    out = _run("followEdges")
+    assert out == {
+        "start": [False, True],
+        "middle": [True, True],
+        "end": [True, False],
+        "back": [False, True],
+    }

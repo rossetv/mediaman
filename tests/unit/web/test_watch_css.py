@@ -590,6 +590,14 @@ def test_tonight_s_longest_time_has_a_shorter_word_where_it_would_wrap() -> None
     assert "white-space: nowrap" in _of(".tn__seg > button", sheet=ASK)
 
 
+def test_tonight_s_times_wrap_rather_than_overlap_where_five_44px_ones_do_not_fit() -> None:
+    narrow = "(max-width: 259.98px)"
+    assert "flex-wrap: wrap" in _of(".tn__seg", narrow, ASK)
+    assert "flex: 1 0 44px" in _of(".tn__seg > button", narrow, ASK)
+    assert "display: none" in _of(".tn__seg > i", narrow, ASK)
+    assert "background: var(--s5)" in _of('.tn__seg > button[aria-checked="true"]', narrow, ASK)
+
+
 def test_tonight_s_five_times_keep_44px_each_at_320() -> None:
     # Box padding 10 each side, border 1, page padding 16: the segment's room is left over.
     assert "padding-inline: 10px" in _of(".tn", "(max-width: 339.98px)", ASK)
@@ -597,7 +605,9 @@ def test_tonight_s_five_times_keep_44px_each_at_320() -> None:
 
 def test_tonight_s_row_of_cards_fades_at_its_edge_on_a_phone() -> None:
     row = _of(".tn__list", "(max-width: 599.98px)", ASK)
-    assert "mask-image: linear-gradient(90deg" in row and "transparent" in row
+    assert "var(--watch-fade-l)" in row and "var(--watch-fade-r)" in row
+    assert "--watch-fade-l" in _of(".tn__list.has-prev", "(max-width: 599.98px)", ASK)
+    assert "--watch-fade-r" in _of(".tn__list.has-next", "(max-width: 599.98px)", ASK)
 
 
 def test_an_ai_pick_s_sparkle_has_a_backplate_of_its_own_in_forced_colours() -> None:

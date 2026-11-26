@@ -2867,6 +2867,8 @@ scenarios.tonight = async () => {
   const item = (n, more) => ({ ref: 'movie-' + n, kind: 'movie', title: 'Film ' + n, year: 2020, minutes: 100, season: null, episode: null, left: false, genre: 'Drama', reason: 'why', poster_url: '/api/poster/' + n, href: '/watch/movie/' + n, in_library: true, tmdb_ref: 'tmdb-movie-' + n, ...more });
   const away = (n, more) => ({ ref: 'tmdb-movie-' + n, kind: 'movie', title: 'Away ' + n, year: 2021, minutes: 95, in_library: false, library_ref: null, href: null, poster_url: '/img/' + n, can_download: false, ...more });
   const p = await asking();
+  const followed = [];
+  p.ctx.MMWatch.rows = { followEdges: (box) => followed.push(box.className) };
   p.press(); await settle();
   const out = {};
   p.key('ArrowDown');
@@ -2895,6 +2897,7 @@ scenarios.tonight = async () => {
     return part ? part.querySelectorAll('.watch-card__link').map((a) => [a.querySelector('.watch-card__title').textContent, a.href, a.querySelector('.watch-card__sub').textContent, a.getAttribute('role')]) : null;
   };
   const foot = () => [p.sheet.querySelector('.tn__foot').querySelector('span').textContent, p.sheet.querySelector('.tn__foot').querySelector('.txt').hidden ? null : p.sheet.querySelector('.tn__foot').querySelector('.txt').textContent];
+  out.followed = followed;
   out.groups = p.sheet.querySelectorAll('.tn__group').map((g) => g.textContent);
   out.ready = cards(0);
   out.away = cards(1);

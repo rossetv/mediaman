@@ -1300,6 +1300,8 @@ def test_tonight_names_its_longest_time_the_same_in_its_long_short_and_spoken_wo
 def test_tonight_puts_what_plays_now_on_poster_cards_before_what_is_not_in_the_library() -> None:
     out = _run("tonight")
     assert out["groups"] == ["Ready to play", "Not in your libraryOpen one to download it"]
+    # Each row of cards has its ends marked as the page's rows do (one for the set that was replaced).
+    assert out["followed"] == ["tn__list"] * len(out["followed"]) and len(out["followed"]) >= 2
     assert out["ready"] == [
         ["Film 1", "/watch/movie/1", "2020 · 1 h 40 min", "option"],
         ["Film 2", "/", "S7 · E4 · 43 min", "option"],

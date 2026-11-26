@@ -142,6 +142,7 @@
       box.setAttribute('role', 'group');
       box.setAttribute('aria-label', title);
       cards.forEach(function (c) { box.appendChild(c); });
+      if (window.MMWatch.rows) window.MMWatch.rows.followEdges(box);
       return part;
     }
 

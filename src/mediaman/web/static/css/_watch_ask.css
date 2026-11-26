@@ -145,8 +145,10 @@ a.chip { text-decoration: none; }
   .tn__list { display: flex; margin: -4px -4px; padding: 4px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding-inline: 4px; scrollbar-width: none; }
   .tn__list::-webkit-scrollbar { display: none; }
   .tn__list > .watch-card { flex: 0 0 120px; scroll-snap-align: start; }
-  /* The card at the edge fades out as the page's rows' do, so a cut one reads as more to swipe to. */
-  .tn__list { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+  /* Each end fades only while there is more beyond it, as the page's rows do (watch-rows.js sets the classes). */
+  .tn__list { -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--watch-fade-l), #000 calc(100% - var(--watch-fade-r)), transparent); mask-image: linear-gradient(90deg, transparent, #000 var(--watch-fade-l), #000 calc(100% - var(--watch-fade-r)), transparent); transition: --watch-fade-l var(--dur) var(--ease-out), --watch-fade-r var(--dur) var(--ease-out); }
+  .tn__list.has-prev { --watch-fade-l: 24px; }
+  .tn__list.has-next { --watch-fade-r: 24px; }
   .ask__key { display: none; }
   /* Two lines of its words and one of what it says under them: its height holds as Stop goes and they rewrap. */
   .ask__row { min-height: calc(2 * 1.3 * 16px + 1px + 1.35 * 13px + 18px); }
@@ -169,6 +171,13 @@ a.chip { text-decoration: none; }
 @container (max-width: 409.98px) {
   .tn__seg > button[data-short] { font-size: 0; }
   .tn__seg > button[data-short]::before { content: attr(data-short); content: attr(data-short) / ""; font-size: 12.5px; }
+}
+/* Too narrow for five 44 px times in a line: they wrap, and the picked one is painted itself, as the sliding pill cannot follow. */
+@container (max-width: 259.98px) {
+  .tn__seg { display: flex; flex-wrap: wrap; }
+  .tn__seg > i { display: none; }
+  .tn__seg > button { flex: 1 0 44px; }
+  .tn__seg > button[aria-checked="true"] { background: var(--s5); }
 }
 /* The box's own padding gives way so five times keep 44 px each at 320. */
 @media (max-width: 339.98px) {
