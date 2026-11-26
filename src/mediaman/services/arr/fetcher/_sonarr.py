@@ -324,6 +324,8 @@ def _build_still_searching_cards(
             release_label=release_label,
         )
         card["stuck_seasons"] = seasons
+        if tmdb_id := series.get("tmdbId"):
+            card["tmdb_id"] = tmdb_id
         items.append(card)
     return items
 

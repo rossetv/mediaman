@@ -224,7 +224,9 @@ def test_the_strip_passes_on_no_other_service_s_poster(services, conn):
     assert told.poster_url == ""
 
 
-def test_the_page_counts_in_progress_what_the_header_does_while_a_service_is_down(services, client):
+def test_a_page_opened_while_a_service_is_down_claims_no_download_it_does_not_show(
+    services, client
+):
     radarr, _, _, _ = services
     radarr.get_movies.return_value = [
         {**_movie(n, title), "hasFile": False, "isAvailable": True}
@@ -235,5 +237,61 @@ def test_the_page_counts_in_progress_what_the_header_does_while_a_service_is_dow
 
     data = client.get("/api/downloads").json()
 
-    assert data["strip"]["summary"]["total"] == 2
-    assert data["subtitle"] == "2 items in progress · can't reach Radarr"
+    assert (data["hero"], data["queue"]) == (None, [])
+    assert data["subtitle"] == "Can't reach Radarr"
+
+
+def _show_downloading(tmdb_id: int, title: str) -> dict[str, object]:
+    return {
+        "title": f"{title}.S01E01.1080p",
+        "series": {
+            "id": tmdb_id,
+            "title": title,
+            "tmdbId": tmdb_id,
+            "images": [{"coverType": "poster", "remoteUrl": "https://artworks.thetvdb.com/1.jpg"}],
+        },
+        "episode": {"seasonNumber": 1, "episodeNumber": 1, "title": "One"},
+        "status": "downloading",
+        "size": 100,
+        "sizeleft": 40,
+        "downloadId": str(tmdb_id),
+    }
+
+
+def test_a_show_whose_own_poster_is_another_service_s_gets_the_one_the_app_holds(
+    services, client, conn, monkeypatch
+):
+    told = {77: {"poster_url": "/api/watch/img/tmdb/w342/s77.jpg"}}
+    monkeypatch.setattr("mediaman.services.watch_catalog.held_details", lambda _k, n: told.get(n))
+    insert_media_item(
+        conn,
+        id="501",
+        title="Season 1",
+        show_title="Grey Shore",
+        media_type="tv_season",
+        season_number=1,
+        show_rating_key="500",
+        tmdb_id=78,
+    )
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES ('plex_libraries', '[1]', '2026-01-01')"
+    )
+    conn.commit()
+    services[1].get_queue.return_value = [
+        _show_downloading(77, "Told Of"),
+        _show_downloading(78, "Grey Shore"),
+        _show_downloading(79, "Never Seen"),
+    ]
+
+    data = client.get("/api/downloads").json()
+    on_strip = {
+        i["title"]: i["poster_url"] for i in client.get("/api/downloads/strip").json()["items"]
+    }
+
+    posters = {i["title"]: i["poster_url"] for i in [data["hero"], *data["queue"]]}
+    assert on_strip == posters
+    assert posters == {
+        "Told Of": "/api/watch/img/tmdb/w342/s77.jpg",
+        "Grey Shore": "/api/poster/500",
+        "Never Seen": "",
+    }

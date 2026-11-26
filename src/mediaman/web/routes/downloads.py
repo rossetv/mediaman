@@ -33,6 +33,8 @@ from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.responses import respond_failure
 from mediaman.web.routes.download import drop_arr_cache
+from mediaman.web.routes.downloads_strip import held_poster, library_title
+from mediaman.web.routes.poster.title_art import title_art
 
 router = APIRouter()
 
@@ -54,24 +56,48 @@ def _ring(data: DownloadsResponse, asked_at: float, *, admin: bool) -> dict[str,
     return {**strip.payload(answer, admin=admin), "items": []} if answer else None
 
 
+def _tmdb_id_of(item: dict[str, object]) -> int | None:
+    """The TMDB id of a download: its own, or the one in a film's id."""
+    dl_id, title, tmdb_id = str(item["id"]), str(item["title"]), item.get("tmdb_id")
+    if isinstance(tmdb_id, int) and tmdb_id:
+        return tmdb_id
+    return int(dl_id.rpartition("#")[2]) if is_film_id(dl_id, title) else None
+
+
+def _library_ref(item: dict[str, object], index: catalog.LibraryIndex) -> str | None:
+    kind = "movie" if item.get("media_type") == "movie" else "tv"
+    return library_title(index, kind, _tmdb_id_of(item), str(item["title"]))
+
+
 def _in_library(item: dict[str, object], index: catalog.LibraryIndex) -> bool:
-    """Whether the library holds the title of a recent download: a film by the TMDB id in its
-    id where it has one, else by its title."""
-    dl_id, title = str(item["id"]), str(item["title"])
-    if item.get("media_type") != "movie":
-        return catalog.normalise_title(title) in index.shows_by_title
-    if is_film_id(dl_id, title):
-        return int(dl_id.rpartition("#")[2]) in index.movies_by_tmdb
-    return catalog.normalise_title(title) in index.movies_by_title
+    """Whether the title of a recent download is there to play."""
+    return _library_ref(item, index) is not None
 
 
-def _mark_unplayable(
-    conn: sqlite3.Connection, secret_key: str, recent: list[dict[str, object]]
-) -> None:
-    """Say of a recent download the library does not hold yet that it was only added: it is
-    not there to play."""
-    if not recent:
-        return
+def _poster(item: dict[str, object], index: catalog.LibraryIndex) -> str:
+    """Its poster at mediaman's own address: TMDB's, the one TMDB told of its title before, or
+    the library's; "" when the app knows none."""
+    own = tmdb_image_url(item.get("poster_url") or "", "w342")
+    if own:
+        return own
+    tmdb_id = _tmdb_id_of(item)
+    kind = "movie" if item.get("media_type") == "movie" else "tv"
+    known = held_poster(kind, tmdb_id) if tmdb_id else ""
+    ref = None if known else _library_ref(item, index)
+    return known or (title_art(ref.partition("-")[2])["poster_url"] if ref else "")
+
+
+def _page_payload(
+    conn: sqlite3.Connection, secret_key: str, *, admin: bool
+) -> tuple[DownloadsResponse, dict[str, object] | None]:
+    """The downloads with posters at mediaman's own address, so a browser here never calls
+    TMDB or another service, and films of one title by their labels; and what the header's
+    ring is told of them. A recent download the library does not hold yet was only added. A
+    viewer is not told of a refused key. Copies: completion detection keeps the items as they
+    came.
+    """
+    asked_at = strip.on_page.now()
+    data = build_downloads_response(conn, secret_key)
     index = catalog.library_index(
         conn,
         TmdbClient.from_db(conn, secret_key),
@@ -79,27 +105,11 @@ def _mark_unplayable(
         lib.library_movies,
         lib.library_shows,
     )
-    for item in recent:
-        if not _in_library(item, index):
-            item["readiness"] = "unknown"
-
-
-def _page_payload(
-    conn: sqlite3.Connection, secret_key: str, *, admin: bool
-) -> tuple[DownloadsResponse, dict[str, object] | None]:
-    """The downloads with TMDB posters at mediaman's own address, so a browser here never
-    calls TMDB or another service's, and films of one title by their labels; and what the
-    header's ring is told of them, whose count the subtitle gives too. Copies: completion
-    detection keeps the items as they came. A viewer is not told of a refused key.
-    """
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         title = item.get("label") or item["title"]
-        poster = tmdb_image_url(item.get("poster_url") or "", "w342") or ""
-        return {**item, "title": title, "poster_url": poster}
+        return {**item, "title": title, "poster_url": _poster(item, index)}
 
-    asked_at = strip.on_page.now()
-    data = build_downloads_response(conn, secret_key)
     page: DownloadsResponse = {
         **data,
         "hero": shown(data["hero"]) if data["hero"] else None,
@@ -107,19 +117,14 @@ def _page_payload(
         "upcoming": [shown(item) for item in data["upcoming"]],
         "recent": [shown(item) for item in data["recent"]],
     }
-    _mark_unplayable(conn, secret_key, page["recent"])
-    ring = _ring(data, asked_at, admin=admin)
+    for item in page["recent"]:
+        if not _in_library(item, index):
+            item["readiness"] = "unknown"
     if not admin and data["refused"]:
         page["outage"], page["refused"] = VIEWER_OUTAGE, []
-    # The header's count, which holds what a service that does not answer last had.
-    summary = cast(dict[str, int], ring["summary"]) if ring else None
-    active = (
-        summary["total"] - summary["ready"]
-        if summary
-        else (1 if page["hero"] else 0) + len(page["queue"])
-    )
-    page["subtitle"] = downloads_subtitle(active, len(page["upcoming"]), page["outage"])
-    return page, ring
+        rows = (1 if page["hero"] else 0) + len(page["queue"])
+        page["subtitle"] = downloads_subtitle(rows, len(page["upcoming"]), page["outage"])
+    return page, _ring(data, asked_at, admin=admin)
 
 
 def _former_id(item: dict[str, object]) -> str | None:

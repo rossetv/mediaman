@@ -95,9 +95,10 @@ def _with_title(
     item: StripItem, index: catalog.LibraryIndex, arr: catalog.ArrView, *, shown: bool
 ) -> StripItem:
     poster = catalog.tmdb_image_url(item.poster_url, "w342") or ""
-    if item.tmdb_id is None or item.tmdb_id > _MAX_TMDB_ID:
-        return replace(item, poster_url=poster, line=_ready_line(item, None))
     kind = "movie" if item.kind == "movie" else "tv"
+    if item.tmdb_id is None or item.tmdb_id > _MAX_TMDB_ID:
+        poster = poster or _library_poster(index, kind, None, item.title)
+        return replace(item, poster_url=poster, line=_ready_line(item, None))
     held = index.library_ref(kind, item.tmdb_id, item.title, arr)
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
     art = _fanart(item, arr)
@@ -110,6 +111,7 @@ def _with_title(
         own = title_art(held.partition("-")[2])
         poster = poster or own["poster_url"]
         art = art or own["backdrop_url"]
+    poster = poster or _library_poster(index, kind, item.tmdb_id, item.title)
     return replace(
         item,
         ref=ref,
@@ -120,10 +122,31 @@ def _with_title(
     )
 
 
+def library_title(
+    index: catalog.LibraryIndex, kind: str, tmdb_id: int | None, title: str
+) -> str | None:
+    """The library title ("movie" or "tv") by its TMDB id where that is known, a show's else by
+    its title, as a film's is only where its TMDB id is not known; None when it is not held."""
+    name = catalog.normalise_title(title)
+    if kind == "movie":
+        return index.movies_by_tmdb.get(tmdb_id) if tmdb_id else index.movies_by_title.get(name)
+    return (index.shows_by_tmdb.get(tmdb_id) if tmdb_id else None) or index.shows_by_title.get(name)
+
+
+def _library_poster(index: catalog.LibraryIndex, kind: str, tmdb_id: int | None, title: str) -> str:
+    ref = library_title(index, kind, tmdb_id, title)
+    return title_art(ref.partition("-")[2])["poster_url"] if ref else ""
+
+
 def _ready_line(item: StripItem, held: str | None) -> str:
     """What a download that is done says: that it was added, until the library holds the
     title it plays."""
     return "Added" if item.state == "ready" and held is None else item.line
+
+
+def held_poster(kind: str, tmdb_id: int) -> str:
+    """The poster TMDB told of a title before, at mediaman's own address; "" when none."""
+    return str(_held(kind, tmdb_id).get("poster_url") or "")
 
 
 def _held(kind: str, tmdb_id: int) -> dict[str, Any]:
