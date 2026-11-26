@@ -44,6 +44,7 @@ def _tracks(columns: str | None) -> int:
 ROW = ".dl-compact > .dl-row"
 WITH_BUTTON = ".dl-compact > .dl-row--has-abandon"
 WIDE = _media("(min-width: 375px)")
+ROOMY = _media("(min-width: 640px)")
 NARROW = _media("(max-width: 374.98px)")
 
 
@@ -51,6 +52,19 @@ def test_a_rows_abandon_button_has_a_column_of_its_own_at_the_rows_end() -> None
     plain = _value(_top_level(), ".dl-compact-row", "grid-template-columns")
     assert _tracks(_value(WIDE, WITH_BUTTON, "grid-template-columns")) == _tracks(plain) + 1
     assert _value(_top_level(), ".dl-compact .dl-row-abandon", "grid-area") == "1 / -2"
+
+
+def test_rows_without_the_button_keep_its_column_so_percentages_line_up_down_the_list() -> None:
+    aligned = [
+        sel.strip()
+        for sels, _ in re.findall(r"([^{}]+)\{([^{}]*)\}", ROOMY)
+        for sel in sels.split(",")
+        if ":has(" in sel and ".dl-row--has-abandon" in sel
+    ]
+    assert aligned, "no rule for the rows beside one with the button"
+    columns = {_value(ROOMY, sel, "grid-template-columns") for sel in aligned}
+    columns.add(_value(WIDE, WITH_BUTTON, "grid-template-columns"))
+    assert len(columns) == 1
 
 
 def test_on_a_narrow_phone_the_button_is_the_only_extra_column() -> None:
