@@ -255,9 +255,11 @@
   }
 
   function keptIn(what) { return 'Your place in ' + what.title + ' is kept.'; }
-  function place_kept(before, last) {
-    if (last && last.saved === false) return before + ' Your place couldn’t be saved.';
-    return last && last.position_s ? before + ' Your place is saved at ' + fmt(last.position_s) + '.' : before;
+  // `whose` names the person a film of someone else's was started by.
+  function place_kept(before, last, whose) {
+    var place = whose ? ' ' + whose + '’s place' : ' Your place';
+    if (last && last.saved === false) return before + place + ' couldn’t be saved.';
+    return last && last.position_s ? before + place + ' is saved at ' + fmt(last.position_s) + '.' : before;
   }
 
   /* The TV is no longer the person's: 410 says why while it is fresh, 404 says nothing. */
@@ -550,7 +552,7 @@
     function done(last) {
       leaving = null;
       if (then) { then(last || p); return; }
-      say(was.ended ? 'Disconnected from ' + was.name + '.' : place_kept('Stopped.', last));
+      say(was.ended ? 'Disconnected from ' + was.name + '.' : place_kept('Stopped.', last, p.mine === false ? p.by : null));
       close();
       render();
       tick();
@@ -831,7 +833,8 @@
     MM.dom.setText(els.on, coming ? 'Bringing it here' : (loading ? 'Starting on ' : gone || isLost() ? 'Was playing on '
       : isEnd ? 'Finished on ' : isOff() ? 'Playing on '
         : p.state === 'failed' ? 'Couldn’t play on ' : p.state === 'upnext' ? 'Finished on '
-          : isPaused() || p.state === 'still' ? 'Paused on ' : 'Playing on ') + name());
+          : isPaused() && p.paused_by ? 'Paused by ' + p.paused_by + ' on '
+            : isPaused() || p.state === 'still' ? 'Paused on ' : 'Playing on ') + name());
     MM.dom.setText(els.hint, hintFor(p));
 
     var steers = canSteer();

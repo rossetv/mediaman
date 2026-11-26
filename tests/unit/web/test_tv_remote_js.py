@@ -91,6 +91,12 @@ def test_anothers_film_is_named_as_theirs_and_their_pause_as_by_them() -> None:
     assert out["paused"] == "Paused by maren"
 
 
+def test_the_remote_says_who_paused_anothers_film_and_whose_place_its_stop_kept() -> None:
+    out = _run("anothers")
+    assert out["on"] == "Paused by maren on Living room"
+    assert out["toasts"] == ["Stopped. maren’s place is saved at 20:00."]
+
+
 def test_a_refused_pause_is_taken_back_and_said() -> None:
     assert _run("refused") == {"says": "Playing on Living room", "toast": 1}
 

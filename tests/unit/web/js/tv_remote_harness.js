@@ -342,6 +342,10 @@ const scenarios = {
     Object.assign(p.api.tvs[0].play, { state: 'paused', paused_by: 'maren' });
     await p.pass(5000);
     out.paused = p.bar().says;
+    out.on = p.$('[data-on]').textContent;
+    await p.press('#tv-remote [data-stop]');
+    await p.pass(1000);
+    out.toasts = p.toasts;
     return out;
   },
   async refused() {
