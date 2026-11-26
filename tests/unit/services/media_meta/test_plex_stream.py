@@ -1840,9 +1840,7 @@ def test_a_start_made_by_itself_goes_through_once_the_later_page_s_stream_was_re
     assert manager.get(laptop, "alice")
 
 
-def test_a_start_made_by_itself_goes_through_once_the_later_page_s_stream_was_ended(
-    manager, clock
-):
+def test_a_start_made_by_itself_goes_through_once_the_later_page_s_stream_was_ended(manager, clock):
     phone = _start(manager, page="phone-page")
     clock.now += 1
     manager.end(phone, "alice")
@@ -1863,3 +1861,39 @@ def test_a_stream_ended_to_make_room_keeps_its_late_save_and_gives_up_its_claim(
     assert manager.reaped(phone, "alice").rating_key == "1"
     laptop = _start(manager, rating_key="1", page="laptop-page", asked_ago=200.0)
     assert manager.get(laptop, "alice")
+
+
+def test_starts_at_once_against_one_silent_stream_take_its_place_only_once(manager, plex, clock):
+    silent = _start(manager, rating_key="1")
+    live = [_start(manager, rating_key=str(k + 2)) for k in range(MAX_STREAMS_PER_USER - 1)]
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS + 1
+    for kept in live:
+        manager.get(kept, "alice")
+    live_sessions = {_session_of(plex, n) for n in (1, 2)}
+    starts = 3
+    # Every start is inside Plex before any is stored, so all of them passed the first check.
+    opened = threading.Barrier(starts, timeout=5)
+    plex.on_start = lambda session: opened.wait()
+    results: list[object] = [None] * starts
+
+    def start(n: int) -> None:
+        try:
+            results[n] = _start(manager, rating_key=str(90 + n))
+        except TooManyStreams as exc:
+            results[n] = exc
+
+    threads = [threading.Thread(target=start, args=(n,)) for n in range(starts)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    started = [r for r in results if isinstance(r, str)]
+    assert len(started) == 1
+    assert sum(isinstance(r, TooManyStreams) for r in results) == starts - 1
+    for kept in [*live, *started]:
+        assert manager.get(kept, "alice")
+    with pytest.raises(StreamGone):
+        manager.get(silent, "alice")
+    stopped = {c["params"]["session"] for c in plex.calls_to("stop")}
+    assert not stopped & live_sessions
