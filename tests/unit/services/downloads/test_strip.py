@@ -10,6 +10,7 @@ import pytest
 
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.download_format import format_eta
+from mediaman.services.downloads.download_queue import VIEWER_OUTAGE
 from mediaman.services.downloads.strip import Answer, Shared, Strip, StripItem, collect, payload
 
 _NOW = datetime(2026, 5, 4, 12, 0, tzinfo=UTC)
@@ -383,3 +384,12 @@ def test_what_is_offered_while_one_is_being_made_is_left_and_nobody_waits():
         return Strip()
 
     shared.offer(make, shared.now())
+
+
+def test_a_payload_asked_for_without_saying_who_tells_nobody_of_a_refused_key():
+    told = strip.Strip(outage="Can't sign in to Radarr", refused=True)
+
+    said = strip.payload(strip.Answer(told, 0.0))
+
+    assert said["outage"] == VIEWER_OUTAGE
+    assert strip.payload(strip.Answer(told, 0.0), admin=True)["outage"] == told.outage

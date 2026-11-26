@@ -294,9 +294,9 @@ def _shown(item: StripItem) -> dict[str, Any]:
     }
 
 
-def payload(answer: Answer, *, admin: bool = True) -> dict[str, Any]:
-    """What a page is told: the same for an admin and a viewer, but that a viewer is told of a
-    refused key only that downloads are not available."""
+def payload(answer: Answer, *, admin: bool = False) -> dict[str, Any]:
+    """What a page is told: the same for an admin and a viewer, but that a viewer, as anyone
+    not said to be an admin, is told of a refused key only that downloads are not available."""
     stale = answer.age_s > STALE_S
     items: list[StripItem] = []
     for item in answer.strip.items:
