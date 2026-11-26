@@ -1838,3 +1838,15 @@ def test_a_start_made_by_itself_goes_through_once_the_later_page_s_stream_was_re
     laptop = _start(manager, page="laptop-page", asked_ago=500.0)
 
     assert manager.get(laptop, "alice")
+
+
+def test_a_start_made_by_itself_goes_through_once_the_later_page_s_stream_was_ended(
+    manager, clock
+):
+    phone = _start(manager, page="phone-page")
+    clock.now += 1
+    manager.end(phone, "alice")
+
+    laptop = _start(manager, page="laptop-page", asked_ago=5.0)
+
+    assert manager.get(laptop, "alice")
