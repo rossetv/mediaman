@@ -68,6 +68,10 @@ def test_the_slash_key_and_the_clear_button_focus_the_search_without_scrolling()
     assert _run("search_focus")["asked"] == [True, True]
 
 
+def test_the_arrow_and_edge_keys_let_a_long_menu_follow_the_focused_option() -> None:
+    assert _run("menuKeysScroll")["asked"] == [False] * 4
+
+
 def test_events_are_grouped_by_the_readers_own_days() -> None:
     out = _run("days")
     assert out["days"] == ["Today", "Yesterday", "Thursday 2 January 2025", "Day not known"]

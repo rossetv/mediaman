@@ -384,6 +384,24 @@ const scenarios = {
     out.home = h.doc.activeElement.getAttribute('data-v');
     return out;
   },
+  menuKeysScroll: async () => {
+    const h = open({});
+    const menu = h.q('.hx-menu');
+    h.press('[data-menu="title"]');
+    h.menus[0].resolve({ options: ['A', 'B', 'C'].map((v) => ({ value: v, label: v, count: 1 })), more: false });
+    await settle();
+    const asked = [];
+    menu.querySelectorAll('.hx-opt').forEach((o) => {
+      const real = o.focus.bind(o);
+      o.focus = (opts) => { asked.push(!!(opts && opts.preventScroll)); real(opts); };
+    });
+    const key = (k) => h.fire(menu, 'keydown', { key: k, target: h.doc.activeElement });
+    key('ArrowDown');
+    key('ArrowDown');
+    key('End');
+    key('Home');
+    return { asked };
+  },
   titlesRetry: async () => {
     const h = open({});
     const menu = h.q('.hx-menu');

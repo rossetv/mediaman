@@ -1060,10 +1060,10 @@
       var opts = MM.dom.qa('.hx-opt', menu).filter(function (o) { return !o.hidden; });
       if (!opts.length) return;
       e.preventDefault();
-      if (edge) { opts[e.key === 'Home' ? 0 : opts.length - 1].focus({ preventScroll: true }); return; }
+      if (edge) { opts[e.key === 'Home' ? 0 : opts.length - 1].focus(); return; }
       var down = e.key === 'ArrowDown';
       var i = opts.indexOf(document.activeElement);
-      opts[i < 0 ? (down ? 0 : opts.length - 1) : (i + (down ? 1 : -1) + opts.length) % opts.length].focus({ preventScroll: true });
+      opts[i < 0 ? (down ? 0 : opts.length - 1) : (i + (down ? 1 : -1) + opts.length) % opts.length].focus();
     }
 
     /* --- opening and folding a row --- */
