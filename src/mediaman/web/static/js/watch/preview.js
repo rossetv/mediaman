@@ -2,9 +2,10 @@
  * title. It works from what every poster card carries
  * (.watch-card__link, data-title-ref or a Continue watching card's
  * data-dismiss-ref), so a row or grid that draws cards needs nothing more.
- * It is for the mouse alone: a keyboard, a touch screen or a screen reader has what is in it
- * from the card and the title detail. Find more like this is in the detail alone, which a
- * Continue watching card, as it plays, does not open.
+ * A finger held still on a poster opens it too, as wide as a phone allows; it stays once the
+ * finger lifts, and a tap outside it, a scroll or Escape closes it. A keyboard or a screen
+ * reader has what is in it from the card and the title detail. Find more like this is in the
+ * detail alone, which a Continue watching card, as it plays, does not open.
  * A scroll down over it opens it into the title's page, which follows the hand.
  * Needs watch/core.js, watch/keep.js, watch/card-tools.js, watch/marks.js, watch/detail.js, watch/carry.js and ratings.js.
  */
@@ -50,6 +51,10 @@
   var READY_MS = 100;       // how long it has stood open, to have been seen, before a scroll opens it
   var REST_MS = 170;        // a scroll that has stopped short of opening it
   var NOTCH_REST_MS = 520;  // the same of a wheel, whose next notch may be half a second away
+  var PRESS_MS = 450;       // a finger held on a poster, short of the phone's own long press
+  var PRESS_PX = 10;        // a finger that moves further is scrolling
+  var FINGER_W = 400;       // the widest a finger's preview is
+  var NARROW_W = 370;       // narrower, its buttons take two rows
 
   var live = null;     // the preview open
   var closing = null;  // the one folding back into its card
@@ -71,6 +76,8 @@
   var held = null;     // the one whose picture stays over the page it became
   var swallow = false; // the click of a press that hurried it
   var stream = null;   // the scroll under way: see ownerOf
+  var touch = null;    // a finger on a poster, not yet held long enough: { link, id, x, y, timer }
+  var eat = false;     // the click of a finger that held, or of the tap that closed its preview
 
   function now() { return performance.now(); }
 
@@ -267,7 +274,8 @@
     armed = null;
   }
 
-  function begin(link) {
+  /* *finger*: held by one, which, where no preview can be had, gets what a tap gets. */
+  function begin(link, finger) {
     if (document.hidden || covered() || !posterOf(link)) {
       disarm();
       return;
@@ -278,7 +286,9 @@
     function go(data) {
       clearTimeout(waitTimer);
       armed = null;
-      if (!open(link, data) && !data) forget();
+      if (open(link, data, finger)) return;
+      if (!data) forget();
+      if (finger) link.click();
     }
     waitTimer = setTimeout(function () { go(null); }, WAIT_MS);
     ask(askedOf(link)).then(function (data) {
@@ -286,8 +296,10 @@
       else if (live && live.link === link && !live.data) fillIn(live, data);
     }, function () {
       // It stays a lifted card, as if it had never been rested on.
-      if (armed === link) disarm();
-      else if (live && live.link === link && !live.data) close(live);
+      if (armed === link) {
+        disarm();
+        if (finger) link.click();
+      } else if (live && live.link === link && !live.data) close(live);
     });
   }
 
@@ -314,9 +326,9 @@
     return across >= r.width / 2 && down >= r.height / 2;
   }
 
-  function layer(link, w) {
-    var p = { link: link, card: readCard(link), w: w, data: null, closing: false, timer: null, frame: null, muted: true };
-    var n = p.n = el('div', 'pv is-placing');
+  function layer(link, w, finger) {
+    var p = { link: link, card: readCard(link), w: w, data: null, closing: false, timer: null, frame: null, muted: true, finger: !!finger };
+    var n = p.n = el('div', 'pv is-placing' + (finger ? ' pv--finger' : '') + (finger && w < NARROW_W ? ' pv--narrow' : ''));
     n.setAttribute('aria-hidden', 'true');
     n.style.width = w + 'px';
     n.appendChild(el('div', 'pv__shadow'));
@@ -330,7 +342,7 @@
     p.body = shell.appendChild(el('div', 'pv__body'));
     if (p.card.pick) n.classList.add('pv--reason');
     if (link.closest('.watch-sheet')) n.classList.add('pv--over');
-    if (!known(SCROLLED)) p.hint = shell.appendChild(hint());
+    if (!finger && !known(SCROLLED)) p.hint = shell.appendChild(hint()); // a finger's scroll closes it
     shell.appendChild(posterCopy(p));
     if (watch.marks && watch.marks.canRate(p.card.ref, link)) rating(p);
     n.addEventListener('mousedown', function (e) { e.preventDefault(); }); // the focus stays where it was
@@ -394,12 +406,12 @@
   }
 
   /* Open *link*'s preview, with *data* or while it is on its way. */
-  function open(link, data) {
+  function open(link, data, finger) {
     var box = room();
-    var w = width();
+    var w = finger ? Math.min(FINGER_W, box.right - box.left) : width();
     var r = posterOf(link).getBoundingClientRect();
     if (!halfShown(r, box) || w > box.right - box.left) return false;
-    var p = layer(link, w);
+    var p = layer(link, w, finger);
     content(p, data);
     layerNode.appendChild(p.n);
     p.h = p.shell.offsetHeight;
@@ -518,6 +530,7 @@
   }
 
   function fadeLive() {
+    letTouchGo();
     disarm();
     if (live) close(live, 'fade');
   }
@@ -1160,7 +1173,8 @@
 
   function planTrailer(p) {
     clearTimeout(p.trailerTimer);
-    if (!p.data || !trailerKey(p.data) || !trailersOn() || badTrailers.has(p.card.ref) || core.reduceMotion() || saving()) return;
+    // A finger's has its still until the trailer is asked for.
+    if (p.finger || !p.data || !trailerKey(p.data) || !trailersOn() || badTrailers.has(p.card.ref) || core.reduceMotion() || saving()) return;
     p.trailerTimer = setTimeout(function () { if (live === p && !carried) startTrailer(p); }, TRAILER_AFTER_MS);
   }
 
@@ -1300,13 +1314,67 @@
     else if (armed !== link && !e.buttons && now() - scrolledAt > SETTLE_MS && !covered()) arm(link);
   }
 
-  function leave() {
+  function leave(e) {
+    if (e && e.pointerType && e.pointerType !== 'mouse') return; // a finger leaves as it lifts
     if (carried) {
       pos = null;
       return;
     }
     disarm();
     if (live && !pinned(live)) close(live);
+  }
+
+  /* ── A finger ──
+     Held still on a poster, it opens the preview, the phone's own menu of the link kept off. A
+     finger that moves, a scroll, or a row still gliding when it came down is not holding. */
+
+  function fingerDown(e) {
+    eat = false;
+    letTouchGo();
+    if (e.pointerType !== 'touch') return;
+    var target = e.target && e.target.closest ? e.target : null;
+    if (live && live.finger && !carried) {
+      if (target && !live.n.contains(target) && !target.closest('.watch-keep-menu, .play-on, .modal-backdrop, .ui-confirm-overlay')) {
+        eat = true; // the tap that closes it opens nothing
+        disarm();
+        close(live);
+      }
+      return;
+    }
+    var link = target && target.closest('.watch-card__link');
+    if (!link || !e.isPrimary || !target.closest('.watch-card__poster') || !refOf(link)) return;
+    var card = cardOf(link);
+    if (live || card.classList.contains('is-lifted') || card.classList.contains('is-quiet') ||
+      now() - scrolledAt < SETTLE_MS || covered()) return;
+    touch = { link: link, id: e.pointerId, x: e.clientX, y: e.clientY };
+    touch.timer = setTimeout(fingerHeld, PRESS_MS);
+    // Half way there, its reply is asked for, so that it opens filled in.
+    touch.asking = setTimeout(function () { ask(askedOf(link)).then(null, function () {}); }, PRESS_MS / 2);
+  }
+
+  function fingerMove(e) {
+    if (touch && e.pointerId === touch.id && Math.hypot(e.clientX - touch.x, e.clientY - touch.y) > PRESS_PX) letTouchGo();
+  }
+
+  function fingerUp(e) {
+    if (touch && e.pointerId === touch.id) letTouchGo();
+  }
+
+  function letTouchGo() {
+    if (!touch) return;
+    clearTimeout(touch.timer);
+    clearTimeout(touch.asking);
+    touch = null;
+  }
+
+  function fingerHeld() {
+    var link = touch.link;
+    touch = null;
+    eat = true; // what the browser makes of the finger lifting is not a tap
+    if (live) close(live);
+    disarm();
+    armed = link;
+    begin(link, true);
   }
 
   /* ── The wheel ──
@@ -1550,11 +1618,13 @@
     closeTimer = null;
     clearTimeout(p.trailerTimer);
     disarm();
+    var stage = null;
     try {
-      var stage = watch.carry.stage(p);
+      stage = watch.carry.stage(p);
       carried = { p: p, stage: stage, motion: watch.carry.motion(stage.draw, function (at) { if (at) arrive(); else giveBack(); }) };
     } catch (err) {
       carried = null;
+      if (stage) stage.end(0);
       watch.detail.undraw();
       return true;
     }
@@ -1677,6 +1747,21 @@
     e.preventDefault();
     e.stopPropagation();
   }, true);
+
+  document.addEventListener('pointerdown', fingerDown, true);
+  document.addEventListener('pointermove', fingerMove, { capture: true, passive: true });
+  document.addEventListener('pointerup', fingerUp, true);
+  document.addEventListener('pointercancel', fingerUp, true);
+  document.addEventListener('click', function (e) {
+    if (!eat || !e.detail) return;
+    eat = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+  // Of a finger: on a card, the link's own menu; on the preview, the picture's.
+  document.addEventListener('contextmenu', function (e) {
+    if ((e.pointerType === 'touch' || touch || (live && live.finger)) && e.target.closest && e.target.closest('.watch-card__link, .pv')) e.preventDefault();
+  });
 
   document.addEventListener('pointermove', onMove);
   document.documentElement.addEventListener('pointerleave', leave);

@@ -194,3 +194,10 @@
 @media (forced-colors: active) {
   .pv__shell { border: 1px solid CanvasText; }
 }
+/* Opened by a finger: its picture and words are not the phone's to offer a menu of. */
+.pv--finger { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.pv--finger img { -webkit-user-drag: none; }
+/* Too narrow for its buttons in one row: the first across the panel, the round ones under it. */
+.pv--narrow .pv__actions { flex-wrap: wrap; row-gap: 10px; }
+.pv--narrow .pv__actions > .pv__first { flex: 1 0 100%; justify-content: center; }
+.pv--narrow .pv__gap { display: none; }

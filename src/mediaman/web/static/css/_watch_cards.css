@@ -344,6 +344,14 @@ html.is-grid-moving .card-tool { pointer-events: none; }
 @keyframes bar-away { to { opacity: 0; } }
 @keyframes bar-end { from { transform: scaleX(var(--from)); } }
 
+/* A finger held on a poster opens its preview (watch/preview.js), not the phone's menu of the
+   link, a drag of its picture or a selection of its words. */
+@media (hover: none), (pointer: coarse) {
+  .watch-card__link { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .watch-card__link,
+  .watch-card__link img { -webkit-user-drag: none; }
+}
+
 @media (forced-colors: active) {
   .card-tool { color: ButtonText; }
   .card-tool::before { border: 1px solid ButtonBorder; background: ButtonFace; }
