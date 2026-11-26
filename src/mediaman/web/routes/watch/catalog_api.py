@@ -242,6 +242,9 @@ def _library_title(
 
 
 _SIMILAR_SHOWN = 12
+# How far a title may be from what was typed and still be the one it names, at once: the
+# same, the same but for a leading article, or starting with it.
+_STARTS_WITH = 2
 
 
 @router.get("/api/watch/similar")
@@ -300,8 +303,10 @@ def _named_title(
     term: str,
     allow: Callable[[], bool],
 ) -> dict[str, Any] | None:
-    """The title *term* names, with its TMDB kind and id: the closest of the library's that
-    TMDB knows, else the first of TMDB's whose name is as close."""
+    """The title *term* names, with its TMDB kind and id: the library's that TMDB knows where
+    its name is *term* or starts with it; else the first of TMDB's whose name is close; else
+    the closest of the library's. A library title that only holds the words, or is forgiven
+    them, may be another than the one meant ("up" is in "Superbad")."""
     by_ref = {
         ref: (kind, tmdb_id)
         for kind, refs in (("movie", index.movies_by_tmdb), ("tv", index.shows_by_tmdb))
@@ -309,6 +314,7 @@ def _named_title(
     }
     libraries = lib.scanned_library_ids(conn)
     found, _ = lib.search_library(conn, libraries, term, 5)
+    own: dict[str, Any] | None = None
     for title in found:
         movie = isinstance(title, lib.LibraryMovie)
         ref = f"{'movie' if movie else 'show'}-{title.key}"
@@ -317,17 +323,21 @@ def _named_title(
         )
         if known is None:
             continue
-        [held] = library_items(conn, username, libraries, [title])
-        return {
+        [card] = library_items(conn, username, libraries, [title])
+        own = {
             "ref": ref,
             "library_ref": ref,
             "title": title.title,
             "kind": "movie" if movie else "show",
             "year": title.year,
-            "poster_url": held.get("poster_url"),
+            "poster_url": card.get("poster_url"),
             "tmdb_kind": known[0],
             "tmdb_id": known[1],
         }
+        break
+    distance = title_distance(term, own["title"]) if own else None
+    if own and distance is not None and distance <= _STARTS_WITH:
+        return own
     for item in _search_forgiving(client, term, allow):
         kind, tmdb_id = item.get("media_type"), item.get("id")
         if kind not in ("movie", "tv") or title_distance(term, _named(item)) is None:
@@ -340,7 +350,7 @@ def _named_title(
             "tmdb_kind": kind,
             "tmdb_id": tmdb_id,
         }
-    return None
+    return own
 
 
 @router.get("/api/watch/discover")

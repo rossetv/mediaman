@@ -71,11 +71,30 @@ def test_similar_names_a_tmdb_title_and_gives_what_tmdb_finds_like_it(viewer, pa
 def test_similar_names_the_librarys_own_title_first(viewer, library, paths, arr):
     paths.answers["/movie/11/recommendations", ""] = [{"id": 12, "title": "Glass Onion"}]
 
-    body = viewer.get("/api/watch/similar", params={"q": "the glasshouses"}).json()
+    body = viewer.get("/api/watch/similar", params={"q": "the glasshouse"}).json()
 
     assert (body["title"]["ref"], body["title"]["kind"]) == ("movie-100", "movie")
     assert [i["ref"] for i in body["items"]] == ["tmdb-movie-12"]
     assert not any(path == "/search/multi" for path, _ in paths.asked)
+
+
+def test_a_library_title_that_only_holds_the_words_gives_way_to_tmdbs_own(
+    viewer, library, paths, arr
+):
+    paths.answers["/search/multi", "house"] = [{"id": 9, "media_type": "movie", "title": "House"}]
+
+    body = viewer.get("/api/watch/similar", params={"q": "house"}).json()
+
+    assert body["title"]["ref"] == "tmdb-movie-9"
+
+
+def test_a_library_title_forgiven_the_words_is_named_where_tmdb_has_none(
+    viewer, library, paths, arr
+):
+    body = viewer.get("/api/watch/similar", params={"q": "the glasshouses"}).json()
+
+    assert body["title"]["ref"] == "movie-100"
+    assert ("/search/multi", "the glasshouses") in paths.asked
 
 
 def test_a_title_with_no_recommendations_gives_its_similar_ones(viewer, paths, arr):
