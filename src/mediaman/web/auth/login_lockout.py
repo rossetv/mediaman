@@ -136,7 +136,16 @@ def _ip_bucket(client_ip: str) -> str:
 
 
 def login_ip_key(username: str, client_ip: str) -> str:
-    """Return the login failure counter key for *username* from *client_ip*."""
+    """Return the login failure counter key for *username* from *client_ip*.
+
+    Case-folded, so every capitals variant of a name shares one counter
+    whether or not an account has it.
+    """
+    return spelled_login_ip_key(username.casefold(), client_ip)
+
+
+def spelled_login_ip_key(username: str, client_ip: str) -> str:
+    """Return the per-IP key exactly as *username* is spelled, as keys were once stored."""
     return f"{_LOGIN_IP_PREFIX}{_ip_bucket(client_ip)}{_NAMESPACE_MARK}{username}"
 
 
@@ -158,7 +167,7 @@ def _log_fields(key: str) -> tuple[str, str, str]:
 
 
 def _user_login_keys(conn: sqlite3.Connection, username: str) -> list[str]:
-    """Return every stored login counter key of *username*, across all IPs.
+    """Return every stored login counter key of *username*, across all IPs and capitals.
 
     Includes the username-only key older rows were stored under. Matched
     by splitting each key in Python rather than with ``LIKE``, whose
@@ -168,10 +177,12 @@ def _user_login_keys(conn: sqlite3.Connection, username: str) -> list[str]:
         "SELECT username FROM login_failures WHERE substr(username, 1, ?) = ?",
         (len(_LOGIN_IP_PREFIX), _LOGIN_IP_PREFIX),
     ).fetchall()
+    folded = username.casefold()
     keys = [
         row["username"]
         for row in rows
-        if row["username"][len(_LOGIN_IP_PREFIX) :].partition(_NAMESPACE_MARK)[2] == username
+        if row["username"][len(_LOGIN_IP_PREFIX) :].partition(_NAMESPACE_MARK)[2].casefold()
+        == folded
     ]
     keys.append(login_key(username))
     return keys

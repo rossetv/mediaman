@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.web.auth import cli as cli_mod
+from mediaman.web.auth.login_lockout import admin_unlock, record_failure, spelled_login_ip_key
 from mediaman.web.auth.password_hash import UserExistsError, create_user, list_users
 from mediaman.web.auth.session_store import validate_session
 from mediaman.web.routes.auth import _limiter, _success_limiter
@@ -56,6 +57,60 @@ def test_sign_in_with_other_capitals_opens_a_session_under_the_stored_name(clien
     assert validate_session(conn, token, user_agent="testclient", client_ip="testclient") == "Admin"
 
 
+_VARIANTS = ("GHOST", "Ghost", "gHOST", "GhOsT", "ghosT")
+
+
+def _password_checks_after_five_variants(client, sixth: str) -> int:
+    for typed in _VARIANTS:
+        _sign_in(client, typed, "wrong-guess")
+    _limiter.reset()
+    with patch(
+        "mediaman.web.auth.password_hash._authenticate.bcrypt.checkpw", return_value=False
+    ) as checkpw:
+        _sign_in(client, sixth, "wrong-guess")
+    return checkpw.call_count
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [(), ("ghost",), ("Ghost", "ghost")],
+    ids=["no account", "one account", "two differing only in capitals"],
+)
+@pytest.mark.parametrize("sixth", ["ghost", "Ghost", "GHOSt"])
+def test_a_sixth_capitals_variant_is_refused_unchecked_whoever_has_the_name(
+    client, conn, stored, sixth
+):
+    for name in stored:
+        _insert_unchecked(conn, name, _PASSWORD)
+    assert _password_checks_after_five_variants(client, sixth) == 0
+
+
+def test_a_lock_kept_under_the_name_as_spelled_still_holds(client, conn):
+    create_user(conn, "Admin", _PASSWORD, enforce_policy=False)
+    for _ in range(5):
+        record_failure(conn, spelled_login_ip_key("Admin", "testclient"))
+    assert "session_token" not in _sign_in(client, "Admin", _PASSWORD).cookies
+
+
+def test_unlocking_an_account_clears_the_lock_its_capitals_variants_set(client, conn):
+    create_user(conn, "Admin", _PASSWORD, enforce_policy=False)
+    for typed in ("ADMIN", "admin", "aDMIN", "AdMiN", "ADMIn"):
+        _sign_in(client, typed, "wrong-guess")
+    _limiter.reset()
+    with conn:
+        admin_unlock(conn, "Admin")
+    assert "session_token" in _sign_in(client, "Admin", _PASSWORD).cookies
+
+
+def test_a_failed_sign_in_is_recorded_under_the_account_it_counts_against(client, conn):
+    create_user(conn, "Admin", _PASSWORD, enforce_policy=False)
+    _sign_in(client, "aDMIN", "wrong-guess")
+    actors = conn.execute(
+        "SELECT actor FROM audit_log WHERE action = 'sec:login.failed'"
+    ).fetchall()
+    assert [row["actor"] for row in actors] == ["Admin"]
+
+
 def test_capital_variants_share_one_lock(client, conn):
     create_user(conn, "admin", _PASSWORD, enforce_policy=False)
     for typed in ("Admin", "ADMIN", "aDmin", "admiN", "AdMiN"):
@@ -90,7 +145,7 @@ def test_a_failed_sign_in_gives_back_the_text_typed_not_the_stored_name(client, 
 
 def test_creating_a_name_that_differs_only_in_capitals_is_refused(conn):
     create_user(conn, "viewer", _PASSWORD, enforce_policy=False)
-    with pytest.raises(UserExistsError, match="already exists"):
+    with pytest.raises(UserExistsError, match="'viewer' already exists"):
         create_user(conn, "Viewer", _PASSWORD, enforce_policy=False)
     assert [user["username"] for user in list_users(conn)] == ["viewer"]
 
@@ -103,7 +158,7 @@ def test_the_users_page_refuses_a_name_that_differs_only_in_capitals(
     assert client.post("/api/users", json=body).status_code == 200
     resp = client.post("/api/users", json={**body, "username": "DupUser"})
     assert resp.status_code == 409
-    assert "already exists" in resp.json()["message"]
+    assert "'dupuser' already exists" in resp.json()["message"]
 
 
 def test_the_create_user_command_refuses_a_name_that_differs_only_in_capitals(
@@ -118,4 +173,4 @@ def test_the_create_user_command_refuses_a_name_that_differs_only_in_capitals(
     with pytest.raises(SystemExit) as exc:
         cli_mod.create_user_cli()
     assert exc.value.code == 1
-    assert "already exists" in capsys.readouterr().err
+    assert "'alice' already exists" in capsys.readouterr().err

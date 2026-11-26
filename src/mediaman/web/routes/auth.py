@@ -102,13 +102,14 @@ def _render_rate_limited(
 
 
 def _handle_failed_login(
-    conn: sqlite3.Connection, username: str, client_ip: str, request: Request
+    conn: sqlite3.Connection, username: str, typed: str, client_ip: str, request: Request
 ) -> Response:
-    """Audit a failed credential check and re-render the form generically.
+    """Audit a failed credential check under *username* and re-render the form with *typed*.
 
-    username is attacker-controlled here: sanitise it before it reaches the log message, the
-    audit actor column and the audit detail blob (rendered in the history UI), so control
-    bytes (log forging, ANSI escapes) and huge strings cannot land in every audit row.
+    username is the account's own name when one matched, the typed text otherwise, so it is
+    attacker-controlled here: sanitise it before it reaches the log message, the audit actor
+    column and the audit detail blob (rendered in the history UI), so control bytes (log
+    forging, ANSI escapes) and huge strings cannot land in every audit row.
     """
     safe_username = _sanitise_log_field(username, limit=_AUDIT_USERNAME_LIMIT)
     logger.info("auth.login_failed user=%s ip=%s", safe_username, client_ip)
@@ -126,7 +127,7 @@ def _handle_failed_login(
         {
             "error": "Invalid username or password.",
             # Only the posted username comes back (the template escapes it); never the password.
-            "username": username,
+            "username": typed,
         },
     )
 
@@ -189,7 +190,7 @@ def login_submit(
     username = account_name(conn, typed)
     if not authenticate(conn, username, password, client_ip=client_ip):
         _success_limiter.release(client_ip, success)
-        return _handle_failed_login(conn, typed, client_ip, request)
+        return _handle_failed_login(conn, username, typed, client_ip, request)
     _limiter.release(client_ip, attempt)
 
     user_agent = request.headers.get("user-agent", "")

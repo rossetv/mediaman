@@ -86,10 +86,10 @@ def account_name(conn: sqlite3.Connection, typed: str) -> str:
     return matches[0] if len(matches) == 1 else typed
 
 
-def username_taken(conn: sqlite3.Connection, username: str) -> bool:
-    """True when an account has *username*, whatever the capitals."""
+def existing_username(conn: sqlite3.Connection, username: str) -> str | None:
+    """Return the stored name of an account that has *username*, whatever the capitals."""
     folded = username.casefold()
-    return any(name.casefold() == folded for name in _usernames(conn))
+    return next((name for name in _usernames(conn) if name.casefold() == folded), None)
 
 
 def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
@@ -162,8 +162,9 @@ def create_user(
     try:
         with conn:
             conn.execute("BEGIN IMMEDIATE")
-            if username_taken(conn, username):
-                raise UserExistsError(f"User '{username}' already exists")
+            existing = existing_username(conn, username)
+            if existing is not None:
+                raise UserExistsError(f"User '{existing}' already exists")
             conn.execute(
                 "INSERT INTO admin_users "
                 "(username, password_hash, created_at, must_change_password, role) "

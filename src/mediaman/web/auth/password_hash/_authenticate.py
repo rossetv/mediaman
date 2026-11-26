@@ -48,6 +48,7 @@ def _short_circuit_authenticate(
         login_ip_key,
         login_key,
         record_failure,
+        spelled_login_ip_key,
     )
 
     # Reject empty usernames before touching bcrypt. Otherwise an
@@ -62,11 +63,16 @@ def _short_circuit_authenticate(
     # CPU. record_failure keeps acquiring the writer lock, which is
     # the price of the escalation property.
     key = login_ip_key(username, client_ip)
-    # A lock stored under the bare username predates per-IP keys and still
-    # holds. It is only read: nothing writes that key any more, so it cannot
-    # be extended and ages out or is cleared by admin unlock. The refusal
-    # matches a per-IP lock, failure count included, so it reveals nothing.
-    if is_locked_out(conn, key) or is_locked_out(conn, login_key(username)):
+    # A lock stored under the bare username predates per-IP keys, and one under
+    # the name as spelled predates case-folded keys; both still hold. They are
+    # only read: nothing writes those keys any more, so they cannot be extended
+    # and age out or are cleared by admin unlock. The refusal matches a per-IP
+    # lock, failure count included, so it reveals nothing.
+    if (
+        is_locked_out(conn, key)
+        or is_locked_out(conn, spelled_login_ip_key(username, client_ip))
+        or is_locked_out(conn, login_key(username))
+    ):
         record_failure(conn, key)
         logger.warning(
             "auth.account_locked user=%s ip=%s reason=lockout_active",
