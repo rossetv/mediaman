@@ -264,6 +264,13 @@ _thread_local = threading.local()
 _db_path: str | None = None
 _owning_thread: int | None = None
 _owning_conn: sqlite3.Connection | None = None
+# Every lazily-opened worker-thread connection, so a reset can close the ones
+# other threads hold, not only the caller's.
+_worker_conns: set[sqlite3.Connection] = set()
+_worker_conns_lock = threading.Lock()
+# Bumped by reset_connection so a thread whose connection was closed for it
+# opens a fresh one instead of reusing the closed handle.
+_worker_generation = 0
 
 
 def get_db() -> sqlite3.Connection:
@@ -285,7 +292,7 @@ def get_db() -> sqlite3.Connection:
         return _owning_conn
 
     conn: sqlite3.Connection | None = getattr(_thread_local, "conn", None)
-    if conn is not None:
+    if conn is not None and getattr(_thread_local, "generation", 0) == _worker_generation:
         return conn
 
     if _db_path is None:
@@ -294,9 +301,14 @@ def get_db() -> sqlite3.Connection:
             "connection was registered without a known path."
         )
 
-    conn = sqlite3.connect(_db_path)
+    # check_same_thread=False only so reset_connection can close it from
+    # another thread; each connection is still used by its own thread alone.
+    conn = sqlite3.connect(_db_path, check_same_thread=False)
     _configure_connection(conn)
     _thread_local.conn = conn
+    _thread_local.generation = _worker_generation
+    with _worker_conns_lock:
+        _worker_conns.add(conn)
     return conn
 
 
@@ -315,7 +327,7 @@ def reset_connection() -> None:
     code must not call this — the only correct lifecycle is one
     init_db per process.
     """
-    global _owning_conn, _owning_thread, _db_path
+    global _owning_conn, _owning_thread, _db_path, _worker_generation
     _owning_conn = None
     _owning_thread = None
     _db_path = None
@@ -333,6 +345,13 @@ def reset_connection() -> None:
             logger.debug("reset_connection: close() raised %s — ignoring", exc)
         finally:
             _thread_local.conn = None
+    with _worker_conns_lock:
+        _worker_generation += 1
+        others = list(_worker_conns)
+        _worker_conns.clear()
+    for other in others:
+        with contextlib.suppress(sqlite3.Error):
+            other.close()
 
 
 def _set_db_path(path: str) -> None:
@@ -365,6 +384,8 @@ def close_db() -> None:
             conn.close()
         finally:
             _thread_local.conn = None
+            with _worker_conns_lock:
+                _worker_conns.discard(conn)
 
 
 # Heartbeat lease: a running job renews its ``heartbeat_at`` column at
