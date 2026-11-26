@@ -1121,16 +1121,16 @@ def _held_title(
         return None
 
 
-def _may_look_up(username: str, ahead: bool) -> bool:
-    """Whether TMDB may be asked for a title: within the day's title lookups and, for an open,
-    the query limit."""
+def _look_up_refusal(username: str, ahead: bool) -> str | None:
+    """Why TMDB may not be asked for a title: "day" when the day's title lookups are used up,
+    "query" when an open is over the query limit; None when it may."""
     at = _TITLE_DAY_LIMITER.reserve(username)
     if at is None:
-        return False
+        return "day"
     if ahead or _QUERY_LIMITER.check(username):
-        return True
+        return None
     _TITLE_DAY_LIMITER.release(username, at)
-    return False
+    return "query"
 
 
 @router.get("/api/watch/title/{ref}")
@@ -1164,6 +1164,14 @@ def api_watch_title(
         return _not_found() if title is None else respond_ok(title)
 
     client = _tmdb_client(request, conn)
+    day_used_up = False
+
+    def may_look_up() -> bool:
+        nonlocal day_used_up
+        refusal = _look_up_refusal(username, ahead)
+        day_used_up = refusal == "day"
+        return refusal is None
+
     try:
         if kind != "tmdb":
             rec = _recommended(conn, username, kind, rest)
@@ -1185,10 +1193,15 @@ def api_watch_title(
                 media_type,
                 int(tmdb_id),
                 None,
-                lambda: _may_look_up(username, ahead),
+                may_look_up,
             )
         )
     except disk_cache.Refused:
+        if day_used_up:
+            wait = _TITLE_DAY_LIMITER.retry_after(username)
+            capped = respond_err("title_day_limit", status=429, retry_after=wait)
+            capped.headers["Retry-After"] = str(wait)
+            return capped
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbBusy:
         return without_tmdb(respond_err("too_many_requests", status=429))
