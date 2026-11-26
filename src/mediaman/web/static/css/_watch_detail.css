@@ -445,10 +445,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__actions.has-play-on > :is(.watch-btn--keep, .ttl__keep-skel) { flex: 0 0 auto; }
 }
 
-/* Those still to come take what is left of the line: the ones that do not fit wrap out of sight. */
-.ttl__ratings-wait { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; gap: inherit; height: calc(1lh + 8px); overflow: hidden; font-size: 12px; }
-.ttl__ratings-wait > .ttl-rating { flex: none; border-radius: var(--r-pill); }
-.ttl__ratings-wait > .ttl-rating > * { visibility: hidden; }
+/* The rest of the line is held for those still to come, so it keeps its height when they do or do not. */
+.ttl__ratings-wait { flex: 1 1 0; min-width: 0; height: calc(1lh + 8px); font-size: 12px; }
 
 /* Rating pills */
 .ttl-rating { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; }
@@ -848,7 +846,6 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .season-pick__go[aria-disabled="true"] { opacity: 1; border-style: dashed; }
   .season-chip[data-state="none"]:not([data-icon="i-lock"]):not([aria-checked="true"]) .ico,
   .season-chip[data-state="pick"]:not([aria-checked="true"]) .ico { visibility: hidden; }
-  .ttl__ratings-wait > .ttl-rating { outline: 1px solid GrayText; outline-offset: -1px; }
   .dl-progress .watch-bar--banner::-webkit-progress-value { background: Highlight; }
   .dl-progress .watch-bar--banner::-moz-progress-bar { background: Highlight; }
 }

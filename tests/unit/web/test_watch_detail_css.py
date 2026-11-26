@@ -197,10 +197,19 @@ def test_the_facts_labels_beside_a_title_have_one_width_before_and_after_they_co
     assert "grid-template-columns: 112px " in _of(".ttl-facts__list")
 
 
-def test_a_rating_still_to_come_shows_no_figure_and_is_outlined_in_forced_colours() -> None:
-    assert "visibility: hidden" in _of(".ttl__ratings-wait > .ttl-rating > *")
-    forced = _of(".ttl__ratings-wait > .ttl-rating", "(forced-colors: active)")
-    assert "outline: 1px solid" in forced
+def test_the_line_held_for_ratings_draws_nothing_in_any_colours() -> None:
+    every = [
+        selector
+        for media in (None, "(forced-colors: active)")
+        for selectors, _ in _rules(media)
+        for selector in selectors
+    ]
+    # Nothing stands in it for a rating the title may not have, so forced colours have nothing to outline.
+    assert not [
+        s for s in every if s.startswith(".ttl__ratings-wait") and s != ".ttl__ratings-wait"
+    ]
+    assert not re.search(r"background|border|outline|box-shadow", _of(".ttl__ratings-wait"))
+    assert not _of(".ttl__ratings-wait", "(forced-colors: active)")
 
 
 def test_metascore_is_said_shorter_on_a_phone_and_still_read_in_full() -> None:
@@ -209,10 +218,11 @@ def test_metascore_is_said_shorter_on_a_phone_and_still_read_in_full() -> None:
     assert not _of(".ttl-rating__full") + _of(".ttl-rating__brief::after")
 
 
-def test_the_ratings_still_to_come_hold_one_line() -> None:
+def test_the_ratings_still_to_come_hold_one_line_beside_those_already_there() -> None:
     line = _of(".ttl__ratings-wait")
     assert "height: calc(1lh + 8px)" in line
-    assert "overflow: hidden" in line
+    assert "font-size: 12px" in line  # the pills' own, so 1lh is their line
+    assert "flex: 1 1 0" in line and "min-width: 0" in line
 
 
 def test_what_waits_for_room_comes_at_once_where_nothing_moves() -> None:
