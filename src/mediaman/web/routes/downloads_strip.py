@@ -80,9 +80,10 @@ def with_retrying(conn: sqlite3.Connection, data: DownloadsResponse) -> Download
         key = item.get("retry_key")
         if item.get("state") != "needs_attention" or not isinstance(key, str) or not key:
             return item
-        retrying = key not in downloading and will_retry(
-            conn, key, [str(item.get("attention") or "")]
-        )
+        reasons = item.get("attention_reasons")
+        if not isinstance(reasons, list):
+            reasons = [item.get("attention") or ""]
+        retrying = key not in downloading and will_retry(conn, key, [str(r) for r in reasons])
         return {**item, "retrying": retrying}
 
     return cast(

@@ -19,6 +19,7 @@ from mediaman.services.downloads.download_format import (
     map_episode_state,
     map_queue_state,
     queue_attention,
+    queue_attentions,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 
@@ -207,6 +208,7 @@ def _build_unmatched_series_item(
         kind="series",
         attention=queue_attention(raw_episodes),
         retry_key=_retry_key(arr),
+        attention_reasons=queue_attentions(raw_episodes),
     )
 
 

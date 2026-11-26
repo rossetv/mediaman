@@ -37,6 +37,7 @@ def build_item(
     label: str = "",
     attention: str = "",
     retry_key: str = "",
+    attention_reasons: list[str] | None = None,
 ) -> DownloadItem:
     """Build a simplified download item for the API response.
 
@@ -79,6 +80,8 @@ def build_item(
     }
     if retry_key:
         item["retry_key"] = retry_key
+    if attention_reasons and state == "needs_attention":
+        item["attention_reasons"] = attention_reasons
     return item
 
 

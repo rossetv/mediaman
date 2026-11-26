@@ -120,6 +120,7 @@ def _page_payload(
         title = item.get("label") or item["title"]
         page_item = {**item, "title": title, "poster_url": _poster(item, index)}
         page_item.pop("retry_key", None)
+        page_item.pop("attention_reasons", None)
         return page_item
 
     page: DownloadsResponse = {

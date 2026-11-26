@@ -19,6 +19,7 @@ from mediaman.services.downloads.download_format._classify import (
     map_state,
     next_movie_release,
     queue_attention,
+    queue_attentions,
 )
 from mediaman.services.downloads.download_format._parsing import (
     format_episode_label,
@@ -61,5 +62,6 @@ __all__ = [
     # Parsing
     "parse_clean_title",
     "queue_attention",
+    "queue_attentions",
     "select_hero",
 ]
