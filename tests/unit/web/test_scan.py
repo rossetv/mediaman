@@ -394,7 +394,18 @@ class TestLibrarySync:
         with patch("mediaman.scanner.runner.run_library_sync", return_value={"synced": 42}):
             resp = client.post("/api/library/sync")
         assert resp.status_code == 200
-        assert resp.json() == {"ok": True, "synced": 42}
+        assert resp.json() == {"ok": True, "synced": 42, "errors": 0, "removed": 0}
+
+    def test_library_sync_says_what_failed_and_what_went(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        app = _app(app_factory, conn, db_path)
+        client = authed_client(app, conn)
+        summary = {"synced": 3, "errors": 2, "removed": 1}
+        with patch("mediaman.scanner.runner.run_library_sync", return_value=summary):
+            resp = client.post("/api/library/sync")
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, **summary}
 
     def test_library_sync_returns_error_on_exception(
         self, app_factory, authed_client, conn, db_path

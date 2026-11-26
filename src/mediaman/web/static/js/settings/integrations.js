@@ -389,7 +389,21 @@
         syncBtn.appendChild(document.createTextNode('Syncing…'));
         syncBtn.disabled = true;
         MM.api.post('/api/library/sync')
-          .then(function () { syncBtn.textContent = 'Synced ✓'; })
+          .then(function (res) {
+            var synced = (res && res.synced) || 0, failed = (res && res.errors) || 0;
+            var items = synced.toLocaleString('en-GB') + (synced === 1 ? ' item' : ' items');
+            if (failed) {
+              syncBtn.textContent = failed.toLocaleString('en-GB') + ' failed';
+              window.UIFeedback.error((synced ? 'Synced ' + items : 'Nothing synced') + ', ' +
+                failed.toLocaleString('en-GB') + ' failed. Mediaman’s log says which.');
+            } else if (!synced) {
+              syncBtn.textContent = '0 synced';
+              window.UIFeedback.toast('Nothing synced. Choose libraries to scan under Libraries & Paths, then save.');
+            } else {
+              syncBtn.textContent = 'Synced ✓';
+              window.UIFeedback.success('Synced ' + items + ' from Plex.');
+            }
+          })
           .catch(function (err) {
             syncBtn.textContent = 'Failed';
             window.UIFeedback.error(MM.api.messageOf(err, 'Library sync failed'));
