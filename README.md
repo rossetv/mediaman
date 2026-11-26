@@ -82,13 +82,13 @@ The meter in the bar shows admins what fills the disks, what is about to go and 
 
 ## History
 
-Who watched, asked for and kept what, and what mediaman did by itself. Admins see everyone's; everyone else sees their own.
+Admins see who watched, asked for and kept what, and what mediaman deleted and scanned. Everyone else sees only what they did themselves.
 
 <img src="docs/images/history.webp" width="680" alt="History: a day's events, such as a film started, one finished, one kept and one downloaded, each with who and when. Above are a search and filters by user, action, title and date.">
 
 ## Profile
 
-Choose a picture, change your own email and password, link your Plex account (what you play in Plex apps then shapes your picks), see where you are signed in and sign out your other devices, rename or unpair your TVs, and say whether the AI may learn from what you watch.
+Choose a picture, change your own email and password, link your Plex account (what you play in Plex apps then shapes your picks), see where you are signed in and sign out your other devices, rename or unpair your TVs, and say whether the AI may use your searches, ratings and requests and how your plays went.
 
 <img src="docs/images/profile.webp" width="400" alt="The picture dialog of a profile: Upload a photo, or pick one of ten drawn portraits.">
 
@@ -118,7 +118,7 @@ volumes:
 Then, in that folder, make the key, start [`rossetv/mediaman`](https://hub.docker.com/r/rossetv/mediaman) and create the first admin:
 
 ```bash
-[ -f .env ] || echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > .env
+[ -f .env ] || (umask 077 && echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > .env)
 docker compose up -d
 docker compose exec mediaman mediaman-create-user
 ```

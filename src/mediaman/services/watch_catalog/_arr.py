@@ -52,15 +52,19 @@ TTL_S = 30.0
 #: that gave none.
 RETRY_S = 5.0
 RETRY_WAIT_S = 1.0
+#: How long past its time a view still comes back for that, and how long from when what takes the
+#: place of an older one began pages wait for it.
+OLD_S = 300.0
+OLD_WAIT_S = 10.0
 _ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, sqlite3.Error, ValueError)
 
 _lock = threading.Lock()
 _memo: dict[str, _Held] = {}
 # Bumped by invalidate(), so a build that started before it is not kept.
 _generation = [0]
-# The build in progress for each generation; a caller of the same generation waits for
-# it rather than pulling both libraries again.
-_building: dict[int, Future[ArrView]] = {}
+# The build in progress for each generation, and when it began; a caller of the same generation
+# waits for it rather than pulling both libraries again.
+_building: dict[int, tuple[Future[ArrView], float]] = {}
 # The last build begun that no caller waits out.
 _background: list[Future[ArrView]] = []
 
@@ -237,17 +241,21 @@ def arr_view(
             return held.view
         if held is not None and not held.lacks_an_answer():
             held = None
+        old = held is not None and wait_s is None and now >= held.until + OLD_S
         if held is not None and wait_s is None:
             late, wait_s = held.view, RETRY_WAIT_S
         generation = _generation[0]
-        future = _building.get(generation)
+        future, began = _building.get(generation, (None, now))
         owner = future is None
         if future is None:
             if wait_s is not None and any(not behind.done() for behind in _background):
                 return late
-            future = _building[generation] = Future()
+            future = Future()
+            _building[generation] = (future, now)
             if wait_s is not None:
                 _background[:] = [future]
+        if old:
+            wait_s = max(RETRY_WAIT_S, began + OLD_WAIT_S - now)
     if owner:
         try:
             # Built here: the connection is this thread's own.
@@ -297,7 +305,7 @@ def _build(
     view = ArrView(caches, answering, not_set_up, generation, sonarr.queue, sonarr.odd_shows)
     known = "sonarr" in answering | not_set_up
     with _lock:
-        if _building.get(generation) is future:
+        if _building.get(generation, (None,))[0] is future:
             del _building[generation]
             if _generation[0] == generation:
                 now = clock()
@@ -308,7 +316,7 @@ def _build(
 
 def _failed(future: Future[ArrView], generation: int, exc: BaseException) -> None:
     with _lock:
-        if _building.get(generation) is future:
+        if _building.get(generation, (None,))[0] is future:
             del _building[generation]
     future.set_exception(exc)
 

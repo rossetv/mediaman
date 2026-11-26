@@ -13,11 +13,13 @@ from starlette.responses import Response
 
 from mediaman.core.audit import security_event
 from mediaman.db import get_db
+from mediaman.services.cast.tickets import get_ticket_store
 from mediaman.services.rate_limit import (
     RateLimiter,
     get_client_ip,
 )
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
+from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import LANDING_PATH
 from mediaman.web.auth.password_hash import (
     authenticate,
@@ -34,6 +36,7 @@ from mediaman.web.auth.session_store import (
 from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.models._common import _MAX_USERNAME_LEN
 from mediaman.web.responses import respond_err
+from mediaman.web.routes.plex_link import carry_attempt
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +167,8 @@ def login_submit(
     next_page: str = Query(default="", alias="next"),
 ) -> Response:
     client_ip = get_client_ip(request)
+    # The name is looked up and shown again as UTF-8.
+    username = username.encode("utf-8", "replace").decode()
     # Counted before the check, so that guesses sent at once cannot all slip under the limit;
     # a success takes back its own count only.
     attempt = _limiter.reserve(client_ip)
@@ -186,12 +191,23 @@ def login_submit(
     user_agent = request.headers.get("user-agent", "")
     weak_password = _flag_weak_password(conn, username, password, client_ip)
 
+    replaced = request.cookies.get("session_token")
+    replaced_user = replaced and validate_session(
+        conn, replaced, user_agent=user_agent, client_ip=client_ip, request_supplied=True
+    )
+
     token = create_session(
         conn,
         username,
         user_agent=user_agent,
         client_ip=client_ip,
     )
+    # The cookie is replaced, whoever it was of; what the person had under way goes on.
+    if replaced and replaced_user:
+        if replaced_user == username:
+            carry_attempt(replaced, token)
+            get_ticket_store().move(hash_token(replaced), hash_token(token))
+        destroy_session(conn, replaced, ip=client_ip)
     logger.info("auth.login_success user=%s ip=%s", _sanitise_log_field(username), client_ip)
     security_event(
         conn,

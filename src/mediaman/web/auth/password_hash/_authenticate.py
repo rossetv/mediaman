@@ -157,7 +157,10 @@ def authenticate(
     rate-limited" — is information the attacker already controls or
     can deduce from response volume anyway.
     """
-    short_circuit = _short_circuit_authenticate(conn, username, client_ip)
-    if short_circuit is not None:
-        return short_circuit
-    return _verify_credentials_against_db(conn, username, password, client_ip)
+    from mediaman.web.auth.login_lockout import login_ip_key, one_attempt_at_a_time
+
+    with one_attempt_at_a_time(login_ip_key(username, client_ip)):
+        short_circuit = _short_circuit_authenticate(conn, username, client_ip)
+        if short_circuit is not None:
+            return short_circuit
+        return _verify_credentials_against_db(conn, username, password, client_ip)

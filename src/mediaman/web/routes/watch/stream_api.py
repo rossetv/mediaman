@@ -18,14 +18,14 @@ from collections.abc import Callable, Coroutine
 from dataclasses import asdict
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
 from mediaman.core.scrub_filter import register_secret
-from mediaman.core.time import now_utc
+from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.db import get_db
 from mediaman.services.infra import SafeHTTPClient, allowed_outbound_hosts
 from mediaman.services.infra.settings_reader import get_setting, get_string_setting
@@ -58,6 +58,7 @@ from mediaman.services.media_meta.plex_watch import (
     is_in_libraries,
 )
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository.watch_progress import get_progress, save_progress
 from mediaman.web.responses import respond_err, respond_ok
@@ -197,17 +198,28 @@ def start_stream(
     request: Request,
     body: _StartRequest,
     username: str = Depends(get_current_user),
+    session_token: str = Cookie(),
 ) -> Response:
     """Start a stream of a movie or episode from offset 0 for the signed-in person.
 
     A start the player made by itself is answered 410 ``replaced`` where the person has asked
     another page to play the title since.
     """
+    session_hash = hash_token(session_token)
     return _guarded_start(
         body,
         username,
-        lambda manager, began: _start(request, body, username, manager, began),
+        lambda manager, began: _start(request, body, username, session_hash, manager, began),
     )
+
+
+def session_lasts(conn: sqlite3.Connection, session_hash: str) -> bool:
+    """Whether the session *session_hash* is still there and has not run out."""
+    row = conn.execute(
+        "SELECT expires_at FROM admin_sessions WHERE token_hash = ?", (session_hash,)
+    ).fetchone()
+    expires = parse_iso_strict_utc(row["expires_at"]) if row is not None else None
+    return expires is not None and expires >= now_utc()
 
 
 def _guarded_start(
@@ -254,7 +266,12 @@ def _progress_info(item: PlexItem) -> dict[str, Any]:
 
 
 def _start(
-    request: Request, body: _StartRequest, username: str, manager: StreamManager, began: float
+    request: Request,
+    body: _StartRequest,
+    username: str,
+    session_hash: str,
+    manager: StreamManager,
+    began: float,
 ) -> Response:
     conn = get_db()
     try:
@@ -290,6 +307,11 @@ def _start(
         return _gone_answer(exc)
     except PlexError as exc:
         return plex_failure(exc)
+    # Plex may take long to start, and the person may sign out meanwhile.
+    if not session_lasts(conn, session_hash):
+        with contextlib.suppress(StreamGone):
+            manager.end(stream_id, username)
+        return respond_err("not_authenticated", status=401)
     with contextlib.suppress(StreamGone):
         playing = manager.peek(stream_id, username).quality
         if playing != quality:

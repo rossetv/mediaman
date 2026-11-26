@@ -18,7 +18,6 @@ from pydantic import Field
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
-from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import TICKET_SECONDS, Ticket, get_ticket_store
 from mediaman.services.cast.tracks import Track, read_tracks
@@ -50,6 +49,7 @@ from mediaman.web.routes.watch.stream_api import (
     _StartRequest,
     _StreamRoute,
     plex_failure,
+    session_lasts,
 )
 
 router = APIRouter(route_class=_StreamRoute)
@@ -92,7 +92,9 @@ def start_cast(
     return _guarded_start(
         body,
         username,
-        lambda manager, began: _start(request, body, username, session_hash, manager, began),
+        lambda manager, began: _start(
+            request, body, username, session_hash, manager, began, check=True
+        ),
     )
 
 
@@ -107,7 +109,12 @@ def _start(
     session_hash: str,
     manager: StreamManager,
     began: float,
+    *,
+    check: bool = False,
 ) -> Response:
+    """*check* refuses what the session no longer holds once it has started; a TV's start has
+    checks of its own.
+    """
     conn = get_db()
     try:
         plex = _open_plex(request, conn)
@@ -148,7 +155,12 @@ def _start(
     try:
         if ticket is None:
             raise StreamGone("stream is gone")
-        manager.allow(stream_id, username, partial(_is_good, ticket))
+        manager.allow(stream_id, username, partial(_holds, token))
+        # After `allow`, so that the reaper sees what ends the session from here on.
+        if check and not _is_good(ticket):
+            store.drop(token)
+            manager.end(stream_id, username)
+            return respond_err("not_authenticated", status=401)
     except StreamGone as exc:
         # A later start of the title took its place meanwhile.
         store.drop(token)
@@ -185,18 +197,20 @@ def _may_still_watch(conn: sqlite3.Connection, ticket: Ticket) -> bool:
     Signing out, a new password and removing the user each end the session; unpairing and the
     last two each end the pairing.
     """
-    row = conn.execute(
-        "SELECT expires_at FROM admin_sessions WHERE token_hash = ?", (ticket.session_hash,)
-    ).fetchone()
-    expires = parse_iso_strict_utc(row["expires_at"]) if row is not None else None
-    lasts = expires is not None and expires >= now_utc()
     return (
-        lasts or is_paired(conn, ticket.session_hash, ticket.user)
+        session_lasts(conn, ticket.session_hash)
+        or is_paired(conn, ticket.session_hash, ticket.user)
     ) and not user_must_change_password(conn, ticket.user)
 
 
 def _is_good(ticket: Ticket) -> bool:
     return not get_ticket_store().expired(ticket) and _may_still_watch(get_db(), ticket)
+
+
+def _holds(token: str) -> bool:
+    """Whether the ticket *token* is still good, read again since a sign-in may have moved it."""
+    ticket = get_ticket_store().read(token)
+    return ticket is not None and _is_good(ticket)
 
 
 def _read_ticket(request: Request, token: str) -> Ticket | Response:

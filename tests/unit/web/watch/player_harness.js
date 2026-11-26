@@ -804,7 +804,7 @@ function elsewhereOf(mode) {
 function castWay(carriesOn) {
   const way = {
     id: 'cast', label: 'Chromecast', sub: '', icon: 'play-on-cast', available: () => true,
-    loads: [], stops: 0, left: 0, kept: null, what: null, gone: null, media: make('video'),
+    loads: [], stops: 0, left: 0, kept: null, what: null, gone: null, media: make('video'), counts: [], watched: (key) => way.seen.push(key), seen: [],
   };
   way.play = {
     name: 'Den', carriesOn: carriesOn, media: way.media,
@@ -812,6 +812,7 @@ function castWay(carriesOn) {
     stop() { way.stops++; return Promise.resolve(); },
     leave() { way.left++; },
     keep(kept) { way.kept = kept; },
+    counts(until) { way.counts.push(until); },
     onGone(fn) { way.gone = fn; },
   };
   way.start = (what) => { way.what = what; return what.open().then((stream) => { way.stream = stream; return way.play; }); };
@@ -5061,6 +5062,8 @@ const scenarios = {
     await settle();
     p.tick(60000);
     await settle();
+    key(' ');
+    await settle();
     const out = Object.assign(awayState(p), { starts: p.starts().length, stopped: p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => c.body.position_s).pop() });
     click(p.q('[data-retry]'));
     await settle();
@@ -5109,6 +5112,24 @@ const scenarios = {
       click(p.q('[data-next-btn]'));
       await settle();
       out.keys = { stops: way.stops, moved: way.media.currentTime - at, pages: p.calls.filter((c) => c.page && /502/.test(c.url)).length };
+    }
+    if (how === 'quiet') {
+      // Back, with nothing said of what it plays; then gone again.
+      way.play.quiet = true;
+      fire(way.media, 'waiting');
+      await settle();
+      out.quiet = [messageState(p), doc.activeElement === p.q('[data-message]')];
+      way.play.quiet = false;
+      fire(way.media, 'waiting');
+      await settle();
+      out.lostAgain = messageState(p);
+      // Nothing new to say: the alert's words are left alone, so they are not read out again.
+      const line = p.q('[data-message-line]');
+      let text = line.textContent;
+      out.rewrites = 0;
+      Object.defineProperty(line, 'textContent', { configurable: true, get: () => text, set: (v) => { out.rewrites++; text = v; } });
+      fire(way.media, 'waiting');
+      await settle();
     }
     if (how === 'found') {
       let reached = null;
@@ -5652,12 +5673,12 @@ const scenarios = {
   /* What becomes of the next-episode countdown where the title comes back meanwhile. */
   async away_countdown(p) {
     await streamPlays(p, 30);
-    const way = await castPlays(p, true);
+    const way = await castPlays(p, p.win.serverPlays !== 'cancelStays');
     way.media.paused = true; way.media.ended = true; way.media.currentTime = 2997;
     fire(way.media, 'ended');
     await settle();
     const out = { counts: !gone(p.q('[data-upnext]')) };
-    if (p.win.serverPlays === 'cancel') { out.hint = awayState(p).hint; p.q('[data-upnext-cancel]').focus(); click(p.q('[data-upnext-cancel]')); await settle(); return Object.assign(out, { after: awayState(p).hint, focus: doc.activeElement === p.q('[data-bring]') }); }
+    if (/^cancel/.test(p.win.serverPlays)) { out.hint = awayState(p).hint; p.q('[data-upnext-cancel]').focus(); click(p.q('[data-upnext-cancel]')); await settle(); return Object.assign(out, { after: awayState(p).hint, focus: doc.activeElement === p.q('[data-bring]') }); }
     const how = p.win.serverPlays;
     if (how === 'stop') click(p.q('[data-stop-away]'));
     else if (how === 'here') { click(p.q('.player-top').querySelector('[data-play-on]')); await settle(); await pickRow(p, 'here'); }
@@ -5668,6 +5689,60 @@ const scenarios = {
     out.next = p.calls.some((c) => c.page && /502/.test(c.url));
     out.card = !gone(p.q('[data-upnext]'));
     return out;
+  },
+
+  /* The page is left while the next episode counts down, or not, and what its way is told of it. */
+  async away_count_left(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.paused = true; way.media.ended = true; way.media.currentTime = 2997;
+    fire(way.media, 'ended');
+    await settle();
+    if (p.win.serverPlays === 'cancel') { click(p.q('[data-upnext-cancel]')); await settle(); }
+    const out = { counts: way.counts.map((until) => until && Math.round((until - p.win.Date.now()) / 1000)) };
+    p.leave();
+    out.beacons = p.beacons.map((b) => b.url.replace(/.*\/api/, ''));
+    return out;
+  },
+
+  /* A title that a way holds as the one to come is watched here. */
+  async away_watched(p) {
+    const how = p.win.serverPlays;
+    p.replies[0] = answer('best', { markers: MARKERS });
+    await streamPlays(p, 30);
+    const way = castWay(true);
+    p.win.MM.playOn.register(way);
+    if (how === 'there') { await openSheet(p); await pickRow(p, 'cast'); mediaPlays(way.media, 2990); await settle(); }
+    const media = how === 'there' ? way.media : p.video;
+    if (how === 'skipped') {
+      media.currentTime = 2710; fire(media, 'timeupdate');
+      click(p.q('[data-skip]'));
+    } else if (/Left$/.test(how)) {
+      media.currentTime = how === 'creditsLeft' ? 2710 : 1000; fire(media, 'timeupdate');
+      p.leave();
+    } else if (how !== 'left') {
+      media.paused = true; media.ended = true; media.currentTime = 2999;
+      fire(media, 'ended');
+    }
+    await settle();
+    return way.seen;
+  },
+
+  /* The next episode of what ended on a TV is not reached, and is tried again. */
+  async away_next_tried(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.paused = true; way.media.ended = true; way.media.currentTime = 2997;
+    fire(way.media, 'ended');
+    await settle();
+    p.pages['/watch/play/502'] = { status: 500 };
+    click(p.q('[data-upnext-play]'));
+    await settle();
+    const out = { message: messageState(p), ended: p.root.classList.contains('is-ended') };
+    let hidden = null;
+    p.q('[data-play]').focus = function () { hidden = p.root.classList.contains('is-ended'); doc.activeElement = this; };
+    press(p.q('[data-retry]'));
+    return Object.assign(out, { hidden: hidden });
   },
 
   /* The page opens, or comes back from the page cache, while a TV plays a title. */
@@ -5685,7 +5760,7 @@ const scenarios = {
       return { starts: p.starts().length - starts, says: awayState(p).says };
     }
     /* Whether a TV was known to play anything when this browser last heard. */
-    const known = how === 'unknown' ? {} : { 'mediaman.watch.onTv': '1' };
+    const known = /^(unknown|told)/.test(how) ? {} : { 'mediaman.watch.onTv': '1' };
     let hear;
     const pending = new Promise((yes, no) => { hear = { none: () => yes({ tvs: [LIVING] }), tv: () => yes({ tvs: on }), fails: () => no({ status: 0, error: 'network_error' }) }; });
     const waits = /^(unknown|silent|late|paused)/.test(how) || how === 'pressed';
@@ -5940,11 +6015,13 @@ const scenarios = {
   /* It may be on a TV, and another TV that is picked does not start. */
   async away_again_refused(p) {
     const way = castWay(true);
-    const opened = p.reopen((win) => { way.again = () => Promise.reject(Object.assign(new Error(), { code: 'lost' })); win.MM.playOn.register(way); });
+    const [code, on] = p.win.serverPlays.split(' ');
+    const opened = p.reopen((win) => { way.again = () => Promise.reject(Object.assign(new Error(), { code: code })); win.MM.playOn.register(way); });
     await settle();
     opened.elsewhere.plays.push(() => opened.elsewhere.refuse(409, 'tv_off'));
+    opened.elsewhere.castFails.push(() => opened.elsewhere.refuse(502, 'unreachable'));
     await openSheet(opened);
-    await pickRow(opened, 'tv-5');
+    await pickRow(opened, on || 'tv-5');
     const out = { asked: opened.elsewhere.sent.some((c) => /\/play$/.test(c.post || '')), starts: opened.starts().length, message: messageState(opened) };
     click(opened.q('[data-retry]'));
     await settle();

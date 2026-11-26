@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.session_store import create_session
+from mediaman.web.auth.session_store import create_session, validate_session
 from mediaman.web.routes.auth import _limiter
 from mediaman.web.routes.auth import router as auth_router
 
@@ -98,6 +98,27 @@ class TestLoginSubmit:
             data={"username": "admin", "password": "wrongpassword"},
         )
         assert "session_token" not in resp.cookies
+
+    def test_a_failed_login_leaves_the_session_already_there(self, _app, conn):
+        _create_admin(conn)
+        client = TestClient(_app)
+        token = create_session(conn, "admin")
+        client.cookies.set("session_token", token)
+
+        client.post("/login", data={"username": "admin", "password": "WRONG"})
+
+        assert validate_session(conn, token) == "admin"
+
+    def test_a_login_leaves_the_persons_sessions_on_other_devices(self, _app, conn):
+        _create_admin(conn)
+        elsewhere = create_session(conn, "admin")
+        client = TestClient(_app, follow_redirects=False)
+        client.cookies.set("session_token", create_session(conn, "admin"))
+
+        resp = client.post("/login", data={"username": "admin", "password": "password1234"})
+
+        assert resp.status_code == 302
+        assert validate_session(conn, elsewhere) == "admin"
 
     def test_rate_limit_blocks_after_5_attempts(self, _app, conn):
         """POST /login is rate-limited; after 5 failures from one IP the page shows throttle message."""

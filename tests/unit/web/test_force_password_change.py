@@ -149,11 +149,37 @@ def test_the_system_s_colours_keep_the_eye_and_the_button_drawn() -> None:
     assert "border: 1px solid transparent" in _rule(login, ".login-btn")
 
 
+def test_a_long_unbroken_word_in_a_refusal_breaks_inside_the_card() -> None:
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    assert "overflow-wrap: anywhere" in _rule(login, ".error-msg")
+
+
+def test_a_sign_in_field_draws_one_ring_over_its_border_as_the_password_form_does() -> None:
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    ring = _rule(login, ".login-field input:focus-visible")
+    assert "outline: 2px solid var(--accent)" in ring and "outline-offset: -1px" in ring
+    forced = login.split("@media (forced-colors: active)", 1)[1]
+    assert ".login-field input:focus-visible { outline-color: Highlight; }" in forced
+
+
 @pytest.mark.parametrize("page", ["login", "error", "force_password_change"])
-def test_the_brand_breaks_between_its_parts_where_it_is_too_wide(page) -> None:
+def test_the_brand_is_the_drawn_name_that_keeps_to_its_width(page) -> None:
     html = (WEB / "templates" / f"{page}.html").read_text()
     brand = re.search(r'class="login-brand[^>]*>(.*?)</div>', html)
-    assert brand and "media<wbr><b>man</b>" in brand[1]
+    assert brand and 'aria-label="mediaman"' in brand[1] and "wordmark" in brand[1]
+    assert "<b>man</b>" not in brand[1]
+    # Under a large text zoom it narrows with the card, and keeps its proportions.
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    mark = _rule(login, ".login-brand .wordmark")
+    assert "max-width: 100%" in mark and "height: auto" in mark
+    assert "aspect-ratio: 4.4316 / 1.0211" in mark
+    assert "min-width: 0" in _rule(login, ".login-brand a")
+    # A grid item is no narrower than its content unless told, so the card would not narrow.
+    assert "min-width: 0" in _rule(login, ".login-card")
+
+
+def test_the_top_bar_s_name_keeps_its_width() -> None:
+    assert "max-width" not in _rule((WEB / "static" / "css" / "_base.css").read_text(), ".wordmark")
 
 
 def test_an_open_form_s_fold_follows_its_height_in_safari() -> None:
@@ -201,6 +227,21 @@ def test_a_refusal_is_under_its_own_field_without_scripts(field):
     others = {"old_password", "new_password", "confirm_password"} - {field}
     assert _why(html, field) == "No &lt;b&gt;"
     assert [_why(html, other) for other in others] == ["", ""]
+
+
+@pytest.mark.parametrize(
+    ("context", "focused"),
+    [
+        ({}, "old_password"),
+        ({"error": "No", "field": "old_password"}, "old_password"),
+        ({"error": "No", "field": "new_password"}, "new_password"),
+        ({"error": "No", "field": "confirm_password"}, "confirm_password"),
+        ({"issues": ["Too short."], "rules": ["length"]}, "new_password"),
+        ({"error": "Too many attempts"}, "old_password"),
+    ],
+)
+def test_the_page_opens_on_the_field_it_refused(context, focused):
+    assert re.findall(r'id="(\w+)"[^>]*\bautofocus\b', _page(**context)) == [focused]
 
 
 def test_a_limit_is_about_the_whole_form():

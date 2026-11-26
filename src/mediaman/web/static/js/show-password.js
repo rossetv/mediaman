@@ -1,40 +1,42 @@
 /**
- * Show/hide toggle for password inputs marked data-show-password.
+ * The eye beside a password input marked data-show-password (the .pwd-eye of _password.html):
+ * it shows the password and hides it again, as on the password form.
  *
- * The button is added here, so without JavaScript the field is a plain
- * password input. Lives in an external file so the page CSP needs no
- * 'unsafe-inline'.
+ * Without JavaScript the eye stays out of sight and the field is a plain password input. Lives
+ * in an external file so the page CSP needs no 'unsafe-inline'.
  */
 (function () {
   'use strict';
 
-  document.querySelectorAll('input[type="password"][data-show-password]').forEach(function (input) {
-    // Moving an element drops its focus, so note it now and give it back.
-    var hadFocus = document.activeElement === input;
-    var wrap = document.createElement('div');
-    wrap.className = 'pw-wrap';
-    input.parentNode.insertBefore(wrap, input);
-    wrap.appendChild(input);
+  document.documentElement.classList.add('pwd-on');
 
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'pw-toggle';
-    btn.textContent = 'Show';
-    // The name starts with the visible word, so voice control can say "click Hide".
-    btn.setAttribute('aria-label', 'Show password');
+  document.querySelectorAll('input[type="password"][data-show-password]').forEach(function (input) {
+    var eye = input.parentNode.querySelector('.pwd-eye');
+    if (!eye) return;
     function setShown(show) {
       input.type = show ? 'text' : 'password';
-      btn.textContent = show ? 'Hide' : 'Show';
-      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      eye.setAttribute('aria-pressed', String(show));
+      eye.title = show ? 'Hide' : 'Show';
     }
-    btn.addEventListener('click', function () {
-      setShown(input.type === 'password');
+    // The cursor stays in the field while its eye is pressed.
+    eye.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    // Chromium puts the cursor at the start just after the type changes, so it goes back a frame
+    // later, or sooner where a key comes first. A second press before then keeps the first place.
+    var back = null;
+    function putBack() {
+      var at = back;
+      back = null;
+      if (!at || document.activeElement !== input || input.value !== at.value) return;
+      try { input.setSelectionRange(at.from, at.to, at.way); } catch (err) { /* A field that has none. */ }
+    }
+    eye.addEventListener('click', function () {
+      if (!back) back = { from: input.selectionStart, to: input.selectionEnd, way: input.selectionDirection, value: input.value };
+      setShown(eye.getAttribute('aria-pressed') !== 'true');
+      if (document.activeElement !== input) { back = null; return; }
+      requestAnimationFrame(putBack);
     });
-    wrap.appendChild(btn);
-
-    if (hadFocus || (input.hasAttribute('autofocus') && (!document.activeElement || document.activeElement === document.body))) {
-      input.focus();
-    }
+    input.addEventListener('keydown', putBack);
+    input.addEventListener('beforeinput', putBack);
     // A reopened form must not keep showing the last password typed into it.
     if (input.form) input.form.addEventListener('reset', function () { setShown(false); });
   });

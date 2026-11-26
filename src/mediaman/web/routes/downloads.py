@@ -16,6 +16,7 @@ from starlette.responses import Response
 
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
+from mediaman.services.arr.fetcher._base import is_film_id
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import build_downloads_response
@@ -30,6 +31,7 @@ router = APIRouter()
 
 class AbandonRequest(BaseModel):
     seasons: list[int] = Field(default_factory=list)
+    arr_id: int | None = None
 
 
 def _ring(data: DownloadsResponse, asked_at: float) -> dict[str, object] | None:
@@ -48,13 +50,14 @@ def _page_payload(
     conn: sqlite3.Connection, secret_key: str
 ) -> tuple[DownloadsResponse, dict[str, object] | None]:
     """The downloads with TMDB posters at mediaman's own address, so a browser here never
-    calls TMDB; and what the header's ring is told of them. Copies: completion detection keeps
-    the items, with the addresses they came with.
+    calls TMDB, and films of one title by their labels; and what the header's ring is told of
+    them. Copies: completion detection keeps the items as they came.
     """
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         poster = item.get("poster_url") or ""
-        return {**item, "poster_url": tmdb_image_url(poster, "w342") or poster}
+        title = item.get("label") or item["title"]
+        return {**item, "title": title, "poster_url": tmdb_image_url(poster, "w342") or poster}
 
     asked_at = strip.on_page.now()
     data = build_downloads_response(conn, secret_key)
@@ -68,28 +71,54 @@ def _page_payload(
     return page, _ring(data, asked_at)
 
 
+def _former_id(item: dict[str, object]) -> str | None:
+    dl_id, title = str(item["id"]), str(item["title"])
+    return f"radarr:{title}" if is_film_id(dl_id, title) else None
+
+
+def _is_shown_as(item: dict[str, object], dl_id: str) -> bool:
+    """Whether *item* is the title a page showed as *dl_id*: a film by its TMDB id, which stays
+    with it when it is renamed, and anything else by its id. Radarr and Sonarr hand a number
+    out again once reinstalled, so that alone does not tell."""
+    item_id = str(item["id"])
+    _, has_number, tmdb_id = dl_id.rpartition("#")
+    if dl_id.startswith("radarr:") and has_number and tmdb_id.isdecimal():
+        return is_film_id(item_id, str(item["title"])) and item_id.endswith(f"#{tmdb_id}")
+    return item_id == dl_id
+
+
 def _lookup_dl_item(
-    conn: sqlite3.Connection, secret_key: str, dl_id: str
+    conn: sqlite3.Connection, secret_key: str, dl_id: str, arr_id: int | None = None
 ) -> dict[str, object] | None:
-    """Find the queue item with the given dl_id in a freshly built response, never trusting
-    stale client-side state. Raises 503 when it is missing while a service is unreachable.
+    """Find the queue item a page showed as *dl_id* in a freshly built response, never trusting
+    stale client-side state: with *arr_id*, the one of that number that is still the same title.
+    Without an arr_id it is the one with the dl_id, which of a film may be the one it had when
+    films had none of their own. Raises 409 when that is more than one title, and 503 when none
+    is while a service is unreachable.
     """
     payload = build_downloads_response(conn, secret_key)
-    for bucket in (payload.get("queue", []), payload.get("upcoming", [])):
-        for item in bucket:
-            if item.get("id") == dl_id:
-                return item
-    hero = payload.get("hero")
-    if hero and hero.get("id") == dl_id:
-        return hero
+    items = [*payload.get("queue", []), *payload.get("upcoming", [])]
+    if hero := payload.get("hero"):
+        items.append(hero)
+    if arr_id:
+        found = [i for i in items if i.get("arr_id") == arr_id and _is_shown_as(i, dl_id)]
+    else:
+        found = [i for i in items if dl_id in (i["id"], _former_id(i))]
+    if len({item.get("arr_id") for item in found}) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="More than one title has this name. Reload the page and try again.",
+        )
+    if found:
+        return found[0]
     if outage := payload.get("outage"):
         raise HTTPException(status_code=503, detail=f"{outage} right now. Try again later.")
     return None
 
 
 def _for_viewer(payload: DownloadsResponse) -> None:
-    """Clear what only an admin uses on every item: Abandon, where Radarr and Sonarr are, and
-    the ids and dates kept for the server's own bookkeeping."""
+    """Clear what only an admin uses on every item: Abandon, where Radarr and Sonarr are, the
+    names of releases, and the ids and dates kept for the server's own bookkeeping."""
     hero = payload["hero"]
     items = [*payload["queue"], *payload["upcoming"]]
     if hero is not None:
@@ -98,6 +127,8 @@ def _for_viewer(payload: DownloadsResponse) -> None:
         item.update(abandon_visible=False, arr_link="", arr_source="", arr_id=0)
         item.pop("tmdb_id", None)
         item.pop("queued_since", None)
+    for item in [*items, *payload["recent"]]:
+        item.update(strip.for_viewer(item))
 
 
 @router.get("/downloads", response_class=HTMLResponse)
@@ -147,19 +178,23 @@ def downloads_abandon(
     dl_id: str = Path(..., description="dl_id of the item to abandon"),
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Unmonitor a stuck searching item and clear its throttle row.
+    """Unmonitor a stuck searching item and clear its throttle row. A page sends the arr_id of
+    the item it showed; one opened before it did sends none.
 
     Movies ignore seasons; a series needs at least one season number. Returns 404 if the
-    dl_id is no longer in the queue (another tab abandoned it, or Radarr just grabbed a
-    release) and 400 for a malformed request (empty seasons on a series).
+    item is no longer in the queue (another tab abandoned it, or Radarr just grabbed a
+    release), 409 if it names more than one title and 400 for a malformed request (empty
+    seasons on a series).
     """
     conn = get_db()
     secret_key = request.app.state.config.secret_key
 
-    item = _lookup_dl_item(conn, secret_key, dl_id)
+    item = _lookup_dl_item(conn, secret_key, dl_id, body.arr_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found in queue")
 
+    # What it is known by now, which a page that sent its arr_id may not have had.
+    dl_id = str(item.get("id") or dl_id)
     arr_id_raw = item.get("arr_id")
     arr_id: int = int(arr_id_raw) if isinstance(arr_id_raw, int) else 0
     if arr_id == 0:

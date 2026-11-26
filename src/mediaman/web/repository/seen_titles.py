@@ -19,6 +19,10 @@ from mediaman.web.repository.watch_progress import NEVER_PLAYED, WatchProgress
 # (media type, TMDB id)
 TitleKey = tuple[str, int]
 
+# The key in a mark's episodes, no regular season's number, of the seasons the library did not
+# hold when it was marked whole: an older version reads it with the seasons and never uses it.
+_NOT_HELD = 0
+
 
 # The shows of the scanned libraries, with the TMDB id each is known by.
 _SHOWS = (
@@ -158,6 +162,11 @@ def mark(
             for season, numbers in (episodes or {}).items()
             if season in reach
         }
+        # Marked whole again, what was taken back of a season now gone no longer counts.
+        reach.pop(_NOT_HELD, None)
+        not_held = frozenset(season for season, numbers in reach.items() if not numbers)
+        if not_held:
+            reach[_NOT_HELD] = not_held
         after = SeenMark(
             through_season,
             reach,
@@ -198,25 +207,32 @@ def change_part(
         reached = before.episodes.get(part.season)
         held = listed if reached is None else reached & listed
         episodes = dict(before.episodes)
+        not_held = episodes.pop(_NOT_HELD, frozenset())
         if seen:
             if reached is None:
                 return None
-            episodes[part.season] = reached | one
-            if not listed:
+            if listed:
+                episodes[part.season] = reached | one
+            elif not reached and part.season not in not_held:
                 del episodes[part.season]
-            partly = before.partly and (
-                any(
-                    not numbers <= episodes.get(season, numbers)
-                    for season, numbers in part.listed.items()
-                )
+            partly = before.partly and any(
+                not part.listed[season] <= numbers
+                if season in part.listed
                 # One the library has dropped since can no longer be given back.
-                or any(not n and season not in part.listed for season, n in episodes.items())
+                else not numbers
+                for season, numbers in episodes.items()
+                if season not in not_held
             )
         else:
             if part.episode is not None and part.episode not in held:
                 return None
-            episodes[part.season] = held - one
+            # With none left that the library lists, nothing of the season is.
+            left = listed if reached is None else reached
+            episodes[part.season] = left - one if held - one else frozenset()
+            not_held -= {part.season}
             partly = True
+        if not_held:
+            episodes[_NOT_HELD] = not_held
         after: SeenMark | None = replace(before, episodes=episodes, partly=partly)
         if after == before:
             return None

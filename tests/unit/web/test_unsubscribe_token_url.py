@@ -175,6 +175,7 @@ class TestUnsubscribeRoute:
         assert resp.status_code == 429
         assert "One moment" in resp.text and "Could not unsubscribe" not in resp.text
         assert ("data-count" in resp.text) is retries
+        assert resp.headers["Retry-After"] == "60"
 
 
 class TestUnsubscribeAuditAtomicity:

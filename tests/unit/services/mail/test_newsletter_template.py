@@ -737,6 +737,34 @@ def test_a_short_row_without_a_link_keeps_its_distance_from_the_next(env: Enviro
     assert html.count('<div style="margin-top:6px">A Title') == 11
 
 
+@pytest.mark.parametrize("leaving", [1, 2])
+def test_a_title_too_long_to_send_is_cut_and_every_title_is_still_named(
+    env: Environment, leaving: int
+) -> None:
+    ctx = _long_context(leaving)
+    ctx["scheduled_items"][0]["title"] = "The Long One " + "&" * 95_000
+
+    html, listed = render_to_fit(env.get_template("newsletter.html"), **ctx)
+
+    assert len(listed) == leaving
+    assert all(item["keep_url"] in html for item in ctx["scheduled_items"])
+    assert "The Long One &amp;" in html
+    assert len(html.encode()) <= 102_000
+
+
+def test_a_long_title_of_what_is_gone_or_picked_takes_no_place_from_the_rest(
+    env: Environment,
+) -> None:
+    ctx = _long_context(1)
+    ctx["deleted_items"] = [ctx["deleted_items"][0] | {"title": "d" * 95_000}]
+    ctx["this_week_items"] = [ctx["this_week_items"][0] | {"title": "p" * 95_000}]
+
+    html = _fitted(env, ctx)
+
+    assert html.count(">Download again<") == 1
+    assert html.count(">Download<") == 1
+
+
 def test_a_mail_that_fits_is_left_as_it_is(env: Environment) -> None:
     ctx = _full_context()
     html = env.get_template("newsletter.html").render(**ctx)

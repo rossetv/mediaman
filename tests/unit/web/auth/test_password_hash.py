@@ -451,6 +451,107 @@ class TestChangePasswordTOCTOU:
         assert row is None
 
 
+class TestChangePasswordRaces:
+    def test_a_change_is_refused_when_the_password_changed_after_its_check(self, conn):
+        import bcrypt
+
+        from mediaman.web.auth.login_lockout import reauth_key
+        from mediaman.web.auth.session_store import create_session, validate_session
+
+        create_user(conn, "alice", "old-pass", enforce_policy=False)
+        token = create_session(conn, "alice")
+        elsewhere = bcrypt.hashpw(b"set-elsewhere", bcrypt.gensalt(rounds=4)).decode()
+
+        def verify_then_change(c, u, p):
+            result = verify_password(c, u, p)
+            c.execute("UPDATE admin_users SET password_hash = ? WHERE username = ?", (elsewhere, u))
+            c.commit()
+            return result
+
+        with patch(
+            "mediaman.web.auth.password_hash._change_password.verify_password",
+            side_effect=verify_then_change,
+        ):
+            ok = change_password(conn, "alice", "old-pass", "new-pass", enforce_policy=False)
+
+        assert ok is False
+        assert verify_password(conn, "alice", "set-elsewhere") is True
+        assert validate_session(conn, token) == "alice"
+        # The old password was right when checked: no failure is counted for it.
+        assert (
+            conn.execute(
+                "SELECT 1 FROM login_failures WHERE username = ?", (reauth_key("alice"),)
+            ).fetchone()
+            is None
+        )
+
+    def test_of_two_changes_checked_at_once_one_is_made_and_the_other_counts_no_failure(
+        self, conn, db_path
+    ):
+        import sqlite3
+        import threading
+
+        import bcrypt
+
+        from mediaman.web.auth.login_lockout import reauth_key
+
+        quick = bcrypt.hashpw(b"old-pass", bcrypt.gensalt(rounds=4)).decode()
+        real_hashpw = bcrypt.hashpw
+        create_user(conn, "alice", "unused", enforce_policy=False)
+
+        def attempt(new_password, results):
+            c = sqlite3.connect(str(db_path))
+            c.row_factory = sqlite3.Row
+            c.execute("PRAGMA busy_timeout=5000")
+            try:
+                results[new_password] = change_password(
+                    c, "alice", "old-pass", new_password, enforce_policy=False
+                )
+            finally:
+                c.close()
+
+        for _ in range(5):
+            conn.execute(
+                "UPDATE admin_users SET password_hash = ? WHERE username = 'alice'", (quick,)
+            )
+            conn.commit()
+            # Both have checked the old password before either writes.
+            checked = threading.Barrier(2)
+
+            def hash_once_both_checked(*args, _checked=checked):
+                _checked.wait(timeout=5)
+                return real_hashpw(*args)
+
+            results: dict[str, bool] = {}
+            with (
+                patch("mediaman.web.auth.password_hash._change_password.BCRYPT_ROUNDS", 4),
+                patch(
+                    "mediaman.web.auth.password_hash._change_password.bcrypt.hashpw",
+                    side_effect=hash_once_both_checked,
+                ),
+            ):
+                threads = [
+                    threading.Thread(target=attempt, args=(new, results))
+                    for new in ("new-pass-a", "new-pass-b")
+                ]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join(timeout=10)
+
+            assert sorted(results.values()) == [False, True]
+            winner = next(p for p, ok in results.items() if ok)
+            loser = next(p for p, ok in results.items() if not ok)
+            assert verify_password(conn, "alice", winner) is True
+            assert verify_password(conn, "alice", loser) is False
+            assert (
+                conn.execute(
+                    "SELECT 1 FROM login_failures WHERE username = ?", (reauth_key("alice"),)
+                ).fetchone()
+                is None
+            )
+
+
 class TestChangePasswordReauthInsideTransaction:
     def test_reauth_tickets_dropped_on_password_change(self, conn):
         """Reauth tickets keyed by the user's old session must be

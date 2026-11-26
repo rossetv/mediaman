@@ -51,6 +51,39 @@ def test_a_library_group_that_shows_only_some_of_what_was_found_says_of_how_many
     assert out["category"] == "3 of 298 titles"
 
 
+def test_a_title_watch_cannot_open_leads_nowhere_and_has_its_menu() -> None:
+    out = _run("unheld")
+    assert out["titles"] == ["Orchard Keepers", "Orchard Elsewhere", "Orchard Other"]
+    assert (out["href"], out["ref"], out["tabIndex"]) == (None, None, 0)
+    assert (out["more"], out["id"]) == ("More for Orchard Elsewhere", "900")
+    assert out["libraryHasNone"] is True
+    assert not any("Elsewhere" in s for s in out["suggested"])
+
+
+def test_a_change_to_a_title_watch_cannot_open_shows_where_it_was_found() -> None:
+    out = _run("unheld")
+    assert out["busy"] == [True, "true", False]
+    assert out["failed"] == [False, None, False, 1]
+    assert out["done"] == [False, None, False, 2]
+    assert out["kept"] == [True, True, ["In your library"]]
+    assert out["gone"] == [["Orchard Keepers", "Orchard Other"], True]
+    assert out["other"] == 0
+
+
+def test_an_undo_from_a_leaving_toast_gives_the_focus_to_its_title() -> None:
+    assert _run("unheldFocus")["afterUndo"] == "Orchard Elsewhere"
+
+
+def test_the_last_library_title_deleted_gives_the_focus_to_a_card_not_a_heading() -> None:
+    titles, focused = _run("unheldFocus")["afterDelete"]
+    assert "Orchard Elsewhere" not in titles
+    assert focused in {"Orchard Keepers", "Orchard Road"}
+
+
+def test_the_only_title_found_deleted_gives_the_focus_to_the_search_field() -> None:
+    assert _run("onlyCardDeleted") == {"cards": [], "focused": "watch-search"}
+
+
 def test_a_reply_to_an_older_or_shorter_query_is_dropped() -> None:
     out = _run("staleReply")
     assert out["afterOlder"] == ["New"]

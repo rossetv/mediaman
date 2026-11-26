@@ -44,7 +44,8 @@ html, body {
 [hidden] { display: none !important; }
 
 img { display: block; max-width: 100%; }
-img[data-broken] { display: none; }
+/* One marked "coming" is drawn over its stand-in, which every other rule keeps (broken-poster.js). */
+img[data-broken=""] { display: none; }
 
 /* An icon from the sprite. Symbols are drawn on a 640 x 512 grid, so 1em of height
    keeps 1.25em of width, and their baseline sits 64 units above the bottom. Some
@@ -60,6 +61,10 @@ img[data-broken] { display: none; }
   forced-color-adjust: auto;
 }
 .ico-sprite { display: none; }
+
+/* The name: the box of its drawing, with small letters as tall as the .53em of the type around it. */
+.wordmark { flex: none; width: 4.4316em; height: 1.0211em; }
+.wm-man { stroke: var(--accent); }
 
 a { color: inherit; text-decoration: none; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
@@ -127,6 +132,26 @@ main:focus { outline: none; }
 
 /* Add to a node render code has just inserted so it eases in. */
 .fade-in { animation: fade-in var(--dur) var(--ease-out) backwards; }
+
+/* A <details> that MM.dom.fold opens and shuts smoothly. */
+.fold-more { margin-top: 4px; }
+.fold-more > summary {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px;
+  font-size: 14px; color: var(--t1);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  list-style: none;
+}
+.fold-more > summary::-webkit-details-marker { display: none; }
+.fold-more > summary > .ico { color: var(--t3); transition: transform var(--dur) var(--ease-out); }
+.fold-more > summary:hover > .ico { color: var(--t1); }
+.fold-more[open]:not(.is-shutting) > summary > .ico { transform: rotate(180deg); }
+.fold-more[open] > :not(summary) { animation: fade-in var(--dur) var(--ease-out); }
+.fold-more-head { margin-top: 8px; color: var(--t2); }
+.fold-more-head:first-of-type { margin-top: 0; }
+.fold-more-list { margin: 2px 0 0; padding-left: 18px; list-style: disc; }
+.fold-more-list li + li { margin-top: 2px; }
 
 /* Pages swap with a clean cut, not `@view-transition { navigation: auto }`:
    Chrome intermittently shows the cross-fade's first frame as pure white. */

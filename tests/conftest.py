@@ -186,6 +186,18 @@ def _reset_disk_reads():
 
 
 @pytest.fixture(autouse=True)
+def _reset_scrubbed_secrets():
+    """A secret one test registers must not be masked in the log of the next."""
+    from mediaman.core import scrub_filter
+
+    root = scrub_filter._root_filter
+    secrets = list(root._secrets) if root else []
+    yield
+    if (root := scrub_filter._root_filter) is not None:
+        root._secrets[:] = secrets
+
+
+@pytest.fixture(autouse=True)
 def _reset_db_connection_state():
     """Drop any thread-local DB connection registered by the previous test.
 
@@ -593,6 +605,7 @@ def _reset_watch_arr_state():
         with _arr._lock:
             _arr._memo.clear()
             _arr._building.clear()
+            _arr._background.clear()
             _arr._generation[0] = 0
 
     reset()

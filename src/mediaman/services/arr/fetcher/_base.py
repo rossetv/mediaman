@@ -150,8 +150,10 @@ class ArrCard(BaseArrCard, total=False):
     is_upcoming: bool
     release_label: str
     arr_id: int
-    # Set on a queue card, which has no arr_id to look it up by.
+    # On a film's card always, and on a show's in the queue: that has no arr_id to look it up by.
     tmdb_id: int
+    # What to call a film whose title another in Radarr has too.
+    label: str
     title_slug: str
     added_at: float
     # Epoch since which the title has been searching without a break. Absent while
@@ -171,6 +173,18 @@ class ArrCard(BaseArrCard, total=False):
     # Seasons Abandon can unmonitor, as {"number", "missing_episodes", "aired"}; only
     # on a series still searching, which has no queue episodes to read them from.
     stuck_seasons: list[dict[str, int]]
+
+
+def film_id(title: str, tmdb_id: int) -> str:
+    """The dl_id of a film, which another of the same title does not share, and which stays
+    with it when it is removed from Radarr and added again."""
+    return f"radarr:{title}#{tmdb_id}"
+
+
+def is_film_id(dl_id: str, title: str) -> bool:
+    """Whether *dl_id* is a ``film_id`` of *title*."""
+    number = dl_id.removeprefix(f"radarr:{title}#")
+    return number != dl_id and number.isdecimal()
 
 
 def make_arr_card(

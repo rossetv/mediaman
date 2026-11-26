@@ -425,6 +425,12 @@ def test_a_reload_under_a_trailer_leaves_no_trailer_s_entry(trailer: dict) -> No
     assert trailer["reloaded"] == {"state": None, "on": False, "left": True}
 
 
+def test_a_page_come_back_to_past_its_trailer_lets_the_browser_keep_its_place(
+    trailer: dict,
+) -> None:
+    assert trailer["returned"] == "auto"
+
+
 @pytest.mark.parametrize("way", ["close", "button", "escape", "end"])
 def test_closing_the_trailer_twice_at_once_never_leaves_the_page(way: str, twice: dict) -> None:
     assert twice[way] == {

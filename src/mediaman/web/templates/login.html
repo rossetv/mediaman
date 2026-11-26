@@ -1,12 +1,15 @@
 {% extends "base.html" %}
+{% import "_password.html" as pw %}
 
 {% block title %}Sign In · Mediaman{% endblock %}
+
+{% block head %}<link rel="stylesheet" href="/static/css/_password.css?v={{ static_v }}">{% endblock %}
 
 {% block content %}
 <div class="login-page">
   <div class="login-card">
     <h1 class="sr-only">Sign in to mediaman</h1>
-    <div class="login-brand" aria-hidden="true"><a href="/">media<wbr><b>man</b></a></div>
+    <div class="login-brand{% if not error %} login-brand--drawn{% endif %}"><a href="/" aria-label="mediaman">{# Not from the sprite: WebKit does not animate what is. #}<svg class="ico wordmark" viewBox="0 -735 4210 970" aria-hidden="true" focusable="false">{% include "_wordmark.html" %}</svg></a></div>
     <div class="login-sub">Sign in to your library</div>
 
     {% if error %}
@@ -24,8 +27,11 @@
 
       <div class="login-field">
         <label for="password">Password</label>
-        <input id="password" type="password" name="password" autocomplete="current-password"
-               data-show-password {% if username %}autofocus{% endif %} required>
+        <div class="pwd-box">
+          <input class="inp pwd-inp" id="password" type="password" name="password" autocomplete="current-password"
+                 data-show-password {% if username %}autofocus{% endif %} required>
+          {{ pw.eye("password", "password") }}
+        </div>
       </div>
 
       <button class="login-btn" type="submit">Sign in</button>

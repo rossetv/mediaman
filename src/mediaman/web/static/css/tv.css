@@ -13,8 +13,8 @@ video::-webkit-media-controls { display: none !important; }
 @-webkit-keyframes out { to { opacity: 0; } }
 @keyframes out { to { opacity: 0; } }
 .page { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; }
-.brand { font-size: 40px; color: #fff; letter-spacing: -1px; }
-.brand b { color: #2997ff; }
+.brand { height: 45px; }
+.brand svg { display: block; width: 202px; height: 47px; }
 
 .code { display: -webkit-flex; display: flex; position: absolute; left: 120px; right: 120px; top: 80px; bottom: 70px; -webkit-align-items: center; align-items: center; }
 .lc { width: 1060px; }
@@ -65,16 +65,42 @@ video::-webkit-media-controls { display: none !important; }
 .spin { width: 96px; height: 96px; border: 8px solid #4a4a4e; border-top-color: #fff; border-radius: 50%; -webkit-animation: sp 1s linear infinite; animation: sp 1s linear infinite; margin: 30px 0 40px; -webkit-flex: none; flex: none; }
 @-webkit-keyframes sp { to { -webkit-transform: rotate(360deg); } }
 @keyframes sp { to { transform: rotate(360deg); } }
+/* The icon drawn over and over, where the browser can: each dash is as long as its arch. Others have the ring. */
+.mark { display: none; }
+@supports (stroke-dashoffset: 1px) and (animation-name: a1) {
+  .spin--mark { width: 120px; border: 0; border-radius: 0; animation: none; }
+  .mark { display: block; width: 120px; height: 96px; }
+  .a1 { stroke-dasharray: 57.2px 114.4px; animation: a1 1.8s linear infinite both; }
+  .a2 { stroke-dasharray: 43.9px 87.8px; animation: a2 1.8s .3s linear infinite both; }
+}
+@keyframes a1 { 0% { stroke-dashoffset: 57.2px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -57.2px; opacity: 1; } 100% { stroke-dashoffset: -57.2px; opacity: 0; } }
+@keyframes a2 { 0% { stroke-dashoffset: 43.9px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -43.9px; opacity: 1; } 100% { stroke-dashoffset: -43.9px; opacity: 0; } }
 @keyframes pu { 50% { opacity: .4; } }
 .idle .brand { opacity: .9; }
+
+/* Over all, and not there at all while a film plays. Light comes back at once. */
+body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; background: #000; forced-color-adjust: none; visibility: hidden; opacity: 0; transition: opacity .2s, visibility .2s; }
+.dim:after { visibility: visible; opacity: .6; transition: opacity 12s ease-in-out; }
+.mid, .code, .top > div, .bot > div { transition: transform .2s; }
+.dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: transform 4s ease-in-out; }
+.d1 .mid, .d1 .code, .d1 .top > div, .d1 .bot > div { -webkit-transform: translate(24px, -14px); transform: translate(24px, -14px); }
+.d2 .mid, .d2 .code, .d2 .top > div, .d2 .bot > div { -webkit-transform: translate(10px, 16px); transform: translate(10px, 16px); }
+.d3 .mid, .d3 .code, .d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-24px, -4px); transform: translate(-24px, -4px); }
+/* These lie nearer the edge, and stay 5% clear of it. */
+.d1 .top > div, .d1 .bot > div { -webkit-transform: translate(14px, -14px); transform: translate(14px, -14px); }
+.d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-14px, -4px); transform: translate(-14px, -4px); }
 @media (prefers-reduced-motion: reduce) {
   .b, .ov { transition: none; }
   .in > div, #o > div { animation: none; }
+  .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
   #o { display: none; }
   .spin { animation: pu 1.6s ease-in-out infinite; }
+  .spin--mark, .mark path { animation: none; }
 }
 @media (forced-colors: active) {
   .b.f, .bar .p { forced-color-adjust: none; background: Highlight; }
   .b.f { color: HighlightText; border-color: Highlight; }
   .bar { border: 1px solid CanvasText; }
+  .wm-man { stroke: currentColor; }
+  .qr { forced-color-adjust: none; }
 }

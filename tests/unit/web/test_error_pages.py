@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import HTTPException
+from fastapi import Body, HTTPException
 from fastapi.testclient import TestClient
 
 from mediaman.app_factory import create_app
@@ -26,6 +26,23 @@ def client():
     @app.get("/json-500")
     def json_500():
         raise HTTPException(status_code=500, detail="broken")
+
+    @app.post("/api/secret")
+    def api_secret(word: str = Body(embed=True)):
+        return {}
+
+    @app.post("/api/stored")
+    def api_stored(word: str = Body(embed=True)):
+        word.encode("utf-8")
+        return {}
+
+    @app.get("/api/latin")
+    def api_latin():
+        "€".encode("latin-1")
+
+    @app.get("/api/own-text")
+    def api_own_text():
+        "a name read from disk \udcff".encode("utf-8")
 
     return TestClient(app, raise_server_exceptions=False)
 
@@ -53,6 +70,46 @@ def test_a_missing_page_for_a_non_html_caller_stays_json(client):
 
     assert resp.status_code == 404
     assert resp.json() == {"detail": "Not Found"}
+
+
+def test_a_refused_body_names_the_field_and_not_what_was_sent(client):
+    resp = client.post("/api/secret", json={"word": ["hunter2"]})
+
+    assert resp.status_code == 422
+    (error,) = resp.json()["detail"]
+    assert error["loc"] == ["body", "word"]
+    assert error["msg"]
+    assert "hunter2" not in resp.text
+
+
+def test_text_sent_with_no_utf8_form_is_a_bad_request(client):
+    resp = client.post(
+        "/api/stored",
+        content=b'{"word": "half \\ud800 a pair"}',
+        headers={"content-type": "application/json"},
+    )
+
+    assert resp.status_code == 400
+
+
+def test_text_with_no_utf8_form_is_refused_in_words_the_pages_show(client):
+    resp = client.post(
+        "/api/stored",
+        content=b'{"word": "half \\ud800 a pair"}',
+        headers={"content-type": "application/json"},
+    )
+
+    said = "The request holds a character that cannot be used."
+    # MM.api.messageOf reads ``message``; the Settings save bar reads ``detail``.
+    assert resp.json() == {"ok": False, "error": said, "message": said, "detail": said}
+
+
+def test_any_other_encoding_fault_is_still_a_crash(client):
+    assert client.get("/api/latin").status_code == 500
+
+
+def test_the_servers_own_text_with_no_utf8_form_is_still_a_crash(client):
+    assert client.get("/api/own-text").status_code == 500
 
 
 def test_a_missing_api_route_stays_json_even_for_a_browser(client):
@@ -141,4 +198,24 @@ def test_a_crashed_form_is_not_offered_a_retry_that_would_not_send_it(client):
 
 
 def test_an_error_page_carries_the_wordmark(client):
-    assert "media<wbr><b>man</b>" in client.get("/no/such/page", headers=_HTML).text
+    assert '<use href="#i-wordmark"/>' in client.get("/no/such/page", headers=_HTML).text
+
+
+def test_a_long_unbroken_word_in_the_message_breaks_inside_the_card():
+    from pathlib import Path
+
+    import mediaman.web
+
+    css = (Path(mediaman.web.__file__).parent / "static" / "css" / "_error.css").read_text()
+    assert ".err-title,\n.err-msg { text-wrap: balance; overflow-wrap: anywhere; }" in css
+
+
+def test_a_button_wraps_its_words_inside_the_card_under_a_large_text_zoom():
+    import re
+    from pathlib import Path
+
+    import mediaman.web
+
+    css = (Path(mediaman.web.__file__).parent / "static" / "css" / "_error.css").read_text()
+    rule = re.search(r"^\.err-actions \.btn \{([^}]*)\}", css, re.M)
+    assert rule and "white-space: normal" in rule[1] and "text-align: center" in rule[1]

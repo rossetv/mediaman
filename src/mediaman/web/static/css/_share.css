@@ -24,7 +24,7 @@
 @media (max-width: 1279.98px) {
   .share-bar::before { background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 86%, transparent), color-mix(in srgb, var(--scrim) 66%, transparent) 55%, transparent); }
 }
-.share-bar .brand { display: inline-flex; align-items: center; min-height: 44px; }
+.share-bar .brand { min-height: 44px; }
 .share-bar .btn { min-height: 44px; background: color-mix(in srgb, var(--scrim) 45%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 .share-bar .btn:hover { background: color-mix(in srgb, var(--s5) 70%, transparent); }
 
@@ -148,13 +148,17 @@
   .share-page .ttl__tagline { font-size: 14px; -webkit-line-clamp: 2; line-clamp: 2; }
   .share-page .ttl__meta { font-size: 14px; }
   .share-stack > .watch-actions { width: 100%; }
-  .share-act .watch-actions .btn--primary, .share-act .watch-actions .watch-btn--play { flex-basis: 100% !important; }
   .share-note .login-card { padding: 32px 22px; }
   .share-note .share-note__acts .btn { flex: 1 1 100%; }
+}
+@media (max-width: 599.98px) {
+  .share-act .watch-actions .btn--primary, .share-act .watch-actions .watch-btn--play { flex-basis: 100% !important; }
 }
 @media (max-height: 500px) and (orientation: landscape) {
   .share-page .share-hero { min-height: 100vh; min-height: 100svh; padding-top: 64px; padding-bottom: 18px; }
   .share-hero .watch-banner__bg--art { inset: 0; height: 100%; aspect-ratio: auto; -webkit-mask-image: none; mask-image: none; }
+  /* Over the poster's empty place too, so the buttons have room to share a line. */
+  .share-page .watch-banner .share-act { grid-column: 1 / -1; }
   .share-page .watch-banner .share-act .watch-actions { grid-column: 1; }
   .share-page .watch-banner .share-act .watch-actions .btn { flex: 0 1 auto !important; padding-inline: 22px; }
   .share-note { padding-block: 64px 12px; }

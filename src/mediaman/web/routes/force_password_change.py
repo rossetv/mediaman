@@ -28,6 +28,7 @@ from mediaman.web.auth.password_hash._change_password import change_lock, is_sam
 from mediaman.web.auth.password_policy import password_issues, policy_summary
 from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.routes.users.passwords import lock_words, rules_of
+from mediaman.web.routes.users.rate_limits import _wait_text
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,10 @@ class _Refusal(NamedTuple):
     issues: list[str] | None = None
     rules: list[str] | None = None
     locked: bool = False
+
+
+def _throttled(limiter: ActionRateLimiter, actor: str) -> _Refusal:
+    return _Refusal(f"Too many attempts. Try again in {_wait_text(limiter.retry_after(actor))}.")
 
 
 def _render(request: Request, username: str | None, refusal: _Refusal) -> HTMLResponse:
@@ -195,14 +200,14 @@ def force_change_submit(
         logger.warning(
             "force_password_change.throttled user=%s scope=user", _sanitise_log_field(username)
         )
-        return refuse(_Refusal("Too many attempts — wait a moment and try again."))
+        return refuse(_throttled(_FORCE_CHANGE_LIMITER, username))
     if not _FORCE_CHANGE_IP_LIMITER.check(client_ip):
         logger.warning(
             "force_password_change.throttled user=%s scope=ip ip=%s",
             _sanitise_log_field(username),
             client_ip,
         )
-        return refuse(_Refusal("Too many attempts — wait a moment and try again."))
+        return refuse(_throttled(_FORCE_CHANGE_IP_LIMITER, client_ip))
 
     refusal = _validate_force_change_inputs(username, old_password, new_password, confirm_password)
     if refusal is not None:

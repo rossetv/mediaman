@@ -224,7 +224,7 @@ class _Row:
         if kind == "movie":
             if entry.get("isAvailable"):
                 return "queued", None
-            return "coming", _out_on(entry)
+            return "coming", next_movie_release(entry)
         coming, airs = series_still_to_air(cast("SonarrSeries", entry), request.season)
         return ("coming", parse_iso_utc(airs)) if coming else ("queued", None)
 
@@ -333,16 +333,6 @@ class _Row:
             "arrived_at": None,
             "release_date": release_date.date().isoformat() if release_date else None,
         }
-
-
-def _out_on(movie: Mapping[str, Any]) -> datetime | None:
-    """When a film not out yet is, by what Radarr waits for, or None when unknown."""
-    waits_for = movie.get("minimumAvailability")
-    if waits_for != "announced":
-        cinemas = waits_for == "inCinemas"
-        dates = ("inCinemas",) if cinemas else ("digitalRelease", "physicalRelease")
-        movie = {key: movie.get(key) for key in dates}
-    return next_movie_release(movie)
 
 
 def _key(kind: str, tmdb_id: int | None, ref: str) -> str:

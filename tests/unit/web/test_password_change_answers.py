@@ -359,6 +359,15 @@ class TestForcedPage:
         assert field is None
         assert error.startswith("Too many attempts")
 
+    def test_over_the_limit_the_wait_left_is_said(self, page, freezer):
+        for _ in range(5):
+            page.post(_PAGE, data={})
+        freezer.tick(15)
+
+        assert self._told(page.post(_PAGE, data={}))[2] == (
+            "Too many attempts. Try again in 45 seconds."
+        )
+
     def test_a_good_one_opens_watch(self, page):
         resp = _submit(page)
 

@@ -28,6 +28,8 @@
   z-index: 1;
   width: 100%;
   max-width: 420px;
+  /* A grid item: else as wide as the name, which then cannot narrow with the screen. */
+  min-width: 0;
   background: rgba(29,29,31,.7);
   -webkit-backdrop-filter: saturate(180%) blur(40px);
   backdrop-filter: saturate(180%) blur(40px);
@@ -36,15 +38,23 @@
   padding: 44px 36px;
   box-shadow: var(--shadow-card);
 }
-.login-brand {
-  font-family: var(--font-display);
-  font-size: 32px;
-  font-weight: 600;
-  letter-spacing: -.03em;
-  margin-bottom: 4px;
+.login-brand { display: flex; min-height: 1.47em; margin-bottom: 4px; font-size: 32px; }
+/* A flex item is no narrower than its content unless told: so the name can narrow with the card. */
+.login-brand a { display: inline-flex; align-items: center; min-width: 0; color: inherit; }
+/* In the card it cannot wrap as words do, so under a large text zoom it narrows to the card instead. */
+.login-brand .wordmark { max-width: 100%; height: auto; aspect-ratio: 4.4316 / 1.0211; }
+/* The name draws itself once, media and then man, as the sign-in page opens. */
+@media (prefers-reduced-motion: no-preference) {
+  .login-brand--drawn .wm-media > path { animation: wm-draw var(--dur-draw) var(--ease-out) backwards; }
+  .login-brand--drawn .wm-media > circle { animation: wm-dot var(--dur-draw) var(--ease-out) backwards; }
+  .login-brand--drawn .wm-man > path { animation: wm-draw var(--dur-draw-man) var(--delay-draw-man) var(--ease-out) backwards; }
 }
-.login-brand a { text-decoration: none; color: inherit; overflow-wrap: anywhere; }
-.login-brand b, .login-brand span { color: var(--accent); }
+@keyframes wm-draw {
+  from { stroke-dasharray: 1 2; stroke-dashoffset: 1; opacity: 0; }
+  1% { opacity: 1; }
+  to { stroke-dasharray: 1 2; stroke-dashoffset: 0; }
+}
+@keyframes wm-dot { from, 60% { opacity: 0; } }
 .login-sub { color: var(--t3); font-size: 14px; margin-bottom: 28px; }
 .login-title {
   font-size: 22px;
@@ -78,6 +88,11 @@
   border-color: var(--accent);
   background: var(--s3);
 }
+/* One ring, over the field's own border, as on the password form. */
+.login-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-radius: var(--r-sm); }
+@media (forced-colors: active) {
+  .login-field input:focus-visible { outline-color: Highlight; }
+}
 
 /* Sized and pressed as a large primary .btn. */
 .login-btn {
@@ -105,25 +120,6 @@
 /* Pending state set by submit-guard.js */
 form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 
-/* Show/hide password toggle (show-password.js) */
-.pw-wrap { position: relative; }
-.pw-wrap input { padding-right: 64px; }
-.pw-toggle {
-  position: absolute;
-  top: 0;
-  right: 0;
-  height: 100%;
-  min-width: 56px;
-  padding: 0 14px;
-  background: none;
-  border: 0;
-  color: var(--t3);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.pw-toggle:hover { color: var(--t1); }
-
 @media (max-width: 640px) {
   /* 16px stops iOS zooming the page when a field is focused */
   .login-field input { font-size: 16px; }
@@ -142,6 +138,7 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
   border-radius: var(--r-sm);
   color: var(--danger-text);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 /* Force-password-change extras */

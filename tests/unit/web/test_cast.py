@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from mediaman.config import Config
+from mediaman.db import get_db
 from mediaman.main import create_app
 from mediaman.services.cast import tickets
 from mediaman.services.cast.tickets import TICKET_SECONDS, TicketStore
@@ -30,7 +31,9 @@ from mediaman.web.auth.password_hash import (
 )
 from mediaman.web.auth.session_store import create_session, destroy_session
 from mediaman.web.middleware import viewer_guard
+from mediaman.web.routes import auth as auth_routes
 from mediaman.web.routes import cast
+from mediaman.web.routes.auth import router as auth_router
 from mediaman.web.routes.watch import stream_api
 
 PLEX_URL = "http://plex-lan.example.test:32400"
@@ -325,6 +328,42 @@ def test_a_ticket_reads_nothing_but_segments(alice, tv, name):
     assert tv.get(url.replace("index.m3u8", f"seg/{name}")).content == never.content
 
 
+@pytest.fixture
+def sign_in(app, templates_stub, monkeypatch):
+    """Sign in from *client*'s browser; a client holding only the session it was given."""
+    app.include_router(auth_router)
+    app.state.templates = templates_stub
+    # A weak password would have to be changed, and so would end every cast.
+    monkeypatch.setattr(auth_routes, "is_strong", lambda password, username: True)
+
+    def go(client, username):
+        resp = client.post(
+            "/login",
+            data={"username": username, "password": "password1234"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        return TestClient(app, cookies={"session_token": resp.cookies["session_token"]})
+
+    return go
+
+
+def test_signing_in_again_keeps_the_persons_cast_until_they_sign_out(alice, tv, sign_in):
+    url = _cast(alice)["url"]
+    again = sign_in(alice, "alice")
+    assert plex_stream.get_stream_manager().reap() == 0
+    assert tv.get(url).status_code == 200
+    assert again.post("/api/auth/logout").status_code == 200
+    assert tv.get(url).status_code == 404
+
+
+def test_signing_in_as_someone_else_ends_the_cast_of_who_was_signed_in(alice, tv, conn, sign_in):
+    create_user(conn, "bob", "password1234", enforce_policy=False)
+    url = _cast(alice)["url"]
+    sign_in(alice, "bob")
+    assert tv.get(url).status_code == 404
+
+
 def test_a_ticket_is_no_session_and_its_stream_id_is_no_ticket(alice, tv):
     started = _cast(alice)
     ticket = _ticket(started["url"])
@@ -468,6 +507,19 @@ def test_a_tvs_first_read_gives_it_the_longer_idle_time(alice, tv, clock, addres
     clock.now += TV_IDLE_TIMEOUT_SECONDS - 1
     assert plex_stream.get_stream_manager().reap() == 0
     assert tv.get(url).status_code == 200
+
+
+def test_a_sign_out_elsewhere_while_a_stream_starts_leaves_the_start(alice, tv, conn, plex):
+    other = create_session(conn, "alice")
+    plex.on_start = lambda: destroy_session(get_db(), other)
+    assert tv.get(_cast(alice)["url"]).status_code == 200
+
+
+def test_a_sign_out_elsewhere_while_a_player_stream_starts_leaves_the_start(alice, conn, plex):
+    other = create_session(conn, "alice")
+    plex.on_start = lambda: destroy_session(get_db(), other)
+    started = alice.post("/api/watch/stream", json={"rating_key": "101", "quality": "best"})
+    assert alice.get(started.json()["playlist"]).status_code == 200
 
 
 def test_a_start_beaten_by_a_later_one_is_told_so(alice, plex):

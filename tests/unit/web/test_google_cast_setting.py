@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from mediaman.app_factory import _TEMPLATE_DIR
 from mediaman.db import set_connection
 from mediaman.web import SecurityHeadersMiddleware
+from mediaman.web.middleware.security_headers import _CAST_SCRIPTS
 from mediaman.web.routes.settings import router
 from tests.helpers.factories import insert_settings
 
@@ -59,9 +60,21 @@ def test_an_admin_is_told_what_the_switch_lets_in_and_what_each_way_needs(
     needs = html.split('id="tv-needs"', 1)[1].split("</ul>", 1)[0]
     assert all(word in needs for word in ("Safari", "https", "Chrome", "MEDIAMAN_ALLOWED_HOSTS"))
     told = html.split('id="cast-lets"', 1)[1].split("</ul>", 1)[0]
-    assert "script from Google (gstatic.com)" in told
+    assert len(_CAST_SCRIPTS.split()) > 1, "one script only: the words must say so"
+    assert "One script" not in told
+    assert "Scripts from Google (gstatic.com) run" in told
+    assert "Chromium" in told and "Chromium" in needs
     assert "internet address" in told
     assert 'aria-describedby="cast-lets"' in html
+
+
+def test_an_admin_is_told_which_addresses_older_tvs_take(app, authed_client, conn) -> None:
+    html = authed_client(app, conn).get("/settings").text
+    hint = html.split('id="tv-address-hint"', 1)[1].split("</span>", 1)[0]
+    needs = html.split("<b>An older TV:</b>", 1)[1].split("</li>", 1)[0]
+    for said in (hint, needs):
+        assert "a home address with http" in said
+        assert "a name with https" in said
 
 
 def _scripts(path: str, conn, stored: str) -> str:

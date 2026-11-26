@@ -320,3 +320,156 @@ def test_a_show_that_cannot_be_taken_back_is_known_to_be_left_on(
         client.take_back_season(9, 3, change)
 
     assert change.left_on is True
+
+
+def _put_lost(held, fake_response, *, lands, then=None):
+    """*held* while the answer to its first change is lost, which it took only if *lands*; *then*
+    is what its calls answer after."""
+    lost = []
+
+    def arr(method, url, **kwargs):
+        if lost and then is not None:
+            return fake_response(status=then, text="no")
+        if method == "PUT" and not lost:
+            lost.append(url)
+            if lands:
+                held(method, url, **kwargs)
+            raise SafeHTTPError(0, "timeout", url)
+        return held(method, url, **kwargs)
+
+    return arr
+
+
+def test_whether_a_show_stays_on_is_unknown_when_the_change_and_the_put_back_got_no_answer(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, monitored=False, s3=False)
+    fake_http.handler(_put_lost(held, fake_response, lands=False, then=500))
+    change = SeriesChange()
+
+    with pytest.raises(SafeHTTPError):
+        client.remonitor_season(9, 3, max_retries=1, change=change)
+
+    assert change.left_on is None
+
+
+def test_a_show_read_as_on_that_could_not_be_put_back_is_known_to_be_left_on(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, monitored=False, s3=False)
+
+    def arr(method, url, **kwargs):
+        if method == "PUT":
+            held(method, url, **kwargs)
+            raise SafeHTTPError(0, "timeout", url)
+        return held(method, url, **kwargs)
+
+    # The put-back is refused, so the show stays as the first change left it.
+    puts = count(1)
+    fake_http.handler(
+        lambda method, url, **kwargs: (
+            fake_response(status=500, text="no")
+            if method == "PUT" and next(puts) > 1
+            else arr(method, url, **kwargs)
+        )
+    )
+    change = SeriesChange()
+
+    with pytest.raises(SafeHTTPError):
+        client.remonitor_season(9, 3, max_retries=1, change=change)
+
+    assert (held.series["monitored"], change.left_on) == (True, True)
+
+
+def test_a_show_a_change_never_reached_is_not_left_on_for_a_season_asked_for_since(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, monitored=False, s3=False, s4=False)
+    lost = _put_lost(held, fake_response, lands=False)
+
+    def arr(method, url, **kwargs):
+        try:
+            return lost(method, url, **kwargs)
+        except SafeHTTPError:
+            held.series["seasons"][1]["monitored"] = True
+            raise
+
+    fake_http.handler(arr)
+    change = SeriesChange()
+
+    with pytest.raises(SafeHTTPError):
+        client.remonitor_season(9, 3, max_retries=1, change=change)
+
+    assert (held.series["monitored"], change.left_on) == (False, False)
+
+
+def _put_back_lost(held, fake_response):
+    """*held* while the answer to the second change, the put-back, is lost after it is taken."""
+    puts = count(1)
+
+    def arr(method, url, **kwargs):
+        response = held(method, url, **kwargs)
+        if method == "PUT" and next(puts) == 2:
+            raise SafeHTTPError(0, "timeout", url)
+        return response
+
+    return arr
+
+
+def test_a_show_whose_put_back_got_no_answer_may_be_off_after_a_failed_search(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, monitored=False, s3=False)
+    held.failing_searches = 1
+    fake_http.handler(_put_back_lost(held, fake_response))
+    change = SeriesChange()
+
+    with pytest.raises(SafeHTTPError):
+        client.remonitor_season(9, 3, max_retries=1, change=change)
+
+    assert held.series["monitored"] is False
+    assert change.left_on is None
+
+
+def test_a_show_whose_take_back_got_no_answer_may_be_off(client, fake_http, fake_response):
+    held = Held(fake_response, monitored=False, s3=False)
+    fake_http.handler(_put_back_lost(held, fake_response))
+    change = SeriesChange()
+    client.remonitor_season(9, 3, change=change)
+
+    client.take_back_season(9, 3, change)
+
+    assert held.series["monitored"] is False
+    assert change.left_on is None
+
+
+def test_a_show_left_on_for_a_season_asked_for_since_stays_known_on_when_the_put_back_got_no_answer(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, monitored=False, s3=False, s4=False)
+    held.failing_searches = 1
+    held.on["search"] = lambda: held.series["seasons"][1].update(monitored=True)
+    fake_http.handler(_put_back_lost(held, fake_response))
+    change = SeriesChange()
+
+    with pytest.raises(SafeHTTPError):
+        client.remonitor_season(9, 3, max_retries=1, change=change)
+
+    assert held.series["monitored"] is True
+    assert change.left_on is True
+
+
+@pytest.mark.parametrize("lands", [True, False])
+def test_a_season_of_lone_episodes_is_on_its_way_when_only_the_answer_was_lost(
+    client, fake_http, fake_response, lands
+):
+    held = Held(fake_response, monitored=False, s3=False)
+    held.series["seasons"][0]["statistics"] = {"episodeCount": 2}
+    fake_http.handler(_put_lost(held, fake_response, lands=lands))
+    change = SeriesChange()
+
+    with pytest.raises(SearchUnanswered if lands else SafeHTTPError):
+        client.remonitor_season(9, 3, max_retries=1, change=change)
+
+    assert (held.seasons, held.series["monitored"]) == ({3: lands}, lands)
+    assert change.left_on is False

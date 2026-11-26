@@ -200,7 +200,10 @@ def _parse_response(data: Any) -> list[dict[str, object]] | None:
         )
         return None
 
-    return [i for i in raw_items if isinstance(i, dict)]
+    items = [i for i in raw_items if isinstance(i, dict)]
+    if not items:
+        logger.info("OpenAI's answer held nothing usable in %d items", len(raw_items))
+    return items
 
 
 def _handle_error(exc: Exception) -> list[dict[str, object]]:

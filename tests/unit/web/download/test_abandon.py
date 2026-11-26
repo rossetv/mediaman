@@ -64,7 +64,7 @@ class TestAbandonEndpoint:
         )
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id: {"kind": "movie", "arr_id": 42, "dl_id": dl_id},
+            lambda c, sk, dl_id, arr_id=None: {"kind": "movie", "arr_id": 42, "dl_id": dl_id},
         )
 
         client = self._make_client(db_path, secret_key)
@@ -97,7 +97,7 @@ class TestAbandonEndpoint:
         )
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id: {"kind": "movie", "arr_id": 42, "dl_id": dl_id},
+            lambda c, sk, dl_id, arr_id=None: {"kind": "movie", "arr_id": 42, "dl_id": dl_id},
         )
 
         resp = self._make_client(db_path, secret_key).post(
@@ -126,7 +126,7 @@ class TestAbandonEndpoint:
         )
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id: {"kind": "series", "arr_id": 7, "dl_id": dl_id},
+            lambda c, sk, dl_id, arr_id=None: {"kind": "series", "arr_id": 7, "dl_id": dl_id},
         )
 
         client = self._make_client(db_path, secret_key)
@@ -159,7 +159,7 @@ class TestAbandonEndpoint:
         )
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id: {
+            lambda c, sk, dl_id, arr_id=None: {
                 "kind": "series",
                 "arr_id": 7,
                 "state": "upcoming",
@@ -182,7 +182,7 @@ class TestAbandonEndpoint:
         """POST for a dl_id not in the queue → 404."""
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id: None,
+            lambda c, sk, dl_id, arr_id=None: None,
         )
 
         client = self._make_client(db_path, secret_key)
@@ -196,7 +196,7 @@ class TestAbandonEndpoint:
         """POST with empty seasons list on a series item → 400."""
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id: {"kind": "series", "arr_id": 7, "dl_id": dl_id},
+            lambda c, sk, dl_id, arr_id=None: {"kind": "series", "arr_id": 7, "dl_id": dl_id},
         )
 
         client = self._make_client(db_path, secret_key)

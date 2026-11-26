@@ -266,7 +266,8 @@
 @media (scripting: enabled) {
   .watch-banner__bg--art:not([data-fit]) { opacity: 0; }
 }
-.watch-banner__bg--art[data-fit="at-once"] { transition: none; }
+.watch-banner__bg--art[data-fit="at-once"],
+.watch-banner > .watch-banner__bg--art[data-broken="coming"] { transition: none; }
 
 /* The next backdrop is on its way: the one that did not fit is not shown. */
 .watch-banner__bg--art[data-retrying] { opacity: 0; transition: none; }

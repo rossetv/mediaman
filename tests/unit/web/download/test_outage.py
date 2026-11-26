@@ -249,7 +249,7 @@ def test_a_film_seen_through_an_outage_is_still_told_from_another_of_its_title(s
     ]
     _get(client)
     radarr.get_queue.side_effect = radarr.get_movies.side_effect = _DOWN
-    assert _get(client)["hero"]["id"] == "radarr:Dune"
+    assert _get(client)["hero"]["id"] == "radarr:Dune#10"
 
     radarr.get_queue.side_effect = radarr.get_movies.side_effect = None
     nzbget.get_queue.return_value = []
@@ -257,7 +257,7 @@ def test_a_film_seen_through_an_outage_is_still_told_from_another_of_its_title(s
         {"id": 1, "tmdbId": 10, "title": "Dune", "hasFile": True, "movieFile": _NEW_FILE},
         {"id": 2, "tmdbId": 20, "title": "Dune", "monitored": False},
     ]
-    assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune"]
+    assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune#10"]
 
 
 _DUNE = {"id": 1, "tmdbId": 10, "title": "Dune"}
@@ -296,7 +296,9 @@ def test_what_is_searched_queued_and_filed_is_told_from_another_of_its_title(
     arr.get_queue.return_value = []
     _library(arr, {**_DUNE, **_FILED}, {**_OTHER_DUNE, "monitored": False})
     _give_episode_a_file(arr)
-    assert [r["id"] for r in _get(client)["recent"]] == [f"{name}:Dune"]
+    assert [r["id"] for r in _get(client)["recent"]] == [
+        {"radarr": "radarr:Dune#10"}.get(name, f"{name}:Dune")
+    ]
 
 
 @_SERVICES
@@ -315,7 +317,9 @@ def test_a_queued_title_that_takes_the_place_of_another_is_not_taken_for_it(
     arr.get_queue.return_value = []
     _library(arr, {**_DUNE, **_FILED}, {**_OTHER_DUNE, "monitored": False})
     _give_episode_a_file(arr)
-    assert [r["id"] for r in _get(client)["recent"]] == [f"{name}:Dune"]
+    assert [r["id"] for r in _get(client)["recent"]] == [
+        {"radarr": "radarr:Dune#10"}.get(name, f"{name}:Dune")
+    ]
 
 
 def test_a_film_that_takes_the_place_of_another_of_its_title_is_not_taken_for_it(services, client):
@@ -325,8 +329,8 @@ def test_a_film_that_takes_the_place_of_another_of_its_title_is_not_taken_for_it
     radarr.get_movies.return_value = [old]
     _get(client)
 
-    # the queue is read, then the ids are not
-    radarr.get_movies.side_effect = [[new], _DOWN]
+    # the queue is read, then the ids are not, nor whether the other arrived
+    radarr.get_movies.side_effect = [[new], _DOWN, _DOWN]
     assert _get(client)["hero"]["arr_id"] == 2
 
     radarr.get_movies.side_effect = None
@@ -334,7 +338,7 @@ def test_a_film_that_takes_the_place_of_another_of_its_title_is_not_taken_for_it
         {"id": 1, "tmdbId": 10, "title": "Dune", "monitored": False},
         {**new, "hasFile": True, "movieFile": _NEW_FILE},
     ]
-    assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune"]
+    assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune#20"]
 
 
 def _show(title: str, *files: int, monitored: bool = True) -> dict[str, object]:

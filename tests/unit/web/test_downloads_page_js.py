@@ -277,6 +277,13 @@ def test_a_successful_abandon_closes_the_dialog_and_refreshes_the_page() -> None
     assert out["errors"] == 0
 
 
+def test_an_abandon_names_the_very_title_its_button_is_of() -> None:
+    out = _run("abandonNamesTheTitle")
+    assert out["built"] == ["h 10", "q 11", "u 12"]
+    assert out["updated"] == ["h 20", "q 21", "u 22"]
+    assert out["sent"] == {"seasons": [], "arr_id": 21}
+
+
 def test_abandoning_a_title_already_gone_closes_the_dialog_and_refreshes_the_page() -> None:
     out = _run("abandonGone")
     assert (out["closes"], out["refreshes"], out["errors"]) == (1, 1, 0)

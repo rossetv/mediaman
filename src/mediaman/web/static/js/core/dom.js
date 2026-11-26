@@ -36,6 +36,10 @@
  *   MM.dom.setIcon(svg, name)
  *     Shows another symbol in an icon.
  *
+ *   MM.dom.fold(details, toggle)
+ *     Makes a <details> (class fold-more) open and shut smoothly when its
+ *     summary, toggle, is pressed; with reduced motion the browser does it.
+ *
  *   MM.dom.focusStillIn(el)
  *     True while focus is inside el or nowhere in particular. Used after a
  *     slow request so a user who has moved on keeps their place.
@@ -88,6 +92,32 @@
 
     setIcon: function (svg, name) {
       svg.querySelector('use').setAttribute('href', '#' + name);
+    },
+
+    // By steps of its height, as what is below it moves with it.
+    fold: function (details, toggle) {
+      var sizing = null;
+      toggle.addEventListener('click', function (e) {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        e.preventDefault();
+        var opens = !details.open || details.classList.contains('is-shutting');
+        var from = details.offsetHeight;
+        if (sizing) sizing.cancel();
+        details.open = true;
+        details.classList.toggle('is-shutting', !opens);
+        var to = opens ? details.offsetHeight : toggle.offsetHeight;
+        var tokens = getComputedStyle(document.documentElement);
+        var mine = sizing = details.animate(
+          [{ height: from + 'px', overflowY: 'clip' }, { height: to + 'px', overflowY: 'clip' }],
+          { duration: parseFloat(tokens.getPropertyValue('--dur-slow')) * 1000, easing: tokens.getPropertyValue('--ease-out').trim() }
+        );
+        mine.onfinish = function () {
+          if (sizing !== mine) return;
+          sizing = null;
+          details.open = opens;
+          details.classList.remove('is-shutting');
+        };
+      });
     },
 
     /** True while focus is inside el, or on the body (nowhere in particular). */

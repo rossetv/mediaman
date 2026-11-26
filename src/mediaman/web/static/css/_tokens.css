@@ -83,6 +83,10 @@
   --dur-fast: .15s;
   --dur:      .2s;
   --dur-slow: .25s;
+  /* The name drawing itself on the sign-in page. */
+  --dur-draw: .55s;
+  --dur-draw-man: .5s;
+  --delay-draw-man: .42s;
   --ease-out: cubic-bezier(.2,.8,.2,1);
 
   /* Z-index scale — single source of truth for app-wide stacking.

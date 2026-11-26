@@ -45,3 +45,41 @@ def test_rows_are_tall_only_where_a_season_is_kept() -> None:
 def test_a_kept_season_never_wraps_to_more_lines_than_its_row_has() -> None:
     assert not re.search(r"\.keep-season-item--kept \{[^}]*flex-wrap", _css())
     assert not re.search(r"#keep-dialog-remove\.is-visible \{[^}]*100%", _css())
+
+
+def _box(state: str) -> str:
+    """What the sheet sets on a box to tick in this state, in the Keep dialog and Settings alike."""
+    heads = [
+        f'{row} input[type="checkbox"]{state}' for row in (".keep-season-item", ".recipient-item")
+    ]
+    return " ".join(re.findall(re.escape(",\n".join(heads)) + r" \{([^}]*)\}", _css()))
+
+
+def test_a_box_to_tick_is_drawn_by_the_page_and_not_the_browser() -> None:
+    assert "appearance: none" in _box("")
+    assert "background: var(--accent-cta)" in _box(":checked")
+    assert 'content: ""' in _box(":checked::after")
+
+
+def test_the_system_draws_the_box_where_its_colours_are_forced() -> None:
+    (forced,) = re.findall(r"@media \(forced-colors: active\) \{(.*?)\n\}", _css(), re.S)
+    assert "appearance: auto" in forced and "content: none" in forced
+
+
+def test_a_ticked_box_with_focus_shows_a_ring_apart_from_its_fill() -> None:
+    assert "outline-color: var(--accent-hi)" in _box(":checked:focus-visible")
+
+
+def test_a_box_lightens_only_under_a_pointer_that_hovers_so_a_tap_leaves_nothing() -> None:
+    hovering = re.compile(r"@media \(hover: hover\) \{.*?\n\}", re.S)
+    rule = 'input[type="checkbox"]:hover'
+    assert any(rule in block for block in hovering.findall(_css()))
+    assert rule not in hovering.sub("", _css())
+
+
+def test_the_chosen_period_and_keep_stand_out_where_colours_are_forced() -> None:
+    (forced,) = re.findall(r"@media \(forced-colors: active\) \{(.*?)\n\}", _css(), re.S)
+    chosen = re.search(r"\.keep-dur-btn\.active \{([^}]*)\}", forced)
+    keep = re.search(r"\.keep-dialog \.btn--primary[^{]*\{([^}]*)\}", forced)
+    assert chosen and "background: Highlight" in chosen[1]
+    assert keep and "background: ButtonText" in keep[1]

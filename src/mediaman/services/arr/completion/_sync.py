@@ -26,6 +26,7 @@ import requests
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.completion._types import CompletedItem, RecentDownloadItem
 from mediaman.services.arr.fetcher import ArrCard
+from mediaman.services.arr.fetcher._base import is_film_id
 from mediaman.services.downloads.download_format import extract_poster_url
 from mediaman.services.infra import SafeHTTPError
 
@@ -163,7 +164,10 @@ def _sync_recent_row(
     * Otherwise, when the stored poster is missing, look it up via
       *poster_lookup* and, on a hit, ``UPDATE`` the row and commit.
     """
-    if row["dl_id"] in active_ids or row["title"] in active_titles:
+    dl_id, title = row["dl_id"], row["title"]
+    # One recorded before films had ids of their own may be any film of its title.
+    by_title = not is_film_id(dl_id, title) and any(is_film_id(i, title) for i in active_ids)
+    if dl_id in active_ids or title in active_titles or by_title:
         # Item is back in the download queue — remove from recent
         with conn:
             conn.execute("DELETE FROM recent_downloads WHERE id = ?", (row["id"],))
@@ -171,7 +175,6 @@ def _sync_recent_row(
 
     poster_url = row["poster_url"] or ""
     if not poster_url:
-        dl_id = row["dl_id"] or ""
         service = (
             "radarr"
             if dl_id.startswith("radarr:")
@@ -209,7 +212,8 @@ def fetch_and_sync_recent_downloads(
     active_titles: set[str],
     secret_key: str,
 ) -> list[RecentDownloadItem]:
-    """Return recent downloads (last 7 days), excluding anything active.
+    """Return recent downloads (last 7 days), excluding anything active: a film by its id, and
+    anything else by its title too, of *active_titles*.
 
     Side effects: deletes rows whose item has reappeared in the active queue
     (e.g. Radarr re-grabbed after a bad release) and backfills missing poster

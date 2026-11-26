@@ -67,7 +67,8 @@ def test_an_error_page_for_nobody_signed_in_has_no_nav(app, cookie):
 
     assert resp.status_code == 404
     assert "nav-glass" not in resp.text
-    assert "media<wbr><b>man</b>" in resp.text
+    assert 'class="login-brand err-brand"' in resp.text
+    assert '<use href="#i-wordmark"/>' in resp.text
 
 
 @pytest.mark.parametrize("read", ["resolve_cached_session", "get_user_role"])

@@ -41,6 +41,8 @@
 .me-lbl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 14px; font-weight: 500; letter-spacing: -.005em; overflow-wrap: anywhere; }
 .me-sub { font-size: 13px; line-height: 1.45; color: var(--t3); margin-top: 2px; overflow-wrap: anywhere; }
 .me-line--switch { flex-wrap: nowrap; }
+/* Kept beside its label while a fold below the words opens. */
+.me-line--switch:has(.fold-more) { align-items: flex-start; }
 .me-end { flex: none; max-width: 100%; margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .me-end .inp { width: 300px; }
 .profile-pg .inp[aria-invalid="true"] { border-color: var(--danger-text); }
@@ -61,6 +63,7 @@
 .setg-pg.profile-pg .setg-fold-inner,
 .setg-pg.profile-pg .setg-fold.is-moving > .setg-fold-inner { overflow: clip; padding-inline: 6px; margin-inline: -6px; }
 #account-email-fold { margin-bottom: -6px; }
+#account-email-fold.is-shut { margin-bottom: 0; }
 .me-acts--end { padding-bottom: 6px; }
 #account-open-password { transition: opacity var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out); }
 #account-open-password.is-gone { opacity: 0; visibility: hidden; transition: opacity var(--dur) var(--ease-out), visibility 0s var(--dur); }

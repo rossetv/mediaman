@@ -756,7 +756,7 @@ const scenarios = {
     const next = await open(w, { player: true });
     return { first, second, late, found: !!(await next.way.again('101')) };
   },
-  // The TV is joined and plays nothing.
+  // The TV is joined and never says what it plays.
   async empty() {
     const w = world();
     const first = await casting(w);
@@ -765,12 +765,52 @@ const scenarios = {
     first.close();
     w.tv.media = [];
     const page = await open(w, { player: true, joins: false });
-    const asked = page.way.again('101');
+    const asked = refused(page.way.again('101'));
     // Joined only just in time.
     await w.clock.advance(9000);
     page.context.resume();
-    await w.clock.advance(3500);
+    await w.clock.advance(20000);
     return { found: await asked, kept: RECORD in w.storage, posts: places(page), ended: w.tv.ended };
+  },
+  // The TV that plays names it only some seconds after it was joined, or joined again.
+  async saysLate() {
+    const out = {};
+    for (const player of [true, false]) {
+      const w = world();
+      (await casting(w)).close();
+      const media = w.tv.media;
+      w.tv.media = [];
+      const page = await open(w, { player });
+      const asked = player ? page.way.again('101') : null;
+      await w.clock.advance(5000);
+      const early = { ended: w.tv.ended.slice(), kept: RECORD in w.storage, posts: places(page) };
+      w.tv.media = media;
+      page.context.session.emit('mediasession', { mediaSession: media[0] });
+      await w.clock.advance(1000);
+      out[player ? 'player' : 'bar'] = { early, plays: player ? !!(await asked) : !!page.sender.now(), ended: w.tv.ended };
+    }
+    for (const how of ['back', 'another', 'never', 'lostAgain', 'silentLong']) {
+      const w = world();
+      const page = await casting(w);
+      await w.clock.advance(5000);
+      page.context.over('disconnected');
+      const media = w.tv.media;
+      w.tv.media = [];
+      page.context.resume();
+      await w.clock.advance(5000);
+      const early = { gone: page.gone.slice(), lost: page.play.lost };
+      const quiet = [page.play.quiet];
+      w.tv.media = how === 'back' ? media : how === 'another' ? [new Media(w.tv, { media: { customData: { stream: 'someone' } }, currentTime: 0 })] : [];
+      if (w.tv.media.length) page.context.session.emit('mediasession', { mediaSession: w.tv.media[0] });
+      if (how === 'lostAgain') page.context.over('disconnected');
+      quiet.push(page.play.quiet);
+      if (how === 'never' || how === 'lostAgain') await w.clock.advance(125000);
+      if (how === 'silentLong') await w.clock.advance(600000);
+      const stops = places(page).filter((x) => /stop$/.test(x[0]));
+      quiet.push(page.play.quiet);
+      out[how] = { early, quiet, gone: page.gone, lost: page.play.lost, at: page.play.media.currentTime, ended: w.tv.ended, kept: RECORD in w.storage, stops };
+    }
+    return out;
   },
   // "Play here", whatever became of the TV.
   async released() {
@@ -1367,6 +1407,63 @@ const scenarios = {
     await t.w.clock.advance(1000);
     out.taken = { now: look(next), ended: t.w.tv.ended, record: RECORD in t.w.storage };
 
+    // The receiver has cleared its list, and is heard of only after the question is over.
+    t = await make();
+    await t.w.clock.advance(2 * 3600 * 1000);
+    await atEnd(t.w, t.page);
+    t.page.close();
+    t.w.tv.media = [];
+    await t.w.clock.advance(700000);
+    next = await open(t.w);
+    await t.w.clock.advance(1000);
+    out.askedSilent = { now: look(next), ended: t.w.tv.ended };
+
+    // Or it plays somebody else's.
+    t = await make();
+    await atEnd(t.w, t.page);
+    t.page.close();
+    t.w.tv.media = [];
+    next = ready(await open(t.w));
+    await t.w.clock.advance(2000);
+    const theirs = new Media(t.w.tv, { media: { customData: { stream: 'someone' } }, currentTime: 0 });
+    t.w.tv.media = [theirs];
+    next.context.session.emit('mediasession', { mediaSession: theirs });
+    await t.w.clock.advance(12000);
+    out.takenLate = { now: look(next), ended: t.w.tv.ended, loads: t.w.tv.loads.length };
+
+    // The player's page is left at the end: while it counts, and while it does not.
+    for (const kind of ['counts', 'waits', 'film']) {
+      const w = world();
+      const player = ready(await casting(w));
+      if (kind !== 'film') player.play.keep({ quality: 'best', next: { rating_key: '102', label: 'S1 · E102' } });
+      await w.clock.advance(1000);
+      w.tv.media[0].say('IDLE', { idleReason: 'FINISHED' });
+      if (kind === 'counts') player.play.counts(w.clock.now() + 10000);
+      await w.clock.advance(4000);
+      const open2 = JSON.parse(w.storage[RECORD]).wait;
+      player.close();
+      w.tv.media = [];
+      const then = ready(await open(w));
+      await w.clock.advance(500);
+      const taken = look(then);
+      await w.clock.advance(7000);
+      out['left ' + kind] = { open: open2, taken, loads: w.tv.loads.length, ended: w.tv.ended, record: RECORD in w.storage };
+    }
+
+    // What waits is watched here, on a page that has it, and on one that could not join the TV.
+    for (const joins of [true, false]) {
+      t = await make();
+      await atEnd(t.w, t.page);
+      t.page.close();
+      const here = ready(await open(t.w, { player: true, joins }));
+      here.way.again('102');
+      await t.w.clock.advance(1000);
+      here.way.watched('103');
+      const other = RECORD in t.w.storage;
+      here.way.watched('102');
+      out['watched ' + joins] = { other, record: RECORD in t.w.storage, now: look(here), ended: t.w.tv.ended };
+    }
+
     // A start that is slow is one start, and a press on the first tab is heard by one that looks.
     t = await make();
     let asked = 0;
@@ -1717,7 +1814,8 @@ const scenarios = {
     w.tv.media[0].say('PLAYING');
     await w.clock.advance(12000);
     out.played = places(page).pop();
-    await leave('refused', (m, at) => { at.tv.media = []; });
+    // A TV that names nothing may play on yet, so a refused start is one it says failed.
+    await leave('refused', (m) => { m.playerState = 'IDLE'; m.idleReason = 'ERROR'; });
     await leave('plays', (m) => m.say('PLAYING'));
     await leave('player', () => {}, true);
     // Played and paused with the TV's own remote while no page is open, or paused where it starts.

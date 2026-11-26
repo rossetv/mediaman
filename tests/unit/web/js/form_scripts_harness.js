@@ -11,7 +11,8 @@ class El {
   constructor(tag, doc) {
     this.tagName = tag.toUpperCase(); this.doc = doc; this.children = [];
     this.parentNode = null; this.attrs = {}; this.listeners = {};
-    this.className = ''; this._text = ''; this.type = ''; this.form = null; this.dataset = {}; this.style = {};
+    this.className = ''; this._text = ''; this.type = ''; this.form = null; this.dataset = {}; this.style = {}; this.title = '';
+    this.selectionStart = 0; this.selectionEnd = 0; this.selectionDirection = 'none';
     this.offsetWidth = 120; this.offsetHeight = 55;
     this.classList = { add: (c) => { this.className = c; }, remove: () => { this.className = ''; } };
   }
@@ -39,12 +40,14 @@ class El {
     return c;
   }
   focus() { this.doc.activeElement = this; }
+  setSelectionRange(from, to, direction) { this.selectionStart = from; this.selectionEnd = to; this.selectionDirection = direction || 'none'; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   fire(t, ev) { (this.listeners[t] || []).forEach((fn) => fn(Object.assign({ target: this }, ev))); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   querySelectorAll(sel) {
     if (sel === '[data-busy-label]') return this.all().filter((e) => e.hasAttribute('data-busy-label'));
+    if (sel === '.pwd-eye') return this.all().filter((e) => e.className === 'pwd-eye');
     return [];
   }
   matches(sel) {
@@ -73,6 +76,7 @@ function build() {
     },
   };
   doc.body = new El('body', doc);
+  doc.documentElement = new El('html', doc);
   doc.activeElement = doc.body;
   const win = { listeners: {}, addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }, fire(t, ev) { (this.listeners[t] || []).forEach((fn) => fn(ev)); } };
   const ctx = {
@@ -87,47 +91,86 @@ function load(ctx, file) {
   vm.runInNewContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx);
 }
 
+// As login.html draws it: the field and its eye in one box.
 function field(doc, form, autofocus) {
+  const box = doc.createElement('div');
+  box.className = 'pwd-box';
   const input = doc.createElement('input');
   input.type = 'password';
   input.setAttribute('data-show-password', '');
   if (autofocus) input.setAttribute('autofocus', '');
   input.form = form;
-  form.appendChild(input);
+  box.appendChild(input);
+  const eye = doc.createElement('button');
+  eye.className = 'pwd-eye';
+  eye.setAttribute('aria-pressed', 'false');
+  eye.setAttribute('aria-label', 'Show password');
+  eye.title = 'Show';
+  box.appendChild(eye);
+  form.appendChild(box);
   return input;
 }
 
 const scenarios = {
+  // the cursor stays in the field, where it was, while its eye is pressed
   focus() {
-    const { doc, ctx } = build();
+    const { doc, ctx, frames } = build();
     const form = doc.createElement('form'); doc.body.appendChild(form);
-    const a = field(doc, form, true);          // autofocus, browser has not focused it
-    const b = field(doc, form, false);
-    const c = field(doc, form, false);
-    c.focus();                                 // focused by script before the wrap
+    const a = field(doc, form, false);
+    a.value = 'abcdefghij';
+    a.focus();
+    a.setSelectionRange(2, 5, 'backward');
     load(ctx, 'show-password.js');
-    return { active: doc.activeElement === c, wrapped: c.parentNode.className, autofocusIgnored: doc.activeElement !== a && doc.activeElement !== b };
+    const eye = a.parentNode.children[1];
+    let prevented = false;
+    eye.fire('mousedown', { preventDefault() { prevented = true; } });
+    // As Chromium does: after each press that changes its type, the cursor is put at the start.
+    const press = () => { eye.fire('click'); a.setSelectionRange(0, 0); };
+    const frame = () => frames.splice(0).forEach((fn) => fn());
+    const at = () => [a.selectionStart, a.selectionEnd, a.selectionDirection];
+    const from = () => { a.value = 'abcdefghij'; a.focus(); a.setSelectionRange(2, 5, 'backward'); };
+    press(); frame();
+    const kept = at();
+    const active = doc.activeElement === a;
+    from(); const type = a.type; press(); press(); frame();
+    const twice = [...at(), a.type === type];
+    // a key typed before the frame: where it goes, then what typing it leaves
+    from(); press();
+    a.fire('keydown', { key: 'X' });
+    const keyGoes = at();
+    a.value = 'abXfghij'; a.setSelectionRange(3, 3); frame();
+    const afterKey = at();
+    from(); press(); a.value = 'filled in'; frame();
+    const filledMeanwhile = at();
+    from(); press(); doc.activeElement = doc.body; frame();
+    const leftMeanwhile = at();
+    return { prevented, active, kept, twice, keyGoes, afterKey, filledMeanwhile, leftMeanwhile, drawn: doc.documentElement.className };
   },
   autofocus() {
     const { doc, ctx } = build();
     const form = doc.createElement('form'); doc.body.appendChild(form);
     const a = field(doc, form, true);
     field(doc, form, false);
+    a.focus();                                 // as the browser does for autofocus
+    const box = a.parentNode;
     load(ctx, 'show-password.js');
-    return { active: doc.activeElement === a };
+    return { active: doc.activeElement === a, inPlace: a.parentNode === box };
   },
   toggle() {
     const { doc, ctx } = build();
     const form = doc.createElement('form'); doc.body.appendChild(form);
     const a = field(doc, form, false);
     load(ctx, 'show-password.js');
-    const btn = a.parentNode.children[1];
-    const name = btn.getAttribute('aria-label');
-    btn.fire('click');
-    const shown = { type: a.type, text: btn.textContent, pressed: btn.getAttribute('aria-pressed'), name: btn.getAttribute('aria-label') };
+    const eye = a.parentNode.children[1];
+    const now = () => ({ type: a.type, pressed: eye.getAttribute('aria-pressed'), name: eye.getAttribute('aria-label'), title: eye.title });
+    const before = now();
+    eye.fire('click');
+    const shown = now();
+    eye.fire('click');
+    const hidden = now();
+    eye.fire('click');
     form.fire('reset');
-    const reset = { type: a.type, text: btn.textContent, pressed: btn.getAttribute('aria-pressed'), name: btn.getAttribute('aria-label') };
-    return { name, shown, reset };
+    return { before, shown, hidden, reset: now() };
   },
   guard() {
     const { doc, ctx, timers } = build();

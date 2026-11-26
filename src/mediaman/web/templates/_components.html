@@ -314,12 +314,13 @@
    (pass "[]" for upcoming items). `upcoming` flag adds data-abandon-upcoming.
    The icon and aria-label vary slightly between active and upcoming variants
    so callers pass `label` ("Abandon search" or "Stop tracking"). #}
-{% macro abandon_btn(dl_id, kind, title, stuck_seasons="[]", upcoming=false, label="Abandon search") -%}
+{% macro abandon_btn(dl_id, kind, title, arr_id=0, stuck_seasons="[]", upcoming=false, label="Abandon search") -%}
 <button type="button"
         class="btn btn--icon btn--ghost"
         data-abandon-trigger
         {% if upcoming %}data-abandon-upcoming="1"{% endif %}
         data-dl-id="{{ dl_id }}"
+        data-arr-id="{{ arr_id }}"
         data-kind="{{ kind }}"
         data-title="{{ title }}"
         data-stuck-seasons='{{ stuck_seasons }}'

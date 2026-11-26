@@ -188,6 +188,7 @@ def build_arr_items(
                     release_label=arr.get("release_label", ""),
                     arr_id=arr.get("arr_id") or 0,
                     kind=arr.get("kind") or "",
+                    label=arr.get("label", ""),
                 )
             )
             continue

@@ -32,6 +32,7 @@
       {{ c.abandon_btn(item.id,
                        kind=('series' if item.media_type != 'movie' else 'movie'),
                        title=item.title,
+                       arr_id=item.arr_id,
                        stuck_seasons=item.stuck_seasons|tojson) }}
     </div>
     {% endif %}

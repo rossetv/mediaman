@@ -237,6 +237,7 @@ def parse_recommendations(
         raw_title = str(item.get("title") or "")
         title = _validate_llm_string(raw_title, _LLM_TITLE_MAX_LEN, "title")
         if not title:
+            logger.warning("recommendations.llm_output_no_usable_title — skipping item")
             continue
         if holds_domain(title):
             logger.warning("recommendations.llm_output_domain field=title — rejecting item")

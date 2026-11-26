@@ -288,6 +288,7 @@ def _render_result(
         "subscribers/unsubscribe_result.html",
         {"message": message, "success": success, "limited": status_code == 429},
         status_code=status_code,
+        headers={"Retry-After": "60"} if status_code == 429 else None,
     )
 
 
