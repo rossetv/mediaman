@@ -259,7 +259,7 @@ class TestAbandonEndpoint:
 
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
-            lambda c, _sk: FetchResult(cards=[searching_item]),
+            lambda c, _sk, **_: FetchResult(cards=[searching_item]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db",

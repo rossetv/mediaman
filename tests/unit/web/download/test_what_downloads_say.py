@@ -273,6 +273,7 @@ def test_a_page_opened_while_a_service_is_down_claims_no_download_it_does_not_sh
     ]
     client.get("/api/downloads")
     radarr.get_queue.side_effect = radarr.get_movies.side_effect = requests.ConnectionError("x")
+    client.get("/api/downloads")  # one missed answer is no outage; the second in a row is
 
     data = client.get("/api/downloads").json()
 
@@ -438,6 +439,7 @@ def test_the_strip_holds_no_more_than_the_page_shows_while_a_service_is_down(ser
     client.get("/api/downloads")
     client.get("/api/downloads/strip")
     radarr.get_queue.side_effect = radarr.get_movies.side_effect = requests.ConnectionError("x")
+    client.get("/api/downloads")  # one missed answer is no outage; the second in a row is
     strip.shared.clear()
 
     data = client.get("/api/downloads").json()

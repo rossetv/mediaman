@@ -33,7 +33,7 @@ from mediaman.services.arr.completion import (
     fetch_and_sync_recent_downloads,
     record_verified_completions,
 )
-from mediaman.services.arr.fetcher import fetch_arr_queue_result
+from mediaman.services.arr.fetcher import _forget_answers, fetch_arr_queue_result
 from mediaman.services.arr.fetcher._base import is_film_id
 from mediaman.services.arr.search_trigger import maybe_trigger_search
 from mediaman.services.arr.state import series_has_files, series_ready
@@ -126,6 +126,7 @@ def _reset_previous_queue() -> None:
         _readiness_kept_until = None
         _last_hero = ""
     _reset_unchecked()
+    _forget_answers()
 
 
 def _remembered_cards(arr_result: FetchResult) -> list[ArrCard]:
@@ -382,9 +383,14 @@ def _is_set_up(
         return True
 
 
-def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> DownloadsResponse:
+def build_downloads_response(
+    conn: sqlite3.Connection, secret_key: str, *, steady: bool = True
+) -> DownloadsResponse:
     """Build the download queue with hero selection, merging NZBGet and Radarr/Sonarr
     queues by fuzzy title match and adding recent downloads from the database.
+
+    While *steady*, a single answer Radarr or Sonarr misses is filled by its last, as
+    ``fetch_arr_queue_result`` says; what acts on an item in Radarr or Sonarr asks for none.
 
     *secret_key* decrypts the stored API credentials. Returns {"hero", "queue",
     "upcoming", "recent", "subtitle", "unreachable", "refused", "outage",
@@ -398,7 +404,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     global _last_hero
 
     # 1. Fetch *arr queue
-    arr_result = fetch_arr_queue_result(conn, secret_key)
+    arr_result = fetch_arr_queue_result(conn, secret_key, steady=steady)
     unreachable = list(arr_result.unreachable)
     refused = list(arr_result.refused)
     arr_base_urls_map = _arr_base_urls(conn, secret_key)

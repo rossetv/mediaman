@@ -188,6 +188,7 @@ def test_a_service_that_stops_answering_leaves_in_the_row_only_what_downloads_sh
     _get(viewer)
     services[0].get_queue.side_effect = requests.ConnectionError("http://10.0.0.9:7878 refused")
     services[0].get_movies.side_effect = services[0].get_queue.side_effect
+    _get(viewer)  # one missed answer is no outage; the second in a row is
     resp = _get(viewer)
     body = resp.json()
     assert body["items"] == viewer.get("/api/downloads").json()["queue"] == []
@@ -348,6 +349,7 @@ def test_a_service_that_stops_answering_leaves_the_ring_on_downloads_what_it_sho
 ):
     viewer.get("/api/downloads")
     services[0].get_queue.side_effect = requests.ConnectionError("down")
+    viewer.get("/api/downloads")  # one missed answer is no outage; the second in a row is
     after = viewer.get("/api/downloads").json()
     assert after["strip"]["summary"]["total"] == len(after["queue"]) + bool(after["hero"])
     assert after["strip"]["outage"] == "Downloads aren't available"

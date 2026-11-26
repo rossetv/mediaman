@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -48,21 +50,61 @@ __all__ = [
 ]
 
 
-def fetch_arr_queue_result(conn: sqlite3.Connection, secret_key: str) -> FetchResult:
+# A service's last full answer, which stands in for a single failed fetch after it: one missed
+# answer is no outage, and the Downloads page polls every two seconds. An answer older than this
+# stands in for nothing. Guarded by _answers_lock.
+_STAND_IN_SECONDS = 60.0
+_last_answers: dict[str, tuple[float, list[ArrCard]]] = {}
+_stood_in: set[str] = set()
+_answers_lock = threading.Lock()
+
+
+def _forget_answers() -> None:
+    with _answers_lock:
+        _last_answers.clear()
+        _stood_in.clear()
+
+
+def fetch_arr_queue_result(
+    conn: sqlite3.Connection, secret_key: str, *, steady: bool = True
+) -> FetchResult:
     """Fetch Radarr/Sonarr queues and return a ``FetchResult``.
 
     ``secret_key`` is required to decrypt the Radarr/Sonarr API keys stored
     in DB settings.
 
     Unlike ``fetch_arr_queue``, this surfaces errors alongside cards so
-    callers can show when a service is unreachable.
+    callers can show when a service is unreachable. While *steady*, a service
+    that fails once, right after an answer less than a minute old, is given
+    that answer's cards and not reported; the failure after that is. A refused
+    key is reported at once.
     """
     from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 
     result = FetchResult()
-    _fetch_service(conn, secret_key, "Radarr", build_radarr_from_db, fetch_radarr_queue, result)
-    _fetch_service(conn, secret_key, "Sonarr", build_sonarr_from_db, fetch_sonarr_queue, result)
+    for name, build, fetch in (
+        ("Radarr", build_radarr_from_db, fetch_radarr_queue),
+        ("Sonarr", build_sonarr_from_db, fetch_sonarr_queue),
+    ):
+        _fetch_service(conn, secret_key, name, build, fetch, result, steady=steady)
     return result
+
+
+def _stand_in(name: str, result: FetchResult) -> bool:
+    """Add *name*'s last answer to *result* for a fetch that failed, if it may stand in."""
+    with _answers_lock:
+        kept = _last_answers.get(name)
+        if name in _stood_in or kept is None or time.monotonic() - kept[0] > _STAND_IN_SECONDS:
+            return False
+        _stood_in.add(name)
+    result.cards.extend(kept[1])
+    return True
+
+
+def _keep_answer(name: str, cards: list[ArrCard]) -> None:
+    with _answers_lock:
+        _last_answers[name] = (time.monotonic(), list(cards))
+        _stood_in.discard(name)
 
 
 def _fetch_service(
@@ -72,8 +114,11 @@ def _fetch_service(
     build: Callable[[sqlite3.Connection, str], ArrClient | None],
     fetch: Callable[..., list[ArrCard]],
     result: FetchResult,
+    *,
+    steady: bool,
 ) -> None:
-    """Add one service's cards to *result*, or the error that kept them out."""
+    """Add one service's cards to *result*, or the error that kept them out; while *steady*,
+    a single failure is answered by the service's last answer."""
     failures: list[str] = []
     try:
         client = build(conn, secret_key)
@@ -88,14 +133,21 @@ def _fetch_service(
         ConfigDecryptError,
     ) as exc:
         logger.warning("Failed to fetch %s queue: %s", name, exc, exc_info=True)
+        refused = isinstance(exc, SafeHTTPError) and exc.status_code in (401, 403)
+        if steady and not refused and _stand_in(name, result):
+            return
         result.errors.append(f"{name} fetch failed: {exc}")
         result.unreachable.append(name)
-        if isinstance(exc, SafeHTTPError) and exc.status_code in (401, 403):
+        if refused:
             result.refused.append(name)
+        return
+    if steady and failures and _stand_in(name, result):
         return
     result.unreachable.extend(failures)
     stamp_searching_since(conn, name.lower(), cards, complete=not failures)
     adopt_throttle(conn, cards)
+    if steady and not failures:
+        _keep_answer(name, cards)
     result.cards.extend(cards)
 
 
@@ -109,4 +161,4 @@ def fetch_arr_queue(conn: sqlite3.Connection, secret_key: str) -> list[ArrCard]:
     Callers that need to surface fetch errors to the UI should use that function
     instead.
     """
-    return fetch_arr_queue_result(conn, secret_key).cards
+    return fetch_arr_queue_result(conn, secret_key, steady=False).cards
