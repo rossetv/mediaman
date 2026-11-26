@@ -1,5 +1,6 @@
 {# Users & Access — team management. #}
 {% import "_components.html" as c %}
+{% import "_password.html" as pw %}
 
 {% call c.setg_block("setg-users", "Users & Access", "Who can sign in and administer Mediaman") %}
 
@@ -11,37 +12,37 @@
   {% endset %}
   {% call c.setg_card(title="Team", sub="Admins manage Mediaman. Viewers can watch and request, nothing more.",
                          header_actions=team_actions, pad=True) %}
-    <form class="inline-form inline-form--two setg-fold" id="add-user-form" novalidate hidden>
+    <div class="setg-fold is-shut" id="add-user-fold" hidden>
       <div class="setg-fold-inner">
-        <div class="inline-form-grid">
-          <div class="fld">
-            <label class="fld-lbl" for="new-username">Username</label>
-            <input class="inp" type="text" id="new-username" placeholder="e.g. casey" autocomplete="off" spellcheck="false" aria-describedby="new-username-why">
-            <span class="fld-why" id="new-username-why" role="status"></span>
-          </div>
-          <div class="fld">
-            <label class="fld-lbl" for="new-user-password">Password</label>
-            <input class="inp" type="password" id="new-user-password" autocomplete="new-password" aria-describedby="new-user-password-why" data-strength="new-user-strength" data-show-password>
-            <div class="fpc-meter"><span class="fpc-meter-fill" id="new-user-strength-meter"></span></div>
-            <span class="fld-why fld-why--caption" id="new-user-password-why" role="status"></span>
-            <span class="fpc-caption" id="new-user-strength-label">&nbsp;</span>
-          </div>
-        </div>
-        <div class="fld">
-          <span class="fld-lbl" id="new-user-role-lbl">Role</span>
-          <div class="pill-row" role="group" aria-labelledby="new-user-role-lbl" id="new-user-role">
-            <button type="button" class="fpill on" data-role="viewer" aria-pressed="true">Viewer</button>
-            <button type="button" class="fpill" data-role="admin" aria-pressed="false">Admin</button>
-          </div>
-          <span class="fld-sub">Viewers can watch, search and request films and series, see downloads and recommendations, and keep items that are leaving. They can't change settings.</span>
-        </div>
-        <div class="inline-form-actions">
-          {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-add-user") }}
-          <button type="submit" class="btn btn--primary btn--sm" id="btn-submit-add-user">Create user</button>
-          <span class="inline-form-msg" id="create-user-result" role="status"></span>
-        </div>
+        <div class="pwd-pad"><div class="pwd-stage" id="add-user-stage">
+          <form class="inline-form pwd pwd--add" id="add-user-form" method="post" novalidate>
+            <div class="pwd-in">
+              <div class="pwd-fld pwd-fld--user">
+                <label class="pwd-lbl" for="new-username">Username</label>
+                <div class="pwd-box"><input class="inp" type="text" id="new-username" maxlength="64" placeholder="e.g. casey" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="new-username-why"></div>
+                {{ pw.why("new-username", "Username must be at least 3 characters.") }}
+              </div>
+              <div class="pwd-role">
+                <span class="pwd-lbl" id="new-user-role-lbl">Role</span>
+                <div class="pill-row" role="group" aria-labelledby="new-user-role-lbl" id="new-user-role">
+                  <button type="button" class="fpill on" data-role="viewer" aria-pressed="true">Viewer</button>
+                  <button type="button" class="fpill" data-role="admin" aria-pressed="false">Admin</button>
+                </div>
+              </div>
+              {{ pw.field("new-user-password", "new_password", "new", "Password", "password", "new-password",
+                          "This password is on the common-password list.") }}
+              {{ pw.rules("new-user-password", whose="their") }}
+              {{ pw.aside("create-user-result", "They choose their own at the first sign-in.", "i-lock") }}
+              <div class="pwd-btns">
+                <button class="btn btn--ghost" type="button" id="btn-cancel-add-user" data-cancel>Cancel</button>
+                <button class="btn btn--primary" type="submit" id="btn-submit-add-user">Create user</button>
+              </div>
+            </div>
+          </form>
+        </div></div>
       </div>
-    </form>
+    </div>
+    <span class="sr-only" id="add-user-live" role="status"></span>
 
     <div id="user-list">
       <div class="fld-sub">Loading users…</div>

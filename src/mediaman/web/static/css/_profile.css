@@ -63,12 +63,14 @@
 #account-email-fold { margin-bottom: -6px; }
 .me-acts--end { padding-bottom: 6px; }
 #account-open-password { transition: opacity var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out); }
-#account-open-password.is-gone { opacity: 0; visibility: hidden; }
-.me-pw-in { display: grid; gap: 16px; max-width: 400px; padding: 14px 0 6px; }
-.setg-pg .me-pw .fld { gap: 5px; }
-.setg-pg .me-pw .fld-lbl { font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; }
-.setg-pg .me-pw .fld-why { min-height: 1.1em; }
-.setg-pg .me-pw .fld-why--caption:empty { min-height: 0; margin-top: -5px; }
+#account-open-password.is-gone { opacity: 0; visibility: hidden; transition: opacity var(--dur) var(--ease-out), visibility 0s var(--dur); }
+.me-line:has(#account-open-password) { position: relative; transition: margin-bottom var(--dur) var(--ease-out); }
+/* When it was changed is there before and after, and does not move. */
+#account-password-sub.is-new > span:not(.is-fresh) { animation: fade-in var(--dur) var(--ease-out); }
+#account-password-fold > .setg-fold-inner { padding-block: 4px 6px; margin-block: -4px -6px; }
+.me-pw-pad { padding-top: 20px; }
+.me-sub .is-fresh { color: var(--success); }
+.me-sub .is-fresh .ico { margin-right: 4px; font-size: 11px; }
 
 .dev-list { list-style: none; }
 .dev-list:focus { outline: none; }
@@ -79,6 +81,7 @@
   transition: height var(--dur-slow) var(--ease-out), padding var(--dur-slow) var(--ease-out),
               border-width var(--dur-slow) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
+#account-tvs .dev:last-child, #account-tvs-all .dev:last-child { border-bottom: 0; }
 .dev--note { font-size: 14px; color: var(--t2); }
 .dev-ico { flex: none; width: 38px; height: 38px; display: grid; place-items: center; border-radius: var(--r-md); background: var(--s3); color: var(--t2); }
 .dev-ico .ico { width: 20px; height: 20px; }
@@ -107,6 +110,7 @@
   .me-id h1 { font-size: 26px; }
   .me-sec { margin-top: 28px; }
   .me-card { padding: 0 16px; }
+  .me-end:has(> #account-open-password.is-gone) { position: absolute; right: 0; }
   .me-line--stack { flex-flow: column nowrap; align-items: stretch; }
   .me-line--stack .me-end { margin-left: 0; }
   .me-line--stack .me-txt { flex: none; }

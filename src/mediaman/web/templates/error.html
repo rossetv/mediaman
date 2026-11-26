@@ -11,7 +11,7 @@
 <div class="login-page">
   <div class="login-card err-card">
     {% if request.state.user_role is not defined %}
-    <div class="login-brand err-brand"><a href="/">media<b>man</b></a></div>
+    <div class="login-brand err-brand"><a href="/">media<wbr><b>man</b></a></div>
     {% endif %}
     <div class="err-code" aria-hidden="true">{{ status }}</div>
     <h1 class="err-title">{{ title }}</h1>

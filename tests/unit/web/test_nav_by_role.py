@@ -324,7 +324,7 @@ class TestAccountPage:
         assert resp.status_code == 200
         assert "admin" in resp.text
         assert 'id="account-password-form"' in resp.text
-        for field in ("account-old-password", "account-new-password", "account-confirm-password"):
+        for field in ("account-old-password", "account-new-password"):
             assert f'id="{field}"' in resp.text
         assert "/static/js/account.js" in resp.text
         assert "<script>" not in resp.text

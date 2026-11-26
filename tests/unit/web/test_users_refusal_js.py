@@ -27,9 +27,11 @@ def refusals(outcomes) -> dict:
     ("refusal", "field", "words"),
     [
         ("shortName", "new-username", "3 characters"),
-        ("takenName", "new-username", "No"),
-        ("shortPassword", "new-user-password", "12 characters"),
-        ("weakPassword", "new-user-password", "NoAdd a digit"),
+        ("takenName", "new-username", "taken"),
+        ("shortPassword", "new-user-password", "7 more characters"),
+        ("usernameInIt", "new-user-password", "their username"),
+        ("weakPassword", "new-user-password", "Add a digit"),
+        ("unnamedRule", "new-user-password", "No.Add a digitAnd a hat"),
     ],
 )
 def test_a_refused_field_has_the_cursor_and_its_reason_beside_it(
@@ -66,9 +68,42 @@ def test_a_refusal_that_comes_once_the_reader_has_moved_on_only_says_why(refusal
     assert out["late"] == []
 
 
-def test_a_field_with_no_place_for_its_reason_has_it_said_at_the_button(refusals) -> None:
-    out = refusals["noPlace"]
-    assert (out["said"], out["focused"]) == (["create-user-result"], "new-username")
+def test_what_the_page_itself_finds_wrong_is_not_sent(refusals) -> None:
+    unsent = {"shortName", "shortPassword", "usernameInIt"}
+    assert {refusal for refusal, out in refusals.items() if not out["sends"]} == unsent
+
+
+def test_a_refused_password_is_kept_and_the_rule_it_broke_is_marked(refusals) -> None:
+    assert refusals["weakPassword"]["red"] == ["common"]
+    assert all(out["kept"] for out in refusals.values())
+
+
+def test_a_user_made_is_drawn_and_said_before_the_form_folds_away_empty(outcomes) -> None:
+    out = outcomes["made"]
+    (url, body), during, after = out["posts"][0], out["during"], out["after"]
+    assert (len(out["posts"]), url) == (1, "/api/users")
+    assert body == {"username": "<b>vic", "password": "Copper lantern 41", "role": "viewer"}
+    # what was typed is text
+    assert during["drawn"].startswith("<b>vic changes this password")
+    # the password is out of the page at once
+    assert during["left"] == [""]
+    assert during["live"].endswith(during["drawn"]) and during["open"]
+    assert after == {
+        "open": False,
+        "drawn": False,
+        "left": ["", ""],
+        "rows": 1,
+        "focused": "btn-add-user",
+        "busy": "false",
+    }
+
+
+def test_the_list_of_users_stands_where_the_form_s_script_did_not_load(outcomes) -> None:
+    assert outcomes["without"] == {"rows": 1, "add": True}
+
+
+def test_escape_folds_the_form_away_empty(outcomes) -> None:
+    assert outcomes["escape"] == {"open": False, "left": "", "focused": "btn-add-user"}
 
 
 def test_the_password_dialog_cancelled_leaves_the_focus_on_the_button_pressed(outcomes) -> None:

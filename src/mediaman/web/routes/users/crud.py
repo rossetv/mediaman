@@ -32,6 +32,7 @@ from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
 from mediaman.web.repository.avatars import avatar_urls
 from mediaman.web.responses import respond_err, respond_failure, respond_ok
+from mediaman.web.routes.users.passwords import rules_of
 from mediaman.web.routes.users.rate_limits import (
     _UNTICKETED_LIMITER,
     _USER_CREATE_LIMITER,
@@ -161,6 +162,8 @@ def api_create_user(
             status=400,
             message="Password does not meet the strength policy",
             issues=issues,
+            field="password",
+            rules=rules_of(issues),
         )
 
     # Refused before the costly hash, so that refusals which do not count stay cheap.

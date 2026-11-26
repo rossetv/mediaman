@@ -3,32 +3,10 @@
  * person's history by the AI.
  *
  * Requires: core/api.js (MM.api), core/dom.js (MM.dom), core/reauth.js (MM.reauth),
- * settings/rows.js (MM.settings.rows), ui-feedback.js (UIFeedback).
- * The strength meter and match hint of the password form are password-strength.js.
+ * settings/rows.js (MM.settings.rows), password-form.js (MM.password), ui-feedback.js (UIFeedback).
  */
 (function () {
   'use strict';
-
-  function wordsOf(err) { return MM.api.messageOf(err, 'Something went wrong. Try again.'); }
-
-  function showReason(target, text, issues) {
-    target.textContent = '';
-    if (issues && issues.length) {
-      var p = document.createElement('div');
-      p.textContent = text;
-      target.appendChild(p);
-      var ul = document.createElement('ul');
-      ul.className = 'inline-form-issues';
-      issues.forEach(function (item) {
-        var li = document.createElement('li');
-        li.textContent = String(item);
-        ul.appendChild(li);
-      });
-      target.appendChild(ul);
-    } else {
-      target.textContent = text;
-    }
-  }
 
   // `what` ends the sentence that asks for the password. The Plex card asks for one only where it is due.
   function confirmed(what, action) {
@@ -89,105 +67,177 @@
     result.textContent = text;
   }
 
-  function initPassword(reloadSessions) {
+  // What saving a new password will do, and what it did. `others` and `tvs` are how many there are.
+  function willSignOut(others, tvs) {
+    var what = [];
+    if (others) what.push(others === 1 ? 'your other device' : 'your ' + others + ' other devices');
+    if (tvs) what.push(tvs === 1 ? 'your TV' : 'your ' + tvs + ' TVs');
+    return what.length ? 'Signs out ' + what.join(' and ') + '.' : 'You have no other device to sign out.';
+  }
+  function signedOut(others, tvs) {
+    var what = [];
+    if (others) what.push((others === 1 ? 'Your other device was' : 'Your ' + others + ' other devices were') + ' signed out');
+    if (tvs) what.push((others ? 'your ' : 'Your ') + (tvs === 1 ? 'TV was' : tvs + ' TVs were') + ' unpaired');
+    return what.length ? what.join(', and ') + '.' : 'You had no other device to sign out.';
+  }
+
+  // `devices.others()` and `devices.tvs()` are what the lists below hold, null where they did not load.
+  // Returns the function that says afresh what a new password signs out.
+  function initPassword(devices) {
     var form = document.getElementById('account-password-form');
     var opener = document.getElementById('account-open-password');
-    var cancel = document.getElementById('account-cancel-password');
-    var result = document.getElementById('account-password-result');
-    var submit = document.getElementById('account-submit-password');
-    if (!form || !opener || !cancel || !result || !submit) return;
-    var fold = MM.settings.rows;
-    var newField = document.getElementById('account-new-password');
-    var caption = document.getElementById('account-new-strength-label');
-    var rule = caption.textContent;
-
-    // The meter's script leaves the caption empty with the field.
-    function restoreRule() { if (!newField.value) caption.textContent = rule; }
-
-    // On a short phone the form is taller than the screen, so the reason is said beside its field.
-    function fail(fieldId, text, issues, onlySay) {
-      clear();
-      var field = document.getElementById(fieldId);
-      var why = document.getElementById(fieldId + '-why');
-      field.setAttribute('aria-invalid', 'true');
-      if (!why) { why = result; why.className = 'me-msg err'; }
-      showReason(why, text, issues);
-      if (!onlySay) MM.dom.refuse(field, why);
+    var panel = document.getElementById('account-password-fold');
+    var sub = document.getElementById('account-password-sub');
+    var live = document.getElementById('account-password-live');
+    if (!form || !opener || !panel || !sub || !live) return function () {};
+    // Its script did not load: the rest of the page works without it.
+    if (!MM.password) {
+      opener.disabled = true;
+      return function () {};
     }
-    function clear() {
-      result.className = 'me-msg';
-      result.textContent = '';
-      form.querySelectorAll('.fld-why').forEach(function (why) { why.textContent = ''; });
-      form.querySelectorAll('input').forEach(function (field) { field.removeAttribute('aria-invalid'); });
+    var line = opener.closest('.me-line');
+    var end = opener.parentNode;
+    var fold = MM.settings.rows;
+    var changed = document.getElementById('account-password-changed');
+    var effect = sub.lastElementChild;
+    var fresh = false;
+    var openAt = 0;
+    if (changed) changed.textContent = dayOf(changed.getAttribute('datetime'));
+
+    var pw = MM.password.form(form, { send: send });
+    var says = pw.aside.querySelector('.pwd-line').lastElementChild;
+    var unknown = says.textContent;
+
+    function sayDevices() {
+      var others = devices.others(), tvs = devices.tvs();
+      says.textContent = others && tvs !== null ? willSignOut(others.length, tvs) : unknown;
+    }
+
+    // This device and those that go out with the change, as many as there is room for.
+    function deviceRow() {
+      var others = devices.others();
+      var tvs = devices.tvs();
+      if (!others || tvs === null || !(others.length + tvs)) return null;
+      var row = el('div', 'pwd-dev-row');
+      row.setAttribute('aria-hidden', 'true');
+      function add(icon, cls) { row.appendChild(el('span', 'pwd-dev-i' + cls)).appendChild(MM.dom.icon(icon)); }
+      add(devices.here(), ' is-here');
+      var total = others.length + tvs;
+      var room = total > 5 ? 4 : total;
+      var sets = Math.min(tvs, Math.max(room - others.length, total > 5 ? 1 : 0));
+      others.slice(0, room - sets).forEach(function (label) { add(deviceIcon(label), ''); });
+      for (var i = 0; i < sets; i++) add('i-tv', '');
+      if (total > room) row.appendChild(el('span', 'pwd-dev-n', '+' + (total - room)));
+      return row;
+    }
+
+    // The row takes its new height as the fold takes its own, with its words and button already in place.
+    function ease(change) {
+      var from = line.offsetHeight + (parseFloat(getComputedStyle(line).marginBottom) || 0);
+      change();
+      var gap = from - line.offsetHeight;
+      line.style.transition = 'none';
+      line.style.marginBottom = gap + 'px';
+      sub.classList.remove('is-new');
+      void line.offsetHeight;
+      sub.classList.toggle('is-new', gap !== 0);
+      line.style.transition = '';
+      line.style.marginBottom = '';
     }
 
     function show() {
+      if (pw.isBusy()) return;
       opener.setAttribute('aria-expanded', 'true');
-      opener.classList.add('is-gone');
-      fold.openInView(form);
-      document.getElementById('account-old-password').focus({ preventScroll: true });
+      var width = sub.getBoundingClientRect().width;
+      openAt = window.innerWidth;
+      ease(function () {
+        // Where the button leaves its room to the words, it fades where it was.
+        end.style.top = end.offsetTop + 'px';
+        opener.classList.add('is-gone');
+        // The line by the buttons says it, with the numbers.
+        if (!changed || fresh) return;
+        // On the lines it had beside the button.
+        sub.style.maxWidth = width + 'px';
+        effect.hidden = true;
+      });
+      sayDevices();
+      fold.openInView(panel);
+      pw.old.focus({ preventScroll: true });
     }
-    function shut() {
-      var held = MM.dom.focusStillIn(form);
+    function shut(then, words) {
+      var held = MM.dom.focusStillIn(panel);
       opener.setAttribute('aria-expanded', 'false');
-      opener.classList.remove('is-gone');
-      fold.close(form);
-      form.reset();
-      clear();
-      setTimeout(restoreRule, 0);
+      ease(function () {
+        opener.classList.remove('is-gone');
+        sub.style.maxWidth = '';
+        if (!fresh) effect.hidden = false;
+        if (!words) return;
+        sub.appendChild(document.createTextNode(' '));
+        sub.appendChild(el('span', '', words));
+      });
+      fold.close(panel, then || pw.reset);
       if (held) opener.focus({ preventScroll: true });
     }
 
     opener.addEventListener('click', show);
-    cancel.addEventListener('click', function () {
-      if (!isBusy(submit)) shut();
+    // A phone's keyboard resizes the window too, but leaves its width.
+    window.addEventListener('resize', function () {
+      if (window.innerWidth !== openAt) sub.style.maxWidth = '';
     });
-    form.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && !isBusy(submit)) shut();
+    pw.cancel.addEventListener('click', function () {
+      if (!pw.isBusy()) shut();
     });
-
-    // A message about what was typed goes once the person types again; a send keeps its message.
-    form.addEventListener('input', function () {
-      if (!isBusy(submit)) clear();
-      restoreRule();
+    panel.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !pw.isBusy()) shut();
     });
 
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      if (isBusy(submit)) return;
-      var oldPw = document.getElementById('account-old-password').value;
-      var newPw = newField.value;
-      var conf = document.getElementById('account-confirm-password').value;
-      if (!oldPw) { fail('account-old-password', 'Enter your current password.'); return; }
-      if (newPw.length < 12) { fail('account-new-password', 'New password must be at least 12 characters.'); return; }
-      if (newPw !== conf) { fail('account-confirm-password', 'Passwords don’t match.'); return; }
-
-      clear();
-      setBusy(submit, 'Updating…');
-      working(result, 'Updating…');
-      reveal(submit);
+    function send(values) {
+      reveal(pw.submit);
       confirmed('change it', function () {
-        return MM.api.post('/api/users/change-password', {
-          old_password: oldPw,
-          new_password: newPw,
-        });
-      }).then(function () {
-        setBusy(submit, '');
-        shut();
-        done('Password updated. Your other devices are signed out.');
-        reloadSessions();
-      }).catch(function (err) {
-        setBusy(submit, '');
-        var code = err && err.error;
-        if (code === 'reauth_cancelled') { clear(); return; }
-        if (code === 'wrong_password' || code === 'weak_password' || code === 'same_password') {
-          var there = MM.dom.stillAt(submit, form);
-          fail(code === 'wrong_password' ? 'account-old-password' : 'account-new-password', wordsOf(err), err.issues, !there);
-          return;
-        }
-        answer(result, form, wordsOf(err), 'err');
+        return MM.api.post('/api/users/change-password', { old_password: values.old, new_password: values.pw });
+      }).then(function (data) { saved(data || {}); }, function (err) { refused(values, err); });
+    }
+
+    function saved(data) {
+      var others = devices.others();
+      var known = typeof data.signed_out === 'number' && Array.isArray(data.unpaired);
+      var words = known ? signedOut(data.signed_out, data.unpaired.length)
+        : others && devices.tvs() !== null ? signedOut(others.length, devices.tvs())
+          : 'Your other devices were signed out, and your TVs unpaired.';
+      pw.forget();
+      fresh = true;
+      live.textContent = 'Password changed. ' + words;
+      ease(function () {
+        sub.textContent = sub.style.maxWidth = '';
+        var now = sub.appendChild(el('span', 'is-fresh'));
+        now.appendChild(MM.dom.icon('i-check'));
+        now.appendChild(document.createTextNode('Changed just now.'));
       });
-    });
+      MM.password.celebrate(form.parentNode, form, 'Password changed', words, deviceRow()).then(function (undo) {
+        // Long enough to be read before it folds.
+        setTimeout(function () {
+          devices.reload();
+          shut(function () {
+            undo();
+            pw.reset();
+          }, words);
+        }, 2000);
+      });
+    }
+
+    function refused(values, err) {
+      pw.free();
+      var code = err && err.error;
+      if (code === 'reauth_cancelled') return;
+      var there = MM.dom.stillAt(pw.submit, form);
+      var text = MM.api.messageOf(err, 'Something went wrong. Try again.');
+      if (code === 'wrong_password') pw.refuse(pw.old, text, !there);
+      else if (code === 'weak_password' || code === 'same_password') {
+        pw.refuseNew(values.pw, text, err.issues, err.data && err.data.rules, !there);
+      } else pw.refuseWhole(text, !there);
+    }
+
+    return sayDevices;
   }
 
   function initEmail() {
@@ -299,13 +349,16 @@
     return node;
   }
 
-  /* Returns the function that loads the list afresh. */
-  function initSessions() {
+  /* `told` runs as the list changes. Returns the function that loads it afresh, with the labels of the
+     other devices on it (null where it did not load) and the icon of this one. */
+  function initSessions(told) {
     var list = document.getElementById('account-sessions');
     var revoke = document.getElementById('account-revoke-others');
     var result = document.getElementById('account-revoke-result');
     var why = document.getElementById('account-revoke-why');
-    if (!list || !revoke || !result) return function () {};
+    if (!list || !revoke || !result) return { load: function () {}, others: function () { return null; }, here: function () { return 'i-globe'; } };
+    /* The sign-ins on show by the same names as their rows. */
+    var shown = {};
     /* The rows on show by the session each is of. */
     var rows = {};
     var loaded = false;
@@ -353,6 +406,7 @@
     function drop(key) {
       var row = rows[key];
       delete rows[key];
+      delete shown[key];
       // A row on its way out takes no press.
       row.inert = true;
       MM.settings.rows.leave(row, { focusSelector: '.btn', fallback: list });
@@ -363,6 +417,7 @@
       if (alone && document.activeElement === revoke) list.focus({ preventScroll: true });
       revoke.disabled = alone;
       why.hidden = !alone || Boolean(result.textContent);
+      told();
     }
 
     function load() {
@@ -378,6 +433,7 @@
         live.forEach(function (s) {
           var key = keyOf(s);
           still[key] = true;
+          shown[key] = s;
           if (!rows[key]) rows[key] = list.appendChild(el('li', ''));
           // A row being signed out keeps the button pressed.
           else if (rows[key].querySelector('[aria-disabled="true"]') || rows[key].contains(document.activeElement)) return;
@@ -388,12 +444,14 @@
       }).catch(function () {
         if (mine !== asked) return;
         rows = {};
+        shown = {};
         loaded = false;
         list.textContent = '';
         list.appendChild(el('li', 'dev dev--note', 'Could not load your sign-ins. Reload the page to try again.'));
         // They can still be ended without being listed.
         revoke.disabled = false;
         why.hidden = true;
+        told();
       }).then(function () {
         if (mine === asked) list.removeAttribute('aria-busy');
       });
@@ -442,8 +500,20 @@
       });
     });
 
+    function listed() { return Object.keys(shown).map(function (key) { return shown[key]; }); }
+
     load();
-    return load;
+    return {
+      load: load,
+      others: function () {
+        if (!loaded) return null;
+        return listed().filter(function (s) { return !s.current; }).map(function (s) { return s.device_label || ''; });
+      },
+      here: function () {
+        var here = listed().filter(function (s) { return s.current; })[0];
+        return deviceIcon((here && here.device_label) || '');
+      },
+    };
   }
 
   function seenWhen(iso) {
@@ -464,12 +534,14 @@
     return at.toLocaleDateString('en-GB', day);
   }
 
-  /* The person's TVs and, for an admin, everyone else's. Returns the function that loads them
-     afresh. A list with no TV is not shown. */
-  function initTvs() {
+  /* The person's TVs and, for an admin, everyone else's. A list with no TV is not shown. `told` runs as
+     the person's own change. Returns the function that loads them afresh, with how many of their own
+     there are (null where they did not load). */
+  function initTvs(told) {
     var mine = document.getElementById('account-tvs');
     var others = document.getElementById('account-tvs-all');
-    if (!mine) return function () {};
+    if (!mine) return { load: function () {}, count: function () { return null; } };
+    var known = false;
     var asked = 0;
     var gone = {};
 
@@ -561,6 +633,7 @@
       MM.settings.rows.leave(tv.row, {
         focusSelector: '.btn', fallback: list,
         done: function () {
+          told();
           if (list.children.length) return;
           var held = MM.dom.focusStillIn(section);
           section.hidden = true;
@@ -615,6 +688,9 @@
         draw(section, data.tvs.filter(function (tv) {
           return !gone[tv.id] && take(tv);
         }));
+        if (section !== mine) return;
+        known = true;
+        told();
       }, function () { /* A list that was not shown stays so. */ });
     }
 
@@ -626,7 +702,10 @@
 
     var me = mine.getAttribute('data-me');
     load();
-    return load;
+    return {
+      load: load,
+      count: function () { return known ? mine.querySelector('.dev-list').children.length : null; },
+    };
   }
 
   function initAi() {
@@ -698,11 +777,16 @@
   }
 
   function start() {
-    var reloadSessions = initSessions();
-    var reloadTvs = initTvs();
-    initPassword(function () {
-      reloadSessions();
-      reloadTvs();
+    var sayDevices = function () {};
+    function told() { sayDevices(); }
+    var sessions = initSessions(told);
+    var tvs = initTvs(told);
+    sayDevices = initPassword({
+      others: sessions.others, here: sessions.here, tvs: tvs.count,
+      reload: function () {
+        sessions.load();
+        tvs.load();
+      },
     });
     initEmail();
     initAi();

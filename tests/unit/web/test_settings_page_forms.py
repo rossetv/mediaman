@@ -88,8 +88,11 @@ def test_every_password_field_can_be_shown(page, request):
     passwords = _parse(html).passwords
 
     assert passwords
-    assert [p["id"] for p in passwords if "data-show-password" not in p] == []
-    assert '<script src="/static/js/show-password.js?v=" defer></script>' in html
+    for field in passwords:
+        box = html.split(f'id="{field["id"]}"', 1)[1].split("</div>", 1)[0]
+        assert re.search(rf'class="pwd-eye" [^>]*aria-controls="{field["id"]}"', box)
+    assert '<script src="/static/js/password-form.js?v=" defer></script>' in html
+    assert "/static/css/_password.css" in html
 
 
 def test_every_setting_on_the_page_is_sent_when_it_is_saved(settings_html):
