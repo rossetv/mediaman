@@ -2,8 +2,9 @@
 
 A film's download, or a Sonarr season's, that has needed attention for an hour is removed
 from the download client with its release blocklisted, and the same film or episodes are
-searched for again. Each film or season is given ``MAX_TRIES`` copies so; one that will not
-import after that is left as it is, for an admin. While another copy is looked for, its card
+searched for again. Each film or season is given ``MAX_TRIES`` copies so until one imports;
+one that will not import after that is left as it is, for an admin, as is one held by the
+service's own setup rather than by its release. While another copy is looked for, its card
 says so. Library files and Plex are never touched, nor a download still coming in or one
 importing as it should.
 
@@ -49,6 +50,23 @@ _FINDING_FOR = timedelta(hours=24)
 
 _ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ConfigDecryptError, ValueError)
 
+# In "removed" of a row not retrying: its stuck copy left the queue unimported, so the row and
+# its tries are kept.
+_LEFT = "[]"
+
+# What Sonarr and Radarr say of a download their own setup keeps from importing (paths, remote
+# path mappings, permissions, the root folder, disk space): another copy would not import either.
+_SETUP_PROBLEMS = (
+    "remote path mapping",
+    "not a valid local path",
+    "path does not exist",
+    "not accessible",
+    "permission",
+    "access to the path",
+    "root folder missing",
+    "not enough free space",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class _Unit:
@@ -62,6 +80,7 @@ class _Unit:
     label: str
     reason: str
     search: dict[str, Any]
+    setup_problem: bool
 
 
 def _int(value: object) -> int:
@@ -79,23 +98,24 @@ def _held(entry: Mapping[str, object]) -> bool:
     )
 
 
-def _units(card: Mapping[str, object]) -> list[_Unit]:
-    if card.get("kind") == "movie":
-        movie_id, queue_id = _int(card.get("movie_id")), _int(card.get("queue_id"))
-        if not movie_id or not queue_id:
-            return []
-        stuck = _held(card)
-        return [
-            _Unit(
-                key=f"radarr:{movie_id}",
-                stuck=stuck,
-                held_ids=frozenset({queue_id}) if stuck else frozenset(),
-                queue_ids=frozenset({queue_id}),
-                label="",
-                reason=str(card.get("attention") or ""),
-                search={"name": "MoviesSearch", "movieIds": [movie_id]},
-            )
-        ]
+def _unit(
+    key: str, entries: Sequence[Mapping[str, object]], label: str, search: dict[str, Any]
+) -> _Unit:
+    held = [e for e in entries if _held(e)]
+    reasons = [str(e.get("attention") or "") for e in held]
+    return _Unit(
+        key=key,
+        stuck=map_queue_state(entries) == "needs_attention" and bool(held),
+        held_ids=frozenset(_int(e.get("queue_id")) for e in held),
+        queue_ids=frozenset(_int(e.get("queue_id")) for e in entries),
+        label=label,
+        reason=next((r for r in reasons if r), ""),
+        search=search,
+        setup_problem=any(p in r.lower() for r in reasons for p in _SETUP_PROBLEMS),
+    )
+
+
+def _season_units(card: Mapping[str, object]) -> list[_Unit]:
     series_id = _int(card.get("series_id"))
     episodes = card.get("episodes")
     if not series_id or not isinstance(episodes, list):
@@ -116,16 +136,26 @@ def _units(card: Mapping[str, object]) -> list[_Unit]:
             ids = sorted({_int(e.get("episode_id")) for e in held} - {0})
             search = {"name": "EpisodeSearch", "episodeIds": ids}
         units.append(
-            _Unit(
-                key=f"sonarr:{series_id}:{season}",
-                stuck=map_queue_state(entries) == "needs_attention" and bool(held),
-                held_ids=frozenset(_int(e.get("queue_id")) for e in held),
-                queue_ids=frozenset(_int(e.get("queue_id")) for e in entries),
-                label=format_episode_label(season, None),
-                reason=next((str(e.get("attention")) for e in held if e.get("attention")), ""),
-                search=search,
+            _unit(
+                f"sonarr:{series_id}:{season}", entries, format_episode_label(season, None), search
             )
         )
+    return units
+
+
+def _units(cards: Sequence[Mapping[str, object]]) -> list[tuple[Mapping[str, object], _Unit]]:
+    """Each film's or season's unit of *cards*, with a card of its title; Radarr gives a card
+    for each queue record, so a film's are one unit."""
+    films: dict[int, list[Mapping[str, object]]] = {}
+    units: list[tuple[Mapping[str, object], _Unit]] = []
+    for card in cards:
+        if card.get("kind") != "movie":
+            units.extend((card, unit) for unit in _season_units(card))
+        elif (movie_id := _int(card.get("movie_id"))) and _int(card.get("queue_id")):
+            films.setdefault(movie_id, []).append(card)
+    for movie_id, records in films.items():
+        search = {"name": "MoviesSearch", "movieIds": [movie_id]}
+        units.append((records[0], _unit(f"radarr:{movie_id}", records, "", search)))
     return units
 
 
@@ -156,14 +186,22 @@ def _show_finding(service: str, key: str, shown: Mapping[str, Any], cards: list[
     gave none: a show with episodes in the library is not listed while it has none queued."""
     arr_id = _key_id(key)
     kind = "movie" if service == "radarr" else "series"
+    season = key.rpartition(":")[2]
     for card in cards:
         if card.get("kind") != kind:
             continue
-        if card.get("arr_id") == arr_id or card.get("dl_id") == shown.get("dl_id"):
-            card["finding_copy"] = True
+        queued = card.get("series_id" if kind == "series" else "movie_id") == arr_id
+        episodes = card.get("episodes")
+        if (
+            queued
+            and kind == "series"
+            and isinstance(episodes, list)
+            and any(str(_int(ep.get("season_number"))) != season for ep in episodes)
+        ):
+            # Its other seasons' downloads say what it is doing.
             return
-        if card.get("series_id" if kind == "series" else "movie_id") == arr_id:
-            # Its other downloads say what it is doing.
+        if queued or card.get("arr_id") == arr_id or card.get("dl_id") == shown.get("dl_id"):
+            card["finding_copy"] = True
             return
     title = shown.get("title")
     if not isinstance(title, str) or not title:
@@ -196,52 +234,57 @@ def note_stuck_imports(
     now_dt = now_utc()
     now = now_dt.isoformat()
     try:
+        enabled = get_bool_setting(conn, SETTING, default=True)
         rows = {
             row[0]: row
             for row in conn.execute(
-                "SELECT key, stuck_since, retried_at, removed, shown FROM arr_import_retries"
+                "SELECT key, stuck_since, retried_at, removed, shown, tries FROM arr_import_retries"
                 " WHERE key LIKE ?",
                 (f"{service}:%",),
             )
         }
         writes: list[tuple[str, tuple[object, ...]]] = []
         seen: set[str] = set()
-        for card in cards:
-            for unit in _units(card):
-                row = rows.get(unit.key)
-                if row is not None and row[2] and unit.queue_ids <= _ids(row[3]):
-                    # The records just removed, which the queue may list a moment longer.
-                    continue
-                seen.add(unit.key)
-                if unit.stuck and row is None:
-                    writes.append(
-                        (
-                            "INSERT INTO arr_import_retries (key, stuck_since) VALUES (?, ?)",
-                            (unit.key, now),
-                        )
+        reset = (
+            "UPDATE arr_import_retries SET stuck_since=?, retried_at=NULL, removed=?, search=NULL,"
+            " shown=NULL WHERE key=?"
+        )
+        for _card, unit in _units(cards):
+            row = rows.get(unit.key)
+            if row is not None and row[2] and unit.queue_ids <= _ids(row[3]):
+                # The records just removed, which the queue may list a moment longer.
+                continue
+            seen.add(unit.key)
+            if unit.stuck and row is None:
+                writes.append(
+                    (
+                        "INSERT INTO arr_import_retries (key, stuck_since) VALUES (?, ?)",
+                        (unit.key, now),
                     )
-                elif row is not None and (
-                    (unit.stuck and row[1] is None) or (not unit.stuck and (row[1] or row[2]))
-                ):
-                    writes.append(
-                        (
-                            "UPDATE arr_import_retries SET stuck_since=?, retried_at=NULL,"
-                            " removed=NULL, search=NULL, shown=NULL WHERE key=?",
-                            (now if unit.stuck else None, unit.key),
-                        )
-                    )
+                )
+            elif row is not None and unit.stuck and row[1] is None:
+                writes.append((reset, (now, None, unit.key)))
+            elif row is not None and not unit.stuck and (row[1] or row[2] or row[3] is not None):
+                writes.append((reset, (None, None, unit.key)))
         for key, row in rows.items():
             if key in seen:
                 continue
             started = parse_iso_utc(row[2]) if row[2] else None
             if started is None:
-                if complete:
-                    # It left the queue: imported, or removed by someone.
-                    writes.append(("DELETE FROM arr_import_retries WHERE key=?", (key,)))
+                if complete and (row[1] or row[3] is None):
+                    # It left the queue: imported, when last seen coming in; else removed by
+                    # someone, which gives back no try.
+                    if row[1] and row[5]:
+                        writes.append((reset, (None, _LEFT, key)))
+                    else:
+                        writes.append(("DELETE FROM arr_import_retries WHERE key=?", (key,)))
                 continue
             gone = complete and service == "radarr" and not _listed(key, cards)
-            if gone or not timedelta() <= now_dt - started < _FINDING_FOR:
-                writes.append(("DELETE FROM arr_import_retries WHERE key=?", (key,)))
+            if not enabled or gone or not timedelta() <= now_dt - started < _FINDING_FOR:
+                if row[5]:
+                    writes.append((reset, (None, _LEFT, key)))
+                else:
+                    writes.append(("DELETE FROM arr_import_retries WHERE key=?", (key,)))
                 continue
             _show_finding(service, key, _shown(row[4]), cards)
         if writes:
@@ -255,9 +298,13 @@ def note_stuck_imports(
 
 
 def _listed(key: str, cards: Sequence[ArrCard]) -> bool:
-    """Whether Radarr still lists the film of *key* as wanted: one with its file has no card."""
+    """Whether Radarr still lists the film of *key*, queued or wanted: one with its file has no
+    card."""
     movie_id = _key_id(key)
-    return any(card.get("kind") == "movie" and card.get("arr_id") == movie_id for card in cards)
+    return any(
+        card.get("kind") == "movie" and movie_id in (card.get("arr_id"), card.get("movie_id"))
+        for card in cards
+    )
 
 
 def _client(conn: sqlite3.Connection, secret_key: str, service: str) -> Any:
@@ -342,13 +389,24 @@ def _retry(
         ).rowcount
     if claimed != 1:
         return
+    removed_any = False
     try:
         client = _client(conn, secret_key, service)
         if client is None:
             raise ArrError(f"{service} is not set up")
         for queue_id in sorted(unit.held_ids):
             client.remove_from_queue(queue_id)
-    except _ERRORS:
+            removed_any = True
+    except _ERRORS as exc:
+        if removed_any or _may_have_acted(exc):
+            # Removed with no search of its own: the search must still go, now or next run.
+            logger.warning(
+                "Could not remove all of %s's download that would not import",
+                unit.key,
+                exc_info=True,
+            )
+            _search(conn, client, unit.key, search, shown)
+            return
         logger.warning(
             "Could not remove %s's download that would not import; trying again on the next run",
             unit.key,
@@ -362,6 +420,17 @@ def _retry(
             )
         return
     _search(conn, client, unit.key, search, shown)
+
+
+def _may_have_acted(exc: Exception) -> bool:
+    """Whether a DELETE that failed with *exc* may still have been carried out: it was sent
+    and its answer was lost, or the server failed while at it; not when it could not connect."""
+    if isinstance(exc, SafeHTTPError) and exc.status_code == 0:
+        # A transport error, raised from the one the request met.
+        return not isinstance(exc.__cause__, requests.ConnectionError)
+    if isinstance(exc, requests.RequestException):
+        return not isinstance(exc, requests.ConnectionError)
+    return isinstance(exc, SafeHTTPError) and exc.status_code >= 500
 
 
 def retry_stuck_imports(
@@ -382,7 +451,6 @@ def retry_stuck_imports(
         if client is not None:
             _search(conn, client, key, search, shown)
     now = now_utc()
-    for card in cards:
-        for unit in _units(card):
-            if unit.stuck:
-                _retry(conn, secret_key, card, unit, now)
+    for card, unit in _units(cards):
+        if unit.stuck and not unit.setup_problem:
+            _retry(conn, secret_key, card, unit, now)

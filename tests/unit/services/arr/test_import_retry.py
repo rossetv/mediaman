@@ -12,7 +12,9 @@ import requests
 from mediaman.db import init_db
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.fetcher import _forget_answers, fetch_arr_queue
+from mediaman.services.arr.finding_copy import is_finding_copy
 from mediaman.services.arr.search_trigger import reset_search_triggers, trigger_pending_searches
+from mediaman.services.arr.seasons import queued_seasons
 from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.download_queue.items import build_unmatched_arr_item
@@ -72,6 +74,11 @@ class Arrs:
         self.movies: list[dict] = []
         self.calls: list[tuple[str, str, str, object]] = []
         self.failing: set[str] = set()
+        # Queue ids whose DELETE raises the error given.
+        self.failing_ids: dict[int, Exception] = {}
+        # Whether a DELETE leaves its record in the queue, as a download client that would not
+        # drop it does.
+        self.keeping = False
         fake_http.handler(self._answer)
         clients = {
             "sonarr": ArrClient(SONARR_SPEC, "http://sonarr.test:8989", "k"),
@@ -100,6 +107,10 @@ class Arrs:
             )
         if method == "DELETE" and parts.path.startswith("/api/v3/queue/"):
             queue_id = int(parts.path.rsplit("/", 1)[1])
+            if queue_id in self.failing_ids:
+                raise self.failing_ids[queue_id]
+            if self.keeping:
+                return _fake_response(json_data={})
             self.queues[service] = [q for q in self.queues[service] if q["id"] != queue_id]
             return _fake_response(json_data={})
         if parts.path == "/api/v3/movie":
@@ -378,3 +389,237 @@ def test_a_viewer_reads_finding_another_copy_and_nothing_of_what_sonarr_says(arr
     assert '"state": "finding_copy"' in told and _REASON not in told
     assert downloads(is_admin=True) == arrs.history()
     assert downloads(is_admin=False) == []
+
+
+def _dune(**overrides):
+    return {
+        "id": 9,
+        "title": "Dune",
+        "year": 2021,
+        "tmdbId": 438631,
+        "monitored": True,
+        "hasFile": False,
+        "added": "2025-01-01T00:00:00Z",
+        **overrides,
+    }
+
+
+def _hourly(arrs: Arrs, hours: int) -> None:
+    for _ in range(hours):
+        arrs.poll(timedelta(hours=1))
+
+
+@pytest.mark.parametrize("monitored", [True, False])
+def test_a_film_whose_download_stays_in_the_queue_is_tried_twice_in_all(arrs, monitored):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune(monitored=monitored)]
+    arrs.keeping = True
+    arrs.poll()
+    _hourly(arrs, 80)
+
+    assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 2 of 2)"]
+    assert arrs.states() == {"Dune": "needs_attention"}
+
+
+def test_a_retry_that_grabs_nothing_does_not_give_its_try_back(arrs):
+    for first in (10, 30, 50):
+        _season_stuck(arrs, first, download=f"pack-{first}")
+        arrs.poll(timedelta(minutes=5))
+        arrs.poll(timedelta(hours=1))
+        arrs.queues["sonarr"] = []
+        _hourly(arrs, 26)
+
+    assert len(arrs.history()) == 2
+
+
+def test_a_stuck_copy_removed_by_someone_does_not_give_the_tries_back(arrs):
+    _season_stuck(arrs, 10)
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    for first in (30, 50):
+        _season_stuck(arrs, first, download=f"pack-{first}")
+        arrs.poll(timedelta(minutes=5))
+        arrs.queues["sonarr"] = []
+        arrs.poll(timedelta(minutes=5))
+    _season_stuck(arrs, 70, download="pack-70")
+    arrs.poll(timedelta(minutes=5))
+    arrs.poll(timedelta(hours=1))
+    _season_stuck(arrs, 90, download="pack-90")
+    arrs.poll(timedelta(minutes=5))
+    _hourly(arrs, 3)
+
+    assert len(arrs.history()) == 2
+
+
+def test_a_copy_that_imports_lets_a_later_stuck_one_be_tried_afresh(arrs):
+    for first in (10, 30):
+        _season_stuck(arrs, first, download=f"pack-{first}")
+        arrs.poll(timedelta(minutes=5))
+        arrs.poll(timedelta(hours=1))
+    arrs.queues["sonarr"] = [
+        _stuck_episode(
+            60,
+            1,
+            trackedDownloadStatus="ok",
+            status="downloading",
+            trackedDownloadState="downloading",
+            sizeleft=10,
+        )
+    ]
+    arrs.poll(timedelta(minutes=5))
+    arrs.queues["sonarr"] = []
+    arrs.poll(timedelta(minutes=5))
+    _season_stuck(arrs, 80, download="pack-80")
+    arrs.poll(timedelta(minutes=5))
+    arrs.poll(timedelta(hours=1))
+
+    assert arrs.history()[-1].endswith("(try 1 of 2)")
+    assert len(arrs.history()) == 3
+
+
+def test_two_stuck_records_of_one_film_are_removed_together_and_searched_for_once(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40), _stuck_film(41)]
+    arrs.movies = [_dune()]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    made = arrs.changes()
+    assert [c[2] for c in made if c[0] == "DELETE"] == ["/api/v3/queue/40", "/api/v3/queue/41"]
+    assert [c[3] for c in made if c[0] == "POST"] == [{"name": "MoviesSearch", "movieIds": [9]}]
+    assert len(arrs.history()) == 1
+
+
+def test_a_film_with_another_copy_still_downloading_is_left_alone(arrs):
+    arrs.queues["radarr"] = [
+        _stuck_film(40),
+        _stuck_film(
+            41,
+            status="downloading",
+            trackedDownloadStatus="ok",
+            trackedDownloadState="downloading",
+            sizeleft=400,
+        ),
+    ]
+    arrs.movies = [_dune()]
+    arrs.poll()
+    _hourly(arrs, 3)
+
+    assert arrs.changes() == []
+
+
+@pytest.mark.parametrize(
+    "error",
+    [requests.ReadTimeout("no answer"), requests.ConnectionError("refused")],
+    ids=["timed-out", "refused"],
+)
+def test_a_removal_failing_after_one_record_went_still_searches_and_says_so(arrs, error):
+    _season_stuck(arrs, 10, download="a")
+    arrs.queues["sonarr"][1]["downloadId"] = "b"
+    arrs.failing_ids = {11: error}
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[3] for c in arrs.changes() if c[0] == "POST"] == [
+        {"name": "EpisodeSearch", "episodeIds": [501, 502]}
+    ]
+    assert arrs.history()[-1].endswith("(try 1 of 2)")
+
+
+def test_a_removal_that_timed_out_may_have_gone_through_so_the_search_is_sent(arrs):
+    _season_stuck(arrs, 10)
+    arrs.failing_ids = {10: requests.ReadTimeout("no answer")}
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[0] for c in arrs.changes()][-1] == "POST"
+    assert arrs.history()[-1].endswith("(try 1 of 2)")
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "[/downloads/Alone.S13] is not a valid local path. You may need a Remote Path Mapping.",
+        "Failed to import episode due to permission issues.",
+        "Failed to import episode, Root folder missing.",
+        "Not enough free space",
+    ],
+)
+def test_a_download_stuck_on_sonarrs_own_setup_is_left_for_an_admin(arrs, message):
+    _season_stuck(arrs, 10)
+    for record in arrs.queues["sonarr"]:
+        record["statusMessages"] = [{"title": "Alone.S13.1080p", "messages": [message]}]
+    arrs.poll()
+    _hourly(arrs, 3)
+
+    assert arrs.changes() == []
+    assert arrs.states() == {"Alone": "needs_attention"}
+
+
+def test_records_of_a_season_that_import_or_wait_are_spared_beside_a_stuck_one(arrs):
+    arrs.queues["sonarr"] = [
+        _stuck_episode(10, 1, download="a"),
+        _stuck_episode(11, 2, download="b", trackedDownloadStatus="ok"),
+        _stuck_episode(
+            12,
+            3,
+            download="c",
+            status="queued",
+            trackedDownloadStatus="ok",
+            trackedDownloadState="downloading",
+            sizeleft=1000,
+        ),
+    ]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[2] for c in arrs.changes() if c[0] == "DELETE"] == ["/api/v3/queue/10"]
+
+
+def test_a_season_still_downloading_is_not_called_stuck_by_another_record_of_it():
+    def entry(status: str, tracked_status: str, tracked_state: str, left: int) -> dict:
+        return {
+            "series": {"id": 5},
+            "episode": {"seasonNumber": 13},
+            "size": 1000,
+            "sizeleft": left,
+            "status": status,
+            "trackedDownloadStatus": tracked_status,
+            "trackedDownloadState": tracked_state,
+        }
+
+    downloading = entry("downloading", "ok", "downloading", 400)
+    stuck = entry("completed", "warning", "importPending", 0)
+
+    assert queued_seasons([downloading, stuck]) == {(5, 13): "downloading"}
+    assert queued_seasons([stuck, downloading]) == {(5, 13): "downloading"}
+
+
+def test_another_season_downloading_shows_beside_one_being_retried(arrs):
+    _season_stuck(arrs, 10)
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    next_season = _stuck_episode(
+        20,
+        1,
+        download="s14",
+        status="downloading",
+        trackedDownloadStatus="ok",
+        trackedDownloadState="downloading",
+        sizeleft=400,
+        episodeId=601,
+    )
+    next_season["episode"] = {"id": 601, "seasonNumber": 14, "episodeNumber": 1}
+    arrs.queues["sonarr"].append(next_season)
+
+    assert arrs.states() == {"Alone": "downloading"}
+    assert is_finding_copy(arrs.conn, "sonarr", 5, 13)
+
+
+def test_turning_the_setting_off_mid_retry_stops_finding_another_copy(arrs):
+    _season_stuck(arrs, 10)
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    insert_settings(arrs.conn, import_retry_enabled="false")
+
+    assert "finding_copy" not in arrs.states().values()
+    assert not is_finding_copy(arrs.conn, "sonarr", 5)
