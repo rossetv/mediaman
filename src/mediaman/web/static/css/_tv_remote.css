@@ -204,15 +204,15 @@ html.has-tv-remote { overflow: hidden; }
 .tv-mini__bar i { display: block; height: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; }
 
 /* What the bar stands over can be scrolled clear of it, and the toasts and a save bar stay clear. */
-html.has-tv-mini:not(.is-tv-mini-leaving) body { padding-bottom: 82px; }
-html.has-tv-mini { scroll-padding-bottom: 90px; }
+html.has-tv-mini:not(.is-tv-mini-leaving) body { padding-bottom: calc(66px + max(16px, env(safe-area-inset-bottom, 0px))); }
+html.has-tv-mini { scroll-padding-bottom: calc(74px + max(16px, env(safe-area-inset-bottom, 0px))); }
 html.has-tv-mini.has-savebar .tv-mini { bottom: calc(var(--savebar-h, 73px) + 8px); }
 html.has-tv-mini.has-savebar { scroll-padding-bottom: calc(var(--savebar-h, 73px) + 90px); }
 @media (min-width: 700px) {
   html.has-tv-mini .ui-toast-host { --toast-bottom: 88px; }
   html.has-tv-mini.has-setg-rail .ui-toast-host { --toast-bottom: 160px; }
   /* The search's sheet stands clear of it; a keyboard has it covered already. */
-  html.has-tv-mini .watch-sheet { max-height: min(var(--seen, 100dvh) - 88px, 100dvh - 166px); }
+  html.has-tv-mini .watch-sheet { max-height: min(var(--seen, 100dvh) - 88px - env(safe-area-inset-top, 0px), 100dvh - 150px - max(16px, env(safe-area-inset-bottom, 0px)) - env(safe-area-inset-top, 0px)); }
 }
 /* A title's page is over the whole page, and the bar over it. */
 html.has-ttl .tv-mini { z-index: calc(var(--z-modal) + 1); bottom: max(16px, env(safe-area-inset-bottom)); }
@@ -221,11 +221,12 @@ html.has-ttl.has-tv-mini .ttl { padding-bottom: 98px; scroll-padding-bottom: 98p
   .tv-mini { bottom: max(8px, env(safe-area-inset-bottom, 0px)); width: calc(100% - 16px); gap: 4px; padding: 8px 4px 10px 8px; border-radius: 12px; }
   .tv-mini .player-btn--skip { display: none; }
   .tv-mini__pic { width: 60px; height: 36px; }
-  html.has-tv-mini { scroll-padding-bottom: 84px; }
+  html.has-tv-mini:not(.is-tv-mini-leaving) body { padding-bottom: calc(74px + max(8px, env(safe-area-inset-bottom, 0px))); }
+  html.has-tv-mini { scroll-padding-bottom: calc(76px + max(8px, env(safe-area-inset-bottom, 0px))); }
   html.has-tv-mini.has-savebar .tv-mini { bottom: calc(var(--savebar-h, 73px) + 8px); }
   html.has-tv-mini.has-savebar { scroll-padding-bottom: calc(var(--savebar-h, 73px) + 84px); }
   html.has-tv-mini.has-watch-search .ui-toast-host { bottom: calc(68px + max(8px, env(safe-area-inset-bottom, 0px))); max-height: calc(100dvh - 100px); }
-  html.has-tv-mini .watch-sheet { max-height: min(var(--seen, 100dvh) - 84px, 100dvh - 160px); }
+  html.has-tv-mini .watch-sheet { max-height: min(var(--seen, 100dvh) - 84px - env(safe-area-inset-top, 0px), 100dvh - 152px - max(8px, env(safe-area-inset-bottom, 0px)) - env(safe-area-inset-top, 0px)); }
   html.has-ttl .tv-mini { bottom: max(8px, env(safe-area-inset-bottom)); }
 }
 /* A phone on its side: in the right half, beside the buttons of what the page opens on. */

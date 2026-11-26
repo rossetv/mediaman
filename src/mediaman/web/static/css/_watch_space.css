@@ -99,7 +99,7 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
   html.has-space body .ui-toast-host { right: auto; left: max(24px, env(safe-area-inset-left, 0px)); }
 }
 @media (max-width: 699.98px) {
-  html.has-space body .ui-toast-host { --toast-top: 60px; top: var(--toast-top); bottom: auto; justify-content: flex-start; }
+  html.has-space body .ui-toast-host { --toast-top: calc(60px + env(safe-area-inset-top, 0px)); top: var(--toast-top); bottom: auto; justify-content: flex-start; }
 }
 
 .space { position: fixed; inset: 0; z-index: var(--z-modal-backdrop); }

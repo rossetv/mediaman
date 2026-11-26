@@ -284,7 +284,7 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
   left: calc(50% - var(--sheet-w) / 2);
   top: calc(var(--nav-h) + 18px);
   width: var(--sheet-w);
-  max-height: calc(var(--seen, 100dvh) - 88px);
+  max-height: calc(var(--seen, 100dvh) - 88px - env(safe-area-inset-top, 0px));
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;

@@ -93,3 +93,65 @@ def test_the_storage_panel_and_its_toasts_keep_clear_of_a_sideways_phone_s_notch
         assert _px(_last(side, panel), SIDEWAYS) >= max(12, SIDEWAYS[side])
     toast = _of("html.has-space body .ui-toast-host", WIDE, space)
     assert _px(_last("left", toast), SIDEWAYS) >= SIDEWAYS["left"]
+
+
+SIDEWAYS_TALL = {"top": 62, "right": 62, "bottom": 21, "left": 62}
+SCREEN = 874
+
+
+def _length(rule: str, prop: str, insets: dict[str, int], **vars_: float) -> float:
+    value = _last(prop, rule).replace("100dvh", f"{SCREEN}px")
+    return _px(value, insets, **vars_)
+
+
+def _sheet_foot(insets: dict[str, int], phone: bool, tv_bar: bool) -> float:
+    """Where the search's sheet ends, counted down from the top of the window."""
+    media = PHONE if phone else WIDE
+    search, remote = CSS / "_watch_search.css", CSS / "_tv_remote.css"
+    base = _of(".watch-sheet", None, search) + _of(".watch-sheet", media, search)
+    rule = base
+    if tv_bar:
+        rule = _of("html.has-tv-mini .watch-sheet", media, remote)
+    top = _length(base, "top", insets, nav_h=_nav_h(insets, phone), seen_top=0)
+    return top + _length(rule, "max-height", insets, seen=SCREEN)
+
+
+WIDE_INSETS = [SIDEWAYS_TALL, UPRIGHT]
+
+
+@pytest.mark.parametrize(("phone", "insets"), [(p, i) for p in (False, True) for i in WIDE_INSETS])
+def test_the_search_sheet_ends_where_it_did_whatever_the_top_inset_pushes_it_down(
+    phone, insets
+) -> None:
+    assert _sheet_foot(insets, phone, False) == _sheet_foot(NO_INSETS, phone, False)
+
+
+@pytest.mark.parametrize(("phone", "insets"), [(p, i) for p in (False, True) for i in WIDE_INSETS])
+def test_the_search_sheet_stays_above_the_tv_bar_however_far_the_insets_lift_it(
+    phone, insets
+) -> None:
+    lifted = max(0, insets["bottom"] - (8 if phone else 16))
+    assert _sheet_foot(insets, phone, True) <= _sheet_foot(NO_INSETS, phone, True) - lifted
+
+
+@pytest.mark.parametrize("insets", [NO_INSETS, UPRIGHT])
+@pytest.mark.parametrize("media", [None, PHONE])
+def test_what_the_tv_bar_stands_over_can_be_scrolled_clear_of_it(insets, media) -> None:
+    remote = CSS / "_tv_remote.css"
+    bar = _px(
+        _last("bottom", _of(".tv-mini", media, remote) or _of(".tv-mini", None, remote)), insets
+    )
+    body = _of("html.has-tv-mini:not(.is-tv-mini-leaving) body", media, remote)
+    body = body or _of("html.has-tv-mini:not(.is-tv-mini-leaving) body", None, remote)
+    assert _px(_last("padding-bottom", body), insets) - bar >= 66
+    assert (
+        _px(_last("scroll-padding-bottom", _of("html.has-tv-mini", media, remote)), insets) - bar
+        >= 74
+    )
+
+
+def test_the_phone_storage_toasts_start_below_the_notch() -> None:
+    toast = _of("html.has-space body .ui-toast-host", PHONE, CSS / "_watch_space.css")
+    top = _px(_last("--toast-top", toast), UPRIGHT)
+    assert top >= UPRIGHT["top"] + 12
+    assert _px(_last("--toast-top", toast), NO_INSETS) == 60

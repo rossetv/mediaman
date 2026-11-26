@@ -39,7 +39,7 @@ class TestScanStatusAndToastPlacement:
         desktop = css[css.index("@media (min-width: 700px)") :]
         desktop = desktop[: desktop.index("/* Mobile")]
         assert "top: auto" in desktop
-        assert "bottom: var(--toast-bottom)" in desktop
+        assert "bottom: max(var(--toast-bottom), env(safe-area-inset-bottom, 0px))" in desktop
 
 
 class TestAbandonDialogCss:
