@@ -189,19 +189,7 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
     if not url or not token:
         return respond_failure("Plex URL and token are required", status=200)
     try:
-        try:
-            client = PlexClient(url, token)
-        except (AttributeError, TypeError) as exc:
-            # Connecting reads the server's identity from a 200 body: XML that isn't
-            # Plex's lacks it (AttributeError) and an empty body parses to None
-            # (TypeError). Only the connection is read this way, so a bug in the
-            # library call below is not mistaken for a foreign server.
-            return _not_plex(exc)
-        try:
-            client.get_libraries()
-        except TypeError as exc:
-            # An empty 200 body parses to None, and listing the libraries then iterates it.
-            return _not_plex(exc)
+        PlexClient(url, token).get_libraries()
         return JSONResponse({"ok": True})
     except SafeHTTPError as exc:
         return _safe_http_error_to_response(exc)
@@ -226,9 +214,24 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
             logger.warning("settings.test_plex Plex answered with an error: status %s", status[1])
             return _failure("plex_error", "Plex answered with an error. Try again in a moment.")
         return _not_plex(exc)
-    except (NotFound, ParseError) as exc:
-        # A 200 that isn't XML at all (a proxy login page) fails to parse.
+    except NotFound as exc:
         return _not_plex(exc)
+    except (ParseError, TypeError, AttributeError) as exc:
+        if not is_not_plex_reply(exc):
+            raise
+        return _not_plex(exc)
+
+
+def is_not_plex_reply(exc: Exception) -> bool:
+    """Whether ``exc`` is what plexapi raises on a 200 that is not a Plex server's answer.
+
+    A web page or another service's JSON does not parse as XML; an empty body, or XML
+    that is not Plex's, parses to nothing and plexapi then fails on that ``None``. Any
+    other TypeError or AttributeError is a programming error and is not matched.
+    """
+    if isinstance(exc, ParseError):
+        return True
+    return isinstance(exc, (TypeError, AttributeError)) and "'NoneType'" in str(exc)
 
 
 def _not_plex(exc: Exception) -> JSONResponse:
