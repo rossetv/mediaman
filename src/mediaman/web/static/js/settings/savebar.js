@@ -390,13 +390,13 @@
     [/home address or a valid name/i, 'needs a server name of letters a to z, digits, dots and hyphens. Between ' +
       'the dots are 1 to 63 of them, with no hyphen first or last.'],
     [/home address and not localhost/i, 'cannot be localhost: to a TV, that means itself. Use this server’s home ' +
-      'address, such as http://192.168.1.10:8282.'],
-    [/home address and not a link-local/i, 'cannot be an fe80 address: a TV can’t reach it. Use this server’s ' +
-      'other address or its name, such as http://[fd00::10]:8282 or http://nas.local:8282.'],
-    [/home address and not one of another/i, 'must be an address of your home network with http, such as ' +
-      'http://192.168.1.10:8282 or http://[fd00::10]:8282. With https, any address works.'],
-    [/home address, or a name with https/i, 'needs https:// and not http:// before a name like this. With http, ' +
-      'use a .local name, a one-word name or this server’s home address, such as http://192.168.1.10:8282.'],
+      'address or its name, such as http://nas.local:8282.'],
+    [/home address and not a link-local/i, 'is a kind of address a TV can’t reach. Use this server’s home address or ' +
+      'its name, such as http://nas.local:8282.'],
+    [/home address and not one of another/i, 'needs https:// before an address on the internet. With http://, use this ' +
+      'server’s home address or its name, such as http://nas.local:8282.'],
+    [/home address, or a name with https/i, 'needs https:// before a name on the internet. With http://, use a home ' +
+      'name: one word, such as http://nas:8282, or one that ends in .local, .lan, .home.arpa or .internal.'],
     [/must be a home address/i, 'must be this server’s home address, such as http://192.168.1.10:8282, or a name ' +
       'with https, such as https://mediaman.example.com.'],
     [/invalid URL/i, 'is not a valid address.'],

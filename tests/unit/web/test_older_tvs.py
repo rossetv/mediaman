@@ -575,6 +575,9 @@ def test_both_switches_are_off_until_saved_on(app_factory, authed_client, conn) 
         ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
         ("http://NAS.local:8282", "http://nas.local:8282"),
         ("http://mediaman.:8282", "http://mediaman:8282"),
+        ("http://nas.lan:8282", "http://nas.lan:8282"),
+        ("http://NAS.Home.Arpa", "http://nas.home.arpa"),
+        ("http://box.internal:8282", "http://box.internal:8282"),
         ("", ""),
     ],
 )
@@ -601,6 +604,8 @@ def test_an_address_tvs_can_use_is_kept(client, typed, kept) -> None:
         "https://0.0.0.0",
         "http://mediaman.example",
         "http://nas.local.example",
+        "http://nas.lan.example",
+        "http://home.arpa",
         "javascript://192.168.1.10",
         "ftp://192.168.1.10",
         "http://a:b@192.168.1.10",

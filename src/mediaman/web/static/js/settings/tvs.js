@@ -143,7 +143,7 @@
     switch (err.error) {
       case 'no_fetch':
         return ['no', 'It couldn’t reach mediaman',
-          'Check the address TVs use, below. It must start with http:// and a home address or a .local name, or with https://, ' +
+          'Check the address TVs use, below. It must start with http:// and this server’s home address or name, or with https://, ' +
           'and work from your home network. Many older TVs refuse https.'];
       case 'no_picture':
         return ['no', 'It didn’t show a test picture', err.message + ' You can still add it and try a film.'];
@@ -555,22 +555,25 @@
       var bad = '';
       var warn = '';
       var host = (/^https?:\/\/(?:[^/?#]*@)?(\[[^\]]*\]|[^/:?#]*)/i.exec(value) || [])[1] || '';
+      var mapped = /^\[::ffff:(\d+(\.\d+){3})\]$/i.exec(host);
+      if (mapped) host = mapped[1];
       if (/^(localhost|.*\.localhost|127\..*|\[::1\])\.?$/i.test(host)) {
-        bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address.';
+        bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address or its name.';
       } else if (/^\[fe[89ab]/i.test(host)) {
-        bad = 'A TV can’t reach an fe80 address. Use this server’s other address or its name.';
+        bad = 'A TV can’t reach this kind of address. Use this server’s home address or its name, such as http://nas.local:8282.';
       } else if (/^http:/i.test(value) && (/^\d+(\.\d+){3}$/.test(host) &&
           !/^(10|192\.168|172\.(1[6-9]|2\d|3[01])|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./.test(host) ||
           /^\[/.test(host) && !/^\[f[cd]/i.test(host))) {
-        bad = 'This is not an address of your home network. With http, use a home address, or use https.';
+        bad = 'This address is on the internet, so it needs https://. With http://, use this server’s home address or its name.';
       } else if (!/^https?:/i.test(value) && /\w\.\w/.test(value)) {
         bad = 'Start with http:// before a home address, or https:// before a name.';
       } else if (/^https:/i.test(value)) {
         warn = refusedHttps && refusedHttps.address === value
           ? 'This starts with https. Older TVs often refuse it, and ' + refusedHttps.name + ' did.'
           : 'This starts with https. Older TVs often refuse it.';
-      } else if (/^http:/i.test(value) && /\.[a-z][^.]*\.?$/i.test(host) && !/\.local\.?$/i.test(host)) {
-        bad = 'Before a name like this, use https://. With http, use a .local name or this server’s home address.';
+      } else if (/^http:/i.test(value) && /\.[a-z][^.]*\.?$/i.test(host) && !/\.(local|lan|internal|home\.arpa)\.?$/i.test(host)) {
+        bad = 'A name on the internet needs https://. With http://, use a home name: one word, or one that ends in .local, ' +
+          '.lan, .home.arpa or .internal.';
       } else if (/^http:/i.test(value) && document.getElementById('older_tvs_http').value !== 'true') {
         warn = 'This starts with http, which older TVs may use only with Plain http for older TVs on.';
       }

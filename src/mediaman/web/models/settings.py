@@ -71,6 +71,7 @@ _HOME_NETWORKS = tuple(
 )
 
 
+_HOME_NAME_ENDS = (".local", ".lan", ".home.arpa", ".internal")
 _PLAIN_RE = re.compile("[!-~]+")
 _LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _HOST_RE = re.compile(rf"(?=.{{1,253}}\Z){_LABEL}(?:\.{_LABEL})*")
@@ -130,11 +131,11 @@ def _validate_tv_address(v: str) -> str:
             raise ValueError("must be a home address or a valid name")
         if host == "localhost" or host.endswith(".localhost"):
             raise ValueError("must be a home address and not localhost")
-        # A .local or one-word name is found only on the home network, as a home address is.
-        if parts.scheme != "https" and "." in host and not host.endswith(".local"):
+        # A home name is found only on the home network, as a home address is.
+        if parts.scheme != "https" and "." in host and not host.endswith(_HOME_NAME_ENDS):
             raise ValueError(
                 "must be a home address, or a name with https: "
-                "with http use a .local name, a one-word name or a home address"
+                "with http use a home name, such as nas.local, nas.lan or nas, or a home address"
             )
     if port == 0:
         raise ValueError("must be a home address with a port in use")
