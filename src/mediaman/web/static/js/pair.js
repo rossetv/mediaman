@@ -41,7 +41,10 @@
   }
 
   function say(node, text, bad) {
-    node.className = bad ? 'pair__why bad' : 'pair__why';
+    var cls = bad ? 'pair__why bad' : 'pair__why';
+    // A status read out again for the same words is noise.
+    if (node.className === cls && node.textContent === text) return;
+    node.className = cls;
     node.textContent = text;
   }
 
@@ -112,7 +115,8 @@
   }
 
   function same(a, b) {
-    return a.trim().toLowerCase() === b.trim().toLowerCase();
+    // The server keeps a name with its runs of spaces made one.
+    return a.split(/\s+/).join(' ').trim().toLowerCase() === b.split(/\s+/).join(' ').trim().toLowerCase();
   }
 
   function taken(wanted) {
@@ -120,7 +124,7 @@
   }
 
   function repeats() {
-    say(nameWhy, taken(name.value) ? 'You already have a TV called ' + name.value.trim() + '. You can still use it.' : '');
+    say(nameWhy, taken(name.value) ? 'You already have a TV with this name. You can still use it.' : '');
   }
 
   function firstFree() {

@@ -35,7 +35,7 @@ function page(hash, answers, yes = true, owned = Promise.resolve({ tvs: [] })) {
   const listeners = {};
   const ctx = vm.createContext({
     document: doc, location, history: { replaceState: (a, b, url) => { replaced.push(url); location.hash = ''; } },
-    MM: { api: { get: () => owned, post: answer, patch: answer, messageOf: (e, d) => (e && e.words) || d } },
+    MM: { api: { get: () => (Array.isArray(owned) ? owned.shift() : owned), post: answer, patch: answer, messageOf: (e, d) => (e && e.words) || d } },
     UIFeedback: { confirm: (o) => { asked.push(o.body); return Promise.resolve(yes); } },
     window: { addEventListener: (t, fn) => { listeners[t] = fn; } },
   });
@@ -151,6 +151,34 @@ const scenarios = {
     land({ tvs: [{ id: 3, name: 'Living room' }] });
     await settle();
     return { sent: p.sent[1], name: p.$('pair-name').value, says: p.$('pair-name-why').textContent };
+  },
+  async secondPairing() {
+    let land;
+    const first = new Promise((resolve) => { land = resolve; });
+    const second = Promise.resolve({ tvs: [{ id: 3, name: 'Den' }] });
+    const p = page('#482916', [TV, { tv: { id: 8, name: 'TV' } }], true, [first, second]);
+    p.fire('pair-form', 'submit');
+    await settle();
+    p.scan('#111222');
+    p.fire('pair-form', 'submit');
+    await settle();
+    land({ tvs: [{ id: 3, name: 'Living room' }] });
+    await settle();
+    return { shown: p.shown(), name: p.$('pair-name').value };
+  },
+  async rewrite() {
+    const p = page('#482916', [TV], true, Promise.resolve({ tvs: [{ id: 3, name: 'Living room' }] }));
+    p.fire('pair-form', 'submit');
+    await settle();
+    const why = p.$('pair-name-why');
+    const writes = [];
+    let text = why.textContent;
+    Object.defineProperty(why, 'textContent', { get: () => text, set: (v) => { writes.push(v); text = v; } });
+    for (const v of ['Living  room', 'living room ', 'Living room']) {
+      p.$('pair-name').value = v;
+      p.$('pair-name').listeners.input.forEach((fn) => fn({}));
+    }
+    return { writes, text };
   },
   async badList() {
     const out = [];

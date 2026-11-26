@@ -78,7 +78,7 @@ def test_a_new_tv_is_named_with_the_first_free_name_and_a_repeat_is_flagged() ->
     out = _run("twoTvs")
     assert out["shown"] == ["pair-name-form"]
     assert out["first"] == ["Living room 3", ""]
-    assert out["same"][0] == "pair__why" and "Living room" in out["same"][1]
+    assert out["same"][0] == "pair__why" and "already have" in out["same"][1]
     assert out["folded"] != ""
     assert out["fresh"] == ""
 
@@ -100,6 +100,23 @@ def test_a_list_arriving_during_a_save_leaves_the_field_as_sent() -> None:
     assert out["sent"] == ["/api/tvs/7", {"name": "Living room"}]
     assert out["name"] == "Living room"
     assert out["says"] == "Away"
+
+
+def test_a_list_from_the_first_pairing_does_not_touch_the_second() -> None:
+    out = _run("secondPairing")
+    assert out == {"shown": ["pair-name-form"], "name": "Living room"}
+
+
+def test_a_repeat_is_said_once_and_spaces_do_not_hide_it() -> None:
+    out = _run("rewrite")
+    assert out["writes"] == ["You already have a TV with this name. You can still use it."]
+
+
+def test_the_hint_keeps_two_lines_of_room_and_the_chosen_pill_shows_in_forced_colours() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_pair.css").read_text()
+    assert re.search(r"#pair-name-why \{ min-height: 36px; line-height: 18px;", css)
+    forced = css.split("@media (forced-colors: active)")[-1]
+    assert "background: Highlight" in forced and "color: HighlightText" in forced
 
 
 def test_a_malformed_list_leaves_the_name_form_as_it_was() -> None:
