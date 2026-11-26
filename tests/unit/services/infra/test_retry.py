@@ -12,6 +12,7 @@ retry policy breaks silently — these tests fail loudly instead.
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -226,3 +227,52 @@ class TestRetryAfterNotANumber:
             _run([r1, r2], attempts=2)
         assert excinfo.value.status_code == 429
         assert len(slept) == 1
+
+
+class TestTheLogSaysHowARetryEnded:
+    """A retried request leaves a line that says whether it got through in the end."""
+
+    @staticmethod
+    def _drive(outcomes, caplog):
+        import requests
+
+        seq = iter(outcomes)
+
+        def dispatch_fn():
+            outcome = next(seq)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with (
+            caplog.at_level("INFO", logger="mediaman.services.infra.http.retry"),
+            contextlib.suppress(_Err, requests.RequestException),
+        ):
+            dispatch_loop(
+                dispatch_fn=dispatch_fn,
+                read_fn=lambda resp: b"",
+                method="GET",
+                url="https://image.example.test/p/w342/a.jpg",
+                attempts=3,
+                make_error=_Err,
+            )
+        return [r.getMessage() for r in caplog.records]
+
+    def test_a_request_that_got_through_on_a_retry_says_so(self, caplog):
+        import requests
+
+        lines = self._drive([requests.ReadTimeout(), _response(status=200)], caplog)
+        assert any("succeeded" in line and "attempt 2" in line for line in lines)
+
+    def test_a_request_that_failed_every_attempt_says_it_gave_up(self, caplog):
+        import requests
+
+        lines = self._drive([requests.ReadTimeout()] * 3, caplog)
+        assert any("giving up" in line for line in lines)
+
+    def test_a_request_still_answered_with_an_outage_at_the_end_says_it_gave_up(self, caplog):
+        lines = self._drive([_response(status=503)] * 3, caplog)
+        assert any("giving up" in line and "503" in line for line in lines)
+
+    def test_a_request_that_got_through_first_time_logs_nothing(self, caplog):
+        assert self._drive([_response(status=200)], caplog) == []

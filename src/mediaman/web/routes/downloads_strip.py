@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import replace
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.core.time import now_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.arr.finding_copy import will_retry
@@ -33,6 +34,9 @@ router = APIRouter()
 
 # A title's ref has at most this many digits.
 _MAX_TMDB_ID = 9_999_999_999
+
+# The last index read, with the TMDB id of each of its titles that has one, by ref.
+_ids_held: tuple[catalog.LibraryIndex, dict[str, int]] | None = None
 
 
 @router.get("/api/downloads/strip")
@@ -108,7 +112,7 @@ def _with_titles(
     titled = [
         _with_title(item, index, arr, shown=n < strip.MAX_ITEMS) for n, item in enumerate(items)
     ]
-    return mark_playable(titled, index)
+    return mark_playable(conn, titled, index)
 
 
 def library_of(conn: sqlite3.Connection, secret_key: str) -> catalog.LibraryIndex:
@@ -122,16 +126,49 @@ def library_of(conn: sqlite3.Connection, secret_key: str) -> catalog.LibraryInde
     )
 
 
-def mark_playable(items: list[StripItem], index: catalog.LibraryIndex) -> list[StripItem]:
+def mark_playable(
+    conn: sqlite3.Connection,
+    items: list[StripItem],
+    index: catalog.LibraryIndex,
+) -> list[StripItem]:
     """*items*, of which one that is done but that the library does not hold yet says it was
     added, and is not offered to play."""
+    now = now_utc()
+
+    def waiting(item: StripItem) -> bool:
+        if item.state != "ready":
+            return False
+        done = now - timedelta(seconds=strip.READY_S - (item.ready_seconds or 0))
+        return not in_library(conn, index, item.kind, item.tmdb_id, item.title, done)
+
     return [
-        replace(item, line=strip.WAITING_LINE, playable=False)
-        if item.state == "ready"
-        and library_title(index, item.kind, item.tmdb_id, item.title) is None
-        else item
+        replace(item, line=strip.WAITING_LINE, playable=False) if waiting(item) else item
         for item in items
     ]
+
+
+def in_library(
+    conn: sqlite3.Connection,
+    index: catalog.LibraryIndex,
+    kind: str,
+    tmdb_id: int | None,
+    title: str,
+    done: datetime,
+) -> bool:
+    """Whether the library holds a title ("movie" or a show's) whose download was done at
+    *done*: of a show, only once the library was read after that, as the episodes it brought
+    are not there before."""
+    ref = library_title(index, kind, tmdb_id, title)
+    if ref is None:
+        return False
+    if kind == "movie":
+        return True
+    row = conn.execute(
+        "SELECT MAX(last_scanned_at) FROM media_items WHERE show_rating_key = ?",
+        (ref.partition("-")[2],),
+    ).fetchone()
+    read = parse_iso_utc(row[0]) if row else None
+    return read is not None and read >= done
 
 
 def _with_title(
@@ -142,9 +179,10 @@ def _with_title(
     if item.tmdb_id is None or item.tmdb_id > _MAX_TMDB_ID:
         poster = poster or _library_poster(index, kind, None, item.title)
         return replace(item, poster_url=poster)
-    held = index.library_ref(kind, item.tmdb_id, item.title, arr) or library_title(
-        index, kind, item.tmdb_id, item.title
-    )
+    held = index.library_ref(kind, item.tmdb_id, item.title, arr)
+    if held is not None and _tmdb_ids(index).get(held, item.tmdb_id) != item.tmdb_id:
+        held = None
+    held = held or library_title(index, kind, item.tmdb_id, item.title)
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
     art = _fanart(item, arr)
     if shown and not (poster and art):
@@ -173,22 +211,34 @@ def library_title(
     title: str,
     year: int | None = None,
 ) -> str | None:
-    """The library title ("movie" or "tv") by its TMDB id where that is known, a show's else by
-    its title; None when it is not held. A film's else is the library film of its title, of its
-    *year* where both are known, and with no TMDB id of its own where the film's is known."""
-    name = catalog.normalise_title(title)
-    if kind != "movie":
-        show = index.shows_by_tmdb.get(tmdb_id) if tmdb_id else None
-        return show or index.shows_by_title.get(name)
-    found = index.movies_by_tmdb.get(tmdb_id) if tmdb_id else None
+    """The library title ("movie" or a show's) by its TMDB id where that is known; else the
+    one of its title, with no TMDB id of its own where the title's is known, and of its year
+    where both are known: *year*, else the one TMDB told before. None when it is not held."""
+    movie = kind == "movie"
+    found = (index.movies_by_tmdb if movie else index.shows_by_tmdb).get(tmdb_id or 0)
     if found is not None:
         return found
-    held = index.movies_by_title.get(name)
-    if held is None or (tmdb_id and held in index.movies_by_tmdb.values()):
+    by_title = index.movies_by_title if movie else index.shows_by_title
+    held = by_title.get(catalog.normalise_title(title))
+    if held is None or (tmdb_id and held in _tmdb_ids(index)):
         return None
     held_year = index.year_of.get(held)
-    # One apart is one film, dated by two of its releases.
+    if held_year and not year and tmdb_id:
+        told = _held("movie" if movie else "tv", tmdb_id).get("year")
+        year = told if isinstance(told, int) else None
+    # One apart is one title, dated by two of its releases.
     return None if year and held_year and abs(year - held_year) > 1 else held
+
+
+def _tmdb_ids(index: catalog.LibraryIndex) -> dict[str, int]:
+    """The TMDB id of each title of *index* that has one, by ref: read once for each index."""
+    global _ids_held
+    held = _ids_held
+    if held is not None and held[0] is index:
+        return held[1]
+    ids = {ref: n for by in (index.movies_by_tmdb, index.shows_by_tmdb) for n, ref in by.items()}
+    _ids_held = (index, ids)
+    return ids
 
 
 def _library_poster(index: catalog.LibraryIndex, kind: str, tmdb_id: int | None, title: str) -> str:

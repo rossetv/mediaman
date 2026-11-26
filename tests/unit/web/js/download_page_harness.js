@@ -186,6 +186,8 @@ const SCENARIOS = {
     out.unanswered = seen(p);
     await p.poll({ state: 'almost_ready', progress: 100 });
     out.almost = seen(p);
+    await p.poll({ state: 'almost_ready', state_label: 'Added, on its way', progress: 100 });
+    out.waiting = seen(p);
     await p.poll(READY);
     out.last = seen(p);
     p.later();

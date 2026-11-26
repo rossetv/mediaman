@@ -1,5 +1,5 @@
 """The ready mail's and the newsletter picks' TMDB pictures come from this site's signed address
-when the site address is known, and stay as they are when it is not."""
+when the site address is known, and stay as they are when it is not; no other host's are shown."""
 
 from __future__ import annotations
 
@@ -98,13 +98,14 @@ def test_with_no_site_address_the_ready_mail_s_pictures_are_tmdbs(secret_key, wi
     assert _pictures(_ready_mail(secret_key, "", wide=wide)) == {shown}
 
 
-def test_a_poster_radarr_names_on_another_host_is_left_as_it_is(secret_key):
+def test_a_poster_radarr_names_on_another_host_is_not_put_in_the_mail(secret_key):
     remote = "https://mediacover.radarr.video/p.jpg"
     movie = {"images": [{"coverType": "poster", "remoteUrl": remote}]}
 
     html = _ready_mail(secret_key, SITE, poster="", wide="", movie=movie)
 
-    assert remote in _pictures(html)
+    assert _pictures(html) == set()
+    assert "mediacover.radarr.video" not in html
 
 
 @pytest.fixture
@@ -217,3 +218,17 @@ def test_the_newsletter_sent_has_this_site_s_pick_posters(conn, secret_key):
     posters = {p.split("?")[0] for p in _pictures(html)}
     assert {f"{SITE}/api/img/tmdb/w342/p.jpg", f"{SITE}/api/img/tmdb/w342/own.jpg"} <= posters
     assert "image.tmdb.org" not in html
+
+
+def test_a_pick_s_poster_on_another_host_is_not_put_in_the_newsletter(conn, secret_key):
+    insert_suggestion(
+        conn,
+        title="Dune",
+        tmdb_id=42,
+        poster_url="https://artworks.thetvdb.com/p.jpg",
+        batch_id="2026-11-20",
+    )
+
+    for site in (SITE, ""):
+        (pick,) = _load_recommendations(conn, base_url=site, secret_key=secret_key)
+        assert pick["poster_url"] == ""

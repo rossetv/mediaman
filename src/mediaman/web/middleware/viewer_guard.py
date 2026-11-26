@@ -31,6 +31,7 @@ from mediaman.web.auth.password_hash import get_user_role
 _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/"),
+        ("HEAD", "/"),
         ("GET", "/watch"),
         ("HEAD", "/watch"),
         ("GET", "/watch/show/{show_key}"),

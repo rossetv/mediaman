@@ -20,6 +20,7 @@ from tests.helpers.factories import (
     insert_scheduled_action,
     insert_settings,
 )
+from tests.helpers.opened_dbs import close_opened_dbs  # noqa: F401
 
 
 class TestInitDb:

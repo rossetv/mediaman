@@ -193,6 +193,27 @@ class TestArrMemo:
         assert view.state("movie", 2) == ("in_library", None)
 
 
+class TestLibraryRefOfAnotherTitle:
+    index = catalog.LibraryIndex.build(
+        [("100", "The Glasshouse", 11)],
+        [("500", "Glass Coast", None)],
+        ids={"show-500": (5500, 2019)},
+    )
+
+    def test_a_show_of_another_tmdb_id_is_not_the_held_one_by_its_title(self):
+        stats = {"episodeFileCount": 3, "episodeCount": 3, "totalEpisodeCount": 3}
+        season = {"seasonNumber": 1, "monitored": True, "statistics": stats}
+        held = _view(series={6600: {"tmdbId": 6600, "statistics": stats, "seasons": [season]}})
+
+        assert self.index.library_ref("tv", 6600, "Glass Coast", held) is None
+
+    def test_a_show_of_the_same_title_and_year_but_another_id_is_not_the_held_one(self):
+        assert self.index.library_ref("tv", 6600, "Glass Coast", _view(), year=2019) is None
+
+    def test_the_same_tmdb_id_still_matches(self):
+        assert self.index.library_ref("tv", 5500, "Glass Coast", _view(), year=2019) == "show-500"
+
+
 class TestLibraryRef:
     index = catalog.LibraryIndex.build(
         [("100", "The Glasshouse", 11)], [("500", "Glass Coast", 5500)]

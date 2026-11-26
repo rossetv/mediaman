@@ -203,9 +203,11 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
 
     The tidy runs on its own thread so a Plex that is down never holds up startup. Returns
     the function that saves the places of what plays on TVs, stops the reaper and then every
-    live stream.
+    live stream. When told to end, it also frees the download-ready emails claimed and not
+    yet sent, since a kill may come before the lifespan's end does.
     """
-    from mediaman.db import get_db
+    from mediaman.db import close_db, get_db
+    from mediaman.services.downloads._notification_claims import release_claims_on_shutdown
     from mediaman.services.infra import allowed_outbound_hosts
     from mediaman.services.media_meta.plex_stream import init_stream_manager
     from mediaman.web.routes import older_stream, tv
@@ -229,7 +231,14 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
         try:
             tv.save_places()
         finally:
-            older_stream.ending.set()
+            # First, as giving the claims back can wait on the database lock for a long while.
+            try:
+                older_stream.ending.set()
+            finally:
+                try:
+                    release_claims_on_shutdown(get_db())
+                finally:
+                    close_db()
 
     stop_listening = _when_told_to_end(told_to_end)
 
@@ -327,11 +336,15 @@ def _shutdown(app: FastAPI, scheduler_started: bool) -> None:
 
     The scheduler is stopped first (only if it actually started) so no
     background job is mid-flight against a connection that ``close()``
-    is about to invalidate.
+    is about to invalidate. Download-ready emails claimed and not yet sent
+    are then freed for the next start.
     """
+    from mediaman.services.downloads._notification_claims import release_claims_on_shutdown
+
     if scheduler_started:
         shutdown_scheduling()
 
+    release_claims_on_shutdown(app.state.db)
     app.state.db.close()
     logger.info("Mediaman shutting down")
 

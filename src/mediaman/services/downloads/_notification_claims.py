@@ -1,8 +1,8 @@
 """Claim/release mechanics for download notification rows.
 
-Provides atomic claim, per-row and bulk release, a claim re-stamp, and a reconcile
-sweep that resets rows left stuck at ``notified=2`` by a crashed worker; the claim runs
-that sweep first, so a stranded row is freed on the next tick.
+Provides atomic claim, per-row and bulk release, a claim re-stamp, a reconcile sweep
+that resets rows left stuck at ``notified=2`` by a crashed worker (the claim runs it
+first, so a stranded row is freed on the next tick), and the release at shutdown.
 """
 
 from __future__ import annotations
@@ -78,6 +78,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
             # local variable — a Python exception between commit and return would
             # otherwise strand them at notified=2.
             claimed = [_row_to_claimed(r, claim_iso) for r in rows]
+        _note_claim(claim_iso, len(claimed))
         return claimed
     except sqlite3.OperationalError:
         # Older SQLite without RETURNING — fall back to lock-then-claim.
@@ -113,7 +114,51 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
             # cause emails to be sent for rows that were never marked notified
             # → duplicate emails on the next tick.
             claimed = [_row_to_claimed(r, claim_iso) for r in rows]
+        _note_claim(claim_iso, len(claimed))
         return claimed
+
+
+# The stamps of this process's claims within the grace; a row still carrying one has not
+# begun to send, since a send restamps its row first.
+_batch_stamps: set[str] = set()
+_stamps_lock = threading.Lock()
+
+
+def _note_claim(claim_iso: str, count: int) -> None:
+    if not count:
+        return
+    logger.debug("notifications.claim n=%d", count)
+    cutoff = (now_utc() - timedelta(seconds=STRANDED_CLAIM_GRACE_SECONDS)).isoformat()
+    with _stamps_lock:
+        _batch_stamps.difference_update([s for s in _batch_stamps if s < cutoff])
+        _batch_stamps.add(claim_iso)
+
+
+def release_claims_on_shutdown(conn: sqlite3.Connection) -> int:
+    """Write down the emails that went out, then free the rows this process claimed and has
+    not begun to send, so the next start sends them at once rather than an hour on. A row
+    whose email is on its way out keeps its claim. Returns the number freed.
+    """
+    record_sent(conn)
+    with _stamps_lock:
+        stamps = sorted(_batch_stamps)
+        _batch_stamps.clear()
+    if not stamps:
+        return 0
+    try:
+        with conn:
+            cur = conn.executemany(
+                "UPDATE download_notifications SET notified=0, claimed_at=NULL "
+                "WHERE notified=2 AND claimed_at=?",
+                [(stamp,) for stamp in stamps],
+            )
+    except sqlite3.Error:
+        logger.warning("failed to release notification claims at shutdown", exc_info=True)
+        return 0
+    released = cur.rowcount or 0
+    if released:
+        logger.info("notifications.release_on_shutdown n=%d", released)
+    return released
 
 
 def _release_claim(conn: sqlite3.Connection, row: ClaimedNotificationRow) -> None:
@@ -137,6 +182,7 @@ def _release_claims_bulk(conn: sqlite3.Connection, rows: list[ClaimedNotificatio
                 "WHERE id=? AND notified=2 AND claimed_at=?",
                 [(row.id, row.claimed_at) for row in rows],
             )
+        logger.debug("notifications.release n=%d", len(rows))
     except sqlite3.Error:
         logger.warning("failed to release notification claims (n=%d)", len(rows), exc_info=True)
 

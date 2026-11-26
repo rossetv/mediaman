@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import sqlite3
 import unicodedata
 from collections.abc import Sequence, Set
@@ -24,6 +25,7 @@ from mediaman.web.repository import seen_titles
 from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES,
     ANIME_SEASON_TYPES,
+    FORGIVEN,
     TitleSearch,
     without_article,
 )
@@ -446,14 +448,12 @@ def find_show(conn: sqlite3.Connection, libraries: list[str], key: str) -> Libra
 
 # Of the titles that hold what was typed, so few that the forgiving search is made too.
 _FEW = 3
+_YEAR = re.compile(r"(?:19|20)\d\d")
 
 
-def search_library(
-    conn: sqlite3.Connection, libraries: list[str], query: str, limit: int
-) -> tuple[list[LibraryMovie | LibraryShow], int]:
-    """The *limit* movies and shows whose titles come closest to *query* of those that contain
-    it (as TitleSearch reads both), then by title, and how many contain it. Where few contain
-    it, those that differ from it by a plural or a small typo are found too, after them."""
+def _contain(
+    conn: sqlite3.Connection, libraries: list[str], query: str
+) -> tuple[list[LibraryMovie | LibraryShow], TitleSearch]:
     search = TitleSearch(conn, query)
     found: list[LibraryMovie | LibraryShow] = [
         *_movies(conn, libraries, search=search),
@@ -462,8 +462,38 @@ def search_library(
     if len(found) < _FEW:
         search = TitleSearch(conn, query, forgiving=True)
         found = [*_movies(conn, libraries, search=search), *_shows(conn, libraries, search=search)]
-    found.sort(key=lambda item: (search.distance(item.title), sort_title(item.title), item.key))
-    return found[:limit], len(found)
+    return found, search
+
+
+def search_library(
+    conn: sqlite3.Connection, libraries: list[str], query: str, limit: int
+) -> tuple[list[LibraryMovie | LibraryShow], int]:
+    """The *limit* movies and shows whose titles come closest to *query* of those that contain
+    it (as TitleSearch reads both), then by title, and how many contain it. Where few contain
+    it, those that differ from it by a plural or a small typo, or hold its words in another
+    order, are found too, after them. A year typed last is also left off the words looked for,
+    and the titles of that year come first."""
+    words = query.split()
+    year = int(words[-1]) if len(words) > 1 and _YEAR.fullmatch(words[-1]) else None
+    searches = [_contain(conn, libraries, query)]
+    if year is not None:
+        searches.append(_contain(conn, libraries, " ".join(words[:-1])))
+    found: dict[tuple[type, str], LibraryMovie | LibraryShow] = {}
+    for items, _ in searches:
+        for item in items:
+            found.setdefault((type(item), item.key), item)
+
+    def rank(item: LibraryMovie | LibraryShow) -> tuple[bool, int, str, str]:
+        near = [d for _, search in searches if (d := search.distance(item.title)) is not None]
+        return (
+            year is not None and item.year != year,
+            min(near, default=FORGIVEN),
+            sort_title(item.title),
+            item.key,
+        )
+
+    ranked = sorted(found.values(), key=rank)
+    return ranked[:limit], len(ranked)
 
 
 def season_item_id(

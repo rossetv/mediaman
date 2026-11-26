@@ -93,6 +93,7 @@ class LibraryIndex:
     movies_by_title_year: dict[tuple[str, int], str] = field(default_factory=dict)
     shows_by_title_year: dict[tuple[str, int], str] = field(default_factory=dict)
     year_of: dict[str, int] = field(default_factory=dict)
+    tmdb_of: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def build(
@@ -136,6 +137,7 @@ class LibraryIndex:
         name = normalise_title(title)
         if tmdb_id:
             by_tmdb.setdefault(tmdb_id, ref)
+            self.tmdb_of.setdefault(ref, tmdb_id)
         (self.movies_by_title if movie else self.shows_by_title).setdefault(name, ref)
         if year:
             self.year_of[ref] = year
@@ -155,6 +157,11 @@ class LibraryIndex:
         """The library ref of a TMDB title ("movie" or "tv"), or None when it is not held.
         *year* is TMDB's year of the title and *tvdb_id* the TVDB id TMDB gives a show."""
         name = normalise_title(title)
+
+        def same_title(ref: str) -> bool:
+            # A show the library knows under another TMDB id is another show.
+            return kind == "movie" or self.tmdb_of.get(ref, tmdb_id) == tmdb_id
+
         if kind == "movie":
             found = self.movies_by_tmdb.get(tmdb_id)
             by_title, by_title_year = self.movies_by_title, self.movies_by_title_year
@@ -166,10 +173,14 @@ class LibraryIndex:
                     found = self.shows_by_tvdb.get(tvdb)
         if found is None and year:
             found = by_title_year.get((name, year))
+            if found is not None and not same_title(found):
+                found = None
         if found is not None:
             return found
         if arr.state(kind, tmdb_id)[0] in (ACTION_IN_LIBRARY, ACTION_PARTIAL):
             candidate = by_title.get(name)
+            if candidate and not same_title(candidate):
+                return None
             held_year = self.year_of.get(candidate) if candidate else None
             # A remake shares the title of an older library title, so known years apart are
             # two titles; one apart is one title, dated by two of its releases.

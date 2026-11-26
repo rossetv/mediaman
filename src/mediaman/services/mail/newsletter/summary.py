@@ -349,10 +349,7 @@ def _rec_item(
         "description": row["description"],
         "reason": row["reason"],
         # From this site where it can be, so TMDB never learns who opens the mail.
-        "poster_url": (
-            mail_tmdb_image_url(row["poster_url"], "w342", secret_key, base_url)
-            or row["poster_url"]
-        ),
+        "poster_url": mail_tmdb_image_url(row["poster_url"], "w342", secret_key, base_url) or "",
         "tmdb_id": row["tmdb_id"],
         "rating": row["rating"],
         "rt_rating": row["rt_rating"],

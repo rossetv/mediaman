@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 
-from mediaman.core.time import now_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.arr.fetcher._base import is_film_id
@@ -33,6 +33,7 @@ from mediaman.web.responses import respond_failure
 from mediaman.web.routes.download import drop_arr_cache
 from mediaman.web.routes.downloads_strip import (
     held_poster,
+    in_library,
     library_of,
     library_title,
     mark_playable,
@@ -49,13 +50,18 @@ class AbandonRequest(BaseModel):
 
 
 def _ring(
-    data: DownloadsResponse, asked_at: float, index: catalog.LibraryIndex, *, admin: bool
+    conn: sqlite3.Connection,
+    data: DownloadsResponse,
+    asked_at: float,
+    index: catalog.LibraryIndex,
+    *,
+    admin: bool,
 ) -> dict[str, object] | None:
     """What /api/downloads/strip says of what is downloading, its items left out, of what was
     just read: nobody is asked for it."""
 
     def make(before: strip.Strip) -> strip.Strip:
-        items = mark_playable(strip.collect(data, before.items, now_utc()), index)
+        items = mark_playable(conn, strip.collect(data, before.items, now_utc()), index)
         return strip.Strip(tuple(items), data["outage"])
 
     answer = strip.on_page.offer(make, asked_at)
@@ -70,14 +76,18 @@ def _tmdb_id_of(item: dict[str, object]) -> int | None:
     return int(dl_id.rpartition("#")[2]) if is_film_id(dl_id, title) else None
 
 
-def _library_ref(item: dict[str, object], index: catalog.LibraryIndex) -> str | None:
-    kind = "movie" if item.get("media_type") == "movie" else "tv"
-    return library_title(index, kind, _tmdb_id_of(item), str(item["title"]))
+def _kind_of(item: dict[str, object]) -> str:
+    return "movie" if item.get("media_type") == "movie" else "tv"
 
 
-def _in_library(item: dict[str, object], index: catalog.LibraryIndex) -> bool:
+def _in_library(
+    conn: sqlite3.Connection,
+    item: dict[str, object],
+    index: catalog.LibraryIndex,
+) -> bool:
     """Whether the title of a recent download is there to play."""
-    return _library_ref(item, index) is not None
+    done = parse_iso_utc(str(item.get("completed_at") or "")) or now_utc()
+    return in_library(conn, index, _kind_of(item), _tmdb_id_of(item), str(item["title"]), done)
 
 
 def _poster(item: dict[str, object], index: catalog.LibraryIndex) -> str:
@@ -86,10 +96,9 @@ def _poster(item: dict[str, object], index: catalog.LibraryIndex) -> str:
     own = tmdb_image_url(item.get("poster_url") or "", "w342")
     if own:
         return own
-    tmdb_id = _tmdb_id_of(item)
-    kind = "movie" if item.get("media_type") == "movie" else "tv"
+    tmdb_id, kind = _tmdb_id_of(item), _kind_of(item)
     known = held_poster(kind, tmdb_id) if tmdb_id else ""
-    ref = None if known else _library_ref(item, index)
+    ref = None if known else library_title(index, kind, tmdb_id, str(item["title"]))
     return known or (title_art(ref.partition("-")[2])["poster_url"] if ref else "")
 
 
@@ -121,7 +130,7 @@ def _page_payload(
         "recent": [shown(item) for item in data["recent"]],
     }
     for item in page["recent"]:
-        if not _in_library(item, index):
+        if not _in_library(conn, item, index):
             item["readiness"] = "unknown"
     if not admin and data["outage"]:
         page["outage"], page["unreachable"], page["refused"] = VIEWER_OUTAGE, [], []
@@ -131,7 +140,7 @@ def _page_payload(
         page["subtitle"] = (
             f"{downloads_subtitle(rows, coming)} · some may be missing" if rows else soon
         )
-    return page, _ring(data, asked_at, index, admin=admin)
+    return page, _ring(conn, data, asked_at, index, admin=admin)
 
 
 def _former_id(item: dict[str, object]) -> str | None:

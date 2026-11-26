@@ -232,12 +232,17 @@ def test_the_steps_the_bar_and_the_colour_follow_the_download(run: dict) -> None
         "later": ("Downloading", True, "Downloading"),
         "unanswered": ("Downloading", True, "Downloading"),
         "almost": ("Almost ready", False, "Almost ready"),
+        "waiting": ("Added, on its way", False, "Added, on its way"),
         "last": ("Ready", False, "Ready to watch"),
     }
     assert run["downloading"]["figures"] == "34% 5 min"
     assert run["later"]["figures"] == "80%"
     colours = [run[k]["colour"] for k in ("searching", "downloading", "later", "almost", "last")]
     assert colours == sorted(set(colours)) and colours[-1] == 1
+
+
+def test_an_almost_ready_title_says_what_the_server_says_of_it(run: dict) -> None:
+    assert run["waiting"]["step"] == "Added, on its way"
 
 
 def test_a_bar_that_shuts_keeps_its_figures(run: dict) -> None:

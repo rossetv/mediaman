@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from mediaman.db import connection
+from tests.helpers.opened_dbs import close_opened_dbs  # noqa: F401
 
 # A v34/v35 database needs one pass of the last image that still shipped the
 # v36 runner; anything older needs the last pre-squash image first.

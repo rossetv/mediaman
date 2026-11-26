@@ -27,12 +27,21 @@ class NzbgetError(Exception):
 _NZBGET_MAX_BYTES = 1 * 1024 * 1024
 
 
+#: Name endings a home network or Docker gives to hosts that are not on the internet.
+_LOCAL_SUFFIXES = (".local", ".lan", ".internal", ".home.arpa")
+
+#: Hosts already warned about; a client is built on every poll.
+_warned_hosts: set[str] = set()
+
+
 def _is_lan_host(url: str) -> bool:
-    """Return True when *url*'s host is a LAN or loopback address.
+    """Return True when *url*'s host is a LAN or loopback address or a local name.
 
     Uses ipaddress to cover RFC1918 (including 172.16.0.0/12), loopback, link-local and
     unique-local ranges; a string-prefix check misclassified several of them and warned
-    needlessly about plain HTTP on a LAN.
+    needlessly about plain HTTP on a LAN. A name without a dot (a Docker service, a
+    machine on the LAN) or one ending in a local suffix such as host.docker.internal
+    counts as local too.
     """
     try:
         host = urlparse(url).hostname or ""
@@ -40,7 +49,7 @@ def _is_lan_host(url: str) -> bool:
         return False
     if not host:
         return False
-    if host == "localhost":
+    if ("." not in host and ":" not in host) or host.endswith(_LOCAL_SUFFIXES):
         return True
     # Strip IPv6 brackets if present — urlparse leaves them off, but a
     # literal IPv6 host could still arrive here from a misconfigured URL.
@@ -48,10 +57,8 @@ def _is_lan_host(url: str) -> bool:
     try:
         addr = ipaddress.ip_address(candidate)
     except ValueError:
-        # Hostname rather than literal IP — we cannot resolve it here
-        # without DNS (and doing so would defeat the purpose of the
-        # warning).  Be conservative: assume non-LAN so the operator
-        # still sees the plain-HTTP advisory.
+        # A public-looking name: resolving it here would defeat the warning, so assume
+        # it is not on the LAN.
         return False
     return addr.is_loopback or addr.is_private or addr.is_link_local
 
@@ -61,7 +68,7 @@ class NzbgetClient:
 
     Caps response bodies at 1 MiB — NZBGet status/queue responses are tiny
     and an oversized body is a sign of misconfiguration or a compromised
-    endpoint. Also warns (once per construction) when the URL is plain HTTP
+    endpoint. Also warns (once per host per process) when the URL is plain HTTP
     and not obviously on the LAN — credentials travel in the clear otherwise.
     """
 
@@ -76,6 +83,9 @@ class NzbgetClient:
         # ``user:pass@`` component and would leak credentials.
         if self._url.startswith("http://") and not _is_lan_host(self._url):
             host = urlparse(self._url).hostname or self._url
+            if host in _warned_hosts:
+                return
+            _warned_hosts.add(host)
             logger.warning(
                 "nzbget.plain_http_non_lan host=%s — basic-auth credentials "
                 "are transmitted in the clear; consider enabling HTTPS",
