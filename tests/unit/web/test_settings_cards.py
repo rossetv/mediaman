@@ -183,3 +183,12 @@ def test_the_ring_of_the_fold_button_goes_round_the_whole_header() -> None:
         r"\.setg-pg \.intg-card-hd:has\(\.intg-fold:focus-visible\) \{[^}]*outline: 2px solid",
         PANELS,
     )
+
+
+# Folds and danger buttons
+
+
+def test_a_fold_does_not_ease_its_border_width() -> None:
+    eased = re.findall(r"\n\.setg-pg \.setg-fold \{[^}]*transition:([^;}]*)", PANELS)
+    assert eased and "grid-template-rows" in eased[0]
+    assert "border" not in eased[0]

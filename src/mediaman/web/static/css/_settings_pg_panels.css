@@ -366,15 +366,15 @@
   .setg-pg .inline-form-actions .inline-form-msg { flex-basis: 100%; }
 }
 
-/* Inline forms and the send panel fold open and shut, so what sits below moves with them. */
+/* Inline forms and the send panel fold open and shut, so what sits below moves with them.
+   A border's width is not eased: Chrome draws any width under 1px as 1px, so it would hold to the end. */
 .setg-pg .setg-fold {
   display: grid; grid-template-rows: 1fr;
   transition: grid-template-rows var(--dur-slow) var(--ease-out),
               opacity var(--dur) var(--ease-out),
               transform var(--dur-slow) var(--ease-out),
               margin var(--dur-slow) var(--ease-out),
-              padding var(--dur-slow) var(--ease-out),
-              border-width var(--dur-slow) var(--ease-out);
+              padding var(--dur-slow) var(--ease-out);
 }
 .setg-pg .setg-fold-inner { min-height: 0; min-width: 0; }
 /* Safari keeps the row at its old height when what it holds grows by a line. */

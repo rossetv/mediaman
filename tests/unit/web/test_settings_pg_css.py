@@ -306,7 +306,7 @@ def test_a_panel_folds_at_the_speed_of_the_other_folds() -> None:
     fold = _declarations(".setg-pg .setg-fold")
     # MM.dom.fold opens a <details> beside it over --dur-slow, as the app's other folds open.
     assert "'--dur-slow'" in (CSS.parent / "js" / "core" / "dom.js").read_text()
-    for part in ("grid-template-rows", "margin", "padding", "border-width"):
+    for part in ("grid-template-rows", "margin", "padding"):
         assert f"{part} var(--dur-slow)" in fold
     reduced = (
         r"prefers-reduced-motion: reduce\)\s*\{\s*\.setg-pg \.setg-fold \{ transition: none; \}"
