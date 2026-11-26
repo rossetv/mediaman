@@ -231,11 +231,14 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
         try:
             tv.save_places()
         finally:
+            # First, as giving the claims back can wait on the database lock for a long while.
             try:
-                release_claims_on_shutdown(get_db())
-            finally:
-                close_db()
                 older_stream.ending.set()
+            finally:
+                try:
+                    release_claims_on_shutdown(get_db())
+                finally:
+                    close_db()
 
     stop_listening = _when_told_to_end(told_to_end)
 
