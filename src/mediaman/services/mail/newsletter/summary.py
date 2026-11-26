@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -19,7 +20,7 @@ from mediaman.core.deleted_media import (
 )
 from mediaman.core.format import rk_from_audit_detail as _extract_rk_from_detail
 from mediaman.core.format import title_from_audit_detail as _extract_title_from_detail
-from mediaman.crypto import sign_poster_url
+from mediaman.crypto import sign_poster_url, sign_tmdb_image_url
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
 from mediaman.services.openai.recommendations.user_picks import PICKS_LAST, fetch_picks
@@ -28,6 +29,9 @@ from ._time import _parse_days_ago
 from ._types import DeletedNewsletterItem, NewsletterRecItem, StorageStats
 
 logger = logging.getLogger(__name__)
+
+# As long as the mail's signed posters last: it is read long after it is sent, with no session.
+_PICK_POSTER_DAYS = 180
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +265,8 @@ def _load_recommendations(
     conn: sqlite3.Connection,
     *,
     check_enabled: bool = True,
+    base_url: str = "",
+    secret_key: str = "",
 ) -> list[NewsletterRecItem]:
     """Load the most recent batch of the shared suggestions if the feature is enabled, else [].
     One with no TMDB id is left out: nothing vouches for what it is.
@@ -291,11 +297,16 @@ def _load_recommendations(
         " AND tmdb_id IS NOT NULL ORDER BY id",
         (batch_row["batch_id"],),
     ).fetchall()
-    return [_rec_item(r, r["id"]) for r in rows]
+    return [_rec_item(r, r["id"], base_url, secret_key) for r in rows]
 
 
 def load_own_picks(
-    conn: sqlite3.Connection, emails: Iterable[str], now: datetime
+    conn: sqlite3.Connection,
+    emails: Iterable[str],
+    now: datetime,
+    *,
+    base_url: str = "",
+    secret_key: str = "",
 ) -> dict[str, list[NewsletterRecItem]]:
     """The latest own picks with a TMDB id, not over 28 days old, of each address that is
     exactly one person's, by address.
@@ -322,7 +333,7 @@ def load_own_picks(
             }
             picks.sort(key=lambda p: (p["media_type"], p["tmdb_id"]) in levels)
             found[email] = [
-                _rec_item(p, None)
+                _rec_item(p, None, base_url, secret_key)
                 for p in picks
                 if p["tmdb_id"]
                 and str(p["batch_id"]) >= oldest
@@ -331,7 +342,20 @@ def load_own_picks(
     return found
 
 
-def _rec_item(row: Mapping[str, Any] | sqlite3.Row, rec_id: int | None) -> NewsletterRecItem:
+def _pick_poster(poster_url: str | None, base_url: str, secret_key: str) -> str | None:
+    """A TMDB poster as this site's signed address when the site address is known, so TMDB
+    never learns who opens the mail; anything else as it is.
+    """
+    if not base_url or not secret_key:
+        return poster_url
+    expires_at = int(time.time()) + _PICK_POSTER_DAYS * 86400
+    signed = sign_tmdb_image_url(poster_url, "w342", secret_key, expires_at=expires_at)
+    return f"{base_url}{signed}" if signed else poster_url
+
+
+def _rec_item(
+    row: Mapping[str, Any] | sqlite3.Row, rec_id: int | None, base_url: str, secret_key: str
+) -> NewsletterRecItem:
     return {
         "id": rec_id,
         "title": row["title"],
@@ -339,7 +363,7 @@ def _rec_item(row: Mapping[str, Any] | sqlite3.Row, rec_id: int | None) -> Newsl
         "category": row["category"],
         "description": row["description"],
         "reason": row["reason"],
-        "poster_url": row["poster_url"],
+        "poster_url": _pick_poster(row["poster_url"], base_url, secret_key),
         "tmdb_id": row["tmdb_id"],
         "rating": row["rating"],
         "rt_rating": row["rt_rating"],
