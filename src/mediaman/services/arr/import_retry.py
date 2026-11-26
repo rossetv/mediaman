@@ -64,6 +64,8 @@ class _Unit:
     stuck: bool
     # The records that need attention, which alone are removed.
     held_ids: frozenset[int]
+    # The download of each record that needs attention, by queue id.
+    downloads: Mapping[int, str]
     # The episodes of the records that need attention; none of a film's.
     episodes: frozenset[int]
     queue_ids: frozenset[int]
@@ -98,6 +100,7 @@ def _unit(
         key=key,
         stuck=map_queue_state(entries) == "needs_attention" and bool(held),
         held_ids=frozenset(_int(e.get("queue_id")) for e in held),
+        downloads={_int(e.get("queue_id")): str(e.get("download_id") or "") for e in held},
         episodes=frozenset(_int(e.get("episode_id")) for e in held) - {0},
         queue_ids=frozenset(_int(e.get("queue_id")) for e in entries),
         label=label,
@@ -336,12 +339,14 @@ def _search(
     search: str,
     shown: str,
     since: datetime | None,
+    removed: bool = False,
 ) -> bool:
-    """Send the search of a removed download, unless the service makes it by itself, and write
-    its try to History once it is sent; one the service has refused since a removal *since*
-    ``_FINDING_FOR`` ago is given up. Whether the service gave no answer."""
+    """Send the search of a removed download, unless every record of it was *removed* just now
+    by a service that then searches by itself, and write its try to History once it is sent;
+    one the service has refused since a removal *since* ``_FINDING_FOR`` ago is given up.
+    Whether the service gave no answer."""
     try:
-        if not client.searches_when_removed():
+        if not (removed and client.searches_when_removed()):
             client.send_command(json.loads(search))
     except _ERRORS as exc:
         refused = _refused(exc)
@@ -425,13 +430,21 @@ def _retry(
     if claimed != 1:
         return False
     removed_any = False
+    # A record already gone was failed by nobody here, so no search of the service's own
+    # follows unless it went with a download this run removed.
+    removed_downloads: set[str] = set()
+    every_removed = True
     client = None
     try:
         client = _client(conn, secret_key, service)
         if client is None:
             raise ArrError(f"{service} is not set up")
         for queue_id in sorted(unit.held_ids):
-            client.remove_from_queue(queue_id)
+            download = unit.downloads.get(queue_id, "")
+            if client.remove_from_queue(queue_id):
+                removed_downloads.add(download)
+            elif not download or download not in removed_downloads:
+                every_removed = False
             removed_any = True
     except _ERRORS as exc:
         refused = _refused(exc)
@@ -460,7 +473,7 @@ def _retry(
                 (row[0], MAX_TRIES if refused else row[1], unit.key),
             )
         return silent
-    return _search(conn, client, unit.key, search, shown, now)
+    return _search(conn, client, unit.key, search, shown, now, every_removed)
 
 
 def _may_have_acted(exc: Exception) -> bool:

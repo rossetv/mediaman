@@ -1213,3 +1213,49 @@ def test_an_older_sonarrs_version_is_read_once_for_all_its_retries(arrs):
 
     assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 2 of 2)"]
     assert arrs.version_reads == 1
+
+
+_OLDER = {"sonarr": "3.0.10.1567", "radarr": "4.7.1.7640"}
+
+
+def _one_stuck(arrs: Arrs, service: str) -> int:
+    arrs.versions[service] = _OLDER[service]
+    if service == "sonarr":
+        arrs.queues["sonarr"] = [_stuck_episode(10, 1)]
+        return 10
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    return 40
+
+
+@pytest.mark.parametrize("service", ["sonarr", "radarr"])
+@pytest.mark.parametrize(
+    ("removal", "ours"),
+    [(None, 0), (404, 1), (requests.ReadTimeout("no answer"), 1)],
+    ids=["removed", "already-gone", "answer-lost"],
+)
+def test_an_older_service_is_sent_the_search_unless_it_plainly_removed_the_download(
+    arrs, service, removal, ours
+):
+    queue_id = _one_stuck(arrs, service)
+    if removal is not None:
+        arrs.failing_ids = {queue_id: removal}
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert len([c for c in arrs.changes() if c[0] == "POST"]) == ours
+    assert len(arrs.own_searches) + ours == 1
+    assert arrs.history()[-1].endswith("(try 1 of 2)")
+
+
+def test_an_older_sonarr_that_finds_one_of_two_downloads_gone_is_sent_the_search(arrs):
+    arrs.versions["sonarr"] = _OLDER["sonarr"]
+    _season_stuck(arrs, 10, download="a")
+    arrs.queues["sonarr"][1]["downloadId"] = "b"
+    arrs.failing_ids = {11: 404}
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[3] for c in arrs.changes() if c[0] == "POST"] == [
+        {"name": "EpisodeSearch", "episodeIds": [501, 502]}
+    ]

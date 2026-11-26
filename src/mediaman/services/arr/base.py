@@ -155,10 +155,10 @@ class ArrClient(
             )
         return out
 
-    def remove_from_queue(self, queue_id: int) -> None:
+    def remove_from_queue(self, queue_id: int) -> bool:
         """Remove a queue record and its download from the download client, and blocklist its
         release so it is not grabbed again; no search is started, the caller starts its own.
-        A record already gone is no failure."""
+        A record already gone is no failure. Whether this call removed it."""
         try:
             self._delete(
                 f"/api/v3/queue/{queue_id}?removeFromClient=true&blocklist=true&skipRedownload=true"
@@ -166,6 +166,8 @@ class ArrClient(
         except SafeHTTPError as exc:
             if exc.status_code != 404:
                 raise
+            return False
+        return True
 
     def searches_when_removed(self) -> bool:
         """Whether the service searches again by itself for what ``remove_from_queue`` removes:
