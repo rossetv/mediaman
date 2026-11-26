@@ -304,6 +304,17 @@ class TestLibraryShow:
 
         assert (body["play"], body["overview"]) == (None, "A coast.")
 
+    def test_a_show_with_nothing_to_play_has_no_play_and_the_words_stay(
+        self, viewer, library, tmdb, plex
+    ):
+        plex.episodes["501"] = []
+
+        response = _preview(viewer, "show-500")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert (body["play"], body["overview"]) == (None, "A coast.")
+
     def test_plex_has_the_words_of_a_show_in_progress_tmdb_has_not(
         self, viewer, library, no_tmdb, plex
     ):
