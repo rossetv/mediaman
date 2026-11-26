@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.core.scrub_filter import AccessLogFilter
-from mediaman.crypto import generate_poster_token, sign_tmdb_image_url
+from mediaman.crypto import generate_poster_token, sign_tmdb_image_url, tokens
 from mediaman.services.infra import disk_cache
 from mediaman.services.rate_limit import RateLimiter
 from mediaman.web.routes.watch import image_api, signed_image_api
@@ -172,19 +172,40 @@ def test_a_page_s_pictures_asked_again_and_again_from_one_network_are_never_refu
     assert answers == {200}
 
 
-def test_a_network_that_is_refused_too_often_is_turned_away_before_the_signature_is_read(
-    app, upstream, secret_key, monkeypatch
+def test_a_network_refused_too_often_is_turned_away_but_a_good_signature_still_answered(
+    app, upstream, secret_key
 ):
-    monkeypatch.setattr(signed_image_api, "_PUBLIC_LIMITER", RateLimiter(2, 60))
     url = _signed(secret_key)
+    bad = url.partition("?")[0]
     near = TestClient(app, client=("203.0.113.5", 1))
     neighbour = TestClient(app, client=("203.0.113.77", 1))
-    elsewhere = TestClient(app, client=("198.51.100.9", 1))
 
-    assert [near.get(url).status_code for _ in range(3)] == [200, 200, 200]
-    assert [near.get(url.partition("?")[0]).status_code for _ in range(2)] == [401, 401]
-    assert neighbour.get(url).status_code == 429
-    assert elsewhere.get(url).status_code == 200
+    refusals = [near.get(bad).status_code for _ in range(65)]
+
+    assert set(refusals[:60]) == {401} and set(refusals[60:]) == {429}
+    assert near.get(url).status_code == 200
+    assert neighbour.get(url).status_code == 200
+    assert neighbour.get(bad).status_code == 429
+
+
+@pytest.mark.parametrize(
+    "purpose",
+    [
+        tokens._TOKEN_PURPOSE_POSTER,
+        tokens._TOKEN_PURPOSE_KEEP,
+        tokens._TOKEN_PURPOSE_DOWNLOAD,
+        tokens._TOKEN_PURPOSE_UNSUBSCRIBE,
+        tokens._TOKEN_PURPOSE_POLL,
+    ],
+)
+def test_a_signature_made_for_another_purpose_is_refused(client, upstream, secret_key, purpose):
+    payload = {"img": "w500/abc.jpg", "exp": int(time.time()) + DAY}
+    sig = tokens._encode_signed(payload, secret_key, purpose)
+
+    resp = client.get(f"/api/img/tmdb/w500/abc.jpg?sig={sig}")
+
+    assert (resp.status_code, resp.content) == (401, b"")
+    assert upstream.calls == []
 
 
 def test_the_signature_is_kept_out_of_the_access_log(secret_key):
