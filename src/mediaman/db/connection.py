@@ -189,6 +189,16 @@ def _fill_first_listed(conn: sqlite3.Connection) -> None:
     )
 
 
+def _fill_tried_at(conn: sqlite3.Connection) -> None:
+    """Give each download retry stored without the time its last try began the time held of its
+    try running, else now, so a later import still gives its tries back."""
+    conn.execute(
+        "UPDATE arr_import_retries SET tried_at = COALESCE(retried_at, ?)"
+        " WHERE tried_at IS NULL AND tries > 0",
+        (now_utc().isoformat(),),
+    )
+
+
 def _fill_session_ids(conn: sqlite3.Connection) -> None:
     """Give each session stored without a public id one, at every start, as above."""
     conn.execute(
@@ -237,6 +247,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         _add_missing_columns(conn)
         conn.executescript(_ADDED_INDEXES)
         _fill_first_listed(conn)
+        _fill_tried_at(conn)
         _fill_session_ids(conn)
         _take_over_plays(conn)
         conn.commit()

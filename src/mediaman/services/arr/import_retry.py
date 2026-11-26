@@ -48,6 +48,8 @@ _STUCK_FOR = timedelta(hours=1)
 _POLL_SLACK = timedelta(minutes=2)
 # Another copy not grabbed in this long is no longer waited for.
 _FINDING_FOR = timedelta(hours=24)
+# A title out of the queue, last tried this long ago, is forgotten with its tries.
+_KEPT_FOR = timedelta(days=30)
 
 _ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ConfigDecryptError, ValueError)
 
@@ -325,8 +327,16 @@ def _history_line(shown: Mapping[str, Any], tries: int) -> str:
     )
 
 
+def _no_answer(exc: Exception) -> bool:
+    """Whether *exc* says the service gave no answer, or one its setup alone explains: it timed
+    out or could not be reached, or it would not take mediaman's key."""
+    if isinstance(exc, SafeHTTPError):
+        return exc.status_code in (0, 401, 403)
+    return isinstance(exc, requests.Timeout | requests.ConnectionError | ConfigDecryptError)
+
+
 def _refused(exc: Exception) -> bool:
-    return isinstance(exc, SafeHTTPError) and 400 <= exc.status_code < 500
+    return isinstance(exc, SafeHTTPError) and 400 <= exc.status_code < 500 and not _no_answer(exc)
 
 
 def _search(
@@ -360,7 +370,7 @@ def _search(
         logger.warning(
             "Could not search again for %s; trying again on the next run", key, exc_info=True
         )
-        return not refused
+        return _no_answer(exc)
     with conn:
         tries_row = conn.execute(
             "UPDATE arr_import_retries SET search = NULL"
@@ -424,6 +434,7 @@ def _retry(
     if claimed != 1:
         return False
     removed_any = False
+    client = None
     try:
         client = _client(conn, secret_key, service)
         if client is None:
@@ -433,6 +444,7 @@ def _retry(
             removed_any = True
     except _ERRORS as exc:
         refused = _refused(exc)
+        silent = client is None or _no_answer(exc)
         if removed_any or _may_have_acted(exc):
             # Removed with no search of its own: the search must still go, now or next run.
             logger.warning(
@@ -441,7 +453,7 @@ def _retry(
                 exc_info=True,
             )
             _search(conn, client, unit.key, search, shown, now)
-            return not refused
+            return silent
         # Refused outright, it would be refused again: its tries are spent, for an admin.
         then = "leaving it as it is" if refused else "trying again on the next run"
         logger.warning(
@@ -456,7 +468,7 @@ def _retry(
                 " removed=NULL, search=NULL, shown=NULL WHERE key=?",
                 (row[0], MAX_TRIES if refused else row[1], unit.key),
             )
-        return not refused
+        return silent
     return _search(conn, client, unit.key, search, shown, now)
 
 
@@ -471,8 +483,9 @@ def _may_have_acted(exc: Exception) -> bool:
     return isinstance(exc, SafeHTTPError) and exc.status_code >= 500
 
 
-def _film_added(client: Any, movie_id: int) -> list[str] | None:
-    """When Radarr added the file film *movie_id* has, if any; None when the film is gone."""
+def _film_imported(client: Any, movie_id: int, since: datetime) -> bool | None:
+    """Whether Radarr added the file film *movie_id* has after *since*; None when the film is
+    gone."""
     try:
         movie = client._get(f"/api/v3/movie/{movie_id}", quick=True)
     except SafeHTTPError as exc:
@@ -480,43 +493,60 @@ def _film_added(client: Any, movie_id: int) -> list[str] | None:
             return None
         raise
     file = movie.get("movieFile") if isinstance(movie, dict) and movie.get("hasFile") else None
-    return [str(file.get("dateAdded") or "")] if isinstance(file, dict) else []
+    return isinstance(file, dict) and _after(file.get("dateAdded"), since)
 
 
-def _show_added(client: Any, series_id: int) -> dict[int, str] | None:
-    """When Sonarr added the file of each episode of show *series_id* that has one, by the
-    episode's id; None when the show is gone."""
-    try:
-        client._get(f"/api/v3/series/{series_id}", quick=True)
-    except SafeHTTPError as exc:
-        if exc.status_code == 404:
-            return None
-        raise
-    files = {
-        _int(e.get("id")): _int(e.get("episodeFileId"))
-        for e in client._get_list(f"/api/v3/episode?seriesId={series_id}", quick=True)
-        if e.get("hasFile")
-    }
-    if not files:
-        return {}
-    added = {
-        _int(f.get("id")): str(f.get("dateAdded") or "")
-        for f in client._get_list(f"/api/v3/episodefile?seriesId={series_id}", quick=True)
-    }
-    return {episode: added.get(file, "") for episode, file in files.items()}
+def _season_imported(
+    client: Any, key: str, episodes: set[int], since: datetime, shows: dict[int, bool]
+) -> bool | None:
+    """Whether Sonarr added a file of one of *episodes* of the season of *key*, of any of its
+    episodes where none is named, after *since*; None when the show is gone. Whether each show
+    is there is read once, in *shows*; of the rest, the season and its files alone."""
+    series_id, season = _key_id(key), key.rpartition(":")[2]
+    if series_id not in shows:
+        try:
+            client._get(f"/api/v3/series/{series_id}", quick=True)
+            shows[series_id] = True
+        except SafeHTTPError as exc:
+            if exc.status_code != 404:
+                raise
+            shows[series_id] = False
+    if not shows[series_id]:
+        return None
+    listed = client._get_list(
+        f"/api/v3/episode?seriesId={series_id}&seasonNumber={season}", quick=True
+    )
+    files = [
+        _int(e.get("episodeFileId"))
+        for e in listed
+        if e.get("hasFile") and (not episodes or _int(e.get("id")) in episodes)
+    ]
+    return any(_file_imported(client, file, since) for file in files if file)
 
 
-def _forget_imported(conn: sqlite3.Connection, secret_key: str, down: set[str]) -> None:
+def _file_imported(client: Any, file_id: int, since: datetime) -> bool:
+    found = client._get(f"/api/v3/episodefile/{file_id}", quick=True)
+    return isinstance(found, dict) and _after(found.get("dateAdded"), since)
+
+
+def _after(text: object, since: datetime) -> bool:
+    added = parse_iso_utc(text) if isinstance(text, str) else None
+    return added is not None and added > since
+
+
+def _forget_imported(conn: sqlite3.Connection, secret_key: str) -> None:
     """Forget each title tried before whose film, or an episode its last try was for, has a file
     added since that try began, so its tries start again: a file it had before, as of a copy that
     was not an upgrade, gives nothing back. Forget one gone from Radarr or Sonarr too, once the
     service answered for another title, as a wrong address answers 404 for every one.
 
-    A search still to send keeps its row. Each service is asked with one short try, and not
-    again in this run once it fails, its name then in *down*; a show is read once.
+    A search still to send keeps its row. Each title is asked with one short try; one whose read
+    fails is asked again next run, and a service that gives no answer is not asked again in this
+    one.
     """
     clients: dict[str, Any] = {}
-    shows: dict[int, dict[int, str] | None] = {}
+    shows: dict[int, bool] = {}
+    down: set[str] = set()
     answered: set[str] = set()
     gone: list[tuple[str, str]] = []
     forget = "DELETE FROM arr_import_retries WHERE key=? AND tried_at=? AND search IS NULL"
@@ -525,7 +555,8 @@ def _forget_imported(conn: sqlite3.Connection, secret_key: str, down: set[str]) 
         " WHERE tries > 0 AND search IS NULL AND tried_at IS NOT NULL"
     ).fetchall():
         service = key.partition(":")[0]
-        if service in down:
+        began = parse_iso_utc(tried_at)
+        if service in down or began is None:
             continue
         try:
             if service not in clients:
@@ -535,30 +566,19 @@ def _forget_imported(conn: sqlite3.Connection, secret_key: str, down: set[str]) 
                 down.add(service)
                 continue
             if service == "radarr":
-                dates = _film_added(client, _key_id(key))
+                imported = _film_imported(client, _key_id(key), began)
             else:
-                series_id = _key_id(key)
-                if series_id not in shows:
-                    shows[series_id] = _show_added(client, series_id)
-                show = shows[series_id]
-                dates = None if show is None else [show.get(e, "") for e in _ids(episodes)]
-        except _ERRORS:
-            down.add(service)
-            logger.warning(
-                "Could not ask %s whether %s has imported; not asking it again this run",
-                service,
-                key,
-                exc_info=True,
-            )
+                imported = _season_imported(client, key, _ids(episodes), began, shows)
+        except _ERRORS as exc:
+            if _no_answer(exc):
+                down.add(service)
+            logger.warning("Could not ask %s whether %s has imported", service, key, exc_info=True)
             continue
-        if dates is None:
+        if imported is None:
             gone.append((key, tried_at))
             continue
         answered.add(service)
-        began = parse_iso_utc(tried_at)
-        if began is not None and any(
-            (added := parse_iso_utc(d)) is not None and added > began for d in dates
-        ):
+        if imported:
             with conn:
                 conn.execute(forget, (key, tried_at))
     for key, tried_at in gone:
@@ -567,15 +587,33 @@ def _forget_imported(conn: sqlite3.Connection, secret_key: str, down: set[str]) 
                 conn.execute(forget, (key, tried_at))
 
 
+def _expire(conn: sqlite3.Connection, now: datetime) -> None:
+    """Forget each title out of the queue and not being tried that was last tried ``_KEPT_FOR``
+    ago, with its tries."""
+    for key, tried_at in conn.execute(
+        "SELECT key, tried_at FROM arr_import_retries WHERE tried_at IS NOT NULL"
+        " AND stuck_since IS NULL AND retried_at IS NULL AND search IS NULL"
+    ).fetchall():
+        began = parse_iso_utc(tried_at)
+        if began is not None and now - began >= _KEPT_FOR:
+            with conn:
+                conn.execute(
+                    "DELETE FROM arr_import_retries WHERE key=? AND tried_at=?"
+                    " AND stuck_since IS NULL AND retried_at IS NULL AND search IS NULL",
+                    (key, tried_at),
+                )
+
+
 def retry_stuck_imports(
     conn: sqlite3.Connection, secret_key: str, cards: Sequence[Mapping[str, object]]
 ) -> None:
     """Forget the titles that have imported since they were tried, send each search a run
     before could not, and remove and search again for each download of *cards* that has not
     imported for an hour, this last not while the setting is off. A service that gives no
-    answer is not asked again in this run."""
+    answer to a search or a removal is not sent another in this run."""
+    _expire(conn, now_utc())
+    _forget_imported(conn, secret_key)
     down: set[str] = set()
-    _forget_imported(conn, secret_key, down)
     for key, search, shown, retried_at in conn.execute(
         "SELECT key, search, shown, retried_at FROM arr_import_retries"
         " WHERE retried_at IS NOT NULL AND search IS NOT NULL"

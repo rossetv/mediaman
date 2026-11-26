@@ -82,6 +82,8 @@ class Arrs:
         self.reads: list[tuple[str, str]] = []
         # Services whose film and show reads time out.
         self.slow: set[str] = set()
+        # Paths of a film or a show answered with a 500.
+        self.broken: set[str] = set()
         # The status a command is refused with, if it is.
         self.refusing = 0
         # Whether a DELETE leaves its record in the queue, as a download client that would not
@@ -111,9 +113,11 @@ class Arrs:
         if method == "GET" and parts.path.startswith(
             ("/api/v3/movie/", "/api/v3/series/", "/api/v3/episode")
         ):
-            self.reads.append((service, parts.path))
+            self.reads.append((service, f"{parts.path}?{parts.query}".rstrip("?")))
             if service in self.slow:
                 raise requests.ReadTimeout("no answer")
+            if parts.path in self.broken:
+                return _fake_response(status=500, json_data={})
         if parts.path == "/api/v3/queue":
             records = self.queues[service]
             return _fake_response(
@@ -144,14 +148,20 @@ class Arrs:
         if parts.path.startswith("/api/v3/series/"):
             return _fake_response(status=404)
         if parts.path == "/api/v3/episode":
+            asked = parse_qs(parts.query)
+            assert asked["seriesId"] == ["5"]
+            if asked["seasonNumber"] != ["13"]:
+                return _fake_response(json_data=[])
             episodes = [{"id": 500 + n, "seasonNumber": 13, "episodeNumber": n} for n in (1, 2)]
             for ep in episodes:
                 if ep["id"] in self.files:
                     ep.update(hasFile=True, episodeFileId=ep["id"] + 1000)
             return _fake_response(json_data=episodes)
-        if parts.path == "/api/v3/episodefile":
-            files = [{"id": e + 1000, "dateAdded": d} for e, d in self.files.items()]
-            return _fake_response(json_data=files)
+        if parts.path.startswith("/api/v3/episodefile/"):
+            episode = int(parts.path.rsplit("/", 1)[1]) - 1000
+            return _fake_response(
+                json_data={"id": episode + 1000, "dateAdded": self.files[episode]}
+            )
         if parts.path == "/api/v3/wanted/missing":
             return _fake_response(json_data={"page": 1, "totalRecords": 0, "records": []})
         if method == "POST" and parts.path == "/api/v3/command":
@@ -755,13 +765,36 @@ def test_a_film_still_listed_after_its_removal_reads_finding_another_copy(arrs):
     assert arrs.states() == {"Dune": "finding_copy"}
 
 
-def _tried(arrs: Arrs, key: str, episodes: list[int] | None = None) -> None:
-    """A row as a try of *key* an hour ago leaves it once its search has gone."""
+def _tried(
+    arrs: Arrs,
+    key: str,
+    episodes: list[int] | None = None,
+    *,
+    ago: timedelta = timedelta(hours=1),
+    tries: int = 1,
+) -> None:
+    """A row as a try of *key* *ago* leaves it once its search has gone."""
     arrs.conn.execute(
-        "INSERT INTO arr_import_retries (key, tries, tried_at, tried_episodes) VALUES (?, 1, ?, ?)",
-        (key, (arrs.now - timedelta(hours=1)).isoformat(), json.dumps(episodes or [])),
+        "INSERT INTO arr_import_retries (key, tries, tried_at, tried_episodes) VALUES (?, ?, ?, ?)",
+        (key, tries, (arrs.now - ago).isoformat(), json.dumps(episodes or [])),
     )
     arrs.conn.commit()
+
+
+def _waiting(arrs: Arrs, movie_id: int) -> None:
+    """A removal of film *movie_id* an hour ago whose search is still to send."""
+    at = (arrs.now - timedelta(hours=1)).isoformat()
+    search = json.dumps({"name": "MoviesSearch", "movieIds": [movie_id]})
+    arrs.conn.execute(
+        "INSERT INTO arr_import_retries (key, tries, retried_at, tried_at, search, shown)"
+        " VALUES (?, 1, ?, ?, ?, ?)",
+        (f"radarr:{movie_id}", at, at, search, json.dumps({"title": "Dune"})),
+    )
+    arrs.conn.commit()
+
+
+def _searched(arrs: Arrs) -> list[list[int]]:
+    return [c[3]["movieIds"] for c in arrs.changes() if c[0] == "POST" and "movieIds" in c[3]]
 
 
 def _rows(arrs: Arrs) -> set[str]:
@@ -880,3 +913,146 @@ def test_a_search_sonarr_always_refuses_is_given_up_after_a_day(arrs, caplog):
 
     assert "finding_copy" not in arrs.states().values()
     assert len([r for r in caplog.records if "sonarr:5:13" in r.getMessage()]) == told <= 26
+
+
+def test_a_film_whose_read_fails_holds_back_no_other_films_removal(arrs):
+    _tried(arrs, "radarr:77")
+    arrs.broken = {"/api/v3/movie/77"}
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[2] for c in arrs.changes() if c[0] == "DELETE"] == ["/api/v3/queue/40"]
+
+
+def test_a_film_whose_read_fails_holds_back_no_waiting_search(arrs):
+    _tried(arrs, "radarr:77")
+    arrs.broken = {"/api/v3/movie/77"}
+    _waiting(arrs, 9)
+    arrs.poll()
+
+    assert _searched(arrs) == [[9]]
+
+
+def test_a_radarr_whose_reads_time_out_still_has_its_stuck_film_removed(arrs):
+    _tried(arrs, "radarr:77")
+    arrs.slow = {"radarr"}
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[2] for c in arrs.changes() if c[0] == "DELETE"] == ["/api/v3/queue/40"]
+
+
+def test_a_tried_season_is_read_alone_and_not_the_whole_show(arrs):
+    _tried(arrs, "sonarr:5:13", [501])
+    arrs.files = {501: arrs.at(), 502: "2025-06-01T00:00:00Z"}
+    arrs.poll()
+
+    assert sorted(path for _service, path in arrs.reads) == [
+        "/api/v3/episode?seriesId=5&seasonNumber=13",
+        "/api/v3/episodefile/1501",
+        "/api/v3/series/5",
+    ]
+    assert _rows(arrs) == set()
+
+
+def test_a_waiting_search_that_gets_no_answer_holds_back_the_next_one(arrs):
+    _waiting(arrs, 9)
+    _waiting(arrs, 10)
+    arrs.failing = {"POST"}
+    arrs.poll()
+
+    assert len({tuple(ids) for ids in _searched(arrs)}) == 1
+
+
+def test_a_waiting_search_that_gets_no_answer_holds_back_removals(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.poll()
+    _waiting(arrs, 10)
+    arrs.failing = {"POST"}
+    arrs.poll(timedelta(hours=1))
+
+    assert [c for c in arrs.changes() if c[0] == "DELETE"] == []
+
+
+def test_a_title_tried_a_month_ago_and_out_of_the_queue_is_forgotten(arrs):
+    _tried(arrs, "radarr:9", ago=timedelta(days=31), tries=2)
+    _tried(arrs, "radarr:10", ago=timedelta(days=29), tries=2)
+    arrs.movies = [_dune(), _dune(id=10)]
+    arrs.poll()
+
+    assert _rows(arrs) == {"radarr:10"}
+
+
+def test_a_copy_still_stuck_a_month_after_its_last_try_gets_no_third(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.keeping = True
+    arrs.poll()
+    for _ in range(4 * 40):
+        arrs.poll(timedelta(hours=6))
+
+    assert len(arrs.history()) == 2
+
+
+def test_a_row_stored_before_its_try_time_was_kept_gets_its_tries_back_on_an_import(
+    arrs, tmp_path, monkeypatch
+):
+    monkeypatch.setattr("mediaman.db.connection.now_utc", lambda: arrs.now)
+    arrs.conn.execute("INSERT INTO arr_import_retries (key, tries) VALUES ('radarr:9', 2)")
+    arrs.conn.commit()
+    arrs.conn.close()
+    arrs.conn = init_db(str(tmp_path / "mediaman.db"))
+    arrs.movies = [
+        _dune(hasFile=True, movieFile={"id": 1, "dateAdded": arrs.at(timedelta(days=1))})
+    ]
+    arrs.poll(timedelta(days=2))
+
+    assert _rows(arrs) == set()
+
+
+def test_a_season_tried_before_its_episodes_were_kept_gets_its_tries_back_on_an_import(arrs):
+    _tried(arrs, "sonarr:5:13")
+    arrs.files = {502: arrs.at()}
+    arrs.poll()
+
+    assert _rows(arrs) == set()
+
+
+def test_a_search_sonarr_will_not_take_the_key_for_is_kept_until_it_does(arrs):
+    _season_stuck(arrs, 10)
+    arrs.refusing = 401
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    _hourly(arrs, 30)
+    arrs.refusing = 0
+    arrs.poll(timedelta(hours=1))
+
+    assert arrs.history()[-1].endswith("(try 1 of 2)")
+
+
+def test_a_removal_radarr_will_not_take_the_key_for_spends_no_try(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.failing_ids = {40: 403}
+    arrs.poll()
+    _hourly(arrs, 3)
+    arrs.failing_ids = {}
+    arrs.poll(timedelta(hours=1))
+
+    assert arrs.history() == [arrs.history()[0]]
+    assert arrs.history()[0].endswith("(try 1 of 2)")
+
+
+def test_a_film_whose_read_fails_keeps_no_other_film_from_getting_its_tries_back(arrs):
+    _tried(arrs, "radarr:77")
+    _tried(arrs, "radarr:9")
+    arrs.broken = {"/api/v3/movie/77"}
+    arrs.movies = [_dune(hasFile=True, movieFile={"id": 1, "dateAdded": arrs.at()})]
+    arrs.poll()
+
+    assert _rows(arrs) == {"radarr:77"}
