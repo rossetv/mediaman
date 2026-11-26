@@ -277,6 +277,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
 @media (hover: none), (pointer: coarse) {
   /* Over the buttons of the cards above it, and the closing levels of another. */
   .watch-card.is-lifted { z-index: 5; }
+  /* A finger's 44px and more, past the 28 the buttons are drawn. */
+  .card-tool::after { top: -10px; bottom: -10px; }
   .watch-row.has-lifted > .watch-row__head :is(.row-open, .space-row-link)::after { pointer-events: none; }
   /* Four of 44px. A short poster's stand past its top: in a row, which cuts them there, past its foot too. */
   .card-over > .rate--lift { --h: max(184px, min(200px, 150cqi - 8px)); --top: calc(150cqi - var(--h) - 4px); right: 4px; top: var(--top); bottom: auto; width: 46px; height: var(--h); }
