@@ -110,6 +110,7 @@
     var line = text.appendChild(el('span', 'dw__line'));
     line.appendChild(el('strong'));
     line.appendChild(el('span'));
+    text.appendChild(el('span', 'dw__fix')).hidden = true;
     link.appendChild(text);
     var go = el('span', 'dw__go');
     go.setAttribute('aria-hidden', 'true');
@@ -153,6 +154,10 @@
     var fix = item.state === 'needs_attention' ? [item.attention, item.attention_hint].filter(Boolean).join(' · ') : '';
     if (fix) line.setAttribute('title', fix);
     else line.removeAttribute('title');
+    var where = node.querySelector('.dw__fix');
+    var hint = item.state === 'needs_attention' ? item.attention_hint || '' : '';
+    setText(where, hint);
+    where.hidden = !hint;
     if (item.state === 'ready' && !wasReady) {
       card.timer = setTimeout(function () { land(item.key, Object.keys(cards).length === 1); draw(last); }, Math.max(1, item.ready_seconds || 1) * 1000);
     }

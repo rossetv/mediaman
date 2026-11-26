@@ -104,7 +104,7 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
 
 .dl-search-hint { font-size: 12px; color: var(--t3); margin-top: 6px; }
 /* Where to fix a download that needs attention, on a line of its own under what is wrong. */
-.dl-attention-hint { display: block; color: var(--warning); }
+.dl-attention-hint { display: block; color: var(--t2); }
 .dl-arr-link { position: relative; display: inline-block; white-space: nowrap; color: var(--accent); }
 .dl-arr-link:hover { text-decoration: underline; }
 /* 44px to touch, the line's own height to look at: the rest is taken back in margins. */

@@ -123,6 +123,7 @@ const scenarios = {
     const of = (t) => ({
       line: p.line(t), title: p.card(t).querySelector('.dw__line').getAttribute('title'),
       classes: p.card(t).className, fill: p.card(t).style.set['--p'],
+      fix: ((n) => (n && !n.hidden ? n.textContent : null))(p.card(t).querySelector('.dw__fix')),
     });
     return { told: of('Told'), viewer: of('Viewer') };
   },
