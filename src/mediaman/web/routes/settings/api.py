@@ -24,6 +24,7 @@ from collections.abc import Callable
 from typing import Annotated
 
 import requests as _requests
+from defusedxml.ElementTree import ParseError
 from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import JSONResponse
 from plexapi.exceptions import PlexApiException
@@ -86,6 +87,7 @@ from mediaman.web.routes.settings.secrets import (
 from mediaman.web.routes.settings.testers import (
     _TIMED_OUT,
     _failure,
+    is_not_plex_reply,
 )
 from mediaman.web.routes.settings.testers import (
     SERVICE_TESTER_KEYS as _SERVICE_TESTER_KEYS,
@@ -529,8 +531,16 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
         # a wrong or expired token surfaces as plexapi's Unauthorized
         PlexApiException,
         ValueError,
+        # a reply that is not a Plex server's answer: only that one is handled below
+        ParseError,
+        TypeError,
+        AttributeError,
     ) as exc:
-        if isinstance(exc, (SafeHTTPError, _requests.RequestException, PlexApiException)):
+        if isinstance(exc, (ParseError, TypeError, AttributeError)) and not is_not_plex_reply(exc):
+            raise
+        if isinstance(exc, (SafeHTTPError, _requests.RequestException, PlexApiException)) or (
+            is_not_plex_reply(exc)
+        ):
             # A wrong address, a refused token or a server that is down is an expected
             # state, not a fault: one line, no traceback.
             logger.warning("Failed to fetch Plex libraries: %s", type(exc).__name__)

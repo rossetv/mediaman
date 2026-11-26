@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import threading
+import xml.etree.ElementTree as ET
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +22,7 @@ from mediaman.services.rate_limit.instances import (
 )
 from mediaman.web.routes.settings import _TEST_CACHE, router
 from tests.helpers.factories import insert_settings
+from tests.helpers.plexapi_errors import raised_by_plexapi
 
 
 @pytest.fixture(autouse=True)
@@ -161,6 +163,41 @@ class TestPlexLibrariesEndpoint:
         records = [r for r in caplog.records if "Plex libraries" in r.getMessage()]
         assert [r.levelname for r in records] == ["WARNING"]
         assert records[0].exc_info is None
+
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            # a web page or another service's JSON does not parse as Plex's XML
+            ET.ParseError("not well-formed (invalid token): line 1, column 0"),
+            # an empty 200 reads as nothing, and so does XML that is not Plex's
+            raised_by_plexapi(TypeError("'NoneType' object is not iterable")),
+            raised_by_plexapi(AttributeError("'NoneType' object has no attribute 'lower'")),
+        ],
+    )
+    def test_a_reply_that_is_not_plex_logs_one_line_without_a_traceback(
+        self, app_factory, authed_client, conn, caplog, raised
+    ):
+        client = _client(app_factory, authed_client, conn)
+        with patch("mediaman.web.routes.settings.api.build_plex_from_db") as build:
+            build.return_value.get_libraries.side_effect = raised
+            resp = client.get("/api/plex/libraries")
+
+        assert resp.status_code == 200
+        assert (resp.json()["error"], resp.json()["libraries"]) == ("fetch_failed", [])
+        records = [r for r in caplog.records if "Plex libraries" in r.getMessage()]
+        assert [r.levelname for r in records] == ["WARNING"]
+        assert records[0].exc_info is None
+
+    def test_a_programming_error_in_the_library_call_is_still_raised(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn)
+        with patch("mediaman.web.routes.settings.api.build_plex_from_db") as build:
+            build.return_value.get_libraries.side_effect = AttributeError(
+                "'NoneType' object has no attribute 'key'"
+            )
+            with pytest.raises(AttributeError):
+                client.get("/api/plex/libraries")
 
     def test_requires_auth(self, app_factory, conn):
         """Unauthenticated request is rejected with 401."""

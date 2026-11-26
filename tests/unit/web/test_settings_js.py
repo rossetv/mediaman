@@ -22,7 +22,11 @@ HARNESS = Path(__file__).parent / "js" / "settings_harness.js"
 
 def _run(scenario: str, *args: str) -> dict:
     result = subprocess.run(
-        ["node", str(HARNESS), scenario, *args], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), scenario, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -953,6 +957,7 @@ def test_a_failed_test_names_the_service_once_for_a_screen_reader() -> None:
     assert out["named"] == ["", "Plex refused the token."]
     assert out["unnamed"] == ["", "Plex: Couldn't reach the service."]
     assert out["inside"] == ["", "No Plex server answered at this address."]
+    assert out["nameless"] == ["", "Not reachable"]
     assert out["longerWord"] == ["", "Plex: Plexamp answered."]
 
 

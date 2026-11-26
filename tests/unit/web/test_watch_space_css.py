@@ -41,3 +41,10 @@ def test_only_the_bar_s_two_outer_ends_are_round() -> None:
     last = _declarations(".space-seg--last::before")
     assert "start-start-radius: 11px" in first and "end-start-radius: 11px" in first
     assert "start-end-radius: 11px" in last and "end-end-radius: 11px" in last
+
+
+def test_the_off_chip_keeps_its_words_and_icon_in_the_text_colour_when_colours_are_forced() -> None:
+    css = re.sub(r"/\*.*?\*/", "", SHEET.read_text(encoding="utf-8"), flags=re.S)
+    forced = css.split("@media (forced-colors: active)")[1]
+    rule = ".space-meter--off .space-meter__free, .space-meter--off > .ico { color: ButtonText; }"
+    assert rule in forced

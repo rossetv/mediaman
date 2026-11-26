@@ -242,15 +242,17 @@
        aria-expanded="false" aria-controls="intg-body-{{ service }}"
        data-intg-toggle>
     <div class="glyph gy-{{ glyph_kind }}">{{ glyph }}</div>
-    <div class="h-info">
-      <h3>{{ title }}</h3>
-      {% if sub %}<div class="sub">{{ sub|safe }}</div>{% endif %}
-    </div>
-    <div class="hd-actions">
-      {{ conn_pill(service) }}
-      <div class="hd-btns">
-        {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
-        {{ icon("i-chevron-down", "intg-chev") }}
+    <div class="hd-main">
+      <div class="h-info">
+        <h3>{{ title }}</h3>
+        {% if sub %}<div class="sub">{{ sub|safe }}</div>{% endif %}
+      </div>
+      <div class="hd-actions">
+        {{ conn_pill(service) }}
+        <div class="hd-btns">
+          {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
+          {{ icon("i-chevron-down", "intg-chev") }}
+        </div>
       </div>
     </div>
   </div>

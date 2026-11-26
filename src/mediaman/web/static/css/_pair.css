@@ -28,6 +28,7 @@
 .pair__code input { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: text; }
 .pair__code input[readonly] { cursor: default; }
 .pair .pair__why { min-height: 20px; margin-bottom: 8px; font-size: 13px; }
+.pair #pair-name-why { min-height: 36px; line-height: 18px; }
 .pair .pair__why.bad { color: var(--danger-text); }
 .pair .btn--primary { width: 100%; min-height: 44px; }
 .pair .inp { width: 100%; min-height: 44px; margin-bottom: 4px; padding: 0 14px; font-size: 16px; }
@@ -46,4 +47,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .pair form, #pair-done { animation: none; }
+}
+
+@media (forced-colors: active) {
+  .pair .fpill.on { forced-color-adjust: none; background: Highlight; color: HighlightText; }
 }

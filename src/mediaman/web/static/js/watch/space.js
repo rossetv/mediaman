@@ -298,14 +298,13 @@
       if (busy) b.setAttribute('aria-busy', 'true');
       if (!stats || !stats.storage.readable) {
         var unset = !!stats && stats.show_storage && noPaths();
-        var text = !stats || !stats.show_storage ? 'Storage' : unset ? 'Set library paths' : 'Can’t read storage';
+        var text = !stats || !stats.show_storage ? 'Storage' : unset ? 'No library paths' : 'Can’t read storage';
         if (text !== 'Storage' || !stats) b.classList.add('space-meter--off');
         var words = el('span', 'space-meter__free', text === 'Storage' ? text : unset ? text : 'Can’t read');
-        if (unset) words.append(el('span', 'space-meter__word', ' in Settings'));
-        else if (text !== 'Storage') words.append(el('span', 'space-meter__word', ' storage'));
+        if (!unset && text !== 'Storage') words.append(el('span', 'space-meter__word', ' storage'));
         add(b, MM.dom.icon('i-hard-drive'), words);
         b.setAttribute('aria-label', !stats ? 'Storage, could not be loaded' + leavingLabel()
-          : (text === 'Storage' ? text : unset ? 'Storage: no library paths are set' : 'Storage: the disks can’t be read') + marks(b) + leavingLabel());
+          : (text === 'Storage' ? text : unset ? 'No library paths. Storage' : 'Storage: the disks can’t be read') + marks(b) + leavingLabel());
         return;
       }
       var s = stats.storage;

@@ -324,6 +324,7 @@
       // An answer that already holds the service's name as a whole word is not given it twice.
       function said(btn, label) {
         var name = serviceName(btn);
+        if (!name) return label;
         var word = /\w/;
         for (var at = label.indexOf(name); at !== -1; at = label.indexOf(name, at + 1)) {
           var before = at === 0 ? '' : label.charAt(at - 1);
