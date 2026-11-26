@@ -201,11 +201,11 @@ class Players:
         if end:
             play.stream_id = play.url = None
 
-    def _close(self, tv: _Tv, reason: str) -> None:
+    def _close(self, tv: _Tv, reason: str, by: str | None = None) -> None:
         if tv.play is None:
             return
         self._put_aside(tv.play, end=True)
-        tv.last = {"reason": reason, **_summary(tv.play)}
+        tv.last = {"reason": reason, **_summary(tv.play), "by": tv.play.user, "stopped_by": by}
         tv.play = None
         tv.commands = []
 
@@ -443,12 +443,12 @@ class Players:
             tv.sitting, tv.active_at = 0, self._clock()
             return self._command(tv, kind, **args)
 
-    def stop(self, token_hash: str, play_id: str | None = None) -> int:
+    def stop(self, token_hash: str, play_id: str | None = None, by: str | None = None) -> int:
         with self._lock:
             tv = self._tv(token_hash)
             if play_id is not None:
                 self._current(tv, play_id)
-            self._close(tv, "stopped")
+            self._close(tv, "stopped", by)
             return self._command(tv, "stop")
 
     def leave_places(self) -> None:

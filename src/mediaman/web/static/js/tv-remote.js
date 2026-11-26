@@ -243,9 +243,11 @@
       say('mediaman restarted. ' + keptIn(last));
       return;
     }
-    if (reason === 'stopped' && isOpen) {
-      say(place_kept('Stopped.', last));
-      close();
+    // Someone else's stop of one's own film is said even with only the bar shown.
+    var stopper = reason === 'stopped' && last && last.stopped_by;
+    if (reason === 'stopped' && (isOpen || stopper)) {
+      say(place_kept(stopper ? stopper + ' stopped ' + (last.title || 'it') + ' on ' + name() + '.' : 'Stopped.', last));
+      if (isOpen) close();
     } else if (reason && reason !== 'stopped' && (isOpen || reason !== 'moved' && !(seen && seen.play_id === dismissed))) {
       gone = was;
     } else if (isOpen) {

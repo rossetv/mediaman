@@ -654,7 +654,7 @@ def _carry_on(
     players, key = get_players(), held.token_hash or ""
     try:
         if what == "stop":
-            command = players.stop(key, play_id)
+            command = players.stop(key, play_id, by=asker)
             _carry_out(players)
             return command
         if what == "cancel":
@@ -772,6 +772,14 @@ def _limited(limiter: ActionRateLimiter, username: str) -> Response | None:
 def _shown(held: repo.Tv) -> dict[str, Any]:
     view = get_players().view(held.token_hash or "")
     play = view.get("play")
+    if view["last"] is not None:
+        last = view["last"] = dict(view["last"])
+        by, stopped_by = last.pop("by", None), last.pop("stopped_by", None)
+        # Only whoever started it is told who else stopped it.
+        if held.kind == "page" and by == held.owner and stopped_by != held.owner:
+            last["stopped_by"] = stopped_by
+        else:
+            last["stopped_by"] = None
     if play and held.kind == "page":
         play["mine"] = play["by"] == held.owner
         # Their own pause needs no name.

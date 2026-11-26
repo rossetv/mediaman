@@ -671,6 +671,18 @@ def test_either_person_steers_what_the_other_started(tv, shared, amy, bob, conn)
     assert get_progress(conn, "bob", ["101"]) == {}
 
 
+def test_whoever_started_a_film_is_told_who_else_stopped_it_and_nobody_else(tv, shared, amy, bob):
+    _play(amy, shared)
+    tv.poll("playing", 70)
+    _command(bob, shared, "stop")
+    assert _tv_of(amy, shared)["last"]["stopped_by"] == "bob"
+    assert _tv_of(bob, shared)["last"]["stopped_by"] is None
+    _play(amy, shared)
+    tv.poll("playing", 70)
+    _command(amy, shared, "stop")
+    assert _tv_of(amy, shared)["last"]["stopped_by"] is None
+
+
 def test_both_people_steer_at_the_same_moment(tv, shared, amy, bob):
     _play(amy, shared)
     tv.poll("playing", 70)
