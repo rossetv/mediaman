@@ -99,7 +99,8 @@ def build_episode_summary(episodes: list[dict[str, object]]) -> str:
         parts.append(f"{queued} queued")
     if searching:
         parts.append(f"{searching} searching")
-    if held:
+    # Of all of them, the state pill beside it says as much.
+    if held and held != total:
         parts.append(f"{held} need{'s' if held == 1 else ''} attention")
     return " · ".join(parts)
 

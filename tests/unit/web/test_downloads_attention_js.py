@@ -30,10 +30,11 @@ def test_an_admin_reads_what_is_wrong_and_where_to_fix_it(page, card) -> None:
 
 
 @pytest.mark.parametrize("card", ["hero", "row"])
-def test_a_viewer_reads_only_that_it_needs_attention(page, card) -> None:
+def test_a_viewer_reads_that_it_needs_attention_and_waits_for_an_admin(page, card) -> None:
     shown = page["viewer"][card]
     assert shown["pill"] == "Needs attention"
-    assert (shown["hint"], shown["fix"]) == (None, None)
+    assert not shown["hint"]
+    assert shown["fix"] == "Won’t finish until an admin sorts it out"
 
 
 @pytest.mark.parametrize("card", ["hero", "row"])

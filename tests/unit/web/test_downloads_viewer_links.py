@@ -126,3 +126,11 @@ def test_a_download_whose_tries_are_spent_says_where_to_fix_it(app_factory, conn
     html, body = _page_and_api(app_factory, conn, "admin", _held)
     assert body["hero"]["retrying"] is False
     assert "Fix it in Radarr" in html and "look for another copy" not in html
+
+
+def test_a_viewer_is_told_a_download_that_needs_attention_waits_for_an_admin(app_factory, conn):
+    conn.execute("INSERT INTO arr_import_retries (key, tries) VALUES ('radarr:1', 2)")
+    conn.commit()
+    html, _ = _page_and_api(app_factory, conn, "viewer", _held)
+    assert html.count("Won’t finish until an admin sorts it out") == 2
+    assert "Fix it in Radarr" not in html
