@@ -1919,7 +1919,7 @@
     var k = stateOf(cur.ref);
     if (d.in_library || cur.justAdded || !d.download || k.state || k.tracked) return false;
     // Until the Arr has said whether it holds the title, Download could ask for what it already has.
-    if (d.download.answered === false) return false;
+    if (d.download.answered === false && !cur.arrQuiet) return false;
     if (d.kind === 'movie') return true;
     return !d.sonarr_tracked && !allHeld(d);
   }
@@ -2067,7 +2067,7 @@
       actions.appendChild(statePill('dl-state--done', 'All seasons in library', 'i-circle-check'));
       return;
     }
-    if (d.download.answered === false) {
+    if (d.download.answered === false && !cur.arrQuiet) {
       // Asked again meanwhile (askLate): Download waits for what the Arr says.
       var wait = statusLine('Checking if it is asked for', 'i-clock');
       wait.setAttribute('role', 'status');
@@ -2094,6 +2094,9 @@
       // Which seasons are out is the page's to say.
       dl.setAttribute('aria-disabled', 'true');
       if (!cur.failed) dl.setAttribute('aria-busy', 'true');
+    }
+    if (d.download.answered === false && !k.error && !k.busy) {
+      under.appendChild(statusLine('The downloader isn’t answering right now', 'i-circle-info'));
     }
     if (k.error) {
       var err = el('p', 'ttl__error');
@@ -2970,7 +2973,12 @@
     var sent = k.sentAt;
     var unpressed = function () { return k.sentAt === sent; };
     var next = function (data) {
-      if (n + 1 < ARR_LATE_ASKS && (!data || (data.download && data.download.answered === false))) askLate(c, n + 1);
+      if (data && !(data.download && data.download.answered === false)) return;
+      if (n + 1 < ARR_LATE_ASKS) return askLate(c, n + 1);
+      // Given up on: Download is offered, and pressing it says what fails.
+      if (c !== cur || !isOpen || c.ref !== ref || !unpressed()) return;
+      c.arrQuiet = true;
+      redrawActions(ref);
     };
     setTimeout(function () {
       if (c !== cur || !isOpen || c.ref !== ref || !unpressed()) return;

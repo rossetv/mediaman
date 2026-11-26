@@ -6,10 +6,10 @@ const fs = require('fs');
 const path = require('path');
 
 const source = fs.readFileSync(path.join(__dirname, 'watch_detail_harness.js'), 'utf8')
-  .replace(/scenarios\[process\.argv\[2\]\][\s\S]*$/, 'module.exports = { load, openCard, primary, MOVIE_DL, LIB_MOVIE, FACTS, APIError, settle };');
+  .replace(/scenarios\[process\.argv\[2\]\][\s\S]*$/, 'module.exports = { load, openCard, primary, click, MOVIE_DL, LIB_MOVIE, FACTS, APIError, settle };');
 const mod = { exports: {} };
 new Function('require', 'module', '__dirname', source)(require, mod, __dirname);
-const { load, openCard, primary, MOVIE_DL, LIB_MOVIE, FACTS, APIError, settle } = mod.exports;
+const { load, openCard, primary, click, MOVIE_DL, LIB_MOVIE, FACTS, APIError, settle } = mod.exports;
 
 const REF = 'tmdb-movie-77';
 const withDownload = (over) => Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, over) });
@@ -65,18 +65,21 @@ const scenarios = {
     return out;
   },
 
-  // Radarr never answers: the asks stop after a few.
+  // Radarr never answers: the asks stop after a few, and Download is offered with a line saying why it waited.
   async arrSilent() {
     let asks = 0;
-    const p = load({ routes: { ['/api/watch/title/' + REF]: () => { asks++; return Promise.resolve(JSON.parse(JSON.stringify(withDownload({ state: null, answered: false })))); } } });
+    const p = load({ routes: { ['/api/watch/title/' + REF]: () => { asks++; return Promise.resolve(JSON.parse(JSON.stringify(withDownload({ state: null, answered: false })))); } },
+      posted: { '/api/search/download': new APIError(502, 'arr_failed', 'Radarr did not answer') } });
     p.run();
     await openCard(p, REF);
-    for (let i = 0; i < 8; i++) {
-      const due = p.timers.splice(0);
-      due.forEach((t) => t.fn && t.fn());
-      await settle();
-    }
-    return { asks, primary: primary(p) };
+    const step = async () => { const due = p.timers.splice(0); due.forEach((t) => t.fn && t.fn()); await settle(); };
+    for (let i = 0; i < 2; i++) await step();
+    const out = { beforeLast: primary(p), beforeLastSays: p.text('.ttl__status') };
+    for (let i = 0; i < 6; i++) await step();
+    Object.assign(out, { asks, primary: primary(p), says: p.text('[data-ttl-part="under"]') });
+    click(p.doc, p.q('[data-ttl-act="primary"]'));
+    await settle();
+    return Object.assign(out, { posts: p.posts.map((x) => x.url), error: p.text('.ttl__error') });
   },
 };
 

@@ -52,7 +52,13 @@ def test_no_download_is_offered_until_the_arr_has_answered_and_it_is_asked_again
     assert out["asks"] == 3
 
 
-def test_an_arr_that_never_answers_is_asked_a_few_times_and_then_left() -> None:
+def test_an_arr_that_never_answers_is_asked_a_few_times_and_then_download_is_offered() -> None:
     out = _run("arrSilent")
+    assert out["beforeLast"] is None
+    assert out["beforeLastSays"] == "Checking if it is asked for"
     assert out["asks"] == 4
-    assert out["primary"] is None
+    assert "Download" in out["primary"]["text"] and not out["primary"]["disabled"]
+    assert "answering" in out["says"] and "Checking" not in out["says"]
+    # Pressed, it asks as ever and its own error says what failed.
+    assert out["posts"] == ["/api/search/download"]
+    assert "Radarr did not answer" in out["error"]
