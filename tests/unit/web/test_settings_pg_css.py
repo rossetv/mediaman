@@ -323,13 +323,15 @@ def test_a_disabled_settings_field_keeps_the_dimmed_colour() -> None:
 
 def test_the_monospace_settings_field_is_16px_where_touch_would_zoom() -> None:
     css = _strip("_settings_pg.css")
-    rule = re.search(
-        r"@media \(max-width: 639\.98px\), \(pointer: coarse\) \{\s*\.setg-pg \.inp--mono \{([^{}]*)\}",
-        css,
+    base = re.search(r"^\.setg-pg \.inp--mono \{[^{}]*font-size: 13px;[^{}]*\}", css, flags=re.M)
+    assert base
+    # Top level and after the 13px rule, or the same-weight 13px rule wins.
+    rule = re.compile(
+        r"^@media \(max-width: 639\.98px\), \(pointer: coarse\) \{\s*"
+        r"\.setg-pg \.inp--mono \{[^{}]*font-size: 16px[^{}]*\}\s*\}",
+        flags=re.M,
     )
-    assert rule and "font-size: 16px" in rule.group(1)
-    # The 16px rule has to come after the 13px base to win.
-    assert css.index("font-size: 13px") < css.index(rule.group(0))
+    assert rule.search(css, base.end())
 
 
 def test_the_history_search_field_is_16px_on_a_touch_screen_of_any_width() -> None:

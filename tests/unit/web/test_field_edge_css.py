@@ -179,7 +179,21 @@ def test_a_long_name_that_cannot_fit_its_column_breaks_at_a_syllable_with_a_hyph
 
 
 def test_a_phone_s_three_across_titles_are_wide_enough_for_cartographer_s() -> None:
-    # "Cartographer" in 12px bold is about 76px; the narrowest three-across card is 100px
-    # (360 less the page's 20px each side and two 10px gaps, over three), clear of it.
-    assert (360 - 2 * 20 - 2 * 10) / 3 >= 94
-    assert "font-size: 12px" in _of(".watch-card__title", "_watch.css", "(max-width: 599.98px)")
+    grid = _of(".watch-grid-host > .watch-grid", "_watch_grid.css", "(max-width: 599.98px)")
+    assert "repeat(3, minmax(0, 1fr))" in grid
+    gap = int(re.search(r"gap: \d+px (\d+)px", grid).group(1))
+    pad = int(re.search(r"--pad:\s*max\(clamp\((\d+)px,\s*4vw", _token_sheet()).group(1))
+    # At 360 the page's 4vw is under the clamp's floor, so the floor is the side padding.
+    assert pad > 0.04 * 360
+    column = (360 - 2 * pad - 2 * gap) / 3
+    size = int(
+        re.search(
+            r"font-size: (\d+)px", _of(".watch-card__title", "_watch.css", "(max-width: 599.98px)")
+        ).group(1)
+    )
+    # "Cartographer" in bold is about 6.3 times the font size wide.
+    assert column >= 6.3 * size + 18
+
+
+def _token_sheet() -> str:
+    return (CSS / "_tokens.css").read_text(encoding="utf-8")

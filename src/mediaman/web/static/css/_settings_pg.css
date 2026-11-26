@@ -80,9 +80,6 @@
     scroll-snap-align: center;
   }
   .setg-pg .setg-rail-item > .ico { font-size: 13px; }
-@media (max-width: 639.98px), (pointer: coarse) {
-  .setg-pg .inp--mono { font-size: 16px; }
-}
   /* Active chip sits above the ::before/::after fade gradients so its edge
      never picks up a darkened band when it lands inside the 32px fade zone.
      Inactive chips stay below so the fades still cue horizontal scroll. */
@@ -271,6 +268,9 @@ html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
 .setg-pg .inp--fluid { width: 100%; max-width: none; }
 .setg-pg .inp--num  { max-width: 72px; width: 72px; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .setg-pg .inp--mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; }
+@media (max-width: 639.98px), (pointer: coarse) {
+  .setg-pg .inp--mono { font-size: 16px; }
+}
 
 /* Wrap caps at .inp--lg's max-width so the absolute reveal button anchors
    to the input's right edge, not the parent column's. */
