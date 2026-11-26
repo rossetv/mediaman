@@ -22,6 +22,8 @@ from mediaman.web.routes.downloads_strip import _with_titles
 from mediaman.web.routes.downloads_strip import router as strip_router
 from tests.helpers.factories import insert_media_item
 
+_WAITING = "In your library soon"
+
 
 def _movie(n: int, title: str) -> dict[str, object]:
     return {"id": n, "tmdbId": n, "title": title, "year": 2024, "monitored": True, "images": []}
@@ -221,7 +223,7 @@ def test_the_strip_says_added_of_what_the_library_does_not_hold_yet(services, co
     items = [ready("Ember Coast", 11), ready("Dry Harbour", 12)]
     told = _with_titles(conn, "k" * 64, items)
 
-    assert [item.line for item in told] == ["Added", ""]
+    assert [item.line for item in told] == [_WAITING, ""]
 
 
 def test_the_strip_passes_on_no_other_service_s_poster(services, conn):
@@ -364,7 +366,7 @@ def test_the_strip_says_ready_of_a_film_the_library_holds_as_the_page_does(servi
     on_strip = {i["title"]: (i["playable"], i["line"]) for i in told["items"]}
 
     assert page == {"Ember Coast": "unknown", "Dry Harbour": "ready"}
-    assert on_strip == {"Ember Coast": (False, "Added"), "Dry Harbour": (True, "")}
+    assert on_strip == {"Ember Coast": (False, _WAITING), "Dry Harbour": (True, "")}
     assert told["summary"]["ready"] == 1
 
 
@@ -436,6 +438,102 @@ def test_a_viewer_is_not_told_which_service_does_not_answer(services, client, co
     assert resp.json()["outage"] == ring["outage"] == "Downloads aren't available"
     assert resp.json()["subtitle"] == "1 item in progress · downloads aren't available"
     assert "Radarr" not in resp.text
+
+
+def _scanned(conn) -> None:
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES ('plex_libraries', '[1]', '2026-01-01')"
+    )
+    conn.commit()
+
+
+def _just_done(conn, dl_id: str, title: str, media_type: str = "movie") -> None:
+    conn.execute(
+        "INSERT INTO recent_downloads (dl_id, title, media_type, completed_at) VALUES (?, ?, ?, ?)",
+        (dl_id, title, media_type, now_utc().isoformat()),
+    )
+    conn.commit()
+
+
+def _mailed_film(services, monkeypatch, tmdb_id: int, title: str, year: int = 2024) -> None:
+    monkeypatch.setattr(
+        "mediaman.web.routes.download.status.build_radarr_from_db", lambda *a: services[0]
+    )
+    services[0].get_movie_by_tmdb.return_value = {
+        **_movie(tmdb_id, title),
+        "year": year,
+        "hasFile": True,
+    }
+
+
+def test_a_show_the_library_holds_but_sonarr_cannot_tell_of_is_not_offered_to_play(
+    services, client, conn
+):
+    insert_media_item(
+        conn,
+        id="701",
+        title="Season 1",
+        show_title="Harrow Lane",
+        media_type="tv_season",
+        season_number=1,
+        show_rating_key="700",
+    )
+    _scanned(conn)
+    _just_done(conn, "sonarr:Harrow Lane", "Harrow Lane", "series")
+
+    page = client.get("/api/downloads").json()["recent"]
+    told = client.get("/api/downloads/strip").json()
+
+    assert [r["readiness"] for r in page] == ["unknown"]
+    assert [(i["playable"], i["line"]) for i in told["items"]] == [(False, _WAITING)]
+    assert told["summary"]["ready"] == 0
+
+
+@pytest.mark.parametrize(
+    ("held_tmdb_id", "expected"),
+    [(None, ("ready", True, "ready")), (99, ("unknown", False, "almost_ready"))],
+)
+def test_a_film_the_library_knows_by_title_alone_is_ready_but_another_of_its_title_is_not(
+    services, client, conn, monkeypatch, held_tmdb_id, expected
+):
+    insert_media_item(conn, id="912", title="Dry Harbour", media_type="movie")
+    conn.execute("UPDATE media_items SET tmdb_id = ? WHERE id = '912'", (held_tmdb_id,))
+    _scanned(conn)
+    _just_done(conn, "radarr:Dry Harbour#12", "Dry Harbour")
+    _mailed_film(services, monkeypatch, 12, "Dry Harbour")
+
+    (page,) = client.get("/api/downloads").json()["recent"]
+    (item,) = client.get("/api/downloads/strip").json()["items"]
+
+    said = (page["readiness"], item["playable"], _radarr_status(conn, "k" * 64, 12)["state"])
+    assert said == expected
+
+
+def test_the_mailed_page_does_not_take_a_film_of_its_title_from_another_year(
+    services, conn, monkeypatch
+):
+    insert_media_item(
+        conn,
+        id="912",
+        title="Dry Harbour",
+        media_type="movie",
+        file_path="/media/movies/Dry Harbour (1990)/Dry Harbour.mkv",
+    )
+    _scanned(conn)
+    _mailed_film(services, monkeypatch, 12, "Dry Harbour", year=2024)
+
+    assert _radarr_status(conn, "k" * 64, 12)["state"] == "almost_ready"
+
+
+def test_a_done_film_the_strip_never_saw_is_not_taken_for_the_one_of_its_title_held(
+    services, client, conn
+):
+    _hold_in_library(conn, 11, "Dune")
+    _just_done(conn, "radarr:Dune#12", "Dune")
+
+    (item,) = client.get("/api/downloads/strip").json()["items"]
+
+    assert (item["playable"], item["line"], item["tmdb_ref"]) == (False, _WAITING, "tmdb-movie-12")
 
 
 def test_stop_tracking_while_a_key_is_refused_does_not_say_to_try_again(services, client):

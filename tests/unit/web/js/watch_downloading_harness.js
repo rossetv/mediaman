@@ -165,7 +165,7 @@ const scenarios = {
     return { at, still, cards: p.cards(), recent: p.recent(), ref: link.getAttribute('data-title-ref'), heading: p.heading() };
   },
   async addedOnly() {
-    const added = { line: 'Added', playable: false };
+    const added = { line: 'In your library soon', playable: false };
     const p = load([answer([item('A'), item('B')]), answer([item('A'), ready('B', 60, added)])]);
     await p.step(5010);
     const at = { said: p.said(), line: p.line('B'), classes: p.card('B').className };

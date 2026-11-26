@@ -116,7 +116,8 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
 
     movie = client.get_movie_by_tmdb(tmdb_id)
     if movie and movie.get("hasFile"):
-        return _playable(conn, secret_key, _radarr_ready_item(movie), "movie", tmdb_id)
+        ready = _radarr_ready_item(movie)
+        return _playable(conn, secret_key, ready, "movie", tmdb_id, movie.get("year"))
 
     queued = _radarr_queue_item(client.get_queue(), tmdb_id)
     if queued is not None:
@@ -144,13 +145,18 @@ def _sonarr_status(
 
 
 def _playable(
-    conn: sqlite3.Connection, secret_key: str, item: DownloadItem, kind: str, tmdb_id: int
+    conn: sqlite3.Connection,
+    secret_key: str,
+    item: DownloadItem,
+    kind: str,
+    tmdb_id: int,
+    year: int | None = None,
 ) -> DownloadItem:
     """*item*, ready only once the library holds its title, as Downloads and the strip say;
     almost ready until then."""
     if item["state"] != "ready":
         return item
-    if library_title(library_of(conn, secret_key), kind, tmdb_id, item["title"]) is not None:
+    if library_title(library_of(conn, secret_key), kind, tmdb_id, item["title"], year) is not None:
         return item
     return {**item, "state": "almost_ready", "state_label": state_label("almost_ready")}
 

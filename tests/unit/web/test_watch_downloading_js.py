@@ -88,7 +88,7 @@ def test_then_it_goes_to_the_front_of_recently_added(out) -> None:
 def test_one_added_that_the_library_does_not_hold_yet_offers_no_play_and_goes_nowhere(out) -> None:
     added = out["addedOnly"]
     assert added["at"]["said"] == ""
-    assert added["at"]["line"] == "Added"
+    assert added["at"]["line"] == "In your library soon"
     assert "is-ready" not in added["at"]["classes"].split()
     assert added["cards"] == ["A"]
     assert "B" not in added["recent"]

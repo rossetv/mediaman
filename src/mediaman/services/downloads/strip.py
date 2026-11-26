@@ -185,7 +185,9 @@ def _current(item: Mapping[str, object]) -> StripItem:
     )
 
 
-_READY_LINES = {"part": "Some episodes ready", "unknown": "Added"}
+#: What a download that is done says until the library holds its title, to be played.
+WAITING_LINE = "In your library soon"
+_READY_LINES = {"part": "Some episodes ready", "unknown": WAITING_LINE}
 
 
 def _ready(item: Mapping[str, object], before: StripItem | None, now: datetime) -> StripItem | None:
@@ -196,7 +198,7 @@ def _ready(item: Mapping[str, object], before: StripItem | None, now: datetime) 
     left = READY_S - max(0.0, (now - done).total_seconds())
     if left <= 0:
         return None
-    dl_id = _text(item.get("id"))
+    dl_id, readiness = _text(item.get("id")), _text(item.get("readiness"))
     tmdb_id = (before.tmdb_id if before else None) or film_tmdb_id(dl_id, _text(item.get("title")))
     return StripItem(
         key=_key_of(dl_id, tmdb_id),
@@ -205,8 +207,9 @@ def _ready(item: Mapping[str, object], before: StripItem | None, now: datetime) 
         kind=_kind_of(item),
         state="ready",
         percent=100,
-        line=_READY_LINES.get(_text(item.get("readiness")), ""),
+        line=_READY_LINES.get(readiness, ""),
         ready_seconds=math.ceil(left),
+        playable=readiness != "unknown",
         poster_url=_text(item.get("poster_url")) or (before.poster_url if before else ""),
         art_url=before.art_url if before else "",
         tmdb_id=tmdb_id,
