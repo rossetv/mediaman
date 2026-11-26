@@ -164,6 +164,14 @@ const scenarios = {
     const link = p.doc.querySelector('[data-row-id="recent"]').querySelector('a');
     return { at, still, cards: p.cards(), recent: p.recent(), ref: link.getAttribute('data-title-ref'), heading: p.heading() };
   },
+  async addedOnly() {
+    const added = { line: 'Added', playable: false };
+    const p = load([answer([item('A'), item('B')]), answer([item('A'), ready('B', 60, added)])]);
+    await p.step(5010);
+    const at = { said: p.said(), line: p.line('B'), classes: p.card('B').className };
+    await p.step(60500);
+    return { at, cards: p.cards(), recent: p.recent() };
+  },
   async readyTools() {
     const marks = { tmdb_ref: 'tmdb-movie-9', level: 2, watched: true, mark_kind: 'movie', mark_key: '12' };
     const p = load([answer([ready('B', 2, marks), ready('Cove', 3, { tmdb_ref: 'tmdb-movie-4', level: null, watched: false, mark_kind: null, mark_key: null }), item('A')])]);

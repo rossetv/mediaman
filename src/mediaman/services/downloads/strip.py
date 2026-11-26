@@ -2,7 +2,8 @@
 header's ring.
 
 One answer is shared by everybody and held for a few seconds, since making one asks Radarr,
-Sonarr and NZBGet. What a service that does not answer had in hand stays as it last was.
+Sonarr and NZBGet. What a service that does not answer had in hand stays as it last was, as
+far as the Downloads page lists it too.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from hashlib import blake2b
 from typing import Any, Literal
 
 from mediaman.core.time import parse_iso_utc
+from mediaman.services.arr.fetcher._base import film_tmdb_id
 from mediaman.services.downloads.download_queue import VIEWER_OUTAGE
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
 
@@ -75,6 +77,8 @@ class StripItem:
     poster_url: str = ""
     art_url: str = ""
     tmdb_id: int | None = None
+    #: Of one that is done: whether the library holds it, to be played.
+    playable: bool = True
     #: What the queue knows it by: for what only NZBGet holds, the release's own name, which
     #: is told to nobody.
     dl_id: str = ""
@@ -87,8 +91,6 @@ class StripItem:
 class Strip:
     items: tuple[StripItem, ...] = ()
     outage: str = ""
-    #: Whether a service of the outage refused its key, which a viewer is not told of.
-    refused: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,7 +196,8 @@ def _ready(item: Mapping[str, object], before: StripItem | None, now: datetime) 
     left = READY_S - max(0.0, (now - done).total_seconds())
     if left <= 0:
         return None
-    dl_id, tmdb_id = _text(item.get("id")), before.tmdb_id if before else None
+    dl_id = _text(item.get("id"))
+    tmdb_id = (before.tmdb_id if before else None) or film_tmdb_id(dl_id, _text(item.get("title")))
     return StripItem(
         key=_key_of(dl_id, tmdb_id),
         dl_id=dl_id,
@@ -210,10 +213,6 @@ def _ready(item: Mapping[str, object], before: StripItem | None, now: datetime) 
     )
 
 
-def _service_of(dl_id: str) -> str:
-    return dl_id.partition(":")[0].capitalize() if _is_arr(dl_id) else "NZBGet"
-
-
 def _was(
     dl_id: str, before: Sequence[StripItem], found: Mapping[str, StripItem]
 ) -> StripItem | None:
@@ -226,7 +225,8 @@ def _was(
 def collect(data: DownloadsResponse, before: Sequence[StripItem], now: datetime) -> list[StripItem]:
     """The items of *data*, in an order that moves nothing while its state stands: what is done
     or coming in, then what waits its turn, then what is looked for. *before* is the last
-    answer's, for what a service that does not answer holds."""
+    answer's, for how far along what NZBGet held was while it does not answer. What *data* does
+    not list is not held: the Downloads page cannot show it."""
     known = {item.key: item for item in before}
     down = data["unreachable"]
     found: dict[str, StripItem] = {}
@@ -239,27 +239,17 @@ def collect(data: DownloadsResponse, before: Sequence[StripItem], now: datetime)
         if lost and was and was.state in ("downloading", "almost_ready", "queued"):
             item = replace(was, held=True)
         found[item.key] = item
-    live = {item.dl_id for item in found.values()}
-    done = {_text(raw.get("id")) for raw in data["recent"]}
     for raw in data["recent"]:
         ready = _ready(raw, _was(_text(raw.get("id")), before, found), now)
         if ready is not None:
             found.setdefault(ready.key, ready)
-    for key, was in known.items():
-        if was.state == "ready" or key in found or was.dl_id in done:
-            continue
-        # Listed now that its TMDB id is known.
-        if was.tmdb_id is None and was.dl_id in live:
-            continue
-        if _service_of(was.dl_id) in down:
-            found[key] = replace(was, held=True)
     place = {key: n for n, key in enumerate(known)}
     return sorted(found.values(), key=lambda i: (_RANK[i.state], place.get(i.key, len(place))))
 
 
 def summary(items: Sequence[StripItem]) -> dict[str, int]:
     active = [i.percent for i in items if i.state in _ACTIVE]
-    ready = sum(i.state == "ready" for i in items)
+    ready = sum(i.state == "ready" and i.playable for i in items)
     idle = 100 if ready else 0
     return {
         "total": len(items),
@@ -286,6 +276,7 @@ def _shown(item: StripItem) -> dict[str, Any]:
         "line": item.line,
         "held": item.held,
         "ready_seconds": item.ready_seconds,
+        "playable": item.playable,
         "ref": item.ref,
         "tmdb_ref": _tmdb_ref(item),
         "href": item.href,
@@ -296,7 +287,8 @@ def _shown(item: StripItem) -> dict[str, Any]:
 
 def payload(answer: Answer, *, admin: bool = False) -> dict[str, Any]:
     """What a page is told: the same for an admin and a viewer, but that a viewer, as anyone
-    not said to be an admin, is told of a refused key only that downloads are not available."""
+    not said to be an admin, is told of a service that does not answer only that downloads are
+    not available."""
     stale = answer.age_s > STALE_S
     items: list[StripItem] = []
     for item in answer.strip.items:
@@ -309,7 +301,7 @@ def payload(answer: Answer, *, admin: bool = False) -> dict[str, Any]:
     return {
         "summary": summary(items),
         "outage": VIEWER_OUTAGE
-        if answer.strip.refused and not admin
+        if answer.strip.outage and not admin
         else answer.strip.outage or (STALE_LINE if stale else ""),
         "items": [_shown(item) for item in items[:MAX_ITEMS]],
         "age_ms": round(answer.age_s * 1000),

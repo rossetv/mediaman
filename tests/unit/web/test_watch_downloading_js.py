@@ -85,6 +85,15 @@ def test_then_it_goes_to_the_front_of_recently_added(out) -> None:
     assert landed["heading"] == "Downloading, 1, see all in Downloads"
 
 
+def test_one_added_that_the_library_does_not_hold_yet_offers_no_play_and_goes_nowhere(out) -> None:
+    added = out["addedOnly"]
+    assert added["at"]["said"] == ""
+    assert added["at"]["line"] == "Added"
+    assert "is-ready" not in added["at"]["classes"].split()
+    assert added["cards"] == ["A"]
+    assert "B" not in added["recent"]
+
+
 def test_it_has_its_thumb_and_its_eye_there_as_every_card_has(out) -> None:
     assert out["readyTools"] == {
         "B": ["tmdb-movie-9", "2", True, "movie/12", "true", True],

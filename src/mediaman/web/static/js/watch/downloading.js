@@ -23,6 +23,9 @@
   var SWEEP_MS = 1700; // past the ring the new card arrives with
   var FLY_EASE = 'cubic-bezier(.3,.7,.2,1)';
 
+  /* Done, and in the library to be played; one only added is not there yet. */
+  function playable(item) { return item.state === 'ready' && item.playable !== false; }
+
   var slot = core.byId('watch-downloading');
   if (!slot || !window.MM.downloading) return;
 
@@ -125,7 +128,7 @@
     var wasReady = card.item && card.item.state === 'ready';
     card.item = item;
     toArray(link.querySelectorAll('img')).forEach(function (img) { setPicture(img, item); });
-    var on = STATES[item.state] || [];
+    var on = item.state === 'ready' && !playable(item) ? [] : STATES[item.state] || [];
     ['is-queued', 'is-looking', 'is-stuck', 'is-ready'].forEach(function (name) {
       node.classList.toggle(name, on.indexOf(name) >= 0);
     });
@@ -210,7 +213,7 @@
   }
 
   function heading(state, list) {
-    var busy = list.some(function (item) { return item.state !== 'ready'; });
+    var busy = list.some(function (item) { return !playable(item); });
     var gone = state.items.length - list.length;
     var total = Math.max(list.length, state.summary.total - gone);
     var name = busy ? 'Downloading' : 'Ready';
@@ -310,7 +313,7 @@
         if (!isNew) core.fadeIn(card.node);
       }
       patch(card, item, state.lost);
-      if (item.state === 'ready' && was && was !== 'ready') ready.push(item.title);
+      if (playable(item) && was && was !== 'ready') ready.push(item.title);
     });
     say(ready);
     order(list);
@@ -473,6 +476,7 @@
     var card = cards[key];
     if (!card || card.item.state !== 'ready') return;
     landed[key] = true;
+    if (!playable(card.item)) { drop(key, withRow); return; }
     var item = card.item;
     var node = card.node;
     var poster = node.querySelector('.dw__pic');

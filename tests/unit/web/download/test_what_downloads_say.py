@@ -7,12 +7,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+from mediaman.core.time import now_utc
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.abandon import AbandonResult
 from mediaman.services.downloads.download_queue import _reset_previous_queue
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.watch_catalog import clear_library_index, invalidate
+from mediaman.web.auth.session_store import create_session
+from mediaman.web.routes.download.status import _radarr_status
 from mediaman.web.routes.download.status._radarr import _radarr_queue_item
+from mediaman.web.routes.download.status._sonarr import _sonarr_aggregate, _sonarr_queue_entries
 from mediaman.web.routes.downloads import router as downloads_router
 from mediaman.web.routes.downloads_strip import _with_titles
 from mediaman.web.routes.downloads_strip import router as strip_router
@@ -55,11 +59,21 @@ def services(monkeypatch):
 
 
 @pytest.fixture
-def client(app_factory, authed_client, conn, templates_stub):
+def client(app_factory, conn, templates_stub):
+    """An admin's session; no password, whose hashing takes a second."""
+    from fastapi.testclient import TestClient
+
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, role, created_at)"
+        " VALUES ('admin', 'x', 'admin', '2026-01-01')"
+    )
+    conn.commit()
     app = app_factory(
         downloads_router, strip_router, conn=conn, state_extras={"templates": templates_stub}
     )
-    return authed_client(app, conn)
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, "admin"))
+    return client
 
 
 def _as_viewer(conn) -> None:
@@ -295,3 +309,139 @@ def test_a_show_whose_own_poster_is_another_service_s_gets_the_one_the_app_holds
         "Grey Shore": "/api/poster/500",
         "Never Seen": "",
     }
+
+
+@pytest.mark.parametrize(
+    ("status", "tracked", "left", "expected"),
+    [
+        ("queued", "downloading", 1000, "queued"),
+        ("paused", "downloading", 500, "queued"),
+        ("delay", "", 1000, "queued"),
+        ("warning", "downloading", 1000, "downloading"),
+        ("downloadClientUnavailable", "downloading", 50, "searching"),
+    ],
+)
+def test_a_film_nzbget_does_not_hold_reads_on_the_page_as_on_the_mailed_page(
+    services, client, status, tracked, left, expected
+):
+    entry = {**_queued(status), "trackedDownloadState": tracked, "sizeleft": left}
+    services[0].get_queue.return_value = [entry]
+
+    hero = client.get("/api/downloads").json()["hero"]
+    mailed = _radarr_queue_item([entry], 11)
+
+    assert mailed is not None
+    assert (hero["state"], mailed["state"]) == (expected, expected)
+
+
+@pytest.mark.parametrize(("status", "expected"), [("delay", "queued"), ("paused", "queued")])
+def test_a_show_nzbget_does_not_hold_reads_on_the_page_as_on_the_mailed_page(
+    services, client, status, expected
+):
+    entry = {**_show_downloading(77, "Told Of"), "status": status}
+    services[1].get_queue.return_value = [entry]
+
+    hero = client.get("/api/downloads").json()["hero"]
+    title, episodes = _sonarr_queue_entries([entry], 77)
+    mailed = _sonarr_aggregate(title, episodes)
+
+    assert (hero["state"], mailed["state"]) == (expected, expected)
+
+
+def test_the_strip_says_ready_of_a_film_the_library_holds_as_the_page_does(services, client, conn):
+    _hold_in_library(conn, 12, "Dry Harbour")
+    now = now_utc().isoformat()
+    conn.execute(
+        "INSERT INTO recent_downloads (dl_id, title, media_type, completed_at) VALUES"
+        " ('radarr:Ember Coast#11', 'Ember Coast', 'movie', ?),"
+        " ('radarr:Dry Harbour#12', 'Dry Harbour', 'movie', ?)",
+        (now, now),
+    )
+    conn.commit()
+
+    page = {r["title"]: r["readiness"] for r in client.get("/api/downloads").json()["recent"]}
+    told = client.get("/api/downloads/strip").json()
+    on_strip = {i["title"]: (i["playable"], i["line"]) for i in told["items"]}
+
+    assert page == {"Ember Coast": "unknown", "Dry Harbour": "ready"}
+    assert on_strip == {"Ember Coast": (False, "Added"), "Dry Harbour": (True, "")}
+    assert told["summary"]["ready"] == 1
+
+
+@pytest.mark.parametrize(("held", "expected"), [(True, "ready"), (False, "almost_ready")])
+def test_the_mailed_page_says_ready_only_once_the_library_holds_the_film(
+    services, conn, monkeypatch, held, expected
+):
+    monkeypatch.setattr(
+        "mediaman.web.routes.download.status.build_radarr_from_db", lambda *a: services[0]
+    )
+    if held:
+        _hold_in_library(conn, 12, "Dry Harbour")
+    services[0].get_movie_by_tmdb.return_value = {**_movie(12, "Dry Harbour"), "hasFile": True}
+
+    assert _radarr_status(conn, "k" * 64, 12)["state"] == expected
+
+
+def _film_in_queue(n: int, title: str, status: str) -> dict[str, object]:
+    return {**_queued(status), "movie": _movie(n, title), "downloadId": str(n), "sizeleft": 500}
+
+
+def test_the_top_card_stays_on_its_download_while_another_starts(services, client):
+    radarr = services[0]
+    radarr.get_queue.return_value = [
+        _film_in_queue(1, "Zulu", "downloading"),
+        _film_in_queue(2, "Alpha", "queued"),
+    ]
+    first = client.get("/api/downloads").json()["hero"]["title"]
+    radarr.get_queue.return_value = [
+        _film_in_queue(1, "Zulu", "downloading"),
+        _film_in_queue(2, "Alpha", "downloading"),
+    ]
+
+    then = client.get("/api/downloads").json()
+
+    assert (first, then["hero"]["title"]) == ("Zulu", "Zulu")
+    assert [i["title"] for i in then["queue"]] == ["Alpha"]
+
+
+def test_the_strip_holds_no_more_than_the_page_shows_while_a_service_is_down(services, client):
+    radarr = services[0]
+    radarr.get_movies.return_value = [
+        {**_movie(n, title), "hasFile": False, "isAvailable": True}
+        for n, title in ((11, "Ember Coast"), (12, "Dry Harbour"))
+    ]
+    client.get("/api/downloads")
+    client.get("/api/downloads/strip")
+    radarr.get_queue.side_effect = radarr.get_movies.side_effect = requests.ConnectionError("x")
+    strip.shared.clear()
+
+    data = client.get("/api/downloads").json()
+    told = client.get("/api/downloads/strip").json()
+
+    rows = (1 if data["hero"] else 0) + len(data["queue"])
+    assert told["summary"]["total"] == data["strip"]["summary"]["total"] == rows
+
+
+def test_a_viewer_is_not_told_which_service_does_not_answer(services, client, conn):
+    _as_viewer(conn)
+    services[0].get_queue.side_effect = requests.ConnectionError("down")
+    services[2].get_queue.return_value = [
+        {"NZBName": "Manual.2020", "Status": "DOWNLOADING", "FileSizeMB": 10, "RemainingSizeMB": 5}
+    ]
+
+    resp = client.get("/api/downloads")
+    ring = client.get("/api/downloads/strip").json()
+
+    assert resp.json()["unreachable"] == []
+    assert resp.json()["outage"] == ring["outage"] == "Downloads aren't available"
+    assert resp.json()["subtitle"] == "1 item in progress · downloads aren't available"
+    assert "Radarr" not in resp.text
+
+
+def test_stop_tracking_while_a_key_is_refused_does_not_say_to_try_again(services, client):
+    services[0].get_queue.side_effect = SafeHTTPError(401, "", "http://radarr:7878/api/v3/queue")
+
+    resp = client.post("/api/downloads/radarr%3ADune/abandon", json={})
+
+    assert resp.status_code == 503
+    assert resp.json()["message"] == "Can't sign in to Radarr. Check its details in Settings."

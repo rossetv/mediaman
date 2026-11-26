@@ -27,6 +27,13 @@ from mediaman.web.routes.download.status import _sonarr_series_fallback
 from mediaman.web.routes.download.submit import _DOWNLOAD_LIMITER_POST
 from tests.helpers.factories import insert_audit_log
 
+
+@pytest.fixture(autouse=True)
+def _the_library_holds_every_title(monkeypatch):
+    """A title its service has the file of is in the library here, to be played."""
+    monkeypatch.setattr("mediaman.web.routes.download.status.library_title", lambda *a: "movie-1")
+
+
 _CONFIRM = "mediaman.web.routes.download.confirm"
 _SUBMIT = "mediaman.web.routes.download.submit"
 

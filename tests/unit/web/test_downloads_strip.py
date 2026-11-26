@@ -181,18 +181,17 @@ def test_the_downloads_page_gives_an_admin_the_release_names(services, viewer, c
     assert (hero["id"], hero["title"]) == ("aB3xK9qLm2Zt", "aB3xK9qLm2Zt")
 
 
-def test_a_service_that_stops_answering_leaves_the_row_as_it_was(services, viewer, monkeypatch):
+def test_a_service_that_stops_answering_leaves_in_the_row_only_what_downloads_shows(
+    services, viewer, monkeypatch
+):
     monkeypatch.setattr(strip, "HOLD_S", 0.0)
     _get(viewer)
     services[0].get_queue.side_effect = requests.ConnectionError("http://10.0.0.9:7878 refused")
     services[0].get_movies.side_effect = services[0].get_queue.side_effect
     resp = _get(viewer)
     body = resp.json()
-    assert [(i["title"], i["percent"], i["held"]) for i in body["items"]] == [
-        ("Dry Harbour", 40, True),
-        ("Ember Coast", 40, True),
-    ]
-    assert body["outage"] == "Can't reach Radarr"
+    assert body["items"] == viewer.get("/api/downloads").json()["queue"] == []
+    assert body["outage"] == "Downloads aren't available"
     assert "10.0.0.9" not in resp.text
 
 
@@ -344,9 +343,11 @@ def test_the_downloads_page_s_poll_tells_the_ring_and_asks_the_services_nothing_
     assert _get(viewer).json()["summary"] == again["strip"]["summary"]
 
 
-def test_a_service_that_stops_answering_leaves_the_ring_on_downloads_as_it_was(services, viewer):
-    before = viewer.get("/api/downloads").json()["strip"]
+def test_a_service_that_stops_answering_leaves_the_ring_on_downloads_what_it_shows(
+    services, viewer
+):
+    viewer.get("/api/downloads")
     services[0].get_queue.side_effect = requests.ConnectionError("down")
-    after = viewer.get("/api/downloads").json()["strip"]
-    assert after["summary"] == before["summary"]
-    assert after["outage"] == "Can't reach Radarr"
+    after = viewer.get("/api/downloads").json()
+    assert after["strip"]["summary"]["total"] == len(after["queue"]) + bool(after["hero"])
+    assert after["strip"]["outage"] == "Downloads aren't available"

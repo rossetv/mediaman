@@ -35,6 +35,13 @@ from mediaman.web.routes.download import (
 from tests.helpers.factories import insert_audit_log
 from tests.unit.web.test_redownload_errors import _OneTitleArr
 
+
+@pytest.fixture(autouse=True)
+def _the_library_holds_every_title(monkeypatch):
+    """A title its service has the file of is in the library here, to be played."""
+    monkeypatch.setattr("mediaman.web.routes.download.status.library_title", lambda *a: "movie-1")
+
+
 _ROUTES = "mediaman.web.routes.download"
 _TMDB, _TVDB = 60622, 269613
 

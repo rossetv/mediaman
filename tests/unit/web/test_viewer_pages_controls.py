@@ -151,7 +151,11 @@ def test_an_outage_is_shown_to_every_role_and_never_as_all_caught_up(make_client
         html = make_client(downloads_router, role).get("/downloads").text
 
     assert "All caught up" not in html
-    assert "reach Radarr and Sonarr" in html
+    if role == "admin":
+        assert "reach Radarr and Sonarr" in html
+    else:
+        assert "available" in html
+        assert "Radarr and Sonarr" not in html
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])

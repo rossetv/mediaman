@@ -26,14 +26,17 @@ from mediaman.services.downloads.download_queue import (
     downloads_subtitle,
 )
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
-from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.watch_catalog import tmdb_image_url
 from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
-from mediaman.web.repository import watch_library as lib
 from mediaman.web.responses import respond_failure
 from mediaman.web.routes.download import drop_arr_cache
-from mediaman.web.routes.downloads_strip import held_poster, library_title
+from mediaman.web.routes.downloads_strip import (
+    held_poster,
+    library_of,
+    library_title,
+    mark_playable,
+)
 from mediaman.web.routes.poster.title_art import title_art
 
 router = APIRouter()
@@ -44,13 +47,15 @@ class AbandonRequest(BaseModel):
     arr_id: int | None = None
 
 
-def _ring(data: DownloadsResponse, asked_at: float, *, admin: bool) -> dict[str, object] | None:
+def _ring(
+    data: DownloadsResponse, asked_at: float, index: catalog.LibraryIndex, *, admin: bool
+) -> dict[str, object] | None:
     """What /api/downloads/strip says of what is downloading, its items left out, of what was
     just read: nobody is asked for it."""
 
     def make(before: strip.Strip) -> strip.Strip:
-        items = strip.collect(data, before.items, now_utc())
-        return strip.Strip(tuple(items), data["outage"], refused=bool(data["refused"]))
+        items = mark_playable(strip.collect(data, before.items, now_utc()), index)
+        return strip.Strip(tuple(items), data["outage"])
 
     answer = strip.on_page.offer(make, asked_at)
     return {**strip.payload(answer, admin=admin), "items": []} if answer else None
@@ -93,18 +98,12 @@ def _page_payload(
     """The downloads with posters at mediaman's own address, so a browser here never calls
     TMDB or another service, and films of one title by their labels; and what the header's
     ring is told of them. A recent download the library does not hold yet was only added. A
-    viewer is not told of a refused key. Copies: completion detection keeps the items as they
-    came.
+    viewer is told of a service that does not answer only that downloads are not available.
+    Copies: completion detection keeps the items as they came.
     """
     asked_at = strip.on_page.now()
     data = build_downloads_response(conn, secret_key)
-    index = catalog.library_index(
-        conn,
-        TmdbClient.from_db(conn, secret_key),
-        lib.scanned_library_ids(conn),
-        lib.library_movies,
-        lib.library_shows,
-    )
+    index = library_of(conn, secret_key)
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         title = item.get("label") or item["title"]
@@ -120,11 +119,11 @@ def _page_payload(
     for item in page["recent"]:
         if not _in_library(item, index):
             item["readiness"] = "unknown"
-    if not admin and data["refused"]:
-        page["outage"], page["refused"] = VIEWER_OUTAGE, []
+    if not admin and data["outage"]:
+        page["outage"], page["unreachable"], page["refused"] = VIEWER_OUTAGE, [], []
         rows = (1 if page["hero"] else 0) + len(page["queue"])
         page["subtitle"] = downloads_subtitle(rows, len(page["upcoming"]), page["outage"])
-    return page, _ring(data, asked_at, admin=admin)
+    return page, _ring(data, asked_at, index, admin=admin)
 
 
 def _former_id(item: dict[str, object]) -> str | None:
@@ -167,7 +166,9 @@ def _lookup_dl_item(
         )
     if found:
         return found[0]
-    if outage := payload.get("outage"):
+    if (outage := payload.get("outage")) and payload.get("refused"):
+        raise HTTPException(status_code=503, detail=f"{outage}. Check its details in Settings.")
+    if outage:
         raise HTTPException(status_code=503, detail=f"{outage} right now. Try again later.")
     return None
 

@@ -67,9 +67,7 @@ def payload_for(
 def _make(conn: sqlite3.Connection, secret_key: str, before: Strip) -> Strip:
     data = build_downloads_response(conn, secret_key)
     items = strip.collect(data, before.items, now_utc())
-    return Strip(
-        tuple(_with_titles(conn, secret_key, items)), data["outage"], refused=bool(data["refused"])
-    )
+    return Strip(tuple(_with_titles(conn, secret_key, items)), data["outage"])
 
 
 def _with_titles(
@@ -78,16 +76,34 @@ def _with_titles(
     """*items* with the titles they open and their pictures; TMDB's at mediaman's own address."""
     if not items:
         return []
-    index = catalog.library_index(
+    index = library_of(conn, secret_key)
+    arr = catalog.arr_view(conn, secret_key)
+    titled = [
+        _with_title(item, index, arr, shown=n < strip.MAX_ITEMS) for n, item in enumerate(items)
+    ]
+    return mark_playable(titled, index)
+
+
+def library_of(conn: sqlite3.Connection, secret_key: str) -> catalog.LibraryIndex:
+    """The index of the scanned libraries' titles, as held."""
+    return catalog.library_index(
         conn,
         TmdbClient.from_db(conn, secret_key),
         lib.scanned_library_ids(conn),
         lib.library_movies,
         lib.library_shows,
     )
-    arr = catalog.arr_view(conn, secret_key)
+
+
+def mark_playable(items: list[StripItem], index: catalog.LibraryIndex) -> list[StripItem]:
+    """*items*, of which one that is done but that the library does not hold yet says it was
+    added, and is not offered to play."""
     return [
-        _with_title(item, index, arr, shown=n < strip.MAX_ITEMS) for n, item in enumerate(items)
+        replace(item, line="Added", playable=False)
+        if item.state == "ready"
+        and library_title(index, item.kind, item.tmdb_id, item.title) is None
+        else item
+        for item in items
     ]
 
 
@@ -98,8 +114,10 @@ def _with_title(
     kind = "movie" if item.kind == "movie" else "tv"
     if item.tmdb_id is None or item.tmdb_id > _MAX_TMDB_ID:
         poster = poster or _library_poster(index, kind, None, item.title)
-        return replace(item, poster_url=poster, line=_ready_line(item, None))
-    held = index.library_ref(kind, item.tmdb_id, item.title, arr)
+        return replace(item, poster_url=poster)
+    held = index.library_ref(kind, item.tmdb_id, item.title, arr) or library_title(
+        index, kind, item.tmdb_id, item.title
+    )
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
     art = _fanart(item, arr)
     if shown and not (poster and art):
@@ -118,7 +136,6 @@ def _with_title(
         href=catalog.library_href(held) or f"/watch#title={ref}",
         poster_url=poster,
         art_url=art,
-        line=_ready_line(item, held),
     )
 
 
@@ -136,12 +153,6 @@ def library_title(
 def _library_poster(index: catalog.LibraryIndex, kind: str, tmdb_id: int | None, title: str) -> str:
     ref = library_title(index, kind, tmdb_id, title)
     return title_art(ref.partition("-")[2])["poster_url"] if ref else ""
-
-
-def _ready_line(item: StripItem, held: str | None) -> str:
-    """What a download that is done says: that it was added, until the library holds the
-    title it plays."""
-    return "Added" if item.state == "ready" and held is None else item.line
 
 
 def held_poster(kind: str, tmdb_id: int) -> str:
