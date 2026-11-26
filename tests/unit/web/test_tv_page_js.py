@@ -464,7 +464,7 @@ def test_a_dimmed_page_is_darkened_whole_and_each_of_its_places_is_another() -> 
     assert veil and 0.5 <= float(veil[1]) <= 0.8
     # Unseen, and not there, over a film that plays.
     assert re.search(r"body:after \{[^}]*visibility: hidden[^}]*opacity: 0", css)
-    words = (".mid", ".code", ".top > div", ".bot > div")
+    words = (".mid", ".code", ".fs > div", ".top > div", ".bot > div")
     moves = {
         re.search(re.escape(", ".join(f".{d} {w}" for w in words)) + r" \{ ([^}]*)\}", css)[1]
         for d in ("d1", "d2", "d3")
@@ -497,3 +497,91 @@ def test_the_qr_code_is_the_one_a_camera_reads(text: str, side: int, digest: str
 
 def test_an_address_too_long_for_a_code_has_none() -> None:
     assert _run("qr", "x" * 214) is None
+
+
+def test_a_key_press_takes_the_whole_page_full_screen_once_and_a_poll_never_does() -> None:
+    out = _run("fullByKey")
+    assert out["before"] == {"hint": "fs on", "asks": 0}
+    assert out["polled"] == 0
+    assert out["first"]["asks"] == ["root"]
+    # that press did only that: the page offered to pair another person still shows
+    assert "Living room is ready" in out["first"]["said"]
+    assert out["full"] == "fs"
+    assert out["asks"] == 1 and "Type this code" in out["then"]
+
+
+@pytest.mark.parametrize("where", ["idle", "play"])
+def test_the_full_screen_hint_leaves_with_full_screen_and_comes_back_after(where: str) -> None:
+    out = _run("fullHint", where)
+    assert out["at"] == "fs on"
+    # over a film it fades by itself; on a page that waits it stays
+    assert out["later"] == ("fs" if where == "play" else "fs on")
+    assert (out["full"], out["left"]) == ("fs", "fs on")
+    assert out["after"] == ("fs" if where == "play" else "fs on")
+
+
+def test_a_browser_without_full_screen_shows_no_hint_and_its_keys_act_at_once() -> None:
+    out = _run("fullHint", "none")
+    assert "fs on" not in {out["at"], out["later"], out["full"], out["left"], out["after"]}
+    assert out["asks"] == 0
+    assert out["pressed"] != out["said"]
+
+
+def test_back_still_goes_back_and_asks_for_no_full_screen() -> None:
+    out = _run("fullAndBack")
+    assert "Type this code" in out["code"]
+    assert "Living room is ready" in out["back"]
+    assert out["asks"] == 1
+
+
+def test_the_press_that_goes_full_screen_does_not_pause_the_film() -> None:
+    out = _run("fullFirstOk")
+    assert out["hint"] == "fs on"
+    assert out["asks"] == 1 and out["calls"] == []
+    assert "Pause" in out["then"] and "Paused" not in out["then"]
+
+
+def test_a_browser_that_wants_a_key_first_plays_and_goes_full_screen_at_one_press() -> None:
+    out = _run("fullFirstOk", "blocked")
+    assert out["order"] == ["play", "full"]
+    assert "Press OK to play in full screen" in out["said"]
+    assert out["hint"] == "fs"
+    assert out["asks"] == 1 and out["calls"] == ["play"]
+
+
+def test_a_refused_request_swallows_one_press_and_is_made_again_after_a_minute() -> None:
+    out = _run("fullRefused")
+    assert out["refused"]["hint"] == "fs" and out["refused"]["asks"] == 1
+    assert "Living room is ready" in out["refused"]["said"]
+    # the next press acts, and asks nothing
+    assert out["next"]["asks"] == 1 and "Type this code" in out["next"]["said"]
+    assert out["soon"] == {"hint": "fs", "asks": 1}
+    assert out["later"]["hint"] == "fs on"
+    assert out["asks"] == 2
+
+
+def test_a_browser_with_only_the_prefixed_api_goes_full_screen_and_leaves_again() -> None:
+    out = _run("fullWebkit")
+    assert out == {"before": "fs on", "asks": ["root"], "full": "fs", "left": "fs on"}
+
+
+def test_a_first_press_that_is_not_ok_acts_and_asks_for_full_screen() -> None:
+    out = _run("fullFirstArrow")
+    assert out["before"] == "ov hide"
+    assert out["ov"] == "ov" and out["asks"] == 1
+
+
+@pytest.mark.parametrize("page", ["conn", "restarted"])
+def test_a_page_whose_only_button_is_harmless_goes_full_screen_and_acts_at_the_first_ok(
+    page: str,
+) -> None:
+    out = _run("fullThenAct", page)
+    assert out["asks"] == 1
+    assert out["then"] != out["said"]
+
+
+def test_the_title_row_leaves_room_for_the_hint() -> None:
+    css = (STATIC / "css/tv.css").read_text()
+    room = re.search(r"\.top \.t1 \{ margin-right: (\d+)px", css)
+    # the pill is about 425 px wide and ends where the title row does; keep a gap
+    assert room and int(room[1]) >= 455

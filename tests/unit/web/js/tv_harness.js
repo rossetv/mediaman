@@ -12,7 +12,10 @@ const template = (name) => fs.readFileSync(path.join(WEB, '../templates', name),
 const STAGE = template('tv.html').match(/<main id="s">(.*?)<\/main>/s)[1]
   .replace(/\{% include "([^"]+)" %\}/g, (all, name) => template(name)).replace(/\{#.*?#\}/gs, '');
 
-function tv({ kept = null, plays = true } = {}) {
+// `full`: the browser has the Fullscreen API and goes full screen a moment after it is asked;
+// 'refuse' is one that rejects the request, 'webkit' one with only the prefixed API.
+function tv({ kept = null, plays = true, full = false } = {}) {
+  const order = [];
   let time = 1e12;
   let timers = [];
   let ids = 0;
@@ -34,7 +37,7 @@ function tv({ kept = null, plays = true } = {}) {
     paused: true, ended: false, volume: 1, muted: false, seeking: false, duration: 2880, calls: [], refuse: false,
     canPlayType: () => (plays ? 'maybe' : ''),
     load() { this.paused = true; this.time = 0; },
-    play() { this.calls.push('play'); if (this.refuse) return Promise.reject(Object.assign(new Error('no'), { name: 'NotAllowedError' })); this.paused = false; return undefined; },
+    play() { this.calls.push('play'); order.push('play'); if (this.refuse) return Promise.reject(Object.assign(new Error('no'), { name: 'NotAllowedError' })); this.paused = false; return undefined; },
     pause() { this.calls.push('pause'); this.paused = true; },
     fire(type) { (this.on[type] || []).forEach((fn) => fn({})); },
   });
@@ -48,6 +51,7 @@ function tv({ kept = null, plays = true } = {}) {
   Object.defineProperty(video, 'src', { get() { return this.attrs.src; }, set(v) { this.attrs.src = v; } });
   nodes.v = video;
   nodes.s = element();
+  nodes.f = element();
   // The page before: what was drawn on the stage, moved with the nodes it had.
   nodes.o = Object.assign(element(), {
     held: [],
@@ -57,11 +61,11 @@ function tv({ kept = null, plays = true } = {}) {
   let html = '';
   const drawn = (text) => {
     html = text;
-    Object.keys(nodes).forEach((id) => { if (!['v', 's', 'o'].includes(id)) delete nodes[id]; });
+    Object.keys(nodes).forEach((id) => { if (!FIXED.includes(id)) delete nodes[id]; });
   };
   Object.defineProperty(nodes.s, 'innerHTML', { get: () => html, set: drawn });
   Object.defineProperty(nodes.s, 'firstChild', {
-    get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !['v', 's', 'o'].includes(id)).map((id) => nodes[id]) } : null),
+    get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !FIXED.includes(id)).map((id) => nodes[id]) } : null),
   });
   const body = Object.assign(element(), { attrs: { 'data-base': 'https://mediaman.example', 'data-hls': '/hls.js' } });
   // What is drawn on the page is found by its id while it is drawn.
@@ -74,11 +78,27 @@ function tv({ kept = null, plays = true } = {}) {
       return null;
     },
     getElementById(id) {
-      if (nodes[id] && (id === 'v' || id === 's' || id === 'o')) return nodes[id];
+      if (FIXED.includes(id)) return nodes[id];
       if (!nodes.s.innerHTML.includes('id="' + id + '"')) return null;
       return (nodes[id] = nodes[id] || Object.assign(element(), { id, nodeType: 1, focus() { if (document.activeElement === this) return; document.activeElement = this; (document.on.focus || []).forEach((fn) => fn({ target: this })); } }));
     },
   };
+  const fullAsks = [];
+  const prefixed = full === 'webkit';
+  const changed = () => (document.on[prefixed ? 'webkitfullscreenchange' : 'fullscreenchange'] || []).forEach((fn) => fn({}));
+  const inFull = prefixed ? 'webkitFullscreenElement' : 'fullscreenElement';
+  document.documentElement = element();
+  if (full) {
+    document.fullscreenEnabled = true;
+    document[inFull] = null;
+    document.documentElement[prefixed ? 'webkitRequestFullscreen' : 'requestFullscreen'] = function () {
+      fullAsks.push(this === document.documentElement ? 'root' : 'other');
+      order.push('full');
+      if (full === 'refuse') return { then(ok, no) { later(() => no(new Error('no')), 10); } };
+      later(() => { document[inFull] = this; changed(); }, 50);
+      return { then() {} };
+    };
+  }
   class XMLHttpRequest {
     open(method, url, async) { Object.assign(this, { method, url, async, headers: {} }); }
     setRequestHeader(k, v) { this.headers[k] = v; }
@@ -107,7 +127,10 @@ function tv({ kept = null, plays = true } = {}) {
   };
   ctx.window = ctx;
   return {
-    sent, answers, video, store,
+    sent, answers, video, store, fullAsks, order,
+    leaveFull() { document[inFull] = null; changed(); },
+    ov: () => (document.getElementById('ov') || {}).className,
+    hint: () => nodes.f.className,
     run() { vm.runInContext(SOURCE, vm.createContext(ctx)); return this; },
     qr: (text) => ctx.window.MMTv.qr(text),
     // Steps the clock, and lets what was promised come.
@@ -169,7 +192,8 @@ const film = (more) => ({
   art_url: '/api/tv/device/art/p1', duration_s: 2880, start_s: 100, played_s: 50, markers: [], chapters: [], next: null, upnext_in_s: null, still_in_s: null, error: null, ...more,
 });
 const GONE = [404, { ok: false, error: 'not_found' }];
-const OK = 13, LEFT = 37, RIGHT = 39;
+const OK = 13, LEFT = 37, RIGHT = 39, BACK = 10009;
+const FIXED = ['v', 's', 'o', 'f'];
 
 async function playing(more) {
   const t = tv({ kept: 'old' });
@@ -777,6 +801,140 @@ const scenarios = {
     t.video.fire('playing');
     await t.step(1500);
     return { said, state, now: t.last('poll').body.report.state };
+  },
+  // The first press goes full screen and does nothing else; polls never ask.
+  async fullByKey() {
+    const t = tv({ kept: 'old', full: true });
+    t.answers.poll = () => ready({ poll_ms: 1000, commands: t.commands || [] });
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(100);
+    const before = { hint: t.hint(), asks: t.fullAsks.length };
+    t.commands = [{ id: 3, kind: 'volume', level: 0.5 }];
+    await t.step(5000);
+    const polled = t.fullAsks.length;
+    t.key(OK);
+    const first = { asks: t.fullAsks.slice(), said: t.says() };
+    await t.step(100);
+    const full = t.hint();
+    t.key(OK);
+    await t.step(100);
+    return { before, polled, first, full, asks: t.fullAsks.length, then: t.says() };
+  },
+  async fullHint(where) {
+    const t = tv({ kept: 'old', full: where !== 'none' });
+    t.answers.poll = () => ready({ play: t.now });
+    t.now = where === 'idle' || where === 'none' ? null : film();
+    t.run();
+    await t.step(50);
+    if (t.now) { t.video.fire('loadedmetadata'); t.video.fire('playing'); }
+    await t.step(600);
+    const at = t.hint();
+    await t.step(5000);
+    const later = t.hint();
+    const said = t.says();
+    t.key(OK);
+    await t.step(100);
+    const full = t.hint();
+    t.leaveFull();
+    const left = t.hint();
+    await t.step(5000);
+    return { at, later, full, left, said, pressed: t.says(), after: t.hint(), asks: t.fullAsks.length };
+  },
+  // A refused request swallows one press, and a minute on the page asks again.
+  async fullRefused() {
+    const t = tv({ kept: 'old', full: 'refuse' });
+    t.answers.poll = () => ready({ poll_ms: 2000 });
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(100);
+    t.key(OK);
+    await t.step(100);
+    const refused = { hint: t.hint(), asks: t.fullAsks.length, said: t.says() };
+    t.key(OK);
+    await t.step(100);
+    const next = { asks: t.fullAsks.length, said: t.says() };
+    await t.step(30000);
+    const soon = { hint: t.hint() };
+    t.key(RIGHT);
+    soon.asks = t.fullAsks.length;
+    await t.step(40000);
+    const later = { hint: t.hint() };
+    t.key(RIGHT);
+    return { refused, next, soon, later, asks: t.fullAsks.length };
+  },
+  async fullWebkit() {
+    const t = tv({ kept: 'old', full: 'webkit' });
+    t.answers.poll = () => ready({ poll_ms: 2000 });
+    t.run();
+    await t.step(100);
+    const before = t.hint();
+    t.key(OK);
+    await t.step(100);
+    const full = t.hint();
+    t.leaveFull();
+    return { before, asks: t.fullAsks.slice(), full, left: t.hint() };
+  },
+  // An arrow is the first press of a film that has hidden its controls.
+  async fullFirstArrow() {
+    const t = tv({ kept: 'old', full: true });
+    t.answers.poll = () => ready({ play: film() });
+    t.run();
+    await t.step(50);
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(5000);
+    const before = t.ov();
+    t.key(RIGHT);
+    return { before, ov: t.ov(), asks: t.fullAsks.length };
+  },
+  // The pages whose one button is harmless: the first OK asks for full screen and acts too.
+  async fullThenAct(page) {
+    const t = tv({ kept: page === 'conn' ? null : 'old', full: true });
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    if (page === 'conn') t.answers.poll = ready({ poll_ms: 2000 });
+    else { t.now = film(); t.answers.poll = () => ready({ play: t.now, boot: t.now ? 'a' : 'b', poll_ms: 1000 }); }
+    t.run();
+    await t.step(page === 'conn' ? 2500 : 50);
+    if (page !== 'conn') {
+      t.video.fire('loadedmetadata'); t.video.fire('playing');
+      await t.step(600);
+      t.now = null;
+      await t.step(1500);
+    }
+    const said = t.says();
+    t.key(OK);
+    return { said, asks: t.fullAsks.length, then: t.says() };
+  },
+  async fullAndBack() {
+    const t = tv({ kept: 'old', full: true });
+    t.answers.poll = () => ready({ poll_ms: 2000 });
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(100);
+    t.key(OK);
+    await t.step(100);
+    t.key(OK);
+    await t.step(100);
+    const code = t.says();
+    t.leaveFull();
+    t.key(BACK);
+    return { code, back: t.says(), asks: t.fullAsks.length };
+  },
+  async fullFirstOk(blocked) {
+    const t = tv({ kept: 'old', full: true });
+    t.answers.poll = () => ready({ play: film() });
+    t.video.refuse = Boolean(blocked);
+    t.run();
+    await t.step(50);
+    if (!blocked) { t.video.fire('loadedmetadata'); t.video.fire('playing'); }
+    await t.step(600);
+    t.video.refuse = false;
+    const said = t.says(), hint = t.hint();
+    t.video.calls.length = 0;
+    t.order.length = 0;
+    t.key(OK);
+    return { said, hint, order: t.order.slice(), calls: t.video.calls, asks: t.fullAsks.length, then: t.says() };
   },
   async keys() {
     const t = await playing();
