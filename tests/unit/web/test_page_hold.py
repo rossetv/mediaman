@@ -67,3 +67,30 @@ def test_one_rule_holds_the_page_for_every_dialog_and_leaves_a_held_html_alone()
 
 def test_the_page_is_marked_held_from_the_first_dialog_to_the_last() -> None:
     assert _run("heldMark") == [False, True, True, False]
+
+
+def test_the_password_dialog_marks_the_page_held_while_it_is_open() -> None:
+    assert _run("reauthHeldMark") == [False, True, False]
+
+
+JS_DIR = CSS_DIR.parent / "js"
+
+
+def test_the_keep_dialog_the_picture_dialog_and_the_abandon_dialog_hold_the_page_as_they_open() -> (
+    None
+):
+    # no harness runs these three, so the code path of each is read: the hold is taken
+    # just before the dialog opens, and given back as it closes
+    paths = {
+        "watch/admin.js": r"modal\.held = MM\.dom\.holdPage\(\);\s*modal\.open\(\)",
+        "profile-picture.js": r"letGo = MM\.dom\.holdPage\(\);[\s\S]{0,200}?modal\.open\(\)",
+        "dl-abandon.js": r"letGo = MM\.dom\.holdPage\(\);\s*_abandonModal\.open\(\)",
+    }
+    for name, opens in paths.items():
+        source = (JS_DIR / name).read_text()
+        assert re.search(opens, source), name
+    assert "modal.held();" in (JS_DIR / "watch/admin.js").read_text()
+    assert "letGo();" in (JS_DIR / "dl-abandon.js").read_text()
+    assert "if (letGo) letGo();" in (JS_DIR / "profile-picture.js").read_text()
+    admin = (JS_DIR / "watch/admin.js").read_text()
+    assert "openHolding(_keepDialogModal);" in admin

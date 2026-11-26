@@ -2774,9 +2774,11 @@ scenarios.askDownload = async () => {
   await p.reply('POST', '/ask', ANSWER);
   const badges = () => p.doc.querySelectorAll('.ask .watch-card').map((n) => n.querySelectorAll('.watch-badge--state').map((b) => b.textContent));
   const out = { before: badges() };
+  const sent = p.calls.length;
   p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:title-changed', { detail: { ref: OTHER.ref, download_state: 'queued', download_pct: null } }));
   await settle();
   out.queued = badges();
+  out.calls = p.calls.slice(sent).map((c) => [c.method || 'GET', c.url]);
   return out;
 };
 

@@ -948,7 +948,8 @@ def test_the_bar_s_elements_stand_in_the_order_they_are_read_at_every_width() ->
     out = _run("barOrder")
     # one order at every width: the brand, the search, then the island at the end
     wide = ["brand", "search", "watch-sheet", "end"]
-    assert out["out"] == [wide, wide, wide]
+    phone = ["brand", "search", "watch-sheet", "end"]
+    assert out["out"] == [wide, wide, phone]
     assert (out["back"], out["focused"]) == (wide, True)
 
 
@@ -1201,6 +1202,8 @@ def test_a_film_of_an_answer_queued_from_its_page_says_so_on_its_card() -> None:
     out = _run("askDownload")
     assert out["before"] == [[], []]
     assert out["queued"] == [[], ["Queued"]]
+    # the card follows the page's word alone: nothing is read or posted for it
+    assert out["calls"] == []
 
 
 def test_the_sheet_opens_on_tonight_the_recent_searches_and_the_person_s_own_phrases() -> None:
@@ -1251,6 +1254,18 @@ def test_tonight_shows_what_fits_the_time_pressed_last() -> None:
         ["/tonight?minutes=60", "/tonight?minutes=120"],
         ["/tonight/elsewhere?minutes=60", "/tonight/elsewhere?minutes=120"],
     ]
+    # each card links to its title and says in a line what it is and how long
+    assert [(c[0], c[1]) for c in out["ready"]] == [
+        ("Film 1", "/watch/movie/1"),
+        ("Film 2", "/"),
+        ("Film 3", "/watch/movie/3"),
+    ]
+    assert [c[2] for c in out["ready"]] == [
+        "2020 · 1 h 40 min",
+        "S7 · E4 · 43 min",
+        "S2 · E3 · 20 min left",
+    ]
+    assert [c[2] for c in out["away"]] == ["Movie · 1 h 35 min", "TV · 22 min episodes"]
     assert out["opened"] == [["movie-1"], True]
 
 
