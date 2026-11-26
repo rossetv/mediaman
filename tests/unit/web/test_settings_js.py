@@ -248,6 +248,10 @@ def test_a_refused_tv_address_is_told_what_is_wrong_with_it() -> None:
     assert wrong == {}
 
 
+def test_a_refused_save_brings_the_refused_field_out_from_under_the_bar() -> None:
+    assert _run("refusedInView") == {"revealed": ["setg-row"], "focus": "btn-save"}
+
+
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
     text = _run("fieldError")["text"]
     assert "Base URL must start with http:// or https://." in text

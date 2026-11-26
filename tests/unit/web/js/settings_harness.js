@@ -375,6 +375,29 @@ const scenarios = {
     return { dirty, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
   },
 
+  // A refused save shows the field it refused, out from under the bar, and leaves the focus where it was.
+  async refusedInView() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    h.add('button', { id: 'btn-discard' }, bar);
+    h.add('span', { id: 'save-status' }, bar);
+    const row = h.add('div', { className: 'setg-row' }, page);
+    const input = h.add('input', { id: 'tv_address', value: '', type: 'text' }, row);
+    const detail = [{ loc: ['body', 'tv_address'], msg: 'Value error, must be a home address and not localhost' }];
+    h.ctx.MM.api = { put: () => Promise.reject({ status: 422, data: { detail } }), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    input.value = 'http://localhost'; input.fire('input');
+    save.focus();
+    save.fire('click');
+    await h.flush();
+    return { revealed: h.doc.revealed.map((r) => r[0]), focus: h.doc.activeElement && h.doc.activeElement.id };
+  },
+
   // The settings a save sends.
   async payloadKeys() {
     const h = build();

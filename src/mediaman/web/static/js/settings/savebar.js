@@ -449,6 +449,14 @@
     return 'Save failed — try again.';
   }
 
+  // The first field a save was refused for, brought out from under the bar; the focus stays where it is.
+  function showRefused(data) {
+    var first = data && Array.isArray(data.detail) && data.detail[0];
+    var loc = first && Array.isArray(first.loc) ? first.loc.filter(function (p) { return p !== 'body'; }) : [];
+    var field = typeof loc[0] === 'string' && document.getElementById(loc[0]);
+    if (field) (field.closest('.setg-row') || field).scrollIntoView({ block: 'nearest' });
+  }
+
   function init(opts) {
     var getPayload = (opts && opts.getPayload) || function () { return {}; };
     var refreshOverviewHero = (opts && opts.refreshOverviewHero) || function () {};
@@ -696,6 +704,7 @@
             // Reconstruct a minimal data envelope so summariseSaveError can
             // read detail / error fields that MM.api.APIError already parsed.
             setSaveError(summariseSaveError(err.data || {}, err.status));
+            showRefused(err.data);
           } else {
             // Status 0 is a request with no answer; its message is the
             // shared network wording.
