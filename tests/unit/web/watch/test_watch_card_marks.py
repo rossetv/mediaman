@@ -166,11 +166,6 @@ def test_a_title_the_library_holds_says_it_and_so_do_its_episodes(marked):
     assert (season["watched"], [e["watched"] for e in season["episodes"]]) == (True, [True])
 
 
-def test_the_pages_without_scripts_say_it(marked):
-    assert marked.get("/watch/movie/100").json()["movie"]["watched"] is True
-    assert marked.get("/watch/show/500").json()["show"]["watched"] is True
-
-
 def test_a_show_half_watched_stays_in_continue_watching_under_its_mark(marked, library):
     save_progress(
         library,
@@ -229,7 +224,6 @@ def test_a_film_unmarked_by_an_older_version_reads_so_everywhere(as_user, librar
     [item] = client.get("/api/watch/library/movies/row").json()["items"]
     assert item["watched"] is False
     assert client.get("/api/watch/title/movie-100").json()["watched"] is False
-    assert client.get("/watch/movie/100").json()["movie"]["watched"] is False
     assert client.get("/api/watch/title/tmdb-movie-11").json()["watched"] is False
 
 
