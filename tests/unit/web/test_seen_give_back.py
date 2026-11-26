@@ -22,7 +22,7 @@ def _marked(conn, *, in_library, through=2, episodes=None):
 
 
 def _part(episode, listed):
-    return seen_titles.ShowPart("500", 1, episode, {1: frozenset(listed)})
+    return seen_titles.ShowPart("500", 1, episode, {1: frozenset(listed), 2: frozenset({1})})
 
 
 def test_a_whole_season_taken_back_and_given_back_is_whole_again(conn):
@@ -61,3 +61,14 @@ def test_a_season_that_was_never_whole_is_given_back_as_the_episodes_listed(conn
     seen_titles.change_part(conn, user, KEY, _part(None, {1, 2}), seen=True)
 
     assert seen_titles.get_mark(conn, user, KEY).episodes[1] == {1, 2}
+
+
+def test_an_episode_the_library_gains_while_a_season_is_taken_back_is_covered_on_giving_it_back(
+    conn,
+):
+    user = _marked(conn, in_library=False)
+
+    seen_titles.change_part(conn, user, KEY, _part(None, {1, 2}), seen=False)
+    seen_titles.change_part(conn, user, KEY, _part(None, {1, 2, 3}), seen=True)
+
+    assert 1 not in seen_titles.get_mark(conn, user, KEY).episodes
