@@ -836,7 +836,7 @@
   /* While a title starts here, its name stands in for the spinner; what plays elsewhere keeps its own. */
   var introTimer = null;
   function introDue() {
-    return root.classList.contains('is-loading') && (!hasPlayed || switching) && !away && !attempt && !holding;
+    return root.classList.contains('is-loading') && (!hasPlayed || switching) && (wantPlaying || starting) && !away && !attempt && !holding;
   }
 
   function showIntro() {
@@ -857,6 +857,11 @@
         if (!introDue()) {
           showIntro();
           return;
+        }
+        if (root.classList.contains('is-intro-out')) {
+          /* The drawing stopped where the last one left it: it starts over. */
+          var drawn = root.querySelector('.player-intro');
+          if (drawn.getAnimations) drawn.getAnimations({ subtree: true }).forEach(function (a) { a.currentTime = 0; });
         }
         root.classList.remove('is-intro-out');
         root.classList.add('is-intro');
@@ -914,6 +919,8 @@
     swapping = false;
     if (again !== tryLost && again !== playHere) releaseFrame();
     if (shown(els.rate)) dropRating();
+    /* A message is no hand-over: the name goes at once, not by a fade over the text. */
+    root.classList.remove('is-intro', 'is-intro-out');
     setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !again || !!card;

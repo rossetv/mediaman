@@ -6166,6 +6166,55 @@ const scenarios = {
     return { loading: loading, playing: Object.assign(introState(p), { held: holdState(p).shown }) };
   },
 
+  /* A start that fails while the name shows: the message is not drawn over, and Try again starts it again. */
+  async intro_error(p) {
+    await settle();
+    p.tick(400);
+    const before = introState(p);
+    p.replies.push({ err: { status: 503 } }, answer('1080p-8000'));
+    p.hlsList[0].emit('hlsError', { fatal: true, type: 'networkError' });
+    await settle();
+    const cl = p.root.classList;
+    const failed = Object.assign(introState(p), { out: cl.contains('is-intro-out'), message: messageState(p) !== null });
+    press(p.q('[data-retry]'));
+    await settle();
+    p.tick(400);
+    const again = Object.assign(introState(p), { message: messageState(p) !== null });
+    await streamPlays(p, 0);
+    return { before: before, failed: failed, again: again, playing: introState(p) };
+  },
+
+  /* Autoplay is refused and the picture is sought before it first plays: no name. */
+  async intro_seek_first(p) {
+    await settle();
+    p.hlsList[0].emit('hlsManifestParsed');
+    await settle();
+    const v = p.video;
+    v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720;
+    v.paused = true;
+    fire(v, 'pause');
+    fire(v, 'canplay');
+    v.seeking = true;
+    fire(v, 'seeking');
+    fire(v, 'waiting');
+    p.tick(1000);
+    return introState(p);
+  },
+
+  /* Back from the page cache while the name shows or waits. */
+  async intro_back(p) {
+    await settle();
+    p.tick(400);
+    const shown = introState(p);
+    p.leave();
+    p.comeBack();
+    await settle();
+    p.tick(1000);
+    await streamPlays(p, 0);
+    p.tick(1000);
+    return { shown: shown, after: introState(p), out: p.root.classList.contains('is-intro-out') };
+  },
+
   /* Sent to a TV as it starts: the page shows what it shows today. */
   async away_intro(p) {
     p.elsewhere.plays.push(() => new Promise(() => {}));

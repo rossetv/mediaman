@@ -538,8 +538,14 @@
 
 /* The name in place of the spinner while a title starts; it gives way to the first frame.
    Only the way in and the way out move: WebKit would fade it from a style it had before the sheets. */
-.player { --intro-w: clamp(168px, 34vw, 640px); }
-.player.is-starting .player-spinner { visibility: hidden; }
+.player {
+  --intro-w: clamp(168px, 34vw, 640px);
+  --intro-fade: .4s;
+  --intro-rise: .5s;
+  --intro-picture: .6s;
+  --intro-zoom: 1.2s;
+}
+.player.is-starting .player-spinner { opacity: 0; }
 .player-intro {
   position: absolute;
   top: 50%; left: 50%;
@@ -552,34 +558,36 @@
 .player-intro-halo { position: absolute; top: 0; left: 0; opacity: 0; filter: blur(calc(var(--intro-w) * .022)); }
 .player-intro-halo .wm-media { display: none; }
 .player-intro-halo .wm-man { stroke-width: 130; }
-.player.is-intro .player-intro { opacity: 1; transition: opacity var(--dur-slow) ease; }
-.player.is-intro-out .player-intro { transition: opacity .4s ease; }
+.player.is-intro .player-intro { opacity: 1; transition: opacity var(--dur-slow) var(--ease-out); }
+.player.is-intro-out .player-intro { transition: opacity var(--intro-fade) ease; }
 .player.is-intro video.player-video { opacity: 0; }
-.player.is-intro-out video.player-video { transition: opacity .6s var(--ease-out); }
+.player.is-intro-out video.player-video { transition: opacity var(--intro-picture) var(--ease-out); }
 /* The last episode's frame, kept for a message that may come, fades under the name. */
-.player.is-intro .player-hold { opacity: 0; transition: opacity var(--dur-slow) ease; }
+.player.is-intro .player-hold { opacity: 0; transition: opacity var(--dur-slow) var(--ease-out); }
 /* What the start waits for, said under the name: half its height, 970 / 4210 of its width, below the middle. */
 .player.is-intro .player-lost { top: calc(50% + var(--intro-w) * .1152 + 28px); }
 @media (prefers-reduced-motion: no-preference) {
-  .player.is-intro .player-intro .wm-media > path { animation: wm-draw var(--dur-draw) var(--ease-out) backwards; }
-  .player.is-intro .player-intro .wm-media > circle { animation: wm-dot var(--dur-draw) var(--ease-out) backwards; }
-  .player.is-intro .player-intro .wm-man > path { animation: wm-draw var(--dur-draw-man) var(--delay-draw-man) var(--ease-out) backwards; }
+  .player:is(.is-intro, .is-intro-out) .player-intro .wm-media > path { animation: wm-draw var(--dur-draw) var(--ease-out) backwards; }
+  .player:is(.is-intro, .is-intro-out) .player-intro .wm-media > circle { animation: wm-dot var(--dur-draw) var(--ease-out) backwards; }
+  .player:is(.is-intro, .is-intro-out) .player-intro .wm-man > path { animation: wm-draw var(--dur-draw-man) var(--delay-draw-man) var(--ease-out) backwards; }
   /* Drawn, man glows softly for as long as the start takes. */
-  .player.is-intro .player-intro-halo { animation: player-intro-glow 1.8s calc(var(--delay-draw-man) + var(--dur-draw-man)) ease-in-out infinite; }
+  .player:is(.is-intro, .is-intro-out) .player-intro-halo { animation: player-intro-glow 1.8s calc(var(--delay-draw-man) + var(--dur-draw-man)) ease-in-out infinite; }
+  /* Out, the drawing stops where it was and fades from there. */
+  .player.is-intro-out :is(.player-intro .wm-media > path, .player-intro .wm-media > circle, .player-intro .wm-man > path, .player-intro-halo) { animation-play-state: paused; }
   .player.is-intro video.player-video { transform: scale(1.03); }
   /* It goes up, soft and a little larger, as the picture comes in. */
   .player.is-intro-out .player-intro {
     transform: translate(-50%, -50%) scale(1.06);
     filter: blur(4px);
-    transition: opacity .4s ease, transform .5s var(--ease-out), filter .4s ease;
+    transition: opacity var(--intro-fade) ease, transform var(--intro-rise) var(--ease-out), filter var(--intro-fade) ease;
   }
-  .player.is-intro-out video.player-video { transition: opacity .6s var(--ease-out), transform 1.2s var(--ease-out); }
+  .player.is-intro-out video.player-video { transition: opacity var(--intro-picture) var(--ease-out), transform var(--intro-zoom) var(--ease-out); }
 }
 @media (prefers-reduced-motion: reduce) {
   /* Only a fade, which the base stylesheet would cut short. */
   .player.is-intro .player-intro { transition-duration: var(--dur-slow) !important; }
-  .player.is-intro-out .player-intro { transition-duration: .4s !important; }
-  .player.is-intro-out video.player-video { transition-duration: .6s !important; }
+  .player.is-intro-out .player-intro { transition-duration: var(--intro-fade) !important; }
+  .player.is-intro-out video.player-video { transition-duration: var(--intro-picture) !important; }
 }
 @media (forced-colors: active) {
   .player-intro .wm-man { stroke: currentColor; }

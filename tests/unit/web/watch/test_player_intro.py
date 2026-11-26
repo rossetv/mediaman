@@ -48,6 +48,36 @@ def test_a_title_sent_to_a_tv_as_it_starts_shows_no_name(markup):
     assert run(markup, "away_intro")["intro"] is False
 
 
+def test_a_start_that_fails_under_the_name_shows_its_message_clear_of_it(markup):
+    out = run(markup, "intro_error")
+    assert out["before"]["intro"] is True
+    assert out["failed"] == {
+        "intro": False,
+        "starting": False,
+        "loading": False,
+        "out": False,
+        "message": True,
+    }
+
+
+def test_try_again_shows_the_name_again_and_it_goes_as_the_title_plays(markup):
+    out = run(markup, "intro_error")
+    assert out["again"] == {"intro": True, "starting": True, "loading": True, "message": False}
+    assert out["playing"] == {"intro": False, "starting": False, "loading": False}
+
+
+def test_seeking_before_a_title_has_first_played_shows_no_name(markup):
+    out = run(markup, "intro_seek_first")
+    assert out["intro"] is False
+    assert out["starting"] is False
+
+
+def test_back_from_the_page_cache_leaves_the_name_to_the_new_start(markup):
+    out = run(markup, "intro_back")
+    assert out["shown"]["intro"] is True
+    assert out["after"] == {"intro": False, "starting": False, "loading": False}
+
+
 def _split(css: str, query: str) -> tuple[list[str], str]:
     """The bodies of the `@media (prefers-reduced-motion: <query>)` blocks, and the rest."""
     blocks, rest, at = [], [], 0
@@ -68,10 +98,20 @@ def test_under_reduced_motion_the_name_only_fades():
     css = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
     moving, still = _split(css, "no-preference")
     assert any(
-        re.search(r"\.player\.is-intro[^{]*\.wm-media[^{]*\{[^}]*wm-draw", b) for b in moving
+        re.search(r"\.player(?:\.is-intro|:is\(\.is-intro)[^{]*\.wm-media[^{]*\{[^}]*wm-draw", b)
+        for b in moving
     )
     assert not re.search(r"animation[^;]*(wm-draw|wm-dot|player-intro-glow)", still)
     # The base stylesheet cuts every transition short under reduced motion: the fade is kept.
     reduce, _ = _split(css, "reduce")
     fade = r"\.player-intro\s*\{[^}]*transition-duration:[^;]*!important"
     assert any(re.search(fade, b) for b in reduce)
+
+
+def test_the_name_fades_from_where_its_drawing_stopped_and_the_spinner_is_hidden_by_opacity():
+    css = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
+    assert re.search(
+        r"\.player:is\(\.is-intro, \.is-intro-out\)[^{]*wm-man > path\s*\{[^}]*wm-draw", css
+    )
+    assert re.search(r"\.is-intro-out[^{]*\{[^}]*animation-play-state:\s*paused", css)
+    assert re.search(r"\.is-starting \.player-spinner\s*\{\s*opacity:\s*0", css)
