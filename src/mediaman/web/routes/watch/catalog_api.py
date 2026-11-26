@@ -323,14 +323,14 @@ def _named_title(
         )
         if known is None:
             continue
-        [card] = library_items(conn, username, libraries, [title])
+        [shown] = library_items(conn, username, libraries, [title])
         own = {
             "ref": ref,
             "library_ref": ref,
             "title": title.title,
             "kind": "movie" if movie else "show",
             "year": title.year,
-            "poster_url": card.get("poster_url"),
+            "poster_url": shown.get("poster_url"),
             "tmdb_kind": known[0],
             "tmdb_id": known[1],
         }
