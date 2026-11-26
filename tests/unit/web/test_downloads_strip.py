@@ -128,7 +128,7 @@ def test_a_viewer_gets_every_download_with_a_title_to_open(services, viewer, con
     body = _get(viewer).json()
     harbour, ember = body["items"]
     assert (ember["state"], ember["percent"]) == ("downloading", 40)
-    assert (ember["ref"], ember["href"]) == ("tmdb-movie-11", "/watch#title=tmdb-movie-11")
+    assert (ember["ref"], ember["href"]) == ("tmdb-movie-11", "/#title=tmdb-movie-11")
     assert ember["poster_url"] == "/api/watch/img/tmdb/w342/p11.jpg"
     assert ember["art_url"] == "/api/watch/img/tmdb/w1280/f11.jpg"
     assert (harbour["ref"], harbour["href"]) == ("movie-900", "/watch/movie/900")

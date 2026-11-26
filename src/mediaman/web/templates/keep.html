@@ -30,7 +30,7 @@
 {% endmacro %}
 
 {% macro sign_in(words="Sign in", style="watch-btn--grey") %}
-{% if signed_in %}<a class="btn btn--lg {{ style }}" href="{{ watch_href or '/watch' }}">Back to Watch</a>
+{% if signed_in %}<a class="btn btn--lg {{ style }}" href="{{ watch_href or '/' }}">Back to Watch</a>
 {% else %}<a class="btn btn--lg {{ style }}" href="{{ watch_href or '/login' }}">{{ words }}</a>{% endif %}
 {% endmacro %}
 

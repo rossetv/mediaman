@@ -151,7 +151,7 @@ def _show_ctx(**over: object) -> dict:
                 "href": "/watch/play/3",
             },
         ],
-        "back_href": "/watch",
+        "back_href": "/",
         "watch_error": None,
     }
     ctx.update(over)
@@ -172,7 +172,7 @@ def _movie_ctx(**over: object) -> dict:
         },
         "primary": {"label": "Resume (31 min left)", "href": "/watch/play/5?resume=1"},
         "leaving": None,
-        "back_href": "/watch",
+        "back_href": "/",
         "watch_error": None,
     }
     ctx.update(over)
@@ -521,7 +521,7 @@ def test_a_show_s_season_tabs_stand_with_its_episodes_and_not_on_the_picture() -
 
 
 def test_movie_page_not_available() -> None:
-    html = _render("watch_movie.html", not_available=True, back_href="/watch")
+    html = _render("watch_movie.html", not_available=True, back_href="/")
     assert "No longer available" in html
     assert "‹ Back to Watch" in html
 
@@ -744,7 +744,7 @@ def test_banner_details_opens_the_title_overlay() -> None:
     actions = html.split('class="watch-actions"', 1)[1].split("</div>", 1)[0]
     details = re.search(r'<a [^>]*data-title-ref="show-500"[^>]*>(?=Details</a>)', actions)
     assert details is not None
-    assert 'href="/watch#title=show-500"' in details.group(0)
+    assert 'href="/#title=show-500"' in details.group(0)
     assert 'data-title="The Long Coast"' in details.group(0)
     assert "watch-btn--grey" in details.group(0)
     assert "Details</a>" in actions

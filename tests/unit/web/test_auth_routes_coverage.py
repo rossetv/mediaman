@@ -62,7 +62,7 @@ class TestLoginSubmit:
             )
 
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/watch"
+        assert resp.headers["location"] == "/"
 
     def test_valid_login_sets_session_cookie(self, _app, conn):
         _create_admin(conn)

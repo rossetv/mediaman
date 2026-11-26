@@ -560,7 +560,7 @@ def _movie_title(
             overview=item.summary,
             runtime_min=round(item.duration_s / 60) or None,
         )
-        origin = f"/watch#title={ref}"
+        origin = f"/#title={ref}"
         if progress is not None and resumable(progress):
             pct, left = progress_fields(progress)
             out["play"] = {
@@ -718,7 +718,7 @@ def _show_title(
     out["tmdb_ref"] = tmdb_ref(title_key("tv", listed.tmdb_id))
     tmdb_seasons: list[dict[str, Any]] = []
     arr_view = begin_arr_view(conn, request.app.state.config.secret_key)
-    origin = f"/watch#title={ref}"
+    origin = f"/#title={ref}"
     try:
         plex = open_plex(request, conn)
         show = plex.get_show(listed.key)
@@ -1294,7 +1294,7 @@ def api_watch_title_season(
         return _not_found()
     except PlexError as exc:
         return respond_err(plex_error_code(exc), status=503)
-    origin = f"/watch#title={ref}"
+    origin = f"/#title={ref}"
     client = _tmdb_client(request, conn)
     found, pending = None, False
     if client is not None and not _is_described(season, episodes):

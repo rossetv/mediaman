@@ -130,7 +130,7 @@ def test_a_title_already_on_its_way_promises_the_email_the_answer_says_is_to_com
 @pytest.mark.parametrize(
     ("answer", "said", "links"),
     [
-        ("inLibrary", "Already in the library", ["/watch#title=tmdb-movie-7", _TRAILER]),
+        ("inLibrary", "Already in the library", ["/#title=tmdb-movie-7", _TRAILER]),
         ("tracked", "Already on the list", [_TRAILER]),
     ],
 )
@@ -253,18 +253,18 @@ def test_a_title_that_becomes_ready_ends_with_the_way_to_watch_it(run: dict) -> 
 
     assert "Ready to watch" in seen["words"]
     assert seen["buttons"] == ["Watch on mediaman"]
-    assert seen["links"] == ["/watch#title=tmdb-movie-7"]
+    assert seen["links"] == ["/#title=tmdb-movie-7"]
     assert seen["focus"] == "Ready to watch"
 
 
 def test_a_show_is_watched_by_its_own_address() -> None:
     ready = _run("run", media_type="tv", trailer_key=None)["ready"]
 
-    assert ready["links"] == ["/watch#title=tmdb-tv-7"]
+    assert ready["links"] == ["/#title=tmdb-tv-7"]
 
 
 def test_a_title_tmdb_does_not_name_is_watched_on_the_watch_page() -> None:
-    assert _run("run", tmdb_id=None)["ready"]["links"] == ["/watch"]
+    assert _run("run", tmdb_id=None)["ready"]["links"] == ["/"]
 
 
 def test_the_page_shows_an_eta_that_arrives_on_a_later_poll() -> None:

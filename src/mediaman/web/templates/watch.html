@@ -106,7 +106,7 @@
         <div class="watch-actions">
           <a class="btn btn--lg watch-btn--play" href="{{ banner.primary.href }}">{{ icon("i-play") }}{{ banner.primary.label }}</a>
           {% if banner.episodes_href %}<a class="btn btn--lg watch-btn--grey" href="{{ banner.episodes_href }}" data-title-ref="{{ banner.ref }}" data-title="{{ banner.title }}" data-title-at="episodes">Episodes</a>{% endif %}
-          {% if banner.ref %}<a class="btn btn--lg watch-btn--grey" href="/watch#title={{ banner.ref }}" data-title-ref="{{ banner.ref }}" data-title="{{ banner.title }}">Details</a>{% endif %}
+          {% if banner.ref %}<a class="btn btn--lg watch-btn--grey" href="/#title={{ banner.ref }}" data-title-ref="{{ banner.ref }}" data-title="{{ banner.title }}">Details</a>{% endif %}
           {% if banner.dismiss_ref %}<button type="button" class="btn btn--lg watch-btn--grey watch-banner__dismiss" data-watch-dismiss="{{ banner.dismiss_ref }}" data-mark-name="{{ banner.title }}" aria-label="Dismiss {{ banner.title }} from Continue watching">{{ icon("i-xmark") }}<span>Dismiss</span></button>{% endif %}
         </div>
       </div>
@@ -151,7 +151,7 @@
       </div>
 
       {% if library.rows or (is_admin and library_total) %}
-      <p class="watch-group-label"><span>Your library</span><a class="watch-all-link" href="/watch?all=library" data-row-open="library"><span>All {{ library_total }} {{ "title" if library_total == 1 else "titles" }}</span>{{ icon("i-chevron-right") }}</a></p>
+      <p class="watch-group-label"><span>Your library</span><a class="watch-all-link" href="/?all=library" data-row-open="library"><span>All {{ library_total }} {{ "title" if library_total == 1 else "titles" }}</span>{{ icon("i-chevron-right") }}</a></p>
       {% for row in shelf if row['items'] and row['library'] %}{{ row_section(row) }}{% endfor %}
       {% endif %}
     </div>

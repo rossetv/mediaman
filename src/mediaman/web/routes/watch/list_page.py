@@ -31,7 +31,7 @@ def address_of(params: Mapping[str, str], *, admin: bool = True) -> str:
     filter and sort of it that there are, for an *admin* or a viewer."""
     q = (params.get("q") or "").strip()[:200]
     if q:
-        return f"/watch?{urlencode({'q': q})}"
+        return f"/?{urlencode({'q': q})}"
     to = {"all": "library"}
     kind = _TYPES.get(params.get("type") or "")
     if kind and (admin or kind not in ("kept", "stale")):
@@ -39,7 +39,7 @@ def address_of(params: Mapping[str, str], *, admin: bool = True) -> str:
     sort = _SORTS.get(params.get("sort") or "")
     if sort and (admin or sort == "az"):
         to["sort"] = sort
-    return f"/watch?{urlencode(to)}"
+    return f"/?{urlencode(to)}"
 
 
 @router.get("/watch/list")

@@ -115,7 +115,7 @@ class TestForceChangePost:
                 follow_redirects=False,
             )
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/watch"
+        assert resp.headers["location"] == "/"
 
 
 def test_the_sign_out_link_can_be_pressed_with_a_finger() -> None:

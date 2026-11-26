@@ -223,7 +223,7 @@
     item = readJSON(el, 'data-item') || {};
     rows = readJSON(el, 'data-qualities') || [];
     leaving = readJSON(el, 'data-leaving');
-    backHref = el.getAttribute('data-back-href') || '/watch';
+    backHref = el.getAttribute('data-back-href') || '/';
     showHref = el.getAttribute('data-show-href') || '';
     startS = parseFloat(el.getAttribute('data-start-s')) || 0;
     placeS = parseFloat(el.getAttribute('data-place-s'));
@@ -3412,7 +3412,7 @@
   function ledHere() {
     if (window.history.length < 2 || !document.referrer) return false;
     var from = new URL(document.referrer);
-    return from.origin === window.location.origin && /^\/watch(\/(show|movie)\/[0-9]+)?$/.test(from.pathname);
+    return from.origin === window.location.origin && /^\/(watch\/(show|movie)\/[0-9]+)?$/.test(from.pathname);
   }
 
   /* Kept with the entry, so a reload knows it too. */

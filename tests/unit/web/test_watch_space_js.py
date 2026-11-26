@@ -181,7 +181,7 @@ class TestStorage:
         assert out["focused"] == "Back to all space"
 
     def test_the_whole_list_is_a_press_away_while_the_heaviest_load_and_after_they_fail(self):
-        every = ["See all 312 by size", "/watch?all=library&type=movies&sort=size"]
+        every = ["See all 312 by size", "/?all=library&type=movies&sort=size"]
         assert _run("seeAllMeanwhile") == {
             "loading": [False, every, False, None],
             "failed": [True, every, True, None],
@@ -754,7 +754,7 @@ def test_the_panel_never_reloads_the_page():
 class TestSeeAll:
     def test_stays_a_link_for_a_modified_click(self):
         out = _run("seeAll")
-        href = "/watch?all=library&type=movies&sort=size"
+        href = "/?all=library&type=movies&sort=size"
         assert (out["kept"], out["before"]) == ([False] * 4, 0)
         assert (out["plain"], out["href"]) == ([True, True], [href])
 
@@ -774,7 +774,7 @@ class TestSeeAll:
         assert _run("seeAllFails")["gone"] is True
 
     def test_trying_again_once_the_panel_has_closed_shows_the_list_at_once(self):
-        href = "/watch?all=library&type=movies&sort=size"
+        href = "/?all=library&type=movies&sort=size"
         assert _run("seeAllFails")["closed"] == [3, [href]]
 
     @pytest.mark.parametrize("way", ["escape", "tab", "segment", "all"])

@@ -136,7 +136,7 @@
     section.toggleAttribute('data-row-whole', !can);
     link.querySelector('.row-open__cue').hidden = !can;
     if (can) {
-      link.setAttribute('href', '/watch?all=' + id);
+      link.setAttribute('href', '/?all=' + id);
       link.setAttribute('aria-label', title + ', see all' + (total === null ? '' : ' ' + total));
     } else {
       link.removeAttribute('href');
@@ -260,7 +260,7 @@
     }
     var made = {
       total: at.drawn ? at.drawn.total : at.cards().length, next: null,
-      empty: own(EMPTY, at.id) ? Object.assign({ link: 'Back to all rows', href: '/watch' }, EMPTY[at.id]) : undefined,
+      empty: own(EMPTY, at.id) ? Object.assign({ link: 'Back to all rows', href: '/' }, EMPTY[at.id]) : undefined,
       contents: contents,
       sort: { label: 'Sort', choose: contents }
     };

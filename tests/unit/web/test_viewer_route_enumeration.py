@@ -17,7 +17,9 @@ from mediaman.main import create_app
 
 #: What a viewer may reach, written out independently of the guard.
 _VIEWER_MAY_REACH = {
+    ("GET", "/"),
     ("GET", "/watch"),
+    ("HEAD", "/watch"),
     ("GET", "/watch/show/{show_key}"),
     ("GET", "/watch/movie/{key}"),
     ("GET", "/watch/play/{rating_key}"),
@@ -182,7 +184,7 @@ def test_every_route_refuses_a_viewer_unless_it_is_meant_for_one(guarded_app, co
         if reached:
             wrong.append((method, template, "handler reached", resp.status_code))
         elif method == "GET" and not template.startswith("/api/"):
-            if (resp.status_code, resp.headers.get("location")) != (303, "/watch"):
+            if (resp.status_code, resp.headers.get("location")) != (303, "/"):
                 wrong.append((method, template, "not redirected", resp.status_code))
         elif (resp.status_code, resp.json()) != (403, {"error": "forbidden"}):
             wrong.append((method, template, "not 403", resp.status_code))

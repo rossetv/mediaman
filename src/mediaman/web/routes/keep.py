@@ -199,7 +199,7 @@ def _watch_href(row: VerifiedKeepAction, kind: str) -> str:
             .fetchone()
         )
         ref = title_ref("show", media["show_rating_key"] if media else None)
-    return f"/watch#title={ref}" if ref else ""
+    return f"/#title={ref}" if ref else ""
 
 
 def _keep_context(

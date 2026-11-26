@@ -104,7 +104,7 @@
 
     function card(item, i) {
       var a = opts.option(el('a', 'tn__card'), 'tonight-title-' + i);
-      a.href = safePath(item.href) || '/watch';
+      a.href = safePath(item.href) || '/';
       a.style.animationDelay = i * 50 + 'ms';
       var art = a.appendChild(el('span', 'tn__art'));
       var poster = safePath(item.poster_url);

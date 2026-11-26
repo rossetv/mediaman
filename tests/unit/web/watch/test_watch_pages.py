@@ -271,7 +271,7 @@ class TestWatchRows:
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
         _schedule(conn, "502", 2)
 
-        ctx = get("/watch").json()
+        ctx = get("/").json()
 
         assert [r["title"] for r in ctx["rows"]] == [
             "Continue watching",
@@ -284,12 +284,12 @@ class TestWatchRows:
         rows = _rows(ctx)
         assert _titles(rows["Movies"]) == ["Glasshouse", "Brightwater"]
         assert _titles(rows["Recently added"]) == ["Glasshouse"]
-        assert rows["Continue watching"][0]["href"] == "/watch/play/100?resume=1&from=%2Fwatch"
+        assert rows["Continue watching"][0]["href"] == "/watch/play/100?resume=1&from=%2F"
         assert rows["Continue watching"][0]["minutes_left"] == 80
         assert ctx["watch_error"] is None
 
     def test_anime_show_is_in_anime_row_only(self, get):
-        rows = _rows(get("/watch").json())
+        rows = _rows(get("/").json())
 
         assert _titles(rows["Anime"]) == ["Spirit Lanes"]
         assert _titles(rows["TV"]) == ["The Long Coast"]
@@ -300,7 +300,7 @@ class TestWatchRows:
         _schedule(conn, "502", 2)
         _schedule(conn, "100", 5)
 
-        leaving = _rows(get("/watch").json())["Leaving soon"]
+        leaving = _rows(get("/").json())["Leaving soon"]
 
         season, movie = leaving
         assert season["title"] == "The Long Coast"
@@ -314,7 +314,7 @@ class TestWatchRows:
         _schedule(conn, "502", 2)
         _schedule(conn, "501", 6)
 
-        rows = _rows(get("/watch").json())
+        rows = _rows(get("/").json())
 
         [show] = rows["TV"]
         said = [show[k] for k in ("leaving_days", "leaving_season", "leaving_id", "keep_id")]
@@ -328,7 +328,7 @@ class TestWatchRows:
         _schedule(conn, "900", 1)
         _play(conn, "aoife", "900", position=1200, duration=6000, item="900")
 
-        ctx = get("/watch").json()
+        ctx = get("/").json()
 
         titles = {i["title"] for row in ctx["rows"] for i in row["items"]}
         assert "Hidden Film" not in titles
@@ -337,7 +337,7 @@ class TestWatchRows:
     def test_one_persons_progress_is_invisible_to_another(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
-        ctx = get("/watch", user="cian").json()
+        ctx = get("/", user="cian").json()
 
         assert "Continue watching" not in _rows(ctx)
         assert ctx["banner"]["primary"]["label"] == "Play"
@@ -348,7 +348,7 @@ class TestWatchRows:
         _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
         _play(conn, "aoife", "511", position=10, duration=3000, item="501", show="500")
 
-        [card] = _rows(get("/watch").json())["Continue watching"]
+        [card] = _rows(get("/").json())["Continue watching"]
 
         assert card["subtitle"] == "S1 · E2"
         assert card["progress_pct"] is None
@@ -356,7 +356,7 @@ class TestWatchRows:
     def test_finished_episode_is_followed_by_the_next_unwatched_one(self, get, conn):
         _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
 
-        cw = _rows(get("/watch").json())["Continue watching"]
+        cw = _rows(get("/").json())["Continue watching"]
 
         assert cw == [
             {
@@ -364,7 +364,7 @@ class TestWatchRows:
                 "title": "The Long Coast",
                 "subtitle": "S2 · E1",
                 "poster_url": "/api/poster/500",
-                "href": "/watch/play/521?from=%2Fwatch",
+                "href": "/watch/play/521?from=%2F",
                 "progress_pct": None,
                 "minutes_left": None,
                 "watched": False,
@@ -402,7 +402,7 @@ class TestWatchRows:
             spent = pages._NEXT_EPISODE_COST + pages._SHOW_COST
             monkeypatch.setattr(pages, "_PLEX_LOOKUP_BUDGET", spent)
 
-        assert "Continue watching" not in _rows(get("/watch").json())
+        assert "Continue watching" not in _rows(get("/").json())
 
     def test_a_season_gone_from_plex_is_passed_over(self, get, conn, plex, monkeypatch):
         plex.add_show(
@@ -422,7 +422,7 @@ class TestWatchRows:
         monkeypatch.setattr(plex, "get_season_episodes", gone)
 
         for _ in range(2):  # the second time from the cache
-            cw = _rows(get("/watch").json())["Continue watching"]
+            cw = _rows(get("/").json())["Continue watching"]
             assert [c["mark_key"] for c in cw] == ["531"]
 
     def test_a_long_history_of_finished_shows_makes_a_bounded_number_of_plex_calls(
@@ -446,7 +446,7 @@ class TestWatchRows:
             )
             _play(conn, "aoife", f"e{n}", position=3000, duration=3000, item=f"s{n}", show=show)
 
-        assert get("/watch").status_code == 200
+        assert get("/").status_code == 200
         assert 0 < len(calls) <= pages._PLEX_LOOKUP_BUDGET
 
     def test_continue_watching_stops_filling_at_its_cap(self, get, conn):
@@ -456,26 +456,26 @@ class TestWatchRows:
                 conn, id=f"{4000 + n}", plex_rating_key=f"{4000 + n}", title=f"Film {n}"
             )
 
-        cw = _rows(get("/watch").json())["Continue watching"]
+        cw = _rows(get("/").json())["Continue watching"]
 
         assert len(cw) == pages._CONTINUE_LIMIT
 
     def test_show_with_nothing_left_drops_out(self, get, conn):
         _play(conn, "aoife", "611", position=3000, duration=3000, item="601", show="600")
 
-        assert "Continue watching" not in _rows(get("/watch").json())
+        assert "Continue watching" not in _rows(get("/").json())
 
     def test_banner_resumes_the_latest_episode_in_progress(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100", minutes_ago=60)
         _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
 
-        banner = get("/watch").json()["banner"]
+        banner = get("/").json()["banner"]
 
         assert banner["title"] == "The Long Coast"
         assert banner["line"] == 'Season 2 · Episode 2 — "Episode 522" · 30 min left'
         assert banner["primary"] == {
             "label": "Resume",
-            "href": "/watch/play/522?resume=1&from=%2Fwatch",
+            "href": "/watch/play/522?resume=1&from=%2F",
         }
         assert banner["episodes_href"] == "/watch/show/500?season=2"
         assert banner["progress_pct"] == 40
@@ -484,73 +484,73 @@ class TestWatchRows:
     def test_with_nothing_half_watched_the_banner_offers_the_next_episode(self, get, conn):
         _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
 
-        ctx = get("/watch").json()
+        ctx = get("/").json()
 
         banner, [card] = ctx["banner"], _rows(ctx)["Continue watching"]
         assert (banner["title"], banner["ref"]) == ("The Long Coast", "show-500")
         assert (banner["kicker"], banner["progress_pct"]) == ("Continue watching", None)
         assert banner["line"] == 'Season 2 · Episode 1 — "Episode 521"'
         assert banner["line_short"] == "S2 · E1"
-        assert banner["primary"] == {"label": "Play", "href": "/watch/play/521?from=%2Fwatch"}
+        assert banner["primary"] == {"label": "Play", "href": "/watch/play/521?from=%2F"}
         assert banner["episodes_href"] == "/watch/show/500?season=2"
         assert (banner["dismiss_ref"], banner["mark_key"]) == ("show-500", "521")
         assert banner["primary"]["href"] == card["href"]
-        assert get("/watch", user="cian").json()["banner"]["title"] == "Glasshouse"
+        assert get("/", user="cian").json()["banner"]["title"] == "Glasshouse"
 
     def test_the_banner_stands_for_the_first_card_whichever_kind_it_is(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100", minutes_ago=60)
         _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
 
-        ctx = get("/watch").json()
+        ctx = get("/").json()
         banner, cards = ctx["banner"], _rows(ctx)["Continue watching"]
         assert [c["dismiss_ref"] for c in cards] == ["show-500", "movie-100"]
         assert banner["dismiss_ref"] == "show-500"
         assert banner["primary"] == {"label": "Play", "href": cards[0]["href"]}
 
         dismiss(conn, "aoife", "500", NOW)
-        ctx = get("/watch").json()
+        ctx = get("/").json()
         banner, [card] = ctx["banner"], _rows(ctx)["Continue watching"]
         assert banner["ref"] == "movie-100"
         assert banner["primary"] == {"label": "Resume", "href": card["href"]}
 
         dismiss(conn, "aoife", "100", NOW)
-        assert get("/watch").json()["banner"]["kicker"] == "Recently added"
+        assert get("/").json()["banner"]["kicker"] == "Recently added"
 
     def test_the_banner_uses_the_wide_backdrop_of_its_title(self, get, conn):
-        assert get("/watch").json()["banner"]["backdrop_url"] == "/api/poster/101?kind=art"
+        assert get("/").json()["banner"]["backdrop_url"] == "/api/poster/101?kind=art"
 
         _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
 
-        assert get("/watch").json()["banner"]["backdrop_url"] == "/api/poster/500?kind=art"
+        assert get("/").json()["banner"]["backdrop_url"] == "/api/poster/500?kind=art"
 
     def test_the_banner_names_tmdbs_backdrop_to_try_next(self, get, conn):
-        banner = get("/watch").json()["banner"]
+        banner = get("/").json()["banner"]
         assert banner["next_backdrop_url"] == "/api/poster/101?kind=art&source=tmdb"
 
         _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
 
-        banner = get("/watch").json()["banner"]
+        banner = get("/").json()["banner"]
         assert banner["next_backdrop_url"] == "/api/poster/500?kind=art&source=tmdb"
 
     def test_the_banner_carries_the_poster_apart_from_the_backdrop(self, get, conn):
-        assert get("/watch").json()["banner"]["poster_url"] == "/api/poster/101"
+        assert get("/").json()["banner"]["poster_url"] == "/api/poster/101"
 
         _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
 
-        assert get("/watch").json()["banner"]["poster_url"] == "/api/poster/500"
+        assert get("/").json()["banner"]["poster_url"] == "/api/poster/500"
 
     def test_the_banner_says_continue_watching_for_a_title_in_progress(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
-        assert get("/watch").json()["banner"]["kicker"] == "Continue watching"
+        assert get("/").json()["banner"]["kicker"] == "Continue watching"
 
     def test_the_newest_title_is_recently_added_only_within_the_rows_window(self, get, conn):
-        assert get("/watch").json()["banner"]["kicker"] == "Recently added"
+        assert get("/").json()["banner"]["kicker"] == "Recently added"
 
         added = (NOW - timedelta(days=pages.RECENT_DAYS + 10)).isoformat()
         conn.execute("UPDATE media_items SET added_at = ? WHERE id = '101'", (added,))
         conn.commit()
-        ctx = get("/watch").json()
+        ctx = get("/").json()
 
         assert "Recently added" not in _rows(ctx)
         assert ctx["banner"]["title"] == "Glasshouse"
@@ -560,7 +560,7 @@ class TestWatchRows:
         conn.execute("DELETE FROM settings WHERE key IN ('plex_url', 'plex_token')")
         conn.commit()
 
-        ctx = get("/watch").json()
+        ctx = get("/").json()
 
         assert ctx["watch_error"] == "not_set_up"
         assert "Movies" in _rows(ctx)
@@ -569,7 +569,7 @@ class TestWatchRows:
         plex.error = PlexUnavailable("Plex could not be reached")
         _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
 
-        ctx = get("/watch").json()
+        ctx = get("/").json()
 
         assert ctx["watch_error"] is None
         assert ctx["plex_unreachable"] is True
@@ -580,7 +580,7 @@ class TestWatchRows:
         plex.error = PlexUnavailable("Plex could not be reached")
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
-        ctx = get("/watch").json()
+        ctx = get("/").json()
 
         assert ctx["plex_unreachable"] is True
         assert "Continue watching" in _rows(ctx)
@@ -589,7 +589,7 @@ class TestWatchRows:
         pings = []
         monkeypatch.setattr(plex, "ping", lambda: pings.append(1), raising=False)
 
-        first, second = get("/watch").json(), get("/watch").json()
+        first, second = get("/").json(), get("/").json()
 
         assert first["plex_unreachable"] is False and second["plex_unreachable"] is False
         assert len(pings) == 1
@@ -600,8 +600,8 @@ class TestWatchRows:
         real = plex.next_episode
         plex.next_episode = lambda key: lookups.append(key) or real(key)
 
-        get("/watch")
-        ctx = get("/watch").json()
+        get("/")
+        ctx = get("/").json()
 
         assert len(lookups) == 1
         assert "Continue watching" not in _rows(ctx)
@@ -609,7 +609,7 @@ class TestWatchRows:
     def test_in_progress_movie_shows_its_bar_in_the_movies_row(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
-        movies = {c["title"]: c for c in _rows(get("/watch").json())["Movies"]}
+        movies = {c["title"]: c for c in _rows(get("/").json())["Movies"]}
 
         assert movies["Brightwater"]["progress_pct"] == 20
         assert movies["Glasshouse"]["progress_pct"] is None
@@ -618,7 +618,7 @@ class TestWatchRows:
         _play(conn, "aoife", "100", position=6000 - 3120, duration=6000, item="100")
         _play(conn, "aoife", "101", position=1200, duration=6000, item="101", minutes_ago=20)
 
-        cards = _rows(get("/watch").json())["Continue watching"]
+        cards = _rows(get("/").json())["Continue watching"]
 
         assert [c["subtitle"] for c in cards] == ["Movie · 52 min left", "Movie · 1 h 20 min left"]
         assert pages.duration_text(100) == "1 h 40 min"
@@ -631,20 +631,20 @@ class TestWatchRows:
             "https://evil.example/",
             "/watch/../admin",
             "/watch/show/5/x",
-            "/watch#title=",
-            "/watch#title=movie-1/x",
-            "/watch#title=tmdb-show-1",
-            "/watch#title=rec-1&x=1",
-            "/watch#x=movie-1",
-            "/watch?q=a%0d%0ab",
-            "/watch?q=a%C2%85b",
-            "/watch?q=a%E2%80%A8b",
-            "/watch?genre=action&x=%00",
-            "/watch?" + "x=1&" * 60,
-            "/watch?genre=action&x=1#title=movie-1&x=1",
-            "/watch?genre=action#x=1",
-            "/watch?genre=action#title=movie-1/x",
-            "/watch?genre=action\n",
+            "/#title=",
+            "/#title=movie-1/x",
+            "/#title=tmdb-show-1",
+            "/#title=rec-1&x=1",
+            "/#x=movie-1",
+            "/?q=a%0d%0ab",
+            "/?q=a%C2%85b",
+            "/?q=a%E2%80%A8b",
+            "/?genre=action&x=%00",
+            "/?" + "x=1&" * 60,
+            "/?genre=action&x=1#title=movie-1&x=1",
+            "/?genre=action#x=1",
+            "/?genre=action#title=movie-1/x",
+            "/?genre=action\n",
             "/watch/?genre=action",
             "/watch/show/5?genre=action",
             "//watch?genre=action",
@@ -658,18 +658,18 @@ class TestWatchRows:
     @pytest.mark.parametrize(
         "origin",
         [
-            "/watch#title=movie-100",
-            "/watch#title=show-500",
-            "/watch#title=tmdb-tv-7",
-            "/watch#title=rec-3",
-            "/watch#title=pick-3",
-            "/watch?genre=action&type=movie&sort=top_rated&where=library&decade=1990s",
-            "/watch?person=9001#title=movie-100",
-            "/watch?like=show-12#title=movie-100",
-            "/watch?like=tmdb-tv-7",
-            "/watch?q=the+long+coast%26%23#title=show-500",
-            "/watch?all=popular_movies&sort=az",
-            "/watch?view=list&q=a&type=tv&sort=added_desc&page=2&per_page=50",
+            "/#title=movie-100",
+            "/#title=show-500",
+            "/#title=tmdb-tv-7",
+            "/#title=rec-3",
+            "/#title=pick-3",
+            "/?genre=action&type=movie&sort=top_rated&where=library&decade=1990s",
+            "/?person=9001#title=movie-100",
+            "/?like=show-12#title=movie-100",
+            "/?like=tmdb-tv-7",
+            "/?q=the+long+coast%26%23#title=show-500",
+            "/?all=popular_movies&sort=az",
+            "/?view=list&q=a&type=tv&sort=added_desc&page=2&per_page=50",
         ],
     )
     def test_back_may_return_to_a_title_open_on_the_watch_page(self, get, origin):
@@ -684,41 +684,50 @@ class TestWatchRows:
             raise PlexUnavailable("down")
 
         monkeypatch.setattr(plex, "get_item", fail)
-        origin = quote("/watch?genre=action", safe="")
-        assert get(f"/watch/play/100?from={origin}").json()["back_href"] == "/watch?genre=action"
-        assert get("/watch/play/100?from=//evil.example").json()["back_href"] == "/watch"
+        origin = quote("/?genre=action", safe="")
+        assert get(f"/watch/play/100?from={origin}").json()["back_href"] == "/?genre=action"
+        assert get("/watch/play/100?from=//evil.example").json()["back_href"] == "/"
 
     @pytest.mark.parametrize(
         ("origin", "kept"),
         [
-            ("/watch?x=1", "/watch"),
-            ("/watch?", "/watch"),
+            ("/?x=1", "/"),
+            ("/?", "/"),
             (
-                "/watch?genre=action&utm_source=mail#title=movie-1",
-                "/watch?genre=action#title=movie-1",
+                "/?genre=action&utm_source=mail#title=movie-1",
+                "/?genre=action#title=movie-1",
             ),
-            ("/watch?genre=action&genre=drama", "/watch?genre=action"),
-            ("/watch?genre=../admin&sort=newest", "/watch?sort=newest"),
-            ("/watch?person=abc", "/watch"),
-            ("/watch?person=%D9%A1", "/watch"),
-            ("/watch?like=pick-3", "/watch"),
-            ("/watch?like=movie-1x", "/watch"),
-            ("/watch?all=//evil.example", "/watch"),
-            ("/watch?view=grid", "/watch"),
-            ("/watch?decade=1990", "/watch"),
-            ("/watch?genre", "/watch"),
-            ("/watch?next=//evil.example&q=a", "/watch?q=a"),
-            ("/watch?q=" + "a" * 201, "/watch?q=" + "a" * 200),
-            ("/watch?q=a%C2%A0b%E2%80%8D%E2%80%8B", "/watch?q=a%C2%A0b%E2%80%8D%E2%80%8B"),
+            ("/?genre=action&genre=drama", "/?genre=action"),
+            ("/?genre=../admin&sort=newest", "/?sort=newest"),
+            ("/?person=abc", "/"),
+            ("/?person=%D9%A1", "/"),
+            ("/?like=pick-3", "/"),
+            ("/?like=movie-1x", "/"),
+            ("/?all=//evil.example", "/"),
+            ("/?view=grid", "/"),
+            ("/?decade=1990", "/"),
+            ("/?genre", "/"),
+            ("/?next=//evil.example&q=a", "/?q=a"),
+            ("/?q=" + "a" * 201, "/?q=" + "a" * 200),
+            ("/?q=a%C2%A0b%E2%80%8D%E2%80%8B", "/?q=a%C2%A0b%E2%80%8D%E2%80%8B"),
         ],
     )
     def test_what_a_page_does_not_carry_is_left_out_of_the_way_back(self, origin, kept):
         assert pages.safe_origin(origin) == kept
 
+    @pytest.mark.parametrize(
+        ("origin", "kept"),
+        [
+            ("/watch", "/"),
+            ("/watch#title=show-500", "/#title=show-500"),
+            ("/watch?genre=action&x=1#title=movie-1", "/?genre=action#title=movie-1"),
+        ],
+    )
+    def test_a_way_back_saved_at_watch_s_old_address_leads_to_the_root(self, origin, kept):
+        assert pages.safe_origin(origin) == kept
+
     def test_text_in_a_search_to_go_back_to_stays_text(self):
-        assert pages.safe_origin("/watch?q=<b>//evil.example") == (
-            "/watch?q=%3Cb%3E%2F%2Fevil.example"
-        )
+        assert pages.safe_origin("/?q=<b>//evil.example") == ("/?q=%3Cb%3E%2F%2Fevil.example")
 
     def test_back_returns_to_where_the_person_came_from(self, get):
         origin = "/watch/show/500?season=2"
@@ -753,7 +762,7 @@ class TestLibraryRowOrder:
         _add_movie(conn, "104", "alder", day)
         _add_movie(conn, "105", "Aaa Undated", "")
 
-        rows = _rows(get("/watch").json())
+        rows = _rows(get("/").json())
 
         assert _titles(rows["Movies"]) == [
             "Glasshouse",
@@ -781,8 +790,8 @@ class TestLibraryRowOrder:
                 added_at=NOW - timedelta(days=days),
             )
 
-        rows = _rows(get("/watch").json())
-        listed = get("/watch?all=tv", user=admin).json()["grid"]["items"]
+        rows = _rows(get("/").json())
+        listed = get("/?all=tv", user=admin).json()["grid"]["items"]
 
         assert _titles(rows["TV"]) == ["Zebra Street", "Badger", "The Long Coast"]
         assert [t for t in _titles(listed) if t != "Hidden Show"] == _titles(rows["TV"])
@@ -790,7 +799,7 @@ class TestLibraryRowOrder:
     def test_a_long_row_says_where_its_first_page_ends(self, get, conn, monkeypatch):
         monkeypatch.setattr(pages, "ROW_PAGE_SIZE", 1)
 
-        rows = {r["title"]: r for r in get("/watch").json()["rows"]}
+        rows = {r["title"]: r for r in get("/").json()["rows"]}
 
         assert (rows["Movies"]["kind"], rows["Movies"]["page_size"]) == ("movies", 1)
         assert rows["Movies"]["next"] is not None
@@ -806,7 +815,7 @@ class TestLibraryRowOrder:
         conn.execute("UPDATE media_items SET added_at = ? WHERE id = '502'", (added,))
         conn.commit()
 
-        ctx = get("/watch").json()
+        ctx = get("/").json()
 
         row = next(r for r in ctx["rows"] if r["title"] == "Recently added")
         assert _titles(row["items"]) == ["The Long Coast", "Glasshouse", "Zephyr"]
@@ -817,7 +826,7 @@ class TestLibraryRowOrder:
     def test_a_film_of_a_known_year_says_it(self, get, conn):
         _add_movie(conn, "103", "Zephyr", NOW, file_path="/films/Zephyr (2026)/Zephyr.mkv")
 
-        rows = _rows(get("/watch").json())
+        rows = _rows(get("/").json())
 
         assert {c["title"]: c["subtitle"] for c in rows["Movies"]}["Zephyr"] == "Movie · 2026"
 
@@ -828,7 +837,7 @@ class TestLibraryRowOrder:
         conn.commit()
         _schedule(conn, "103", 3)
 
-        rows = _rows(get("/watch").json())
+        rows = _rows(get("/").json())
 
         for row in ("Movies", "Recently added", "Leaving soon"):
             captions = {c["title"]: c["subtitle"] for c in rows[row]}
@@ -841,8 +850,8 @@ class TestMarks:
         _play(conn, "aoife", "100", position=6000, duration=6000, item="100", minutes_ago=99)
         _play(conn, "aoife", "100", position=300, duration=6000, item="100")
 
-        mine = {c["title"]: c for c in _rows(get("/watch").json())["Movies"]}
-        theirs = {c["title"]: c for c in _rows(get("/watch", user="cian").json())["Movies"]}
+        mine = {c["title"]: c for c in _rows(get("/").json())["Movies"]}
+        theirs = {c["title"]: c for c in _rows(get("/", user="cian").json())["Movies"]}
 
         assert (mine["Brightwater"]["watched"], mine["Glasshouse"]["watched"]) == (True, False)
         assert theirs["Brightwater"]["watched"] is False
@@ -854,9 +863,9 @@ class TestMarks:
     def test_a_show_is_marked_once_every_counted_episode_is_seen(self, get, conn):
         _mark(conn, "511", "512")
         _count_episodes(conn, s501=2, s502=2)
-        [partly] = _rows(get("/watch").json())["TV"]
+        [partly] = _rows(get("/").json())["TV"]
         _mark(conn, "521", "522", "523", season="502")  # one more than the scan counted
-        [seen] = _rows(get("/watch").json())["TV"]
+        [seen] = _rows(get("/").json())["TV"]
 
         assert (partly["watched"], partly["subtitle"]) == (False, "TV · 2 seasons · 2 left")
         assert (seen["watched"], seen["subtitle"]) == (True, "TV · 2 seasons")
@@ -866,7 +875,7 @@ class TestMarks:
         _mark(conn, "521", "522", season="502")
         _count_episodes(conn, s501=2)
 
-        [show] = _rows(get("/watch").json())["TV"]
+        [show] = _rows(get("/").json())["TV"]
 
         assert (show["watched"], show["subtitle"]) == (False, "TV · 2 seasons")
 
@@ -876,7 +885,7 @@ class TestMarks:
         _schedule(conn, "502", 2)
         _schedule(conn, "501", 3)
 
-        second, first = _rows(get("/watch").json())["Leaving soon"]
+        second, first = _rows(get("/").json())["Leaving soon"]
 
         assert (second["mark_kind"], second["mark_key"], second["watched"]) == (
             "season",
@@ -890,14 +899,14 @@ class TestMarks:
         _play(conn, "aoife", "511", position=900, duration=3000, item="501", show="500")
         dismiss(conn, "aoife", "500", NOW)
 
-        ctx = get("/watch").json()
+        ctx = get("/").json()
 
         [card] = _rows(ctx)["Continue watching"]
         assert card["dismiss_ref"] == ctx["banner"]["dismiss_ref"] == "movie-100"
         assert ctx["banner"]["mark_key"] == "100"
 
     def test_a_banner_of_the_newest_title_has_nothing_to_dismiss(self, get):
-        banner = get("/watch").json()["banner"]
+        banner = get("/").json()["banner"]
         assert (banner["dismiss_ref"], banner["mark_key"]) == (None, "101")
 
     def test_the_next_episode_is_found_past_more_than_twenty_seen_ones(self, get, conn, plex):
@@ -916,7 +925,7 @@ class TestMarks:
         _play(conn, "aoife", "3001", position=3000, duration=3000, item="301", show="300")
         _mark(conn, *season1, season="301", show="300")
 
-        [card] = _rows(get("/watch").json())["Continue watching"]
+        [card] = _rows(get("/").json())["Continue watching"]
         show = get("/watch/show/300").json()
 
         assert (card["subtitle"], card["mark_key"]) == ("S2 · E1", "3101")
@@ -943,7 +952,7 @@ class TestMarks:
         real = plex.get_season_episodes
         monkeypatch.setattr(plex, "get_season_episodes", lambda k: calls.append(k) or real(k))
 
-        assert get("/watch").status_code == 200
+        assert get("/").status_code == 200
 
         assert 0 < len(calls) <= pages._PLEX_LOOKUP_BUDGET
 
@@ -1092,7 +1101,7 @@ class TestOpenRow:
     def test_a_row_all_on_the_page_is_drawn_whole(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
         _play(conn, "aoife", "101", position=1200, duration=6000, item="101")
-        ctx = get("/watch?all=continue").json()
+        ctx = get("/?all=continue").json()
         assert ctx["grid"]["items"] == ctx["rows"][0]["items"]
         assert (ctx["grid"]["title"], ctx["grid"]["total"]) == ("Continue watching", 2)
         assert ctx["page_data"]["grid"] == {
@@ -1103,27 +1112,27 @@ class TestOpenRow:
             "fact": None,
             "empty": None,
         }
-        sorted_grid = get("/watch?all=continue&sort=az").json()["grid"]
+        sorted_grid = get("/?all=continue&sort=az").json()["grid"]
         assert [i["title"] for i in sorted_grid["items"]] == ["Brightwater", "Glasshouse"]
 
     def test_a_row_with_nothing_in_it_opens_empty(self, get):
-        grid = get("/watch?all=leaving").json()["grid"]
+        grid = get("/?all=leaving").json()["grid"]
         assert (grid["title"], grid["items"], grid["total"]) == ("Leaving soon", [], 0)
 
     def test_a_row_that_loads_later_is_opened_only_where_there_is_one(self, get, conn):
-        later = get("/watch?all=recommended").json()
+        later = get("/?all=recommended").json()
         assert later["grid"]["loads_later"] is True
         insert_settings(conn, suggestions_enabled="false")
-        assert get("/watch?all=recommended").json()["grid"] is None
+        assert get("/?all=recommended").json()["grid"] is None
         # No TMDB is set up.
-        assert get("/watch?all=trending").json()["grid"] is None
+        assert get("/?all=trending").json()["grid"] is None
 
     @pytest.mark.parametrize(
         "query",
         ["all=films", "all=", "all=movies&q=x", "all=movies&genre=a", "all=movies&person=1"],
     )
     def test_an_unknown_row_or_a_search_opens_none(self, get, query):
-        assert get(f"/watch?{query}").json()["grid"] is None
+        assert get(f"/?{query}").json()["grid"] is None
 
 
 class TestMoviePage:
@@ -1274,14 +1283,14 @@ class TestPlayerPage:
         assert ctx["back_href"] == "/watch/show/500?season=1"
 
     def test_next_episode_keeps_an_origin_that_has_no_season(self, get):
-        ctx = get(f"/watch/play/512?from={quote('/watch', safe='')}").json()
+        ctx = get(f"/watch/play/512?from={quote('/', safe='')}").json()
 
-        assert ctx["next"]["href"] == f"/watch/play/521?from={quote('/watch', safe='')}"
+        assert ctx["next"]["href"] == f"/watch/play/521?from={quote('/', safe='')}"
 
     def test_phone_banner_line_is_the_short_form(self, get, conn):
         _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
 
-        assert get("/watch").json()["banner"]["line_short"] == "S2 · E2 · 30 min left"
+        assert get("/").json()["banner"]["line_short"] == "S2 · E2 · 30 min left"
 
     def test_movie_goes_back_to_its_page(self, get):
         ctx = get("/watch/play/100").json()
@@ -1382,7 +1391,7 @@ def test_pages_render_with_the_real_templates(app_factory, conn, library, plex, 
     client.cookies.set("session_token", create_session(conn, "aoife"))
 
     for path, text in [
-        ("/watch", "Leaving in 2 days"),
+        ("/", "Leaving in 2 days"),
         ("/watch/show/500", "Resume S1 · E2"),
         ("/watch/movie/100", "Leaving in 2 days"),
         ("/watch/play/512?resume=1", 'data-start-s="1200'),
@@ -1417,26 +1426,26 @@ def admin(conn):
 
 class TestWatchShell:
     def test_the_old_list_view_leads_to_all_titles(self, get, admin):
-        old = "/watch?view=list&type=kept&sort=size_desc"
+        old = "/?view=list&type=kept&sort=size_desc"
         (own,) = get(old, user=admin).history
         assert (own.status_code, own.headers["location"]) == (
             302,
-            "/watch?all=library&type=kept&sort=size",
+            "/?all=library&type=kept&sort=size",
         )
         # A viewer has neither that filter nor that order.
-        assert get(old).history[0].headers["location"] == "/watch?all=library"
-        assert get("/watch?view=list&type=tv&sort=name_asc").history[0].headers["location"] == (
-            "/watch?all=library&type=tv&sort=az"
+        assert get(old).history[0].headers["location"] == "/?all=library"
+        assert get("/?view=list&type=tv&sort=name_asc").history[0].headers["location"] == (
+            "/?all=library&type=tv&sort=az"
         )
-        assert get("/watch?view=list&q=dune").history[0].headers["location"] == "/watch?q=dune"
-        assert get("/watch?view=other", user=admin).json()["grid"] is None
+        assert get("/?view=list&q=dune").history[0].headers["location"] == "/?q=dune"
+        assert get("/?view=other", user=admin).json()["grid"] is None
 
     def test_the_search_is_trimmed_and_cut_to_a_sane_length(self, get):
-        assert get("/watch?q=%20%20glass%20").json()["q"] == "glass"
-        assert len(get("/watch?q=" + "a" * 5000).json()["q"]) == 200
+        assert get("/?q=%20%20glass%20").json()["q"] == "glass"
+        assert len(get("/?q=" + "a" * 5000).json()["q"]) == 200
 
     def test_library_rows_are_marked_to_sit_under_their_divider(self, get):
-        rows = get("/watch").json()["rows"]
+        rows = get("/").json()["rows"]
 
         assert {r["title"]: r["library"] for r in rows} == {
             "Recently added": False,
@@ -1448,12 +1457,12 @@ class TestWatchShell:
     def test_page_data_says_whether_tmdb_is_set_up_and_links_settings_for_admins(
         self, get, conn, admin
     ):
-        assert get("/watch").json()["page_data"]["tmdb_configured"] is False
+        assert get("/").json()["page_data"]["tmdb_configured"] is False
         insert_settings(conn, tmdb_read_token="tok")
 
         viewer, owner = (
-            get("/watch").json()["page_data"],
-            get("/watch", user=admin).json()["page_data"],
+            get("/").json()["page_data"],
+            get("/", user=admin).json()["page_data"],
         )
 
         assert viewer["tmdb_configured"] is True
@@ -1461,11 +1470,21 @@ class TestWatchShell:
         assert owner["settings_tmdb_href"] == "/settings#setg-integrations"
 
 
+@pytest.mark.parametrize("as_admin", [False, True])
+def test_the_root_is_the_watch_page_for_a_viewer_and_an_admin(
+    app_factory, conn, library, plex, monkeypatch, admin, as_admin
+):
+    resp = _page(app_factory, conn, monkeypatch, "/", admin if as_admin else "aoife")
+
+    assert resp.status_code == 200
+    assert 'id="watch-page"' in resp.text
+
+
 def test_discover_sits_between_recently_added_and_the_library_rows(
     app_factory, conn, library, plex, monkeypatch
 ):
     insert_settings(conn, tmdb_read_token="tok")
-    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+    html = _page(app_factory, conn, monkeypatch, "/", "aoife").text
 
     recent = html.index('aria-label="Recently added"')
     slot = html.index('id="watch-discover-slot"')
@@ -1491,7 +1510,7 @@ def test_what_a_person_asked_for_comes_after_continue_watching_and_before_the_re
     _asked(conn, "aoife")
     _play(conn, "aoife", "100", position=900, duration=3600, item="100")
     _schedule(conn, "101", 4)
-    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+    html = _page(app_factory, conn, monkeypatch, "/", "aoife").text
 
     places = [
         html.index(part)
@@ -1523,7 +1542,7 @@ def test_what_is_downloading_comes_with_the_page_between_continue_watching_and_w
     held.get(lambda _before: strip.Strip((item, ready)))
     monkeypatch.setattr(strip, "shared", held)
 
-    html = _page(app_factory, conn, monkeypatch, "/watch", user).text
+    html = _page(app_factory, conn, monkeypatch, "/", user).text
 
     places = [html.index(f'id="{name}"') for name in ("watch-downloading", "watch-asked")]
     assert html.index('data-row-id="continue"') < places[0] < places[1]
@@ -1540,7 +1559,7 @@ def test_the_place_of_what_was_asked_for_is_held_only_for_whoever_asked(
     app_factory, conn, library, plex, monkeypatch
 ):
     _asked(conn, "aoife")
-    html = _page(app_factory, conn, monkeypatch, "/watch", "cian").text
+    html = _page(app_factory, conn, monkeypatch, "/", "cian").text
 
     assert 'id="watch-asked"' in html
     assert "asked-skel" not in html
@@ -1551,7 +1570,7 @@ def test_no_place_is_held_for_what_stands_in_continue_watching(
 ):
     _asked(conn, "aoife")
     _play(conn, "aoife", "101", position=900, duration=3600, item="101")
-    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+    html = _page(app_factory, conn, monkeypatch, "/", "aoife").text
 
     assert 'data-dismiss-ref="movie-101"' in html
     assert 'id="watch-asked"' in html
@@ -1559,7 +1578,7 @@ def test_no_place_is_held_for_what_stands_in_continue_watching(
 
 
 def test_the_row_of_what_was_asked_for_opens_as_a_grid(get):
-    ctx = get("/watch?all=asked").json()
+    ctx = get("/?all=asked").json()
 
     assert (ctx["grid"]["title"], ctx["grid"]["loads_later"]) == ("You asked for these", True)
     assert ctx["page_data"]["grid"]["id"] == "asked"
@@ -1595,7 +1614,7 @@ def test_the_discover_skeleton_holds_a_place_for_each_row_that_will_arrive(
     if not picks:
         insert_settings(conn, suggestions_enabled="false")
 
-    html = _page(app_factory, conn, monkeypatch, "/watch", admin if as_admin else "aoife").text
+    html = _page(app_factory, conn, monkeypatch, "/", admin if as_admin else "aoife").text
 
     slot = html[html.index('id="watch-discover-slot"') : html.index(">Your library<")]
     assert slot.count('class="watch-row watch-row--skel') == rows
@@ -1610,7 +1629,7 @@ def test_plex_not_set_up_keeps_the_search_and_discover_but_not_the_rows(
     conn.execute("DELETE FROM settings WHERE key IN ('plex_url', 'plex_token')")
     insert_settings(conn, tmdb_read_token="tok")
 
-    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+    html = _page(app_factory, conn, monkeypatch, "/", "aoife").text
 
     assert "Plex isn't set up yet." in html
     assert 'id="watch-search"' in html
@@ -1628,25 +1647,25 @@ def test_an_admin_can_go_to_the_titles_the_scans_found_where_watch_can_show_none
     if set_up:
         insert_settings(conn, plex_url="http://plex.invalid:32400", plex_token="tok")
 
-    html = _page(app_factory, conn, monkeypatch, "/watch", admin).text
+    html = _page(app_factory, conn, monkeypatch, "/", admin).text
 
-    link = re.search(r'<a class="watch-all-link" href="/watch\?all=library"[^>]*>(.*?)<svg', html)
+    link = re.search(r'<a class="watch-all-link" href="/\?all=library"[^>]*>(.*?)<svg', html)
     assert link
     assert link[1] == "<span>All 1 title</span>"
     assert "Your library is empty" not in html
     insert_media_item(conn, id="901", plex_rating_key="901", title="Other", plex_library_id=9)
-    assert "All 2 titles" in _page(app_factory, conn, monkeypatch, "/watch", admin).text
+    assert "All 2 titles" in _page(app_factory, conn, monkeypatch, "/", admin).text
     insert_admin_user(conn, username="aoife", role="viewer")
-    assert "watch-all-link" not in _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+    assert "watch-all-link" not in _page(app_factory, conn, monkeypatch, "/", "aoife").text
 
 
 def test_an_admin_s_all_titles_is_drawn_in_place_of_the_rows(
     app_factory, conn, library, plex, monkeypatch, admin
 ):
-    rows = _page(app_factory, conn, monkeypatch, "/watch", admin).text
-    listed = _page(app_factory, conn, monkeypatch, "/watch?all=library&type=movies", admin).text
+    rows = _page(app_factory, conn, monkeypatch, "/", admin).text
+    listed = _page(app_factory, conn, monkeypatch, "/?all=library&type=movies", admin).text
 
-    assert 'href="/watch?all=library" data-row-open="library"' in rows
+    assert 'href="/?all=library" data-row-open="library"' in rows
     assert not re.search(r'id="watch-browse"[^>]*hidden', rows)
     assert re.search(r'id="watch-browse"[^>]*hidden', listed)
     assert re.search(r'class="fpill on"[^>]*data-grid-filter="movies" aria-current="true"', listed)
@@ -1660,9 +1679,7 @@ def test_a_viewer_s_all_titles_has_no_admin_wording_even_when_asked_for_the_list
 ):
     _schedule(conn, "100", 2)
 
-    html = _page(
-        app_factory, conn, monkeypatch, "/watch?all=library&type=kept&sort=size", "aoife"
-    ).text
+    html = _page(app_factory, conn, monkeypatch, "/?all=library&type=kept&sort=size", "aoife").text
 
     assert 'data-grid-filter="movies"' in html
     for leak in ("data-admin", "watch/admin.js", "on disk", 'data-grid-filter="kept"'):
@@ -1678,5 +1695,5 @@ def test_the_old_list_fragment_is_for_admins_only(
     viewer = _page(app_factory, conn, monkeypatch, "/watch/list", "aoife", guard=False)
     owner = _page(app_factory, conn, monkeypatch, "/watch/list", admin)
 
-    assert (viewer.status_code, viewer.headers["location"]) == (303, "/watch")
-    assert (owner.status_code, owner.headers["location"]) == (302, "/watch?all=library")
+    assert (viewer.status_code, viewer.headers["location"]) == (303, "/")
+    assert (owner.status_code, owner.headers["location"]) == (302, "/?all=library")

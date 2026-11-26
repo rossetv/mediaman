@@ -42,7 +42,7 @@ def test_a_title_deleted_from_its_page_leaves_the_rows_and_its_other_cards_say_n
             "taken": ["own", "continue"],
             "at": "other",
             "badges": 0,
-            "links": [[tmdb, f"/watch#title={tmdb}"]] * 2,
+            "links": [[tmdb, f"/#title={tmdb}"]] * 2,
         }
 
     assert _run("deleted") == {"movie-120": want("tmdb-movie-77"), "show-300": want("tmdb-tv-77")}

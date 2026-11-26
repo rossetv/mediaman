@@ -29,7 +29,7 @@ def app(app_factory, conn):
 def _csp() -> str:
     bare = FastAPI()
     bare.add_middleware(SecurityHeadersMiddleware)
-    return TestClient(bare).get("/watch").headers["Content-Security-Policy"]
+    return TestClient(bare).get("/").headers["Content-Security-Policy"]
 
 
 def test_turning_chromecast_on_needs_the_password_again(app, authed_client, conn) -> None:
@@ -94,7 +94,7 @@ def _scripts(path: str, conn, stored: str) -> str:
     return TestClient(app).get(path).text
 
 
-@pytest.mark.parametrize("path", ["/watch", "/watch/show/7", "/downloads"])
+@pytest.mark.parametrize("path", ["/", "/watch/show/7", "/downloads"])
 def test_the_page_has_the_sender_only_where_it_may_load_googles(conn, path) -> None:
     html = _scripts(path, conn, "true")
     assert html.count(SCRIPT) == 1
@@ -103,7 +103,8 @@ def test_the_page_has_the_sender_only_where_it_may_load_googles(conn, path) -> N
 
 
 @pytest.mark.parametrize(
-    ("path", "stored"), [("/watch", "false"), ("/settings", "true"), ("/account", "true")]
+    ("path", "stored"),
+    [("/", "false"), ("/watch", "true"), ("/settings", "true"), ("/account", "true")],
 )
 def test_no_other_page_has_it_from_the_base(conn, path, stored) -> None:
     assert SCRIPT not in _scripts(path, conn, stored)
@@ -134,18 +135,18 @@ def _mark(html: str) -> str | None:
 
 
 def test_the_page_says_whose_it_is_without_saying_who(conn) -> None:
-    mine = _mark(_page(conn, "/watch", "true", "maren"))
+    mine = _mark(_page(conn, "/", "true", "maren"))
     assert mine
     assert re.fullmatch(r"[0-9a-f]{32}", mine)
     assert _mark(_page(conn, "/downloads", "true", "maren")) == mine
-    assert _mark(_page(conn, "/watch", "true", "tobias")) not in (None, "", mine)
+    assert _mark(_page(conn, "/", "true", "tobias")) not in (None, "", mine)
 
 
 @pytest.mark.parametrize(
     ("path", "stored", "username", "mark"),
     [
-        ("/watch", "true", None, ""),
-        ("/watch", "false", "maren", None),
+        ("/", "true", None, ""),
+        ("/", "false", "maren", None),
         ("/settings", "true", "maren", None),
     ],
 )

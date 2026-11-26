@@ -4467,20 +4467,20 @@ const scenarios = {
       p.tick(more && more.waits || 60000);
       return Object.assign(out, { late: p.win.location.href });
     };
-    const reloaded = boot(html, false, null, undefined, { referrer: 'http://mm/watch?genre=action', length: 3 }).win.history.state;
+    const reloaded = boot(html, false, null, undefined, { referrer: 'http://mm/?genre=action', length: 3 }).win.history.state;
     return {
-      fromWatch: press({ referrer: 'http://mm/watch?genre=action', length: 3 }),
+      fromWatch: press({ referrer: 'http://mm/?genre=action', length: 3 }),
       reload: press({ length: 3, state: reloaded }),
-      newTab: press({ referrer: 'http://mm/watch', length: 1 }),
+      newTab: press({ referrer: 'http://mm/', length: 1 }),
       deep: press({ length: 2 }),
       otherSite: press({ referrer: 'http://evil/watch', length: 3 }),
       otherPage: press({ referrer: 'http://mm/watch/play/9', length: 3 }),
-      slow: press({ referrer: 'http://mm/watch', length: 3 }, { waits: 10000 }),
-      slower: press({ referrer: 'http://mm/watch', length: 3 }, { leaves: true }),
-      twice: press({ referrer: 'http://mm/watch', length: 3 }, { twice: 500 }),
-      again: press({ referrer: 'http://mm/watch', length: 3 }, { twice: 2500 }),
-      onItsWay: press({ referrer: 'http://mm/watch', length: 3 }, { twice: 2500, leaves: true }),
-      newTabPress: press({ referrer: 'http://mm/watch', length: 3 }, { metaKey: true }),
+      slow: press({ referrer: 'http://mm/', length: 3 }, { waits: 10000 }),
+      slower: press({ referrer: 'http://mm/', length: 3 }, { leaves: true }),
+      twice: press({ referrer: 'http://mm/', length: 3 }, { twice: 500 }),
+      again: press({ referrer: 'http://mm/', length: 3 }, { twice: 2500 }),
+      onItsWay: press({ referrer: 'http://mm/', length: 3 }, { twice: 2500, leaves: true }),
+      newTabPress: press({ referrer: 'http://mm/', length: 3 }, { metaKey: true }),
     };
   },
 

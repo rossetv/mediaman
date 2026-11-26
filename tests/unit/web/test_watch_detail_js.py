@@ -38,7 +38,7 @@ def test_a_card_opens_at_once_with_its_title_and_its_own_address() -> None:
     assert loading["focus"] is True
     assert loading["locked"] is True
     assert loading["hash"] == "#title=tmdb-movie-77"
-    assert loading["history"] == [["push", "/watch#title=tmdb-movie-77"]]
+    assert loading["history"] == [["push", "/#title=tmdb-movie-77"]]
     assert out["loaded"]["busy"] is None
     assert "2 h 19 min" in out["loaded"]["meta"]
     assert out["loaded"]["primary"]["text"] == "Download"
@@ -112,7 +112,7 @@ def test_back_before_a_title_has_stepped_aside_turns_it_round() -> None:
 def test_a_title_s_genres_lead_to_explore_and_back_to_them() -> None:
     out = _run("genreLinks")
     assert out["meta"].endswith("Drama, Sci-Fi & Fantasy, Noir12A")
-    assert out["hrefs"] == ["/watch?genre=drama", "/watch?genre=science-fiction"]
+    assert out["hrefs"] == ["/?genre=drama", "/?genre=science-fiction"]
     assert out["modified"] == {"prevented": False, "explored": []}
     assert out["explored"] == [{"genre": "science-fiction"}]
     assert out["gone"] is True
@@ -130,7 +130,7 @@ def test_a_direct_link_opens_the_title_and_closing_drops_the_hash_without_histor
     out = _run("directLink")
     assert out["opened"]["hidden"] is False
     assert out["opened"]["gets"][0] == "/api/watch/title/movie-120"
-    assert out["history"] == [["replace", "/watch"]]
+    assert out["history"] == [["replace", "/"]]
     assert out["hash"] == ""
 
 
@@ -140,7 +140,7 @@ def test_a_title_no_card_opened_gives_the_focus_to_one_of_its_cards_that_shows()
 
 def test_an_old_recommendation_link_opens_the_pick() -> None:
     out = _run("oldRecommendationLink")
-    assert out["history"][0] == ["replace", "/watch#title=rec-5"]
+    assert out["history"][0] == ["replace", "/#title=rec-5"]
     assert out["gets"][0] == "/api/watch/title/rec-5"
     assert "two slow mysteries" in out["reason"]
 
@@ -1462,7 +1462,7 @@ def test_a_keep_undone_elsewhere_shows_on_the_open_title() -> None:
 def test_the_director_leads_to_their_titles_and_back() -> None:
     assert _run("directorLink") == {
         "text": "DirectorAda Rimmington",
-        "href": "/watch?person=9008",
+        "href": "/?person=9008",
         "modified": False,
         "explored": [{"person": 9008}],
         "focus": "director",

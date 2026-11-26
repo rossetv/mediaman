@@ -31,7 +31,7 @@ def test_cards_open_by_title_ref_keep_a_link_and_drop_a_bad_ref() -> None:
     out = _run("loaded")
     assert out["refs"] == ["movie-11", "tmdb-movie-2", "tmdb-tv-3", "tmdb-movie-4"]
     assert out["hrefs"][0] == "/watch/movie/11"
-    assert out["hrefs"][1] == "/watch#title=tmdb-movie-2"
+    assert out["hrefs"][1] == "/#title=tmdb-movie-2"
 
 
 def test_each_card_carries_its_kind_for_the_detail_to_show_while_loading() -> None:
@@ -419,13 +419,13 @@ def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -
 def test_landing_from_recommended_scrolls_its_row_into_view_and_cleans_the_address() -> None:
     out = _run("landOnRecommended")
     # The marker goes before anything reads the address; an old pick link's hash stays.
-    assert out["landed"]["replacedAtOnce"] == ["/watch#recommendation-5"]
+    assert out["landed"]["replacedAtOnce"] == ["/#recommendation-5"]
     assert out["landed"]["scrolls"] == [{"top": 958, "behavior": "auto"}]
-    assert out["withMotion"]["replacedAtOnce"] == ["/watch?view=rows"]
+    assert out["withMotion"]["replacedAtOnce"] == ["/?view=rows"]
     assert out["withMotion"]["scrolls"] == [{"top": 958, "behavior": "smooth"}]
     assert out["plain"] == {"replacedAtOnce": [], "scrolls": []}
     # No Recommended row for a viewer with picks off, and nobody is pulled back from where they scrolled.
-    assert out["picksOff"] == {"replacedAtOnce": ["/watch"], "scrolls": []}
+    assert out["picksOff"] == {"replacedAtOnce": ["/"], "scrolls": []}
     assert out["alreadyScrolled"]["scrolls"] == []
 
 

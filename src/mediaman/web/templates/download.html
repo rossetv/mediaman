@@ -4,7 +4,7 @@
 
 {% if state == "confirm" %}
 {% set season = none if item.season_number is not defined or item.season_number is none else 'Specials' if item.season_number == 0 else 'Season %d' % item.season_number %}
-{% set watch_href = '/watch' ~ ('#title=tmdb-%s-%d' % ('movie' if item.media_type == 'movie' else 'tv', item.tmdb_id) if item.tmdb_id is integer else '') %}
+{% set watch_href = '/' ~ ('#title=tmdb-%s-%d' % ('movie' if item.media_type == 'movie' else 'tv', item.tmdb_id) if item.tmdb_id is integer else '') %}
 {% endif %}
 
 {% block title %}
@@ -197,7 +197,7 @@
 
 {% else %}
 {% call share.notice("clock", "This link does not work any more", "Links in our mail work for 14 days. If you copied it by hand, part of it may be missing.") %}
-<a class="btn btn--lg btn--primary" href="/watch">Open mediaman</a>
+<a class="btn btn--lg btn--primary" href="/">Open mediaman</a>
 {% endcall %}
 {% endif %}
 {% endblock %}

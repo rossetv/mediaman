@@ -355,7 +355,7 @@
     box.appendChild(window.MM.dom.icon('i-film'));
     box.appendChild(el('p', 'grid-empty__title', text));
     var link = el('a', 'grid-empty__link', 'Back to all rows');
-    link.href = '/watch';
+    link.href = '/';
     link.addEventListener('click', function (e) {
       if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();

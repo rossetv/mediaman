@@ -87,7 +87,7 @@ _CAST_SCRIPTS = (
 GOOGLE_CAST_SETTING = "google_cast_enabled"
 
 # The pages a Cast can be started from or goes on beside. Never one where a password is typed.
-_CAST_PAGES = frozenset({"/watch", "/downloads"})
+_CAST_PAGES = frozenset({"/", "/downloads"})
 
 
 def _google_cast_allowed(request: Request) -> bool:

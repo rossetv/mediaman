@@ -60,7 +60,7 @@ def test_the_end_says_how_many_and_an_empty_grid_says_why_with_a_link_inside_the
     assert (out["many"], out["one"]) == ("That’s all 2.", "That’s the only one.")
     assert out["endless"] == "That’s everything for now."
     assert out["empty"] == "Nothing in Action yetTry another.Back"
-    assert out["href"] == "/watch"
+    assert out["href"] == "/"
 
 
 def test_other_contents_keep_the_posters_that_stay_and_drop_a_page_still_on_its_way() -> None:

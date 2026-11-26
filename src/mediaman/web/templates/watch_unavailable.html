@@ -8,7 +8,7 @@
 {% block content %}
 <div class="watch-page watch-detail" id="watch-page"{% if watch_error == 'unreachable' %} data-plex-unavailable{% endif %}>
   <div class="watch-detail__top">
-    <a class="watch-back" href="{{ back_href or '/watch' }}">‹ Back to Watch</a>
+    <a class="watch-back" href="{{ back_href or '/' }}">‹ Back to Watch</a>
   </div>
   {% if watch_error %}
   {{ w.error_state(watch_error, is_admin) }}

@@ -643,7 +643,7 @@
       if (link.hasAttribute('data-in-library') && there) {
         link.removeAttribute('data-in-library');
         link.setAttribute('data-title-ref', there);
-        link.setAttribute('href', '/watch#title=' + there);
+        link.setAttribute('href', '/#title=' + there);
         toArray(card.querySelectorAll('.watch-badge--in, .watch-badge--leaving')).forEach(function (b) { b.remove(); });
         return;
       }
@@ -1275,7 +1275,7 @@
   /* A link to a page of Explore, which a plain press opens in place. */
   function exploreLink(cls, text, query, act, open) {
     var a = el('a', cls, text);
-    a.setAttribute('href', '/watch?' + query);
+    a.setAttribute('href', '/?' + query);
     a.setAttribute('data-ttl-act', act);
     a.addEventListener('click', function (e) {
       if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || !window.MMWatch.explore) return;

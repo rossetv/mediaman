@@ -531,7 +531,7 @@
     }
     if (!Object.keys(owed).length) return;
     var asked = changes;
-    fetchPage('/watch').then(function (doc) {
+    fetchPage('/').then(function (doc) {
       if (asked !== changes) return;
       var due = owed;
       owed = {};

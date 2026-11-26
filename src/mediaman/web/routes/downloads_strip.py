@@ -133,7 +133,7 @@ def _with_title(
     return replace(
         item,
         ref=ref,
-        href=catalog.library_href(held) or f"/watch#title={ref}",
+        href=catalog.library_href(held) or f"/#title={ref}",
         poster_url=poster,
         art_url=art,
     )

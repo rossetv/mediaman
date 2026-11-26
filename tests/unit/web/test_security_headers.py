@@ -1120,9 +1120,9 @@ class TestObscure405:
 class TestGoogleCastScripts:
     """Google's Cast script is allowed only where an admin has turned Chromecast on."""
 
-    _PAGES = ("/watch", "/watch/play/101", "/watch/show/7", "/downloads")
+    _PAGES = ("/", "/watch/play/101", "/watch/show/7", "/downloads")
     _ELSEWHERE = (
-        "/",
+        "/watch",
         "/login",
         "/settings",
         "/account",
@@ -1160,15 +1160,15 @@ class TestGoogleCastScripts:
     def test_any_value_but_true_is_off(self, conn, stored):
         set_connection(conn)
         insert_settings(conn, google_cast_enabled=stored)
-        csp = self._csp("/watch")
+        csp = self._csp("/")
         assert csp == self._today(csp)
 
     def test_a_setting_that_cannot_be_read_is_off(self, conn):
         set_connection(conn)
         insert_settings(conn, google_cast_enabled="true")
-        assert "gstatic" in self._csp("/watch")
+        assert "gstatic" in self._csp("/")
         conn.execute("DROP TABLE settings")
-        csp = self._csp("/watch")
+        csp = self._csp("/")
         assert csp == self._today(csp)
 
     @pytest.mark.parametrize("path", _PAGES)

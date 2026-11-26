@@ -3,7 +3,7 @@
 Every request with a valid session gets ``request.state.username`` and
 ``request.state.user_role`` here, read fresh from the database so a
 demotion applies on the very next request. A non-admin reaches only the
-routes on the viewer allowlist; any other page redirects to ``/watch``
+routes on the viewer allowlist; any other page redirects to Watch
 and any other call answers 403 before the route runs.
 
 The allowlist is matched on HTTP method plus the matched route's path
@@ -21,7 +21,7 @@ from starlette.responses import JSONResponse, RedirectResponse, Response
 from starlette.routing import Match
 
 from mediaman.db import get_db
-from mediaman.web.auth.middleware import resolve_cached_session
+from mediaman.web.auth.middleware import LANDING_PATH, resolve_cached_session
 from mediaman.web.auth.password_hash import get_user_role
 
 #: ``(method, path template)`` pairs a viewer may reach. The public token
@@ -30,7 +30,9 @@ from mediaman.web.auth.password_hash import get_user_role
 #: along is not turned away from them.
 _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
+        ("GET", "/"),
         ("GET", "/watch"),
+        ("HEAD", "/watch"),
         ("GET", "/watch/show/{show_key}"),
         ("GET", "/watch/movie/{key}"),
         ("GET", "/watch/play/{rating_key}"),
@@ -218,5 +220,5 @@ class ViewerGuardMiddleware(BaseHTTPMiddleware):
 
         path = request.url.path
         if request.method == "GET" and not (path == "/api" or path.startswith("/api/")):
-            return RedirectResponse("/watch", status_code=303)
+            return RedirectResponse(LANDING_PATH, status_code=303)
         return JSONResponse({"error": "forbidden"}, status_code=403)

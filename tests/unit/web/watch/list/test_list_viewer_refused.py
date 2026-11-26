@@ -39,7 +39,7 @@ def viewer(app_factory, viewer_client, conn):
 def test_the_list_fragment_sends_a_viewer_back_to_watch(viewer):
     resp = viewer.get("/watch/list?type=kept", follow_redirects=False)
 
-    assert (resp.status_code, resp.headers["location"]) == (303, "/watch")
+    assert (resp.status_code, resp.headers["location"]) == (303, "/")
 
 
 @pytest.mark.parametrize(("method", "path", "form"), _ADMIN_CALLS)
@@ -62,7 +62,7 @@ def test_the_viewer_guard_stops_each_before_any_route_runs(
     )
 
     if path == "/watch/list":
-        assert (resp.status_code, resp.headers["location"]) == (303, "/watch")
+        assert (resp.status_code, resp.headers["location"]) == (303, "/")
     else:
         assert resp.status_code == 403
     assert reached == []

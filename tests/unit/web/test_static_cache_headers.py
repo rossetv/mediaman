@@ -92,7 +92,7 @@ def get_page(conn, secret_key, authed_client):
 @pytest.mark.parametrize(
     ("path", "signed_in"),
     [
-        ("/watch", True),
+        ("/", True),
         ("/downloads", True),
         ("/history", True),
         ("/settings", True),

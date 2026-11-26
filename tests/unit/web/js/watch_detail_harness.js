@@ -147,7 +147,7 @@ function load(opts = {}) {
   const history = [];
   const routes = Object.assign({}, opts.routes);
   const posted = opts.posted || {};
-  const loc = { origin: 'https://mediaman.test', pathname: '/watch', search: '', hash: opts.hash || '' };
+  const loc = { origin: 'https://mediaman.test', pathname: '/', search: '', hash: opts.hash || '' };
   const explored = [];
   const winListeners = {};
   const entries = (opts.before || []).concat({ state: opts.state || null, search: '', hash: loc.hash });
@@ -841,7 +841,7 @@ const scenarios = {
     const p = load({ routes: { '/api/watch/title/rec-5': pick } });
     p.run();
     p.doc.querySelector('.watch-rows').appendChild(build(p.doc,
-      ['a', { class: 'watch-card__link', href: '/watch#title=rec-5', 'data-title-ref': 'rec-5', 'data-kind': 'show' }, 'Pick']));
+      ['a', { class: 'watch-card__link', href: '/#title=rec-5', 'data-title-ref': 'rec-5', 'data-kind': 'show' }, 'Pick']));
     click(p.doc, p.doc.querySelector('[data-title-ref="rec-5"]'));
     const fromCard = p.text('[data-ttl-part="kind"]');
     await settle();

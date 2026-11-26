@@ -237,7 +237,7 @@ def _movie_play(out: dict[str, Any], conn: sqlite3.Connection, username: str, ke
     pct, left = progress_fields(progress) if progress and resume else (None, None)
     out["play"] = {
         "label": "Resume" if resume else "Play",
-        "href": play_href(key, resume=resume, origin=f"/watch#title={out['ref']}"),
+        "href": play_href(key, resume=resume, origin=f"/#title={out['ref']}"),
         "progress_pct": pct,
         "minutes_left": left,
     }
@@ -275,7 +275,7 @@ def _show_resume(out: dict[str, Any], conn: sqlite3.Connection, username: str, k
     pct, left = progress_fields(last)
     out["play"] = {
         "label": "Resume",
-        "href": play_href(last.rating_key, resume=True, origin=f"/watch#title={out['ref']}"),
+        "href": play_href(last.rating_key, resume=True, origin=f"/#title={out['ref']}"),
         "progress_pct": pct,
         "minutes_left": left,
     }
@@ -316,7 +316,7 @@ def _show_from_plex(
             return episodes[season_key]
 
         counted = lib.show_seen(conn, username, libraries, show_key=key).get(key)
-        origin = f"/watch#title={out['ref']}"
+        origin = f"/#title={out['ref']}"
         progress = seen_titles.with_covered(
             conn, username, libraries, key, show_progress(conn, username, key)
         )

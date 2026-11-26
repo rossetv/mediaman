@@ -75,7 +75,7 @@
     state = null;
     core.byId('watch-sheet').textContent = '';
     core.byId('watch-search').value = '';
-    window.location.replace('/watch');
+    window.location.replace('/');
   }
 
   /* Send what is the person's own, with whose page this is: the server refuses it for another. */
@@ -511,7 +511,7 @@
   function playButton(t) {
     var a = el('a', 'ans__go');
     var film = safePath(t.play_href);
-    a.href = film || safePath(t.href) || '/watch';
+    a.href = film || safePath(t.href) || '/';
     a.setAttribute('aria-label', 'Play ' + t.title);
     a.appendChild(MM.dom.icon('i-play'));
     if (film) return a;

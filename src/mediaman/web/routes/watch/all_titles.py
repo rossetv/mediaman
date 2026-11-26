@@ -223,14 +223,14 @@ def _empty(conn: sqlite3.Connection, type_: str, admin: bool) -> dict[str, str]:
         return {
             "title": title,
             "link": "Show all titles",
-            "href": "/watch?all=library",
+            "href": "/?all=library",
             "filter": "",
         }
     if not admin:
         return {
             "title": "The library is empty for now",
             "link": "Back to all rows",
-            "href": "/watch",
+            "href": "/",
         }
     if not plex_is_configured(conn):
         return {

@@ -104,8 +104,9 @@ _REACHABLE_TTL_S = 30.0
 _reachable_until = [0.0]
 _KEY_RE = re.compile(r"[0-9]{1,18}")
 # The only places the player's Back may return to; anything else falls back to the item's own page.
+# Watch's old address is still read, as a way back saved before Watch moved to the root.
 _ORIGIN_RE = re.compile(
-    r"/watch(\?(?P<query>[^#]*))?"
+    r"/(?P<old>watch)?(\?(?P<query>[^#]*))?"
     r"(?P<hash>#title=((movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}|(rec|pick)-[0-9]{1,10}))?"
     r"|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
 )
@@ -155,8 +156,10 @@ def safe_origin(value: str | None) -> str | None:
     """*value* when it is one of the Watch pages a person can come from, without what such a
     page's address does not carry; else None."""
     match = _ORIGIN_RE.fullmatch(value) if value else None
-    if match is None or match["query"] is None:
-        return value if match else None
+    if value is None or match is None:
+        return None
+    if match["query"] is None:
+        return "/" + value[len("/watch") :] if match["old"] else value
     try:
         pairs = parse_qsl(match["query"], max_num_fields=_ORIGIN_FIELDS_MAX)
     except ValueError:
@@ -172,7 +175,7 @@ def safe_origin(value: str | None) -> str | None:
         ):
             kept[key] = value
     query = f"?{urlencode(kept)}" if kept else ""
-    return f"/watch{query}{match['hash'] or ''}"
+    return f"/{query}{match['hash'] or ''}"
 
 
 def _banner_art(key: str) -> dict[str, str]:
@@ -621,7 +624,7 @@ def _continue_watching(
                 continue
             pct, left = progress_fields(progress)
             left_text = f"{duration_text(left)} left" if left else ""
-            href = play_href(key, resume=True, origin="/watch")
+            href = play_href(key, resume=True, origin="/")
             cards.append(
                 card(
                     "movie",
@@ -650,7 +653,7 @@ def _continue_watching(
             if episode is None:
                 continue
             label = episode_label(episode.season_index, episode.index)
-            href = play_href(episode.rating_key, origin="/watch")
+            href = play_href(episode.rating_key, origin="/")
             cards.append(
                 card(
                     "show",
@@ -684,7 +687,7 @@ def _continue_watching(
                 show.title,
                 " · ".join(p for p in (label, left_text) if p),
                 poster_url(show.key),
-                play_href(key, resume=True, origin="/watch"),
+                play_href(key, resume=True, origin="/"),
                 progress_pct=pct,
                 minutes_left=left,
                 mark=("episode", key),
@@ -705,7 +708,7 @@ def _continue_watching(
                 show.title,
                 line,
                 pct,
-                play_href(key, resume=True, origin="/watch"),
+                play_href(key, resume=True, origin="/"),
                 show.key,
                 "show",
             )
@@ -859,7 +862,14 @@ def _row_grid(
     }
 
 
-@router.get("/watch", response_class=HTMLResponse)
+@router.api_route("/watch", methods=["GET", "HEAD"])
+def old_watch_address(request: Request) -> Response:
+    """Watch's address before it moved to the root; the browser keeps the hash itself."""
+    query = request.url.query
+    return RedirectResponse("/" + (f"?{query}" if query else ""), status_code=301)
+
+
+@router.get("/", response_class=HTMLResponse)
 def watch_page(
     request: Request,
     view: str = "rows",
@@ -925,7 +935,7 @@ def watch_page(
             # A movie plays, a show opens its page.
             "primary": {
                 "label": "Play",
-                "href": play_href(key, origin="/watch") if kind == "movie" else latest["href"],
+                "href": play_href(key, origin="/") if kind == "movie" else latest["href"],
             },
             "episodes_href": None,
             **_banner_art(key),
@@ -1147,7 +1157,7 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
     ctx: dict[str, Any] = {
         "username": username,
         "is_admin": _is_admin(conn, username),
-        "back_href": "/watch",
+        "back_href": "/",
         "watch_error": None,
         "not_available": False,
         "show": None,
@@ -1253,7 +1263,7 @@ def _movie_ctx(username: str, is_admin: bool) -> dict[str, Any]:
     return {
         "username": username,
         "is_admin": is_admin,
-        "back_href": "/watch",
+        "back_href": "/",
         "watch_error": None,
         "not_available": False,
         "movie": None,
@@ -1339,7 +1349,7 @@ def play_page(
         ctx = {
             "username": username,
             "is_admin": _is_admin(conn, username),
-            "back_href": safe_origin(origin) or "/watch",
+            "back_href": safe_origin(origin) or "/",
             "watch_error": None if isinstance(exc, PlexItemNotFound) else plex_error_code(exc),
         }
         return _render(request, "watch_unavailable.html", ctx)
