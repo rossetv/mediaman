@@ -27,6 +27,8 @@ def test_the_airplay_video_is_not_among_what_away_mode_hides() -> None:
 
 
 def test_away_mode_shows_the_airplay_video_out_of_sight() -> None:
-    shown = "".join(body for head, body in _rules() if head.strip() == ".player.is-away .player-air")
+    shown = "".join(
+        body for head, body in _rules() if head.strip() == ".player.is-away .player-air"
+    )
     assert "display: block" in shown
     assert "opacity: 0" in shown
