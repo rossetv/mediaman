@@ -186,6 +186,8 @@ def test_a_network_refused_too_often_is_turned_away_but_a_good_signature_still_a
     assert near.get(url).status_code == 200
     assert neighbour.get(url).status_code == 200
     assert neighbour.get(bad).status_code == 429
+    other_network = TestClient(app, client=("198.51.100.9", 1)).get(bad)
+    assert other_network.status_code == 401 and other_network.content == b""
 
 
 @pytest.mark.parametrize(
