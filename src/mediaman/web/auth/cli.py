@@ -12,8 +12,7 @@ from mediaman.config import Config, ConfigError, load_config
 from mediaman.db import init_db
 from mediaman.db.connection import SchemaTooOldError
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
-from mediaman.web.auth.password_hash import ROLES, UserExistsError, create_user
-from mediaman.web.auth.password_hash._user_crud import account_name
+from mediaman.web.auth.password_hash import ROLES, UserExistsError, account_name, create_user
 from mediaman.web.auth.password_policy import password_issues
 
 

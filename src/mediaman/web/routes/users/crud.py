@@ -21,12 +21,12 @@ from mediaman.web.auth.password_hash import (
     UserExistsError,
     create_user,
     delete_user,
+    existing_username,
     is_last_admin,
     list_users,
     set_user_email,
     set_user_role,
 )
-from mediaman.web.auth.password_hash._user_crud import existing_username
 from mediaman.web.auth.password_policy import password_issues
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.auth.user_crud import find_username_by_user_id
