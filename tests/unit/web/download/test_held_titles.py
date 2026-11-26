@@ -32,6 +32,7 @@ from tests.helpers.factories import insert_audit_log
 def _the_library_holds_every_title(monkeypatch):
     """A title its service has the file of is in the library here, to be played."""
     monkeypatch.setattr("mediaman.web.routes.download.status.library_title", lambda *a: "movie-1")
+    monkeypatch.setattr("mediaman.web.routes.download.confirm.library_title", lambda *a: "movie-1")
 
 
 _CONFIRM = "mediaman.web.routes.download.confirm"

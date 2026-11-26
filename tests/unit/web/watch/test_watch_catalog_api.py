@@ -1212,7 +1212,7 @@ class TestTmdbTitle:
 
         codes = [
             viewer.get(f"/api/watch/title/{ref}").status_code
-            for ref in ("tmdb-movie-12", "tmdb-movie-12", "tmdb-movie-11")
+            for ref in ("tmdb-movie-12", "tmdb-movie-12", "tmdb-movie-13")
         ]
 
         assert codes == [200, 200, 429]
@@ -1236,7 +1236,7 @@ class TestTmdbTitle:
         monkeypatch.setattr(catalog_api, "_TITLE_DAY_LIMITER", ActionRateLimiter(1, 60))
 
         ahead = viewer.get("/api/watch/title/tmdb-movie-12?ahead=1").status_code
-        opened = viewer.get("/api/watch/title/tmdb-movie-11").status_code
+        opened = viewer.get("/api/watch/title/tmdb-movie-13").status_code
         held = viewer.get("/api/watch/title/tmdb-movie-12").status_code
 
         assert (ahead, opened, held) == (200, 429, 200)
@@ -1248,7 +1248,7 @@ class TestTmdbTitle:
         monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(0, 60))
         monkeypatch.setattr(catalog_api, "_TITLE_DAY_LIMITER", ActionRateLimiter(1, 60))
 
-        opened = viewer.get("/api/watch/title/tmdb-movie-11").status_code
+        opened = viewer.get("/api/watch/title/tmdb-movie-13").status_code
         ahead = viewer.get("/api/watch/title/tmdb-movie-12?ahead=1").status_code
 
         assert (opened, ahead) == (429, 200)

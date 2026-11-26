@@ -147,8 +147,7 @@ def _resolve_root_candidate(raw: str) -> Path:
     if not candidate.is_absolute():
         raise DeletionRefused(
             f"Refusing to delete: allowed root '{raw}' is not an "
-            "absolute path. Set MEDIAMAN_DELETE_ROOTS to "
-            "absolute directory paths only."
+            "absolute path. Use absolute directory paths only, in MEDIAMAN_DELETE_ROOTS."
         )
     try:
         return candidate.resolve()
@@ -194,12 +193,12 @@ def _check_symlink_via_nofollow(raw: str, candidate: Path) -> None:
         if lst is not None and _stat.S_ISLNK(lst.st_mode):
             raise DeletionRefused(
                 f"Refusing to delete: allowed root '{raw}' is a symlink. "
-                "Set MEDIAMAN_DELETE_ROOTS to real directories only."
+                "Use real directories only, in MEDIAMAN_DELETE_ROOTS."
             ) from None
         if exc.errno == _errno.ELOOP:
             raise DeletionRefused(
                 f"Refusing to delete: allowed root '{raw}' is a symlink. "
-                "Set MEDIAMAN_DELETE_ROOTS to real directories only."
+                "Use real directories only, in MEDIAMAN_DELETE_ROOTS."
             ) from None
         if exc.errno == _errno.ENOTDIR:
             raise DeletionRefused(
@@ -222,9 +221,8 @@ def _validate_single_root(raw: str) -> Path:
     """
     if not raw or not isinstance(raw, str):
         raise DeletionRefused(
-            "Refusing to delete: an entry in MEDIAMAN_DELETE_ROOTS is "
-            "empty or not a string. Set MEDIAMAN_DELETE_ROOTS "
-            "to absolute directory paths only."
+            "Refusing to delete: an allowed root is empty or not a string. "
+            "Use absolute directory paths only, in MEDIAMAN_DELETE_ROOTS."
         )
     real = _resolve_root_candidate(raw)
     normalised = str(real)
@@ -232,9 +230,9 @@ def _validate_single_root(raw: str) -> Path:
         raise DeletionRefused(
             f"Refusing to delete: allowed root '{raw}' resolves to "
             f"'{normalised}', a system / mount-root path that must not "
-            "be a delete root. Set MEDIAMAN_DELETE_ROOTS to "
-            "specific content directories (e.g. '/media/movies'), "
-            "never bare top-level mounts."
+            "be a delete root. Use specific content directories "
+            "(e.g. '/media/movies'), never bare top-level mounts, "
+            "in MEDIAMAN_DELETE_ROOTS."
         )
     _check_symlink_via_nofollow(raw, Path(raw))
     return real
@@ -262,6 +260,7 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
     if not roots:
         raise DeletionRefused(
             "delete folders are not configured; refusing deletion. "
-            "Set the MEDIAMAN_DELETE_ROOTS env var (colon-separated)."
+            "Set the MEDIAMAN_DELETE_ROOTS env var "
+            "(colon-separated)."
         )
     return [_validate_single_root(raw) for raw in roots]

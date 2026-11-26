@@ -1003,7 +1003,7 @@ class TestOldTitleAddresses:
     def test_it_opens_the_title_on_watch_and_keeps_its_season(self, old, path, there):
         resp = old(path)
 
-        assert resp.status_code in (302, 307)
+        assert resp.status_code == 301
         assert resp.headers["location"] == there
 
     @pytest.mark.parametrize("path", ["/watch/movie/abc", "/watch/show/1-2", "/watch/show/abc"])

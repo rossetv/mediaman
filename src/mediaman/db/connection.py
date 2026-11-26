@@ -264,6 +264,9 @@ _thread_local = threading.local()
 _db_path: str | None = None
 _owning_thread: int | None = None
 _owning_conn: sqlite3.Connection | None = None
+# Bumped by reset_connection so a thread still holding a connection from
+# before the reset closes it and opens one on the current file.
+_worker_generation = 0
 
 
 def get_db() -> sqlite3.Connection:
@@ -285,7 +288,7 @@ def get_db() -> sqlite3.Connection:
         return _owning_conn
 
     conn: sqlite3.Connection | None = getattr(_thread_local, "conn", None)
-    if conn is not None:
+    if conn is not None and getattr(_thread_local, "generation", 0) == _worker_generation:
         return conn
 
     if _db_path is None:
@@ -297,7 +300,24 @@ def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(_db_path)
     _configure_connection(conn)
     _thread_local.conn = conn
+    _thread_local.closer = _CloseAtThreadEnd(conn)
+    _thread_local.generation = _worker_generation
     return conn
+
+
+class _CloseAtThreadEnd:
+    """Closes a worker's connection when its thread-local is dropped.
+
+    A connection is in a reference cycle of its own, so without this it
+    stays open after its thread ends until the garbage collector runs.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def __del__(self) -> None:
+        with contextlib.suppress(sqlite3.Error):
+            self._conn.close()
 
 
 def set_connection(conn: sqlite3.Connection) -> None:
@@ -315,7 +335,7 @@ def reset_connection() -> None:
     code must not call this — the only correct lifecycle is one
     init_db per process.
     """
-    global _owning_conn, _owning_thread, _db_path
+    global _owning_conn, _owning_thread, _db_path, _worker_generation
     _owning_conn = None
     _owning_thread = None
     _db_path = None
@@ -333,6 +353,8 @@ def reset_connection() -> None:
             logger.debug("reset_connection: close() raised %s — ignoring", exc)
         finally:
             _thread_local.conn = None
+    # Other threads' connections can only be closed by their own thread.
+    _worker_generation += 1
 
 
 def _set_db_path(path: str) -> None:

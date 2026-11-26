@@ -605,14 +605,26 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     claim back to notified=0 if the item is not ready or the send fails. Called from the
     library sync job.
     """
-    from mediaman.services.arr.state import LazyArrClients
-    from mediaman.services.infra import get_string_setting
-
     if not record_sent(conn):
         return
     pending = _claim_pending_notifications(conn)
     if not pending:
         return
+    try:
+        _send_claimed(conn, secret_key, pending)
+    except BaseException:
+        # A row still at the batch's stamp has not begun to send (a send restamps it first),
+        # so it is freed now rather than an hour on; the others keep their claims.
+        _release_claims_bulk(conn, pending)
+        raise
+
+
+def _send_claimed(
+    conn: sqlite3.Connection, secret_key: str, pending: list[ClaimedNotificationRow]
+) -> None:
+    """Check, send and mark each of the rows the tick has claimed."""
+    from mediaman.services.arr.state import LazyArrClients
+    from mediaman.services.infra import get_string_setting
 
     mailgun = _build_mailgun_client(conn, secret_key, pending)
     if mailgun is None:

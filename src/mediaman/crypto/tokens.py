@@ -531,10 +531,16 @@ def site_tmdb_image_url(
 
 def mail_tmdb_image_url(image: object, size: str, secret_key: str, base_url: str) -> str | None:
     """site_tmdb_image_url for a mail, which is read again long after it is sent, with no
-    session: it lasts as long as a mail's signed posters do.
+    session: it lasts as long as a mail's signed posters do. With no usable site address, an
+    image.tmdb.org address as it is; None for anything that is no TMDB picture, whose host
+    would learn who reads the mail.
     """
     expires_at = int(time.time()) + _MAIL_PICTURE_TTL_DAYS * 86400
-    return site_tmdb_image_url(image, size, secret_key, base_url, expires_at=expires_at)
+    signed = site_tmdb_image_url(image, size, secret_key, base_url, expires_at=expires_at)
+    if signed is not None or not isinstance(image, str):
+        return signed
+    on_tmdb = image.startswith("https://image.tmdb.org/") and _TMDB_IMAGE_RE.fullmatch(image)
+    return image if on_tmdb else None
 
 
 def generate_poll_token(

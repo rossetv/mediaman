@@ -186,6 +186,16 @@ def _reset_disk_reads():
 
 
 @pytest.fixture(autouse=True)
+def _reset_notification_claims_ending():
+    """A test that ends the claims must not stop the next test's tick from claiming."""
+    from mediaman.services.downloads import _notification_claims
+
+    _notification_claims._ending.clear()
+    yield
+    _notification_claims._ending.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_scrubbed_secrets():
     """A secret one test registers must not be masked in the log of the next."""
     from mediaman.core import scrub_filter
@@ -570,6 +580,20 @@ def _reset_download_status_cache():
     from mediaman.web.routes.download.status import _reset_status_cache_for_tests
 
     _reset_status_cache_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _reset_notification_backoff():
+    """A row id backed off in one test must not hold back the same id in the next.
+
+    Rows are numbered from 1 in every test database, and the backoff is kept per
+    row id in this process, so an earlier test on the same worker would skip the row.
+    """
+    from mediaman.services.downloads._notification_backoff import _backoff_state
+
+    _backoff_state.clear()
+    yield
+    _backoff_state.clear()
 
 
 @pytest.fixture(autouse=True)

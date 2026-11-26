@@ -24,8 +24,13 @@ def state_label(state: str) -> str:
     return DOWNLOAD_STATE_LABELS.get(state, state)
 
 
-def attention_hint(source: str) -> str:
+WAITING_TO_IMPORT = "Waiting to import"
+
+
+def attention_hint(source: str, reason: str = "") -> str:
     """Where an admin deals with a download that needs attention."""
+    if "contains all episodes" in reason.lower():
+        return f"Import it by hand in {source or 'Sonarr'}: Activity → Queue → Manual Import"
     return f"Fix it in {source or 'Radarr or Sonarr'}: Activity → Queue"
 
 
@@ -71,3 +76,6 @@ class DownloadItem(TypedDict):
     # How the retry bookkeeping keys it, where it is one of Radarr's or Sonarr's, for the server
     # alone: the season's number is left off a show's.
     retry_key: NotRequired[str]
+    # Of a show that needs attention, what each of its stuck episodes says is wrong, for the
+    # server alone.
+    attention_reasons: NotRequired[list[str]]

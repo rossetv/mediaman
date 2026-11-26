@@ -52,6 +52,7 @@ from mediaman.web.repository.download import (
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
 from mediaman.web.routes.download._season import deleted_season, sonarr_media_id
 from mediaman.web.routes.download._tokens import add_went_unanswered, is_token_used
+from mediaman.web.routes.downloads_strip import library_of, library_title
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -438,7 +439,7 @@ def _resolve_download_state(
     if not tmdb_id:
         return True
     try:
-        item["download_state"], _held = read_download_state(
+        item["download_state"], held = read_download_state(
             conn,
             secret_key,
             mt,
@@ -449,6 +450,22 @@ def _resolve_download_state(
     except (requests.RequestException, SafeHTTPError, ArrError):
         logger.warning("Failed to check Arr library status for tmdb_id=%s", tmdb_id, exc_info=True)
         return False
+    if item["download_state"] == ACTION_IN_LIBRARY:
+        # In the library only once it holds the title, as the poll says: until then, on its way.
+        movie = mt == "movie"
+        held_title = str(held.get("title") or item["title"]) if held else str(item["title"])
+        year = held.get("year") if held and movie else None
+        if (
+            library_title(
+                library_of(conn, secret_key),
+                "movie" if movie else "tv",
+                tmdb_id,
+                held_title,
+                year,
+            )
+            is None
+        ):
+            item["download_state"] = ACTION_QUEUED
     return True
 
 

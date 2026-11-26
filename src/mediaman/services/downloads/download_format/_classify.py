@@ -205,18 +205,21 @@ _HELD_BACK = frozenset({"importpending", "importblocked", "failedpending", "fail
 _REASON_MAX = 160
 
 
-def map_arr_status(status: str, tracked_state: str = "", tracked_status: str = "") -> str:
+def map_arr_status(
+    status: str, tracked_state: str = "", tracked_status: str = "", attention: str = ""
+) -> str:
     """The one mapping of a download's status to its state, for an NZBGet status or a
     Radarr/Sonarr queue item, whose status and trackedDownloadState are both read because
     versions populate them differently. One waiting its turn or paused is "queued"; one that
     came in but that Radarr or Sonarr will not take without a person, by its
-    trackedDownloadStatus, "needs_attention".
+    trackedDownloadStatus, "needs_attention", unless the *attention* it gives is a hold that
+    passes by itself, which is "almost_ready": it imports once that passes.
     """
     lower = (status or "").lower()
     tracked = (tracked_state or "").lower()
 
     if (tracked_status or "").lower() in ("warning", "error") and tracked in _HELD_BACK:
-        return "needs_attention"
+        return "almost_ready" if is_passing_hold(attention) else "needs_attention"
     if tracked in ("importing", "importpending", "imported"):
         return "almost_ready"
     if lower == "completed" or any(stage.lower() in lower for stage in _NZBGET_POST_PROCESSING):
@@ -237,6 +240,7 @@ def _entry_state(entry: _ArrLike) -> str:
         str(entry.get("status") or ""),
         str(entry.get("tracked_state") or ""),
         str(entry.get("tracked_status") or ""),
+        str(entry.get("attention") or ""),
     )
 
 
@@ -260,19 +264,66 @@ def map_queue_state(entries: Sequence[_ArrLike]) -> str:
     return map_arr_status(status, state)
 
 
+def queue_attentions(entries: Sequence[_ArrLike]) -> list[str]:
+    """What each of *entries* that needs attention says is wrong."""
+    return [str(e.get("attention") or "") for e in entries if _entry_state(e) == "needs_attention"]
+
+
 def queue_attention(entries: Sequence[_ArrLike]) -> str:
-    """What the first of *entries* that needs attention says is wrong, "" when none does."""
-    return next(
-        (str(e.get("attention") or "") for e in entries if _entry_state(e) == "needs_attention"),
-        "",
+    """What the first of *entries* that needs attention says is wrong, else the first passing
+    hold one is under; "" when none says."""
+    held = [str(e.get("attention") or "") for e in entries]
+    return next(iter(queue_attentions(entries)), "") or next(
+        (h for h in held if is_passing_hold(h)), ""
     )
+
+
+# What Sonarr and Radarr say of a download their own setup keeps from importing (paths, remote
+# path mappings, permissions, the root folder, disk space, a file that needs a manual import): another copy would not import either.
+SETUP_PROBLEMS = (
+    "remote path mapping",
+    "not a valid local path",
+    "path does not exist",
+    "not accessible",
+    "permission",
+    "access to the path",
+    "root folder missing",
+    "not enough free space",
+    # A whole-season file in a single episode's place: only a person can import it by hand.
+    "contains all episodes",
+)
+# What Sonarr says of one it holds for a while and imports by itself once that passes: an episode
+# still to be named, or a file still in use.
+PASSING_HOLDS = ("recently aired", "try again later")
+
+
+def _not_the_release_at(text: str) -> int:
+    lower = text.lower()
+    return min(
+        (at for phrase in SETUP_PROBLEMS + PASSING_HOLDS if (at := lower.find(phrase)) >= 0),
+        default=-1,
+    )
+
+
+def is_passing_hold(reason: str) -> bool:
+    """Whether *reason* says the download is held for a while and imported by itself, with no
+    fault of the setup or the release in it."""
+    lower = reason.lower()
+    return any(p in lower for p in PASSING_HOLDS) and not any(p in lower for p in SETUP_PROBLEMS)
+
+
+def not_the_release(reason: str) -> bool:
+    """Whether *reason*, as ``attention_reason`` gives it, says the service's own setup or a hold
+    that passes by itself keeps the download from importing, which another copy would not mend."""
+    return _not_the_release_at(reason) >= 0
 
 
 def attention_reason(item: _ArrLike) -> str:
     """What Radarr or Sonarr says is wrong with a queue record, as one short line of plain
-    text: its first status message, else its error message; "" when it says nothing. A status
-    message's title is most often the release's or a file's name, so it is read only when it
-    has no messages and is not the release's name."""
+    text: the first of its status messages, else its error message, that says its setup or a
+    passing hold keeps it, else the first of them; "" when it says nothing. A status message's
+    title is most often the release's or a file's name, so it is read only when it has no
+    messages and is not the release's name."""
     said: list[object] = []
     found = item.get("statusMessages")
     for message in found if isinstance(found, list) else []:
@@ -284,11 +335,15 @@ def attention_reason(item: _ArrLike) -> str:
         elif message.get("title") != item.get("title"):
             said.append(message.get("title"))
     said.append(item.get("errorMessage"))
-    for line in said:
-        text = " ".join(line.split()) if isinstance(line, str) else ""
-        if text:
-            return text if len(text) <= _REASON_MAX else text[: _REASON_MAX - 1].rstrip() + "…"
-    return ""
+    texts = [" ".join(line.split()) for line in said if isinstance(line, str)]
+    texts = [text for text in texts if text]
+    if not texts:
+        return ""
+    text = next((text for text in texts if not_the_release(text)), texts[0])
+    if len(text) > _REASON_MAX and (at := _not_the_release_at(text)) > _REASON_MAX // 2:
+        # A long path before the words that name the fault would cut them off.
+        text = "…" + text[at:]
+    return text if len(text) <= _REASON_MAX else text[: _REASON_MAX - 1].rstrip() + "…"
 
 
 def map_episode_state(ep: _ArrLike) -> str:

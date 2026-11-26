@@ -22,11 +22,11 @@ from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import LANDING_PATH
 from mediaman.web.auth.password_hash import (
+    account_name,
     authenticate,
     set_must_change_password,
     user_must_change_password,
 )
-from mediaman.web.auth.password_hash._user_crud import account_name
 from mediaman.web.auth.password_policy import is_strong
 from mediaman.web.auth.return_path import safe_return_path
 from mediaman.web.auth.session_store import (

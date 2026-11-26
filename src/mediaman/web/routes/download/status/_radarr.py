@@ -43,6 +43,7 @@ def _radarr_queue_item(queue: list[ArrQueueItem], tmdb_id: int) -> DownloadItem 
             item.get("status") or "",
             item.get("trackedDownloadState") or "",
             item.get("trackedDownloadStatus") or "",
+            attention_reason(item),
         )
         eta = _eta(state, item.get("timeleft", ""))
         title = item_movie.get("title", "")

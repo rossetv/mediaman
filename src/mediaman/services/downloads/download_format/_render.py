@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from mediaman.services.downloads.download_format._classify import is_passing_hold
 from mediaman.services.downloads.download_format._types import (
+    WAITING_TO_IMPORT,
     DownloadItem,
     attention_hint,
     state_label,
@@ -37,6 +39,7 @@ def build_item(
     label: str = "",
     attention: str = "",
     retry_key: str = "",
+    attention_reasons: list[str] | None = None,
 ) -> DownloadItem:
     """Build a simplified download item for the API response.
 
@@ -54,7 +57,9 @@ def build_item(
         "media_type": media_type,
         "poster_url": poster_url,
         "state": state,
-        "state_label": state_label(state),
+        "state_label": WAITING_TO_IMPORT
+        if state == "almost_ready" and is_passing_hold(attention)
+        else state_label(state),
         "progress": progress,
         "eta": eta,
         "size_done": size_done,
@@ -75,10 +80,14 @@ def build_item(
         "kind": kind,
         "label": label,
         "attention": attention if state == "needs_attention" else "",
-        "attention_hint": attention_hint(arr_source) if state == "needs_attention" else "",
+        "attention_hint": attention_hint(arr_source, attention)
+        if state == "needs_attention"
+        else "",
     }
     if retry_key:
         item["retry_key"] = retry_key
+    if attention_reasons and state == "needs_attention":
+        item["attention_reasons"] = attention_reasons
     return item
 
 

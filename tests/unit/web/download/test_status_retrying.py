@@ -18,7 +18,7 @@ from mediaman.web.routes.download import reset_download_caches
 from mediaman.web.routes.download import router as download_router
 from tests.helpers.factories import insert_settings
 
-_WHY = "Single episode file contains all episodes in seasons. Review file name or manually import"
+_WHY = "No files found are eligible for import in /downloads/Alone.S12"
 
 
 def _stuck(why: str = _WHY, season: int = 12) -> dict:

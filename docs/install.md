@@ -277,7 +277,7 @@ mediaman does not start on a database too old for it. The error names the image 
 | `MEDIAMAN_FORCE_SECURE_COOKIES` | always `Secure` | `false` allows signing in over plain http, and turns HSTS off |
 | `MEDIAMAN_TRUSTED_PROXIES` | none | Addresses of your reverse proxies, separated by commas |
 
-[`.env.example`](../.env.example) describes the rest: port, data folder, allowed hosts, HSTS and others seldom needed. Add one under `environment:` to use it. A longer [compose file](../docker-compose.yml), with limits and a build from source, is in the repository.
+[`.env.example`](../.env.example) describes the rest: port, data folder, allowed hosts, HSTS and others seldom needed. Add one under `environment:` to use it. A longer [compose file](../docker-compose.yml), with limits and a build from source, is in the repository; it needs Docker Compose 2.24 or later. On older Compose, remove its `env_file` block, or replace it with the line `env_file: .env` and create an empty `.env`.
 
 ## Limits
 

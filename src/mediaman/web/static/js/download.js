@@ -201,7 +201,8 @@
     }
     var second = { queued: 'Queued', finding_copy: 'Finding another copy' }[data.state] || 'Searching';
     MM.dom.setText(steps.children[1].querySelector('span'), second);
-    var third = { almost_ready: 'Almost ready', needs_attention: 'Needs attention' }[data.state] || 'Downloading';
+    var third = data.state === 'almost_ready' ? (data.state_label || 'Almost ready')
+      : data.state === 'needs_attention' ? 'Needs attention' : 'Downloading';
     MM.dom.setText(steps.children[2].querySelector('span'), third);
 
     var done = data.progress || 0;

@@ -190,15 +190,12 @@ def build_email_payload(
     }
 
     # The wide backdrop heads the email; a title with none shows its poster as a poster.
-    # Upgrade small TMDB posters to w500 for better-looking emails.
-    # With the site address known, TMDB's pictures come from this site, so TMDB never learns
-    # who opens the mail; Radarr's own poster address is left as it is.
-    backdrop_src = safe_backdrop(meta["backdrop_url"]) or ""
-    backdrop_src = mail_tmdb_image_url(backdrop_src, "w1280", secret_key, base_url) or backdrop_src
-    poster_src = meta["poster_url"]
-    if poster_src:
-        poster_src = poster_src.replace("/w300", "/w500").replace("/w200", "/w500")
-        poster_src = mail_tmdb_image_url(poster_src, "w500", secret_key, base_url) or poster_src
+    # Upgrade small TMDB posters to w500 for better-looking emails. Only TMDB's pictures are
+    # shown, from this site where its address is known; Radarr's host never learns who reads.
+    backdrop = safe_backdrop(meta["backdrop_url"]) or ""
+    backdrop_src = mail_tmdb_image_url(backdrop, "w1280", secret_key, base_url) or ""
+    poster = meta["poster_url"].replace("/w300", "/w500").replace("/w200", "/w500")
+    poster_src = mail_tmdb_image_url(poster, "w500", secret_key, base_url) or ""
 
     # A season row names its season so two seasons of one show do not send the same text.
     season_label = f"Season {row.season_number}" if row.season_number is not None else ""

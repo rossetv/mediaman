@@ -5,9 +5,10 @@ from the download client with its release blocklisted, and the same film or epis
 searched for again. Each film or season is given ``MAX_TRIES`` copies until Radarr or Sonarr
 adds a file of it after a try; one that will not import after that is left as it is, for an
 admin, as is one held by the service's own setup rather than by its release, or one whose
-removal the service refuses. While another copy is looked for, its card says so. Library
-files and Plex are never touched, nor a download still coming in or one importing as it
-should.
+removal the service refuses; one the service holds for a while and imports by itself is waited
+for. While another copy is looked for, its card says so. Library files and Plex are never
+touched, nor a download still coming in or one importing as it should. Where the service
+searches again by itself on a removal, as older ones do, mediaman sends no search of its own.
 
 ``note_stuck_imports`` runs on every fetch of a queue and keeps the clock; ``retry_stuck_imports``
 runs from the hourly poller and acts.
@@ -34,6 +35,7 @@ from mediaman.services.downloads.download_format import (
     map_arr_status,
     map_queue_state,
 )
+from mediaman.services.downloads.download_format._classify import not_the_release
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError, get_bool_setting
 
 logger = logging.getLogger(__name__)
@@ -53,19 +55,6 @@ _KEPT_FOR = timedelta(days=30)
 
 _ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ConfigDecryptError, ValueError)
 
-# What Sonarr and Radarr say of a download their own setup keeps from importing (paths, remote
-# path mappings, permissions, the root folder, disk space): another copy would not import either.
-_SETUP_PROBLEMS = (
-    "remote path mapping",
-    "not a valid local path",
-    "path does not exist",
-    "not accessible",
-    "permission",
-    "access to the path",
-    "root folder missing",
-    "not enough free space",
-)
-
 
 @dataclass(frozen=True, slots=True)
 class _Unit:
@@ -75,13 +64,16 @@ class _Unit:
     stuck: bool
     # The records that need attention, which alone are removed.
     held_ids: frozenset[int]
+    # The download of each record that needs attention, by queue id.
+    downloads: Mapping[int, str]
     # The episodes of the records that need attention; none of a film's.
     episodes: frozenset[int]
     queue_ids: frozenset[int]
     label: str
     reason: str
     search: dict[str, Any]
-    setup_problem: bool
+    # Held by the service's own setup, or by a hold it lifts by itself, not by its release.
+    not_the_release: bool
 
 
 def _int(value: object) -> int:
@@ -108,12 +100,13 @@ def _unit(
         key=key,
         stuck=map_queue_state(entries) == "needs_attention" and bool(held),
         held_ids=frozenset(_int(e.get("queue_id")) for e in held),
+        downloads={_int(e.get("queue_id")): str(e.get("download_id") or "") for e in held},
         episodes=frozenset(_int(e.get("episode_id")) for e in held) - {0},
         queue_ids=frozenset(_int(e.get("queue_id")) for e in entries),
         label=label,
         reason=next((r for r in reasons if r), ""),
         search=search,
-        setup_problem=any(p in r.lower() for r in reasons for p in _SETUP_PROBLEMS),
+        not_the_release=any(not_the_release(r) for r in reasons),
     )
 
 
@@ -346,12 +339,15 @@ def _search(
     search: str,
     shown: str,
     since: datetime | None,
+    removed: bool = False,
 ) -> bool:
-    """Send the search of a removed download, and write its try to History once it is sent;
+    """Send the search of a removed download, unless every record of it was *removed* just now
+    by a service that then searches by itself, and write its try to History once it is sent;
     one the service has refused since a removal *since* ``_FINDING_FOR`` ago is given up.
     Whether the service gave no answer."""
     try:
-        client.send_command(json.loads(search))
+        if not (removed and client.searches_when_removed()):
+            client.send_command(json.loads(search))
     except _ERRORS as exc:
         refused = _refused(exc)
         if refused and since is not None and now_utc() - since >= _FINDING_FOR:
@@ -434,13 +430,20 @@ def _retry(
     if claimed != 1:
         return False
     removed_any = False
+    # A record already gone was failed by nobody here, so no search of the service's own
+    # follows unless it went with a download this run removed.
+    removed_ids: set[int] = set()
+    removed_downloads: set[str] = set()
     client = None
     try:
         client = _client(conn, secret_key, service)
         if client is None:
             raise ArrError(f"{service} is not set up")
         for queue_id in sorted(unit.held_ids):
-            client.remove_from_queue(queue_id)
+            download = unit.downloads.get(queue_id, "")
+            if client.remove_from_queue(queue_id):
+                removed_ids.add(queue_id)
+                removed_downloads.add(download)
             removed_any = True
     except _ERRORS as exc:
         refused = _refused(exc)
@@ -469,7 +472,11 @@ def _retry(
                 (row[0], MAX_TRIES if refused else row[1], unit.key),
             )
         return silent
-    return _search(conn, client, unit.key, search, shown, now)
+    every_removed = all(
+        queue_id in removed_ids or unit.downloads.get(queue_id, "") in removed_downloads - {""}
+        for queue_id in unit.held_ids
+    )
+    return _search(conn, client, unit.key, search, shown, now, every_removed)
 
 
 def _may_have_acted(exc: Exception) -> bool:
@@ -635,6 +642,6 @@ def retry_stuck_imports(
     now = now_utc()
     for card, unit in _units(cards):
         service = unit.key.partition(":")[0]
-        stuck = unit.stuck and not unit.setup_problem and service not in down
+        stuck = unit.stuck and not unit.not_the_release and service not in down
         if stuck and _retry(conn, secret_key, card, unit, now):
             down.add(service)

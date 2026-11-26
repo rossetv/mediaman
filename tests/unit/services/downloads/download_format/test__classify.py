@@ -7,14 +7,17 @@ from datetime import datetime
 import pytest
 
 from mediaman.services.downloads.download_format import (
+    build_item,
     classify_movie_upcoming,
     classify_series_upcoming,
     compute_movie_released_at,
     extract_poster_url,
     map_arr_status,
     map_episode_state,
+    map_queue_state,
     map_state,
 )
+from mediaman.services.downloads.download_format._classify import not_the_release
 
 
 class TestExtractPosterUrl:
@@ -271,3 +274,56 @@ class TestComputeMovieReleasedAt:
 
     def test_a_film_with_no_date_has_no_release(self):
         assert compute_movie_released_at({"minimumAvailability": "released"}) == 0.0
+
+
+_HELD = {"status": "completed", "tracked_state": "importPending", "tracked_status": "warning"}
+
+
+class TestPassingHold:
+    def test_a_hold_sonarr_imports_by_itself_is_not_a_fault(self):
+        entry = {**_HELD, "attention": "Episode was recently aired, waiting to import"}
+        assert map_queue_state([entry]) == "almost_ready"
+        item = build_item(
+            dl_id="sonarr:x",
+            title="x",
+            media_type="series",
+            poster_url="",
+            state="almost_ready",
+            progress=100,
+            eta="",
+            size_done="",
+            size_total="",
+            attention=entry["attention"],
+            arr_source="Sonarr",
+        )
+        assert item["state_label"] == "Waiting to import"
+        assert item["attention_hint"] == ""
+
+    @pytest.mark.parametrize(
+        "said", ["Not enough free space on /tv", "No files found are eligible"]
+    )
+    def test_a_setup_fault_or_a_bad_release_still_needs_attention(self, said):
+        assert map_queue_state([{**_HELD, "attention": said}]) == "needs_attention"
+
+
+def test_a_whole_season_file_is_told_to_an_admin_to_import_by_hand():
+    said = (
+        "Single episode file contains all episodes in seasons. Review file name or manually import"
+    )
+    entry = {**_HELD, "attention": said}
+    assert map_queue_state([entry]) == "needs_attention"
+    assert not_the_release(said)
+    item = build_item(
+        dl_id="sonarr:x",
+        title="x",
+        media_type="series",
+        poster_url="",
+        state="needs_attention",
+        progress=100,
+        eta="",
+        size_done="",
+        size_total="",
+        attention=said,
+        arr_source="Sonarr",
+    )
+    assert item["attention_hint"] == "Import it by hand in Sonarr: Activity → Queue → Manual Import"

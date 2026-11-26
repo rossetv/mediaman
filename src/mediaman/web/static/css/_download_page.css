@@ -12,6 +12,7 @@
 .share-steps li { position: relative; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--t2); transition: color var(--dur) var(--ease-out); }
 .share-steps li::before, .share-steps li:not(:last-child)::after { content: ""; position: absolute; top: 10px; left: 22px; right: 0; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--t1) 18%, transparent); }
 .share-steps li:last-child::before { content: none; }
+.share-steps li:not(:last-child) { padding-right: 8px; }
 .share-steps li:not(:last-child)::after { background: var(--accent); transform: scaleX(0); transform-origin: 0 50%; transition: transform calc(var(--dur-slow) * 2) var(--ease-out); }
 .share-steps li.is-done:not(:last-child)::after { transform: none; }
 .share-steps i { position: relative; z-index: 1; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--t1) 26%, transparent); background: color-mix(in srgb, var(--scrim) 60%, transparent); color: transparent; font-size: 11px; transition: background-color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out); }
@@ -74,6 +75,7 @@
 
 @media (max-width: 699.98px) {
   .share-steps li { font-size: 12px; }
+  .share-steps span { min-height: 2lh; }
   .share-body { padding-top: 8px; gap: 28px; }
   .share-body .ttl__overview { font-size: 16px; }
   .share-player { inset: 0 0 auto; height: max(56.25vw + 64px, var(--clear, 0px)); max-height: 100%; }

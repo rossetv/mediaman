@@ -19,6 +19,7 @@ from mediaman.services.downloads.download_format import (
     map_episode_state,
     map_queue_state,
     queue_attention,
+    queue_attentions,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 
@@ -207,6 +208,7 @@ def _build_unmatched_series_item(
         kind="series",
         attention=queue_attention(raw_episodes),
         retry_key=_retry_key(arr),
+        attention_reasons=queue_attentions(raw_episodes),
     )
 
 
@@ -221,7 +223,10 @@ def _build_unmatched_movie_item(
     abandon_visible_now: bool,
 ) -> DownloadItem:
     state = map_arr_status(
-        arr.get("status", ""), arr.get("tracked_state", ""), arr.get("tracked_status", "")
+        arr.get("status", ""),
+        arr.get("tracked_state", ""),
+        arr.get("tracked_status", ""),
+        arr.get("attention", ""),
     )
     if arr.get("finding_copy"):
         state = "finding_copy"
