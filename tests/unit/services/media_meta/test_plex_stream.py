@@ -1850,3 +1850,16 @@ def test_a_start_made_by_itself_goes_through_once_the_later_page_s_stream_was_en
     laptop = _start(manager, page="laptop-page", asked_ago=5.0)
 
     assert manager.get(laptop, "alice")
+
+
+def test_a_stream_ended_to_make_room_keeps_its_late_save_and_gives_up_its_claim(manager, clock):
+    phone = _start(manager, rating_key="1", page="phone-page")
+    others = [_start(manager, rating_key=str(k + 2)) for k in range(MAX_STREAMS_PER_USER - 1)]
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS + 1
+    for kept in others:
+        manager.get(kept, "alice")
+    manager.stop(_start(manager, rating_key="99"), "alice")
+
+    assert manager.reaped(phone, "alice").rating_key == "1"
+    laptop = _start(manager, rating_key="1", page="laptop-page", asked_ago=200.0)
+    assert manager.get(laptop, "alice")
