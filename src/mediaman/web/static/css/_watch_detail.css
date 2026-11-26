@@ -357,6 +357,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .ttl__under { display: flex; flex-direction: column; gap: 12px; }
 .ttl__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ttl__actions:empty { display: none; }
 .ttl__actions .btn { min-height: 44px; }
 .ttl__actions .watch-btn--play,
 .ttl__actions .watch-btn--grey,
@@ -389,7 +390,13 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 
 .ttl__progress { display: flex; align-items: center; gap: 12px; min-height: 1lh; font-size: 13px; color: var(--t2); }
 .ttl__progress .watch-bar--banner { width: min(240px, 50%); }
-.ttl__leaving { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--danger-text); }
+/* How the title stands, a line each under the actions: one size, one icon and one shape, and
+   each the colour of what it says. Its icon stands by the first of the lines it wraps to. */
+.ttl__status { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; line-height: 1.45; color: var(--t2); }
+.ttl__status > .ico { flex: none; margin-top: .225em; }
+.ttl__status:focus { outline: none; }
+.ttl__status--warn { color: var(--warning); }
+.ttl__leaving { color: var(--danger-text); }
 .ttl__leaving-keep { position: relative; padding: 0; border: 0; border-radius: var(--r-xxs); background: none; font: inherit; color: inherit; text-align: inherit; text-decoration: underline 1px; text-underline-offset: 3px; cursor: pointer; }
 .ttl__leaving-keep::after { content: ""; position: absolute; inset: -12px -3px; }
 .ttl__leaving-keep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

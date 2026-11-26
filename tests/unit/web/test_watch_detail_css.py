@@ -297,3 +297,10 @@ def test_a_trailers_loading_mark_covers_its_frame_and_takes_no_clicks() -> None:
     assert "background: var(--scrim)" in mark  # opaque, so the frame's error page never shows
     assert "pointer-events: none" in mark
     assert "width: min(100cqw, 100cqh * 16 / 9)" in mark and "aspect-ratio: 16 / 9" in mark
+
+
+def test_the_lines_of_how_a_title_stands_differ_in_colour_alone() -> None:
+    assert "font-size: 14px" in _of(".ttl__status")
+    for line in (".ttl__leaving", ".ttl__status--warn"):
+        own = {d.split(":")[0].strip() for d in _of(line).split(";") if d.strip()}
+        assert own == {"color"}, (line, own)

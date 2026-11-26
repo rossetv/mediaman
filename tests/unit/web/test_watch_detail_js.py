@@ -855,10 +855,25 @@ def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
     assert out["all"]["button"] is False
 
 
-def test_a_film_that_cannot_be_downloaded_says_it_is_not_in_the_library() -> None:
+def test_a_film_that_cannot_be_downloaded_says_it_is_not_in_the_library_as_a_line_not_a_button() -> (
+    None
+):
     film = _run("nothingToPress")["film"]
-    assert film["primary"]["text"] == "Not in your library"
-    assert film["primary"]["cls"] == "dl-state dl-state--none"
+    assert film["primary"] is None
+    assert ["ttl__status", True, "Not in your library"] in film["statuses"]
+
+
+def test_the_lines_under_the_actions_of_how_a_title_stands_are_of_one_kind() -> None:
+    show = _run("nothingToPress")["show"]
+    kinds = [("ttl__status" in cls.split(), has_icon) for cls, has_icon, _ in show["statuses"]]
+    assert kinds == [(True, True), (True, True)]
+    assert "reach Plex" in show["statuses"][0][2] and "leaves" in show["statuses"][1][2]
+
+
+def test_a_title_plex_no_longer_has_offers_no_watched_mark_which_plex_would_refuse() -> None:
+    out = _run("nothingToPress")
+    assert out["gone"]["mark"] is False
+    assert out["unreachable"]["mark"] is True
 
 
 def test_a_library_title_plex_cannot_give_says_why_there_is_no_play() -> None:
@@ -1434,8 +1449,12 @@ def test_a_title_opened_from_a_leaving_season_keeps_that_season_and_no_other() -
     assert out["gone"] == [None, None, None]
 
 
-def test_a_title_opened_otherwise_names_the_season_it_keeps() -> None:
-    assert _keeps(_run("leavingSeasons")["plain"]) == THIRD
+def test_a_title_opened_otherwise_says_of_the_season_on_show_what_it_says_once_that_is_picked() -> (
+    None
+):
+    out = _run("leavingSeasons")
+    assert out["plain"] == out["pickedOther"] == [None, None, "Season 3 leaves in 2 days."]
+    assert _keeps(out["plainOnLeaving"]) == SECOND
 
 
 def test_the_season_picked_in_the_list_is_the_one_kept() -> None:
@@ -1615,23 +1634,30 @@ def test_a_film_the_arr_will_not_import_says_it_needs_attention_not_downloading(
     out = _run("troubled")
     assert out["plain"] == {
         "pill": "Downloading 42%",
+        "status": None,
         "note": "Follow it in Downloads.",
         "bar": True,
     }
     stuck = "No files found are eligible for import · Fix it in Radarr: Activity → Queue"
     assert out["admin"] == {
-        "pill": "Needs attention",
+        "pill": None,
+        "status": "Needs attention",
         "note": stuck + ". Follow it in Downloads.",
         "bar": False,
     }
-    assert out["viewer"]["pill"] == "Needs attention"
-    assert out["viewer"]["note"] == "Follow it in Downloads."
+    assert (out["viewer"]["pill"], out["viewer"]["status"]) == (None, "Needs attention")
     assert out["finding"] == {
-        "pill": "Finding another copy",
+        "pill": None,
+        "status": "Finding another copy",
         "note": "Follow it in Downloads.",
         "bar": False,
     }
     assert out["other"] == out["plain"]
+
+
+def test_a_viewer_is_told_a_stuck_film_waits_for_an_admin_as_the_download_page_says() -> None:
+    note = _run("troubled")["viewer"]["note"]
+    assert note == "It won’t finish until an admin sorts it out. Follow it in Downloads."
 
 
 def test_a_film_that_mediaman_will_try_again_says_so_instead_of_where_to_fix_it() -> None:

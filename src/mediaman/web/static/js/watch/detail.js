@@ -1132,7 +1132,7 @@
     if (leaves) {
       var leaving = skel('ttl__leaving-skel');
       leaving.textContent = (isShow ? 'Season 1 leaves' : 'Leaving') + ' in 10 days. Keep it to stop the deletion.';
-      var line = el('p', 'ttl__leaving');
+      var line = el('p', 'ttl__leaving ttl__status');
       line.setAttribute('aria-hidden', 'true');
       line.appendChild(icon('i-clock'));
       line.appendChild(leaving);
@@ -1492,17 +1492,28 @@
     return (card && card.getAttribute('data-keep-id')) || '';
   }
 
-  /* What of the title leaves, and a Keep here keeps: of a show the season the person
-     picked; opened by a link that names a season, the one on show; else the one on the
-     card it was opened from, else the first that goes.
+  /* The season of a show its episodes are of, by the person's pick or the show's own; null
+     with no seasons to show. */
+  function seasonOnShow(d) {
+    if (cur.chosen) return cur.season;
+    return d.seasons && d.seasons.length ? ownSeason(d).number : null;
+  }
+
+  /* Whether what leaves is said of the season on show: else of the season on the card the
+     title was opened from, the one asked about. */
+  function bySeasonOnShow(d) {
+    return seasonOnShow(d) !== null && (cur.chosen || cur.opensOn !== undefined || !cur.cardKeep);
+  }
+
+  /* What of the title leaves, and a Keep here keeps: of a show the season on show, or the
+     one on the card it was opened from; with no season on show, the first that goes.
      Never another season than the one asked about. */
   function leavingNow() {
     var d = cur.data;
     var found = d.leaving;
     if (d.kind !== 'movie') {
       found = (d.leaving_seasons || []).filter(function (s) {
-        if (cur.chosen) return s.season === cur.season;
-        if (cur.opensOn !== undefined && d.seasons && d.seasons.length) return s.season === ownSeason(d).number;
+        if (bySeasonOnShow(d)) return s.season === seasonOnShow(d);
         return !cur.cardKeep || String(s.keep_id) === cur.cardKeep;
       })[0];
     }
@@ -1511,12 +1522,12 @@
     return { id: String(found.keep_id), days: found.days, season: d.kind === 'movie' ? null : found.season };
   }
 
-  /* Of a show on a season that does not leave, picked or named by its link: the first other
-     season that does, said with no Keep, as that would keep a season not on show. */
+  /* Of a show on a season that does not leave: the first other season that does, said with
+     no Keep, as that would keep a season not on show. */
   function otherLeaving() {
     var d = cur.data;
-    if (d.kind === 'movie' || !(cur.chosen || (cur.opensOn !== undefined && d.seasons && d.seasons.length))) return null;
-    var shown = cur.chosen ? cur.season : ownSeason(d).number;
+    if (d.kind === 'movie' || !bySeasonOnShow(d)) return null;
+    var shown = seasonOnShow(d);
     var found = (d.leaving_seasons || []).filter(function (s) { return s.season !== shown; })[0];
     return found ? { days: found.days, season: found.season } : null;
   }
@@ -1690,15 +1701,12 @@
     } else if (!d.in_library || cur.justAdded) {
       downloadPart(actions, under);
     } else if (PLEX_SAYS[d.plex_error]) {
-      under.appendChild(note(PLEX_SAYS[d.plex_error], 'i-circle-exclamation'));
+      under.appendChild(statusLine(PLEX_SAYS[d.plex_error], 'i-circle-exclamation'));
     }
     var leaves = leavingNow();
     var other = leaves ? null : otherLeaving();
     if (leaves || other) {
-      var line = el('p', 'ttl__leaving');
-      line.appendChild(icon('i-clock'));
-      line.appendChild(leaves ? leavingWords(leaves) : el('span', '', leavingText(other)));
-      under.appendChild(line);
+      under.appendChild(statusLine(leaves ? leavingWords(leaves) : leavingText(other), 'i-clock', 'ttl__leaving'));
     }
     var like = likeButton(d);
     if (like) actions.appendChild(like);
@@ -1790,7 +1798,7 @@
 
   function titleMark(d) {
     var mark = core.markOf(d);
-    if (!mark) return null;
+    if (!mark || d.plex_error === 'gone') return null; // Plex refuses a mark of what it no longer has
     var b = core.markButton('btn btn--lg watch-btn--grey', mark, d.watched, d.title || cur.title,
       d.kind === 'movie' ? 'Mark as watched' : 'Mark show as watched');
     b.setAttribute('data-ttl-act', 'mark');
@@ -1838,6 +1846,15 @@
   document.addEventListener('mm:watch-marked', function (e) {
     if (isOpen && cur && cur.data && e.detail.refs.indexOf(markRef()) >= 0) reloadMarks(cur);
   });
+
+  /* A line of how the title stands, under the actions: each the same but for its colour (*cls*,
+     first, as what tells the lines apart when they are drawn again). *words*: text, or its span. */
+  function statusLine(words, iconName, cls) {
+    var p = el('p', (cls ? cls + ' ' : '') + 'ttl__status');
+    p.appendChild(icon(iconName));
+    p.appendChild(typeof words === 'string' ? el('span', '', words) : words);
+    return p;
+  }
 
   function note(text, iconName, iconClass) {
     var p = el('p', 'ttl__note');
@@ -1983,10 +2000,15 @@
     }
     var trouble = k.state === 'queued' || k.state === 'downloading' ? troubleOf(cur) : null;
     if (trouble) {
+      // Nothing to press: a line of how it stands, where the in-progress states have a pill.
       var stuck = trouble.state === 'needs_attention';
-      actions.appendChild(statePill('dl-state--queued', stuck ? 'Needs attention' : 'Finding another copy',
-        stuck ? 'i-triangle-exclamation' : 'i-magnifying-glass'));
-      var why = stuck ? fixOf(trouble) : '';
+      var status = statusLine(stuck ? 'Needs attention' : 'Finding another copy',
+        stuck ? 'i-triangle-exclamation' : 'i-magnifying-glass', 'ttl__status--warn');
+      status.setAttribute('role', 'status');
+      status.setAttribute('tabindex', '-1');
+      status.setAttribute('data-ttl-act', 'primary');
+      under.appendChild(status);
+      var why = stuck ? fixOf(trouble) || 'It won’t finish until an admin sorts it out' : '';
       under.appendChild(followNote(why ? why + '. ' : ''));
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
@@ -2019,7 +2041,7 @@
       return;
     }
     if (!d.download) {
-      if (!d.in_library) actions.appendChild(statePill('dl-state--none', 'Not in your library'));
+      if (!d.in_library) under.appendChild(statusLine('Not in your library', 'i-circle-info'));
       return;
     }
     var tv = d.kind !== 'movie';

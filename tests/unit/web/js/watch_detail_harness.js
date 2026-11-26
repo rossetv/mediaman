@@ -1439,7 +1439,7 @@ const scenarios = {
     p.run();
     tell();
     await openCard(p, 'tmdb-movie-77');
-    const look = () => ({ pill: primary(p).text, note: p.text('.ttl__note'), bar: !!p.q('.dl-progress') });
+    const look = () => ({ pill: primary(p) && primary(p).text, status: p.text('[data-ttl-part="under"] .ttl__status'), note: p.text('.ttl__note'), bar: !!p.q('.dl-progress') });
     const to = (item) => { state = { items: [Object.assign({ ref: 'tmdb-movie-77' }, item)] }; tell(); return look(); };
     const out = { plain: look() };
     out.admin = to({ state: 'needs_attention', attention: 'No files found are eligible for import', attention_hint: 'Fix it in Radarr: Activity → Queue' });
@@ -2533,7 +2533,7 @@ const scenarios = {
   // Titles there is nothing to press for: a film with no way to download it, and library titles
   // Plex cannot give.
   async nothingToPress() {
-    const gone = (err, title) => Object.assign({}, title, { play: null, plex_error: err });
+    const gone = (err, title) => Object.assign({}, title, { play: null, plex_error: err, mark_kind: title.kind === 'show' ? 'show' : 'movie', mark_key: '120' });
     const p = load({ routes: {
       '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: null }),
       '/api/watch/title/movie-120': gone('unreachable', LIB_MOVIE),
@@ -2544,7 +2544,8 @@ const scenarios = {
     const open = async (ref) => {
       p.ctx.MMWatch.detail.open(ref, {});
       await settle();
-      return { primary: primary(p), under: p.text('[data-ttl-part="under"]') };
+      return { primary: primary(p), under: p.text('[data-ttl-part="under"]'), mark: !!p.q('[data-ttl-act="mark"]'),
+        statuses: p.ttl().querySelectorAll('[data-ttl-part="under"] .ttl__status, [data-ttl-part="under"] .ttl__note').map((n) => [n.className, !!n.querySelector('.ico'), n.textContent]) };
     };
     return { film: await open('tmdb-movie-77'), unreachable: await open('movie-120'), gone: await open('movie-121'), show: await open('show-300') };
   },
@@ -3668,11 +3669,11 @@ const scenarios = {
   // neither, from a card of one that no longer leaves, and once a season is picked.
   async leavingSeasons() {
     const leaving = [{ days: 2, keep_id: '3030', season: 3 }, { days: 9, keep_id: '3020', season: 2 }];
-    const seasons = [1, 2, 3].map((n) => ({ number: n, name: 'Season ' + n, episode_count: 2, in_library: true, selected: n === 1 }));
-    const show = Object.assign({}, LIB_SHOW, { leaving: leaving[0], leaving_seasons: leaving, seasons });
+    const seasons = (own) => [1, 2, 3].map((n) => ({ number: n, name: 'Season ' + n, episode_count: 2, in_library: true, selected: n === own }));
+    const show = (own) => Object.assign({}, LIB_SHOW, { leaving: leaving[0], leaving_seasons: leaving, seasons: seasons(own) });
     const eps = (n) => ({ ok: true, episodes: [{ number: 1, title: 'E' + n, minutes: 45, thumb_url: null, state: 'none', href: '/watch/play/1' + n }] });
-    const open = async (keepId) => {
-      const p = load({ routes: { '/api/watch/title/show-300': show, '/api/watch/title/show-300/season/2': eps(2), '/api/watch/title/show-300/season/1': eps(1) } });
+    const open = async (keepId, own = 1) => {
+      const p = load({ routes: { '/api/watch/title/show-300': show(own), '/api/watch/title/show-300/season/2': eps(2), '/api/watch/title/show-300/season/1': eps(1) } });
       p.run();
       p.doc.querySelectorAll('.watch-card')[1].setAttribute('data-keep-id', keepId);
       await openCard(p, 'show-300');
@@ -3682,7 +3683,7 @@ const scenarios = {
       const b = p.q('.watch-btn--keep');
       return [b && b.getAttribute('data-watch-keep'), b && b.getAttribute('aria-label'), p.text('.ttl__leaving')];
     };
-    const out = { second: look(await open('3020')), third: look(await open('3030')), plain: look(await open('')), gone: look(await open('3010')) };
+    const out = { second: look(await open('3020')), third: look(await open('3030')), plain: look(await open('')), plainOnLeaving: look(await open('', 2)), gone: look(await open('3010')) };
     const p = await open('3030');
     const pick = async (n) => {
       p.q('.watch-pill[data-season="' + n + '"]').focus();
@@ -3798,7 +3799,9 @@ const scenarios = {
 
   // A season's Keep undone from a toast raised before the title was opened, and one of another title's.
   async keptElsewhere() {
-    let show = LIB_SHOW;
+    const leaving = { days: 3, keep_id: '3010', season: 2 }; // the season it opens on
+    const LEAVING = Object.assign({}, LIB_SHOW, { leaving, leaving_seasons: [leaving] });
+    let show = LEAVING;
     const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(show))) } });
     p.run();
     show = Object.assign({}, LIB_SHOW, { leaving: null, leaving_seasons: [] });
@@ -3810,7 +3813,7 @@ const scenarios = {
       return look();
     };
     const out = { before: look() };
-    show = LIB_SHOW;
+    show = LEAVING;
     out.undone = await tell('3010');
     const body = p.q('.ttl__lead');
     out.other = await tell('999');
