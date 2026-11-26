@@ -545,10 +545,22 @@
     var asked = 0;
     var gone = {};
 
+    function namesOf(people) {
+      return people.length > 1 ? people.slice(0, -1).join(', ') + ' and ' + people[people.length - 1] : people[0];
+    }
+
+    // Everyone else it is paired with, as the list gives them.
+    function othersOn(tv) {
+      return (tv.people || []).filter(function (who) { return who !== me; });
+    }
+
     function stateOf(tv) {
       var seen = tv.on ? 'On now' : tv.last_seen_at ? 'Last seen ' + seenWhen(tv.last_seen_at) : 'Not seen yet';
-      var by = others && others.contains(tv.row) ? ' by ' + tv.owner : '';
-      return seen + '. Paired' + by + ' ' + dayOf(tv.paired_at) + '.';
+      var theirs = others && others.contains(tv.row);
+      var withThem = othersOn(tv);
+      if (theirs && withThem.length) return seen + '. Paired with ' + namesOf(withThem) + '.';
+      if (withThem.length) return seen + '. Shared with ' + namesOf(withThem) + '.';
+      return seen + '. Paired' + (theirs ? ' by ' + tv.owner : '') + ' ' + dayOf(tv.paired_at) + '.';
     }
 
     function action(words, kind, tv, run) {
@@ -646,7 +658,7 @@
       var theirs = others && others.contains(tv.row);
       var sure = theirs ? UIFeedback.confirm({
         title: 'Unpair ' + tv.name + '?',
-        body: tv.owner + ' won’t be able to play on it until they pair it again.',
+        body: (othersOn(tv).length ? namesOf(othersOn(tv)) : tv.owner) + ' won’t be able to play on it until it is paired again.',
         confirmLabel: 'Unpair',
         confirmVariant: 'danger',
       }) : Promise.resolve(true);
@@ -662,7 +674,8 @@
           if (!ok) return;
           if (MM.tvRemote) MM.tvRemote.drop(tv.id);
           drop(tv);
-          done('Unpaired. That TV now says it was signed out.');
+          done(!theirs && othersOn(tv).length ? 'Unpaired from you. ' + namesOf(othersOn(tv)) + ' can still play on it.'
+            : 'Unpaired. That TV now says it was signed out.');
         });
       });
     }
@@ -697,7 +710,7 @@
     function load() {
       asked += 1;
       ask('/api/tvs', mine, function (tv) { return tv.kind !== 'older'; });
-      if (others) ask('/api/tvs/all', others, function (tv) { return tv.kind === 'page' && tv.owner && tv.owner !== me; });
+      if (others) ask('/api/tvs/all', others, function (tv) { return tv.kind === 'page' && tv.owner && (tv.people || [tv.owner]).indexOf(me) < 0; });
     }
 
     var me = mine.getAttribute('data-me');

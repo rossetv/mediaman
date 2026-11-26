@@ -227,6 +227,17 @@ const scenarios = {
     await p.press(p.row(0), 'Unpair this TV');
     return { asked, kept, deleted: p.calls.filter((c) => c[0] === 'DELETE').map((c) => c[1]), left: p.list.textContent, dropped: p.dropped };
   },
+  // A TV paired with two people: each can be unpaired alone, or the TV for both.
+  async people() {
+    const p = await page({ 'DELETE /api/tvs/1/people/tobias': {}, 'DELETE /api/tvs/1?everyone=1': {} },
+      [{ ...PAIRED, people: ['maren', 'tobias'] }]);
+    const before = p.row(0).querySelector('.tv-sub').textContent;
+    const x = p.row(0).querySelectorAll('button').find((b) => b.getAttribute('aria-label') === 'Unpair tobias from Living room');
+    click(p.doc, x);
+    await settle();
+    const after = p.row(0).querySelector('.tv-sub').textContent;
+    return { before, after, chips: p.row(0).querySelectorAll('.tv-ppl li').length, deleted: p.calls.filter((c) => c[0] === 'DELETE').map((c) => c[1]) };
+  },
   // The buttons of each panel in the order they are drawn, and every word a person reads there.
   async order() {
     const p = await page({ 'DELETE /api/tvs/1': refused('x') });

@@ -126,6 +126,8 @@ class Play:
     next_item: Mapping[str, Any] | None = None
     upnext_at: float | None = None
     still_at: float | None = None
+    #: Who paused it from their phone or computer, while it stays paused.
+    paused_by: str | None = None
 
 
 @dataclass
@@ -150,8 +152,8 @@ class Players:
         #: Another after a restart, which ends all that plays.
         self.boot = secrets.token_urlsafe(6)
         self._lock = threading.Lock()
-        # By the hash of the TV's token, which changes when the TV changes hands, so that nothing
-        # begun for one owner reaches the next.
+        # By the hash of the TV's token, which changes when the TV is paired anew, so that nothing
+        # begun before reaches it.
         self._tvs: dict[str, _Tv] = {}
         self._left: list[Left] = []
         # (person's id, TV) that was theirs -> (since when not, why, what had played).
@@ -271,6 +273,8 @@ class Players:
             self._at_end(tv, play)
             return
         play.state = report.state
+        if was == "paused" and play.state == "playing":
+            play.paused_by = None
         if play.state == "playing":
             play.paused = play.renewed = False
         paused = report.state == "paused" and was != "paused"
@@ -423,14 +427,19 @@ class Players:
                 play.state, play.upnext_at = "ended", None
             tv.sitting, tv.active_at = 0, self._clock()
 
-    def send(self, token_hash: str, kind: Kind, play_id: str | None, **args: Any) -> int:
+    def send(
+        self, token_hash: str, kind: Kind, play_id: str | None, by: str | None = None, **args: Any
+    ) -> int:
         """Put a command in the TV's queue and return its id."""
         with self._lock:
             tv = self._tv(token_hash)
-            if self._current(tv, play_id).url is None:
+            play = self._current(tv, play_id)
+            if play.url is None:
                 raise NotPlaying("no stream plays")
             if not self._answers(tv):
                 raise TvOff("the TV does not answer")
+            if kind in ("play", "pause"):
+                play.paused_by = by if kind == "pause" else None
             tv.sitting, tv.active_at = 0, self._clock()
             return self._command(tv, kind, **args)
 
@@ -533,6 +542,8 @@ class Players:
         return {
             **play.about,
             "play_id": play.id,
+            "by": play.user,
+            "paused_by": play.paused_by,
             "state": play.state,
             "played_s": play.played_s,
             "next": play.next_item

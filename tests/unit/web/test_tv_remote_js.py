@@ -84,6 +84,13 @@ def test_a_pause_shows_at_once_and_another_phones_play_is_followed() -> None:
     assert out["other"] == "Playing on Living room"
 
 
+def test_anothers_film_is_named_as_theirs_and_their_pause_as_by_them() -> None:
+    out = _run("anothers")
+    assert out["says"] == "maren’s · on Living room"
+    assert out["bring"] is True and "maren’s Continue watching" in out["hint"]
+    assert out["paused"] == "Paused by maren"
+
+
 def test_a_refused_pause_is_taken_back_and_said() -> None:
     assert _run("refused") == {"says": "Playing on Living room", "toast": 1}
 
@@ -607,3 +614,9 @@ def test_the_page_says_while_the_bar_and_the_remote_show_and_while_the_bar_goes(
         "stopping": ["has-tv-mini", "is-tv-mini-leaving"],
         "stopped": [],
     }
+
+
+def test_playing_over_a_film_of_someone_the_tv_is_shared_with_asks_by_name() -> None:
+    out = _run("takeNamed")
+    assert "maren is watching Dune" in out["said"] and "Their place is kept" in out["said"]
+    assert (out["take"], out["primary"]) == ("Play mine instead", True)

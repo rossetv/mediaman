@@ -422,6 +422,8 @@
   var chapters;              // {title, start_s}, in order
   var chapterShown;          // the one the chapters button names
   var skipMarker;            // the marker the skip button now offers to skip, or null
+  var creditsOffered;        // the next episode's card has come in this pass through the last credits
+  var creditsRun;            // of this pass: {s, due} played of the last credits, and whether the card is due
   var troubleAtPlayed;
   var mediaRecoverUsed;
   var fatalRestartUsed;
@@ -431,6 +433,7 @@
 
   function resetVideo(at) {
     pendingStart = at;
+    lastPlace = null;
     dropAim();
     wantPlaying = true;
     hasPlayed = false;
@@ -459,6 +462,8 @@
     chapters = [];
     buildChapters();
     offerSkip(null);
+    creditsOffered = false;
+    creditsRun = { s: 0, due: false };
     question = { asking: null, held: null, put: false, tried: false, creditsS: 0, due: false, answered: false, over: false, aloneS: 0 };
     troubleAtPlayed = 0;
     clearTrouble();
@@ -483,9 +488,24 @@
     return isFinite(video.duration) ? video.duration : 0;
   }
 
+  /* Where the video last stood with something loaded. Safari puts it back at 0 with no seek
+     when an AirPlay TV fails or lets go of it: that is not a place. */
+  var lastPlace = null;
+  local.addEventListener('seeking', function () {
+    if (local.readyState >= 1) lastPlace = local.currentTime;
+  });
+  local.addEventListener('timeupdate', function () {
+    if (local.readyState < 1 || local.seeking || backAtZero()) return;
+    lastPlace = local.currentTime;
+  });
+
+  function backAtZero() { return local.currentTime < 1 && lastPlace >= 1; }
+
   function position() {
     if (aimS !== null) return aimS;
-    return pendingStart !== null ? pendingStart : video.currentTime;
+    if (pendingStart !== null) return pendingStart;
+    if (video === local && lastPlace !== null && (video.readyState === 0 || backAtZero())) return lastPlace;
+    return video.currentTime;
   }
 
   /* An icon control's name, and the same with its key as a tooltip. */
@@ -1364,7 +1384,7 @@
   var tvHeldTimer = null;
   var TV_TAKES_MS = 5000;
 
-  function offerTv(h, pos) {
+  function offerTv(h) {
     /* hls.js plays a source of its own where Safari has ManagedMediaSource; from src, none
        other is read. */
     if (h !== hls || !airplayUrl || local.hasAttribute('src') || !local.querySelector('source')) return;
@@ -1375,16 +1395,6 @@
     /* hls.js turns AirPlay off, as Safari needs where there is no such address. */
     local.disableRemotePlayback = false;
     if (playOn) playOn.changed();
-    /* A new stream while a TV plays, of another quality: Safari takes it to the TV at once, from
-       its start, since only hls.js knows where to begin. */
-    if (local.webkitCurrentPlaybackTargetIsWireless) {
-      local.addEventListener('loadedmetadata', function there() {
-        local.removeEventListener('loadedmetadata', there);
-        if (h !== hls || !airplayed()) return;
-        holdForTv(h);
-        local.currentTime = pos;
-      });
-    }
   }
 
   /* Whether Safari plays the video from that address, not from what hls.js feeds. */
@@ -1406,6 +1416,7 @@
     tvHeld = h;
     clearTimeout(tvHeldTimer);
     tvHeldTimer = setTimeout(function () { if (!fromTicket()) loadHere(h); }, TV_TAKES_MS);
+    showControls();
   }
 
   function letTvGo() {
@@ -1420,9 +1431,17 @@
     if (held) h.startLoad(position());
   }
 
-  /* A TV that took the video later than that: hls.js stops again. */
+  /* Safari loads the TV's address from its start, since only hls.js knows where to begin: when
+     a TV is chosen, and again for each new stream, such as one started after a long pause. So
+     the video goes back to its place; and hls.js stops again for a TV that took it late. */
   local.addEventListener('loadedmetadata', function () {
-    if (hls && tvHeld !== hls && local.webkitCurrentPlaybackTargetIsWireless && fromTicket()) holdForTv(hls);
+    if (!hls || !fromTicket()) return;
+    var at = aimS !== null || pendingStart !== null ? position() : lastPlace;
+    if (at !== null && Math.abs(local.currentTime - at) > 2) local.currentTime = within(at);
+    /* The TV may land a little past it, and the place is the TV's from here on. */
+    pendingStart = null;
+    dropAim();
+    if (tvHeld !== hls && local.webkitCurrentPlaybackTargetIsWireless) holdForTv(hls);
   });
 
   local.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', function () {
@@ -1431,10 +1450,11 @@
       holdForTv(hls);
       return;
     }
-    /* Back from the TV: hls.js plays it here again, where the TV got to. */
+    /* Back from the TV: hls.js plays it here again, where the TV got to. Safari may still name
+       the address of a stream that a new one replaced, whose hls.js already plays here. */
     if (fromTicket()) {
       letTvGo();
-      if (!away) restartStream(true);
+      if (!away && airplayUrl && local.currentSrc.slice(-airplayUrl.length) === airplayUrl) restartStream(true);
       return;
     }
     loadHere(hls);
@@ -1460,7 +1480,7 @@
     hls = h;
     var waits = true;        // for the playlist
     watchSlow(function () { return waits && h === hls; }, function () { loseLoads(h, 'manifest'); });
-    h.on(Hls.Events.MEDIA_ATTACHING, function () { offerTv(h, pos); });
+    h.on(Hls.Events.MEDIA_ATTACHING, function () { offerTv(h); });
     h.on(Hls.Events.ERROR, function (event, data) {
       waits = false;
       if (h === hls) onHlsError(data);
@@ -1833,8 +1853,8 @@
       return;
     }
     if (aimS !== null) land();
-    if (countdownTimer !== null) {
-      /* The video is over and the countdown is what runs: stop that. */
+    if (countdownTimer !== null && !(byButton && overCreditsCard())) {
+      /* The video is over, or its credits play under the card: the countdown is what stops. */
       hideUpnext();
       return;
     }
@@ -1972,9 +1992,12 @@
     else scheduleIdle();
   }
 
-  /* Playing again, or moving within the episode, cancels the next-episode countdown. */
+  /* Playing again, or moving within the episode, cancels the next-episode countdown: one that
+     came in the credits, which play on under it, only by a move out of them. */
   ['play', 'playing', 'seeking'].forEach(function (name) {
-    onVideo(name, hideUpnext);
+    onVideo(name, function () {
+      if (!overCreditsCard() || !inLastCredits(position())) hideUpnext();
+    });
     onVideo(name, function () { leftEnd(position()); });
   });
 
@@ -2012,6 +2035,11 @@
     stopRolling();
     showPlayState();
     if (video.ended) return;
+    /* Paused in the credits: the card comes again once they play on. */
+    if (overCreditsCard()) {
+      hideUpnext();
+      creditsOffered = false;
+    }
     noteActivity();
     if (!pausedHere) pausedThereAt = Date.now();
     pausedHere = false;
@@ -2074,6 +2102,7 @@
         rolling = true;
         backRounds = 0;
         playedOn(lastTime, now);
+        playedInCredits(lastTime, now);
       }
     }
     /* Emptied for a new stream the video stands at 0: from there to its start is no jump. */
@@ -2121,6 +2150,7 @@
     els.remaining.textContent = (d - pos < 1 ? '' : '-') + fmt(d - pos);
     els.seek.setAttribute('aria-valuenow', String(Math.round(pos)));
     showSkip();
+    offerNextAtCredits();
     var chapter = showChapter(pos);
     els.seek.setAttribute('aria-valuetext', fmt(pos) + ' of ' + fmt(d) + (chapter ? ', ' + chapter.title : ''));
 
@@ -2269,11 +2299,20 @@
       seekTo(skipMarker.end_s);
       return;
     }
-    /* Saved as at the end, so that the episode counts as watched. */
-    watchedHere();
-    goNext(false, duration());
+    goOnFromHere(false);
   }
   els.skip.addEventListener('click', skipOn);
+
+  /* The next episode, this one saved as at its end where it has not played to it, so that it
+     counts as watched. */
+  function goOnFromHere(byItself) {
+    if (video.ended) {
+      goNext(byItself);
+      return;
+    }
+    watchedHere();
+    goNext(byItself, duration());
+  }
 
   /* ---- frame preview -------------------------------------------------- */
 
@@ -2725,7 +2764,8 @@
 
   /* A preview goes with the controls, also from under a mouse that rests on the bar. */
   function goIdle() {
-    if (isAway()) return;
+    /* While a TV plays it, this page is what steers it. */
+    if (isAway() || airplayed()) return;
     clearTimeout(idleTimer);
     root.classList.add('is-idle');
     hideBubble();
@@ -2855,8 +2895,15 @@
     if (nextUnknown) findNext();
     else if (!next) askRating(leaveAtEnd);
     else {
-      if (autoplay) goOrAsk(showUpnext);
-      else showUpnext();
+      if (countdownTimer !== null) {
+        /* The count that began in the credits goes on. */
+        els.upnextCancel.textContent = 'Cancel';
+        paintAway();
+      } else if (autoplay) {
+        goOrAsk(showUpnext);
+      } else {
+        showUpnext();
+      }
       /* What cannot be seen is not asked. */
       if (upnextOpen() && !cannotBeSeen()) {
         if (roomForRating()) askRating(null);
@@ -3101,9 +3148,10 @@
     els.upnextIn.hidden = !counts;
     els.upnextFill.style.animationDuration = COUNTDOWN_S + 's';
     els.upnext.classList.toggle('is-counting', counts);
+    els.upnextCancel.textContent = creditsPlayOn() ? 'Watch credits' : 'Cancel';
     show(els.upnext);
     els.upnextStatus.textContent = counts
-      ? 'Next episode in ' + COUNTDOWN_S + ' seconds. Space or Escape cancels.'
+      ? 'Next episode in ' + COUNTDOWN_S + ' seconds: ' + next.label + '. Space or Escape cancels.'
       : 'Next episode: ' + next.label;
     paintAway();
     showControls();
@@ -3114,11 +3162,64 @@
       els.countdown.textContent = String(left);
       if (left > 0) return;
       hideUpnext();
-      goOrAsk(function () { goNext(true); });
+      goOrAsk(function () { goOnFromHere(true); });
     };
     countdownTimer = setInterval(count, 250);
     tellCount(until);
     count();
+  }
+
+  /* The last credits, where the next episode is to begin by itself at them: no scene follows. */
+  function creditsLeadOn() {
+    var m = lastCredits();
+    return autoplay && !!next && !!m && duration() - m.end_s <= SCENE_S ? m : null;
+  }
+
+  function inLastCredits(t) {
+    var m = creditsLeadOn();
+    return !!m && t >= m.start_s;
+  }
+
+  /* The card came over the credits, which play on under it. */
+  function creditsPlayOn() { return creditsOffered && !video.ended; }
+  function overCreditsCard() { return creditsPlayOn() && upnextOpen(); }
+
+  /* Played into the last credits: the card counts down to the next episode over them, once in
+     each pass through them. */
+  function offerNextAtCredits() {
+    if (!inLastCredits(position())) {
+      creditsOffered = false;
+      creditsRun = { s: 0, due: false };
+      return;
+    }
+    /* In the system's own full screen player it could not be seen: the end has the card. */
+    if (creditsOffered || !creditsRun.due || !els.upnext || upnextOpen() || video.paused || video.ended || switching ||
+      swapping || dragging || pendingStart !== null || shown(els.message) || onTv() || opening() ||
+      (els.ask && els.ask.open) || inNative()) return;
+    var unasked = !question.put && !question.over && !question.tried && !cannotBeSeen();
+    if (!roomForBoth() && (unasked || question.asking || rating)) {
+      /* No room for the two: the question comes first, and the card once it has gone. */
+      if (unasked) {
+        question.due = true;
+        askInCredits();
+      }
+      return;
+    }
+    creditsOffered = true;
+    showUpnext();
+    /* As at the end: the question beside the card. */
+    if (unasked) {
+      question.due = true;
+      askInCredits();
+    }
+  }
+
+  /* Played into the last credits, the card comes at once; reached by a jump, after they have
+     played a while, as the question does. */
+  function playedInCredits(from, to) {
+    if (!inLastCredits(to)) return;
+    creditsRun.s += to - from;
+    if (!inLastCredits(from) || creditsRun.s >= CREDITS_PLAYED_S) creditsRun.due = true;
   }
 
   function toggleAutoplay() {
@@ -3154,6 +3255,7 @@
     els.upnextIn = q('[data-upnext-in]');
     els.upnextFill = q('[data-upnext-fill]');
     els.countdown = q('[data-countdown]');
+    els.upnextCancel = q('[data-upnext-cancel]');
     setupStill();
     q('[data-next-btn]').addEventListener('click', function (e) {
       /* A new tab or window stays the browser's. */
@@ -3161,7 +3263,7 @@
       e.preventDefault();
       goNext(false);
     });
-    q('[data-upnext-play]').addEventListener('click', function () { goNext(false); });
+    q('[data-upnext-play]').addEventListener('click', function () { goOnFromHere(false); });
     q('[data-upnext-cancel]').addEventListener('click', hideUpnext);
   }
 
@@ -3325,7 +3427,7 @@
     if (question.put || question.over) return;
     question.creditsS += to - from;
     if (!inCredits(from) || question.creditsS >= CREDITS_PLAYED_S) question.due = true;
-    if (!question.due || cannotBeSeen()) return;
+    if (!question.due || cannotBeSeen() || !roomForRating()) return;
     if (question.held) showRating(question.held, null);
     else if (!question.tried) askInCredits();
   }
@@ -3335,7 +3437,7 @@
     var asked = ratingAsked;
     askOnce(saveProgress(), function () { return !switching && inCredits(position()); }).then(function (held) {
       if (!held || mine !== question || mine.put || asked !== ratingAsked) return;
-      if (inCredits(position()) && !switching && !video.ended && !cannotBeSeen()) showRating(held, null);
+      if (inCredits(position()) && !switching && !video.ended && !cannotBeSeen() && roomForRating()) showRating(held, null);
     });
   }
 
@@ -3417,7 +3519,8 @@
   window.addEventListener('resize', keepOffSkip);
 
   /* Whether the card can be seen: a small window has no room for it and the next episode's. */
-  function roomForRating() { return !upnextOpen() || !tight.matches && !(isAway() && window.innerWidth < 1200); }
+  function roomForRating() { return !upnextOpen() || roomForBoth(); }
+  function roomForBoth() { return !tight.matches && !(isAway() && window.innerWidth < 1200); }
 
   function showRating(held, goOn) {
     var text = 'How was ' + (held.season ? 'season ' + held.season + ' of ' : '') + held.title + '?';
@@ -3848,15 +3951,18 @@
   });
 
   /* An AirPlay TV was refused: hls.js is stopped and hears of nothing, so the server is asked
-     whether the stream is there, and a stream taken by another page or gone ends as ever. */
+     whether the stream is there, and a stream taken by another page or gone ends as ever. One
+     Plex no longer serves, as after it ended a paused one by itself, starts again. */
   function askAfterTv() {
     var id = streamId;
     fetch(playlistUrl, { credentials: 'same-origin', cache: 'no-store' }).then(function (resp) {
-      if (resp.status !== 410) return null;
+      if (resp.status !== 410 && resp.status !== 502) return null;
       return resp.text().then(function (text) {
         var answer = null;
         try { answer = JSON.parse(text); } catch (e) { /* none of the server's own */ }
-        if (id === streamId) streamEnded(answer);
+        if (id !== streamId) return;
+        if (resp.status === 410) streamEnded(answer);
+        else if (answer && answer.error === 'unreachable') streamGone();
       });
     }).catch(function () { /* the connection tells of itself */ });
   }
@@ -4183,7 +4289,9 @@
     if (shown(els.rate)) card = els.rate.scrollHeight;
     if (upnextOpen()) {
       var tall = els.upnext.scrollHeight;
-      var under = !low && say.bottom + 20 + tall + 12 <= els.awayEnd.getBoundingClientRect().top;
+      /* Over the credits the bar is still there to keep clear of; at the end only the way out is. */
+      var floor = (video.ended ? els.awayEnd : q('.player-seek-row')).getBoundingClientRect().top;
+      var under = !low && say.bottom + 20 + tall + 12 <= floor;
       els.upnext.classList.toggle('is-under', under);
       set('--away-under', say.bottom + 20);
       if (!under && window.innerWidth < 1200) card = Math.max(card, tall);

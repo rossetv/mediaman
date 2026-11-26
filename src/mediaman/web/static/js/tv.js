@@ -354,6 +354,7 @@
       send('poll', old.token, {}, 10000, function (status, got, retry) {
         if (of !== pairings || status === 404) return;
         if (status === 200 && got.state === 'ready') { paired(old, got); return; }
+        if (status === 200 && got.state === 'joined') { joined(); return; }
         pollOld(old, retry ? retry * 1000 : got.poll_ms || 2000);
       });
     }, wait);
@@ -367,6 +368,7 @@
         if (pending !== mine) return;
         if (status === 200) heard();
         if (status === 200 && got.state === 'ready') { paired(mine, got); return; }
+        if (status === 200 && got.state === 'joined') { joined(); return; }
         if (status === 404) { codeGone(); return; }
         // Unpaired, or paired anew and about to be told so: the code is good either way.
         if (status === 200 && mode === 'boot' && !token) { mode = 'code'; show(); }
@@ -402,6 +404,16 @@
     loop += 1;
     pollSoon(got.poll_ms);
     take(got);
+  }
+
+  /* Someone joined the people this TV is paired with: it goes on as it was, and says who they are. */
+  function joined() {
+    pending = null;
+    pairings += 1;
+    codes = 0;
+    if (!play) mode = 'conn';
+    tell();
+    show();
   }
 
   /* ── the poll ── */
@@ -485,7 +497,7 @@
   }
 
   function take(got) {
-    me = { name: got.name, owner: got.owner };
+    me = { name: got.name, owner: got.owner, people: got.people || [] };
     if (mode === 'boot') mode = 'idle';
     var was = play;
     playing(got.play);
@@ -957,7 +969,7 @@
   }
   function overlay(paused) {
     return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot">' +
-      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused') + '</div>' : '') +
+      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by ? ' by ' + esc(play.paused_by) : '')) + '</div>' : '') +
       '<div class="bar"><div class="p" id="pr"></div>' + markNodes() + '</div><div class="tms"><span id="el"></span><span id="re"></span></div>' +
       offer([[glyph('back') + '10 s', 'b'], [glyph(paused ? 'play' : 'pause') + (paused ? 'Play' : 'Pause'), 'p'], [glyph('fwd') + '10 s', 'f'], [glyph('stop') + 'Stop', 's']]) +
       '</div></div>';
@@ -978,15 +990,22 @@
     press: function () { return page(middle('Watch on this TV', 'The last code ran out.<br>Press OK for another.', [['New code', 'n']].concat(leave()))); },
     slow: function () { return page(middle('Too many codes', 'A new one comes by itself in ' + (waitUntil - now() > 90000 ? Math.ceil((waitUntil - now()) / 60000) + ' minutes' : 'a minute') + '.', leave(), SPIN)); },
     conn: function () {
-      return page(middle('Connected to ' + esc(me.owner), 'This TV is now called ' + esc(me.name) + '.<br>Press OK on the TV&rsquo;s remote once, so films can start with sound.',
+      var all = (me.people && me.people.length ? me.people : [me.owner]).map(esc);
+      var head = all.length > 1 ? all.slice(0, -1).join(', ') + ' and ' + all[all.length - 1] + ' can play here' : 'Connected to ' + all[0];
+      return page(middle(head, (all.length > 1 ? 'Each of you can start, pause and stop what plays on ' + esc(me.name) + '.' : 'This TV is now called ' + esc(me.name) + '.') + '<br>Press OK on the TV&rsquo;s remote once, so films can start with sound.',
         [['OK', 'i']], '<div class="tick">' + glyph('ok') + '</div>'));
     },
     idle: function () {
-      return page('<div class="idle">' + middle(esc(me.name) + ' is ready', 'On your phone or computer, open a film,<br>press the TV button and choose ' + esc(me.name) + '.',
+      var who = (me.people && me.people.length ? me.people : [me.owner]).map(esc);
+      var paired = '<span class="ppl">' + who.map(function (w) { return '<i><b>' + w.charAt(0).toUpperCase() + '</b>' + w + '</i>'; }).join('') + '</span>';
+      return page('<div class="idle">' + middle(esc(me.name) + ' is ready', 'On your phone or computer, open a film,<br>press the TV button and choose ' + esc(me.name) + '.' + paired,
         [['Pair another person', 'n'], ['Unpair this TV', 'u']]) + '</div>');
     },
     unpair: function () {
-      return page(middle('Unpair this TV?', esc(me.owner) + ' won&rsquo;t be able to play here<br>until they pair it again.', [['Keep it', 'i'], ['Unpair', 'o']]));
+      var all = (me.people && me.people.length ? me.people : [me.owner]).map(esc);
+      var who = all.length > 1 ? all.slice(0, -1).join(', ') + ' and ' + all[all.length - 1] + ' won&rsquo;t be able to play here<br>until it is paired again.'
+        : all[0] + ' won&rsquo;t be able to play here<br>until they pair it again.';
+      return page(middle('Unpair this TV?', who, [['Keep it', 'i'], ['Unpair', 'o']]));
     },
     out: function () {
       return page(middle('Signed out', 'This TV was unpaired. Nothing of yours is left on it.<br>Pair it again to watch.', [['Pair this TV', 'n']]));
