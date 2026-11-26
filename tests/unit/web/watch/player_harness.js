@@ -782,7 +782,7 @@ function elsewhereOf(mode) {
     get(url) {
       e.sent.push({ get: url });
       if (/tvs$/.test(url) && e.gets.length) return e.gets.shift()();
-      if (/tvs$/.test(url)) return mode === 'absent' || mode === 'airOnly' ? e.refuse(404, 'http_404') : mode === 'offline' ? e.refuse(0, 'network_error') : Promise.resolve({ tvs: e.tvs });
+      if (/tvs$/.test(url)) return mode === 'absent' || mode === 'airOnly' || mode === 'mmsAlone' ? e.refuse(404, 'http_404') : mode === 'offline' ? e.refuse(0, 'network_error') : Promise.resolve({ tvs: e.tvs });
       return e.tv ? e.tv() : Promise.resolve({ tv: Object.assign({}, LIVING, { play: { rating_key: '501', state: 'playing', position_s: 40 } }) });
     },
     post(url, body, opts) {
@@ -805,8 +805,9 @@ function elsewhereOf(mode) {
       win.WebKitPlaybackTargetAvailabilityEvent = function () {};
       Video.prototype.webkitShowPlaybackTargetPicker = function () { e.picked++; if (!this.classList.contains('player-air')) e.pickedOwn++; };
       /* With ManagedMediaSource, as on an iPhone, iOS hands the TV to the video that plays. */
-      if (mode === 'mms') win.ManagedMediaSource = function ManagedMediaSource() {};
-      const takes = (v) => (mode === 'mms' ? !v.classList.contains('player-air') : v.classList.contains('player-air'));
+      const mms = mode === 'mms' || mode === 'mmsAlone';
+      if (mms) win.ManagedMediaSource = function ManagedMediaSource() {};
+      const takes = (v) => (mms ? !v.classList.contains('player-air') : v.classList.contains('player-air'));
       Object.defineProperty(Video.prototype, 'webkitCurrentPlaybackTargetIsWireless', { configurable: true, get() { return e.wireless && takes(this); } });
     },
     starts: () => e.sent.filter((c) => /cast\/stream$/.test(c.post || '')).map((c) => c.body),
@@ -4971,6 +4972,42 @@ const scenarios = {
     await settle();
     out.back = { starts: p.starts().length, from: p.hlsList[p.hlsList.length - 1].config.startPosition === at };
     return out;
+  },
+
+  /* An iPhone with no TV of mediaman's, before Safari has said whether an AirPlay TV is near. */
+  async away_airplay_alone(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const button = p.q('.player-controls').querySelector('[data-play-on]');
+    await streamPlays(p, 30);
+    await settle();
+    const out = { shown: !button.hidden };
+    if (!out.shown) return out;
+    await openSheet(p);
+    out.rows = sheet().querySelectorAll('[data-key]').map((r) => r.getAttribute('data-key'));
+    return out;
+  },
+
+  /* Another quality while the TV plays: the new stream goes to the TV, at the place. */
+  async away_airplay_own_quality(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const v = p.video;
+    const e = p.elsewhere;
+    await streamPlays(p, 30);
+    v.currentTime = 300;
+    e.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+    await settle();
+    p.replies.push({ ok: { stream_id: 's2', playlist: '/p2', airplay: '/api/cast/A2/index.m3u8' } });
+    click(p.q('[data-quality="medium"]'));
+    await settle();
+    const h = p.hlsList[p.hlsList.length - 1];
+    const offered = v.querySelectorAll('source').map((s) => s.src);
+    /* Safari moves the new stream to the TV, at its start. */
+    v.currentSrc = 'http://mm/api/cast/A2/index.m3u8';
+    v.currentTime = 0;
+    v.readyState = 1;
+    fire(v, 'loadedmetadata');
+    await settle();
+    return { offered: offered, at: v.currentTime, stopped: h.stopped, streams: p.hlsList.length };
   },
 
   /* Chrome, or Safari without ManagedMediaSource: no address for a TV, and no change. */

@@ -1358,7 +1358,7 @@
   var MAY_AIRPLAY = !!window.WebKitPlaybackTargetAvailabilityEvent;
   var airplayUrl = null;
 
-  function offerTv(h) {
+  function offerTv(h, pos) {
     /* hls.js plays a source of its own where Safari has ManagedMediaSource; from src, none
        other is read. */
     if (h !== hls || !airplayUrl || local.hasAttribute('src') || !local.querySelector('source')) return;
@@ -1368,11 +1368,23 @@
     local.appendChild(source);
     /* hls.js turns AirPlay off, as Safari needs where there is no such address. */
     local.disableRemotePlayback = false;
+    if (playOn) playOn.changed();
+    /* A new stream while a TV plays, of another quality: Safari takes it to the TV at once, from
+       its start, since only hls.js knows where to begin. */
+    if (local.webkitCurrentPlaybackTargetIsWireless) {
+      local.addEventListener('loadedmetadata', function there() {
+        local.removeEventListener('loadedmetadata', there);
+        if (h !== hls || !airplayed()) return;
+        h.stopLoad();
+        local.currentTime = pos;
+      });
+    }
   }
 
   /* Whether Safari plays the video from that address: on a TV, or here once it left the TV. */
   function airplayed() {
-    return !!hls && !!local.currentSrc && local.currentSrc.indexOf('blob:') !== 0;
+    if (!hls) return false;
+    return !!local.webkitCurrentPlaybackTargetIsWireless || (!!local.currentSrc && local.currentSrc.indexOf('blob:') !== 0);
   }
 
   local.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', function () {
@@ -1407,7 +1419,7 @@
     hls = h;
     var waits = true;        // for the playlist
     watchSlow(function () { return waits && h === hls; }, function () { loseLoads(h, 'manifest'); });
-    h.on(Hls.Events.MEDIA_ATTACHING, function () { offerTv(h); });
+    h.on(Hls.Events.MEDIA_ATTACHING, function () { offerTv(h, pos); });
     h.on(Hls.Events.ERROR, function (event, data) {
       waits = false;
       if (h === hls) onHlsError(data);

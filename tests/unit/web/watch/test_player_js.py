@@ -2374,6 +2374,17 @@ def test_when_the_tv_gives_the_picture_back_it_plays_on_here_from_there(markup):
     assert out["back"] == {"starts": 2, "from": True}
 
 
+def test_on_an_iphone_airplay_is_offered_before_safari_says_a_tv_is_near(markup):
+    out = elsewhere(markup, "away_airplay_alone", "mmsAlone")
+    assert out == {"shown": True, "rows": ["close", "here", "airplay"]}
+
+
+def test_another_quality_while_the_tv_plays_goes_on_there_at_the_same_place(markup):
+    out = elsewhere(markup, "away_airplay_own_quality", "mms")
+    assert out["offered"] == ["blob:mms", "/api/cast/A2/index.m3u8"]
+    assert (out["at"], out["stopped"], out["streams"]) == (300, True, 2)
+
+
 @pytest.mark.parametrize("mode", ["tvs", "plain"])
 def test_without_managed_media_source_the_video_gets_no_second_source(markup, mode):
     out = elsewhere(markup, "away_airplay_plain", mode)

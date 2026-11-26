@@ -205,7 +205,9 @@
   }
 
   MM.playOn.register(Object.assign(way, {
-    available: function () { return nearby || !!play; },
+    /* The player's own video goes to a TV as Safari's own controls would send it: Safari's list
+       says itself whether there is one. */
+    available: function () { return nearby || !!play || !!ownVideo(); },
     /* Opens Safari's list for the player's own video, where it can go; whether it did. */
     picks: function () {
       var video = ownVideo();
