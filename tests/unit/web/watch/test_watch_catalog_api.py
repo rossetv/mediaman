@@ -589,6 +589,16 @@ class TestLibraryTitle:
         assert body["cast"] == []
         assert body["download"] is None
 
+    def test_a_title_asked_for_before_it_is_opened_is_refused_past_its_limit_and_an_open_is_not(
+        self, viewer, no_tmdb, arr, plex, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_api, "_AHEAD_LIMITER", ActionRateLimiter(1, 60))
+
+        codes = [viewer.get("/api/watch/title/movie-100?ahead=1").status_code for _ in range(2)]
+
+        assert codes == [200, 429]
+        assert viewer.get("/api/watch/title/movie-100").status_code == 200
+
     def test_a_show_lists_its_seasons_and_episodes_from_plex(self, viewer, no_tmdb, arr, plex):
         body = viewer.get("/api/watch/title/show-500").json()
 

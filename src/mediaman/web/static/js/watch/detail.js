@@ -41,6 +41,10 @@
   /* How long a title waits for its picture, which settles the hero's height, for why it is a pick and for whether it can be rated. */
   var PICTURE_WAIT_MS = 400;
   var SEASON_WAIT_MS = 1500;
+  /* What a title asked for before it was opened said is still true. */
+  var AHEAD_FRESH_MS = 60000;
+  /* How many are asked for a minute: each can cost Plex several calls. */
+  var AHEAD_MOST = 10;
   /* How long after a close the next press of a double click can still come. */
   var DOUBLE_CLICK_MS = 600;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
@@ -71,6 +75,10 @@
 
   var thumbs = null;   // the set of thumbs on show
   var cur = null;      // the title on show: { ref, data, facts, ... }
+  var drawn = null;    // while the title on show is only drawn: { was }, the one before it
+  var ahead = null;    // the title asked for before it is opened: { ref, at, ctrl, promise, data, failed }
+  var aheadAt = [];    // when those of the last minute were
+  var telling = false; // this page is saying what it knows of a title
   var isOpen = false;
   var kept = {};       // the titles left, by ref, as they were left
   var closedAt = 0;
@@ -127,12 +135,17 @@
   function fire(ref, state, pct) {
     if (typeof CustomEvent !== 'function') return;
     var k = stateOf(ref);
-    document.dispatchEvent(new CustomEvent('mm:title-changed', {
-      detail: {
-        ref: ref, download_state: state, download_pct: pct === undefined ? null : pct,
-        title: k.title, kind: k.kind, year: k.year
-      }
-    }));
+    telling = true;
+    try {
+      document.dispatchEvent(new CustomEvent('mm:title-changed', {
+        detail: {
+          ref: ref, download_state: state, download_pct: pct === undefined ? null : pct,
+          title: k.title, kind: k.kind, year: k.year
+        }
+      }));
+    } finally {
+      telling = false;
+    }
   }
 
   function learn(ref, data) {
@@ -226,11 +239,15 @@
     }
   }
 
-  function show(origin) {
+  function unveil() {
     root.hidden = false;
     root.classList.remove('is-leaving', 'is-aside', 'is-trailer');
     nameClose();
     lockPage(true);
+  }
+
+  function show(origin) {
+    unveil();
     MM.inertPage.hold(root);
     isOpen = true;
     growFrom(origin);
@@ -247,6 +264,7 @@
     opts = opts || {};
     if (!REF_RE.test(ref)) return;
     if (isOpen && cur && cur.ref === ref) return;
+    dropPicture();
     if (leaving) leaving();
     letGo();
     var wasOpen = isOpen;
@@ -254,9 +272,24 @@
     if (wasOpen) keepPlace();
     stopPolling();
     dropRatings();
-    cur = {
+    cur = titleOf(ref, opts, wasOpen && cur ? cur.origin : null);
+    if (opts.push) {
+      address.push('title', titleUrl(ref));
+      keepPick();
+    }
+    closeTrailer(false);
+    renderLoading();
+    if (!wasOpen) show(cur.origin);
+    // The overlay is the scroller and keeps its offset across closes.
+    root.scrollTop = 0;
+    titleEl.focus({ preventScroll: true });
+    load(cur);
+  }
+
+  function titleOf(ref, opts, origin) {
+    return {
       ref: ref,
-      origin: opts.origin || (wasOpen && cur ? cur.origin : null),
+      origin: opts.origin || origin,
       title: opts.title || '',
       kind: kindOf(ref, opts.kind),
       data: null,
@@ -265,7 +298,9 @@
       keepIds: {},         // what has been offered to keep while it is open
       cardKeep: keepOnCard(opts.origin), // the season its card is of, by what keeps it
       pickRef: PICK_RE.test(ref) ? ref : PICK_RE.test(opts.pick || '') ? opts.pick : null,
-      pick: null,          // why it is a pick, once known: { reason, because }
+      pick: null,          // why it is a pick, once known: { reason, because, early }; early: its preview's, which names no titles
+      said: '',            // the words of it its preview was read by: they go on as they are
+      noWide: false,       // its preview has tried its wide pictures: there is none
       onPick: null,
       onThumbs: null,
       atEpisodes: !!opts.atEpisodes,
@@ -299,22 +334,121 @@
       ctrl: null,
       seq: ++seq
     };
-    if (opts.push) {
-      address.push('title', titleUrl(ref));
-      keepPick();
-    }
+  }
+
+  /* ── Drawn before it is open ──
+     A preview scrolled open draws its title's page at the first of the scroll, and opens it
+     as it arrives there, or takes it back: until then it is in no history, and has no focus. */
+
+  /* The title *ref* as it would open: in full where it has been asked for and has come, else
+     what its preview says of it (opts.preview, with the card's opts.poster, opts.watched and
+     opts.tmdbRef; opts.noWide: it has no wide picture). */
+  function draw(ref, opts) {
+    if (isOpen || drawn || !REF_RE.test(ref)) return false;
+    if (leaving) leaving();
+    letGo();
+    closeDialogs();
+    drawn = { was: cur };
+    cur = titleOf(ref, opts, null);
+    var full = (askAhead(ref, true) || {}).data;
+    if (full && full.library_ref && full.library_ref !== ref) full = null; // it opens as that one
+    var d = full || (opts.preview && draftOf(opts));
+    if (opts.preview) cur.said = opts.preview.overview || '';
+    cur.noWide = !!opts.noWide;
     closeTrailer(false);
+    unveil();
     renderLoading();
-    if (!wasOpen) show(cur.origin);
-    // The overlay is the scroller and keeps its offset across closes.
-    root.scrollTop = 0;
+    if (d) {
+      cur.data = d;
+      cur.title = d.title || cur.title;
+      cur.kind = d.kind;
+      if (full && ref === cur.pickRef) takePick(cur, full);
+      else if (opts.preview && opts.preview.reason) cur.pick = { reason: opts.preview.reason, because: [], early: true };
+      learn(ref, d);
+      takeDownload(ref, d.download, !!full);
+      renderContent(false);
+      settleHero();
+    }
+    return true;
+  }
+
+  /* The preview's reply as the title's own, for what both of them show. */
+  function draftOf(opts) {
+    var p = opts.preview;
+    var d = Object.assign({ draft: true, poster_url: opts.poster, ratings_pending: true, watched: !!opts.watched }, p);
+    var held = /^(movie|show)-([0-9]+)$/.exec(p.library_ref || '');
+    if (held) Object.assign(d, { mark_kind: held[1], mark_key: held[2] });
+    else d.tmdb_ref = opts.tmdbRef;
+    if (p.download) {
+      var body = (p.download.request || {}).body || {};
+      d.download = Object.assign({ service: p.kind === 'movie' ? 'radarr' : 'sonarr', tmdb_id: body.tmdb_id }, p.download);
+    }
+    return d;
+  }
+
+  /* Open the title that is drawn. */
+  function openDrawn() {
+    var c = cur;
+    drawn = null;
+    isOpen = true;
+    address.push('title', titleUrl(c.ref));
+    keepPick();
+    MM.inertPage.hold(root);
+    growFrom(c.origin);
+    if (!c.data || c.data.draft) root.setAttribute('aria-busy', 'true');
     titleEl.focus({ preventScroll: true });
-    load(cur);
+    load(c);
+  }
+
+  function undraw() {
+    cur = drawn.was;
+    drawn = null;
+    shut();
+  }
+
+  /* Ask for the title *ref*, which may be about to open. One on its way is let be, unless
+     this one is *wanted* now. Returns what is asked of it, or null. */
+  function askAhead(ref, wanted) {
+    var now = Date.now();
+    if (ahead && (ahead.failed || now - ahead.at >= AHEAD_FRESH_MS)) ahead = null;
+    if (ahead && ahead.ref === ref) return ahead;
+    if (ahead && !ahead.data && !wanted) return null;
+    aheadAt = aheadAt.filter(function (at) { return now - at < 60000; });
+    if (!REF_RE.test(ref) || aheadAt.length >= AHEAD_MOST) return null;
+    aheadAt.push(now);
+    var a = ahead = { ref: ref, at: now, ctrl: new AbortController(), promise: null, data: null, failed: false };
+    a.promise = get(apiUrl(ref) + (wanted ? '' : '?ahead=1'), a.ctrl);
+    a.promise.then(function (data) { a.data = data; }, function () { a.failed = true; });
+    return a;
+  }
+
+  /* What was asked ahead of *ref*, for the one who opens it. */
+  function takeAhead(ref) {
+    var a = ahead;
+    if (!a || a.ref !== ref || a.failed || Date.now() - a.at >= AHEAD_FRESH_MS) return null;
+    ahead = null;
+    return a;
+  }
+
+  /* Something has changed that a title asked for ahead does not know of. A page drawn from
+     it is asked for again as it opens; what the drawn page tells of itself is no change. */
+  ['mm:title-changed', 'mm:watch-marked', 'mm:watch-kept', 'mm:watch-admin', 'mm:watch-scheduled'].forEach(function (name) {
+    document.addEventListener(name, function (e) {
+      if (drawn && telling) return;
+      if (name === 'mm:title-changed' && !(ahead && e.detail.ref === ahead.ref) && !(drawn && e.detail.ref === cur.ref)) return;
+      ahead = null;
+      if (drawn) cur.stale = true;
+    });
+  });
+
+  /* The preview's picture over the hero. */
+  function dropPicture() {
+    if (window.MMWatch.preview) window.MMWatch.preview.letGo();
   }
 
   /* What the title on show needs to be found as it is left. */
   function keepPlace() {
-    if (!cur || !cur.data || cur.gone) return;
+    if (!cur || !cur.data || cur.data.draft || cur.gone) return;
     cur.at = root.scrollTop;
     cur.focus = focusKey();
     cur.ring = !!document.activeElement && document.activeElement.matches(':focus-visible');
@@ -330,6 +464,7 @@
 
   /* Show a title left earlier as it was left, then bring it up to date. */
   function comeBack(c) {
+    dropPicture();
     var wasOpen = isOpen;
     isOpen = true;
     if (leaving) leaving(); // it turns round from where it is
@@ -405,6 +540,7 @@
   function close(aside) {
     if (!isOpen) return;
     closeDialogs();
+    dropPicture();
     keepPlace();
     isOpen = false;
     closedAt = Date.now();
@@ -427,16 +563,22 @@
     leaving = afterAnimation(sheet, aside ? core.tokenMs('--dur-slow', 250) : core.tokenMs('--dur', 200), function () {
       leaving = null;
       if (isOpen) return;
-      root.hidden = true;
-      root.classList.remove('is-leaving', 'is-aside', 'ttl--admin');
-      root.removeAttribute('aria-busy');
-      emptyBody();
-      lockPage(false);
+      // Set here, where it costs nothing, not where a page is drawn.
+      root.scrollTop = 0;
+      shut();
     });
     var to = aside ? null : origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin
       : cur && (cur.fallback || cardOf(cur.ref) || cardOf(cur.openedAs));
     if (to && document.body.contains(to)) to.focus({ preventScroll: true });
     else if (root.contains(document.activeElement)) document.activeElement.blur();
+  }
+
+  function shut() {
+    root.hidden = true;
+    root.classList.remove('is-leaving', 'is-aside', 'ttl--admin');
+    root.removeAttribute('aria-busy');
+    emptyBody();
+    lockPage(false);
   }
 
   /* The title left the library: its cards and banner go from the library's rows, and those
@@ -532,14 +674,20 @@
 
   function load(c) {
     if (c.ctrl) c.ctrl.abort();
-    var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    var early = takeAhead(c.ref);
+    var ctrl = early ? early.ctrl : typeof AbortController === 'function' ? new AbortController() : null;
     c.ctrl = ctrl;
     // Asked for with the title, so that it is mostly known when the title arrives.
     var first = ownPicture(c.ref);
     if (first) el('img').setAttribute('src', first);
     if (c.pickRef && c.pickRef !== c.ref) askPick(c, ctrl);
     if (window.MM.ratings) window.MM.ratings.read([c.ref]);
-    get(apiUrl(c.ref), ctrl).then(function (data) {
+    // What was asked for ahead may be refused by its own limit, which a title opened is not.
+    var asked = early ? early.promise.catch(function (err) {
+      if (err && err.name === 'AbortError') throw err;
+      return get(apiUrl(c.ref), ctrl);
+    }) : get(apiUrl(c.ref), ctrl);
+    asked.then(function (data) {
       if (c !== cur || !isOpen) return;
       if (c.ref === c.pickRef) takePick(c, data);
       if (data.library_ref && data.library_ref !== c.ref && REF_RE.test(data.library_ref)) {
@@ -622,16 +770,21 @@
 
   /* A title open under its library ref says nothing of the pick it was listed as. */
   function askPick(c, ctrl) {
-    if (c.pick) return;
+    if (c.pick && !c.pick.early) return;
     function known(data) {
       takePick(c, data);
       if (c !== cur || !isOpen) return;
       if (c.onPick) c.onPick();
       var box = c.data && body.querySelector('.ttl__reason');
-      if (box) box.replaceWith(pickBox(c.pick));
+      if (!box) return;
+      var fresh = pickBox(c.pick);
+      if (fresh.textContent === box.textContent) return;
+      var slide = core.flip(followers(box));
+      box.replaceWith(fresh);
+      slide();
     }
     get(apiUrl(c.pickRef), ctrl).then(known, function (err) {
-      if (!(err && err.name === 'AbortError')) known({});
+      if (!(err && err.name === 'AbortError') && !c.pick) known({});
     });
   }
 
@@ -713,15 +866,75 @@
   }
 
   function arrive(c, data) {
-    c.data = data;
-    c.title = data.title || c.title;
-    learn(c.ref, data);
-    takeDownload(c.ref, data.download, true);
-    settleHero();
-    renderContent(true);
+    if (c.data === data) settleDrawn();
+    else {
+      var old = c.data && (c.data.draft || c.stale) ? leadParts() : null;
+      c.stale = false;
+      if (old && c.ratings) c.ratings = { early: c.ratings.early, came: data.ratings_pending ? null : {}, asked: null };
+      if (old) c.picks = null;
+      c.data = data;
+      c.title = data.title || c.title;
+      learn(c.ref, data);
+      takeDownload(c.ref, data.download, true);
+      settleHero();
+      renderContent(true, old);
+    }
     if (c.atEpisodes) toEpisodes();
     if (hasFacts(c)) loadFacts(c);
     if (pollable()) schedulePoll(0);
+  }
+
+  /* A title drawn in full asks for nothing until it is open. */
+  function settleDrawn() {
+    askRatings(cur);
+    var slot = body.querySelector('[data-ttl-part="films"]');
+    if (slot) {
+      var had = body.children.length;
+      window.MMWatch.collection.into(body, cur.ref, cur.data.kind, cur.data.in_collection);
+      if (body.children.length > had) slot.replaceWith(body.children[had]);
+      else slot.remove();
+    }
+    if (body.querySelector('.ttl__season')) askWords(cur);
+    scheduleSeasons();
+  }
+
+  /* What the title's first part shows: each piece by what it is, what it says and where it
+     stands. A row of them, or the box of why it is a pick, says nothing of its own. */
+  function leadParts() {
+    var out = [];
+    function add(n, box) {
+      var r = n.getBoundingClientRect();
+      out.push({ node: n, name: n.className.split(' ').slice(0, 3).join(' ') + (n.getAttribute('data-ttl-act') || ''),
+        box: box, text: box ? '' : n.textContent, left: r.left, top: r.top });
+    }
+    add(kindEl, false);
+    add(taglineEl, false);
+    toArray(metaEl.children).forEach(function (n) { add(n, false); });
+    toArray(body.querySelectorAll('.ttl__main')).forEach(function (main) {
+      toArray(main.children).forEach(function (n) {
+        if (n.hidden) return;
+        var box = ['ttl__actions', 'ttl__ratings', 'ttl__reason'].some(function (c) { return n.classList.contains(c); });
+        add(n, box);
+        if (box) toArray(n.children).forEach(function (inner) { add(inner, false); });
+      });
+    });
+    return out;
+  }
+
+  /* What says the same as it did stays, or goes on from where that stood; the rest fades in. */
+  function goOn(old) {
+    var opts = { duration: core.tokenMs('--dur', 200), easing: core.token('--ease-out', 'ease-out') };
+    leadParts().forEach(function (now) {
+      var was = old.filter(function (o) { return o.name === now.name && o.text === now.text; })[0];
+      if (!was) {
+        core.fadeIn(now.node);
+        return;
+      }
+      var dx = was.left - now.left;
+      var dy = was.top - now.top;
+      if (now.box || (!dx && !dy) || core.reduceMotion() || !now.node.animate) return;
+      now.node.animate([{ transform: 'translate(' + dx + 'px, ' + dy + 'px)' }, { transform: 'none' }], opts);
+    });
   }
 
   /* To the show's episodes, unless the person has scrolled or moved the focus meanwhile. */
@@ -918,6 +1131,11 @@
       lead.appendChild(facts.aside);
     }
     body.appendChild(lead);
+    sectionsToCome(held);
+  }
+
+  /* What is under the title's first part, until it is known. */
+  function sectionsToCome(held) {
     if (!held && (cur.kind === 'show' || /^tmdb-tv-/.test(cur.ref))) {
       var some = el('section', 'ttl__askseasons');
       some.setAttribute('aria-hidden', 'true');
@@ -953,6 +1171,15 @@
 
   function renderFailed(err) {
     root.removeAttribute('aria-busy');
+    if (cur.data && cur.data.draft) {
+      // What its preview says of it stays.
+      toArray(body.children).slice(1).concat(toArray(body.querySelectorAll('.ttl__ratings-wait, .ttl__credit'))).forEach(function (n) { n.remove(); });
+      body.appendChild(failedBox(err));
+      cur.failed = true;
+      waitOnDownload();
+      if (hasFacts(cur)) loadFacts(cur);
+      return;
+    }
     hide(heroSkel, true);
     clearPictures();
     root.classList.add('is-short');
@@ -960,6 +1187,10 @@
     metaEl.textContent = '';
     if (!cur.title) titleEl.textContent = 'Details';
     emptyBody();
+    body.appendChild(failedBox(err));
+  }
+
+  function failedBox(err) {
     var box = el('div', 'ttl__failed fade-in');
     box.setAttribute('role', 'alert');
     box.appendChild(icon('i-circle-exclamation'));
@@ -973,7 +1204,12 @@
     var retry = button('btn btn--lg watch-btn--grey', 'Try again');
     retry.addEventListener('click', function () {
       if (!cur) return;
-      renderLoading();
+      if (cur.data && cur.data.draft) {
+        box.remove();
+        sectionsToCome(cur.data.in_library);
+        cur.failed = false;
+        waitOnDownload();
+      } else renderLoading();
       titleEl.focus({ preventScroll: true });
       load(cur);
     });
@@ -982,7 +1218,7 @@
     shut.addEventListener('click', requestClose);
     row.appendChild(shut);
     box.appendChild(row);
-    body.appendChild(box);
+    return box;
   }
 
   function kindLabel(d) { return d.kind === 'movie' ? 'Movie' : 'TV series'; }
@@ -1055,6 +1291,7 @@
   /* Wide pictures to try in turn. For a title in the library the first is the
      banner's own, so opening the banner's title does not change its picture. */
   function widePictures(d) {
+    if (cur.noWide) return [];
     return [d.in_library && ownPicture(d.library_ref), safePath(d.backdrop_url)].filter(Boolean);
   }
 
@@ -1088,6 +1325,11 @@
     var last = safePath(d.poster_url);
     var wanted = wide.concat(last || '').join(' ');
     if (wanted === pictures) return;
+    // The one on show is still the first of them.
+    if (!trying && !art.hidden && art.getAttribute('src') === wide[0]) {
+      pictures = wanted;
+      return;
+    }
     clearPictures();
     pictures = wanted;
     trying = true;
@@ -1119,14 +1361,15 @@
     var left = 2;
     function done() { if (!--left) pictureSettled(); }
     [fill, poster].forEach(function (img) {
-      img.onload = function () { img.classList.add('is-loaded'); done(); };
+      img.onload = function () { img.onload = null; img.classList.add('is-loaded'); done(); };
       img.onerror = function () { hide(img, true); done(); };
       hide(img, false);
       img.setAttribute('src', src);
+      if (img.complete && img.naturalWidth && img.onload) img.onload(); // its card's: it has been here
     });
   }
 
-  function renderHead(d, fresh) {
+  function renderHead(d, fresh, old) {
     kindEl.textContent = kindLabel(d);
     var name = d.title || cur.title;
     titleEl.textContent = name;
@@ -1141,12 +1384,12 @@
       metaEl.appendChild(cert);
     }
     showPictures(d);
-    if (fresh) [kindEl, metaEl, taglineEl].forEach(core.fadeIn);
+    if (fresh && !old) [kindEl, metaEl, taglineEl].forEach(core.fadeIn);
   }
 
   /* Re-render the content, keeping focus on the same control when it is
-     drawn again (or on the first action when it is gone). */
-  function renderContent(fresh) {
+     drawn again (or on the first action when it is gone). *old*: what a draft of it showed. */
+  function renderContent(fresh, old) {
     var d = cur.data;
     closeOtherKeep();
     var key = focusKey();
@@ -1155,7 +1398,7 @@
     var line = body.querySelector('.watch-seasons');
     var lineAt = line ? line.scrollLeft : null;
     root.removeAttribute('aria-busy');
-    renderHead(d, fresh);
+    renderHead(d, fresh, old);
     emptyBody();
     var lead = el('div', 'ttl__lead');
     var main = el('div', 'ttl__main');
@@ -1173,7 +1416,9 @@
     if (ratings) main.appendChild(ratings);
     askRatings(cur);
     if (cur.pickRef) main.appendChild(pickBox(cur.pick));
-    if (d.overview) main.appendChild(el('p', 'ttl__overview', d.overview));
+    var words = cur.said || d.overview;
+    if (words) main.appendChild(el('p', 'ttl__overview', words));
+    if (d.draft && d.kind === 'movie') main.appendChild(el('p', 'ttl__credit')).appendChild(skel('skel--line', '200px'));
     if (d.director && d.kind === 'movie') {
       var credit = el('p', 'ttl__credit');
       credit.appendChild(el('span', 'ttl__credit-label', 'Director'));
@@ -1181,11 +1426,21 @@
       main.appendChild(credit);
     }
     body.appendChild(lead);
+    if (d.draft) {
+      if (hasFacts(cur)) renderFacts(false);
+      sectionsToCome(d.in_library);
+      return;
+    }
     if (!d.in_library) placeSeasons();
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
     else cur.seasonLoading = null;
     if (d.in_library) placeSeasons();
-    if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind, d.in_collection);
+    if (window.MMWatch.collection && drawn) {
+      var films = d.kind === 'movie' && window.MMWatch.collection.skeleton(cur.ref, d.in_collection);
+      var slot = body.appendChild(films || el('div'));
+      slot.setAttribute('data-ttl-part', 'films');
+      slot.hidden = !films;
+    } else if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind, d.in_collection);
     if (d.cast && d.cast.length) body.appendChild(cast.section(d.cast));
     if (hasFacts(cur)) renderFacts(false);
     startSeasonLine(lineAt);
@@ -1193,11 +1448,12 @@
     if (season) fitTexts(season);
     if (fresh) {
       if (season) season.classList.add('is-arriving');
-      toArray(main.children).concat(toArray(body.children).slice(1)).forEach(function (n) {
+      (old ? [] : toArray(main.children)).concat(toArray(body.children).slice(1)).forEach(function (n) {
         n.classList.add('is-swapping-in');
       });
+      if (old) goOn(old);
     }
-    if (season) askWords(cur);
+    if (season && !drawn) askWords(cur);
     scheduleSeasons();
     restoreFocus(keepComes && byAct('keep') ? 'keep' : key);
   }
@@ -1305,7 +1561,7 @@
   /* Ratings that take their time are asked for once the title is on show. */
   function askRatings(c) {
     var w = c.ratings;
-    if (!w || w.asked) return;
+    if (!w || w.asked || w.came || drawn || c.data.draft) return;
     var asked = w.asked = new AbortController();
     function take(ratings) {
       if (w.asked !== asked || c !== cur || !isOpen) return;
@@ -1601,7 +1857,7 @@
     if (!cur.picks || cur.picksFor !== whole) {
       cur.picks = {};
       cur.picksFor = whole;
-      if (whole) allSeasons(d).forEach(function (s) { if (canPick(d, s) && !ahead(s)) cur.picks[s.number] = true; });
+      if (whole) allSeasons(d).forEach(function (s) { if (canPick(d, s) && !toCome(s)) cur.picks[s.number] = true; });
     }
     return cur.picks;
   }
@@ -1706,6 +1962,11 @@
     dl.addEventListener('click', submitDownload);
     actions.appendChild(dl);
     if (!k.busy) labelDownload(dl, d);
+    if (d.draft && seasonPickable(d)) {
+      // Which seasons are out is the page's to say.
+      dl.setAttribute('aria-disabled', 'true');
+      if (!cur.failed) dl.setAttribute('aria-busy', 'true');
+    }
     if (k.error) {
       var err = el('p', 'ttl__error');
       err.setAttribute('role', 'alert');
@@ -1717,6 +1978,14 @@
       err.appendChild(again);
       under.appendChild(err);
     }
+  }
+
+  /* A drawn page's Download whose seasons are not known yet waits for them, or for a try again. */
+  function waitOnDownload() {
+    var dl = byAct('primary');
+    if (!dl || !cur.data.draft || !seasonPickable(cur.data)) return;
+    if (cur.failed) dl.removeAttribute('aria-busy');
+    else dl.setAttribute('aria-busy', 'true');
   }
 
   function labelDownload(dl, d) {
@@ -1750,7 +2019,7 @@
   function airs(s) { return new Date(/^\d{4}-\d{2}-\d{2}$/.test(s.air_date || '') ? s.air_date + 'T12:00:00Z' : NaN); }
 
   /* Whether a season is still to come out; without its status, as TMDB has it. */
-  function ahead(s) {
+  function toCome(s) {
     if (s.status) return s.status === 'not_out';
     var at = airs(s).getTime();
     return isNaN(at) ? s.episode_count === 0 : at > Date.now();
@@ -1780,7 +2049,7 @@
     }
     if (no) return { name: 'none', icon: 'i-lock', text: no };
     if (d.seasons_pending && !s.status) return { name: 'none', icon: 'i-check', text: 'Checking…' };
-    if (!s.status && ahead(s)) return { name: 'none', icon: 'i-check', text: outOn(s) };
+    if (!s.status && toCome(s)) return { name: 'none', icon: 'i-check', text: outOn(s) };
     return { name: 'none', icon: 'i-check', text: count || (s.status || canPick(d, s) ? '' : 'Not here') };
   }
 
@@ -1975,7 +2244,7 @@
     var parts = [];
     function part(n, after) { if (n) parts.push([plural(n, 'season', 'seasons'), after]); }
     var picked = allSeasons(d).filter(function (s) { return pickedSeasons(d).indexOf(s.number) >= 0; });
-    var later = picked.filter(ahead).length;
+    var later = picked.filter(toCome).length;
     var when = later === 1 ? ' when it is out' : ' when they are out';
     part(picked.length - later, ' will be downloaded');
     if (later && later < picked.length) parts.push([later + ' more', when]);
@@ -2357,6 +2626,7 @@
     var c = cur;
     var d = c && c.data;
     if (!d || !d.download || !d.download.request) return;
+    if (d.draft && seasonPickable(d)) return; // which of them are out is not known yet
     var k = stateOf(c.ref);
     if (k.busy || k.state) return;
     var req = d.download.request;
@@ -2589,6 +2859,7 @@
     MM.api.get(url).then(function (r) {
       var k = stateOf(ref);
       var was = k.state + ':' + k.pct;
+      var sizes = k.sizeDone + k.sizeTotal + k.eta;
       // 'unknown' is an Arr that did not answer: no news, so nothing changes.
       if (r.state === 'ready') {
         k.state = 'in_library';
@@ -2614,7 +2885,7 @@
         } else {
           redrawActions(ref);
         }
-      }
+      } else if (k.sizeDone + k.sizeTotal + k.eta !== sizes) redrawActions(ref);
       if (c !== cur || c.ref !== ref) return;
       if (r.state === 'searching') recheck(c);
       schedulePoll(r.state === 'unknown' ? POLL_SLOW_MS : nextPoll());
@@ -2687,6 +2958,7 @@
   function openTrailer() {
     var key = cur && trailerKey(cur.data);
     if (!key || trailerOn()) return;
+    dropPicture();
     player.textContent = '';
     var frame = el('iframe', 'ttl__frame');
     frame.setAttribute('src', TRAILER_ORIGIN + '/embed/' + key + '?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=' +
@@ -3400,7 +3672,7 @@
     if (foot) aside.appendChild(foot);
     if (old) old.replaceWith(aside); else lead.appendChild(aside);
     root.classList.add('ttl--admin');
-    if (fresh) aside.classList.add('is-swapping-in');
+    if (fresh) (old ? toArray(aside.querySelectorAll('dd, .ttl-facts__foot')) : [aside]).forEach(function (n) { n.classList.add('is-swapping-in'); });
     if (key === 'facts-retry' && !cur.factsError) key = 'admin-keep';
     restoreFocus(key);
     handOnDialogs();
@@ -3746,6 +4018,10 @@
       opts = opts || {};
       open(ref, { origin: opts.origin, title: opts.title, kind: opts.kind, pick: opts.pick, push: true });
     },
-    close: requestClose
+    close: requestClose,
+    ahead: askAhead,
+    draw: draw,
+    openDrawn: openDrawn,
+    undraw: undraw
   };
 })();

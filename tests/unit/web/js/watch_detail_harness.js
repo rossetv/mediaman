@@ -140,6 +140,7 @@ function load(opts = {}) {
   const toasts = [];
   const timers = [];
   const gets = [];
+  const aheads = [];
   const posts = [];
   const answers = []; // to the ratings sent, not answered yet
   const events = [];
@@ -229,6 +230,9 @@ function load(opts = {}) {
     MM: { api: {
       APIError,
       get: (url, o) => {
+        // Asked ahead or not, a title is the same title.
+        if (/\?ahead=1$/.test(url)) aheads.push(url);
+        url = url.replace(/\?ahead=1$/, '');
         gets.push(url);
         const r = routes[url];
         if (r instanceof Error) return Promise.reject(r);
@@ -290,7 +294,7 @@ function load(opts = {}) {
   const fireWindow = (type) => (winListeners[type] || []).slice().forEach((fn) => fn({}));
   const popstate = () => (winListeners.popstate || []).forEach((fn) => fn({}));
   const message = (e) => (winListeners.message || []).forEach((fn) => fn(e));
-  return { answers, message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
+  return { answers, message, ctx, doc, toasts, timers, gets, aheads, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
 }
 
 function primary(p) {
@@ -323,7 +327,196 @@ function chipsOf(p) {
   return p.ttl().querySelectorAll('.season-chip').map((c) => [c.getAttribute('data-season'), c.querySelector('.season-chip__sub').textContent, c.getAttribute('aria-disabled') !== 'true']);
 }
 
+/* What a preview says of *data*. */
+function previewOf(data, over) {
+  const keys = ['ref', 'kind', 'in_library', 'library_ref', 'title', 'year', 'runtime_min', 'season_count', 'genres', 'certificate', 'tagline', 'overview',
+    'backdrop_url', 'ratings', 'trailer_key', 'reason', 'play', 'leaving', 'leaving_seasons', 'keep_allowed', 'download'];
+  return Object.assign(Object.fromEntries(keys.map((k) => [k, data[k]])), { seasons: [] }, over);
+}
+
+/* A film on the way from its card: the page, its card's link, and what it has been drawn with. */
+function carried(opts = {}) {
+  const data = opts.data || LIB_MOVIE;
+  const p = load({ films: ['120'], clock: true, ...opts, routes: { ['/api/watch/title/' + data.ref]: data, ...opts.routes } });
+  p.run();
+  p.detail = p.ctx.MMWatch.detail;
+  p.link = p.doc.querySelector('[data-title-ref="' + data.ref + '"]');
+  p.draw = () => p.detail.draw(data.ref, { origin: p.link, title: data.title, kind: data.kind, preview: previewOf(data, opts.preview), poster: null, watched: false });
+  p.look = () => ({ hidden: p.ttl().hidden, locked: p.doc.documentElement.classList.contains('has-ttl'), hash: p.loc.hash, pushes: p.history.length,
+    focus: p.doc.activeElement === p.q('#ttl-title'), inert: p.doc.getElementById('watch-search').inert, title: p.text('#ttl-title'), words: p.text('.ttl__overview') });
+  return p;
+}
+
 const scenarios = {
+  // Drawn at the first of a scroll, taken back, drawn again and opened, then closed.
+  async drawnThenOpened() {
+    const p = carried();
+    p.draw();
+    const drawn = p.look();
+    p.detail.undraw();
+    const back = { ...p.look(), empty: p.q('[data-ttl-part="body"]').children.length };
+    p.key('Escape');
+    const untouched = p.history.length;
+    p.draw();
+    p.detail.openDrawn();
+    await settle();
+    const open = { ...p.look(), busy: p.ttl().getAttribute('aria-busy') };
+    const gets = p.gets.filter((u) => /title\/movie-120$/.test(u)).length;
+    p.key('Escape');
+    return { drawn, back, untouched, open, gets, closed: [p.ttl().classList.contains('is-leaving'), p.doc.activeElement === p.link] };
+  },
+
+  // Its whole page has come before it is drawn: it is drawn with it, and asks for the rest once open.
+  async drawnInFull() {
+    const full = Object.assign({}, LIB_MOVIE, { ratings_pending: true });
+    const p = carried({ data: full });
+    p.detail.ahead('movie-120');
+    await settle();
+    p.draw();
+    const drawn = { director: p.text('.ttl__credit'), cast: p.ttl().querySelectorAll('.ttl-cast__item').length, gets: p.gets.length };
+    const face = p.q('.ttl-cast__item');
+    p.detail.openDrawn();
+    await settle();
+    return { drawn, kept: p.q('.ttl-cast__item') === face, gets: p.gets };
+  },
+
+  // The page has other words than the preview it was read by, and a longer wait: they stay as they were.
+  async wordsGoOn() {
+    const late = {};
+    const data = Object.assign({}, LIB_MOVIE, { overview: 'What Plex says.' });
+    const p = carried({ data, preview: { overview: 'What was read.' }, routes: { '/api/watch/title/movie-120': () => new Promise((r) => { late.come = () => r(data); }) } });
+    p.draw();
+    p.detail.openDrawn();
+    await settle();
+    const before = { words: p.text('.ttl__overview'), play: primary(p).text, skels: p.ttl().querySelectorAll('.ttl__credit .skel').length, busy: p.ttl().getAttribute('aria-busy') };
+    late.come();
+    await settle();
+    const after = { words: p.text('.ttl__overview'), director: p.text('.ttl__credit'), busy: p.ttl().getAttribute('aria-busy'),
+      faded: p.ttl().querySelectorAll('.ttl__main .fade-in').map((n) => n.className.split(' ')[0]), swapped: p.q('.ttl__overview').classList.contains('is-swapping-in') };
+    return { before, after };
+  },
+
+  // The title's page cannot be had: what its preview said stays, and a second try brings the rest.
+  async drawnThenFailed() {
+    let down = true;
+    const p = carried({ routes: { '/api/watch/title/movie-120': () => (down ? Promise.reject(new APIError(502, 'x')) : Promise.resolve(LIB_MOVIE)) } });
+    p.draw();
+    p.detail.openDrawn();
+    await settle();
+    const failed = { line: p.text('.ttl__failed-line'), words: p.text('.ttl__overview'), play: primary(p).text, skels: p.q('.ttl__main').querySelectorAll('.skel').length };
+    down = false;
+    click(p.doc, p.q('.ttl__failed-actions').children[0]);
+    await settle();
+    return { failed, then: { line: p.text('.ttl__failed-line'), director: p.text('.ttl__credit') } };
+  },
+
+  // Marked, kept or queued elsewhere while it is drawn from what was asked ahead: it opens as the server says now.
+  // Its own download state, told to the page as it is drawn, asks nothing again.
+  async changedWhileDrawn() {
+    const out = {};
+    for (const name of ['mm:watch-marked', 'mm:watch-kept', 'mm:title-changed']) {
+      let watched = false;
+      const p = carried({ routes: { '/api/watch/title/movie-120': () => Promise.resolve(Object.assign({}, LIB_MOVIE, { mark_kind: 'movie', mark_key: '120', watched })) } });
+      p.detail.ahead('movie-120');
+      await settle();
+      p.draw();
+      watched = true;
+      p.doc.dispatchEvent({ type: name, detail: { ref: 'movie-120', download_state: 'queued' } });
+      p.detail.openDrawn();
+      await settle();
+      out[name] = p.q('[data-ttl-act="mark"]').getAttribute('aria-pressed');
+    }
+    const p = carried({ data: Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'downloading', pct: 40 }) }) });
+    p.detail.ahead('tmdb-movie-77');
+    await settle();
+    p.draw();
+    p.detail.openDrawn();
+    await settle();
+    out.own = p.gets.filter((u) => /title\/tmdb-movie-77$/.test(u)).length;
+    return out;
+  },
+
+  // What was asked for ahead is refused (its own limit) after the title has been opened on it: the title
+  // is asked for again, plainly, and opens, with no failure shown meanwhile.
+  async aheadRefusedOnOpen() {
+    const waits = [];
+    const p = carried({ routes: { '/api/watch/title/movie-120': () => new Promise((resolve, reject) => { waits.push({ resolve, reject }); }) } });
+    p.detail.ahead('movie-120');
+    p.detail.open('movie-120', {});
+    await settle();
+    waits[0].reject(new APIError(429, 'too_many_requests'));
+    await settle();
+    const meanwhile = { asked: waits.length, failed: !!p.q('.ttl__failed') };
+    if (waits[1]) waits[1].resolve(LIB_MOVIE);
+    await settle();
+    return { meanwhile, director: p.text('.ttl__credit'), failed: !!p.q('.ttl__failed') };
+  },
+
+  // Only what a preview asks for on the chance it is opened says so to the server, which limits it apart.
+  async aheadMarked() {
+    const p = carried();
+    p.detail.ahead('movie-120');
+    const hovered = p.aheads.slice();
+    p.clock.now += 61000;
+    p.draw();
+    p.detail.undraw();
+    await settle();
+    return { hovered, drawn: p.aheads.length };
+  },
+
+  // A show whose seasons are picked, drawn from its preview: Download waits for the page, through a failed try.
+  async drawnDownloadWaits() {
+    let down = true;
+    const late = {};
+    const p = carried({ data: TV_DL, preview: { seasons: TV_DL.seasons }, routes: { '/api/watch/title/tmdb-tv-90': () => (down ? Promise.reject(new APIError(502, 'x')) : new Promise((r) => { late.come = () => r(TV_DL); })) } });
+    const look = () => { const b = p.q('[data-ttl-act="primary"]'); return [b.getAttribute('aria-disabled'), b.getAttribute('aria-busy')]; };
+    const press = () => { click(p.doc, p.q('[data-ttl-act="primary"]')); return p.posts.length; };
+    p.draw();
+    const drawn = look();
+    p.detail.openDrawn();
+    await settle();
+    const failed = [...look(), press()];
+    down = false;
+    click(p.doc, p.q('.ttl__failed-actions').children[0]);
+    await settle();
+    const again = look();
+    late.come();
+    await settle();
+    return { drawn, failed, again, came: [...look(), press()] };
+  },
+
+  // What is asked for before it is opened: once, one at a time, few a minute, and not once it has gone stale.
+  async askedAhead() {
+    const never = {};
+    const routes = {};
+    for (let i = 1; i <= 30; i++) routes['/api/watch/title/movie-' + i] = Object.assign({}, LIB_MOVIE, { ref: 'movie-' + i, library_ref: 'movie-' + i });
+    routes['/api/watch/title/movie-900'] = () => new Promise(() => {});
+    const p = carried({ routes });
+    const asked = () => p.gets.filter((u) => /^\/api\/watch\/title\/movie-\d+$/.test(u)).map((u) => u.split('-')[1]);
+    p.detail.ahead('movie-900');
+    p.detail.ahead('movie-1');
+    const oneAtATime = asked();
+    p.clock.now += 61000;
+    p.gets.length = 0;
+    p.detail.ahead('movie-1');
+    await settle();
+    p.detail.ahead('movie-1');
+    p.detail.open('movie-1', {});
+    await settle();
+    const once = asked();
+    p.gets.length = 0;
+    p.clock.now += 61000;
+    for (let i = 2; i <= 30; i++) { p.detail.ahead('movie-' + i); await settle(); }
+    const most = asked().length;
+    p.gets.length = 0;
+    p.clock.now += 61000;
+    p.detail.ahead('movie-2');
+    await settle();
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-2', refs: ['movie-2'] } });
+    p.detail.ahead('movie-2');
+    return { oneAtATime, once, most, changed: asked() };
+  },
+
   // Another part of the page queued the film on show.
   async queuedElsewhere() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
@@ -936,6 +1129,20 @@ const scenarios = {
     p.run();
     await openCard(p, 'show-300');
     return p.ttl().querySelectorAll('.ttl__failed button').map((b) => b.textContent.trim());
+  },
+
+  // Opened while it downloads, its status says no other share than the title did: the sizes and time left still come.
+  async downloadingSizes() {
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'downloading', pct: 42 }) }),
+      '/api/download/status?service=radarr&tmdb_id=77': { state: 'downloading', progress: 42, size_done: '3.1 GB', size_total: '7.4 GB', eta: '~6 min remaining' },
+    } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const before = p.text('.dl-progress__line');
+    p.tick();
+    await settle();
+    return [before, p.text('.dl-progress__line'), p.events.length];
   },
 
   async downloadMovie() {

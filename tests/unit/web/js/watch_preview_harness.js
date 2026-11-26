@@ -1,4 +1,4 @@
-// Runs watch/core.js, keep.js, ratings.js, card-tools.js, marks.js and preview.js against the fake DOM and a fake clock, and prints one
+// Runs watch/core.js, keep.js, ratings.js, card-tools.js, marks.js, carry.js and preview.js against the fake DOM and a fake clock, and prints one
 // scenario's outcome as JSON. Usage: node watch_preview_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -64,11 +64,17 @@ const CARDS = [
   card('going', 'The Long Coast', { href: '/watch/play/22?resume=1', dismiss: 'show-2', mark: 'episode/22', pct: 40, sub: 'S2 · E4 · 23 min left' }),
 ];
 
-/* A page at rest. *opts*: api (ref to its answer: data, a status or nothing yet), reduced, coarse, saveData. */
+/* A page at rest. *opts*: api (ref to its answer: data, a status or nothing yet), reduced, forced, coarse, saveData.
+   The title's page is a stand-in, and so is the drawing of what is on its way to it. */
 function load(opts = {}) {
   const doc = makeDocument();
   doc.createElement = ((make) => (tag) => { const n = make(tag); n.style.setProperty = (name, value) => { n.style[name] = value; }; return n; })(doc.createElement);
   doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }, ['div', { id: 'watch-keep-menu', class: 'watch-keep-menu', hidden: '' }, ['button', { class: 'watch-keep-menu__item', 'data-days': '30' }, 'Keep 30 days']], ['input', { id: 'watch-search' }], ['div', { id: 'watch-browse' }, ['div', { class: 'watch-row__scroll' }, ...CARDS]]]));
+  const ttl = doc.body.appendChild(build(doc, ['div', { id: 'ttl', hidden: '' }, ['div', { class: 'ttl__hero' }, ['img', { class: 'ttl__art' }]]]));
+  ttl.style.removeProperty = (name) => { delete ttl.style[name]; };
+  ttl.scrollTop = 0;
+  ttl.scrollHeight = 5000;
+  ttl.clientHeight = 800;
   // A listener of the capture phase is kept apart: it has the event first.
   doc.addEventListener = ((on) => (type, fn, how) => on(how === true ? type + ' capture' : type, fn))(doc.addEventListener);
   doc.documentElement.clientWidth = 1280;
@@ -91,6 +97,8 @@ function load(opts = {}) {
   const toasts = [];
   const details = [];
   const origins = [];
+  const steps = []; // what is asked of the title's page
+  const places = []; // where what is on its way to it is drawn
   const answers = { 'movie-1': FILM, 'movie-2': { ...FILM, ref: 'movie-2', library_ref: 'movie-2', title: 'Orbit' }, 'movie-3': FILM, 'tmdb-movie-9': OUTSIDE, ...opts.api };
   const store = { ...opts.store };
   const api = {
@@ -123,10 +131,11 @@ function load(opts = {}) {
     clearTimeout: drop,
     setInterval: (fn, ms) => at(ms, fn, ms),
     clearInterval: drop,
-    requestAnimationFrame: (fn) => at(16, fn),
+    requestAnimationFrame: (fn) => at(16, () => fn(clock)),
+    cancelAnimationFrame: drop,
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0' }),
-    matchMedia: (q) => ({ matches: /reduced-motion/.test(q) ? !!opts.reduced : !opts.coarse }),
+    matchMedia: (q) => ({ matches: /reduced-motion/.test(q) ? !!opts.reduced : /forced-colors/.test(q) ? !!opts.forced : !opts.coarse }),
     navigator: { connection: { saveData: !!opts.saveData } },
     localStorage: { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; }, removeItem: (k) => { delete store[k]; } },
     innerWidth: 1280, innerHeight: 820, scrollY: 0,
@@ -139,13 +148,24 @@ function load(opts = {}) {
   ctx.window = ctx;
   vm.createContext(ctx);
   if (opts.tvs) ctx.MM.playOn = { button(href, className) { const b = doc.createElement('button'); b.className = className; b.setAttribute('data-play-on', href); return b; } };
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/card-tools.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/preview.js'].forEach((f) => {
+  ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/card-tools.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/carry.js', 'watch/preview.js'].forEach((f) => {
     vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
-    if (f === 'watch/core.js') ctx.MMWatch.detail = { open: (ref, o) => { details.push(ref); origins.push(o); doc.documentElement.classList.add('has-ttl'); } };
+    if (f === 'watch/core.js') {
+      const html = doc.documentElement.classList;
+      ctx.MMWatch.detail = {
+        open: (ref, o) => { details.push(ref); origins.push(o); html.add('has-ttl'); },
+        ahead: (ref) => { steps.push('ahead ' + ref); },
+        draw: (ref, o) => { steps.push('draw ' + ref); origins.push(o); html.add('has-ttl'); return true; },
+        openDrawn: () => { steps.push('open'); },
+        undraw: () => { steps.push('undraw'); html.remove('has-ttl'); },
+      };
+    }
+    // A busy page gives its first frame on the way late.
+    if (f === 'watch/carry.js') ctx.MMWatch.carry.stage = () => ({ draw: (place) => { if (!places.length) clock += opts.busy || 0; places.push(place); }, end: () => steps.push('end'), heroFoot: 500 });
   });
 
   const h = {
-    doc, ctx, gets, aborted, posts, rates, waiting, toasts, details, origins, store, fire, answers,
+    doc, ctx, ttl, steps, places, gets, aborted, posts, rates, waiting, toasts, details, origins, store, fire, answers,
     winFire: (type, e) => (winListeners[type] || []).forEach((fn) => fn(e || {})),
     /* Press *key*, from the document down to *target* and back up to the window. */
     key(key, target, over) {
@@ -167,7 +187,7 @@ function load(opts = {}) {
         due.fn();
         await settle();
       }
-      clock = end;
+      clock = Math.max(clock, end);
     },
     link: (id) => doc.querySelector('#' + id + ' .watch-card__link'),
     x: 0,
@@ -180,6 +200,16 @@ function load(opts = {}) {
     watchers: () => watchers.size,
     timers: () => timers.length,
     away() { h.over(doc.body); },
+    /* One wheel event over *target* (the preview), heard where it would be. Says whether the browser was kept from it. */
+    wheel(dy, over = {}) {
+      const target = over.target || h.pv();
+      const e = { type: 'wheel', target, deltaX: 0, deltaY: dy, deltaMode: 0, timeStamp: clock, cancelable: true, prevented: false, preventDefault() { e.prevented = true; }, ...over };
+      (winListeners.wheel || []).forEach((fn) => fn(e));
+      for (let a = target; a; a = a.parentNode) (a.listeners.wheel || []).slice().forEach((fn) => fn(e));
+      return e.prevented;
+    },
+    /* Events 12 ms apart, as a finger makes them. */
+    async scroll(dys, over) { const out = []; for (const dy of dys) { out.push(h.wheel(dy, over)); await h.pass(12); } return out; },
     pv: () => doc.querySelectorAll('.pv').filter((n) => n.classList.contains('is-open') && !n.classList.contains('is-fading') && !n.classList.contains('is-handed'))[0],
     title: () => { const n = h.pv(); return n ? n.querySelector('.pv__title').textContent : null; },
     text: (sel) => { const n = h.pv() && h.pv().querySelector(sel); return n ? n.textContent : null; },
@@ -1339,6 +1369,314 @@ const scenarios = {
     const latest = h.gets.length - asked;
     await visit(0);
     return { asked, latest, first: h.gets.length - asked - latest };
+  },
+  /* A short push over the preview, let go of; then one that goes on. */
+  async scrolledOpen() {
+    const h = load();
+    await h.rest('film', 1100);
+    const kept = await h.scroll([8, 8, 8, 8]);
+    const near = h.places[h.places.length - 1];
+    const far = h.title();
+    await h.pass(900);
+    const back = { steps: h.steps.splice(0), kept: kept.every(Boolean), followed: near > 0 && near < 0.1, under: far, open: h.title(), hint: !!h.pv().querySelector('.pv__hint'), still: h.places[h.places.length - 1] };
+    await h.scroll([30, 30, 30, 30, 30]);
+    const asked = h.steps.slice();
+    await h.pass(700);
+    h.away();
+    h.doc.documentElement.classList.remove('has-ttl');
+    await h.pass(1500);
+    await h.rest('other', 1100);
+    return { back, early: asked, steps: h.steps, live: h.title(), hint: !!h.pv().querySelector('.pv__hint') };
+  },
+  /* How many px open it by itself: let go of, and with the hand still on its way. */
+  async scrollOpens() {
+    const out = {};
+    for (const px of [139, 140]) {
+      const h = load();
+      await h.rest('film', 1100);
+      h.wheel(px - 100);
+      await h.pass(12);
+      h.wheel(100);
+      await h.pass(1500);
+      out[px] = h.steps.includes('open');
+    }
+    const h = load();
+    await h.rest('film', 1100);
+    await h.scroll([70, 70]);
+    for (let i = 0; i < 7; i++) { h.wheel(1); await h.pass(100); }
+    return { ...out, byItself: h.steps.includes('open') };
+  },
+  /* What says a scroll over it is not its own: each is let through, and draws nothing. */
+  async pagesScroll() {
+    const out = {};
+    const at = async (name, before, over, wait = 1100) => {
+      const h = load({ ratings: true });
+      await h.rest('film', wait);
+      if (before) await before(h);
+      const kept = await h.scroll([20, 20, 20], over);
+      out[name] = [kept.some(Boolean), h.steps.some((s) => /draw/.test(s))];
+    };
+    await at('up', null, { deltaY: -20 });
+    await at('tooSoon', null, {}, 750);
+    await at('zooming', null, { ctrlKey: true });
+    await at('menuOpen', (h) => h.pv().querySelector('[data-preview-more]').setAttribute('aria-expanded', 'true'));
+    await at('levelsOpen', pressRate);
+    await at('under way', async (h) => { for (let i = 0; i < 12; i++) { h.wheel(10, { target: h.doc.body }); await h.pass(100); } });
+    const h = load();
+    await h.rest('film', 1100);
+    out.beside = [h.wheel(40, { target: h.doc.body }), h.steps.some((s) => /draw/.test(s))];
+    return out;
+  },
+  /* More sideways than down: the row goes with it, with no snapping to pull it back, and the preview goes. */
+  async scrolledSideways() {
+    const h = load();
+    const row = h.doc.querySelector('.watch-row__scroll');
+    Object.assign(row, { scrollLeft: 100, scrollWidth: 5000, clientWidth: 1000 });
+    await h.rest('film', 1100);
+    const kept = [];
+    const snaps = [];
+    for (let i = 0; i < 5; i++) {
+      kept.push(h.wheel(1, { deltaX: 3 }));
+      snaps.push(row.style.scrollSnapType);
+      await h.pass(100);
+    }
+    const left = row.scrollLeft;
+    const drawn = h.steps.some((s) => /draw/.test(s));
+    h.fire(h.doc, 'scroll', { target: row });
+    const open = h.title();
+    // Gone, the row has the rest of the scroll itself, which is not snapped before its end.
+    for (let i = 0; i < 4; i++) {
+      h.wheel(1, { deltaX: 3, target: row });
+      snaps.push(row.style.scrollSnapType);
+      await h.pass(100);
+      snaps.push(row.style.scrollSnapType);
+    }
+    await h.pass(400);
+    return { left, kept: kept.every(Boolean), snaps: [...new Set(snaps)], after: row.style.scrollSnapType, drawn, open };
+  },
+  /* Quick notches sideways, the first over a preview and the rest over the cards it leaves: a card each,
+     the row's snapping kept. */
+  async notchedSideways() {
+    const out = {};
+    for (const [name, over] of [['px', { deltaX: 100 }], ['lines', { deltaX: 3, deltaMode: 1 }]]) {
+      const h = load();
+      const row = h.doc.querySelector('.watch-row__scroll');
+      const asked = [];
+      Object.assign(row, { scrollLeft: 0, scrollWidth: 5000, clientWidth: 1000, scrollTo: (o) => asked.push([o.left, o.behavior]) });
+      row.children.forEach((n, i) => { n.offsetLeft = 24 + i * 164; });
+      await h.rest('film', 1100);
+      const card = row.children[2];
+      const snaps = [];
+      for (let i = 0; i < 4; i++) {
+        h.wheel(0, { ...over, target: i ? card : h.pv() });
+        snaps.push(row.style.scrollSnapType || '');
+        await h.pass(120);
+      }
+      out[name] = { asked, snaps: [...new Set(snaps)] };
+    }
+    return out;
+  },
+  /* Small steps sideways over a preview, either way: once they stop, the row goes on to the card they were
+     going to, never back. */
+  async smallStepsOn() {
+    const out = {};
+    for (const [way, from, dx] of [['right', 100, 3], ['left', 400, -3]]) {
+      const h = load();
+      const row = h.doc.querySelector('.watch-row__scroll');
+      const asked = [];
+      Object.assign(row, { scrollLeft: from, scrollWidth: 5000, clientWidth: 1000, scrollTo: (o) => { asked.push([o.left, o.behavior]); } });
+      row.children.forEach((n, i) => { n.offsetLeft = 24 + i * 164; });
+      await h.rest('film', 1100);
+      for (let i = 0; i < 5; i++) { h.wheel(0, { deltaX: dx }); await h.pass(12); }
+      await h.pass(1000);
+      out[way] = { left: row.scrollLeft, asked, snap: row.style.scrollSnapType };
+    }
+    return out;
+  },
+  /* Once it is open, what is left of the push, a push that speeds up again, and a fresh one. */
+  async momentum() {
+    const run = async (after) => {
+      const h = load();
+      await h.rest('film', 1100);
+      await h.scroll([40, 40, 40, 40]);
+      for (let d = 40; !h.steps.includes('open'); d *= 0.9) await h.scroll([d], { target: h.ttl });
+      const kept = await after(h);
+      await h.pass(800);
+      return [Math.round(h.ttl.scrollTop), kept.every(Boolean), h.ttl.listeners.wheel.length];
+    };
+    const fall = async (h) => { const dys = []; for (let d = 20; d > 1; d *= 0.87) dys.push(d); return h.scroll(dys, { target: h.ttl }); };
+    return {
+      left: await run(fall),
+      reads: (await run((h) => h.scroll(Array(60).fill(9), { target: h.ttl })))[0] > 100,
+      fresh: await run(async (h) => { await fall(h); await h.pass(500); return h.scroll([30], { target: h.ttl }); }),
+    };
+  },
+  /* A hard flick whose events a busy page hears as one after a pause: what is left of it after the
+     page opens does not scroll it, as notches would. Notches of 53 px do read on. */
+  async flickNotNotches() {
+    const run = async (first, rest, gap) => {
+      const h = load();
+      await h.rest('film', 1100);
+      h.wheel(first);
+      await h.pass(100);
+      for (const dy of rest) {
+        h.wheel(dy, h.steps.includes('open') ? { target: h.ttl } : {});
+        await h.pass(gap);
+      }
+      await h.pass(800);
+      return Math.round(h.ttl.scrollTop);
+    };
+    const tail = []; for (let d = 80; d > 1; d *= 0.93) tail.push(Math.round(d));
+    return { flick: await run(20, tail, 12), notches: (await run(53, [53, 53, 53, 53, 53, 53, 53, 53], 120)) > 0 };
+  },
+  /* Turned back on its way: by the hand, by Escape, and by what ends it at once. */
+  async scrolledBack() {
+    const out = {};
+    const run = async (name, how, wait = 900) => {
+      const h = load();
+      await h.rest('film', 1100);
+      await h.scroll([30, 30, 30, 30]);
+      await how(h);
+      if (wait) await h.pass(wait);
+      out[name] = [h.steps.filter((s) => !/ahead/.test(s)).join(), h.title()];
+    };
+    await run('hand', (h) => h.scroll([-30, -30, -30, -30, -30]));
+    await run('escape', (h) => { out.stopped = h.key('Escape', h.doc.body).stopped; return h.scroll([60, 60, 60]); });
+    await run('back', (h) => h.winFire('popstate'), 0);
+    await run('resize', (h) => h.winFire('resize'), 0);
+    await run('hidden', (h) => { h.doc.hidden = true; h.fire(h.doc, 'visibilitychange'); }, 0);
+    await run('card', (h) => { h.doc.querySelector('#film').remove(); h.changed(); }, 0);
+    // Its own page's scroll and the mouse's leaving do not.
+    await run('scroll', (h) => { h.fire(h.doc, 'scroll', { target: h.ttl }); h.fire(h.doc.documentElement, 'pointerleave'); return h.scroll([30]); });
+    return out;
+  },
+  /* A press on its way takes it there, and presses nothing. */
+  async pressedOnItsWay() {
+    const h = load();
+    await h.rest('film', 1100);
+    await h.scroll([20]);
+    h.doc.listeners['pointerdown capture'].forEach((fn) => fn({ button: 0, target: h.ttl }));
+    const e = { target: h.ttl, detail: 1, prevented: false, stopped: false, preventDefault() { e.prevented = true; }, stopPropagation() { e.stopped = true; } };
+    h.doc.listeners['click capture'].forEach((fn) => fn(e));
+    await h.pass(700);
+    const next = { ...e, prevented: false, preventDefault() { next.prevented = true; }, stopPropagation() {} };
+    h.doc.listeners['click capture'].forEach((fn) => fn(next));
+    return { open: h.steps.includes('open'), swallowed: e.prevented && e.stopped, next: next.prevented };
+  },
+  /* Less motion, and colours of the person's own: it opens as by a press, past the same distance. */
+  async scrolledPlainly() {
+    const out = [];
+    for (const opts of [{ reduced: true }, { forced: true }]) {
+      const h = load(opts);
+      await h.rest('film', 1100);
+      const kept = await h.scroll([45, 45, 45]);
+      const short = h.details.length;
+      await h.scroll([10]);
+      out.push([kept.every(Boolean), short, h.details, h.steps.some((s) => /draw/.test(s))]);
+    }
+    return out;
+  },
+  /* A gentle scroll on a page busy at its first frame: it opens once, and never runs back on the way. */
+  async busyPage() {
+    const h = load({ busy: 600 });
+    await h.rest('film', 1100);
+    h.wheel(20);
+    await h.pass(20);
+    // What the hand did meanwhile is heard a little later.
+    await h.pass(100);
+    await h.scroll([20, 20, 20, 20, 20, 20, 20]);
+    await h.pass(1500);
+    return { steps: h.steps.filter((s) => !/ahead/.test(s)), back: h.places.some((at, i) => at < h.places[i - 1]) };
+  },
+  /* Less motion: a notched wheel opens it, at its first notch, however far apart the notches come. */
+  async plainNotches() {
+    const out = [];
+    for (const [opts, over, gap] of [[{ reduced: true }, {}, 250], [{ forced: true }, {}, 400], [{ reduced: true }, { deltaMode: 1 }, 250]]) {
+      const h = load(opts);
+      await h.rest('film', 1100);
+      const first = h.wheel(over.deltaMode ? 3 : 100, over);
+      const opened = h.details.length;
+      await h.pass(gap);
+      out.push([first, opened]);
+    }
+    return out;
+  },
+  /* Opened plainly, the rest of the scroll that opened it is kept from the page; the next one is not. */
+  async plainRest() {
+    const out = [];
+    for (const opts of [{ reduced: true }, { forced: true }]) {
+      const h = load(opts);
+      await h.rest('film', 1100);
+      await h.scroll([50, 50, 50]);
+      const rest = await h.scroll([40, 30, 20, 10], { target: h.ttl });
+      await h.pass(600);
+      const next = await h.scroll([30], { target: h.ttl });
+      out.push([h.details.length, rest.every(Boolean), next.some(Boolean)]);
+    }
+    return out;
+  },
+  /* The trailer plays on over the page it became, with its sound, until the person goes on. */
+  async trailerGoesOn() {
+    const run = async (how) => {
+      const h = await trailer();
+      h.message({ event: 'onStateChange', info: 1 });
+      h.pv().querySelector('.pv__trailerbtn').click();
+      const frame = h.frame();
+      const at = frame.parentNode;
+      await h.scroll([40, 40, 40, 40]);
+      await h.pass(3000);
+      const on = { same: h.frame() === frame && frame.parentNode === at, film: h.ttl.classList.contains('is-film'), muted: h.said.some((s) => s[0] === 'mute') };
+      how(h);
+      const said = h.said.some((s) => s[0] === 'mute');
+      await h.pass(400);
+      return { on, after: [said, !!h.frame(), h.ttl.classList.contains('is-film')] };
+    };
+    const scrolled = await run((h) => { h.ttl.scrollTop = 20; h.fire(h.ttl, 'scroll'); });
+    return {
+      on: scrolled.on,
+      scrolled: scrolled.after,
+      pressed: (await run((h) => h.fire(h.ttl, 'pointerdown'))).after,
+      keyed: (await run((h) => h.fire(h.ttl, 'click', { detail: 0 }))).after,
+      ended: (await run((h) => h.message({ event: 'onStateChange', info: 0 }))).after,
+      left: (await run((h) => h.ctx.MMWatch.preview.letGo())).after.slice(1),
+    };
+  },
+  /* The page's picture, there before the page opened, comes over the preview's from nothing, a frame on. */
+  async loadedPictureFades() {
+    const h = load();
+    h.ttl.querySelector('.ttl__art').classList.add('is-loaded');
+    await h.rest('film', 1100);
+    for (const dy of [40, 40, 40, 40]) { h.wheel(dy); await h.pass(12); }
+    for (let i = 0; i < 400 && !h.steps.includes('open'); i++) await h.pass(4);
+    const out = [h.steps.includes('open'), h.ttl.classList.contains('is-film'), h.ttl.classList.contains('is-melting')];
+    await h.pass(60);
+    return out.concat(h.ttl.classList.contains('is-melting'));
+  },
+  /* No trailer begins on the way, and one does after it is back. */
+  async noTrailerOnTheWay() {
+    const h = load();
+    await h.rest('film', 1150);
+    for (let i = 0; i < 12; i++) { h.wheel(i % 2 ? -20 : 20); await h.pass(100); }
+    const during = !!h.frame();
+    await h.pass(900);
+    await h.pass(1300);
+    // The reply comes on the way.
+    const late = load({ api: { 'movie-1': undefined } });
+    await late.rest('film', 1150);
+    late.wheel(20);
+    late.waiting['movie-1'](FILM);
+    for (let i = 0; i < 15; i++) { late.wheel(i % 2 ? -20 : 20); await late.pass(100); }
+    return [during, !!h.frame(), !!late.frame()];
+  },
+  /* Whose page is asked for before it is opened: a film's, once its preview stands open. */
+  async askedAhead() {
+    const out = {};
+    const run = async (name, id, opts, wait = 1000) => { const h = load(opts); await h.rest(id, wait); out[name] = h.steps; };
+    await run('film', 'film');
+    await run('passing', 'film', {}, 450);
+    await run('show', 'show', { api: { 'tmdb-tv-7': showOf([season(1, false)]) } });
+    await run('saving', 'film', { saveData: true });
+    return out;
   },
   /* A trailer that keeps changing state takes longer than one that is silent. */
   async trailerBuffers() {

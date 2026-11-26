@@ -72,9 +72,11 @@ _FIELDS = (
     "library_ref",
     "title",
     "year",
+    "year_end",
     "runtime_min",
     "season_count",
     "genres",
+    "genre_refs",
     "certificate",
     "tagline",
     "overview",
@@ -301,6 +303,9 @@ def _show_from_plex(
             overview=out["overview"] or show.summary,
             genres=out["genres"] or ([show.genre] if show.genre else []),
         )
+        # As the title's page says them, from the same seasons.
+        if out["year_end"] is None and out["year"] == show.year_first != show.year_last:
+            out["year_end"] = show.year_last
         if out["play"] is not None:
             return
         episodes: dict[str, list[PlexEpisode]] = {}

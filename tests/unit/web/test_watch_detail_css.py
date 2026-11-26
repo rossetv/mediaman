@@ -251,3 +251,14 @@ def test_keep_has_the_room_beside_a_shows_wider_words_and_a_films_row_stays_as_i
         f'{row}:has(> .watch-btn--keep):has(> [data-mark-toggle^="show/"])',
         f"{row}:has(> .ttl__keep-skel--show)",
     ]
+
+
+def test_a_page_opened_over_a_playing_trailer_never_shows_its_own_picture_first() -> None:
+    film = ".ttl.is-film:not(.is-melting) .ttl__hero > :is(.ttl__art, .ttl__fill)"
+    rules = [body for selectors, body in _rules() if ", ".join(selectors) == film]
+    assert len(rules) == 1
+    assert "opacity: 0" in rules[0] and "transition: none" in rules[0]
+
+
+def test_a_downloads_sizes_line_holds_its_room_until_they_are_known() -> None:
+    assert "min-height: 1lh" in _of(".dl-progress__line")
