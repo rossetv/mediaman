@@ -78,6 +78,22 @@ def test_similar_names_the_librarys_own_title_first(viewer, library, paths, arr)
     assert not any(path == "/search/multi" for path, _ in paths.asked)
 
 
+def test_a_library_show_like_it_says_its_seasons(viewer, library, paths, arr):
+    library.execute("UPDATE media_items SET tmdb_id = 55 WHERE show_rating_key = '500'")
+    library.commit()
+    paths.answers["/movie/11/recommendations", ""] = [
+        {"id": 55, "media_type": "tv", "name": "Glass Coast"},
+        {"id": 12, "title": "Glass Onion"},
+    ]
+
+    items = viewer.get("/api/watch/similar", params={"q": "the glasshouse"}).json()["items"]
+
+    assert [(i["ref"], i["library_ref"], i.get("season_count")) for i in items] == [
+        ("tmdb-tv-55", "show-500", 2),
+        ("tmdb-movie-12", None, None),
+    ]
+
+
 def test_a_library_title_that_only_holds_the_words_gives_way_to_tmdbs_own(
     viewer, library, paths, arr
 ):
@@ -86,6 +102,18 @@ def test_a_library_title_that_only_holds_the_words_gives_way_to_tmdbs_own(
     body = viewer.get("/api/watch/similar", params={"q": "house"}).json()
 
     assert body["title"]["ref"] == "tmdb-movie-9"
+
+
+def test_the_tmdb_title_closest_to_the_words_is_named_tmdbs_order_on_ties(viewer, paths, arr):
+    paths.answers["/search/multi", "mike"] = [
+        {"id": 1, "media_type": "movie", "title": "Magic Mike"},
+        {"id": 2, "media_type": "movie", "title": "Mike"},
+        {"id": 3, "media_type": "tv", "name": "Mike"},
+    ]
+
+    body = viewer.get("/api/watch/similar", params={"q": "mike"}).json()
+
+    assert body["title"]["ref"] == "tmdb-movie-2"
 
 
 def test_a_library_title_forgiven_the_words_is_named_where_tmdb_has_none(

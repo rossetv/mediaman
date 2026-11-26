@@ -285,11 +285,17 @@ def api_watch_similar(
         [[r for r in found if (r.get("media_type"), r.get("id")) != own]],
     )
     marks = card_marks(seen_titles.person_marks(conn, username), client)
+    shown = cards[:_SIMILAR_SHOWN]
+    for card in shown:
+        ref = card["library_ref"]
+        if isinstance(ref, str) and ref.startswith("show-"):
+            show = lib.find_show(conn, libraries, ref.removeprefix("show-"))
+            card["season_count"] = (show.season_count or None) if show else None
     return respond_ok(
         {
             "tmdb_configured": True,
             "title": {k: v for k, v in named.items() if not k.startswith("tmdb_")},
-            "items": [marked(c, marks) for c in cards[:_SIMILAR_SHOWN]],
+            "items": [marked(c, marks) for c in shown],
         }
     )
 
@@ -304,7 +310,7 @@ def _named_title(
     allow: Callable[[], bool],
 ) -> dict[str, Any] | None:
     """The title *term* names, with its TMDB kind and id: the library's that TMDB knows where
-    its name is *term* or starts with it; else the first of TMDB's whose name is close; else
+    its name is *term* or starts with it; else the closest of TMDB's, its first of those as close; else
     the closest of the library's. A library title that only holds the words, or is forgiven
     them, may be another than the one meant ("up" is in "Superbad")."""
     by_ref = {
@@ -338,10 +344,15 @@ def _named_title(
     distance = title_distance(term, own["title"]) if own else None
     if own and distance is not None and distance <= _STARTS_WITH:
         return own
-    for item in _search_forgiving(client, term, allow):
+    close = [
+        (d, item)
+        for item in _search_forgiving(client, term, allow)
+        if item.get("media_type") in ("movie", "tv")
+        and (d := title_distance(term, _named(item))) is not None
+    ]
+    # A stable sort: of titles as close, TMDB's first.
+    for _, item in sorted(close, key=lambda found: found[0]):
         kind, tmdb_id = item.get("media_type"), item.get("id")
-        if kind not in ("movie", "tv") or title_distance(term, _named(item)) is None:
-            continue
         card = catalog.tmdb_card(item, index, _arr(request, conn))
         if card is None:
             continue
