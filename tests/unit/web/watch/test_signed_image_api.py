@@ -159,7 +159,20 @@ def test_every_address_of_a_picture_made_on_a_day_is_the_same(secret_key):
     assert len(urls) == 1
 
 
-def test_a_network_that_asks_too_often_is_refused_before_the_signature_is_read(
+def test_a_page_s_pictures_asked_again_and_again_from_one_network_are_never_refused(
+    app, upstream, secret_key
+):
+    page = [_signed(secret_key, image=f"/face-{n}.jpg", size="w185") for n in range(12)]
+    reader = TestClient(app, client=("203.0.113.5", 1))
+    neighbour = TestClient(app, client=("203.0.113.77", 1))
+
+    answers = {reader.get(url).status_code for _ in range(5) for url in page}
+    answers |= {neighbour.get(url).status_code for _ in range(5) for url in page}
+
+    assert answers == {200}
+
+
+def test_a_network_that_is_refused_too_often_is_turned_away_before_the_signature_is_read(
     app, upstream, secret_key, monkeypatch
 ):
     monkeypatch.setattr(signed_image_api, "_PUBLIC_LIMITER", RateLimiter(2, 60))
@@ -168,8 +181,8 @@ def test_a_network_that_asks_too_often_is_refused_before_the_signature_is_read(
     neighbour = TestClient(app, client=("203.0.113.77", 1))
     elsewhere = TestClient(app, client=("198.51.100.9", 1))
 
-    assert near.get(url).status_code == 200
-    assert near.get("/api/img/tmdb/w500/abc.jpg").status_code == 401
+    assert [near.get(url).status_code for _ in range(3)] == [200, 200, 200]
+    assert [near.get(url.partition("?")[0]).status_code for _ in range(2)] == [401, 401]
     assert neighbour.get(url).status_code == 429
     assert elsewhere.get(url).status_code == 200
 
