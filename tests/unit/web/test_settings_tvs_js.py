@@ -214,3 +214,7 @@ def test_an_admin_unpairs_one_of_the_people_a_tv_is_paired_with() -> None:
     assert out["before"].startswith("Paired with maren and tobias.")
     assert out["after"].startswith("Paired by maren.")
     assert (out["chips"], out["deleted"]) == (0, ["/api/tvs/1/people/tobias"])
+
+
+def test_the_people_of_a_tv_fold_away_when_only_one_is_left() -> None:
+    assert _run("people")["went"] == ["tv-ppl"]

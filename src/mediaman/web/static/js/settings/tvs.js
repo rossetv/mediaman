@@ -282,8 +282,9 @@
             var held = MM.dom.focusStillIn(ul);
             tv.people = tv.people.filter(function (p) { return p !== who; });
             sub.textContent = says(tv);
-            chip.remove();
-            if (tv.people.length < 2) ul.remove();
+            // One person left needs no list of people: it folds away, as a row does.
+            if (tv.people.length < 2) MM.settings.rows.leave(ul);
+            else MM.settings.rows.leave(chip);
             if (held) li.querySelector('.tv-acts .btn--danger').focus({ preventScroll: true });
             window.UIFeedback.success(who + ' is unpaired from ' + tv.name + '.');
           }, function (err) {

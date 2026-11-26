@@ -436,6 +436,8 @@
 }
 .setg-pg .sub-row.is-leaving,
 .setg-pg .tv-li.is-leaving,
+.setg-pg .tv-ppl.is-leaving,
+.setg-pg .tv-ppl li.is-leaving,
 .setg-pg .usr-row.is-leaving {
   overflow: hidden; opacity: 0;
   padding-top: 0; padding-bottom: 0; border-bottom-width: 0;
@@ -446,6 +448,7 @@
 }
 /* The list's 6px gap folds away with the row. */
 .setg-pg .sub-row.is-leaving { margin-top: -6px; }
+.setg-pg .tv-ppl.is-leaving { margin-top: 0; }
 
 @media (max-width: 699.98px) {
   /* Name and email take the first line; the role and actions wrap under them. */
