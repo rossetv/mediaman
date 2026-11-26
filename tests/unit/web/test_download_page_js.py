@@ -226,6 +226,8 @@ def test_the_steps_the_bar_and_the_colour_follow_the_download(run: dict) -> None
 
     assert steps == {
         "searching": ("Searching", False, "Searching"),
+        "queued": ("Queued", False, "Queued"),
+        "searchedAgain": ("Searching", False, "Searching"),
         "downloading": ("Downloading", True, "Downloading"),
         "later": ("Downloading", True, "Downloading"),
         "unanswered": ("Downloading", True, "Downloading"),
