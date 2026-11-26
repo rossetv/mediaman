@@ -981,6 +981,35 @@ const scenarios = {
     };
   },
 
+  // A player that never answers, or says it cannot play, goes back to the artwork and says so; one that answers plays on.
+  async trailerStuck() {
+    const origin = 'https://www.youtube-nocookie.com';
+    const run = async (then) => {
+      const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+      p.run();
+      await openCard(p, 'tmdb-movie-77');
+      click(p.doc, p.q('[data-ttl-act="trailer"]'));
+      const frame = p.q('.ttl__player iframe');
+      let listening = 0;
+      frame.contentWindow = { postMessage: (m) => { if (JSON.parse(m).event === 'listening') listening++; } };
+      const say = (d) => p.message({ origin, source: frame.contentWindow, data: JSON.stringify(d) });
+      const due = (ms) => p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+      (frame.listeners.load || []).forEach((fn) => fn({}));
+      then(p, say);
+      due(250);
+      const asked = listening;
+      due(8000);
+      return { playing: p.ttl().classList.contains('is-trailer'), told: p.toasts.map((t) => t.message),
+        focus: p.doc.activeElement.getAttribute('data-ttl-act'), asked };
+    };
+    return {
+      silent: await run(() => {}),
+      heard: await run((p, say) => say({ event: 'onReady' })),
+      refused: await run((p, say) => say({ event: 'onError', info: 150 })),
+      stopped: await run((p) => p.key('Escape')),
+    };
+  },
+
   async trailerInView() {
     const run = async (still) => {
       const p = load({ still, routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
@@ -1037,6 +1066,10 @@ const scenarios = {
     p.run();
     await openCard(p, 'tmdb-movie-77');
     click(p.doc, p.q('[data-ttl-act="trailer"]'));
+    // Its player answers, as one that plays does.
+    const frame = p.q('.ttl__player iframe');
+    frame.contentWindow = { postMessage: () => {} };
+    p.message({ origin: 'https://www.youtube-nocookie.com', source: frame.contentWindow, data: JSON.stringify({ event: 'onReady' }) });
     status = { state: 'ready' };
     title = Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120', download: null });
     p.tick();

@@ -49,6 +49,9 @@
   var AHEAD_REFUSED_MS = 60000;
   /* How long after a close the next press of a double click can still come. */
   var DOUBLE_CLICK_MS = 600;
+  /* How long a trailer's player has to answer before it is taken to have failed to load. */
+  var TRAILER_STUCK_MS = 8000;
+  var LISTEN_MS = 250;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
 
   var sheet = root.querySelector('.ttl__sheet');
@@ -90,6 +93,7 @@
   var trying = false;  // the hero's picture is not known yet
   var onSettled = null;
   var trailerLeftAt = 0;
+  var trailerStuck = null;
   var heroEase = null; // the hero's height, easing as the trailer comes or goes
   var seq = 0;
   var pollTimer = null;
@@ -2975,8 +2979,13 @@
     frame.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
     frame.setAttribute('referrerpolicy', 'strict-origin');
     frame.setAttribute('allowfullscreen', '');
-    // YouTube's player reports its state only to a page that has asked.
-    frame.addEventListener('load', function () { tellFrame(frame, { event: 'listening' }); });
+    // YouTube's player reports its state only to a page that has asked, and may not be ready to hear it at once.
+    frame.addEventListener('load', function listen() {
+      if (!trailerStuck || !player.contains(frame)) return;
+      tellFrame(frame, { event: 'listening' });
+      setTimeout(listen, LISTEN_MS);
+    });
+    trailerStuck = setTimeout(failTrailer, TRAILER_STUCK_MS);
     player.appendChild(frame);
     player.setAttribute('aria-hidden', 'false');
     easeHero(function () { root.classList.add('is-trailer'); });
@@ -2988,6 +2997,8 @@
   /* Close the trailer and nothing else. *refocus*: move focus from what goes
      with it to the Trailer button, and let the video fade into the artwork. */
   function closeTrailer(refocus) {
+    clearTimeout(trailerStuck);
+    trailerStuck = null;
     if (!trailerOn()) return;
     var active = document.activeElement;
     var lost = !root.contains(active) || player.contains(active) || active === closeBtn || active === titleEl; // out of sight under a trailer
@@ -3017,12 +3028,24 @@
     if (trailerOn()) address.back('trailer');
   }
 
+  function failTrailer() {
+    if (!trailerOn()) return;
+    leaveTrailer();
+    core.toast('Trailer unavailable');
+  }
+
   window.addEventListener('message', function (e) {
     var frame = player.querySelector('iframe');
     if (!frame || e.source !== frame.contentWindow || e.origin !== TRAILER_ORIGIN) return;
+    clearTimeout(trailerStuck);
+    trailerStuck = null;
     var m;
     try { m = JSON.parse(e.data); } catch (err) { return; }
     if (!m) return;
+    if (m.event === 'onError') {
+      failTrailer();
+      return;
+    }
     var state = m.event === 'onStateChange' ? m.info
       : m.event === 'infoDelivery' && m.info ? m.info.playerState : null;
     if (state === 0) leaveTrailer();

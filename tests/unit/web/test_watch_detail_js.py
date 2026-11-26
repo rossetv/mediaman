@@ -1684,3 +1684,13 @@ def test_a_refused_early_ask_stops_asking_ahead_for_a_minute_but_never_holds_bac
 
 def test_a_title_asked_ahead_and_not_found_is_not_asked_again_when_opened() -> None:
     assert _run("aheadNotFoundOnOpen") == {"asked": 1, "failed": True}
+
+
+def test_a_trailer_whose_player_never_answers_or_cannot_play_goes_back_to_the_artwork() -> None:
+    out = _run("trailerStuck")
+    gone = {"playing": False, "told": ["Trailer unavailable"], "focus": "trailer"}
+    # Asked again to report while it has not answered; not once it has.
+    assert out["silent"] == {**gone, "asked": 2}
+    assert out["refused"] == {**gone, "asked": 1}
+    assert out["heard"] == {"playing": True, "told": [], "focus": None, "asked": 1}
+    assert out["stopped"]["told"] == []
