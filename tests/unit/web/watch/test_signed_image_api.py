@@ -184,3 +184,26 @@ def test_the_signature_is_kept_out_of_the_access_log(secret_key):
 
     assert isinstance(record.args, tuple)
     assert record.args[2] == "/api/img/tmdb/w500/abc.jpg?sig=***"
+
+
+@pytest.mark.parametrize("who", ["viewer", "admin", "nobody"])
+def test_through_the_whole_app_anyone_with_the_signed_address_gets_the_picture(
+    conn, upstream, viewer_client, authed_client, secret_key, who
+):
+    from mediaman.config import Config
+    from mediaman.db import set_connection
+    from mediaman.main import create_app
+
+    set_connection(conn)
+    app = create_app()
+    app.state.config = Config(secret_key=secret_key)
+    if who == "viewer":
+        client = viewer_client(app, conn)
+    elif who == "admin":
+        client = authed_client(app, conn)
+    else:
+        client = TestClient(app)
+    url = _signed(secret_key)
+
+    assert client.get(url).content == PNG
+    assert client.get(url.partition("?")[0]).status_code == 401
