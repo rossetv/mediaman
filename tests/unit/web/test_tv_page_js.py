@@ -572,7 +572,9 @@ def test_a_first_press_that_is_not_ok_acts_and_asks_for_full_screen() -> None:
 
 
 @pytest.mark.parametrize("page", ["conn", "restarted"])
-def test_a_page_whose_only_button_is_harmless_goes_full_screen_and_acts_at_the_first_ok(page: str) -> None:
+def test_a_page_whose_only_button_is_harmless_goes_full_screen_and_acts_at_the_first_ok(
+    page: str,
+) -> None:
     out = _run("fullThenAct", page)
     assert out["asks"] == 1
     assert out["then"] != out["said"]
