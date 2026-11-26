@@ -431,6 +431,7 @@
 
   function resetVideo(at) {
     pendingStart = at;
+    lastPlace = null;
     dropAim();
     wantPlaying = true;
     hasPlayed = false;
@@ -483,9 +484,18 @@
     return isFinite(video.duration) ? video.duration : 0;
   }
 
+  /* Where the video last stood with something loaded. */
+  var lastPlace = null;
+  local.addEventListener('timeupdate', function () {
+    if (local.readyState >= 1 && !local.seeking) lastPlace = local.currentTime;
+  });
+
   function position() {
     if (aimS !== null) return aimS;
-    return pendingStart !== null ? pendingStart : video.currentTime;
+    if (pendingStart !== null) return pendingStart;
+    /* Emptied by Safari, as an AirPlay TV that failed leaves it, it stands at 0. */
+    if (video === local && video.readyState === 0 && lastPlace !== null) return lastPlace;
+    return video.currentTime;
   }
 
   /* An icon control's name, and the same with its key as a tooltip. */
@@ -1364,7 +1374,7 @@
   var tvHeldTimer = null;
   var TV_TAKES_MS = 5000;
 
-  function offerTv(h, pos) {
+  function offerTv(h) {
     /* hls.js plays a source of its own where Safari has ManagedMediaSource; from src, none
        other is read. */
     if (h !== hls || !airplayUrl || local.hasAttribute('src') || !local.querySelector('source')) return;
@@ -1375,16 +1385,6 @@
     /* hls.js turns AirPlay off, as Safari needs where there is no such address. */
     local.disableRemotePlayback = false;
     if (playOn) playOn.changed();
-    /* A new stream while a TV plays, of another quality: Safari takes it to the TV at once, from
-       its start, since only hls.js knows where to begin. */
-    if (local.webkitCurrentPlaybackTargetIsWireless) {
-      local.addEventListener('loadedmetadata', function there() {
-        local.removeEventListener('loadedmetadata', there);
-        if (h !== hls || !airplayed()) return;
-        holdForTv(h);
-        local.currentTime = pos;
-      });
-    }
   }
 
   /* Whether Safari plays the video from that address, not from what hls.js feeds. */
@@ -1420,9 +1420,14 @@
     if (held) h.startLoad(position());
   }
 
-  /* A TV that took the video later than that: hls.js stops again. */
+  /* Safari loads the TV's address from its start, since only hls.js knows where to begin: when
+     a TV is chosen, and again for each new stream, such as one started after a long pause. So
+     the video goes back to its place; and hls.js stops again for a TV that took it late. */
   local.addEventListener('loadedmetadata', function () {
-    if (hls && tvHeld !== hls && local.webkitCurrentPlaybackTargetIsWireless && fromTicket()) holdForTv(hls);
+    if (!hls || !fromTicket()) return;
+    var at = aimS !== null || pendingStart !== null ? position() : lastPlace;
+    if (at !== null && Math.abs(local.currentTime - at) > 2) local.currentTime = within(at);
+    if (tvHeld !== hls && local.webkitCurrentPlaybackTargetIsWireless) holdForTv(hls);
   });
 
   local.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', function () {
@@ -1431,10 +1436,11 @@
       holdForTv(hls);
       return;
     }
-    /* Back from the TV: hls.js plays it here again, where the TV got to. */
+    /* Back from the TV: hls.js plays it here again, where the TV got to. Safari may still name
+       the address of a stream that a new one replaced, whose hls.js already plays here. */
     if (fromTicket()) {
       letTvGo();
-      if (!away) restartStream(true);
+      if (!away && airplayUrl && local.currentSrc.slice(-airplayUrl.length) === airplayUrl) restartStream(true);
       return;
     }
     loadHere(hls);
@@ -1460,7 +1466,7 @@
     hls = h;
     var waits = true;        // for the playlist
     watchSlow(function () { return waits && h === hls; }, function () { loseLoads(h, 'manifest'); });
-    h.on(Hls.Events.MEDIA_ATTACHING, function () { offerTv(h, pos); });
+    h.on(Hls.Events.MEDIA_ATTACHING, function () { offerTv(h); });
     h.on(Hls.Events.ERROR, function (event, data) {
       waits = false;
       if (h === hls) onHlsError(data);
@@ -3848,15 +3854,18 @@
   });
 
   /* An AirPlay TV was refused: hls.js is stopped and hears of nothing, so the server is asked
-     whether the stream is there, and a stream taken by another page or gone ends as ever. */
+     whether the stream is there, and a stream taken by another page or gone ends as ever. One
+     Plex no longer serves, as after it ended a paused one by itself, starts again. */
   function askAfterTv() {
     var id = streamId;
     fetch(playlistUrl, { credentials: 'same-origin', cache: 'no-store' }).then(function (resp) {
-      if (resp.status !== 410) return null;
+      if (resp.status !== 410 && resp.status !== 502) return null;
       return resp.text().then(function (text) {
         var answer = null;
         try { answer = JSON.parse(text); } catch (e) { /* none of the server's own */ }
-        if (id === streamId) streamEnded(answer);
+        if (id !== streamId) return;
+        if (resp.status === 410) streamEnded(answer);
+        else if (answer && answer.error === 'unreachable') streamGone();
       });
     }).catch(function () { /* the connection tells of itself */ });
   }

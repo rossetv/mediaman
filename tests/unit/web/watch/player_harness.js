@@ -5088,6 +5088,56 @@ const scenarios = {
   away_airplay_lost: (p) => lostBeforeTv(p, 'fragLoadError'),
   away_airplay_lost_playlist: (p) => lostBeforeTv(p, 'manifestLoadError'),
 
+  /* The TV played on from where hls.js was, and Safari loaded its address from the start. */
+  async away_airplay_takes_at_place(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const v = p.video;
+    await streamPlays(p, 30);
+    v.currentTime = 600;
+    fire(v, 'timeupdate');
+    p.elsewhere.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+    v.currentTime = 0;
+    v.readyState = 1;
+    fire(v, 'loadedmetadata');
+    await settle();
+    return { at: v.currentTime };
+  },
+
+  /* As an iPhone does after a pause on the TV: Safari says the TV let go, a new stream starts,
+     Safari says so again while it still names the old stream's address, and then hands the new
+     one to the TV, which loads it from the start. */
+  async away_airplay_new_stream(p) {
+    p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    const v = p.video;
+    const e = p.elsewhere;
+    await streamPlays(p, 30);
+    e.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+    await settle();
+    v.currentTime = 1500;
+    fire(v, 'timeupdate');
+    p.replies.push({ ok: { stream_id: 's2', playlist: '/p2', airplay: '/api/cast/A2/index.m3u8' } });
+    p.replies.push({ ok: { stream_id: 's3', playlist: '/p3', airplay: '/api/cast/A3/index.m3u8' } });
+    e.ownOnTv(false, v);
+    await settle();
+    p.hlsList[p.hlsList.length - 1].emit('hlsManifestParsed');
+    v.currentSrc = 'http://mm/api/cast/A1/index.m3u8';
+    e.ownOnTv(false, v);
+    await settle();
+    const now = p.hlsList[p.hlsList.length - 1].src;
+    const ticket = now === '/p3' ? 'A3' : 'A2';
+    e.ownOnTv(true, v, 'http://mm/api/cast/' + ticket + '/index.m3u8');
+    v.currentTime = 0;
+    v.readyState = 1;
+    fire(v, 'loadedmetadata');
+    await settle();
+    return { starts: p.starts().length, at: v.currentTime };
+  },
+
+  /* The TV fails after a long pause, as its stream has ended, or as Plex ended its session by
+     itself, and Safari empties the video. */
+  away_airplay_tv_fails_gone: (p) => tvFails(p, 410, { ok: false, error: 'gone' }),
+  away_airplay_tv_fails_plex: (p) => tvFails(p, 502, { ok: false, error: 'unreachable' }),
+
   away_airplay_replaced: (p) => ownTvEnds(p, { ok: false, error: 'replaced', by: 'another-page' }),
   away_airplay_gone: (p) => ownTvEnds(p, { error: 'gone' }),
 
@@ -6464,6 +6514,25 @@ async function lostBeforeTv(p, details) {
     stopped: h.stopped, loads: h.loads.length - loads, hls: p.hlsList.length,
     offered: v.querySelectorAll('source').map((s) => s.src),
   };
+}
+
+async function tvFails(p, status, body) {
+  p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+  const v = p.video;
+  await streamPlays(p, 30);
+  p.elsewhere.ownOnTv(true, v, 'http://mm/api/cast/A1/index.m3u8');
+  await settle();
+  v.currentTime = 1500;
+  fire(v, 'timeupdate');
+  p.replies.push({ ok: { stream_id: 's2', playlist: '/p2', airplay: '/api/cast/A2/index.m3u8' } });
+  const playlist = p.hlsList[0].src;
+  p.pages[playlist] = { status: status, html: JSON.stringify(body) };
+  v.readyState = 0;
+  v.currentTime = 0;
+  fire(v, 'error');
+  await settle();
+  const h = p.hlsList[p.hlsList.length - 1];
+  return { starts: p.starts().length, from: h.config.startPosition };
 }
 
 async function ownTvEnds(p, body) {

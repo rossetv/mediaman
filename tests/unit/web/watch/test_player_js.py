@@ -2416,6 +2416,27 @@ def test_a_try_after_a_lost_connection_loads_nothing_once_the_tv_plays(markup, s
     }
 
 
+def test_a_tv_that_loads_the_videos_address_from_its_start_goes_on_from_the_place(markup):
+    out = elsewhere(markup, "away_airplay_takes_at_place", "mms")
+    assert out["at"] == 600
+
+
+def test_a_new_stream_safari_hands_the_tv_after_a_pause_plays_from_the_place(markup):
+    out = elsewhere(markup, "away_airplay_new_stream", "mms")
+    assert out["at"] == 1500
+
+
+def test_safari_naming_a_replaced_streams_address_starts_no_further_stream(markup):
+    out = elsewhere(markup, "away_airplay_new_stream", "mms")
+    assert out["starts"] == 2
+
+
+@pytest.mark.parametrize("scenario", ["away_airplay_tv_fails_gone", "away_airplay_tv_fails_plex"])
+def test_a_tv_that_fails_after_a_long_pause_starts_again_from_the_place(markup, scenario):
+    out = elsewhere(markup, scenario, "mms")
+    assert out == {"starts": 2, "from": 1500}
+
+
 def test_a_title_taken_by_another_page_while_the_tv_plays_says_so_here(markup):
     out = elsewhere(markup, "away_airplay_replaced", "mms")
     assert out == {"message": REPLACED, "starts": 1, "destroyed": True, "asked": 1}
