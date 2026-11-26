@@ -6,6 +6,7 @@ import logging
 import sqlite3
 from collections.abc import Sequence
 
+from mediaman.services.downloads.download_format._classify import not_the_release
 from mediaman.services.infra import get_bool_setting
 
 logger = logging.getLogger(__name__)
@@ -51,13 +52,16 @@ def will_retry(conn: sqlite3.Connection, key: str, reasons: Sequence[str]) -> bo
     # Not at the top: import_retry needs the fetcher, which needs import_retry.
     from mediaman.services.arr import import_retry
 
-    if any(p in r.lower() for r in reasons for p in import_retry._SETUP_PROBLEMS):
+    if any(not_the_release(r) for r in reasons):
         return False
     try:
         if not get_bool_setting(conn, import_retry.SETTING, default=True):
             return False
+        # Of a series, the fewest tries of a season stuck now, as that one is tried; while none
+        # is noted stuck yet, the most of any.
         (tries,) = conn.execute(
-            "SELECT MAX(tries) FROM arr_import_retries WHERE key LIKE ?",
+            "SELECT COALESCE(MIN(CASE WHEN stuck_since IS NOT NULL THEN tries END), MAX(tries))"
+            " FROM arr_import_retries WHERE key LIKE ?",
             (f"{key}%" if key.endswith(":") else key,),
         ).fetchone()
     except sqlite3.DatabaseError:

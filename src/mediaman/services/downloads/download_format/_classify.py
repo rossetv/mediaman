@@ -268,11 +268,43 @@ def queue_attention(entries: Sequence[_ArrLike]) -> str:
     )
 
 
+# What Sonarr and Radarr say of a download their own setup keeps from importing (paths, remote
+# path mappings, permissions, the root folder, disk space): another copy would not import either.
+SETUP_PROBLEMS = (
+    "remote path mapping",
+    "not a valid local path",
+    "path does not exist",
+    "not accessible",
+    "permission",
+    "access to the path",
+    "root folder missing",
+    "not enough free space",
+)
+# What Sonarr says of one it holds for a while and imports by itself once that passes: an episode
+# still to be named, or a file still in use.
+PASSING_HOLDS = ("recently aired", "try again later")
+
+
+def _not_the_release_at(text: str) -> int:
+    lower = text.lower()
+    return min(
+        (at for phrase in SETUP_PROBLEMS + PASSING_HOLDS if (at := lower.find(phrase)) >= 0),
+        default=-1,
+    )
+
+
+def not_the_release(reason: str) -> bool:
+    """Whether *reason*, as ``attention_reason`` gives it, says the service's own setup or a hold
+    that passes by itself keeps the download from importing, which another copy would not mend."""
+    return _not_the_release_at(reason) >= 0
+
+
 def attention_reason(item: _ArrLike) -> str:
     """What Radarr or Sonarr says is wrong with a queue record, as one short line of plain
-    text: its first status message, else its error message; "" when it says nothing. A status
-    message's title is most often the release's or a file's name, so it is read only when it
-    has no messages and is not the release's name."""
+    text: the first of its status messages, else its error message, that says its setup or a
+    passing hold keeps it, else the first of them; "" when it says nothing. A status message's
+    title is most often the release's or a file's name, so it is read only when it has no
+    messages and is not the release's name."""
     said: list[object] = []
     found = item.get("statusMessages")
     for message in found if isinstance(found, list) else []:
@@ -284,11 +316,15 @@ def attention_reason(item: _ArrLike) -> str:
         elif message.get("title") != item.get("title"):
             said.append(message.get("title"))
     said.append(item.get("errorMessage"))
-    for line in said:
-        text = " ".join(line.split()) if isinstance(line, str) else ""
-        if text:
-            return text if len(text) <= _REASON_MAX else text[: _REASON_MAX - 1].rstrip() + "…"
-    return ""
+    texts = [" ".join(line.split()) for line in said if isinstance(line, str)]
+    texts = [text for text in texts if text]
+    if not texts:
+        return ""
+    text = next((text for text in texts if not_the_release(text)), texts[0])
+    if len(text) > _REASON_MAX and (at := _not_the_release_at(text)) > _REASON_MAX // 2:
+        # A long path before the words that name the fault would cut them off.
+        text = "…" + text[at:]
+    return text if len(text) <= _REASON_MAX else text[: _REASON_MAX - 1].rstrip() + "…"
 
 
 def map_episode_state(ep: _ArrLike) -> str:

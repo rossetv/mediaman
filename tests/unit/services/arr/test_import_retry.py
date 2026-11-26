@@ -91,6 +91,12 @@ class Arrs:
         # Whether a DELETE leaves its record in the queue, as a download client that would not
         # drop it does.
         self.keeping = False
+        # What each service says it is, None for one that will not say, and whether its
+        # "Redownload failed" is on: older ones ignore skipRedownload and search by themselves.
+        self.versions: dict[str, str | None] = {"sonarr": "4.0.14.2939", "radarr": "5.26.2.10099"}
+        self.redownload = True
+        self.own_searches: list[str] = []
+        self.version_reads = 0
         fake_http.handler(self._answer)
         clients = {
             "sonarr": ArrClient(SONARR_SPEC, "http://sonarr.test:8989", "k"),
@@ -122,6 +128,14 @@ class Arrs:
                 return _fake_response(status=500, json_data={})
             if self.reads[-1][1] in self.hanging:
                 raise requests.ReadTimeout("no answer")
+        if parts.path == "/api/v3/system/status":
+            self.version_reads += 1
+            version = self.versions[service]
+            if version is None:
+                return _fake_response(status=500, json_data={})
+            return _fake_response(json_data={"appName": service.capitalize(), "version": version})
+        if parts.path == "/api/v3/config/downloadclient":
+            return _fake_response(json_data={"autoRedownloadFailed": self.redownload})
         if parts.path == "/api/v3/queue":
             records = self.queues[service]
             return _fake_response(
@@ -133,9 +147,23 @@ class Arrs:
                 raise failure
             if failure:
                 return _fake_response(status=failure, json_data={})
+            removed = [q for q in self.queues[service] if q["id"] == queue_id]
+            older = self._ignores_skip_redownload(service)
+            if older and not removed:
+                # It failed the whole download, so its other records are gone with it.
+                return _fake_response(status=404, json_data={})
+            if self.redownload and (
+                older or parse_qs(parts.query).get("skipRedownload") != ["true"]
+            ):
+                self.own_searches.append(service)
             if self.keeping:
                 return _fake_response(json_data={})
-            self.queues[service] = [q for q in self.queues[service] if q["id"] != queue_id]
+            gone = {q["downloadId"] for q in removed} if older else set()
+            self.queues[service] = [
+                q
+                for q in self.queues[service]
+                if q["id"] != queue_id and q["downloadId"] not in gone
+            ]
             return _fake_response(json_data={})
         if parts.path == "/api/v3/movie":
             return _fake_response(json_data=self.movies)
@@ -173,6 +201,13 @@ class Arrs:
                 return _fake_response(status=self.refusing, json_data={})
             return _fake_response(json_data={"id": 1, **(body or {})})
         raise AssertionError(f"unexpected {method} {url}")
+
+    def _ignores_skip_redownload(self, service: str) -> bool:
+        said = self.versions[service]
+        if said is None:
+            return False
+        version = tuple(int(n) for n in said.split("."))
+        return version < ((4,) if service == "sonarr" else (4, 7, 2))
 
     def poll(self, after: timedelta = timedelta()) -> None:
         """Let *after* go by, then let the hourly poller run."""
@@ -1085,3 +1120,96 @@ def test_a_season_whose_read_never_answers_holds_back_no_other_show_for_good(arr
     arrs.poll(timedelta(hours=1))
 
     assert _rows(arrs) == {"sonarr:5:11"}
+
+
+_PACK_NOT_IMPORTED = "One or more episodes expected in this release were not imported or missing"
+
+
+def _pack_held(arrs: Arrs, message: str) -> None:
+    """Alone's season pack held as Sonarr holds one whose files each failed to import: a first
+    message saying only that, then one for each file with what kept it out."""
+    _season_stuck(arrs, 10)
+    for record in arrs.queues["sonarr"]:
+        record["statusMessages"] = [
+            {"title": _PACK_NOT_IMPORTED + " from the release", "messages": []},
+            {"title": "Alone.S13E01.mkv", "messages": [message]},
+            {"title": "Alone.S13E02.mkv", "messages": [message]},
+        ]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Not enough free space",
+        "Access to the path '/tv/Alone/Season 13' is denied.",
+        f"[/downloads/{'deep/' * 40}Alone.S13] is not a valid local path. You may need a Remote"
+        " Path Mapping.",
+    ],
+)
+def test_a_pack_held_by_sonarrs_setup_after_its_first_message_is_left_for_an_admin(arrs, message):
+    _pack_held(arrs, message)
+    arrs.poll()
+    _hourly(arrs, 3)
+
+    assert arrs.changes() == []
+    assert arrs.states() == {"Alone": "needs_attention"}
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Episode has a TBA title and recently aired",
+        "Episode does not have a title and recently aired",
+        "Locked file, try again later",
+    ],
+)
+def test_a_download_sonarr_holds_for_a_while_is_waited_for_not_removed(arrs, message):
+    _pack_held(arrs, message)
+    arrs.poll()
+    _hourly(arrs, 3)
+
+    assert arrs.changes() == []
+    assert arrs.states() == {"Alone": "needs_attention"}
+
+
+@pytest.mark.parametrize(
+    ("service", "version", "redownload", "ours"),
+    [
+        ("sonarr", "3.0.10.1567", True, False),
+        ("sonarr", "3.0.10.1567", False, True),
+        ("sonarr", "4.0.14.2939", True, True),
+        ("sonarr", None, True, True),
+        ("radarr", "4.7.1.7640", True, False),
+        ("radarr", "4.7.2.7686", True, True),
+        ("radarr", "5.26.2.10099", True, True),
+    ],
+)
+def test_each_retry_is_searched_for_once_whichever_version_answers(
+    arrs, service, version, redownload, ours
+):
+    arrs.versions[service] = version
+    arrs.redownload = redownload
+    if service == "sonarr":
+        _season_stuck(arrs, 10)
+    else:
+        arrs.queues["radarr"] = [_stuck_film(40)]
+        arrs.movies = [_dune()]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    searches = [c for c in arrs.changes() if c[0] == "POST"]
+    assert len(searches) == (1 if ours else 0)
+    assert len(searches) + len(arrs.own_searches) == 1
+    assert arrs.history()[-1].endswith("(try 1 of 2)")
+    assert arrs.states()[{"sonarr": "Alone", "radarr": "Dune"}[service]] == "finding_copy"
+
+
+def test_an_older_sonarrs_version_is_read_once_for_all_its_retries(arrs):
+    arrs.versions["sonarr"] = "3.0.10.1567"
+    arrs.keeping = True
+    _season_stuck(arrs, 10)
+    arrs.poll()
+    _hourly(arrs, 80)
+
+    assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 2 of 2)"]
+    assert arrs.version_reads == 1

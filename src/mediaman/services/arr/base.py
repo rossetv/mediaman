@@ -38,6 +38,8 @@ import logging
 from collections.abc import Mapping
 from typing import Any, cast
 
+import requests
+
 from mediaman.services.arr._add import _AddFlowMixin
 from mediaman.services.arr._lookups import _LookupsMixin
 from mediaman.services.arr._radarr_methods import _RadarrMixin
@@ -58,6 +60,8 @@ from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
+# The first version of each that honours ``skipRedownload``, by the client's kind.
+_SKIPS_REDOWNLOAD_FROM = {"series": (4,), "movie": (4, 7, 2)}
 
 __all__ = [
     "_ARR_TIMEOUT_SECONDS",
@@ -95,6 +99,7 @@ class ArrClient(
         super().__init__(url, api_key)
         #: The spec that controls this client's service-specific behaviour.
         self.spec = spec
+        self._searches_when_removed: bool | None = None
 
     def _require_series(self, method: str) -> None:
         if self.spec.kind != "series":
@@ -161,6 +166,24 @@ class ArrClient(
         except SafeHTTPError as exc:
             if exc.status_code != 404:
                 raise
+
+    def searches_when_removed(self) -> bool:
+        """Whether the service searches again by itself for what ``remove_from_queue`` removes:
+        Sonarr before 4 and Radarr before 4.7.2 ignore ``skipRedownload`` and do, with their
+        "Redownload failed" on. False when that cannot be read; once read, kept."""
+        if self._searches_when_removed is None:
+            try:
+                status = self._get("/api/v3/system/status", quick=True)
+                said = status.get("version") if isinstance(status, dict) else None
+                version = tuple(int(n) for n in str(said).split("."))
+                older = version < _SKIPS_REDOWNLOAD_FROM[self.spec.kind]
+                config = self._get("/api/v3/config/downloadclient", quick=True) if older else {}
+            except (SafeHTTPError, requests.RequestException, ArrError, ValueError):
+                logger.warning("Could not read whether %s searches again by itself", self.spec.kind)
+                return False
+            redownloads = isinstance(config, dict) and config.get("autoRedownloadFailed") is True
+            self._searches_when_removed = older and redownloads
+        return self._searches_when_removed
 
     def send_command(self, command: Mapping[str, Any]) -> None:
         """Post a command, such as a search, for Radarr or Sonarr to run in the background."""
