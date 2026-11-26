@@ -229,15 +229,14 @@ def _digest(api_key: str) -> str:
 
 def key_refused(conn: sqlite3.Connection | None, secret_key: str | None = None) -> bool:
     """Whether OpenAI refused the API key now set when it was last sent, within the hour."""
+    # The key is read, and so decrypted, only when there is a refusal to match it with.
+    if _refused_key is None or monotonic() - _refused_at >= _REFUSAL_SECONDS:
+        return False
     try:
         api_key = get_openai_key(conn, secret_key)
     except ValueError:
         return False
-    return (
-        _refused_key is not None
-        and _refused_key == _digest(api_key)
-        and monotonic() - _refused_at < _REFUSAL_SECONDS
-    )
+    return _refused_key == _digest(api_key)
 
 
 def clear_refusal(api_key: str) -> None:
