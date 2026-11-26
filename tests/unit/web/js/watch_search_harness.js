@@ -137,7 +137,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     };
   });
   input.select = () => {};
-  ['../core/dom.js', 'core.js', 'address.js', 'keep.js', 'search.js', ...(assist ? ['ask.js', 'tonight.js'] : []), 'explore.js', ...(downloading ? ['downloading.js'] : [])]
+  ['../core/dom.js', '../modal-a11y.js', 'core.js', 'address.js', 'keep.js', 'search.js', ...(assist ? ['ask.js', 'tonight.js'] : []), 'explore.js', ...(downloading ? ['downloading.js'] : [])]
     .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   // Stands in for the grid: it keeps what it was given, and asks for its first page as the real one does.
   ctx.MMWatch.grid = {
@@ -964,13 +964,14 @@ const scenarios = {
     p.press();
     p.input.focus();
     await settle();
-    const out = { open: [p.sheet.classList.contains('is-on'), p.sheet.inert, p.browse.inert, p.input.getAttribute('aria-expanded')] };
+    const hidden = () => [p.browse.inert, p.browse.getAttribute('aria-hidden')];
+    const out = { open: [p.sheet.classList.contains('is-on'), p.sheet.inert, ...hidden(), p.input.getAttribute('aria-expanded')] };
     p.key('ArrowDown');
     out.tile = [marked(), p.input.getAttribute('aria-activedescendant')];
     p.key('Escape');
     out.dropped = [marked(), p.sheet.classList.contains('is-on')];
     p.key('Escape');
-    out.closed = [p.sheet.classList.contains('is-on'), p.browse.inert, p.doc.activeElement === p.input];
+    out.closed = [p.sheet.classList.contains('is-on'), ...hidden(), p.doc.activeElement === p.input];
     p.input.focus();
     out.script = p.sheet.classList.contains('is-on'); // focus put here by a script opens nothing
     await p.search('act');
@@ -1939,9 +1940,9 @@ const scenarios = {
       const p = await ready({ ...VIEWER, tmdb_configured: true });
       p.press();
       p.input.focus();
-      const before = p.browse.inert;
+      const before = [p.browse.inert, p.browse.getAttribute('aria-hidden')];
       const held = p.key('Tab', { shiftKey: shift });
-      out.push([before, held, p.browse.inert, p.sheet.classList.contains('is-on')]);
+      out.push([before, held, [p.browse.inert, p.browse.getAttribute('aria-hidden')], p.sheet.classList.contains('is-on')]);
     }
     return out;
   },

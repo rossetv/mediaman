@@ -375,10 +375,11 @@ def test_a_held_title_of_a_category_phrase_has_its_keep_as_a_match_by_name_has()
 
 def test_arrows_move_one_highlight_esc_undoes_a_step_at_a_time_and_enter_opens_it() -> None:
     out = _run("keys")
-    assert out["open"] == [True, False, True, "true"]
+    # The rows behind the sheet are hidden from assistive tech, not made inert, which restyles them all.
+    assert out["open"] == [True, False, False, "true", "true"]
     assert out["tile"] == [["watch-option-genre-action=true"], "watch-option-genre-action"]
     assert out["dropped"] == [[], True]
-    assert out["closed"] == [False, False, False]
+    assert out["closed"] == [False, False, None, False]
     assert out["script"] is False
     assert out["row"] == ["watch-option-c-action=true"]
     assert out["none"] == []
@@ -853,7 +854,7 @@ def test_a_category_s_page_shows_nothing_that_would_move_before_it_is_known() ->
 
 def test_tab_goes_on_from_the_field_into_the_rows_behind_the_sheet() -> None:
     # In reach before the key is let through, which is when the browser looks for the next stop.
-    assert _run("tabOut") == [[True, False, False, False]] * 2
+    assert _run("tabOut") == [[[False, "true"], False, [False, None], False]] * 2
 
 
 def test_the_rows_are_gone_though_a_category_opens_while_they_fade() -> None:

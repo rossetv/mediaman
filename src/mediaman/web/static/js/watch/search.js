@@ -1024,7 +1024,11 @@
       clear.setAttribute('aria-label', on ? 'Close search' : 'Clear search');
       sheet.classList.toggle('is-on', on);
       sheet.inert = !on;
-      [browse, byId('watch-all')].forEach(function (n) { if (n) n.inert = on; });
+      // Hidden from assistive tech, not made inert: that would restyle every card on the page.
+      if (window.MM.inertPage) {
+        if (on) window.MM.inertPage.hold(bar, [browse, byId('watch-all')].filter(Boolean));
+        else window.MM.inertPage.release(bar);
+      }
       sayList();
       pick(null);
     }
