@@ -118,3 +118,8 @@ def test_all_titles_goes_two_across_wherever_three_would_cut_a_long_title_word()
     assert len(two) == 1
     first_three = float(two[0][1]) + 0.02
     assert (first_three - 2 * 20 - 2 * 10) / 3 - 2 * 8 >= 93
+
+
+def test_search_results_go_two_across_where_all_titles_does() -> None:
+    narrow = _of(".results-page .watch-grid", "_watch_search.css", "(max-width: 389.98px)")
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in narrow

@@ -471,6 +471,10 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   /* Three across on a phone. */
   .results-page .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
 }
+/* Two where three would leave a title under 94px, which cuts a long word such as "Cartographer's". */
+@media (max-width: 389.98px) {
+  .results-page .watch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* ── Still ── */
 
