@@ -84,6 +84,12 @@ def test_failures_between_answers_are_never_reported(conn, radarr):
     assert seen[3][0] == ["Dune"]
 
 
+def test_an_answer_starts_the_five_seconds_over_for_the_next_failure(conn, radarr):
+    _answers(conn, radarr, ["ok", "down", "ok"])
+    radarr.clock.now += 6
+    assert _answers(conn, radarr, ["down"]) == [(["Dune"], [], [])]
+
+
 def test_an_answer_older_than_a_minute_stands_in_for_nothing(conn, radarr):
     _answers(conn, radarr, ["ok"])
     radarr.clock.now += 61
