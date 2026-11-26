@@ -766,13 +766,9 @@
 }
 
 /* No volume slider where there is no room, or on touch screens, where the
-   device's own buttons set the volume. */
+   device's own buttons set the volume. The mute stays: it works on a phone. */
 @media (max-width: 767px), (pointer: coarse) {
   .player-volume-slider { display: none; }
-}
-/* A phone ignores the page's volume, so its mute does nothing: the row keeps 44px buttons. */
-@media (pointer: coarse) {
-  .player:not(.is-away) .player-volume { display: none; }
 }
 
 @media (max-width: 900px) {
@@ -809,8 +805,12 @@
 }
 
 /* The narrowest phones: every control keeps its height and its place in the row. */
-@media (max-width: 350px) {
+@media (max-width: 350px), (max-width: 419.98px) and (pointer: coarse) {
   .player-controls { gap: 0; }
+}
+/* Under 400 the 44px buttons and the mute do not fit one row: the mute goes, as it did before. */
+@media (max-width: 399.98px) and (pointer: coarse) {
+  .player:not(.is-away) .player-volume { display: none; }
 }
 @media (max-width: 350px) and (pointer: fine) {
   .player-controls .player-btn:not([data-fullscreen]) { min-width: 38px; }

@@ -1,6 +1,6 @@
-"""Phones: fields stay at 16px on every touch screen, the player keeps 44px buttons without a
-useless mute, All titles keeps one column count across the common phone widths, and a disabled
-field reads disabled.
+"""Phones: fields stay at 16px on every touch screen, the player keeps its mute and its 44px
+buttons, All titles keeps one column count across the common phone widths, and a disabled field
+reads disabled.
 
 These read the stylesheet rules, since no layout engine runs here.
 """
@@ -33,12 +33,13 @@ def test_fields_are_16px_on_touch_screens_whatever_their_width() -> None:
         assert any(selector in b and "font-size: 16px" in b for b in touch), sheet
 
 
-def test_player_hides_the_mute_on_touch_and_keeps_its_buttons_44px() -> None:
+def test_player_keeps_the_mute_on_a_wide_touch_screen_and_drops_it_only_where_the_row_is_full() -> None:
     blocks = _blocks("_player.css")
+    mute = [head.strip() for head, b in blocks if re.search(r"\.player-volume\s*\{", b)]
+    assert "(max-width: 399.98px) and (pointer: coarse)" in mute
+    assert "(pointer: coarse)" not in mute
     assert any(
-        ".player:not(.is-away) .player-volume" in b and "display: none" in b
-        for head, b in blocks
-        if head.strip() == "(pointer: coarse)"
+        "(max-width: 419.98px) and (pointer: coarse)" in head and "gap: 0" in b for head, b in blocks
     )
     for head, b in blocks:
         if "min-width: 38px" in b:
