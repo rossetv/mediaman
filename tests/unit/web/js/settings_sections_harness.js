@@ -326,6 +326,32 @@ const scenarios = {
     return out;
   },
 
+  // The panel asks for the Base URL while it is empty, and Escape shuts the panel.
+  async panelWords() {
+    const p = await newsletter();
+    const field = p.id('base_url');
+    const note = () => p.id('newsletter-base-note').textContent;
+    const out = { filled: note() };
+    const toggle = async () => { p.click(p.id('btn-send-newsletter')); await settle(); };
+    await toggle();
+    field.value = '';
+    await toggle();
+    out.emptyOnOpen = note();
+    field.value = 'https://media.example.com';
+    p.fire(field, 'input');
+    out.typed = note();
+    field.value = ' ';
+    p.fire(field, 'input');
+    out.cleared = note();
+    p.id('btn-send-newsletter').focus();
+    p.id('btn-cancel-newsletter').focus();
+    p.fire(p.id('newsletter-send-panel'), 'keydown', { key: 'Escape' });
+    await settle();
+    out.escape = { open: !p.id('newsletter-send-panel').hidden && p.ctx.MM.settings.rows.isOpen(p.id('newsletter-send-panel')),
+      expanded: p.id('btn-send-newsletter').getAttribute('aria-expanded'), focused: p.doc.activeElement === p.id('btn-send-newsletter') };
+    return out;
+  },
+
   // What the dialog says of removing someone who gets the newsletter, and of one who opted out.
   async removalWords() {
     const p = await newsletter([1]);
@@ -370,9 +396,13 @@ async function newsletter(people) {
       ['button', { id: 'btn-send-newsletter' }],
       ['div', { id: 'newsletter-send-panel', class: 'setg-fold' },
         ['div', { id: 'newsletter-recipient-list' }], ['div', { id: 'newsletter-recipient-note' }],
+        ['div', { id: 'newsletter-base-note' }],
+        ['button', { id: 'btn-cancel-newsletter' }, 'Cancel'],
         ['button', { id: 'btn-confirm-newsletter' }, 'Send newsletter'],
         ['span', { id: 'newsletter-send-status' }]],
+      ['input', { id: 'base_url' }],
     ], ['rows', 'newsletter']);
+    p.id('base_url').value = 'https://media.example.com';
     let failing = 0;
     let subs = (people || [1, 2]).map((n) => ({ id: n, email: 'p' + n + '@example.com', active: true }));
     const errors = [];

@@ -308,6 +308,15 @@ def test_recipients_that_cannot_be_read_again_stay_as_they_were_and_say_so() -> 
     assert out["reopened"] == {"ticks": 3, "note": ""}
 
 
+def test_the_send_panel_asks_for_the_base_url_while_it_is_empty_and_escape_shuts_it() -> None:
+    out = _run("panelWords")
+    assert out["filled"] == ""
+    assert out["emptyOnOpen"] == "Set Base URL under General & Schedule first"
+    assert out["typed"] == ""
+    assert out["cleared"] == "Set Base URL under General & Schedule first"
+    assert out["escape"] == {"open": False, "expanded": "false", "focused": True}
+
+
 def test_removing_someone_who_unsubscribed_says_that_it_is_forgotten() -> None:
     active, opted_out = _run("removalWords")
     assert "add them again" in active and "unsubscribed" not in active
