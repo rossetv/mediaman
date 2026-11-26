@@ -621,7 +621,7 @@ def _px(value: str, narrow: bool, height: int) -> float:
     nav_h = _last("--nav-h", _of(":root", PHONE, nav) if narrow else _of(":root", sheet=nav))
     value = re.sub(r"env\([^()]*\)", "0px", value)
     # No phone has a bar at its foot.
-    for name, px in (("--foot", "0px"), ("--nav-h", nav_h), ("--seen", "100dvh")):
+    for name, px in (("--nav-h", nav_h), ("--seen", "100dvh")):
         value = re.sub(rf"var\({name}(?:, [^()]+)?\)", px, value)
     value = value.replace("var(--seen-top, 0px)", "0px").replace("calc", "")
     value = re.sub(r"([\d.]+)dvh", lambda m: str(float(m[1]) / 100 * height), value)

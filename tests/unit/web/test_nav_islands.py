@@ -104,7 +104,6 @@ def test_the_bar_draws_no_row_of_its_own_and_lets_a_press_between_its_islands_th
 
 
 def test_no_page_has_a_strip_at_the_foot_of_a_phone() -> None:
-    assert set(re.findall(r"--foot: ([^;]+);", _css(NAV))) == {"0px"}
     for template, ctx in (("_nav.html", {}), ("_watch_bar.html", {"is_admin": True, "q": ""})):
         html = _TEMPLATES.env.get_template(template).render(request=_request("/"), **ctx)
         assert "nav-foot" not in html

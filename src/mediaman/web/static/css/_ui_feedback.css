@@ -244,15 +244,15 @@ html.has-player .ui-toast-host {
 
 /* On a phone a settings savebar (up to two rows) sits under the stack. */
 @media (max-width: 699.98px) {
-  .ui-toast-host { --toast-reserve: calc(var(--foot) + 86px); }
+  .ui-toast-host { --toast-reserve: 86px; }
 }
 
 /* Watch on a phone: the stack stands just above the foot of the screen. */
 @media (max-width: 699.98px) {
   html.has-watch-search .ui-toast-host {
     top: auto;
-    bottom: calc(var(--foot) + 12px);
-    max-height: calc(100dvh - var(--nav-h) - var(--foot) - 24px);
+    bottom: 12px;
+    max-height: calc(100dvh - var(--nav-h) - 24px);
     justify-content: flex-end;
   }
 }

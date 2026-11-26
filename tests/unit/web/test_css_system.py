@@ -139,7 +139,7 @@ def test_the_way_back_to_watch_reaches_44px_at_every_width() -> None:
 def test_no_offset_repeats_the_height_of_the_bar_at_the_foot() -> None:
     for name in ("_ui_feedback.css", "_settings_pg.css"):
         css = _text(CSS_DIR / name)
-        assert "var(--foot)" in css, name
+        assert "var(--foot)" not in css, name
         assert not re.search(r"calc\(\d+px \+ env\(safe-area-inset-bottom", css), name
 
 
@@ -160,7 +160,7 @@ def test_the_pairing_page_leaves_room_for_the_bar_at_the_foot_and_under_itself()
         for heads, body in _rules(_text(CSS_DIR / "_pair.css"))
         if ".pair-pg" in heads and "48px" in body
     ]
-    assert re.search(r"padding: 48px 20px calc\(\d+px \+ var\(--foot\)\)", page)
+    assert re.search(r"padding: 48px 20px \d+px;", page)
 
 
 def test_nothing_in_the_bar_holds_what_is_fixed_at_the_foot_of_a_phone() -> None:

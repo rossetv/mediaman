@@ -134,6 +134,8 @@
    scroller is <html>, so the padding is scoped by the page it holds. Section jumps rely on it too, so
    .setg-block carries no scroll-margin of its own. */
 html.has-setg-pg { scroll-padding-top: calc(var(--nav-h) + 16px); }
+/* None while the focus is in a bar, which is in sight already: it would scroll the page. */
+html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
 @media (max-width: 960px) {
   /* top bar + chip strip (65, as laid out above) + a gap */
   html.has-setg-pg { scroll-padding-top: calc(var(--nav-h) + 65px + 12px); }
@@ -373,11 +375,10 @@ html.has-setg-pg { scroll-padding-top: calc(var(--nav-h) + 16px); }
 /* What is scrolled into view stops above the bar while it is up. */
 html.has-savebar { --savebar-below: 0px; scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--savebar-below) + 11px); }
 @media (max-width: 699.98px) {
-  .setg-pg .savebar { bottom: var(--foot); padding: 10px var(--pad); }
+  .setg-pg .savebar { padding: 10px var(--pad); }
   .setg-pg .savebar .sb-inner { gap: 10px; flex-wrap: wrap; }
   .setg-pg .savebar .sb-msg { flex: 1 1 auto; }
   .setg-pg .savebar .btn { flex: 0 0 auto; }
-  html.has-savebar { --savebar-below: var(--foot); }
 }
 @media (max-width: 380px) {
   /* On very narrow phones, stack the action buttons to their own row so

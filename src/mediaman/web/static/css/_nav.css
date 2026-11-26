@@ -1,6 +1,3 @@
-/* Nothing stands at the foot of a phone: what keeps clear of it keeps clear of nothing. */
-:root { --foot: 0px; }
-
 /* What the bar takes at the top of the window: islands as tall as a finger, with room round them. */
 :root { --nav-h: 72px; }
 @media (max-width: 699.98px) { :root { --nav-h: 64px; } }
@@ -46,9 +43,11 @@
   margin-right: 10px;
   font-size: 21px;
   transform: translateX(-12px);
-  transition: transform var(--dur-slow) var(--ease-out);
+  transition: transform var(--dur-slow) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .nav-glass.is-scrolled .brand { transform: none; }
+.nav-glass .brand:hover { color: color-mix(in srgb, var(--t1) 85%, transparent); }
+.nav-glass .brand:active { color: color-mix(in srgb, var(--t1) 65%, transparent); }
 .nav-glass .brand > .ico { filter: drop-shadow(0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent)); }
 /* Its own island once the page has moved under it, where a poster could take its words. */
 .nav-glass .brand::before {

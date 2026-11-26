@@ -184,7 +184,9 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
 }
 
 /* What the open field would cover makes room. */
-.wbar :is(.brand, .space-meter, .nav-end) { transition: opacity var(--dur) var(--ease-out) .12s, transform var(--dur-slow) var(--ease-out) .12s, background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.wbar :is(.space-meter, .nav-end) { transition: opacity var(--dur) var(--ease-out) .12s, transform var(--dur-slow) var(--ease-out) .12s, background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+/* The logo's slide goes with its island's; only its fade back waits. */
+.wbar .brand { transition: opacity var(--dur) var(--ease-out) .12s, transform var(--dur-slow) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 @media (min-width: 1100px) {
   .wbar.is-wide-open .space-meter { opacity: 0; pointer-events: none; transform: translateX(10px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
 }
@@ -226,8 +228,9 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
   .wbar .watch-search:not(.is-open) .watch-search__lens { left: 11px; color: var(--t1); }
   /* With words in it, it takes the brand's room, and the meter's: the words need it more. */
   .wbar .watch-search.is-open { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; }
-  .wbar:has(> .watch-search.is-open) > .brand,
-  .wbar:has(> .watch-search.is-open) > .nav-end > .space-meter { display: none; }
+  /* Focused and empty, the field floats over them and they stay where Tab can reach them. */
+  .wbar:has(> .watch-search.is-open:not(.is-focus:not(.has-value, .has-token))) > .brand,
+  .wbar:has(> .watch-search.is-open:not(.is-focus:not(.has-value, .has-token))) > .nav-end > .space-meter { display: none; }
   .wbar:has(> .watch-search.is-open) > .nav-end { min-width: 46px; }
   .wbar .watch-search.is-focus {
     position: fixed;

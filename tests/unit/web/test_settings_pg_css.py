@@ -46,10 +46,7 @@ def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
     )
     # no other rule sets it to a size of its own
     assert css.count("scroll-padding-bottom") == 1
-    # on a phone the bar stands on the one at the foot
-    below = "var(--foot)"
-    phone = css[css.index(f".setg-pg .savebar {{ bottom: {below};") :]
-    assert f"html.has-savebar {{ --savebar-below: {below}; }}" in phone
+    assert "var(--foot)" not in css
 
 
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
