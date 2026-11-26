@@ -79,6 +79,7 @@
 
   function close(returnFocus) {
     if (!isOpen()) return;
+    if (drag) { drag = null; panel.style.transition = ''; panel.style.transform = ''; }
     menu.removeAttribute('open');
     releasePage();
     // CSS keeps the menu visible for the fade, so only this keeps it out of focus and the tree.
@@ -168,10 +169,12 @@
       for (var i = 0; i < pts.length; i++) {
         if (pts[i].t >= now - FLICK_WINDOW_MS) { ref = pts[i]; break; }
       }
-      var flick = far > 20 && (e.clientY - ref.y) / Math.max(1, now - ref.t) > FLICK_PX_MS;
+      var speed = (e.clientY - ref.y) / Math.max(1, now - ref.t);
+      var flick = far > 20 && speed > FLICK_PX_MS;
+      var back = speed < -FLICK_PX_MS; // flicked back up: keep it open, however far down it was
       drag = null;
       panel.style.transition = '';
-      if (e.type === 'pointerup' && (far > SHUT_PX || flick)) {
+      if (e.type === 'pointerup' && !back && (far > SHUT_PX || flick)) {
         if (calm.matches) panel.style.transform = '';
         else panel.style.transform = 'translateY(100%)';
         close(true);
@@ -181,6 +184,7 @@
     };
     handle.addEventListener('pointerup', lift);
     handle.addEventListener('pointercancel', lift);
+    handle.addEventListener('lostpointercapture', lift); // a release that never came
   }
 
   // A menu becomes a sheet, or a sheet a menu.

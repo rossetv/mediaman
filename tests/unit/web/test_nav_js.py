@@ -276,3 +276,15 @@ def test_the_handle_strip_is_as_tall_as_a_thumb() -> None:
     sheet = NAV_CSS.read_text().split("/* Phones: a bottom sheet", 1)[1]
     strip = re.search(r"\.profile-handle \{[^}]*\}", sheet).group(0)  # type: ignore[union-attr]
     assert "height: 44px" in strip
+
+
+def test_a_flick_back_up_keeps_the_sheet_open_however_far_it_was_pulled() -> None:
+    out = _run("drag")
+    assert (out["back"]["open"], out["back"]["transform"]) == (True, "")
+    # a slow release past the distance still shuts it
+    assert out["slowFar"]["open"] is False
+
+
+def test_a_drag_that_loses_its_pointer_springs_back() -> None:
+    out = _run("drag")["lost"]
+    assert (out["open"], out["transform"], out["after"]) == (True, "", True)

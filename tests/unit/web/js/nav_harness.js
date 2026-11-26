@@ -216,13 +216,14 @@ const scenarios = {
   // The handle drags the panel after the finger.
   drag() {
     // steps: [y, ms since the last step]; the finger lifts `lift` ms after the last one.
-    const run = (steps, lift, reduced) => {
+    const run = (steps, lift, reduced, lose) => {
       const p = page(true, null, reduced);
       p.click('button');
       const handle = p.$('handle');
       const panel = p.$('panel');
       const send = (type, y) => (handle.listeners[type] || []).forEach((fn) => fn({ type, pointerId: 1, button: 0, clientY: y }));
       send('pointerdown', 100);
+      if (lose) { send('pointermove', 150); send('lostpointercapture', 150); return { open: p.open(), transform: p.$('panel').style.transform, after: (send('pointerup', 150), p.open()) }; }
       const follow = [];
       steps.forEach(([y, ms]) => { p.clock.now += ms; send('pointermove', y); follow.push(panel.style.transform); });
       p.clock.now += lift;
@@ -246,6 +247,11 @@ const scenarios = {
       // a pause, then a short quick flick
       flick: run([[100, 600], [115, 40], [140, 44]], 0, false),
       still: run([[130, 10], [220, 10]], 10, true),
+      // pulled far down slowly, then flicked back up
+      lost: run([], 0, false, true),
+      back: run([[150, 300], [220, 300], [185, 30]], 10, false),
+      // a slow release past the distance still shuts
+      slowFar: run([[150, 300], [220, 300], [215, 300]], 10, false),
     };
   },
   // Off, the ring is set where it begins; on, it eases from where it stands.
