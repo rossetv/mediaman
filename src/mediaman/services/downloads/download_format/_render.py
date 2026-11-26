@@ -81,7 +81,7 @@ def build_episode_summary(episodes: list[dict[str, object]]) -> str:
     if ready:
         parts.append(f"{ready} of {total} episode{'s' if total != 1 else ''} ready")
     if downloading:
-        parts.append(f"{downloading} downloading")
+        parts.append(f"{downloading} episode{'s' if downloading != 1 else ''} downloading")
     if queued:
         parts.append(f"{queued} queued")
     if searching:

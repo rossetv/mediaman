@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mediaman.services.downloads.download_format import (
     build_episode_summary,
     build_item,
@@ -84,6 +86,12 @@ class TestBuildEpisodeSummary:
         result = build_episode_summary(eps)
         assert "searching" in result
         assert "ready" not in result
+
+    @pytest.mark.parametrize(
+        ("count", "said"), [(1, "1 episode downloading"), (3, "3 episodes downloading")]
+    )
+    def test_it_says_how_many_episodes_are_downloading(self, count, said):
+        assert build_episode_summary([{"state": "downloading"}] * count) == said
 
     def test_parts_joined_by_separator(self):
         eps = [{"state": "ready"}, {"state": "downloading"}]
