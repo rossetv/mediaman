@@ -81,6 +81,7 @@ class _Asked:
     at: datetime
     answer: dict[str, Any] | None = None
     key_refused: bool = False
+    stage: str = ""
 
 
 _asked: dict[int, _Asked] = {}
@@ -196,8 +197,20 @@ def _of_another(request: Request, user_id: int, username: str) -> JSONResponse |
     return respond_err("other_account", status=409)
 
 
-def _unavailable() -> JSONResponse:
-    return respond_err("unavailable", status=409)
+def _why_off(request: Request, conn: sqlite3.Connection) -> str:
+    """Why the AI is not offered, for an admin to be told what to set: "off" (a daily limit
+    of 0), "no_key", "refused" (OpenAI refused the key) or "no_tmdb"."""
+    if repo.switched_off(conn):
+        return "off"
+    if not _has_openai_key(request, conn):
+        return "no_key"
+    if key_refused(conn, _secret(request)):
+        return "refused"
+    return "no_tmdb"
+
+
+def _unavailable(request: Request, conn: sqlite3.Connection) -> JSONResponse:
+    return respond_err("unavailable", status=409, why=_why_off(request, conn))
 
 
 def _not_found() -> JSONResponse:
@@ -240,6 +253,7 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
         {
             "account": _account(request, user_id, username),
             "available": available,
+            "why": None if available else _why_off(request, conn),
             "history": repo.uses_history(conn, user_id),
             "records": _records(request, conn, user_id),
             "recent": repo.recent_searches(conn, user_id, repo.RECENT_SHOWN),
@@ -387,7 +401,7 @@ def api_ask(
         return refused
     client = _client(request, conn)
     if client is None:
-        return _unavailable()
+        return _unavailable(request, conn)
     if ai.words(text) < MIN_WORDS:
         return respond_err("too_short", status=400)
     question = ai.Question(text=text)
@@ -409,7 +423,7 @@ def api_like(
         return refused
     client = _client(request, conn)
     if client is None:
-        return _unavailable()
+        return _unavailable(request, conn)
     try:
         # Only a title TMDB is asked for counts against the limit; a cached one is free.
         question = _like_question(conn, client, body.ref, lambda: _ASK_LIMITER.check(username))
@@ -517,7 +531,13 @@ def _answer(
 
         try:
             made = ai.make_answer(
-                own, client, question, taste, secret_key=secret_key, stopped=stopped
+                own,
+                client,
+                question,
+                taste,
+                secret_key=secret_key,
+                stopped=stopped,
+                stage=lambda step: setattr(asked, "stage", step),
             )
         except OpenAIUnavailable as exc:
             asked.key_refused = exc.refused
@@ -541,15 +561,19 @@ def api_run(
         return _not_found()
     client = _client(request, conn)
     if client is None:
-        return _unavailable()
+        return _unavailable(request, conn)
     status = repo.run_status(conn, user_id, run_id, now_utc())
     asked = _asked.get(run_id)
     if status is None or (status == "done" and asked is None):
         return _not_found()
     if status == "failed" and asked is not None and asked.key_refused:
-        return respond_ok({"status": status, "run_id": run_id, "error": "unavailable"})
+        return respond_ok(
+            {"status": status, "run_id": run_id, "error": "unavailable", "why": "refused"}
+        )
     if status != "done" or asked is None:
-        return respond_ok({"status": status, "run_id": run_id})
+        # What it is doing, for the page to say: "taste", "choosing" or "checking".
+        stage = {"stage": asked.stage} if status == "running" and asked and asked.stage else {}
+        return respond_ok({"status": status, "run_id": run_id, **stage})
     stored = _fetch(conn, user_id, asked.kind, asked.key)
     if stored is None:
         return _not_found()
@@ -666,7 +690,7 @@ def api_tonight(
         return _not_found()
     client = _client(request, conn)
     if client is None:
-        return _unavailable()
+        return _unavailable(request, conn)
     if not _TONIGHT_LIMITER.check(username):
         return _too_many()
     index = _index(conn, client)
@@ -706,7 +730,7 @@ def api_tonight_elsewhere(
         return _not_found()
     client = _client(request, conn)
     if client is None:
-        return _unavailable()
+        return _unavailable(request, conn)
     if not _ELSEWHERE_LIMITER.check(username):
         return _too_many()
     own = person_marks(conn, username)

@@ -982,7 +982,8 @@ class TestNoKey:
             amy.get(f"{BASE}/tonight", params={"minutes": 120}),
             amy.get(f"{BASE}/runs/1"),
         ):
-            assert resp.json() == {"ok": False, "error": "unavailable"}
+            why = "no_key" if lacking == "openai" else "no_tmdb"
+            assert resp.json() == {"ok": False, "error": "unavailable", "why": why}
         assert model.prompts == []
         assert amy.delete(f"{BASE}/searches").status_code == 200
         assert amy.put(f"{BASE}/history", json={"enabled": False}).status_code == 200

@@ -123,16 +123,20 @@ def make_answer(
     secret_key: str,
     stopped: Callable[[], bool],
     clock: Callable[[], float] = time.monotonic,
+    stage: Callable[[str], None] = lambda _: None,
 ) -> AssistAnswer | None:
     """The answer to *question*; None when TMDB could not be asked, or it was *stopped*.
     No titles at all means nothing real fits. Raises OpenAIUnavailable when the model gave
-    no answer."""
+    no answer. *stage* is told each step as it begins: "taste", "choosing", "checking"."""
+    stage("taste")
     prompt = _prompt(question, taste())
     if stopped():
         return None
+    stage("choosing")
     items = ask_openai(prompt, conn, secret_key=secret_key)
     if stopped():
         return None
+    stage("checking")
     ends_at = clock() + _CHECK_S
     titles: dict[tuple[str, int], AnswerTitle] = {}
     failures = 0
