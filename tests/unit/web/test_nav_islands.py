@@ -236,6 +236,22 @@ def test_the_logo_s_glass_keeps_as_far_from_the_edge_as_the_end_island() -> None
     assert re.search(r"padding: 0 1\dpx", _of(".nav-glass .brand", css))
 
 
+def test_at_rest_the_logo_stands_on_the_page_s_edge_and_slides_into_its_island_once_scrolled() -> (
+    None
+):
+    css = _css(NAV)
+    brand = _of(".nav-glass .brand", _outside(css))
+    room = re.search(r"padding: 0 (\d+)px", brand).group(1)  # type: ignore[union-attr]
+
+    # Drawn its own padding to the left, the logo starts where the headings do.
+    assert f"transform: translateX(-{room}px)" in brand
+    assert "transition: transform" in brand
+    assert "transform: none" in _of(".nav-glass.is-scrolled .brand", _outside(css))
+    assert "transition: none" in _of(
+        ".nav-glass .brand", _inside(css, "prefers-reduced-motion: reduce")
+    )
+
+
 def test_on_a_phone_the_end_island_is_never_narrower_than_what_it_holds() -> None:
     phone = _inside(_css(NAV), PHONE)
     alone = re.findall(r"min-width: (\d+)px", _of(".nav-end", phone))

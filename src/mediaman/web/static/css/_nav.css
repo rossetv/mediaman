@@ -36,8 +36,19 @@
   box-shadow: var(--shadow-card);
 }
 .brand { display: inline-flex; align-items: center; font-size: 19px; color: var(--t1); }
-/* Its padding is the room its island, when it has one, takes; its margin keeps that off the next. */
-.nav-glass .brand { position: relative; height: 44px; padding: 0 12px; margin-right: 10px; font-size: 21px; }
+/* Its padding is the room its island, when it has one, takes; its margin keeps that off the next.
+   With no island, it is drawn that far left, so the logo starts on the page's edge, as the
+   headings below do. */
+.nav-glass .brand {
+  position: relative;
+  height: 44px;
+  padding: 0 12px;
+  margin-right: 10px;
+  font-size: 21px;
+  transform: translateX(-12px);
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.nav-glass.is-scrolled .brand { transform: none; }
 .nav-glass .brand > .ico { filter: drop-shadow(0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent)); }
 /* Its own island once the page has moved under it, where a poster could take its words. */
 .nav-glass .brand::before {
@@ -349,6 +360,7 @@
   .nav-back > .ico,
   .profile-ring,
   .profile-count { transition: none; }
+  .nav-glass .brand { transition: none; }
   .nav-back:hover > .ico { transform: none; }
   .profile-menu,
   .profile-panel { transform: none; }
