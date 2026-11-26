@@ -1364,10 +1364,13 @@ def api_watch_title_collection(
     [found_cards] = _discover_cards(request, conn, client, username, [films])
     marks = card_marks(seen_titles.person_marks(conn, username), client)
     cards = [marked(card, marks) for card in found_cards]
-    answered = _arr(request, conn).answers_for("movie")
+    arr = _arr(request, conn)
+    radarr = "not_set_up" if "radarr" in arr.not_set_up else None
+    if radarr is None and not arr.answers_for("movie"):
+        radarr = "unavailable"
     shown = []
     for film, card in zip(films, cards, strict=True):
-        why_not = _why_not_to_request(card, film["release_date"], answered)
+        why_not = _why_not_to_request(card, film["release_date"], radarr)
         shown.append(
             {
                 **card,
@@ -1381,8 +1384,10 @@ def api_watch_title_collection(
 
 
 def _why_not_to_request(
-    card: Mapping[str, object], release_date: str | None, radarr_answered: bool
+    card: Mapping[str, object], release_date: str | None, radarr_off: str | None
 ) -> str | None:
+    """Why the film of *card* may not be asked for, or None; *radarr_off* is why Radarr can't
+    take it ("not_set_up", "unavailable"), or None."""
     state = card["download_state"]
     if card["in_library"] or state in (ACTION_IN_LIBRARY, ACTION_PARTIAL):
         return "held"
@@ -1392,7 +1397,7 @@ def _why_not_to_request(
         return "undated"
     if release_date > now_utc().date().isoformat():
         return "unreleased"
-    return None if radarr_answered else "unavailable"
+    return radarr_off
 
 
 @router.get("/api/watch/title/{ref}/season/{number}")

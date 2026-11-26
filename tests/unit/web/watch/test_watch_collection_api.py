@@ -155,9 +155,19 @@ def test_a_film_radarr_holds_and_plex_does_not_yet_is_held(viewer, tmdb, monkeyp
 
 
 def test_nothing_may_be_asked_for_while_radarr_does_not_answer(viewer, tmdb, monkeypatch):
-    monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_: None)
+    def down():
+        raise requests.ConnectTimeout("slow")
+
+    radarr = SimpleNamespace(get_movies=down, get_queue=down)
+    monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_: radarr)
 
     assert [f["why_not"] for f in _ask(viewer)["films"]] == ["held", "unavailable", "unavailable"]
+
+
+def test_a_radarr_not_set_up_is_told_apart_from_one_that_does_not_answer(viewer, tmdb, monkeypatch):
+    monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_: None)
+
+    assert [f["why_not"] for f in _ask(viewer)["films"]] == ["held", "not_set_up", "not_set_up"]
 
 
 def test_a_film_is_the_card_discover_gives_it(viewer, tmdb):

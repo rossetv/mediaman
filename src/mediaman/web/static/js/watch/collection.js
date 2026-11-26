@@ -23,7 +23,8 @@
   /* How long after the dialog opened, or a run ended, the rest of a press can still come. */
   var DOUBLE_CLICK_MS = 600;
   var OUT = [['held', 'Already in the library'], ['requested', 'Already asked for'], ['unreleased', 'Not out yet'],
-    ['undated', 'No release date yet'], ['unavailable', 'Can’t be checked right now']];
+    ['undated', 'No release date yet'], ['unavailable', 'Can’t be checked right now'],
+    ['not_set_up', 'Can’t be downloaded here']];
 
   /* A limit of a minute or of the day: the server does not say which. */
   var WHEN = 'try again in a minute, or tomorrow if the day’s limit is reached.';
