@@ -937,7 +937,7 @@
       var clear = q('.hx-x', menu);
       clear.addEventListener('click', function () {
         field.value = '';
-        field.focus();
+        field.focus({ preventScroll: true });
         typedIn();
       });
       none.addEventListener('click', function (e) {
@@ -977,7 +977,7 @@
         var b = fields[1].value;
         if (!a && !b) return;
         wrong.hidden = !(a && b && a > b);
-        if (!wrong.hidden) { fields[0].focus(); return; }
+        if (!wrong.hidden) { fields[0].focus({ preventScroll: true }); return; }
         choose('date', a + '..' + b);
       });
       menu.appendChild(form);
@@ -1050,7 +1050,7 @@
         var at = stops.indexOf(document.activeElement);
         if (e.shiftKey) at = at <= 0 ? stops.length - 1 : at - 1;
         else at = (at + 1) % stops.length;
-        stops[at].focus();
+        stops[at].focus({ preventScroll: true });
         return;
       }
       var edge = e.key === 'Home' || e.key === 'End';
@@ -1060,10 +1060,10 @@
       var opts = MM.dom.qa('.hx-opt', menu).filter(function (o) { return !o.hidden; });
       if (!opts.length) return;
       e.preventDefault();
-      if (edge) { opts[e.key === 'Home' ? 0 : opts.length - 1].focus(); return; }
+      if (edge) { opts[e.key === 'Home' ? 0 : opts.length - 1].focus({ preventScroll: true }); return; }
       var down = e.key === 'ArrowDown';
       var i = opts.indexOf(document.activeElement);
-      opts[i < 0 ? (down ? 0 : opts.length - 1) : (i + (down ? 1 : -1) + opts.length) % opts.length].focus();
+      opts[i < 0 ? (down ? 0 : opts.length - 1) : (i + (down ? 1 : -1) + opts.length) % opts.length].focus({ preventScroll: true });
     }
 
     /* --- opening and folding a row --- */
@@ -1177,7 +1177,7 @@
         input.value = '';
         searchNow();
         search.classList.remove('has-q');
-        input.focus();
+        input.focus({ preventScroll: true });
       }
     });
 
@@ -1218,7 +1218,7 @@
       if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || menuOf || tools.hidden) return;
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || document.querySelector('.profile-menu[open]')) return;
       e.preventDefault();
-      input.focus();
+      input.focus({ preventScroll: true });
     });
 
     window.addEventListener('scroll', function () {

@@ -64,6 +64,10 @@ def test_copy_puts_the_labels_and_values_on_the_clipboard_and_keeps_the_row_open
     assert out["open"] is True
 
 
+def test_the_slash_key_and_the_clear_button_focus_the_search_without_scrolling() -> None:
+    assert _run("search_focus")["asked"] == [True, True]
+
+
 def test_events_are_grouped_by_the_readers_own_days() -> None:
     out = _run("days")
     assert out["days"] == ["Today", "Yesterday", "Thursday 2 January 2025", "Day not known"]

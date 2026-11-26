@@ -286,6 +286,15 @@ const scenarios = {
     const bad = open({ search: '?since=soon', filters: { since: 'soon' } });
     return { ...out, bad: bad.q('[data-menu="date"]').textContent };
   },
+  search_focus: async () => {
+    const h = open({});
+    const asked = [];
+    h.input.focus = (o) => { asked.push(o && o.preventScroll === true); };
+    h.fire(h.doc, 'keydown', { key: '/', target: h.doc.body });
+    h.input.value = 'x';
+    click(h.doc, h.q('.hx-search .hx-x'));
+    return { asked };
+  },
   focus: async () => {
     const out = {};
     const only = async (key, sel) => {
