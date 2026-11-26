@@ -6,6 +6,7 @@ import pytest
 
 from mediaman.db import set_connection
 from mediaman.main import create_app
+from mediaman.services.rate_limit import limiters
 from mediaman.web.auth.password_hash import get_user_email, set_user_email
 from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.auth.session_store import create_session, list_sessions_for, validate_session
@@ -143,7 +144,10 @@ def test_signing_out_other_devices_is_limited_for_each_person(client, conn):
         ),
     ],
 )
-def test_a_limit_met_on_your_own_account_says_so_plainly(client, limiter, method, path, body):
+def test_a_limit_met_on_your_own_account_says_so_plainly(
+    client, monkeypatch, limiter, method, path, body
+):
+    monkeypatch.setattr(limiters.time, "monotonic", lambda: 1000.0)
     while limiter.check("viewer"):
         pass
 
