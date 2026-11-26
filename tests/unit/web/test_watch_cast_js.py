@@ -192,3 +192,21 @@ def test_a_carried_card_hands_its_photo_to_the_flight_and_fades_without_a_blank_
     assert out["fadesOut"] is True
     assert 150 <= out["ms"] <= 300
     assert out["afterwards"] == 0
+
+
+def test_the_copy_a_carried_card_leaves_keeps_what_came_in_late_as_it_stands() -> None:
+    out = _run("carriedHandOffSettled")
+    assert out["arriving"] > 0
+    assert out["stillArriving"] == 0
+
+
+def test_the_photo_that_flies_to_their_page_is_the_one_the_card_showed() -> None:
+    assert _run("carriedHandOffSettled")["ownPhoto"] is True
+
+
+def test_the_hand_off_sets_out_from_the_next_frame_and_stands_still_through_a_slow_one() -> None:
+    out = _run("carriedHandOffSettled")
+    assert out["heldAtStart"] == [None, None]
+    assert out["first"] == [0, 0]
+    assert all(abs(ms - (150 - 1000 / 60)) < 0.01 for ms in out["heldBy"])
+    assert out["then"] == [0, 0]

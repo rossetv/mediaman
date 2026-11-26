@@ -630,19 +630,21 @@
 
   function inSight(r) { return r.width > 0 && r.top + r.height > 0 && r.top < window.innerHeight; }
 
-  /* From the box *from* to the box *to*, or from wherever it is in the air. */
-  function fly(p, from, to, home, done) {
+  /* From the box *from* to the box *to*, or from wherever it is in the air: *face* is what flies,
+     where nothing is in the air yet. */
+  function fly(face, from, to, home, done) {
     if (core.reduceMotion() || !inSight(to) || !(flight || inSight(from))) {
       if (flight) flight.node.remove();
       flight = null;
       done();
       return;
     }
+    var fresh = !flight;
     if (flight) {
       flight.home = home;
       flight.done();
     } else {
-      flight = { node: p.face.cloneNode(true), home: home, turn: 0 };
+      flight = { node: face, home: home, turn: 0 };
       flight.node.classList.add('cast-fly');
       flight.node.setAttribute('aria-hidden', 'true');
       flight.node.style.transition = 'none';
@@ -655,6 +657,7 @@
     var turn = ++mine.turn;
     mine.done = done;
     mine.node.style.transform = at(to);
+    if (fresh) steady([mine.node]);
     whenStill([mine.node], function () {
       if (flight !== mine || mine.turn !== turn) return;
       flight = null;
@@ -663,12 +666,43 @@
     });
   }
 
+  /* A copy of the strip's photo *face* to fly, its picture fetched at once. */
+  function copyOf(face) {
+    var copy = face.cloneNode(true);
+    var img = copy.querySelector('img');
+    if (img) img.removeAttribute('loading');
+    return copy;
+  }
+
+  /* What moves on *nodes* is held where it starts until the next frame, and stands still through a
+     slow frame after it instead of leaping over it: making and drawing the person's page can take
+     150 ms or more, which Safari counts as gone by. */
+  var FRAME_MS = 1000 / 60;
+  var SLOW_MS = 50;
+  function steady(nodes) {
+    var clock = document.timeline;
+    if (!clock) return;
+    var moves = nodes.reduce(function (all, n) { return all.concat(n.getAnimations ? n.getAnimations() : []); }, []);
+    moves.forEach(function (m) { m.startTime = null; });
+    var last = null;
+    var frames = 3;
+    requestAnimationFrame(function frame(t) {
+      var slow = last !== null && t - last > SLOW_MS;
+      moves.forEach(function (m) {
+        if (m.playState === 'paused') m.startTime = clock.currentTime;
+        else if (slow && m.playState === 'running') m.startTime += t - last - FRAME_MS;
+      });
+      last = t;
+      if (--frames) requestAnimationFrame(frame);
+    });
+  }
+
   function openPerson(p) {
     if (!watch.explore) return;
     var held = live === p && shown ? shown.node.querySelector('.cast-face') : p.face;
     var from = held.getBoundingClientRect();
     var facts = known[p.id] && known[p.id].person;
-    if (held !== p.face) fadeAround(held);
+    var ghost = held !== p.face ? fadeAround(held) : null;
     drop();
     // What Back will find the focus on; Safari leaves a pressed button without it.
     quietUntil = now() + QUIET_MS;
@@ -677,15 +711,26 @@
     var photo = document.querySelector('#watch-results .explore-photo');
     if (!photo) return;
     photo.style.visibility = 'hidden';
-    fly(p, from, photo.getBoundingClientRect(), null, function () { photo.style.visibility = ''; });
+    // The card's own photo, already drawn, is the one that flies.
+    fly(held === p.face ? copyOf(held) : held, from, photo.getBoundingClientRect(), null, function () { photo.style.visibility = ''; });
+    if (ghost) steady([ghost]);
   }
 
   /* The open card, as it stands, fades out around its photo *held*, which goes on as the one in
-     the air: no frame shows neither. */
+     the air: no frame shows neither. Its copy keeps each part as it is on screen, so that nothing
+     in it moves but the fade. Says the copy, if there is one. */
   function fadeAround(held) {
-    if (plain() || !isShown() || !card.animate) return;
+    if (plain() || !isShown() || !card.animate) return null;
     var faces = toArray(card.querySelectorAll('.cast-face'));
+    var MOVING = '.in, .is-arriving, .is-new, .is-old';
+    var moving = toArray(card.querySelectorAll(MOVING));
     var ghost = card.cloneNode(true);
+    toArray(ghost.querySelectorAll(MOVING)).forEach(function (n, i) {
+      var was = window.getComputedStyle(moving[i]);
+      n.classList.remove('in', 'is-arriving', 'is-new', 'is-old');
+      n.style.opacity = was.getPropertyValue('opacity');
+      n.style.transform = was.getPropertyValue('transform');
+    });
     toArray(ghost.querySelectorAll('.cast-face'))[faces.indexOf(held)].style.visibility = 'hidden';
     ghost.inert = true;
     ghost.style.pointerEvents = 'none';
@@ -694,6 +739,7 @@
       duration: core.tokenMs('--dur', 200), easing: core.token('--ease-out', 'ease-out'), fill: 'forwards'
     });
     fade.onfinish = function () { ghost.remove(); };
+    return ghost;
   }
 
   /* Back in the detail from a page that *key* opened: their photo comes home from it. */
@@ -706,7 +752,7 @@
     if (!photo && !flight) return;
     var from = photo && photo.getBoundingClientRect();
     p.item.classList.add('is-out', 'is-away');
-    fly(p, from, homeOf(p), key, function () {
+    fly(copyOf(p.face), from, homeOf(p), key, function () {
       people.forEach(function (one) {
         if (one.key !== key) return;
         one.item.classList.remove('is-away');

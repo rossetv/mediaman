@@ -426,6 +426,75 @@ const scenarios = {
     }
   },
 
+  // The same hand-off once what is known of them has come in late: the copy left behind, the photo in the air, and their clocks.
+  async carriedHandOffSettled() {
+    const p = load(CAST, true);
+    let queued = [];
+    p.ctx.requestAnimationFrame = (fn) => { queued.push(fn); return queued.length; };
+    p.ctx.cancelAnimationFrame = () => { queued = []; };
+    const frame = async (ms) => {
+      await p.wait(ms);
+      queued.splice(0).forEach((fn) => fn(p.ctx.performance.now()));
+    };
+    p.doc.timeline = { get currentTime() { return p.ctx.performance.now(); } };
+    const fades = [];
+    Node.prototype.animate = function (keys, opts) {
+      const a = { node: this, keys, opts, onfinish: null, startTime: 0, get playState() { return this.startTime === null ? 'paused' : 'running'; } };
+      fades.push(a);
+      this.fading = a;
+      return a;
+    };
+    Node.prototype.getAnimations = function () {
+      if (this.fading) return [this.fading];
+      if (!this.classList.contains('cast-fly')) return [];
+      this.moving = this.moving || { finished: new Promise(() => {}), startTime: 0, get playState() { return this.startTime === null ? 'paused' : 'running'; } };
+      return [this.moving];
+    };
+    try {
+      p.ctx.MMWatch.explore.openPerson = () => {
+        p.doc.getElementById('watch-results').appendChild(build(p.doc, ['div', { class: 'results-page' },
+          ['h1', { class: 'explore-title' }, 'Mara Ellison'], ['span', { class: 'explore-photo' }]]));
+      };
+      p.over(p.item(0));
+      await p.wait(300);
+      await frame(16);
+      await p.wait(16);
+      await p.answer('9001', reply());
+      for (let i = 0; i < 10; i++) await frame(16);
+      const pane = p.q('.cast-card__pane');
+      const arriving = pane.querySelectorAll('.is-arriving').length;
+      const face = pane.querySelector('.cast-face');
+      p.over(pane, 'mouse', 100, 100);
+      for (let i = 0; i < 80 && !p.doc.querySelector('.cast-fly'); i++) {
+        if (i < 4) p.wheel(pane, 40);
+        await frame(16);
+      }
+      const fly = p.doc.querySelector('.cast-fly');
+      if (!fly) return null;
+      const ghost = p.root.querySelectorAll('.cast-card').filter((c) => !c.hidden)[0];
+      const fade = fades.filter((a) => a.node === ghost)[0];
+      const clocks = () => [fade.startTime, fly.getAnimations()[0].startTime];
+      const held = clocks();
+      await frame(16);
+      const first = { at: p.ctx.performance.now(), starts: clocks() };
+      await frame(150);
+      const slow = clocks();
+      await frame(16);
+      return {
+        arriving,
+        stillArriving: ghost.querySelectorAll('.in, .is-arriving, .is-new').length,
+        ownPhoto: fly === face,
+        heldAtStart: held,
+        first: first.starts.map((s) => s - first.at),
+        heldBy: slow.map((s, i) => s - first.starts[i]),
+        then: clocks().map((s, i) => s - slow[i]),
+      };
+    } finally {
+      delete Node.prototype.animate;
+      delete Node.prototype.getAnimations;
+    }
+  },
+
   // A card with no room above or under the person stands over the photo the pointer rests on: a scroll there is the page's.
   async scrolledOnThePhoto() {
     const p = load();
