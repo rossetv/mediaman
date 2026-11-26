@@ -469,8 +469,12 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
   display: flex;
   align-items: center;
 }
-.dl-compact > .dl-row--has-abandon { grid-template-columns: 48px 1fr auto auto; }
 .dl-compact .dl-row-abandon { position: static; grid-area: 1 / -2; margin-right: -8px; }
+/* The button's column, less the 8px it reaches into the row's padding. */
+.dl-compact-list { --dl-abandon-col: 32px; }
+@media (min-width: 375px) {
+  .dl-compact > .dl-row--has-abandon { grid-template-columns: 48px 1fr auto var(--dl-abandon-col); }
+}
 /* Upcoming rows have no .dl-compact-right; pad the row itself so the
    "Scheduled" pill doesn't sit underneath the abandon button. */
 .dl-upcoming-row.dl-row--has-abandon { padding-right: 60px; }
@@ -537,12 +541,25 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
 @media (max-width: 374.98px) {
   /* The title keeps room for two or three short lines; the time left wraps instead. */
   .dl-compact > .dl-row { row-gap: 8px; grid-template-columns: 48px minmax(110px, 1fr) auto; }
-  .dl-compact > .dl-row--has-abandon { grid-template-columns: 48px minmax(110px, 1fr) auto auto; }
   .dl-compact > .dl-row > .dl-row-info { display: contents; }
   .dl-compact > .dl-row .dl-row-title { margin-bottom: 0; white-space: normal; overflow-wrap: anywhere; }
   .dl-compact-row > .dl-compact-episodes-toggle,
   .dl-compact-row > .dl-compact-episodes { grid-column: 1 / -1; }
   .dl-compact > .dl-row .dl-compact-right { grid-area: 1 / 3; }
+  /* With a button, the percentage and time left go under the title and leave the button the
+     last column. */
+  .dl-compact > .dl-row--has-abandon > .dl-row-poster,
+  .dl-compact > .dl-row--has-abandon > .dl-row-abandon { grid-row: 1 / 3; }
+  .dl-compact > .dl-row--has-abandon .dl-row-title { align-self: end; }
+  .dl-compact > .dl-row--has-abandon .dl-compact-right {
+    grid-area: 2 / 2;
+    align-self: start;
+    flex-flow: row wrap;
+    align-items: baseline;
+    gap: 0 8px;
+    text-align: left;
+  }
+  .dl-compact > .dl-row--has-abandon .dl-compact-pct { min-width: 0; }
   .dl-compact > .dl-row .dl-row-meta,
   .dl-compact > .dl-row .dl-search-hint,
   .dl-compact > .dl-row .dl-row-bar { grid-column: 1 / -1; margin-top: 0; }
@@ -564,6 +581,7 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
 @media (max-width: 699.98px), (pointer: coarse) {
   .dl-hero-abandon .btn.btn--icon,
   .dl-row-abandon .btn.btn--icon { width: 44px; height: 44px; }
+  .dl-compact-list { --dl-abandon-col: 36px; }
   .dl-hero-episodes-toggle,
   .dl-compact-episodes-toggle { min-height: 44px; }
 }
