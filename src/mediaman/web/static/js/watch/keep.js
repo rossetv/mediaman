@@ -248,6 +248,22 @@
       if (first) focusItem(first);
     }
 
+    /* A finger's press elsewhere only shuts the menu: the click it ends in opens nothing. */
+    var dismissing = false;
+    document.addEventListener('pointerdown', function (e) {
+      dismissing = !!openTrigger && e.pointerType !== 'mouse' && !!e.target.closest && !node.contains(e.target) && !e.target.closest(opts.trigger);
+    }, true);
+    ['pointercancel', 'keydown'].forEach(function (name) {
+      document.addEventListener(name, function () { dismissing = false; }, true);
+    });
+    document.addEventListener('click', function (e) {
+      if (!dismissing) return;
+      dismissing = false;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      close(false);
+    }, true);
+
     document.addEventListener('click', function (e) {
       var target = e.target;
       if (!target.closest) return;
@@ -752,7 +768,7 @@
       moveTo(back);
     }
     MM.api.post(UNKEEP_URL, { media_item_id: id }).then(function () {
-      tell(id, 'Keep undone' + (name ? ' for ' + name : ''), { variant: 'info' });
+      tell(id, 'Keep undone' + (name ? ' for ' + name : '') + '.', { variant: 'info' });
       settled(id, true);
     }).catch(function (err) {
       var trigger = back || triggersFor(id)[0];

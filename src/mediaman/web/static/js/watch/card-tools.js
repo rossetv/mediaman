@@ -450,10 +450,27 @@
     if (open && e.target.closest && e.target.closest('.watch-card') === open.card) clearTimeout(leaving);
   });
 
+  /* A finger's press that shuts the levels only shuts them: the click it ends in opens nothing. */
+  var shutByTouch = false;
   document.addEventListener('pointerdown', function (e) {
     clearTimeout(dwell);
-    if (open && e.target.closest && !open.card.contains(e.target) && !e.target.closest('.watch-keep-menu')) shut();
+    shutByTouch = false;
+    if (open && e.target.closest && !open.card.contains(e.target) && !e.target.closest('.watch-keep-menu')) {
+      shutByTouch = e.pointerType !== 'mouse';
+      shut();
+    }
   }, true);
+
+  document.addEventListener('click', function (e) {
+    if (!shutByTouch) return;
+    shutByTouch = false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+
+  ['pointercancel', 'keydown'].forEach(function (name) {
+    document.addEventListener(name, function () { shutByTouch = false; }, true);
+  });
 
   document.addEventListener('focusout', function (e) {
     // A press on what takes no focus has none to say; neither has a window left.

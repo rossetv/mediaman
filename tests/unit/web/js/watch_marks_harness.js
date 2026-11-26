@@ -389,6 +389,51 @@ const scenarios = {
     return { mark: await go('mark', CONTINUE, mark), dismiss: await go('dismiss', CONTINUE, { 'DELETE /api/watch/dismissed/movie-1': 409 }), last: (await go('mark', CONTINUE.slice(0, 1), mark))[1] };
   },
 
+  // A press that shuts the levels or a menu: by finger the click it ends in is cancelled, by mouse it is not.
+  async dismissingPress() {
+    const run = (pointerType, kind) => {
+      const p = load(watchPage([row('lib', [FILM({ tmdb: '10' }), card('movie/4', 'Other', 'Movie')])]));
+      const [film, other] = p.cards();
+      const link = other.querySelector('.watch-card__link');
+      let menu;
+      if (kind === 'levels') {
+        p.open(film);
+      } else {
+        const trigger = p.doc.body.appendChild(build(p.doc, ['button', { 'data-m': '' }]));
+        menu = p.doc.body.appendChild(build(p.doc, ['div', { class: 'watch-keep-menu', hidden: '' }, ['button', { class: 'watch-keep-menu__item' }]]));
+        p.ctx.MMWatch.keep.menu(menu, { trigger: '[data-m]', choose() {} });
+        click(p.doc, trigger);
+      }
+      const shut = () => (kind === 'levels' ? !film.classList.contains('is-lifted') : !menu.classList.contains('is-open'));
+      const tap = () => {
+        let stopped = false;
+        let prevented = false;
+        send(p.doc.listeners.pointerdown, { target: link, pointerType, pointerId: 1 });
+        const e = { target: link, preventDefault() { prevented = true; }, stopImmediatePropagation() { stopped = true; } };
+        p.doc.listeners.click.forEach((fn) => { if (!stopped) fn(e); });
+        return { prevented, stopped };
+      };
+      const first = tap();
+      const closed = shut();
+      return { first, closed, second: tap() };
+    };
+    const out = {};
+    for (const kind of ['levels', 'menu']) for (const type of ['touch', 'mouse']) out[kind + ' ' + type] = run(type, kind);
+    return out;
+  },
+
+  // A finger that scrolls the page away from open levels ends in no click, and the next click is its own.
+  async dismissingCancelled() {
+    const p = load(watchPage([row('lib', [FILM({ tmdb: '10' }), card('movie/4', 'Other', 'Movie')])]));
+    const [film, other] = p.cards();
+    p.open(film);
+    send(p.doc.listeners.pointerdown, { target: other, pointerType: 'touch', pointerId: 1 });
+    send(p.doc.listeners.pointercancel, { target: other, pointerType: 'touch', pointerId: 1 });
+    let prevented = false;
+    p.doc.listeners.click.forEach((fn) => fn({ target: other, preventDefault() { prevented = true; }, stopImmediatePropagation() {} }));
+    return prevented;
+  },
+
   // A finger on a screen that has a mouse too, on a button that is not in sight, and on one that is.
   async unseenTool() {
     const press = async (opacity) => {

@@ -955,3 +955,16 @@ def test_dismissing_again_takes_the_toasts_of_the_last_dismiss_and_its_undo_away
 
 def test_more_like_a_title_is_found_only_where_there_is_an_ai() -> None:
     assert _run("like") == [["movie-1", "show-2", "tmdb-movie-77", ""], [""] * 4]
+
+
+def test_a_finger_that_shuts_the_levels_or_a_menu_opens_nothing_and_the_next_tap_does() -> None:
+    out = _run("dismissingPress")
+    cancelled = {"prevented": True, "stopped": True}
+    free = {"prevented": False, "stopped": False}
+    for kind in ("levels", "menu"):
+        assert out[kind + " touch"] == {"first": cancelled, "closed": True, "second": free}
+        assert out[kind + " mouse"] == {"first": free, "closed": True, "second": free}
+
+
+def test_a_press_that_became_a_scroll_cancels_nothing_of_the_next_click() -> None:
+    assert _run("dismissingCancelled") is False
