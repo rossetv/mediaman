@@ -369,7 +369,7 @@ class _Stream:
     order: int = 0
     tv: bool = False
     #: A TV has read its playlist or a segment: of one started for a TV, or by a ticket, as an
-    #: AirPlay TV reads a player's stream.
+    #: AirPlay TV reads a player's stream, and its player has read neither since.
     tv_read: bool = False
     #: Whether a TV may go on reading; asked by the reaper, without the lock.
     allowed: Callable[[], bool] | None = None
@@ -1015,7 +1015,11 @@ class StreamManager:
             if stream is None or stream.user != user:
                 raise self._gone(stream_id, user)
             stream.last_access = self._clock()
-            stream.tv_read = stream.tv_read or (read and (stream.tv or by_tv))
+            if read and (stream.tv or by_tv):
+                stream.tv_read = True
+            elif read:
+                # Back with its player: an AirPlay TV no longer reads it.
+                stream.tv_read = False
             viewing = self._viewings.setdefault(
                 (user, stream.rating_key), _Viewing(stream.viewing_started, stream.last_access)
             )

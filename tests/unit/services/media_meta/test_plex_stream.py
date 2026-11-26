@@ -1929,3 +1929,15 @@ def test_a_players_stream_a_tv_reads_waits_as_long_as_a_tvs(manager, plex, clock
     assert manager.get(tv_read, "alice")
     with pytest.raises(plex_stream.StreamGone):
         manager.get(own, "alice")
+
+
+@pytest.mark.parametrize("read", ["playlist", "segment"])
+def test_a_stream_back_from_a_tv_to_its_player_waits_as_a_players_again(manager, plex, clock, read):
+    stream_id = _start(manager)
+    manager.playlist(stream_id, "alice", by_tv=True)
+    if read == "playlist":
+        manager.playlist(stream_id, "alice")
+    else:
+        _segment(manager, stream_id, "alice", "00000.ts")
+    clock.now += plex_stream.IDLE_TIMEOUT_SECONDS + 1
+    assert manager.reap() == 1
