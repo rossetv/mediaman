@@ -186,6 +186,29 @@ def test_stop_tracking_that_radarr_refuses_says_so_and_rebuilds_no_queue(service
     services[0].get_queue.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("state", "said"),
+    [
+        ("searching", "Radarr didn't abandon it. Try again."),
+        ("upcoming", "Radarr didn't stop tracking it. Try again."),
+    ],
+)
+def test_a_failed_abandon_says_abandon_and_only_one_coming_soon_says_stop_tracking(
+    services, client, state, said
+):
+    item = {"id": "radarr:Dune", "arr_id": 4, "kind": "movie", "state": state}
+    with (
+        patch("mediaman.web.routes.downloads._lookup_dl_item", return_value=item),
+        patch(
+            "mediaman.web.routes.downloads.abandon_movie",
+            return_value=AbandonResult(kind="movie", failed=[0], dl_id="radarr:Dune"),
+        ),
+    ):
+        resp = client.post("/api/downloads/radarr%3ADune/abandon", json={"arr_id": 4})
+
+    assert resp.json()["message"] == said
+
+
 def _hold_in_library(conn, tmdb_id: int, title: str) -> None:
     insert_media_item(conn, id=str(900 + tmdb_id), title=title, media_type="movie")
     conn.execute("UPDATE media_items SET tmdb_id = ? WHERE title = ?", (tmdb_id, title))

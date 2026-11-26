@@ -290,6 +290,7 @@ def _abandon(request: Request, body: AbandonRequest, dl_id: str) -> JSONResponse
     abandoned = {"kind": result.kind, "succeeded": result.succeeded, "failed": result.failed}
     if result.failed:
         service = "Radarr" if result.kind == "movie" else "Sonarr"
-        words = f"{service} didn't stop tracking it. Try again."
+        done = "stop tracking" if item.get("state") == "upcoming" else "abandon"
+        words = f"{service} didn't {done} it. Try again."
         return respond_failure(words, status=502, abandoned=abandoned)
     return JSONResponse({"ok": True, "abandoned": abandoned})
