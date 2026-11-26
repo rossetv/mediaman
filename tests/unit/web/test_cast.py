@@ -851,6 +851,18 @@ def test_a_paused_airplay_tv_keeps_the_stream_as_long_as_a_cast(alice, tv, clock
     assert tv.get(started["airplay"]).status_code == 200
 
 
+@pytest.mark.parametrize("kind", ["cast", "airplay"])
+def test_a_paused_tv_keeps_its_stream_for_two_hours_and_no_longer(alice, tv, clock, kind):
+    url = _cast(alice)["url"] if kind == "cast" else _watch(alice, airplay=True)["airplay"]
+    assert tv.get(url).status_code == 200
+    manager = plex_stream.get_stream_manager()
+    clock.now += 2 * 3600 - 60
+    assert manager.reap() == 0
+    clock.now += 61
+    assert manager.reap() == 1
+    assert tv.get(url).status_code == 404
+
+
 def test_a_player_that_may_airplay_but_reads_alone_is_reaped_as_any_player(alice, tv, clock):
     started = _watch(alice, airplay=True)
     playlist = alice.get(started["playlist"])
