@@ -242,12 +242,12 @@ html.has-player .ui-toast-host {
   html.has-setg-rail .ui-toast-host { --toast-top: 120px; }
 }
 
-/* On a phone the bar at the foot and a settings savebar (up to two rows) sit under the stack. */
+/* On a phone a settings savebar (up to two rows) sits under the stack. */
 @media (max-width: 699.98px) {
   .ui-toast-host { --toast-reserve: calc(var(--foot) + 86px); }
 }
 
-/* Watch on a phone: the stack stands just above the bar at the foot. */
+/* Watch on a phone: the stack stands just above the foot of the screen. */
 @media (max-width: 699.98px) {
   html.has-watch-search .ui-toast-host {
     top: auto;

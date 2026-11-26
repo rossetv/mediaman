@@ -237,7 +237,7 @@ html.has-ttl.has-tv-mini .ttl { padding-bottom: 98px; scroll-padding-bottom: 98p
 @media (max-height: 520px) and (min-width: 700px) and (max-width: 799.98px) {
   .tv-mini__pic { display: none; }
 }
-/* With the bar at the foot too those buttons are at the right. */
+/* A short phone in landscape: the mini player leaves the right for its buttons. */
 @media (max-height: 520px) and (max-width: 699.98px) {
   .tv-mini { left: max(8px, env(safe-area-inset-left)); right: auto; width: calc(100% - 236px); }
 }
