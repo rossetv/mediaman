@@ -164,3 +164,35 @@ class TestNzbgetCheckReachable:
             client.check_reachable()
         fake_http.queue("POST", fake_response(json_data=["not", "a", "status"]))
         assert client.is_reachable() is False
+
+
+class TestPlainHttpWarning:
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch):
+        from mediaman.services.downloads import nzbget
+
+        monkeypatch.setattr(nzbget, "_warned_hosts", set(), raising=False)
+
+    @staticmethod
+    def _warnings(caplog):
+        return [r for r in caplog.records if "plain_http_non_lan" in r.getMessage()]
+
+    @pytest.mark.parametrize(
+        "host", ["nzbget", "host.docker.internal", "nas.local", "box.lan", "nzbget.internal"]
+    )
+    def test_a_docker_or_home_network_name_counts_as_local(self, host, caplog):
+        with caplog.at_level("WARNING"):
+            NzbgetClient(f"http://{host}:6789", "user", "pass")
+        assert self._warnings(caplog) == []
+
+    def test_a_public_name_is_warned_about_once_however_often_a_client_is_built(self, caplog):
+        with caplog.at_level("WARNING"):
+            for _ in range(3):
+                NzbgetClient("http://nzb.example.com:6789", "user", "pass")
+            NzbgetClient("http://other.example.com:6789", "user", "pass")
+        assert len(self._warnings(caplog)) == 2
+
+    def test_a_public_ipv6_address_is_still_warned_about(self, caplog):
+        with caplog.at_level("WARNING"):
+            NzbgetClient("http://[2606:4700::1111]:6789", "user", "pass")
+        assert len(self._warnings(caplog)) == 1
