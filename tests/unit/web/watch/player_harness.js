@@ -6215,6 +6215,22 @@ const scenarios = {
     return { shown: shown, after: introState(p), out: p.root.classList.contains('is-intro-out') };
   },
 
+  /* A second name, once the first has gone out, is drawn from the start: neither class holds it at a reflow. */
+  async intro_restart(p) {
+    await settle();
+    p.tick(400);
+    await streamPlays(p, 100);
+    const cl = p.root.classList;
+    const out = cl.contains('is-intro-out');
+    const reflows = [];
+    Object.defineProperty(p.root, 'offsetWidth', { get() { reflows.push([cl.contains('is-intro'), cl.contains('is-intro-out')]); return 0; } });
+    p.replies.push(answer('1080p-8000'));
+    click(p.q('[data-next-btn]'));
+    await settle();
+    p.tick(400);
+    return { out: out, reflows: reflows, intro: cl.contains('is-intro') };
+  },
+
   /* Sent to a TV as it starts: the page shows what it shows today. */
   async away_intro(p) {
     p.elsewhere.plays.push(() => new Promise(() => {}));

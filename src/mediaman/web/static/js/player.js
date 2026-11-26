@@ -858,12 +858,9 @@
           showIntro();
           return;
         }
-        if (root.classList.contains('is-intro-out')) {
-          /* The drawing stopped where the last one left it: it starts over. */
-          var drawn = root.querySelector('.player-intro');
-          if (drawn.getAnimations) drawn.getAnimations({ subtree: true }).forEach(function (a) { a.currentTime = 0; });
-        }
         root.classList.remove('is-intro-out');
+        /* The drawing kept its end; a reflow with neither class drops it, so it starts over. */
+        void root.offsetWidth;
         root.classList.add('is-intro');
       }, INTRO_AFTER_MS);
     }

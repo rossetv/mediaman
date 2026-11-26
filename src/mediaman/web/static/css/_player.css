@@ -584,6 +584,8 @@
   .player.is-intro-out video.player-video { transition: opacity var(--intro-picture) var(--ease-out), transform var(--intro-zoom) var(--ease-out); }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* The base stylesheet pulses the spinner here; under the name it stays hidden. */
+  .player.is-starting.is-loading .player-spinner { animation: none !important; }
   /* Only a fade, which the base stylesheet would cut short. */
   .player.is-intro .player-intro { transition-duration: var(--dur-slow) !important; }
   .player.is-intro-out .player-intro { transition-duration: var(--intro-fade) !important; }

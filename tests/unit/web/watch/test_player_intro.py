@@ -115,3 +115,20 @@ def test_the_name_fades_from_where_its_drawing_stopped_and_the_spinner_is_hidden
     )
     assert re.search(r"\.is-intro-out[^{]*\{[^}]*animation-play-state:\s*paused", css)
     assert re.search(r"\.is-starting \.player-spinner\s*\{\s*opacity:\s*0", css)
+
+
+def test_under_reduced_motion_the_pulsing_spinner_stays_hidden_under_the_name():
+    css = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
+    reduce, _ = _split(css, "reduce")
+    hide = r"\.is-starting\.is-loading \.player-spinner\s*\{[^}]*animation:\s*none\s*!important"
+    assert any(re.search(hide, b) for b in reduce)
+
+
+def test_a_second_name_starts_its_drawing_over_once_the_first_has_gone_out(
+    markup, tmp_path_factory
+):
+    pages = {"/watch/play/502": _markup(tmp_path_factory, _episode(2))}
+    out = run(markup, "intro_restart", pages=pages)
+    assert out["out"] is True
+    assert out["intro"] is True
+    assert [False, False] in out["reflows"]
