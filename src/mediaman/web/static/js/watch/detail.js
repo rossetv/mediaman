@@ -1511,6 +1511,16 @@
     return { id: String(found.keep_id), days: found.days, season: d.kind === 'movie' ? null : found.season };
   }
 
+  /* Of a show on a season that does not leave, picked or named by its link: the first other
+     season that does, said with no Keep, as that would keep a season not on show. */
+  function otherLeaving() {
+    var d = cur.data;
+    if (d.kind === 'movie' || !(cur.chosen || (cur.opensOn !== undefined && d.seasons && d.seasons.length))) return null;
+    var shown = cur.chosen ? cur.season : ownSeason(d).number;
+    var found = (d.leaving_seasons || []).filter(function (s) { return s.season !== shown; })[0];
+    return found ? { days: found.days, season: found.season } : null;
+  }
+
   function leavesWhen(days) {
     return days < 0 ? 'any day' : days === 0 ? 'today' : 'in ' + plural(days, 'day', 'days');
   }
@@ -1681,10 +1691,11 @@
       downloadPart(actions, under);
     }
     var leaves = leavingNow();
-    if (leaves) {
+    var other = leaves ? null : otherLeaving();
+    if (leaves || other) {
       var line = el('p', 'ttl__leaving');
       line.appendChild(icon('i-clock'));
-      line.appendChild(leavingWords(leaves));
+      line.appendChild(leaves ? leavingWords(leaves) : el('span', '', leavingText(other)));
       under.appendChild(line);
     }
     var like = likeButton(d);

@@ -1010,8 +1010,9 @@ def test_a_shorter_season_leaves_its_pill_where_it_was_pressed() -> None:
 
 def test_a_season_whose_leaving_line_goes_or_comes_leaves_its_pill_where_it_was_pressed() -> None:
     out = _run("leavingLineGoes")
-    for at, scrolled in (("0", 0), ("25", 0), ("300", 260)):
-        assert out[at]["gone"] == {"moved": 0, "line": False, "scroll": scrolled}
+    for at in ("0", "25", "300"):
+        # The line stays, naming the season that leaves with no Keep: nothing is scrolled.
+        assert out[at]["gone"] == {"moved": 0, "line": True, "scroll": int(at)}
         assert out[at]["loaded"] == 0
         assert (out[at]["back"]["moved"], out[at]["back"]["line"]) == (0, True)
         assert out[at]["room"] == 0
@@ -1427,7 +1428,11 @@ def test_the_season_picked_in_the_list_is_the_one_kept() -> None:
     out = _run("leavingSeasons")
     assert _keeps(out["picked"]) == SECOND
     assert out["focus"] == "pill-2"
-    assert out["pickedOther"] == [None, None, None]
+    assert out["pickedOther"][:2] == [None, None]
+
+
+def test_a_season_picked_that_does_not_leave_names_the_one_that_does_with_no_keep() -> None:
+    assert _run("leavingSeasons")["pickedOther"][2] == "Season 3 leaves in 2 days."
 
 
 def test_a_films_keep_names_no_season() -> None:
