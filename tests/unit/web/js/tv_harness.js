@@ -12,7 +12,8 @@ const template = (name) => fs.readFileSync(path.join(WEB, '../templates', name),
 const STAGE = template('tv.html').match(/<main id="s">(.*?)<\/main>/s)[1]
   .replace(/\{% include "([^"]+)" %\}/g, (all, name) => template(name)).replace(/\{#.*?#\}/gs, '');
 
-function tv({ kept = null, plays = true } = {}) {
+// `full`: the browser has the Fullscreen API and goes full screen a moment after it is asked.
+function tv({ kept = null, plays = true, full = false } = {}) {
   let time = 1e12;
   let timers = [];
   let ids = 0;
@@ -48,6 +49,7 @@ function tv({ kept = null, plays = true } = {}) {
   Object.defineProperty(video, 'src', { get() { return this.attrs.src; }, set(v) { this.attrs.src = v; } });
   nodes.v = video;
   nodes.s = element();
+  nodes.f = element();
   // The page before: what was drawn on the stage, moved with the nodes it had.
   nodes.o = Object.assign(element(), {
     held: [],
@@ -57,11 +59,11 @@ function tv({ kept = null, plays = true } = {}) {
   let html = '';
   const drawn = (text) => {
     html = text;
-    Object.keys(nodes).forEach((id) => { if (!['v', 's', 'o'].includes(id)) delete nodes[id]; });
+    Object.keys(nodes).forEach((id) => { if (!FIXED.includes(id)) delete nodes[id]; });
   };
   Object.defineProperty(nodes.s, 'innerHTML', { get: () => html, set: drawn });
   Object.defineProperty(nodes.s, 'firstChild', {
-    get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !['v', 's', 'o'].includes(id)).map((id) => nodes[id]) } : null),
+    get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !FIXED.includes(id)).map((id) => nodes[id]) } : null),
   });
   const body = Object.assign(element(), { attrs: { 'data-base': 'https://mediaman.example', 'data-hls': '/hls.js' } });
   // What is drawn on the page is found by its id while it is drawn.
@@ -74,11 +76,23 @@ function tv({ kept = null, plays = true } = {}) {
       return null;
     },
     getElementById(id) {
-      if (nodes[id] && (id === 'v' || id === 's' || id === 'o')) return nodes[id];
+      if (FIXED.includes(id)) return nodes[id];
       if (!nodes.s.innerHTML.includes('id="' + id + '"')) return null;
       return (nodes[id] = nodes[id] || Object.assign(element(), { id, nodeType: 1, focus() { if (document.activeElement === this) return; document.activeElement = this; (document.on.focus || []).forEach((fn) => fn({ target: this })); } }));
     },
   };
+  const fullAsks = [];
+  const changed = () => (document.on.fullscreenchange || []).forEach((fn) => fn({}));
+  document.documentElement = element();
+  if (full) {
+    document.fullscreenEnabled = true;
+    document.fullscreenElement = null;
+    document.documentElement.requestFullscreen = function () {
+      fullAsks.push(this === document.documentElement ? 'root' : 'other');
+      later(() => { document.fullscreenElement = this; changed(); }, 50);
+      return { then() {} };
+    };
+  }
   class XMLHttpRequest {
     open(method, url, async) { Object.assign(this, { method, url, async, headers: {} }); }
     setRequestHeader(k, v) { this.headers[k] = v; }
@@ -107,7 +121,9 @@ function tv({ kept = null, plays = true } = {}) {
   };
   ctx.window = ctx;
   return {
-    sent, answers, video, store,
+    sent, answers, video, store, fullAsks,
+    leaveFull() { document.fullscreenElement = null; changed(); },
+    hint: () => nodes.f.className,
     run() { vm.runInContext(SOURCE, vm.createContext(ctx)); return this; },
     qr: (text) => ctx.window.MMTv.qr(text),
     // Steps the clock, and lets what was promised come.
@@ -169,7 +185,8 @@ const film = (more) => ({
   art_url: '/api/tv/device/art/p1', duration_s: 2880, start_s: 100, played_s: 50, markers: [], chapters: [], next: null, upnext_in_s: null, still_in_s: null, error: null, ...more,
 });
 const GONE = [404, { ok: false, error: 'not_found' }];
-const OK = 13, LEFT = 37, RIGHT = 39;
+const OK = 13, LEFT = 37, RIGHT = 39, BACK = 10009;
+const FIXED = ['v', 's', 'o', 'f'];
 
 async function playing(more) {
   const t = tv({ kept: 'old' });
@@ -777,6 +794,73 @@ const scenarios = {
     t.video.fire('playing');
     await t.step(1500);
     return { said, state, now: t.last('poll').body.report.state };
+  },
+  // The first press goes full screen and does nothing else; polls never ask.
+  async fullByKey() {
+    const t = tv({ kept: 'old', full: true });
+    t.answers.poll = () => ready({ poll_ms: 1000, commands: t.commands || [] });
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(100);
+    const before = { hint: t.hint(), asks: t.fullAsks.length };
+    t.commands = [{ id: 3, kind: 'volume', level: 0.5 }];
+    await t.step(5000);
+    const polled = t.fullAsks.length;
+    t.key(OK);
+    const first = { asks: t.fullAsks.slice(), said: t.says() };
+    await t.step(100);
+    const full = t.hint();
+    t.key(OK);
+    await t.step(100);
+    return { before, polled, first, full, asks: t.fullAsks.length, then: t.says() };
+  },
+  async fullHint(where) {
+    const t = tv({ kept: 'old', full: where !== 'none' });
+    t.answers.poll = () => ready({ play: t.now });
+    t.now = where === 'idle' || where === 'none' ? null : film();
+    t.run();
+    await t.step(50);
+    if (t.now) { t.video.fire('loadedmetadata'); t.video.fire('playing'); }
+    await t.step(600);
+    const at = t.hint();
+    await t.step(5000);
+    const later = t.hint();
+    t.key(OK);
+    await t.step(100);
+    const full = t.hint();
+    t.leaveFull();
+    const left = t.hint();
+    await t.step(5000);
+    return { at, later, full, left, after: t.hint(), asks: t.fullAsks.length };
+  },
+  async fullAndBack() {
+    const t = tv({ kept: 'old', full: true });
+    t.answers.poll = () => ready({ poll_ms: 2000 });
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(100);
+    t.key(OK);
+    await t.step(100);
+    t.key(OK);
+    await t.step(100);
+    const code = t.says();
+    t.leaveFull();
+    t.key(BACK);
+    return { code, back: t.says(), asks: t.fullAsks.length };
+  },
+  async fullFirstOk(blocked) {
+    const t = tv({ kept: 'old', full: true });
+    t.answers.poll = () => ready({ play: film() });
+    t.video.refuse = Boolean(blocked);
+    t.run();
+    await t.step(50);
+    if (!blocked) { t.video.fire('loadedmetadata'); t.video.fire('playing'); }
+    await t.step(600);
+    t.video.refuse = false;
+    const said = t.says(), hint = t.hint();
+    t.video.calls.length = 0;
+    t.key(OK);
+    return { said, hint, calls: t.video.calls, asks: t.fullAsks.length, then: t.says() };
   },
   async keys() {
     const t = await playing();
