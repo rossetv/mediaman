@@ -456,7 +456,8 @@
     clearTimeout(dwell);
     shutByTouch = false;
     if (open && e.target.closest && !open.card.contains(e.target) && !e.target.closest('.watch-keep-menu')) {
-      shutByTouch = e.pointerType !== 'mouse';
+      // A press on another card's thumb is a rating of its own: its click is wanted.
+      shutByTouch = e.pointerType !== 'mouse' && !thumbAt(e.target);
       shut();
     }
   }, true);

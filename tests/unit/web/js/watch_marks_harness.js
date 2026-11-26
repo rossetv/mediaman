@@ -422,6 +422,45 @@ const scenarios = {
     return out;
   },
 
+  // The levels are open on one card; a finger then presses another card's thumb: a tap opens its levels, a slide rates.
+  async pressOnAnotherThumb() {
+    const go = async (slide) => {
+      const c = clock();
+      const api = { 'PUT /api/watch/ratings/tmdb-movie-11 2': { ...FILM_10, tmdb_id: 11 }, 'PUT /api/watch/ratings/tmdb-movie-11 1': { ...FILM_10, tmdb_id: 11 } };
+      const p = load(watchPage([row('lib', [FILM({ tmdb: '10' }), card('movie/4', 'Other', 'Movie', { tmdb: '11' })])]), { touch: true, clock: c, api });
+      const [a, b] = p.cards();
+      const own = Node.prototype.getBoundingClientRect;
+      Node.prototype.getBoundingClientRect = function () {
+        const i = this.classList.contains('rate__b') ? this.parentNode.querySelectorAll('.rate__b').indexOf(this) : -1;
+        return i < 0 ? own.call(this) : { top: 200 + i * 50, bottom: 250 + i * 50, left: 0, right: 40, width: 40, height: 50 };
+      };
+      // A click that stops where it is told to, as a browser's does.
+      const dispatch = (target) => {
+        let stopped = false;
+        const e = { target, detail: 1, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() { stopped = true; } };
+        e.stopPropagation = e.stopImmediatePropagation;
+        // The document's listeners first, as a capture listener of it goes before the button's own.
+        (p.doc.listeners.click || []).slice().forEach((fn) => { if (!stopped) fn(e); });
+        for (let n = target; n && !stopped; n = n.parentNode) (n.listeners.click || []).forEach((fn) => { if (!stopped) fn(e); });
+      };
+      Node.prototype.click = function () { dispatch(this); };
+      p.open(a);
+      const thumbB = b.querySelector('[data-card-rate]');
+      const at = (y) => ({ pointerType: 'touch', pointerId: 1, isPrimary: true, clientX: 20, clientY: y, target: thumbB });
+      send(p.doc.listeners.pointerdown, at(400));
+      if (slide) {
+        send(p.win.pointermove, { type: 'pointermove', ...at(380) });
+        send(p.win.pointermove, { type: 'pointermove', ...at(210) });
+        await c.pass(700);
+      }
+      send(p.win.pointerup, { type: 'pointerup', ...at(210) });
+      if (!slide) dispatch(thumbB);
+      await c.pass(100);
+      return { calls: p.calls, aShut: !a.classList.contains('is-lifted'), bOpen: b.classList.contains('is-lifted') };
+    };
+    return { tap: await go(false), slide: await go(true) };
+  },
+
   // A finger that scrolls the page away from open levels ends in no click, and the next click is its own.
   async dismissingCancelled() {
     const p = load(watchPage([row('lib', [FILM({ tmdb: '10' }), card('movie/4', 'Other', 'Movie')])]));

@@ -968,3 +968,13 @@ def test_a_finger_that_shuts_the_levels_or_a_menu_opens_nothing_and_the_next_tap
 
 def test_a_press_that_became_a_scroll_cancels_nothing_of_the_next_click() -> None:
     assert _run("dismissingCancelled") is False
+
+
+def test_a_press_on_another_cards_thumb_with_levels_open_still_rates_or_opens_its() -> None:
+    out = _run("pressOnAnotherThumb")
+    assert out["tap"] == {"calls": [], "aShut": True, "bOpen": True}
+    assert out["slide"] == {
+        "calls": ["PUT /api/watch/ratings/tmdb-movie-11 2"],
+        "aShut": True,
+        "bOpen": True,
+    }
