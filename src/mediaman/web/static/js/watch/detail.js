@@ -1504,7 +1504,6 @@
   }
 
   var RATINGS = ['imdb', 'rt', 'tmdb', 'metascore'];
-  var WIDEST = { imdb: '10.0', rt: '100%', metascore: '100' };
 
   function ratingPill(key, value) {
     var glyph = { imdb: '★', rt: '🍅', tmdb: '★' }[key];
@@ -1539,19 +1538,6 @@
     return row;
   }
 
-  /* What is not here yet, as far as there is room on the line. */
-  function pillsToCome(keys) {
-    var wait = el('div', 'ttl__ratings-wait');
-    wait.setAttribute('aria-hidden', 'true');
-    Object.keys(WIDEST).forEach(function (key) {
-      if (keys.indexOf(key) > -1) return;
-      var p = wait.appendChild(ratingPill(key, WIDEST[key]));
-      p.className = 'ttl-rating skel';
-      p.removeAttribute('data-rating');
-    });
-    return wait;
-  }
-
   function ratingsRow(d) {
     var r = d.ratings || {};
     if (d.ratings_pending && !cur.ratings) cur.ratings = { early: r, came: null, asked: null };
@@ -1567,7 +1553,8 @@
     if (w.came && !keys.length) return null;
     var row = pillsRow(keys, all);
     row.setAttribute('data-ttl-part', 'ratings');
-    if (!w.came) row.appendChild(pillsToCome(keys));
+    // The line is held for what is to come; nothing says which the title has.
+    if (!w.came) row.appendChild(el('div', 'ttl__ratings-wait'));
     return row;
   }
 

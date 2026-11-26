@@ -1472,12 +1472,12 @@ def test_the_director_leads_to_their_titles_and_back() -> None:
 
 def test_ratings_that_come_late_take_the_places_held_for_them_and_reach_no_other_title() -> None:
     out = _run("lateRatings")
-    waiting = ["★IMDb 10.0", "🍅RT 100%", "Metascore 100"]
-    assert out["before"] == {"shown": ["★TMDB 7.4"], "line": True, "waiting": waiting}
+    # Their line is held, with no stand-in for a rating that may never come.
+    assert out["before"] == {"shown": ["★TMDB 7.4"], "line": True, "held": True, "waiting": []}
     assert out["asked"] == 1
     shown = ["★TMDB 7.4", "★IMDb 8.3", "🍅RT 91%"]
-    assert out["after"] == {"shown": shown, "line": True, "waiting": []}
-    assert out["failed"] == {"shown": ["★TMDB 7.4"], "line": True, "waiting": []}
+    assert out["after"] == {"shown": shown, "line": True, "held": False, "waiting": []}
+    assert out["failed"] == {"shown": ["★TMDB 7.4"], "line": True, "held": False, "waiting": []}
     assert out["renewed"] == ["★IMDb 8.2", "★TMDB 7.4", "Metascore 70"]
     assert out["brief"] == ["Meta", "true"]
     assert out["moved"] == "★IMDb 5.0"
@@ -1486,8 +1486,8 @@ def test_ratings_that_come_late_take_the_places_held_for_them_and_reach_no_other
 
 def test_no_place_is_left_for_ratings_when_none_came() -> None:
     out = _run("lateRatings")
-    assert (out["held"]["line"], len(out["held"]["waiting"])) == (True, 3)
-    assert out["empty"] == {"shown": [], "line": False, "waiting": []}
+    assert (out["held"]["line"], out["held"]["held"]) == (True, True)
+    assert out["empty"] == {"shown": [], "line": False, "held": False, "waiting": []}
 
 
 def test_late_ratings_are_no_longer_asked_for_once_the_title_is_left_and_again_when_it_is_back() -> (
@@ -1495,7 +1495,7 @@ def test_late_ratings_are_no_longer_asked_for_once_the_title_is_left_and_again_w
 ):
     out = _run("lateRatings")
     assert out["dropped"] == [True, True]
-    assert out["again"] == [2, 3]
+    assert out["again"] == [2, True]
 
 
 def test_a_title_s_thumbs_stand_between_its_actions_and_its_overview_from_the_start() -> None:

@@ -2965,7 +2965,7 @@ const scenarios = {
   },
 
   /* Ratings that are still to come: what came with the title keeps its place, and another title's page is let be.
-     Those not here yet stand in a line of their own, out of which a rating that came is drawn. */
+     Their line is held for them, with nothing drawn for a rating the title may not have. */
   async lateRatings() {
     const asked = '/api/watch/title/movie-120/ratings';
     const page = async (ratings) => {
@@ -2978,7 +2978,7 @@ const scenarios = {
       await settle();
       const texts = (nodes) => nodes.map((n) => n.textContent);
       return { p, answers, look: () => ({ shown: texts(p.ttl().querySelectorAll('[data-rating]')), line: !!p.q('[data-ttl-part="ratings"]'),
-        waiting: texts(p.ttl().querySelectorAll('.ttl__ratings-wait .skel')) }) };
+        held: !!p.q('.ttl__ratings-wait'), waiting: texts(p.ttl().querySelectorAll('.ttl__ratings-wait > *')) }) };
     };
     const early = { imdb: null, rt: null, tmdb: 7.4, metascore: null };
     const came = await page(early);
@@ -3016,7 +3016,7 @@ const scenarios = {
     shut.answers[0].reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     shut.p.ctx.history.back();
     await settle();
-    out.again = [shut.answers.length, shut.look().waiting.length];
+    out.again = [shut.answers.length, shut.look().held];
     return out;
   },
 
