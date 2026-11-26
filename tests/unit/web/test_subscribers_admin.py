@@ -380,6 +380,34 @@ class TestSendNewsletterOutcome:
         assert "Base URL" in resp.json()["message"]
         assert "General & Schedule" in resp.json()["message"]
 
+    def test_a_missing_mail_setting_beside_an_empty_base_url_is_not_blamed_on_the_url_alone(
+        self, authed_client, app
+    ):
+        conn = app.state.db
+        self._configure(conn)
+        conn.execute("DELETE FROM settings WHERE key IN ('mailgun_api_key', 'base_url')")
+        conn.commit()
+        _insert_subscriber(conn, "a@example.com", active=1)
+
+        resp = self._send(authed_client, ["a@example.com"])
+
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "mailgun_not_configured"
+        assert "not set up" in resp.json()["message"]
+        assert "Base URL" in resp.json()["message"]
+
+    def test_a_base_url_that_is_not_a_web_address_is_named(self, authed_client, app):
+        conn = app.state.db
+        self._configure(conn)
+        conn.execute("UPDATE settings SET value = 'ftp://x' WHERE key = 'base_url'")
+        conn.commit()
+        _insert_subscriber(conn, "a@example.com", active=1)
+
+        resp = self._send(authed_client, ["a@example.com"])
+
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "base_url_invalid"
+
     def test_every_send_failing_is_an_error_with_no_audit(self, authed_client, app):
         conn = app.state.db
         self._configure(conn)

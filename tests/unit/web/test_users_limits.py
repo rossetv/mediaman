@@ -222,7 +222,7 @@ def test_a_newsletter_that_cannot_be_sent_as_it_is_set_up_uses_up_no_tries(send,
 
     answers = {sent("POST", "/api/newsletter/send", **body).status_code for _ in range(12)}
 
-    assert answers == {502}
+    assert answers == {400}
 
 
 def test_asking_whether_an_address_belongs_to_someone_else_counts(send):

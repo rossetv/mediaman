@@ -20,6 +20,7 @@ from mediaman.core.time import now_iso
 from mediaman.crypto import validate_unsubscribe_token
 from mediaman.db import get_db
 from mediaman.services.infra import SafeHTTPError, get_string_setting
+from mediaman.services.mail.mailgun import load_mailgun_client
 from mediaman.services.mail.newsletter import NewsletterConfigError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.services.rate_limit.instances import (
@@ -196,6 +197,25 @@ def api_remove_subscriber(
     return respond_ok()
 
 
+def _setup_fault_answer(conn: sqlite3.Connection, secret_key: str) -> JSONResponse:
+    """Say which setting a send that cannot work as set up is waiting for, so an admin can act."""
+    base_url = get_string_setting(conn, "base_url", secret_key=secret_key)
+    if load_mailgun_client(conn, secret_key) is None:
+        message = "Email sending is not set up"
+        if not base_url:
+            message += ", and Base URL is empty"
+        return respond_err("mailgun_not_configured", status=400, message=message)
+    if not base_url:
+        return respond_err(
+            "base_url_missing",
+            status=400,
+            message="Set Base URL under General & Schedule first",
+        )
+    return respond_err(
+        "base_url_invalid", status=400, message="Base URL must start with http:// or https://"
+    )
+
+
 @router.post("/api/newsletter/send")
 def api_send_newsletter(
     request: Request,
@@ -246,13 +266,7 @@ def api_send_newsletter(
     ) as exc:
         if isinstance(exc, NewsletterConfigError):
             _NEWSLETTER_LIMITER.release(admin, reserved)
-            if not get_string_setting(conn, "base_url", secret_key=config.secret_key):
-                logger.warning("Manual newsletter send refused: Base URL is empty")
-                return respond_err(
-                    "base_url_missing",
-                    status=400,
-                    message="Set Base URL under General & Schedule first",
-                )
+            return _setup_fault_answer(conn, config.secret_key)
         logger.exception("Manual newsletter send failed")
         return respond_err("send_failed", status=502, message="Newsletter send failed")
 
