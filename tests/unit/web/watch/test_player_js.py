@@ -2345,6 +2345,42 @@ def test_called_back_before_the_tv_began_it_plays_here_and_the_tv_is_stopped(mar
     assert out == {"here": 1, "state": False, "stopped": True, "after": False}
 
 
+def test_on_an_iphone_the_video_itself_carries_an_address_a_tv_can_read(markup):
+    out = elsewhere(markup, "away_airplay_own", "mms")
+    assert out["asked"] == [True]
+    assert out["sources"] == [
+        ["video/mp4", "blob:mms"],
+        ["application/x-mpegURL", "/api/cast/A1/index.m3u8"],
+    ]
+    assert out["remote"] is True
+
+
+def test_airplay_in_the_sheet_sends_the_players_own_video_to_the_tv(markup):
+    out = elsewhere(markup, "away_airplay_own", "mms")
+    assert out["picked"] == {"own": 1, "all": 1, "open": False}
+    assert out["onTv"] == {"stopped": True, "destroyed": False, "away": False}
+
+
+def test_while_the_tv_plays_nothing_here_restarts_and_the_place_is_saved(markup):
+    out = elsewhere(markup, "away_airplay_own", "mms")
+    saved = out["whileOnTv"].pop("saved")
+    assert out["whileOnTv"] == {"starts": 1, "stops": 0, "casts": 0, "hls": 1}
+    assert saved["stream_id"] == "s1"
+    assert saved["position_s"] > 40
+
+
+def test_when_the_tv_gives_the_picture_back_it_plays_on_here_from_there(markup):
+    out = elsewhere(markup, "away_airplay_own", "mms")
+    assert out["back"] == {"starts": 2, "from": True}
+
+
+@pytest.mark.parametrize("mode", ["tvs", "plain"])
+def test_without_managed_media_source_the_video_gets_no_second_source(markup, mode):
+    out = elsewhere(markup, "away_airplay_plain", mode)
+    asked = [True] if mode == "tvs" else [None]
+    assert out == {"asked": asked, "sources": 0}
+
+
 def test_airplay_changes_nothing_until_a_tv_is_picked(markup):
     out = elsewhere(markup, "away_airplay")
     assert out["picked"] == 1

@@ -2,14 +2,15 @@
  * player.js — the Watch player page (watch_player.html).
  *
  * Plays an HLS stream that mediaman proxies from Plex, always through
- * hls.js. Safari's own HLS player is never used: its requests carry a
- * different User-Agent, which fails the session check and signs the
- * person out.
+ * hls.js. Safari's own HLS player never reads the session's addresses: its
+ * requests carry a different User-Agent, which fails the session check and
+ * signs the person out. It plays only the address with a ticket that an
+ * AirPlay TV is given, which needs no session.
  *
  * Requests:
- *   POST /api/watch/stream            {rating_key, quality, page, asked_s} → {stream_id,
- *                                     playlist, quality, qualities, previews, markers, chapters}
- *   GET  <playlist> and its segments  (made by hls.js)
+ *   POST /api/watch/stream            {rating_key, quality, page, asked_s, airplay?} → {stream_id,
+ *                                     playlist, airplay, quality, qualities, previews, markers, chapters}
+ *   GET  <playlist> and its segments  (made by hls.js; by an AirPlay TV, with the airplay address)
  *   GET  /api/watch/stream/<id>/preview/<n>  (a frame for the play bar)
  *   POST /api/watch/progress          {stream_id, position_s, played_s}
  *   POST /api/watch/stream/<id>/stop  {position_s, played_s} or nothing to save (a beacon,
@@ -739,7 +740,7 @@
   /* The buffer ran dry while the video was playing on its own: a seek or a
      start that has to wait says nothing about the quality. */
   function noteStall() {
-    if (swapping) return;
+    if (swapping || airplayed()) return;
     if (!rolling) {
       if (waitTimer === null) watchWait();
       return;
@@ -764,7 +765,7 @@
   function lookAtWait() {
     var h = hls;
     var since = waitingSince;
-    var waits = function () { return h && h === hls && since !== null && since === waitingSince && !swapping; };
+    var waits = function () { return h && h === hls && since !== null && since === waitingSince && !swapping && !airplayed(); };
     waitTimer = null;
     if (!waits()) return;
     ifReached(function () {
@@ -797,7 +798,7 @@
   /* One step, or further where the connection measured slower than that. One
      that has played nothing has measured nothing: half of what is left. */
   function stepDown() {
-    if (away || quality !== 'auto' || starting || !streamId) return false;
+    if (away || quality !== 'auto' || starting || !streamId || airplayed()) return false;
     var lower = lowerRows();
     if (!lower.length) return false;
     if (playedS - steppedUpAt <= UP_TRIAL_S) upAfter = Math.min(upAfter * 2, UP_AFTER_MAX_S);
@@ -810,7 +811,7 @@
   }
 
   function maybeStepUp() {
-    if (away || quality !== 'auto' || !autoTop || starting || swapping || menuOpen()) return;
+    if (away || quality !== 'auto' || !autoTop || starting || swapping || menuOpen() || airplayed()) return;
     if (playedS - Math.max(steppedAt, stalledAt) < upAfter) return;
     if (duration() - video.currentTime < UP_LEFT_S) return;
     var converts = convertRows();
@@ -1281,7 +1282,9 @@
         unanswered();
       }, START_WAIT_MS);
       var abort = lastStart = new AbortController();
-      var start = MM.api.post(away ? CAST_URL : '/api/watch/stream', startBody(), { signal: abort.signal });
+      var body = startBody();
+      if (MAY_AIRPLAY && !away) body.airplay = true;
+      var start = MM.api.post(away ? CAST_URL : '/api/watch/stream', body, { signal: abort.signal });
       start.then(answered, answered);
       return start
         .then(function (data) {
@@ -1303,6 +1306,7 @@
           takePreviews(data.previews);
           takeMarks(data);
           if (aimS !== null) land();
+          airplayUrl = data.airplay || null;
           attach(data.playlist, pendingStart);
         })
         .catch(function (err) {
@@ -1344,6 +1348,45 @@
 
   var playlistUrl;
 
+  /* ---- AirPlay of this video ------------------------------------------- */
+
+  /* What hls.js plays comes from the page's own memory, which Safari cannot hand to a TV: with
+     that alone, a TV chosen for AirPlay gets the sound and the picture stays here. So in Safari
+     the video also gets the same stream's address with a ticket in it, which the TV reads with
+     no session, and Safari moves to it, at the same place, once a TV is chosen; however it is
+     chosen, since iOS hands the TV to what plays. */
+  var MAY_AIRPLAY = !!window.WebKitPlaybackTargetAvailabilityEvent;
+  var airplayUrl = null;
+
+  function offerTv(h) {
+    /* hls.js plays a source of its own where Safari has ManagedMediaSource; from src, none
+       other is read. */
+    if (h !== hls || !airplayUrl || local.hasAttribute('src') || !local.querySelector('source')) return;
+    var source = document.createElement('source');
+    source.type = 'application/x-mpegURL';
+    source.src = airplayUrl;
+    local.appendChild(source);
+    /* hls.js turns AirPlay off, as Safari needs where there is no such address. */
+    local.disableRemotePlayback = false;
+  }
+
+  /* Whether Safari plays the video from that address: on a TV, or here once it left the TV. */
+  function airplayed() {
+    return !!hls && !!local.currentSrc && local.currentSrc.indexOf('blob:') !== 0;
+  }
+
+  local.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', function () {
+    if (!hls) return;
+    if (local.webkitCurrentPlaybackTargetIsWireless) {
+      /* The TV reads the stream itself. */
+      hls.stopLoad();
+      stopWatching();
+      return;
+    }
+    /* Back from the TV: hls.js plays it here again, where the TV got to. */
+    if (airplayed() && !away) restartStream(true);
+  });
+
   function attach(playlist, pos) {
     destroyHls();
     playlistUrl = playlist;
@@ -1364,6 +1407,7 @@
     hls = h;
     var waits = true;        // for the playlist
     watchSlow(function () { return waits && h === hls; }, function () { loseLoads(h, 'manifest'); });
+    h.on(Hls.Events.MEDIA_ATTACHING, function () { offerTv(h); });
     h.on(Hls.Events.ERROR, function (event, data) {
       waits = false;
       if (h === hls) onHlsError(data);
@@ -1527,6 +1571,8 @@
 
   function onHlsError(data) {
     var h = hls;
+    /* What hls.js left off loading while a TV plays is no trouble. */
+    if (airplayed()) return;
     var status = data.response ? data.response.code : undefined;
     if (status === 410) {
       streamEnded(answerOf(data));

@@ -30,9 +30,14 @@ from mediaman.services.dlna.media import Media
 from mediaman.services.media_meta.plex_stream import StreamGone, get_stream_manager
 from mediaman.services.media_meta.plex_watch import PlexError, PlexUnavailable
 from mediaman.web.responses import respond_err
-from mediaman.web.routes.cast import _is_good, _read_ticket, _refused, _stream_lives
+from mediaman.web.routes.cast import _is_good, _read_ticket, _refused
 from mediaman.web.routes.older_reach import are_on
-from mediaman.web.routes.watch.stream_api import _read_segment, _StreamRoute, plex_failure
+from mediaman.web.routes.watch.stream_api import (
+    _read_segment,
+    _StreamRoute,
+    plex_failure,
+    stream_lives,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +153,7 @@ def _handed(feed: _Feed, place: int) -> _HandOver:
 
 
 def _may_go_on(ticket: Ticket) -> bool:
-    return are_on(get_db()) and _is_good(ticket) and _stream_lives(ticket)
+    return are_on(get_db()) and _is_good(ticket) and stream_lives(ticket)
 
 
 def _film_ticket(request: Request, token: str) -> Ticket | Response:
@@ -276,7 +281,7 @@ class _FilmResponse(Response):
         self.end()
 
     async def _until_stream_ends(self) -> None:
-        while _stream_lives(self._held) and not ending.is_set():
+        while stream_lives(self._held) and not ending.is_set():
             await asyncio.sleep(_LIVES_SECONDS)
         self.end()
 

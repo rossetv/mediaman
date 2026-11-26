@@ -27,6 +27,7 @@ from starlette.responses import Response
 from mediaman.core.scrub_filter import register_secret
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.db import get_db
+from mediaman.services.cast.tickets import Ticket, get_ticket_store
 from mediaman.services.infra import SafeHTTPClient, allowed_outbound_hosts
 from mediaman.services.infra.settings_reader import get_setting, get_string_setting
 from mediaman.services.media_meta.plex_quality import (
@@ -122,6 +123,11 @@ class _StartRequest(BaseModel):
     asked_s: float = Field(default=0, ge=0)
 
 
+class _WatchStartRequest(_StartRequest):
+    #: Whether the player may hand the stream to an AirPlay TV, which reads it with no session.
+    airplay: bool = False
+
+
 class _ProgressRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -196,14 +202,16 @@ def _may_play_original(manager: StreamManager, item: PlexItem, username: str) ->
 @router.post("/api/watch/stream")
 def start_stream(
     request: Request,
-    body: _StartRequest,
+    body: _WatchStartRequest,
     username: str = Depends(get_current_user),
     session_token: str = Cookie(),
 ) -> Response:
     """Start a stream of a movie or episode from offset 0 for the signed-in person.
 
     A start the player made by itself is answered 410 ``replaced`` where the person has asked
-    another page to play the title since.
+    another page to play the title since. Asked for ``airplay``, the answer has the same stream's
+    address with a ticket in it as well, as ``airplay``: Safari gives an AirPlay TV only an
+    address, and the TV reads it without the session.
     """
     session_hash = hash_token(session_token)
     return _guarded_start(
@@ -211,6 +219,15 @@ def start_stream(
         username,
         lambda manager, began: _start(request, body, username, session_hash, manager, began),
     )
+
+
+def stream_lives(ticket: Ticket) -> bool:
+    """Whether the stream a ticket reads is still there."""
+    try:
+        get_stream_manager().peek(ticket.stream_id, ticket.user)
+    except StreamGone:
+        return False
+    return True
 
 
 def session_lasts(conn: sqlite3.Connection, session_hash: str) -> bool:
@@ -267,7 +284,7 @@ def _progress_info(item: PlexItem) -> dict[str, Any]:
 
 def _start(
     request: Request,
-    body: _StartRequest,
+    body: _WatchStartRequest,
     username: str,
     session_hash: str,
     manager: StreamManager,
@@ -316,10 +333,16 @@ def _start(
         playing = manager.peek(stream_id, username).quality
         if playing != quality:
             quality, rows = playing, without_original(rows)
+    airplay = None
+    if body.airplay:
+        # Bound to this one stream and this session: it ends with either, as a Cast's does.
+        token = get_ticket_store().issue(stream_id, username, session_hash, live=stream_lives)
+        airplay = f"/api/cast/{token}/index.m3u8"
     return respond_ok(
         {
             "stream_id": stream_id,
             "playlist": f"/api/watch/stream/{stream_id}/index.m3u8",
+            "airplay": airplay,
             "quality": quality,
             "qualities": rows,
             "markers": [asdict(m) for m in item.markers],

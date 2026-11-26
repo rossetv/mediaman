@@ -16,9 +16,10 @@
  *                                address it plays at
  *
  * A way: {id, label, sub, icon, available(), chooser, start(what), asks?, looking?, trouble?, look?, again?, release?,
- * watched?, leads?}. Its start is called in the press itself, since the browser shows its list of TVs for a
+ * watched?, leads?, picks?}. Its start is called in the press itself, since the browser shows its list of TVs for a
  * press alone; asks() says whether it will. looking() is true while it is not known yet whether it
  * is available, and trouble() says why it is not, as {title, line}. One that `leads` needs the player, which is opened.
+ * One whose picks() opens the browser's list and says so needs nothing more: what plays goes to the TV as it is.
  *
  * A host is the page's own player, or a page that has none:
  *   what()        {rating_key, position_s, quality, subtitle, autoplay, asked_s}
@@ -352,6 +353,11 @@
     if (way.leads) {
       close();
       global.location.href = playerOf(host.what().rating_key) + '#play-on';
+      return;
+    }
+    /* The browser's list is all there is to it: what plays goes to the TV as it is. */
+    if (way.picks && way.picks()) {
+      close();
       return;
     }
     var mine = ++asking;

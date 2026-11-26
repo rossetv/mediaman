@@ -1,9 +1,11 @@
 /* AirPlay as a way of the Play on sheet, in Safari.
  *
- * The TV reads the stream itself, by an address that needs no sign-in, so it plays from an element
- * of its own: what hls.js feeds cannot be sent to a TV. Until a TV is chosen the element holds a
- * short silent clip, since Safari opens its list of TVs only for something that can play. Nothing
- * is asked of mediaman and nothing stops here before the person has chosen one.
+ * The TV reads the stream itself, by an address that needs no sign-in. Where the player's video has
+ * that address beside what hls.js feeds it (player.js), Safari's list opens for that video, and
+ * Safari moves it to the TV: iOS hands a chosen TV to what plays, never to an element of this
+ * file's. Otherwise the TV plays from an element of its own. Until a TV is chosen the element
+ * holds a short silent clip, since Safari opens its list of TVs only for something that can play.
+ * Nothing is asked of mediaman and nothing stops here before the person has chosen one.
  *
  * On a page without a player it only says whether there is a TV, and leads to the player.
  *
@@ -197,8 +199,20 @@
     return /iPad/.test(ua) || global.navigator.maxTouchPoints > 1 ? 'iPadOS' : 'Safari';
   }
 
+  /* The player's video, where it can go to a TV by itself. */
+  function ownVideo() {
+    return !first.disableRemotePlayback && first.querySelector('source[type="application/x-mpegURL"]') ? first : null;
+  }
+
   MM.playOn.register(Object.assign(way, {
     available: function () { return nearby || !!play; },
+    /* Opens Safari's list for the player's own video, where it can go; whether it did. */
+    picks: function () {
+      var video = ownVideo();
+      if (!video || play) return false;
+      video.webkitShowPlaybackTargetPicker();
+      return true;
+    },
     chooser: {
       title: 'Your device shows its own list now',
       line: 'Choose the TV there. It comes from ' + lister() + ', not from mediaman.',
