@@ -33,6 +33,8 @@ def services(monkeypatch):
         ("downloads.download_queue.build_nzbget_from_db", nzbget),
     ):
         monkeypatch.setattr(f"mediaman.services.{target}", lambda *a, client=client: client)
+    # The library holds every title here, so what Sonarr tells of a show is what is said.
+    monkeypatch.setattr("mediaman.web.routes.downloads._in_library", lambda *a: True)
     yield radarr, sonarr, nzbget
     _reset_previous_queue()
 
@@ -198,7 +200,7 @@ def test_a_page_first_loaded_while_a_service_is_down_keeps_the_names_and_art_of_
         data = _get(client)
         items = [data["hero"], *data["queue"]]
         assert [(i["id"], i["title"], i["poster_url"]) for i in items] == [
-            (f"{name}:Dune: Part One", "Dune: Part One", _POSTER),
+            (f"{name}:Dune: Part One", "Dune: Part One", ""),
             ("Manual.2020", "Manual", ""),
         ]
         assert data["recent"] == []

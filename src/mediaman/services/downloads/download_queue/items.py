@@ -30,7 +30,10 @@ class DownloadsResponse(TypedDict):
     recent: list[dict[str, object]]
     subtitle: str
     unreachable: list[str]
+    #: Those of unreachable that refused their key.
+    refused: list[str]
     outage: str
+    downloads_set_up: dict[str, bool]
 
 
 def _contains_word_run(haystack: list[str], needle: list[str]) -> bool:

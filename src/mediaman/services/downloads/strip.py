@@ -20,6 +20,7 @@ from hashlib import blake2b
 from typing import Any, Literal
 
 from mediaman.core.time import parse_iso_utc
+from mediaman.services.downloads.download_queue import VIEWER_OUTAGE
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,8 @@ class StripItem:
 class Strip:
     items: tuple[StripItem, ...] = ()
     outage: str = ""
+    #: Whether a service of the outage refused its key, which a viewer is not told of.
+    refused: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,8 +294,9 @@ def _shown(item: StripItem) -> dict[str, Any]:
     }
 
 
-def payload(answer: Answer) -> dict[str, Any]:
-    """What a page is told: the same for an admin and a viewer."""
+def payload(answer: Answer, *, admin: bool = True) -> dict[str, Any]:
+    """What a page is told: the same for an admin and a viewer, but that a viewer is told of a
+    refused key only that downloads are not available."""
     stale = answer.age_s > STALE_S
     items: list[StripItem] = []
     for item in answer.strip.items:
@@ -304,7 +308,9 @@ def payload(answer: Answer) -> dict[str, Any]:
             items.append(replace(item, held=True) if stale else item)
     return {
         "summary": summary(items),
-        "outage": answer.strip.outage or (STALE_LINE if stale else ""),
+        "outage": VIEWER_OUTAGE
+        if answer.strip.refused and not admin
+        else answer.strip.outage or (STALE_LINE if stale else ""),
         "items": [_shown(item) for item in items[:MAX_ITEMS]],
         "age_ms": round(answer.age_s * 1000),
     }

@@ -193,36 +193,29 @@ _NZBGET_POST_PROCESSING = (
 
 
 def map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
+    """The state of a download NZBGet holds, by its NZBGet status."""
     if not has_nzbget_match or nzbget_status is None:
         return "searching"
-    upper = nzbget_status.upper()
-    if any(stage in upper for stage in _NZBGET_POST_PROCESSING):
-        return "almost_ready"
-    if any(stage in upper for stage in ("DOWNLOADING", "PAUSED", "FETCHING")):
-        return "downloading"
-    return "searching"
+    return map_arr_status(nzbget_status)
 
 
 def map_arr_status(status: str, tracked_state: str = "") -> str:
-    """Map a Radarr/Sonarr queue item to a user-facing state, checking both status and
-    trackedDownloadState because versions populate them differently.
+    """The one mapping of a download's status to its state, for an NZBGet status or a
+    Radarr/Sonarr queue item, whose status and trackedDownloadState are both read because
+    versions populate them differently. One waiting its turn or paused is "queued".
     """
     lower = (status or "").lower()
     tracked = (tracked_state or "").lower()
 
     if tracked in ("importing", "importpending", "imported"):
         return "almost_ready"
-    if tracked == "downloading":
-        return "downloading"
-
-    if lower == "downloading":
-        return "downloading"
-    if lower == "completed":
+    if lower == "completed" or any(stage.lower() in lower for stage in _NZBGET_POST_PROCESSING):
         return "almost_ready"
-
+    # Radarr and Sonarr track as downloading what their download client holds but has not begun.
     if lower in ("queued", "paused", "delay"):
+        return "queued"
+    if lower in ("downloading", "fetching") or tracked == "downloading":
         return "downloading"
-
     return "searching"
 
 

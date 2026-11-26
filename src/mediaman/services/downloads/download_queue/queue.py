@@ -48,6 +48,16 @@ def _build_unmatched_arr_item_bound(
     )
 
 
+def _eta(state: str, remain_mb: float, download_rate: int) -> str:
+    """The time left of a download in *state*: none while it waits its turn, since NZBGet's
+    speed is that of another download."""
+    from mediaman.services.downloads.download_format import format_eta
+
+    if state == "almost_ready":
+        return "Post-processing…"
+    return "" if state == "queued" else format_eta(remain_mb, download_rate)
+
+
 def parse_nzb_queue(
     nzb_queue: list[dict[str, object]],
 ) -> list[dict[str, object]]:
@@ -163,7 +173,6 @@ def build_arr_items(
     """
     from mediaman.services.downloads.download_format import (
         build_item,
-        format_eta,
         map_state,
         normalise_for_match,
     )
@@ -216,9 +225,7 @@ def build_arr_items(
             )
             raw_remain_mb = matched_nzb["remain_mb"]
             remain_mb_val = float(raw_remain_mb) if isinstance(raw_remain_mb, int | float) else 0.0
-            eta = format_eta(remain_mb_val, download_rate)
-            if state == "almost_ready":
-                eta = "Post-processing…"
+            eta = _eta(state, remain_mb_val, download_rate)
 
             items.append(_build_matched_item(arr, matched_nzb, state, eta, download_rate))
             trigger_search(conn, arr, matched_nzb=True, secret_key=secret_key)
@@ -235,7 +242,7 @@ def add_unmatched_nzb_items(
     download_rate: int,
 ) -> None:
     from mediaman.core.format import format_bytes
-    from mediaman.services.downloads.download_format import build_item, format_eta, map_state
+    from mediaman.services.downloads.download_format import build_item, map_state
 
     for nzb in nzb_parsed:
         if nzb["_matched"]:
@@ -246,9 +253,7 @@ def add_unmatched_nzb_items(
         )
         raw_remain = nzb["remain_mb"]
         remain_mb_val = float(raw_remain) if isinstance(raw_remain, int | float) else 0.0
-        eta = format_eta(remain_mb_val, download_rate)
-        if state == "almost_ready":
-            eta = "Post-processing…"
+        eta = _eta(state, remain_mb_val, download_rate)
         media_type = "series" if nzb["kind"] == "series" else "movie"
         dl_id_val = nzb["dl_id"]
         title_val = nzb["title"]

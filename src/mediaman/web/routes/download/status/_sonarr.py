@@ -13,14 +13,13 @@ from mediaman.services.arr.state import series_ready
 from mediaman.services.downloads.download_format import (
     build_episode_summary,
     build_item,
-    extract_poster_url,
     format_episode_label,
     map_arr_status,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
 
-from ._shared import _format_timeleft, _safe_int, _safe_progress
+from ._shared import _eta, _safe_int, _safe_progress
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
@@ -50,12 +49,11 @@ def _sonarr_queue_entries(
     tmdb_id: int,
     season_number: int | None = None,
     tvdb_id: int | None = None,
-) -> tuple[str, str, list[_SonarrEpEntry]]:
-    """Return (series_title, series_poster, ep_entries) from the first matching queue item;
+) -> tuple[str, list[_SonarrEpEntry]]:
+    """Return (series_title, ep_entries) from the first matching queue item;
     ep_entries has one accumulator per matching episode, of one season when given.
     """
     series_title = ""
-    series_poster = ""
     ep_entries: list[_SonarrEpEntry] = []
 
     for item in queue:
@@ -69,8 +67,6 @@ def _sonarr_queue_entries(
 
         if not series_title:
             series_title = item_series.get("title", "")
-        if not series_poster:
-            series_poster = extract_poster_url(item_series.get("images"))
 
         size = _safe_int(item.get("size"))
         sizeleft = _safe_int(item.get("sizeleft"))
@@ -92,12 +88,10 @@ def _sonarr_queue_entries(
             }
         )
 
-    return series_title, series_poster, ep_entries
+    return series_title, ep_entries
 
 
-def _sonarr_aggregate(
-    series_title: str, series_poster: str, ep_entries: list[_SonarrEpEntry]
-) -> DownloadItem:
+def _sonarr_aggregate(series_title: str, ep_entries: list[_SonarrEpEntry]) -> DownloadItem:
     """Fold ep_entries into one multi-episode item; callers must pass a non-empty list."""
     ep_entries.sort(key=lambda e: e["label"])
     episodes = build_episode_dicts(cast("list[dict[str, object]]", ep_entries))
@@ -120,15 +114,13 @@ def _sonarr_aggregate(
         raw_tracked[0] if raw_tracked else "",
     )
     state = map_arr_status(combined_status, combined_tracked)
-    eta = _format_timeleft(max((e["timeleft"] for e in ep_entries if e["timeleft"]), default=""))
-    if state == "almost_ready":
-        eta = "Post-processing…"
+    eta = _eta(state, max((e["timeleft"] for e in ep_entries if e["timeleft"]), default=""))
     episode_summary = build_episode_summary(episodes)
     return build_item(
         dl_id=f"sonarr:{series_title}",
         title=series_title,
         media_type="series",
-        poster_url=series_poster,
+        poster_url="",
         state=state,
         progress=overall_progress,
         eta=eta,

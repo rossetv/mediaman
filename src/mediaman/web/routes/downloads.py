@@ -16,14 +16,22 @@ from starlette.responses import Response
 
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
+from mediaman.services import watch_catalog as catalog
 from mediaman.services.arr.fetcher._base import is_film_id
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
-from mediaman.services.downloads.download_queue import build_downloads_response
+from mediaman.services.downloads.download_queue import (
+    VIEWER_OUTAGE,
+    build_downloads_response,
+    downloads_subtitle,
+)
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
+from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.watch_catalog import tmdb_image_url
 from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
+from mediaman.web.repository import watch_library as lib
+from mediaman.web.responses import respond_failure
 from mediaman.web.routes.download import drop_arr_cache
 
 router = APIRouter()
@@ -34,30 +42,61 @@ class AbandonRequest(BaseModel):
     arr_id: int | None = None
 
 
-def _ring(data: DownloadsResponse, asked_at: float) -> dict[str, object] | None:
+def _ring(data: DownloadsResponse, asked_at: float, *, admin: bool) -> dict[str, object] | None:
     """What /api/downloads/strip says of what is downloading, its items left out, of what was
     just read: nobody is asked for it."""
 
     def make(before: strip.Strip) -> strip.Strip:
         items = strip.collect(data, before.items, now_utc())
-        return strip.Strip(tuple(items), data["outage"])
+        return strip.Strip(tuple(items), data["outage"], refused=bool(data["refused"]))
 
     answer = strip.on_page.offer(make, asked_at)
-    return {**strip.payload(answer), "items": []} if answer else None
+    return {**strip.payload(answer, admin=admin), "items": []} if answer else None
+
+
+def _in_library(item: dict[str, object], index: catalog.LibraryIndex) -> bool:
+    """Whether the library holds the title of a recent download: a film by the TMDB id in its
+    id where it has one, else by its title."""
+    dl_id, title = str(item["id"]), str(item["title"])
+    if item.get("media_type") != "movie":
+        return catalog.normalise_title(title) in index.shows_by_title
+    if is_film_id(dl_id, title):
+        return int(dl_id.rpartition("#")[2]) in index.movies_by_tmdb
+    return catalog.normalise_title(title) in index.movies_by_title
+
+
+def _mark_unplayable(
+    conn: sqlite3.Connection, secret_key: str, recent: list[dict[str, object]]
+) -> None:
+    """Say of a recent download the library does not hold yet that it was only added: it is
+    not there to play."""
+    if not recent:
+        return
+    index = catalog.library_index(
+        conn,
+        TmdbClient.from_db(conn, secret_key),
+        lib.scanned_library_ids(conn),
+        lib.library_movies,
+        lib.library_shows,
+    )
+    for item in recent:
+        if not _in_library(item, index):
+            item["readiness"] = "unknown"
 
 
 def _page_payload(
-    conn: sqlite3.Connection, secret_key: str
+    conn: sqlite3.Connection, secret_key: str, *, admin: bool
 ) -> tuple[DownloadsResponse, dict[str, object] | None]:
     """The downloads with TMDB posters at mediaman's own address, so a browser here never
-    calls TMDB, and films of one title by their labels; and what the header's ring is told of
-    them. Copies: completion detection keeps the items as they came.
+    calls TMDB or another service's, and films of one title by their labels; and what the
+    header's ring is told of them, whose count the subtitle gives too. Copies: completion
+    detection keeps the items as they came. A viewer is not told of a refused key.
     """
 
     def shown(item: dict[str, object]) -> dict[str, object]:
-        poster = item.get("poster_url") or ""
         title = item.get("label") or item["title"]
-        return {**item, "title": title, "poster_url": tmdb_image_url(poster, "w342") or poster}
+        poster = tmdb_image_url(item.get("poster_url") or "", "w342") or ""
+        return {**item, "title": title, "poster_url": poster}
 
     asked_at = strip.on_page.now()
     data = build_downloads_response(conn, secret_key)
@@ -68,7 +107,19 @@ def _page_payload(
         "upcoming": [shown(item) for item in data["upcoming"]],
         "recent": [shown(item) for item in data["recent"]],
     }
-    return page, _ring(data, asked_at)
+    _mark_unplayable(conn, secret_key, page["recent"])
+    ring = _ring(data, asked_at, admin=admin)
+    if not admin and data["refused"]:
+        page["outage"], page["refused"] = VIEWER_OUTAGE, []
+    # The header's count, which holds what a service that does not answer last had.
+    summary = cast(dict[str, int], ring["summary"]) if ring else None
+    active = (
+        summary["total"] - summary["ready"]
+        if summary
+        else (1 if page["hero"] else 0) + len(page["queue"])
+    )
+    page["subtitle"] = downloads_subtitle(active, len(page["upcoming"]), page["outage"])
+    return page, ring
 
 
 def _former_id(item: dict[str, object]) -> str | None:
@@ -139,8 +190,8 @@ def downloads_page(request: Request) -> Response:
     username, conn = resolved
 
     config = request.app.state.config
-    data, ring = _page_payload(conn, config.secret_key)
     can_abandon = get_user_role(conn, username) == "admin"
+    data, ring = _page_payload(conn, config.secret_key, admin=can_abandon)
     if not can_abandon:
         _for_viewer(data)
     templates = cast(Jinja2Templates, request.app.state.templates)
@@ -155,6 +206,7 @@ def downloads_page(request: Request) -> Response:
             "recent": data["recent"],
             "subtitle": data["subtitle"],
             "outage": data["outage"],
+            "downloads_set_up": data["downloads_set_up"],
             "strip": ring,
             "can_abandon": can_abandon,
         },
@@ -165,8 +217,9 @@ def downloads_page(request: Request) -> Response:
 def downloads_api(request: Request, admin: str = Depends(get_current_user)) -> JSONResponse:
     conn = get_db()
     config = request.app.state.config
-    data, ring = _page_payload(conn, config.secret_key)
-    if get_user_role(conn, admin) != "admin":
+    is_admin = get_user_role(conn, admin) == "admin"
+    data, ring = _page_payload(conn, config.secret_key, admin=is_admin)
+    if not is_admin:
         _for_viewer(data)
     return JSONResponse({**data, "strip": ring})
 
@@ -186,19 +239,27 @@ def downloads_abandon(
     release), 409 if it names more than one title and 400 for a malformed request (empty
     seasons on a series).
     """
+    try:
+        return _abandon(request, body, dl_id)
+    except HTTPException as exc:
+        words = str(exc.detail)
+        return respond_failure(words, status=exc.status_code, detail=words)
+
+
+def _abandon(request: Request, body: AbandonRequest, dl_id: str) -> JSONResponse:
     conn = get_db()
     secret_key = request.app.state.config.secret_key
 
     item = _lookup_dl_item(conn, secret_key, dl_id, body.arr_id)
     if item is None:
-        raise HTTPException(status_code=404, detail="Item not found in queue")
+        raise HTTPException(status_code=404, detail="It's no longer in the queue.")
 
     # What it is known by now, which a page that sent its arr_id may not have had.
     dl_id = str(item.get("id") or dl_id)
     arr_id_raw = item.get("arr_id")
     arr_id: int = int(arr_id_raw) if isinstance(arr_id_raw, int) else 0
     if arr_id == 0:
-        raise HTTPException(status_code=400, detail="Item has no upstream arr id")
+        raise HTTPException(status_code=400, detail="Radarr and Sonarr don't track it.")
 
     if item.get("kind") == "movie":
         result = abandon_movie(conn, secret_key, arr_id=arr_id, dl_id=dl_id)
@@ -208,10 +269,7 @@ def downloads_abandon(
         result = abandon_series(conn, secret_key, series_id=arr_id, dl_id=dl_id)
     else:
         if not body.seasons:
-            raise HTTPException(
-                status_code=400,
-                detail="Series abandon requires at least one season",
-            )
+            raise HTTPException(status_code=400, detail="Choose at least one season.")
         result = abandon_seasons(
             conn,
             secret_key,
@@ -223,16 +281,9 @@ def downloads_abandon(
     # The emailed page must not offer again what was just unmonitored; a failed abandon may
     # have changed the Arr too.
     drop_arr_cache()
-    refreshed = build_downloads_response(conn, secret_key)
-    return JSONResponse(
-        {
-            "ok": not result.failed,
-            "abandoned": {
-                "kind": result.kind,
-                "succeeded": result.succeeded,
-                "failed": result.failed,
-            },
-            "queue": refreshed,
-        },
-        status_code=200 if not result.failed else 502,
-    )
+    abandoned = {"kind": result.kind, "succeeded": result.succeeded, "failed": result.failed}
+    if result.failed:
+        service = "Radarr" if result.kind == "movie" else "Sonarr"
+        words = f"{service} didn't stop tracking it. Try again."
+        return respond_failure(words, status=502, abandoned=abandoned)
+    return JSONResponse({"ok": True, "abandoned": abandoned})

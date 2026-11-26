@@ -125,7 +125,7 @@ def test_a_viewer_gets_every_download_with_a_title_to_open(services, viewer, con
     )
     conn.commit()
     body = _get(viewer).json()
-    ember, harbour = body["items"]
+    harbour, ember = body["items"]
     assert (ember["state"], ember["percent"]) == ("downloading", 40)
     assert (ember["ref"], ember["href"]) == ("tmdb-movie-11", "/watch#title=tmdb-movie-11")
     assert ember["poster_url"] == "/api/watch/img/tmdb/w342/p11.jpg"
@@ -189,8 +189,8 @@ def test_a_service_that_stops_answering_leaves_the_row_as_it_was(services, viewe
     resp = _get(viewer)
     body = resp.json()
     assert [(i["title"], i["percent"], i["held"]) for i in body["items"]] == [
-        ("Ember Coast", 40, True),
         ("Dry Harbour", 40, True),
+        ("Ember Coast", 40, True),
     ]
     assert body["outage"] == "Can't reach Radarr"
     assert "10.0.0.9" not in resp.text
@@ -247,7 +247,7 @@ def test_a_title_radarr_has_no_picture_of_gets_those_tmdb_told_of(services, view
     held, ids = asked
     _queue(services, [_movie(11, "Ember Coast", images=[]), _movie(12, "Dry Harbour")])
     held[11] = {"poster_url": "/api/watch/img/tmdb/w342/a.jpg", "backdrop_url": "/art/b.jpg"}
-    ember, harbour = _get(viewer).json()["items"]
+    harbour, ember = _get(viewer).json()["items"]
     assert (ember["poster_url"], ember["art_url"]) == (
         "/api/watch/img/tmdb/w342/a.jpg",
         "/art/b.jpg",
@@ -269,7 +269,7 @@ def test_a_title_whose_lookup_fails_takes_no_other_down(services, viewer, asked)
     asked[0][11] = AttributeError("malformed")
     resp = _get(viewer)
     assert resp.status_code == 200
-    ember, harbour = resp.json()["items"]
+    harbour, ember = resp.json()["items"]
     assert (ember["ref"], ember["poster_url"]) == ("tmdb-movie-11", "")
     assert harbour["art_url"] == "/api/watch/img/tmdb/w1280/f12.jpg"
 

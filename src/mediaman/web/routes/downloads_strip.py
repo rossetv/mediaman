@@ -18,6 +18,7 @@ from mediaman.services.downloads.download_queue import build_downloads_response
 from mediaman.services.downloads.strip import Answer, Strip, StripItem
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.web.auth.middleware import get_current_user
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.seen_titles import person_marks
 from mediaman.web.responses import respond_err, respond_ok
@@ -50,7 +51,7 @@ def payload_for(
 ) -> dict[str, Any]:
     """What a page is told, with *username*'s own marks of what is ready, for its card in
     Recently added."""
-    shown = strip.payload(answer)
+    shown = strip.payload(answer, admin=get_user_role(conn, username) == "admin")
     ready = [i for i in shown["items"] if i["state"] == "ready" and i["tmdb_ref"]]
     if ready:
         marks = card_marks(person_marks(conn, username), TmdbClient.from_db(conn, secret_key))
@@ -66,7 +67,9 @@ def payload_for(
 def _make(conn: sqlite3.Connection, secret_key: str, before: Strip) -> Strip:
     data = build_downloads_response(conn, secret_key)
     items = strip.collect(data, before.items, now_utc())
-    return Strip(tuple(_with_titles(conn, secret_key, items)), data["outage"])
+    return Strip(
+        tuple(_with_titles(conn, secret_key, items)), data["outage"], refused=bool(data["refused"])
+    )
 
 
 def _with_titles(
@@ -91,9 +94,9 @@ def _with_titles(
 def _with_title(
     item: StripItem, index: catalog.LibraryIndex, arr: catalog.ArrView, *, shown: bool
 ) -> StripItem:
-    poster = catalog.tmdb_image_url(item.poster_url, "w342") or item.poster_url
+    poster = catalog.tmdb_image_url(item.poster_url, "w342") or ""
     if item.tmdb_id is None or item.tmdb_id > _MAX_TMDB_ID:
-        return replace(item, poster_url=poster)
+        return replace(item, poster_url=poster, line=_ready_line(item, None))
     kind = "movie" if item.kind == "movie" else "tv"
     held = index.library_ref(kind, item.tmdb_id, item.title, arr)
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
@@ -113,7 +116,14 @@ def _with_title(
         href=catalog.library_href(held) or f"/watch#title={ref}",
         poster_url=poster,
         art_url=art,
+        line=_ready_line(item, held),
     )
+
+
+def _ready_line(item: StripItem, held: str | None) -> str:
+    """What a download that is done says: that it was added, until the library holds the
+    title it plays."""
+    return "Added" if item.state == "ready" and held is None else item.line
 
 
 def _held(kind: str, tmdb_id: int) -> dict[str, Any]:

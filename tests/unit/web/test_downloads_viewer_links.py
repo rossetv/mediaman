@@ -43,7 +43,9 @@ def _payload(*_args):
         "recent": [],
         "subtitle": "",
         "unreachable": [],
+        "refused": [],
         "outage": "",
+        "downloads_set_up": {"movies": True, "shows": True},
     }
 
 

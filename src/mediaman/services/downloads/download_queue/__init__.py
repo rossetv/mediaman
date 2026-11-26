@@ -14,10 +14,11 @@ importable from here.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import threading
 import time
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -55,7 +56,7 @@ from mediaman.services.downloads.download_queue.queue import (
     parse_nzb_queue as _parse_nzb_queue,
 )
 from mediaman.services.downloads.nzbget import NzbgetError
-from mediaman.services.infra import SafeHTTPError
+from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr._types import SonarrSeries
@@ -68,6 +69,7 @@ __all__ = [
     "build_downloads_response",
     "build_episode_dicts",
     "build_nzbget_from_db",
+    "downloads_subtitle",
     "fetch_arr_queue_result",
     "maybe_trigger_search",
     "nzb_matches_arr",
@@ -99,7 +101,16 @@ _READINESS_RETRY_SECONDS = 5.0
 _show_readiness: dict[str, str] = {}
 _readiness_kept_until: float | None = None
 
+# The top card's id, which stays on top while it is coming in.
+_last_hero = ""
+
 _state_lock = threading.Lock()
+
+# What a viewer is told while a service refuses its key or password, which only an admin can
+# put right.
+VIEWER_OUTAGE = "Downloads aren't available"
+# The fetcher's line for a service whose answer was 401 or 403: the key was refused.
+_REFUSED_LINE = re.compile(r"(\w+) fetch failed: HTTP 40[13] ")
 
 
 def _reset_previous_queue() -> None:
@@ -108,13 +119,15 @@ def _reset_previous_queue() -> None:
         _previous_initialised, \
         _last_cards, \
         _show_readiness, \
-        _readiness_kept_until
+        _readiness_kept_until, \
+        _last_hero
     with _state_lock:
         _previous_queue = {}
         _previous_initialised = False
         _last_cards = []
         _show_readiness = {}
         _readiness_kept_until = None
+        _last_hero = ""
     _reset_unchecked()
 
 
@@ -321,23 +334,16 @@ def _mark_readiness(
         item["readiness"] = readiness.get(cast(str, item["title"]), "unknown")
 
 
-def _downloads_subtitle(
-    hero: dict[str, object] | None,
-    queue: list[dict[str, object]],
-    upcoming: list[dict[str, object]],
-    outage: str = "",
-) -> str:
-    """Build the page-header subtitle for the server-rendered page and the poll. While the
-    page holds rows of a service that does not answer, downloads.js counts them in itself,
-    in the same words.
+def downloads_subtitle(active: int, coming: int, outage: str = "") -> str:
+    """Build the page-header subtitle of *active* downloads in progress and *coming* ones
+    scheduled. While the page holds rows of a service that does not answer, downloads.js
+    counts them in itself, in the same words.
 
     Something downloading gives "2 items in progress" (plus " · 3 coming soon" when
     releases are scheduled). Nothing downloading gives "Nothing downloading · 3 coming
     soon", or "" when nothing is scheduled either (the empty-state card says it all).
     An *outage* is named in place of "Nothing downloading", which nobody can then tell.
     """
-    active = (1 if hero else 0) + len(queue)
-    coming = len(upcoming)
     if active:
         line = f"{active} item{'s' if active != 1 else ''} in progress"
         if coming:
@@ -348,12 +354,39 @@ def _downloads_subtitle(
     return outage
 
 
-def _outage_line(unreachable: list[str]) -> str:
-    """Return "Can't reach Radarr, Sonarr and NZBGet", or "" when everything answered."""
+def _names(services: list[str]) -> str:
+    *rest, last = services
+    return f"{', '.join(rest) + ' and ' if rest else ''}{last}"
+
+
+def _outage_line(unreachable: list[str], refused: Collection[str] = ()) -> str:
+    """Return "Can't reach Sonarr and NZBGet", "Can't sign in to Radarr", "Can't reach Sonarr or
+    sign in to Radarr", or "" when everything answered. *refused* are those of *unreachable*
+    that refused the key or password they were given: no fault of the network."""
     if not unreachable:
         return ""
-    *rest, last = unreachable
-    return f"Can't reach {', '.join(rest) + ' and ' if rest else ''}{last}"
+    down = [name for name in unreachable if name not in refused]
+    shut = [name for name in unreachable if name in refused]
+    if not shut:
+        return f"Can't reach {_names(down)}"
+    if not down:
+        return f"Can't sign in to {_names(shut)}"
+    return f"Can't reach {_names(down)} or sign in to {_names(shut)}"
+
+
+def _refused_keys(errors: list[str]) -> list[str]:
+    return [found[1] for line in errors if (found := _REFUSED_LINE.match(line))]
+
+
+def _is_set_up(
+    conn: sqlite3.Connection, secret_key: str, build: Callable[[sqlite3.Connection, str], object]
+) -> bool:
+    """Whether the service has an address and a key; one whose key cannot be read is set up,
+    and named as not answering."""
+    try:
+        return build(conn, secret_key) is not None
+    except ConfigDecryptError:
+        return True
 
 
 def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> DownloadsResponse:
@@ -361,14 +394,20 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     queues by fuzzy title match and adding recent downloads from the database.
 
     *secret_key* decrypts the stored API credentials. Returns {"hero", "queue",
-    "upcoming", "recent", "subtitle", "unreachable", "outage"}: unreachable names the
-    services that did not answer, outage says so in a line.
+    "upcoming", "recent", "subtitle", "unreachable", "refused", "outage",
+    "downloads_set_up"}: unreachable names the services that did not answer, refused those
+    of them that refused their key, outage says so in a line, and downloads_set_up says
+    whether Radarr ("movies") and Sonarr ("shows") have an address and a key.
     """
+    from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
     from mediaman.services.downloads.download_format import select_hero
+
+    global _last_hero
 
     # 1. Fetch *arr queue
     arr_result = fetch_arr_queue_result(conn, secret_key)
     unreachable = list(arr_result.unreachable)
+    refused = _refused_keys(arr_result.errors)
     arr_base_urls_map = _arr_base_urls(conn, secret_key)
 
     # 2. Fetch NZBGet queue + status
@@ -380,9 +419,11 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         try:
             nzb_status = nzb_client.get_status()
             nzb_queue = nzb_client.get_queue()
-        except (SafeHTTPError, requests.RequestException, NzbgetError):
+        except (SafeHTTPError, requests.RequestException, NzbgetError) as exc:
             logger.warning("Failed to fetch NZBGet queue/status", exc_info=True)
             unreachable.append("NZBGet")
+            if isinstance(exc, SafeHTTPError) and exc.status_code in (401, 403):
+                refused.append("NZBGet")
 
     raw_download_rate = nzb_status.get("DownloadRate", 0)
     download_rate = raw_download_rate if isinstance(raw_download_rate, int) else 0
@@ -430,7 +471,11 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     )
 
     # 7. Hero selection
-    hero, queue = select_hero(items_as_dicts)
+    with _state_lock:
+        kept = _last_hero
+    hero, queue = select_hero(items_as_dicts, kept)
+    with _state_lock:
+        _last_hero = cast(str, hero["id"]) if hero else ""
 
     # 8. Recent downloads (last 7 days), excluding anything actively in queue.
     active = {(cast(str, item["id"]), cast(str, item["title"])) for item in items_as_dicts}
@@ -444,13 +489,18 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     _mark_readiness(conn, recent, secret_key, unreachable)
 
     upcoming = cast(list[dict[str, object]], upcoming_items)
-    outage = _outage_line(unreachable)
+    outage = _outage_line(unreachable, refused)
     return {
         "hero": hero,
         "queue": queue,
         "upcoming": upcoming,
         "recent": recent,
-        "subtitle": _downloads_subtitle(hero, queue, upcoming, outage),
+        "subtitle": downloads_subtitle((1 if hero else 0) + len(queue), len(upcoming), outage),
         "unreachable": unreachable,
+        "refused": refused,
         "outage": outage,
+        "downloads_set_up": {
+            "movies": _is_set_up(conn, secret_key, build_radarr_from_db),
+            "shows": _is_set_up(conn, secret_key, build_sonarr_from_db),
+        },
     }

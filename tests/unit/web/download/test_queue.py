@@ -495,9 +495,9 @@ class TestDownloadsSubtitle:
         ],
     )
     def test_subtitle_cases(self, hero, queue, upcoming, expected):
-        from mediaman.services.downloads.download_queue import _downloads_subtitle
+        from mediaman.services.downloads.download_queue import downloads_subtitle
 
-        assert _downloads_subtitle(hero, queue, upcoming) == expected
+        assert downloads_subtitle((1 if hero else 0) + len(queue), len(upcoming)) == expected
 
     def test_response_includes_subtitle(self, monkeypatch):
         conn = _fake_conn_empty_recent()

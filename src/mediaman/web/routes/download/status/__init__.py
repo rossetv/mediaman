@@ -133,12 +133,10 @@ def _sonarr_status(
 
     queue = client.get_queue()
     tvdb_id = requested_tvdb_id(conn, tmdb_id)
-    series_title, series_poster, ep_entries = _sonarr_queue_entries(
-        queue, tmdb_id, season_number, tvdb_id
-    )
+    series_title, ep_entries = _sonarr_queue_entries(queue, tmdb_id, season_number, tvdb_id)
 
     if ep_entries:
-        return _sonarr_aggregate(series_title, series_poster, ep_entries)
+        return _sonarr_aggregate(series_title, ep_entries)
 
     return _sonarr_series_fallback(client, tmdb_id, season_number, tvdb_id)
 

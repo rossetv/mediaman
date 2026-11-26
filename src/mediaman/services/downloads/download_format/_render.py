@@ -79,7 +79,7 @@ def build_episode_summary(episodes: list[dict[str, object]]) -> str:
 
     parts = []
     if ready:
-        parts.append(f"{ready} of {total} episodes ready")
+        parts.append(f"{ready} of {total} episode{'s' if total != 1 else ''} ready")
     if downloading:
         parts.append(f"{downloading} downloading")
     if queued:
@@ -98,25 +98,29 @@ _HERO_STATE_PRIORITY: dict[str, int] = {
 }
 
 
+# A download that is coming in: the top card stays on it while it is.
+_ACTIVE = frozenset({"downloading", "almost_ready"})
+
+
 def select_hero(
-    items: list[dict[str, object]],
+    items: list[dict[str, object]], kept: str = ""
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     """Pick the hero item and return (hero, remaining_items).
 
-    Priority: downloading (highest progress first), almost_ready, queued, searching.
-    almost_ready always beats searching because it is more actionable.
+    By state: downloading, almost_ready, queued, searching; within one, the oldest added
+    first, then by title, so nothing moves while its state stands. The item of id *kept*, the
+    last hero, stays the hero while it is downloading or almost ready.
     """
     if not items:
         return None, []
-    if len(items) == 1:
-        return items[0], []
 
-    def sort_key(item: dict[str, object]) -> tuple[int, int | float]:
-        state = item.get("state") or ""
-        priority = _HERO_STATE_PRIORITY.get(str(state), 5)
-        progress = item["progress"]
-        # Within the same priority tier, higher progress wins (negate for descending).
-        return (priority, -(progress if isinstance(progress, (int, float)) else 0))
+    def sort_key(item: dict[str, object]) -> tuple[int, float, str, str]:
+        priority = _HERO_STATE_PRIORITY.get(str(item.get("state") or ""), 5)
+        added_at = item.get("added_at")
+        added = added_at if isinstance(added_at, int | float) else 0.0
+        return (priority, added, str(item.get("title") or "").casefold(), str(item.get("id")))
 
     ranked = sorted(items, key=sort_key)
-    return ranked[0], ranked[1:]
+    stays = [i for i in ranked if kept and i.get("id") == kept and i.get("state") in _ACTIVE]
+    hero = stays[0] if stays else ranked[0]
+    return hero, [i for i in ranked if i is not hero]

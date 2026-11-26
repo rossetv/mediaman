@@ -323,4 +323,4 @@ class TestAbandonEndpoint:
 
         assert resp.status_code == 200
         assert resp.json()["abandoned"]["succeeded"] == [1, 2]
-        assert resp.json()["queue"]["hero"] is None
+        assert client.get("/api/downloads").json()["hero"] is None
