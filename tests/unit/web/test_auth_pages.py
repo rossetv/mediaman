@@ -105,7 +105,7 @@ def test_text_stays_readable_and_phone_inputs_do_not_trigger_zoom():
         pattern = (
             r"@media \(max-width: 639\.98px\)(?:, \(pointer: coarse\))? \{[^{}]*?\s"
             + re.escape(selector)
-            + r" \{ font-size: 16px; \}"
+            + r"(?:,[^{}]*)? \{ font-size: 16px; \}"
         )
         assert re.search(pattern, text), name
 
