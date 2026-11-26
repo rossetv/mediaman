@@ -15,6 +15,7 @@ from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.settings.testers import test_plex as _test_plex
+from tests.helpers.plexapi_errors import raised_by_plexapi
 
 
 class TestTestPlexStructuredResponse:
@@ -127,9 +128,12 @@ _PLEX_ERROR = ("plex_error", "Plex answered with an error. Try again in a moment
         # an HTML page answering 200 is not XML
         (ParseError("syntax error: line 1, column 0"), _NOT_PLEX),
         # well-formed XML that is not Plex's has no machine identifier
-        (AttributeError("'NoneType' object has no attribute 'attrib'"), _NOT_PLEX),
+        (
+            raised_by_plexapi(AttributeError("'NoneType' object has no attribute 'attrib'")),
+            _NOT_PLEX,
+        ),
         # an empty 200 body parses to None
-        (TypeError("'NoneType' object is not subscriptable"), _NOT_PLEX),
+        (raised_by_plexapi(TypeError("'NoneType' object is not subscriptable")), _NOT_PLEX),
         (BadRequest("(400) bad_request; http://plex:32400/ nope"), _NOT_PLEX),
         (BadRequest("(500) internal_server_error; http://plex:32400/ boom"), _PLEX_ERROR),
         (BadRequest("(503) service_unavailable; http://plex:32400/ later"), _PLEX_ERROR),
@@ -160,6 +164,15 @@ def test_a_bug_in_the_library_call_is_not_called_a_foreign_server():
             _test_plex({"plex_url": "http://plex:32400", "plex_token": "t"})
 
 
+def test_a_none_error_raised_in_our_own_code_is_not_called_a_foreign_server():
+    with patch("mediaman.services.media_meta.plex.PlexClient") as client:
+        client.return_value.get_libraries.side_effect = AttributeError(
+            "'NoneType' object has no attribute 'key'"
+        )
+        with pytest.raises(AttributeError):
+            _test_plex({"plex_url": "http://plex:32400", "plex_token": "t"})
+
+
 def test_an_empty_reply_met_while_listing_the_libraries_is_not_plex(caplog):
     import json
     import logging
@@ -168,8 +181,8 @@ def test_an_empty_reply_met_while_listing_the_libraries_is_not_plex(caplog):
         caplog.at_level(logging.INFO),
         patch("mediaman.services.media_meta.plex.PlexClient") as client,
     ):
-        client.return_value.get_libraries.side_effect = TypeError(
-            "'NoneType' object is not iterable"
+        client.return_value.get_libraries.side_effect = raised_by_plexapi(
+            TypeError("'NoneType' object is not iterable")
         )
         resp = _test_plex({"plex_url": "http://plex:32400", "plex_token": "t"})
     body = json.loads(resp.body)
