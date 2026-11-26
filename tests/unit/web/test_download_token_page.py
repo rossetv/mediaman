@@ -17,7 +17,12 @@ from mediaman.web.routes.download import _tokens as _download_tokens
 from mediaman.web.routes.download import confirm as _download_confirm
 from mediaman.web.routes.download import router as download_router
 from mediaman.web.routes.download import submit as _download_submit
-from tests.helpers.factories import insert_admin_user, insert_suggestion, insert_user_pick
+from tests.helpers.factories import (
+    insert_admin_user,
+    insert_settings,
+    insert_suggestion,
+    insert_user_pick,
+)
 
 
 def _valid_token(
@@ -684,7 +689,7 @@ class TestYoutubeTrailerKeyValidation:
 
         ctx = TestClient(app).get(f"/download/{token}").json()
 
-        assert ctx["item"]["backdrop_url"] == wide
+        assert ctx["item"]["backdrop_url"].startswith("/api/img/tmdb/w1280/wide.jpg?sig=")
         assert ctx["item"]["description"] == "A first sentence."
 
 
@@ -786,7 +791,8 @@ class TestDownloadPageBackdrop:
 
         page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
 
-        assert f'<img class="watch-banner__bg watch-banner__bg--art" src="{wide}"' in page
+        art = '<img class="watch-banner__bg watch-banner__bg--art" src="/api/img/tmdb/w1280/wide.jpg?sig='
+        assert art in page
         bootstrap = re.search(r'<script id="page-bootstrap"[^>]*>(.*?)</script>', page, re.S)
         assert bootstrap is not None
         assert set(json.loads(bootstrap.group(1))) == {
@@ -802,7 +808,10 @@ class TestDownloadPageBackdrop:
 def _offer_page(app_factory, conn, secret_key, **suggestion) -> str:
     """The page of a title nothing holds yet."""
     _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+    backdrop = suggestion.pop("backdrop_url", None)
     sid = insert_suggestion(conn, title="Dune", tmdb_id=42, **suggestion)
+    with conn:
+        conn.execute("UPDATE suggestions SET backdrop_url = ? WHERE id = ?", (backdrop, sid))
     token = generate_download_token(
         email="amy@example.com",
         action="download",
@@ -890,27 +899,55 @@ class TestLinkPreview:
     _WIDE = "https://image.tmdb.org/t/p/w1280/wide.jpg"
     _POSTER = "https://image.tmdb.org/t/p/w300/p.jpg"
 
-    def test_it_is_the_title_and_its_picture(self):
-        assert _previews(_template_page(poster_url=self._POSTER, backdrop_url=self._WIDE)) == {
+    def test_it_is_the_title_and_its_picture_from_this_site(self, app_factory, conn, secret_key):
+        insert_settings(conn, base_url="https://media.example/")
+        page = _offer_page(
+            app_factory, conn, secret_key, poster_url=self._POSTER, backdrop_url=self._WIDE
+        )
+
+        preview = _previews(page)
+        assert preview.pop("og:image").startswith(
+            "https://media.example/api/img/tmdb/w1280/wide.jpg?sig="
+        )
+        assert preview == {
             "og:site_name": "mediaman",
             "og:type": "website",
             "og:title": "Dune",
-            "og:image": self._WIDE,
             "twitter:card": "summary_large_image",
         }
 
-    def test_with_no_wide_picture_it_has_the_poster(self):
-        preview = _previews(_template_page(poster_url=self._POSTER, season_number=2))
+    def test_with_no_wide_picture_it_has_the_poster(self, app_factory, conn, secret_key):
+        insert_settings(conn, base_url="https://media.example")
+        page = _offer_page(app_factory, conn, secret_key, poster_url=self._POSTER)
 
-        assert preview["og:image"] == "https://image.tmdb.org/t/p/w500/p.jpg"
-        assert preview["og:title"] == "Dune · Season 2"
+        preview = _previews(page)
+        assert preview["og:image"].startswith("https://media.example/api/img/tmdb/w500/p.jpg?sig=")
+        assert preview["twitter:card"] == "summary"
 
-    def test_a_picture_of_another_host_and_the_mail_s_reader_are_not_in_it(self):
-        page = _template_page(
-            poster_url="https://elsewhere.example/p.jpg", reason="Because.", email="amy@example.com"
+    def test_with_no_site_address_it_has_no_picture(self, app_factory, conn, secret_key):
+        page = _offer_page(
+            app_factory, conn, secret_key, poster_url=self._POSTER, backdrop_url=self._WIDE
         )
 
         assert "og:image" not in _previews(page)
+        assert _previews(page)["twitter:card"] == "summary"
+
+    def test_it_names_the_season(self):
+        assert _previews(_template_page(season_number=2))["og:title"] == "Dune · Season 2"
+
+    def test_a_picture_of_another_host_and_the_mail_s_reader_are_not_in_it(
+        self, app_factory, conn, secret_key
+    ):
+        insert_settings(conn, base_url="https://media.example")
+        page = _offer_page(
+            app_factory,
+            conn,
+            secret_key,
+            poster_url="https://elsewhere.example/p.jpg",
+            reason="Because.",
+        )
+
+        assert "og:image" not in _previews(page) and "elsewhere.example" not in page
         assert not {"Because.", "amy@example.com"} & set(_previews(page).values())
 
     def test_a_title_cannot_leave_its_attribute(self):
@@ -998,7 +1035,7 @@ class TestDownloadPageCast:
     @pytest.mark.parametrize(
         ("path", "photo"),
         [
-            ("/ada.jpg", "https://image.tmdb.org/t/p/w185/ada.jpg"),
+            ("/ada.jpg", "/ada.jpg"),
             ("/../../etc/ada.jpg", None),
             ("//evil.example/ada.jpg", None),
             ('/a".jpg', None),
@@ -1035,8 +1072,67 @@ class TestDownloadPageCast:
             cast_json='[{"name": "Ada Vale", "character": "Lead", "profile_path": "/ada.jpg"}]',
         )
 
-        photo = re.search(r'<img src="https://image.tmdb.org/t/p/w185/ada.jpg"[^>]*>', page)
+        photo = re.search(r'<img src="/api/img/tmdb/w185/ada.jpg\?sig=[^"]+"[^>]*>', page)
         assert photo and 'referrerpolicy="no-referrer"' in photo[0] and 'alt=""' in photo[0]
+
+
+class TestDownloadPagePictures:
+    """A visitor's browser takes every picture from this site, never from TMDB."""
+
+    def _page(self, app_factory, conn, secret_key) -> tuple[str, str]:
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        sid = insert_suggestion(
+            conn,
+            title="Dune",
+            tmdb_id=42,
+            poster_url="https://image.tmdb.org/t/p/w300/p.jpg",
+            cast_json='[{"name": "Ada Vale", "character": "Lead", "profile_path": "/ada.jpg"}]',
+        )
+        with conn:
+            conn.execute(
+                "UPDATE suggestions SET backdrop_url = ? WHERE id = ?",
+                ("https://image.tmdb.org/t/p/w1280/wide.jpg", sid),
+            )
+        token = generate_download_token(
+            email=None,
+            action="download",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=sid,
+            secret_key=secret_key,
+        )
+        nothing = {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
+        with patch.object(_download_confirm, "_get_radarr_cache_cached", return_value=nothing):
+            page = TestClient(_app_with_real_templates(app_factory, conn)).get(f"/download/{token}")
+        return page.text, token
+
+    def test_no_picture_is_tmdbs_and_none_carries_the_link(self, app_factory, conn, secret_key):
+        insert_settings(conn, base_url="https://media.example")
+        page, token = self._page(app_factory, conn, secret_key)
+
+        sources = re.findall(r'<img [^>]*src="([^"]*)"', page)
+        assert {src.split("?")[0] for src in sources} == {
+            "/api/img/tmdb/w1280/wide.jpg",
+            "/api/img/tmdb/w500/p.jpg",
+            "/api/img/tmdb/w185/ada.jpg",
+        }
+        assert "image.tmdb.org" not in page
+        assert not [src for src in sources if token in src]
+
+    def test_a_pictures_signature_lasts_as_long_as_the_link(self, app_factory, conn, secret_key):
+        from mediaman.crypto import validate_download_token, validate_tmdb_image_token
+
+        page, token = self._page(app_factory, conn, secret_key)
+
+        link = validate_download_token(token, secret_key)
+        assert link is not None
+        sigs = set(re.findall(r'src="/api/img/tmdb/[^"]*\?sig=([^"]+)"', page))
+        assert len(sigs) == 3
+        for sig in sigs:
+            picture = validate_tmdb_image_token(sig, secret_key)
+            assert picture is not None
+            assert link["exp"] <= picture["exp"] < link["exp"] + 86400
 
 
 class TestDownloadPageReason:
@@ -1098,7 +1194,7 @@ class TestDownloadPageOfAnOwnPick:
 
         page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
 
-        assert "https://image.tmdb.org/t/p/w500/p.jpg" in page
+        assert "/api/img/tmdb/w500/p.jpg?sig=" in page
         assert "A desert planet." in page
         assert "AI pick" in page
         for private in ("A reason of a shared pick.", "Amys reason.", "amyowner"):

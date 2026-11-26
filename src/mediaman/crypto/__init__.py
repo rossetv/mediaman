@@ -32,10 +32,12 @@ from .tokens import (
     generate_session_token,
     generate_unsubscribe_token,
     sign_poster_url,
+    sign_tmdb_image_url,
     validate_download_token,
     validate_keep_token,
     validate_poll_token,
     validate_poster_token,
+    validate_tmdb_image_token,
     validate_unsubscribe_token,
 )
 
@@ -52,9 +54,11 @@ __all__ = [
     "generate_unsubscribe_token",
     "is_canary_valid",
     "sign_poster_url",
+    "sign_tmdb_image_url",
     "validate_download_token",
     "validate_keep_token",
     "validate_poll_token",
     "validate_poster_token",
+    "validate_tmdb_image_token",
     "validate_unsubscribe_token",
 ]
