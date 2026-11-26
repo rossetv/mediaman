@@ -77,7 +77,8 @@ def test_each_person_gets_their_own_order(client, conn):
     _played(conn, "bob", 1, 4)
     conn.execute(
         "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, title, updated_at)"
-        " SELECT id, 'movie', 4, 2, 'Film 4', '2026-01-01' FROM admin_users WHERE username = 'bob'"
+        " SELECT id, 'movie', 4, 2, 'Film 4', ? FROM admin_users WHERE username = 'bob'",
+        (now_utc().isoformat(),),
     )
     _played(conn, "bob", 2)
     conn.commit()

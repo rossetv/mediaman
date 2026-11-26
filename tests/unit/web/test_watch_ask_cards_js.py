@@ -32,6 +32,29 @@ def test_a_because_you_liked_lead_is_bold_and_the_rest_of_the_reason_follows() -
     assert out["whys"][2]["bold"] == ["B:Because you watched Orchard"]
 
 
+def test_the_lead_the_server_names_is_bold_whole_even_where_the_title_has_a_colon() -> None:
+    whys = _run("leads")["whys"]
+    assert whys[0] == {
+        "text": "Because you liked Star Wars: Episode IV · a space saga.",
+        "bold": ["B:Because you liked Star Wars: Episode IV"],
+        "kids": 1,
+    }
+
+
+def test_a_reason_with_no_lead_or_one_it_does_not_start_with_is_plain_and_whole() -> None:
+    whys = _run("leads")["whys"]
+    for why, text in zip(
+        whys[1:],
+        [
+            "Because you liked Nine Locks: the same dry humour.",
+            "Because you liked Nine Locks: the same dry humour.",
+            "A heist done right.",
+        ],
+        strict=True,
+    ):
+        assert why == {"text": text, "bold": [], "kids": 0}
+
+
 def test_a_reason_is_text_never_markup_and_an_empty_one_draws_no_line() -> None:
     out = _run("reasons")
     assert out["imgs"] == 0
