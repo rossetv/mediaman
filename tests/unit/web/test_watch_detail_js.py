@@ -1701,3 +1701,14 @@ def test_a_trailer_whose_player_never_answers_or_cannot_play_goes_back_to_the_ar
 
 def test_a_title_s_page_brings_its_cards_up_to_what_it_learns_of_it_not_to_its_preview() -> None:
     assert _run("arrivalPaints") == {"drawn": [], "opened": [["movie/120", True]]}
+
+
+def test_on_a_phone_an_admin_s_leaving_line_takes_them_to_the_keep_below() -> None:
+    out = _run("leavingToKeep")
+    words = "Leaving in 3 days. Keep it to stop the deletion."
+    assert out["phone"] == {"words": words, "link": "Keep it to stop the deletion", "focus": "admin-keep"}
+    assert out["wide"]["link"] is None and out["viewer"]["link"] is None
+    assert out["wide"]["words"] == words
+    # Before the Keep has come there is nowhere to take the focus.
+    assert out["waiting"]["link"] == "Keep it to stop the deletion"
+    assert out["waiting"]["focus"] != "admin-keep"

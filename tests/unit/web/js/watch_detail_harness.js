@@ -201,7 +201,7 @@ function load(opts = {}) {
     AbortController: class { constructor() { this.signal = {}; } abort() { this.signal.aborted = true; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
-    matchMedia: (q) => ({ matches: /min-width/.test(q) || (!!opts.still && /reduced-motion/.test(q)) }),
+    matchMedia: (q) => ({ matches: (!opts.narrow && /min-width/.test(q)) || (!!opts.still && /reduced-motion/.test(q)) }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900,
     innerWidth: 1280,
@@ -2682,6 +2682,27 @@ const scenarios = {
       noTvs: (await open(film, { playOn: true, routes: { ['/api/watch/title/' + film.ref]: film } })).says,
       notHeld: (await open(MOVIE_DL, { playOn: true })).says,
       without: (await open(film, {})).says,
+    };
+  },
+
+  // On a phone an admin's line of when a title leaves takes them to the Keep below; elsewhere it only says so.
+  async leavingToKeep() {
+    const run = async (opts) => {
+      const p = load({ adminApi: { keep: () => {} }, ...opts,
+        routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': opts.facts || FACTS } });
+      p.run();
+      p.ctx.MMWatch.detail.open('movie-120', {});
+      await settle();
+      const line = p.q('.ttl__leaving');
+      const to = line.querySelector('button');
+      if (to) click(p.doc, to);
+      return { words: line.textContent, link: to ? to.textContent : null, focus: p.doc.activeElement.getAttribute('data-ttl-act') };
+    };
+    return {
+      phone: await run({ admin: true, narrow: true }),
+      wide: await run({ admin: true }),
+      viewer: await run({ narrow: true }),
+      waiting: await run({ admin: true, narrow: true, facts: () => new Promise(() => {}) }),
     };
   },
 

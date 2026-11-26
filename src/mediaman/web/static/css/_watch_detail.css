@@ -377,6 +377,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__progress { display: flex; align-items: center; gap: 12px; min-height: 1lh; font-size: 13px; color: var(--t2); }
 .ttl__progress .watch-bar--banner { width: min(240px, 50%); }
 .ttl__leaving { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--danger-text); }
+.ttl__leaving-keep { position: relative; padding: 0; border: 0; border-radius: var(--r-xxs); background: none; font: inherit; color: inherit; text-align: inherit; text-decoration: underline 1px; text-underline-offset: 3px; cursor: pointer; }
+.ttl__leaving-keep::after { content: ""; position: absolute; inset: -12px -3px; }
+.ttl__leaving-keep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl__leaving-keep:active { opacity: .6; }
 .ttl__leaving-skel { color: transparent; user-select: none; }
 .ttl__leaving:has(> .ttl__leaving-skel) > .ico { visibility: hidden; }
 .ttl__ratings { display: flex; flex-wrap: wrap; gap: 6px; }

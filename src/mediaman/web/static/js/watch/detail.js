@@ -1668,7 +1668,7 @@
     if (leaves) {
       var line = el('p', 'ttl__leaving');
       line.appendChild(icon('i-clock'));
-      line.appendChild(document.createTextNode(leavingText(leaves) + ' Keep it to stop the deletion.'));
+      line.appendChild(leavingWords(leaves));
       under.appendChild(line);
     }
     var like = likeButton(d);
@@ -1692,6 +1692,29 @@
     a.appendChild(icon('i-play'));
     a.appendChild(document.createTextNode(play.label || 'Play'));
     return a;
+  }
+
+  /* On a phone an admin's Keep is far below, in the facts that come after the actions. */
+  function leavingWords(leaves) {
+    var words = el('span', '', leavingText(leaves) + ' ');
+    var api = window.MMWatch.admin;
+    if (!isAdmin || !api || !api.keep || !hasFacts(cur) || wide()) {
+      words.appendChild(document.createTextNode('Keep it to stop the deletion.'));
+      return words;
+    }
+    var b = el('button', 'ttl__leaving-keep', 'Keep it to stop the deletion');
+    b.type = 'button';
+    b.setAttribute('data-ttl-act', 'to-keep');
+    b.addEventListener('click', function () {
+      var to = byAct('admin-keep');
+      var box = to || body.querySelector('.ttl-facts'); // where it comes, while the facts load
+      if (!box) return;
+      box.scrollIntoView({ block: 'center', behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+      if (to) to.focus({ preventScroll: true });
+    });
+    words.appendChild(b);
+    words.appendChild(document.createTextNode('.'));
+    return words;
   }
 
   /* Titles like it, where there is an AI to find them. */
