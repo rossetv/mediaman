@@ -65,10 +65,14 @@ class El {
   removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
   // what the browser sends when a transition or animation on this element ends
   emit(t, extra) { (this.listeners[t] || []).slice().forEach((f) => f({ target: this, ...extra })); }
-  // a layout read: a transform set before it is where a slide starts
-  get offsetHeight() { if (this.style.transform) this.slideStart = this.style.transform; return this.hidden ? 0 : 50; }
-  // A queue row stands 100px tall, and 43px more while its search line shows; rows stack.
-  get rowHeight() { return 100 + (this.querySelectorAll('[data-v="search-hint"]').some((h) => !h.hidden) ? 43 : 0); }
+  // a layout read: a transform set before it is where a slide starts, and a height set before it
+  // is where a fold eases from
+  get offsetHeight() { if (this.style.transform) this.slideStart = this.style.transform; this.laidHeight = this.style.height; return this.hidden ? 0 : this.style.height ? parseFloat(this.style.height) : 50; }
+  // A queue row stands 100px tall, and 43px more while its search line shows, or where a fold
+  // under way starts from; rows stack.
+  get rowHeight() {
+    if (this.classList.contains('dl-fold') && this.laidHeight) return parseFloat(this.laidHeight);
+    return 100 + (this.querySelectorAll('[data-v="search-hint"]').some((h) => !h.hidden) ? 43 : 0); }
   getBoundingClientRect() {
     const p = this.parentNode;
     if (!p || p.id !== 'dl-queue-list') return { height: this.offsetHeight, top: 0 };
@@ -1006,6 +1010,17 @@ scenarios.arrLink = async function () {
     return p.h.root.querySelectorAll('[data-v="arr-link"]').length;
   };
   return { admin: count(true), viewer: count(false) };
+};
+
+// a row that arrives mid-list opens from nothing, so the rows below it ease down as it grows
+// and never start from a place they were not seen in
+scenarios.newRowMidList = async function () {
+  const p = pageRig();
+  p.upd({ hero: item('h'), queue: [item('q1'), item('q3')] });
+  p.upd({ hero: item('h'), queue: [item('q1'), item('q2'), item('q3')] });
+  return p.byId('dl-queue-list').querySelectorAll('.dl-compact').map((r) => [
+    r.getAttribute('data-dl-id'), r.style.height || '', r.slideStart || '', r.getBoundingClientRect().top,
+  ]);
 };
 
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

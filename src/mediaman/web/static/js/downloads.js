@@ -222,8 +222,9 @@
         }
       }
       orderRows(list);
-      slideRows(list, queuePlaces);
+      /* A new row opens from nothing before the rows below it are measured. */
       if (!opening) added.forEach(dom.reveal);
+      slideRows(list, queuePlaces);
       dom.dropAbsent(list.querySelectorAll('.dl-compact'), present);
       if (opening) dom.reveal(queueContainer);
     } else {
