@@ -2917,6 +2917,15 @@ scenarios.like = async () => {
   return out;
 };
 
+scenarios.noDownloadHeads = async () => {
+  const p = load({ ...ADMIN, can_download: { movie: false, show: true } });
+  await p.search('orchard');
+  await p.answer('/api/watch/search?', { items: [LIB] });
+  const early = p.heads();
+  await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+  return { early, heads: p.heads(), status: p.status.textContent };
+};
+
 const name = process.argv[2];
 if (!scenarios[name]) { console.error('unknown scenario ' + name); process.exit(2); }
 scenarios[name]().then((out) => console.log(JSON.stringify(out)), (err) => { console.error(err.stack); process.exit(1); });

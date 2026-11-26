@@ -605,6 +605,9 @@
     var address = window.MMWatch.address;
     var explore = window.MMWatch.explore;
     var data = readPageData();
+    // Results mix films and shows: offered for download only where both can be.
+    var can = data.can_download || {};
+    var outTitle = can.movie === false || can.show === false ? 'Not in your library' : 'Available to download';
 
     var view = results.hidden ? 'browse' : 'results'; // what stands under the bar: browse, results or page
     var timer = null;
@@ -1622,7 +1625,7 @@
     function readOut(c, all, coming) {
       var parts = coming ? [coming + ' downloading'] : [];
       if (c.lib.state === 'ok' && all.lib.length) parts.push((all.total > all.lib.length ? all.lib.length + ' of ' : '') + all.total + ' in your library');
-      if (all.out.length) parts.push(all.out.length + ' available to download');
+      if (all.out.length) parts.push(all.out.length + ' ' + outTitle.toLowerCase());
       status.textContent = [parts.length
         ? parts.join(', ') + ' for “' + c.q + '”'
         : 'No matches in your library for “' + c.q + '”', suggestionCount(), askHint()].filter(Boolean).join('. ');
@@ -1721,13 +1724,13 @@
       }
 
       if (tmdb.state === 'loading' && !tmdb.items) {
-        rows.push(headRow('tmdb', 'Available to download'));
+        rows.push(headRow('tmdb', outTitle));
         rows = rows.concat(c.before.length ? cardRows(c.before) : skeletonRows('tmdb'));
       } else if (tmdb.state === 'failed') {
-        rows.push(headRow('tmdb', 'Available to download'), failRow(c, 'tmdb', TMDB_FAILED, function () { fetchTmdb(c); paint(c); }));
+        rows.push(headRow('tmdb', outTitle), failRow(c, 'tmdb', TMDB_FAILED, function () { fetchTmdb(c); paint(c); }));
         rows = rows.concat(cardRows(all.out));
       } else if (all.out.length) {
-        rows = rows.concat(headRow('tmdb', 'Available to download', all.out.length), cardRows(all.out));
+        rows = rows.concat(headRow('tmdb', outTitle, all.out.length), cardRows(all.out));
       } else if (settled && !all.lib.length && lib.state === 'ok') {
         if (peopleFor(c.q, c).length) {
           rows.push({ key: NO_TITLE, sig: c.q, make: function () { return el('p', 'results-none', 'No title matches “' + c.q + '”'); } });

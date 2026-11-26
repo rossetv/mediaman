@@ -1388,3 +1388,12 @@ def test_the_empty_search_leads_to_all_titles_and_to_downloads_with_their_live_n
     assert out["opened"] == [[["", "", {"fromSearch": True}]], False, 0]
     assert out["changed"] == ["All 1 title", None, "All 2 titles"]
     assert out["bare"] == "Downloads"
+
+
+def test_titles_that_cannot_be_downloaded_are_not_called_available_to_download() -> None:
+    out = _run("noDownloadHeads")
+    assert out["early"] == ["In your library", "Not in your library"]
+    assert out["heads"] == ["In your library", "Not in your library"]
+    assert "available to download" not in out["status"]
+    assert "1 not in your library" in out["status"]
+
