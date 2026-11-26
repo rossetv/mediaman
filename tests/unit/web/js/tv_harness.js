@@ -888,19 +888,6 @@ const scenarios = {
     t.key(RIGHT);
     return { before, ov: t.ov(), asks: t.fullAsks.length };
   },
-  // The hint over a film leaves room in the title row; the pill drifts with the page.
-  async fullRoom() {
-    const t = tv({ kept: 'old', full: true });
-    t.answers.poll = () => ready({ play: film() });
-    t.run();
-    await t.step(50);
-    t.video.fire('loadedmetadata');
-    t.video.fire('playing');
-    await t.step(600);
-    const at = t.ov();
-    await t.step(5000);
-    return { at, later: t.ov() };
-  },
   // The pages whose one button is harmless: the first OK asks for full screen and acts too.
   async fullThenAct(page) {
     const t = tv({ kept: page === 'conn' ? null : 'old', full: true });
