@@ -1670,3 +1670,17 @@ def test_a_title_opened_on_what_was_asked_ahead_and_then_refused_is_asked_again_
         "director": "DirectorAda Rimmington",
         "failed": False,
     }
+
+
+def test_a_refused_early_ask_stops_asking_ahead_for_a_minute_but_never_holds_back_an_opening() -> (
+    None
+):
+    assert _run("aheadBacksOff") == {
+        "meanwhile": 1,
+        "drawn": 1,
+        "after": ["/api/watch/title/movie-2?ahead=1"],
+    }
+
+
+def test_a_title_asked_ahead_and_not_found_is_not_asked_again_when_opened() -> None:
+    assert _run("aheadNotFoundOnOpen") == {"asked": 1, "failed": True}

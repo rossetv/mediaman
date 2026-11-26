@@ -45,6 +45,8 @@
   var AHEAD_FRESH_MS = 60000;
   /* How many are asked for a minute: each can cost Plex several calls. */
   var AHEAD_MOST = 10;
+  /* How long the server's refusal of what is asked ahead holds. */
+  var AHEAD_REFUSED_MS = 60000;
   /* How long after a close the next press of a double click can still come. */
   var DOUBLE_CLICK_MS = 600;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
@@ -78,6 +80,7 @@
   var drawn = null;    // while the title on show is only drawn: { was }, the one before it
   var ahead = null;    // the title asked for before it is opened: { ref, at, ctrl, promise, data, failed }
   var aheadAt = [];    // when those of the last minute were
+  var aheadRefusedAt = -Infinity;
   var telling = false; // this page is saying what it knows of a title
   var isOpen = false;
   var kept = {};       // the titles left, by ref, as they were left
@@ -415,10 +418,14 @@
     if (ahead && !ahead.data && !wanted) return null;
     aheadAt = aheadAt.filter(function (at) { return now - at < 60000; });
     if (!REF_RE.test(ref) || aheadAt.length >= AHEAD_MOST) return null;
+    if (!wanted && now - aheadRefusedAt < AHEAD_REFUSED_MS) return null;
     aheadAt.push(now);
     var a = ahead = { ref: ref, at: now, ctrl: new AbortController(), promise: null, data: null, failed: false };
     a.promise = get(apiUrl(ref) + (wanted ? '' : '?ahead=1'), a.ctrl);
-    a.promise.then(function (data) { a.data = data; }, function () { a.failed = true; });
+    a.promise.then(function (data) { a.data = data; }, function (err) {
+      a.failed = true;
+      if (!wanted && err && err.status === 429) aheadRefusedAt = Date.now();
+    });
     return a;
   }
 
@@ -684,7 +691,7 @@
     if (window.MM.ratings) window.MM.ratings.read([c.ref]);
     // What was asked for ahead may be refused by its own limit, which a title opened is not.
     var asked = early ? early.promise.catch(function (err) {
-      if (err && err.name === 'AbortError') throw err;
+      if (err && (err.name === 'AbortError' || err.status === 404)) throw err;
       return get(apiUrl(c.ref), ctrl);
     }) : get(apiUrl(c.ref), ctrl);
     asked.then(function (data) {

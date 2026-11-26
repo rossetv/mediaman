@@ -452,6 +452,33 @@ const scenarios = {
     return { meanwhile, director: p.text('.ttl__credit'), failed: !!p.q('.ttl__failed') };
   },
 
+  // Refused what it asked ahead, the page asks ahead no more for a minute; what is opened is still asked for.
+  async aheadBacksOff() {
+    const p = carried({ routes: { '/api/watch/title/movie-1': new APIError(429, 'too_many_requests'),
+      '/api/watch/title/movie-2': Object.assign({}, LIB_MOVIE, { ref: 'movie-2', library_ref: 'movie-2' }) } });
+    p.detail.ahead('movie-1');
+    await settle();
+    p.clock.now += 59000;
+    p.detail.ahead('movie-2');
+    const meanwhile = p.aheads.length;
+    p.draw();
+    p.detail.undraw();
+    await settle();
+    const drawn = p.gets.filter((u) => u === '/api/watch/title/movie-120').length;
+    p.clock.now += 2000;
+    p.detail.ahead('movie-2');
+    return { meanwhile, drawn, after: p.aheads.slice(1) };
+  },
+
+  // A title that is not there is not asked for again when it is opened.
+  async aheadNotFoundOnOpen() {
+    const p = carried({ routes: { '/api/watch/title/movie-120': new APIError(404, 'not_found') } });
+    p.detail.ahead('movie-120');
+    p.detail.open('movie-120', {});
+    await settle();
+    return { asked: p.gets.length, failed: !!p.q('.ttl__failed') };
+  },
+
   // Only what a preview asks for on the chance it is opened says so to the server, which limits it apart.
   async aheadMarked() {
     const p = carried();
