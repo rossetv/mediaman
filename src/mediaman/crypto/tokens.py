@@ -164,6 +164,9 @@ _TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
 _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
 _TOKEN_PURPOSE_TMDB_IMAGE = b"mediaman-token-tmdb-image-v1"
 
+# As long as a mailed poster's signature (generate_poster_token's default) lasts.
+_MAIL_PICTURE_TTL_DAYS = 180
+
 # A TMDB picture's path ("/abc.jpg") or its image.tmdb.org address at any size.
 _TMDB_IMAGE_RE = re.compile(
     r"(?:https://image\.tmdb\.org/t/p/[a-z0-9]{1,16})?/([A-Za-z0-9_-]{1,64}\.(?:jpg|jpeg|png|webp))"
@@ -511,6 +514,27 @@ def sign_tmdb_image_url(
         size=size, name=name, expires_at=expires_at, secret_key=secret_key
     )
     return f"/api/img/tmdb/{size}/{name}?sig={token}"
+
+
+def site_tmdb_image_url(
+    image: object, size: str, secret_key: str, base_url: str, *, expires_at: int
+) -> str | None:
+    """sign_tmdb_image_url's address made absolute with the site address *base_url*; None
+    when *base_url* is no http or https address, there is no key, or *image* is no TMDB picture.
+    """
+    site = base_url.strip().rstrip("/")
+    if not secret_key or not site.lower().startswith(("http://", "https://")):
+        return None
+    signed = sign_tmdb_image_url(image, size, secret_key, expires_at=expires_at)
+    return f"{site}{signed}" if signed else None
+
+
+def mail_tmdb_image_url(image: object, size: str, secret_key: str, base_url: str) -> str | None:
+    """site_tmdb_image_url for a mail, which is read again long after it is sent, with no
+    session: it lasts as long as a mail's signed posters do.
+    """
+    expires_at = int(time.time()) + _MAIL_PICTURE_TTL_DAYS * 86400
+    return site_tmdb_image_url(image, size, secret_key, base_url, expires_at=expires_at)
 
 
 def generate_poll_token(

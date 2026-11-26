@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -20,7 +19,7 @@ from mediaman.core.deleted_media import (
 )
 from mediaman.core.format import rk_from_audit_detail as _extract_rk_from_detail
 from mediaman.core.format import title_from_audit_detail as _extract_title_from_detail
-from mediaman.crypto import sign_poster_url, sign_tmdb_image_url
+from mediaman.crypto import mail_tmdb_image_url, sign_poster_url
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
 from mediaman.services.openai.recommendations.user_picks import PICKS_LAST, fetch_picks
@@ -29,9 +28,6 @@ from ._time import _parse_days_ago
 from ._types import DeletedNewsletterItem, NewsletterRecItem, StorageStats
 
 logger = logging.getLogger(__name__)
-
-# As long as the mail's signed posters last: it is read long after it is sent, with no session.
-_PICK_POSTER_DAYS = 180
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,17 +338,6 @@ def load_own_picks(
     return found
 
 
-def _pick_poster(poster_url: str | None, base_url: str, secret_key: str) -> str | None:
-    """A TMDB poster as this site's signed address when the site address is known, so TMDB
-    never learns who opens the mail; anything else as it is.
-    """
-    if not base_url or not secret_key:
-        return poster_url
-    expires_at = int(time.time()) + _PICK_POSTER_DAYS * 86400
-    signed = sign_tmdb_image_url(poster_url, "w342", secret_key, expires_at=expires_at)
-    return f"{base_url}{signed}" if signed else poster_url
-
-
 def _rec_item(
     row: Mapping[str, Any] | sqlite3.Row, rec_id: int | None, base_url: str, secret_key: str
 ) -> NewsletterRecItem:
@@ -363,7 +348,11 @@ def _rec_item(
         "category": row["category"],
         "description": row["description"],
         "reason": row["reason"],
-        "poster_url": _pick_poster(row["poster_url"], base_url, secret_key),
+        # From this site where it can be, so TMDB never learns who opens the mail.
+        "poster_url": (
+            mail_tmdb_image_url(row["poster_url"], "w342", secret_key, base_url)
+            or row["poster_url"]
+        ),
         "tmdb_id": row["tmdb_id"],
         "rating": row["rating"],
         "rt_rating": row["rt_rating"],

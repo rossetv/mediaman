@@ -19,13 +19,12 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
-from mediaman.crypto import sign_tmdb_image_url
+from mediaman.crypto import mail_tmdb_image_url
 from mediaman.services.arr._types import RadarrMovie
 from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
 from mediaman.services.downloads.download_format import extract_poster_url
@@ -35,9 +34,6 @@ if TYPE_CHECKING:
     from jinja2 import Template
 
 logger = logging.getLogger(__name__)
-
-# A mail is read, and read again, long after it is sent, with no session.
-_MAIL_PICTURE_DAYS = 180
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,29 +146,12 @@ def gather_email_meta(
     return meta
 
 
-def _site(base_url: str) -> str:
-    """The site address with no trailing slash, or "" when it is no usable one."""
-    site = base_url.strip().rstrip("/")
-    return site if site.lower().startswith(("http://", "https://")) else ""
-
-
-def _own_picture(url: str, size: str, site: str, secret_key: str) -> str:
-    """*url* as this site's signed address when it is a TMDB picture and the site address is
-    known; else *url* unchanged.
-    """
-    if not site or not secret_key:
-        return url
-    expires_at = int(time.time()) + _MAIL_PICTURE_DAYS * 86400
-    signed = sign_tmdb_image_url(url, size, secret_key, expires_at=expires_at)
-    return f"{site}{signed}" if signed else url
-
-
 def _watch_url(row: ClaimedNotificationRow, base_url: str) -> str:
     """The address that opens the title on Watch, or "" (no button) with no usable site
     address. A title with no TMDB id is searched for by name.
     """
-    site = _site(base_url)
-    if not site:
+    site = base_url.strip().rstrip("/")
+    if not site.lower().startswith(("http://", "https://")):
         return ""
     if not row.tmdb_id:
         return f"{site}/watch?q={quote(row.title, safe='')}"
@@ -214,14 +193,12 @@ def build_email_payload(
     # Upgrade small TMDB posters to w500 for better-looking emails.
     # With the site address known, TMDB's pictures come from this site, so TMDB never learns
     # who opens the mail; Radarr's own poster address is left as it is.
-    site = _site(base_url)
-    backdrop_src = _own_picture(
-        safe_backdrop(meta["backdrop_url"]) or "", "w1280", site, secret_key
-    )
+    backdrop_src = safe_backdrop(meta["backdrop_url"]) or ""
+    backdrop_src = mail_tmdb_image_url(backdrop_src, "w1280", secret_key, base_url) or backdrop_src
     poster_src = meta["poster_url"]
     if poster_src:
         poster_src = poster_src.replace("/w300", "/w500").replace("/w200", "/w500")
-        poster_src = _own_picture(poster_src, "w500", site, secret_key)
+        poster_src = mail_tmdb_image_url(poster_src, "w500", secret_key, base_url) or poster_src
 
     # A season row names its season so two seasons of one show do not send the same text.
     season_label = f"Season {row.season_number}" if row.season_number is not None else ""

@@ -120,8 +120,11 @@ def test_a_shared_pick_s_poster_comes_from_this_site(conn, secret_key, shared_pi
     assert 180 <= _lasts_days(pick["poster_url"], secret_key) <= 181
 
 
-def test_with_no_site_address_a_pick_s_poster_is_the_stored_one(conn, secret_key, shared_pick):
-    (pick,) = _load_recommendations(conn, secret_key=secret_key)
+@pytest.mark.parametrize("site", ["", "javascript:alert(1)", "media.example"])
+def test_with_no_usable_site_address_a_pick_s_poster_is_the_stored_one(
+    conn, secret_key, shared_pick, site
+):
+    (pick,) = _load_recommendations(conn, base_url=site, secret_key=secret_key)
 
     assert pick["poster_url"] == POSTER
 

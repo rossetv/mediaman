@@ -14,7 +14,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from mediaman.crypto import generate_poll_token, sign_tmdb_image_url, validate_download_token
+from mediaman.crypto import (
+    generate_poll_token,
+    sign_tmdb_image_url,
+    site_tmdb_image_url,
+    validate_download_token,
+)
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import RadarrMovie, SonarrSeries
@@ -315,21 +320,16 @@ def _own_pictures(
     is dropped. Returns the absolute address of the link's preview picture, or None with no
     usable site address.
     """
-    item["poster_url"] = sign_tmdb_image_url(
-        item.get("poster_url"), "w500", secret_key, expires_at=expires_at
-    )
-    item["backdrop_url"] = sign_tmdb_image_url(
-        item.get("backdrop_url"), "w1280", secret_key, expires_at=expires_at
-    )
+    poster, backdrop = item.get("poster_url"), item.get("backdrop_url")
+    item["poster_url"] = sign_tmdb_image_url(poster, "w500", secret_key, expires_at=expires_at)
+    item["backdrop_url"] = sign_tmdb_image_url(backdrop, "w1280", secret_key, expires_at=expires_at)
     for member in cast("list[dict[str, str | None]]", item["cast_list"]):
         member["photo_url"] = sign_tmdb_image_url(
             member["photo_url"], "w185", secret_key, expires_at=expires_at
         )
-    site = base_url.strip().rstrip("/")
-    preview = item["backdrop_url"] or item["poster_url"]
-    if not preview or not site.lower().startswith(("http://", "https://")):
-        return None
-    return f"{site}{preview}"
+    return site_tmdb_image_url(
+        backdrop, "w1280", secret_key, base_url, expires_at=expires_at
+    ) or site_tmdb_image_url(poster, "w500", secret_key, base_url, expires_at=expires_at)
 
 
 def _season_state(series: SonarrSeries, season_number: int) -> str | None:
