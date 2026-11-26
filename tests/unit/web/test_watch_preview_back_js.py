@@ -27,6 +27,16 @@ def test_back_closes_the_preview_and_stays_on_the_page(out) -> None:
     assert out["backClosesIt"] == {"entries": 2, "index": 0, "open": False, "url": "/watch"}
 
 
+def test_back_folds_the_preview_into_its_card_as_a_tap_outside_does(out) -> None:
+    assert out["backFolds"] == {"open": False, "fading": False}
+
+
+def test_the_player_opened_from_it_takes_the_previews_entry_so_back_and_forward_lead_between_them(
+    out,
+) -> None:
+    assert out["toThePlayer"] == {"entries": ["/watch", "/watch/play/1?from=%2Fwatch"], "index": 1}
+
+
 @pytest.mark.parametrize("how", ["tapOutside", "escape", "scrolled"])
 def test_closing_the_preview_another_way_leaves_no_entry_behind(out, how) -> None:
     assert (out[how]["open"], out[how]["index"]) == (False, 0)

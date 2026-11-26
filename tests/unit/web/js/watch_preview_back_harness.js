@@ -77,6 +77,8 @@ function load(opts = {}) {
       get pathname() { return new URL(tab.entries[tab.index].url, 'http://mm').pathname; },
       get search() { return new URL(tab.entries[tab.index].url, 'http://mm').search; },
       get hash() { return new URL(tab.entries[tab.index].url, 'http://mm').hash; },
+      // Another page: an entry of its own, past which nothing lies.
+      assign(url) { tab.entries = tab.entries.slice(0, tab.index + 1).concat({ url, state: null }); tab.index++; },
     },
     history: {
       scrollRestoration: 'auto',
@@ -192,6 +194,21 @@ const scenarios = {
     h.ctx.history.go(-1);
     await h.pass(600);
     return state(h);
+  },
+  async backFolds() {
+    const h = load();
+    await hold(h, 700);
+    h.ctx.history.go(-1);
+    await h.pass(20);
+    const n = h.doc.querySelector('.pv');
+    return { open: n.classList.contains('is-open'), fading: n.classList.contains('is-fading') };
+  },
+  async toThePlayer() {
+    const h = load();
+    await hold(h, 700);
+    h.tap(h.pv().querySelector('.watch-btn--play'));
+    await h.pass(600);
+    return { entries: h.tab.entries.map((e) => e.url), index: h.tab.index };
   },
   async tapOutside() {
     const h = load();

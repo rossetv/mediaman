@@ -4,6 +4,7 @@ and a fake clock. One node run gives every scenario's outcome."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import pytest
 
 HARNESS = Path(__file__).parent / "js" / "watch_preview_finger_harness.js"
 CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_cards.css"
+PREVIEW_CSS = CSS.with_name("_watch_preview.css")
 
 
 @pytest.fixture(scope="module")
@@ -31,10 +33,20 @@ def test_a_held_finger_opens_a_phone_wide_preview_that_stays_without_its_trailer
     }
 
 
-def test_the_preview_keeps_twelve_pixels_each_side_on_a_small_phone_and_stops_growing_on_a_big_one(
+def test_the_preview_keeps_twelve_pixels_each_side_on_a_phone_and_stops_growing_past_one(
     out,
 ) -> None:
-    assert (out["heldOnANarrowPhone"], out["heldOnAWidePhone"]) == ("296px", "400px")
+    widths = (out["heldOnANarrowPhone"], out["heldOnAWidePhone"], out["heldOnABigPhone"])
+    assert widths == ("296px", "416px", "430px")
+
+
+def test_on_a_phone_on_its_side_the_picture_goes_beside_the_words_as_wide_as_16_9(out) -> None:
+    # The words' column is 20 px wide and 280 px tall in the fake layout: 20 + 280 * 16 / 9.
+    assert out["heldOnItsSide"] == {"open": True, "side": True, "width": "518px", "opened": []}
+
+
+def test_a_short_window_with_no_room_for_a_picture_beside_the_words_opens_the_title(out) -> None:
+    assert out["heldOnAShortNarrowWindow"] == {"open": False, "opened": ["film"]}
 
 
 def test_a_tap_opens_the_title_and_asks_for_no_preview(out) -> None:
@@ -88,7 +100,20 @@ def test_the_phones_callout_and_text_selection_are_kept_off_cards_by_touch() -> 
 
 def test_card_titles_keep_their_own_look_over_the_poster_in_forced_colours() -> None:
     css = CSS.read_text()
-    forced = css[css.index("@media (forced-colors: active) {") :]
+    start = css.index("@media (forced-colors: active) {")
+    forced = css[css.index("{", start) + 1 :]
     forced = forced[: forced.index("\n}\n")]
-    assert ".watch-card__title" in forced
-    assert "forced-color-adjust: none" in forced
+    title = [
+        body
+        for selectors, body in re.findall(r"([^{}]+)\{([^}]*)\}", forced)
+        if ".watch-card__title" in [s.strip() for s in selectors.split(",")]
+    ]
+    assert any("forced-color-adjust: none" in body for body in title)
+    assert any("color: var(--t1)" in body for body in title)
+
+
+def test_a_fingers_round_buttons_are_44_px_square() -> None:
+    css = PREVIEW_CSS.read_text()
+    rules = {" ".join(sel.split()): body for sel, body in re.findall(r"([^{}]+)\{([^}]*)\}", css)}
+    assert "width: 44px" in rules[".pv--finger .pv__actions > .pv__round, .pv--finger .pv__keep"]
+    assert "min-height: 44px" in rules[".pv--finger .pv__actions > .btn"]

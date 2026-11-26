@@ -14,6 +14,9 @@ Object.defineProperty(Node.prototype, 'hidden', {
   set(v) { if (v) this.setAttribute('hidden', ''); else this.removeAttribute('hidden'); },
 });
 Node.prototype.click = function () { click(this.ownerDocument, this, { detail: 0 }); };
+// A page may say how a node is laid out; every other node is 20 px square.
+Object.defineProperty(Node.prototype, 'offsetHeight', { get() { const of = this.ownerDocument && this.ownerDocument.heightOf; return (of && of(this)) || 20; } });
+Object.defineProperty(Node.prototype, 'offsetWidth', { get() { const of = this.ownerDocument && this.ownerDocument.widthOf; return (of && of(this)) || 20; } });
 
 const FILM = {
   ref: 'movie-1', kind: 'movie', title: 'Fieldwork', in_library: true, library_ref: 'movie-1', year: 2024,
@@ -30,9 +33,12 @@ function card(id, ref) {
     ['div', { class: 'card-tools' }, ['button', { class: 'card-tool' }]]];
 }
 
-/* A phone's page at rest. *opts*: width, height, motionThrows, fail (the reply fails). */
+/* A phone's page at rest. *opts*: width, height, motionThrows, fail (the reply fails), shell (how tall
+   the preview is laid out: { stacked, side }), words (how wide its words' column is beside the picture). */
 function load(opts = {}) {
   const doc = makeDocument();
+  if (opts.words) doc.widthOf = (n) => n.classList.contains('pv__body') && n.parentNode.parentNode.classList.contains('pv--side') && opts.words;
+  if (opts.shell) doc.heightOf = (n) => n.classList.contains('pv__shell') && opts.shell[n.parentNode.classList.contains('pv--side') ? 'side' : 'stacked'];
   doc.createElement = ((make) => (tag) => { const n = make(tag); n.style.setProperty = (name, value) => { n.style[name] = value; }; return n; })(doc.createElement);
   doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }, ['div', { class: 'watch-row__scroll' }, card('film', 'movie-1'), card('other', 'movie-2')], ['p', { id: 'elsewhere' }, 'Words']]));
   const ttl = doc.body.appendChild(build(doc, ['div', { id: 'ttl', hidden: '' }, ['div', { class: 'ttl__hero' }]]));
@@ -185,6 +191,24 @@ const scenarios = {
     const h = load({ width: 440 });
     await hold(h, 700);
     return h.pv() && h.pv().style.width;
+  },
+  async heldOnABigPhone() {
+    const h = load({ width: 480 });
+    await hold(h, 700);
+    return h.pv() && h.pv().style.width;
+  },
+  /* A phone on its side: too short for the picture over the words, not for the two side by side. */
+  async heldOnItsSide() {
+    const h = load({ width: 874, height: 402, shell: { stacked: 480, side: 280 } });
+    await hold(h, 700);
+    const pv = h.pv();
+    return { open: !!pv, side: !!pv && pv.classList.contains('pv--side'), width: pv && pv.style.width, opened: h.opened };
+  },
+  /* A short window too narrow for a picture beside the words: the hold opens the title. */
+  async heldOnAShortNarrowWindow() {
+    const h = load({ width: 390, height: 402, shell: { stacked: 480, side: 280 }, words: 300 });
+    await hold(h, 700);
+    return { open: !!h.pv(), opened: h.opened };
   },
   async tapped() {
     const h = load();

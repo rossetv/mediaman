@@ -53,7 +53,7 @@
   var NOTCH_REST_MS = 520;  // the same of a wheel, whose next notch may be half a second away
   var PRESS_MS = 450;       // a finger held on a poster, short of the phone's own long press
   var PRESS_PX = 10;        // a finger that moves further is scrolling
-  var FINGER_W = 400;       // the widest a finger's preview is
+  var FINGER_W = 430;       // the widest a finger's preview is
   var NARROW_W = 370;       // narrower, its buttons take two rows
 
   var live = null;     // the preview open
@@ -317,7 +317,13 @@
     var area = core.clearArea();
     var head = document.querySelector('.watch-all__head');
     var top = head ? Math.max(area.top, head.getBoundingClientRect().bottom) : area.top;
-    return { top: top + 8, bottom: area.bottom - 8, left: 12, right: document.documentElement.clientWidth - 12 };
+    // The phone's notch and home bar, which the layer's scroll padding is set to.
+    var safe = getComputedStyle(layerNode);
+    function inset(side) { return parseFloat(safe['scrollPadding' + side]) || 0; }
+    return {
+      top: top + 8, bottom: area.bottom - 8 - inset('Bottom'),
+      left: 12 + inset('Left'), right: document.documentElement.clientWidth - 12 - inset('Right')
+    };
   }
 
   function halfShown(r, box) {
@@ -415,11 +421,12 @@
     content(p, data);
     layerNode.appendChild(p.n);
     p.h = p.shell.offsetHeight;
+    if (finger && p.h > box.bottom - box.top) sideBySide(p, box);
     if (p.h > box.bottom - box.top) {
       p.n.remove();
       return false;
     }
-    var x = Math.round(Math.max(box.left, Math.min(box.right - w, r.left + r.width / 2 - w / 2)));
+    var x = Math.round(Math.max(box.left, Math.min(box.right - p.w, r.left + r.width / 2 - p.w / 2)));
     var y = Math.round(Math.max(box.top, Math.min(box.bottom - p.h, r.top + r.height / 2 - p.h / 2)));
     p.n.style.setProperty('--pv-to', 'translate(' + x + 'px,' + (y + window.scrollY) + 'px)');
     p.shell.style.height = p.h + 'px'; // what arrives later never moves it
@@ -433,6 +440,20 @@
     unfold(p);
     if (data) planTrailer(p);
     return true;
+  }
+
+  /* A phone on its side: the picture beside the words, as wide as a 16:9 picture of their height
+     would be, or as the room allows. Too narrow for both, it does not fit. */
+  function sideBySide(p, box) {
+    p.n.classList.remove('pv--narrow');
+    p.n.classList.add('pv--side');
+    p.w = box.right - box.left;
+    p.n.style.width = p.w + 'px';
+    p.h = p.shell.offsetHeight;
+    p.w = Math.min(p.w, p.body.offsetWidth + Math.round(p.h * 16 / 9));
+    p.n.style.width = p.w + 'px';
+    p.mediaW = p.w - p.body.offsetWidth;
+    if (p.mediaW < p.body.offsetWidth / 2) p.h = Infinity; // no room for a picture beside them either
   }
 
   function unfold(p) {
@@ -458,7 +479,7 @@
     var s = Math.max(r.width / p.w, r.height / p.h);
     var ix = (p.w - r.width / s) / 2;
     var iy = (p.h - r.height / s) / 2;
-    var grown = p.w / p.cardW;
+    var grown = (p.mediaW || p.w) / p.cardW; // the poster grows into the picture
     function set(name, value) { p.n.style.setProperty(name, value); }
     set('--pv-from', 'translate(' + (r.left - ix * s) + 'px,' + (r.top + window.scrollY - iy * s) + 'px) scale(' + s + ')');
     set('--pv-ix', ix + 'px');
@@ -1785,7 +1806,12 @@
     letGo();
   });
   window.addEventListener('popstate', function () {
-    viewChanged();
+    // Back from a finger's preview: the address closes it, back into its card.
+    if (live && live.finger && !carried && watch.address && watch.address.value('preview') !== null) {
+      letTouchGo();
+      disarm();
+      letGo();
+    } else viewChanged();
     core.toArray(document.querySelectorAll('.pv__held')).forEach(function (n) { n.remove(); });
   });
   document.addEventListener('input', function (e) {
@@ -1845,6 +1871,24 @@
     if (!live || !detailOpen()) return;
     if (live.link === link) handOver(live);
     else close(live);
+  });
+
+  /* To the player from a finger's preview: its entry goes first, so that Back and Forward lead
+     between the page and the player. Late, so that the link has the address it leads back to. */
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href^="/watch/play/"]');
+    if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (!live || !live.finger || !(live.n.contains(a) || a === live.link)) return;
+    if (!watch.address || watch.address.value('preview') === null) return;
+    e.preventDefault();
+    var went = false;
+    function go() {
+      if (went) return;
+      went = true;
+      window.location.assign(a.getAttribute('href'));
+    }
+    watch.address.back('preview', go);
+    setTimeout(go, 1000); // a step the browser never makes
   });
 
   /* A day count chosen in the Keep menu takes the card away: not under its preview. */

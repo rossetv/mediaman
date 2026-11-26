@@ -9,6 +9,8 @@
 
 /* A card cut by the window's edge opens from, and folds to, past it: that must not scroll the page. */
 .pv-layer { position: absolute; top: 0; left: 0; width: 100%; height: 0; overflow-x: clip; }
+/* Its scroll padding moves nothing: it tells watch/preview.js where the notch and the home bar are. */
+.pv-layer { scroll-padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
 .pv {
   --pv-grow: calc(var(--dur-fast) * 2);
   position: absolute;
@@ -201,3 +203,17 @@
 .pv--narrow .pv__actions { flex-wrap: wrap; row-gap: 10px; }
 .pv--narrow .pv__actions > .pv__first { flex: 1 0 100%; justify-content: center; }
 .pv--narrow .pv__gap { display: none; }
+/* A finger's buttons are a finger's size, and in one row from a 402 px phone up. */
+.pv--finger .pv__body { padding-inline: 12px; }
+.pv--finger .pv__actions { gap: 5px; min-height: 44px; }
+.pv--finger .pv__actions > .btn { min-height: 44px; }
+.pv--finger .pv__actions > .pv__first { padding-inline: 14px; gap: 6px; font-size: 14px; }
+.pv--finger .pv__actions > .pv__round,
+.pv--finger .pv__keep { width: 44px; }
+.pv--finger .pv__actions > .pv__waiting,
+.pv--finger .pv__keep { height: 44px; }
+.pv--finger .pv__gap { margin-inline-start: -5px; } /* one gap, not one each side of it */
+/* A phone on its side: the picture beside the words, whose column holds the buttons in one row. */
+.pv--side > .pv__shell { display: flex; }
+.pv--side .pv__media { flex: 1 1 0; min-width: 0; aspect-ratio: auto; }
+.pv--side .pv__body { flex: none; width: 384px; }
