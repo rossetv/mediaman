@@ -2373,6 +2373,22 @@ const scenarios = {
     return { atRest, stuck: scroll(64), back: scroll(150) };
   },
 
+  // A resize that moves the rail changes whether it is stuck, with no scroll.
+  async railStuckResize() {
+    const h = build();
+    h.load('settings/rows.js'); h.load('settings/toggles.js');
+    const rail = h.add('nav', { className: 'setg-rail' });
+    h.add('div', { id: 'setg-a', className: 'setg-block' });
+    h.ctx.getComputedStyle = () => ({ top: '64px' });
+    h.ctx.innerHeight = 800; h.ctx.scrollY = 0;
+    rail.place = { top: 210, bottom: 274 };
+    h.ctx.MM.settings.toggles.init();
+    const before = rail.classList.contains('is-stuck');
+    rail.place = { top: 64, bottom: 128 };
+    (h.docListeners['window:resize'] || []).forEach((f) => f());
+    return { before, after: rail.classList.contains('is-stuck') };
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();

@@ -157,6 +157,8 @@
       rail.classList.toggle('is-stuck', rail.getBoundingClientRect().top <= parseFloat(getComputedStyle(rail).top) + 1);
     }
     window.addEventListener('scroll', function () { syncRail(); syncStuck(); }, { passive: true });
+    // The rail sticks only at one width, so a resize can change whether it is stuck.
+    window.addEventListener('resize', syncStuck);
     syncRail();
     syncStuck();
   }

@@ -973,3 +973,7 @@ def test_a_finished_save_tells_the_newsletter_panel() -> None:
 
 def test_the_section_rail_is_marked_stuck_only_while_it_rests_under_the_bar() -> None:
     assert _run("railStuck") == {"atRest": False, "stuck": True, "back": False}
+
+
+def test_the_section_rail_is_marked_stuck_again_after_a_resize_moves_it() -> None:
+    assert _run("railStuckResize") == {"before": False, "after": True}
