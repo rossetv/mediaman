@@ -129,3 +129,15 @@ def test_a_signed_in_viewer_is_not_told_what_sonarr_says(app_of, conn):
     data = client.get("/api/download/status?service=sonarr&tmdb_id=63726").json()
     assert data["state"] == "needs_attention"
     assert (data["attention"], data["attention_hint"]) == ("", "")
+
+
+def test_a_stuck_film_with_another_copy_still_coming_in_is_not_said_to_be_retried(poll):
+    film = {**_stuck(), "movie": {"id": 3, "title": "Fight Club", "tmdbId": 550}, "movieId": 3}
+    coming = {
+        **film,
+        "status": "downloading",
+        "trackedDownloadStatus": "ok",
+        "trackedDownloadState": "downloading",
+        "sizeleft": 400,
+    }
+    assert poll("radarr", [film, coming])["retrying"] is False

@@ -22,7 +22,11 @@ from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.finding_copy import is_finding_copy, will_retry
-from mediaman.services.downloads.download_format import build_item
+from mediaman.services.downloads.download_format import (
+    attention_reason,
+    build_item,
+    map_queue_state,
+)
 from mediaman.services.downloads.download_format._types import DownloadItem, state_label
 from mediaman.services.downloads.notifications import requested_tvdb_id
 from mediaman.services.infra import SafeHTTPError
@@ -126,11 +130,23 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
         ready = _radarr_ready_item(movie)
         return _playable(conn, secret_key, ready, "movie", tmdb_id, movie.get("year"))
 
-    queued = _radarr_queue_item(client.get_queue(), tmdb_id)
+    queue = client.get_queue()
+    queued = _radarr_queue_item(queue, tmdb_id)
     movie_id = movie.get("id") if movie else None
     if queued is not None:
-        key = f"radarr:{movie_id}" if isinstance(movie_id, int) else None
-        return _retrying(conn, queued, key, [queued["attention"]])
+        records = [q for q in queue if (q.get("movie") or {}).get("tmdbId") == tmdb_id]
+        states = [
+            {
+                "status": q.get("status") or "",
+                "tracked_state": q.get("trackedDownloadState") or "",
+                "tracked_status": q.get("trackedDownloadStatus") or "",
+            }
+            for q in records
+        ]
+        # Nothing is tried again while another copy of the film still comes in.
+        held = map_queue_state(states) == "needs_attention"
+        key = f"radarr:{movie_id}" if isinstance(movie_id, int) and held else None
+        return _retrying(conn, queued, key, [attention_reason(q) for q in records])
 
     return _radarr_searching_item(
         movie, finding_copy=isinstance(movie_id, int) and is_finding_copy(conn, "radarr", movie_id)

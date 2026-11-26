@@ -2,10 +2,10 @@
 
 A film's download, or a Sonarr season's, that has needed attention for an hour is removed
 from the download client with its release blocklisted, and the same film or episodes are
-searched for again. Each film or season is given ``MAX_TRIES`` copies so until one imports;
-one that will not import after that is left as it is, for an admin, as is one held by the
-service's own setup rather than by its release. While another copy is looked for, its card
-says so. Library files and Plex are never touched, nor a download still coming in or one
+searched for again. Each film or season is given ``MAX_TRIES`` copies so until Radarr or
+Sonarr has its files; one that will not import after that is left as it is, for an admin, as
+is one held by the service's own setup rather than by its release, or one whose removal the
+service refuses. While another copy is looked for, its card says so. Library files and Plex are never touched, nor a download still coming in or one
 importing as it should.
 
 ``note_stuck_imports`` runs on every fetch of a queue and keeps the clock; ``retry_stuck_imports``
@@ -28,6 +28,8 @@ from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.arr._transport import ArrError
 from mediaman.services.arr.fetcher._base import ArrCard, make_arr_card
+from mediaman.services.arr.seasons import readable_seasons
+from mediaman.services.arr.state import season_on_disk
 from mediaman.services.downloads.download_format import (
     format_episode_label,
     map_arr_status,
@@ -49,10 +51,6 @@ _POLL_SLACK = timedelta(minutes=2)
 _FINDING_FOR = timedelta(hours=24)
 
 _ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ConfigDecryptError, ValueError)
-
-# In "removed" of a row not retrying: its stuck copy left the queue unimported, so the row and
-# its tries are kept.
-_LEFT = "[]"
 
 # What Sonarr and Radarr say of a download their own setup keeps from importing (paths, remote
 # path mappings, permissions, the root folder, disk space): another copy would not import either.
@@ -238,16 +236,16 @@ def note_stuck_imports(
         rows = {
             row[0]: row
             for row in conn.execute(
-                "SELECT key, stuck_since, retried_at, removed, shown, tries FROM arr_import_retries"
-                " WHERE key LIKE ?",
+                "SELECT key, stuck_since, retried_at, removed, shown, tries, search"
+                " FROM arr_import_retries WHERE key LIKE ?",
                 (f"{service}:%",),
             )
         }
         writes: list[tuple[str, tuple[object, ...]]] = []
         seen: set[str] = set()
         reset = (
-            "UPDATE arr_import_retries SET stuck_since=?, retried_at=NULL, removed=?, search=NULL,"
-            " shown=NULL WHERE key=?"
+            "UPDATE arr_import_retries SET stuck_since=?, retried_at=NULL, removed=NULL,"
+            " search=NULL, shown=NULL WHERE key=?"
         )
         for _card, unit in _units(cards):
             row = rows.get(unit.key)
@@ -255,6 +253,9 @@ def note_stuck_imports(
                 # The records just removed, which the queue may list a moment longer.
                 continue
             seen.add(unit.key)
+            if row is not None and row[6] is not None:
+                # A removal's search still to send goes, whatever was grabbed meanwhile.
+                continue
             if unit.stuck and row is None:
                 writes.append(
                     (
@@ -263,29 +264,26 @@ def note_stuck_imports(
                     )
                 )
             elif row is not None and unit.stuck and row[1] is None:
-                writes.append((reset, (now, None, unit.key)))
-            elif row is not None and not unit.stuck and (row[1] or row[2] or row[3] is not None):
-                writes.append((reset, (None, None, unit.key)))
+                writes.append((reset, (now, unit.key)))
+            elif row is not None and not unit.stuck and (row[1] or row[2]):
+                writes.append((reset, (None, unit.key)))
         for key, row in rows.items():
             if key in seen:
                 continue
             started = parse_iso_utc(row[2]) if row[2] else None
             if started is None:
-                if complete and (row[1] or row[3] is None):
-                    # It left the queue: imported, when last seen coming in; else removed by
-                    # someone, which gives back no try.
-                    if row[1] and row[5]:
-                        writes.append((reset, (None, _LEFT, key)))
-                    else:
-                        writes.append(("DELETE FROM arr_import_retries WHERE key=?", (key,)))
-                continue
-            gone = complete and service == "radarr" and not _listed(key, cards)
-            if not enabled or gone or not timedelta() <= now_dt - started < _FINDING_FOR:
-                if row[5]:
-                    writes.append((reset, (None, _LEFT, key)))
-                else:
+                # It left the queue. Tries spent are kept until the title has its files, which
+                # the poller asks; else there is nothing to keep.
+                if complete and not row[5]:
                     writes.append(("DELETE FROM arr_import_retries WHERE key=?", (key,)))
+                elif complete and row[1]:
+                    writes.append((reset, (None, key)))
                 continue
+            if row[6] is None:
+                gone = complete and service == "radarr" and not _listed(key, cards)
+                if not enabled or gone or not timedelta() <= now_dt - started < _FINDING_FOR:
+                    writes.append((reset, (None, key)))
+                    continue
             _show_finding(service, key, _shown(row[4]), cards)
         if writes:
             with conn:
@@ -326,7 +324,7 @@ def _history_line(shown: Mapping[str, Any], tries: int) -> str:
 
 
 def _search(conn: sqlite3.Connection, client: Any, key: str, search: str, shown: str) -> None:
-    """Send the search of a removed download, and count the try once it is sent."""
+    """Send the search of a removed download, and write its try to History once it is sent."""
     try:
         client.send_command(json.loads(search))
     except _ERRORS:
@@ -336,7 +334,7 @@ def _search(conn: sqlite3.Connection, client: Any, key: str, search: str, shown:
         return
     with conn:
         tries_row = conn.execute(
-            "UPDATE arr_import_retries SET tries = tries + 1, search = NULL"
+            "UPDATE arr_import_retries SET search = NULL"
             " WHERE key=? AND search IS NOT NULL RETURNING tries",
             (key,),
         ).fetchone()
@@ -373,10 +371,12 @@ def _retry(
     )
     search = json.dumps(unit.search)
     with conn:
-        # Taken by the one run that changes the row, should two ever run at once.
+        # Taken by the one run that changes the row, should two ever run at once; the try counts
+        # from here, as the removal may go through whatever is heard of it.
         claimed = conn.execute(
-            "UPDATE arr_import_retries SET stuck_since=NULL, retried_at=?, removed=?, search=?,"
-            " shown=? WHERE key=? AND stuck_since=? AND retried_at IS NULL AND tries=?",
+            "UPDATE arr_import_retries SET stuck_since=NULL, tries=tries + 1, retried_at=?,"
+            " removed=?, search=?, shown=?"
+            " WHERE key=? AND stuck_since=? AND retried_at IS NULL AND tries=?",
             (
                 now.isoformat(),
                 json.dumps(sorted(unit.held_ids)),
@@ -407,16 +407,20 @@ def _retry(
             )
             _search(conn, client, unit.key, search, shown)
             return
+        # Refused outright, it would be refused again: its tries are spent, for an admin.
+        refused = isinstance(exc, SafeHTTPError) and 400 <= exc.status_code < 500
+        then = "leaving it as it is" if refused else "trying again on the next run"
         logger.warning(
-            "Could not remove %s's download that would not import; trying again on the next run",
+            "Could not remove %s's download that would not import; %s",
             unit.key,
+            then,
             exc_info=True,
         )
         with conn:
             conn.execute(
-                "UPDATE arr_import_retries SET stuck_since=?, retried_at=NULL, removed=NULL,"
-                " search=NULL, shown=NULL WHERE key=?",
-                (row[0], unit.key),
+                "UPDATE arr_import_retries SET stuck_since=?, tries=?, retried_at=NULL,"
+                " removed=NULL, search=NULL, shown=NULL WHERE key=?",
+                (row[0], MAX_TRIES if refused else row[1], unit.key),
             )
         return
     _search(conn, client, unit.key, search, shown)
@@ -433,13 +437,58 @@ def _may_have_acted(exc: Exception) -> bool:
     return isinstance(exc, SafeHTTPError) and exc.status_code >= 500
 
 
+def _has_files(client: Any, key: str) -> bool:
+    """Whether the film or season of *key* has its files in Radarr or Sonarr, or is gone from
+    it, so nothing of it is left to try."""
+    try:
+        if key.startswith("radarr:"):
+            return bool(client.get_movie_by_id(_key_id(key)).get("hasFile"))
+        series = client.get_series_by_id(_key_id(key))
+    except SafeHTTPError as exc:
+        if exc.status_code == 404:
+            return True
+        raise
+    seasons, whole = readable_seasons(series)
+    number = key.rpartition(":")[2]
+    season = next((s for s in seasons if str(s.get("seasonNumber")) == number), None)
+    return (
+        season_on_disk(season)
+        if season is not None
+        else whole and isinstance(series.get("seasons"), list)
+    )
+
+
+def _forget_imported(
+    conn: sqlite3.Connection, secret_key: str, cards: Sequence[Mapping[str, object]]
+) -> None:
+    """Forget each title tried before, out of the queue now, that has its files since or is gone
+    from Radarr or Sonarr, so its tries start again: one call for each."""
+    queued = {unit.key for _card, unit in _units(cards)}
+    clients: dict[str, Any] = {}
+    for (key,) in conn.execute("SELECT key FROM arr_import_retries WHERE tries > 0").fetchall():
+        if key in queued:
+            continue
+        service = key.partition(":")[0]
+        try:
+            if service not in clients:
+                clients[service] = _client(conn, secret_key, service)
+            if clients[service] is None or not _has_files(clients[service], key):
+                continue
+        except _ERRORS:
+            clients.setdefault(service, None)
+            logger.warning("Could not ask whether %s has imported", key, exc_info=True)
+            continue
+        with conn:
+            conn.execute("DELETE FROM arr_import_retries WHERE key=?", (key,))
+
+
 def retry_stuck_imports(
     conn: sqlite3.Connection, secret_key: str, cards: Sequence[Mapping[str, object]]
 ) -> None:
-    """Remove and search again for each download of *cards* that has not imported for an hour,
-    and send each search a run before could not; nothing while the setting is off."""
-    if not get_bool_setting(conn, SETTING, default=True):
-        return
+    """Forget the titles that have imported since they were tried, send each search a run
+    before could not, and remove and search again for each download of *cards* that has not
+    imported for an hour, this last not while the setting is off."""
+    _forget_imported(conn, secret_key, cards)
     for key, search, shown in conn.execute(
         "SELECT key, search, shown FROM arr_import_retries"
         " WHERE retried_at IS NOT NULL AND search IS NOT NULL"
@@ -450,6 +499,8 @@ def retry_stuck_imports(
             client = None
         if client is not None:
             _search(conn, client, key, search, shown)
+    if not get_bool_setting(conn, SETTING, default=True):
+        return
     now = now_utc()
     for card, unit in _units(cards):
         if unit.stuck and not unit.setup_problem:

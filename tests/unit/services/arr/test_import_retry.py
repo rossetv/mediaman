@@ -74,8 +74,10 @@ class Arrs:
         self.movies: list[dict] = []
         self.calls: list[tuple[str, str, str, object]] = []
         self.failing: set[str] = set()
-        # Queue ids whose DELETE raises the error given.
-        self.failing_ids: dict[int, Exception] = {}
+        # Queue ids whose DELETE raises the error given, or is answered with the status given.
+        self.failing_ids: dict[int, Exception | int] = {}
+        # The seasons of Alone whose every episode has its file.
+        self.on_disk: set[int] = set()
         # Whether a DELETE leaves its record in the queue, as a download client that would not
         # drop it does.
         self.keeping = False
@@ -107,8 +109,10 @@ class Arrs:
             )
         if method == "DELETE" and parts.path.startswith("/api/v3/queue/"):
             queue_id = int(parts.path.rsplit("/", 1)[1])
-            if queue_id in self.failing_ids:
-                raise self.failing_ids[queue_id]
+            if isinstance(failure := self.failing_ids.get(queue_id), Exception):
+                raise failure
+            if failure:
+                return _fake_response(status=failure, json_data={})
             if self.keeping:
                 return _fake_response(json_data={})
             self.queues[service] = [q for q in self.queues[service] if q["id"] != queue_id]
@@ -117,6 +121,15 @@ class Arrs:
             return _fake_response(json_data=self.movies)
         if parts.path == "/api/v3/series":
             return _fake_response(json_data=[])
+        if parts.path.startswith("/api/v3/movie/"):
+            movie_id = int(parts.path.rsplit("/", 1)[1])
+            found = [m for m in self.movies if m["id"] == movie_id]
+            return _fake_response(json_data=found[0]) if found else _fake_response(status=404)
+        if parts.path == "/api/v3/series/5":
+            files = 2 if 13 in self.on_disk else 0
+            stats = {"episodeFileCount": files, "episodeCount": 2, "totalEpisodeCount": 2}
+            season = {"seasonNumber": 13, "monitored": True, "statistics": stats}
+            return _fake_response(json_data={"id": 5, "title": "Alone", "seasons": [season]})
         if parts.path == "/api/v3/wanted/missing":
             return _fake_response(json_data={"page": 1, "totalRecords": 0, "records": []})
         if method == "POST" and parts.path == "/api/v3/command":
@@ -302,7 +315,7 @@ def test_a_failed_removal_is_no_try_and_is_made_again_next_run(arrs):
     assert arrs.history()[-1].endswith("(try 1 of 2)")
 
 
-def test_a_failed_search_is_no_try_and_is_sent_next_run(arrs):
+def test_a_failed_search_is_sent_next_run_and_written_once(arrs):
     _season_stuck(arrs, 10)
     arrs.poll()
     arrs.failing = {"POST"}
@@ -451,32 +464,6 @@ def test_a_stuck_copy_removed_by_someone_does_not_give_the_tries_back(arrs):
     assert len(arrs.history()) == 2
 
 
-def test_a_copy_that_imports_lets_a_later_stuck_one_be_tried_afresh(arrs):
-    for first in (10, 30):
-        _season_stuck(arrs, first, download=f"pack-{first}")
-        arrs.poll(timedelta(minutes=5))
-        arrs.poll(timedelta(hours=1))
-    arrs.queues["sonarr"] = [
-        _stuck_episode(
-            60,
-            1,
-            trackedDownloadStatus="ok",
-            status="downloading",
-            trackedDownloadState="downloading",
-            sizeleft=10,
-        )
-    ]
-    arrs.poll(timedelta(minutes=5))
-    arrs.queues["sonarr"] = []
-    arrs.poll(timedelta(minutes=5))
-    _season_stuck(arrs, 80, download="pack-80")
-    arrs.poll(timedelta(minutes=5))
-    arrs.poll(timedelta(hours=1))
-
-    assert arrs.history()[-1].endswith("(try 1 of 2)")
-    assert len(arrs.history()) == 3
-
-
 def test_two_stuck_records_of_one_film_are_removed_together_and_searched_for_once(arrs):
     arrs.queues["radarr"] = [_stuck_film(40), _stuck_film(41)]
     arrs.movies = [_dune()]
@@ -623,3 +610,128 @@ def test_turning_the_setting_off_mid_retry_stops_finding_another_copy(arrs):
 
     assert "finding_copy" not in arrs.states().values()
     assert not is_finding_copy(arrs.conn, "sonarr", 5)
+
+
+def _downloading(record: dict) -> dict:
+    return {
+        **record,
+        "status": "downloading",
+        "trackedDownloadStatus": "ok",
+        "trackedDownloadState": "downloading",
+        "sizeleft": 400,
+    }
+
+
+def test_a_season_imported_between_two_runs_ends_finding_and_gets_its_tries_back(arrs):
+    _season_stuck(arrs, 10)
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    arrs.on_disk = {13}
+    arrs.poll(timedelta(hours=1))
+
+    assert "finding_copy" not in arrs.states().values()
+    assert not is_finding_copy(arrs.conn, "sonarr", 5)
+    _season_stuck(arrs, 30, download="pack-2")
+    arrs.on_disk = set()
+    arrs.poll(timedelta(minutes=5))
+    arrs.poll(timedelta(hours=1))
+    assert arrs.history()[-1].endswith("(try 1 of 2)")
+
+
+def test_a_film_imported_between_two_runs_gets_its_tries_back(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    arrs.movies = [_dune(hasFile=True)]
+    arrs.poll(timedelta(hours=1))
+    arrs.queues["radarr"] = [_stuck_film(50)]
+    arrs.poll(timedelta(minutes=5))
+    arrs.poll(timedelta(hours=1))
+
+    assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 1 of 2)"]
+
+
+def test_a_copy_that_downloads_and_then_leaves_the_queue_unimported_gives_back_no_try(arrs):
+    for first in (10, 30, 50):
+        _season_stuck(arrs, first, download=f"pack-{first}")
+        arrs.poll(timedelta(minutes=5))
+        arrs.poll(timedelta(hours=1))
+        arrs.queues["sonarr"] = [_downloading(_stuck_episode(first + 5, 1))]
+        arrs.poll(timedelta(minutes=5))
+        arrs.queues["sonarr"] = []
+        arrs.poll(timedelta(minutes=5))
+
+    assert len(arrs.history()) == 2
+
+
+def test_a_removal_whose_search_waits_is_counted_whatever_radarr_grabs_meanwhile(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.failing = {"POST"}
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    arrs.failing = set()
+    arrs.queues["radarr"] = [_downloading(_stuck_film(42))]
+    arrs.poll(timedelta(minutes=5))
+    arrs.poll(timedelta(hours=1))
+    for queue_id in (43, 44):
+        arrs.queues["radarr"] = [_stuck_film(queue_id)]
+        arrs.poll(timedelta(minutes=5))
+        arrs.poll(timedelta(hours=1))
+
+    assert [c[2] for c in arrs.changes() if c[0] == "DELETE"] == [
+        "/api/v3/queue/40",
+        "/api/v3/queue/43",
+    ]
+    assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 2 of 2)"]
+
+
+def test_an_unmonitored_film_whose_search_failed_is_still_searched_for(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune(monitored=False)]
+    arrs.poll()
+    arrs.failing = {"POST"}
+    arrs.poll(timedelta(hours=1))
+    arrs.failing = set()
+    arrs.changes()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[3] for c in arrs.changes() if c[0] == "POST"] == [
+        {"name": "MoviesSearch", "movieIds": [9]}
+    ]
+    assert arrs.history()[0].endswith("(try 1 of 2)")
+
+
+def test_a_removal_radarr_refuses_is_not_asked_for_every_hour(arrs, caplog):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.failing_ids = {40: 400}
+    arrs.poll()
+    _hourly(arrs, 6)
+
+    assert len([c for c in arrs.changes() if c[0] == "DELETE"]) == 1
+    assert len([r for r in caplog.records if "radarr:9" in r.getMessage()]) == 1
+    assert arrs.history() == []
+
+
+def test_a_film_still_listed_after_its_removal_reads_finding_another_copy(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.keeping = True
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    arrs.poll(timedelta(hours=1))
+
+    assert arrs.states() == {"Dune": "finding_copy"}
+
+
+def test_a_film_deleted_from_radarr_leaves_no_row_behind(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    arrs.movies = []
+    arrs.poll(timedelta(hours=1))
+
+    assert arrs.conn.execute("SELECT COUNT(*) FROM arr_import_retries").fetchone()[0] == 0
