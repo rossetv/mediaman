@@ -272,3 +272,14 @@ def test_a_page_opened_over_a_playing_trailer_never_shows_its_own_picture_first(
 
 def test_a_downloads_sizes_line_holds_its_room_until_they_are_known() -> None:
     assert "min-height: 1lh" in _of(".dl-progress__line")
+
+
+def test_an_episode_fact_stays_whole_where_it_fits_and_breaks_rather_than_overflow() -> None:
+    fact = _of(".ttl .watch-ep__fact")
+    # Laid out whole, it moves to a line of its own before it is broken; only one wider than
+    # the column is broken inside.
+    assert "display: inline-block" in fact
+    assert "max-width: 100%" in fact
+    every = "".join((STYLES / name).read_text(encoding="utf-8") for name in (*SHEETS, "_watch.css"))
+    rules = re.findall(r"([^{}]*watch-ep__fact[^{}]*)\{([^{}]*)\}", every)
+    assert rules and not [body for _, body in rules if "nowrap" in body]

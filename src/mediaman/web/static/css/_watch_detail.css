@@ -609,6 +609,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl .watch-eprow:has(> .watch-ep--next) { background: var(--s2); }
 .ttl .watch-ep__text { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .ttl .watch-ep__meta { flex-basis: 100%; order: 2; }
+/* A fact moves to a line of its own whole, and only one wider than the column breaks. */
+.ttl .watch-ep__fact { display: inline-block; max-width: 100%; }
 .ttl .watch-ep__state { order: 1; padding: 3px 10px; font-weight: 600; }
 .ttl .watch-ep__about { grid-area: about; margin-top: 4px; font-size: 14px; color: var(--t2); overflow-wrap: anywhere; }
 
