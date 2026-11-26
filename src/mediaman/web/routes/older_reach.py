@@ -157,7 +157,7 @@ def same_tv(tv: repo.OlderTv, found: Renderer) -> Renderer:
     if tv.udn and found.udn != tv.udn:
         raise AnotherTv(
             "Another device answers at this address now. If the TV’s address changed, "
-            "forget it here and add it again."
+            "unpair it here and add it again."
         )
     return found
 

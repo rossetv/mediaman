@@ -3941,7 +3941,7 @@
           : 'It was off, asleep or away from its browser for 2 minutes, so it stopped' + after + '.'],
       taken: ['Someone else is using ' + name, (way || kind === 'older' ? 'They started something on it, and yours stopped' : 'They paired it, and yours stopped') + after + '.'],
       unpaired: kind === 'older' ? [name + ' can’t be used now', 'An admin removed it or turned older TVs off. Yours stopped' + after + '.']
-        : [name + ' was unpaired', 'It was forgotten in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
+        : [name + ' was unpaired', 'It was unpaired in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
       moved: ['You’re watching on another device', 'It goes on there, so ' + name + ' stopped' + after + '.'],
       still: [name + ' stopped by itself', 'Nobody answered, so it stopped' + after + '.'],
       silent: [name + ' stopped answering', 'It came back, but said nothing of what it plays for 10 minutes. It may still be playing there.'],
