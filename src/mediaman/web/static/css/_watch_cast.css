@@ -132,4 +132,7 @@ button.cast-card__poster:active { transform: scale(.98); }
   .cast-card .is-arriving { clip-path: none !important; opacity: 1 !important; transform: none !important; }
   .cast-card__shadow,
   .cast-card__shell::before { opacity: 1; }
+  /* The shortened transition would hold them hidden for a frame after a picture fails, and nothing would show. */
+  .cast-face__letters,
+  .cast-card__poster-name { transition: none !important; }
 }
