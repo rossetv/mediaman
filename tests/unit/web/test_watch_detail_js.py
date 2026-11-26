@@ -1794,3 +1794,13 @@ def test_a_film_opened_before_radarr_answered_is_asked_once_more_and_drawn_in_pl
     assert out["moved"]["primary"] == "Resume S2 · E4"
     # Download pressed meanwhile: what it started stands.
     assert (out["pressed"]["asked"], out["pressed"]["primary"]) == (1, "Queued")
+
+
+def test_a_title_opens_and_closes_without_touching_every_card_on_the_page() -> None:
+    out = _run("opensOverManyCards")
+    assert out["open"]["kind"] == "TV series"
+    # what holds the cards is hidden from assistive tech under the title, not made inert
+    assert out["open"]["inert"] is False and out["open"]["hidden"] == "true"
+    assert out["closed"] == {"inert": False, "hidden": None}
+    # its kind and its card are found by its ref, not by going through every card
+    assert out["sweeps"] == []

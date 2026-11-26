@@ -22,7 +22,7 @@
  * `ModalA11y.onOpened('delete-modal')` after adding the class to fire
  * the focus trap and initial focus, and `ModalA11y.onClosed('delete-modal')`
  * to restore focus to the trigger. Something with a focus of its own calls
- * `MM.inertPage.hold(node)` as it opens and `MM.inertPage.release(node)` as it closes,
+ * `MM.inertPage.hold(node[, spare])` as it opens and `MM.inertPage.release(node)` as it closes,
  * for the inert page and the Tab trap alone. What draws a trigger anew, or takes away what
  * modals were opened from, says so with `ModalA11y.handOn(find)` and `ModalA11y.closeFrom(node)`.
  */
@@ -39,6 +39,8 @@
   var registry = {};           // id -> { closeFn, and while open: node, lastTrigger }
   var open = [];               // the open modals, in open order
   var held = [];               // what the last of them has made inert
+  var spares = [];             // by open modal, what it hides from assistive tech in place of inert
+  var veiled = [];             // what is hidden so, with the aria-hidden it had
 
   function getModal(id) { return document.getElementById(id); }
 
@@ -65,10 +67,17 @@
   /* Makes all that stands outside the modal inert, whatever level of the page the
      modal is on. Toasts and the Keep menu stay in reach; toasts may stand in what is full screen. A confirm
      fading out still catches clicks, which what is inert does not. */
-  function shutOut(node, keep) {
+  function shutOut(node, keep, spare) {
     Array.prototype.forEach.call(node.children, function (child) {
       if (child.inert || keep.indexOf(child) !== -1) return;
-      if (keep.some(function (k) { return child.contains(k); })) { shutOut(child, keep); return; }
+      var holds = function (k) { return child.contains(k); };
+      if (keep.some(holds)) { shutOut(child, keep, spare); return; }
+      if (spare.indexOf(child) !== -1) {
+        veiled.push([child, child.getAttribute('aria-hidden')]);
+        child.setAttribute('aria-hidden', 'true');
+        return;
+      }
+      if (spare.some(holds)) { shutOut(child, keep, spare); return; }
       child.inert = true;
       held.push(child);
     });
@@ -82,16 +91,25 @@
   function settle() {
     held.forEach(function (node) { node.inert = false; });
     held = [];
+    veiled.forEach(function (was) {
+      if (was[1] === null) was[0].removeAttribute('aria-hidden');
+      else was[0].setAttribute('aria-hidden', was[1]);
+    });
+    veiled = [];
     if (!open.length) return;
     var keep = [topModal(), document.getElementById('ui-toast-host'), document.getElementById('watch-keep-menu')].filter(Boolean);
     Array.prototype.push.apply(keep, document.querySelectorAll('.ui-confirm-overlay.is-leaving'));
     if (tvBar()) keep.push(tvBar());
-    shutOut(document.body, keep);
+    shutOut(document.body, keep, [].concat.apply([], spares));
   }
 
-  function hold(modal) {
+  /* *spare*: what is too big to make inert at once (that restyles all it holds) and that the
+     modal covers; Tab is held in the modal all the same. Spared under one modal, it is spared
+     under those over it. */
+  function hold(modal, spare) {
     if (open.indexOf(modal) !== -1) return;
     open.push(modal);
+    spares.push(spare || []);
     settle();
   }
 
@@ -99,6 +117,7 @@
     var at = open.indexOf(modal);
     if (at === -1) return;
     open.splice(at, 1);
+    spares.splice(at, 1);
     settle();
   }
 

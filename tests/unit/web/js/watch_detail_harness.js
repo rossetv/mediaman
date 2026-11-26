@@ -574,6 +574,31 @@ const scenarios = {
     return { afterModifiers, loading, loaded: { busy: p.ttl().getAttribute('aria-busy'), meta: p.text('[data-ttl-part="meta"]'), primary: primary(p) } };
   },
 
+  // A pick's card opens and closes over rows held in the page's own parts: what the document is
+  // asked for on the way, and what holds the cards meanwhile.
+  async opensOverManyCards() {
+    const p = load({ films: [1, 2, 3] });
+    const browse = p.doc.createElement('div');
+    browse.setAttribute('id', 'watch-browse');
+    const page = p.doc.getElementById('watch-page');
+    page.insertBefore(browse, page.firstChild);
+    page.querySelectorAll('.watch-rows, .watch-row').forEach((n) => browse.appendChild(n));
+    const pick = p.doc.querySelector('[data-title-ref="show-300"]');
+    pick.setAttribute('data-title-ref', 'pick-5');
+    pick.setAttribute('data-kind', 'show');
+    p.run();
+    const asked = [];
+    const all = p.doc.querySelectorAll.bind(p.doc);
+    p.doc.querySelectorAll = (sel) => { asked.push(sel); return all(sel); };
+    // As an address opens it: no card is its origin, so its kind and where the focus goes are looked for.
+    p.ctx.MMWatch.detail.open('pick-5');
+    const open = { kind: p.text('[data-ttl-part="kind"]'), inert: browse.inert, hidden: browse.getAttribute('aria-hidden') };
+    await settle();
+    p.key('Escape');
+    const closed = { inert: browse.inert, hidden: browse.getAttribute('aria-hidden') };
+    return { open, closed, sweeps: asked.filter((sel) => /\[data-title-ref\](?!=)|\.watch-card(?![_-])/.test(sel)) };
+  },
+
   async backCloses() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     p.run();

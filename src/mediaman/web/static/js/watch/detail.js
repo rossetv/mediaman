@@ -255,6 +255,12 @@
     }
   }
 
+  /* What holds the cards: made inert, every card on the page would be restyled as a title opens
+     and closes, so it is only hidden from assistive tech under the title, which covers it. */
+  function cardHolders() {
+    return ['watch-browse', 'watch-results', 'watch-all'].map(function (id) { return document.getElementById(id); }).filter(Boolean);
+  }
+
   function unveil() {
     root.hidden = false;
     root.classList.remove('is-leaving', 'is-aside', 'is-trailer');
@@ -264,7 +270,7 @@
 
   function show(origin) {
     unveil();
-    MM.inertPage.hold(root);
+    MM.inertPage.hold(root, cardHolders());
     isOpen = true;
     growFrom(origin);
     root.classList.add('is-entering');
@@ -409,7 +415,7 @@
     isOpen = true;
     address.push('title', titleUrl(c.ref));
     keepPick();
-    MM.inertPage.hold(root);
+    MM.inertPage.hold(root, cardHolders());
     growFrom(c.origin);
     if (!c.data || c.data.draft) root.setAttribute('aria-busy', 'true');
     titleEl.focus({ preventScroll: true });
@@ -502,7 +508,7 @@
     nameClose();
     if (!wasOpen) root.classList.add('is-aside');
     lockPage(true);
-    MM.inertPage.hold(root);
+    MM.inertPage.hold(root, cardHolders());
     statusEl.textContent = '';
     body.style.marginBottom = '';
     showPictures(c.data);
@@ -533,17 +539,15 @@
     var m = /^(movie|tmdb-movie|show|tmdb-tv)-/.exec(ref);
     if (m) return /movie/.test(m[1]) ? 'movie' : 'show';
     if (given === 'movie' || given === 'show') return given;
-    var cards = toArray(document.querySelectorAll('[data-title-ref][data-kind]')).filter(function (n) {
-      return n.getAttribute('data-title-ref') === ref;
-    });
-    var kind = cards.length ? cards[0].getAttribute('data-kind') : '';
+    var card = document.querySelector('[data-title-ref="' + ref + '"][data-kind]');
+    var kind = card ? card.getAttribute('data-kind') : '';
     return kind === 'movie' || kind === 'show' ? kind : '';
   }
 
   /* Where focus goes from a title no card opened, or whose card has gone. */
   function cardOf(ref) {
-    return toArray(document.querySelectorAll('[data-title-ref]')).filter(function (n) {
-      return n.getAttribute('data-title-ref') === ref && n.getClientRects().length && !n.closest('.is-leaving');
+    return toArray(document.querySelectorAll('[data-title-ref="' + ref + '"]')).filter(function (n) {
+      return n.getClientRects().length && !n.closest('.is-leaving');
     })[0];
   }
 
