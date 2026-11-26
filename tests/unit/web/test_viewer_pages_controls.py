@@ -118,7 +118,7 @@ def test_where_radarr_and_sonarr_are_is_told_to_admins_alone(make_client, role):
     else:
         assert told == [("", "", 0)] * 3
         assert ".internal" not in page.text
-        assert 'data-v="arr-link" hidden' in page.text
+        assert 'data-v="arr-link"' not in page.text
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])
@@ -154,7 +154,7 @@ def test_an_outage_is_shown_to_every_role_and_never_as_all_caught_up(make_client
     if role == "admin":
         assert "reach Radarr and Sonarr" in html
     else:
-        assert "available" in html
+        assert "Downloads aren&#39;t available" in html
         assert "Radarr and Sonarr" not in html
 
 

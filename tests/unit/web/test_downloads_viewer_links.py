@@ -49,14 +49,14 @@ def _payload(*_args):
     }
 
 
-def _page_and_api(app_factory, conn, role):
+def _page_and_api(app_factory, conn, role, payload=_payload):
     insert_admin_user(conn, username="person", role=role)
     app = app_factory(downloads_router, conn=conn)
     app.mount("/static", StaticFiles(directory=str(_WEB / "static")), name="static")
     app.state.templates = Jinja2Templates(directory=str(_WEB / "templates"))
     client = TestClient(app, raise_server_exceptions=True)
     client.cookies.set("session_token", create_session(conn, "person"))
-    with patch("mediaman.web.routes.downloads.build_downloads_response", side_effect=_payload):
+    with patch("mediaman.web.routes.downloads.build_downloads_response", side_effect=payload):
         return client.get("/downloads").text, client.get("/api/downloads").json()
 
 
@@ -66,8 +66,7 @@ def _links(html: str) -> list[str]:
 
 def test_a_viewer_is_given_no_link_into_radarr_or_sonarr(app_factory, conn):
     html, body = _page_and_api(app_factory, conn, "viewer")
-    links = _links(html)
-    assert links and all(" hidden" in tag and "href=" not in tag for tag in links)
+    assert not _links(html) and "View in" not in html
     assert "radarr.internal" not in html
     assert [body["hero"], *body["queue"]] == [
         {**i, "arr_link": "", "arr_source": ""} for i in (body["hero"], *body["queue"])
@@ -77,3 +76,19 @@ def test_a_viewer_is_given_no_link_into_radarr_or_sonarr(app_factory, conn):
 def test_an_admin_is_given_the_link(app_factory, conn):
     html, _ = _page_and_api(app_factory, conn, "admin")
     assert any("href=" in tag for tag in _links(html))
+
+
+def _heading(app_factory, conn, states):
+    def payload(*_args):
+        queue = [_item(f"sonarr:{n}", state=state) for n, state in enumerate(states)]
+        return {**_payload(), "queue": queue}
+
+    return _page_and_api(app_factory, conn, "admin", payload)[0]
+
+
+def test_rows_that_all_wait_sit_under_up_next(app_factory, conn):
+    assert "Up next</h2>" in _heading(app_factory, conn, ["queued", "queued"])
+
+
+def test_rows_that_download_sit_under_also_in_progress(app_factory, conn):
+    assert "Also in progress</h2>" in _heading(app_factory, conn, ["queued", "downloading"])
