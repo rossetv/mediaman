@@ -2,7 +2,7 @@
    until tv-remote.js finds something playing. Both hold no words of a title: the script writes them. #}
 {% from "_components.html" import icon %}
 
-<section class="tv-mini" id="tv-mini" aria-label="Playing on a TV" hidden>
+<section class="tv-mini" id="tv-mini" aria-label="Playing on a TV" data-me="{{ request.state.username if request is defined else '' }}" hidden>
   <button type="button" class="tv-mini__open" data-open>
     <span class="tv-mini__pic">{{ icon("i-tv") }}<img data-mini-art alt="" hidden></span>
     <span class="tv-mini__t">

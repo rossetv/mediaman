@@ -80,7 +80,7 @@ async function page(opts = {}) {
     if (url === '/api/tvs') return { tvs: copy(api.tvs) };
     if (/^\/api\/(cast|watch)\//.test(url)) return { stream_id: 'c1', url: '/c1' };
     const tv = api.tvs.find((t) => url.startsWith('/api/tvs/' + t.id) && !(api.goneIds || []).includes(t.id));
-    if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, { last: api.gone && api.gone.last });
+    if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, (api.gone && api.gone.data) || { last: api.gone && api.gone.last });
     if (method === 'GET') return { tv: copy(tv) };
     if (api.refuse) throw new APIError(api.refuse, 409, api.refusal);
     if (opts.sheet && /\/play$/.test(url)) {
@@ -446,6 +446,62 @@ const scenarios = {
       await p.pass(15000);
       out[by || 'nobody'] = { bar: p.bar().shown, toasts: p.toasts };
     }
+    return out;
+  },
+  // The other person stops their own film, with the bar alone and with the remote open.
+  async stopsTheirOwn() {
+    const out = {};
+    for (const open of [false, true]) {
+      const p = await page();
+      Object.assign(p.api.tvs[0].play, { by: 'maren', mine: false });
+      await p.pass(5100);
+      if (open) await p.open();
+      Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay({ position_s: 1268 }), reason: 'stopped', stopped_by: 'maren', mine: false } });
+      await p.pass(5100);
+      out[open ? 'remote' : 'bar'] = { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts };
+    }
+    return out;
+  },
+  // The person is unpaired from the TV as something plays on it, with the bar alone and with the remote open.
+  async unpaired() {
+    const out = {};
+    const told = {
+      removed: { reason: 'removed', by: 'maren', tv: 'Living room', stopped: 'Glass Orchard' },
+      left: { reason: 'left', by: null, tv: 'Living room', stopped: null },
+    };
+    for (const [why, open] of [['removed', false], ['removed', true], ['left', false]]) {
+      const p = await page();
+      await p.pass(5100);
+      if (open) await p.open();
+      p.api.tvs = [];
+      p.api.gone = { reason: why, data: told[why] };
+      await p.pass(open ? 1100 : 5100);
+      const leaving = open ? p.$('#tv-remote').classList.contains('is-leaving') : p.$('#tv-mini').classList.contains('is-leaving');
+      await p.pass(300);
+      const hidden = open ? p.$('#tv-remote').hidden : p.$('#tv-mini').hidden;
+      const reads = p.reads().length;
+      await p.pass(30000);
+      out[why + (open ? 'Open' : '')] = { leaving, hidden, toasts: p.toasts, asksOn: p.reads().length - reads };
+    }
+    return out;
+  },
+  // Someone else starts their film over the person's own.
+  async takenOver() {
+    const out = {};
+    for (const open of [false, true]) {
+      const p = await page();
+      await p.pass(5100);
+      if (open) await p.open();
+      p.api.tvs[0].play = aPlay({
+        play_id: 'p2', state: 'starting', title: 'Dune', season: null, episode: null, mine: false, by: 'maren',
+        started_by: 'maren', replaced: { title: 'Glass Orchard', place_kept: true },
+      });
+      await p.pass(5100);
+      out[open ? 'remote' : 'bar'] = { toasts: p.toasts, hint: p.$('[data-hint]').textContent };
+    }
+    const q = await page({ tvs: [aTv({ play: aPlay({ mine: false, by: 'maren', started_by: 'maren', replaced: { title: 'Glass Orchard' } }) })] });
+    await q.pass(5100);
+    out.loaded = q.toasts;
     return out;
   },
   // What the page says of the bar and the remote, for what makes room for them.

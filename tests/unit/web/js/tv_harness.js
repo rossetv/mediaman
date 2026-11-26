@@ -447,6 +447,29 @@ const scenarios = {
     };
     return { code, alone: await paused(['maren']), both: await paused(['maren', 'tobias']) };
   },
+  // The code for a second person, then that person joins, then OK goes on to the page it was on.
+  async joinFades() {
+    const t = tv({ kept: 'old' });
+    let state = 'pairing';
+    t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state, expires_in_s: 290, poll_ms: 2000 } : ready({ people: state === 'joined' ? ['maren', 'tobias'] : ['maren'], poll_ms: 2000 }));
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(1500);
+    t.key(OK);
+    await t.step(1000);
+    const code = t.says().includes('482 916');
+    state = 'joined';
+    for (let i = 0; i < 40 && !t.says().includes('can play here'); i += 1) await t.step(100);
+    const join = { says: t.says().includes('maren and tobias can play here'), entering: t.entering(), left: t.left().includes('482 916') };
+    t.key(OK);
+    await t.step(50);
+    const back = { entering: t.entering(), left: t.left().includes('can play here') };
+    await t.step(1000);
+    state = 'pairing';
+    t.key(OK);
+    await t.step(50);
+    return { code, join, back, again: { code: t.says().includes('482 916'), entering: t.entering(), left: t.left().includes('is ready') } };
+  },
   async unpairedWithACodeShown() {
     const t = tv({ kept: 'old' });
     t.answers.poll = ready();

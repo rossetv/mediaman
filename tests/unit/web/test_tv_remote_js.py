@@ -148,6 +148,28 @@ def test_the_bar_says_once_who_else_stopped_your_film_and_that_your_place_is_sav
     assert out["nobody"] == {"bar": False, "toasts": []}
 
 
+def test_the_other_person_stopping_their_own_film_is_said_as_theirs_on_the_bar_and_the_remote() -> None:
+    out = _run("stopsTheirOwn")
+    said = ["maren stopped Glass Orchard. Their place is kept."]
+    assert out["bar"] == {"open": False, "bar": False, "toasts": said}
+    assert out["remote"] == {"open": False, "bar": False, "toasts": said}
+
+
+def test_an_unpaired_person_is_told_who_unpaired_them_and_what_stopped_and_both_go_with_motion() -> None:
+    out = _run("unpaired")
+    removed = ["maren unpaired you from Living room. Glass Orchard stopped; your place is saved."]
+    assert out["removed"] == {"leaving": True, "hidden": True, "toasts": removed, "asksOn": 0}
+    assert out["removedOpen"] == {"leaving": True, "hidden": True, "toasts": removed, "asksOn": 0}
+    assert out["left"]["toasts"] == ["You left Living room."]
+
+
+def test_a_film_started_over_yours_names_who_started_it_and_keeps_your_place() -> None:
+    out = _run("takenOver")
+    assert out["bar"]["toasts"] == ["maren started Dune on Living room. Your place in Glass Orchard is kept."]
+    assert out["remote"] == {"toasts": [], "hint": "maren started Dune. Your place in Glass Orchard is kept."}
+    assert out["loaded"] == []
+
+
 def test_play_on_too_tall_for_the_room_by_its_button_takes_the_screens_height_instead() -> None:
     out = _run("sheetHeight")
     # The sheet's own rule then sizes it to the screen, inside its safe areas.

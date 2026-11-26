@@ -82,6 +82,8 @@
     unreachable: 'The TV or Plex didn’t answer. Try again in a moment.',
   };
   var STILL_S = 600; // that a question waits
+  // Why a TV is no longer the person's, as a 410 says.
+  var UNPAIRED = ['removed', 'left', 'account'];
   // A later press won: what the person sees is already that.
   var SILENT = ['superseded', 'replaced'];
 
@@ -125,6 +127,7 @@
   var timer = null;
   var asking = false; // a poll under way
   var ended = false; // signed out, or not let in: nothing more is asked
+  var me = mini.getAttribute('data-me') || '';
   var dismissed = '';
   try { dismissed = global.sessionStorage.getItem(DISMISSED) || ''; } catch (e) { /* no storage */ }
 
@@ -219,6 +222,7 @@
       closeMenu();
     }
     if (p) {
+      if (!isOpen && p.replaced && before && before.play_id !== p.play_id) say(tookOver(p) + ' on ' + name() + '. ' + keptIn(p.replaced));
       gone = null;
       seen = p;
       place = { s: p.position_s || 0, at: now() };
@@ -243,10 +247,14 @@
       say('mediaman restarted. ' + keptIn(last));
       return;
     }
-    // Someone else's stop of one's own film is said even with only the bar shown.
-    var stopper = reason === 'stopped' && last && last.stopped_by;
+    // Someone else's stop is said even with only the bar shown; one's own only where the remote is open.
+    var what = was.last || {};
+    var stopper = reason === 'stopped' && last && last.stopped_by !== me && last.stopped_by;
+    var theirs = what.mine === false;
     if (reason === 'stopped' && (isOpen || stopper)) {
-      say(place_kept(stopper ? stopper + ' stopped ' + (last.title || 'it') + ' on ' + name() + '.' : 'Stopped.', last));
+      if (!stopper) say(place_kept('Stopped.', last, theirs ? what.by : null));
+      else if (theirs) say(stopper + ' stopped ' + (what.title || 'it') + '. ' + (what.by && what.by !== stopper ? what.by + '’s' : 'Their') + ' place is kept.');
+      else say(place_kept(stopper + ' stopped ' + (what.title || 'it') + ' on ' + name() + '.', last));
       if (isOpen) close();
     } else if (reason && reason !== 'stopped' && (isOpen || reason !== 'moved' && !(seen && seen.play_id === dismissed))) {
       gone = was;
@@ -257,6 +265,13 @@
   }
 
   function keptIn(what) { return 'Your place in ' + what.title + ' is kept.'; }
+  function tookOver(p) { return (p.started_by || p.by) + ' started ' + p.title; }
+  function unpaired(d) {
+    var at = d.tv || name();
+    var first = d.reason === 'removed' ? (d.by ? d.by + ' unpaired you from ' : 'You were unpaired from ') + at + '.'
+      : d.reason === 'left' ? 'You left ' + at + '.' : 'You’re no longer paired with ' + at + '.';
+    return d.stopped ? first + ' ' + d.stopped + ' stopped; your place is saved.' : first;
+  }
   // `whose` names the person a film of someone else's was started by.
   function place_kept(before, last, whose) {
     var place = whose ? ' ' + whose + '’s place' : ' Your place';
@@ -272,6 +287,17 @@
     endDrag(false);
     closeMenu();
     if (!before && !isOpen) { tv = null; return; }
+    var d = err.data || {};
+    if (err.status === 410 && UNPAIRED.indexOf(d.reason || err.error) !== -1) {
+      var id = tv.id;
+      say(unpaired(Object.assign({ reason: err.error }, d)));
+      leaving = null;
+      gone = null;
+      tv = null;
+      others = others.filter(function (t) { return t.id !== id; });
+      close();
+      return;
+    }
     if (err.status === 410) over(err.error, err.data && err.data.last);
     else over('', null);
     if (!gone) tv = null;
@@ -809,7 +835,7 @@
     if (p.state === 'still') return 'Waiting for an answer';
     if (p.state === 'upnext' && p.upnext_in_s == null) return name() + ' waits for you to choose.';
     if (p.state === 'ended') return name() + ' is ready for something else.';
-    if (isLoading(p)) return 'Starting. This can take a few seconds.';
+    if (isLoading(p)) return p.replaced ? tookOver(p) + '. ' + keptIn(p.replaced) : 'Starting. This can take a few seconds.';
     if (p.mine === false) return p.by + ' started this. You can pause, skip or stop it. It counts towards ' + p.by + '’s Continue watching.';
     if (isCast()) return 'You can leave this page. ' + (p.next ? 'Keep mediaman open for the next episode.' : 'The TV carries on.');
     return 'You can lock or close this device. The TV carries on.';

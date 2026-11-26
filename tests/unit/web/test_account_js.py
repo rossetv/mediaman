@@ -450,6 +450,15 @@ def test_a_tv_shared_with_others_is_left_not_unpaired() -> None:
     assert out["toasts"] == ["You left Den. bob can still play on it."]
 
 
+def test_leaving_a_tv_as_your_film_plays_says_it_stopped_and_your_place_is_saved() -> None:
+    out = _run("tvLeavePlaying")
+    assert out["mine"]["order"] == ["GET /api/tvs/1", "DELETE /api/tvs/1"]
+    assert out["mine"]["toasts"] == [
+        "You left Den. Dune stopped; your place is saved. bob can still play on it."
+    ]
+    assert out["theirs"]["toasts"] == ["You left Den. bob can still play on it."]
+
+
 def test_an_unpaired_tv_leaves_the_list_and_the_last_takes_the_section_with_it() -> None:
     out = _run("tvUnpair")
     assert out["look"] == ["btn btn--danger btn--sm", "btn btn--ghost btn--sm"]

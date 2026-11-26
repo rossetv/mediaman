@@ -670,7 +670,14 @@
       sure.then(function (yes) {
         if (!yes || isBusy(button)) return;
         setBusy(button, leaves(tv) ? 'Leaving…' : 'Unpairing…', true);
-        MM.api.delete('/api/tvs/' + tv.id).then(function () { return true; }, function (err) {
+        var stopped = '';
+        // Asked now, not from the list: one's own film may have begun on it since.
+        (leaves(tv) ? MM.api.get('/api/tvs/' + tv.id).then(function (data) {
+          var p = data && data.tv && data.tv.play;
+          if (p && p.mine && ['ended', 'failed'].indexOf(p.state) === -1) stopped = p.title;
+        }, function () { /* Left all the same. */ }) : Promise.resolve()).then(function () {
+          return MM.api.delete('/api/tvs/' + tv.id);
+        }).then(function () { return true; }, function (err) {
           if (err && err.status === 404) return true;
           setBusy(button, '');
           UIFeedback.error(MM.api.messageOf(err, leaves(tv) ? 'Could not leave it. Try again.' : 'Could not unpair it. Try again.'));
@@ -679,7 +686,7 @@
           if (!ok) return;
           if (MM.tvRemote) MM.tvRemote.drop(tv.id);
           drop(tv);
-          done(leaves(tv) ? 'You left ' + tv.name + '. ' + namesOf(othersOn(tv)) + ' can still play on it.'
+          done(leaves(tv) ? 'You left ' + tv.name + '. ' + (stopped ? stopped + ' stopped; your place is saved. ' : '') + namesOf(othersOn(tv)) + ' can still play on it.'
             : 'Unpaired. That TV now says it was signed out.');
         });
       });
