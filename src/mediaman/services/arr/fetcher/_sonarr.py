@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 from mediaman.core.format import format_bytes
 from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.downloads.download_format import (
+    attention_reason,
     classify_series_upcoming,
     compute_series_released_at,
     extract_poster_url,
@@ -186,8 +187,12 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
                 "size_str": format_bytes(size),
                 "status": status,
                 "tracked_state": q.get("trackedDownloadState") or "",
+                "tracked_status": q.get("trackedDownloadStatus") or "",
+                "attention": attention_reason(q),
                 "download_id": q.get("downloadId", ""),
                 "season_number": int(season_num) if season_num is not None else 0,
+                "queue_id": q.get("id") or 0,
+                "episode_id": q.get("episodeId") or episode.get("id") or 0,
             },
         )
 
@@ -203,6 +208,7 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
             )
             if tmdb_id := series.get("tmdbId"):
                 series_map[series_id]["tmdb_id"] = tmdb_id
+            series_map[series_id]["series_id"] = series_id
 
         release_name = q.get("title") or ""
         if release_name:

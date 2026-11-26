@@ -1045,4 +1045,37 @@ scenarios.newRowMidList = async function () {
   ]);
 };
 
+// one Radarr or Sonarr will not import says so, with what is wrong and where to fix it for an
+// admin alone, and has no bar of progress
+scenarios.needsAttention = async function () {
+  const look = (admin) => {
+    const p = pageRig(true);
+    if (!admin) p.h.root.setAttribute('data-can-abandon', 'false');
+    const held = {
+      state: 'needs_attention', state_label: 'Needs attention', progress: 100, eta: '',
+      attention: admin ? 'Review file name or manually import' : '',
+      attention_hint: admin ? 'Fix it in Sonarr: Activity → Queue' : '',
+      episodes: [{ label: 'S12E01', title: 'One', state: 'needs_attention', progress: 100 }],
+    };
+    p.upd({ hero: item('h', held), queue: [item('q', held)] });
+    const of = (card) => {
+      const hint = card.querySelector('[data-v="search-hint"]');
+      const fix = card.querySelector('[data-v="attention-hint"]');
+      const bar = card.querySelector('[data-v="fill"]').parentNode;
+      const wrap = card.querySelector('[data-v="progress-wrap"]');
+      const pct = card.querySelector('[data-v="pct"]');
+      return {
+        pill: card.querySelector('.dl-state-pill').textContent,
+        hint: hint.hidden ? null : hint.querySelector('[data-v="search-hint-text"]').textContent,
+        fix: fix && !fix.hidden ? fix.textContent : null,
+        bar: !(bar.hidden || (wrap && wrap.hidden)),
+        pct: wrap ? null : pct.textContent,
+        episode: card.querySelector('.dl-ep-status-pill') && card.querySelector('.dl-ep-status-pill').textContent,
+      };
+    };
+    return { hero: of(p.byId('dl-hero-container').querySelector('.dl-hero')), row: of(p.byId('dl-queue-list').querySelector('.dl-compact')) };
+  };
+  return { admin: look(true), viewer: look(false) };
+};
+
 scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

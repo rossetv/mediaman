@@ -14,7 +14,13 @@
 
   var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/;
   var HREF = '/downloads';
-  var STATES = { queued: ['is-queued'], searching: ['is-looking'], stuck: ['is-looking', 'is-stuck'], ready: ['is-ready'] };
+  var STATES = {
+    queued: ['is-queued'],
+    searching: ['is-looking'],
+    stuck: ['is-looking', 'is-stuck'],
+    needs_attention: ['is-looking', 'is-stuck'],
+    ready: ['is-ready']
+  };
   var FLY_MS = 520;
   var AT_START_PX = 2;
   var REST_MS = 600; // a swipe goes on after the finger has gone
@@ -57,6 +63,8 @@
   function says(item) {
     if (item.state === 'ready') return ['', item.line || 'Ready to watch'];
     if (item.state === 'almost_ready') return ['Almost ready', ''];
+    /* What Radarr or Sonarr says is wrong is told to an admin alone. */
+    if (item.state === 'needs_attention') return ['Needs attention', item.attention ? ' · ' + item.attention : ''];
     if (item.state === 'queued') return ['', 'Queued'];
     if (item.state === 'stuck') return ['', 'Nothing found yet' + (item.line ? ' · ' + item.line : '')];
     if (item.state === 'searching') return ['', 'Looking for the best version'];
@@ -145,6 +153,9 @@
     var text = says(item);
     setText(line.children[0], text[0]);
     setText(line.children[1], text[1]);
+    var fix = item.state === 'needs_attention' ? [item.attention, item.attention_hint].filter(Boolean).join(' · ') : '';
+    if (fix) line.setAttribute('title', fix);
+    else line.removeAttribute('title');
     if (item.state === 'ready' && !wasReady) {
       card.timer = setTimeout(function () { land(item.key, Object.keys(cards).length === 1); draw(last); }, Math.max(1, item.ready_seconds || 1) * 1000);
     }

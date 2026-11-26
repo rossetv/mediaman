@@ -11,10 +11,12 @@ from mediaman.core.format import format_bytes
 from mediaman.services.arr._types import ArrQueueItem, SonarrSeries
 from mediaman.services.arr.state import series_ready
 from mediaman.services.downloads.download_format import (
+    attention_reason,
     build_episode_summary,
     build_item,
     format_episode_label,
     map_queue_state,
+    queue_attention,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
@@ -33,6 +35,8 @@ class _SonarrEpEntry(TypedDict):
     sizeleft: int
     status: str
     tracked_state: str
+    tracked_status: str
+    attention: str
     timeleft: str
     download_id: str
 
@@ -83,6 +87,8 @@ def _sonarr_queue_entries(
                 "sizeleft": sizeleft,
                 "status": item.get("status") or "",
                 "tracked_state": item.get("trackedDownloadState") or "",
+                "tracked_status": item.get("trackedDownloadStatus") or "",
+                "attention": attention_reason(item),
                 "timeleft": item.get("timeleft", ""),
                 "download_id": item.get("downloadId") or "",
             }
@@ -118,6 +124,8 @@ def _sonarr_aggregate(series_title: str, ep_entries: list[_SonarrEpEntry]) -> Do
         size_total=format_bytes(total_size),
         episodes=episodes,
         episode_summary=episode_summary,
+        arr_source="Sonarr",
+        attention=queue_attention(cast("list[dict[str, object]]", ep_entries)),
     )
 
 

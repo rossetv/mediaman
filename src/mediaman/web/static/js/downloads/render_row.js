@@ -29,15 +29,18 @@
       d.setText(pill, item.state_label || item.state);
     }
     if (hero().updateSearchHint) hero().updateSearchHint(row, item);
+    /* Nothing more is coming of one that needs attention: no bar, no share of it. */
+    var held = item.state === 'needs_attention';
     var fill = d.q('[data-v="fill"]', row);
     if (fill) {
       d.setProgress(fill, item.progress);
       fill.className = 'dl-compact-fill' + (item.state === 'almost_ready' ? ' green' : '');
+      fill.parentNode.hidden = held;
     }
     var pct = d.q('[data-v="pct"]', row);
     if (pct) {
-      d.setText(pct, item.progress > 0 ? (item.progress + '%') : '—');
-      pct.classList.toggle('dl-compact-pct--muted', !(item.progress > 0));
+      d.setText(pct, item.progress > 0 && !held ? (item.progress + '%') : '—');
+      pct.classList.toggle('dl-compact-pct--muted', !(item.progress > 0) || held);
     }
     var sizeInfo = d.q('[data-v="size-info"]', row);
     if (sizeInfo) sizeInfo.hidden = (item.state === 'searching');

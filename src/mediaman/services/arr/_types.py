@@ -152,6 +152,13 @@ class ArrQueueEpisode(TypedDict, total=False):
     title: str
 
 
+class ArrStatusMessage(TypedDict, total=False):
+    """One of a queue record's ``statusMessages``: what it is about, and what is wrong."""
+
+    title: str
+    messages: list[str]
+
+
 class ArrQueueItem(TypedDict, total=False):
     """A single record from ``/api/v3/queue``.
 
@@ -164,10 +171,15 @@ class ArrQueueItem(TypedDict, total=False):
     status: str
     trackedDownloadStatus: str
     trackedDownloadState: str
+    statusMessages: list[ArrStatusMessage]
+    errorMessage: str
     size: int
     sizeleft: int
     timeleft: str
     downloadId: str
+    movieId: int
+    seriesId: int
+    episodeId: int
     movie: RadarrMovie
     series: SonarrSeries
     episode: ArrQueueEpisode

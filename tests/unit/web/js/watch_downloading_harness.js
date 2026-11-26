@@ -112,6 +112,20 @@ function load(answers, opts = {}) {
 }
 
 const scenarios = {
+  async needsAttention() {
+    const why = 'Single episode file contains all episodes in seasons. Review file name or manually import';
+    const held = { state: 'needs_attention', percent: 0, minutes_left: null };
+    const p = load([answer([
+      item('Told', { ...held, attention: why, attention_hint: 'Fix it in Sonarr: Activity → Queue' }),
+      item('Viewer', { ...held, attention: '', attention_hint: '' }),
+    ])]);
+    await p.step(10);
+    const of = (t) => ({
+      line: p.line(t), title: p.card(t).querySelector('.dw__line').getAttribute('title'),
+      classes: p.card(t).className, fill: p.card(t).style.set['--p'],
+    });
+    return { told: of('Told'), viewer: of('Viewer') };
+  },
   async nothing() {
     const p = load([answer([])]);
     await p.step(10);

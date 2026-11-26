@@ -42,13 +42,16 @@ STALE_LINE = "Can't check downloads"
 # For a release whose name says nothing that a person could read.
 UNNAMED = "A download"
 
-State = Literal["downloading", "almost_ready", "queued", "searching", "stuck", "ready"]
+State = Literal[
+    "downloading", "almost_ready", "needs_attention", "queued", "searching", "stuck", "ready"
+]
 
 _ACTIVE: frozenset[State] = frozenset({"downloading", "almost_ready"})
 _RANK: dict[State, int] = {
     "ready": 0,
     "downloading": 0,
     "almost_ready": 0,
+    "needs_attention": 1,
     "queued": 1,
     "searching": 2,
     "stuck": 2,
@@ -85,6 +88,10 @@ class StripItem:
     #: The title it opens, None when not known.
     ref: str | None = None
     href: str = "/downloads"
+    #: Of one that needs attention: what Radarr or Sonarr says is wrong, and where to deal with
+    #: it, which only an admin is told.
+    attention: str = ""
+    attention_hint: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +129,8 @@ def _state_of(item: Mapping[str, object]) -> State:
         return "downloading"
     if state == "almost_ready":
         return "almost_ready"
+    if state == "needs_attention":
+        return "needs_attention"
     # Only an item NZBGet does not hold names where it comes from.
     if state == "queued" or not item.get("arr_source"):
         return "queued"
@@ -182,6 +191,8 @@ def _current(item: Mapping[str, object]) -> StripItem:
         line=hint,
         poster_url=_text(item.get("poster_url")),
         tmdb_id=tmdb_id,
+        attention=_text(item.get("attention")),
+        attention_hint=_text(item.get("attention_hint")),
     )
 
 
@@ -268,7 +279,8 @@ def _tmdb_ref(item: StripItem) -> str | None:
     return f"tmdb-{kind}-{item.tmdb_id}" if item.ref and item.tmdb_id else None
 
 
-def _shown(item: StripItem) -> dict[str, Any]:
+def _shown(item: StripItem, *, admin: bool) -> dict[str, Any]:
+    told = item.state == "needs_attention" and admin
     return {
         "key": item.key,
         "title": item.title,
@@ -285,13 +297,15 @@ def _shown(item: StripItem) -> dict[str, Any]:
         "href": item.href,
         "poster_url": item.poster_url,
         "art_url": item.art_url,
+        "attention": item.attention if told else "",
+        "attention_hint": item.attention_hint if told else "",
     }
 
 
 def payload(answer: Answer, *, admin: bool = False) -> dict[str, Any]:
     """What a page is told: the same for an admin and a viewer, but that a viewer, as anyone
     not said to be an admin, is told of a service that does not answer only that downloads are
-    not available."""
+    not available, and of one that needs attention not what Radarr or Sonarr says of it."""
     stale = answer.age_s > STALE_S
     items: list[StripItem] = []
     for item in answer.strip.items:
@@ -306,7 +320,7 @@ def payload(answer: Answer, *, admin: bool = False) -> dict[str, Any]:
         "outage": VIEWER_OUTAGE
         if answer.strip.outage and not admin
         else answer.strip.outage or (STALE_LINE if stale else ""),
-        "items": [_shown(item) for item in items[:MAX_ITEMS]],
+        "items": [_shown(item, admin=admin) for item in items[:MAX_ITEMS]],
         "age_ms": round(answer.age_s * 1000),
     }
 

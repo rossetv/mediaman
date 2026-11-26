@@ -43,12 +43,18 @@
         <span class="dl-state-pill dl-state-{{ item.state }}" data-v="pill">{{ item.state_label }}</span>
       </div>
 
+      {% if item.state == 'needs_attention' %}
+      <div class="dl-search-hint" data-v="search-hint" {% if not (item.attention or item.attention_hint) %}hidden{% endif %}>
+        <span data-v="search-hint-text" {% if not item.attention %}hidden{% endif %}>{{ item.attention }}</span>{% if item.attention_hint %}<span class="dl-attention-hint" data-v="attention-hint">{{ item.attention_hint }}</span>{% endif %}
+      </div>
+      {% else %}
       <div class="dl-search-hint" data-v="search-hint"
            {% if item.state != 'searching' or not (item.search_hint or (can_abandon and item.arr_link)) %}hidden{% endif %}>
         <span data-v="search-hint-text">{{ item.search_hint or '' }}</span>{% if can_abandon %}<span class="dl-hint-sep" data-v="search-hint-sep" {% if not (item.search_hint and item.arr_link) %}hidden{% endif %}> · </span><a class="dl-arr-link" data-v="arr-link" {% if item.arr_link %}href="{{ item.arr_link }}"{% else %}hidden{% endif %} target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>{% endif %}
       </div>
+      {% endif %}
 
-      <div class="dl-hero-progress" data-v="progress-wrap" {% if item.state == 'searching' %}hidden{% endif %}>
+      <div class="dl-hero-progress" data-v="progress-wrap" {% if item.state in ('searching', 'needs_attention') %}hidden{% endif %}>
         <div class="dl-hero-bar dl-bar" role="progressbar" aria-label="{{ item.title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}">
           <div class="dl-hero-fill dl-bar-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="--fill-pct:{{ item.progress }}%"></div>
         </div>
@@ -77,6 +83,7 @@
             {% if ep.state == 'ready' %}Ready
             {% elif ep.state == 'downloading' %}{{ ep.progress }}%
             {% elif ep.state == 'queued' %}Queued
+            {% elif ep.state == 'needs_attention' %}Needs attention
             {% else %}Searching
             {% endif %}
           </span>

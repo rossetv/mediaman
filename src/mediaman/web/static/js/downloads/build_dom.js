@@ -399,7 +399,7 @@
     var progressWrap = document.createElement('div');
     progressWrap.className = 'dl-hero-progress';
     progressWrap.setAttribute('data-v', 'progress-wrap');
-    if (state === 'searching') progressWrap.hidden = true;
+    if (state === 'searching' || state === 'needs_attention') progressWrap.hidden = true;
 
     var bar = buildBar('dl-hero-bar dl-bar', item.title);
     var fill = document.createElement('div');
@@ -550,7 +550,8 @@
     pill.className = 'dl-ep-status-pill ' + state;
     MM.dom.setText(pill, state === 'ready' ? 'Ready'
       : state === 'downloading' ? (ep.progress || 0) + '%'
-      : state === 'queued' ? 'Queued' : 'Searching');
+      : state === 'queued' ? 'Queued'
+      : state === 'needs_attention' ? 'Needs attention' : 'Searching');
   }
 
   function episodeCount(episodes) {
@@ -701,7 +702,9 @@
     hint.hidden = true;
     info.appendChild(hint);
 
+    var held = item.state === 'needs_attention';
     var bar = buildBar('dl-compact-bar dl-row-bar', item.title);
+    bar.hidden = held;
     var fill = el('div', 'dl-compact-fill dl-row-bar-fill' +
       (item.state === 'almost_ready' ? ' green' : ''));
     fill.setAttribute('data-v', 'fill');
@@ -711,8 +714,9 @@
     row.appendChild(info);
 
     var right = el('div', 'dl-compact-right');
-    var pct = el('div', 'dl-compact-pct dl-row-pct' + (item.progress > 0 ? '' : ' dl-compact-pct--muted'),
-      item.progress > 0 ? item.progress + '%' : '—');
+    var shown = item.progress > 0 && !held;
+    var pct = el('div', 'dl-compact-pct dl-row-pct' + (shown ? '' : ' dl-compact-pct--muted'),
+      shown ? item.progress + '%' : '—');
     pct.setAttribute('data-v', 'pct');
     right.appendChild(pct);
     var eta = el('div', 'dl-compact-eta', item.eta || '');

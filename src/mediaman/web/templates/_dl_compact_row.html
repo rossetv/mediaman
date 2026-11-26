@@ -15,16 +15,23 @@
           <span data-v="size-done">{{ item.size_done or '' }}</span> of <span data-v="size-total">{{ item.size_total or '' }}</span>
         </span>
       </div>
+      {% if item.state == 'needs_attention' %}
+      <div class="dl-search-hint" data-v="search-hint" {% if not (item.attention or item.attention_hint) %}hidden{% endif %}>
+        <span data-v="search-hint-text" {% if not item.attention %}hidden{% endif %}>{{ item.attention }}</span>{% if item.attention_hint %}<span class="dl-attention-hint" data-v="attention-hint">{{ item.attention_hint }}</span>{% endif %}
+      </div>
+      {% else %}
       <div class="dl-search-hint" data-v="search-hint"
            {% if item.state != 'searching' or not (item.search_hint or (can_abandon and item.arr_link)) %}hidden{% endif %}>
         <span data-v="search-hint-text">{{ item.search_hint or '' }}</span>{% if can_abandon %}<span class="dl-hint-sep" data-v="search-hint-sep" {% if not (item.search_hint and item.arr_link) %}hidden{% endif %}> · </span><a class="dl-arr-link" data-v="arr-link" {% if item.arr_link %}href="{{ item.arr_link }}"{% else %}hidden{% endif %} target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>{% endif %}
       </div>
-      <div class="dl-compact-bar dl-row-bar" role="progressbar" aria-label="{{ item.title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}">
+      {% endif %}
+      <div class="dl-compact-bar dl-row-bar" role="progressbar" aria-label="{{ item.title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}" {% if item.state == 'needs_attention' %}hidden{% endif %}>
         <div class="dl-compact-fill dl-row-bar-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="--fill-pct:{{ item.progress }}%"></div>
       </div>
     </div>
     <div class="dl-compact-right">
-      <div class="dl-compact-pct dl-row-pct{% if not item.progress > 0 %} dl-compact-pct--muted{% endif %}" data-v="pct">{% if item.progress > 0 %}{{ item.progress }}%{% else %}—{% endif %}</div>
+      {% set shown = item.progress > 0 and item.state != 'needs_attention' %}
+      <div class="dl-compact-pct dl-row-pct{% if not shown %} dl-compact-pct--muted{% endif %}" data-v="pct">{% if shown %}{{ item.progress }}%{% else %}—{% endif %}</div>
       <div class="dl-compact-eta" data-v="eta">{{ item.eta or '' }}</div>
     </div>
     {% if can_abandon and item.abandon_visible %}
@@ -54,6 +61,7 @@
           {% if ep.state == 'ready' %}Ready
           {% elif ep.state == 'downloading' %}{{ ep.progress }}%
           {% elif ep.state == 'queued' %}Queued
+          {% elif ep.state == 'needs_attention' %}Needs attention
           {% else %}Searching
           {% endif %}
         </span>

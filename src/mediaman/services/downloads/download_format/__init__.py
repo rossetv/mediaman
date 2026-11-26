@@ -7,6 +7,7 @@ All public symbols are re-exported from this ``__init__`` so imports such as
 from __future__ import annotations
 
 from mediaman.services.downloads.download_format._classify import (
+    attention_reason,
     classify_movie_upcoming,
     classify_series_upcoming,
     compute_movie_released_at,
@@ -17,6 +18,7 @@ from mediaman.services.downloads.download_format._classify import (
     map_queue_state,
     map_state,
     next_movie_release,
+    queue_attention,
 )
 from mediaman.services.downloads.download_format._parsing import (
     format_episode_label,
@@ -36,6 +38,7 @@ from mediaman.services.downloads.download_format._types import DownloadItem
 __all__ = [
     # Types
     "DownloadItem",
+    "attention_reason",
     "build_episode_summary",
     # Rendering
     "build_item",
@@ -57,5 +60,6 @@ __all__ = [
     "normalise_for_match",
     # Parsing
     "parse_clean_title",
+    "queue_attention",
     "select_hero",
 ]

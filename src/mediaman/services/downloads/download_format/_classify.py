@@ -199,14 +199,24 @@ def map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
     return map_arr_status(nzbget_status)
 
 
-def map_arr_status(status: str, tracked_state: str = "") -> str:
+# The tracked states of a download that came in or failed, which Radarr and Sonarr hold with a
+# warning or an error until a person deals with it.
+_HELD_BACK = frozenset({"importpending", "importblocked", "failedpending", "failed"})
+_REASON_MAX = 160
+
+
+def map_arr_status(status: str, tracked_state: str = "", tracked_status: str = "") -> str:
     """The one mapping of a download's status to its state, for an NZBGet status or a
     Radarr/Sonarr queue item, whose status and trackedDownloadState are both read because
-    versions populate them differently. One waiting its turn or paused is "queued".
+    versions populate them differently. One waiting its turn or paused is "queued"; one that
+    came in but that Radarr or Sonarr will not take without a person, by its
+    trackedDownloadStatus, "needs_attention".
     """
     lower = (status or "").lower()
     tracked = (tracked_state or "").lower()
 
+    if (tracked_status or "").lower() in ("warning", "error") and tracked in _HELD_BACK:
+        return "needs_attention"
     if tracked in ("importing", "importpending", "imported"):
         return "almost_ready"
     if lower == "completed" or any(stage.lower() in lower for stage in _NZBGET_POST_PROCESSING):
@@ -222,10 +232,18 @@ def map_arr_status(status: str, tracked_state: str = "") -> str:
     return "searching"
 
 
+def _entry_state(entry: _ArrLike) -> str:
+    return map_arr_status(
+        str(entry.get("status") or ""),
+        str(entry.get("tracked_state") or ""),
+        str(entry.get("tracked_status") or ""),
+    )
+
+
 def map_queue_state(entries: Sequence[_ArrLike]) -> str:
     """The state of a download of Radarr's or Sonarr's queue entries, a film's one or a show's
-    episodes, each with its "status" and "tracked_state": by the one mapping, of the entry
-    furthest along."""
+    episodes, each with its "status", "tracked_state" and "tracked_status": by the one mapping,
+    of the entry furthest along; one that needs attention, once none is still downloading."""
     statuses = [str(e.get("status") or "") for e in entries]
     tracked = [str(e.get("tracked_state") or "") for e in entries]
     status = next(
@@ -236,11 +254,45 @@ def map_queue_state(entries: Sequence[_ArrLike]) -> str:
         (t for t in tracked if t.lower() in ("downloading", "importing", "importpending")),
         tracked[0] if tracked else "",
     )
+    each = {_entry_state(e) for e in entries}
+    if "needs_attention" in each and "downloading" not in each:
+        return "needs_attention"
     return map_arr_status(status, state)
 
 
+def queue_attention(entries: Sequence[_ArrLike]) -> str:
+    """What the first of *entries* that needs attention says is wrong, "" when none does."""
+    return next(
+        (str(e.get("attention") or "") for e in entries if _entry_state(e) == "needs_attention"),
+        "",
+    )
+
+
+def attention_reason(item: _ArrLike) -> str:
+    """What Radarr or Sonarr says is wrong with a queue record, as one short line of plain
+    text: its first status message, else its error message; "" when it says nothing. A status
+    message's title is most often the release's or a file's name, so it is read only when it
+    has no messages and is not the release's name."""
+    said: list[object] = []
+    found = item.get("statusMessages")
+    for message in found if isinstance(found, list) else []:
+        if not isinstance(message, Mapping):
+            continue
+        lines = message.get("messages")
+        if isinstance(lines, list) and lines:
+            said.extend(lines)
+        elif message.get("title") != item.get("title"):
+            said.append(message.get("title"))
+    said.append(item.get("errorMessage"))
+    for line in said:
+        text = " ".join(line.split()) if isinstance(line, str) else ""
+        if text:
+            return text if len(text) <= _REASON_MAX else text[: _REASON_MAX - 1].rstrip() + "…"
+    return ""
+
+
 def map_episode_state(ep: _ArrLike) -> str:
-    """Map a Sonarr episode entry to ready, downloading, queued or searching.
+    """Map a Sonarr episode entry to ready, downloading, queued, searching or needs_attention.
 
     NZBGet transfers one NZB at a time, so paused, queued or delayed items with partial
     or zero progress are labelled queued; calling them downloading would overstate
@@ -256,6 +308,8 @@ def map_episode_state(ep: _ArrLike) -> str:
     status_raw = ep.get("status") or ""
     status = status_raw.lower() if isinstance(status_raw, str) else ""
 
+    if _entry_state(ep) == "needs_attention":
+        return "needs_attention"
     if status in ("failed", "downloadclientunavailable"):
         return "searching"
     # A completed entry may report no size at all.

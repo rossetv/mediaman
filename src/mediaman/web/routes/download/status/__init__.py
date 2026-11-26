@@ -272,6 +272,9 @@ def download_status(
         # and surface as a 500 to the polling client.
         logger.exception("download_status error (service=%s tmdb_id=%s)", service, tmdb_id)
         result = _UNKNOWN_ITEM
+    if not admin:
+        # What Radarr or Sonarr says is wrong is an admin's to read and act on.
+        result = {**result, "arr_source": "", "attention": "", "attention_hint": ""}
 
     # Renew only while the download is unfinished and the chain is under 24
     # hours old, so a held token cannot be kept alive forever; an unknown
