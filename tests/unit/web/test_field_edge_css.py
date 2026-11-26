@@ -122,5 +122,34 @@ def test_all_titles_goes_two_across_only_where_a_poster_would_be_tiny() -> None:
 
 
 def test_search_results_go_two_across_where_all_titles_does() -> None:
-    narrow = _of(".results-page .watch-grid", "_watch_search.css", "(max-width: 389.98px)")
+    narrow = _of(".results-page .watch-grid", "_watch_search.css", "(max-width: 359.98px)")
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in narrow
+
+
+def test_ask_goes_two_across_where_the_grids_do() -> None:
+    narrow = _of(".ask .watch-grid", "_watch_ask.css", "(max-width: 359.98px)")
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in narrow
+    assert "389.98" not in (CSS / "_watch_ask.css").read_text()
+
+
+def test_settings_fields_are_16px_on_a_coarse_pointer_at_any_width() -> None:
+    rules = _of(".setg-pg .inp", "_settings_pg.css", "(pointer: coarse)")
+    assert "font-size: 16px" in rules
+
+
+def test_the_search_hint_shrinks_to_fit_the_narrowest_phone() -> None:
+    assert "font-size: 15px" in _of(
+        ".watch-search__ph", "_watch_search.css", "(max-width: 359.98px)"
+    )
+
+
+def test_an_integration_header_gives_up_its_mark_to_keep_every_control_in_view() -> None:
+    narrow = _of(
+        ".setg-pg .intg-card .intg-card-hd .glyph", "_settings_pg.css", "(max-width: 239.98px)"
+    )
+    assert "display: none" in narrow
+
+
+def test_downloading_cards_keep_their_own_colours_in_forced_colours() -> None:
+    forced = _of(".dw__text", "_watch_downloading.css", "(forced-colors: active)")
+    assert "forced-color-adjust: none" in forced

@@ -198,4 +198,5 @@
 @media (forced-colors: active) {
   .dw__link { border: 1px solid CanvasText; }
   .dw__bar i { forced-color-adjust: none; }
+  .dw__link::before, .dw__text { forced-color-adjust: none; }
 }

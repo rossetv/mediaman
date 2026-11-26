@@ -254,7 +254,7 @@ html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
               background var(--dur-fast) var(--ease-out);
   width: 100%; min-width: 0;
 }
-@media (max-width: 639.98px) {
+@media (max-width: 639.98px), (pointer: coarse) {
   .setg-pg .inp { font-size: 16px; }
 }
 .setg-pg .inp:focus { border-color: var(--accent); background-color: var(--s3); }
@@ -468,4 +468,10 @@ html.has-savebar { --savebar-below: 0px; scroll-padding-bottom: calc(var(--saveb
   }
   .setg-pg .setg-rail-item.on > .ico { color: inherit; }
   .setg-pg .setg-rail-item.on .rail-count { color: inherit; background: none; }
+}
+
+/* Too narrow for the Test button beside the mark: the mark and some padding go so every control stays whole. */
+@media (max-width: 239.98px) {
+  .setg-pg .intg-card .intg-card-hd { padding-inline: 12px; }
+  .setg-pg .intg-card .intg-card-hd .glyph { display: none; }
 }
