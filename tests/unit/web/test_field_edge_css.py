@@ -150,6 +150,7 @@ def test_an_integration_header_gives_up_its_mark_to_keep_every_control_in_view()
     assert "display: none" in narrow
 
 
-def test_downloading_cards_keep_their_own_colours_in_forced_colours() -> None:
-    forced = _of(".dw__text", "_watch_downloading.css", "(forced-colors: active)")
-    assert "forced-color-adjust: none" in forced
+def test_downloading_cards_read_in_the_system_colours_on_a_canvas_backing_in_forced_colours() -> None:
+    media = "(forced-colors: active)"
+    assert "background: Canvas" in _of(".dw__link::before", "_watch_downloading.css", media)
+    assert "forced-color-adjust" not in _of(".dw__text", "_watch_downloading.css", media)
