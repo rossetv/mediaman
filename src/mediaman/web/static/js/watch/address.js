@@ -154,16 +154,19 @@
   function push(name, to) {
     var was = mark();
     if (was && was.entry === name && name !== null && to === currentUrl()) return;
+    // What opens over a preview takes its entry: the preview's own never stays behind it.
+    var over = !!was && was.entry === 'preview' && name !== 'preview';
+    if (over) values.preview = null;
     // A title's grows out of the card's preview, which closes itself then.
     var preview = window.MMWatch.preview;
-    if (name !== 'title' && preview && preview.close) preview.close();
+    if (name !== 'title' && name !== 'preview' && preview && preview.close) preview.close();
     keepPlace();
     var ref = /#title=([a-z0-9-]+)$/.exec(to);
     if (was && ref) openedOn[was.id] = ref[1];
-    var at = (was ? was.at : 0) + 1;
-    var stack = was ? was.stack : [];
+    var at = (was ? was.at : 0) + (over ? 0 : 1);
+    var stack = was ? was.stack.filter(function (s) { return s.name !== 'preview'; }) : [];
     var open = stack.some(function (s) { return s.name === name; });
-    write('pushState', {
+    write(over ? 'replaceState' : 'pushState', {
       id: newId(), at: at, entry: name,
       stack: name === null || open ? stack : stack.concat({ name: name, at: at })
     }, to);

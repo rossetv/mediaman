@@ -426,6 +426,8 @@
     fold(p);
     link.classList.add('is-previewed');
     setLive(p);
+    // Back closes what a finger opened.
+    if (finger && watch.address) watch.address.push('preview', watch.address.url({}));
     void p.n.offsetWidth; // start from the card's own look
     p.n.classList.remove('is-placing');
     unfold(p);
@@ -475,6 +477,7 @@
     p.closing = true;
     p.settledAt = 0;
     if (live === p) setLive(null);
+    if (p.finger && watch.address && watch.address.value('preview') !== null) watch.address.close('preview');
     if (!p.data) forget();
     clearTimeout(closeTimer);
     closeTimer = null;
@@ -1885,4 +1888,19 @@
   document.addEventListener('mm:watch-marked', function (e) { marked(e.detail.refs); });
 
   watch.preview = { close: viewChanged, letGo: letGo };
+
+  if (watch.address) {
+    watch.address.layer({
+      name: 'preview',
+      depth: 40,
+      params: [],
+      read: function (here) { return here.entry === 'preview' ? 'on' : null; },
+      // Forward to a preview that is gone: on through.
+      open: function () { if (!live) watch.address.back('preview'); },
+      close: function () {
+        if (live && live.finger) close(live);
+        return true; // the page stays where the person left it
+      }
+    });
+  }
 })();
