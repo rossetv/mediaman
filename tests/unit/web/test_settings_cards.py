@@ -160,6 +160,8 @@ def test_a_test_buttons_name_follows_its_words() -> None:
     assert out["painted"] == [["Test", "Test Sonarr"], ["Test saved", "Test saved Radarr settings"]]
     # While it works it is named by what it shows.
     assert out["testing"] == ["Testing…", None]
+    # A repaint while it works leaves it as it is.
+    assert out["repainted"] == out["testing"]
 
 
 def test_a_reveal_button_says_what_it_shows_and_hides() -> None:

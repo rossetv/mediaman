@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC
 from unittest.mock import patch
 
@@ -588,3 +589,17 @@ class TestLibrarySyncAuditLog:
             "SELECT detail FROM audit_log WHERE action = 'sec:library.sync'"
         ).fetchall()
         assert rows, "audit row missing for sec:library.sync"
+
+    def test_sync_audit_entry_records_synced_errors_and_removed(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        app = _app(app_factory, conn, db_path)
+        client = authed_client(app, conn)
+        summary = {"synced": 5, "errors": 2, "removed": 1}
+        with patch("mediaman.scanner.runner.run_library_sync", return_value=summary):
+            assert client.post("/api/library/sync").status_code == 200
+
+        row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:library.sync'"
+        ).fetchone()
+        assert json.loads(row["detail"].split(" ", 2)[2]) == summary

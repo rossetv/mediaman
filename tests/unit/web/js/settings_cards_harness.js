@@ -88,7 +88,10 @@ const scenarios = {
     p.post = () => new Promise(() => {});
     p.ctx.MM.settings.integrations.init();
     click(p.doc, p.doc.querySelector('[data-test-service="sonarr"]'));
-    return { painted, testing: look()[0] };
+    const testing = look()[0];
+    // An edit or a save while it works repaints every Test button.
+    p.ctx.MM.settings.integrations.paintTests();
+    return { painted, testing, repainted: look()[0] };
   },
 
   // A reveal button is named for its field, with the word it shows.
