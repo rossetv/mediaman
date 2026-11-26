@@ -196,7 +196,8 @@
   <input class="inp inp--lg" id="{{ id }}" name="{{ id }}" type="password"
          value="{{ value }}" placeholder="{{ placeholder }}" autocomplete="off" spellcheck="false"
          {%- if aria_label %} aria-label="{{ aria_label }}"{% endif %}>
-  <button type="button" class="inp-reveal" data-reveal-target="{{ id }}">Show</button>
+  <button type="button" class="inp-reveal" data-reveal-target="{{ id }}"
+          {%- if aria_label %} aria-label="Show {{ aria_label }}"{% endif %}>Show</button>
 </div>
 {%- endmacro %}
 
@@ -235,28 +236,28 @@
 
 
 {# Integration card — single pattern for all 8 services.
-   Fields render inside the card body via caller(). #}
+   Fields render inside the card body via caller().
+   The title is the fold's button, so Test is not inside it; a click anywhere
+   else on the header folds the card too. #}
 {% macro intg_card(service, glyph, glyph_kind, title, sub="", include_test=true) -%}
 <div class="intg-card is-collapsed" id="intg-{{ service }}">
-  <div class="intg-card-hd" role="button" tabindex="0"
-       aria-expanded="false" aria-controls="intg-body-{{ service }}"
-       data-intg-toggle>
-    <div class="glyph gy-{{ glyph_kind }}">{{ glyph }}</div>
+  <div class="intg-card-hd" data-intg-toggle>
+    <div class="glyph gy-{{ glyph_kind }}" aria-hidden="true">{{ glyph }}</div>
     <div class="hd-main">
       <div class="h-info">
-        <h3>{{ title }}</h3>
+        <h3><button type="button" class="intg-fold" aria-expanded="false"
+                    aria-controls="intg-body-{{ service }}">{{ title }}</button></h3>
         {% if sub %}<div class="sub">{{ sub|safe }}</div>{% endif %}
       </div>
       <div class="hd-actions">
         {{ conn_pill(service) }}
         <div class="hd-btns">
-          {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
+          {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}" aria-label="Test {{ title }}">Test</button>{% endif %}
           {{ icon("i-chevron-down", "intg-chev") }}
         </div>
       </div>
     </div>
   </div>
-  {# Outside the role="button" header: a button's children are presentational, so a live region inside may go unannounced. #}
   <span class="sr-only" role="status" data-conn-announce></span>
   <div class="intg-card-bd" id="intg-body-{{ service }}" hidden>
     {{ caller() }}

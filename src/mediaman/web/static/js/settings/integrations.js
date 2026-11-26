@@ -48,6 +48,11 @@
   }
   function isNewest(service, run) { return newest[service] === run; }
 
+  function serviceName(btn) {
+    var h = btn.closest('.intg-card') && btn.closest('.intg-card').querySelector('h3');
+    return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
+  }
+
   function fieldValue(id) {
     var el = document.getElementById(id);
     return el ? el.value : '';
@@ -289,9 +294,12 @@
 
     paintTests: function () {
       document.querySelectorAll('[data-test-service]').forEach(function (btn) {
-        var label = MM.settings.integrations.hasEdits(btn) ? 'Test saved' : 'Test';
+        if (btn.disabled) return;
+        var edited = MM.settings.integrations.hasEdits(btn);
+        var label = edited ? 'Test saved' : 'Test';
         // Leaving a field for this button repaints it mid-press, and Safari drops the click if the text is replaced.
-        if (!btn.disabled && btn.textContent !== label) btn.textContent = label;
+        if (btn.textContent !== label) btn.textContent = label;
+        btn.setAttribute('aria-label', edited ? 'Test saved ' + serviceName(btn) + ' settings' : 'Test ' + serviceName(btn));
       });
     },
 
@@ -316,11 +324,6 @@
     init: function () {
       var self = MM.settings.integrations;
 
-      function serviceName(btn) {
-        var h = btn.closest('.intg-card') && btn.closest('.intg-card').querySelector('h3');
-        return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
-      }
-
       // An answer that already holds the service's name as a whole word is not given it twice.
       function said(btn, label) {
         var name = serviceName(btn);
@@ -340,7 +343,8 @@
         if (btn) self.announce(service, '');
         if (btn) {
           if (self.hasEdits(btn)) window.UIFeedback.toast('Testing ' + serviceName(btn) + ' as last saved. Save to test your changes.');
-          btn.disabled = true; btn.textContent = 'Testing…';
+          // While it works the button is named by what it shows; the result is read out by the card.
+          btn.disabled = true; btn.textContent = 'Testing…'; btn.removeAttribute('aria-label');
         }
         MM.api.post('/api/settings/test/' + encodeURIComponent(service))
           .then(function () {

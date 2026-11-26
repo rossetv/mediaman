@@ -107,7 +107,10 @@
   border-bottom: 1px solid var(--hair);
   cursor: pointer;
 }
-.setg-pg .intg-card-hd:focus-visible {
+/* The title is the fold's button; its ring goes round the whole header, which a click also folds. */
+.setg-pg .intg-fold { text-align: inherit; letter-spacing: inherit; }
+.setg-pg .intg-fold:focus-visible { outline: 0; }
+.setg-pg .intg-card-hd:has(.intg-fold:focus-visible) {
   outline: 2px solid var(--accent-cta);
   outline-offset: -2px;
 }

@@ -3,7 +3,7 @@
  *
  * Responsibilities:
  *   - Toggle switches (`<span data-toggle>` mirrors to a hidden `<input>`)
- *   - Integration-card collapse/expand (`<[data-intg-toggle]>` headers)
+ *   - Integration-card collapse/expand (`<[data-intg-toggle]>` headers, `.intg-fold` buttons)
  *   - Secret-reveal buttons (`<button.inp-reveal>` flips type=password)
  *   - Rail scroll-spy (highlights the active section in `.setg-rail`)
  *   - The fold of what the AI recommendations send to OpenAI
@@ -79,11 +79,12 @@
   function wireIntegrationCards() {
     function toggleIntg(hd) {
       var card = hd.closest('.intg-card');
-      if (!card) return;
-      var body = document.getElementById(hd.getAttribute('aria-controls'));
+      var btn = hd.querySelector('.intg-fold');
+      if (!card || !btn) return;
+      var body = document.getElementById(btn.getAttribute('aria-controls'));
       var expanded = card.classList.toggle('is-collapsed');
       var isOpen = !expanded;
-      hd.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
       if (body) {
         if (isOpen) MM.settings.rows.open(body); else MM.settings.rows.close(body);
       }
@@ -96,18 +97,12 @@
       body.appendChild(inner);
       body.classList.add('setg-fold');
     });
+    // The fold's button takes Enter and Space itself; its click comes up through the header.
     document.querySelectorAll('.setg-pg [data-intg-toggle]').forEach(function (hd) {
       hd.addEventListener('click', function (e) {
         if (e.target.closest('.btn-test')) return;
         if (e.target.closest('.conn'))     return;
         toggleIntg(hd);
-      });
-      hd.addEventListener('keydown', function (e) {
-        if (e.target !== hd) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          toggleIntg(hd);
-        }
       });
     });
   }
@@ -120,8 +115,11 @@
         var input = id ? document.getElementById(id) : btn.parentElement.querySelector('input');
         if (!input) return;
         var hidden = input.type === 'password';
+        var word = hidden ? 'Hide' : 'Show';
+        var name = input.getAttribute('aria-label');
         input.type = hidden ? 'text' : 'password';
-        btn.textContent = hidden ? 'Hide' : 'Show';
+        btn.textContent = word;
+        if (name) btn.setAttribute('aria-label', word + ' ' + name);
       });
     });
   }

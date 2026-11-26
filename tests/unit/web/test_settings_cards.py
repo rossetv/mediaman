@@ -1,13 +1,15 @@
 """Settings' integration cards and the buttons around them: names, words and folds.
 
 The scripts run under node against the fake DOM (js/settings_cards_harness.js); the
-markup is the real template rendered.
+markup is the real template rendered; the styles are read from the sheets.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
 
 import jinja2
@@ -15,6 +17,8 @@ import pytest
 
 WEB = Path(__file__).resolve().parents[3] / "src/mediaman/web"
 JS = Path(__file__).parent / "js"
+PANELS = (WEB / "static/css/_settings_pg_panels.css").read_text(encoding="utf-8")
+_VOID = {"input", "br", "img", "hr", "meta", "link", "use"}
 
 
 def _node(harness: str, scenario: str, *args: str):
@@ -35,6 +39,38 @@ def _cards(scenario: str, *args: str):
 def _integrations() -> str:
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(WEB / "templates"), autoescape=True)
     return env.get_template("settings/_sec_integrations.html").render(settings={})
+
+
+class _Tree(HTMLParser):
+    """Each element with its attributes and the elements open around it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stack: list[dict[str, str | None]] = []
+        self.seen: list[tuple[dict[str, str | None], list[dict[str, str | None]]]] = []
+
+    def handle_starttag(self, tag, attrs):
+        el = {"tag": tag, **dict(attrs)}
+        self.seen.append((el, list(self.stack)))
+        if tag not in _VOID:
+            self.stack.append(el)
+
+    def handle_endtag(self, tag):
+        if tag not in _VOID and self.stack:
+            self.stack.pop()
+
+    def find(self, test):
+        return [(el, around) for el, around in self.seen if test(el)]
+
+
+def _tree() -> _Tree:
+    tree = _Tree()
+    tree.feed(_integrations())
+    return tree
+
+
+def _has_class(el, name: str) -> bool:
+    return name in (el.get("class") or "").split()
 
 
 # The TMDB card
@@ -77,3 +113,73 @@ def test_sync_now_counts_what_failed(synced: int, start: str) -> None:
     assert out["shown"] == "3 failed"
     assert out["said"][0][0] == "error"
     assert out["said"][0][1].startswith(start) and "3 failed" in out["said"][0][1]
+
+
+# The cards' headers and buttons
+
+
+def test_no_card_header_is_a_button_holding_another_button() -> None:
+    tree = _tree()
+    buttons = tree.find(lambda el: el["tag"] == "button" or el.get("role") == "button")
+    assert buttons
+    for _, around in buttons:
+        assert not any(a["tag"] == "button" or a.get("role") == "button" for a in around)
+
+
+def test_each_cards_title_is_the_button_that_folds_it() -> None:
+    tree = _tree()
+    folds = tree.find(lambda el: _has_class(el, "intg-fold"))
+    assert len(folds) == 8
+    for fold, around in folds:
+        assert fold["tag"] == "button" and fold.get("aria-expanded") == "false"
+        assert fold["aria-controls"].startswith("intg-body-")
+        assert around[-1]["tag"] == "h3"
+    assert tree.find(lambda el: el.get("id") == "intg-body-sonarr")
+
+
+def test_each_test_button_is_named_for_its_service() -> None:
+    names = {
+        el["data-test-service"]: el.get("aria-label")
+        for el, _ in _tree().find(lambda el: "data-test-service" in el)
+    }
+    assert names["sonarr"] == "Test Sonarr"
+    assert names["mailgun"] == "Test Email (Mailgun)"
+    assert len(names) == 8
+
+
+def test_each_reveal_button_is_named_for_its_field() -> None:
+    names = [
+        el.get("aria-label") for el, _ in _tree().find(lambda el: _has_class(el, "inp-reveal"))
+    ]
+    assert "Show Plex Token" in names and "Show TMDB API Read Token" in names
+    assert all(name and name.startswith("Show ") for name in names)
+
+
+def test_a_test_buttons_name_follows_its_words() -> None:
+    out = _cards("testNames")
+    assert out["painted"] == [["Test", "Test Sonarr"], ["Test saved", "Test saved Radarr settings"]]
+    # While it works it is named by what it shows.
+    assert out["testing"] == ["Testing…", None]
+
+
+def test_a_reveal_button_says_what_it_shows_and_hides() -> None:
+    assert _cards("reveal") == [
+        ["Hide", "Hide Plex API Key", "text"],
+        ["Show", "Show Plex API Key", "password"],
+    ]
+
+
+def test_the_title_and_the_rest_of_the_header_fold_the_card_but_test_does_not() -> None:
+    out = _cards("fold")
+    assert out["button"] == [True, "true"]
+    assert out["header"] == [False, "false"]
+    assert out["test"] == out["answer"] == [False, "false"]
+    assert out["chevron"] == [True, "true"]
+    assert len(out["folds"]) == 3
+
+
+def test_the_ring_of_the_fold_button_goes_round_the_whole_header() -> None:
+    assert re.search(
+        r"\.setg-pg \.intg-card-hd:has\(\.intg-fold:focus-visible\) \{[^}]*outline: 2px solid",
+        PANELS,
+    )

@@ -2393,7 +2393,9 @@ const scenarios = {
     const page = h.add('div', { className: 'setg-pg' });
     const card = h.add('div', { className: 'intg-card is-collapsed' }, page);
     const hd = h.add('div', { className: 'intg-card-hd' }, card);
-    hd.setAttribute('data-intg-toggle', ''); hd.setAttribute('aria-controls', 'body1'); hd.setAttribute('aria-expanded', 'false');
+    hd.setAttribute('data-intg-toggle', '');
+    const fold = h.add('button', { className: 'intg-fold' }, hd);
+    fold.setAttribute('aria-controls', 'body1'); fold.setAttribute('aria-expanded', 'false');
     const body = h.add('div', { id: 'body1', className: 'intg-card-bd', hidden: true }, card);
     const field = h.add('div', { className: 'fld-row' }, body);
     h.ctx.addEventListener = () => {}; h.ctx.innerHeight = 800; h.ctx.scrollY = 0;
@@ -2406,7 +2408,7 @@ const scenarios = {
     body.fire('transitionend', { propertyName: 'grid-template-rows' });
     return {
       fold: body.classList.contains('setg-fold'), wrapped: field.parentNode.className === 'setg-fold-inner' && field.parentNode.parentNode === body,
-      open, closing, closed: { hidden: body.hidden, expanded: hd.getAttribute('aria-expanded') },
+      open, closing, closed: { hidden: body.hidden, expanded: fold.getAttribute('aria-expanded') },
     };
   },
 };
