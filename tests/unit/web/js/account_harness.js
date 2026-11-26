@@ -168,6 +168,7 @@ const scenarios = {
     let answer = () => Promise.reject({ status: 500 });
     const p = page(tvApi([tvOf(1, 'A'), tvOf(2, 'B')], [], { delete: (url) => { sent.push(url); return answer(); } }), { tvs: 'viewer' });
     await settle();
+    const look = [buttonOf(tvRows(p)[0], 'Unpair').className, buttonOf(tvRows(p)[0], 'Rename').className];
     const press = async () => {
       push(buttonOf(tvRows(p)[0], 'Unpair'));
       await settle();
@@ -182,7 +183,7 @@ const scenarios = {
     // already unpaired by someone else
     answer = () => Promise.reject({ status: 404 });
     await press();
-    return { failed, one, sent, last: [tvRows(p).length, p.$('account-tvs').hidden], asked: p.asked.length, kept, dropped: p.dropped };
+    return { look, failed, one, sent, last: [tvRows(p).length, p.$('account-tvs').hidden], asked: p.asked.length, kept, dropped: p.dropped };
   },
   async sessions() {
     const here = session(9, { current: true });
