@@ -87,6 +87,11 @@ button.ttl-cast__item:active .ttl-cast__avatar { transform: scale(.96); }
 .cast-card__poster > img:not([data-broken]) ~ .cast-card__poster-name { visibility: hidden; }
 button.cast-card__poster:hover { transform: scale(1.04); }
 button.cast-card__poster:active { transform: scale(.98); }
+/* No hover to show a tooltip: the title stands on the foot of the picture, over a scrim, and the row keeps its height. */
+@media (hover: none) {
+  .cast-card__poster > .cast-card__poster-name { position: absolute; inset: auto 0 0; z-index: 1; display: -webkit-box; padding: 16px 4px 4px; background: linear-gradient(transparent, color-mix(in srgb, var(--scrim) 85%, transparent)); color: #fff; text-align: center; text-wrap: balance; overflow-wrap: anywhere; -webkit-line-clamp: 2; line-clamp: 2; }
+  .cast-card__poster > img:not([data-broken]) ~ .cast-card__poster-name { visibility: visible; }
+}
 .cast-card__known.is-none > .cast-card__label { visibility: hidden; }
 .cast-card__known.is-none p:only-child { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: var(--t3); }
 /* As tall as what it stands in for: the card does not change its height. */
@@ -111,6 +116,7 @@ button.cast-card__poster:active { transform: scale(.98); }
 
 @media (forced-colors: active) {
   .cast-card__shell { border: 1px solid CanvasText; }
+  .cast-card__poster > .cast-card__poster-name { background: Canvas; color: CanvasText; }
   .cast-face { border: 1px solid CanvasText; }
   .cast-card .skel { border: 1px solid GrayText; }
 }
