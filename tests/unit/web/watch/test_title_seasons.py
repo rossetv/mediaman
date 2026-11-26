@@ -7,7 +7,11 @@ from dataclasses import replace
 import pytest
 
 from mediaman.services import watch_catalog as catalog
-from mediaman.web.routes.watch.title_seasons import fill_season_status, missing_seasons
+from mediaman.web.routes.watch.title_seasons import (
+    begin_arr_view,
+    fill_season_status,
+    missing_seasons,
+)
 from tests.helpers.factories import (
     insert_admin_user,
     insert_audit_log,
@@ -255,3 +259,18 @@ def test_a_page_says_when_the_sonarr_view_is_still_to_come(people):
     _fill(people, early, _view(answering=False))
 
     assert (ready["seasons_pending"], early["seasons_pending"]) == (False, True)
+
+
+@pytest.mark.parametrize("sonarr_set_up", [False, True])
+def test_a_view_that_comes_late_still_offers_no_way_to_ask_without_sonarr(
+    people, secret_key, monkeypatch, sonarr_set_up
+):
+    if sonarr_set_up:
+        insert_settings(people, sonarr_url="http://sonarr.test", sonarr_api_key="k")
+    monkeypatch.setattr(catalog, "arr_view", lambda *_a, **_k: _view(answering=False))
+    page = _page(1)
+
+    _fill(people, page, begin_arr_view(people, secret_key)())
+
+    assert (page["seasons_request"] is not None) is sonarr_set_up
+    assert page["seasons"][0]["askable"] is False
