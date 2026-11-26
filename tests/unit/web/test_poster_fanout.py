@@ -49,3 +49,15 @@ def test_titles_not_started_when_the_budget_ends_are_never_asked():
         _poster_fanout._get_poster_executor.cache_clear()
 
     assert len(asked) == _poster_fanout._POSTER_FANOUT_WORKERS
+
+
+def test_a_poster_is_the_apps_own_picture_route_at_a_size_it_serves():
+    items, _ = _run(lambda _t: {"poster_path": "/p.jpg"}, ["a"], 1.0)
+
+    assert items[0]["poster_url"] == "/api/watch/img/tmdb/w185/p.jpg"
+
+
+def test_a_poster_path_that_is_not_a_tmdb_file_leaves_no_poster():
+    items, _ = _run(lambda _t: {"poster_path": "https://evil.example/p.jpg"}, ["a"], 1.0)
+
+    assert "poster_url" not in items[0]

@@ -8,10 +8,14 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 import requests
+from defusedxml.ElementTree import ParseError
+from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.settings.testers import test_plex as _test_plex
+from tests.helpers.plexapi_errors import raised_by_plexapi
 
 
 class TestTestPlexStructuredResponse:
@@ -88,3 +92,103 @@ class TestTestPlexStructuredResponse:
 
         body = json.loads(resp.body)
         assert body["ok"] is True
+
+
+@pytest.mark.parametrize(
+    ("exc", "code", "message"),
+    [
+        (Unauthorized("401 secret-token"), "auth_failed", "Plex refused the token."),
+        (NotFound("404"), "not_plex", "No Plex server answered at this address."),
+        (BadRequest("400"), "not_plex", "No Plex server answered at this address."),
+    ],
+)
+def test_plex_refusals_say_which_it_was_and_log_one_line(exc, code, message, caplog):
+    import json
+    import logging
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch("mediaman.services.media_meta.plex.PlexClient", side_effect=exc),
+    ):
+        resp = _test_plex({"plex_url": "http://u:p@plex:32400", "plex_token": "secret-token"})
+    body = json.loads(resp.body)
+    assert (body["ok"], body["error"], body["message"]) == (False, code, message)
+    assert len(caplog.records) == 1
+    assert caplog.records[0].exc_info is None
+    assert "secret-token" not in caplog.text and "u:p@" not in caplog.text
+
+
+_NOT_PLEX = ("not_plex", "No Plex server answered at this address.")
+_PLEX_ERROR = ("plex_error", "Plex answered with an error. Try again in a moment.")
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        # an HTML page answering 200 is not XML
+        (ParseError("syntax error: line 1, column 0"), _NOT_PLEX),
+        # well-formed XML that is not Plex's has no machine identifier
+        (
+            raised_by_plexapi(AttributeError("'NoneType' object has no attribute 'attrib'")),
+            _NOT_PLEX,
+        ),
+        # an empty 200 body parses to None
+        (raised_by_plexapi(TypeError("'NoneType' object is not subscriptable")), _NOT_PLEX),
+        (BadRequest("(400) bad_request; http://plex:32400/ nope"), _NOT_PLEX),
+        (BadRequest("(500) internal_server_error; http://plex:32400/ boom"), _PLEX_ERROR),
+        (BadRequest("(503) service_unavailable; http://plex:32400/ later"), _PLEX_ERROR),
+        (BadRequest("something with no status"), _NOT_PLEX),
+    ],
+)
+def test_plex_replies_that_are_not_a_plex_answer_are_told_apart(exc, expected, caplog):
+    import json
+    import logging
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch("mediaman.services.media_meta.plex.PlexClient", side_effect=exc),
+    ):
+        resp = _test_plex({"plex_url": "http://u:p@plex:32400", "plex_token": "secret-token"})
+    body = json.loads(resp.body)
+    assert (body["ok"], body["error"], body["message"]) == (False, *expected)
+    assert len(caplog.records) == 1
+    assert caplog.records[0].exc_info is None
+    assert "secret-token" not in caplog.text and "u:p@" not in caplog.text
+    assert "http://" not in caplog.text
+
+
+def test_a_bug_in_the_library_call_is_not_called_a_foreign_server():
+    with patch("mediaman.services.media_meta.plex.PlexClient") as client:
+        client.return_value.get_libraries.side_effect = AttributeError("a real bug")
+        with pytest.raises(AttributeError):
+            _test_plex({"plex_url": "http://plex:32400", "plex_token": "t"})
+
+
+def test_a_none_error_raised_in_our_own_code_is_not_called_a_foreign_server():
+    with patch("mediaman.services.media_meta.plex.PlexClient") as client:
+        client.return_value.get_libraries.side_effect = AttributeError(
+            "'NoneType' object has no attribute 'key'"
+        )
+        with pytest.raises(AttributeError):
+            _test_plex({"plex_url": "http://plex:32400", "plex_token": "t"})
+
+
+def test_an_empty_reply_met_while_listing_the_libraries_is_not_plex(caplog):
+    import json
+    import logging
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch("mediaman.services.media_meta.plex.PlexClient") as client,
+    ):
+        client.return_value.get_libraries.side_effect = raised_by_plexapi(
+            TypeError("'NoneType' object is not iterable")
+        )
+        resp = _test_plex({"plex_url": "http://plex:32400", "plex_token": "t"})
+    body = json.loads(resp.body)
+    assert (body["error"], body["message"]) == (
+        "not_plex",
+        "No Plex server answered at this address.",
+    )
+    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert caplog.records[0].exc_info is None

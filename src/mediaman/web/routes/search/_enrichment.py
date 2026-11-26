@@ -30,7 +30,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.omdb import get_omdb_key, lookup_ratings
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.watch_catalog import TmdbUnavailable
+from mediaman.services.watch_catalog import TmdbUnavailable, tmdb_image_url
 from mediaman.web.repository.search import (
     RatingsCacheRow,
     fetch_ratings_cache,
@@ -100,13 +100,8 @@ def _get_executor() -> ThreadPoolExecutor:
 _QUERY_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 
 
-_POSTER_BASE = "https://image.tmdb.org/t/p/w342"
-_PROFILE_BASE = "https://image.tmdb.org/t/p/w185"
-_BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
-
-
 def _poster_url(path: str | None) -> str | None:
-    return f"{_POSTER_BASE}{path}" if path else None
+    return tmdb_image_url(path, "w342")
 
 
 def _normalise_tmdb_item(item: dict[str, object]) -> dict[str, object] | None:

@@ -57,7 +57,6 @@
     var diskMap = now && now.disk ? MM.settings.diskThresholds.changes(saved.disk.disk, now.disk.disk) : null;
     var payload = {
       plex_url:              v('plex_url'),
-      plex_public_url:       v('plex_public_url'),
       plex_token:            v('plex_token'),
       plex_libraries:        selectedLibs,
       sonarr_url:            v('sonarr_url'),
@@ -67,7 +66,6 @@
       radarr_public_url:     v('radarr_public_url'),
       radarr_api_key:        v('radarr_api_key'),
       nzbget_url:            v('nzbget_url'),
-      nzbget_public_url:     v('nzbget_public_url'),
       nzbget_username:       v('nzbget_username'),
       nzbget_password:       v('nzbget_password'),
       mailgun_domain:        v('mailgun_domain'),

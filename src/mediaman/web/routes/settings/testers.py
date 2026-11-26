@@ -6,19 +6,25 @@ endpoint in the package __init__ invokes the registered functions.
 
 from __future__ import annotations
 
+import logging
+import re
 import threading
 import time
 from collections.abc import Callable
 from typing import Protocol
 
 import requests as _requests
+from defusedxml.ElementTree import ParseError
 from fastapi.responses import JSONResponse
+from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 
 from mediaman.services.downloads.nzbget import NzbgetError
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 from mediaman.services.media_meta.omdb import clear_refusal
 from mediaman.web.models import _API_KEY_RE
 from mediaman.web.responses import respond_failure
+
+logger = logging.getLogger(__name__)
 
 
 class _ConnectionTestable(Protocol):
@@ -197,6 +203,47 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
         if isinstance(exc, _requests.Timeout):
             return _failure("timeout", _TIMED_OUT)
         return _failure("connection_refused", _UNREACHABLE)
+    except Unauthorized:
+        logger.warning("settings.test_plex token refused by Plex")
+        return _failure("auth_failed", "Plex refused the token.")
+    except BadRequest as exc:
+        # plexapi raises BadRequest for every status but 401 and 404 and carries the
+        # status only in the message, as "(503) service_unavailable; ...".
+        status = re.match(r"\((\d{3})\)", str(exc))
+        if status and int(status.group(1)) >= 500:
+            logger.warning("settings.test_plex Plex answered with an error: status %s", status[1])
+            return _failure("plex_error", "Plex answered with an error. Try again in a moment.")
+        return _not_plex(exc)
+    except NotFound as exc:
+        return _not_plex(exc)
+    except (ParseError, TypeError, AttributeError) as exc:
+        if not is_not_plex_reply(exc):
+            raise
+        return _not_plex(exc)
+
+
+def is_not_plex_reply(exc: Exception) -> bool:
+    """Whether ``exc`` is what plexapi raises on a 200 that is not a Plex server's answer.
+
+    A web page or another service's JSON does not parse as XML; an empty body, or XML
+    that is not Plex's, parses to nothing and plexapi then fails on that ``None``. A
+    TypeError or AttributeError counts only when it was raised inside plexapi, so one
+    from our own code is a programming error and keeps its traceback.
+    """
+    if isinstance(exc, ParseError):
+        return True
+    if not isinstance(exc, (TypeError, AttributeError)):
+        return False
+    tb = exc.__traceback__
+    while tb is not None and tb.tb_next is not None:
+        tb = tb.tb_next
+    module = str(tb.tb_frame.f_globals.get("__name__", "")) if tb else ""
+    return module == "plexapi" or module.startswith("plexapi.")
+
+
+def _not_plex(exc: Exception) -> JSONResponse:
+    logger.warning("settings.test_plex not a Plex server: %s", type(exc).__name__)
+    return _failure("not_plex", "No Plex server answered at this address.")
 
 
 @_register("sonarr")

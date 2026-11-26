@@ -22,7 +22,11 @@ HARNESS = Path(__file__).parent / "js" / "settings_harness.js"
 
 def _run(scenario: str, *args: str) -> dict:
     result = subprocess.run(
-        ["node", str(HARNESS), scenario, *args], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), scenario, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -927,3 +931,18 @@ def test_every_focus_handed_back_after_a_request_keeps_the_page_still() -> None:
             assert found, (name, call)
             for at in found:
                 assert text[at:].split(";", 1)[0].endswith("{ preventScroll: true })"), (name, call)
+
+
+def test_a_save_no_longer_sends_the_plex_or_nzbget_public_url() -> None:
+    keys = _run("payloadKeys")
+    assert "sonarr_public_url" in keys and "radarr_public_url" in keys
+    assert "plex_public_url" not in keys and "nzbget_public_url" not in keys
+
+
+def test_a_failed_test_names_the_service_once_for_a_screen_reader() -> None:
+    out = _run("announced")
+    assert out["named"] == ["", "Plex refused the token."]
+    assert out["unnamed"] == ["", "Plex: Couldn't reach the service."]
+    assert out["inside"] == ["", "No Plex server answered at this address."]
+    assert out["nameless"] == ["", "Not reachable"]
+    assert out["longerWord"] == ["", "Plex: Plexamp answered."]

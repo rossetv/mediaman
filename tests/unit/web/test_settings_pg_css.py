@@ -86,8 +86,21 @@ def test_the_longest_subscriber_state_leaves_remove_on_its_line_on_a_narrow_phon
     assert "margin-left: 0" in _narrow_phone_rule(".setg-pg .sub-row .sub-stat")
 
 
-def test_a_service_header_has_room_for_its_chevron_on_a_narrow_phone() -> None:
-    assert "padding-left: 0" in _narrow_phone_rule(".setg-pg .intg-card-hd .hd-actions")
+def test_a_service_header_starts_its_answer_row_in_the_same_place_at_every_phone_width() -> None:
+    narrow = re.search(r"@media \(max-width: 359\.98px\) \{(.*?)\n\}\n", PANELS, re.S)
+    assert narrow and ".hd-actions" not in narrow.group(1)
+
+
+def test_a_service_header_drops_its_answer_under_a_description_of_at_least_180px() -> None:
+    main = _declarations(".setg-pg .intg-card-hd .hd-main")
+    assert "flex-wrap: wrap" in main
+    # the row wraps by what fits in the card itself, so no screen width is named for it
+    assert re.search(r"flex:\s*\d+ 1 180px", _declarations(".setg-pg .intg-card-hd .h-info"))
+    assert "margin-left: auto" in _declarations(".setg-pg .intg-card-hd .hd-btns")
+    header = PANELS[PANELS.index(".setg-pg .intg-card-hd .hd-main") :].split(
+        "\n.setg-pg .intg-card-bd", 1
+    )[0]
+    assert "@media" not in header and "@container" not in header
 
 
 def test_a_long_user_name_wraps_in_the_password_dialog() -> None:

@@ -2059,7 +2059,7 @@ const scenarios = {
     const save = h.add('button', { id: 'btn-save' }, bar);
     const discard = h.add('button', { id: 'btn-discard' }, bar);
     const f = {};
-    ['plex_url', 'plex_token', 'plex_public_url', 'sonarr_url', 'sonarr_api_key', 'nzbget_url', 'nzbget_username', 'base_url'].forEach((id) => { f[id] = h.add('input', { id, value: 'v', type: 'text' }, page); });
+    ['plex_url', 'plex_token', 'sonarr_url', 'sonarr_api_key', 'nzbget_url', 'nzbget_username', 'base_url'].forEach((id) => { f[id] = h.add('input', { id, value: 'v', type: 'text' }, page); });
     const pills = {};
     ['plex', 'sonarr', 'nzbget'].forEach((s) => {
       pills[s] = h.add('span', { className: 'conn' }, page);
@@ -2099,8 +2099,7 @@ const scenarios = {
     edit('nzbget_username', 'other');
     out.written = [await saveNow(), look('plex'), look('sonarr'), look('nzbget')];
     check = () => Promise.resolve({});
-    edit('base_url', 'b');
-    edit('plex_public_url', 'p');
+    edit('base_url', 'q');
     out.elsewhere = await saveNow();
     edit('sonarr_url', '');
     out.emptied = [await saveNow(), look('sonarr')];
@@ -2348,6 +2347,43 @@ const scenarios = {
     [90, 90, 90, 90].forEach(frame);
     const closing = { moving: moving(), shut: panel.classList.contains('is-shut') };
     return { unfolded, scrolling, still, closing };
+  },
+
+  // What a pressed Test says to a screen reader: the service's name once.
+  async announced() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const card = h.add('div', { className: 'intg-card' }, page);
+    const title = h.add('h3', {}, card);
+    title.textContent = 'Plex';
+    const btn = h.add('button', {}, card);
+    btn.setAttribute('data-test-service', 'plex');
+    let answer = { status: 502 };
+    h.ctx.MM.api = {
+      post: () => Promise.reject(answer),
+      put: () => Promise.resolve({}),
+      get: () => Promise.resolve({}),
+      messageOf: (e, words) => e.message || words,
+    };
+    h.ctx.MM.dom = { focusStillIn: () => false };
+    h.ctx.UIFeedback = { toast() {}, confirm: () => Promise.resolve(true) };
+    h.load('settings/integrations.js');
+    const m = h.ctx.MM.settings;
+    const said = [];
+    m.integrations.announce = (s, t) => said.push(t);
+    m.integrations.init();
+    h.drain(); await h.flush();
+    const press = async (a) => { answer = a; said.length = 0; btn.fire('click'); await h.flush(); h.drain(); await h.flush(); return said.slice(); };
+    title.textContent = '';
+    const nameless = await press({ status: 502, message: 'Not reachable' });
+    title.textContent = 'Plex';
+    return {
+      nameless,
+      named: await press({ status: 502, message: 'Plex refused the token.' }),
+      unnamed: await press({ status: 502, message: 'Couldn\'t reach the service.' }),
+      inside: await press({ status: 502, message: 'No Plex server answered at this address.' }),
+      longerWord: await press({ status: 502, message: 'Plexamp answered.' }),
+    };
   },
 
   // Opening an integration card folds its body open instead of popping it.
