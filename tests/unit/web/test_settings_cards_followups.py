@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
@@ -12,9 +11,10 @@ import jinja2
 
 from mediaman.services.infra.settings_reader import get_setting
 from mediaman.web.routes.settings import router
+from tests.unit.web._css import style
 
 WEB = Path(__file__).resolve().parents[3] / "src/mediaman/web"
-PANELS = (WEB / "static/css/_settings_pg_panels.css").read_text(encoding="utf-8")
+PANELS = "_settings_pg_panels.css"
 
 
 def _integrations() -> str:
@@ -45,14 +45,10 @@ def _classes(el) -> list[str]:
 
 
 def test_the_focused_headers_ring_takes_the_system_focus_colour_in_forced_colours() -> None:
-    blocks = re.findall(r"@media \(forced-colors: active\) \{(.*?)\n\}", PANELS, re.S)
-    assert any(
-        re.search(
-            r"\.setg-pg \.intg-card-hd:has\(\.intg-fold:focus-visible\) \{[^}]*outline-color: Highlight",
-            block,
-        )
-        for block in blocks
+    ring = style(
+        ".setg-pg .intg-card-hd:has(.intg-fold:focus-visible)", PANELS, "(forced-colors: active)"
     )
+    assert ring["outline-color"] == "Highlight"
 
 
 # Sync now holds its width
@@ -60,10 +56,8 @@ def test_the_focused_headers_ring_takes_the_system_focus_colour_in_forced_colour
 
 def test_sync_now_keeps_one_width_through_its_labels() -> None:
     # "Syncing…" is the widest label, about 111px at 12px type.
-    rule = re.search(r"\.setg-pg #btn-sync-library \{([^}]*)\}", PANELS)
-    assert rule
-    width = re.search(r"min-width: ([\d.]+)em", rule.group(1))
-    assert width and float(width.group(1)) * 12 >= 111
+    width = style(".setg-pg #btn-sync-library", PANELS)["min-width"]
+    assert width.endswith("em") and float(width[:-2]) * 12 >= 111
 
 
 # The cards' names
