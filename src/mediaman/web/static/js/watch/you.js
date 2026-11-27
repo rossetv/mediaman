@@ -464,7 +464,8 @@
       f.style.width = box.width + 'px';
       f.style.height = box.height + 'px';
       move(f.querySelector('.you__frame-edge'), x, e, still ? e : e1);
-      move(f.querySelector('.you__frame-fill'), function (v) { return { transform: 'scaleX(' + (W - v) / W + ')' }; }, e, still ? e : e1);
+      // Its left side moves, not its scale, so its rounded corners keep their shape.
+      move(f.querySelector('.you__frame-fill'), function (v) { return { left: v + 'px' }; }, e, still ? e : e1);
     }
     var old = root.querySelector('.you__title.is-old');
     if (still) {
@@ -483,7 +484,7 @@
       move(old, by, e0 / 2, e1 / 2);
       if (under) {
         var left = under.offsetLeft;
-        move(under, function (e) { return { transform: 'translateX(' + (e - left) + 'px)', opacity: 1 }; }, e0, e1);
+        move(under, function (e) { return { transform: 'translateX(' + (e - left) + 'px)' }; }, e0, e1);
       }
     }
     sizing[0].onfinish = endSizing;

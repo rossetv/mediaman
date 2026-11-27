@@ -966,7 +966,7 @@
 .watch-ep:active { background: var(--s2); transform: scale(.985); }
 .watch-keep:active { transform: scale(.97); }
 .watch-keep:active::before { background: color-mix(in srgb, var(--success) 30%, transparent); }
-.watch-keep-menu__item:active { background: var(--s4); color: var(--t1); }
+.watch-keep-menu__item:active { background: var(--s2); color: var(--t1); }
 .watch-back:active { opacity: .6; }
 .watch-btn--play:active { background: color-mix(in srgb, var(--t1) 70%, transparent); }
 .watch-btn--grey:active { background: color-mix(in srgb, var(--t1) 30%, transparent); }

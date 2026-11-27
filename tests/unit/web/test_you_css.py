@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from tests.unit.web._css import CSS_DIR, rules, style, text, token
+from tests.unit.web._css import CSS_DIR, _top_level, rules, style, text, token
 
 WEB = CSS_DIR.parents[1]
 WATCH = (WEB / "templates/watch.html").read_text()
@@ -121,10 +121,35 @@ def test_a_step_pushes_the_new_view_over_the_old_which_slips_a_little_way_under_
 def test_views_on_the_glass_never_show_their_words_through_each_other() -> None:
     # A view draws no fill: the glass is the panel's, so no view covers the one under it.
     assert "background" not in style(".you-view", "_you.css")
-    # Whichever way a step goes, the view it leaves fades out, even where the step holds it at full
-    # strength while the panel changes width (watch/you.js).
-    assert style(".you-view:not(.is-on)", "_you.css")["opacity"] == "0 !important"
+    # Whichever way a step goes, the view it leaves fades out, the width step included (watch/you.js
+    # moves it then, and leaves its fade to this sheet).
+    assert style(".you-view", "_you.css")["opacity"] == "0"
     assert style(".you-view.is-on", "_you.css")["opacity"] == "1"
+    for media in (None, REDUCED):
+        gone = _opacity_timing(style(".you-view", "_you.css", media)["transition"])
+        come = _opacity_timing(style(".you-view.is-on", "_you.css", media)["transition"])
+        # The view a step leaves is gone before the one it brings starts to show.
+        assert gone[0] + gone[1] <= come[1], media
+        if media is None:
+            # and the new one is in place by the end of the push
+            assert come[0] + come[1] <= _seconds("var(--dur-slow)") + 1e-9
+
+
+def _seconds(value: str) -> float:
+    """A time of the sheet, its duration tokens put in, in seconds."""
+    expr = re.sub(r"var\((--[\w-]+)\)", lambda m: token(m[1]).removesuffix("s"), value)
+    expr = expr.replace("calc", "").removesuffix("s")
+    assert re.fullmatch(r"[\d\s.+\-*/()]+", expr), value
+    return float(eval(expr))
+
+
+def _opacity_timing(transition: str) -> tuple[float, float]:
+    """The duration and the delay of the opacity in *transition*."""
+    part = next(
+        p for p in _top_level(transition.replace("!important", ""), ",") if p.startswith("opacity")
+    )
+    times = [t for t in _top_level(part, " ")[1:] if re.match(r"(calc\(|var\(--dur|[\d.]+s$)", t)]
+    return _seconds(times[0]), _seconds(times[1]) if len(times) > 1 else 0.0
 
 
 def _press_after_hover(sheet: str) -> list[str]:

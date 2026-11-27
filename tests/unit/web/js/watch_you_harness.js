@@ -658,7 +658,7 @@ async function widthSteps(opts, to = 'history') {
       held: root.classList.contains('is-sizing'),
       frames: frames.length,
       edge: frames[0] ? of(frames[0].querySelector('.you__frame-edge'), 'transform') : [],
-      fill: frames[0] ? of(frames[0].querySelector('.you__frame-fill'), 'transform') : [],
+      fill: frames[0] ? of(frames[0].querySelector('.you__frame-fill'), 'left') : [],
       fade: frames.map((f) => of(f, 'opacity')),
       hub: of(hub, 'transform'),
       hubShown: of(hub, 'opacity'),

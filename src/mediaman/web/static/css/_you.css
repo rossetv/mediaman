@@ -42,6 +42,8 @@
   width: min(var(--you-w), calc(100% - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
   display: flex;
   flex-direction: column;
+  /* Where its glass's edge is drawn, so what it holds sits inside that edge, the same on each side. */
+  padding: 1px;
   border-radius: 20px;
   outline: 0;
   transform: translateX(48px);
@@ -76,7 +78,8 @@
 /* A step between views of two widths (watch/you.js): the panel's box is held at the widest width,
    clear, and this frame is drawn where it was; its left edge moves and its fill grows or shrinks
    from the right, so the panel is never seen to jump or stand half empty. The fill carries the
-   glass; the two ends draw only the rounded edge over it, as glass laid twice is darker. */
+   glass, rounded as the panel is; the two ends draw only the rounded edge over it, as glass laid
+   twice is darker. */
 .you.is-sizing .you__panel { --you-w: var(--you-wider); }
 .you.is-sizing .you__panel::before { visibility: hidden; }
 .you__frame { position: absolute; display: none; pointer-events: none; }
@@ -86,7 +89,7 @@
   left: 0;
   right: 0;
   border-inline-width: 0;
-  transform-origin: right;
+  border-radius: 20px;
   background: var(--g-regular);
   -webkit-backdrop-filter: var(--g-filter);
   backdrop-filter: var(--g-filter);
@@ -156,11 +159,16 @@
   transition: background-color var(--dur-fast) var(--ease-out);
 }
 @media (hover: hover) {
-  .you__back:hover { background: var(--s3); }
+  .you__back:hover { background: var(--s2); }
   .you__close:hover { background: var(--s3); color: var(--t1); }
 }
-/* After the hover rule, so a press lights under the mouse too: at once, easing off when let go. */
-.you__back:active, .you__close:active { background: var(--s4); transition-duration: 0s; }
+/* After the hover rule, so a press lights under the mouse too: at once, easing off when let go.
+   Back's blue word holds over a white page on a step of --s3 and no more. */
+.you__back:active { background: var(--s3); transition-duration: 0s; }
+.you__close:active { background: var(--s4); transition-duration: 0s; }
+
+/* The keyboard's ring, light enough to stand out on the glass. */
+.you__panel :focus-visible { outline-color: var(--g-focus); }
 
 /* The views are clipped here: the panel clips nothing, or it would cut off its glass's shadow. */
 .you__views { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 0 0 19px 19px; }
@@ -168,8 +176,8 @@
    so its text never reflows while the panel widens or narrows: the views' box clips it meanwhile.
    A step pushes the deeper view (--dir 1, on the right) in or out over the other, on top; the
    shallower one (--dir -1) slips a little way to the left under it. Views draw no fill, the glass
-   being the panel's, so neither covers the other: the one a step brings fades in as the one it
-   leaves fades out, or each one's words would show through the other's. */
+   being the panel's, so neither covers the other: the one a step leaves is gone in the first third
+   of the push, and only then does the one it brings fade in, so their words are never drawn together. */
 .you-view {
   --view-w: var(--you-narrow);
   position: absolute;
@@ -188,7 +196,8 @@
   z-index: calc(var(--dir, 1) + 1);
   visibility: hidden;
   transform: translateX(calc(var(--dir, 1) * 64% + 36%));
-  transition: transform var(--dur-slow) var(--ease-push), opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur-slow);
+  opacity: 0;
+  transition: transform var(--dur-slow) var(--ease-push), opacity calc(var(--dur-slow) / 3) var(--ease-out), visibility 0s linear var(--dur-slow);
 }
 .you-view[data-wide] { --view-w: var(--you-wide); }
 .you-view[data-wider] { --view-w: var(--you-wider); }
@@ -197,10 +206,8 @@
   opacity: 1;
   visibility: visible;
   transform: none;
-  transition: transform var(--dur-slow) var(--ease-push), opacity var(--dur-slow) var(--ease-out), visibility 0s;
+  transition: transform var(--dur-slow) var(--ease-push), opacity calc(var(--dur-slow) * 2 / 3) var(--ease-out) calc(var(--dur-slow) / 3), visibility 0s;
 }
-/* Important, over the step that holds the view going under at full strength (watch/you.js). */
-.you-view:not(.is-on) { opacity: 0 !important; }
 
 /* While a group's fragment is on its way. */
 .you__wait { display: none; flex-direction: column; gap: 12px; padding: 12px 20px; }
@@ -233,6 +240,7 @@
     transform: translateY(100%);
     transition: transform var(--dur-slow) var(--ease-exit);
   }
+  .you__panel { padding: 1px 0 0; }
   .you__panel::before { border-width: 1px 0 0; }
   /* The sheet slides; it does not fade. */
   .you__panel::before,
@@ -282,9 +290,10 @@
   }
   .you:not(.is-open) .you__panel::before,
   .you:not(.is-open) .you__panel > * { opacity: 0; }
-  .you-view { transform: none; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast) !important; }
+  .you-view { transform: none; transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast) !important; }
   .you__back.is-off { transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast) !important; }
-  .you-view.is-on { transition: opacity var(--dur-fast) var(--ease-out), visibility 0s !important; }
+  /* Out, then in, as in full motion. */
+  .you-view.is-on { transition: opacity var(--dur-fast) var(--ease-out) var(--dur-fast), visibility 0s !important; }
 }
 
 /* A question over the pane, as the one before unsaved changes are lost: its answers side by side,

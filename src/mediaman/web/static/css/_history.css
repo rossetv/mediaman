@@ -33,8 +33,11 @@
 .hist-body { padding: 4px 14px 14px 70px; background: var(--s2); }
 .hist[open] > .hist-body { animation: hist-open var(--dur) var(--ease-out); }
 .hist.is-closing > .hist-body { animation: hist-close var(--dur-fast) ease-in forwards; }
-@keyframes hist-open  { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-@keyframes hist-close { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-6px); } }
+/* The rows below slide by the body's height on this same timing (history.js), and draw no fill: so
+   the body is uncovered from its top down as they go, its foot always level with their top, and
+   never shows through them. */
+@keyframes hist-open  { from { opacity: 0; clip-path: inset(0 0 100% 0); } to { opacity: 1; clip-path: inset(0); } }
+@keyframes hist-close { from { opacity: 1; clip-path: inset(0); } to { opacity: 0; clip-path: inset(0 0 100% 0); } }
 
 .hist-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 13px; }
 .hist-field { display: contents; }
@@ -67,18 +70,22 @@
   margin: 0 -20px;
   padding: 4px 20px 12px;
   border-bottom: 1px solid transparent;
-  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur) var(--ease-out), -webkit-backdrop-filter var(--dur) var(--ease-out), backdrop-filter var(--dur) var(--ease-out);
 }
 .hx-tools[hidden] { display: none; }
-/* Once the list passes under them, the tools and a day's head stuck below them are a layer of glass
-   of their own, over the list, so its words never show through theirs. */
+/* Once the list passes under them, the tools and a day's head stuck below them blur it, so its words
+   never show through theirs. Blur alone, as the save bar: the pane's glass under them is already
+   darkened once, and a tint here would darken it twice into a band. The blur eases in from none. */
 .hx-tools.is-stuck,
 .hx-day__top.is-stuck {
-  background-color: var(--g-regular);
-  -webkit-backdrop-filter: var(--g-filter);
-  backdrop-filter: var(--g-filter);
+  background-color: var(--g-stuck);
+  -webkit-backdrop-filter: blur(var(--g-blur));
+  backdrop-filter: blur(var(--g-blur));
 }
 .hx-tools.is-stuck { border-bottom-color: var(--hair); }
+/* What passes under is lighter than the glass, the blur being all the band adds: the field and the
+   pills, whose words sit on a veil, take a floor under it there, so those words still hold. */
+.hx-tools.is-stuck :is(.hx-search input, .hx-group:not([aria-pressed="true"]), .hx-chip) { box-shadow: var(--g-chip-floor); }
 /* A day's head stuck under the tools draws the line instead. */
 .hx-tools.is-stuck.has-day { border-bottom-color: transparent; }
 .hx-search { position: relative; }
@@ -105,10 +112,11 @@
   outline: 0;
   appearance: none;
   -webkit-appearance: none;
+  transition: box-shadow var(--dur) var(--ease-out);
 }
 .hx-search input::placeholder { color: var(--t3); }
 .hx-search input::-webkit-search-cancel-button { display: none; }
-.hx-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.hx-search input:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -1px; }
 .hx-x {
   position: absolute;
   right: 0;
@@ -185,7 +193,7 @@
   font-size: 14px;
   font-weight: 500;
   white-space: nowrap;
-  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur) var(--ease-out);
 }
 .hx-group { display: inline-flex; align-items: center; gap: 6px; }
 .hx-group small { font-size: 13px; font-weight: 400; color: var(--t2); font-variant-numeric: tabular-nums; }
@@ -206,7 +214,7 @@
   color: var(--t2);
   font-size: 13px;
   white-space: nowrap;
-  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur) var(--ease-out);
 }
 .hx-chip > button { min-height: 34px; border-radius: var(--r-pill); }
 .hx-chip__open { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 230px; padding: 0 12px; }
@@ -259,7 +267,7 @@
   margin: 0 -20px;
   padding: 8px 24px 7px;
   border-bottom: 1px solid transparent;
-  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur) var(--ease-out), -webkit-backdrop-filter var(--dur) var(--ease-out), backdrop-filter var(--dur) var(--ease-out);
 }
 .hx-day__top.is-stuck { border-bottom-color: var(--hair); }
 .hx-day__h { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; }
@@ -276,9 +284,9 @@
   height: 20px;
   display: grid;
   place-items: center;
-  border: 2px solid rgb(var(--g-tint));
   border-radius: 50%;
   background: var(--g-tip);
+  box-shadow: 0 0 0 1px var(--g-edge);
   color: #fff;
   font-size: 8px;
 }
@@ -291,13 +299,20 @@
 .hx-l2 { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--t3); }
 /* What a fault needs is said whole. */
 .hx-l2.is-bad { color: var(--danger-text); white-space: normal; overflow-wrap: anywhere; }
-/* Faint enough that the white word on it holds over a white page. */
+/* Faint enough that the white word on it holds over a white page; fainter still on a lit row or an
+   open one's details, whose own veil is under it. */
 .hx mark { background: color-mix(in srgb, var(--warning) 28%, transparent); color: inherit; border-radius: 3px; }
+.hist[open] mark,
+.hist-sum:active mark { background: color-mix(in srgb, var(--warning) 20%, transparent); }
+@media (hover: hover) {
+  .hist-sum:hover mark { background: color-mix(in srgb, var(--warning) 20%, transparent); }
+}
 .hx-bar { display: block; width: min(160px, 70%); height: 3px; margin-top: 3px; border-radius: var(--r-pill); background: var(--s5); overflow: hidden; }
 .hx-bar i { display: block; height: 100%; background: var(--accent); }
 .hx-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.hx-acts .btn { min-height: 36px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: var(--s4); color: var(--t1); font-size: 13px; }
-.hx-acts .btn:hover { background: var(--s5); }
+.hx-acts .btn { min-height: 36px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: var(--s3); color: var(--t1); font-size: 13px; }
+/* One step up on the open row's veil, no more: white on --s5 there is under 4.5:1 over a white page. */
+.hx-acts .btn:hover { background: var(--s4); }
 
 .hx-in { animation: fade-in var(--dur-slow) var(--ease-out) backwards; }
 .hx .skel { background: var(--s3); border-radius: var(--r-pill); }
@@ -356,11 +371,14 @@
   display: flex;
   flex-direction: column;
   padding: 6px;
-  /* It opens on the pane's glass: solid, so no third layer of glass stacks there. */
-  background: var(--g-solid);
-  border: 1px solid var(--hair-strong);
+  /* Glass, as the profile and keep menus: the pane's and its own are the two layers there. */
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: 14px;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
   opacity: 0;
   visibility: hidden;
   transform: translateY(-4px) scale(.97);
@@ -399,7 +417,7 @@
 .hx-menu__f .hx-x { right: 4px; top: 2px; }
 .hx-none .btn { margin-left: 12px; }
 .hx-menu__f input::placeholder { color: var(--t3); }
-.hx-menu__f input:focus { border-color: var(--accent); }
+.hx-menu__f input:focus { border-color: var(--g-focus); }
 .hx-opt {
   display: flex;
   align-items: center;
@@ -413,8 +431,9 @@
   text-align: left;
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
+/* A light step over the menu's glass, as the keep menu's: its quiet counts hold over a white page. */
 .hx-opt:hover,
-.hx-opt:focus-visible { background: var(--s4); color: var(--t1); }
+.hx-opt:focus-visible { background: var(--s2); color: var(--t1); }
 .hx-opt:focus-visible { outline-offset: -2px; }
 .hx-opt .avatar { width: 24px; height: 24px; font-size: 10px; }
 .hx-opt > span.n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -469,7 +488,7 @@
   .hx-day__top { margin-inline: -16px; padding-inline: 20px; }
   /* Going down, the pills and chips tuck up under the search, which stays: the tools move up
      by --hx-fold as the search moves down by as much, so nothing under them is laid out again. */
-  .hx-tools { transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
+  .hx-tools { transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur) var(--ease-out), -webkit-backdrop-filter var(--dur) var(--ease-out), backdrop-filter var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
   .hx-line { position: relative; z-index: 1; transition: transform var(--dur-slow) var(--ease-out); }
   .hx-groups,
   .hx-filters { transition: opacity var(--dur) var(--ease-out); }
@@ -492,7 +511,11 @@
 /* A phone, or a screen too low for a menu under its filter: a sheet. */
 @media (max-width: 699.98px), (max-height: 519.98px) {
   .hx-veil { background: color-mix(in srgb, var(--scrim) 55%, transparent); }
+  /* A sheet covers the stuck tools, which blur too: solid, so no third layer of glass stacks there. */
   .hx-menu {
+    background: var(--g-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     left: 0!important;
     right: 0;
     top: auto!important;

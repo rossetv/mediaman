@@ -55,6 +55,8 @@
   --accent-text: var(--g-accent-text);
   --danger-text: var(--g-danger-text);
 }
+/* The keyboard's ring where it lies on an island's glass, light enough to stand out there. */
+.profile-panel :focus-visible { outline-color: var(--g-focus); }
 .brand { display: inline-flex; align-items: center; font-size: 19px; color: var(--t1); }
 /* Its padding is the room its island, when it has one, takes. Its margin pulls that room out past
    the page's edge, so the logo starts on the edge, as the headings below do, with or without

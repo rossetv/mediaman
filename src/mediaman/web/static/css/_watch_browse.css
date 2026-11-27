@@ -222,7 +222,7 @@
    A long list scrolls inside the room place() leaves it. */
 .rec-menu { min-width: 210px; }
 .rec-menu .watch-keep-menu__item { display: flex; align-items: center; gap: 10px; }
-.rec-menu .watch-keep-menu__item > .ico { margin-right: -1px; font-size: 12px; color: var(--accent); }
+.rec-menu .watch-keep-menu__item > .ico { margin-right: -1px; font-size: 12px; color: var(--accent-text); }
 .rec-menu .watch-keep-menu__item:not([aria-checked="true"]) > .ico { visibility: hidden; }
 .rec-menu .watch-keep-menu__item[aria-checked="true"] { color: var(--t1); }
 
