@@ -712,3 +712,17 @@ def test_nothing_playing_said_while_the_remote_closes_waits_until_it_has_gone() 
     said = ["Nothing is playing on Living room now."]
     assert out["moves"] == {"early": 0, "toasts": said, "over": [False]}
     assert out["still"] == {"early": 0, "toasts": said, "over": [False]}
+
+
+def test_a_file_plex_cannot_play_is_said_with_no_try_again_unlike_an_outage() -> None:
+    out = _run("failed")
+    assert "Dolby Vision Profile 5" in out["unplayable_dolby_vision_5"]["line"]
+    assert "Try again" not in out["unplayable_dolby_vision_5"]["labels"]
+    assert "Try again" in out["unreachable"]["labels"]
+
+
+def test_a_tv_that_cannot_start_a_file_plex_cannot_play_offers_no_try_again() -> None:
+    out = _run("sheetRefused")
+    assert "Dolby Vision Profile 5" in out["unplayable_dolby_vision_5"]
+    assert "Try again" not in out["unplayable_dolby_vision_5"]
+    assert "Try again" in out["unreachable"]

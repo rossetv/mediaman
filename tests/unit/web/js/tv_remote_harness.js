@@ -800,6 +800,34 @@ const scenarios = {
     }
     return out;
   },
+  async failed() {
+    const out = {};
+    for (const error of ['unplayable_dolby_vision_5', 'unreachable']) {
+      const p = await page();
+      await p.open();
+      p.api.tvs[0].play = aPlay({ state: 'failed', error });
+      await p.pass(1100);
+      out[error] = {
+        line: p.$('[data-card-line]').textContent,
+        labels: p.doc.querySelectorAll('[data-card-actions] button').map((b) => b.textContent),
+      };
+    }
+    return out;
+  },
+  // The sheet: a TV that refused to start, for a file Plex cannot play and for an outage.
+  async sheetRefused() {
+    const out = {};
+    for (const error of ['unplayable_dolby_vision_5', 'unreachable']) {
+      const p = await page({ sheet: true, tvs: [aTv(), aTv({ id: 8, kind: 'page', name: 'Bedroom', play: null })] });
+      await p.open();
+      await p.press('#tv-remote [data-play-on]');
+      p.api.refuse = error;
+      await p.press('.play-on [data-key="tv-8"]');
+      await p.pass(300); await settle();
+      out[error] = p.$('.play-on').textContent;
+    }
+    return out;
+  },
   async midway() {
     const p = await page();
     await p.open();

@@ -1150,6 +1150,13 @@ def test_what_plays_on_the_tv_makes_room_for_what_plays_next(tv, home, amy, mana
     assert not _lives(manager, first)
 
 
+def test_a_file_plex_cannot_play_is_told_to_both_as_such(tv, home, amy, plex):
+    plex.refusal = 'generalDecisionCode="2000" transcodeDecisionCode="2003"'
+    resp = _play(amy, home)
+    assert (resp.status_code, resp.json()["error"]) == (422, "unplayable")
+    assert tv.poll()["play"]["error"] == "unplayable"
+
+
 def test_a_start_plex_fails_is_told_to_both(tv, home, amy, plex):
     plex.reads_fail = True
     resp = _play(amy, home)

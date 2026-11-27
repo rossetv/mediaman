@@ -73,6 +73,7 @@ class FakePlex:
         self.knows_tracks = True
         self.subtitle_decision = "burn"
         self.reads_fail = False
+        self.refusal = ""
         self.on_start = lambda: None
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
@@ -83,7 +84,8 @@ class FakePlex:
             sub = params.get("subtitleStreamID", "31") if self.knows_tracks else "31"
             return FakeResponse(
                 200,
-                f'<MediaContainer><Media><Stream id="{audio}" streamType="2" selected="1"/>'
+                f"<MediaContainer {self.refusal}>"
+                f'<Media><Stream id="{audio}" streamType="2" selected="1"/>'
                 f'<Stream id="{sub}" streamType="3" decision="{self.subtitle_decision}"/></Media>'
                 "</MediaContainer>".encode(),
             )

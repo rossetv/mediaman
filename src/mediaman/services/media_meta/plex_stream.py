@@ -150,6 +150,12 @@ _TV_PROFILE = "+".join(
         "&name=audio.channels&value=2&isRequired=true)",
     ]
 )
+# Decision codes: 2000 "neither direct play nor conversion is available", 2003 "file is
+# unplayable". 2001 (not enough bandwidth) and 2002 (too many streams) can pass, so a 2000 that
+# comes with one of them is not the file's fault.
+_UNPLAYABLE_CODES = frozenset({"2000", "2003"})
+_PASSING_CODES = frozenset({"2001", "2002"})
+_DOLBY_VISION_5_RE = re.compile(r"\b(?:DoVi|Dolby Vision)\W+Profile 5\b", re.IGNORECASE)
 _CONTENT_TYPES = {
     "ts": "video/mp2t",
     "m4s": "video/iso.segment",
@@ -176,6 +182,17 @@ class StreamReplaced(StreamGone):
 
 class _Unservable(PlexUnavailable):
     """Plex answered, and what it answered cannot be played: asking again soon changes nothing."""
+
+
+class FileUnplayable(PlexError):
+    """Plex says it can neither play nor convert the file, so no start or retry can play it.
+
+    *cause* names why, where Plex's reason is one mediaman knows: ``"dolby_vision_5"``.
+    """
+
+    def __init__(self, message: str, cause: str | None = None) -> None:
+        super().__init__(message)
+        self.cause = cause
 
 
 class TrackUnavailable(Exception):
@@ -1068,6 +1085,8 @@ class StreamManager:
                 max_bytes=_PLAYLIST_MAX_BYTES,
                 deadline=deadline,
             )
+            if action == "decision":
+                _check_playable(body)
             if action == "decision" and quality == ORIGINAL and not _video_copied(body):
                 raise _Unservable("Plex would not copy the video")
             if action == "decision" and tv is not None:
@@ -1275,6 +1294,26 @@ def _check_tracks(body: bytes, tv: TvTracks) -> None:
         for s in streams
     ):
         raise TrackUnavailable("Plex would not burn in the subtitle track")
+
+
+def _check_playable(body: bytes) -> None:
+    """Raise ``FileUnplayable`` where a decision says Plex can neither play nor convert the file.
+
+    Plex still answers a later start.m3u8 for such a decision, with a bare 400.
+    """
+    try:
+        root = ET.fromstring(body)
+    except (ParseError, ValueError):
+        return
+    codes = {root.get("generalDecisionCode"), root.get("transcodeDecisionCode")}
+    if not codes & _UNPLAYABLE_CODES or codes & _PASSING_CODES:
+        return
+    # Plex's own words are never passed on: only a cause mediaman knows is named.
+    why = root.get("transcodeDecisionText") or ""
+    raise FileUnplayable(
+        "Plex cannot play or convert the file",
+        "dolby_vision_5" if _DOLBY_VISION_5_RE.search(why) else None,
+    )
 
 
 def _video_copied(body: bytes) -> bool:

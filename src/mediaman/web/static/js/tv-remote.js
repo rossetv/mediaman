@@ -62,7 +62,11 @@
     track_unavailable: 'Those subtitles can’t be played.',
     rate_limited: 'Too many tries. Wait a minute.',
     not_set_up: 'Plex isn’t set up.',
+    unplayable: 'Plex can’t play this file.',
+    unplayable_dolby_vision_5: 'Plex can’t convert its picture (Dolby Vision Profile 5).',
   };
+  // What no try can mend: no Try again is offered for it.
+  var FOR_GOOD = { unplayable: 1, unplayable_dolby_vision_5: 1 };
   var REFUSED = {
     tv_off: 'The TV isn’t answering. Check it still shows mediaman.',
     in_use: 'Someone else is watching on that TV.',
@@ -75,6 +79,8 @@
     track_unavailable: 'Those subtitles can’t be played.',
     not_found: 'It is no longer in the library.',
     not_set_up: 'Plex isn’t set up.',
+    unplayable: 'This file can’t play here. Plex can’t play this file.',
+    unplayable_dolby_vision_5: 'This file can’t play here. Plex can’t convert its picture (Dolby Vision Profile 5).',
   };
   var STILL_S = 600; // that a question waits
   // Why a TV is no longer the person's, as a 410 says.
@@ -1071,7 +1077,8 @@
     if (p.state === 'failed') {
       return { key: 'failed' + p.error, title: 'This can’t play on ' + n,
         line: (FAILED[p.error] || FAILED.tv) + ' Your place is kept.',
-        acts: [['Try again', function () { start({ kind: 'again' }); }], here, ['Stop', function () { stop(); }]] };
+        acts: (FOR_GOOD[p.error] ? [] : [['Try again', function () { start({ kind: 'again' }); }]])
+          .concat([here, ['Stop', function () { stop(); }]]) };
     }
     if (p.state === 'still') {
       var mins = p.still_in_s == null ? 10 : Math.max(1, Math.ceil(p.still_in_s / 60));
