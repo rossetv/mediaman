@@ -8,23 +8,17 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from pathlib import Path
 
 from mediaman.app_factory import _TEMPLATE_DIR
 from mediaman.web.models.settings import SettingsUpdate
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "settings_harness.js"
 
 
 def _run(scenario: str, *args: str) -> dict:
-    result = subprocess.run(
-        ["node", str(HARNESS), scenario, *args],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
+    result = run_node(HARNESS, scenario, *args, timeout=60)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
