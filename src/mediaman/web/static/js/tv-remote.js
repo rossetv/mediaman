@@ -322,12 +322,13 @@
   /* A page the server sends the person on to: api.js only tells of it (`stay`), so the remote
      goes first. The sign-in leads back here. */
   var SENT_TO = ['/login', '/force-password-change'];
+  function holdsEdits() { return !!(MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()); }
   function away(to) {
     var was = isOpen;
     ended = true;
     clearTimeout(timer);
-    // The page holds edits that leaving would lose: the remote stops asking and the page stays.
-    if (MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()) return new Promise(function () {});
+    // The person chose to keep the edits leaving would lose (api.js asked): the page stays.
+    if (holdsEdits()) return new Promise(function () {});
     close();
     if (to === '/login') to = MM.api.loginUrl();
     settled(function () { setTimeout(function () { global.location.href = to; }, was ? EXIT_MS : 0); });
@@ -335,11 +336,12 @@
   }
   function sentTo(err) { return err && err.data && SENT_TO.indexOf(err.data.redirect) !== -1 ? err.data.redirect : ''; }
 
-  /* An answer cut off in its body comes as an empty one. */
+  /* An answer cut off in its body comes as an empty one. Where the page holds edits, api.js
+     asks before leaving, as for any read. */
   function get(path, key) {
     var stopper = new AbortController();
     var late = setTimeout(function () { stopper.abort(); }, ANSWER_MS);
-    return MM.api.get(LIST + path, { signal: stopper.signal, stay: true }).then(function (data) {
+    return MM.api.get(LIST + path, { signal: stopper.signal, stay: !holdsEdits() }).then(function (data) {
       clearTimeout(late);
       if (!data[key]) throw new Error('no answer');
       return data[key];
@@ -665,7 +667,8 @@
       what: function () {
         var p = about();
         return Object.assign({ quality: p.quality || 'auto', autoplay: autoplays(), asked_s: pressed ? Math.max(0, now() - pressed) / 1000 : 0 },
-          p.subtitle || !isCast() ? { subtitle: p.subtitle || 'off' } : {},
+          // With none showing the server picks the person's own: "off" would hide the next episodes' signs and songs.
+          p.subtitle ? { subtitle: p.subtitle } : {},
           { rating_key: what().rating_key, position_s: what().position_s });
       },
       on: function () { return !play() || ['ended', 'failed'].indexOf(play().state) !== -1 ? null : isCast() ? CAST : 'tv-' + tv.id; },
@@ -1277,8 +1280,9 @@
     MM.dom.qa('.player-controls > *', root).forEach(function (el) { if (el !== avWrap) el.inert = !!open; });
     if (!open) render();
   }
-  /* By title, whether a choice is kept for it, what a change that fails goes back to, and the
-     person's defaults: {remembered, defaults}. */
+  /* By title, whether a choice is kept for it, what a change that fails goes back to, what is
+     kept for its subtitles as the server gave it, and the person's defaults:
+     {remembered, subtitle, defaults}. */
   var keptFor = {};
   function openTracks() {
     closeMenu();
@@ -1293,7 +1297,7 @@
 
   function heardKept(key, data) {
     if (!data || typeof data.remembered !== 'boolean') return false;
-    keptFor[key] = { remembered: data.remembered, defaults: data.defaults || (keptFor[key] || {}).defaults || null };
+    keptFor[key] = { remembered: data.remembered, subtitle: data.remembered_subtitle_choice || null, defaults: data.defaults || (keptFor[key] || {}).defaults || null };
     return true;
   }
 
@@ -1333,6 +1337,7 @@
     var kept = what === 'reset' ? MM.api.delete(tracksUrl(key)) : MM.api.put(tracksUrl(key), what === 'audio' ? { audio: change.audio } : { subtitle: change.subtitle });
     kept.then(function (data) {
       var was = keptFor[key] && keptFor[key].remembered;
+      var wasSubtitle = keptFor[key] && keptFor[key].subtitle;
       heardKept(key, data);
       var after = trackState(p, { audio: data.audio || null, subtitle: data.subtitle || null });
       if (after.audio === before.audio && after.subtitle === before.subtitle) {
@@ -1346,7 +1351,10 @@
         say(MM.tracks.said(what, after, false));
       }, function (err) {
         if (!err || err.error !== 'track_unavailable') { refuse(err || {}); return; }
-        var back = was === false || what === 'reset' ? null : what === 'audio' ? { audio: before.audio } : { subtitle: before.subtitle || 'off' };
+        // The subtitles kept, given back as they were; not known, none is named, as Off would
+        // hide every episode's signs and songs.
+        var back = was === false || what === 'reset' ? null : what === 'audio' ? { audio: before.audio }
+          : wasSubtitle ? { subtitle_choice: wasSubtitle } : { subtitle: null };
         (back ? MM.api.put(tracksUrl(key), back) : MM.api.delete(tracksUrl(key))).then(function (d) {
           heardKept(key, d);
         }, function () { /* said below */ });

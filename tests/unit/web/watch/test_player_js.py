@@ -2611,6 +2611,10 @@ def test_another_audio_for_a_tv_names_no_subtitles_when_none_show(markup):
     assert elsewhere(markup, "away_audio") == {"audio": "62", "subtitle": "none named"}
 
 
+def test_subtitles_a_tv_plays_otherwise_start_again_with_what_is_kept_not_off(markup):
+    assert elsewhere(markup, "away_subtitle") == ["71", "none named"]
+
+
 def test_the_next_episode_goes_on_where_this_one_played(markup, tmp_path_factory):
     next_item = {**EPISODE["item"], "rating_key": "502", "subtitle": "S2 · E5"}
     next_page = _markup(tmp_path_factory, {**EPISODE, "item": next_item})
@@ -3386,6 +3390,35 @@ def test_a_track_plex_will_not_play_gives_way_to_the_old_one(markup, how):
     assert out["kept"][-1] == "DELETE /api/watch/tracks/501"
     assert out["after"]["label"] == "English"
     assert ["error", "Couldn’t change the audio. Staying on English.", None] in out["toasts"]
+
+
+KEPT = {
+    "rating_key": "400",
+    "subtitle": None,
+    "subtitle_id": None,
+    "subtitle_lang": None,
+    "subtitle_forced": False,
+    "subtitle_hearing_impaired": False,
+}
+KEPT_ON = {**KEPT, "subtitle": "on", "subtitle_id": "9", "subtitle_lang": "en"}
+KEPT_ON["subtitle_hearing_impaired"] = True
+
+
+@pytest.mark.parametrize(
+    ("how", "back"),
+    [
+        ("audioKept", {"subtitle_choice": KEPT}),
+        ("offKept", {"subtitle_choice": {**KEPT, "subtitle": "off"}}),
+        # Kept on, though nothing of it shows here: it is not lost.
+        ("onKept", {"subtitle_choice": KEPT_ON}),
+        ("undo", {"subtitle_choice": KEPT}),
+        # Not yet known: nothing kept is wiped, and nothing is made Off.
+        ("unknown", {"subtitle": None}),
+    ],
+)
+def test_subtitles_given_up_go_back_to_what_was_kept_and_never_to_a_new_off(markup, how, back):
+    out = run(markup, "tracks_refused", plays=how)
+    assert out["kept"] == [{"subtitle": "71"}, back]
 
 
 def test_the_chooser_moves_as_radios_and_gives_the_focus_back(markup):

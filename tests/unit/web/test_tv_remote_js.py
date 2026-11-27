@@ -199,11 +199,14 @@ def test_one_failed_request_says_nothing_and_a_lasting_one_does_until_it_is_back
     assert _run("offline") == {"once": None, "twice": "This device is offline", "back": None}
 
 
-def test_a_poll_that_finds_the_session_gone_leaves_a_page_with_unsaved_edits_where_it_is() -> None:
+def test_a_poll_that_finds_the_session_gone_asks_before_leaving_unsaved_edits() -> None:
     out = _run("unsavedEdits")
-    assert out["redirect"] == {"href": "", "asksOn": 0}
-    assert out["signedOut"] == {"href": "", "asksOn": 0}
+    password = "You must change your password before continuing."
+    assert out["redirect"] == {"href": "", "asked": [password], "asksOn": 0}
+    assert out["signedOut"] == {"href": "", "asked": ["Your session has expired."], "asksOn": 0}
+    assert out["signedOutLeave"]["href"].startswith("/login")
     assert out["signedOutSaved"]["href"].startswith("/login")
+    assert out["signedOutSaved"]["asked"] == []
 
 
 def test_opening_a_tv_while_the_phone_is_offline_blames_the_connection_not_the_tv() -> None:
@@ -566,7 +569,6 @@ def test_play_on_in_the_remote_moves_what_plays_to_another_tv_or_here() -> None:
         "quality": "auto",
         "autoplay": True,
         "asked_s": 0,
-        "subtitle": "off",
         "rating_key": "9001",
         "position_s": 1200,
     }
@@ -586,6 +588,9 @@ def test_play_on_in_the_remote_moves_what_plays_to_another_tv_or_here() -> None:
     assert out["calledOff"] == [[1, "stop", here], [1, "", here]]
     assert out["said"] == ["Stopped. Your place is saved at 20:00."]
     assert out["upnext"] == ["9002", 0]
+    # Moved with no subtitle showing, the server picks the person's own again: "off" would be
+    # kept on to the next episodes and hide their signs and songs.
+    assert out["subtitleShown"] == "11"
 
 
 @cache
@@ -747,6 +752,28 @@ def test_audio_kept_when_the_tv_fails_for_another_reason_stays_kept() -> None:
     out = _run("tracksRefused")["tv_off"]
     assert out["kept"] == [["PUT", "/api/watch/tracks/9001", {"audio": "62"}]]
     assert out["toasts"] == ["! The TV isn’t answering. Check it still shows mediaman."]
+
+
+def test_subtitles_the_tv_cannot_play_put_back_what_was_kept_and_never_a_new_off() -> None:
+    out = _run("tracksRefused")
+    pick = ["PUT", {"subtitle": "11"}]
+    choice = {
+        "rating_key": "8001",
+        "subtitle": None,
+        "subtitle_id": None,
+        "subtitle_lang": None,
+        "subtitle_forced": False,
+        "subtitle_hearing_impaired": False,
+    }
+    # What was kept goes back as the server gave it: Off only where Off was kept, and a kept
+    # track of which nothing shows here is not lost.
+    assert out["audioKept"] == [pick, ["PUT", {"subtitle_choice": choice}]]
+    assert out["offKept"] == [pick, ["PUT", {"subtitle_choice": {**choice, "subtitle": "off"}}]]
+    on = {**choice, "subtitle": "on", "subtitle_id": "5", "subtitle_lang": "en"}
+    on["subtitle_hearing_impaired"] = True
+    assert out["onKept"] == [pick, ["PUT", {"subtitle_choice": on}]]
+    # Not known: nothing is named for the subtitles, so none is made Off.
+    assert out["unknown"] == [pick, ["PUT", {"subtitle": None}]]
 
 
 def test_a_choice_kept_for_the_title_can_go_back_to_the_defaults_from_the_remote() -> None:
