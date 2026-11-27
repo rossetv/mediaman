@@ -181,6 +181,7 @@ class TestSearchEndpoint:
         resp = authed_client.get("/api/search")
         assert resp.status_code == 422
 
+
 class TestDiscoverEndpoint:
     @pytest.fixture(autouse=True)
     def _disk_cache(self, discover_disk_cache):
@@ -333,6 +334,7 @@ class TestDiscoverEndpoint:
         resp = client.get("/api/search/discover")
         assert resp.status_code == 502
         assert "error" in resp.json()
+
 
 class TestFetchDiscoverShelf:
     """``_fetch_discover_shelf`` (called by the ``api_discover`` handler) keeps each shelf

@@ -81,6 +81,7 @@ class TestShowSeasonsAPI:
         assert resp.status_code == 200
         assert resp.json()["seasons"] == []
 
+
 class TestShowKeepAPI:
     def test_keeps_show_forever(self, authed_client, app):
         conn = app.state.db

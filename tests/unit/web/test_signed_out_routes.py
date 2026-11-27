@@ -77,6 +77,10 @@ def test_a_route_refuses_a_request_with_no_session(signed_out, method, template)
         follow_redirects=False,
     )
 
+    if template.startswith("/api/"):
+        # A redirect would hand the page's fetch the login HTML as a 200.
+        assert resp.status_code == 401, (resp.status_code, resp.text[:100])
+        return
     if resp.status_code == 401:
         return
     assert resp.status_code in (302, 303), (resp.status_code, resp.text[:100])

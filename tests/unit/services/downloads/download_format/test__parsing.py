@@ -68,6 +68,10 @@ class TestParseCleanTitle:
         """HEVC codec token is stripped; year token is also stripped by the parser."""
         assert parse_clean_title("Dune.HEVC.x265") == "Dune"
 
+    def test_empty_name_returns_empty(self):
+        """A queue entry without NZBName arrives as "" and must not raise."""
+        assert parse_clean_title("") == ""
+
 
 class TestNormaliseForMatch:
     def test_lowercases_title(self):

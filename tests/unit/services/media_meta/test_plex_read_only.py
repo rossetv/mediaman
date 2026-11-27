@@ -16,10 +16,16 @@ from requests.structures import CaseInsensitiveDict
 
 from mediaman.services.cast.tracks import read_tracks
 from mediaman.services.infra.http import client as http_client
+from mediaman.services.media_meta import held_selections, plex_stream
 from mediaman.services.media_meta import plex as plex_module
-from mediaman.services.media_meta import plex_stream
 from mediaman.services.media_meta.plex import PlexClient
-from mediaman.services.media_meta.plex_stream import SegmentRead, StreamManager, Tracks, TvTracks
+from mediaman.services.media_meta.plex_stream import (
+    IDLE_TIMEOUT_SECONDS,
+    SegmentRead,
+    StreamManager,
+    Tracks,
+    TvTracks,
+)
 from mediaman.services.media_meta.plex_watch import PlexWatch
 
 PLEX_URL = "http://plex.test:32400"
@@ -248,3 +254,29 @@ def test_scan_watch_stream_and_cast_send_plex_only_reads_and_track_selections(pl
     puts = [(path, params) for method, path, params, _ in plex.calls if method == "PUT"]
     assert puts, "the stream starts should have selected their tracks on Plex"
     assert plex.selection == {"audioStreamID": "6", "subtitleStreamID": "0"}
+
+
+def test_reaping_shutdown_put_back_and_given_up_starts_send_plex_only_reads_and_track_selections(
+    plex, conn
+):
+    now = [1000.0]
+    held_selections.save(conn, "123", "55", {"audioStreamID": "7", "subtitleStreamID": "9"})
+    manager = StreamManager(
+        lambda: (PLEX_URL, TOKEN), session=requests.Session(), clock=lambda: now[0], db=lambda: conn
+    )
+    assert manager.put_back_held() == 1
+
+    _stream(manager, "alice")
+    now[0] += IDLE_TIMEOUT_SECONDS + 1
+    _stream(manager, "bob")
+    assert manager.reap() == 1
+    manager.stop_all(budget=5.0)
+
+    with manager.starting("carol", "123") as first, manager.starting("carol", "123"):
+        assert first.unwanted
+    read = SegmentRead("s1", "carol")
+    read.cancel()
+
+    assert _writes_outside_track_selection(plex.calls) == []
+    asked = {path for _method, path, _params, _ in plex.calls}
+    assert {"/library/parts/55", f"{TRANSCODE}/ping", f"{TRANSCODE}/stop"} <= asked

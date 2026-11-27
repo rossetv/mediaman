@@ -9,9 +9,8 @@ parses without executing, so this is a cheap, deterministic guard.
 CI's ubuntu runners ship node on PATH, so the parse check asserts
 unconditionally rather than skipping when the interpreter is missing — a
 missing interpreter must never mask a broken file (tests carry
-no conditional logic). The interpreter's presence is its own test
-so a missing `node` fails once, loudly, instead of masking every file
-check as a subprocess-spawn error.
+no conditional logic). A missing `node` fails every file check with a
+FileNotFoundError.
 """
 
 from __future__ import annotations

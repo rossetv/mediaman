@@ -198,6 +198,7 @@ class TestPlexLibrariesEndpoint:
             with pytest.raises(AttributeError):
                 client.get("/api/plex/libraries")
 
+
 class TestDiskUsageAPI:
     def test_returns_disk_usage_for_valid_path(self, app_factory, authed_client, conn):
         """Happy path: returns total_bytes, used_bytes, free_bytes, usage_pct."""
@@ -294,6 +295,7 @@ class TestDiskUsageAPI:
         resp = client.get(f"/api/settings/disk-usage?path={link}")
         assert resp.status_code == 403
         assert resp.json().get("error") == "not_allowed"
+
 
 class TestSettingsPutSsrfGuard:
     """PUT /api/settings must refuse URLs that point at cloud metadata
