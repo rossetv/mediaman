@@ -90,10 +90,15 @@
   gap: 6px;
   height: 64px;
   padding: 0 var(--pad);
-  /* Its quiet words lifted for the glass it comes to rest on. */
+  /* What sits on the glass it comes to rest on: veils for its fills, so a lit control shows
+     lighter than the glass, quiet words lifted, and rings in the blue lifted for glass. */
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
   --t2: var(--g-t2);
   --t3: var(--g-t3);
   --t4: var(--g-t3);
+  --accent: var(--g-accent);
 }
 .watch-all__glass {
   position: absolute;

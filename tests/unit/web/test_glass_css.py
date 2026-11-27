@@ -26,6 +26,8 @@ TOASTS = "_ui_feedback.css"
 LOGIN = "_login.css"
 SHARE = "_share.css"
 DL_PAGE = "_download_page.css"
+GRID = "_watch_grid.css"
+DL_GRID = "_watch_dlgrid.css"
 EPISODES = ".share-eps .dl-hero-episodes"
 NO_BLUR = "@supports not"
 WHITE = (255.0, 255.0, 255.0)
@@ -410,7 +412,15 @@ def test_the_sign_in_card_s_red_and_amber_words_hold_on_their_tints_over_a_white
     assert contrast(_on(lifted, under), under) >= need, (message, lifted)
 
 
-@pytest.mark.parametrize("surface", [(".login-card", LOGIN), (EPISODES, DL_PAGE)])
+@pytest.mark.parametrize(
+    "surface",
+    [
+        (".login-card", LOGIN),
+        (EPISODES, DL_PAGE),
+        (".watch-all__head", GRID),
+        (".dlg__head", DL_GRID),
+    ],
+)
 def test_rings_on_glass_take_the_lifted_blue_and_keep_3_to_1_over_a_white_page(
     surface: tuple[str, str],
 ) -> None:
@@ -425,14 +435,17 @@ def test_the_page_s_own_ring_takes_the_card_s_blue_on_the_card() -> None:
     assert style(".login-card :focus-visible", LOGIN)["outline-color"] == "var(--accent)"
 
 
-def test_a_field_the_browser_fills_in_on_the_card_is_masked_opaque_as_the_card_draws_it() -> None:
-    mask = style(".login-card :is(.pwd-box > .inp, .login-field input):autofill", LOGIN)
+@pytest.mark.parametrize(("state", "veil"), [("", "--g-s2"), (":focus", "--g-s3")])
+def test_a_field_the_browser_fills_in_on_the_card_is_masked_opaque_as_the_card_draws_it(
+    state: str, veil: str
+) -> None:
+    mask = style(f".login-card :is(.pwd-box > .inp, .login-field input):autofill{state}", LOGIN)
     colour = mask["box-shadow"].split("99px ", 1)[1]
     colour = colour.replace("calc(var(--g-a) * 100%)", f"{float(token('--g-a')) * 100}%")
     drawn = _colour(colour, {})
     assert drawn[3] == 1, "the browser's own fill shows through"
-    # The empty field: its veil over the card over a dark page.
-    field = _on(token("--g-s2"), _glass_over((0.0, 0.0, 0.0), float(token("--g-a")), True))
+    # The field, empty or focused: its veil over the card over a dark page.
+    field = _on(token(veil), _glass_over((0.0, 0.0, 0.0), float(token("--g-a")), True))
     assert all(abs(a - b) < 1 for a, b in zip(drawn[:3], field, strict=True)), (drawn, field)
 
 
@@ -448,6 +461,7 @@ def test_the_ready_chip_on_the_episodes_glass_is_a_solid_green_with_words_that_h
     chip = style(".share-eps .dl-ep-status-pill.ready", DL_PAGE)
     fill = _colour(chip["background"], {})
     assert fill[3] == 1, "a see-through green turns dull under the chip's floor"
+    assert chip["box-shadow"] == "none", "the floor every chip takes would dull the green"
     assert contrast(_colour(chip["color"], {}), fill) >= 4.5
 
 
@@ -478,7 +492,7 @@ def test_the_trailer_fades_the_bar_s_parts_and_not_the_bar_that_holds_their_glas
 
 @pytest.mark.parametrize(
     ("head", "sheet"),
-    [(".dlg__head", "_watch_dlgrid.css"), (".watch-all__head", "_watch_grid.css")],
+    [(".dlg__head", DL_GRID), (".watch-all__head", GRID)],
 )
 def test_a_grid_s_sticky_head_is_glass_with_its_words_lifted_for_it(head: str, sheet: str) -> None:
     glass = style(head.replace("__head", "__glass"), sheet)
@@ -488,6 +502,51 @@ def test_a_grid_s_sticky_head_is_glass_with_its_words_lifted_for_it(head: str, s
     under = _glass_over(WHITE, float(token("--g-a")), filtered=True)
     for name in ("--t2", "--t3", "--t4"):
         assert contrast(_on(_resolve(words[name]), under), under) >= 4.5, (head, name)
+
+
+# Each control on a grid's head: the sheet that draws it, at rest and then in each lit state.
+HEAD_CONTROLS = [
+    (
+        ".watch-all__head",
+        GRID,
+        "_watch_browse.css",
+        ".row-tool",
+        (":hover", '[aria-expanded="true"]', ':not([aria-disabled="true"]):active'),
+    ),
+    (".watch-all__head", GRID, GRID, ".watch-all__back", (":hover", ":active")),
+    (".dlg__head", DL_GRID, DL_GRID, ".dlg__back", (":hover", ":active")),
+]
+
+
+@pytest.mark.parametrize(("head", "head_sheet", "sheet", "control", "lit"), HEAD_CONTROLS)
+@pytest.mark.parametrize("page", [WHITE, (0.0, 0.0, 0.0)], ids=["white", "black"])
+def test_a_lit_control_on_a_grid_s_head_shows_lighter_than_at_rest_with_words_that_hold(
+    head: str,
+    head_sheet: str,
+    sheet: str,
+    control: str,
+    lit: tuple[str, ...],
+    page: tuple[float, ...],
+) -> None:
+    scope = style(head, head_sheet)
+    glass = _glass_over(page, float(token("--g-a")), filtered=True)
+    rest = style(control, sheet)
+    at_rest = _over(_colour(rest.get("background", "transparent"), scope), glass)
+    for state in lit:
+        drawn = {**rest, **style(control + state, sheet)}
+        under = _over(_colour(drawn["background"], scope), glass)
+        # A solid grey over glass on a bright page shows darker than the glass, not lighter.
+        assert sum(under) > sum(at_rest) and contrast(under, at_rest) >= 1.1, control + state
+        words = _over(_colour(drawn.get("color", "var(--t1)"), scope), under)
+        assert contrast(words, under) >= 4.5, (control + state, round(contrast(words, under), 2))
+
+
+@pytest.mark.parametrize(
+    ("glass", "sheet"), [(".watch-all__glass", GRID), (".dlg__glass", DL_GRID)]
+)
+def test_in_forced_colours_a_grid_s_head_is_always_a_boxed_surface(glass: str, sheet: str) -> None:
+    forced = style(glass, sheet, "(forced-colors: active)")
+    assert forced["opacity"] == "1" and forced["border-bottom-color"] == "CanvasText", forced
 
 
 def test_the_share_note_s_words_hold_on_its_card_over_a_white_page() -> None:
