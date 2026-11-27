@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import xml.etree.ElementTree as ET
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -831,6 +832,32 @@ def test_an_admin_s_card_has_one_button_named_for_its_title_that_opens_a_menu() 
     [more] = tree.having("data-watch-more")
     said = (more["aria-label"], more["aria-haspopup"], more["aria-expanded"])
     assert said == ("More for Brightwater", "menu", "false")
+
+
+def test_a_card_s_double_thumb_cuts_its_back_hand_away_with_a_mask_of_its_own() -> None:
+    items = [_marked(tmdb_ref="tmdb-movie-6", level=2), _marked(tmdb_ref="tmdb-movie-7", level=-2)]
+    html = _watch(rows=[{"title": "Movies", "items": items}])
+    doubles = [
+        ET.fromstring(svg) for svg in re.findall(r'<svg class="rate-th rate-th--2.*?</svg>', html)
+    ]
+    assert len(doubles) == 2
+    ids = []
+    for svg in doubles:
+        [mask] = svg.iter("mask")
+        [held] = [
+            g for g in svg.iter("g") if g.get("mask") and g.find(".//g[@class='b']") is not None
+        ]
+        assert held.get("mask") == f"url(#{mask.get('id')})"
+        [cut] = mask.findall(".//g[@class='f']/path")
+        hand = svg.find(".//g[@class='b']/path")
+        assert (cut.get("d"), cut.get("fill"), cut.get("stroke"), cut.get("stroke-width")) == (
+            hand.get("d"),
+            "#000",
+            "#000",
+            "5",
+        )
+        ids.append(mask.get("id"))
+    assert len(set(ids)) == len(ids)
 
 
 def test_a_card_is_drawn_with_the_person_s_rating_and_mark_and_one_tab_stop() -> None:

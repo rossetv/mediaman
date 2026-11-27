@@ -78,6 +78,33 @@ def test_the_highlight_slides_between_levels_and_comes_and_goes_where_there_was_
     assert _run("slides") == [None, "1", "3", None, None, "2", "3"]
 
 
+def test_a_double_thumb_cuts_its_back_hand_away_with_a_mask_of_its_own() -> None:
+    doubles = _run("doubles")
+    assert len(doubles) == 4
+    for d in doubles:
+        assert d["id"] and d["backMaskedBy"] == f"url(#{d['id']})"
+        assert d["cut"] == [True, "#000", "#000", "5"] and not d["frontMasked"]
+    assert len({d["id"] for d in doubles}) == len(doubles)
+
+
+def _luminance(hex_colour: str) -> float:
+    channels = [int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def test_a_thumb_s_name_is_written_on_a_solid_fill_whatever_lies_behind_it() -> None:
+    [body] = [b for m, h, b in _rules() if h == ".rate__tip" and not m]
+    fill = re.search(r"background: (#[0-9a-f]{6});", body)
+    words = re.search(r"(?<![-\w])color: (#[0-9a-f]{6}|#fff);", body)
+    assert fill and words, body
+    light, dark = sorted(
+        (_luminance(c if len(c) == 7 else "#ffffff") for c in (fill[1], words[1])), reverse=True
+    )
+    assert (light + 0.05) / (dark + 0.05) >= 4.5
+    assert "box-shadow: 0 0 0 1px" in body  # an edge, so it reads over a dark bar too
+
+
 def test_a_thumb_answers_a_hover_only_where_a_pointer_hovers() -> None:
     hovered = [media for media, head, _ in _rules() if ":hover" in head]
     assert {m for m in hovered if "hover: hover" not in m} == {"(forced-colors: active) "}

@@ -65,18 +65,29 @@
   /* Its outline, and the fill drawn into it while it is on. */
   function hand() { return [svg('path', { d: HAND }), svg('path', { 'class': 'ink', d: HAND })]; }
 
+  var cuts = 0; // ids of the masks of double thumbs, one each
+
   function thumb(level, on) {
     var two = Math.abs(level) === 2;
+    var cut = two ? 'th-cut-' + (++cuts) : '';
     return svg('svg', {
       'class': 'rate-th' + (two ? ' rate-th--2' : '') + (level < 0 ? ' rate-th--down' : '') + (on ? ' is-on' : ''),
       viewBox: two ? '0 0 32 24' : '-1 0 26 24',
       'aria-hidden': 'true',
       focusable: 'false',
     }, two ? [
-      svg('g', { transform: 'translate(10.5 -2.8) scale(.92)' }, [svg('g', { 'class': 'b' }, hand())]),
-      svg('g', { transform: 'translate(0 2)' }, [
-        svg('g', { 'class': 'f' }, [svg('g', { 'class': 'halo' }, [svg('path', { d: HAND })])].concat(hand())),
+      // The back hand is cut away round the front one, whatever lies behind; the mask's hand
+      // is a .f too, so it moves with the front one.
+      svg('mask', { id: cut, maskUnits: 'userSpaceOnUse', x: '-16', y: '-16', width: '64', height: '56' }, [
+        svg('rect', { x: '-16', y: '-16', width: '64', height: '56', fill: '#fff' }),
+        svg('g', { transform: 'translate(0 2)' }, [
+          svg('g', { 'class': 'f' }, [svg('path', { d: HAND, fill: '#000', stroke: '#000', 'stroke-width': '5' })]),
+        ]),
       ]),
+      svg('g', { mask: 'url(#' + cut + ')' }, [
+        svg('g', { transform: 'translate(10.5 -2.8) scale(.92)' }, [svg('g', { 'class': 'b' }, hand())]),
+      ]),
+      svg('g', { transform: 'translate(0 2)' }, [svg('g', { 'class': 'f' }, hand())]),
     ] : [svg('g', { 'class': 'f' }, hand())]);
   }
 
