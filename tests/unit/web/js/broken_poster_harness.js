@@ -27,8 +27,12 @@ let timers = [];
 let probes = [];
 let reduced = false;
 let frames = [];
+let observers = [];
+function MutationObserver(fn) { observers.push(fn); this.observe = () => {}; }
 function run(pictures) {
+  observers = [];
   vm.runInNewContext(fs.readFileSync(SRC, 'utf8'), {
+    MutationObserver,
     setTimeout: (fn, ms) => { timers.push([fn, ms]); },
     Image: function Image() { probes.push(this); },
     matchMedia: () => ({ matches: reduced }),
@@ -104,9 +108,11 @@ function own(steps, { src = '/api/watch/img/tmdb/w342/a.jpg', next, early, wide,
     else if (step === 'found') probes.length && probes[probes.length - 1].onload();
     else if (step === 'missing') probes.length && probes[probes.length - 1].onerror();
     else if (step === 'other') { at = '/api/watch/img/tmdb/w342/b.jpg'; delete img.dataset.broken; }
+    else if (step === 'swap') at = '/api/watch/img/tmdb/w500/a.jpg';
+    else if (step === 'arrive') observers.forEach((fn) => fn([{ addedNodes: [{ querySelectorAll: () => [img] }] }]));
     else if (step === 'afresh') delete img.dataset.broken;
     else if (step === 'frame') { const due = frames; frames = []; due.forEach((fn) => fn()); }
-    else if (step === 'faded') faded[faded.length - 1].onfinish();
+    else if (step === 'faded') faded.length && faded[faded.length - 1].onfinish();
     else if (step === 'gone') img.isConnected = false;
     else if (step === 'hide') img.hidden = true;
     else {
@@ -123,8 +129,12 @@ const tries = {
   second: own(['error', 'tick', 'missing', 'tick', 'found', 'load', 'faded']),
   calm: own(['error', 'tick', 'found', 'load', 'frame'], { calm: true }),
   early: own(['tick', 'found'], { early: true }),
-  never: own(['error', 'tick', 'missing', 'tick', 'missing', 'tick']),
-  failsAgain: own(['error', 'tick', 'found', 'error', 'tick', 'found', 'error', 'tick']),
+  never: own(['error', 'tick', 'missing', 'tick', 'missing', 'tick', 'missing', 'tick']),
+  failsAgain: own(['error', 'tick', 'found', 'error', 'tick', 'found', 'error', 'tick', 'found', 'error', 'tick']),
+  swapped: own(['error', 'swap', 'load', 'faded']),
+  swappedWide: own(['error', 'swap', 'load'], { wide: true }),
+  failedAway: own(['arrive', 'tick', 'found', 'load', 'faded']),
+  arrivesMarked: own(['error', 'arrive', 'tick']),
   laterAgain: own(['error', 'tick', 'found', 'load', 'faded', 'error', 'tick', 'missing', 'tick']),
   otherWaiting: own(['error', 'other', 'tick']),
   otherAsking: own(['error', 'tick', 'other', 'found']),
@@ -136,8 +146,8 @@ const tries = {
   elsewhere: own(['error', 'tick'], { src: '/api/poster/7' }),
   next: own(['error', 'tick', 'error'], { next: '/api/poster/7' }),
   unfit: own(['load', 'tick'], { wide: true }),
-  sameAgain: own(['error', 'afresh', 'error', 'tick', 'missing', 'tick', 'missing', 'tick']),
-  sameAgainAsking: own(['error', 'tick', 'afresh', 'error', 'tick', 'missing', 'tick', 'missing', 'tick']),
+  sameAgain: own(['error', 'afresh', 'error', 'tick', 'missing', 'tick', 'missing', 'tick', 'missing', 'tick']),
+  sameAgainAsking: own(['error', 'tick', 'afresh', 'error', 'tick', 'missing', 'tick', 'missing', 'tick', 'missing', 'tick']),
   plain: own(['load']),
 };
 /* Many that failed together and are all missing: the waits before each is asked again, and how many are
@@ -151,6 +161,7 @@ function crowd(n, answerMs, inView = []) {
   timers = [];
   const push = (fn, ms) => timers.push([fn, now + ms]);
   const ctx = {
+    MutationObserver,
     setTimeout: push,
     Image: function Image() {
       asked.push(now);

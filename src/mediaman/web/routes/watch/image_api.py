@@ -47,7 +47,13 @@ _TMDB_HTTP = SafeHTTPClient(
 _FETCHES = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tmdb-image")
 _FETCH_WAIT_S = 10.0
 
-_IMG_LIMITER = ActionRateLimiter(max_in_window=240, window_seconds=60)
+# Scrolling a genre grid quickly asks for some 360 posters never fetched before in a minute.
+_IMG_LIMITER = ActionRateLimiter(max_in_window=600, window_seconds=60)
+
+
+def _failed(status_code: int) -> Response:
+    """A failure the browser keeps nowhere, so the next ask for the address reaches the server."""
+    return Response(status_code=status_code, headers={"Cache-Control": "no-store"})
 
 
 def _fetch_tmdb_image(size: str, name: str) -> tuple[bytes, str]:
@@ -88,18 +94,18 @@ async def tmdb_image_response(size: str, name: str, may_fetch: Callable[[], bool
             fetched = asyncio.wrap_future(_FETCHES.submit(load, True))
             content, info = await asyncio.wait_for(fetched, _FETCH_WAIT_S)
     except disk_cache.Refused:
-        return Response(status_code=429)
+        return _failed(429)
     except TimeoutError:
         logger.warning("TMDB image fetch takes too long")
-        return Response(status_code=503)
+        return _failed(503)
     except SafeHTTPError as exc:
         if exc.status_code == 404:
-            return Response(status_code=404)
+            return _failed(404)
         logger.warning("TMDB image fetch failed (%s)", exc.status_code)
-        return Response(status_code=503)
+        return _failed(503)
     except requests.RequestException:
         logger.warning("TMDB image fetch failed", exc_info=True)
-        return Response(status_code=503)
+        return _failed(503)
     mime = info.get("mime", "")
     return Response(
         content=content,
@@ -114,7 +120,10 @@ async def api_watch_tmdb_image(
 ) -> Response:
     if not is_tmdb_image(size, name):
         return Response(status_code=404)
-    return await tmdb_image_response(size, name, lambda: _IMG_LIMITER.check(username))
+    response = await tmdb_image_response(size, name, lambda: _IMG_LIMITER.check(username))
+    if response.status_code == 429:
+        response.headers["Retry-After"] = str(_IMG_LIMITER.retry_after(username))
+    return response
 
 
 __all__ = ["router"]

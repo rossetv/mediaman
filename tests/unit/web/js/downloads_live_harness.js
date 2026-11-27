@@ -69,6 +69,7 @@ function page(spec, opts) {
     clearTimeout: (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); },
     AbortController, matchMedia: () => ({ matches: !(opts && opts.motion) }),
     getComputedStyle: () => ({}), location: { href: '/downloads' },
+    MutationObserver: class { observe() {} },
     toasts: [],
   };
   ctx.window = ctx;  ctx.addEventListener = () => {};

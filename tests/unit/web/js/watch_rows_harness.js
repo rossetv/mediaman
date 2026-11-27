@@ -315,6 +315,52 @@ const scenarios = {
     return out;
   },
 
+  /* Posters of cards put on the page after it loaded: one whose picture came while the card was not yet
+     on the page (its load event went nowhere), one still on its way that loads there, one that failed. */
+  fade: () => {
+    const doc = makeDocument();
+    doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }]));
+    const page = doc.getElementById('watch-page');
+    const watching = [];
+    const ctx = {
+      document: doc, Array, Math, WeakMap, WeakSet, parseFloat,
+      getComputedStyle: () => ({ paddingLeft: '0px', paddingRight: '0px' }),
+      matchMedia: () => ({ matches: true }),
+      requestAnimationFrame: (fn) => fn(),
+      MutationObserver: class {
+        constructor(fn) { this.fn = fn; }
+        observe(node, opts) { if (node === page && opts.subtree) watching.push(this.fn); }
+        disconnect() {}
+      },
+      addEventListener() {},
+      MM: { dom: { icon: () => doc.createElement('svg') } },
+    };
+    ctx.window = ctx;
+    vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(path.join(JS, 'watch-rows.js'), 'utf8'), ctx);
+    const card = (complete, width) => {
+      const node = build(doc, ['article', { class: 'watch-card' }, ['span', { class: 'watch-card__poster' }, ['img', {}]]]);
+      const img = node.querySelector('img');
+      img.complete = complete;
+      img.naturalWidth = width;
+      return node;
+    };
+    const early = card(true, 342);
+    const late = card(false, 0);
+    const failed = card(true, 0);
+    const row = build(doc, ['div', { class: 'watch-row__scroll' }]);
+    [early, late, failed].forEach((c) => row.appendChild(c));
+    page.appendChild(row);
+    watching.forEach((fn) => fn([{ addedNodes: [row] }]));
+    const shown = (c) => c.querySelector('img').classList.contains('is-loaded');
+    const before = { early: shown(early), late: shown(late), failed: shown(failed) };
+    const img = late.querySelector('img');
+    img.complete = true;
+    img.naturalWidth = 342;
+    (doc.listeners.load || []).forEach((fn) => fn({ target: img }));
+    return { before, lateAfterLoad: shown(late), fades: page.classList.contains('has-poster-fade') };
+  },
+
   seasons: () => ({
     phone: thereAndBack([92, 94, 94, 94, 94, 94, 94, 94, 94, 102], 320),
     wide: thereAndBack([94, 94, 94, 400, 94, 94], 320),
