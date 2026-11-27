@@ -31,6 +31,7 @@ from .tokens import (
     generate_poster_token,
     generate_session_token,
     generate_unsubscribe_token,
+    generate_watch_next_cursor,
     mail_tmdb_image_url,
     sign_poster_url,
     sign_tmdb_image_url,
@@ -41,6 +42,7 @@ from .tokens import (
     validate_poster_token,
     validate_tmdb_image_token,
     validate_unsubscribe_token,
+    validate_watch_next_cursor,
 )
 
 __all__ = [
@@ -54,6 +56,7 @@ __all__ = [
     "generate_poster_token",
     "generate_session_token",
     "generate_unsubscribe_token",
+    "generate_watch_next_cursor",
     "is_canary_valid",
     "mail_tmdb_image_url",
     "sign_poster_url",
@@ -65,4 +68,5 @@ __all__ = [
     "validate_poster_token",
     "validate_tmdb_image_token",
     "validate_unsubscribe_token",
+    "validate_watch_next_cursor",
 ]

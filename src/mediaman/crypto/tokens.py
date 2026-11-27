@@ -90,6 +90,13 @@ class TmdbImageTokenPayload(TypedDict):
     """UNIX timestamp at which the token expires."""
 
 
+class WatchNextCursorPayload(TypedDict):
+    st: dict[str, object]
+    """Where each source of Watch next is, and what it has given, for one person."""
+    exp: int | float
+    """UNIX timestamp at which the token expires."""
+
+
 class PollTokenPayload(TypedDict):
     """Payload carried by a short-lived polling-capability token."""
 
@@ -163,6 +170,7 @@ _TOKEN_PURPOSE_UNSUBSCRIBE = b"mediaman-token-unsubscribe-v1"
 _TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
 _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
 _TOKEN_PURPOSE_TMDB_IMAGE = b"mediaman-token-tmdb-image-v1"
+_TOKEN_PURPOSE_WATCH_NEXT = b"mediaman-token-watch-next-v1"
 
 # As long as a mailed poster's signature (generate_poster_token's default) lasts.
 _MAIL_PICTURE_TTL_DAYS = 180
@@ -541,6 +549,21 @@ def mail_tmdb_image_url(image: object, size: str, secret_key: str, base_url: str
         return signed
     on_tmdb = image.startswith("https://image.tmdb.org/") and _TMDB_IMAGE_RE.fullmatch(image)
     return image if on_tmdb else None
+
+
+def generate_watch_next_cursor(*, state: Mapping[str, object], ttl_s: int, secret_key: str) -> str:
+    """Issue the cursor of Watch next's next page, holding *state*."""
+    payload = {"st": dict(state), "exp": int(time.time()) + ttl_s}
+    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_WATCH_NEXT)
+
+
+def validate_watch_next_cursor(token: str, secret_key: str) -> WatchNextCursorPayload | None:
+    """Validate and decode a cursor of generate_watch_next_cursor; ``None`` when it is invalid,
+    expired or tampered. The shape of ``st`` is the caller's to check."""
+    result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_WATCH_NEXT)
+    if result is None or not isinstance(cast(dict[str, object], result).get("st"), dict):
+        return None
+    return cast(WatchNextCursorPayload, result)
 
 
 def generate_poll_token(
