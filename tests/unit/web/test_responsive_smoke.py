@@ -243,8 +243,11 @@ def test_nav_template_emits_all_surfaces():
         'href="/settings"',
     ):
         assert href in nav, f"missing nav link: {href}"
-    for label in ("}}Watch<", "}}Downloads<"):
-        assert label in nav, f"missing nav label: {label}"
+    assert "}}Watch<" in nav, "missing nav label: Watch"
+    # Downloads left the profile menu; without scripts it is still a link of the bar
+    assert 'href="/downloads">Downloads<' in nav
+    menu = nav.split('id="profile-menu-items"')[1].split("</div>")[0]
+    assert "/downloads" not in menu and "Downloads" not in menu
 
 
 def test_base_html_sets_data_page():
@@ -277,7 +280,6 @@ def test_every_page_uses_default_container():
     for name in (
         "downloads.html",
         "panes/_history.html",
-        "panes/_settings.html",
     ):
         tpl = _tpl(name)
         # Every page must mount its content inside .container (no modifier).
@@ -285,6 +287,14 @@ def test_every_page_uses_default_container():
         # And must not silently re-introduce the legacy modifiers.
         for legacy in ("container--narrow", "container--wide"):
             assert legacy not in tpl, f"{name}: legacy {legacy} re-introduced"
+
+    # The Settings pane lays its list and sections out on its own .stx rail, full width in its view.
+    settings = _tpl("panes/_settings.html")
+    assert '<div class="setg-pg stx" data-stx>' in settings, (
+        "panes/_settings.html: missing .stx rail"
+    )
+    for legacy in ("container--narrow", "container--wide"):
+        assert legacy not in settings, f"panes/_settings.html: legacy {legacy} re-introduced"
 
     # The Watch page lays itself out on its own .watch-page rail; it must not
     # reach for the legacy container modifiers either.

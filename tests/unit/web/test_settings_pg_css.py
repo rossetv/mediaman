@@ -272,12 +272,12 @@ def _sheet(name: str) -> str:
     return re.sub(r"/\*.*?\*/", "", (CSS / name).read_text(), flags=re.S)
 
 
-def test_a_fold_with_a_margin_of_its_own_gives_it_up_as_it_shuts() -> None:
-    # Kept while shut, it goes in one step when the fold is hidden at the end.
-    assert "margin-bottom: -6px" in _declarations("#account-email-fold", _sheet("_profile.css"))
-    assert "margin-bottom: 0" in _declarations(
-        "#account-email-fold.is-shut", _sheet("_profile.css")
-    )
+def test_the_email_form_is_a_view_of_its_own_with_no_fold_to_leave_a_margin_behind() -> None:
+    page = (CSS.parents[1] / "templates" / "panes" / "_profile.html").read_text()
+    view = page.split('data-view="profile/email"')[1].split('class="you-view"')[0]
+    assert 'id="account-email-form"' in view
+    assert "account-email-fold" not in page
+    assert "account-email-fold" not in _sheet("_profile.css")
 
 
 def test_a_card_that_holds_only_a_fold_folds_its_padding_and_edge_with_it() -> None:
@@ -326,13 +326,14 @@ def test_the_monospace_settings_field_is_16px_where_touch_would_zoom() -> None:
     assert rule.search(css, base.end())
 
 
-def test_the_history_search_field_is_16px_on_a_touch_screen_of_any_width() -> None:
+def test_the_history_search_field_is_16px_at_every_width() -> None:
     css = _strip("_history.css")
-    rule = re.search(
-        r"@media \(pointer: coarse\) and \(min-width: 700px\) \{(?:[^{}]*\{[^{}]*\})*?\s*\.hx-search input \{\s*font-size: 16px;",
-        css,
-    )
-    assert rule
+    base = re.search(r"\n\.hx-search input \{([^{}]*)\}", css)
+    assert base and "font-size: 16px;" in base.group(1)
+    # no rule, at any width or pointer, makes it smaller
+    for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        if ".hx-search input" in head and "font-size" in body:
+            assert "font-size: 16px" in body, head
 
 
 def test_no_stylesheet_styles_the_unused_form_input_select_and_threshold_classes() -> None:

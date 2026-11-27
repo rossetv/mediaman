@@ -31,8 +31,6 @@ _NAVIGATE = {"sec-fetch-mode": "navigate"}
 _PROFILE_IDS = [
     "pic-open",
     "pic-dialog",
-    "pic-close",
-    "pic-cancel",
     "pic-save",
     "pic-error",
     "pic-kind",
@@ -46,13 +44,11 @@ _PROFILE_IDS = [
     "account-email-form",
     "account-email",
     "account-email-result",
-    "account-cancel-email",
     "account-submit-email",
     "account-open-password",
     "account-password-form",
     "account-old-password",
     "account-new-password",
-    "account-cancel-password",
     "account-submit-password",
     "account-password-live",
     "plex",
@@ -88,6 +84,10 @@ _PROFILE_IDS = [
     "account-history-more",
     "account-clear-searches",
 ]
+
+# A view is left by the pane's own Up, Close and Escape, through the guard's Discard, so no view
+# carries a close or cancel button of its own any more.
+_PROFILE_IDS_GONE = ["pic-close", "pic-cancel", "account-cancel-email", "account-cancel-password"]
 
 _SETTINGS_IDS = [
     "setg-bootstrap",
@@ -326,7 +326,14 @@ def test_a_fragment_opened_as_a_page_is_sent_to_its_pane(admin, path, pane):
         (
             "/account?pane=1",
             "profile",
-            ["profile", "profile/email", "profile/password", "profile/plex", "profile/devices"],
+            [
+                "profile",
+                "profile/picture",
+                "profile/email",
+                "profile/password",
+                "profile/plex",
+                "profile/devices",
+            ],
         ),
         ("/history?pane=1", "history", ["history"]),
         ("/settings?pane=1", "settings", ["settings"]),
@@ -385,6 +392,16 @@ def test_every_id_and_hook_of_the_three_panes_stays_and_none_is_used_twice(admin
     assert {"data-hist", "data-hist-clear", "data-hist-said"} <= history.hooks
     every = profile.ids + history.ids + settings.ids
     assert len(every) == len(set(every))
+
+
+def test_a_view_has_no_way_out_of_its_own_and_the_pane_over_watch_has_up_and_close(admin):
+    profile = _fragment(admin.get("/account?pane=1").text)
+    watch = admin.get("/").text
+
+    assert not set(_PROFILE_IDS_GONE) & set(profile.ids)
+    shell = watch[watch.index('id="you"') :]
+    assert shell.count("data-you-back") == 1
+    assert re.search(r'<button[^>]*class="you__close" data-you-close aria-label="Close"', shell)
 
 
 def test_no_pane_id_is_one_watch_already_uses(admin):

@@ -151,10 +151,13 @@ def _sticky_tops(name: str, part: str) -> list[str]:
     ]
 
 
-def test_what_sticks_at_the_top_stands_where_the_bar_ends_and_at_the_top_where_it_is_gone() -> None:
-    tops = _sticky_tops("_settings_pg.css", ".setg-pg .setg-rail")
-    assert tops
-    assert all("var(--nav-h)" in top or top == "auto" for top in tops), tops
+def test_nothing_in_settings_sticks_under_the_bar_as_its_list_and_section_scroll_in_the_pane() -> (
+    None
+):
+    for name in ("_settings_pg.css", "_settings_pg_panels.css"):
+        css = _text(CSS_DIR / name)
+        assert "position: sticky" not in css, name
+        assert "var(--nav-h)" not in css, name
 
 
 def test_history_panes_tools_stick_at_the_top_of_its_scroller_or_go_with_the_list() -> None:

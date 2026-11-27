@@ -68,3 +68,29 @@ def test_an_expired_session_keeps_unsaved_edits_and_otherwise_signs_in_back_to_t
     assert out["edited"]["href"] == "/?you=settings/general"
     assert any("expired" in m for m in out["edited"]["said"])
     assert out["clean"]["href"] == "/login?next=%2F%3Fyou%3Dsettings%2Fgeneral"
+
+
+def test_a_window_widened_with_a_section_open_brings_the_section_list_back_beside_it() -> None:
+    out = _run("widened")
+    assert out["narrow"] == {
+        "inside": True,
+        "listInert": True,
+        "on": "integrations",
+        "current": "integrations",
+    }
+    # the list is in reach again with no step taken, its row for the open section marked
+    assert out["wide"] == {
+        "inside": False,
+        "listInert": False,
+        "on": "integrations",
+        "current": "integrations",
+    }
+    assert out["gone"] == []
+
+
+def test_the_save_bar_alone_marks_unsaved_edits_and_the_pane_s_discard_takes_it_down() -> None:
+    out = _run("barMarked")
+    assert out["before"] == {"bar": False, "page": ""}
+    # the bar shows itself, and the page under the pane is not marked
+    assert out["dirty"] == {"bar": True, "page": ""}
+    assert out["discarded"] == {"bar": False, "page": ""}

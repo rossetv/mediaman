@@ -290,14 +290,13 @@ def test_a_tap_on_the_phone_search_s_backdrop_does_not_reach_the_page() -> None:
     assert "pointer-events: auto" in backdrop
 
 
-def test_settings_section_rail_at_rest_under_the_bar_runs_up_behind_it_with_its_chips_in_place() -> (
+def test_settings_section_list_starts_at_the_top_of_the_pane_with_no_room_kept_for_the_glass_bar() -> (
     None
 ):
-    narrow = _inside(_css(CSS / "_settings_pg.css"), "(max-width: 960px)")
-    rail = _of(".setg-pg .setg-rail", narrow)
-    stuck = _of(".setg-pg .setg-rail.is-stuck", narrow)
+    css = _css(CSS / "_settings_pg.css")
+    both = _of(".stx__nav", css)
 
-    assert "top: var(--nav-h)" in rail and "top: 0;" in stuck
-    assert "margin-top: calc(-1 * var(--nav-h))" in stuck
-    own = re.search(r"padding: (\d+px)", rail).group(1)  # type: ignore[union-attr]
-    assert f"padding-top: calc(var(--nav-h) + {own})" in stuck
+    # the pane's own bar is above it, and the glass bar is under the pane
+    assert "inset: 0;" in both
+    assert "padding: 4px 20px 24px;" in both
+    assert "--nav-h" not in css

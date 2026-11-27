@@ -96,7 +96,13 @@ def test_a_sign_in_button_s_label_has_air_when_it_takes_two_lines() -> None:
     assert "text-align: center" in body
 
 
-def test_the_profile_page_ends_with_room_under_its_last_card() -> None:
-    wide = _css("_profile.css").split("@media (min-width: 700px) {")[1].split("\n}")[0]
-    room = re.search(r"\.profile-pg \.container \{ padding-bottom: (\d+)px; \}", wide)
-    assert room and int(room.group(1)) >= 48
+def test_each_pane_view_ends_with_room_under_its_last_card_and_the_home_indicator() -> None:
+    view = re.search(r"\n\.you-view \{([^}]*)\}", _css("_you.css")).group(1)  # type: ignore[union-attr]
+    room = re.search(
+        r"padding: \d+px \d+px calc\((\d+)px \+ env\(safe-area-inset-bottom, 0px\)\);", view
+    )
+    assert room and int(room.group(1)) >= 24
+    # the hub keeps it: Profile takes none of it back
+    assert "padding" not in "".join(
+        re.findall(r'\.you-view\[data-view="profile"\][^{]*\{([^}]*)\}', _css("_profile.css"))
+    )

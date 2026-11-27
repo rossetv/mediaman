@@ -803,16 +803,18 @@ const scenarios = {
     return { shown, afterInput: msg.textContent, nlShown, afterChange: status.textContent };
   },
 
-  // The account page's message goes once any field is edited, but not while the form is sending.
+  // The Profile pane's password message goes once any field is edited, but not while the form is sending.
   async accountClearOnInput() {
     const h = build();
-    const form = plant(h, ['form', { id: 'account-password-form' }, ...parts({ old: 'account-old-password', fresh: 'account-new-password', submit: 'account-submit-password', cancel: 'account-cancel-password', result: 'account-password-result' })], h.add('div', { id: 'account-password-fold' }));
-    ['account-open-password', 'account-password-live'].forEach((id) => h.add('button', { id }));
-    h.add('span', {}, h.add('div', { id: 'account-password-sub' }));
+    const root = plant(h, ['div', { 'data-you-group': 'profile' }]);
+    const form = plant(h, ['form', { id: 'account-password-form' }, ...parts({ old: 'account-old-password', fresh: 'account-new-password', submit: 'account-submit-password', result: 'account-password-result' })], root);
+    h.add('button', { id: 'account-password-live' }, root);
+    h.add('span', {}, h.add('div', { id: 'account-password-sub' }, root));
     const $ = (id) => h.doc.getElementById(id);
     const submit = $('account-submit-password');
     h.ctx.MM.api = { post: () => new Promise(() => {}), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.MM.you = { shown: (group) => group === 'profile', guard: () => {} };
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('password-form.js'); h.load('account.js');
     form.fire('submit');
     const why = $('account-old-password-why');

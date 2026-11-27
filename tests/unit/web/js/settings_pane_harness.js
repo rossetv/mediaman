@@ -42,7 +42,7 @@ function pane(opts) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.revealed = [];
-  const p = { doc, gone: [], guards: {}, said: [], shown: 'settings' };
+  const p = { doc, gone: [], guards: {}, said: [], shown: 'settings', wide: !!opts.wide, widths: [] };
   // Watch is the page under the pane: its search box is outside the fragment.
   doc.body.appendChild(build(doc, ['input', { id: 'search-input', type: 'search' }]));
   const location = { pathname: '/', search: '?you=' + (opts.at || 'settings'), hash: '', href: '' };
@@ -53,7 +53,10 @@ function pane(opts) {
     location,
     setTimeout: (fn) => { fn(); return 0; }, clearTimeout: () => {},
     requestAnimationFrame: (fn) => { fn(); return 0; },
-    matchMedia: () => ({ matches: !!opts.wide, addEventListener() {} }),
+    matchMedia: (q) => ({
+      get matches() { return q.includes('min-width') ? p.wide : false; },
+      addEventListener: (type, fn) => { if (q.includes('min-width')) p.widths.push(fn); },
+    }),
     addEventListener: () => {},
     fetch: () => Promise.resolve({ status: 401, ok: false, statusText: 'Unauthorized', json: () => Promise.resolve({}) }),
     UIFeedback: { error: (m) => p.said.push(m), toast: () => {}, confirm: () => Promise.resolve(true) },
@@ -170,6 +173,34 @@ const scenarios = {
       };
     }
     return out;
+  },
+  // A section open on a narrow screen, then the window widened past the width the list sits beside.
+  async widened() {
+    const p = pane({ at: 'settings/integrations' });
+    const pg = p.doc.querySelector('.setg-pg');
+    const nav = p.doc.querySelector('.stx__nav');
+    const state = () => ({
+      inside: pg.classList.contains('is-in'),
+      listInert: !!nav.inert,
+      on: p.on() && p.on().getAttribute('data-sec'),
+      current: (p.doc.querySelector('.stx-link[aria-current]') || { getAttribute: () => null }).getAttribute('data-sec'),
+    });
+    const narrow = state();
+    p.wide = true;
+    p.widths.forEach((fn) => fn({ matches: true }));
+    return { narrow, wide: state(), gone: p.gone };
+  },
+  // An edit, then the pane's own Discard, asked by its guard on the way out.
+  async barMarked() {
+    const p = pane({ at: 'settings/general' });
+    const bar = p.$('setg-savebar');
+    const marks = () => ({ bar: bar.classList.contains('on'), page: p.doc.documentElement.className || '' });
+    const before = marks();
+    p.type(p.$('base_url'), 'http://new');
+    const dirty = marks();
+    p.guards.settings.discard();
+    await settle();
+    return { before, dirty, discarded: marks() };
   },
   // A request answered 401, with and without edits waiting.
   async expired() {
