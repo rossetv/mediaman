@@ -326,10 +326,7 @@
     // The page holds edits that leaving would lose: the remote stops asking and the page stays.
     if (MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()) return new Promise(function () {});
     close();
-    if (to === '/login') {
-      var here = global.location.pathname + (global.location.search || '');
-      to += (here === '/' ? '' : '?next=' + encodeURIComponent(here)) + (global.location.hash || '');
-    }
+    if (to === '/login') to = MM.api.loginUrl();
     settled(function () { setTimeout(function () { global.location.href = to; }, was ? EXIT_MS : 0); });
     return new Promise(function () {});
   }

@@ -91,6 +91,10 @@ def test_a_session_that_ends_goes_to_sign_in_at_once_but_not_over_unsaved_edits(
         assert kept["polls"] <= 1
     assert out["edits"]["said"] == out["press"]["said"]
     assert "session has expired" in out["edits"]["said"][0]
+    # A read sent on to the password change page is said once, by MM.api, not again as a lost admin.
+    sent = out["sentEdits"]
+    assert (sent["href"], len(sent["said"])) == ("/settings", 1)
+    assert "change your password" in sent["said"][0]
 
 
 def test_one_already_running_is_followed_and_one_long_over_is_not_told() -> None:

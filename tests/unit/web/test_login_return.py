@@ -175,6 +175,10 @@ def test_a_page_that_is_refused_while_open_keeps_its_address_and_hash(part, path
     assert href.fragment == "title=movie-1"
 
 
+def test_the_rows_keep_no_address_that_would_read_as_another_host():
+    assert _run("browse", pathname="//evil.example/x", search="", hash="") == "/login"
+
+
 def test_the_rows_of_the_landing_page_need_no_address():
     assert _run("browse", pathname="/", search="", hash="") == "/login"
 

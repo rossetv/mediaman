@@ -134,6 +134,11 @@ function load(opts = {}) {
     removeEventListener() {},
   };
   ctx.window = ctx;
+  // The sign-in address as the real api.js builds it from the page's place.
+  const pageApi = { location: ctx.location, URL };
+  pageApi.window = pageApi;
+  vm.runInNewContext(fs.readFileSync(path.join(JS, 'core/api.js'), 'utf8'), pageApi);
+  ctx.MM.api.loginUrl = pageApi.MM.api.loginUrl;
   vm.createContext(ctx);
   ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/making.js', 'watch/browse.js', 'watch-rows.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));

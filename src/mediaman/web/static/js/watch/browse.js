@@ -45,9 +45,7 @@
   /* False, and the page stays, while it holds edits that leaving would lose. */
   function toLogin() {
     if (MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()) return false;
-    var here = window.location;
-    var place = here.pathname + here.search;
-    here.href = '/login' + (place === '/' ? '' : '?next=' + encodeURIComponent(place)) + here.hash;
+    window.location.href = MM.api.loginUrl();
     return true;
   }
 

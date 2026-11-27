@@ -140,7 +140,7 @@ async function page(opts = {}) {
   const session = {};
   const win = {
     listeners: {}, history,
-    location: { href: '', pathname: '/watch', search: '?q=1', hash: '', replace(to) { history.entries[history.index] = null; win.location.href = to; } }, innerWidth: 1000, innerHeight: 800, navigator: { onLine: true },
+    location: { href: '', pathname: opts.pathname || '/watch', search: '?q=1', hash: '', replace(to) { history.entries[history.index] = null; win.location.href = to; } }, innerWidth: 1000, innerHeight: 800, navigator: { onLine: true },
     sessionStorage: { getItem: (k) => session[k] || null, setItem: (k, v) => { session[k] = v; } },
     matchMedia: (q) => ({ matches: !!opts.still && /reduced-motion/.test(q) }),
     addEventListener(t, fn) { win.listeners[t] = fn; },
@@ -223,6 +223,11 @@ async function page(opts = {}) {
   vm.runInNewContext(fs.readFileSync(path.join(JS, 'core/api.js'), 'utf8'), apiWin);
   win.MM.api.get = apiWin.MM.api.get;
   win.MM.api.APIError = apiWin.MM.api.APIError;
+  // The sign-in address is built from the page's own place.
+  const pageApi = { location: win.location, URL, console };
+  pageApi.window = pageApi;
+  vm.runInNewContext(fs.readFileSync(path.join(JS, 'core/api.js'), 'utf8'), pageApi);
+  win.MM.api.loginUrl = pageApi.MM.api.loginUrl;
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
@@ -1536,12 +1541,12 @@ const scenarios = {
   // A read sent on to a page, a command refused for a password to change, and a session that has gone.
   async sentAway() {
     const out = {};
-    for (const [why, still] of [['redirect', false], ['redirect', true], ['refused', false], ['signedOut', false]]) {
-      const p = await page({ still });
+    for (const [why, still] of [['redirect', false], ['redirect', true], ['refused', false], ['signedOut', false], ['signedOutOddPath', false]]) {
+      const p = await page(why === 'signedOutOddPath' ? { pathname: '//evil.example/watch' } : { still });
       await p.pass(5100);
       await p.open();
       if (why === 'redirect') p.api.away = '/force-password-change';
-      if (why === 'signedOut') p.api.fail = ['http_401', 401];
+      if (/^signedOut/.test(why)) p.api.fail = ['http_401', 401];
       if (why === 'refused') {
         p.api.refuse = 'http_403';
         p.api.refusal = { detail: 'password_change_required', message: 'You must change your password before continuing.', redirect: '/force-password-change' };

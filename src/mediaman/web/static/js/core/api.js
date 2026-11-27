@@ -207,6 +207,8 @@
     /* Replaced by a page whose unsaved edits a login redirect would lose. */
     hasUnsavedChanges: function () { return false; },
 
+    loginUrl: loginUrl,
+
     /* The app's own message for a failure, or ``fallback``. Only a JSON body
      * that set ``message`` counts: otherwise the error holds a status line
      * or a bare code, which vary by proxy and mean nothing to a person. A

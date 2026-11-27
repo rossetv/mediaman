@@ -33,7 +33,9 @@ async function load(opts = {}) {
   ctx.window = ctx;
   vm.createContext(ctx);
   if (opts.fetch) {
-    Object.assign(ctx, { location: { pathname: '/settings', search: '', hash: '', href: '/settings' }, fetch: opts.fetch });
+    Object.assign(ctx, { location: { origin: 'http://testserver', pathname: '/settings', search: '', hash: '', href: '/settings' }, fetch: opts.fetch,
+      // The page's href is kept as a path here; the browser's is whole.
+      URL: class extends URL { constructor(u, base) { super(u, String(base).replace(/^\//, 'http://testserver/')); } } });
     vm.runInContext(fs.readFileSync(path.resolve(path.dirname(FILE), '../core/api.js'), 'utf8'), ctx);
     ctx.MM.api.hasUnsavedChanges = () => !!opts.edits;
   }
@@ -116,10 +118,13 @@ const scenarios = {
     const at = async (status, edits, when) => {
       let ended = false;
       let polls = 0;
-      const answer = (code, data) => Promise.resolve({ ok: code < 400, status: code, statusText: '', json: () => Promise.resolve(data) });
+      const answer = (code, data, to) => Promise.resolve({ ok: code < 400, status: code, statusText: '', redirected: !!to, url: to || '',
+        json: () => (to ? Promise.reject(new SyntaxError('html')) : Promise.resolve(data)) });
       const p = await load({ edits, fetch: (url, req) => {
         if (!/recommended/.test(url)) return answer(200, {});
         if (ended && !req.method.includes('POST')) polls += 1;
+        // 'sent': the read is redirected to the password change page.
+        if (ended && status === 'sent' && !req.method.includes('POST')) return answer(200, null, 'http://testserver/force-password-change');
         return ended ? answer(status, { detail: 'x' }) : answer(200, { status: req.method === 'POST' ? 'started' : 'idle' });
       } });
       ended = when === 'press';
@@ -129,7 +134,8 @@ const scenarios = {
       return { href: p.ctx.location.href, polls, said: p.said.map((s) => s[1]), text: edits ? p.look().text : null };
     };
     return { clean: await at(401, false, 'poll'), demoted: await at(403, false, 'poll'), edits: await at(401, true, 'poll'),
-      demotedEdits: await at(403, true, 'poll'), press: await at(401, true, 'press'), pressClean: await at(401, false, 'press') };
+      demotedEdits: await at(403, true, 'poll'), press: await at(401, true, 'press'), pressClean: await at(401, false, 'press'),
+      sentEdits: await at('sent', true, 'poll') };
   },
   async running() {
     const p = await load({ status: { status: 'running' } });
