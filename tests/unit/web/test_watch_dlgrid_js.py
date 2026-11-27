@@ -64,7 +64,8 @@ def test_escape_folds_it_back_into_the_row_and_the_focus_returns_to_what_opened_
 
 def test_it_folds_no_slower_than_it_grows(out) -> None:
     run = out["opensFromTheRow"]
-    assert 0 < run["fold"] <= run["grow"]
+    # a fold under 100 ms reads as a snap, not as motion
+    assert 100 <= run["fold"] <= run["grow"]
 
 
 def test_the_rows_above_go_up_and_those_below_go_down_as_the_row_s_cards_grow(out) -> None:
@@ -667,7 +668,7 @@ def test_a_card_that_goes_fades_and_shrinks_then_leaves(out) -> None:
     start, end = run["frames"]
     assert (start["opacity"], start["transform"]) == (1, "none")
     assert end["opacity"] == 0
-    assert 0 < float(re.fullmatch(r"scale\(([\d.]+)\)", end["transform"])[1]) < 1
+    assert 0 < float(re.fullmatch(r"scale\(([\d.]+)\)", end["transform"])[1]) < 0.99
     assert run["ms"] > 0
     # still in its place while it fades, no longer counted, then gone
     assert run["during"] == {"there": True, "going": True, "cards": 1}
