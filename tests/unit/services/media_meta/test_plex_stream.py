@@ -96,6 +96,8 @@ class FakePlex:
         self.selection = ("6", "0")
         self.selections: list[tuple[str, str]] = []
         self.fail_puts = 0
+        #: The selection at each decision.
+        self.decided_on: list[tuple[str, str]] = []
         #: Make each decision play the selected tracks.
         self.decides_by_selection = False
 
@@ -133,7 +135,7 @@ class FakePlex:
             if self.fail_puts:
                 self.fail_puts -= 1
                 return FakeResponse(500)
-            self.selection = (params["audioStreamID"], params["subtitleStreamID"])
+            self.selection = _selected_by(self.selection, params)
             self.selections.append(self.selection)
             return FakeResponse(200)
         if path == f"{TRANSCODE}/decision":
@@ -141,6 +143,7 @@ class FakePlex:
                 self.fail_decisions -= 1
                 return FakeResponse(500)
             self.decided.add(session)
+            self.decided_on.append(self.selection)
             if self.decides_by_selection:
                 audio, subtitle = self.selection
                 burn = subtitle != "0" and params["subtitles"] == "burn"
@@ -178,6 +181,14 @@ class FakePlex:
 
     def calls_to(self, action: str) -> list[dict]:
         return [c for c in self.calls if urlsplit(c["url"]).path == f"{TRANSCODE}/{action}"]
+
+
+def _selected_by(selection: tuple[str, str], params: dict) -> tuple[str, str]:
+    """The selection after a PUT with *params*: a field it leaves out stays as it was."""
+    return (
+        params.get("audioStreamID", selection[0]),
+        params.get("subtitleStreamID", selection[1]),
+    )
 
 
 class Clock:
@@ -443,7 +454,7 @@ def _selections_at(plex: FakePlex, action: str) -> list[tuple[str, str]]:
     seen, selection = [], ("6", "0")
     for call in plex.calls:
         if call["method"] == "PUT":
-            selection = (call["params"]["audioStreamID"], call["params"]["subtitleStreamID"])
+            selection = _selected_by(selection, call["params"])
         elif urlsplit(call["url"]).path == f"{TRANSCODE}/{action}":
             seen.append(selection)
     return seen
@@ -487,13 +498,15 @@ def test_tracks_plex_already_plays_are_not_written(manager, plex, tracks, select
     assert plex.selection == selected
 
 
-def test_no_subtitle_is_selected_as_none_when_the_audio_changes(manager, plex):
+def test_the_subtitles_plex_selected_are_left_alone_when_only_the_audio_changes(manager, plex):
     plex.selection = ("6", "10")
     plex.decides_by_selection = True
 
     _start(manager, tracks=plex_stream.Tracks(audio="7"))
 
-    assert plex.selections == [("7", "0"), ("6", "10")]
+    puts = [c["params"] for c in plex.calls if c["method"] == "PUT"]
+    assert puts == [{"audioStreamID": "7"}, {"audioStreamID": "6"}]
+    assert plex.selection == ("6", "10")
 
 
 def test_a_decision_plex_refuses_puts_the_selection_back(manager, plex):
@@ -532,6 +545,22 @@ def test_a_start_given_up_during_its_decision_still_puts_the_selection_back(mana
             _start(manager, tracks=plex_stream.Tracks(audio="7"))
 
     assert plex.selections == [("7", "0"), ("6", "0")]
+
+
+def test_a_start_given_up_while_it_selects_its_tracks_still_puts_the_selection_back(manager, plex):
+    with manager.starting("alice", "123") as start:
+
+        def give_up(path):
+            if path == "/library/parts/55":
+                plex.on_call = None
+                start.give_up(TooManyStarts("the start hung"))
+
+        plex.on_call = give_up
+        with pytest.raises(TooManyStarts):
+            _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    assert plex.selection == ("6", "0")
+    assert manager._held == {}
 
 
 def test_an_original_plex_would_not_copy_still_puts_the_selection_back(manager, plex):
@@ -576,6 +605,83 @@ def test_a_selection_that_cannot_be_put_back_does_not_stop_the_stream(manager, p
 
     assert manager.get(stream_id, "alice").rating_key == "123"
     assert sum("putting back" in r.getMessage() for r in caplog.records) == 2
+
+
+def test_tracks_plex_refuses_to_select_are_unavailable_and_plex_s_own_stay(manager, plex):
+    plex.decides_by_selection = True
+    plex.fail_puts = 1
+
+    with pytest.raises(plex_stream.TrackUnavailable):
+        _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    # Plex answered, so it changed nothing and nothing is written back.
+    assert len([c for c in plex.calls if c["method"] == "PUT"]) == 1
+    assert plex.calls_to("decision") == []
+    _start(manager, tracks=plex_stream.Tracks())
+    assert plex.decided_on == [("6", "0")]
+
+
+def _leave_a_selection_on_plex(manager: StreamManager, plex: FakePlex) -> None:
+    """Start with audio 7 while Plex refuses both tries to put its own back."""
+    plex.decides_by_selection = True
+
+    def fail_put_backs(path):
+        if path == f"{TRANSCODE}/decision":
+            plex.fail_puts = 2
+            plex.on_call = None
+
+    plex.on_call = fail_put_backs
+    _start(manager, tracks=plex_stream.Tracks(audio="7"))
+    assert plex.selection == ("7", "0")
+
+
+@pytest.mark.parametrize(
+    ("tracks", "decided"),
+    [
+        (plex_stream.Tracks(), ("6", "0")),
+        # Asking for what was left selected still puts Plex's own back afterwards.
+        (plex_stream.Tracks(audio="7"), ("7", "0")),
+        (plex_stream.Tracks(subtitle="9"), ("6", "9")),
+    ],
+)
+def test_a_selection_left_on_plex_is_put_right_at_the_item_s_next_start(
+    manager, plex, tracks, decided
+):
+    _leave_a_selection_on_plex(manager, plex)
+
+    _start(manager, burn_subtitles=tracks.subtitle is not None, tracks=tracks)
+
+    assert plex.decided_on[-1] == decided
+    assert plex.selection == ("6", "0")
+    assert manager._held == {}
+
+
+def test_a_selection_a_stopped_run_left_on_plex_is_put_back_at_startup(plex, clock, conn):
+    def run() -> StreamManager:
+        return StreamManager(lambda: (PLEX_URL, TOKEN), session=plex, clock=clock, db=lambda: conn)
+
+    _leave_a_selection_on_plex(run(), plex)
+    held = (
+        "SELECT rating_key, part_id, audio_stream_id, subtitle_stream_id FROM plex_held_selections"
+    )
+    assert [tuple(r) for r in conn.execute(held)] == [("123", "55", "6", None)]
+
+    assert run().put_back_held() == 1
+
+    assert plex.selection == ("6", "0")
+    assert conn.execute(held).fetchall() == []
+
+
+def test_a_selection_the_caller_read_is_not_read_again_unless_one_was_written_since(manager, plex):
+    plex.decides_by_selection = True
+    seen = plex_stream.Seen("55", "6", "0", manager.selection_mark())
+
+    _start(manager, tracks=plex_stream.Tracks(audio="7", seen=seen))
+    assert plex.paths().count("/library/metadata/123") == 0
+
+    _start(manager, tracks=plex_stream.Tracks(audio="7", seen=seen))
+    assert plex.paths().count("/library/metadata/123") == 1
+    assert plex.selections == [("7", "0"), ("6", "0")] * 2
 
 
 def test_two_starts_of_one_item_take_turns_with_its_selection(manager, plex):

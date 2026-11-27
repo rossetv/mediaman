@@ -201,7 +201,7 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
 def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     """Create the Watch stream manager, tidy Plex sessions left by an earlier run, start the reaper.
 
-    The tidy runs on its own thread so a Plex that is down never holds up startup. Returns
+    The tidy also puts back the selections of tracks an earlier run left on Plex. It runs on its own thread so a Plex that is down never holds up startup. Returns
     the function that saves the places of what plays on TVs, stops the reaper and then every
     live stream. When told to end, it also frees the download-ready emails claimed and not
     yet sent, since a kill may come before the lifespan's end does.
@@ -217,10 +217,16 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     manager = init_stream_manager(
         lambda: read_plex_credentials(get_db(), secret_key),
         allowed_hosts=lambda: allowed_outbound_hosts(get_db()),
+        db=get_db,
     )
+
+    def tidy() -> int:
+        manager.put_back_held()
+        return manager.tidy_orphans()
+
     threading.Thread(
         target=_tidy_stream_orphans,
-        args=(manager.tidy_orphans,),
+        args=(tidy,),
         name="watch-stream-tidy",
         daemon=True,
     ).start()

@@ -34,8 +34,8 @@ CREATE TABLE IF NOT EXISTS admin_users (
     -- The language this person hears first where a title has it (an ISO 639 code); NULL for
     -- the track Plex has selected.
     audio_lang TEXT,
-    -- The language of the subtitles this person reads when the audio is in another; NULL or
-    -- 'off' for none. Forced signs in the audio's language show either way.
+    -- The language of the subtitles this person reads when the audio is in another; NULL for
+    -- only the forced signs in the audio's language, 'off' for none at all.
     subtitle_lang TEXT
 );
 
@@ -56,6 +56,23 @@ CREATE TABLE IF NOT EXISTS user_track_choices (
     subtitle_hearing_impaired INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (user_id, title_key)
+);
+
+-- The languages (normalised ISO 639 codes) of the audio and subtitle tracks read from Plex: those
+-- the library holds, offered first where a person picks a language.
+CREATE TABLE IF NOT EXISTS track_languages (
+    code TEXT PRIMARY KEY,
+    seen_at TEXT NOT NULL
+);
+
+-- Plex's own selection of an item's part, held while a start has other tracks selected on Plex,
+-- until it is put back. A NULL id was not changed.
+CREATE TABLE IF NOT EXISTS plex_held_selections (
+    rating_key TEXT PRIMARY KEY,
+    part_id TEXT NOT NULL,
+    audio_stream_id TEXT,
+    subtitle_stream_id TEXT,
+    held_at TEXT NOT NULL
 );
 
 -- The avatar a person set; without a row they have a default one. kind is "drawn" (choice) or
