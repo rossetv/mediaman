@@ -216,6 +216,13 @@ async function page(opts = {}) {
   seek.getBoundingClientRect = () => ({ left: 0, right: 1000, width: 1000, top: 0, bottom: 44 });
   seek.setPointerCapture = () => {};
   if (opts.sheet) vm.runInContext(fs.readFileSync(path.join(JS, 'watch/play-on.js'), 'utf8'), ctx);
+  // Reads go through the real api.js over the fake fetch, as on the page.
+  const apiWin = { location: { origin: 'http://testserver', href: 'http://testserver/watch', pathname: '/watch', search: '', hash: '' }, URL, console };
+  apiWin.window = apiWin;
+  apiWin.fetch = (url, o) => ctx.fetch(url, o);
+  vm.runInNewContext(fs.readFileSync(path.join(JS, 'core/api.js'), 'utf8'), apiWin);
+  win.MM.api.get = apiWin.MM.api.get;
+  win.MM.api.APIError = apiWin.MM.api.APIError;
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
