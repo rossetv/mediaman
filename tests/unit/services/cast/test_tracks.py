@@ -173,7 +173,7 @@ def test_an_image_subtitle_is_burned_as_a_text_one_is():
     assert (pick.subtitle, pick.burn) == ("4", True)
 
 
-@pytest.mark.parametrize("subtitle_lang", [None, "off", "en"])
+@pytest.mark.parametrize("subtitle_lang", [None, "en"])
 def test_forced_signs_in_the_audio_s_language_show_unless_fuller_subtitles_do(subtitle_lang):
     audio, subs = _streams(
         _audio("1", "eng"),
@@ -182,6 +182,11 @@ def test_forced_signs_in_the_audio_s_language_show_unless_fuller_subtitles_do(su
         _sub("5", "eng"),
     )
     assert resolve(audio, subs, "10", subtitle_lang=subtitle_lang).subtitle == "4"
+
+
+def test_subtitles_off_by_default_hide_forced_signs_too():
+    audio, subs = _streams(_audio("1", "eng"), _sub("4", "eng", forced="1"), _sub("5", "eng"))
+    assert resolve(audio, subs, "10", subtitle_lang="off").subtitle is None
 
 
 def test_with_no_subtitle_in_the_language_forced_signs_still_show():

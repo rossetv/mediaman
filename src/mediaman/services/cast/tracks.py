@@ -299,9 +299,9 @@ def resolve(
 
     *audio_id* and *subtitle* (a track id or "off") are asked for this one start and come first,
     then what the person *remembered* for the title, then their defaults: *audio_lang* (None for
-    what Plex has selected) and *subtitle_lang* (None or "off" for none, a code for subtitles in
-    that language whenever the audio is in another). A forced track in the audio's language
-    shows unless subtitles were turned off for the title. Ids must be among the tracks.
+    what Plex has selected) and *subtitle_lang* (None for only what is needed, "off" for none, a
+    code for subtitles in that language whenever the audio is in another). A forced track in the
+    audio's language shows unless subtitles were turned off, for the title or by default. Ids must be among the tracks.
     """
     same = remembered is not None and remembered.rating_key == rating_key
     audio_ids = {t["id"] for t in audio}
@@ -327,6 +327,8 @@ def resolve(
         found = kept or _like(subtitles, remembered)
         if found is not None:
             return Pick(chosen, found)
+    if subtitle_lang == "off":
+        return Pick(chosen, None)
     wanted = normalise_language(subtitle_lang)
     if wanted is not None and wanted != playing:
         full = _full_in(subtitles, wanted)
