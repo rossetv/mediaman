@@ -37,7 +37,7 @@
 {% macro current(page) %}{% if active == page %} aria-current="page"{% endif %}{% endmacro %}
 
 <header class="nav-glass{% block nav_class %}{% endblock %}">
-  <a class="brand" href="/" aria-label="mediaman, home"{{ current('watch') }}>{{ icon("i-wordmark", "wordmark") }}</a>
+  <a class="brand" href="/" aria-label="mediaman, home"{{ current('watch') }}>{# Not from the sprite: WebKit does not animate the strokes of what is, and the name draws as Watch opens and undraws on log-out. #}<svg class="ico wordmark" viewBox="0 -735 4210 970" aria-hidden="true" focusable="false">{% include "_wordmark.html" %}</svg></a>
   {% block nav_center %}<a class="nav-back" href="/">{{ icon("i-chevron-left") }}Watch</a>{% endblock %}
   {# The menu needs its script. #}
   <noscript><a class="nav-noscript" href="/?dl=1">Downloads</a></noscript>

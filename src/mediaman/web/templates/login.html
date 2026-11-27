@@ -6,39 +6,60 @@
 {% block head %}<link rel="stylesheet" href="/static/css/_password.css?v={{ static_v }}">{% endblock %}
 
 {% block content %}
-<div class="login-page">
+{# is-entering: the card settles as the page opens; after a refusal it stands where it was and login.js makes room for the line. #}
+<div class="login-page login-page--signin{% if not error %} is-entering{% endif %}{% if signed_out %} is-out{% endif %}">
+  {# The lights, which Watch draws the same way, so the two pages meet on one frame. #}
+  <div class="mm-sky" aria-hidden="true"><i></i><i></i></div>
   <div class="login-card">
-    <h1 class="sr-only">Sign in to mediaman</h1>
-    <div class="login-brand{% if not error %} login-brand--drawn{% endif %}"><a href="/" aria-label="mediaman">{# Not from the sprite: WebKit does not animate what is. #}<svg class="ico wordmark" viewBox="0 -735 4210 970" aria-hidden="true" focusable="false">{% include "_wordmark.html" %}</svg></a></div>
-    <div class="login-sub">Sign in to your library</div>
+    <div class="login-head">
+      <h1 class="sr-only">Sign in to mediaman</h1>
+      <div class="login-brand{% if not error %} login-brand--drawn{% endif %}"><a href="/" aria-label="mediaman">{# Not from the sprite: WebKit does not animate what is. #}<svg class="ico wordmark" viewBox="0 -735 4210 970" aria-hidden="true" focusable="false">{% include "_wordmark.html" %}</svg></a></div>
+      <div class="login-sub"><span class="sub-main">Sign in to your library</span>
+        {#- Its words are put in by login.js once the page is up: a live region is only read out for what changes in it. #}
+        {%- if signed_out %}<span class="sub-out" role="status" data-said="Signed out. See you soon."><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>{% endif %}</div>
+    </div>
 
-    {% if error %}
-    <div class="error-msg" role="alert">{{ error }}</div>
-    {% endif %}
+    <div class="login-body">
+      {% if error %}
+      <div class="login-msg{% if wait %} is-wait{% endif %}" role="alert">
+        {%- if wait %}<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>
+        {%- else %}<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.4v.1"/></svg>{% endif -%}
+        <span>{{ error }}</span></div>
+      {% endif %}
+      {# Shown by login.js when the browser is offline, in place of a post that could not go. #}
+      <div class="login-msg is-wait" id="login-down" role="alert" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2.5 9a14 14 0 0 1 5-2.9M21.5 9A14 14 0 0 0 11 5.6M5.5 12.4a9 9 0 0 1 4-2M18.5 12.4a9 9 0 0 0-2.7-1.6M9 15.8a4.5 4.5 0 0 1 5.4-.6M12 19.3v.1M3 3l18 18"/></svg><span>Could not reach mediaman. Check your connection and try again.</span></div>
 
-    {# No action: it posts to the page's own address, which holds the page to go back to and its hash. #}
-    <form method="post" novalidate data-submit-guard>
-      <div class="login-field">
-        <label for="username">Username</label>
-        <input id="username" type="text" name="username"
-               autocomplete="username" autocapitalize="none" spellcheck="false"
-               {% if username %}value="{{ username }}"{% else %}autofocus{% endif %} required>
-      </div>
-
-      <div class="login-field">
-        <label for="password">Password</label>
-        <div class="pwd-box">
-          <input class="inp pwd-inp" id="password" type="password" name="password" autocomplete="current-password"
-                 data-show-password {% if username %}autofocus{% endif %} required>
-          {{ pw.eye("password", "password") }}
+      {# No action: it posts to the page's own address, which holds the page to go back to and its hash. #}
+      <form class="login-form" method="post" novalidate data-submit-guard>
+        <div class="login-field">
+          <label for="username">Username</label>
+          <div class="login-box">
+            <input id="username" type="text" name="username"
+                   autocomplete="username" autocapitalize="none" spellcheck="false"
+                   {% if username %}value="{{ username }}"{% else %}autofocus{% endif %} required>
+          </div>
         </div>
-      </div>
 
-      <button class="login-btn" type="submit">Sign in</button>
-    </form>
+        <div class="login-field">
+          <label for="password">Password</label>
+          <div class="login-box{% if error and not wait %} is-bad{% endif %}"><div class="pwd-box">
+            <input class="inp pwd-inp" id="password" type="password" name="password" autocomplete="current-password"
+                   data-show-password {% if username %}autofocus{% endif %} required>
+            {{ pw.eye("password", "password") }}
+          </div></div>
+        </div>
+
+        {# btn-hold takes over from btn-busy when the answer is slow (login.js), and is read out by #login-said. #}
+        <button class="login-btn" type="submit"><span class="btn-label">Sign in</span><span class="btn-busy" aria-hidden="true"><span class="btn-spinner"></span>Signing in…</span><span class="btn-hold" aria-hidden="true"><span class="btn-spinner"></span>Opening your library…</span></button>
+        <p class="sr-only" id="login-said" role="status"></p>
+      </form>
+    </div>
   </div>
 </div>
 <script src="/static/js/signed-out.js?v={{ static_v }}" defer></script>
 <script src="/static/js/submit-guard.js?v={{ static_v }}" defer></script>
 <script src="/static/js/show-password.js?v={{ static_v }}" defer></script>
 {% endblock %}
+
+{# Not deferred: it makes room for a refusal's line before the page is first drawn. #}
+{% block overlays %}<script src="/static/js/login.js?v={{ static_v }}"></script>{% endblock %}

@@ -15,7 +15,7 @@ global.document = {
   getElementById: () => null,
   querySelector: () => null,
 };
-global.window = {};
+global.window = { addEventListener: () => {} };
 require(process.argv[1]);
 console.log(JSON.stringify(calls));
 """

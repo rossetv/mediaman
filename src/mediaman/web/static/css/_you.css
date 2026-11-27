@@ -234,3 +234,10 @@
 @media (hover: hover) {
   .you.is-open ~ .ui-confirm-overlay .btn--danger:hover { background: var(--danger-solid-hover); }
 }
+
+/* Log-out (nav.js): the pane folds back into the avatar, or fades where the avatar is out of sight. */
+@media (prefers-reduced-motion: no-preference) {
+  html.is-leaving .you__veil { animation: mm-out var(--dur-slow) calc(var(--dur) * .7) var(--ease-out) both; }
+  html.is-leaving .you__panel { transform-origin: 0 0; animation: mm-fold calc(var(--dur) * 1.5) calc(var(--dur) * .7) var(--ease-out) both; }
+  html.is-leaving.is-leaving-flat .you__panel { animation: mm-out calc(var(--dur) * 1.5) calc(var(--dur) * .7) var(--ease-out) both; }
+}
