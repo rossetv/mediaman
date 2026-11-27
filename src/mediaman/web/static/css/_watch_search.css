@@ -461,6 +461,9 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .results-dl__text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
 .results-dl__text b { overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .results-dl__text small { font-size: 12px; color: var(--t3); font-variant-numeric: tabular-nums; }
+/* On the plain row the scores need none of the shade that lifts them off a poster, and sit a step under the title. */
+.results-dl__text > .watch-card__scores { flex: none; margin-bottom: 4px; color: var(--t2); font-weight: 600; text-shadow: none; }
+.results-dl__text .watch-score > .ico { filter: none; }
 .results-dl:focus-visible { background: var(--s3); outline: 2px solid var(--accent); outline-offset: -2px; }
 .results-dl:active { background: var(--s3); }
 @media (hover: hover) { .results-dl:hover { background: var(--s3); } }
@@ -601,8 +604,21 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .watch-search.is-ai .watch-search__pill::after { opacity: 1; animation: watch-ai-sheen 1.1s var(--ease-out) 1; }
 .watch-search.is-ai .watch-search__pill i::after { opacity: 0; transition-delay: 0s; }
 .watch-search.is-ai .watch-search__pill i::before { background: linear-gradient(100deg, color-mix(in srgb, var(--ai-a) 9%, transparent), color-mix(in srgb, var(--ai-b) 6%, transparent)); }
-.watch-search.is-ai .watch-search__halo { outline-color: color-mix(in srgb, var(--ai-a) 22%, transparent); }
-.watch-search.is-ai .watch-search__halo::after { box-shadow: 0 0 48px color-mix(in srgb, var(--ai-b) 30%, transparent); }
+/* The ring's own light stands in for the focus halo, whose edge and dropped glow would read as a second border. */
+.watch-search.is-focus.is-ai .watch-search__halo { opacity: 0; transition-delay: 0s; }
+.wbar .watch-search.is-ai::before { border-color: transparent; box-shadow: none; }
+/* Even all round, purple to the left and pink to the right as on the ring. A shadow is drawn only outside its box, so the field stays clear. */
+.wbar .watch-search::after {
+  content: "";
+  position: absolute;
+  inset: 0 var(--dr) var(--db) var(--dl);
+  border-radius: 28px;
+  box-shadow: var(--glow-ai);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-slow) var(--ease-out), inset var(--dur-open) var(--ease-spring);
+}
+.watch-search.is-ai::after { opacity: 1; }
 .watch-search.is-ai .watch-search__lens { color: var(--purple-text); }
 .watch-search.is-ai .watch-search__input { caret-color: var(--ai-b); }
 @keyframes watch-ai-sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
@@ -646,6 +662,8 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 @media (prefers-reduced-motion: reduce) {
   .watch-search.is-ai .watch-search__pill::after,
   .watch-search.is-ai .watch-search__ai > .ico { animation: none; }
+  .watch-search__pill::after,
+  .wbar .watch-search::after { transition-property: opacity !important; transition-duration: var(--dur-fast) !important; }
 }
 @media (forced-colors: active) {
   .watch-search .watch-search__ai { border: 1px solid ButtonText; color: ButtonText; background: ButtonFace; }

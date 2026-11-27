@@ -131,3 +131,53 @@ def test_on_a_phone_held_sideways_the_pill_folds_once_the_field_is_left() -> Non
 def test_a_person_chip_s_initials_sit_in_the_middle_of_its_face() -> None:
     face = _body(CSS, ".watch-try--for > .watch-face")
     assert _decl(face, "display") == "grid" and _decl(face, "place-items") == "center"
+
+
+GLOW = ".wbar .watch-search::after"
+GLOW_ON = ".watch-search.is-ai::after"
+
+
+def test_the_ai_glow_hugs_the_field_as_the_ring_does() -> None:
+    glow, ring = _body(CSS, GLOW), _body(CSS, ".watch-search__pill::after")
+    assert _decl(glow, "inset") == _decl(ring, "inset")
+    assert _decl(glow, "border-radius") == "28px"
+
+
+def _top_level(value: str) -> list[str]:
+    parts, depth, start = [], 0, 0
+    for i, ch in enumerate(value):
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if ch == "," and depth == 0:
+            parts.append(value[start:i])
+            start = i + 1
+    return [*parts, value[start:]]
+
+
+def test_the_ai_glow_falls_evenly_all_round_and_never_below() -> None:
+    assert _decl(_body(CSS, GLOW_ON), "opacity") == "1"
+    assert _decl(_body(CSS, GLOW), "box-shadow") == "var(--glow-ai)"
+    shadows = _top_level(" ".join(_token("glow-ai").split()))
+    assert len(shadows) >= 2
+    for shadow in shadows:
+        offsets = re.match(r"(-?[\d.]+)(?:px)? (-?[\d.]+)(?:px)?", shadow.strip())
+        assert offsets, shadow
+        assert float(offsets.group(2)) == 0, f"a glow cast downward pools: {shadow}"
+        assert any(f"var(--{c})" in shadow for c in AI.values()), shadow
+
+
+def test_in_ai_mode_the_focus_halo_gives_way_so_no_second_edge_shows() -> None:
+    body = _body(CSS, ".watch-search.is-focus.is-ai .watch-search__halo")
+    assert _decl(body, "opacity") == "0"
+
+
+def test_in_ai_mode_the_glass_has_no_lit_top_edge_inside_the_ring() -> None:
+    body = _body(CSS, ".wbar .watch-search.is-ai::before")
+    assert _decl(body, "border-color") == "transparent"
+
+
+def test_where_motion_is_unwanted_the_ai_ring_and_glow_only_fade_quickly() -> None:
+    still = " ".join(_media_blocks(CSS, REDUCE))
+    for selector in (".watch-search__pill::after", GLOW):
+        body = _body(still, selector)
+        assert _decl(body, "transition-property") == "opacity !important", selector
+        assert _decl(body, "transition-duration") == "var(--dur-fast) !important", selector

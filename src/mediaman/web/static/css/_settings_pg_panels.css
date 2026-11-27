@@ -12,9 +12,8 @@
 
 .setg-pg .ov-hero {
   display: grid; gap: 16px;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
-@media (max-width: 820px) { .setg-pg .ov-hero { grid-template-columns: minmax(0, 1fr); } }
 .setg-pg .ov-card {
   background: var(--s1);
   border: 1px solid var(--hair);
@@ -32,8 +31,10 @@
   font-size: 36px; font-weight: 600; letter-spacing: -.03em; line-height: 1.02;
   font-family: var(--font-display);
   overflow-wrap: anywhere;
+  /* The figure and its note wrap as whole pieces, the note starting flush left under it. */
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 6px;
 }
-.setg-pg .ov-card .big small { font-size: 15px; font-weight: 400; color: var(--t3); letter-spacing: -.01em; margin-left: 8px; }
+.setg-pg .ov-card .big small { font-size: 15px; font-weight: 400; color: var(--t3); letter-spacing: -.01em; white-space: nowrap; }
 .setg-pg .ov-card .support { font-size: 13px; color: var(--t3); margin-top: 8px; line-height: 1.5; }
 .setg-pg .ov-card .ov-foot { margin-top: auto; padding-top: 18px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .setg-pg .ov-card .ov-foot .btn { max-width: 100%; white-space: normal; }
@@ -58,8 +59,15 @@
 .setg-pg .ov-scan {
   background: linear-gradient(180deg, rgba(41,151,255,.05), rgba(41,151,255,0) 80%), var(--s1);
   border-color: rgba(41,151,255,.14);
+  min-height: 0;
+  padding: 22px 28px 20px;
 }
-.setg-pg .ov-scan .when { font-size: 14px; color: var(--t2); margin-top: 14px; }
+.setg-pg .ov-scan .lbl { margin-bottom: 12px; }
+.setg-pg .ov-scan .big { font-size: 28px; }
+.setg-pg .ov-scan .big small { font-size: 17px; font-weight: 500; color: var(--t2); font-variant-numeric: tabular-nums; }
+.setg-pg .ov-scan .when { font-size: 14px; color: var(--t2); margin-top: 10px; overflow-wrap: anywhere; }
+.setg-pg .ov-scan .support { margin-top: 4px; }
+.setg-pg .ov-scan .ov-foot { padding-top: 14px; }
 .setg-pg .ov-scan .when b { color: var(--t1); font-weight: 500; }
 
 .setg-pg .ov-status {

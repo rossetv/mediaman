@@ -23,7 +23,7 @@ class Rating:
 
 @dataclass(frozen=True, slots=True)
 class Seen:
-    """A title marked watched. It is not told to the AI, only left out of what it names."""
+    """A title marked watched, which the AI is never to name."""
 
     media_type: str
     tmdb_id: int

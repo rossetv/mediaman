@@ -429,3 +429,60 @@ def test_a_kind_of_event_with_none_shows_no_count_so_the_row_stays_short() -> No
 
 def test_the_keyboard_clears_the_tools_by_their_own_height_as_it_changes() -> None:
     assert _run("toolsHeight") == "196px"
+
+
+def test_on_a_phone_the_pills_and_chips_tuck_away_going_down_and_come_back_going_up() -> None:
+    # 50: not yet past the pills; 150: down; 140: a jiggle up keeps them away; 100: up for real;
+    # 300: down again; 40: back near the top, where all the tools always show.
+    assert _run("tuck") == [False, True, True, False, True, False, "100px"]
+
+
+def test_in_the_wide_panel_the_tools_never_tuck() -> None:
+    assert _run("tuckWide")[:6] == [False] * 6
+
+
+def test_the_keyboard_reaching_a_tucked_pill_brings_the_tools_back() -> None:
+    assert _run("tuckFocus") == [True, False]
+
+
+def test_the_day_whose_head_is_stuck_under_the_tools_is_marked_and_takes_the_tools_hairline() -> (
+    None
+):
+    stuck, none = _run("dayStuck")
+    assert stuck == {"stuck": [False, True, False], "tools": True}
+    assert none == {"stuck": [False, False, False], "tools": False}
+
+
+def test_the_count_sits_on_the_first_days_line_and_survives_a_reload_of_the_list() -> None:
+    # Listed: on the first day's line. Loading: back among the filters, hidden there.
+    # Answered: on the new first day once. Nothing listed: among the filters.
+    assert _run("sumPlace") == ["day", "hx-filters", True, "day", 1, "hx-filters"]
+
+
+def test_the_stored_record_is_set_as_code_and_the_other_details_as_text() -> None:
+    assert _run("record") == [None, None, "CODE.hx-rec"]
+
+
+def test_the_date_menus_button_is_primary_and_waits_for_a_date_and_its_fields_are_fields() -> None:
+    out = _run("dateButton")
+    assert "btn--primary" in out[0] and "inp" in out[1].split()
+    assert out[2:] == [True, False, True]
+
+
+def test_a_row_of_kinds_wider_than_the_pane_has_mouse_arrows_that_page_it_and_show_only_where_more_is_hidden() -> (
+    None
+):
+    out = _run("kindArrows")
+    assert out["start"] == ["has-next"]
+    assert out["top"] == "58px"
+    # Pointer-only, like the poster rows' arrows: the pills themselves are what Tab reaches.
+    assert [a[1:] for a in out["arrows"]] == [["true", "-1", True]] * 2
+    assert [s["behavior"] for s in out["scrolled"]] == ["smooth"]
+    assert out["scrolled"][0]["left"] > 0
+    assert out["end"] == ["has-prev"]
+    assert out["back"][0]["left"] < 0
+    assert out["fits"] == []
+
+
+def test_with_reduced_motion_the_kinds_arrows_jump_rather_than_glide() -> None:
+    assert [s["behavior"] for s in _run("kindArrowsReduced")["scrolled"]] == ["auto"]

@@ -77,6 +77,7 @@ from mediaman.web.routes.watch.card_marks import (
     card_marks,
     latest_season_out,
     marked,
+    scored,
     title_key,
     tmdb_ref,
 )
@@ -201,11 +202,14 @@ def api_watch_search_tmdb(
     return respond_ok(
         {
             "tmdb_configured": True,
-            "items": [
-                marked({**card, **lib.mark_fields(None, set())}, marks)
-                for card in cards
-                if not card["in_library"]
-            ],
+            "items": scored(
+                conn,
+                [
+                    marked({**card, **lib.mark_fields(None, set())}, marks)
+                    for card in cards
+                    if not card["in_library"]
+                ],
+            ),
             "held": library_items(conn, username, libraries, held),
             "people": catalog.people(found),
         }
@@ -297,7 +301,7 @@ def api_watch_similar(
         {
             "tmdb_configured": True,
             "title": {k: v for k, v in named.items() if not k.startswith("tmdb_")},
-            "items": [marked(c, marks) for c in shown],
+            "items": scored(conn, [marked(c, marks) for c in shown]),
         }
     )
 
@@ -394,7 +398,7 @@ def api_watch_discover(
         {
             "id": shelf_id,
             "title": title,
-            "items": [marked(card, marks) for card in row_cards],
+            "items": scored(conn, [marked(card, marks) for card in row_cards]),
             "next_page": 2,
         }
         for (shelf_id, title, _), row_cards in zip(shelves, cards, strict=True)
@@ -465,7 +469,7 @@ def _discover_page(
         return respond_err("tmdb_request_failed", status=502)
     [cards] = _discover_cards(request, conn, client, username, [found])
     marks = card_marks(seen_titles.person_marks(conn, username), client)
-    items = [marked(card, marks) for card in cards]
+    items = scored(conn, [marked(card, marks) for card in cards])
     return respond_ok({"tmdb_configured": True, "items": items, "next_page": next_page})
 
 
@@ -1415,7 +1419,7 @@ def api_watch_title_collection(
     films = collection["films"]
     [found_cards] = _discover_cards(request, conn, client, username, [films])
     marks = card_marks(seen_titles.person_marks(conn, username), client)
-    cards = [marked(card, marks) for card in found_cards]
+    cards = scored(conn, [marked(card, marks) for card in found_cards])
     arr = _arr(request, conn)
     radarr = "not_set_up" if "radarr" in arr.not_set_up else None
     if radarr is None and not arr.answers_for("movie"):

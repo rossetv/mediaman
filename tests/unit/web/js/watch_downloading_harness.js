@@ -171,6 +171,16 @@ const scenarios = {
     await p.step(5000);
     return { same: p.card('A') === node, line: p.line('A'), fill: node.style.set['--p'] };
   },
+  // What critics scored a title, over its name, drawn once and redrawn only when it changes.
+  async scores() {
+    const p = load([answer([item('A', { rt: 88, imdb: '7.4' }), item('B')]), answer([item('A', { rt: 88, imdb: '7.4' }), item('B', { rt: 30 })])]);
+    await p.step(10);
+    const of = (t) => { const s = p.card(t).querySelectorAll('.watch-card__scores'); return s.length ? [s.length, s[0].nextSibling.className, s[0].textContent] : null; };
+    const first = { a: of('A'), b: of('B') };
+    const drawn = p.card('A').querySelector('.watch-card__scores');
+    await p.step(5000);
+    return { first, a: of('A'), b: of('B'), kept: p.card('A').querySelector('.watch-card__scores') === drawn };
+  },
   async sole() {
     const p = load([answer([item('A'), item('B')]), answer([item('A')])]);
     await p.step(10);

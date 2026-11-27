@@ -14,22 +14,28 @@ from typing import Literal
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.services.watch_catalog import normalise_title
 
-_PLAYS_SQL = """
+# A watch_progress row's movie, or its episode's show, as (is_movie, title, tmdb_id).
+_PROGRESS_TITLE = """
 SELECT wp.show_rating_key IS NULL AS is_movie,
        CASE WHEN wp.show_rating_key IS NULL THEN mi.title
             ELSE COALESCE(mi.show_title, s.show_title, mi.title) END AS title,
        CASE WHEN wp.show_rating_key IS NULL THEN mi.tmdb_id
-            ELSE COALESCE(s.tmdb_id, mi.tmdb_id) END AS tmdb_id,
+            ELSE COALESCE(s.tmdb_id, mi.tmdb_id) END AS tmdb_id,"""
+
+_PROGRESS_JOINS = """
+FROM watch_progress wp
+LEFT JOIN media_items mi ON mi.id = wp.media_item_id
+LEFT JOIN (SELECT show_rating_key, MAX(show_title) AS show_title, MAX(tmdb_id) AS tmdb_id
+           FROM media_items WHERE show_rating_key IS NOT NULL GROUP BY show_rating_key) s
+  ON s.show_rating_key = wp.show_rating_key"""
+
+_PLAYS_SQL = f"""{_PROGRESS_TITLE}
        wp.updated_at AS played_at, 0 AS in_plex, wp.rating_key AS part,
        (wp.watched = 1 OR wp.seen_at IS NOT NULL) AS done,
        CASE WHEN wp.watched = 1 AND julianday(wp.updated_at) - julianday(wp.seen_at) >= 7
             THEN 1 ELSE 0 END AS again,
        CASE WHEN wp.duration_s > 0 THEN wp.position_s / wp.duration_s END AS share
-FROM watch_progress wp
-LEFT JOIN media_items mi ON mi.id = wp.media_item_id
-LEFT JOIN (SELECT show_rating_key, MAX(show_title) AS show_title, MAX(tmdb_id) AS tmdb_id
-           FROM media_items WHERE show_rating_key IS NOT NULL GROUP BY show_rating_key) s
-  ON s.show_rating_key = wp.show_rating_key
+{_PROGRESS_JOINS}
 -- A row made by a mark was never played; its time is the epoch's.
 WHERE wp.username = :username AND wp.updated_at > '1971'
   AND (wp.credited_at IS NOT NULL OR wp.watched = 1 OR wp.seen_at IS NOT NULL)
@@ -44,6 +50,18 @@ WHERE p.username = :username AND p.media_type IN ('movie', 'episode')
 UNION ALL
 SELECT media_type = 'movie', title, tmdb_id, played_at, 0, NULL, 0, 0, NULL
 FROM played_titles WHERE username = :username
+ORDER BY 4 DESC
+"""
+
+
+_MARKS_SQL = f"""{_PROGRESS_TITLE} wp.seen_at AS seen_at
+{_PROGRESS_JOINS}
+WHERE wp.username = :username AND wp.updated_at <= '1971'
+  AND (wp.watched = 1 OR wp.seen_at IS NOT NULL)
+UNION ALL
+SELECT t.media_type = 'movie', t.title, t.tmdb_id, t.seen_at
+FROM user_seen_titles t JOIN admin_users u ON u.id = t.user_id
+WHERE u.username = :username
 ORDER BY 4 DESC
 """
 
@@ -161,3 +179,29 @@ def person_plays(conn: sqlite3.Connection, username: str) -> list[PlayedTitle]:
         at = parse_iso_strict_utc(play.last_played)
         plays.append(replace(play, note=courses[key].note(play.kind, now - at if at else None)))
     return plays
+
+
+def marked_titles(
+    conn: sqlite3.Connection, username: str, plays: list[PlayedTitle]
+) -> list[PlayedTitle]:
+    """The movies and shows *username* marked watched and never played, each once, the last
+    marked first: those of *plays* are left out. A mark kept without its title has its TMDB id
+    alone."""
+    known: set[tuple[str, object]] = set()
+    for p in plays:
+        known.add((p.kind, normalise_title(p.title)))
+        if p.tmdb_id:
+            known.add((p.kind, p.tmdb_id))
+    marked: list[PlayedTitle] = []
+    for row in conn.execute(_MARKS_SQL, {"username": username}):
+        title = (row["title"] or "").strip()
+        kind: Literal["movie", "tv"] = "movie" if row["is_movie"] else "tv"
+        keys: set[tuple[str, object]] = {
+            *([(kind, normalise_title(title))] if normalise_title(title) else []),
+            *([(kind, row["tmdb_id"])] if row["tmdb_id"] else []),
+        }
+        if not keys or keys & known:
+            continue
+        known |= keys
+        marked.append(PlayedTitle(kind, title, row["tmdb_id"], row["seen_at"] or "", False))
+    return marked

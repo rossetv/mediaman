@@ -332,7 +332,7 @@ def test_a_title_that_is_gone_offers_no_try_again() -> None:
     assert _run("loadNotFound") == ["Close"]
 
 
-def test_download_turns_into_queued_then_downloading_then_in_library_in_place() -> None:
+def test_download_turns_into_queued_then_downloading_then_ready_to_watch_in_place() -> None:
     out = _run("downloadMovie")
     assert out["busy"]["text"] == "Adding…"
     assert out["posts"] == [
@@ -354,7 +354,7 @@ def test_download_turns_into_queued_then_downloading_then_in_library_in_place() 
     assert out["downloading"]["note"] == "Follow it in Downloading."
     assert out["downloading"]["to"] == "/?dl=1"
     assert out["downloading"]["opener"] is True
-    assert out["done"]["primary"]["text"] == "In library"
+    assert out["done"]["primary"]["text"] == "Ready to watch"
     assert "Added just now" in out["done"]["note"]
     named = {"ref": "tmdb-movie-77", "title": "Meridian", "kind": "movie", "year": 2026}
     assert out["events"] == [
@@ -417,9 +417,9 @@ def test_a_queued_download_that_does_not_move_is_polled_less_often_and_not_after
     assert out["pollsAfterClose"] == 0
 
 
-def test_a_title_the_arr_already_holds_says_in_library_without_added_just_now() -> None:
+def test_a_title_the_arr_already_holds_says_ready_to_watch_without_added_just_now() -> None:
     out = _run("heldInLibrary")
-    assert out["primary"] == "In library"
+    assert out["primary"] == "Ready to watch"
     assert not any("Added just now" in n for n in out["notes"])
 
 
@@ -482,7 +482,7 @@ def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_tha
     out = _run("downloadAlreadyThere")
     for name in ("queued", "downloading", "none", "noneYet", "failed", "inLibrary"):
         run = out[name]
-        # Neither an error nor "In library" before the reply answers; nothing told the cards yet.
+        # Neither an error nor "Ready to watch" before the reply answers; nothing told the cards yet.
         assert run["at409"]["primary"]["text"] == "Adding…", name
         assert run["at409"]["primary"]["disabled"] is True, name
         assert (run["at409"]["error"], run["at409"]["retry"]) == (False, False), name
@@ -539,7 +539,7 @@ def test_a_show_sonarr_already_tracks_is_already_in_sonarr_unless_its_reply_says
     for name, state, pct, text, polls in (
         ("queued", "queued", None, "Queued", 1),
         ("downloading", "downloading", 40, "Downloading 40%", 1),
-        ("allThere", "in_library", None, "In library", 0),
+        ("allThere", "in_library", None, "Ready to watch", 0),
     ):
         run = out[name]
         assert run["at409"]["primary"] == "Already added", name
@@ -857,7 +857,9 @@ def test_a_pick_is_downloaded_whole_or_by_its_picked_seasons() -> None:
     assert out["withComing"]["body"] is None
 
 
-def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
+def test_a_show_sonarr_tracks_or_fully_held_offers_no_download_and_a_held_one_says_all_seasons_are_ready() -> (
+    None
+):
     out = _run("tvBlocked")
     assert out["tracked"] == {
         "primary": {
@@ -867,7 +869,7 @@ def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
         },
         "button": False,
     }
-    assert out["all"]["primary"]["text"] == "All seasons in library"
+    assert out["all"]["primary"]["text"] == "All seasons ready to watch"
     assert out["all"]["button"] is False
 
 

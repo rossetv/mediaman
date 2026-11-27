@@ -36,7 +36,7 @@ from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.seen_titles import TitleKey, person_marks
 from mediaman.web.repository.watch_progress import get_progress
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes.watch.card_marks import card_marks, title_key
+from mediaman.web.routes.watch.card_marks import card_marks, scored, title_key
 from mediaman.web.routes.watch.catalog_api import held_fields
 from mediaman.web.routes.watch.pages import movie_subtitle, poster_url, resumable, show_subtitle
 
@@ -86,6 +86,7 @@ def api_watch_asked(request: Request, username: str = Depends(get_current_user))
         {**item, **marks(_title_of(item), item["library_ref"], bool(item["watched"]))}
         for item in row.items(requests)
     ]
+    scored(conn, items)
     asked.remember_shown(conn, username, requests, row.shown)
     complete = all(row.arr.answers_for(kind) for kind in row.asked_of)
     return respond_ok({"items": items[:_LIMIT], "complete": complete})

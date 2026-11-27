@@ -1,7 +1,7 @@
 {# Shared pieces of the Watch pages. Import with:
        {% import "_watch_card.html" as w %}
    watch/browse.js and watch/search.js build the same card markup, and watch/core.js
-   the same marks; keep them in step. #}
+   the same marks and scores; keep them in step. #}
 {% from "_components.html" import icon %}
 
 {% macro dur(minutes) -%}
@@ -54,7 +54,7 @@
   {%- endif -%}
 {%- endmacro %}
 
-{# A title's download state on its poster: "In library", "Queued" or "↓ 42%";
+{# A title's download state on its poster: "Ready to watch", "Queued" or "↓ 42%";
    none means it can be downloaded. browse.js builds the same badge. #}
 {% macro state_badge(item) -%}
   {%- if item.download_state == "downloading" -%}
@@ -62,8 +62,20 @@
   {%- elif item.download_state == "queued" -%}
 <span class="watch-badge watch-badge--state watch-badge--queued">{{ icon("i-clock") }}Queued</span>
   {%- elif item.in_library or item.download_state in ("in_library", "partial") -%}
-<span class="watch-badge watch-badge--state watch-badge--in">{{ icon("i-check") }}In library</span>
+<span class="watch-badge watch-badge--state watch-badge--in">{{ icon("i-check") }}Ready to watch</span>
   {%- endif -%}
+{%- endmacro %}
+
+{# What critics scored the title, over its poster above the name: Rotten Tomatoes, fresh from 60%,
+   and IMDb, else TMDB. Nothing where it has neither. watch/core.js builds the same. #}
+{% macro scores(item) -%}
+{%- set rated = item.imdb or ("%.1f"|format(item.rating) if item.rating is number and item.rating > 0 else none) -%}
+{%- if item.rt is number or rated -%}
+<span class="watch-card__scores">
+  {%- if item.rt is number %}<span class="watch-score watch-score--rt {{ 'is-fresh' if item.rt >= 60 else 'is-rotten' }}">{{ icon("i-tomato" if item.rt >= 60 else "i-splat") }}<span class="sr-only">Rotten Tomatoes </span>{{ item.rt }}%</span>{% endif -%}
+  {%- if rated %}<span class="watch-score">{{ icon("i-star") }}<span class="sr-only">{{ "IMDb" if item.imdb else "TMDB" }} </span>{{ rated }}</span>{% endif -%}
+</span>
+{%- endif -%}
 {%- endmacro %}
 
 {# The person's own Watched mark, on a poster. Its toggle is the card's eye. #}
@@ -135,6 +147,7 @@
   <a class="watch-card__link"{% if item.href %} href="{{ item.href }}"{% else %} tabindex="0"{% endif %}{% if ref %} data-title-ref="{{ ref }}"{% endif %}>
     <span class="watch-card__poster">
       {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" loading="lazy" data-broken-on-error>{% endif %}
+      {{ scores(item) }}
       <span class="watch-card__title">{{ item.title }}</span>
       {% if item.leaving_days is not none %}{{ leaving_badge(item.leaving_days, item.leaving_season) }}{% endif %}
       {{ state_badge(item) }}

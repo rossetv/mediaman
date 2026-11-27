@@ -31,7 +31,7 @@ from mediaman.services.infra import disk_cache, get_bool_setting
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai import search_assist as ai
 from mediaman.services.openai.client import OpenAIUnavailable, get_openai_key, key_refused
-from mediaman.services.openai.recommendations.plays import person_plays
+from mediaman.services.openai.recommendations.plays import marked_titles, person_plays
 from mediaman.services.openai.search_assist import tonight
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
@@ -436,9 +436,11 @@ def api_ask(
     skip: frozenset[tuple[str, int]] = frozenset()
     skip_titles: frozenset[tuple[str, str]] = frozenset()
     if ai.is_personal(text) and repo.uses_history(conn, user_id):
-        # Answered from their taste, so asked afresh once it changes; never what they played.
+        # Answered from their taste, so asked afresh once it changes; never what they played
+        # or marked watched.
         key += "\n" + repo.taste_stamp(conn, user_id, username)
         plays = person_plays(conn, username)
+        plays += marked_titles(conn, username, plays)
         skip = frozenset((p.kind, p.tmdb_id) for p in plays if p.tmdb_id)
         # A play's year is not known, so its title alone stands for it.
         skip_titles = frozenset(

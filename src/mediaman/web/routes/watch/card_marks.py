@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -13,7 +14,9 @@ from mediaman.core.time import now_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.web.repository.search import held_scores
 from mediaman.web.repository.seen_titles import PersonMarks, TitleKey
+from mediaman.web.routes.watch import ratings_warm
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +83,23 @@ def marked(card: Mapping[str, Any], marks: CardMarks) -> dict[str, object]:
     return {**card, **marks(key, card["library_ref"], bool(card["watched"]))}
 
 
+def scored(conn: sqlite3.Connection, cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """*cards*, each of a TMDB title given in place, and in one read, the Rotten Tomatoes score
+    and IMDb rating the ratings cache holds of it. OMDb is never asked here: each title is
+    noted for the background job, which asks of those the cache holds no fresh row of."""
+    by_key: dict[TitleKey, list[dict[str, Any]]] = {}
+    for card in cards:
+        ref = card.get("tmdb_ref")
+        if isinstance(ref, str):
+            _, media_type, tmdb_id = ref.split("-")
+            by_key.setdefault((media_type, int(tmdb_id)), []).append(card)
+    for key, scores in held_scores(conn, list(by_key)).items():
+        for card in by_key[key]:
+            card.update(scores)
+    ratings_warm.want(group[0] for group in by_key.values())
+    return cards
+
+
 def _has_newer_season(client: TmdbClient | None, tmdb_id: int, through: int, today: date) -> bool:
     if client is None:
         return False
@@ -123,4 +143,12 @@ def _ask_later(client: TmdbClient, tmdb_id: int) -> None:
             _asking.discard(tmdb_id)
 
 
-__all__ = ["CardMarks", "card_marks", "latest_season_out", "marked", "title_key", "tmdb_ref"]
+__all__ = [
+    "CardMarks",
+    "card_marks",
+    "latest_season_out",
+    "marked",
+    "scored",
+    "title_key",
+    "tmdb_ref",
+]

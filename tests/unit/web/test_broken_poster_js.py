@@ -59,19 +59,35 @@ def test_a_picture_with_another_to_try_is_marked_only_when_that_one_fails_too() 
     assert out["wide"][0] == {"src": None, "marked": False, "retrying": False}
 
 
-def test_a_picture_that_failed_is_marked_at_once_and_tried_twice_behind_its_stand_in() -> None:
+def test_a_failed_picture_is_marked_at_once_and_tried_three_times_behind_its_stand_in() -> None:
     out = _run()["tries"]
     assert out["comesBack"]["seen"][:2] == [[True, 0, 0], [True, 1, 0]]
     assert out["comesBack"]["seen"][-1] == [False, 1, 1]
     assert out["second"]["seen"][3] == [True, 2, 0]
     assert out["second"]["seen"][-1] == [False, 2, 1]
     assert out["early"]["seen"] == [[True, 1, 0], ["coming", 1, 1]]
-    assert out["never"]["seen"][-1] == [True, 2, 0]
+    assert out["never"]["seen"][-1] == [True, 3, 0]
     assert all(marked for marked, *_ in out["never"]["seen"])
     # What the try found may fail on the page all the same; that does not go on for ever.
-    assert out["failsAgain"]["seen"][-1] == [True, 2, 2]
+    assert out["failsAgain"]["seen"][-1] == [True, 3, 3]
     # One that loaded and failed later has its tries back.
     assert out["laterAgain"]["seen"][-1] == [True, 3, 1]
+
+
+def test_a_picture_that_failed_before_it_was_on_the_page_is_marked_and_tried_again() -> None:
+    out = _run()["tries"]
+    # Its error event went nowhere: it is found failed as it arrives.
+    assert out["failedAway"]["seen"][0] == [True, 0, 0]
+    assert out["failedAway"]["seen"][-1] == [False, 1, 1]
+    # One already marked is not given a second set of tries by arriving.
+    assert out["arrivesMarked"]["seen"][-1] == [True, 1, 0]
+
+
+def test_a_marked_picture_given_another_address_that_loads_is_shown() -> None:
+    out = _run()["tries"]
+    assert [mark for mark, *_ in out["swapped"]["seen"]] == [True, True, "coming", False]
+    # Wide art is still judged by its shape first.
+    assert out["swappedWide"]["seen"][-1][0] is True
 
 
 def test_a_picture_that_comes_back_fades_in_unless_motion_is_reduced() -> None:
@@ -103,13 +119,15 @@ def test_the_last_try_comes_after_the_route_stops_refusing_and_the_first_comes_s
     waits = _run()["tries"]["never"]["waits"]
     first, last = waits[0], max(waits)
     assert first <= 5000
+    # One comes while a person still waits on the page.
+    assert sorted(waits)[1] <= 30000
     assert last > 1000 * max(image_api._IMG_LIMITER._window, disk_cache.BACKOFF_S)
     assert waits.index(last) > 0
 
 
 def test_pictures_that_failed_together_are_asked_for_a_few_at_a_time() -> None:
     for name, got in _run()["crowds"].items():
-        assert got["total"] == 200, name
+        assert got["total"] == 300, name
         assert got["most"] <= 4, name
         assert got["inSecond"] <= 8, name
 
@@ -122,4 +140,4 @@ def test_pictures_in_view_are_asked_for_before_those_further_on() -> None:
 
 def test_a_picture_that_fails_again_while_it_waits_has_no_second_set_of_tries() -> None:
     out = _run()["tries"]
-    assert out["sameAgain"]["seen"][-1] == out["sameAgainAsking"]["seen"][-1] == [True, 2, 0]
+    assert out["sameAgain"]["seen"][-1] == out["sameAgainAsking"]["seen"][-1] == [True, 3, 0]

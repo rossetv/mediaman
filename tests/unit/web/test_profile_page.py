@@ -254,7 +254,7 @@ def test_the_ai_part_is_there_for_everyone_and_hidden_until_the_ai_is_known_to_b
 
 # Each fact: the part of the fold it belongs to, and words that must all be in one line of it.
 _SENT = [
-    ("always", "played"),
+    ("always", "played", "marked as watched"),
     ("always", "recent picks"),
     ("always", "suggested before", "year", "description", "reason", "choose from"),
     ("always", "picks", "titles", "played", "led to each"),
@@ -264,7 +264,6 @@ _SENT = [
     ("history", "picks", "searches", "ratings", "requests", "plays went"),
     ("history", "questions", "daily phrases", "searches", "plays", "liked", "disliked"),
     ("never", "account name"),
-    ("never", "marked as watched", "not"),
 ]
 
 
@@ -296,6 +295,7 @@ def test_each_thing_openai_is_sent_is_said_in_the_right_part_beside_its_switch(
 
     for part, *words in _SENT:
         assert any(all(w in line for w in words) for line in lines[part]), (part, words)
+    assert lines["never"] == ["Your account name."] or lines["never"] == ["An account name."]
     # what only history sends is never said to go always
     assert not any(w in line for line in lines["always"] for w in ("searches", "ratings", "liked"))
     said = " ".join([short, *(line for part in lines.values() for line in part)])
@@ -305,7 +305,7 @@ def test_each_thing_openai_is_sent_is_said_in_the_right_part_beside_its_switch(
 # Each of the three sentences always in view beside a switch, by the words it must hold.
 _SHORT = {
     "profile": [
-        ("titles you played", "Plex’s own apps", "linked"),
+        ("titles you played or marked as watched", "Plex’s own apps", "linked"),
         ("With this on", "searches", "ratings", "requests"),
         ("never", "account name"),
     ],

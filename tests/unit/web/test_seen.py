@@ -632,7 +632,9 @@ class TestGuards:
 
 _READERS = {
     "db/schema_definition.py",
+    "services/openai/recommendations/plays.py",
     "services/openai/recommendations/taste.py",
+    "web/repository/search_assist.py",
     "web/repository/seen_titles.py",
 }
 

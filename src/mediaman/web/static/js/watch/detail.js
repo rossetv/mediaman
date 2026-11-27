@@ -2023,7 +2023,7 @@
     var k = stateOf(cur.ref);
     var rec = !!cur.pickRef;
     if (k.state === 'in_library' || cur.justAdded) {
-      actions.appendChild(d.play && d.in_library ? playLink(d.play) : statePill('dl-state--done', 'In library', 'i-circle-check'));
+      actions.appendChild(d.play && d.in_library ? playLink(d.play) : statePill('dl-state--done', 'Ready to watch', 'i-circle-check'));
       if (cur.addedNow) under.appendChild(note('In your library. Added just now.', 'i-circle-check', 'ttl__note-ok'));
       return;
     }
@@ -2079,7 +2079,7 @@
       return;
     }
     if (tv && allHeld(d)) {
-      actions.appendChild(statePill('dl-state--done', 'All seasons in library', 'i-circle-check'));
+      actions.appendChild(statePill('dl-state--done', 'All seasons ready to watch', 'i-circle-check'));
       return;
     }
     if (d.download.answered === false && !cur.arrQuiet) {
@@ -2182,7 +2182,7 @@
     var count = s.episode_count ? plural(s.episode_count, 'episode', 'episodes') : '';
     var no = REFUSED[s.refusal] || '';
     function lead(text, after) { return after ? text + ' · ' + after : text; }
-    if (held(s)) return { name: 'held', icon: 'i-check', text: 'In library' };
+    if (held(s)) return { name: 'held', icon: 'i-check', text: 'Ready to watch' };
     if (s.status === 'downloading') return { name: 'coming', icon: 'i-arrow-down', text: 'Downloading' };
     if (s.status === 'needs_attention') return { name: 'queued', icon: 'i-triangle-exclamation', text: 'Needs attention' };
     if (s.status === 'finding_copy') return { name: 'queued', icon: 'i-magnifying-glass', text: 'Finding another copy' };

@@ -26,7 +26,7 @@ from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.seen_titles import person_marks
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.poster.title_art import title_art
-from mediaman.web.routes.watch.card_marks import card_marks, marked
+from mediaman.web.routes.watch.card_marks import card_marks, marked, scored
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +59,9 @@ def payload_for(
     conn: sqlite3.Connection, secret_key: str, username: str, answer: Answer
 ) -> dict[str, Any]:
     """What a page is told, with *username*'s own marks of what is ready, for its card in
-    Recently added."""
+    Recently added, and what critics scored each title as the ratings cache holds it."""
     shown = strip.payload(answer, admin=get_user_role(conn, username) == "admin")
+    scored(conn, shown["items"])
     ready = [i for i in shown["items"] if i["state"] == "ready" and i["tmdb_ref"]]
     if ready:
         marks = card_marks(person_marks(conn, username), TmdbClient.from_db(conn, secret_key))
@@ -194,10 +195,13 @@ def _with_title(
     held = held or library_title(index, kind, item.tmdb_id, item.title, arr=arr)
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
     art = _fanart(item, arr)
+    year = _arr_year(kind, item.tmdb_id, arr)
     if shown and not (poster and art):
         known = _held(kind, item.tmdb_id)
         poster = poster or known.get("poster_url") or ""
         art = art or known.get("backdrop_url") or ""
+        told = known.get("year")
+        year = year or (told if isinstance(told, int) and told > 0 else None)
     art = art or item.art_url
     if held is not None:
         own = title_art(held.partition("-")[2])
@@ -210,6 +214,7 @@ def _with_title(
         href=catalog.library_href(held) or f"/#title={ref}",
         poster_url=poster,
         art_url=art,
+        year=year,
     )
 
 
@@ -253,6 +258,13 @@ def _radarr_year(kind: str, tmdb_id: int, arr: catalog.ArrView | None) -> int | 
         return None
     year = arr.caches["radarr_movies"].get(tmdb_id, {}).get("year")
     return year if isinstance(year, int) else None
+
+
+def _arr_year(kind: str, tmdb_id: int, arr: catalog.ArrView) -> int | None:
+    """The year Radarr gives of a film, Sonarr of a show."""
+    found = arr.caches["radarr_movies" if kind == "movie" else "sonarr_series"].get(tmdb_id)
+    year = found.get("year") if found else None
+    return year if isinstance(year, int) and year > 0 else None
 
 
 def _library_poster(index: catalog.LibraryIndex, kind: str, tmdb_id: int | None, title: str) -> str:

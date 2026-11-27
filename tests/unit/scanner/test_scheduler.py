@@ -428,3 +428,21 @@ def test_stopping_leaves_a_connection_to_its_thread_without_an_error(monkeypatch
     _sched_module._close_tracked_connections()
 
     assert [r for r in caplog.records if r.levelname == "ERROR"] == []
+
+
+def test_the_ratings_warm_runs_with_a_job_connection_while_the_scheduler_runs(monkeypatch):
+    conn = MagicMock()
+    monkeypatch.setattr(_sched_module, "_open_db_for_job", lambda: conn)
+    runs: list[tuple[object, bool]] = []
+    job = start_scheduler(
+        scan_fn=lambda: None,
+        secret_key="test",
+        ratings_fn=lambda c, stopped: runs.append((c, stopped())),
+    ).get_job("warm_ratings")
+
+    job.func()
+    monkeypatch.setattr(_sched_module, "_close_tracked_connections", lambda: None)
+    stop_scheduler()
+    job.func()
+
+    assert runs == [(conn, False), (conn, True)]

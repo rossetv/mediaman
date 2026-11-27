@@ -280,6 +280,18 @@ const scenarios = {
     return out;
   },
 
+  // What critics scored each found title, over its poster before its name; nothing where none is known.
+  async scores() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [{ ...LIB, rt: 91, imdb: '8.1' }, { ...LIB, ref: 'movie-2', title: 'Orchard Two' }], total: 2 });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [{ ...TM, rt: 40, rating: 6.25 }] });
+    return p.doc.querySelectorAll('.watch-card__poster').map((poster) => {
+      const scores = poster.querySelector('.watch-card__scores');
+      return scores && [scores.nextSibling.className, scores.querySelectorAll('.watch-score').map((s) => s.textContent)];
+    });
+  },
+
   // A title Watch cannot open: what an admin can do of it, and how it stands after that.
   async unheld() {
     const card = (more) => ({
@@ -1469,6 +1481,29 @@ const scenarios = {
     tell();
     out.gone = [look(), /No match/.test(p.results.textContent)];
     out.calls = [out.calls, p.calls.length];
+    return out;
+  },
+
+  // What critics scored a title downloading, over its name, as the page knows it; nothing where none is known.
+  async downloadingScores() {
+    const strip = { items: [
+      { key: 'r::1', title: 'The Órchard Gate', kind: 'movie', state: 'downloading', percent: 42, ref: TM.ref, href: '/#title=' + TM.ref, poster_url: '', rt: 88, imdb: '7.4' },
+      { key: 'r::2', title: 'Orchard Two', kind: 'movie', state: 'queued', percent: 0, ref: null, href: '/?dl=1', poster_url: '' },
+    ] };
+    let tell = null;
+    const p = load(ADMIN, '', null, undefined, { downloading: { last: () => strip, subscribe(fn) { tell = fn; } } });
+    const look = () => p.results.querySelectorAll('.results-dl').map((n) => {
+      const scores = n.querySelector('.watch-card__scores');
+      return scores && [scores.nextSibling.tagName, scores.querySelectorAll('.watch-score').map((s) => s.textContent)];
+    });
+    p.type('orchard');
+    const out = { typed: look() };
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    strip.items = [{ ...strip.items[0], rt: 52 }, strip.items[1]];
+    tell();
+    out.later = look();
     return out;
   },
 

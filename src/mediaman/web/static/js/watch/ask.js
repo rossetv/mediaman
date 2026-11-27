@@ -702,13 +702,13 @@
     function note(list) {
       return list.some(function (x) { return !isHeld(x.t) && can[x.t.kind] !== false; }) ? 'Open one to download it' : '';
     }
-    /* Of a group of both: how many the library has, and how many may be downloaded. */
+    /* Of a group of both: how many are ready to watch, and how many may be downloaded. */
     function mixNote(list) {
       var have = list.filter(function (x) { return isHeld(x.t); }).length;
       if (!have) return note(list);
-      if (have === list.length) return have === 1 ? 'In your library' : 'All in your library';
+      if (have === list.length) return have === 1 ? 'Ready to watch' : 'All ready to watch';
       var get = list.filter(function (x) { return !isHeld(x.t) && can[x.t.kind] !== false; }).length;
-      return have + ' in your library' + (get ? ', ' + get + ' to download' : '');
+      return have + ' ready to watch' + (get ? ', ' + get + ' to download' : '');
     }
     var found = looked(item);
     var waits = phase === 'thinking' || (!!found && found.state === 'loading' && phase !== 'refused');

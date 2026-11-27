@@ -59,8 +59,8 @@ const scenarios = {
       p.doc.body.appendChild(build(p.doc, ['section', { class: 'watch-row' },
         card('own', { href: path + '?season=2', 'data-title-ref': ref }), card('other', { href: path + '9', 'data-title-ref': ref + '9' })]));
       p.doc.body.appendChild(build(p.doc, ['section', { class: 'watch-row' },
-        card('trending', { href: path, 'data-title-ref': tmdb, 'data-in-library': '' }, ['span', { class: 'watch-badge watch-badge--in' }, 'In library']),
-        card('pick', { href: path, 'data-title-ref': ref, 'data-tmdb-id': '77', 'data-in-library': '' }, ['span', { class: 'watch-badge watch-badge--in' }, 'In library'])]));
+        card('trending', { href: path, 'data-title-ref': tmdb, 'data-in-library': '' }, ['span', { class: 'watch-badge watch-badge--in' }, 'Ready to watch']),
+        card('pick', { href: path, 'data-title-ref': ref, 'data-tmdb-id': '77', 'data-in-library': '' }, ['span', { class: 'watch-badge watch-badge--in' }, 'Ready to watch'])]));
       p.doc.body.appendChild(build(p.doc, ['article', { class: 'watch-card', id: 'continue', 'data-dismiss-ref': ref }, ['a', { class: 'watch-card__link', href: '/watch/play/9' }]]));
       p.ctx.MMWatch.keep.fromRow = (c) => { if (c.id) taken.push(c.id); return { focus: p.doc.getElementById('other') }; };
       p.ctx.history.back();

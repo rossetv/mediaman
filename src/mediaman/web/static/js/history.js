@@ -180,6 +180,7 @@
     var groupsBox = q('.hx-groups', root);
     var search = q('.hx-search', root);
     var input = q('.hx-search input', root);
+    var filtersBox = q('.hx-filters', root);
     var chipsBox = q('.hx-chips', root);
     var sum = q('.hx-sum', root);
     var count = q('.hx-sum span', root);
@@ -213,6 +214,10 @@
     var pageAt = '';       // the page of the list the address names, past the first
     var at = '';           // the address listed
     var scrollEl = null;
+    var tuckBy = 0;        // how far the pills and chips tuck up under the search on a phone
+    var lastTop = 0;       // where the scroller was, for which way it goes
+    var travel = 0;        // how far it has gone that way
+    var dayCheck = false;  // a look for the stuck day's head is due at the next frame
 
     function shown() { return !!(MM.you && MM.you.shown('history')); }
     function scroller() { return MM.you && MM.you.scroller('history'); }
@@ -463,7 +468,7 @@
       item.fields.forEach(function (f) {
         if (f.empty) return;
         var moment = f.at ? new Date(f.at) : NaN;
-        var dd = el('dd', '', isNaN(moment) ? f.value : fullTime(moment));
+        var dd = el('dd', '', f.key === 'record' ? el('code', 'hx-rec', f.value) : isNaN(moment) ? f.value : fullTime(moment));
         if (!isNaN(moment)) dd.setAttribute('title', f.value);
         if (item.progress && f.key === 'progress') {
           var done = el('i');
@@ -507,7 +512,7 @@
         if (!day || day.getAttribute('data-day') !== name.join('|')) {
           var h = el('h2', 'hx-day__h', name[0]);
           if (name[1]) h.appendChild(el('small', '', name[1]));
-          day = el('section', 'hx-day hx-in', [h, el('div', 'card card--bordered card--hist hx-card')]);
+          day = el('section', 'hx-day hx-in', [el('div', 'hx-day__top', h), el('div', 'card card--bordered card--hist hx-card')]);
           day.setAttribute('data-day', name.join('|'));
           list.appendChild(day);
         }
@@ -580,7 +585,14 @@
       sum.hidden = !on;
     }
 
+    /* The count stands on the first day's line, and waits among the filters while there is none. */
+    function placeSum() {
+      var top = q('.hx-day__top', list);
+      if (sum.parentNode !== (top || filtersBox)) (top || filtersBox).appendChild(sum);
+    }
+
     function emptyList() {
+      filtersBox.appendChild(sum);
       empty(list);
       seen = {};
       lastRow = null;
@@ -627,6 +639,7 @@
         go('replace');
       }
       linkNewest(page.page);
+      placeSum();
       if (!none || filtered()) askKinds();
       near();
     }
@@ -638,7 +651,7 @@
       list.setAttribute('aria-busy', 'true');
       sum.classList.add('is-waiting');
       var bar = el('i', 'skel');
-      list.appendChild(el('section', 'hx-day', [el('div', 'hx-day__h', bar), skelRows(8)]));
+      list.appendChild(el('section', 'hx-day', [el('div', 'hx-day__top', el('div', 'hx-day__h', bar)), skelRows(8)]));
     }
 
     function failed() {
@@ -737,16 +750,96 @@
       if (cursor && more.getBoundingClientRect().top < bottom + 300) loadMore(false);
     }
 
-    // What the keyboard brings into view clears the tools, however many lines their pills take.
+    // What the keyboard brings into view clears the tools, however many lines their pills take;
+    // the days' heads stick under them, and on a phone the pills and chips tuck up by --hx-fold.
     if (window.ResizeObserver) {
       var view = root.closest('.you-view');
-      if (view) new window.ResizeObserver(function () { view.style.setProperty('--hx-tools', tools.offsetHeight + 'px'); }).observe(tools);
+      var formLine = q('.hx-line', root);
+      if (view) {
+        new window.ResizeObserver(function () {
+          tuckBy = Math.max(0, filtersBox.offsetTop + filtersBox.offsetHeight - formLine.offsetTop - formLine.offsetHeight);
+          view.style.setProperty('--hx-tools', tools.offsetHeight + 'px');
+          view.style.setProperty('--hx-fold', tuckBy + 'px');
+        }).observe(tools);
+      }
+    }
+
+    function tuck(on) { tools.classList.toggle('is-tucked', on); }
+
+    /* On a phone, going down tucks the pills and chips under the search and going up brings them
+       back. Only once the list has passed under where they stood, so tucking leaves no gap. */
+    function tuckFor(top) {
+      var deep = tuckBy > 0 && top >= tuckBy && window.innerWidth < 700;
+      var way = top - lastTop;
+      travel = way * travel > 0 ? travel + way : way;
+      lastTop = top;
+      if (!deep) tuck(false);
+      else if (travel > 8 && !menuOf && !(filtersBox.contains(document.activeElement) || groupsBox.contains(document.activeElement))) tuck(true);
+      else if (travel < -32) tuck(false);
+    }
+
+    /* The day whose head is stuck under the tools draws the hairline in their place. */
+    function markDay() {
+      dayCheck = false;
+      var heads = MM.dom.qa('.hx-day__top', list);
+      var stuck = null;
+      if (scrollEl && heads.length) {
+        var line = scrollEl.getBoundingClientRect().top + parseFloat(window.getComputedStyle(heads[0]).top) + 0.5;
+        for (var i = 0; i < heads.length && heads[i].getBoundingClientRect().top <= line; i++) stuck = heads[i];
+      }
+      heads.forEach(function (h) { h.classList.toggle('is-stuck', h === stuck); });
+      tools.classList.toggle('has-day', !!stuck);
     }
 
     function onScroll() {
-      tools.classList.toggle('is-stuck', scrollEl.scrollTop > 0);
+      var top = scrollEl.scrollTop;
+      tools.classList.toggle('is-stuck', top > 0);
+      tuckFor(top);
+      if (!dayCheck) {
+        dayCheck = true;
+        window.requestAnimationFrame(markDay);
+      }
       near();
     }
+
+    /* The keyboard on a tucked pill or chip brings them back. */
+    tools.addEventListener('focusin', function (e) {
+      if (filtersBox.contains(e.target) || groupsBox.contains(e.target)) tuck(false);
+    });
+
+    /* A mouse's wheel moves the one row of kinds sideways, until its end. */
+    groupsBox.addEventListener('wheel', function (e) {
+      var room = groupsBox.scrollWidth - groupsBox.clientWidth;
+      if (!room || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+      var to = Math.max(0, Math.min(room, groupsBox.scrollLeft + e.deltaY));
+      if (to === groupsBox.scrollLeft) return;
+      e.preventDefault();
+      groupsBox.scrollLeft = to;
+    }, { passive: false });
+
+    /* With a mouse, arrows at the row's ends show there are more kinds past its fade, and page to
+       them. Like the poster rows' arrows they are out of the Tab order: Tab walks the pills. */
+    var kindArrows = ['prev', 'next'].map(function (way) {
+      var b = button('hx-kinds-arrow hx-kinds-arrow--' + way, icon(way === 'prev' ? 'i-chevron-left' : 'i-chevron-right'),
+        { 'aria-hidden': 'true', tabindex: '-1', title: way === 'prev' ? 'Previous' : 'Next' });
+      // A press leaves focus where it was, so a button that hides at the row's end never holds it.
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      b.addEventListener('click', function () {
+        var by = Math.round(groupsBox.clientWidth * 0.7) * (way === 'prev' ? -1 : 1);
+        groupsBox.scrollBy({ left: by, behavior: reduceMotion() ? 'auto' : 'smooth' });
+      });
+      return b;
+    });
+    kindArrows.forEach(function (b) { tools.insertBefore(b, filtersBox); });
+
+    function kindEnds() {
+      var room = groupsBox.scrollWidth - groupsBox.clientWidth;
+      tools.style.setProperty('--hx-kinds', groupsBox.offsetTop + 'px');
+      groupsBox.classList.toggle('has-prev', groupsBox.scrollLeft > 2);
+      groupsBox.classList.toggle('has-next', groupsBox.scrollLeft < room - 2);
+    }
+    groupsBox.addEventListener('scroll', kindEnds, { passive: true });
+    if (window.ResizeObserver) new window.ResizeObserver(kindEnds).observe(groupsBox);
 
     /* The pane's scroller may come only once it is shown. */
     function bindScroll() {
@@ -785,6 +878,7 @@
         groupsBox.appendChild(pill);
       });
       fillKinds();
+      kindEnds();
       if (had) focusChip('action');
     }
 
@@ -799,6 +893,7 @@
         if (o.count) pill.setAttribute('aria-label', o.label + ': ' + small.textContent);
         else pill.removeAttribute('aria-label');
       });
+      kindEnds();
     }
 
     /* The count of each kind of event under the other filters, for its pill. */
@@ -1043,6 +1138,7 @@
       var form = el('form', 'hx-dates');
       var fields = ['From', 'To'].map(function (label, i) {
         var f = document.createElement('input');
+        f.className = 'inp';
         f.setAttribute('type', 'date');
         f.setAttribute('max', dayText(new Date()));
         f.value = ends[i] || '';
@@ -1053,7 +1149,12 @@
       wrong.setAttribute('role', 'alert');
       wrong.hidden = true;
       form.appendChild(wrong);
-      form.appendChild(el('button', 'btn btn--secondary btn--sm', 'Show these days'));
+      var show = el('button', 'btn btn--primary', 'Show these days');
+      form.appendChild(show);
+      /* Nothing to show until a day is set. */
+      function ready() { show.disabled = !(fields[0].value || fields[1].value); }
+      fields.forEach(function (f) { f.addEventListener('input', ready); f.addEventListener('change', ready); });
+      ready();
       form.addEventListener('submit', function (e) {
         e.preventDefault();
         var a = fields[0].value;

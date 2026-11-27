@@ -106,3 +106,11 @@ def test_a_row_that_is_its_own_viewport_marks_only_the_ends_with_more_beyond_the
         "end": [True, False],
         "back": [False, True],
     }
+
+
+def test_a_poster_that_came_before_its_card_was_on_the_page_is_shown() -> None:
+    out = _run("fade")
+    assert out["fades"] is True
+    # Its load event went nowhere, so the page has to see it was loaded when the card arrives.
+    assert out["before"] == {"early": True, "late": False, "failed": True}
+    assert out["lateAfterLoad"] is True

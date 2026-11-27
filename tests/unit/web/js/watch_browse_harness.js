@@ -1265,6 +1265,26 @@ const scenarios = {
       places: rec(p.doc).querySelectorAll('.watch-card').map((c) => [c.getAttribute('data-batch'), c.getAttribute('data-place')]) };
   },
 
+  // What critics scored each title, over its poster before its name; nothing where none is known.
+  async scores() {
+    const items = [
+      card('tmdb-movie-1', { rt: 85, imdb: '7.8' }),
+      card('tmdb-movie-2', { rt: 59, rating: 6.44 }),
+      card('tmdb-movie-3', { rating: null }),
+      card('tmdb-movie-4', { rt: '85%', rating: null }),
+    ];
+    const discover = { ...DISCOVER, rows: [{ id: 'trending', title: 'Trending this week', items }] };
+    const p = load({ routes: { 'GET /api/watch/discover': () => Promise.resolve(discover) } });
+    await settle();
+    return p.doc.querySelectorAll('[data-discover-row="trending"] .watch-card__poster').map((poster) => {
+      const scores = poster.querySelector('.watch-card__scores');
+      return scores && {
+        before: scores.nextSibling.className,
+        each: scores.querySelectorAll('.watch-score').map((s) => [s.className, s.querySelector('use').getAttribute('href'), text(s)]),
+      };
+    });
+  },
+
   // Keep from Leaving soon: a toast with Undo, and focus moves to the next card's Keep.
   async keepFromRow() {
     const p = load({ routes: { 'POST /api/watch/keep': () => Promise.resolve({ ok: true }) } });

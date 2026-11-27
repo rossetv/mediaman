@@ -718,3 +718,19 @@ def test_the_nav_s_height_is_set_in_the_nav_sheet_alone() -> None:
 def test_a_row_kept_at_its_start_does_not_snap_whatever_its_script_sets_inline() -> None:
     rule = _of(".watch-row__scroll.is-still", sheet=SHEET.parent / "_watch_downloading.css")
     assert "scroll-snap-type: none !important" in rule
+
+
+def test_on_a_poster_under_120px_the_ready_to_watch_pill_tightens_so_its_words_fit() -> None:
+    # "Ready to watch" with its tick is 106px at the full padding; a three-across phone grid's
+    # poster leaves the pill 102px, so the narrow poster takes 4px off the sides and 1px off the gap.
+    # A container query measures inside the poster's padding: 104px there is a 120px poster.
+    assert "container: poster / inline-size" in _of(".watch-card__poster")
+    narrow = _of(".watch-card__poster > .watch-badge--state", "poster (max-width: 103.98px)")
+    assert "padding-inline: 5px" in narrow
+    assert "gap: 3px" in narrow
+
+
+def test_a_search_downloading_row_draws_its_scores_without_the_poster_s_shade() -> None:
+    search = SHEET.with_name("_watch_search.css")
+    assert "text-shadow: none" in _of(".results-dl__text > .watch-card__scores", sheet=search)
+    assert "filter: none" in _of(".results-dl__text .watch-score > .ico", sheet=search)

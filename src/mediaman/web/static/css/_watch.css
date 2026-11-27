@@ -372,9 +372,12 @@
 .watch-card__poster {
   position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
+  align-content: flex-end;
   width: 100%;
   aspect-ratio: 2 / 3;
+  container: poster / inline-size;
   --card-pad: 10px;
   padding: var(--card-pad);
   overflow: hidden;
@@ -422,6 +425,25 @@
   line-clamp: 4;
   overflow: hidden;
 }
+/* What critics scored the title: a line of its own over the name, in the dark at the poster's foot. */
+.watch-card__scores {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 100%;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow: 0 1px 4px color-mix(in srgb, var(--scrim) 70%, transparent);
+}
+.watch-score { display: inline-flex; align-items: center; gap: 3px; }
+.watch-score > .ico { width: 1.1em; height: 1.1em; vertical-align: 0; filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--scrim) 60%, transparent)); fill: var(--warning); }
+.watch-score--rt.is-fresh > .ico { fill: var(--danger); }
+.watch-score--rt.is-rotten > .ico { fill: var(--success); }
 .watch-card__sub {
   font-size: 12px; color: var(--t3); overflow: hidden; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
@@ -469,7 +491,7 @@
 .watch-badge__least::after { content: attr(data-words); }
 .watch-badge__least::after { display: inline-block; }
 .watch-badge__long + .watch-badge__short { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-/* Already watched: an eye and the word, never the tick that says In library. Under another badge, which can be as wide as the poster. */
+/* Already watched: an eye and the word, never the tick that says Ready to watch. Under another badge, which can be as wide as the poster. */
 .watch-badge--watched,
 .watch-badge--unwatched {
   right: 8px;
@@ -522,6 +544,11 @@
   .watch-badge--leaving { --badge-pad: 3px 7px; --badge-r: var(--r-md); left: 6px; right: 6px; max-width: none; padding: 0; }
   .watch-badge--watched { right: 6px; gap: 4px; }
   :is(.watch-badge--watched, .watch-badge--unwatched) > .ico { font-size: 12px; }
+}
+/* A state pill on a poster under about 120px, three across a phone, keeps its words clear of its
+   ends. The query measures inside the poster's padding. */
+@container poster (max-width: 103.98px) {
+  .watch-card__poster > .watch-badge--state { padding-inline: 5px; gap: 3px; }
 }
 @media (max-width: 359.98px) {
   .watch-badge--watched { gap: 0; }

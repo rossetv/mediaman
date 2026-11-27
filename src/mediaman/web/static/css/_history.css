@@ -2,8 +2,8 @@
    (`.hist*`), each a line that opens into the full event details. The pane's view scrolls;
    the tools stick to its top. */
 
-/* --hx-tools is the tools' height, which history.js keeps; the fallback is their height on one line of pills. */
-.you-view[data-view="history"] { padding-top: 0; scroll-padding-top: calc(var(--hx-tools, 160px) + 8px); }
+/* Clear of the tools and of a day's head stuck under them. --hx-tools is the tools' height, which history.js keeps; the fallback is their height on one line of pills. */
+.you-view[data-view="history"] { padding-top: 0; scroll-padding-top: calc(var(--hx-tools, 160px) + 48px); }
 /* What the keyboard comes to clears the tools; while the focus is in them, nothing moves. */
 .you-view[data-view="history"]:has(.hx-tools:focus-within) { scroll-padding-top: 0; }
 /* The view sets the sides; the page's container adds none of its own. */
@@ -12,15 +12,21 @@
 /* Opaque, so a row moving over an opening one covers its details until it has passed. */
 .hist { position: relative; background: var(--s2); }
 .hist + .hist::before { content: ""; position: absolute; z-index: 1; top: 0; right: 0; left: 70px; border-top: 1px solid var(--hair); }
-.hist-sum { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 14px; cursor: pointer; list-style: none; transition: background-color var(--dur-fast) var(--ease-out); }
+.hist-sum { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 14px; cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; transition: background-color var(--dur-fast) var(--ease-out); }
 .hist-sum::-webkit-details-marker { display: none; }
 .hist-sum:focus-visible { outline-offset: -2px; }
-.hist-sum:hover,
+/* A touch leaves no hover behind; a press shows at once and lets go slowly. */
+@media (hover: hover) {
+  .hist-sum:hover { background: var(--s3); }
+}
 .hist[open] > .hist-sum { background: var(--s3); }
+.hist-sum:active { background: var(--s4); transition-duration: 0s; }
 .hist-date { flex: none; font-size: 13px; color: var(--t3); letter-spacing: -.01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hist-msg { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; line-height: 1.3; color: var(--t2); }
 .hist-msg b { color: var(--t1); font-weight: 600; }
-.hist-chev { display: none; }
+.hist-chev { flex: none; display: grid; place-items: center; width: 14px; margin-left: -4px; font-size: 11px; color: var(--t4); transition: transform var(--dur) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.hist[open]:not(.is-closing) > .hist-sum .hist-chev { transform: rotate(180deg); color: var(--t2); }
+.hist[open] > .hist-sum .hist-date { color: var(--t2); }
 
 .hist-body { padding: 4px 14px 14px 70px; background: var(--s3); }
 .hist[open] > .hist-body { animation: hist-open var(--dur) var(--ease-out); }
@@ -33,6 +39,20 @@
 .hist-field dt { color: var(--t3); }
 .hist-field dd { margin: 0; color: var(--t1); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .hist-field dd.is-empty { color: var(--t3); }
+/* What was stored, as it was stored. */
+.hx-rec {
+  display: block;
+  max-height: 14em;
+  margin-top: 2px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--s2);
+  color: var(--t2);
+  font: 12px/1.5 'SF Mono', Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
 /* The tools: the search, the kinds of event, the filters and the count. */
 .hx-tools {
@@ -50,6 +70,8 @@
 }
 .hx-tools[hidden] { display: none; }
 .hx-tools.is-stuck { border-bottom-color: var(--hair); }
+/* A day's head stuck under the tools draws the line instead. */
+.hx-tools.is-stuck.has-day { border-bottom-color: transparent; }
 .hx-search { position: relative; }
 .hx-search > .ico {
   position: absolute;
@@ -97,8 +119,53 @@
 .has-q .hx-x { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
 .hx-x:hover { color: var(--t1); }
 
-.hx-groups { display: flex; gap: 6px; margin: 0 -20px; padding: 0 20px; overflow-x: auto; scrollbar-width: none; }
+.hx-groups {
+  display: flex;
+  gap: 6px;
+  margin: 0 -20px;
+  padding: 0 20px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* The kinds fade out at the sides rather than end cut flat. */
+  -webkit-mask-image: linear-gradient(90deg, transparent var(--hx-clear-l, 0px), #000 var(--hx-fade-l, 16px), #000 calc(100% - var(--hx-fade-r, 20px)), transparent calc(100% - var(--hx-clear-r, 0px)));
+  mask-image: linear-gradient(90deg, transparent var(--hx-clear-l, 0px), #000 var(--hx-fade-l, 16px), #000 calc(100% - var(--hx-fade-r, 20px)), transparent calc(100% - var(--hx-clear-r, 0px)));
+}
 .hx-groups::-webkit-scrollbar { display: none; }
+/* A mouse's arrows at the ends of the row, where more kinds are past its fade; touch swipes. */
+.hx-kinds-arrow { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  /* Under an arrow the pills have faded out by its middle, so its chevron stands clear. */
+  .hx-groups.has-prev { --hx-clear-l: 36px; --hx-fade-l: 76px; }
+  .hx-groups.has-next { --hx-clear-r: 36px; --hx-fade-r: 76px; }
+  .hx-kinds-arrow {
+    position: absolute;
+    z-index: 1;
+    top: calc(var(--hx-kinds, 58px) + 2px);
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--hair-strong);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--s2) 72%, transparent);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    backdrop-filter: blur(12px) saturate(1.4);
+    color: var(--t1);
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur), background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  }
+  .hx-kinds-arrow--prev { left: 20px; }
+  .hx-kinds-arrow--next { right: 20px; }
+  .hx-groups.has-prev ~ .hx-kinds-arrow--prev,
+  .hx-groups.has-next ~ .hx-kinds-arrow--next { opacity: 1; visibility: visible; transition-delay: 0s; }
+  .hx-tools.is-tucked > .hx-kinds-arrow { opacity: 0; visibility: hidden; pointer-events: none; transition-duration: var(--dur-fast); transition-delay: 0s, var(--dur-fast), 0s, 0s; }
+  .hx-kinds-arrow:hover { background: color-mix(in srgb, var(--s5) 90%, transparent); }
+  .hx-kinds-arrow:active { transform: scale(.94); }
+}
 .hx-group {
   flex: none;
   min-height: 36px;
@@ -158,6 +225,8 @@
 }
 .hx-sum[hidden] { display: none; }
 .hx-sum.is-waiting { visibility: hidden; }
+/* Among the filters it only waits for the list: it takes no line of its own. */
+.hx-filters > .hx-sum.is-waiting { display: none; }
 .hx-sum button,
 .hx-newest { position: relative; min-height: 32px; padding: 0 4px; font-size: 13px; color: var(--accent); }
 .hx-sum button::after { content: ""; position: absolute; inset: -6px -4px; }
@@ -165,11 +234,27 @@
 .hx-newest { display: inline-flex; align-items: center; }
 
 /* The list: a day's heading over a card of its events. */
-.hx-list { display: flex; flex-direction: column; gap: 18px; padding-top: 6px; transition: opacity var(--dur-fast) var(--ease-out); }
+.hx-list { display: flex; flex-direction: column; gap: 10px; transition: opacity var(--dur-fast) var(--ease-out); }
 .hx-list > * { flex-shrink: 0; }
 .hx-list:focus { outline: 0; }
 .hx-list.is-old { opacity: .4; }
-.hx-day__h { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 8px; font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; }
+/* A day's head sticks under the tools until its last event has passed. */
+.hx-day__top {
+  position: sticky;
+  top: var(--hx-tools, 160px);
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin: 0 -20px;
+  padding: 8px 24px 7px;
+  border-bottom: 1px solid transparent;
+  background: var(--s1);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.hx-day__top.is-stuck { border-bottom-color: var(--hair); }
+.hx-day__h { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; }
 .hx-day__h small { font-size: 13px; font-weight: 400; color: var(--t3); }
 .hx .hx-card { padding: 0; border: 0; border-radius: 14px; background: var(--s2); overflow: clip; }
 
@@ -194,11 +279,11 @@
 .hx-act--keep { background: #a05a00; }
 .hx-act--bad,
 .hx-act--del { background: var(--danger-solid); }
-.hist-sum:hover .hx-act,
+@media (hover: hover) {
+  .hist-sum:hover .hx-act { border-color: var(--s3); }
+}
 .hist[open] .hx-act { border-color: var(--s3); }
-/* A person's own list does not show their face: the kind of event stands alone. */
-.hx.is-mine .hx-who .avatar { display: none; }
-.hx.is-mine .hx-act { position: static; width: 40px; height: 40px; border: 0; background: var(--s4); color: var(--t2); font-size: 15px; }
+.hist-sum:active .hx-act { border-color: var(--s4); transition-duration: 0s; }
 .hx-l1 { display: block; font-size: 15px; overflow-wrap: anywhere; }
 .hx-l2 { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--t3); }
 /* What a fault needs is said whole. */
@@ -353,22 +438,22 @@
   width: 100%;
   min-width: 0;
   height: 40px;
-  padding: 0 8px;
+  padding: 0 10px;
   border: 1px solid var(--hair);
-  border-radius: 9px;
-  background: var(--s2);
-  color: var(--t1);
-  font: inherit;
-  font-size: 13px;
+  font-size: 14px;
+  text-align: left;
   color-scheme: dark;
+  -webkit-appearance: none;
+  appearance: none;
 }
-.hx-dates .btn { grid-column: 1/-1; }
+.hx-dates input::-webkit-date-and-time-value { text-align: left; }
+.hx-dates input::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
+.hx-dates .btn { grid-column: 1/-1; width: 100%; min-height: 44px; margin-top: 4px; }
 .hx-dates__e { grid-column: 1/-1; font-size: 12px; color: var(--danger-text); }
 .hx-none { padding: 14px 12px; font-size: 13px; color: var(--t3); }
 
-/* A wide pane: every kind in sight, on a second line where they need one. */
+/* A wide pane: the kinds stay on one line, which scrolls sideways where it needs to. */
 @media (min-width: 700px) {
-  .hx-groups { flex-wrap: wrap; row-gap: 8px; }
   .hx-group { padding-inline: 12px; }
 }
 
@@ -376,8 +461,21 @@
 @media (max-width: 699.98px) {
   .hx-tools,
   .hx-groups { margin-inline: -16px; padding-inline: 16px; }
-  .hx-sum { flex-basis: 100%; justify-content: flex-end; }
-  .you-view[data-view="history"] { scroll-padding-top: calc(var(--hx-tools, 192px) + 8px); }
+  .hx-day__top { margin-inline: -16px; padding-inline: 20px; }
+  /* Going down, the pills and chips tuck up under the search, which stays: the tools move up
+     by --hx-fold as the search moves down by as much, so nothing under them is laid out again. */
+  .hx-tools { transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
+  .hx-line { position: relative; z-index: 1; transition: transform var(--dur-slow) var(--ease-out); }
+  .hx-groups,
+  .hx-filters { transition: opacity var(--dur) var(--ease-out); }
+  .hx-tools.is-tucked { transform: translateY(calc(-1 * var(--hx-fold, 0px))); }
+  .hx-tools.is-tucked > .hx-line { transform: translateY(var(--hx-fold, 0px)); }
+  .hx-tools.is-tucked > .hx-groups,
+  .hx-tools.is-tucked > .hx-filters { opacity: 0; pointer-events: none; transition-duration: var(--dur-fast); }
+  /* The heads stick under the search alone; the pills coming back cover them. */
+  .hx-day__top { top: calc(var(--hx-tools, 192px) - var(--hx-fold, 0px)); }
+  .hx-tools.is-stuck.has-day:not(.is-tucked) { border-bottom-color: var(--hair); }
+  .you-view[data-view="history"] { scroll-padding-top: calc(var(--hx-tools, 192px) + 48px); }
   .hist-body { padding-left: 14px; }
   .hist-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .hist-field dd { margin-bottom: 8px; }
@@ -421,8 +519,7 @@
 /* Little height: the tools go with the list. */
 @media (max-height: 500px) and (min-width: 700px) {
   .hx-tools { position: relative; top: auto; }
-  /* A second line of kinds would take a fifth of the height: they scroll sideways, as on a phone. */
-  .hx-groups { flex-wrap: nowrap; }
+  .hx-day__top { top: 0; }
   .you-view[data-view="history"] { scroll-padding-top: 0; }
 }
 
@@ -435,6 +532,13 @@
 @media (prefers-reduced-motion: reduce) {
   .hx-menu,
   .hx-menu.on { transform: none; }
+  /* The tools tuck at once; only the pills and chips fade. */
+  .hx-tools,
+  .hx-line,
+  .hist-chev { transition-property: opacity, border-color, color; }
+  /* A fade is not motion, so it outlasts the base rule that cuts every transition short. */
+  .hx-groups,
+  .hx-filters { transition-property: opacity !important; transition-duration: var(--dur-fast) !important; }
 }
 
 @media (pointer: coarse) {
