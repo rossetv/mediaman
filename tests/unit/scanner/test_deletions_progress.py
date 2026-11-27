@@ -253,6 +253,7 @@ class TestNewCopyAfterAnUnbookedRemoval:
         conn.commit()
 
     def _assert_booked_and_spared(self, conn, new_copy):
+        assert new_copy.is_file(), "the new copy was removed"
         assert new_copy.read_bytes() == b"a new copy"
         assert _status(conn) is None
         assert [r["space_reclaimed_bytes"] for r in _actions(conn, "deleted")] == [4]

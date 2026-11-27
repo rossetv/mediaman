@@ -12,6 +12,14 @@ from mediaman.services.infra import (
 from mediaman.services.infra.storage import unavailable_folder
 
 
+def _tree(top):
+    """Every path under *top* with its contents, or None for a folder."""
+    return {
+        str(p.relative_to(top)): (None if p.is_dir() else p.read_bytes())
+        for p in sorted(top.rglob("*"))
+    }
+
+
 class TestDeletePath:
     def test_deletes_file(self, tmp_path):
         f = tmp_path / "test.txt"
@@ -28,7 +36,15 @@ class TestDeletePath:
         assert not d.exists()
 
     def test_nonexistent_path_is_noop(self, tmp_path):
-        delete_path(str(tmp_path / "nope"), allowed_roots=[str(tmp_path)])
+        root = tmp_path / "movies"
+        film = root / "Film"
+        film.mkdir(parents=True)
+        (film / "poster.jpg").write_text("p")
+        before = _tree(tmp_path)
+
+        delete_path(str(film / "Film.mkv"), allowed_roots=[str(root)])
+
+        assert _tree(tmp_path) == before
 
 
 class TestUnavailableFolder:
@@ -277,8 +293,16 @@ class TestDeletePathValidation:
             delete_path(str(tmp_path / ".." / "etc"), allowed_roots=[str(tmp_path)])
 
     def test_nonexistent_path_under_allowed_root(self, tmp_path):
-        """Non-existent path under an allowed root should silently return."""
-        delete_path(str(tmp_path / "does-not-exist"), allowed_roots=[str(tmp_path)])
+        """Non-existent path under an allowed root should silently return, touching nothing."""
+        root = tmp_path / "movies"
+        (root / "Other").mkdir(parents=True)
+        (root / "Other" / "Other.mkv").write_text("x")
+        (tmp_path / "outside.txt").write_text("o")
+        before = _tree(tmp_path)
+
+        delete_path(str(root / "does-not-exist"), allowed_roots=[str(root)])
+
+        assert _tree(tmp_path) == before
 
     def test_refuses_prefix_collision(self, tmp_path):
         """A path like /media-backup must not pass when root is /media."""
