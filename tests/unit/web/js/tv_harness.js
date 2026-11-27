@@ -283,6 +283,12 @@ const scenarios = {
     t.point('b1', 5);
     return [dimmed, t.look()];
   },
+  async failsWith(error) {
+    const t = await playing();
+    t.now = film({ state: 'failed', error, url: null });
+    await t.step(1000);
+    return t.says();
+  },
   async failsAgain() {
     const t = await left('err', -2000);
     const dimmed = t.look();

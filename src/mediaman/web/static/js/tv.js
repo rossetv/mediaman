@@ -902,7 +902,11 @@
     rate_limited: 'Too many were started in a short time.<br>Wait a minute, then try again.',
     not_set_up: 'mediaman isn’t connected to Plex.<br>Ask an admin to check Settings.',
     superseded: 'Something else was started meanwhile.<br>Try again.',
+    unplayable: 'Plex can’t play this file.<br>Choose something else.',
+    unplayable_dolby_vision_5: 'Plex can’t convert its picture (Dolby Vision Profile 5).<br>Choose something else.',
   };
+  /* What no try can mend: the page offers no Try again for it. */
+  var FOR_GOOD = { unplayable: 1, unplayable_dolby_vision_5: 1 };
   var ICONS = {
     play: 'M7 4l13 8-13 8z', pause: 'M6 4h4v16H6zM14 4h4v16h-4z', back: 'M11 5v14l-9-7zM22 5v14l-9-7z',
     fwd: 'M2 5v14l9-7zM13 5v14l9-7z', stop: 'M5 5h14v14H5z', ok: 'M9 17l-5-5-2 2 7 7L22 8l-2-2z',
@@ -1048,7 +1052,8 @@
       return art() + '<div class="shade"></div><div class="mid">' + titles() + '<div class="sm">' + (askNote || 'That&rsquo;s the end.') + '</div>' + offer([['Play again', 'r'], ['Close', 's']]) + '</div>';
     },
     err: function () {
-      return page(middle('This can&rsquo;t play here', askNote || WHY[play.error] || WHY.tv, [['Try again', 'r'], ['Back', 's']]));
+      var acts = FOR_GOOD[play.error] ? [['Back', 's']] : [['Try again', 'r'], ['Back', 's']];
+      return page(middle('This can&rsquo;t play here', askNote || WHY[play.error] || WHY.tv, acts));
     },
   };
   var FOCUS = { play: 1, pause: 1 };
