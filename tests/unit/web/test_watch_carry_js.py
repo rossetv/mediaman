@@ -28,3 +28,9 @@ def test_a_staging_that_fails_part_way_leaves_the_page_as_it_was() -> None:
         "title": "Fieldwork One",
         "words": 0,
     }
+
+
+def test_the_words_carried_into_the_sheet_have_a_thumb_mask_of_their_own() -> None:
+    out = _run("ghostMask")
+    assert len(set(out["ids"])) == len(out["ids"]) == 2
+    assert out["ref"] == f"url(#{out['own']})"

@@ -682,6 +682,41 @@ const scenarios = {
     return out;
   },
 
+  // Results that leave, or cross the page, as pictures: each keeps its thumb's mask, under an id
+  // of its own on the page.
+  async ghostMasks() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+    const cards = p.doc.querySelectorAll('.watch-card');
+    cards.forEach((card, i) => {
+      const svg = card.appendChild(p.doc.createElementNS('http://www.w3.org/2000/svg', 'svg'));
+      svg.appendChild(p.doc.createElementNS('http://www.w3.org/2000/svg', 'mask')).setAttribute('id', 'th-cut-' + (i + 1));
+      svg.appendChild(p.doc.createElementNS('http://www.w3.org/2000/svg', 'g')).setAttribute('mask', 'url(#th-cut-' + (i + 1) + ')');
+    });
+    // The library's card stays and crosses the page; TMDB's goes.
+    const stays = cards.find((c) => c.textContent.includes(LIB.title));
+    let measured = 0;
+    stays.getBoundingClientRect = () => (measured++ ? { top: 0, bottom: 300, left: 3000, right: 3200, width: 200, height: 300 } : { top: 0, bottom: 300, left: 0, right: 200, width: 200, height: 300 });
+    const finish = withMotion(p);
+    try {
+      await p.search('orchar');
+      await p.answer('/api/watch/search?', { items: [LIB] });
+      await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+      const ids = p.doc.querySelectorAll('mask').map((m) => m.getAttribute('id'));
+      const out = p.doc.querySelectorAll('.results-ghosts').flatMap((g) => g.children).map((ghost) => {
+        const masks = ghost.querySelectorAll('mask').map((m) => m.getAttribute('id'));
+        const used = ghost.querySelectorAll('[mask]').map((g) => g.getAttribute('mask'));
+        return { masks, used, own: used.every((u) => masks.some((id) => u === 'url(#' + id + ')')) };
+      });
+      finish();
+      return { ghosts: out, unique: new Set(ids).size === ids.length && ids.every(Boolean) };
+    } finally {
+      delete Node.prototype.animate;
+    }
+  },
+
   // A query under two letters asks the library only; two letters ask TMDB too.
   async short() {
     const p = load(ADMIN);

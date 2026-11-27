@@ -16,7 +16,8 @@ function load() {
       ['h1', { class: 'ttl__title' }, 'Fieldwork One'],
       ['p', { class: 'ttl__meta' }, '2024']]]));
   const card = doc.body.appendChild(build(doc, ['div', { class: 'pv' },
-    ['div', { class: 'pv__body' }, ['h3', { class: 'pv__title' }, 'Fieldwork One'], ['p', { class: 'pv__meta' }, '2024']]]));
+    ['div', { class: 'pv__body' }, ['h3', { class: 'pv__title' }, 'Fieldwork One'], ['p', { class: 'pv__meta' }, '2024'],
+      ['button', { class: 'pv__round' }, ['svg', {}, ['mask', { id: 'th-cut-1' }], ['g', { mask: 'url(#th-cut-1)' }]]]]]));
   const ctx = { document: doc, performance: { now: () => 0 }, getComputedStyle: () => ({ opacity: '1' }), innerHeight: 800, MMWatch: {} };
   ctx.window = ctx;
   vm.createContext(ctx);
@@ -41,6 +42,24 @@ const scenarios = {
       threw, carried: root.classList.contains('is-carried'), cardCarried: h.card.classList.contains('is-carried'),
       ghost: left('.cry-ghost'), plate: left('.cry-plate'), shade: left('.cry-shade'), title: title.textContent, words: title.querySelectorAll('.cry-word').length,
     };
+  },
+
+  // The words carried over in the sheet hold a copy of the preview's thumb: its mask is its own.
+  async ghostMask() {
+    const h = load();
+    const sheet = h.doc.querySelector('.ttl__sheet');
+    const add = sheet.appendChild.bind(sheet);
+    let seen = null;
+    sheet.appendChild = (n) => {
+      const out = add(n);
+      if (n.classList.contains('cry-ghost')) {
+        seen = { ids: h.doc.querySelectorAll('mask').map((m) => m.getAttribute('id')), ref: n.querySelector('[mask]').getAttribute('mask'), own: n.querySelector('mask').getAttribute('id') };
+      }
+      return out;
+    };
+    h.body.getBoundingClientRect = () => { throw new Error('staged'); };
+    try { h.ctx.MMWatch.carry.stage(h.p); } catch (e) { /* only what was staged is looked at */ }
+    return seen;
   },
 };
 

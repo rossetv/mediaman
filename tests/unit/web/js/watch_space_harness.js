@@ -116,6 +116,20 @@ const card = (id) => ['article', { class: 'watch-card', 'data-keep-id': id }, ['
   ['button', { class: 'watch-keep', 'data-watch-keep': id, 'aria-label': 'Keep Film ' + id, id: 'card-keep-' + id }]];
 const leavingSection = (...ids) => ['section', { 'data-watch-leaving-row': '', 'data-row-id': 'leaving', class: 'watch-row' }, ['h2', { class: 'watch-row__title' }, 'Leaving soon'],
   ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll' }, ...ids.map(card)]]];
+// A thumb's mask, numbered as the server numbers them; the server's page has them from 1, the page as it stands too.
+const maskSpec = (n) => ['svg', {}, ['mask', { id: 'th-cut-s' + n }], ['g', { mask: 'url(#th-cut-s' + n + ')' }]];
+function cut(spec) {
+  let n = 0;
+  const walk = (s) => {
+    if (!Array.isArray(s)) return s;
+    const out = [s[0], s[1], ...s.slice(2).map(walk)];
+    if (s[0] === 'article') out.push(maskSpec(++n));
+    return out;
+  };
+  return walk(spec);
+}
+const cutCards = (cards, doc) => cards.forEach((c, i) => c.appendChild(build(doc, maskSpec(i + 1))));
+const masksOf = (doc) => ({ ids: doc.querySelectorAll('mask').map((m) => m.getAttribute('id')), refs: doc.querySelectorAll('[mask]').map((g) => g.getAttribute('mask')) });
 const recentSection = () => ['section', { 'data-row-id': 'recent', class: 'watch-row' },
   ['div', { class: 'watch-row__scroll', id: 'recent-scroll' }, ['article', { class: 'watch-card', 'data-keep-id': '1' }, ['span', { class: 'watch-badge watch-badge--leaving' }, '3 days left']]]];
 
@@ -1071,6 +1085,22 @@ const scenarios = {
     await p.click(p.$('space-scan'));
     await p.run(3000);
     return { gone, rows: p.all('.watch-rows .watch-row').map((s) => s.getAttribute('data-row-id')), cards: p.cards(), started: p.started, link: p.one('[data-row-id="leaving"] .space-row-link').textContent };
+  },
+  // The server numbers its cards' thumb masks from 1 on each page: what a scan brings in, card or
+  // row, leaves the page's mask ids each its own, each one used.
+  async scanMasks() {
+    const go = async (gone, ids) => {
+      const p = await page(['1', '2'].map((id) => row(id)));
+      await p.open();
+      if (gone) await p.click(p.one('#space-scheduled .btn--danger'));
+      cutCards(p.all('.watch-card'), p.doc);
+      p.server.rows = ids.map((id) => row(id));
+      p.server.page = cut(['div', { class: 'watch-rows' }, leavingSection(...ids), recentSection()]);
+      await p.click(p.$('space-scan'));
+      await p.run(3000);
+      return { cards: p.cards(), ...masksOf(p.doc) };
+    };
+    return { cards: await go(false, ['9', '1', '3', '2']), row: await go(true, ['9']) };
   },
   // Nothing new: the page is not asked for. An answer overtaken by a Keep is dropped.
   async pageAsked() {

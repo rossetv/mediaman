@@ -1759,6 +1759,48 @@ const scenarios = {
     await h.pass(1100);
     return { told, still, silent: !!h.frame() };
   },
+  /* The lines of the head a level's name lies over, while the title's details are on their way and
+     once they are drawn under it. The head's lines stand 30px apart from y 100 and reach x 200;
+     the levels are 30px apart from 95, and their names, 20px tall, from x 120 to 220. */
+  async coveredHead() {
+    const h = load({ ratings: true, api: { 'movie-1': undefined } });
+    await h.rest('film');
+    h.doc.createRange = () => {
+      let node = null;
+      return {
+        selectNodeContents(n) { node = n; },
+        getClientRects() {
+          let line = node;
+          while (line.parentNode && !line.parentNode.classList.contains('pv__head')) line = line.parentNode;
+          const i = line.parentNode ? line.parentNode.childNodes.indexOf(line) : -1;
+          return i < 0 ? [] : [{ top: 100 + i * 30, bottom: 120 + i * 30, left: 0, right: 200 }];
+        },
+      };
+    };
+    pressRate(h);
+    const levels = h.pv().querySelectorAll('.rate--lift .rate__b');
+    levels.forEach((b, i) => { b.getBoundingClientRect = () => ({ top: 95 + i * 30, bottom: 125 + i * 30, left: 230, right: 270 }); });
+    const name = h.pv().querySelector('.rate__name');
+    name.getBoundingClientRect = () => ({ top: 95, bottom: 215, left: 0, right: 220 });
+    Object.defineProperty(name.firstChild, 'offsetWidth', { value: 100 });
+    // The head, then its lines by place.
+    const covered = () => {
+      const head = h.pv().querySelector('.pv__head');
+      return [head, ...head.childNodes].map((n, i) => n.classList.contains('is-covered') && (i ? i - 1 : 'head')).filter((i) => i !== false);
+    };
+    const point = (i) => h.fire(levels[i], 'pointerenter', { pointerType: 'mouse' });
+    point(0);
+    const out = { first: covered() };
+    h.waiting['movie-1'](JSON.parse(JSON.stringify(FILM)));
+    await h.pass(50);
+    out.drawn = covered();
+    out.title = h.title();
+    point(1);
+    out.second = covered();
+    point(3);
+    out.none = covered();
+    return out;
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {

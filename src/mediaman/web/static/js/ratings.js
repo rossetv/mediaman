@@ -5,7 +5,8 @@
  *     node for plain and grid, for the caller to place for lift. Both are hidden while the
  *     title cannot be rated. 'lift' stands on end, best at the top, is called by the option
  *     `label` and seen while its node has .is-open; it has also pointAt(button or null), what
- *     the person is on, and enter(), which takes the focus in.
+ *     the person is on, and enter(), which takes the focus in. The option `onName(button, words)`
+ *     is told each time the name shown changes, with null for the button once none shows.
  *     `again`: in a grid, the question may be put again, so the words do not say it is the last.
  *   MM.ratings.get(ref)          -2, -1, 1, 2, null for none, undefined while never known
  *   MM.ratings.canRate(ref)      false, true, or undefined while not known
@@ -44,9 +45,10 @@
     lift: 'Only you see your rating.',
   };
   var NOT_SAVED = 'Your rating wasn’t saved. Try again.';
-  var HAND = 'M3 11.6c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4v7.2c0 .8-.6 1.4-1.4 1.4S3 19.6 3 18.8Z' +
-    'M8.4 11.2l3.2-6.8C12 3.5 12.6 3 13.4 3c1.3 0 2.2 1 2.2 2.4 0 1.4-.5 2.7-.9 3.8h3.9c1.6 0 2.7 1.4 2.4 2.9' +
+  var CUFF = 'M3 11.6c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4v7.2c0 .8-.6 1.4-1.4 1.4S3 19.6 3 18.8Z';
+  var PALM = 'M8.4 11.2l3.2-6.8C12 3.5 12.6 3 13.4 3c1.3 0 2.2 1 2.2 2.4 0 1.4-.5 2.7-.9 3.8h3.9c1.6 0 2.7 1.4 2.4 2.9' +
     'l-1.1 5.6c-.3 1.5-1.5 2.5-3 2.5h-5.7c-1 0-1.9-.3-2.8-.8Z';
+  var HAND = CUFF + PALM;
 
   function el(tag, className, text) {
     var n = document.createElement(tag);
@@ -63,21 +65,33 @@
   }
 
   /* Its outline, and the fill drawn into it while it is on. */
-  function hand() { return [svg('path', { d: HAND }), svg('path', { 'class': 'ink', d: HAND })]; }
+  function hand(d) { return [svg('path', { d: d }), svg('path', { 'class': 'ink', d: d })]; }
+
+  var cuts = 0; // ids of the masks of double thumbs, one each
 
   function thumb(level, on) {
     var two = Math.abs(level) === 2;
+    var cut = two ? 'th-cut-' + (++cuts) : '';
     return svg('svg', {
       'class': 'rate-th' + (two ? ' rate-th--2' : '') + (level < 0 ? ' rate-th--down' : '') + (on ? ' is-on' : ''),
       viewBox: two ? '0 0 32 24' : '-1 0 26 24',
       'aria-hidden': 'true',
       focusable: 'false',
     }, two ? [
-      svg('g', { transform: 'translate(10.5 -2.8) scale(.92)' }, [svg('g', { 'class': 'b' }, hand())]),
-      svg('g', { transform: 'translate(0 2)' }, [
-        svg('g', { 'class': 'f' }, [svg('g', { 'class': 'halo' }, [svg('path', { d: HAND })])].concat(hand())),
+      // The back hand is cut away round the front one, whatever lies behind; the mask's hand
+      // is a .f too, so it moves with the front one. The back hand has no cuff: tilted apart,
+      // the two hands would show it as a sliver between them.
+      svg('mask', { id: cut, maskUnits: 'userSpaceOnUse', x: '-16', y: '-16', width: '64', height: '56' }, [
+        svg('rect', { x: '-16', y: '-16', width: '64', height: '56', fill: '#fff' }),
+        svg('g', { transform: 'translate(0 2)' }, [
+          svg('g', { 'class': 'f' }, [svg('path', { d: HAND, fill: '#000', stroke: '#000', 'stroke-width': '5' })]),
+        ]),
       ]),
-    ] : [svg('g', { 'class': 'f' }, hand())]);
+      svg('g', { mask: 'url(#' + cut + ')' }, [
+        svg('g', { transform: 'translate(10.5 -2.8) scale(.92)' }, [svg('g', { 'class': 'b' }, hand(PALM))]),
+      ]),
+      svg('g', { transform: 'translate(0 2)' }, [svg('g', { 'class': 'f' }, hand(HAND))]),
+    ] : [svg('g', { 'class': 'f' }, hand(HAND))]);
   }
 
   /* ── The levels ──
@@ -360,7 +374,7 @@
       group.insertBefore(b, inLift ? group.firstChild : null);
       return b;
     });
-    var lift = inLift ? lifted(node, group) : null;
+    var lift = inLift ? lifted(node, group, opts && opts.onName) : null;
 
     function press(level) {
       var s = stateOf(ref);
@@ -436,7 +450,7 @@
 
   /* The set on end: a place that goes along with the mouse, the finger or the focus, and the name
      of the level it is on. */
-  function lifted(node, group) {
+  function lifted(node, group, onName) {
     var buttons = Array.prototype.slice.call(group.children); // best first
     var puck = group.insertBefore(el('span', 'rate__puck'), group.firstChild);
     var name = node.appendChild(el('span', 'rate__name'));
@@ -462,6 +476,7 @@
       place(b || buttons.filter(isOn)[0]);
       name.classList.toggle('is-on', !!b);
       if (b && b !== said) words.textContent = isOn(b) ? 'Take back' : b.getAttribute('aria-label');
+      if (onName) onName(b || null, words);
     }
 
     function focusOn(b) {
@@ -489,6 +504,7 @@
         pointAt(b);
         said = b;
         words.textContent = text;
+        if (onName) onName(b, words);
       },
       paint: function () {
         var at = buttons.filter(function (b) { return b.classList.contains('is-at'); })[0];

@@ -216,7 +216,7 @@
     // after a change of what is in it costs as much as all of them.
 
     // The preview's words go along in the sheet, as a copy, for what is under them to come through.
-    var ghost = p.body.cloneNode(true);
+    var ghost = core.copy(p.body);
     ghost.classList.add('cry-ghost');
     if (p.n.classList.contains('pv--reason')) ghost.classList.add('pv--reason');
     if (p.hint) ghost.appendChild(p.hint.cloneNode(true));

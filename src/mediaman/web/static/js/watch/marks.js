@@ -460,7 +460,7 @@
   /* The server's card that the page lacks, in its place in the row, or with its row, and in that row's open grid. */
   function enterContinue(now, undone) {
     var row = continueRow(document);
-    var fresh = document.importNode(row ? now : now.closest('.watch-row'), true);
+    var fresh = core.copy(row ? now : now.closest('.watch-row'));
     if (row) {
       var next = null;
       for (var n = now.nextElementSibling; n && !next; n = n.nextElementSibling) {
@@ -553,7 +553,7 @@
       if (!now) {
         if (whole) leaveContinue(ref, done);
       } else if (now.getAttribute('data-mark') !== card.getAttribute('data-mark')) {
-        replaceCard(card, document.importNode(now, true), done);
+        replaceCard(card, core.copy(now), done);
       }
     });
     if (now && !here.length) enterContinue(now, done.undone);

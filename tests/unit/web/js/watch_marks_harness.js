@@ -41,6 +41,18 @@ function card(mark, title, sub, over = {}) {
       ...(over.dismiss ? [['button', { class: 'card-tool card-tool--x', 'data-watch-dismiss': over.dismiss, 'data-mark-name': title }, ['svg', {}]]] : [])]];
 }
 
+// A thumb's mask on each card, numbered from 1 down the page as the server numbers them.
+function cut(spec) {
+  let n = 0;
+  const walk = (s) => {
+    if (!Array.isArray(s)) return s;
+    const out = [s[0], s[1], ...s.slice(2).map(walk)];
+    if (s[0] === 'article') { n += 1; out.push(['svg', {}, ['mask', { id: 'th-cut-s' + n }], ['g', { mask: 'url(#th-cut-s' + n + ')' }]]); }
+    return out;
+  };
+  return walk(spec);
+}
+
 function row(title, cards) {
   return ['section', { class: 'watch-row', id: title }, ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll' }, ...cards]]];
 }
@@ -335,6 +347,43 @@ const scenarios = {
       return [before, p.marks('picks')];
     };
     return { moving: await go(true, 900), still: await go(false, 650) };
+  },
+
+  // A love given comes down to the caption as a copy: the masks on the page as it flies.
+  async flierMasks() {
+    const seen = [];
+    Node.prototype.animate = function () {
+      if (this.classList.contains('card-flier')) {
+        const page = this.ownerDocument.body;
+        seen.push({ ids: page.querySelectorAll('mask').map((m) => m.getAttribute('id')), refs: page.querySelectorAll('[mask]').map((g) => g.getAttribute('mask')) });
+      }
+      const a = { cancel() {} };
+      Promise.resolve().then(() => a.onfinish && a.onfinish());
+      return a;
+    };
+    const p = load(watchPage([row('lib', [FILM({ tmdb: '10' })])]), { motion: true });
+    await thumb(p, p.cards()[0], 3);
+    delete Node.prototype.animate;
+    return seen;
+  },
+
+  // What the server's page brings in, a card in place of one, one into its row or its whole row, leaves
+  // the page's mask ids each its own, each one used.
+  async broughtMasks() {
+    const go = async (page, next, at) => {
+      const p = load(cut(page), { next: cut(next) });
+      await p.pick(at(p), 'mark');
+      return { marks: p.marks(), ids: p.doc.querySelectorAll('mask').map((m) => m.getAttribute('id')), refs: p.doc.querySelectorAll('[mask]').map((g) => g.getAttribute('mask')) };
+    };
+    const rows = (...parts) => watchPage([['div', { class: 'watch-rows' }, ...parts]]);
+    const salt = card('movie/3', 'Salt', 'Movie', { watched: true });
+    const fresh = card('movie/3', 'Salt', 'Movie · 5 min left', { dismiss: 'movie-3', bar: true });
+    const ep = (key, over) => card('episode/' + key, 'Brightwater', 'S1 · E' + (key - 20), { dismiss: 'show-2', ...over });
+    return {
+      replaced: await go(rows(row('cont', [CONTINUE[0], ep(22)])), rows(row('cont', [ep(23, { img: '/23' })])), (p) => p.cards('cont')[1]),
+      card: await go(rows(row('cont', [CONTINUE[0]]), row('lib', [salt])), rows(row('cont', [CONTINUE[0], fresh]), row('lib', [salt])), (p) => p.cards('lib')[0]),
+      row: await go(rows(row('lib', [salt])), rows(row('cont', [fresh]), row('lib', [salt])), (p) => p.cards('lib')[0]),
+    };
   },
 
   // A card that leaves its row and one that comes back are not cut at their edges; a row that goes is.

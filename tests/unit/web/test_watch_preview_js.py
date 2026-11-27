@@ -572,6 +572,16 @@ def test_rate_opens_the_four_and_a_press_rates_and_folds_them() -> None:
     assert out["title"] == "Fieldwork"
 
 
+def test_only_the_lines_of_a_preview_s_head_a_level_s_name_lies_over_give_way_to_it() -> None:
+    out = _run("coveredHead")
+    # By place in the head: the title, then its facts; never the head as a whole.
+    assert out["first"] == [0]
+    # A head drawn anew as the details come, under a name that shows, is measured again.
+    assert out["title"] == "Fieldwork" and out["drawn"] == [0]
+    assert out["second"] == [1]
+    assert out["none"] == []
+
+
 def test_rate_shows_a_rating_from_before_and_is_not_there_for_a_title_that_cannot_be_rated() -> (
     None
 ):

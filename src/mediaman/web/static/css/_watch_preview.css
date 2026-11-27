@@ -132,7 +132,7 @@
 .pv__keep { position: absolute; right: 0; top: 0; width: 40px; height: 40px; opacity: 0; pointer-events: none; }
 
 /* Rating. What it opens lies over the buttons, and its line has its place from the start. */
-.pv__round > .rate-th { --th-bg: color-mix(in srgb, var(--t1) 14%, var(--s1)); width: 22px; height: 20px; }
+.pv__round > .rate-th { width: 22px; height: 20px; }
 .pv__round.is-up { color: var(--accent-hi); }
 .pv__round.is-down { color: var(--orange); }
 .pv__round.is-up.is-double { color: var(--rate-love); }
@@ -140,6 +140,9 @@
 .pv__lift { position: absolute; z-index: 6; width: 44px; height: 180px; pointer-events: none; }
 .pv__lift > .rate--lift { right: 0; bottom: 0; height: 180px; }
 .pv__lift > .rate--lift.is-open { pointer-events: auto; }
+/* A level's name lies over the lines of the title's words, which give way while it shows rather than peek out round it, and those it misses stay (watch/card-tools.js). */
+.pv__head > * { transition: opacity var(--dur-fast) var(--ease-out) var(--dur-fast); }
+.pv .pv__head > .is-covered { opacity: 0; transition-delay: 0s; }
 .pv__eye[aria-pressed="true"] { --eye-open: none; --eye-seen: inline; background: var(--t1); color: var(--bg); }
 .pv__eye[aria-busy="true"] { opacity: .55; cursor: progress; }
 .pv__said { padding: 0; color: var(--t2); }
@@ -192,6 +195,7 @@
   .pv .pv__body { opacity: 1; transform: none; }
   .pv > .pv__shadow { opacity: 1; }
   .watch-card__link.is-previewed .watch-card__poster { transform: none; }
+  .pv__head > * { transition-delay: 0s; }
 }
 @media (forced-colors: active) {
   .pv__shell { border: 1px solid CanvasText; }

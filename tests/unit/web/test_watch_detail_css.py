@@ -107,6 +107,17 @@ def test_the_thumbs_stand_out_of_the_flow_so_their_words_move_nothing() -> None:
     assert kept > held
 
 
+def _z(selector: str) -> int:
+    return int(re.findall(r"z-index: (\d+)", _of(selector))[0])
+
+
+def test_a_level_s_tip_is_drawn_over_the_hero_s_shade_and_a_trailer_it_reaches_up_into() -> None:
+    # The hero holds no stacking of its own where it is not clipped, so they meet the thumbs there.
+    wide = {", ".join(heads): body for heads, body in _rules("(min-width: 820px)")}
+    thumbs = re.search(r"z-index: (\d+)", wide[".ttl__main > :is(.rate, .ttl__rate-skel)"])
+    assert thumbs and max(_z(".ttl__head"), _z(".ttl__player")) < int(thumbs[1]) < _z(".ttl__bar")
+
+
 def test_a_title_on_its_way_out_takes_no_second_press_of_close() -> None:
     assert "pointer-events: none" in _of(".ttl.is-leaving > *")
 

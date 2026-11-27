@@ -564,6 +564,34 @@ const scenarios = {
     return out;
   },
 
+  // Each double thumb: its mask, what the back hand is masked by, and the hand cut out of it.
+  async doubles() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    const svgs = [p.R.thumb(2, true), p.R.thumb(-2, false)].concat(set.node.querySelectorAll('.rate-th--2'));
+    const box = (n) => n && ['x', 'y', 'width', 'height'].map((k) => Number(n.getAttribute(k)));
+    return svgs.map((svg) => {
+      const mask = svg.querySelector('mask');
+      const back = svg.querySelector('.b');
+      let held = back;
+      while (held && !held.hasAttribute('mask')) held = held.parentNode;
+      const cut = mask && mask.querySelector('.f path');
+      const rect = mask && mask.querySelector('rect');
+      const front = svg.querySelectorAll('.f path').filter((n) => !n.closest('mask'))[0];
+      return {
+        id: mask && mask.getAttribute('id'),
+        backMaskedBy: held && held.getAttribute('mask'),
+        frontMasked: svg.querySelectorAll('[mask] .f').length > 0,
+        cut: cut && [cut.getAttribute('d') === front.getAttribute('d'), cut.getAttribute('fill'), cut.getAttribute('stroke'), cut.getAttribute('stroke-width')],
+        region: box(mask),
+        rect: rect && box(rect).concat(rect.getAttribute('fill')),
+        backAt: back.parentNode.getAttribute('transform'),
+        backHands: back.querySelectorAll('path').map((n) => n.getAttribute('d')),
+        frontHand: front.getAttribute('d'),
+      };
+    });
+  },
+
   // An Undo from elsewhere, and a set that is gone.
   async set() {
     const p = load();

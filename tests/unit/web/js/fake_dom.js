@@ -166,6 +166,11 @@ function makeDocument() {
     getElementById: (id) => doc.documentElement.querySelector('#' + id),
     querySelector: (s) => doc.documentElement.querySelector(s),
     querySelectorAll: (s) => doc.documentElement.querySelectorAll(s),
+    // A range over a node's contents has its boxes.
+    createRange: () => {
+      let node = null;
+      return { selectNodeContents(n) { node = n; }, getClientRects: () => node.getClientRects() };
+    },
   };
   doc.documentElement = new Node(doc, 'html');
   doc.body = doc.documentElement.appendChild(new Node(doc, 'body'));

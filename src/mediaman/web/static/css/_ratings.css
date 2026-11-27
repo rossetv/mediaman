@@ -6,12 +6,11 @@
 }
 
 .rate-th {
-  --th-bg: var(--s1);
   display: block;
   width: 26px;
   height: 24px;
   overflow: visible;
-  fill: var(--th-bg);
+  fill: none;
   stroke: currentColor;
   stroke-width: 1.7;
   stroke-linejoin: round;
@@ -21,7 +20,6 @@
 .rate-th--down { rotate: x 180deg; }
 .rate-th :is(g, .ink) { transform-box: fill-box; transform-origin: 20% 90%; }
 .rate-th .b { opacity: .9; }
-.rate-th .halo { fill: var(--th-bg); stroke: var(--th-bg); stroke-width: 5; }
 .rate-th .ink { fill: currentColor; stroke: none; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
 .rate__b.is-on > .rate-th,
 .rate-th.is-on { stroke-width: 1.1; }
@@ -67,7 +65,7 @@
 .rate__b.is-up.is-double { --level: var(--rate-love); --wash: var(--wash-3); }
 .rate__b.is-down.is-double { --level: var(--rate-no); --wash: var(--wash-0); }
 .rate__b.is-double { --strong: 1.35; }
-.rate__b .rate-th { --th-bg: var(--b-bg); transition: opacity var(--dur-fast) var(--ease-out); }
+.rate__b .rate-th { transition: opacity var(--dur-fast) var(--ease-out); }
 .rate__b.is-on { --b-bg: var(--wash); color: var(--level); }
 .rate.has .rate__b:not(.is-on) > :is(.rate-th, .rate__lab) { opacity: .55; }
 /* A touch leaves its hover behind, which would keep a thumb taken back lit. */
@@ -191,8 +189,10 @@
   translate: -50% 0;
   padding: 4px 10px;
   border-radius: var(--r-sm);
-  background: var(--s5);
-  color: var(--t1);
+  /* Solid, not a surface token: over glass those turn into a white veil the white words sink into. */
+  background: #2c2c30;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .12), var(--shadow-card);
+  color: #fff;
   font-size: 12px;
   font-weight: 500;
   line-height: 1.5;
@@ -207,7 +207,7 @@
 }
 .rate__b:focus-visible .rate__tip { opacity: 1; transform: none; }
 
-.rate__line { min-height: 20px; margin: 0; padding-left: 4px; font-size: 13px; line-height: 20px; color: var(--t3); }
+.rate__line { min-height: 20px; margin: 0; padding-left: 4px; font-size: 13px; line-height: 20px; color: color-mix(in srgb, var(--t1) 74%, transparent); }
 .rate__line > span { display: inline-block; }
 .rate__line > .is-new { animation: rate-rise var(--dur) var(--ease-out); }
 .rate__line b { color: var(--t1); font-weight: 600; }

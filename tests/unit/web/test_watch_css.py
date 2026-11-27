@@ -307,8 +307,35 @@ def test_a_thumb_keeps_the_colour_of_its_level_from_the_press_to_its_rest(level:
     assert pressed and re.findall(r"--rate-c: ([^;]+);", rest) == pressed
     preview = _of(f".pv__round{level}", sheet=PREVIEW)
     assert re.findall(r"color: ([^;]+);", preview) == pressed
-    # Nothing round it on its way over the picture.
-    assert "display: none" in _of(".card-flier .halo", sheet=CARDS)
+
+
+def test_every_custom_property_a_thumb_is_given_is_read_somewhere() -> None:
+    css = "".join(p.read_text(encoding="utf-8") for p in SHEET.parent.glob("*.css"))
+    given = {
+        name
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        if ".rate-th" in head
+        for name in re.findall(r"(--[\w-]+):", body)
+    }
+    assert {name for name in given if f"var({name}" not in css} == set()
+
+
+def _luminance(hex_colour: str) -> float:
+    channels = [int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def test_a_level_s_name_is_painted_as_the_thumbs_tips_and_reads_on_its_fill() -> None:
+    name, tip = _of(".rate__name > span", sheet=CARDS), _of(".rate__tip", sheet=RATINGS)
+    paint = r"(?<![-\w])(background|box-shadow|color): ([^;]+);"
+    assert dict(re.findall(paint, name)) == dict(re.findall(paint, tip))
+    fill = re.search(r"background: #([0-9a-f]{6});", tip)
+    words = re.search(r"(?<![-\w])color: #([0-9a-f]{3}|[0-9a-f]{6});", tip)
+    assert fill and words, tip
+    hexes = ["#" + (h if len(h) == 6 else "".join(c * 2 for c in h)) for h in (fill[1], words[1])]
+    light, dark = sorted(map(_luminance, hexes), reverse=True)
+    assert (light + 0.05) / (dark + 0.05) >= 4.5
 
 
 # "removed", the widest word of a level's name, is 3.97em in the system font at its boldest.
@@ -573,3 +600,93 @@ def test_a_phone_s_tv_bar_is_off_the_foot_and_below_toasts_and_what_is_scrolled_
     assert _px(_last("bottom", toast), True, height) >= over
     scrolled = _of("html.has-tv-mini", PHONE, REMOTE)
     assert _px(_last("scroll-padding-bottom", scrolled), True, height) >= over
+
+
+def _seconds(value: str) -> float:
+    found = re.fullmatch(r"var\((--[\w-]+)\)", value)
+    value = token(found[1]) if found else value
+    return float(value.removesuffix("ms")) / 1000 if value.endswith("ms") else float(value[:-1])
+
+
+def test_a_phone_card_s_badges_come_back_only_once_the_level_s_name_over_them_has_gone() -> None:
+    back = style(".watch-card__poster > .watch-badge", "_watch_cards.css", "(hover: none)")
+    gone = style(".rate__name > span", "_watch_cards.css")
+    delay = re.search(r"opacity (\S+) \S+ (\S+)", back["transition"])
+    fade = re.search(r"opacity (\S+)", gone["transition"])
+    assert delay and fade and _seconds(delay[2]) >= _seconds(fade[1])
+
+
+def test_a_lifted_card_s_poster_words_give_way_only_where_a_level_s_name_lies_over_them() -> None:
+    covered = ".is-lifted > .watch-card__link .watch-card__poster > .is-covered"
+    assert style(covered, "_watch_cards.css", MOUSE)["opacity"] == "0"
+    # Nothing else of the poster goes: its badges, which no name reaches, say how long it stays.
+    gone = [
+        sel
+        for where, sels, decls in rules("_watch_cards.css")
+        if where == (MOUSE,) and decls.get("opacity") == "0"
+        for sel in sels
+        if ".watch-card__poster" in sel or ".watch-badge" in sel
+    ]
+    assert gone == [covered]
+
+
+def test_lifting_a_card_never_rewraps_its_title_or_moves_its_scores() -> None:
+    # Words the levels reach fade where they are (watch/card-tools.js); none is laid out anew.
+    words = (".watch-card__title", ".watch-card__scores", ".is-covered")
+    changed = {
+        prop
+        for _, sels, decls in rules("_watch_cards.css")
+        for sel in sels
+        if ".is-lifted" in sel and any(w in sel.rsplit(">", 1)[-1] for w in words)
+        for prop in decls
+    }
+    assert changed and changed <= {"opacity", "transition-delay"}
+
+
+def test_covered_words_go_at_once_and_come_back_only_once_the_name_over_them_has_gone() -> None:
+    fade = re.search(
+        r"opacity (\S+)", style(".rate__name > span", "_watch_cards.css")["transition"]
+    )
+    assert fade
+    for sheet, words, covered, media in [
+        (
+            "_watch_cards.css",
+            ".watch-card__poster > :is(.watch-card__title, .watch-card__scores)",
+            ".is-lifted > .watch-card__link .watch-card__poster > .is-covered",
+            MOUSE,
+        ),
+        ("_watch_preview.css", ".pv__head > *", ".pv .pv__head > .is-covered", None),
+    ]:
+        back = re.search(r"opacity (\S+) \S+ (\S+)", style(words, sheet)["transition"])
+        assert back and _seconds(back[2]) >= _seconds(fade[1]), sheet
+        assert _seconds(style(covered, sheet, media)["transition-delay"]) == 0, sheet
+        # Where motion is unwanted the name goes at once, so they need not wait for it.
+        assert _seconds(style(words, sheet, STILL)["transition-delay"]) == 0, sheet
+
+
+def test_on_a_touch_screen_a_lifted_card_s_title_and_scores_give_way_as_its_badges_do() -> None:
+    words = ".is-lifted > .watch-card__link .watch-card__poster > "
+    words += ":is(.watch-card__title, .watch-card__scores)"
+    lifted = style(words, "_watch_cards.css", FINGER)
+    assert lifted["opacity"] == "0" and _seconds(lifted["transition-delay"]) == 0
+
+
+def test_on_a_touch_screen_a_card_s_badges_go_at_once_when_its_levels_open() -> None:
+    lifted = style(".is-lifted > .watch-card__link .watch-badge", "_watch_cards.css", FINGER)
+    assert lifted["opacity"] == "0" and _seconds(lifted["transition-delay"]) == 0
+
+
+def test_where_motion_is_unwanted_a_card_s_badges_come_back_with_its_levels_gone() -> None:
+    still = style(".watch-card__poster > .watch-badge", "_watch_cards.css", STILL)
+    assert _seconds(still["transition-delay"]) == 0
+
+
+def test_a_preview_s_title_words_give_way_line_by_line_and_only_where_a_name_lies_over_them() -> (
+    None
+):
+    covered = ".pv .pv__head > .is-covered"
+    assert style(covered, "_watch_preview.css")["opacity"] == "0"
+    hidden = [
+        s for _, sels, d in rules("_watch_preview.css") if d.get("opacity") == "0" for s in sels
+    ]
+    assert [s for s in hidden if ".pv__head" in s] == [covered]
