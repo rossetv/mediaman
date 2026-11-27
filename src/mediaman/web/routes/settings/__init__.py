@@ -2,7 +2,7 @@
 
 A thin aggregator over .api (JSON handlers), .secrets (field sets, masking, sentinels),
 .testers (per-service tester functions, registry and result cache) and .core (URL-field
-validation). This barrel owns the GET /settings page handler and _load_settings (a
+validation). This barrel owns the GET /settings pane handler and _load_settings (a
 monkeypatch target in the tests), and aggregates the .api router.
 
 Import router from this package. The "import X as X" block re-exports the submodule names so
@@ -154,6 +154,11 @@ def settings_page(request: Request) -> Response:
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, conn = resolved
+    if (
+        request.query_params.get("pane") != "1"
+        or request.headers.get("sec-fetch-mode") == "navigate"
+    ):
+        return RedirectResponse("/?you=settings", status_code=302)
 
     # Skip every encrypted secret — the page only ever shows '****' for
     # them, so decrypting just to throw the plaintext away is wasted
@@ -184,18 +189,19 @@ def settings_page(request: Request) -> Response:
     plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []
 
     templates = cast(Jinja2Templates, request.app.state.templates)
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
-        "settings.html",
+        "panes/_settings.html",
         {
             "username": username,
-            "nav_active": "settings",
             "settings": settings,
             "plex_libraries_selected": plex_libraries_selected,
             "timezones": _timezones(),
             "openai_key_refused": openai_key_refused,
         },
     )
+    response.headers["Cache-Control"] = "no-store, private"
+    return response
 
 
 router.include_router(_api_router)

@@ -314,13 +314,6 @@
 .profile-item:focus-visible { color: var(--t1); background: var(--s3); }
 .profile-item:focus-visible { outline-offset: -2px; border-radius: var(--r-sm); }
 .profile-item[aria-current] { color: var(--t1); background: var(--s4); }
-.profile-note { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; font-size: 12px; white-space: nowrap; color: var(--accent-text); font-variant-numeric: tabular-nums; }
-.profile-note[hidden] { display: none; }
-.profile-note.is-ready { color: var(--success); }
-.profile-note.is-waiting { color: var(--warning); }
-.profile-note.is-lost { color: var(--t3); }
-.profile-note > i { width: 44px; height: 4px; border-radius: var(--r-xxs); background: var(--rgba-overlay-lg); overflow: hidden; }
-.profile-note > i::before { content: ""; display: block; height: 100%; width: calc(var(--ring) * 1%); border-radius: inherit; background: currentColor; }
 .profile-item--danger,
 .profile-item--danger:hover,
 .profile-item--danger:active,

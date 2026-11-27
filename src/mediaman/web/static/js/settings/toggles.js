@@ -5,7 +5,6 @@
  *   - Toggle switches (`<span data-toggle>` mirrors to a hidden `<input>`)
  *   - Integration-card collapse/expand (`<[data-intg-toggle]>` headers, `.intg-fold` buttons)
  *   - Secret-reveal buttons (`<button.inp-reveal>` flips type=password)
- *   - Rail scroll-spy (highlights the active section in `.setg-rail`)
  *   - The fold of what the AI recommendations send to OpenAI
  *
  * Cross-module dependencies:
@@ -94,6 +93,15 @@
       var inner = document.createElement('div');
       inner.className = 'setg-fold-inner';
       while (body.firstChild) inner.appendChild(body.firstChild);
+      // The list's rows carry only the answer; Test sits at the foot of the open card.
+      var card = body.closest('.intg-card');
+      var test = card && card.querySelector('.intg-card-hd [data-test-service]');
+      if (test) {
+        var acts = document.createElement('div');
+        acts.className = 'intg-acts';
+        acts.appendChild(test);
+        inner.appendChild(acts);
+      }
       body.appendChild(inner);
       body.classList.add('setg-fold');
     });
@@ -124,52 +132,12 @@
     });
   }
 
-  function wireRailScrollSpy() {
-    var rail = document.querySelector('.setg-rail');
-    var railItems = document.querySelectorAll('.setg-rail-item');
-    var blocks = document.querySelectorAll('.setg-block');
-    var lastActiveHref = null;
-    function syncRail() {
-      if (!blocks.length) return;
-      // A section is current once its top passes a line a third of the way
-      // down the view, so a short section in plain view is not skipped.
-      var line = Math.max(140, window.innerHeight * 0.35);
-      var current = blocks[0];
-      blocks.forEach(function (b) { if (b.getBoundingClientRect().top <= line) current = b; });
-      var atBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 4);
-      if (atBottom) current = blocks[blocks.length - 1];
-      var id = current ? '#' + current.id : '';
-      var activeEl = null;
-      railItems.forEach(function (r) {
-        var on = r.getAttribute('href') === id;
-        r.classList.toggle('on', on);
-        if (on) activeEl = r;
-      });
-      if (activeEl && id !== lastActiveHref && rail && rail.scrollWidth > rail.clientWidth) {
-        var target = activeEl.offsetLeft - (rail.clientWidth - activeEl.offsetWidth) / 2;
-        rail.scrollTo({ left: Math.max(0, target), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-      }
-      lastActiveHref = id;
-    }
-    // At rest under the bar, the rail's colour runs up behind it.
-    function syncStuck() {
-      if (!rail) return;
-      rail.classList.toggle('is-stuck', rail.getBoundingClientRect().top <= parseFloat(getComputedStyle(rail).top) + 1);
-    }
-    window.addEventListener('scroll', function () { syncRail(); syncStuck(); }, { passive: true });
-    // The rail sticks only at one width, so a resize can change whether it is stuck.
-    window.addEventListener('resize', syncStuck);
-    syncRail();
-    syncStuck();
-  }
-
   function init() {
     wireToggleSwitches();
     readSwitches();
-    window.addEventListener('pageshow', readSwitches);
+    window.addEventListener('pageshow', function () { if (!MM.you || MM.you.shown('settings')) readSwitches(); });
     wireIntegrationCards();
     wireSecretReveals();
-    wireRailScrollSpy();
     var more = document.getElementById('setg-ai-more');
     if (more) MM.dom.fold(more, document.getElementById('setg-ai-more-toggle'));
   }

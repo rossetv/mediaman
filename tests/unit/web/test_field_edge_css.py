@@ -1,4 +1,5 @@
-"""A field's edge, the bars the keyboard must stay clear of, and All titles' grid on a phone, read as rules."""
+"""A field's edge and the room between fields, the bars the keyboard must stay clear of, History's row of
+kinds, and All titles' grid on a phone, read as rules."""
 
 from __future__ import annotations
 
@@ -85,22 +86,36 @@ def test_an_off_switch_shows_its_track_and_an_on_one_its_colour_alone() -> None:
     assert "border:" not in _of(".tog", "_forms.css")
 
 
-def test_on_history_the_keyboard_lands_clear_of_the_bar_and_tools_but_a_bars_own_control_stays_put() -> (
+def test_in_the_history_pane_the_keyboard_lands_clear_of_the_tools_but_their_own_control_stays_put() -> (
     None
 ):
-    assert "scroll-padding-top: var(--bar-clear)" in _of(
-        'html[data-page="history"]', "_history.css"
-    )
-    held = 'html[data-page="history"].is-bar-focus'
+    view = '.you-view[data-view="history"]'
+    # The tools' own height, as history.js measures it; before that, no less than they stand: one
+    # line of pills under the search is 153px wide, and 178px on a phone, where the count wraps.
+    clear = r"scroll-padding-top: calc\(var\(--hx-tools, (\d+)px\) \+ [1-9]\d*px\)"
+    wide = re.search(clear, _of(view, "_history.css"))
+    phone = re.search(clear, _of(view, "_history.css", "(max-width: 699.98px)"))
+    assert wide and int(wide[1]) >= 153, _of(view, "_history.css")
+    assert phone and int(phone[1]) >= 178
+    held = view + ":has(.hx-tools:focus-within)"
     assert "scroll-padding-top: 0" in _of(held, "_history.css")
 
 
-def test_under_a_short_window_historys_tools_and_all_titles_head_go_with_the_page() -> None:
+def test_on_a_wide_pane_historys_kinds_wrap_rather_than_run_past_its_edge() -> None:
+    assert "flex-wrap: wrap" in _of(".hx-groups", "_history.css", "(min-width: 700px)")
+
+
+def test_the_password_views_fields_keep_no_empty_room_for_a_reason_until_one_is_said() -> None:
+    why = _of(".pwd--pane .pwd-why", "_password.css")
+    assert "min-height: 0" in why and "padding: 0" in why
+    assert "content: none" in _of(".pwd--pane .pwd-why::before", "_password.css")
+    assert re.search(r"margin: 0[;\s]", _of(".pwd--pane .pwd-rules", "_password.css"))
+
+
+def test_under_a_short_window_history_panes_tools_and_all_titles_head_go_with_the_list() -> None:
     short = "(max-height: 500px)"
     assert "position: relative" in _of(".hx-tools", "_history.css", short)
-    assert "--bar-clear: calc(var(--nav-h) + 12px)" in _of(
-        'html[data-page="history"]', "_history.css", short
-    )
+    assert "scroll-padding-top: 0" in _of('.you-view[data-view="history"]', "_history.css", short)
     assert "position: relative" in _of(".watch-all__head", "_watch_grid.css", short)
 
 
@@ -197,3 +212,8 @@ def test_a_phone_s_three_across_titles_are_wide_enough_for_cartographer_s() -> N
 
 def _token_sheet() -> str:
     return (CSS / "_tokens.css").read_text(encoding="utf-8")
+
+
+def test_on_a_low_wide_pane_historys_kinds_stay_on_one_line_and_scroll_sideways() -> None:
+    low = "(max-height: 500px) and (min-width: 700px)"
+    assert "flex-wrap: nowrap" in _of(".hx-groups", "_history.css", low)

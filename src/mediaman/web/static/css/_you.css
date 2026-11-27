@@ -1,0 +1,195 @@
+/* The pane over Watch that holds Profile, History and Settings (templates/_you.html, watch/you.js).
+   A panel at the side from 700 px, a sheet pulled down by its handle or its bar below. */
+.you {
+  --you-narrow: 440px;
+  --you-wide: 880px;
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  container-type: inline-size;
+}
+.you[hidden] { display: none; }
+.you__veil {
+  position: absolute; inset: 0;
+  background: color-mix(in srgb, var(--scrim) 58%, transparent);
+  opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.you.is-open .you__veil { opacity: 1; }
+.you__panel {
+  --you-w: var(--you-narrow);
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  width: min(var(--you-w), calc(100% - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  display: flex;
+  flex-direction: column;
+  background: var(--s1);
+  border: 1px solid var(--hair-strong);
+  border-radius: 20px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  outline: 0;
+  opacity: 0;
+  transform: translateX(48px);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), width var(--dur-slow) var(--ease-out);
+}
+.you.is-wide .you__panel { --you-w: var(--you-wide); }
+.you.is-open .you__panel { opacity: 1; transform: none; }
+
+.you__grab { display: none; -webkit-user-select: none; user-select: none; }
+.you__bar {
+  flex: none;
+  -webkit-user-select: none;
+  user-select: none;
+  display: grid;
+  grid-template-columns: minmax(44px, 1fr) auto minmax(44px, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 60px;
+  padding: 8px 10px 6px;
+}
+.you__title {
+  grid-column: 2;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  outline: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.you__back {
+  grid-column: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 12px 0 8px;
+  border-radius: var(--r-pill);
+  font-size: 15px;
+  color: var(--accent);
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+/* Kept in the grid, so the title stays in the middle; out of sight once it has faded. */
+.you__back.is-off {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast);
+}
+.you__back > .ico { font-size: 15px; }
+.you__back-label { overflow: hidden; text-overflow: ellipsis; }
+.you__close {
+  grid-column: 3;
+  justify-self: end;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 16px;
+  color: var(--t2);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .you__back:hover { background: var(--s3); }
+  .you__close:hover { background: var(--s3); color: var(--t1); }
+}
+
+.you__views { position: relative; flex: 1; min-height: 0; }
+/* Each view is as wide as the panel it ends in, pinned to the right edge the panel grows from,
+   so its text never reflows while the panel widens or narrows: the panel clips it meanwhile. */
+.you-view {
+  --view-w: var(--you-narrow);
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: calc(min(var(--view-w), 100cqw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)) - 2px);
+  display: flex;
+  flex-direction: column;
+  padding: 4px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--s5) transparent;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(calc(var(--dir, 1) * 36px));
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.you-view[data-wide] { --view-w: var(--you-wide); }
+.you-view > * { flex-shrink: 0; }
+.you-view.is-on {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s;
+}
+
+/* While a group's fragment is on its way. */
+.you__wait { display: none; flex-direction: column; gap: 12px; padding: 12px 20px; }
+.you.is-loading .you__wait { display: flex; }
+.you__wait > .skel { height: 52px; border-radius: 14px; }
+
+/* Phones: a sheet from the foot, pulled down by its handle or its bar. */
+@media (max-width: 699.98px) {
+  .you__panel, .you.is-wide .you__panel {
+    inset: auto 0 0;
+    width: auto;
+    height: calc(100% - max(16px, env(safe-area-inset-top, 0px) + 8px));
+    border-width: 1px 0 0;
+    border-radius: 20px 20px 0 0;
+    opacity: 1;
+    transform: translateY(100%);
+    transition: transform var(--dur-slow) var(--ease-out);
+  }
+  .you.is-open .you__panel { transform: none; }
+  .you__panel.is-dragged { transition: none; }
+  .you__grab { display: block; flex: none; height: 18px; touch-action: none; cursor: grab; }
+  .you__grab::after {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 5px;
+    margin: 0 auto;
+    border-radius: var(--r-pill);
+    background: var(--hair-hover);
+    transform: translateY(7px);
+  }
+  .you__bar { min-height: 52px; padding-top: 0; touch-action: none; }
+  .you-view { left: 0; width: auto; padding-right: 16px; padding-left: 16px; }
+}
+/* Phones on their side: the panel takes the height there is. */
+@media (max-height: 500px) and (min-width: 700px) {
+  .you__panel { top: 8px; bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
+  .you__bar { min-height: 50px; padding-top: 4px; }
+}
+
+/* Reduced motion: nothing slides or grows; the pane, its views and Back only fade, quickly.
+   Important, to win over the page's own rule, which cuts every transition to nothing. */
+@media (prefers-reduced-motion: reduce) {
+  .you__panel, .you.is-wide .you__panel, .you__veil, .you__back {
+    transform: none;
+    transition: opacity var(--dur-fast) var(--ease-out) !important;
+  }
+  .you:not(.is-open) .you__panel { opacity: 0; }
+  .you-view { transform: none; transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast) !important; }
+  .you__back.is-off { transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast) !important; }
+  .you-view.is-on { transition: opacity var(--dur-fast) var(--ease-out), visibility 0s !important; }
+}
+
+/* A question over the pane, as the one before unsaved changes are lost: its answers side by side,
+   Keep editing then a red Discard, one above the other only where they do not fit. */
+.you.is-open ~ .ui-confirm-overlay .ui-confirm-card { max-width: 360px; }
+.you.is-open ~ .ui-confirm-overlay .ui-confirm-actions { flex-direction: row; flex-wrap: wrap; justify-content: flex-end; }
+.you.is-open ~ .ui-confirm-overlay .ui-confirm-actions .btn { width: auto; min-height: 44px; }
+.you.is-open ~ .ui-confirm-overlay .btn--danger { background: var(--danger-solid); color: #fff; }
+@media (hover: hover) {
+  .you.is-open ~ .ui-confirm-overlay .btn--danger:hover { background: var(--danger-solid-hover); }
+}

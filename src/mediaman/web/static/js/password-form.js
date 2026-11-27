@@ -13,7 +13,8 @@
  *   MM.password.form(form, options)
  *     Wires a form. Options: `whose` ("your" or "their"), `username()` (the form's username field by
  *     default), `before()` (false stops the submit) and `send(values)`; without `send` the form is
- *     posted as it is.
+ *     posted as it is. With `hold`, the submit button reads as disabled until the fields would pass;
+ *     pressed before that, it says what is missing.
  *   MM.password.celebrate(stage, form, title, words, beside)
  *     Takes the form's place with a tick; resolves, once drawn, to the function that gives it back.
  *
@@ -247,9 +248,23 @@
       MM.dom.setText(line.querySelector('.pwd-rule-n'), more || '');
     }
 
+    // What the submit would let through: the same as `wanting` lets through.
+    function ready(x) {
+      var r = x.r;
+      return Boolean((!old || old.input.value) && x.pw && !r.tooLong && r.ok.length &&
+        (r.ok.mix || r.unsure.mix) && (r.ok.guess || r.unsure.guess) && !x.same);
+    }
+    // aria-disabled and not disabled, so a press can still say what is missing.
+    function hold(x) {
+      if (!options.hold || isBusy()) return;
+      if (ready(x || look())) submit.removeAttribute('aria-disabled');
+      else submit.setAttribute('aria-disabled', 'true');
+    }
+
     var pause = 0;
     function render() {
       var x = look(), r = x.r, bad = x.bad.lines;
+      hold(x);
       var guess = r.ok.guess ? '' : guessWords(r);
       mark('length', bad.length ? 'bad' : r.ok.length ? 'met' : r.tooLong ? 'off' : '', r.tooLong ? MAX_BYTES + ' bytes at most' : '',
         r.empty || r.tooLong || r.ok.length ? '' : ', ' + r.length + ' so far');
@@ -300,6 +315,7 @@
       } else {
         submit.textContent = idle;
         submit.style.flex = submit.style.width = submit.style.minHeight = '';
+        hold();
       }
       said.textContent = on ? 'Saving…' : '';
     }

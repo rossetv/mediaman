@@ -1,9 +1,8 @@
 /**
- * The picture dialog of the Profile page: pick a drawn avatar, or upload a photo and place it in its circle.
+ * The picture view of the Profile pane: pick a drawn avatar, or upload a photo and place it in its circle.
  *
  * A change is told to the document as `mm:avatar`, with the new address in `detail.url`.
- * Requires: core/api.js (MM.api), core/dom.js (MM.dom), core/modal.js (MM.modal), modal-a11y.js,
- * ui-feedback.js (UIFeedback).
+ * Requires: core/api.js (MM.api), core/dom.js (MM.dom), ui-feedback.js (UIFeedback), watch/you.js (MM.you).
  */
 (function () {
   'use strict';
@@ -53,10 +52,19 @@
     });
   }
 
+  // Marks the pane's root as wired by `name`; false where it already was.
+  function mount(root, name) {
+    var on = (root.getAttribute('data-mounted') || '').split(' ').filter(Boolean);
+    if (on.indexOf(name) >= 0) return false;
+    root.setAttribute('data-mounted', on.concat(name).join(' '));
+    return true;
+  }
+
   function start() {
     var dialog = byId('pic-dialog');
     var opener = byId('pic-open');
-    if (!dialog || !opener) return;
+    var root = dialog && dialog.closest('[data-you-group="profile"]');
+    if (!opener || !root || !mount(root, 'picture')) return;
     var now = byId('pic-now');
     var errorBox = byId('pic-error');
     var fileInput = byId('pic-file');
@@ -68,8 +76,7 @@
     /* What is kept on the server; `url` of a photo, `choice` of a drawing, neither of the default. */
     var kept = { choice: Number(dialog.getAttribute('data-choice')) || null, url: dialog.getAttribute('data-photo') };
     /* What is chosen here; `blob` of a photo not sent yet. */
-    var draft = null;
-    var letGo = null;
+    var draft = { choice: kept.choice, url: kept.url };
     var made = [];
     /* A photo read or drawn after the person has moved on is dropped. */
     var turn = 0;
@@ -77,7 +84,7 @@
     /* A chosen photo is being read; it is not saved past. */
     var reading = false;
 
-    function isOpen() { return dialog.getAttribute('aria-hidden') === 'false'; }
+    function isOpen() { return MM.you.shown('profile'); }
 
     function addressOf(pick) { return pick.url || drawn[(pick.choice || own) - 1]; }
 
@@ -157,7 +164,6 @@
     function showPane(placing) {
       byId('pic-pick').hidden = placing;
       byId('pic-place').hidden = !placing;
-      byId('pic-title').textContent = placing ? 'Place your photo' : 'Your picture';
     }
 
     /* Nothing else can be chosen while a picture is sent, as the answer closes the dialog. */
@@ -173,42 +179,40 @@
       } else {
         save.removeAttribute('aria-disabled');
       }
-      save.appendChild(document.createTextNode(on ? 'Saving…' : 'Save'));
+      save.appendChild(document.createTextNode(on ? 'Saving…' : 'Save picture'));
     }
 
-    /* A drag of the photo or the slider may end on the backdrop, which is no click on it. */
-    var pressedOn = null;
-    dialog.addEventListener('pointerdown', function (e) { pressedOn = e.target; });
-    dialog.addEventListener('click', function (e) {
-      if (e.target === dialog && pressedOn !== dialog) e.stopImmediatePropagation();
-    });
+    /* What was picked or placed and not saved goes with the view; a photo placed and still shown stays. */
+    function letGo() {
+      turn += 1;
+      place = null;
+      reading = false;
+      fileInput.value = '';
+      made = made.filter(function (url) {
+        if (url === draft.url) return true;
+        URL.revokeObjectURL(url);
+        return false;
+      });
+    }
 
-    var modal = MM.modal.setupDetail(dialog, {
-      manageBodyOverflow: false, /* _ui_feedback.css holds the page */
-      onClose: function () {
-        if (letGo) letGo();
-        letGo = null;
-        turn += 1;
-        place = null;
-        reading = false;
-        fileInput.value = '';
-        made.forEach(function (url) { URL.revokeObjectURL(url); });
-        made = [];
-      },
-    });
-
-    opener.addEventListener('click', function () {
+    function fresh() {
       draft = { choice: kept.choice, url: kept.url };
+      letGo();
       showError('');
       pane(false);
       paint(true);
-      letGo = MM.dom.holdPage();
-      /* Safari focuses no button that is clicked, and the dialog gives the focus back to what had it. */
-      opener.focus({ preventScroll: true });
-      modal.open();
+    }
+
+    opener.addEventListener('click', function () {
+      fresh();
+      MM.you.go('profile/picture');
     });
-    byId('pic-close').addEventListener('click', modal.close);
-    byId('pic-cancel').addEventListener('click', modal.close);
+    document.addEventListener('mm:you-shown', function (e) {
+      if (e.detail && e.detail.group === 'profile' && e.detail.view === 'profile/picture') fresh();
+    });
+    document.addEventListener('mm:you-hidden', function (e) {
+      if (e.detail && e.detail.group === 'profile') fresh();
+    });
 
     radios.forEach(function (r) {
       r.addEventListener('change', function () { choose({ choice: Number(r.value), url: null }); });
@@ -360,11 +364,18 @@
     });
     zoomInput.addEventListener('input', function () { if (place) zoomTo(zoomInput.value / 100); });
 
-    byId('pic-back').addEventListener('click', function () {
+    function back() {
       turn += 1;
       place = null;
       pane(false);
       byId('pic-upload').focus({ preventScroll: true });
+    }
+    byId('pic-back').addEventListener('click', back);
+    byId('pic-place').addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || !place) return;
+      // Back to picking; the pane is left as it is.
+      e.preventDefault();
+      back();
     });
 
     byId('pic-use').addEventListener('click', function () {
@@ -421,9 +432,9 @@
         document.dispatchEvent(new CustomEvent('mm:avatar', { detail: { url: data.url } }));
         UIFeedback.toast(data.kind === 'default' ? 'Picture removed.' : 'Picture saved.', { variant: 'success' });
         if (!isOpen()) return;
-        if (draft === sent) { modal.close(); return; }
-        /* Opened again meanwhile, at the picture there was before this one. */
+        /* Saved, or opened again meanwhile at the picture there was before this one: the view shows what is kept. */
         draft = { choice: kept.choice, url: kept.url };
+        letGo();
         paint(true);
       }, function (err) {
         setSaving(false);

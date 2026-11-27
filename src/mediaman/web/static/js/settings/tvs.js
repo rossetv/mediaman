@@ -702,10 +702,12 @@
     paintAddress = paint;
     input.addEventListener('input', paint);
     // The switches and Discard set values without an event of their own.
-    document.addEventListener('click', function () { setTimeout(paint, 0); });
-    document.addEventListener('keyup', paint);
+    document.addEventListener('click', function () { if (shown()) setTimeout(paint, 0); });
+    document.addEventListener('keyup', function () { if (shown()) paint(); });
     paint();
   }
+
+  function shown() { return !MM.you || MM.you.shown('settings'); }
 
   function init() {
     wrap = document.getElementById('tv-list-wrap');

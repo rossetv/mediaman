@@ -58,7 +58,8 @@ def test_an_admin_s_page_has_the_one_meter_and_one_panel(app, authed_client, con
 def test_the_panel_s_tabs_and_panes_name_each_other_and_its_figures_come_later(
     app, authed_client, conn
 ):
-    panel = _page(authed_client(app, conn), "/watch").split('id="space"')[1]
+    # the pane over Watch comes after the panel and is a modal of its own
+    panel = _page(authed_client(app, conn), "/watch").split('id="space"')[1].split('id="you"')[0]
 
     for name in ("storage", "scheduled", "deleted"):
         assert f'id="space-tab-{name}"' in panel

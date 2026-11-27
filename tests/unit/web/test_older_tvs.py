@@ -551,10 +551,10 @@ def test_both_switches_are_off_until_saved_on(app_factory, authed_client, conn) 
     templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
     app = app_factory(settings_router, conn=conn, state_extras={"templates": templates})
     client = authed_client(app, conn, with_reauth=True)
-    off = client.get("/settings").text
+    off = client.get("/settings?pane=1").text
     sent = {"older_tvs_enabled": True, "older_tvs_http": True}
     assert client.put("/api/settings", json=sent).json()["ignored"] == []
-    on = client.get("/settings").text
+    on = client.get("/settings?pane=1").text
     for key in ("older_tvs_enabled", "older_tvs_http"):
         assert f'id="{key}" value="false"' in off
         assert f'id="{key}" value="true"' in on

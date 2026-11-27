@@ -156,49 +156,41 @@ def test_with_reduced_motion_nothing_in_the_menu_is_still_hidden_when_it_takes_t
     assert any(".profile-menu *" in head for head in still)
 
 
-def test_the_ring_the_count_and_the_menu_say_how_what_is_downloading_stands() -> None:
+def test_the_ring_and_the_count_say_how_what_is_downloading_stands_with_no_note_in_the_menu() -> (
+    None
+):
     out = _run("downloads")
     name = "Profile menu, robin"
-    assert out["none"] == {
-        "name": name,
-        "ring": [],
-        "count": None,
-        "note": None,
-        "tone": [],
-        "bar": 0,
-    }
+    assert out["none"] == {"name": name, "ring": [], "count": None}
     told = {
-        key: (o["name"].removeprefix(name), o["ring"], o["filled"], o["count"], o["note"], o["bar"])
+        key: (o["name"].removeprefix(name), o["ring"], o["filled"], o["count"])
         for key, o in out.items()
-        if o["note"]
+        if key not in ("none", "over")
     }
     assert told == {
-        "one": (", 1 downloading", ["is-on"], 42, None, ", 42%", 1),
-        "many": (", 4 in progress", ["is-on"], 40, None, ", 40% · 4", 1),
-        "mixed": (", 1 ready to watch", ["is-on"], 57, "1", ", 57% · 4", 1),
-        "ready": (", 1 ready to watch", ["is-on", "is-ready"], 100, "1", ", 1 ready", 0),
-        "waiting": (
-            ", 3 waiting to download",
-            ["is-on", "is-waiting"],
-            6,
-            None,
-            ", 3 waiting",
-            0,
-        ),
+        "one": (", 1 downloading", ["is-on"], 42, None),
+        "many": (", 4 in progress", ["is-on"], 40, None),
+        "mixed": (", 1 ready to watch", ["is-on"], 57, "1"),
+        "ready": (", 1 ready to watch", ["is-on", "is-ready"], 100, "1"),
+        "waiting": (", 3 waiting to download", ["is-on", "is-waiting"], 6, None),
         # What it last was is not told as what it is.
-        "lost": (", downloads not updating", ["is-on", "is-lost"], 57, None, ", Not updating", 0),
-        "found": (", 4 in progress", ["is-on"], 40, None, ", 40% · 4", 1),
+        "lost": (", downloads not updating", ["is-on", "is-lost"], 57, None),
+        "found": (", 4 in progress", ["is-on"], 40, None),
     }
-    assert out["lost"]["tone"] == ["is-lost"]
-    assert [out[key]["tone"] for key in ("mixed", "ready", "waiting")] == [
-        [],
-        ["is-ready"],
-        ["is-waiting"],
-    ]
     # nothing is left once the last one has gone
     over = out["over"]
-    assert (over["name"], over["count"], over["note"]) == (name, None, None)
+    assert (over["name"], over["count"]) == (name, None)
     assert "is-on" not in over["ring"]
+
+
+def test_on_watch_the_profile_button_opens_the_pane_and_never_the_menu() -> None:
+    assert _run("onWatch") == {
+        "went": ["profile"],
+        "open": False,
+        "arrowed": False,
+        "popup": "dialog",
+        "controls": "you",
+    }
 
 
 def test_where_nothing_tells_of_downloads_the_menu_works_without_them() -> None:

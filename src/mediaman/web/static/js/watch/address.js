@@ -7,7 +7,11 @@
  *     params, hash,    // its keys of the query; true when the hash is its own
  *     read(here),      // its value (a string) from here.params, here.hash and
  *                      // here.entry, the layer the entry was pushed for; null: not open
- *     open(value, how), close(how)   // how: 'start', 'pop', 'push' or 'replace'
+ *     open(value, how), close(how),  // how: 'start', 'pop', 'push' or 'replace'
+ *     under,           // true: opened by the address a page was loaded at, it gets
+ *                      // an entry of the page without it under it, for Back to land on
+ *     leave(to)        // asked before Back or Forward changes its value to *to*: true
+ *                      // lets the step go; a Promise<boolean> holds it until it says
  *   });
  *
  * A link to the player takes the whole address along, so it can lead back here.
@@ -39,6 +43,8 @@
   var values = {}; // what each open layer is open at, by name
   var started = false;
   var leaving = null; // the step asked of the browser and not yet made: { close, timer, then, land }
+  var undoing = false; // a step through the history being taken back while a layer is asked
+  var letThrough = false; // the next step through the history was let go by its layer
   var places = {}; // each entry's scroll, by id
   var focused = {}; // the node each entry had the focus on, by id, while it is on the page
   var openedOn = {}; // the title opened from each entry, as its card had it, by id
@@ -255,10 +261,39 @@
 
   var current = null; // the id of the entry the page stands at
 
+  /* What a layer that may hold a step says of the one just made: a Promise, or null to go on. */
+  function holder() {
+    var open = layers.filter(function (l) { return l.leave && value(l.name) !== null; }).reverse();
+    for (var i = 0; i < open.length; i++) {
+      var to = readNow(open[i]);
+      if (to === value(open[i].name)) continue;
+      var said = open[i].leave(to);
+      if (said && typeof said.then === 'function') return said;
+    }
+    return null;
+  }
+
   function onPop() {
+    if (undoing) {
+      undoing = false;
+      return;
+    }
     var asked = leaving;
     leaving = null;
     if (asked) clearTimeout(asked.timer);
+    var by = !asked && !letThrough && mark() && current && ats[current] !== undefined ? mark().at - ats[current] : 0;
+    letThrough = false;
+    var holding = by ? holder() : null;
+    if (holding) {
+      undoing = true;
+      window.history.go(-by);
+      holding.then(function (go) {
+        if (!go) return;
+        letThrough = true;
+        window.history.go(by);
+      });
+      return;
+    }
     if (current) focused[current] = document.activeElement;
     stamp();
     current = mark().id;
@@ -599,8 +634,10 @@
     started = true;
     if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
     recall();
+    var fresh = !mark();
     stamp();
     current = mark().id;
+    if (fresh) underneath();
     Object.assign(rowsNow, rowsById[current]);
     window.addEventListener('popstate', onPop);
     document.addEventListener('scroll', onRowScroll, { passive: true, capture: true });
@@ -615,6 +652,18 @@
     if (route('start', null) || saved === undefined) stopPlacing();
     else putBackTo(saved);
     putRowsBack(document);
+  }
+
+  /* A page loaded with a layer that wants one gets the entry of the page without it, under its own. */
+  function underneath() {
+    var deep = layers.filter(function (l) { return l.under && readNow(l) !== null; })[0];
+    if (!deep) return;
+    var to = currentUrl();
+    var m = mark();
+    write('replaceState', m, without(deep));
+    write('pushState', { id: newId(), at: m.at + 1, entry: deep.name, stack: [{ name: deep.name, at: m.at + 1 }] }, to);
+    current = mark().id;
+    ats[current] = m.at + 1;
   }
 
   window.MMWatch = window.MMWatch || {};

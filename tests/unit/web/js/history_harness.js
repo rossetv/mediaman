@@ -38,18 +38,21 @@ const PEOPLE = [{ value: 'ana', username: 'ana', kind: 'account', avatar: '/a/1'
 const page = (ids, next, total, n) => ({ page: n || 1, items: ids.map((i) => item(i)), next_cursor: next, total: total === undefined ? ids.length : total });
 
 function open(opts) {
-  opts = { search: '', items: [item(5), item(6)], cursor: null, total: 2, admin: true, filters: {}, ...opts };
+  opts = { search: '', items: [item(5), item(6)], cursor: null, total: 2, admin: true, filters: {}, shown: true, ...opts };
   const doc = makeDocument();
   doc.readyState = 'complete';
   const timers = [];
   const toasts = [];
   const copied = [];
   const steps = [];
+  const own = [];
   const asked = [];
   const menus = [];
+  const kinds = [];
+  const sizes = [];
   const listeners = {};
   const win = {
-    location: { href: 'http://mm.test/history' + opts.search },
+    location: { href: 'http://mm.test/?you=history' },
     innerWidth: 1280, innerHeight: 900, scrollY: 0, isSecureContext: true,
     matchMedia: () => ({ matches: !!opts.reduced }),
     setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
@@ -58,11 +61,13 @@ function open(opts) {
     getComputedStyle: (n) => ({ visibility: n.matches('.hx-x') && !n.parentNode.matches('.has-q') ? 'hidden' : 'visible', animationDuration: '0.2s', animationTimingFunction: 'ease', top: '52px' }),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     scrollTo() {}, AbortController,
+    ResizeObserver: class { constructor(fn) { sizes.push(fn); } observe(node) { this.node = node; } },
     UIFeedback: { toast: (m) => toasts.push(m), error: (m) => toasts.push('error: ' + m) },
   };
+  /* The pane's place in the address is the shell's: the page writes none of its own. */
   win.history = {
-    pushState: (_s, _t, url) => { win.location.href = 'http://mm.test' + url; steps.push('push ' + url); },
-    replaceState: (_s, _t, url) => { win.location.href = 'http://mm.test' + url; steps.push('replace ' + url); },
+    pushState: (_s, _t, url) => own.push('push ' + url),
+    replaceState: (_s, _t, url) => own.push('replace ' + url),
   };
   win.window = win;
   const ctx = {
@@ -70,40 +75,63 @@ function open(opts) {
     navigator: { clipboard: { writeText: (t) => { copied.push(t); return Promise.resolve(); } } },
   };
   vm.createContext(ctx);
-  const root = doc.body.appendChild(build(doc, ['div', { 'data-hist': '' },
+  const group = doc.body.appendChild(build(doc, ['div', { 'data-you-group': 'history' }, ['div', { class: 'you-view', 'data-view': 'history', 'data-title': 'History' }]]));
+  const view = group.firstElementChild;
+  const root = view.appendChild(build(doc, ['div', { 'data-hist': '' },
     ['div', { class: 'hx-tools' }, ['form', { class: 'hx-line' },
-      ['div', { class: 'hx-search' }, ['input', {}], ['button', { class: 'hx-x' }]], ['div', { class: 'hx-chips' }]]],
-    ['div', { class: 'hx-sum' }, ['span', {}], ['button', { 'data-hist-clear': '' }]],
+      ['div', { class: 'hx-search' }, ['input', {}], ['button', { class: 'hx-x' }]]],
+      ['div', { class: 'hx-groups' }],
+      ['div', { class: 'hx-filters' }, ['div', { class: 'hx-chips' }],
+        ['div', { class: 'hx-sum' }, ['span', {}], ['button', { 'data-hist-clear': '' }]]]],
     ['div', { class: 'hx-list', tabindex: '-1' }], ['div', { class: 'hx-more' }], ['span', { 'data-hist-said': '' }]]));
-  doc.body.appendChild(build(doc, ['div', { class: 'hx-veil' }]));
-  doc.body.appendChild(build(doc, ['div', { class: 'hx-menu' }]));
-  doc.body.appendChild(build(doc, ['script', { id: 'history-data' }, JSON.stringify({
+  view.appendChild(build(doc, ['script', { id: 'history-data' }, JSON.stringify({
     admin: opts.admin, me: 'ana', people: PEOPLE,
     actions: [['kept', 'Kept'], ['plays', 'Plays']], filters: opts.filters, filterLabel: '',
     items: opts.items, cursor: opts.cursor, total: opts.total, page: opts.page || 1, openId: null,
   })]));
+  group.appendChild(build(doc, ['div', { class: 'hx-veil' }]));
+  group.appendChild(build(doc, ['div', { class: 'hx-menu' }]));
   /* The end of the list is far down, so nothing more is asked for until a test scrolls. */
   const more = root.querySelector('.hx-more');
   let far = true;
   more.getBoundingClientRect = () => ({ top: far ? 5000 : 500 });
+  const scroller = doc.createElement('div');
+  scroller.scrollTop = 0;
+  scroller.getBoundingClientRect = () => ({ top: 60, bottom: 900 });
+  scroller.scrollTo = () => {};
+  let shown = opts.shown;
+  let h = opts.search.replace(/^\?/, '');
+  const address = {
+    read: () => new URLSearchParams(h),
+    write: (params, how) => {
+      h = new URLSearchParams(params).toString();
+      steps.push(how + ' /history' + (h ? '?' + h : ''));
+    },
+  };
+  const url = () => 'http://mm.test/history' + (h ? '?' + h : '');
   vm.runInContext(fs.readFileSync(path.join(JS, 'core/dom.js'), 'utf8'), ctx);
   win.MM.api = {
-    get: (url, o) => new Promise((resolve, reject) => (url.startsWith('/api/history/menu') ? menus : asked).push({ url, resolve, reject, signal: o && o.signal })),
+    get: (url, o) => new Promise((resolve, reject) => (/menu=action/.test(url) ? kinds : url.startsWith('/api/history/menu') ? menus : asked).push({ url, resolve, reject, signal: o && o.signal })),
   };
-  vm.runInContext(fs.readFileSync(path.join(JS, 'history.js'), 'utf8'), ctx);
+  win.MM.you = { shown: (g) => shown && g === 'history', scroller: (v) => (v === 'history' ? scroller : null) };
+  win.MM.history = { address };
+  const run = () => vm.runInContext(fs.readFileSync(path.join(JS, 'history.js'), 'utf8'), ctx);
+  run();
   const q = (s) => doc.querySelector(s);
   const input = root.querySelector('input');
   const fire = (el, type, e) => (el.listeners[type] || []).forEach((fn) => fn({ target: el, preventDefault() {}, ...e }));
   return {
-    doc, win, root, more, toasts, copied, steps, asked, menus, timers, q, input, fire,
+    doc, win, root, view, sizes, more, toasts, copied, steps, own, asked, menus, kinds, timers, q, input, fire, scroller, listeners, url, run,
+    show: (on) => { shown = on; fire(doc, on ? 'mm:you-shown' : 'mm:you-hidden', { detail: { group: 'history', view: 'history' } }); },
     rows: () => root.querySelectorAll('.hist'),
     ids: () => root.querySelectorAll('.hist').map((r) => r.getAttribute('data-event')),
     tick: (max) => timers.splice(0).filter((t) => (t.ms <= (max || 1e9) ? (t.fn(), false) : true)).forEach((t) => timers.push(t)),
     type: (text) => { input.value = text; fire(input, 'input'); },
     resize: () => listeners.resize.forEach((fn) => fn()),
-    scroll: () => { far = false; (listeners.scroll || []).forEach((fn) => fn()); far = true; },
-    back: (search) => { win.location.href = 'http://mm.test/history' + search; listeners.popstate.forEach((fn) => fn()); },
+    scroll: () => { far = false; fire(scroller, 'scroll'); far = true; },
+    back: (search) => { h = search.split('#')[0].replace(/^\?/, ''); listeners.popstate.forEach((fn) => fn()); },
     pick: (k, v) => {
+      if (k === 'action') { click(doc, root.querySelector(`[data-group="${v}"]`)); return; }
       click(doc, root.querySelector(`[data-menu="${k}"]`));
       click(doc, q('.hx-menu').querySelector(`[data-v="${v}"]`));
     },
@@ -142,9 +170,9 @@ const scenarios = {
     const moves = watchMoves(h);
     const first = h.rows()[0];
     click(h.doc, first.querySelector('.hist-sum'));
-    const out = { afterClick: state(first), url: h.win.location.href, moving: moves.map((m) => ({ ...m })) };
+    const out = { afterClick: state(first), url: h.url(), moving: moves.map((m) => ({ ...m })) };
     h.tick();
-    return { ...out, moves, settled: state(first), urlAfter: h.win.location.href };
+    return { ...out, moves, settled: state(first), urlAfter: h.url() };
   },
   reduced: () => scenarios.close(open({ search: '?event=5', reduced: true })),
   open: () => {
@@ -220,7 +248,7 @@ const scenarios = {
   back: async () => {
     const h = open({});
     h.pick('user', 'bob');
-    const url = h.win.location.href;
+    const url = h.url();
     h.asked[0].resolve(page([8], null));
     await settle();
     const filtered = h.ids();
@@ -232,7 +260,7 @@ const scenarios = {
   },
   viewer: () => {
     const h = open({ admin: false, search: '?user=bob&date=today' });
-    return { chips: h.root.querySelectorAll('[data-menu]').map((b) => b.getAttribute('data-menu')), asked: h.asked[0].url };
+    return { chips: h.root.querySelectorAll('[data-menu]').map((b) => b.getAttribute('data-menu')), groups: h.root.querySelectorAll('[data-group]').length, asked: h.asked[0].url };
   },
   dates: () => ['today', 'yesterday', 'week', '2026-11-01..2026-11-03', '2026-02-31..', '..2026-11-03'].map((d) => {
     const h = open({ search: '?date=' + d });
@@ -252,7 +280,7 @@ const scenarios = {
   },
   newest: async () => {
     const h = open({ search: '?event=5', page: 4 });
-    const link = () => { const a = h.q('.hx-newest'); return a && a.getAttribute('href'); };
+    const link = () => !!h.q('.hx-newest');
     const out = { deep: link() };
     h.pick('user', 'bob');
     out.filtered = link();
@@ -266,21 +294,21 @@ const scenarios = {
   },
   newestOfDates: async () => {
     const h = open({ search: '?date=week&event=5', page: 4 });
-    const link = () => { const a = h.q('.hx-newest'); return a && a.getAttribute('href'); };
     h.asked[0].resolve(page([8], null));
     await settle();
-    const hidden = link();
+    const hidden = !!h.q('.hx-newest');
     const d = open({ search: '?date=week&event=5' });
     d.asked[0].resolve(page([5], null, 60, 2));
     await settle();
-    return { hidden, deep: d.q('.hx-newest').getAttribute('href') };
+    d.press('.hx-newest');
+    return { hidden, steps: d.steps, asked: d.asked[d.asked.length - 1].url.replace(/\?.*/, '') + (/event|page/.test(d.asked[d.asked.length - 1].url) ? ' deep' : ''), own: d.own };
   },
   since: async () => {
     const h = open({ search: '?since=2026-11-01&until=2026-11-03&q=x', filters: { q: 'x', since: '2026-11-01', until: '2026-11-03' } });
     const out = { asked: h.asked.map((a) => a.url), ids: h.ids(), chip: h.q('[data-menu="date"]').textContent };
     h.pick('user', 'bob');
     out.next = h.asked[h.asked.length - 1].url;
-    out.url = h.win.location.href;
+    out.url = h.url();
     h.press('[data-clear="date"]');
     out.cleared = h.asked[h.asked.length - 1].url;
     const bad = open({ search: '?since=soon', filters: { since: 'soon' } });
@@ -421,11 +449,11 @@ const scenarios = {
   lowScreen: () => {
     const h = open({});
     h.win.innerHeight = 390;
-    h.press('[data-menu="action"]');
+    h.press('[data-menu="user"]');
     const low = h.q('.hx-menu').style.maxHeight;
-    h.press('[data-menu="action"]');
+    h.press('[data-menu="user"]');
     h.win.innerHeight = 900;
-    h.press('[data-menu="action"]');
+    h.press('[data-menu="user"]');
     return { low, high: h.q('.hx-menu').style.maxHeight };
   },
   tabInEmpty: async () => {
@@ -467,7 +495,7 @@ const scenarios = {
   },
   resized: () => {
     const h = open({});
-    h.press('[data-menu="action"]');
+    h.press('[data-menu="user"]');
     const before = h.q('.hx-menu').style.maxHeight;
     h.win.innerHeight = 390;
     h.resize();
@@ -534,7 +562,7 @@ const scenarios = {
     const h = open({ search: '?q=zan&action=kept', filters: { q: 'zan', action: 'kept' }, items: [], total: 0 });
     const text = h.q('.hx-list').textContent;
     h.press('.hx-list [data-hist-clear]');
-    return { text, tools: h.q('.hx-tools').hidden, url: h.win.location.href, asked: h.asked[h.asked.length - 1].url };
+    return { text, tools: h.q('.hx-tools').hidden, url: h.url(), asked: h.asked[h.asked.length - 1].url };
   },
   wrong: async () => {
     const h = open({ search: '?date=week' });
@@ -586,7 +614,7 @@ const scenarios = {
     const only = h.rows().map((r) => { const b = r.querySelector('[data-user]'); return b && b.getAttribute('data-user'); });
     h.press('[data-user]');
     const chip = h.q('[data-menu="user"]');
-    const out = { only, url: h.win.location.href, chip: chip.children[1].textContent, gone: !!chip.querySelector('.is-gone') };
+    const out = { only, url: h.url(), chip: chip.children[1].textContent, gone: !!chip.querySelector('.is-gone') };
     h.pick('user', '~mediaman');
     const m = h.q('[data-menu="user"]');
     return { ...out, mediaman: m.children[1].textContent, gear: !!m.querySelector('.is-mm') };
@@ -603,12 +631,12 @@ const scenarios = {
     const same = opts().every((o, i) => o === before[i]);
     const out = { asked: h.menus[0].url, names, same, counts: opts().map((o) => o.querySelector('small').textContent), focus: h.doc.activeElement === before[2] };
     h.press('[data-menu="user"]');
-    h.press('[data-menu="action"]');
-    h.press('[data-menu="action"]');
-    h.press('[data-menu="action"]');
-    h.menus[2].resolve({ options: [{ value: 'plays', label: 'Plays', count: 7 }] });
+    h.press('[data-menu="user"]');
+    h.press('[data-menu="user"]');
+    h.press('[data-menu="user"]');
+    h.menus[2].resolve({ options: [{ value: 'bob', count: 7 }] });
     await settle();
-    h.menus[1].resolve({ options: [{ value: 'plays', label: 'Plays', count: 1 }] });
+    h.menus[1].resolve({ options: [{ value: 'bob', count: 1 }] });
     await settle();
     return { ...out, late: opts().map((o) => o.querySelector('small').textContent) };
   },
@@ -644,9 +672,98 @@ const scenarios = {
     await settle();
     return h.q('.hx-menu').querySelector('.hx-none').textContent;
   },
+  roundTrip: async () => {
+    const h = open({});
+    h.pick('user', 'bob');
+    h.pick('action', 'plays');
+    const pressed = () => h.root.querySelectorAll('[data-group]').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('data-group'));
+    const out = { steps: h.steps.slice(), pressed: pressed() };
+    h.back('?title=Low+Tide&date=week');
+    out.askedBack = h.asked[h.asked.length - 1].url.replace(/&since=.*/, '');
+    out.chips = h.root.querySelectorAll('.is-set').map((c) => c.querySelector('[data-menu]').getAttribute('data-menu'));
+    out.pressedBack = pressed();
+    out.own = h.own;
+    return out;
+  },
+  eventRow: async () => {
+    const listed = open({ search: '?event=6' });
+    const shown = { asked: listed.asked.length, open: listed.rows().filter((r) => r.open).map((r) => r.getAttribute('data-event')) };
+    const h = open({ search: '?event=7' });
+    const asked = h.asked.map((a) => a.url);
+    h.asked[0].resolve(page([6, 7, 8], null, 30, 2));
+    await settle();
+    return { shown, asked, open: h.rows().filter((r) => r.open).map((r) => r.getAttribute('data-event')), url: h.url(), own: h.own };
+  },
+  scroller: async () => {
+    const h = open({ cursor: 'c1', total: 4 });
+    const windowScroll = (h.listeners.scroll || []).length;
+    h.scroller.scrollTop = 120;
+    h.scroll();
+    return { windowScroll, asked: h.asked.map((a) => a.url), stuck: h.q('.hx-tools').classList.contains('is-stuck') };
+  },
+  slashShown: () => {
+    const h = open({ shown: false });
+    const focused = [];
+    h.input.focus = () => focused.push(h.win.MM.you.shown('history'));
+    h.fire(h.doc, 'keydown', { key: '/', target: h.doc.body });
+    h.show(true);
+    h.fire(h.doc, 'keydown', { key: '/', target: h.doc.body });
+    h.show(false);
+    h.fire(h.doc, 'keydown', { key: '/', target: h.doc.body });
+    return focused;
+  },
+  twice: () => {
+    const h = open({ cursor: 'c1', total: 4 });
+    h.run();
+    h.scroll();
+    return { asked: h.asked.length, rows: h.rows().length };
+  },
+  emptyTools: () => {
+    const h = open({ items: [], total: 0 });
+    const out = { tools: h.q('.hx-tools').hidden };
+    h.back('?q=x');
+    h.asked[0].resolve(page([], null, 0));
+    return settle().then(() => ({ ...out, filtered: h.q('.hx-tools').hidden }));
+  },
+  kindCounts: async () => {
+    const h = open({ search: '?q=x&user=bob', filters: { q: 'x', user: 'bob' } });
+    const pills = () => h.root.querySelectorAll('[data-group]').map((b) => b.textContent);
+    const first = h.kinds.map((k) => k.url);
+    const counted = (o) => ({ options: Object.keys(o).map((v) => ({ value: v, label: v === 'kept' ? 'Kept' : 'Plays', count: o[v] })) });
+    h.pick('action', 'plays');
+    h.asked[h.asked.length - 1].resolve(page([8], null));
+    await settle();
+    const next = h.kinds[1].url;
+    h.kinds[1].resolve(counted({ kept: 1200, plays: 3 }));
+    await settle();
+    h.kinds[0].resolve(counted({ kept: 1, plays: 1 }));
+    await settle();
+    return { first, next, pills: pills(), label: h.q('[data-group="kept"]').getAttribute('aria-label') };
+  },
+  kindZero: async () => {
+    const h = open({});
+    const pills = () => h.root.querySelectorAll('[data-group]').map((b) => [b.textContent, b.getAttribute('aria-label')]);
+    const counted = (o) => ({ options: Object.keys(o).map((v) => ({ value: v, label: v === 'kept' ? 'Kept' : 'Plays', count: o[v] })) });
+    h.kinds[0].resolve(counted({ kept: 4, plays: 0 }));
+    await settle();
+    const first = pills();
+    h.pick('action', 'plays');
+    h.asked[h.asked.length - 1].resolve(page([8], null));
+    await settle();
+    h.kinds[1].resolve(counted({ kept: 0, plays: 2 }));
+    await settle();
+    return { first, then: pills() };
+  },
+  toolsHeight: () => {
+    const h = open({});
+    const tools = h.q('.hx-tools');
+    Object.defineProperty(tools, 'offsetHeight', { get: () => 196 });
+    h.sizes.forEach((fn) => fn());
+    return h.view.style['--hx-tools'] || null;
+  },
   handTyped: () => ['?since=20261110', '?since=2026-11-12%2010:00', '?since=2026-02-30', '?until=2026-02-30T10:00', '?since=2026-11-01T24:00', '?since=2026-11-01'].map((search) => {
     const h = open({ search });
-    return [h.q('[data-menu="date"]').textContent, h.asked.map((a) => a.url), h.win.location.href.split('/history')[1]];
+    return [h.q('[data-menu="date"]').textContent, h.asked.map((a) => a.url), h.url().split('/history')[1]];
   }),
 };
 

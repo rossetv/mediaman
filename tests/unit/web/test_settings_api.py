@@ -1490,7 +1490,7 @@ class TestAiLimits:
     ):
         insert_settings(conn, **stored)
         app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
-        found = authed_client(app, conn).get("/settings").json()["settings"]
+        found = authed_client(app, conn).get("/settings?pane=1").json()["settings"]
         assert (found["ai_questions_per_day"], found["ai_everyone_per_day"]) == shown
 
     @pytest.mark.parametrize(
@@ -1525,7 +1525,7 @@ class TestSettingsPageDayValues:
         app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
         client = authed_client(app, conn)
 
-        shown = client.get("/settings").json()["settings"]
+        shown = client.get("/settings?pane=1").json()["settings"]
 
         assert (shown["min_age_days"], shown["inactivity_days"], shown["grace_days"]) == (
             1,
@@ -1540,7 +1540,7 @@ class TestSettingsPageDayValues:
         app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
         client = authed_client(app, conn)
 
-        shown = client.get("/settings").json()["settings"]
+        shown = client.get("/settings?pane=1").json()["settings"]
 
         assert (shown["min_age_days"], shown["inactivity_days"], shown["grace_days"]) == (
             30,
@@ -1554,7 +1554,7 @@ class TestSettingsPageDayValues:
         app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
         client = authed_client(app, conn)
 
-        shown = client.get("/settings").json()["settings"]
+        shown = client.get("/settings?pane=1").json()["settings"]
 
         assert (shown["min_age_days"], shown["inactivity_days"], shown["grace_days"]) == (
             30,
@@ -1567,7 +1567,7 @@ class TestSettingsPageDayValues:
     ):
         insert_settings(conn, min_age_days="0")
         app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
-        authed_client(app, conn).get("/settings")
+        authed_client(app, conn).get("/settings?pane=1")
 
         stored = conn.execute(
             "SELECT value FROM settings WHERE key=?", ("min_age_days",)

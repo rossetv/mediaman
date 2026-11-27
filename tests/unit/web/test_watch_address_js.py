@@ -276,3 +276,24 @@ def test_a_held_row_that_goes_on_moving_is_the_persons() -> None:
 
 def test_a_swap_leaves_the_page_where_the_person_had_it() -> None:
     assert _run("aSwap") == {"back": 2000, "withTheRow": 1940, "theirs": 1700, "fromTheTop": 90}
+
+
+def test_a_deep_linked_pane_gets_the_page_under_it_so_back_closes_it_and_stays() -> None:
+    out = _run("paneDeepLinked")
+    assert out["opened"] == ["open pane settings start"]
+    assert out["entries"] == ["/?x=1", "/?you=settings&x=1"]
+    assert out["back"] == ["/?x=1", ["leave null", "close pane pop"]]
+    # a reload of the pane's own entry puts nothing more under it
+    assert (out["reloaded"], out["still"]) == (1, ["open pane profile start"])
+
+
+def test_back_while_the_pane_holds_it_is_taken_back_and_made_again_only_when_let_go() -> None:
+    out = _run("paneHoldsBack")
+    assert out["asked"] == ["/?you=settings", ["leave profile"], "go 1"]
+    assert out["kept"] == ["/?you=settings", []]
+    assert out["twice"] == ["/?you=settings", ["leave null"]]
+    assert out["let"] == ["/", ["close pane pop"], "go -2"]
+
+
+def test_closing_the_pane_steps_back_past_it_without_asking_it() -> None:
+    assert _run("paneClosesWithoutAsking") == {"at": "/", "log": ["close pane pop"]}

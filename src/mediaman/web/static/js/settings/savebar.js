@@ -26,6 +26,7 @@
  *   MM.settings.savebar.markDirty()
  *   MM.settings.savebar.markClean()
  *   MM.settings.savebar.isEdited(el)   — el differs, or may differ, from what was last saved
+ *   MM.settings.savebar.discardNow()   — puts back what was last saved, without asking
  *
  * `getPayload` is the function general.js exposes as collectSettings();
  * keeping the contract narrow lets the file render unit-friendly without
@@ -40,6 +41,11 @@
   var savebar = null;
 
   var onEdit = function () {};
+  var discardNow = function () {};
+
+  // Settings stays in the page once the pane has loaded it; its listeners on the document
+  // answer only while it is on show.
+  function shown() { return !MM.you || MM.you.shown('settings'); }
 
   function markDirty() {
     onEdit();
@@ -50,10 +56,19 @@
   function paintTests() {
     if (MM.settings.integrations) MM.settings.integrations.paintTests();
   }
-  /* The page says when the bar is up, for what stands clear of it (_settings_pg.css). */
   function showBar(on) {
     savebar.classList.toggle('on', on);
-    document.documentElement.classList.toggle('has-savebar', on);
+    tellPage();
+  }
+
+  // The page is told while the bar is on show, with its height, so the toasts stand clear of it. An
+  // attribute on html, as a :has() on the page restyles all of Watch at every change.
+  function tellPage() {
+    var root = document.documentElement;
+    if (savebar && savebar.classList.contains('on') && shown()) {
+      root.setAttribute('data-save-bar', '');
+      root.style.setProperty('--save-bar', savebar.offsetHeight + 'px');
+    } else root.removeAttribute('data-save-bar');
   }
   function markClean() { if (savebar) showBar(false); }
 
@@ -78,7 +93,7 @@
       lastEdited.focus();
       if (document.activeElement === lastEdited) return;
     }
-    var heading = document.querySelector('.setg-pg h1');
+    var heading = document.querySelector('.stx-sec.is-on .setg-block-hd h2');
     if (!heading) return;
     heading.setAttribute('tabindex', '-1');
     heading.focus();
@@ -466,6 +481,7 @@
     var field = typeof loc[0] === 'string' && document.getElementById(loc[0]);
     if (!field) return;
     var row = field.closest('.setg-row') || field;
+    var scroller = row.closest('.stx__body') || window;
     if (!savebar || !window.ResizeObserver) { row.scrollIntoView({ block: 'nearest' }); return; }
     // The bar takes a frame or more to settle around the error, and the page's room for it lags behind,
     // so the row follows the bar's real top until the person moves on their own.
@@ -473,7 +489,7 @@
     var observer = new ResizeObserver(function () {
       if (!shown) { row.scrollIntoView({ block: 'nearest' }); shown = true; }
       var under = row.getBoundingClientRect().bottom - savebar.getBoundingClientRect().top + 11;
-      if (under > 0) window.scrollBy(0, under);
+      if (under > 0) scroller.scrollBy(0, under);
     });
     function stop() {
       observer.disconnect();
@@ -490,12 +506,10 @@
     var refreshOverviewHero = (opts && opts.refreshOverviewHero) || function () {};
 
     savebar = document.getElementById('setg-savebar');
-    // The page's room for the bar follows its height, whatever it says.
-    if (savebar && window.ResizeObserver) {
-      new ResizeObserver(function () {
-        document.documentElement.style.setProperty('--savebar-h', savebar.offsetHeight + 'px');
-      }).observe(savebar, { box: 'border-box' });
-    }
+    document.addEventListener('mm:you-shown', tellPage);
+    document.addEventListener('mm:you-hidden', tellPage);
+    // A refusal wraps the bar to more lines.
+    if (savebar && window.ResizeObserver) new window.ResizeObserver(tellPage).observe(savebar);
     // An expired session must not redirect away from edits that are not saved.
     MM.api.hasUnsavedChanges = function () {
       return !!savebar && savebar.classList.contains('on');
@@ -507,17 +521,30 @@
     var SAVE_LABEL = 'Save Settings';
     var UNSAVED_TEXT = 'Unsaved changes';
     var STANDING_TEXT = 'Edits apply to every section at once.';
+    // The sections holding what is not saved, as "In General & Schedule, Integrations".
+    function standing() {
+      var keys = changedKeys(saved, snapshot()).concat(Object.keys(unsure));
+      var names = [];
+      keys.forEach(function (key) {
+        var el = /^(plex_libraries|disk_thresholds|lib:|limit:)/.test(key)
+          ? document.querySelector('.stx-sec[data-sec="libraries"]')
+          : document.getElementById(key);
+        var sec = el && el.closest('.stx-sec');
+        var name = sec && sec.getAttribute('data-title');
+        if (name && names.indexOf(name) === -1) names.push(name);
+      });
+      return names.length ? 'In ' + names.join(', ') : STANDING_TEXT;
+    }
     var UNSURE_TEXT = 'The last save may have been stored. Save again to be sure.';
 
-    document.addEventListener('input', function (e) {
-      if (isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
-    }, true);
-    document.addEventListener('change', function (e) {
-      if (isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
-    }, true);
+    function edited(e) {
+      if (shown() && isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
+    }
+    document.addEventListener('input', edited, true);
+    document.addEventListener('change', edited, true);
 
-    document.addEventListener('focusin', function (e) { selectMask(e.target); });
-    document.addEventListener('selectionchange', function () { selectMask(document.activeElement); });
+    document.addEventListener('focusin', function (e) { if (shown()) selectMask(e.target); });
+    document.addEventListener('selectionchange', function () { if (shown()) selectMask(document.activeElement); });
 
     function setSaveError(msg) {
       if (savebar) savebar.classList.add('is-error');
@@ -537,7 +564,7 @@
         saveBtn.classList.add('btn--primary');
         saveBtn.textContent = SAVE_LABEL;
       }
-      if (statusEl) statusEl.textContent = STANDING_TEXT;
+      if (statusEl) statusEl.textContent = standing();
     }
 
     // The success state, until its timers have run or an edit ends it early.
@@ -570,13 +597,15 @@
       if (successTimers.length || clean) {
         endSuccess();
         savebar.classList.remove('is-partial');
-        if (statusEl) statusEl.textContent = STANDING_TEXT;
+        if (statusEl) statusEl.textContent = standing();
         tellLeftOut();
       }
       showBar(!clean);
       if (isUnsure() && statusEl && statusEl.textContent !== UNSURE_TEXT) {
         savebar.classList.add('is-partial');
         statusEl.textContent = UNSURE_TEXT;
+      } else if (!clean && statusEl && !isUnsure() && !savebar.classList.contains('is-partial')) {
+        statusEl.textContent = standing();
       }
     };
 
@@ -702,7 +731,7 @@
               setTimeout(function () { leftOut = []; markClean(); }, hideAfter),
               setTimeout(function () {
                 endSuccess();
-                if (statusEl && !ignored.length) statusEl.textContent = STANDING_TEXT;
+                if (statusEl && !ignored.length) statusEl.textContent = standing();
               }, hideAfter + 1600),
             ];
             return;
@@ -750,7 +779,7 @@
 
     saved = snapshot(servedValue);
     // Chrome puts back what was typed only once the page has loaded.
-    window.addEventListener('pageshow', function () { onEdit(); });
+    window.addEventListener('pageshow', function () { if (shown()) onEdit(); });
 
     function putBackSaved(fromKeyboard) {
       leftOut = [];
@@ -774,6 +803,12 @@
       });
     }
 
+    // The pane's own question has been asked before this is called.
+    discardNow = function () {
+      if (saving) return;
+      if (isUnsure()) discardUnsure(false); else putBackSaved(false);
+    };
+
     if (discardBtn) discardBtn.addEventListener('click', function (e) {
       var fromKeyboard = e.detail === 0;
       window.UIFeedback.confirm({
@@ -793,5 +828,6 @@
     markDirty: markDirty,
     markClean: markClean,
     isEdited: isEdited,
+    discardNow: function () { discardNow(); },
   };
 })();

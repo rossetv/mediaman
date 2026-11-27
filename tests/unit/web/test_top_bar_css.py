@@ -48,10 +48,11 @@ def test_a_focused_empty_field_leaves_the_logo_and_the_storage_where_tab_reaches
         assert ".is-focus:not(.has-value, .has-token)" in head
 
 
-def test_settings_scrolls_nothing_for_a_step_back_into_the_bar() -> None:
-    assert "scroll-padding-top: 0" in _body(
-        "html.has-setg-pg.is-bar-focus", _css("_settings_pg.css")
-    )
+def test_settings_keeps_no_scroll_room_for_the_bar_so_a_step_back_into_it_scrolls_nothing() -> None:
+    for name in ("_settings_pg.css", "_settings_pg_panels.css"):
+        css = _css(name)
+        assert "scroll-padding-top" not in css, name
+        assert "has-setg-pg" not in css, name
 
 
 def test_no_sheet_leans_on_a_height_at_the_foot_that_is_never_set() -> None:

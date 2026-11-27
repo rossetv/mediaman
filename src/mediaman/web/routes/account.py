@@ -1,4 +1,4 @@
-"""Profile page of any signed-in user: who they are, their email, password, sign-ins and Plex account."""
+"""Profile pane of any signed-in user: who they are, their email, password, sign-ins and Plex account."""
 
 from __future__ import annotations
 
@@ -61,11 +61,16 @@ def account_page(request: Request) -> Response:
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, conn = resolved
+    if (
+        request.query_params.get("pane") != "1"
+        or request.headers.get("sec-fetch-mode") == "navigate"
+    ):
+        return RedirectResponse("/?you=profile", status_code=302)
 
     templates = cast(Jinja2Templates, request.app.state.templates)
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
-        "account.html",
+        "panes/_profile.html",
         {
             "username": username,
             "email": get_user_email(conn, username),
@@ -74,9 +79,10 @@ def account_page(request: Request) -> Response:
             "password_changed": _password_changed(conn, username),
             "picture": _picture(conn, username),
             "role": getattr(request.state, "user_role", "admin"),
-            "nav_active": "account",
             "password_good_for": reauth_seconds_left(
                 conn, request.cookies.get("session_token"), username
             ),
         },
     )
+    response.headers["Cache-Control"] = "no-store, private"
+    return response

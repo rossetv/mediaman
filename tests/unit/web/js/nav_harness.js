@@ -8,21 +8,23 @@ const { makeDocument, build, click } = require('./fake_dom.js');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-function page(isPhone, downloading, reduced) {
+function page(isPhone, downloading, reduced, pane) {
   const doc = makeDocument();
   const button = ['button', { class: 'profile-btn', id: 'button', 'aria-expanded': 'false', 'aria-label': 'Profile menu, robin' },
     ['span', { class: 'avatar' }, 'R'], ['span', { class: 'profile-ring', id: 'ring' }], ['span', { class: 'profile-count', id: 'count' }]];
   const item = (id, tag) => [tag, { id, role: 'menuitem', href: '/' + id, tabindex: '-1' }, id];
   doc.body.appendChild(build(doc, ['header', { id: 'top', class: 'nav-glass' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
-    ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), ['span', { id: 'profile-note', hidden: '' }], item('logout', 'button')]]));
+    ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x']]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
+  if (pane) doc.body.appendChild(build(doc, ['div', { id: 'you', hidden: '' }]));
   const $ = (id) => doc.getElementById(id);
   $('already-inert').inert = true;
   const media = { matches: isPhone, on: [], addEventListener(t, fn) { this.on.push(fn); } };
   const win = { listeners: {}, scrollY: 0, location: { hash: '' }, matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
   if (downloading) win.MM = { downloading };
+  if (pane) win.MM = { you: pane };
   win.visualViewport = { height: 800, scale: 1, addEventListener(t, fn) { win.listeners['seen ' + t] = fn; } };
   const images = [];
   function Image() { images.push(this); }
@@ -272,7 +274,6 @@ const scenarios = {
     const p = page(false, { subscribe(fn) { tell = fn; } });
     const eased = [];
     p.$('ring').style.setProperty = () => eased.push(!p.$('ring').classList.contains('is-set'));
-    p.$('profile-note').style.setProperty = () => {};
     const at = (total, percent) => tell({ summary: { total, active: total, waiting: 0, ready: 0, percent } });
     at(1, 40); at(1, 60); at(0, 0); at(1, 5); at(1, 9);
     return { eased, left: p.$('ring').classList.contains('is-set') };
@@ -282,18 +283,25 @@ const scenarios = {
     let tell;
     const p = page(false, { subscribe(fn) { tell = fn; } });
     const set = {};
-    ['ring', 'profile-note'].forEach((id) => { p.$(id).style.setProperty = (k, v) => { set[id] = v; }; });
+    p.$('ring').style.setProperty = (k, v) => { set.ring = v; };
     const on = (id) => ['is-on', 'is-ready', 'is-waiting', 'is-lost'].filter((c) => p.$(id).classList.contains(c));
     const at = (active, waiting, ready, percent, lost) => {
       tell({ summary: { total: active + waiting + ready, active, waiting, ready, percent }, lost: !!lost });
-      const note = p.$('profile-note');
       return {
         name: p.$('button').getAttribute('aria-label'), ring: on('ring'), filled: set.ring,
         count: on('count').length ? p.$('count').textContent : null,
-        note: note.hidden ? null : note.textContent, tone: on('profile-note'), bar: note.querySelectorAll('i').length,
       };
     };
     return { none: at(0, 0, 0, 0), one: at(1, 0, 0, 42), many: at(2, 2, 0, 40), mixed: at(2, 1, 1, 57), ready: at(0, 1, 1, 100), waiting: at(0, 3, 0, 0), lost: at(2, 1, 1, 57, true), found: at(2, 2, 0, 40), over: at(0, 0, 0, 0, true) };
+  },
+  // On Watch the button opens the pane over it, and never the menu.
+  onWatch() {
+    const went = [];
+    const p = page(false, null, false, { go: (to) => went.push(to) });
+    p.click('button');
+    p.$('button').focus();
+    const arrow = p.key('ArrowDown');
+    return { went, open: p.open(), arrowed: arrow.prevented, popup: p.$('button').getAttribute('aria-haspopup'), controls: p.$('button').getAttribute('aria-controls') };
   },
   // Nothing tells of downloads: the rest of the bar works.
   noDownloads() {
