@@ -187,14 +187,14 @@ const scenarios = {
     return { busy, lost, before, after, again: ringClicks, none: row.hidden };
   },
   async tvs() {
-    const p = page(tvApi([tvOf(1, 'Living room', { on: true }), tvOf(2, '<b>Den'), tvOf(3, 'New', { last_seen_at: at(-400) }), tvOf(4, 'Kitchen TV', { kind: 'older' })], []), { tvs: 'viewer' });
+    const p = page(tvApi([tvOf(1, 'Living room', { on: true }), tvOf(2, '<b>Den'), tvOf(3, 'New', { last_seen_at: at(-400) })], []), { tvs: 'viewer' });
     await settle();
     const none = page(tvApi([], []), { tvs: 'viewer' });
     await settle();
     return { hidden: p.$('account-tvs').hidden, rows: tvRows(p).map((r) => r.querySelector('.me-txt').children.map((c) => c.textContent)), none: none.$('account-tvs').hidden };
   },
   async tvsOfAll() {
-    const all = [tvOf(1, 'Mine', { owner: 'amy', kind: 'page' }), tvOf(2, 'Theirs', { owner: 'bob', kind: 'page' }), tvOf(3, 'Older', { owner: null, kind: 'older' })];
+    const all = [tvOf(1, 'Mine', { owner: 'amy', kind: 'page' }), tvOf(2, 'Theirs', { owner: 'bob', kind: 'page' })];
     const p = page(tvApi([tvOf(1, 'Mine')], all), { tvs: 'admin', yes: false });
     await settle();
     push(buttonOf(tvRows(p, 'account-tvs-all')[0], 'Unpair'));

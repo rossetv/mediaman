@@ -673,7 +673,7 @@
       return MM.api.get(path).then(function (data) {
         if (turn !== asked) return;
         draw(section, data.tvs.filter(function (tv) {
-          return !gone[tv.id] && take(tv);
+          return !gone[tv.id] && (!take || take(tv));
         }));
         if (section !== mine) return;
         known = true;
@@ -683,7 +683,7 @@
 
     function load() {
       asked += 1;
-      ask('/api/tvs', mine, function (tv) { return tv.kind !== 'older'; });
+      ask('/api/tvs', mine);
       if (others) ask('/api/tvs/all', others, function (tv) { return tv.kind === 'page' && tv.owner && (tv.people || [tv.owner]).indexOf(me) < 0; });
     }
 
