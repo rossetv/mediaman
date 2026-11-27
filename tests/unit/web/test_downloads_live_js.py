@@ -321,7 +321,9 @@ def test_a_link_on_a_line_of_its_own_has_no_dot_before_it() -> None:
 
 def test_queue_rows_sit_one_gap_apart() -> None:
     assert not [prop for prop in _rule(".dl-compact") if prop.startswith("margin")]
-    assert px(_rule(".dl-compact-list")["gap"]) > 0
+    # a folded row takes the gap after it away with it, or the rows below jump as it goes
+    gap = px(_rule(".dl-compact-list")["gap"])
+    assert gap > 0 and gap == -px(_rule(".dl-compact-list > .dl-fold.is-folded")["margin-bottom"])
 
 
 def test_the_small_state_pills_are_large_enough_to_read_and_a_poll_leaves_them_so() -> None:
@@ -405,8 +407,14 @@ def test_the_hero_eases_to_the_height_of_the_title_that_takes_its_place() -> Non
     assert out["second"] == ["", "450px", "460px"]
     assert out["afterFirstTimer"] == "460px" and out["settled"] == ""
     assert out["same"] == 0
-    eased = [part.split()[0] for part in _rule(".dl-hero")["transition"].split(",")]
-    assert "height" in eased
+    eased = {
+        name: timing
+        for name, _, timing in (
+            p.strip().partition(" ") for p in _rule(".dl-hero")["transition"].split(",")
+        )
+    }
+    assert eased.get("height", "").split()[:1] == ["var(--dur-slow)"], "it eases, not snaps"
+    assert float(token("--dur-slow")[:-1]) > 0
 
 
 def test_with_reduced_motion_the_hero_is_at_once_as_tall_as_its_title() -> None:

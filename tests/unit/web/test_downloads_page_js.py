@@ -18,6 +18,7 @@ from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
 from tests.helpers.factories import insert_admin_user
 from tests.unit.web._css import style
+from tests.unit.web._css import text as sheet_text
 
 HARNESS = Path(__file__).parent / "js" / "downloads_harness.js"
 SHEET = "_dl.css"
@@ -35,6 +36,21 @@ def _part(transition: str, prop: str) -> str:
         if name == prop:
             return timing
     raise AssertionError(f"no {prop} in {transition}")
+
+
+def _end_frame(keyframes: str) -> dict[str, str]:
+    """What the `to` (or 100%) frame of `@keyframes *keyframes*` declares; {} when it has none."""
+    found = re.search(
+        rf"@keyframes {re.escape(keyframes)}\s*{{((?:[^{{}}]*{{[^{{}}]*}})*)\s*}}",
+        sheet_text(SHEET),
+    )
+    assert found, f"no @keyframes {keyframes} in {SHEET}"
+    for head, body in re.findall(r"([^{}]+){([^{}]*)}", found[1]):
+        if {"to", "100%"} & {h.strip() for h in head.split(",")}:
+            return {
+                k.strip(): v.strip() for k, _, v in (d.partition(":") for d in body.split(";")) if v
+            }
+    return {}
 
 
 def _run(scenario: str) -> dict:
@@ -438,9 +454,11 @@ def test_the_new_content_of_the_top_card_waits_for_the_old_to_fade() -> None:
     out = _run("heroSwap")
     assert out["moving"]["swapping"] and not out["moving"]["later"]
     assert not out["reduced"]["swapping"]
-    fade = _times(style(".dl-hero-ghost", SHEET)["animation"])[0]
+    ghost = style(".dl-hero-ghost", SHEET)["animation"]
+    fade = _times(ghost)[0]
     delay = _times(style(".dl-hero.is-swapping .dl-hero-content", SHEET)["animation"])[1]
-    assert fade == delay, "it begins as the old has gone"
+    assert fade == delay == "--dur-fast", "it begins as the old has gone, at the quick pace"
+    assert _end_frame(ghost.split()[0]).get("opacity") == "0", "the old card fades all the way out"
 
 
 def test_a_row_that_changes_place_slides_with_those_it_passes_unless_motion_is_off() -> None:

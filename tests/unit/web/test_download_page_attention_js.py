@@ -48,4 +48,4 @@ def test_an_admin_is_told_where_to_fix_it_and_anyone_else_who_will() -> None:
 
 def test_its_step_is_drawn_in_the_warning_colour_and_does_not_pulse() -> None:
     dot = style(".share-steps.is-held .is-now i::after", "_download_page.css")
-    assert "--warning" in dot["background"] and dot["animation"] == "none"
+    assert dot["background"] == "var(--warning)" and dot["animation"] == "none"
