@@ -1505,7 +1505,7 @@ def test_words_that_came_with_the_address_are_not_kept_for_a_press_on_a_result()
 def test_what_is_downloading_leads_the_results_from_what_the_page_knows_already() -> None:
     out = _run("downloading")
     gate = ["The Órchard Gate", "42% · 14 min left", "tmdb-movie-9", "/#title=tmdb-movie-9"]
-    salt = ["Salt", "Queued", None, "/downloads"]
+    salt = ["Salt", "Queued", None, "/?dl=1"]
     # Shown as it is typed, before anything is asked, and nothing is asked for it.
     assert out["typed"] == [gate]
     assert out["calls"] == [0, 4]
