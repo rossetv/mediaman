@@ -75,7 +75,14 @@ def test_an_admin_is_told_what_the_switch_lets_in_and_what_each_way_needs(
 def test_the_section_holds_no_older_tv_control_or_words(app, authed_client, conn) -> None:
     section = _tvs_section(authed_client(app, conn).get("/settings?pane=1").text)
     assert 'id="tv-needs"' in section and 'id="cast-lets"' in section
-    for gone in ("older", "btn-add-tv", 'id="tv-add"', "tv_address", "tv-address-hint", "MEDIAMAN_ALLOWED_HOSTS"):
+    for gone in (
+        "older",
+        "btn-add-tv",
+        'id="tv-add"',
+        "tv_address",
+        "tv-address-hint",
+        "MEDIAMAN_ALLOWED_HOSTS",
+    ):
         assert gone.lower() not in section.lower()
 
 
@@ -155,7 +162,10 @@ def test_no_page_without_a_cast_or_a_person_is_marked(conn, path, stored, userna
 
 def test_what_the_switch_lets_in_is_a_fold_shut_until_asked(app, authed_client, conn) -> None:
     html = authed_client(app, conn).get("/settings?pane=1").text
-    fold = html.split('id="cast-more"', 1)[0].rsplit("<details", 1)[1] + html.split('id="cast-more"', 1)[1]
+    fold = (
+        html.split('id="cast-more"', 1)[0].rsplit("<details", 1)[1]
+        + html.split('id="cast-more"', 1)[1]
+    )
     assert " open" not in fold.split(">", 1)[0]
     summary = fold.split("<summary", 1)[1].split("</summary>", 1)[0]
     assert "What this lets in" in summary
