@@ -233,8 +233,9 @@
   --g-hero-text-shadow: 0 1px 10px rgb(0 0 0 / .45);
 }
 
-/* Glass's fallbacks, set once here, so no surface needs a rule of its own. */
-@media (max-width: 599.98px) {
+/* Glass's fallbacks, set once here, so no surface needs a rule of its own. Phones blur less from
+   where the menus and the title become phone sheets. */
+@media (max-width: 699.98px) {
   :root { --g-blur: 20px; }
 }
 /* Where glass cannot be drawn: solid enough for 4.5:1 with nothing halving the page behind. */

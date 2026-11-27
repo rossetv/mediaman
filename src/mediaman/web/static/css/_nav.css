@@ -87,6 +87,10 @@
   transition: opacity var(--dur-slow) var(--ease-out);
 }
 .nav-glass.is-scrolled .brand::before { opacity: 1; }
+/* On its island the name's blue is lifted with it: the brand's own blue is under 3:1 on glass over
+   a white page. */
+.nav-glass .brand .wm-man { transition: stroke var(--dur-slow) var(--ease-out); }
+.nav-glass.is-scrolled .brand .wm-man { stroke: var(--g-accent-text); }
 .nav-glass .brand:focus-visible { outline-offset: 2px; border-radius: var(--r-pill); }
 
 .nav-back,
@@ -523,6 +527,8 @@
 @keyframes mm-pop-out { to { opacity: 0; transform: scale(.4); } }
 @keyframes mm-drop { from { opacity: 0; transform: translateY(-6px); } }
 @keyframes mm-lift-out { to { opacity: 0; transform: translateY(-4px); } }
+@keyframes mm-drop-move { from { transform: translateY(-6px); } }
+@keyframes mm-lift-move { to { transform: translateY(-4px); } }
 @keyframes mm-ring-fill { from { --ring: 0; } }
 @keyframes mm-ring-empty { to { --ring: 0; } }
 /* A panel folding into the avatar: --fx, --fy and --fs are its way there, measured by nav.js. */
@@ -538,7 +544,11 @@
   html.is-arriving .nav-glass .profile-count { animation: mm-pop-in var(--dur) calc(var(--dur) * 1.75) var(--ease-spring, var(--ease-out)) backwards; }
   html.is-arriving .nav-glass :is(.profile-btn-name, .profile-btn > .ico) { animation: mm-fade-in var(--dur) var(--dur-fast) var(--ease-out) backwards; }
   html.is-arriving .nav-glass .space-meter { animation: mm-fade-in var(--dur) var(--dur-fast) var(--ease-out) backwards; }
-  html.is-arriving .nav-glass .watch-search { animation: mm-drop var(--dur-slow) calc(var(--dur) * .5) var(--ease-out) backwards; }
+  /* The search field moves as one, but fades its glass and what is on it: glass under a fading
+     parent sees none of the page. */
+  html.is-arriving .nav-glass .watch-search { animation: mm-drop-move var(--dur-slow) calc(var(--dur) * .5) var(--ease-out) backwards; }
+  html.is-arriving .nav-glass .watch-search::before,
+  html.is-arriving .nav-glass .watch-search > * { animation: mm-fade-in var(--dur-slow) calc(var(--dur) * .5) var(--ease-out) backwards; }
 
   /* The menu folds back into the avatar (a plain fade where the avatar is out of sight), the ring
      empties, the badge and the picture shrink out, the name follows and the bar goes. */
@@ -549,7 +559,10 @@
   html.is-leaving .nav-glass .profile-ava .avatar { animation: mm-pop-out var(--dur-slow) calc(var(--dur) * 2.35) var(--ease-out) both; }
   html.is-leaving .nav-glass :is(.profile-btn-name, .profile-btn > .ico) { animation: mm-out var(--dur) calc(var(--dur) * 2.8) var(--ease-out) both; }
   html.is-leaving .nav-glass .space-meter { animation: mm-out var(--dur) calc(var(--dur) * 2.5) var(--ease-out) both; }
-  html.is-leaving .nav-glass :is(.watch-search, .nav-back) { animation: mm-lift-out var(--dur-slow) calc(var(--dur) * 2.2) var(--ease-out) both; }
+  html.is-leaving .nav-glass .nav-back { animation: mm-lift-out var(--dur-slow) calc(var(--dur) * 2.2) var(--ease-out) both; }
+  html.is-leaving .nav-glass .watch-search { animation: mm-lift-move var(--dur-slow) calc(var(--dur) * 2.2) var(--ease-out) both; }
+  html.is-leaving .nav-glass .watch-search::before,
+  html.is-leaving .nav-glass .watch-search > * { animation: mm-out var(--dur-slow) calc(var(--dur) * 2.2) var(--ease-out) both; }
   html.is-leaving .nav-glass .nav-end { animation: mm-out var(--dur-slow) calc(var(--dur) * 3.25) var(--ease-out) both; }
   html.is-leaving .nav-glass .brand .wm-man > path { animation: wm-draw var(--dur-slow) calc(var(--dur) * 3) var(--ease-out) reverse both; }
   html.is-leaving .nav-glass .brand .wm-media > path { animation: wm-draw calc(var(--dur) * 1.5) calc(var(--dur) * 3.4) var(--ease-out) reverse both; }

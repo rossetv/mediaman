@@ -9,9 +9,10 @@ was made on, its exact tracks; it plays from the next start of a stream.
 from __future__ import annotations
 
 import sqlite3
+from typing import Literal, Self
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 from starlette.responses import Response
 
 from mediaman.db import get_db
@@ -46,13 +47,46 @@ _KEY = r"^[0-9]{1,18}$"
 _LANGUAGE = r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{1,8})?$"
 
 
+class _KeptSubtitle(BaseModel):
+    """The subtitle part of a kept choice, as an answer gave it, to be kept again as it was."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rating_key: str = Field(pattern=_KEY)
+    subtitle: Literal["on", "off"] | None
+    subtitle_id: str | None = Field(pattern=_KEY)
+    subtitle_lang: str | None = Field(pattern=_LANGUAGE)
+    subtitle_forced: StrictBool
+    subtitle_hearing_impaired: StrictBool
+
+    @model_validator(mode="after")
+    def _as_kept(self) -> Self:
+        described = (self.subtitle_id, self.subtitle_lang, self.subtitle_forced)
+        if self.subtitle != "on" and (any(described) or self.subtitle_hearing_impaired):
+            raise ValueError("only subtitles kept on describe a track")
+        return self
+
+
 class _Choice(BaseModel):
-    """A field left out keeps what was chosen; null goes back to the defaults for it."""
+    """A field left out keeps what was chosen; null goes back to the defaults for it.
+
+    ``subtitle_choice`` gives back the subtitle part of an earlier answer's
+    ``remembered_subtitle_choice``, in place of ``subtitle``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     audio: str | None = Field(default=None, pattern=_KEY)
     subtitle: str | None = Field(default=None, pattern=r"^(off|[0-9]{1,18})$")
+    subtitle_choice: _KeptSubtitle | None = None
+
+    @model_validator(mode="after")
+    def _one_subtitle(self) -> Self:
+        if "subtitle_choice" in self.model_fields_set and (
+            self.subtitle_choice is None or "subtitle" in self.model_fields_set
+        ):
+            raise ValueError("subtitle_choice is a kept choice, given in place of subtitle")
+        return self
 
 
 class _Defaults(BaseModel):
@@ -91,13 +125,26 @@ def _answer(
 ) -> Response:
     pick = pick_tracks(conn, username, item, audio, subtitles)
     defaults = track_choices.get_defaults(conn, username)
+    kept = track_choices.get_choice(conn, username, title_key(item))
     return respond_ok(
         {
             "audio": pick.audio,
             "subtitle": pick.subtitle,
             "audio_tracks": audio,
             "subtitle_tracks": subtitles,
-            "remembered": track_choices.get_choice(conn, username, title_key(item)) is not None,
+            "remembered": kept is not None,
+            # What is kept for the subtitles, to be given back as it is where a change of them
+            # does not take: what plays tells neither Off from none needed nor the kept track.
+            "remembered_subtitle_choice": None
+            if kept is None
+            else {
+                "rating_key": kept.rating_key,
+                "subtitle": kept.subtitle,
+                "subtitle_id": kept.subtitle_id,
+                "subtitle_lang": kept.subtitle_lang,
+                "subtitle_forced": kept.subtitle_forced,
+                "subtitle_hearing_impaired": kept.subtitle_hearing_impaired,
+            },
             "defaults": {
                 "audio_lang": defaults.audio_lang,
                 "subtitle_lang": defaults.subtitle_lang,
@@ -153,7 +200,14 @@ def set_tracks(
     else:
         # Stream ids are of the item they were chosen on.
         audio_id, audio_lang = kept.audio_id if same else None, kept.audio_lang
-    if "subtitle" not in sent:
+    given = body.subtitle_choice
+    subtitle: str | None
+    if given is not None:
+        subtitle, subtitle_lang = given.subtitle, given.subtitle_lang
+        # Stream ids are of the item they were chosen on.
+        subtitle_id = given.subtitle_id if given.rating_key == item.rating_key else None
+        forced, hearing_impaired = given.subtitle_forced, given.subtitle_hearing_impaired
+    elif "subtitle" not in sent:
         subtitle = kept.subtitle
         subtitle_id = kept.subtitle_id if same else None
         subtitle_lang = kept.subtitle_lang

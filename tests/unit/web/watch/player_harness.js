@@ -955,12 +955,39 @@ function keyIn(p, el, k, shift) {
   return e.defaultPrevented;
 }
 
+/* What the server says is kept for the subtitles, as `remembered_subtitle_choice`. */
+const KEPT_CHOICE = { rating_key: '400', subtitle: null, subtitle_id: null, subtitle_lang: null, subtitle_forced: false, subtitle_hearing_impaired: false };
+const KEPT_SUBTITLES = {
+  audioKept: KEPT_CHOICE,
+  offKept: Object.assign({}, KEPT_CHOICE, { subtitle: 'off' }),
+  onKept: Object.assign({}, KEPT_CHOICE, { subtitle: 'on', subtitle_id: '9', subtitle_lang: 'en', subtitle_hearing_impaired: true }),
+};
+
+/* English subtitles for the TV over a choice kept for the audio alone, which it plays as the forced
+   ones instead: it starts again with what played before, naming no subtitle, so the server starts
+   what is kept, not "off", which would go on to the next episodes. */
+async function awaySubtitle(p) {
+  p.elsewhere.languages = true;
+  p.held.tracks = { remembered: true, remembered_subtitle_choice: KEPT_CHOICE, defaults: { audio_lang: 'en', subtitle_lang: null } };
+  await streamPlays(p, 30);
+  const way = await castPlays(p, true);
+  mediaPlays(way.media, 200);
+  await settle();
+  p.elsewhere.castFails.push(() => Promise.resolve(Object.assign({ stream_id: 'cx', url: '/api/cast/Tx/index.m3u8', duration_s: 3000, quality: 'auto' }, TRACKS, { subtitle: '72' })));
+  await pickTrack(p, '[data-subtitle="71"]');
+  p.tick(800);
+  await settle();
+  return p.elsewhere.starts().slice(1).map((b) => ('subtitle' in b ? b.subtitle : 'none named'));
+}
+
 const scenarios = {
   /* A pick in Audio & subtitles is kept for the title and the stream starts again where it was, the
      last frame held; by `serverPlays` the keeping fails, Plex plays other tracks, or the start fails. */
   async tracks_switch(p) {
     const how = p.win.serverPlays || 'ok';
     p.replies[0] = answer('best', TRACKS);
+    // Nothing kept for the title before, as the server says.
+    p.held.tracks = { remembered: false, remembered_subtitle_choice: null, defaults: { audio_lang: null, subtitle_lang: null } };
     if (how === 'put_fails') p.held.put = 'fails';
     await streamPlays(p, 1268);
     const streams = p.hlsList.length;
@@ -991,6 +1018,32 @@ const scenarios = {
       out.undo = p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).slice(-1).map((c) => (c.gone ? 'DELETE ' : 'PUT ') + c.url)[0];
     }
     return out;
+  },
+
+  /* English subtitles picked over a choice kept for the audio alone, by `serverPlays` for Off
+     ('offKept'), for English for the hard of hearing of which nothing shows here ('onKept'), or
+     not yet known ('unknown'): Plex will not play them, and what was kept is put back as the
+     server gave it; or they play, and Undo goes back to it ('undo'). */
+  async tracks_refused(p) {
+    const how = p.win.serverPlays || 'audioKept';
+    p.replies[0] = answer('best', TRACKS);
+    const kept = KEPT_SUBTITLES[how] || KEPT_SUBTITLES.audioKept;
+    if (how !== 'unknown') p.held.tracks = { remembered: true, remembered_subtitle_choice: kept, defaults: { audio_lang: 'en', subtitle_lang: null } };
+    await streamPlays(p, 1268);
+    await settle();
+    const bodies = () => p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url) && !c.gone && c.body).map((c) => c.body);
+    if (how === 'undo') p.replies.push(answer('best', Object.assign({}, TRACKS, { subtitle: '71' })));
+    else p.replies.push(answer('best', TRACKS), answer('best', TRACKS));
+    await pickTrack(p, '[data-subtitle="71"]');
+    if (p.hlsList.length) await streamPlays(p, 1268);
+    await settle();
+    const undo = p.toasts.filter((t) => t.action)[0];
+    if (how === 'undo' && undo) {
+      p.replies.push(answer('best', TRACKS));
+      undo.action.onClick();
+      await settle();
+    }
+    return { kept: bodies(), undo: !!undo };
   },
 
   /* A subtitle picked while the stream starts again for the audio just picked: it follows. Till
@@ -5577,6 +5630,8 @@ const scenarios = {
     const asked = p.elsewhere.starts().slice(-1)[0];
     return { audio: asked.audio, subtitle: 'subtitle' in asked ? asked.subtitle : 'none named' };
   },
+
+  away_subtitle: awaySubtitle,
 
   /* The next episode goes on where this one played. */
   async away_next(p) {

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from time import monotonic
 
 import pytest
 import requests
@@ -600,6 +601,7 @@ class TestRefresh:
         people["amy"].post("/api/watch/picks/refresh")
         # Refused meanwhile, by another call.
         monkeypatch.setattr(openai_client, "_refused_key", openai_client._digest("sk-test"))
+        monkeypatch.setattr(openai_client, "_refused_at", monotonic())
 
         status = people["amy"].get("/api/watch/picks/refresh").json()
         assert (status["status"], status.get("error")) == ("failed", None)
@@ -609,6 +611,7 @@ class TestRefresh:
     ):
         self._play(conn, "amy", 5)
         monkeypatch.setattr(openai_client, "_refused_key", openai_client._digest("sk-test"))
+        monkeypatch.setattr(openai_client, "_refused_at", monotonic())
 
         mine = people["amy"].get("/api/watch/picks/refresh").json()["my_refresh"]
         assert (mine["available"], mine["reason"]) == (False, "unavailable")
