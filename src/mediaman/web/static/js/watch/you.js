@@ -467,7 +467,9 @@
       draw(frame(0), d);
       draw(frame(1), 0);
       move(frame(1), function (o) { return { opacity: o }; }, w0 < w1 ? 0 : 1, w0 < w1 ? 1 : 0);
-      move(backBtn, by, e1, e1);
+      // A Back that fades out stays where it was; at the end position it would cross the title.
+      var backAt = backBtn.classList.contains('is-off') ? e0 : e1;
+      move(backBtn, by, backAt, backAt);
       move(title, by, e1 / 2, e1 / 2);
       move(old, by, e0 / 2, e0 / 2);
     } else {

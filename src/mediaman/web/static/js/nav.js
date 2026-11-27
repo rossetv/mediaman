@@ -325,11 +325,13 @@
     var sum = state.summary;
     var fresh = unseenOf(state);
     var going = sum.total - sum.ready;
+    // Downloading lists no more than the answer holds, so a count past that is not shown there.
+    var ready = Array.isArray(state.items) && state.items.length ? readyOf(state).length : sum.ready;
     var words = fresh ? fresh + ' ready to watch'
       : sum.active ? going + (sum.waiting ? ' in progress' : ' downloading')
       : sum.waiting ? sum.waiting + ' waiting to download'
-      : sum.ready + ' ready to watch';
-    var also = !fresh && going && sum.ready ? ', ' + sum.ready + ' ready to watch' : '';
+      : ready + ' ready to watch';
+    var also = !fresh && going && ready ? ', ' + ready + ' ready to watch' : '';
     var told = fresh > 0 && !state.lost;
     button.setAttribute('aria-label', name + (!sum.total ? '' : state.lost ? ', downloads not updating' : ', ' + words + also));
 

@@ -312,6 +312,17 @@ const scenarios = {
       return { seenDownloading: at(1, 0, 2, 30), seenMixed: at(2, 1, 1, 57), seenWaiting: at(0, 1, 1, 0) };
     }
   },
+  // The answer lists fewer titles than the summary counts: the label tells the listed ones.
+  cappedReady() {
+    let tell;
+    const p = page(false, { subscribe(fn) { tell = fn; } });
+    p.fire('mm:ready-shown', p.doc, { detail: { keys: readyItems(2).map((item) => item.key) } });
+    const items = [...readyItems(2), { key: 'sonarr::s0', state: 'downloading' }];
+    tell({ summary: { total: 4, active: 1, waiting: 0, ready: 3, percent: 30 }, lost: false, items });
+    const mixed = p.$('button').getAttribute('aria-label');
+    tell({ summary: { total: 3, active: 0, waiting: 0, ready: 3, percent: 100 }, lost: false, items: readyItems(2) });
+    return { mixed, ready: p.$('button').getAttribute('aria-label') };
+  },
   // The ring is its own link beside the face, there only while something downloads.
   ringLink() {
     let tell;

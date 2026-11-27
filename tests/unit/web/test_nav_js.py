@@ -192,6 +192,12 @@ def test_the_ring_and_the_count_say_how_what_is_downloading_stands_with_no_note_
     assert "is-on" not in over["ring"]
 
 
+def test_the_label_counts_the_ready_titles_downloading_lists_not_all_the_summary_counts() -> None:
+    out = _run("cappedReady")
+    assert out["mixed"].endswith(", 1 downloading, 2 ready to watch")
+    assert out["ready"].endswith(", 2 ready to watch")
+
+
 def test_on_watch_the_profile_button_opens_the_pane_and_never_the_menu() -> None:
     assert _run("onWatch") == {
         "went": ["profile"],
@@ -356,7 +362,7 @@ def test_what_one_person_has_seen_leaves_the_count_of_another_on_the_same_browse
 def test_ready_titles_the_strip_does_not_list_are_never_counted() -> None:
     out = _run("unlisted")
     assert out["count"] is None
-    assert out["name"] == "Profile menu, robin, 25 ready to watch"
+    assert out["name"] == "Profile menu, robin, 20 ready to watch"
 
 
 def test_a_browser_that_refuses_its_storage_still_counts_and_forgets_what_was_seen() -> None:

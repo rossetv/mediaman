@@ -348,3 +348,13 @@ def test_on_a_phone_the_sheet_keeps_its_width_and_no_frame_is_drawn() -> None:
     phone = _run("widthSteps")["phone"]
     for way in ("back", "into"):
         assert (phone[way]["held"], phone[way]["frames"], phone[way]["hub"]) == (False, 0, []), way
+
+
+def test_with_reduced_motion_a_back_that_fades_out_stays_at_its_start_and_one_that_fades_in_at_its_end() -> (
+    None
+):
+    calm = _run("widthSteps")["calm"]
+    # back to the hub, which has no Back: it fades where it was, not in the middle of the bar
+    assert calm["back"]["up"] == [["0px", "0px"]]
+    # into the wide view Back comes in at its end position
+    assert calm["into"]["up"] == [["0px", "0px"]]
