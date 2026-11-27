@@ -754,6 +754,16 @@ def test_audio_kept_when_the_tv_fails_for_another_reason_stays_kept() -> None:
     assert out["toasts"] == ["! The TV isn’t answering. Check it still shows mediaman."]
 
 
+def test_subtitles_the_tv_cannot_play_put_back_what_was_kept_and_never_a_new_off() -> None:
+    out = _run("tracksRefused")
+    pick = ["PUT", {"subtitle": "11"}]
+    # Off hides signs and songs for the whole show: only an Off that was kept is put back.
+    assert out["audioKept"] == [pick, ["PUT", {"subtitle": None}]]
+    assert out["offKept"] == [pick, ["PUT", {"subtitle": "off"}]]
+    assert out["unknown"] == [pick, ["PUT", {"subtitle": None}]]
+    assert out["onKept"] == [pick, ["PUT", {"subtitle": "12"}]]
+
+
 def test_a_choice_kept_for_the_title_can_go_back_to_the_defaults_from_the_remote() -> None:
     out = _run("tracksDefaults")
     for on in ("tv", "cast"):

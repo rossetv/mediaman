@@ -955,6 +955,23 @@ function keyIn(p, el, k, shift) {
   return e.defaultPrevented;
 }
 
+/* English subtitles for the TV over a choice kept for the audio alone, which it plays as the forced
+   ones instead: it starts again with what played before, naming no subtitle, so the server starts
+   what is kept, not "off", which would go on to the next episodes. */
+async function awaySubtitle(p) {
+  p.elsewhere.languages = true;
+  p.held.tracks = { remembered: true, remembered_subtitle: null, defaults: { audio_lang: 'en', subtitle_lang: null } };
+  await streamPlays(p, 30);
+  const way = await castPlays(p, true);
+  mediaPlays(way.media, 200);
+  await settle();
+  p.elsewhere.castFails.push(() => Promise.resolve(Object.assign({ stream_id: 'cx', url: '/api/cast/Tx/index.m3u8', duration_s: 3000, quality: 'auto' }, TRACKS, { subtitle: '72' })));
+  await pickTrack(p, '[data-subtitle="71"]');
+  p.tick(800);
+  await settle();
+  return p.elsewhere.starts().slice(1).map((b) => ('subtitle' in b ? b.subtitle : 'none named'));
+}
+
 const scenarios = {
   /* A pick in Audio & subtitles is kept for the title and the stream starts again where it was, the
      last frame held; by `serverPlays` the keeping fails, Plex plays other tracks, or the start fails. */
@@ -991,6 +1008,30 @@ const scenarios = {
       out.undo = p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).slice(-1).map((c) => (c.gone ? 'DELETE ' : 'PUT ') + c.url)[0];
     }
     return out;
+  },
+
+  /* English subtitles picked over a choice kept for the audio alone (or for Off, by `serverPlays`
+     'offKept'): Plex will not play them, and what is put back is what was kept; or they play,
+     and Undo goes back to it. */
+  async tracks_refused(p) {
+    const how = p.win.serverPlays || 'audioKept';
+    p.replies[0] = answer('best', TRACKS);
+    p.held.tracks = { remembered: true, remembered_subtitle: how === 'offKept' ? 'off' : null, defaults: { audio_lang: 'en', subtitle_lang: null } };
+    await streamPlays(p, 1268);
+    await settle();
+    const bodies = () => p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url) && !c.gone && c.body).map((c) => c.body);
+    if (how === 'undo') p.replies.push(answer('best', Object.assign({}, TRACKS, { subtitle: '71' })));
+    else p.replies.push(answer('best', TRACKS), answer('best', TRACKS));
+    await pickTrack(p, '[data-subtitle="71"]');
+    if (p.hlsList.length) await streamPlays(p, 1268);
+    await settle();
+    const undo = p.toasts.filter((t) => t.action)[0];
+    if (how === 'undo' && undo) {
+      p.replies.push(answer('best', TRACKS));
+      undo.action.onClick();
+      await settle();
+    }
+    return { kept: bodies(), undo: !!undo };
   },
 
   /* A subtitle picked while the stream starts again for the audio just picked: it follows. Till
@@ -5577,6 +5618,8 @@ const scenarios = {
     const asked = p.elsewhere.starts().slice(-1)[0];
     return { audio: asked.audio, subtitle: 'subtitle' in asked ? asked.subtitle : 'none named' };
   },
+
+  away_subtitle: awaySubtitle,
 
   /* The next episode goes on where this one played. */
   async away_next(p) {

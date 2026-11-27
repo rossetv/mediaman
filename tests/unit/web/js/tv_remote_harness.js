@@ -725,6 +725,21 @@ const scenarios = {
       p.api.refuse = why;
       out[why] = await tracksOn(p);
     }
+    // English subtitles the TV cannot play: put back is what was kept for them, by what the
+    // server said was kept (audio alone, Off, or not known).
+    const kinds = [['audioKept', { remembered: true, remembered_subtitle: null }], ['offKept', { remembered: true, remembered_subtitle: 'off' }], ['unknown', { remembered: null }], ['onKept', { remembered: true, remembered_subtitle: 'on' }]];
+    for (const [why, kept] of kinds) {
+      const on = why === 'onKept';
+      const subtitles = [{ id: '11', label: 'English' }, { id: '12', label: 'Deutsch' }];
+      const p = await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO, subtitle_tracks: subtitles, subtitle: on ? '12' : null }) })] });
+      p.api.kept = kept;
+      p.api.refuse = 'track_unavailable';
+      await p.open();
+      await p.openTracks();
+      await p.press('[data-subtitle="11"]');
+      await p.pass(400);
+      out[why] = p.api.calls.filter((c) => c.method !== 'GET' && /\/api\/watch\/tracks\//.test(c.url)).map((c) => [c.method, c.body]);
+    }
     return out;
   },
   /* German audio while English subtitles show, which the server says go on showing. */

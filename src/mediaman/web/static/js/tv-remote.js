@@ -1280,8 +1280,8 @@
     MM.dom.qa('.player-controls > *', root).forEach(function (el) { if (el !== avWrap) el.inert = !!open; });
     if (!open) render();
   }
-  /* By title, whether a choice is kept for it, what a change that fails goes back to, and the
-     person's defaults: {remembered, defaults}. */
+  /* By title, whether a choice is kept for it, what a change that fails goes back to, what is
+     kept for its subtitles ("on", "off" or null) and the person's defaults: {remembered, subtitle, defaults}. */
   var keptFor = {};
   function openTracks() {
     closeMenu();
@@ -1296,7 +1296,7 @@
 
   function heardKept(key, data) {
     if (!data || typeof data.remembered !== 'boolean') return false;
-    keptFor[key] = { remembered: data.remembered, defaults: data.defaults || (keptFor[key] || {}).defaults || null };
+    keptFor[key] = { remembered: data.remembered, subtitle: data.remembered_subtitle || null, defaults: data.defaults || (keptFor[key] || {}).defaults || null };
     return true;
   }
 
@@ -1336,6 +1336,7 @@
     var kept = what === 'reset' ? MM.api.delete(tracksUrl(key)) : MM.api.put(tracksUrl(key), what === 'audio' ? { audio: change.audio } : { subtitle: change.subtitle });
     kept.then(function (data) {
       var was = keptFor[key] && keptFor[key].remembered;
+      var wasSubtitle = keptFor[key] && keptFor[key].subtitle;
       heardKept(key, data);
       var after = trackState(p, { audio: data.audio || null, subtitle: data.subtitle || null });
       if (after.audio === before.audio && after.subtitle === before.subtitle) {
@@ -1349,7 +1350,9 @@
         say(MM.tracks.said(what, after, false));
       }, function (err) {
         if (!err || err.error !== 'track_unavailable') { refuse(err || {}); return; }
-        var back = was === false || what === 'reset' ? null : what === 'audio' ? { audio: before.audio } : { subtitle: before.subtitle || 'off' };
+        // Off only where Off was kept: it hides every episode's signs and songs. Not known is none.
+        var back = was === false || what === 'reset' ? null : what === 'audio' ? { audio: before.audio }
+          : { subtitle: wasSubtitle === 'off' ? 'off' : wasSubtitle === 'on' && before.subtitle || null };
         (back ? MM.api.put(tracksUrl(key), back) : MM.api.delete(tracksUrl(key))).then(function (d) {
           heardKept(key, d);
         }, function () { /* said below */ });

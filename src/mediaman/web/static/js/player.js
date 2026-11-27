@@ -4455,6 +4455,7 @@
         audio_tracks: data.audio_tracks || [],
         subtitle_tracks: data.subtitle_tracks || [],
         remembered: !!was.remembered,
+        keptSubtitle: was.keptSubtitle || null,
         defaults: was.defaults || null,
       };
     }
@@ -4484,6 +4485,8 @@
   function keptTracks(key, data) {
     if (!tracks || tracks.key !== key) return;
     tracks.remembered = data.remembered;
+    // "on", "off", or null where the subtitles follow the defaults.
+    tracks.keptSubtitle = data.remembered_subtitle || null;
     tracks.defaults = data.defaults || null;
     showTracks();
   }
@@ -4503,7 +4506,7 @@
     var mine = trackSwitch = {
       key: key,
       what: what,
-      before: { audio: tracks.audio, subtitle: tracks.subtitle, remembered: tracks.remembered },
+      before: { audio: tracks.audio, subtitle: tracks.subtitle, remembered: tracks.remembered, keptSubtitle: tracks.keptSubtitle },
     };
     chooser.changing(true);
     var body = what === 'audio' ? { audio: change.audio } : { subtitle: change.subtitle };
@@ -4560,11 +4563,18 @@
       if (sameTracks(plays, mine.before) || String(item.rating_key) !== mine.key) return;
       if (away) {
         audio = mine.before.audio;
-        subtitle = mine.before.subtitle || (mine.what === 'subtitle' ? 'off' : null);
+        // None named starts what is kept, which putBack has just put back.
+        subtitle = mine.before.subtitle || null;
       }
       restartStream(true);
     });
     if (window.UIFeedback) window.UIFeedback.error(text);
+  }
+
+  /* What was kept for the subtitles before a change: Off only where Off was kept, as it hides
+     every episode's signs and songs; null where they followed the defaults. */
+  function keptSubtitle(b) {
+    return b.keptSubtitle === 'off' ? 'off' : b.keptSubtitle === 'on' && b.subtitle || null;
   }
 
   /* The choice as it was before a change that did not take. */
@@ -4572,7 +4582,7 @@
     var key = mine.key;
     var b = mine.before;
     var done = !b.remembered ? MM.api.delete(tracksUrl(key))
-      : MM.api.put(tracksUrl(key), mine.what === 'audio' ? { audio: b.audio } : mine.what === 'subtitle' ? { subtitle: b.subtitle || 'off' } : { audio: b.audio, subtitle: b.subtitle || 'off' });
+      : MM.api.put(tracksUrl(key), mine.what === 'audio' ? { audio: b.audio } : mine.what === 'subtitle' ? { subtitle: keptSubtitle(b) } : { audio: b.audio, subtitle: keptSubtitle(b) });
     return done.then(function (data) {
       if (data && typeof data.remembered === 'boolean') keptTracks(key, data);
     }, function () { /* kept as the change left it; the chooser says so */ });
@@ -4586,7 +4596,7 @@
     var undo = mine.what === 'reset' || state.on ? null : {
       label: 'Undo',
       onClick: function () {
-        pickTracks(!b.remembered ? { reset: true } : mine.what === 'audio' ? { audio: b.audio } : { subtitle: b.subtitle || 'off' });
+        pickTracks(!b.remembered ? { reset: true } : mine.what === 'audio' ? { audio: b.audio } : { subtitle: keptSubtitle(b) });
       },
     };
     var tell = function () {

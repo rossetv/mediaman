@@ -91,13 +91,17 @@ def _answer(
 ) -> Response:
     pick = pick_tracks(conn, username, item, audio, subtitles)
     defaults = track_choices.get_defaults(conn, username)
+    kept = track_choices.get_choice(conn, username, title_key(item))
     return respond_ok(
         {
             "audio": pick.audio,
             "subtitle": pick.subtitle,
             "audio_tracks": audio,
             "subtitle_tracks": subtitles,
-            "remembered": track_choices.get_choice(conn, username, title_key(item)) is not None,
+            "remembered": kept is not None,
+            # What is kept for the subtitles: "on", "off", or None where they follow the
+            # defaults; what plays cannot tell Off from none needed.
+            "remembered_subtitle": kept.subtitle if kept is not None else None,
             "defaults": {
                 "audio_lang": defaults.audio_lang,
                 "subtitle_lang": defaults.subtitle_lang,

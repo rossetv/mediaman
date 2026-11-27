@@ -103,6 +103,22 @@ def test_changing_one_track_keeps_the_other(alice):
     assert _picked(alice.put("/api/watch/tracks/202", json={"audio": None})) == ("21", None)
 
 
+def test_the_answer_tells_what_is_kept_for_the_subtitles_apart_from_what_plays(alice):
+    def kept() -> str | None:
+        return alice.get("/api/watch/tracks/202").json()["remembered_subtitle"]
+
+    assert kept() is None
+    # Audio alone kept: subtitles are left to the defaults, which is not Off.
+    alice.put("/api/watch/tracks/201", json={"audio": "12"})
+    assert kept() is None
+    alice.put("/api/watch/tracks/201", json={"subtitle": "off"})
+    assert kept() == "off"
+    alice.put("/api/watch/tracks/201", json={"subtitle": "13"})
+    assert kept() == "on"
+    alice.put("/api/watch/tracks/201", json={"subtitle": None})
+    assert kept() is None
+
+
 def test_going_back_to_the_defaults_forgets_the_choice_for_the_whole_show(alice):
     alice.put("/api/watch/tracks/201", json={"audio": "12"})
     alice.put("/api/account/playback", json={"subtitle_lang": "en"})
