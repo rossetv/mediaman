@@ -2357,6 +2357,27 @@ const scenarios = {
     return { plex: h.doc.querySelector('[data-conn="plex"]').className, badge: badge ? badge.textContent : null };
   },
 
+  // The list's Integrations line once the checks have answered: Plex down, or Plex up, and OMDb not set up.
+  async listLine() {
+    const out = {};
+    for (const plex of ['down', 'up']) {
+      const h = build();
+      h.load('settings/integrations.js');
+      const item = h.add('a', { className: 'stx-link' });
+      item.setAttribute('data-sec', 'integrations');
+      const line = h.add('span', { className: 'stx-link__sub', textContent: 'Plex, the *arrs, mail, AI' }, item);
+      ['plex', 'sonarr', 'omdb'].forEach((svc) => h.add('span', { className: 'conn untested' }).setAttribute('data-conn', svc));
+      h.ctx.MM.api = { post: (u) => (plex === 'down' && u.includes('/plex') ? Promise.reject({ status: 502 }) : Promise.resolve({})), messageOf: () => 'x' };
+      ['plex_url', 'plex_token', 'sonarr_url', 'sonarr_api_key'].forEach((id) => h.add('input', { id, value: 'v' }));
+      h.add('input', { id: 'omdb_api_key', value: '' });
+      h.ctx.MM.settings.integrations.init();
+      h.timers.forEach((t) => t.fn());
+      await h.flush();
+      out[plex] = { text: line.textContent, bad: line.classList.contains('is-bad') };
+    }
+    return out;
+  },
+
   // A pressed Test that gets a 429 shows the warning tone and leaves the badge alone.
   async manualRateLimit() {
     const h = build();

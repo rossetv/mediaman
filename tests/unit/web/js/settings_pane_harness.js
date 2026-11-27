@@ -10,7 +10,10 @@ const { Node, makeDocument, build, click, settle } = require('./fake_dom');
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
 Node.prototype.click = function () { click(this.ownerDocument, this); };
-Node.prototype.scrollIntoView = function () { this.ownerDocument.revealed.push(this.id); };
+// A browser can neither scroll to nor focus what is inside the pane's view until the pane shows it.
+const hidden = (n) => !n.ownerDocument.live && !!n.closest('.you-view');
+Node.prototype.scrollIntoView = function () { if (!hidden(this)) this.ownerDocument.revealed.push(this.id); };
+Node.prototype.focus = function () { if (!hidden(this)) this.ownerDocument.activeElement = this; };
 
 const link = (sec) => ['li', {}, ['a', { class: 'stx-link', href: '/?you=settings/' + sec, 'data-sec': sec }, sec]];
 
@@ -85,6 +88,7 @@ function pane(opts) {
   ['settings/savebar.js', 'settings/toggles.js', 'settings/general.js', 'settings/sections.js'].forEach(load);
   ctx.MM.settings.rows = { open: (b) => b.classList.add('is-open'), close: (b) => b.classList.remove('is-open') };
   load('settings.js');
+  doc.live = true;
   emit('mm:you-shown', { group: 'settings', view: opts.at || 'settings' });
   const $ = (id) => doc.getElementById(id);
   const type = (el, value) => {

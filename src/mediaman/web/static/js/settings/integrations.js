@@ -281,6 +281,22 @@
     });
   }
 
+  /* The list's Integrations line says how the services stand once every check has answered. */
+  function paintListLine(item, failed) {
+    var line = item.querySelector('.stx-link__sub');
+    if (!line) return;
+    if (line.getAttribute('data-idle') === null) line.setAttribute('data-idle', line.textContent);
+    var all = document.querySelectorAll('[data-conn]').length;
+    var ok = document.querySelectorAll('[data-conn].ok').length;
+    var waiting = document.querySelectorAll('[data-conn].untested').length;
+    var text = failed ? failed + (failed === 1 ? ' service is' : ' services are') + ' not answering'
+      : waiting ? line.getAttribute('data-idle')
+      : ok ? ok + ' of ' + all + ' connected'
+      : 'None set up yet';
+    line.textContent = text;
+    line.classList.toggle('is-bad', !!failed);
+  }
+
   MM.settings.integrations = {
 
     setConnStatus: function (service, tone, label) {
@@ -315,6 +331,7 @@
       var item = document.querySelector('.stx-link[data-sec="integrations"]');
       if (!item) return;
       var failed = document.querySelectorAll('[data-conn].err').length;
+      paintListLine(item, failed);
       var badge = item.querySelector('.stx-badge');
       if (!failed) {
         if (badge) badge.remove();

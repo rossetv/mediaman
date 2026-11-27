@@ -177,8 +177,8 @@ html.page-bar { scrollbar-gutter: stable; }
 }
 
 /* Desktop: the stack sits bottom-right, where it never covers a page header's
-   controls (Clear all, Scan). The newest toast is the lowest. A settings page
-   lifts it clear of its savebar. */
+   controls (Clear all, Scan). The newest toast is the lowest. Settings' save bar, at the foot of
+   its pane while edits wait, lifts it clear. */
 @media (min-width: 700px) {
   .ui-toast-host {
     --toast-bottom: 20px;
@@ -187,7 +187,7 @@ html.page-bar { scrollbar-gutter: stable; }
     justify-content: flex-end;
     max-height: calc(100dvh - var(--nav-h) - var(--toast-bottom) - 16px);
   }
-  html.has-setg-rail .ui-toast-host { --toast-bottom: 90px; }
+  html:has(.you.is-open .you-view.is-on .stx-save.on) .ui-toast-host { --toast-bottom: 96px; }
 }
 
 /* Phones: full-width 44px buttons, stacked so Confirm lands nearest the thumb. */
@@ -236,12 +236,6 @@ html.has-player .ui-toast-host {
   html.has-player .ui-toast-host { right: auto; max-width: 220px; }
 }
 
-/* Settings: up to 960 px the section chips form a sticky bar under the top
-   bar (it ends near 116 px at most); drop the toasts below it, clear of the chips. */
-@media (max-width: 960px) {
-  html.has-setg-rail .ui-toast-host { --toast-top: 120px; }
-}
-
 /* On a phone a settings savebar (up to two rows) sits under the stack. */
 @media (max-width: 699.98px) {
   .ui-toast-host { --toast-reserve: 86px; }
@@ -254,5 +248,15 @@ html.has-player .ui-toast-host {
     bottom: max(12px, env(safe-area-inset-bottom, 0px));
     max-height: calc(100dvh - var(--nav-h) - 24px);
     justify-content: flex-end;
+  }
+  /* Over Settings' save bar, at the foot of its pane while edits wait. */
+  html:has(.you.is-open .you-view.is-on .stx-save.on) .ui-toast-host {
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+}
+/* So narrow its buttons go under its words. */
+@media (max-width: 380px) {
+  html:has(.you.is-open .you-view.is-on .stx-save.on) .ui-toast-host {
+    bottom: calc(136px + env(safe-area-inset-bottom, 0px));
   }
 }

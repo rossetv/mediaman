@@ -97,19 +97,22 @@
 .setg-pg .gy-tmdb    { background: var(--brand-tmdb-bg);    color: var(--brand-tmdb); }
 .setg-pg .gy-omdb    { background: var(--brand-omdb-bg);    color: var(--brand-omdb); }
 
+/* The services are one list: a row each, with its answer as a pill, that opens into its card. */
 .setg-pg .intg-card {
-  background: var(--s1);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-lg);
+  position: relative;
+  background: var(--s2);
   overflow: hidden;
 }
-.setg-pg .intg-card + .intg-card { margin-top: 14px; }
+.setg-pg .setg-block-hd + .intg-card { border-radius: 14px 14px 0 0; }
+.setg-pg .intg-card:last-child { border-radius: 0 0 14px 14px; }
+.setg-pg .intg-card + .intg-card::before { content: ""; position: absolute; z-index: 1; top: 0; right: 0; left: 60px; border-top: 1px solid var(--hair); }
 .setg-pg .intg-card-hd {
-  display: flex; align-items: center; gap: 14px;
-  padding: 18px 24px;
-  border-bottom: 1px solid var(--hair);
+  display: flex; align-items: center; gap: 12px;
+  min-height: 62px;
+  padding: 10px 14px;
   cursor: pointer;
 }
+.setg-pg .intg-card-hd:hover, .setg-pg .intg-card:not(.is-collapsed) > .intg-card-hd { background: var(--s3); }
 /* The title is the fold's button; its ring goes round the whole header, which a click also folds. */
 .setg-pg .intg-fold { text-align: inherit; letter-spacing: inherit; }
 .setg-pg .intg-fold:focus-visible { outline: 0; }
@@ -122,33 +125,49 @@
 }
 .setg-pg .intg-card-hd { transition: background var(--dur-fast) var(--ease-out); }
 .setg-pg .intg-card-hd:active { background: var(--rgba-overlay-xs); }
-.setg-pg .intg-card.is-collapsed .intg-card-hd { border-bottom: 0; }
 .setg-pg .intg-card-hd .glyph {
-  width: 36px; height: 36px; border-radius: var(--r-sm);
+  width: 34px; height: 34px; border-radius: 9px;
   display: grid; place-items: center;
-  font-weight: 700; font-size: 14px; letter-spacing: -.02em;
+  font-weight: 700; font-size: 13px; letter-spacing: -.02em;
   font-family: var(--font-display); flex-shrink: 0;
 }
-/* The description keeps at least 180px; when the answer and the buttons do not fit beside it
-   they wrap under it, in the card's own width and so at any screen size. */
-.setg-pg .intg-card-hd .hd-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
-.setg-pg .intg-card-hd .h-info { flex: 1000 1 180px; min-width: 0; }
-.setg-pg .intg-card-hd .h-info h3 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; font-family: var(--font-text); }
-.setg-pg .intg-card-hd .h-info .sub { font-size: 12px; color: var(--t3); margin-top: 3px; }
-.setg-pg .intg-card-hd .hd-actions { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.setg-pg .intg-card-hd .hd-actions .conn { min-width: 0; }
+/* The name and what it is for keep the room; the answer and the chevron stay on the row's right. */
+.setg-pg .intg-card-hd .hd-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.setg-pg .intg-card-hd .h-info { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.setg-pg .intg-card-hd .h-info h3 { font-size: 15px; font-weight: 400; letter-spacing: -.01em; font-family: var(--font-text); }
+.setg-pg .intg-card-hd .h-info .sub { font-size: 12.5px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.setg-pg .intg-card-hd .hd-actions { flex: none; display: flex; gap: 10px; align-items: center; max-width: 48%; }
 .setg-pg .intg-card-hd .hd-btns { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+/* The answer as a pill; an open card shows all of a long one. */
+.setg-pg .intg-card-hd .conn {
+  min-width: 0; padding: 3px 10px; border-radius: 11px;
+  font-size: 12px; font-weight: 600; line-height: 1.35; color: var(--t2); background: var(--s4);
+}
+.setg-pg .intg-card-hd .conn .conn-dot { display: none; }
+.setg-pg .intg-card-hd .conn [data-conn-label] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.setg-pg .intg-card:not(.is-collapsed) .intg-card-hd .conn [data-conn-label] { white-space: normal; }
+.setg-pg .intg-card-hd .conn.ok { color: var(--success); background: var(--rgba-success-bg); }
+.setg-pg .intg-card-hd .conn.warn { color: var(--warning); background: var(--rgba-warning-bg); }
+.setg-pg .intg-card-hd .conn.err { color: var(--danger-text); background: var(--rgba-danger-bg); }
 .setg-pg .intg-card-hd .intg-chev {
-  font-size: 14px;
-  color: var(--t3);
+  font-size: 11px;
+  color: var(--t4);
   transition: transform var(--dur) var(--ease-out);
   flex-shrink: 0;
 }
 .setg-pg .intg-card:not(.is-collapsed) .intg-card-hd .intg-chev {
   transform: rotate(180deg);
 }
-.setg-pg .intg-card-bd { padding: 22px 24px 24px; }
-.setg-pg .intg-card-bd > .setg-fold-inner > .fld-row + .fld-row { margin-top: 18px; }
+.setg-pg .intg-card-bd { background: var(--s3); }
+.setg-pg .intg-card-bd > .setg-fold-inner { padding: 6px 14px 16px 60px; }
+.setg-pg .intg-card-bd .inp { background-color: var(--s2); }
+.setg-pg .intg-card-bd > .setg-fold-inner > .fld-row + .fld-row,
+.setg-pg .intg-card-bd > .setg-fold-inner > .intg-acts { margin-top: 14px; }
+.setg-pg .intg-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.setg-pg .intg-acts .btn-test { min-height: 40px; border-color: transparent; background: var(--s5); }
+@media (max-width: 699.98px) {
+  .setg-pg .intg-card-bd > .setg-fold-inner { padding-left: 14px; }
+}
 .setg-pg .lib-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .setg-pg .lib-pill-count { font-size: 11.5px; }
 .setg-pg .lib-pill {

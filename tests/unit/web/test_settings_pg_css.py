@@ -86,12 +86,13 @@ def test_a_service_header_starts_its_answer_row_in_the_same_place_at_every_phone
     assert narrow and ".hd-actions" not in narrow.group(1)
 
 
-def test_a_service_header_drops_its_answer_under_a_description_of_at_least_180px() -> None:
+def test_a_service_row_keeps_its_answer_on_the_right_and_cuts_the_description_short() -> None:
     main = _declarations(".setg-pg .intg-card-hd .hd-main")
-    assert "flex-wrap: wrap" in main
-    # the row wraps by what fits in the card itself, so no screen width is named for it
-    assert re.search(r"flex:\s*\d+ 1 180px", _declarations(".setg-pg .intg-card-hd .h-info"))
-    assert "margin-left: auto" in _declarations(".setg-pg .intg-card-hd .hd-btns")
+    assert "flex-wrap" not in main
+    assert "text-overflow: ellipsis" in _declarations(".setg-pg .intg-card-hd .h-info .sub")
+    actions = _declarations(".setg-pg .intg-card-hd .hd-actions")
+    assert "flex: none" in actions and "max-width" in actions
+    # the row holds at every width, so no screen width is named for it
     header = PANELS[PANELS.index(".setg-pg .intg-card-hd .hd-main") :].split(
         "\n.setg-pg .intg-card-bd", 1
     )[0]
@@ -213,9 +214,38 @@ def test_the_browsers_own_field_parts_are_drawn_for_a_dark_page() -> None:
 
 
 def test_no_rule_is_keyed_to_the_full_page_classes_nothing_sets_any_more() -> None:
-    css = (CSS / "_settings_pg.css").read_text() + PANELS
-    for gone in ("has-setg-pg", "has-setg-rail", "has-savebar", "--savebar-h", ".setg-rail"):
-        assert gone not in css, gone
+    for sheet in (
+        "_settings_pg.css",
+        "_settings_pg_panels.css",
+        "_ui_feedback.css",
+        "_tv_remote.css",
+    ):
+        css = (CSS / sheet).read_text()
+        for gone in ("has-setg-pg", "has-setg-rail", "has-savebar", "--savebar-h", ".setg-rail"):
+            assert gone not in css, (sheet, gone)
+
+
+def test_toasts_stand_above_the_save_bar_while_it_shows_in_the_open_pane() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_ui_feedback.css").read_text(), flags=re.S)
+    lifted = re.findall(
+        r"html:has\(\.you\.is-open \.you-view\.is-on \.stx-save\.on\) \.ui-toast-host \{([^{}]*)\}",
+        css,
+    )
+    # on a wide screen the stack's foot moves up; on a phone, where it stands at the foot, too
+    assert any("--toast-bottom" in body for body in lifted)
+    assert any(re.search(r"\bbottom: calc\(\d+px", body) for body in lifted)
+
+
+def test_reduced_motion_fades_the_list_and_section_at_the_short_duration_over_the_page_rule() -> (
+    None
+):
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    block = re.search(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", css, re.S)
+    assert block
+    rule = _declarations(".stx.is-in > .stx__body", block.group(1))
+    assert "transform: none !important" in rule
+    assert "transition-property: opacity, visibility !important" in rule
+    assert "transition-duration: var(--dur-fast), 0s !important" in rule
 
 
 def test_blocks_add_no_scroll_margin_on_top_of_the_page_scroll_padding() -> None:

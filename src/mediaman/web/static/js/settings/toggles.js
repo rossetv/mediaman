@@ -93,6 +93,15 @@
       var inner = document.createElement('div');
       inner.className = 'setg-fold-inner';
       while (body.firstChild) inner.appendChild(body.firstChild);
+      // The list's rows carry only the answer; Test sits at the foot of the open card.
+      var card = body.closest('.intg-card');
+      var test = card && card.querySelector('.intg-card-hd [data-test-service]');
+      if (test) {
+        var acts = document.createElement('div');
+        acts.className = 'intg-acts';
+        acts.appendChild(test);
+        inner.appendChild(acts);
+      }
       body.appendChild(inner);
       body.classList.add('setg-fold');
     });

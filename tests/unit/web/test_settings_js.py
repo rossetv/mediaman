@@ -150,6 +150,12 @@ def test_rate_limited_service_is_not_counted_as_not_connected() -> None:
     assert out["badge"] == "1"
 
 
+def test_the_list_says_how_many_services_are_not_answering_or_how_many_are_connected() -> None:
+    out = _run("listLine")
+    assert out["down"] == {"text": "1 service is not answering", "bad": True}
+    assert out["up"] == {"text": "2 of 3 connected", "bad": False}
+
+
 def test_pressed_test_that_is_rate_limited_warns_and_is_not_counted() -> None:
     out = _run("manualRateLimit")
     assert "warn" in out["pill"].split()

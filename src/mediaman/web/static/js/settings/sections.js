@@ -107,7 +107,13 @@
     // The pane tells every step, Back and Forward too, with the path it shows.
     document.addEventListener('mm:you-shown', function (e) {
       var d = e.detail || {};
-      if (d.group === 'settings') show(d.view);
+      if (d.group !== 'settings') return;
+      var was = path;
+      show(d.view);
+      // Opened at a card's address, the card could take no focus before its view was shown.
+      var service = path === was && path.split('/')[2];
+      var card = service && document.getElementById('intg-' + service);
+      if (card && !card.contains(document.activeElement)) openCard(service);
     });
     var mq = window.matchMedia && window.matchMedia(WIDE);
     if (mq && mq.addEventListener) mq.addEventListener('change', function () { if (shown()) show(path); });
