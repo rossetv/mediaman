@@ -85,22 +85,19 @@ def test_an_off_switch_shows_its_track_and_an_on_one_its_colour_alone() -> None:
     assert "border:" not in _of(".tog", "_forms.css")
 
 
-def test_on_history_the_keyboard_lands_clear_of_the_bar_and_tools_but_a_bars_own_control_stays_put() -> (
+def test_in_the_history_pane_the_keyboard_lands_clear_of_the_tools_but_their_own_control_stays_put() -> (
     None
 ):
-    assert "scroll-padding-top: var(--bar-clear)" in _of(
-        'html[data-page="history"]', "_history.css"
-    )
-    held = 'html[data-page="history"].is-bar-focus'
+    view = '.you-view[data-view="history"]'
+    assert re.search(r"scroll-padding-top: [1-9]\d+px", _of(view, "_history.css"))
+    held = view + ":has(.hx-tools:focus-within)"
     assert "scroll-padding-top: 0" in _of(held, "_history.css")
 
 
-def test_under_a_short_window_historys_tools_and_all_titles_head_go_with_the_page() -> None:
+def test_under_a_short_window_history_panes_tools_and_all_titles_head_go_with_the_list() -> None:
     short = "(max-height: 500px)"
     assert "position: relative" in _of(".hx-tools", "_history.css", short)
-    assert "--bar-clear: calc(var(--nav-h) + 12px)" in _of(
-        'html[data-page="history"]', "_history.css", short
-    )
+    assert "scroll-padding-top: 0" in _of('.you-view[data-view="history"]', "_history.css", short)
     assert "position: relative" in _of(".watch-all__head", "_watch_grid.css", short)
 
 

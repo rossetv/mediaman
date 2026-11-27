@@ -208,6 +208,8 @@
     var menuOf = null;     // the filter whose menu is open
     var titlesOf = null;   // the last titles to choose from, and the question they answer
     var menuAsked = 0;
+    var kindCounts = null; // how many events each kind of event holds, and the question they answer
+    var kindsAsked = 0;
     var pageAt = '';       // the page of the list the address names, past the first
     var at = '';           // the address listed
     var scrollEl = null;
@@ -625,6 +627,7 @@
         go('replace');
       }
       linkNewest(page.page);
+      if (!none || filtered()) askKinds();
       near();
     }
 
@@ -771,9 +774,34 @@
       if (!known) kinds.splice(1, 0, [F.action, actionLabel(F.action)]);
       empty(groupsBox);
       kinds.forEach(function (a) {
-        groupsBox.appendChild(button('hx-group', a[1], { 'data-group': a[0], 'aria-pressed': String(a[0] === F.action) }));
+        var pill = button('hx-group', a[1], { 'data-group': a[0], 'aria-pressed': String(a[0] === F.action) });
+        if (a[0]) pill.appendChild(el('small'));
+        groupsBox.appendChild(pill);
       });
+      fillKinds();
       if (had) focusChip('action');
+    }
+
+    function fillKinds() {
+      if (!kindCounts || kindCounts.question !== query()) return;
+      kindCounts.options.forEach(function (o) {
+        var pill = MM.dom.findByAttr(groupsBox, 'data-group', o.value);
+        var small = pill && pill.querySelector('small');
+        if (!small) return;
+        small.textContent = o.count.toLocaleString('en-GB');
+        pill.setAttribute('aria-label', o.label + ': ' + small.textContent);
+      });
+    }
+
+    /* The count of each kind of event under the other filters, for its pill. */
+    function askKinds() {
+      var question = query();
+      var me = ++kindsAsked;
+      MM.api.get(query({ menu: 'action' }, '/menu')).then(function (res) {
+        if (me !== kindsAsked) return;
+        kindCounts = { question: question, options: res.options };
+        fillKinds();
+      }, function () {});
     }
 
     function chips() {

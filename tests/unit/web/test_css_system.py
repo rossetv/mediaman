@@ -143,15 +143,24 @@ def test_no_offset_repeats_the_height_of_the_bar_at_the_foot() -> None:
         assert not re.search(r"calc\(\d+px \+ env\(safe-area-inset-bottom", css), name
 
 
+def _sticky_tops(name: str, part: str) -> list[str]:
+    return [
+        top
+        for block in re.findall(re.escape(part) + r" \{([^}]*)\}", _text(CSS_DIR / name))
+        for top in re.findall(r"(?<![\w-])top: ([^;]+);", block)
+    ]
+
+
 def test_what_sticks_at_the_top_stands_where_the_bar_ends_and_at_the_top_where_it_is_gone() -> None:
-    for name, part in (("_history.css", ".hx-tools"), ("_settings_pg.css", ".setg-pg .setg-rail")):
-        tops = [
-            top
-            for block in re.findall(re.escape(part) + r" \{([^}]*)\}", _text(CSS_DIR / name))
-            for top in re.findall(r"(?<![\w-])top: ([^;]+);", block)
-        ]
-        assert tops, name
-        assert all("var(--nav-h)" in top or top == "auto" for top in tops), (name, tops)
+    tops = _sticky_tops("_settings_pg.css", ".setg-pg .setg-rail")
+    assert tops
+    assert all("var(--nav-h)" in top or top == "auto" for top in tops), tops
+
+
+def test_history_panes_tools_stick_at_the_top_of_its_scroller_or_go_with_the_list() -> None:
+    tops = _sticky_tops("_history.css", ".hx-tools")
+    assert tops
+    assert all(top in ("0", "auto") for top in tops), tops
 
 
 def test_the_pairing_page_leaves_room_for_the_bar_at_the_foot_and_under_itself() -> None:

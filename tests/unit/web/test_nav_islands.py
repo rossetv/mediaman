@@ -210,12 +210,19 @@ def test_watch_s_hero_keeps_its_words_clear_of_the_bar_whatever_its_padding() ->
 
 @pytest.mark.parametrize(
     ("sheet", "glass"),
-    [("_history.css", ".hx-tools::after"), ("_watch_grid.css", ".watch-all__glass")],
+    [("_watch_grid.css", ".watch-all__glass")],
 )
 def test_a_sticky_toolbar_s_glass_runs_up_behind_the_bar(sheet, glass) -> None:
     own = _of(glass, _outside(_css(CSS / sheet)))
 
     assert re.search(r"(?<![\w-])(top|inset): calc\(-1 \* var\(--nav-h\)\)", own), own
+
+
+def test_history_panes_tools_are_opaque_and_draw_no_glass_up_behind_the_bar() -> None:
+    css = _outside(_css(CSS / "_history.css"))
+
+    assert "background: var(--s1)" in _of(".hx-tools", css)
+    assert not _of(".hx-tools::after", css)
 
 
 def test_all_titles_head_comes_to_rest_under_the_bar_at_every_width() -> None:

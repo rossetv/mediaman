@@ -2,7 +2,9 @@
    (`.hist*`), each a line that opens into the full event details. The pane's view scrolls;
    the tools stick to its top. */
 
-.you-view[data-view="history"] { padding-top: 0; }
+.you-view[data-view="history"] { padding-top: 0; scroll-padding-top: 160px; }
+/* What the keyboard comes to clears the tools; while the focus is in them, nothing moves. */
+.you-view[data-view="history"]:has(.hx-tools:focus-within) { scroll-padding-top: 0; }
 /* The view sets the sides; the page's container adds none of its own. */
 .you-view[data-view="history"] > .container { max-width: none; margin: 0; padding: 0; }
 
@@ -108,6 +110,10 @@
   white-space: nowrap;
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
+.hx-group { display: inline-flex; align-items: center; gap: 6px; }
+.hx-group small { font-size: 13px; font-weight: 400; color: var(--t2); font-variant-numeric: tabular-nums; }
+.hx-group small:empty { display: none; }
+.hx-group[aria-pressed="true"] small { color: rgba(0,0,0,.6); }
 .hx-group:hover { background: var(--s3); color: var(--t1); }
 .hx-group[aria-pressed="true"] { background: var(--t1); color: #000; }
 
@@ -364,6 +370,7 @@
   .hx-tools,
   .hx-groups { margin-inline: -16px; padding-inline: 16px; }
   .hx-sum { flex-basis: 100%; justify-content: flex-end; }
+  .you-view[data-view="history"] { scroll-padding-top: 200px; }
   .hist-body { padding-left: 14px; }
   .hist-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .hist-field dd { margin-bottom: 8px; }
@@ -407,6 +414,7 @@
 /* Little height: the tools go with the list. */
 @media (max-height: 500px) and (min-width: 700px) {
   .hx-tools { position: relative; top: auto; }
+  .you-view[data-view="history"] { scroll-padding-top: 0; }
 }
 
 @media (max-height: 519.98px) {

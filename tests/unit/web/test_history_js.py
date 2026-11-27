@@ -409,3 +409,12 @@ def test_the_script_loaded_twice_starts_the_pane_once() -> None:
 
 def test_an_empty_history_hides_search_and_filters_until_a_filter_finds_nothing() -> None:
     assert _run("emptyTools") == {"tools": True, "filtered": False}
+
+
+def test_each_kind_of_event_counts_what_it_holds_under_the_other_filters() -> None:
+    assert _run("kindCounts") == {
+        "first": ["/api/history/menu?q=x&user=bob&menu=action"],
+        "next": "/api/history/menu?q=x&user=bob&action=plays&menu=action",
+        "pills": ["All", "Kept1,200", "Plays3"],
+        "label": "Kept: 1,200",
+    }

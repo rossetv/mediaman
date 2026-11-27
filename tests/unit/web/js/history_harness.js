@@ -48,6 +48,7 @@ function open(opts) {
   const own = [];
   const asked = [];
   const menus = [];
+  const kinds = [];
   const listeners = {};
   const win = {
     location: { href: 'http://mm.test/?you=history' },
@@ -108,7 +109,7 @@ function open(opts) {
   const url = () => 'http://mm.test/history' + (h ? '?' + h : '');
   vm.runInContext(fs.readFileSync(path.join(JS, 'core/dom.js'), 'utf8'), ctx);
   win.MM.api = {
-    get: (url, o) => new Promise((resolve, reject) => (url.startsWith('/api/history/menu') ? menus : asked).push({ url, resolve, reject, signal: o && o.signal })),
+    get: (url, o) => new Promise((resolve, reject) => (/menu=action/.test(url) ? kinds : url.startsWith('/api/history/menu') ? menus : asked).push({ url, resolve, reject, signal: o && o.signal })),
   };
   win.MM.you = { shown: (g) => shown && g === 'history', scroller: (v) => (v === 'history' ? scroller : null) };
   win.MM.history = { address };
@@ -118,7 +119,7 @@ function open(opts) {
   const input = root.querySelector('input');
   const fire = (el, type, e) => (el.listeners[type] || []).forEach((fn) => fn({ target: el, preventDefault() {}, ...e }));
   return {
-    doc, win, root, more, toasts, copied, steps, own, asked, menus, timers, q, input, fire, scroller, listeners, url, run,
+    doc, win, root, more, toasts, copied, steps, own, asked, menus, kinds, timers, q, input, fire, scroller, listeners, url, run,
     show: (on) => { shown = on; fire(doc, on ? 'mm:you-shown' : 'mm:you-hidden', { detail: { group: 'history', view: 'history' } }); },
     rows: () => root.querySelectorAll('.hist'),
     ids: () => root.querySelectorAll('.hist').map((r) => r.getAttribute('data-event')),
@@ -721,6 +722,21 @@ const scenarios = {
     h.back('?q=x');
     h.asked[0].resolve(page([], null, 0));
     return settle().then(() => ({ ...out, filtered: h.q('.hx-tools').hidden }));
+  },
+  kindCounts: async () => {
+    const h = open({ search: '?q=x&user=bob', filters: { q: 'x', user: 'bob' } });
+    const pills = () => h.root.querySelectorAll('[data-group]').map((b) => b.textContent);
+    const first = h.kinds.map((k) => k.url);
+    const counted = (o) => ({ options: Object.keys(o).map((v) => ({ value: v, label: v === 'kept' ? 'Kept' : 'Plays', count: o[v] })) });
+    h.pick('action', 'plays');
+    h.asked[h.asked.length - 1].resolve(page([8], null));
+    await settle();
+    const next = h.kinds[1].url;
+    h.kinds[1].resolve(counted({ kept: 1200, plays: 3 }));
+    await settle();
+    h.kinds[0].resolve(counted({ kept: 1, plays: 1 }));
+    await settle();
+    return { first, next, pills: pills(), label: h.q('[data-group="kept"]').getAttribute('aria-label') };
   },
   handTyped: () => ['?since=20261110', '?since=2026-11-12%2010:00', '?since=2026-02-30', '?until=2026-02-30T10:00', '?since=2026-11-01T24:00', '?since=2026-11-01'].map((search) => {
     const h = open({ search });
