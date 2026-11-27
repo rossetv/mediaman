@@ -327,6 +327,9 @@ def test_a_fragment_opened_as_a_page_is_sent_to_its_pane(admin, path, pane):
             "profile",
             [
                 "profile",
+                "profile/audio",
+                "profile/subtitles",
+                "profile/subtitles/language",
                 "profile/picture",
                 "profile/email",
                 "profile/password",
