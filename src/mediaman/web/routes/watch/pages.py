@@ -62,7 +62,7 @@ from mediaman.web.repository.watch_progress import (
     show_progress,
 )
 from mediaman.web.routes import older_play
-from mediaman.web.routes.downloads_strip import current, payload_for
+from mediaman.web.routes.downloads_strip import payload_for
 from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch import all_titles, list_page
 from mediaman.web.routes.watch.card_marks import title_key, tmdb_ref
@@ -1016,13 +1016,9 @@ def watch_page(
                 conn, username, libraries, opened, entries.get(row_id), asked.get("sort")
             )
     # Downloading asked for by its address is listed in the page too, for a browser without
-    # JavaScript: so the answer is made then, where the last is past its time.
+    # JavaScript, from the last answer only: a service that hangs must not hold the page.
     dl_open = asked.get("dl") == "1"
-    try:
-        answer = current(conn, request.app.state.config.secret_key) if dl_open else None
-    except strip.Unavailable:
-        answer = None
-    answer = answer or strip.shared.last()
+    answer = strip.shared.last()
     downloading = (
         payload_for(conn, request.app.state.config.secret_key, username, answer) if answer else None
     )

@@ -230,15 +230,57 @@ def test_watch_lists_the_downloads_without_javascript_only_when_downloading_is_a
     assert _noscript_downloads(signed_in("viewer").get("/").text) == ""
 
 
-def test_downloading_without_javascript_asks_the_services_when_nothing_is_known(
-    signed_in, downloading, monkeypatch
+@pytest.fixture
+def asked(monkeypatch):
+    """Every time the download services are asked; each ask answers with nothing."""
+    from mediaman.services.downloads import strip
+
+    calls: list[object] = []
+    monkeypatch.setattr(
+        "mediaman.web.routes.downloads_strip._make",
+        lambda *a: calls.append(a) or strip.Strip(),
+    )
+    return calls
+
+
+def test_downloading_without_javascript_never_asks_the_services_when_nothing_is_known(
+    signed_in, downloading, asked
 ):
     from mediaman.services.downloads import strip
 
     strip.shared.clear()
-    film = StripItem(key="radarr:2", title="Dry Harbour", kind="movie", state="queued")
-    monkeypatch.setattr(
-        "mediaman.web.routes.downloads_strip._make", lambda *_a: strip.Strip((film,))
-    )
 
-    assert "Dry Harbour" in _noscript_downloads(signed_in("viewer").get("/?dl=1").text)
+    shown = _noscript_downloads(signed_in("viewer").get("/?dl=1").text)
+
+    assert asked == []
+    assert "available right now" in shown
+
+
+def test_downloading_without_javascript_lists_the_last_answer_past_its_time_without_asking(
+    signed_in, downloading, asked, monkeypatch
+):
+    from mediaman.services.downloads import strip
+
+    clock = [1000.0]
+    held = strip.Shared(clock=lambda: clock[0])
+    film = StripItem(key="radarr:3", title="Salt Road", kind="movie", state="queued")
+    held.get(lambda _before: strip.Strip((film,)))
+    clock[0] += strip.HOLD_S + 1  # past its time, not yet stale
+    monkeypatch.setattr(strip, "shared", held)
+
+    shown = _noscript_downloads(signed_in("viewer").get("/?dl=1").text)
+
+    assert asked == []
+    assert "Salt Road" in shown
+
+
+def test_an_outage_with_nothing_listed_never_says_nothing_is_downloading(signed_in, downloading):
+    from mediaman.services.downloads import strip
+
+    strip.shared.clear()
+    strip.shared.get(lambda _before: strip.Strip((), outage="Radarr isn’t answering."))
+
+    shown = _noscript_downloads(signed_in("viewer").get("/?dl=1").text)
+
+    assert "available" in shown  # a viewer is told only that downloads are not available
+    assert "Nothing downloading" not in shown

@@ -161,7 +161,7 @@
           <li><span>{{ item.title }}</span> · {{ dl_says.get(item.state) or (item.percent ~ '%') }}</li>
           {% endfor %}
         </ul>
-        {% else %}<p>Nothing downloading.</p>{% endif %}
+        {% elif not downloading.outage %}<p>Nothing downloading.</p>{% endif %}
         {% if downloading.soon %}<p>{{ downloading.soon }} coming soon</p>{% endif %}
         {% if downloading.outage %}<p>{{ downloading.outage }}</p>{% endif %}
         {% else %}
