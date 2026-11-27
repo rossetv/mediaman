@@ -445,7 +445,7 @@ const scenarios = {
     return { open, hidden, shown, refreshed, closed: p.asks.all - n2 };
   },
   async slimRow() {
-    const soon = load({ all: [all([], { upcoming: [dl('Lanterns'), dl('Orchard')] })] });
+    const soon = load({ strip: [{ ...strip([]), soon: 2 }], all: [all([], { upcoming: [dl('Lanterns'), dl('Orchard')] })] });
     await soon.step(1100);
     const of = (p) => {
       const slot = p.q('#watch-downloading');

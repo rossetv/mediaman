@@ -330,3 +330,11 @@ def test_the_row_the_page_came_with_takes_the_place_of_what_held_its_room(out) -
 
 def test_what_held_the_room_goes_when_nothing_downloads_any_more(out) -> None:
     assert out["heldRoomGone"] == {"hidden": True, "inside": 0, "open": False}
+
+
+def test_the_slim_row_says_what_is_coming_soon_from_the_strip_alone(out) -> None:
+    assert out["calmSoon"] == {
+        "first": "2 coming soon",
+        "after": "",
+        "asked": ["/api/downloads/strip"],
+    }

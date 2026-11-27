@@ -232,7 +232,12 @@ def test_with_nothing_downloading_the_row_stays_as_a_slim_card_that_opens_it(out
     assert run["opened"] == {"at": "/?dl=1", "open": True}
     assert run["none"]["cards"] == [["Nothing downloading", ""]]
     assert run["afterLast"]["cards"] == [["Nothing downloading", ""]]
-    assert run["asked"] == 1, "what is coming soon is asked once"
+
+
+def test_the_slim_row_learns_what_is_coming_soon_from_the_strip_without_asking_for_more(
+    out,
+) -> None:
+    assert out["slimRow"]["asked"] == 0
 
 
 def test_where_downloads_are_not_set_up_there_is_no_row(out) -> None:

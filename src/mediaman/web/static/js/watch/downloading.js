@@ -15,7 +15,6 @@
 
   var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/;
   var HREF = '/?dl=1';
-  var ALL_URL = '/api/downloads';
   var STATES = {
     queued: ['is-queued'],
     searching: ['is-looking'],
@@ -52,7 +51,6 @@
   var staying = new WeakSet(); // the rows that do not snap while at their start
   var calm = null; // the slim card while nothing downloads
   var soon = 0; // how many titles are coming soon, as the downloads last said
-  var asking = false;
   var setUp = (function () {
     try {
       var can = JSON.parse(core.byId('watch-page-data').textContent).can_download || {};
@@ -324,6 +322,7 @@
 
   function draw(state) {
     last = state;
+    soon = state.soon || 0;
     var held = {};
     state.items.forEach(function (item) { held[item.key] = true; });
     Object.keys(landed).forEach(function (key) { if (!held[key]) delete landed[key]; });
@@ -353,6 +352,7 @@
     if (!inner) buildRow();
     if (!list.length) {
       showCalm(isNew);
+      tellSoon();
       letGo();
       sole();
       heading(state, list);
@@ -400,23 +400,10 @@
     go.appendChild(icon('i-chevron-right'));
     scroller.appendChild(calm);
     if (!isNew) core.fadeIn(calm);
-    tellSoon();
-    askSoon();
   }
 
   function tellSoon() {
     if (calm) setText(calm.querySelector('.dw__line'), soon ? soon + ' coming soon' : '');
-  }
-
-  /* What is coming soon is not in what the row is told: the downloads say it. Not MM.api, as
-     the asking above: nobody asked for this, so a 401 leads nowhere. */
-  function askSoon() {
-    if (asking) return;
-    asking = true;
-    fetch(ALL_URL, { credentials: 'same-origin' }).then(function (resp) {
-      if (!resp.ok) throw new Error('http');
-      return resp.json();
-    }).then(hearAll, function () {}).then(function () { asking = false; });
   }
 
   function hearAll(data) {
