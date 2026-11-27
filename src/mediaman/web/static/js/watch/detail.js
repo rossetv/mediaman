@@ -2008,14 +2008,21 @@
     return [item.attention, item.retrying ? 'mediaman will look for another copy' : item.attention_hint].filter(Boolean).join(' · ');
   }
 
-  function followNote(text) {
-    var p = el('p', 'ttl__note');
+  /* What else is said of a download, and where to follow it; opened from Downloading itself, only
+     what else is said. */
+  function followNote(under, text) {
+    var fromGrid = !!(cur.origin && cur.origin.closest && cur.origin.closest('[data-dl-card]'));
+    if (fromGrid && !text) return;
+    var p = under.appendChild(el('p', 'ttl__note'));
+    if (fromGrid) {
+      p.appendChild(el('span', '', text.trim()));
+      return;
+    }
     var words = p.appendChild(el('span', '', text + 'Follow it in '));
     var link = words.appendChild(el('a', '', 'Downloading'));
     link.setAttribute('href', '/?dl=1');
     link.setAttribute('data-dl-open', '');
     words.appendChild(document.createTextNode('.'));
-    return p;
   }
 
   function downloadPart(actions, under) {
@@ -2038,7 +2045,7 @@
       status.setAttribute('data-ttl-act', 'primary');
       under.appendChild(status);
       var why = stuck ? fixOf(trouble) || 'It won’t finish until an admin sorts it out' : '';
-      under.appendChild(followNote(why ? why + '. ' : ''));
+      followNote(under, why ? why + '. ' : '');
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
@@ -2046,8 +2053,8 @@
       var looked = lookedFor(cur, ['searching', 'stuck']);
       actions.appendChild(looked ? statePill('dl-state--queued', 'Looking for a copy', 'i-magnifying-glass')
         : statePill('dl-state--queued', 'Queued', 'i-clock'));
-      under.appendChild(followNote(!looked ? 'Waiting for a download slot. '
-        : looked.state === 'stuck' ? window.MMWatch.downloading.line(looked) + '. ' : ''));
+      followNote(under, !looked ? 'Waiting for a download slot. '
+        : looked.state === 'stuck' ? window.MMWatch.downloading.line(looked) + '. ' : '');
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
@@ -2065,7 +2072,7 @@
       line.appendChild(el('span', '', k.eta ? k.eta.replace(/^~/, 'about ').replace(/ remaining$/, ' left') : ''));
       box.appendChild(line);
       under.appendChild(box);
-      under.appendChild(followNote(''));
+      followNote(under, '');
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }

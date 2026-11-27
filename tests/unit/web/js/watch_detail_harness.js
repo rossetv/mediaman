@@ -1480,6 +1480,28 @@ const scenarios = {
     return out;
   },
 
+  // Opened from a card of Downloading, its sheet does not send you to Downloading, but still says
+  // what else there is to say of the download.
+  async fromGrid() {
+    const downloading = { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'downloading', pct: 42, answered: true }) }) };
+    const p = load({ routes: downloading });
+    let tell;
+    let state = { items: [] };
+    p.ctx.MM.downloading = { last: () => state, subscribe(fn) { tell = fn; } };
+    p.run();
+    tell();
+    const card = p.doc.body.appendChild(build(p.doc, ['article', { 'data-dl-card': '' },
+      ['a', { href: '/#title=tmdb-movie-77', 'data-title-ref': 'tmdb-movie-77', 'data-kind': 'movie' }, 'Film']]));
+    click(p.doc, card.querySelector('a'));
+    await settle();
+    const look = () => ({ note: p.text('.ttl__note'), link: !!p.q('.ttl__note a') });
+    const out = { downloading: look() };
+    state = { items: [{ ref: 'tmdb-movie-77', state: 'needs_attention', attention: 'No files found', attention_hint: 'Fix it in Radarr' }] };
+    tell();
+    out.stuck = look();
+    return out;
+  },
+
   // The seasons of a show, two of them held back.
   async seasonsTroubled() {
     const data = asked('tmdb-tv-90', {});

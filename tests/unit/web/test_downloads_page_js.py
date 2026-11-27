@@ -217,10 +217,10 @@ def test_a_show_is_called_ready_only_while_it_is_known_to_be() -> None:
 
 def test_confirm_says_it_is_working_and_recovers_on_failure() -> None:
     out = _run("abandon")
-    assert out["idle"] == "Abandon"
+    assert out["idle"] == "Abandon search"
     assert out["working"] == "Abandoning…"
     assert out["disabled"] == "true"
-    assert out["after"] == "Abandon"
+    assert out["after"] == "Abandon search"
     assert out["reenabled"] == "false"
 
 
@@ -257,7 +257,7 @@ def test_abandoning_a_title_already_gone_closes_the_dialog_and_refreshes_the_pag
 
 def test_a_failed_abandon_of_one_item_leaves_the_next_dialog_alone() -> None:
     out = _run("abandonStaleFailure")
-    assert out["before"] == {"label": "Abandon", "disabled": "false"}
+    assert out["before"] == {"label": "Abandon search", "disabled": "false"}
     assert out["after"] == out["before"]
     assert out["errors"] == 1
 
@@ -266,7 +266,7 @@ def test_a_finished_abandon_of_one_item_does_not_close_the_next_dialog() -> None
     out = _run("abandonStaleSuccess")
     assert out["closes"] == 0
     assert out["refreshes"] == 1
-    assert out["b"] == {"label": "Abandon", "disabled": "false"}
+    assert out["b"] == {"label": "Abandon search", "disabled": "false"}
 
 
 def test_an_item_with_a_request_running_cannot_be_abandoned_twice() -> None:
@@ -341,7 +341,7 @@ def test_a_lone_season_still_to_air_is_abandoned_only_when_picked() -> None:
         "disabled": "true",
     }
     assert out["sentUnticked"] == 0
-    assert out["aired"] == {"listed": False, "label": "Abandon", "disabled": "false"}
+    assert out["aired"] == {"listed": False, "label": "Abandon search", "disabled": "false"}
     assert out["seasons"] == [[2], [3]]
 
 

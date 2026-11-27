@@ -1,6 +1,6 @@
 /* Watch: Downloading, grown out of its row at /?dl=1. Every download gets the row's card, with
- * what the row has no room for under it: the size, what Radarr or Sonarr says is wrong and what
- * comes of it, the last search, its episodes and an admin's buttons. Groups: Ready to watch (for
+ * one line under it of what the row has no room for (its size, its last search, what is wrong),
+ * its episodes, and an admin's menu of it; the whole card opens its title. Groups: Ready to watch (for
  * the minute the row says so), Needs attention, Downloading, Looking for a copy, Coming soon. While open it reads /api/downloads every 2 s and
  * patches each card in place.
  *
@@ -38,6 +38,8 @@
   var GROUPS = [['ready', 'Ready to watch'], ['attention', 'Needs attention'], ['coming', 'Downloading'], ['looking', 'Looking for a copy'], ['soon', 'Coming soon']];
   var ETA = /^~(?:(\d+) hr )?(\d+) (min|sec) remaining$/;
   var TOP_STATES = ['downloading', 'almost_ready', 'needs_attention', 'finding_copy', 'queued', 'searching'];
+  var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/; // as watch/downloading.js checks a row's
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   var admin = false;
   var setUp = true;
@@ -58,6 +60,8 @@
   var request = null; // the asking under way
   var cards = {}; // by key: the card node
   var heads = {}; // by group: its heading
+  var known = {}; // by download id: what the last answer said of it
+  var menu = null; // an admin's menu of a card (watch/keep.js)
   var skels = null; // { nodes, cards }: what holds the grid's place until the first answer
   var growing = false; // the grid is growing out of the row
   var timer = null;
@@ -72,6 +76,7 @@
 
   function build() {
     if (dom) return;
+    startMenu();
     var section = el('section', 'dlg');
     section.id = 'watch-dl';
     section.setAttribute('aria-labelledby', 'watch-dl-title');
@@ -132,27 +137,40 @@
     return found[3] === 'sec' ? 1 : (Number(found[1]) || 0) * 60 + Number(found[2]);
   }
 
+  /* The title a download opens, as the server names it; where the server does not say, the row's
+     of the same name. */
+  function refOf(item, row) {
+    if (!('title_ref' in item)) return (row && row.ref) || null;
+    return typeof item.title_ref === 'string' && REF_RE.test(item.title_ref) ? item.title_ref : null;
+  }
+
+  /* What critics scored it, as the server says, else as the row's card has it. */
+  function scoresOf(item, row) {
+    var s = item.scores && typeof item.scores === 'object' ? item.scores : row || {};
+    return { rt: s.rt, imdb: s.imdb, rating: row ? row.rating : null };
+  }
+
   /* What the row's card is drawn from, made of what the downloads say of *item*. Why it needs
-     attention and what comes of it are said whole under the card. */
+     attention is said on the line under it, whole in its menu. */
   function topOf(item, items) {
     var row = rowItemOf(item, items);
     var state = TOP_STATES.indexOf(item.state) >= 0 ? item.state : 'searching';
     var active = state === 'downloading' || state === 'almost_ready';
     var percent = Math.max(0, Math.min(100, Number(item.progress) || 0));
+    var ref = refOf(item, row);
+    var scores = scoresOf(item, row);
     return {
       key: String(item.id), title: String(item.title || ''), kind: item.media_type === 'movie' ? 'movie' : 'show', state: state,
       percent: active ? percent : 0,
       minutes_left: state === 'downloading' ? minutesLeft(item.eta) : null,
       line: state === 'almost_ready' && item.state_label === 'Waiting to import' ? item.state_label : '',
       held: false, ready_seconds: null, playable: false,
-      ref: row ? row.ref : null, href: row ? row.href : '',
+      ref: ref, href: row && row.ref === ref ? row.href : ref ? '/#title=' + ref : '',
       poster_url: item.poster_url || (row && row.poster_url) || '', art_url: row ? row.art_url : '',
+      rt: scores.rt, imdb: scores.imdb, rating: scores.rating,
       attention: '', attention_hint: '', retrying: false
     };
   }
-
-  /* Only a page of Radarr's or Sonarr's own, on the web. */
-  function outside(link) { return typeof link === 'string' && /^https?:\/\/[^\s]+$/i.test(link) ? link : ''; }
 
   function episodeWords(ep) {
     if (ep.is_pack_episode) return 'In pack';
@@ -166,29 +184,17 @@
 
   /* ── Cards ── */
 
-  function band(node) {
-    var more = node.querySelector('.dwx__more');
-    if (more) return more;
-    more = node.appendChild(el('div', 'dwx__more'));
-    ['dwx__facts', 'dwx__why', 'dwx__fix', 'dwx__seen'].forEach(function (name) { more.appendChild(el('p', name)).hidden = true; });
-    var why = more.querySelector('.dwx__why');
-    why.appendChild(el('span', 'dwx__why-by'));
-    why.appendChild(el('span'));
-    var fix = more.querySelector('.dwx__fix');
-    fix.appendChild(icon('i-triangle-exclamation'));
-    fix.appendChild(el('span'));
-    more.appendChild(el('div', 'dwx__acts'));
-    var wrap = more.appendChild(el('div', 'dwx__eps-wrap'));
-    wrap.hidden = true;
-    wrap.appendChild(el('ul', 'dwx__eps'));
-    return more;
+  /* The one line under a card, its controls at the line's end, and the episodes that open under it. */
+  function footOf(card) {
+    var foot = card.querySelector('.dwx__foot');
+    if (foot) return foot;
+    foot = card.appendChild(el('div', 'dwx__foot'));
+    foot.appendChild(el('p', 'dwx__say'));
+    card.appendChild(el('div', 'dwx__drawer')).appendChild(el('div')).appendChild(el('ul', 'dwx__list'));
+    return foot;
   }
 
-  function show(node, on) { node.hidden = !on; return on; }
-
-  // Only these say their size and how far along they are; only those not yet fetching link to
-  // Radarr or Sonarr, for an admin.
-  var FACT_STATES = ['downloading', 'almost_ready', 'queued'];
+  // Only those not yet fetching link to Radarr or Sonarr, for an admin.
   function linksOut(state) { return admin && state !== 'downloading' && state !== 'almost_ready'; }
 
   function fixWords(item) {
@@ -196,24 +202,30 @@
       : (admin && item.attention_hint) || 'Won’t finish until an admin sorts it out';
   }
 
-  function facts(p, item) {
-    if (FACT_STATES.indexOf(item.state) < 0) return show(p, false);
+  /* [what stands out, the rest]: what the row's card has no room for, in one line. */
+  function sayOf(item) {
+    var state = item.state;
+    if (state === 'needs_attention') return ['', (admin && item.attention) || fixWords(item)];
+    if (state === 'finding_copy') return ['', 'Finding another copy'];
+    if (state === 'searching') return ['', item.search_hint || 'Waiting for its first search'];
+    if (state === 'queued') return ['', ['Waiting its turn', item.size_total].filter(Boolean).join(' · ')];
     var parts = [];
-    if (item.state === 'queued') parts.push('Waiting its turn');
-    var sized = item.state !== 'queued' && item.size_done && item.size_total;
-    if (item.state === 'queued' && item.size_total) parts.push(item.size_total);
-    if (item.episode_summary && item.state !== 'queued') parts.push(item.episode_summary);
-    if (item.state === 'almost_ready') parts.push('Post-processing…');
-    var said = (sized ? item.size_done + ' of ' + item.size_total + '|' : '') + parts.join(' · ');
-    if (p.getAttribute('data-said') === said) return show(p, !!said);
-    p.setAttribute('data-said', said);
-    p.textContent = '';
-    if (sized) {
-      p.appendChild(el('b', '', item.size_done));
-      p.appendChild(document.createTextNode(' of ' + item.size_total + (parts.length ? ' · ' : '')));
+    if (item.episode_summary) parts.push(item.episode_summary);
+    if (state === 'almost_ready') parts.push('Post-processing…');
+    if (item.size_done && item.size_total) return [item.size_done, ' of ' + item.size_total + (parts.length ? ' · ' + parts.join(' · ') : '')];
+    return ['', parts.join(' · ') || item.state_label || 'Downloading'];
+  }
+
+  function setSay(p, words, whole) {
+    var said = words.join('|');
+    if (p.getAttribute('data-said') !== said) {
+      p.setAttribute('data-said', said);
+      p.textContent = '';
+      if (words[0]) p.appendChild(el('b', '', words[0]));
+      if (words[1]) p.appendChild(document.createTextNode(words[1]));
     }
-    if (parts.length) p.appendChild(document.createTextNode(parts.join(' · ')));
-    return show(p, !!said);
+    if (whole) p.setAttribute('title', words.join(''));
+    else p.removeAttribute('title');
   }
 
   /* A control about to go gives the focus to its card's next one, else to the card's first. */
@@ -224,94 +236,101 @@
     if (to) to.focus({ preventScroll: true });
   }
 
-  function pill(acts, name, make, card) {
-    var node = acts.querySelector('[data-act="' + name + '"]');
+  /* The control *name* of *box*, made by *make*, or taken away where *make* is null. */
+  function control(box, name, make, card) {
+    var node = box.querySelector('[data-act="' + name + '"]');
     if (!make) {
       if (node) { letGoOf(node, card); node.remove(); }
       return null;
     }
     if (!node) {
-      node = make();
+      node = box.appendChild(make());
       node.setAttribute('data-act', name);
-      var after = { arr: ['eps'], abandon: ['eps', 'arr'] }[name] || [];
-      var before = toArray(acts.children).filter(function (n) { return after.indexOf(n.getAttribute('data-act')) < 0; })[0] || null;
-      acts.insertBefore(node, before);
     }
     return node;
   }
 
-  function button(className, glyph, words) {
-    var node = el('button', 'dwx__act' + (className ? ' ' + className : ''));
+  function tool(glyph) {
+    var node = el('button', 'dwx__tool');
     node.setAttribute('type', 'button');
-    if (glyph) node.appendChild(icon(glyph));
-    node.appendChild(el('span', '', words));
+    node.appendChild(icon(glyph));
     return node;
   }
 
-  /* As the old page's abandon button: dl-abandon.js reads these. */
+  function dayOf(seconds) {
+    var d = new Date(seconds * 1000);
+    return d.getDate() + ' ' + MONTHS[d.getMonth()];
+  }
+
+  /* What the confirm says of it under its name. */
+  function factOf(item, upcoming) {
+    if (upcoming) return item.release_label || '';
+    var n = Number(item.search_count) || 0;
+    var since = Number(item.searching_since) || 0;
+    if (!n) return item.search_hint || '';
+    return 'Searched ' + (n === 1 ? 'once' : n + '×') + (since > 0 ? ' since ' + dayOf(since) : '');
+  }
+
+  /* What dl-abandon.js reads off the control that opens its confirm. */
   function arm(node, item, upcoming) {
-    var label = upcoming ? 'Stop tracking' : 'Abandon search';
-    node.setAttribute('data-abandon-trigger', '');
     if (upcoming) node.setAttribute('data-abandon-upcoming', '1');
     node.setAttribute('data-dl-id', String(item.id));
     node.setAttribute('data-arr-id', String(item.arr_id || 0));
     node.setAttribute('data-kind', item.media_type === 'movie' ? 'movie' : 'series');
     node.setAttribute('data-title', item.title || '');
     node.setAttribute('data-stuck-seasons', JSON.stringify(item.stuck_seasons || []));
-    node.setAttribute('aria-label', item.title ? label + ': ' + item.title : label);
+    node.setAttribute('data-poster', core.safePath(item.poster_url) || '');
+    node.setAttribute('data-fact', factOf(item, upcoming));
   }
 
-  function fillBand(card, item) {
-    var more = band(card);
-    var held = item.state === 'needs_attention';
-    facts(more.querySelector('.dwx__facts'), item);
-    // What Radarr or Sonarr says is wrong, and where to fix it, are an admin's alone.
-    var why = more.querySelector('.dwx__why');
-    if (show(why, admin && held && !!item.attention)) {
-      setText(why.children[0], (item.arr_source || 'Radarr or Sonarr') + ' says');
-      setText(why.children[1], item.attention);
-    }
-    var fix = more.querySelector('.dwx__fix');
-    if (show(fix, held)) {
-      var ok = !!item.retrying;
-      fix.classList.toggle('is-ok', ok);
-      fix.classList.toggle('is-act', !ok);
-      window.MM.dom.setIcon(fix.querySelector('.ico'), ok ? 'i-rotate-right' : 'i-triangle-exclamation');
-      setText(fix.children[1], fixWords(item));
-    }
-    var seen = more.querySelector('.dwx__seen');
-    if (show(seen, (item.state === 'searching' || item.state === 'finding_copy') && !!item.search_hint)) setText(seen, item.search_hint);
-    var acts = more.querySelector('.dwx__acts');
+  /* An admin's way into Radarr or Sonarr: only a page of theirs, on the web. */
+  function linkOf(item) {
+    var link = linksOut(item.state) && typeof item.arr_link === 'string' ? item.arr_link : '';
+    return /^https?:\/\/[^\s]+$/i.test(link) ? link : '';
+  }
+
+  /* What Radarr or Sonarr says is wrong, an admin's alone. */
+  function whyOf(item) { return admin && item.state === 'needs_attention' && item.attention ? item.attention : ''; }
+
+  function menuHolds(item) { return admin && !!(whyOf(item) || linkOf(item) || item.abandon_visible); }
+
+  function fillFoot(card, item) {
+    var foot = footOf(card);
+    setSay(foot.querySelector('.dwx__say'), sayOf(item), item.state === 'needs_attention');
     var episodes = item.episodes || [];
-    var eps = pill(acts, 'eps', episodes.length ? function () {
-      var node = button('', 'i-chevron-right', '');
+    var eps = control(foot, 'eps', episodes.length ? function () {
+      var node = el('button', 'dwx__eps');
+      node.setAttribute('type', 'button');
       node.setAttribute('aria-expanded', 'false');
       node.setAttribute('data-dl-eps', '');
+      node.appendChild(el('span'));
+      node.appendChild(icon('i-chevron-down'));
       return node;
     } : null, card);
     if (eps) setText(eps.querySelector('span'), episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '') + (item.has_pack ? ' · pack download' : ''));
-    var link = linksOut(item.state) ? outside(item.arr_link) : '';
-    var arr = pill(acts, 'arr', link ? function () {
-      var node = el('a', 'dwx__act dwx__act--quiet');
-      node.setAttribute('target', '_blank');
-      node.setAttribute('rel', 'noopener noreferrer');
+    else card.classList.remove('is-open');
+    var more = control(foot, 'more', menuHolds(item) ? function () {
+      var node = tool('i-ellipsis');
+      node.setAttribute('data-dl-more', '');
+      node.setAttribute('aria-haspopup', 'menu');
+      node.setAttribute('aria-expanded', 'false');
+      node.setAttribute('title', 'More');
       return node;
     } : null, card);
-    if (arr) {
-      arr.setAttribute('href', link);
-      setText(arr, 'View in ' + (item.arr_source || 'Radarr/Sonarr') + ' ↗');
+    if (more) {
+      // After the episodes, whichever came first.
+      if (foot.lastElementChild !== more) foot.appendChild(more);
+      more.setAttribute('aria-label', 'More for ' + (item.title || 'this download'));
+      arm(more, item, false);
     }
-    var abandon = pill(acts, 'abandon', admin && item.abandon_visible ? function () {
-      return button('dwx__act--quiet dwx__act--danger', 'i-xmark', 'Abandon search');
-    } : null, card);
-    if (abandon) arm(abandon, item, false);
-    acts.hidden = !acts.children.length;
-    var wrap = more.querySelector('.dwx__eps-wrap');
-    if (!episodes.length) wrap.hidden = true;
-    var list = wrap.querySelector('.dwx__eps');
+    var list = card.querySelector('.dwx__list');
+    var said = JSON.stringify(episodes.map(function (ep) { return [ep.label, ep.title, ep.state, ep.progress, ep.is_pack_episode]; }));
+    if (list.getAttribute('data-said') === said) return;
+    list.setAttribute('data-said', said);
     list.textContent = '';
-    episodes.forEach(function (ep) {
+    episodes.forEach(function (ep, i) {
       var row = list.appendChild(el('li', 'dwx__ep' + (ep.state === 'ready' ? ' is-ready' : '') + (ep.is_pack_episode ? ' is-pack' : '')));
+      row.style.setProperty('--i', String(i));
       row.appendChild(el('span', 'dwx__ep-n', ep.label || ''));
       row.appendChild(el('span', 'dwx__ep-t', ep.title || ''));
       var bar = row.appendChild(el('span', 'dwx__ep-bar'));
@@ -321,9 +340,7 @@
     });
   }
 
-  function cardOf(item, items) {
-    var key = 'dl:' + item.id;
-    var top = topOf(item, items);
+  function bigCard(key, top) {
     var node = cards[key];
     if (!node) {
       node = cards[key] = watch.downloading.card(top);
@@ -331,27 +348,27 @@
       node.classList.add('dwx');
       node.setAttribute('data-dl-card', '');
     } else watch.downloading.paint(node, top, false);
+    return node;
+  }
+
+  function cardOf(item, items) {
+    var node = bigCard('dl:' + item.id, topOf(item, items));
     node.setAttribute('data-dl-id', String(item.id));
+    known[String(item.id)] = item;
     // One with no title of its own is no link here: it would only open this again.
     var link = node.querySelector('.dw__link');
     if (link.hasAttribute('data-dl-open')) {
       link.removeAttribute('href');
       link.removeAttribute('data-dl-open');
     }
-    fillBand(node, item);
+    fillFoot(node, item);
     return node;
   }
 
   /* One that is done, as the row has it: the downloads no longer list it. */
   function readyCardOf(item) {
-    var key = 'ready:' + item.key;
-    var node = cards[key];
-    if (!node) {
-      node = cards[key] = watch.downloading.card(item);
-      node.classList.remove('watch-card');
-      node.classList.add('dwx');
-      node.setAttribute('data-dl-card', '');
-    } else watch.downloading.paint(node, item, false);
+    var node = bigCard('ready:' + item.key, item);
+    setSay(footOf(node).querySelector('.dwx__say'), ['', 'Now in your library'], false);
     return node;
   }
 
@@ -361,27 +378,99 @@
     if (!node) {
       node = cards[key] = el('article', 'dwx dwx--small');
       node.setAttribute('data-dl-card', '');
-      var pic = node.appendChild(el('span', 'dwx__pic'));
-      var img = pic.appendChild(el('img'));
+      var open = node.appendChild(el('a', 'dwx__open dwx__small-link'));
+      var img = open.appendChild(el('span', 'dwx__pic')).appendChild(el('img'));
       img.setAttribute('alt', '');
       img.setAttribute('data-broken-on-error', '');
-      var text = node.appendChild(el('span', 'dwx__small-text'));
+      var text = open.appendChild(el('span', 'dwx__small-text'));
       text.appendChild(el('span', 'dw__title'));
-      text.appendChild(el('span', 'dwx__small-line')).appendChild(el('span'));
+      text.appendChild(el('span', 'dwx__small-line'));
     }
     node.setAttribute('data-dl-id', String(item.id));
+    known[String(item.id)] = item;
+    var opener = node.querySelector('.dwx__open');
+    var ref = refOf(item, null);
+    if (ref) {
+      opener.setAttribute('href', '/#title=' + ref);
+      opener.setAttribute('data-title-ref', ref);
+      opener.setAttribute('data-title', item.title || '');
+      opener.setAttribute('data-kind', item.media_type === 'movie' ? 'movie' : 'show');
+    } else ['href', 'data-title-ref', 'data-title', 'data-kind'].forEach(function (name) { opener.removeAttribute(name); });
     var img2 = node.querySelector('img');
     var src = core.safePath(item.poster_url);
     if (src && img2.getAttribute('src') !== src) img2.setAttribute('src', src);
     else if (!src) img2.removeAttribute('src');
     setText(node.querySelector('.dw__title'), item.title || '');
-    setText(node.querySelector('.dwx__small-line span'), item.release_label || '');
-    var stop = pill(node, 'stop', admin ? function () { return button('dwx__act--quiet', 'i-xmark', 'Stop tracking'); } : null, node);
+    setText(node.querySelector('.dwx__small-line'), item.release_label || '');
+    var stop = control(node, 'stop', admin ? function () {
+      var b = tool('i-xmark');
+      b.setAttribute('data-abandon-trigger', '');
+      b.setAttribute('title', 'Stop tracking');
+      return b;
+    } : null, node);
     if (stop) {
-      if (node.lastElementChild !== stop) node.appendChild(stop);
       arm(stop, item, true);
+      stop.setAttribute('aria-label', 'Stop tracking ' + (item.title || 'this title'));
     }
     return node;
+  }
+
+  /* ── An admin's menu of a card: why it is stuck, its page in Radarr or Sonarr, Abandon ── */
+
+  function menuItem(tag, glyph, words, className) {
+    var node = menu.node.appendChild(el(tag, 'watch-keep-menu__item' + (className ? ' ' + className : '')));
+    node.setAttribute('role', 'menuitem');
+    node.setAttribute('tabindex', '-1');
+    if (tag === 'button') node.setAttribute('type', 'button');
+    node.appendChild(icon(glyph));
+    if (words) node.appendChild(el('span', '', words));
+    return node;
+  }
+
+  function fillMenu(trigger) {
+    var box = menu.node;
+    box.textContent = '';
+    var card = trigger.closest('[data-dl-card]');
+    var item = card && known[card.getAttribute('data-dl-id')];
+    if (!item) return;
+    box.setAttribute('aria-label', 'More for ' + (item.title || 'this download'));
+    var why = whyOf(item);
+    if (why) {
+      var facts = menuItem('div', 'i-circle-info', '', 'dwx-menu__facts');
+      facts.setAttribute('aria-disabled', 'true');
+      var words = facts.appendChild(el('span', 'dwx-menu__words'));
+      words.appendChild(el('span', 'dwx-menu__by', 'Details'));
+      words.appendChild(el('span', 'dwx-menu__why', (item.arr_source ? item.arr_source + ' says: ' : '') + why));
+      words.appendChild(el('span', 'dwx-menu__fix', fixWords(item)));
+    }
+    var link = linkOf(item);
+    if (link) {
+      var a = menuItem('a', 'i-arrow-up-right-from-square', 'Open in ' + (item.arr_source || 'Radarr/Sonarr'));
+      a.setAttribute('href', link);
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    }
+    if (item.abandon_visible) {
+      if (box.children.length) box.appendChild(el('div', 'dwx-menu__line')).setAttribute('role', 'separator');
+      menuItem('button', 'i-xmark', 'Abandon search…', 'is-danger').setAttribute('data-dl-abandon', '');
+    }
+  }
+
+  function startMenu() {
+    if (menu || !admin || !watch.keep || !watch.keep.menu) return;
+    var node = el('div', 'watch-keep-menu watch-more-menu dwx-menu');
+    node.id = 'watch-dl-menu';
+    node.setAttribute('role', 'menu');
+    node.hidden = true;
+    (core.byId('watch-page') || document.body).appendChild(node);
+    menu = watch.keep.menu(node, {
+      trigger: '[data-dl-more]',
+      fill: fillMenu,
+      choose: function (trigger, item) {
+        if (item.hasAttribute('data-dl-abandon') && window.MM.dlAbandon) window.MM.dlAbandon.open(trigger);
+      },
+      spare: function () { return dom && dom.title; }
+    });
   }
 
   function headOf(group, words, n) {
@@ -402,7 +491,9 @@
     var kids = toArray(dom.grid.children);
     var at = kids.indexOf(node);
     function controls(list) {
-      return list.reduce(function (all, kid) { return all.concat(toArray(kid.querySelectorAll('a[href], button'))); }, []);
+      return list.reduce(function (all, kid) {
+        return kid.classList.contains('is-going') ? all : all.concat(toArray(kid.querySelectorAll('a[href], button')));
+      }, []);
     }
     var before = controls(kids.slice(0, Math.max(0, at)));
     return controls(kids.slice(at + 1))[0] || before[before.length - 1] || dom.title;
@@ -483,23 +574,12 @@
     var words = top.appendChild(el('span', 'dlg-skel__words'));
     words.appendChild(el('span', 'skel skel--line'));
     words.appendChild(el('span', 'skel skel--line'));
-    var more = card.appendChild(el('div', 'dlg-skel__more'));
-    var state = item.state;
-    // A stuck one's reason and what comes of it are laid out unseen, to wrap as the card's will.
-    if (state === 'needs_attention') {
-      if (admin && item.attention) {
-        var why = more.appendChild(el('span', 'dlg-skel__why'));
-        why.appendChild(el('span', 'skel skel--line'));
-        why.appendChild(el('span')).appendChild(el('span', 'dlg-skel-said', item.attention));
-      }
-      more.appendChild(el('span', 'dlg-skel__fix')).appendChild(el('span', 'dlg-skel-said', fixWords(item)));
-    } else if (!state || FACT_STATES.indexOf(state) >= 0 || state === 'searching' || state === 'finding_copy') {
-      more.appendChild(el('span', 'skel skel--line')); // its facts, or its last search
-    }
-    // A show's episodes, and an admin's way into Radarr or Sonarr, are buttons under it.
-    if (item.kind === 'show' || (state && linksOut(state))) {
-      more.appendChild(el('span', 'dlg-skel__acts')).appendChild(el('span', 'skel dlg-skel__pill'));
-    }
+    // The card's one line, with the controls its card will have at its end: a show's episodes,
+    // and an admin's menu where Radarr or Sonarr may be linked to.
+    var foot = card.appendChild(el('div', 'dlg-skel__foot'));
+    foot.appendChild(el('span', 'skel skel--line'));
+    if (item.kind === 'show') foot.appendChild(el('span', 'skel dlg-skel__pill'));
+    if (item.state && linksOut(item.state)) foot.appendChild(el('span', 'skel dlg-skel__tool'));
     return card;
   }
 
@@ -572,6 +652,7 @@
     if (note) setText(dom.noteText, note);
     dom.note.hidden = !note;
     drawEmpty(emptyOf(data, items.concat(ready)));
+    known = {};
     var groups = { ready: ready.map(readyCardOf), attention: [], coming: [], looking: [], soon: [] };
     items.forEach(function (item) { groups[groupOf(item)].push(cardOf(item, items)); });
     upcoming.forEach(function (item) { groups.soon.push(soonCardOf(item)); });
@@ -605,22 +686,55 @@
   function place(want) {
     var grid = dom.grid;
     var active = document.activeElement;
-    var next = grid.firstElementChild;
-    want.forEach(function (node) {
-      if (node === next) next = next.nextElementSibling;
-      else grid.insertBefore(node, next);
-    });
-    toArray(grid.children).forEach(function (node) {
+    // While it shows, a card or heading that goes fades where it stands, and is laid in among
+    // those that stay until it has; placeholders go at once, as draw() fades them itself.
+    var fades = isOpen && !dom.section.hidden;
+    var order = want.slice();
+    toArray(grid.children).forEach(function (node, i, all) {
       if (want.indexOf(node) >= 0) return;
       if (node.contains(document.activeElement)) {
         var to = nextControl(node);
         if (to) to.focus({ preventScroll: true });
       }
-      node.remove();
+      if (!fades || !(node.hasAttribute('data-dl-card') || node.hasAttribute('role'))) return;
+      var before = all.slice(0, i).filter(function (n) { return order.indexOf(n) >= 0; }).pop();
+      order.splice(before ? order.indexOf(before) + 1 : 0, 0, node);
+      if (!node.classList.contains('is-going')) leave(node);
     });
-    Object.keys(cards).forEach(function (key) { if (!cards[key].parentNode) delete cards[key]; });
-    Object.keys(heads).forEach(function (key) { if (!heads[key].parentNode) delete heads[key]; });
-    if (active && document.activeElement !== active && grid.contains(active)) active.focus({ preventScroll: true });
+    var next = grid.firstElementChild;
+    order.forEach(function (node) {
+      if (node === next) next = next.nextElementSibling;
+      else grid.insertBefore(node, next);
+    });
+    toArray(grid.children).forEach(function (node) { if (order.indexOf(node) < 0) node.remove(); });
+    // One going is never drawn again: a title that comes back has a card of its own.
+    function stays(node) { return !!node.parentNode && !node.classList.contains('is-going'); }
+    Object.keys(cards).forEach(function (key) { if (!stays(cards[key])) delete cards[key]; });
+    Object.keys(heads).forEach(function (key) { if (!stays(heads[key])) delete heads[key]; });
+    if (active && document.activeElement !== active && grid.contains(active) && !active.closest('.is-going')) active.focus({ preventScroll: true });
+  }
+
+  /* A card that goes fades and shrinks where it stands, then those after it slide into its place;
+     with reduced motion it only fades, and the rest take their places at once. */
+  function leave(node) {
+    var still = core.reduceMotion();
+    node.classList.add('is-going');
+    var a = animate(node, still ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.96)' }],
+      { duration: core.tokenMs(still ? '--dur-fast' : '--dur', 200), easing: still ? 'linear' : core.token('--ease-exit', 'ease-in'), fill: 'forwards' });
+    function gone() {
+      if (!node.parentNode) return;
+      var grid = node.parentNode;
+      var was = still ? [] : toArray(grid.children).filter(function (n) { return n !== node; }).map(function (n) { return [n, n.getBoundingClientRect()]; });
+      node.remove();
+      was.forEach(function (w) {
+        var r = w[0].getBoundingClientRect();
+        var dx = w[1].left - r.left;
+        var dy = w[1].top - r.top;
+        if (dx || dy) animate(w[0], [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }], { duration: core.tokenMs('--dur-slow', 250), easing: ease() });
+      });
+    }
+    if (a) a.onfinish = gone;
+    else gone();
   }
 
   /* ── Asking ── */
@@ -710,7 +824,7 @@
     }));
   }
 
-  function gridCards() { return byTitle(toArray(dom.grid.querySelectorAll('.dwx:not(.dwx--small)'))); }
+  function gridCards() { return byTitle(toArray(dom.grid.querySelectorAll('.dwx:not(.dwx--small):not(.is-going)'))); }
 
   /* The page's other parts, above the row and below it. */
   function around() {
@@ -866,7 +980,7 @@
           { transform: 'translate(' + (f.left - r.left) + 'px,' + (f.top - r.top) + 'px)', clipPath: clipTo(f, r) },
           { transform: 'none', clipPath: 'inset(0 0 0 0 round 12px)' }
         ], { duration: D, easing: E }));
-        anims.push(animate(n.querySelector('.dwx__more'), [{ opacity: 0 }, { opacity: 0, offset: 0.3 }, { opacity: 1 }], { duration: D, easing: 'linear' }));
+        anims.push(animate(n.querySelector('.dwx__foot'), [{ opacity: 0 }, { opacity: 0, offset: 0.3 }, { opacity: 1 }], { duration: D, easing: 'linear' }));
       } else if (onScreen(r)) {
         var delay = Math.min(48, i++ * 12);
         anims.push(animate(n, [{ opacity: 0, transform: 'translateY(' + RISE + 'px) scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: D - delay, easing: E, delay: delay, fill: 'backwards' }));
@@ -926,7 +1040,7 @@
         { transform: 'none', clipPath: 'inset(0 0 0 0 round 12px)' },
         { transform: 'translate(' + (t.left - r.left) + 'px,' + (t.top - r.top) + 'px)', clipPath: clipTo(t, r) }
       ], keep));
-      anims.push(animate(at[k].node.querySelector('.dwx__more'), [{ opacity: 1 }, { opacity: 0, offset: 0.6 }, { opacity: 0 }], { duration: D, fill: 'forwards' }));
+      anims.push(animate(at[k].node.querySelector('.dwx__foot'), [{ opacity: 1 }, { opacity: 0, offset: 0.6 }, { opacity: 0 }], { duration: D, fill: 'forwards' }));
     });
     toArray(dom.grid.children).concat([dom.empty, dom.note]).forEach(function (n) {
       if (flown.indexOf(n) < 0) anims.push(animate(n, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(16px) scale(.98)' }], gone));
@@ -1093,9 +1207,8 @@
   }
 
   function toggleEpisodes(btn, on) {
-    var wrap = btn.closest('.dwx__more').querySelector('.dwx__eps-wrap');
     btn.setAttribute('aria-expanded', on ? 'true' : 'false');
-    wrap.hidden = !on;
+    btn.closest('[data-dl-card]').classList.toggle('is-open', on);
   }
 
   /* Open under a title or a pane: back down to it. */
@@ -1125,7 +1238,16 @@
       return;
     }
     var eps = e.target.closest('[data-dl-eps]');
-    if (eps) toggleEpisodes(eps, eps.getAttribute('aria-expanded') !== 'true');
+    if (eps) {
+      toggleEpisodes(eps, eps.getAttribute('aria-expanded') !== 'true');
+      return;
+    }
+    // Anywhere on a card but its controls opens its title, as its own link does (watch/detail.js);
+    // with its menu open, a press there only closes the menu.
+    var card = e.target.closest('[data-dl-card]');
+    if (!card || !plainClick(e) || e.target.closest('a[href], button, [data-title-ref]') || (menu && menu.trigger())) return;
+    var opener = card.querySelector('[data-title-ref]');
+    if (opener) opener.click();
   });
 
   /* What was last pressed: the Profile hub's row opens it with a click of its own, after a tap. */

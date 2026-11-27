@@ -22,6 +22,9 @@
   var listEl      = document.getElementById('abandon-season-list');
   var confirmBtn  = MM.dom.q('[data-abandon-confirm]', modal);
   var confirmLabel = MM.dom.q('[data-confirm-label]', confirmBtn);
+  var spin = confirmBtn.querySelector('[data-confirm-spin]');
+  /* What it is of: its poster, its name and how long it has been looked for. */
+  var who = document.getElementById('abandon-modal-who');
 
   var inflight = {};   // dlId -> true while its abandon request runs
   var current = null;  // { dlId, arrId, kind, title, stuckSeasons, upcoming, trigger }
@@ -72,18 +75,37 @@
 
     current = { dlId: dlId, arrId: arrId, kind: kind, title: title, stuckSeasons: stuck, upcoming: upcoming, trigger: trigger };
 
+    // Where the dialog names it above, its heading need not.
+    var named = !!who && !!title;
+    if (who) {
+      who.hidden = !named;
+      var pic = who.querySelector('.abandon-who__pic');
+      var poster = /^\/(?!\/)\S*$/.test(trigger.dataset.poster || '') ? trigger.dataset.poster : ''; // only mediaman's own
+      pic.replaceChildren();
+      if (poster) {
+        var img = document.createElement('img');
+        img.setAttribute('alt', '');
+        img.setAttribute('data-broken-on-error', '');
+        img.setAttribute('src', poster);
+        pic.appendChild(img);
+      }
+      who.querySelector('.abandon-who__name').textContent = title;
+      var fact = who.querySelector('.abandon-who__fact');
+      fact.textContent = trigger.dataset.fact || '';
+      fact.hidden = !fact.textContent;
+    }
     titleEl.textContent = upcoming
-      ? 'Stop tracking ' + title + '?'
-      : 'Abandon search for ' + title + '?';
+      ? (named ? 'Stop tracking it?' : 'Stop tracking ' + title + '?')
+      : (named ? 'Abandon the search?' : 'Abandon search for ' + title + '?');
 
     listEl.replaceChildren();
 
     if (!isPicker()) {
       var arr = kind === 'series' ? 'Sonarr' : 'Radarr';
       copyEl.textContent = upcoming
-        ? 'Mediaman will unmonitor it in ' + arr + ', so nothing is searched for ' +
-          'or downloaded. Monitor it there again any time.'
-        : 'Mediaman will stop searching and unmonitor it in ' + arr + '. ' +
+        ? 'mediaman unmonitors it in ' + arr + ', so nothing is searched for ' +
+          'or downloaded when it comes out. Monitor it there again any time.'
+        : 'mediaman stops searching and unmonitors it in ' + arr + '. ' +
           'Nothing is deleted from disk. Monitor it there again any time.';
       listEl.hidden = true;
     } else {
@@ -176,6 +198,7 @@
   function showConfirmState() {
     if (!current) return;
     var busy = isBusy();
+    if (spin) spin.hidden = !busy;
     Array.from(listEl.querySelectorAll('.tog')).forEach(function (tog) {
       tog.setAttribute('aria-disabled', busy ? 'true' : 'false');
       tog.setAttribute('tabindex', busy ? '-1' : '0');
@@ -189,7 +212,7 @@
         'Abandon ' + n + ' season' + (n === 1 ? '' : 's');
       confirmBtn.setAttribute('aria-disabled', n === 0 ? 'true' : 'false');
     } else {
-      confirmLabel.textContent = current.upcoming ? 'Stop tracking' : 'Abandon';
+      confirmLabel.textContent = current.upcoming ? 'Stop tracking' : 'Abandon search';
       confirmBtn.setAttribute('aria-disabled', 'false');
     }
   }
@@ -245,6 +268,14 @@
     open(trigger);
   });
   confirmBtn.addEventListener('click', doConfirm);
+
+  /* For a control that holds what the dialog reads but opens a menu first (watch/dlgrid.js). */
+  window.MM.dlAbandon = {
+    open: function (trigger) {
+      trigger.focus();
+      open(trigger);
+    }
+  };
 
   /* Trigger an immediate poll when the abandon succeeds, so the page
      reflects the change without waiting for the next 2-second tick. */

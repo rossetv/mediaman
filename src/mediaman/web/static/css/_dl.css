@@ -530,6 +530,15 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
   margin-top: 18px;
   justify-content: flex-end;
 }
+.abandon-modal-actions .btn-spinner { margin: 0; }
+/* What it is of: its poster, its name and how long it has been looked for. */
+.abandon-who { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.abandon-who__pic { flex: none; width: 40px; height: 60px; overflow: hidden; border-radius: var(--r-xs); background: linear-gradient(160deg, var(--s4), var(--s1)); box-shadow: inset 0 0 0 1px var(--hair); }
+.abandon-who__pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.abandon-who__pic img[data-broken=""] { visibility: hidden; }
+.abandon-who__words { min-width: 0; }
+.abandon-who__name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-size: 15px; font-weight: 600; line-height: 1.25; }
+.abandon-who__fact { display: block; margin-top: 3px; font-size: 13px; color: var(--t3); font-variant-numeric: tabular-nums; }
 
 /* Phone: the hero poster sits above the info so long titles get the full
    width, and a row's abandon button gets its own column beside the percentage. */
@@ -628,8 +637,17 @@ img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }
 }
 @media (max-width: 699.98px) {
   .abandon-modal-body h2 { font-size: 18px; }
-  .abandon-modal-actions { flex-direction: column; }
+  /* The danger first, under the thumb's reach of the words. */
+  .abandon-modal-actions { flex-direction: column-reverse; }
   .abandon-modal-actions .btn { width: 100%; min-height: 44px; }
+}
+/* Little height: a short sheet, its buttons side by side and no poster. */
+@media (max-height: 500px) {
+  .abandon-modal-body { padding: 20px 24px; }
+  .abandon-who { margin-bottom: 10px; }
+  .abandon-who__pic { display: none; }
+  .abandon-modal-actions { flex-direction: row; margin-top: 14px; }
+  .abandon-modal-actions .btn { width: auto; }
 }
 
 /* The system's colours take every fill: the art makes no room, the bars get an edge and the system's own. */

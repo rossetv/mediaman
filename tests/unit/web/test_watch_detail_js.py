@@ -1909,3 +1909,10 @@ def test_a_title_opens_and_closes_without_touching_every_card_on_the_page() -> N
     assert out["closed"] == {"inert": False, "hidden": None}
     # its kind and its card are found by its ref, not by going through every card
     assert out["sweeps"] == []
+
+
+def test_a_sheet_opened_from_downloading_does_not_send_you_back_to_it() -> None:
+    out = _run("fromGrid")
+    assert out["downloading"] == {"note": None, "link": False}
+    # what else there is to say of the download is still said
+    assert out["stuck"] == {"note": "No files found · Fix it in Radarr.", "link": False}

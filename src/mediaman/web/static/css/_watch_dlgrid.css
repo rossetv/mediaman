@@ -103,9 +103,10 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 }
 .dlg__grid > .grid-group { padding-top: 18px; }
 .dlg__grid > .grid-group:first-child { padding-top: 0; }
-.dlg__n { color: var(--t3); font-weight: 500; font-variant-numeric: tabular-nums; }
+/* The count sits by its name, closer than the heading's gap to its line. */
+.dlg__n { margin-left: -10px; color: var(--t3); font-weight: 500; font-variant-numeric: tabular-nums; }
 
-/* ── A download's card: the row's card at the top, what the row has no room for under it ── */
+/* ── A download's card: the row's card on top, one line under it, its controls at the line's end ── */
 
 .dwx {
   position: relative;
@@ -117,49 +118,70 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   background: var(--s1);
   outline: 1px solid var(--hair);
   outline-offset: -1px;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), outline-color var(--dur-fast) var(--ease-out);
 }
+/* The whole card opens its title (watch/dlgrid.js): one that has none is no link. */
+.dwx:has([data-title-ref]) { cursor: pointer; }
 .dwx.is-flyer { z-index: 5; will-change: transform, clip-path; }
-.dwx > .dw__link { flex: none; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.dwx.is-going { pointer-events: none; }
+/* The card lifts as a whole, so its top lifts no more on its own. */
+.dwx > .dw__link { flex: none; height: 104px; min-height: 0; border-radius: var(--r-lg) var(--r-lg) 0 0; transition: opacity var(--dur) var(--ease-out); }
+.dwx > .dw__link::after { border-bottom: 0; }
 .dwx > .dw__link:not([href]) { cursor: default; }
-.dwx > .dw__link:active { transform: none; }
-@media (hover: hover) and (prefers-reduced-motion: no-preference) {
-  .dwx > .dw__link:hover:not(:active) { transform: none; box-shadow: none; }
-  .dwx:hover { outline-color: var(--hair-strong); }
+.dwx > .dw__link:active,
+.dwx > .dw__link:hover:not(:active) { transform: none; box-shadow: none; }
+.dwx .dw__art, .dwx .dw__fill, .dwx__pic { transition: filter var(--dur-fast) var(--ease-out); }
+/* Under a pointer it lifts a little, with a hairline ring and the card shadow, as a Watch card
+   does, and its picture brightens; its menu open holds it so. */
+@media (hover: hover) {
+  .dwx:has([data-title-ref]):is(:hover, :has([data-dl-more][aria-expanded="true"])) { z-index: 1; transform: scale(1.015); outline-color: var(--hair-strong); box-shadow: var(--shadow-card); }
+  .dwx:has([data-title-ref]):is(:hover, :has([aria-expanded="true"])) .dw__art { filter: grayscale(1) brightness(.52); }
+  .dwx:has([data-title-ref]):is(:hover, :has([aria-expanded="true"])) .dw__fill { filter: saturate(1.15) brightness(1.16); }
+  .dwx--small:has([data-title-ref]):hover .dwx__pic { filter: brightness(1.1); }
+  .dwx:not(:has([data-title-ref])):hover { outline-color: var(--hair-strong); }
 }
+/* A press anywhere but on one of its controls. */
+.dwx:has([data-title-ref]):active:not(:has(button:active)) { transform: scale(.985); transition-duration: var(--dur-fast); }
+/* Its link is its one tab stop, and the ring goes round the whole card. */
+.dwx:has(> .dw__link:focus-visible, > .dwx__open:focus-visible) { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.dwx > .dw__link:focus-visible, .dwx > .dwx__open:focus-visible { outline: none; }
 .dwx .dw__line { white-space: nowrap; }
 /* The grid has room to say a long name whole, in two lines. */
 .dwx .dw__title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
-.dwx.is-stuck .dw__line { display: block; -webkit-line-clamp: none; }
-/* What comes of one that needs attention is said whole under it. */
+/* What comes of one that needs attention is said on the line under it. */
 .dw.dwx .dw__fix { display: none; }
-.dwx__more {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 16px 14px;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--t2);
-}
-.dwx__more > p { margin: 0; text-wrap: pretty; }
-.dwx__more > [hidden] { display: none; }
-.dwx__more:not(:has(> :not([hidden]))) { display: none; }
-.dwx__facts { font-variant-numeric: tabular-nums; }
-.dwx__facts b { font-weight: 600; color: var(--t1); }
-.dwx__why { color: var(--t1); overflow-wrap: anywhere; }
-.dwx__why-by { display: block; margin-bottom: 1px; font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--t3); }
-.dwx__fix { display: flex; align-items: baseline; gap: 7px; color: var(--warning); }
-.dwx__fix > .ico { flex: none; align-self: center; font-size: 12px; }
-.dwx__fix.is-ok { color: color-mix(in srgb, var(--success) 60%, var(--t1)); }
-.dwx__seen { font-variant-numeric: tabular-nums; }
-.dwx__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
-.dwx__act {
+
+/* The same 48px on every card, so a row's cards are one height, and controls never add a line. */
+.dwx__foot { display: flex; align-items: center; gap: 6px; height: 48px; padding: 0 8px 0 16px; font-size: 13px; color: var(--t2); }
+.dwx__say { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dwx__say b { font-weight: 600; color: var(--t1); }
+
+/* A control on a card: 32px, as .btn--sm, reached from 44px. */
+.dwx__tool {
   position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--t2);
+  font-size: 14px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.dwx__tool::after { content: ""; position: absolute; inset: -6px; }
+.dwx__tool:active { transform: scale(.9); background: var(--s4); }
+.dwx__tool[aria-expanded="true"] { background: var(--s4); color: var(--t1); }
+.dwx__eps {
+  position: relative;
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 34px;
-  padding: 0 14px;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 12px;
   border-radius: var(--r-pill);
   background: var(--rgba-overlay-sm);
   color: var(--t1);
@@ -168,19 +190,35 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   white-space: nowrap;
   transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.dwx__act::after { content: ""; position: absolute; inset: -5px -2px; } /* 44px to tap */
-.dwx__act:hover { background: var(--s3); }
-.dwx__act:active { transform: scale(.96); }
-.dwx__act:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.dwx__act .ico { font-size: 11px; transition: transform var(--dur) var(--ease-out); }
-.dwx__act[aria-expanded="true"] .ico { transform: rotate(90deg); }
-.dwx__act--quiet { background: transparent; color: var(--t2); border: 1px solid var(--hair-strong); }
-.dwx__act--quiet:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
-.dwx__act--danger { color: var(--danger-text); }
-.dwx__act--danger:hover { background: var(--rgba-danger-bg); }
-.dwx__eps-wrap { overflow: hidden; }
-.dwx__eps { margin: 8px 0 0; padding: 0; list-style: none; }
-.dwx__ep { display: grid; grid-template-columns: 58px minmax(0, 1fr) 56px 64px; align-items: center; gap: 10px; min-height: 34px; border-top: 1px solid var(--hair); font-size: 12px; }
+.dwx__eps::after { content: ""; position: absolute; inset: -6px -2px; }
+.dwx__eps:active { transform: scale(.96); }
+.dwx__eps .ico { font-size: 10px; color: var(--t2); transition: transform var(--dur) var(--ease-out); }
+.dwx__eps[aria-expanded="true"] .ico { transform: rotate(180deg); }
+.dwx__tool:focus-visible, .dwx__eps:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) {
+  .dwx__tool:hover { background: var(--rgba-overlay-lg); color: var(--t1); }
+  .dwx__eps:hover { background: var(--rgba-overlay-lg); }
+}
+
+/* The episodes open under the line: the room grows, then the rows come in, one after another.
+   Shut, they are out of sight and out of reach. */
+.dwx__drawer { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow); }
+.dwx__drawer > div { min-height: 0; overflow: hidden; }
+.dwx.is-open .dwx__drawer { grid-template-rows: 1fr; visibility: visible; transition-delay: 0s; }
+.dwx__list { margin: 0; padding: 0 16px 8px; list-style: none; }
+.dwx__ep {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 48px 60px;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  border-top: 1px solid var(--hair);
+  font-size: 12px;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.dwx.is-open .dwx__ep { opacity: 1; transform: none; transition-delay: calc(var(--i, 0) * 25ms + 60ms); }
 .dwx__ep-n { color: var(--t3); font-variant-numeric: tabular-nums; }
 .dwx__ep-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--t1); }
 .dwx__ep-bar { height: 3px; border-radius: 2px; background: var(--rgba-overlay-lg); background-image: linear-gradient(var(--accent), var(--accent)); background-repeat: no-repeat; background-size: calc(var(--p, 0) * 1%) 100%; }
@@ -189,49 +227,63 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dwx__ep-s { text-align: right; color: var(--t2); font-variant-numeric: tabular-nums; }
 .dwx__ep.is-ready .dwx__ep-s { color: color-mix(in srgb, var(--success) 60%, var(--t1)); }
 
-/* Coming soon: a poster and two lines. */
-.dwx--small { flex-direction: row; align-items: center; gap: 14px; padding: 10px 12px 10px 10px; min-height: 98px; }
+/* Coming soon: a poster and two lines; the name has the card's width but for its one control. */
+.dwx--small { flex-direction: row; align-items: center; gap: 6px; height: 98px; padding: 10px 8px 10px 10px; }
+.dwx__open.dwx__small-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; align-self: stretch; color: inherit; }
 .dwx__pic { flex: none; width: 52px; height: 78px; overflow: hidden; border-radius: var(--r-xs); background: linear-gradient(160deg, var(--s4), var(--s1)); }
 .dwx__pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .dwx__pic img:is([data-broken=""], :not([src])) { visibility: hidden; }
 .dwx__small-text { flex: 1; min-width: 0; }
-.dwx__small-text .dw__title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
-.dwx__small-line { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 13px; color: var(--t2); }
-.dwx__small-line > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dwx--small .dwx__act { flex: none; }
-@media (max-width: 599.98px) {
-  .dwx--small .dwx__act > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .dwx--small .dwx__act { width: 40px; padding: 0; justify-content: center; }
-  .dwx--small .dwx__act .ico { font-size: 13px; }
+.dwx__small-text .dw__title { overflow: hidden; font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+.dwx__small-line { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--t2); }
+.dwx--small .dwx__tool { color: var(--t3); }
+
+/* ── An admin's menu of a card (.watch-keep-menu): why it is stuck, Radarr or Sonarr, Abandon ── */
+
+.dwx-menu { min-width: 220px; max-width: min(340px, calc(100vw - 16px)); transform-origin: top right; }
+.dwx-menu.is-above { transform-origin: bottom right; }
+.dwx-menu .watch-keep-menu__item { gap: 10px; padding: 0 14px 0 12px; }
+.dwx-menu .watch-keep-menu__item > .ico { flex: none; width: 1.4em; font-size: 13px; }
+.dwx-menu .watch-keep-menu__item.is-danger,
+.dwx-menu .watch-keep-menu__item.is-danger > .ico { color: var(--danger-text); }
+.dwx-menu .watch-keep-menu__item.is-danger:is(:hover, :focus-visible) { background: var(--rgba-danger-bg); }
+.dwx-menu .dwx-menu__facts { align-items: flex-start; padding-block: 10px; white-space: normal; cursor: default; }
+.dwx-menu .dwx-menu__facts > .ico { margin-top: 2px; }
+.dwx-menu .dwx-menu__facts:hover { background: none; color: var(--t2); }
+.dwx-menu__words { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.dwx-menu__by { font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--t3); }
+.dwx-menu__why { color: var(--t1); }
+.dwx-menu__fix { color: var(--warning); }
+.dwx-menu__line { flex: none; height: 1px; margin: 4px 6px; background: var(--hair); }
+
+/* Reduced motion: nothing moves, but what comes and goes still fades. _base.css takes every
+   transition to .01ms, so these fades carry their own !important. */
+@media (prefers-reduced-motion: reduce) {
+  .dwx, .dwx:hover, .dwx:active, .dwx__tool:active, .dwx__eps:active { transform: none !important; }
+  .dwx__ep { transform: none !important; transition: opacity var(--dur-fast) linear !important; }
+  .dwx.is-open .dwx__ep { transition-delay: 0s !important; }
+  .dwx-menu { transform: none !important; transition: opacity var(--dur-fast) linear !important; }
 }
 
 /* ── What holds the grid's place until the first answer, laid out as the answer lays out its
-   own: a group's heading, the line under the title, and cards of a one-line band ── */
+   own: a group's heading, the line under the title, and cards of one line under their top ── */
 
 .dlg-skel-head .skel { width: 120px; height: 10px; margin-block: calc((1lh - 10px) / 2); }
 .dlg__count > .skel { width: 150px; height: 10px; margin-block: calc((1lh - 10px) / 2); }
 .dlg-skel { position: relative; display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-lg); background: var(--s1); outline: 1px solid var(--hair); outline-offset: -1px; pointer-events: none; }
 .dlg-skel.is-flyer { z-index: 5; will-change: transform, clip-path; }
 .dlg__body > .is-going { position: absolute; margin: 0; pointer-events: none; }
-.dlg-skel__top { display: flex; align-items: center; gap: 14px; min-height: 104px; padding: 12px 16px 14px 12px; background: var(--s2); }
+.dlg-skel__top { display: flex; align-items: center; gap: 14px; height: 104px; padding: 12px 16px 14px 12px; background: var(--s2); }
 .dlg-skel .skel { flex: none; }
 .dlg-skel__top .skel { background: var(--s3); }
 .dlg-skel__poster { width: 52px; height: 78px; border-radius: var(--r-xs); }
 .dlg-skel__words { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 0; }
 .dlg-skel__words > .skel { width: 64%; height: 12px; }
 .dlg-skel__words > .skel + .skel { width: 40%; height: 10px; }
-/* As tall as the band's one line of facts. */
-.dlg-skel__more { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px 14px; font-size: 13px; line-height: 1.45; }
-.dlg-skel__more > .skel--line { width: 62%; height: 10px; margin-block: calc((1lh - 10px) / 2); }
-/* And as the row of buttons, after the band's gap and the buttons' margin. */
-.dlg-skel__acts { display: flex; margin-top: 8px; }
-.dlg-skel__pill { width: 112px; height: 34px; border-radius: var(--r-pill); }
-/* What Radarr or Sonarr says, after who says it, and what comes of it after its icon: the
-   words themselves, unseen, each line of them a bar. */
-.dlg-skel__why { display: flex; flex-direction: column; overflow-wrap: anywhere; }
-.dlg-skel__why > .skel { width: 22%; height: 8px; margin-block: calc((11px * 1.45 - 8px) / 2) calc((11px * 1.45 - 8px) / 2 + 1px); }
-.dlg-skel__fix { padding-left: 19px; }
-.dlg-skel-said { color: transparent; background: var(--s2); border-radius: var(--r-pill); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.dlg-skel__foot { display: flex; align-items: center; gap: 6px; height: 48px; padding: 0 8px 0 16px; }
+.dlg-skel__foot > .skel--line { flex: 1; max-width: 62%; height: 10px; margin-right: auto; }
+.dlg-skel__pill { width: 112px; height: 32px; border-radius: var(--r-pill); }
+.dlg-skel__tool { width: 32px; height: 32px; border-radius: 50%; }
 
 /* ── The row while nothing downloads: one slim card, so Coming soon keeps a way in ── */
 
@@ -245,6 +297,6 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 
 @media (forced-colors: active) {
   .dwx, .dlg-skel { border: 1px solid CanvasText; }
-  .dwx__act--quiet { border: 1px solid ButtonText; }
+  .dwx__tool, .dwx__eps { border: 1px solid ButtonText; }
   .dwx__ep-bar { forced-color-adjust: none; outline: 1px solid CanvasText; }
 }
