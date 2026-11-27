@@ -101,6 +101,14 @@ def test_a_tv_someone_joins_keeps_its_token_and_its_film_and_says_who_can_play()
     assert out["polled"] == "old"
 
 
+def test_the_code_fades_into_who_can_play_here_and_back_again() -> None:
+    out = _run("joinFades")
+    assert out["code"] is True
+    assert out["join"] == {"says": True, "entering": "in", "left": True}
+    assert out["back"] == {"entering": "in", "left": True}
+    assert out["again"] == {"code": True, "entering": "in", "left": True}
+
+
 def test_a_paired_tvs_code_is_for_another_person_and_a_pause_is_named_only_when_shared() -> None:
     out = _run("shared")
     assert "Pair another person" in out["code"] and "482 916" in out["code"]

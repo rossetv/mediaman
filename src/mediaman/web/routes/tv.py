@@ -14,7 +14,7 @@ import logging
 import re
 import secrets
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, replace
 from functools import partial
@@ -298,11 +298,30 @@ def save_places(budget: float = _SAVE_BUDGET_S) -> None:
     thread.join(budget)
 
 
-def end_plays_of(username: str) -> None:
-    """End what plays on *username*'s TVs, which stay paired."""
+def end_plays_of(username: str, *, by: str | None = None, unpaired: Sequence[repo.Tv] = ()) -> None:
+    """End what *username* plays on any TV, as stopped by *by*, or by them.
+
+    *unpaired* are the TVs a change of their password has just unpaired them from, which their
+    devices are told of.
+    """
     players = get_players()
-    players.end_plays_of(username)
+    ended = players.end_plays_of(username, by=by or username)
     _carry_out(players)
+    user_id = find_user_id(get_db(), username) if unpaired else None
+    if user_id is None:
+        return
+    for held in unpaired:
+        stopped = ended.get(held.token_hash or "")
+        players.mark_gone(user_id, held.id, "account", _removal(None, held, stopped))
+
+
+# Why a person is no longer one of a TV's people: an admin removed them, they left, or their
+# password changed.
+_REMOVALS = ("removed", "left", "account")
+
+
+def _removal(by: str | None, held: repo.Tv, stopped: str | None) -> dict[str, Any]:
+    return {"by": by, "tv": held.name, "stopped": stopped}
 
 
 # ── the TV ──
@@ -666,6 +685,13 @@ def _carry_on(
             play = players.current(key, play_id)
     except (NotPlaying, Stale) as exc:
         return _refusal(exc)
+    conn = get_db()
+    if not (repo.is_paired(conn, key, play.user) or older_play.is_held(conn, key, play.user)):
+        # Nothing goes on as somebody the TV is no longer theirs.
+        with contextlib.suppress(NotPlaying, Stale):
+            players.stop(key, play.id)
+        _carry_out(players)
+        return _refusal(NotPlaying())
     held = replace(held, owner=play.user, owner_id=play.user_id)
     if what in ("next", "auto"):
         return _start_next(
@@ -757,6 +783,8 @@ def _own(username: str, tv_id: _TvId) -> repo.Tv | Response:
     if was is None:
         return _not_found()
     reason, last = was
+    if reason in _REMOVALS:
+        return respond_err(reason, status=410, reason=reason, **last)
     return respond_err(reason, status=410, last=last)
 
 
@@ -775,19 +803,24 @@ def _shown(held: repo.Tv) -> dict[str, Any]:
     if view["last"] is not None:
         last = view["last"] = dict(view["last"])
         by, stopped_by = last.pop("by", None), last.pop("stopped_by", None)
-        # Only whoever started it is told who else stopped it.
-        if held.kind == "page" and by == held.owner and stopped_by != held.owner:
-            last["stopped_by"] = stopped_by
-        else:
-            last["stopped_by"] = None
+        # Their own stop needs no name.
+        page = held.kind == "page"
+        last["stopped_by"] = stopped_by if page and stopped_by != held.owner else None
+        if page:
+            last["mine"] = by == held.owner
     if play and held.kind == "page":
-        play["mine"] = play["by"] == held.owner
+        mine = play["mine"] = play["by"] == held.owner
+        play["started_by"] = None if mine else play["by"]
+        replaced = play.pop("replaced", None)
+        # Only whoever's film it took the place of is told which.
+        theirs = not mine and replaced is not None and replaced["by"] == held.owner
+        play["replaced"] = {"title": replaced["title"], "place_kept": True} if theirs else None
         # Their own pause needs no name.
         if play["paused_by"] == held.owner:
             play["paused_by"] = None
     elif play:
-        play.pop("by", None)
-        play.pop("paused_by", None)
+        for told in ("by", "paused_by", "replaced"):
+            play.pop(told, None)
     return {
         "id": held.id,
         "kind": held.kind,
@@ -956,6 +989,8 @@ def remove_tv(request: Request, tv_id: _TvId, username: _Username) -> Response:
     if held is None:
         return _not_found()
     everyone = request.query_params.get("everyone") == "1"
+    if everyone and get_user_role(get_db(), username) != "admin":
+        return respond_err("forbidden", status=403)
     for_all = everyone or not repo.is_member(get_db(), held.id, username)
     # The last of them unpairs it for good.
     if for_all or not _leave(request, held, username, actor=username):
@@ -988,10 +1023,18 @@ def _leave(request: Request, held: repo.Tv, username: str, *, actor: str) -> boo
     if not repo.leave(get_db(), held, username, actor=actor, ip=get_client_ip(request)):
         return False
     players, key = get_players(), held.token_hash or ""
+    stopped: str | None = None
     with contextlib.suppress(NotPlaying, Stale):
-        if players.current(key).user == username:
-            players.stop(key)
+        play = players.current(key)
+        if play.user == username:
+            players.stop(key, play.id, by=actor)
+            stopped = play.about.get("title")
     _carry_out(players)
+    user_id = find_user_id(get_db(), username)
+    if user_id is not None:
+        removed = actor != username
+        about = _removal(actor if removed else None, held, stopped)
+        players.mark_gone(user_id, held.id, "removed" if removed else "left", about)
     return True
 
 

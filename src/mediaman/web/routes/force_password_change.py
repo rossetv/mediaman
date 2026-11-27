@@ -27,6 +27,8 @@ from mediaman.web.auth.password_hash import change_password
 from mediaman.web.auth.password_hash._change_password import change_lock, is_same_password
 from mediaman.web.auth.password_policy import password_issues, policy_summary
 from mediaman.web.cookies import is_request_secure, set_session_cookie
+from mediaman.web.repository import tv as tvs
+from mediaman.web.routes.tv import end_plays_of
 from mediaman.web.routes.users.passwords import lock_words, rules_of
 from mediaman.web.routes.users.rate_limits import _wait_text
 
@@ -139,6 +141,8 @@ def _rotate_and_reissue(
     change_password invalidates every session for the user, so a fresh one is minted to keep
     the admin logged in.
     """
+    # Read first: the change unpairs them.
+    paired = tvs.owned(conn, username)
     ok = change_password(
         conn,
         username,
@@ -163,6 +167,7 @@ def _rotate_and_reissue(
             detail={"reason": "wrong_old_password"},
         )
         return None
+    end_plays_of(username, unpaired=paired)
 
     from mediaman.web.auth.session_store import (
         create_session,  # late import: test patches the owning module

@@ -13,6 +13,7 @@ from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai import client as openai_client
 from mediaman.services.search_taste import DEFAULT_ORDER, search_taste
 from mediaman.services.watch_catalog import GENRES, _title_meta
+from mediaman.web.repository.watch_progress import save_progress
 from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
 
 NOW = datetime(2026, 6, 15, 12, tzinfo=UTC)
@@ -296,3 +297,127 @@ def test_it_asks_neither_tmdb_nor_the_ai(conn, lib, monkeypatch):
     rated(1, 2)
 
     assert _taste(conn, "ann", user_id)["personal"] is True
+
+
+def _counting(monkeypatch, module, name):
+    calls = []
+    real = getattr(module, name)
+
+    def counted(*args, **kwargs):
+        calls.append(name)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module, name, counted)
+    return calls
+
+
+def test_a_second_load_with_nothing_new_reads_neither_the_plays_nor_the_whole_library(
+    conn, lib, monkeypatch
+):
+    user_id, played, rated = _person(conn, "ann")
+    for tmdb_id in (1, 2, 3, 4):
+        lib(tmdb_id, ["comedy"])
+    for tmdb_id in (1, 2, 3):
+        played(tmdb_id, 1)
+    first = _taste(conn, "ann", user_id)
+    reads = _counting(monkeypatch, taste_mod, "person_plays")
+    reads += _counting(monkeypatch, _title_meta, "_all_there")
+    reads += _counting(monkeypatch, _title_meta, "_build")
+    # Long past the minute the library's lists are held for.
+    monkeypatch.setattr(_title_meta, "_clock", lambda: 1e12)
+
+    assert _taste(conn, "ann", user_id) == first
+    assert reads == []
+
+
+def test_a_saved_position_alone_does_not_read_the_plays_again_but_a_new_credit_does(
+    conn, lib, monkeypatch
+):
+    user_id, played, _ = _person(conn, "ann")
+    for tmdb_id in (1, 2, 3, 4, 5):
+        lib(tmdb_id, ["comedy"])
+    for tmdb_id in (1, 2, 3):
+        played(tmdb_id, 1)
+
+    def save(key, minute, played_s):
+        save_progress(
+            conn, username="ann", rating_key=key, media_item_id=key, show_rating_key=None,
+            position_s=60.0 * minute, duration_s=6000.0, played_s=played_s,
+            now=NOW + timedelta(minutes=minute),
+        )  # fmt: skip
+
+    save("4", 10, 600.0)
+    save("5", 10, 0.0)
+    _taste(conn, "ann", user_id)
+    reads = _counting(monkeypatch, taste_mod, "person_plays")
+
+    save("4", 11, 660.0)
+    save("5", 11, 60.0)
+    _taste(conn, "ann", user_id)
+    assert reads == []
+
+    save("5", 12, 360.0)
+    _taste(conn, "ann", user_id)
+    assert reads == ["person_plays"]
+
+
+@pytest.mark.parametrize("change", ["play", "rating"])
+def test_a_new_play_or_rating_is_read_at_the_next_load(conn, lib, change):
+    user_id, played, rated = _person(conn, "ann")
+    for tmdb_id in (1, 2, 3, 4, 5, 6):
+        lib(tmdb_id, ["comedy"] if tmdb_id <= 3 else ["horror"])
+    for tmdb_id in (1, 2, 3, 4):
+        played(tmdb_id, 1)
+    assert _taste(conn, "ann", user_id)["order"][:2] == ["comedy", "horror"]
+
+    if change == "play":
+        played(5, 0)
+        played(6, 0)
+    else:
+        rated(4, 2)
+
+    assert _taste(conn, "ann", user_id)["order"][0] == "horror"
+
+
+def test_what_is_held_for_one_person_is_never_given_to_another(conn, lib):
+    ann, ann_played, _ = _person(conn, "ann")
+    bob, bob_played, _ = _person(conn, "bob")
+    for tmdb_id in (1, 2, 3, 4, 5, 6):
+        lib(tmdb_id, ["comedy"] if tmdb_id <= 3 else ["romance"])
+    # The same days for both, so nothing of what each has done tells them apart.
+    for days, (a, b) in enumerate(((1, 4), (2, 5), (3, 6))):
+        ann_played(a, days)
+        bob_played(b, days)
+
+    assert _taste(conn, "ann", ann)["order"][0] == "comedy"
+    assert _taste(conn, "bob", bob)["order"][0] == "romance"
+
+
+@pytest.mark.parametrize(("days_ago", "personal"), [(800, False), (700, True)])
+def test_a_play_over_two_years_old_is_not_counted(conn, lib, days_ago, personal):
+    user_id, played, _rated = _person(conn, "ann")
+    for tmdb_id in (1, 2, 3):
+        lib(tmdb_id, ["drama"])
+    played(1, 0)
+    played(2, 0)
+    played(3, days_ago)
+
+    assert _taste(conn, "ann", user_id)["personal"] is personal
+
+
+def test_more_like_is_the_title_liked_most_lately_not_one_rated_higher_long_ago(conn, lib):
+    user_id, played, _rated = _person(conn, "ann")
+    for tmdb_id in (1, 2, 3, 4, 5):
+        lib(tmdb_id, ["drama"])
+        played(tmdb_id, 400)
+    played(6, 0)
+    lib(6, ["drama"])
+    for tmdb_id, level, days in ((4, 2, 365), (5, 1, 0)):
+        conn.execute(
+            "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, title, updated_at)"
+            " VALUES (?, 'movie', ?, ?, ?, ?)",
+            (user_id, tmdb_id, level, f"Film {tmdb_id}", (NOW - timedelta(days=days)).isoformat()),
+        )
+    conn.commit()
+
+    assert _taste(conn, "ann", user_id)["like"]["ref"] == "tmdb-movie-5"

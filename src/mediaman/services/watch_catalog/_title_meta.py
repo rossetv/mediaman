@@ -356,8 +356,10 @@ def clear_held() -> None:
         _generation += 1
 
 
-def _current(conn: sqlite3.Connection) -> _Library:
-    """What is read of the table, held a while: parsing it takes too long for each request."""
+def _current(conn: sqlite3.Connection, *, checked: bool = True) -> _Library:
+    """What is read of the table, held a while: parsing it takes too long for each request.
+    Not *checked*, what is held is taken however old, and without looking for titles deleted
+    since it was read."""
     row = conn.execute("SELECT value FROM settings WHERE key = 'plex_libraries'").fetchone()
     key = (
         str(conn.execute("PRAGMA database_list").fetchone()[2]),
@@ -367,7 +369,7 @@ def _current(conn: sqlite3.Connection) -> _Library:
         with _lock:
             held = _library.get(key)
             generation = _generation
-        if held is not None and held[0] > _clock() and _all_there(conn, held[1]):
+        if held is not None and (not checked or (held[0] > _clock() and _all_there(conn, held[1]))):
             return held[1]
         built = _build(conn)
         with _lock:
@@ -473,8 +475,10 @@ class _Library:
 
 
 def library_known(conn: sqlite3.Connection) -> dict[tuple[str, int], tuple[list[str], list[Any]]]:
-    """The genres and cast of each title the library holds, by (kind, TMDB id)."""
-    return _current(conn).known
+    """The genres and cast of each title the library holds, by (kind, TMDB id). Read at each
+    Watch page, so what is held serves until a change to the library clears it: a title deleted
+    without one counts for little in what someone watches."""
+    return _current(conn, checked=False).known
 
 
 def library_people(conn: sqlite3.Connection) -> LibraryPeople:

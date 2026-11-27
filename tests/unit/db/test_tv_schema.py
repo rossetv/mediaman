@@ -108,3 +108,13 @@ def test_a_shared_tv_passes_to_the_others_where_one_persons_pairing_ends(paired,
         "SELECT u.username FROM tvs JOIN admin_users u ON u.id = tvs.owner_id WHERE tvs.name = 'amy'"
     ).fetchone()
     assert (tuple(owner), _people(paired)) == (("bob",), [("amy", "bob"), ("bob", "bob")])
+
+
+def test_a_tv_an_older_image_hands_to_another_is_theirs_alone(paired):
+    paired.execute(
+        "UPDATE tvs SET owner_id = (SELECT id FROM admin_users WHERE username = 'bob'),"
+        " token_hash = 'taken' WHERE name = 'amy'"
+    )
+    assert _people(paired) == [("amy", "bob"), ("bob", "bob")]
+    paired.execute("UPDATE admin_users SET password_hash = 'other' WHERE username = 'bob'")
+    assert _names(paired) == ["old"]

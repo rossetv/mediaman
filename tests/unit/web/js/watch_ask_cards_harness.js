@@ -134,13 +134,25 @@ const scenarios = {
     const p = load();
     await p.start();
     await p.poll({ status: 'done', owned: [
-      card(1, true, { reason: 'Because you liked Nine Locks: the same dry humour.' }),
+      card(1, true, { reason: 'Because you liked Nine Locks: the same dry humour.', reason_lead: 'Because you liked Nine Locks' }),
       card(2, true, { reason: '<img src=x onerror=alert(1)>' }),
-      card(3, true, { reason: 'Because you watched Orchard: <b>sharp</b> and warm.' }),
+      card(3, true, { reason: 'Because you watched Orchard: <b>sharp</b> and warm.', reason_lead: 'Because you watched Orchard' }),
       card(4, true, { reason: '' }),
     ], others: [], chips: [], instead: [], lead: 'owned' });
     const imgs = p.doc.querySelectorAll('.ask .watch-card__why img').length;
     return { whys: p.whys(), imgs };
+  },
+  // The lead the server names is bolded whole, whatever it holds; without one the reason is plain.
+  async leads() {
+    const p = load();
+    await p.start();
+    await p.poll({ status: 'done', owned: [
+      card(1, true, { reason: 'Because you liked Star Wars: Episode IV: a space saga.', reason_lead: 'Because you liked Star Wars: Episode IV' }),
+      card(2, true, { reason: 'Because you liked Nine Locks: the same dry humour.', reason_lead: null }),
+      card(3, true, { reason: 'Because you liked Nine Locks: the same dry humour.' }),
+      card(4, true, { reason: 'A heist done right.', reason_lead: 'Because you liked Nine Locks' }),
+    ], others: [], chips: [], instead: [], lead: 'owned' });
+    return { whys: p.whys() };
   },
   async leadOwned() {
     const p = load();
