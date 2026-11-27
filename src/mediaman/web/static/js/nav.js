@@ -217,6 +217,8 @@
   // Capture, so the page's own shortcuts do not act on a key the menu took.
   document.addEventListener('keydown', function (e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // An Escape a layer over the menu has already taken is that layer's alone.
+    if (e.key === 'Escape' && e.defaultPrevented) return;
     if (!isOpen()) {
       var button = buttonOf(e.target);
       if (!button || pane || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
