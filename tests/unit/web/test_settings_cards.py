@@ -199,3 +199,13 @@ def test_a_fold_does_not_ease_its_border_width() -> None:
 def test_remove_and_delete_keep_a_border_in_forced_colours() -> None:
     blocks = re.findall(r"@media \(forced-colors: active\) \{(.*?)\n\}", PANELS, re.S)
     assert any(re.search(r"\.setg-pg \.link-danger \{[^}]*border: 1px solid", b) for b in blocks)
+
+
+def test_the_list_says_how_a_service_stands_in_a_word_and_its_card_says_all_of_it() -> None:
+    out = _cards("answers")
+    long = "The service refused the request: check the API key and the address."
+    assert out["err"] == ["Not answering", long]
+    assert out["warn"] == ["Rate limited", "Rate limited"]
+    assert out["ok"] == ["Connected", "Connected"]
+    assert out["off"] == ["Not set up", "Not configured"]
+    assert out["testing"] == ["Testing…", "Testing…"]

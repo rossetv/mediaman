@@ -421,6 +421,8 @@
 /* Little height: the tools go with the list. */
 @media (max-height: 500px) and (min-width: 700px) {
   .hx-tools { position: relative; top: auto; }
+  /* A second line of kinds would take a fifth of the height: they scroll sideways, as on a phone. */
+  .hx-groups { flex-wrap: nowrap; }
   .you-view[data-view="history"] { scroll-padding-top: 0; }
 }
 

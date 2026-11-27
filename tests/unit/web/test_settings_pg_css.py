@@ -227,13 +227,11 @@ def test_no_rule_is_keyed_to_the_full_page_classes_nothing_sets_any_more() -> No
 
 def test_toasts_stand_above_the_save_bar_while_it_shows_in_the_open_pane() -> None:
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_ui_feedback.css").read_text(), flags=re.S)
-    lifted = re.findall(
-        r"html:has\(\.you\.is-open \.you-view\.is-on \.stx-save\.on\) \.ui-toast-host \{([^{}]*)\}",
-        css,
-    )
+    # savebar.js marks the page while the bar is on show in the open pane, with the bar's height
+    lifted = re.findall(r"html\[data-save-bar\] \.ui-toast-host \{([^{}]*)\}", css)
     # on a wide screen the stack's foot moves up; on a phone, where it stands at the foot, too
-    assert any("--toast-bottom" in body for body in lifted)
-    assert any(re.search(r"\bbottom: calc\(\d+px", body) for body in lifted)
+    assert any("--toast-bottom: calc(var(--save-bar) +" in body for body in lifted)
+    assert any(re.search(r"(?<!-)\bbottom: calc\(var\(--save-bar\) \+", body) for body in lifted)
 
 
 def test_reduced_motion_fades_the_list_and_section_at_the_short_duration_over_the_page_rule() -> (
@@ -385,3 +383,42 @@ def test_the_share_link_field_and_the_years_select_are_16px_where_touch_would_zo
             + r" \{[^{}]*font-size: 16px"
         )
         assert re.search(pattern, css), sheet
+
+
+def _phone_rule(selector: str) -> str:
+    start = PANELS.rindex("@media (max-width: 520px)")
+    return _declarations(selector, PANELS[start : PANELS.index("\n}\n", start)])
+
+
+def test_on_a_phone_a_subscriber_row_keeps_its_state_under_the_address_and_remove_beside_both() -> (
+    None
+):
+    row = _phone_rule(".setg-pg .sub-row")
+    assert "display: grid" in row
+    areas = re.search(r"grid-template-areas:\s*\"(.+?)\"\s*\"(.+?)\"", row)
+    assert areas, row
+    top, under = areas.group(1).split(), areas.group(2).split()
+    # the address over the state, and Remove one cell spanning both lines on the right
+    assert top[1] == "em" and under[1] == "st"
+    assert top[-1] == under[-1] == "rm"
+    assert "grid-area: rm" in _phone_rule(".setg-pg .sub-row .link-danger")
+    assert "grid-area: st" in _phone_rule(".setg-pg .sub-row .sub-stat")
+
+
+def test_a_closed_service_shows_its_short_state_and_an_open_one_the_whole_answer() -> None:
+    assert "display: none" in _declarations(
+        ".setg-pg .intg-card.is-collapsed .conn [data-conn-label]"
+    )
+    assert "display: none" in _declarations(
+        ".setg-pg .intg-card:not(.is-collapsed) .conn [data-conn-short]"
+    )
+
+
+def test_on_reduced_motion_a_section_arriving_beside_the_list_fades_in_150ms() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    calm = "".join(re.findall(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", css, re.S))
+    arriving = _declarations(".stx-sec.is-arriving", calm)
+    name = re.search(r"animation-name: ([\w-]+)", arriving)
+    assert name and "animation-duration: var(--dur-fast) !important" in arriving, arriving
+    frames = re.search(r"@keyframes " + name.group(1) + r" \{([^}]*)\}", css)
+    assert frames and re.fullmatch(r"\s*from \{ opacity: 0;?\s*", frames.group(1) + " "), frames

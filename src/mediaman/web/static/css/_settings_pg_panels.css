@@ -146,6 +146,9 @@
 .setg-pg .intg-card-hd .conn .conn-dot { display: none; }
 .setg-pg .intg-card-hd .conn [data-conn-label] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .setg-pg .intg-card:not(.is-collapsed) .intg-card-hd .conn [data-conn-label] { white-space: normal; }
+/* The list says how a service stands in a word; its card, once open, says all of it. */
+.setg-pg .intg-card.is-collapsed .conn [data-conn-label],
+.setg-pg .intg-card:not(.is-collapsed) .conn [data-conn-short] { display: none; }
 .setg-pg .intg-card-hd .conn.ok { color: var(--success); background: var(--rgba-success-bg); }
 .setg-pg .intg-card-hd .conn.warn { color: var(--warning); background: var(--rgba-warning-bg); }
 .setg-pg .intg-card-hd .conn.err { color: var(--danger-text); background: var(--rgba-danger-bg); }
@@ -478,15 +481,20 @@
 }
 
 @media (max-width: 520px) {
-  .setg-pg .sub-row { flex-wrap: wrap; gap: 8px 10px; padding: 12px 10px; }
-  .setg-pg .sub-row .em { flex-basis: calc(100% - 40px); }
-  .setg-pg .sub-row .sub-stat { margin-left: 40px; }
-  .setg-pg .sub-row .link-danger { margin-left: auto; }
+  /* The address over its state, and Remove beside both. */
+  .setg-pg .sub-row {
+    display: grid; grid-template-columns: 30px minmax(0, 1fr) auto;
+    grid-template-areas: "av em rm" "av st rm"; gap: 4px 10px; padding: 10px 6px 10px 12px;
+  }
+  .setg-pg .sub-row .av { grid-area: av; align-self: center; }
+  .setg-pg .sub-row .em { grid-area: em; }
+  .setg-pg .sub-row .sub-stat { grid-area: st; justify-self: start; }
+  .setg-pg .sub-row .link-danger { grid-area: rm; align-self: center; }
   .setg-pg .intg-card-hd { padding: 16px 18px; }
 }
 
 @media (max-width: 359.98px) {
-  /* "Unsubscribed" gives up its indent, so Remove stays on its line. */
+  /* "Unsubscribed" takes no indent, so Remove stays on its line. */
   .setg-pg .sub-row .sub-stat { margin-left: 0; }
 }
 

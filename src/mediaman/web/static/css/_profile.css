@@ -42,7 +42,7 @@ button.yo-row:hover { background: var(--s3); }
 .yo-tile:active { transform: scale(.98); }
 .yo-tile__ico { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; font-size: 16px; color: #fff; background: var(--tone); }
 .yo-tile__name { font-size: 16px; font-weight: 600; }
-.yo-tile__sub { grid-column: 1 / -1; align-self: start; font-size: 12.5px; line-height: 1.35; color: var(--t3); }
+.yo-tile__sub { grid-column: 1 / -1; align-self: start; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.35; color: var(--t3); }
 .yo-tile__sub.is-bad { color: var(--danger-text); }
 .yo-out { margin-top: 24px; }
 .yo-out__btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 50px; border-radius: 14px; font-size: 15px; font-weight: 500; color: var(--danger-text); background: var(--s2); transition: background-color var(--dur-fast) var(--ease-out); }

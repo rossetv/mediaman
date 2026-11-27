@@ -106,3 +106,9 @@ def test_each_pane_view_ends_with_room_under_its_last_card_and_the_home_indicato
     assert "padding" not in "".join(
         re.findall(r'\.you-view\[data-view="profile"\][^{]*\{([^}]*)\}', _css("_profile.css"))
     )
+
+
+def test_a_hub_tiles_line_stops_at_two_lines_with_an_ellipsis() -> None:
+    sub = _body("_profile.css", ".yo-tile__sub")
+    assert "-webkit-line-clamp: 2" in sub and "overflow: hidden" in sub
+    assert "display: -webkit-box" in sub and "-webkit-box-orient: vertical" in sub

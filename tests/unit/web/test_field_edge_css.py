@@ -212,3 +212,8 @@ def test_a_phone_s_three_across_titles_are_wide_enough_for_cartographer_s() -> N
 
 def _token_sheet() -> str:
     return (CSS / "_tokens.css").read_text(encoding="utf-8")
+
+
+def test_on_a_low_wide_pane_historys_kinds_stay_on_one_line_and_scroll_sideways() -> None:
+    low = "(max-height: 500px) and (min-width: 700px)"
+    assert "flex-wrap: nowrap" in _of(".hx-groups", "_history.css", low)

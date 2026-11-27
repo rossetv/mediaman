@@ -41,6 +41,9 @@
     { service: 'omdb',    fields: ['omdb_api_key'] },
   ];
 
+  /* How a service stands, in a word, on the list; its open card says the whole answer. */
+  var SHORT = { ok: 'Connected', err: 'Not answering', warn: 'Rate limited', off: 'Not set up' };
+
   /* The newest check of each service: an older one answers for settings since replaced. */
   var newest = {};
   function begin(service) {
@@ -305,6 +308,8 @@
         el.classList.add(tone);
         var lbl = el.querySelector('[data-conn-label]');
         if (lbl) lbl.textContent = label;
+        var short = el.querySelector('[data-conn-short]');
+        if (short) short.textContent = SHORT[tone] || label;
       });
       document.querySelectorAll('[data-ov-service="' + service + '"]').forEach(function (el) {
         var dot = el.querySelector('.conn-dot');

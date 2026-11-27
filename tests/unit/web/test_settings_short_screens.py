@@ -23,6 +23,11 @@ def test_reduced_motion_moves_nothing_in_the_pane_and_fades_at_the_short_duratio
     ]
     pane = next(b for b in blocks if ".stx__nav" in b)
     assert "transform: none" in pane and "var(--dur-fast)" in pane
-    assert ".stx-sec.is-arriving { animation: none; }" in pane
+    # a section arriving beside the list fades, and does not rise
+    assert (
+        ".stx-sec.is-arriving { animation-name: stx-sec-fade; animation-duration: var(--dur-fast) !important; }"
+        in pane
+    )
+    assert "@keyframes stx-sec-fade { from { opacity: 0; } }" in pane
     bar = next(b for b in blocks if ".stx-save" in b)
     assert "var(--dur-fast)" in bar
