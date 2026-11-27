@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
+
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "history_harness.js"
 
 
 def _run(scenario: str):
-    result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
-    )
+    result = run_node(HARNESS, scenario)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 

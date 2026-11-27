@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from pathlib import Path
+
+from tests.helpers.node_batch import run_node
 
 WEB = Path(__file__).parents[3] / "src" / "mediaman" / "web"
 HARNESS = Path(__file__).parent / "js" / "account_harness.js"
 
 
 def _run(scenario: str) -> dict:
-    result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False, timeout=60
-    )
+    result = run_node(HARNESS, scenario, timeout=60)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 

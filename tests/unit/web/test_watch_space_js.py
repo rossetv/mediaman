@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from functools import cache
 from pathlib import Path
 
 import pytest
+
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "watch_space_harness.js"
 JS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/js"
@@ -18,9 +19,7 @@ ALL = "all"
 
 @cache
 def _run(scenario: str):
-    result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
-    )
+    result = run_node(HARNESS, scenario)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 

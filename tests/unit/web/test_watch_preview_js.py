@@ -5,17 +5,16 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from pathlib import Path
+
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "watch_preview_harness.js"
 CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_preview.css"
 
 
 def _run(scenario: str):
-    result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
-    )
+    result = run_node(HARNESS, scenario)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
