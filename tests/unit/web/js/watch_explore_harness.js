@@ -10,13 +10,14 @@ const { makeDocument, settle } = require('./fake_dom');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-function load(data) {
+/* *frames*: where the frames asked for wait to be run, or none to run them at once. */
+function load(data, frames) {
   const doc = makeDocument();
   const replies = {};
   const lists = [];
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Number, Math, Promise, Set, Map, URLSearchParams,
-    setTimeout: () => 0, clearTimeout: () => {}, requestAnimationFrame: (fn) => fn(),
+    setTimeout: () => 0, clearTimeout: () => {}, requestAnimationFrame: (fn) => (frames ? frames.push(fn) : fn()),
     matchMedia: () => ({ matches: true }), getComputedStyle: () => ({ getPropertyValue: () => '' }),
     location: { search: '' },
     addEventListener: () => {},
@@ -85,6 +86,46 @@ const scenarios = {
     return { flying, landed: { facts: facts(), cards } };
   },
 };
+
+Object.assign(scenarios, {
+  // Thirty titles come a frame apart, twelve at a time, not all in the frame the photo lands in.
+  async batches() {
+    const frames = [];
+    const p = load({ can_download: { movie: true, show: true } }, frames);
+    p.replies['/api/watch/person/9001'] = { tmdb_configured: true, person: { person_id: 9001, name: 'Mara Ellison', job: 'Actor' },
+      items: Array.from({ length: 30 }, (_, n) => TITLE(n, n < 5)), total: 30, in_library: 5, next_page: null };
+    p.ctx.MMWatch.explore.openPerson({ person_id: 9001, name: 'Mara Ellison' }, null);
+    const sizes = [];
+    let next = 1;
+    while (next !== null) {
+      let page = null;
+      p.lists[0].fetchPage(next).then((got) => { page = got; });
+      await settle();
+      const early = page !== null;
+      frames.splice(0).forEach((fn) => fn(0));
+      await settle();
+      sizes.push([page.cards.length, early]);
+      next = page.next;
+    }
+    return sizes;
+  },
+
+  // What stands below the heading is not drawn while the photo flies.
+  async keptBack() {
+    const p = load({ can_download: { movie: true, show: true } });
+    p.replies['/api/watch/person/9001'] = { tmdb_configured: true, person: { person_id: 9001, name: 'Mara Ellison', job: 'Actor' },
+      items: [TITLE(1, true)], total: 1, in_library: 1, next_page: null, known_for: [TITLE(2, false)] };
+    let land;
+    p.ctx.MMWatch.explore.openPerson({ person_id: 9001, name: 'Mara Ellison' }, null, new Promise((ok) => { land = ok; }));
+    const node = p.opened[0].node;
+    const look = () => ({ known: node.querySelector('.explore-known').hidden, grid: node.querySelector('.explore-grid').hidden });
+    await settle();
+    const flying = look();
+    land();
+    await settle();
+    return { flying, landed: look() };
+  },
+});
 
 const name = process.argv[2];
 if (!scenarios[name]) { console.error('unknown scenario ' + name); process.exit(2); }

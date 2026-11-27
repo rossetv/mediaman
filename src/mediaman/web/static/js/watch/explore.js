@@ -26,6 +26,7 @@
   var TOO_MANY = 'Too many requests, trying again shortly.';
   var TOO_MANY_STILL = 'Too many requests. Try again in a while.';
   var WAITS_MS = [5000, 10000, 20000, 40000, 60000];
+  var BATCH = 12; // a person's titles put in at a time, a frame apart, so a landing photo keeps its frames
   var SVG = 'http://www.w3.org/2000/svg';
 
   /* Lines on a 24 by 24 square, by category. */
@@ -661,7 +662,7 @@
 
   /* What is said of a person on page *f*, its room held until it is known. What
      stands below slides when that room changes. */
-  function aboutPerson(f) {
+  function aboutPerson(f, landed) {
     var years = el('p', 'explore-born');
     var story = el('div', 'explore-story');
     var bio = el('p', 'explore-bio');
@@ -693,6 +694,17 @@
     if (watch.rows) watch.rows.init(viewport);
     more.classList.add('is-unknown');
     known.setAttribute('aria-hidden', 'true');
+    // Until the photo lands, what stands below the heading is not drawn.
+    var away = !!landed;
+    if (away) {
+      known.hidden = true;
+      f.host.hidden = true;
+      landed.then(function () {
+        away = false;
+        f.host.hidden = false;
+        known.hidden = !posters.children.length;
+      });
+    }
 
     var gliding = [];
 
@@ -766,7 +778,7 @@
           story.hidden = !p.biography;
           posters.textContent = '';
           ((of && of.known_for) || []).slice(0, 4).forEach(function (t) { posters.appendChild(knownCard(t)); });
-          known.hidden = !posters.children.length;
+          known.hidden = away || !posters.children.length;
           known.removeAttribute('aria-hidden');
           f.head.classList.add('is-told');
           fit();
@@ -776,7 +788,8 @@
   }
 
   /* *landed*: a promise of the photo's flight to the page; until it lands, the rows under the bar
-     go without their fade and what is said of them waits, so as not to cost the flight its frames. */
+     go without their fade and what is said of them, and below them, waits, so as not to cost the
+     flight its frames. */
   function showPerson(who, from, landed) {
     drop();
     var f = frame();
@@ -793,16 +806,18 @@
     f.facts.textContent = who.job || '';
     f.node.classList.toggle('is-unknown', !who.name);
     f.node.appendChild(f.host);
-    var about = aboutPerson(f);
+    var about = aboutPerson(f, landed);
 
     function learn(reply) {
       if (reply.tmdb_configured === false || !reply.person) { about.draw(null); mine.list.stop(); notSetUp(f); return; }
       var p = reply.person;
       var more = Math.max(0, reply.total - reply.in_library);
       about.draw(persons.get(id), function () {
+        var was = f.facts.textContent;
         f.node.classList.remove('is-unknown');
         f.title.textContent = p.name;
         f.facts.textContent = [p.job, reply.total && reply.in_library + ' in your library, ' + more + ' more'].filter(Boolean).join(' · ');
+        if (f.facts.textContent !== was) fadeIn(f.facts);
       });
       sharpen(p.photo_url || p.profile_url);
       if (!who.name) {
@@ -810,6 +825,13 @@
         name(p.name);
       }
       say.page(p.name + ', ' + plural(reply.total));
+    }
+
+    function fadeIn(node) {
+      if (!node.animate) return;
+      var still = core.reduceMotion();
+      node.animate([{ opacity: 0, transform: still ? 'none' : 'translateY(4px)' }, { opacity: 1, transform: 'none' }],
+        { duration: core.tokenMs('--dur', 250), easing: still ? 'linear' : core.token('--ease-out', 'ease-out') });
     }
 
     /* Who it is, said where the outline of a person stood. */
@@ -845,8 +867,12 @@
     }
 
     /* One page, or the next that has something new. What the library holds comes
-       first; a title of it found later stands where it comes, with its badge. */
+       first; a title of it found later stands where it comes, with its badge. A page
+       is given BATCH cards at a time, the rest a frame later as if a page of their own. */
     function fetchPage(page) {
+      if (page && page.rest) {
+        return new Promise(function (go) { window.requestAnimationFrame(go); }).then(function () { return batch(page.rest, page.next); });
+      }
       say.next();
       var asked = page === 1 && !!early; // the page asked for at once, whose answer is already told
       var got = asked ? early : personPage(id, page);
@@ -865,14 +891,20 @@
           var held = owned && !heads.tmdb;
           if (held) cards = cards.concat(head('lib', 'In your library', reply.in_library));
           else if (!owned) cards = cards.concat(head('tmdb', notHeld(), reply.total - reply.in_library));
-          cards.push(watch.search.tmdbCard(item, held));
+          cards.push(function () { return watch.search.tmdbCard(item, held); });
         });
         var next = reply.next_page || null;
-        return cards.length || !next ? { cards: cards, next: next } : fetchPage(next);
+        return cards.length || !next ? batch(cards, next) : fetchPage(next);
       }, function (err) {
         if (open === mine && page === 1 && !(asked && earlyFailed)) failed(err);
         throw err;
       });
+    }
+
+    /* *made*: heads, and cards still to be made. */
+    function batch(made, next) {
+      var now = made.slice(0, BATCH).map(function (c) { return typeof c === 'function' ? c() : c; });
+      return made.length > BATCH ? { cards: now, next: { rest: made.slice(BATCH), next: next } } : { cards: now, next: next };
     }
 
     /* The first page could not be had: nothing more is said of them. */

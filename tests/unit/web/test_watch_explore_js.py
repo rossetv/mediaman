@@ -31,3 +31,15 @@ def test_a_person_opened_under_a_flying_photo_is_told_once_it_lands() -> None:
         "flying": {"facts": "", "cards": None, "atOnce": True},
         "landed": {"facts": "Actor · 1 in your library, 0 more", "cards": 2},
     }
+
+
+def test_a_persons_titles_come_twelve_at_a_time_a_frame_apart() -> None:
+    # 30 titles and 2 headings: the first page at once, each part after it a frame later.
+    assert _run("batches") == [[12, True], [12, False], [8, False]]
+
+
+def test_what_stands_below_a_person_waits_for_the_photo_to_land() -> None:
+    assert _run("keptBack") == {
+        "flying": {"known": True, "grid": True},
+        "landed": {"known": False, "grid": False},
+    }

@@ -676,9 +676,9 @@
 
   /* What moves on *nodes* is held where it starts until the next frame, and stands still through a
      slow frame after it instead of leaping over it: making and drawing the person's page can take
-     150 ms or more, which Safari counts as gone by. */
+     30 ms or more, which Safari counts as gone by. */
   var FRAME_MS = 1000 / 60;
-  var SLOW_MS = 50;
+  var SLOW_MS = 25;
   function steady(nodes) {
     var clock = document.timeline;
     if (!clock) return;
