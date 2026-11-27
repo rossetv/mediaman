@@ -305,7 +305,9 @@ def _ai_text(
         app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
         html = authed_client(app, conn, username="second").get("/account?pane=1").text
     fold = "account-history-more" if page == "profile" else "setg-ai-more"
-    short = re.search(r'id="(?:account-history|setg-ai)-sub">(.*?)</p>', html, re.S).group(1)
+    short = re.search(
+        r'id="(?:account-history|setg-ai)-sub">(.*?)</(?:p|small)>', html, re.S
+    ).group(1)
     body = html.split(f'id="{fold}"')[1].split("</details>")[0]
     parts = body.split('class="fold-more-head">')[1:]
     assert [p.split("</p>")[0].split()[0] for p in parts] == ["Always:", "Only", "Never:"]
@@ -331,31 +333,48 @@ def test_each_thing_openai_is_sent_is_said_in_the_right_part_beside_its_switch(
     assert said.count("Plex’s own apps") == 1
 
 
-# Each of the three sentences always in view beside a switch, by the words it must hold.
-_SHORT = {
-    "profile": [
-        ("titles you played or marked as watched", "Plex’s own apps", "linked"),
-        ("With this on", "searches", "ratings", "requests"),
-        ("never", "account name"),
-    ],
-    "settings": [
-        ("picks for each person", "new and popular", "your key"),
-        ("never", "account name"),
-        ("stops both kinds of picks", "still ask in search"),
-    ],
-}
+# Each of the three sentences always in view beside the settings switch, by the words it must hold.
+_SHORT = [
+    ("picks for each person", "new and popular", "your key"),
+    ("never", "account name"),
+    ("stops both kinds of picks", "still ask in search"),
+]
 
 
-@pytest.mark.parametrize("page", ["profile", "settings"])
-def test_the_three_sentences_beside_each_switch_say_the_most_of_it(
-    app_factory, authed_client, conn, settings_html, page
-):
-    short, _ = _ai_text(app_factory, authed_client, conn, settings_html, page)
+def test_the_three_sentences_beside_the_settings_switch_say_the_most_of_it(settings_html):
+    short, _ = _ai_text(None, None, None, settings_html, "settings")
 
     sentences = short.split(". ")
     assert len(sentences) == 3, sentences
-    for sentence, words in zip(sentences, _SHORT[page], strict=True):
+    for sentence, words in zip(sentences, _SHORT, strict=True):
         assert all(w in sentence for w in words), (sentence, words)
+
+
+# What the profile once said beside its rows, each by its part of the fold and words in one line.
+_PROFILE_SENT = [
+    ("always", "played", "marked as watched", "Plex’s own apps", "Plex account is linked"),
+    ("always", "pause typing", "Ask AI as I type is off", "only when you press Return"),
+    ("history", "searches", "ratings", "requests"),
+]
+
+
+def test_each_profile_ai_row_says_one_short_line_and_its_fold_holds_the_rest(
+    app_factory, authed_client, conn
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    html = authed_client(app, conn).get("/account?pane=1").text
+    ai = html.split('id="account-ai"')[1].split("</section>")[0]
+    _, lines = _ai_text(app_factory, authed_client, conn, None, "profile")
+
+    for sub in ("account-history-sub", "account-auto-sub", "account-clear-sub"):
+        line = re.search(rf'id="{sub}">(.*?)<', ai).group(1)
+        assert line.count(".") == 1 and len(line.split()) <= 6, line
+    assert "only to you" in re.search(r'id="account-clear-sub">(.*?)<', ai).group(1)
+    for part, *words in _PROFILE_SENT:
+        assert any(all(w in line for w in words) for line in lines[part]), (part, words)
+    fold = ai.split('id="account-history-more"')[1].split("</details>")[0]
+    note = re.search(r'id="account-clear-note">(.*?)<', fold).group(1)
+    assert all(w in note for w in ("Clearing recent searches", "phrases", "answers", "AI"))
 
 
 def test_the_settings_switch_is_described_by_its_sentences(settings_html):
