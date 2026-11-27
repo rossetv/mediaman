@@ -111,13 +111,14 @@ def test_text_stays_readable_and_phone_inputs_do_not_trigger_zoom():
     card = _over(style(".login-card", "_login.css")["background"], _colour("var(--bg)"))
     assert contrast(_over(note, card), card) >= 4.5
     assert "color" not in style(".share-note .share-note__small", "_share.css")
-    # under 16px, iOS zooms the page when a field is focused
-    for selector, sheet, phone in (
+    # under 16px, iOS zooms the page when a field is focused, on a narrow screen or a wide touch one
+    for selector, sheet, narrow in (
         (".inp", "_forms.css", "(max-width: 639.98px)"),
         (".setg-pg .inp", "_settings_pg.css", "(max-width: 639.98px)"),
-        (".login-field input", "_login.css", "(pointer: coarse)"),
+        (".login-field input", "_login.css", "(max-width: 640px)"),
     ):
-        assert px(style(selector, sheet, phone)["font-size"]) >= 16, selector
+        for phone in (narrow, "(pointer: coarse)"):
+            assert px(style(selector, sheet, phone)["font-size"]) >= 16, (selector, phone)
 
 
 _UNSUB_PAGES = (

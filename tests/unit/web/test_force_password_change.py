@@ -42,6 +42,15 @@ class TestForceChange:
         data = {"old_password": old, "new_password": new, "confirm_password": new}
         return client.post("/force-password-change", data=data, follow_redirects=False)
 
+    def test_past_the_allowed_attempts_it_refuses_even_the_right_password(self, client):
+        # an empty form counts as an attempt and sets off no lock on the account
+        for _ in range(5):
+            answer = client.post("/force-password-change", data={}).json()
+            assert answer["field"] == "old_password"
+        refused = self._post(client, old="password1234")
+        assert refused.status_code == 200
+        assert refused.json()["error"].startswith("Too many attempts")
+
     def test_signed_out_it_leads_to_sign_in(self, app_factory, conn, templates_stub):
         app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
         resp = TestClient(app).get("/force-password-change", follow_redirects=False)
