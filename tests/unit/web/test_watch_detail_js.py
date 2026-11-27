@@ -857,7 +857,7 @@ def test_a_pick_is_downloaded_whole_or_by_its_picked_seasons() -> None:
     assert out["withComing"]["body"] is None
 
 
-def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
+def test_a_show_sonarr_tracks_or_fully_held_offers_no_download_and_a_held_one_says_all_seasons_are_ready() -> None:
     out = _run("tvBlocked")
     assert out["tracked"] == {
         "primary": {
@@ -867,7 +867,7 @@ def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
         },
         "button": False,
     }
-    assert out["all"]["primary"]["text"] == "All seasons in library"
+    assert out["all"]["primary"]["text"] == "All seasons ready to watch"
     assert out["all"]["button"] is False
 
 

@@ -490,7 +490,7 @@
 .watch-badge__least::after { content: attr(data-words); }
 .watch-badge__least::after { display: inline-block; }
 .watch-badge__long + .watch-badge__short { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-/* Already watched: an eye and the word, never the tick that says In library. Under another badge, which can be as wide as the poster. */
+/* Already watched: an eye and the word, never the tick that says Ready to watch. Under another badge, which can be as wide as the poster. */
 .watch-badge--watched,
 .watch-badge--unwatched {
   right: 8px;

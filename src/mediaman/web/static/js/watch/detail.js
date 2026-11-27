@@ -2079,7 +2079,7 @@
       return;
     }
     if (tv && allHeld(d)) {
-      actions.appendChild(statePill('dl-state--done', 'All seasons in library', 'i-circle-check'));
+      actions.appendChild(statePill('dl-state--done', 'All seasons ready to watch', 'i-circle-check'));
       return;
     }
     if (d.download.answered === false && !cur.arrQuiet) {

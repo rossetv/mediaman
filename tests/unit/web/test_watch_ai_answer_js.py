@@ -96,12 +96,12 @@ def test_the_ai_s_outlines_stand_under_its_own_heading_and_its_picks_land_there(
     assert out["sameHead"] is True
 
 
-def test_late_library_picks_are_library_cards_and_the_group_says_its_mix() -> None:
+def test_late_library_picks_are_library_cards_and_the_group_says_how_many_are_ready_to_watch() -> None:
     out = _run("lateGroup")
     leaving, held = out["cards"]
     assert leaving["keep"] == 1 and "watch-badge--leaving" in leaving["badges"]
     assert held["badges"] == ["watch-badge--in"]
-    assert out["note"] == "2 in your library, 1 to download"
+    assert out["note"] == "2 ready to watch, 1 to download"
 
 
 def test_picks_landing_below_the_screen_are_pointed_to_and_scrolled_to_only_when_pressed() -> None:
