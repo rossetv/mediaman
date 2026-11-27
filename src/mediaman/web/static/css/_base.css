@@ -172,6 +172,15 @@ main:focus { outline: none; }
 }
 @keyframes loading-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
+/* Signing in and out keep a 150 ms fade under reduced motion, where the rule above would make
+   them a cut: Watch fades in from the sign-in page's lights (watch/arrive.js), and fades out on
+   log-out (nav.js). Nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  html.is-arriving :is(#main-content, header.nav-glass) { animation: mm-fade-in var(--dur-fast) linear backwards !important; }
+  html.is-arriving .mm-sky { animation: mm-sky-out var(--dur-fast) linear both !important; }
+  html.is-leaving body { animation: mm-out var(--dur-fast) linear both !important; }
+}
+
 .container {
   max-width: 1320px;
   margin: 0 auto;

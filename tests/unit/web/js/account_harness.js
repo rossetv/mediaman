@@ -852,18 +852,22 @@ const scenarios = {
     out.removed = await save('');
     return out;
   },
-  // Log out is asked first, and only a yes sends the form
+  // Log out is asked first, and only a yes sends the form: by nav.js's log-out, which folds the pane away
   async logout() {
     const run = async (yes) => {
       const p = page({ get: () => Promise.resolve({ sessions: [] }) }, { yes });
       await settle();
+      const pane = p.doc.body.appendChild(build(p.doc, ['div', { class: 'you__panel', id: 'pane' }]));
+      pane.appendChild(p.root);
       const form = p.$('account-logout');
       let sent = 0;
+      const folded = [];
       form.submit = () => { sent += 1; };
+      page.window.MM.logOut = (what, panel) => { if (what === form) sent += 1; folded.push(panel && panel.id); };
       let stopped = false;
       form.listeners.submit.forEach((fn) => fn({ preventDefault() { stopped = true; } }));
       await settle();
-      return { stopped, sent, asked: p.asked.map((a) => a.title) };
+      return { stopped, sent, folded, asked: p.asked.map((a) => a.title) };
     };
     return { no: await run(false), yes: await run(true) };
   },

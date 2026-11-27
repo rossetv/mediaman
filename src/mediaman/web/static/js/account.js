@@ -804,7 +804,7 @@
         body: 'You will need your password to come back.',
         confirmLabel: 'Log out',
         confirmVariant: 'danger',
-      }).then(function (yes) { if (yes) form.submit(); });
+      }).then(function (yes) { if (yes) window.MM.logOut(form, form.closest('.you__panel')); });
     });
   }
 

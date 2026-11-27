@@ -19,7 +19,7 @@ function page(isPhone, downloading, reduced, pane, stored, who = 'robin', storag
   doc.body.appendChild(build(doc, ['header', { id: 'top', class: 'nav-glass' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
     ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]],
-    ['div', { id: 'profile-menu-items' }, item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]]));
+    ['div', { id: 'profile-menu-items' }, item('account', 'a'), item('settings', 'a'), ['form', { id: 'out-form', action: '/api/auth/logout', method: 'post' }, item('logout', 'button')]]]]));
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x'],
     ['div', { class: 'dlg__head' }, ['a', { id: 'dl-back', href: '/' }, 'Back']]]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
@@ -173,7 +173,7 @@ const scenarios = {
     p.click('button'); p.fire('pointerdown', p.$('elsewhere')); after.press = p.open();
     p.click('button'); p.fire('focusin', p.$('elsewhere')); after.focus = p.open();
     p.click('button'); p.fire('pointerdown', p.$('panel')); after.inside = p.open();
-    p.win.listeners.pageshow(); after.back = p.open();
+    p.win.listeners.pageshow({ persisted: true }); after.back = p.open();
     p.click('button'); p.click('settings'); after.link = p.open();
     return after;
   },
@@ -457,6 +457,64 @@ const scenarios = {
     const at = (y) => { p.win.scrollY = y; p.win.listeners.scroll(); return p.$('top').classList.contains('is-scrolled'); };
     return { rest: p.$('top').classList.contains('is-scrolled'), down: at(300), nudged: at(3), back: at(0) };
   },
+  // Log out from the menu: the POST at once, the page leaving, and the sign-in page once both are done.
+  // *answer* is how the POST is answered: a fetch Response's fields, 'offline' or 'never'.
+  async logOut({ answer = { type: 'opaqueredirect', status: 0 }, reduced = false, avatarAt = 10, playedFirst = false } = {}) {
+    const p = page(false, null, reduced);
+    const html = p.doc.documentElement;
+    p.$('top').appendChild(build(p.doc, ['span', { class: 'profile-ava', id: 'ava' }]));
+    p.$('ava').getBoundingClientRect = () => ({ top: avatarAt, bottom: avatarAt + 32, left: 340, right: 372, width: 32, height: 32 });
+    p.$('panel').getBoundingClientRect = () => ({ top: 60, bottom: 460, left: 116, right: 372, width: 256, height: 400 });
+    Object.assign(p.win, { innerWidth: 400, innerHeight: 800 });
+    const timers = [];
+    p.win.setTimeout = (fn, ms) => { timers.push({ fn, ms }); };
+    const fire = (ms) => timers.filter((t) => t.ms === ms).forEach((t) => t.fn());
+    const sent = [];
+    let answered;
+    p.win.fetch = (url, how) => {
+      sent.push([url, how]);
+      return new Promise((resolve, reject) => { answered = () => (answer === 'offline' ? reject(new TypeError('Failed to fetch')) : answer !== 'never' && resolve(answer)); });
+    };
+    const went = [];
+    p.win.location.replace = (url) => went.push(url);
+    const form = p.$('out-form');
+    form.action = 'http://app.test/api/auth/logout';
+    let submitted = 0;
+    form.submit = () => { submitted += 1; };
+    p.click('button');
+    const before = timers.length;
+    const submit = () => {
+      const e = { prevented: false, preventDefault() { e.prevented = true; } };
+      form.listeners.submit.forEach((fn) => fn(e));
+      return e.prevented;
+    };
+    const out = { prevented: submit(), sent: sent.slice(), leaving: html.className.split(' ').filter(Boolean) };
+    out.fold = ['--fx', '--fy', '--fs'].map((k) => p.$('panel').style[k]);
+    submit();
+    out.sentTwice = sent.length;
+    const order = playedFirst ? ['played', 'answer'] : ['answer', 'played'];
+    const leaveMs = Math.min(...timers.slice(before).map((t) => t.ms));
+    out.leaveMs = leaveMs;
+    out.steps = [];
+    for (const step of order) {
+      if (step === 'answer') { answered(); await new Promise((r) => setImmediate(r)); } else fire(leaveMs);
+      out.steps.push([step, went.slice(), submitted]);
+    }
+    fire(2000);
+    out.atLatest = [went.slice(), submitted];
+    return out;
+  },
+  // Back to the page from the history after log-out: what it took away comes back; a fresh load is untouched.
+  pageshow() {
+    const p = page(false);
+    const html = p.doc.documentElement;
+    const show = (persisted) => {
+      html.classList.add('is-leaving', 'is-leaving-flat');
+      p.win.listeners.pageshow({ persisted });
+      return html.className.split(' ').filter(Boolean);
+    };
+    return { fresh: show(false), restored: show(true) };
+  },
 };
 
-process.stdout.write(JSON.stringify(scenarios[process.argv[2]]()));
+Promise.resolve(scenarios[process.argv[2]](JSON.parse(process.argv[3] || '{}'))).then((out) => process.stdout.write(JSON.stringify(out)));

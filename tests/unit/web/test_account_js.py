@@ -498,8 +498,10 @@ def test_the_hubs_rows_say_what_their_views_hold() -> None:
 
 def test_log_out_is_asked_first_and_sent_only_on_a_yes() -> None:
     out = _run("logout")
-    assert out["no"] == {"stopped": True, "sent": 0, "asked": ["Log out?"]}
+    assert out["no"] == {"stopped": True, "sent": 0, "folded": [], "asked": ["Log out?"]}
     assert out["yes"]["sent"] == 1
+    # the pane it was asked in is what folds back into the avatar
+    assert out["yes"]["folded"] == ["pane"]
 
 
 def test_the_script_run_again_once_its_fragment_is_in_wires_nothing_twice() -> None:

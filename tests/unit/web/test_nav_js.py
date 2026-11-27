@@ -11,9 +11,12 @@ HARNESS = Path(__file__).parent / "js" / "nav_harness.js"
 NAV_CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_nav.css"
 
 
-def _run(scenario: str) -> dict:
+def _run(scenario: str, **opts) -> dict:
     result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), scenario, json.dumps(opts)],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -387,3 +390,68 @@ def test_the_number_scales_out_on_the_exit_curve_and_only_fades_with_reduced_mot
     # the same whether it comes or goes
     rule = re.search(r"\.profile-count,\s*\.profile-count\.is-on\s*\{([^}]*)\}", calm).group(1)
     assert "transform: none" in rule and "opacity var(--dur)" in rule
+
+
+SIGNED_OUT = "/login?out=1"
+
+
+def test_log_out_posts_at_once_and_opens_sign_in_once_answered_and_played() -> None:
+    out = _run("logOut")
+    assert out["prevented"] is True
+    assert out["sent"] == [
+        [
+            "http://app.test/api/auth/logout",
+            {"method": "POST", "credentials": "same-origin", "redirect": "manual"},
+        ]
+    ]
+    assert out["leaving"] == ["is-leaving"]
+    # a second press while leaving sends nothing more
+    assert out["sentTwice"] == 1
+    assert out["leaveMs"] == 980
+    # answered first, it waits for the leaving to play out
+    assert out["steps"] == [["answer", [], 0], ["played", [SIGNED_OUT], 0]]
+    assert out["atLatest"] == [[SIGNED_OUT], 0]
+
+
+def test_log_out_played_out_first_waits_for_the_answer() -> None:
+    out = _run("logOut", playedFirst=True)
+    assert out["steps"] == [["played", [], 0], ["answer", [SIGNED_OUT], 0]]
+
+
+def test_the_menu_folds_into_the_avatar_or_only_fades_where_the_avatar_is_out_of_sight() -> None:
+    # 256 px wide to 32: an eighth, its middle on the avatar's
+    assert _run("logOut")["fold"] == ["224px", "-59px", "0.125"]
+    off = _run("logOut", avatarAt=-80)
+    assert off["leaving"] == ["is-leaving-flat", "is-leaving"]
+    assert off["fold"] == [None, None, None]
+
+
+def test_a_session_already_ended_goes_to_sign_in_too() -> None:
+    out = _run("logOut", answer={"type": "basic", "status": 401})
+    assert out["steps"][-1] == ["played", [SIGNED_OUT], 0]
+
+
+def test_log_out_that_cannot_reach_the_server_or_is_refused_posts_the_form_as_before() -> None:
+    for answer in ("offline", {"type": "basic", "status": 500}):
+        out = _run("logOut", answer=answer)
+        assert out["steps"] == [["answer", [], 1], ["played", [], 1]]
+        # the latest-by timer does not open sign-in over the form's own post
+        assert out["atLatest"] == [[], 1]
+
+
+def test_log_out_never_answered_opens_sign_in_after_two_seconds() -> None:
+    out = _run("logOut", answer="never")
+    assert out["steps"] == [["answer", [], 0], ["played", [], 0]]
+    assert out["atLatest"] == [[SIGNED_OUT], 0]
+
+
+def test_log_out_under_reduced_motion_waits_only_for_its_fade() -> None:
+    out = _run("logOut", reduced=True)
+    assert out["leaveMs"] == 150
+    assert out["steps"][-1] == ["played", [SIGNED_OUT], 0]
+
+
+def test_a_page_back_from_the_history_after_log_out_is_whole_again() -> None:
+    out = _run("pageshow")
+    assert out["fresh"] == ["is-leaving", "is-leaving-flat"]
+    assert out["restored"] == []

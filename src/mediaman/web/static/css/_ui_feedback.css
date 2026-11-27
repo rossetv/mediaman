@@ -252,3 +252,12 @@ html.has-player .ui-toast-host {
   /* Over Settings' save bar, at the foot of its pane while edits wait; its height holds the safe area. */
   html[data-save-bar] .ui-toast-host { bottom: calc(var(--save-bar) + 12px); }
 }
+
+/* Log-out (nav.js): the confirm's Log out presses, and the confirm folds away behind it. */
+@keyframes mm-press { 40% { transform: scale(.95); } 100% { transform: scale(.98); } }
+@keyframes mm-card-out { to { opacity: 0; transform: scale(.97); } }
+@media (prefers-reduced-motion: no-preference) {
+  html.is-leaving .ui-confirm-overlay.is-leaving { transition-duration: calc(var(--dur) * 1.1); transition-delay: calc(var(--dur) * .4); }
+  html.is-leaving .ui-confirm-overlay.is-leaving .btn--danger { animation: mm-press calc(var(--dur) * .8) var(--ease-out) both; }
+  html.is-leaving .ui-confirm-overlay.is-leaving .ui-confirm-card { animation: mm-card-out var(--dur) calc(var(--dur) * .4) var(--ease-out) both; }
+}

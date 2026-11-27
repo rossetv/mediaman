@@ -11,6 +11,8 @@
 {% block nav %}{% include "_watch_bar.html" %}{% endblock %}
 
 {% block head %}
+{# Not deferred: it marks a page opened straight after signing in before the first paint. #}
+<script src="/static/js/watch/arrive.js?v={{ static_v }}"></script>
 <link rel="stylesheet" href="/static/css/_watch_browse.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_making.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_search.css?v={{ static_v }}">
@@ -244,4 +246,6 @@
 <script src="/static/js/watch-rows.js?v={{ static_v }}" defer></script>
 {% endblock %}
 
-{% block overlays %}{% if is_admin %}{{ space.panel() }}{% endif %}{% include "_you.html" %}{% if is_admin %}{% include "_dl_abandon_modal.html" %}{% endif %}{% endblock %}
+{% block overlays %}{# The sign-in page's two lights: the frame the two pages meet on, as one signs in or out. #}
+<div class="mm-sky" aria-hidden="true"><i></i><i></i></div>
+{% if is_admin %}{{ space.panel() }}{% endif %}{% include "_you.html" %}{% if is_admin %}{% include "_dl_abandon_modal.html" %}{% endif %}{% endblock %}
