@@ -2391,10 +2391,10 @@ def test_a_tv_is_paired_in_the_sheet_named_and_played_on(markup):
     assert out["plays"] == ["/api/tvs/9/play"]
 
 
-def test_a_tv_somebody_watches_on_is_taken_only_after_the_question(markup):
+def test_a_tv_somebody_watches_on_is_left_to_them_when_the_question_is_put_away(markup):
     out = elsewhere(markup, "away_tv_asks")
     assert "Someone is watching" in out["busy"]
-    assert (out["cancelled"], out["before"], out["after"]) == (None, [], [True])
+    assert (out["cancelled"], out["sent"], out["playing"]) == (None, [False], True)
 
 
 def test_a_tv_found_in_use_asks_first_and_is_then_taken(markup):
@@ -3104,11 +3104,6 @@ def test_a_tv_that_does_not_answer_has_the_remotes_card(markup, how):
         assert (out["after"]["says"], out["after"]["message"]) == ("Playing on Living room", None)
 
 
-def test_an_older_tv_that_does_not_answer_is_not_said_to_have_a_browser(markup):
-    line = elsewhere(markup, "away_lost_tv", "older")["lost"]["message"]["line"]
-    assert "browser" not in line
-
-
 def test_a_tv_lost_for_good_can_be_asked_again_from_the_same_place(markup):
     out = elsewhere(markup, "away_lost_tv", "over")
     assert out["over"]["message"]["acts"] == ["Try again", "Bring it here", "Close"]
@@ -3157,31 +3152,12 @@ def test_a_tv_taken_by_somebody_is_said_and_can_be_closed(markup):
     assert (out["after"]["away"], out["after"]["message"], out["startsAfter"]) == (False, None, 1)
 
 
-BAD_FILE = "Its picture is in a form older TVs refuse, and converting it failed. Try another TV, or watch here."
-
-
-def test_an_older_tv_that_cannot_play_the_film_says_so_in_the_sheet(markup):
-    out = elsewhere(markup, "away_older", "tv")
-    assert (out["waits"], out["open"]) == ("true", True)
-    assert out["says"] == "Kitchen TV can’t play this one" + BAD_FILE
-    assert (out["state"]["away"], out["stops"]) == (False, ["p7"])
-
-
-def test_an_older_tv_that_fails_otherwise_is_not_said_to_refuse_the_film(markup):
-    says = elsewhere(markup, "away_older", "unreachable")["says"]
-    assert "older TVs refuse" not in says
-
-
-def test_the_sheet_closes_as_an_older_tv_has_begun(markup):
-    out = elsewhere(markup, "away_older", "plays")
-    assert (out["waits"], out["open"], out["says"]) == ("true", False, None)
-    assert (out["state"]["says"], out["stops"]) == ("Playing on Kitchen TV", [])
-
-
 def test_the_page_says_that_a_tv_could_not_play_it(markup):
-    older = elsewhere(markup, "away_failed_tv", "older")
-    assert (older["says"], older["hint"]) == ("Couldn’t play on Living room", BAD_FILE)
-    assert elsewhere(markup, "away_failed_tv", "page")["hint"] == "Your place is kept."
+    failed = elsewhere(markup, "away_failed_tv", "page")
+    assert (failed["says"], failed["hint"]) == (
+        "Couldn’t play on Living room",
+        "Your place is kept.",
+    )
 
 
 def test_a_tv_just_paired_is_asked_until_it_is_heard_of(markup):

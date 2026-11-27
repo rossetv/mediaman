@@ -53,31 +53,60 @@ def test_what_the_page_saves_opens_the_policy_and_off_closes_it(
     assert "gstatic" not in _csp()
 
 
+def _tvs_section(html: str) -> str:
+    return html.split('id="setg-tvs"', 1)[1].split('class="setg-block"', 1)[0]
+
+
 def test_an_admin_is_told_what_the_switch_lets_in_and_what_each_way_needs(
     app, authed_client, conn
 ) -> None:
     html = authed_client(app, conn).get("/settings?pane=1").text
     needs = html.split('id="tv-needs"', 1)[1].split("</ul>", 1)[0]
-    assert all(word in needs for word in ("Safari", "https", "Chrome", "MEDIAMAN_ALLOWED_HOSTS"))
+    assert all(word in needs for word in ("Safari", "https", "Chrome"))
     told = html.split('id="cast-lets"', 1)[1].split("</ul>", 1)[0]
     assert len(_CAST_SCRIPTS.split()) > 1, "one script only: the words must say so"
     assert "One script" not in told
-    assert "Scripts from Google (gstatic.com) run" in told
-    assert "Chromium" in told and "Chromium" in needs
-    assert "internet address" in told
-    assert 'aria-describedby="cast-lets"' in html
+    assert "Google’s scripts (gstatic.com) run" in told
+    assert "Chromium" in told
+    assert "viewer’s IP" in told
+    switch = html.split('aria-label="Allow Chromecast"', 1)[1].split(">", 1)[0]
+    note = switch.split('aria-describedby="', 1)[1].split('"', 1)[0]
+    assert "Loads Google’s cast scripts." in html.split(f'id="{note}"', 1)[1].split("</", 1)[0]
 
 
-def test_an_admin_is_told_which_addresses_older_tvs_take(app, authed_client, conn) -> None:
+def test_the_section_holds_no_older_tv_control_or_words(app, authed_client, conn) -> None:
+    section = _tvs_section(authed_client(app, conn).get("/settings?pane=1").text)
+    assert 'id="tv-needs"' in section and 'id="cast-lets"' in section
+    for gone in (
+        "older",
+        "btn-add-tv",
+        'id="tv-add"',
+        "tv_address",
+        "tv-address-hint",
+        "MEDIAMAN_ALLOWED_HOSTS",
+    ):
+        assert gone.lower() not in section.lower()
+
+
+def _pair_at(html: str) -> str:
+    return html.split('class="tv-pair-at">', 1)[1].split("<", 1)[0]
+
+
+def test_the_way_to_pair_comes_before_the_tvs(app, authed_client, conn) -> None:
+    section = _tvs_section(authed_client(app, conn).get("/settings?pane=1").text)
+    assert section.index("To pair a TV") < section.index('id="tv-list-wrap"')
+    assert "then pair from Play on" in section
+
+
+def test_with_no_base_url_the_tvs_go_to_where_mediaman_was_opened(app, authed_client, conn) -> None:
     html = authed_client(app, conn).get("/settings?pane=1").text
-    hint = html.split('id="tv-address-hint"', 1)[1].split("</span>", 1)[0]
-    needs = html.split("<b>An older TV:</b>", 1)[1].split("</li>", 1)[0]
-    for said in (hint, needs):
-        assert "home address or its name" in said
-        assert "http://nas.local:8282" in said
-        assert "A name or address on the internet needs https://" in said
-        assert "any address" not in said
-    assert "An IPv6 address goes in square brackets there, such as [fd00::10]." in needs
+    assert _pair_at(html) == "testserver/tv"
+
+
+def test_the_tvs_go_to_the_base_url_without_its_name_and_password(app, authed_client, conn) -> None:
+    insert_settings(conn, base_url="https://me:secret@watch.example.org/mm/")
+    html = authed_client(app, conn).get("/settings?pane=1").text
+    assert _pair_at(html) == "watch.example.org/mm/tv"
 
 
 def _scripts(path: str, conn, stored: str) -> str:
@@ -154,20 +183,26 @@ def test_no_page_without_a_cast_or_a_person_is_marked(conn, path, stored, userna
     assert _mark(_page(conn, path, stored, username)) == mark
 
 
-def test_the_settings_words_hold_both_states_of_the_switch(app, authed_client, conn) -> None:
-    """They follow the press, before anything is saved, so the page needs both."""
+def test_what_the_switch_lets_in_is_a_fold_shut_until_asked(app, authed_client, conn) -> None:
     html = authed_client(app, conn).get("/settings?pane=1").text
-    assert 'class="tv-lets-off">What turning it on lets in:' in html
-    assert 'class="tv-lets-on">On. What this lets in:' in html
+    fold = (
+        html.split('id="cast-more"', 1)[0].rsplit("<details", 1)[1]
+        + html.split('id="cast-more"', 1)[1]
+    )
+    assert " open" not in fold.split(">", 1)[0]
+    summary = fold.split("<summary", 1)[1].split("</summary>", 1)[0]
+    assert "What this lets in" in summary
+    assert fold.index('id="cast-lets"') < fold.index("</details>")
 
 
 def test_an_admin_is_told_how_far_googles_script_reaches(app, authed_client, conn) -> None:
     html = authed_client(app, conn).get("/settings?pane=1").text
     told = html.split('id="cast-lets"', 1)[1].split("</ul>", 1)[0]
     for said in (
-        "see and do all that the person signed in there can",
-        "the address they open mediaman at",
-        "the film’s title and a ticket",
-        "Turning it off stops no Chromecast",
+        "(gstatic.com) run as the viewer",
+        "Only in Play on",
+        "mediaman’s address",
+        "a one-title ticket, no sign-in",
+        "Turning it off doesn’t stop a cast already playing",
     ):
         assert said in told

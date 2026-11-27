@@ -1,10 +1,10 @@
 /**
- * settings/tvs.js — the TVs & Casting section: every TV, and older ones added by address.
+ * settings/tvs.js — the TVs & Casting section: every paired TV, and the fold of what Chromecast lets in.
  *
  * What a TV says of itself is untrusted: it is only ever set as text.
  *
  * Cross-module dependencies:
- *   MM.api, MM.dom.icon, MM.settings.rows, window.UIFeedback
+ *   MM.api, MM.dom.icon, MM.dom.fold, MM.settings.rows, window.UIFeedback
  *
  * Exposes:
  *   MM.settings.tvs.init()
@@ -15,24 +15,7 @@
   window.MM = window.MM || {};
   MM.settings = MM.settings || {};
 
-  var OLDER = '/api/settings/older-tvs';
-  var OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
-  var HOME = new RegExp('^(?:10\\.' + OCTET + '|192\\.168|172\\.(?:1[6-9]|2\\d|3[01]))\\.' + OCTET + '\\.' + OCTET + '$');
-  var LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
-  var NAME = new RegExp('^(?=.{1,253}$)' + LABEL + '(?:\\.' + LABEL + ')*$', 'i');
-  var IPV4 = new RegExp('^(?:' + OCTET + '\\.){3}' + OCTET + '$');
-  var NETWORKS = 'mediaman must run in a container with a network of its own, as Docker gives one. ' +
-    'Host networking, macvlan on the home network and an install without a container can’t reach TVs.';
-  var ICONS = {
-    ok: function () { return MM.dom.icon('i-circle-check'); },
-    no: function () { return MM.dom.icon('i-circle-exclamation'); },
-    run: function () { return el('span', 'tv-ring'); },
-    todo: function () { return MM.dom.icon('i-circle-check-regular'); },
-  };
-
-  var wrap, panel, addBtn;
-  var paintAddress = function () {};
-  var refusedHttps = null; // the https address a TV could not fetch from, and the TV's name
+  var wrap;
 
   function el(tag, cls, text) {
     var node = document.createElement(tag);
@@ -74,40 +57,10 @@
   function says(tv) {
     var who = tv.people && tv.people.length ? tv.people : [tv.owner];
     var paired = who.length > 1 ? who.slice(0, -1).join(', ') + ' and ' + who[who.length - 1] : who[0];
-    return (tv.kind === 'older' ? 'Older TV at ' + tv.address : (who.length > 1 ? 'Paired with ' : 'Paired by ') + paired) + '. ' + seen(tv);
+    return (who.length > 1 ? 'Paired with ' : 'Paired by ') + paired + '. ' + seen(tv);
   }
 
-  function urlOf(tv) { return (tv.kind === 'older' ? OLDER : '/api/tvs') + '/' + tv.id; }
-
-  // Shows a check's outcome as lines: [state, words, more]. A line that stands keeps its
-  // element, which would come in again if it were made or put there anew.
-  function lines(list, ul) {
-    if (!ul) {
-      ul = el('ul', 'tv-chk');
-      ul.setAttribute('role', 'status');
-    }
-    var old = Array.prototype.slice.call(ul.children);
-    var next = list.map(function (line) {
-      var li = old.find(function (o) { return o.dataset.words === line[1]; });
-      if (li) old.splice(old.indexOf(li), 1);
-      else { li = el('li'); li.dataset.words = line[1]; }
-      var was = li.className;
-      if (was === line[0] && (li.dataset.more || '') === (line[2] || '')) return li;
-      li.className = line[0];
-      li.dataset.more = line[2] || '';
-      var mark = el('span');
-      mark.appendChild(ICONS[line[0]]());
-      var words = el('span', '', line[1]);
-      if (line[2]) words.appendChild(el('small', '', line[2]));
-      li.replaceChildren(mark, words);
-      return li;
-    });
-    old.forEach(function (li) { li.remove(); });
-    next.forEach(function (li, i) {
-      if (ul.children[i] !== li) ul.insertBefore(li, ul.children[i] || null);
-    });
-    return ul;
-  }
+  function urlOf(tv) { return '/api/tvs/' + tv.id; }
 
   // Fades a part out, then calls `gone`, unless `come` had it back first.
   function go(node, gone) {
@@ -134,62 +87,6 @@
     node._going = null;
   }
 
-  function atHome(address) { return ['ok', address + ' is on your home network']; }
-
-  function asking(address) {
-    return [atHome(address), ['run', 'Asking the TV who it is…'], ['todo', 'Can play films from mediaman']];
-  }
-
-  function answered(address, name) {
-    return [atHome(address), ['ok', 'The TV answered', 'It calls itself “' + name + '”.'],
-      ['ok', 'Can play films from mediaman']];
-  }
-
-  function pictured(err) {
-    switch (err.error) {
-      case 'no_fetch':
-        return ['no', 'It couldn’t reach mediaman',
-          'Check the address TVs use, below. It must start with http:// and this server’s home address or name, or with https://, ' +
-          'and work from your home network. Many older TVs refuse https.'];
-      case 'no_picture':
-        return ['no', 'It didn’t show a test picture', err.message + ' You can still add it and try a film.'];
-      case 'no_tv_address':
-        return ['no', 'It couldn’t reach mediaman', 'Set the address TVs use, below, and save. Then check again.'];
-      case 'http_off':
-        return ['no', 'It couldn’t reach mediaman',
-          'The address TVs use starts with http. Turn on Plain http for older TVs, below, and save. Then check again.'];
-      case 'host_not_allowed':
-        return ['no', 'It couldn’t reach mediaman', err.message];
-      default:
-        return ['no', MM.api.messageOf(err, 'Couldn’t show a test picture. Try again.')];
-    }
-  }
-
-  function wrongAddress() {
-    return [['no', 'That isn’t a home network address',
-      'Use one such as 192.168.1.44, 10.0.0.7 or 172.16.0.20. Names and internet addresses aren’t allowed.']];
-  }
-
-  function failed(err, address) {
-    switch (err.error) {
-      case 'bad_address':
-        return wrongAddress();
-      case 'unreachable':
-        return [atHome(address), ['no', 'Nothing answered',
-          'Is the TV on, on the same home network, and is this its address? The TV shows it under Network. ' +
-          'Some TVs answer only after you allow mediaman on their screen.']];
-      case 'not_a_tv':
-        return [atHome(address), ['no', 'That isn’t a TV mediaman can play on',
-          'Something answered, but it can’t play films sent to it. Try pairing with a code instead.']];
-      case 'own_network':
-        return [['no', 'mediaman can’t reach a TV at this address', NETWORKS]];
-      case 'refused':
-        return [atHome(address), ['no', 'mediaman can’t use this TV', err.message]];
-      default:
-        return [['no', MM.api.messageOf(err, 'Couldn’t check the TV. Try again.')]];
-    }
-  }
-
   function nameField(value, label) {
     var input = el('input', 'inp');
     input.type = 'text';
@@ -200,7 +97,7 @@
     return input;
   }
 
-  // Only what a body holds is refused with details, and the address was checked before.
+  // Only what a body holds is refused with details.
   function isNameRefused(err) { return !!err.data && Array.isArray(err.data.detail); }
 
   function nameError(err) {
@@ -212,11 +109,8 @@
   /* ── the list ── */
 
   function load() {
-    return Promise.all([MM.api.get('/api/tvs/all'), MM.api.get(OLDER)]).then(function (got) {
-      var addresses = {};
-      got[1].tvs.forEach(function (tv) { addresses[tv.id] = tv.address; });
-      show(got[0].tvs.filter(function (tv) { return tv.kind !== 'older' || addresses[tv.id]; })
-        .map(function (tv) { return Object.assign({}, tv, { address: addresses[tv.id] }); }));
+    return MM.api.get('/api/tvs/all').then(function (got) {
+      show(got.tvs);
     }, function () {
       var box = el('div', 'tv-empty');
       box.appendChild(el('b', '', 'Couldn’t load the TVs'));
@@ -235,16 +129,7 @@
   function showEmpty() {
     var box = el('div', 'tv-empty');
     box.appendChild(el('b', '', 'No TVs yet'));
-    box.appendChild(document.createTextNode('Pair one from Play on, in the player. Or add an older TV here.'));
     wrap.replaceChildren(box);
-  }
-
-  function append(tv) {
-    var ul = wrap.querySelector('.tv-list');
-    if (!ul) { ul = el('ul', 'tv-list'); wrap.replaceChildren(ul); }
-    var li = row(tv);
-    ul.appendChild(li);
-    MM.settings.rows.enter(li);
   }
 
   function row(tv) {
@@ -259,7 +144,7 @@
     var sub = el('div', 'tv-sub', says(tv));
     txt.appendChild(label);
     txt.appendChild(sub);
-    if (tv.kind !== 'older' && tv.people && tv.people.length > 1) txt.appendChild(people());
+    if (tv.people && tv.people.length > 1) txt.appendChild(people());
 
     // Each person it is paired with, any of whom can be unpaired alone.
     function people() {
@@ -299,11 +184,6 @@
     }
 
     var acts = el('div', 'tv-acts');
-    var check = null;
-    if (tv.kind === 'older') {
-      check = button('Check', 'ghost', function () { runCheck(); });
-      acts.appendChild(check);
-    }
     var rename = button('Rename', 'ghost', editName);
     var unpair = button('Unpair', 'danger', ask);
     acts.appendChild(rename);
@@ -311,8 +191,8 @@
     nameButtons();
 
     function nameButtons() {
-      [check, rename, unpair].forEach(function (b) {
-        if (b) b.setAttribute('aria-label', (b.dataset.label || b.textContent) + ' ' + tv.name);
+      [rename, unpair].forEach(function (b) {
+        b.setAttribute('aria-label', (b.dataset.label || b.textContent) + ' ' + tv.name);
       });
     }
 
@@ -322,25 +202,6 @@
     function clear(cls) {
       var old = li.querySelector(cls);
       if (old) old.remove();
-    }
-
-    function runCheck() {
-      if (isBusy(check)) return;
-      setBusy(check, 'Checking…');
-      var out = li.querySelector('.tv-chk');
-      if (out) lines(asking(tv.address), out);
-      else { out = lines(asking(tv.address)); line.after(out); }
-      function say(list) {
-        setBusy(check, '');
-        if (!out.parentNode) return;
-        lines(list, out);
-      }
-      MM.api.post(OLDER + '/' + tv.id + '/check', {}).then(function (got) {
-        tv.last_seen_at = got.tv.last_seen_at;
-        tv.address = got.tv.address;
-        sub.textContent = says(tv);
-        say([atHome(tv.address), ['ok', 'The TV answered', 'mediaman can reach it at ' + tv.address + '.']]);
-      }, function (err) { say(failed(err, tv.address)); });
     }
 
     function editName() {
@@ -393,7 +254,7 @@
       sure.setAttribute('aria-label', 'Unpair ' + tv.name + '?');
       var words = el('p', '', 'Unpair ' + tv.name + '? It stops playing at once and is ' +
         (tv.people && tv.people.length > 1 ? 'unpaired for everyone: ' + tv.people.join(' and ') + '. ' : 'gone from everyone’s list. ') +
-        (tv.kind === 'older' ? 'You can add it again by its address.' : 'To use it again, pair it with a new code.'));
+        'To use it again, pair it with a new code.');
       var yes = button('Unpair this TV', 'danger', remove);
       var no = button('Cancel', 'ghost', cancel);
       var status = el('p', 'tv-err');
@@ -420,7 +281,7 @@
           if (MM.tvRemote) MM.tvRemote.drop(tv.id);
           MM.settings.rows.leave(li, {
             focusSelector: '.tv-acts .btn--danger',
-            fallback: addBtn,
+            fallback: wrap,
             done: function () { if (!wrap.querySelector('.tv-li')) showEmpty(); },
           });
           window.UIFeedback.success(tv.name + ' is unpaired.');
@@ -439,283 +300,11 @@
     return li;
   }
 
-  /* ── add an older TV ── */
-
-  function openAdd() {
-    var asked = 0;
-    var found = null;
-
-    var address = el('input', 'inp');
-    address.id = 'tv-add-address';
-    address.type = 'text';
-    address.inputMode = 'decimal';
-    address.autocomplete = 'off';
-    address.placeholder = '192.168.1.44';
-    var label = el('label', '', 'The TV’s address');
-    label.htmlFor = address.id;
-    var check = el('button', 'btn btn--secondary', 'Check');
-    check.type = 'button';
-    var l = el('div', 'tv-add-line');
-    l.appendChild(address);
-    l.appendChild(check);
-
-    var out = el('div');
-    out.setAttribute('role', 'status');
-    var hint = el('p', 'tv-add-hint', 'For TVs from about 2011 to 2016 with no AirPlay or Chromecast, and no browser ' +
-      'that works. Samsung, Sony and Panasonic are the likeliest to work; other makes may not. Find the address in the ' +
-      'TV’s network settings. Give the TV a fixed address in your router, or it may change.');
-    var named = el('div');
-    var end = el('div', 'tv-add-end');
-    var add = button('Add this TV', 'primary', commit);
-    add.disabled = true;
-    end.appendChild(button('Cancel', 'ghost', close));
-    end.appendChild(add);
-    var status = el('p', 'tv-err');
-    status.setAttribute('role', 'alert');
-
-    function say(list) {
-      var shown = out.querySelector('.tv-chk');
-      if (shown) { lines(list, shown); return; }
-      var ul = lines(list);
-      ul.removeAttribute('role');
-      out.replaceChildren(ul);
-    }
-    function forgetFound() {
-      asked += 1;
-      found = null;
-      add.disabled = true;
-      setBusy(check, '');
-      named.replaceChildren();
-      status.textContent = '';
-    }
-    function look() {
-      if (isBusy(check)) return;
-      var typed = address.value.trim();
-      forgetFound();
-      if (!HOME.test(typed)) { say(wrongAddress()); address.focus(); return; }
-      var mine = asked;
-      setBusy(check, 'Checking…');
-      say(asking(typed).concat([['todo', 'Can reach the address TVs use']]));
-      MM.api.post(OLDER + '/check', { address: typed }).then(function (got) {
-        if (mine !== asked) return;
-        var told = answered(typed, got.name);
-        say(told.concat([['run', 'Asking it to fetch a test picture…']]));
-        return MM.api.post(OLDER + '/picture', { address: got.address }).then(function (shown) {
-          if (mine !== asked) return;
-          say(told.concat([['ok', 'Fetched a test picture from ' + shown.from]]));
-          offer(got);
-        }, function (err) {
-          if (mine !== asked) return;
-          setBusy(check, '');
-          say(told.concat([pictured(err)]));
-          var used = document.getElementById('tv_address').defaultValue;
-          if (err.error === 'no_fetch' && /^https:/i.test(used)) {
-            refusedHttps = { address: used, name: got.name };
-            paintAddress();
-          }
-          if (err.error === 'no_picture') offer(got);
-        });
-      }, function (err) {
-        if (mine !== asked) return;
-        setBusy(check, '');
-        say(failed(err, typed));
-      });
-    }
-    function offer(got) {
-      setBusy(check, '');
-      var input = nameField(got.name.slice(0, 40).trim(), 'Name');
-      input.removeAttribute('aria-label');
-      input.id = 'tv-add-name';
-      var nameLabel = el('label', '', 'Name');
-      nameLabel.htmlFor = input.id;
-      input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); commit(); }
-      });
-      named.replaceChildren(nameLabel, input);
-      found = { address: got.address, input: input };
-      add.disabled = false;
-      if (MM.dom.focusStillIn(panel)) MM.settings.rows.bringIntoView(end);
-    }
-    function commit() {
-      if (!found || isBusy(add)) return;
-      var mine = asked;
-      status.textContent = '';
-      setBusy(add, 'Adding…');
-      MM.api.post(OLDER, { address: found.address, name: found.input.value.trim() }).then(function (got) {
-        append(Object.assign({ kind: 'older' }, got.tv));
-        window.UIFeedback.success(got.tv.name + ' is added.');
-        if (mine === asked && add.isConnected) close();
-      }, function (err) {
-        setBusy(add, '');
-        if (mine !== asked) return;
-        if (isNameRefused(err)) {
-          status.textContent = nameError(err);
-          found.input.focus();
-          return;
-        }
-        var where = found.address;
-        forgetFound();
-        say(failed(err, where));
-      });
-    }
-    function close() {
-      asked += 1;
-      go(panel, function () {
-        panel.hidden = true;
-        panel.replaceChildren();
-      });
-      addBtn.hidden = false;
-      addBtn.setAttribute('aria-expanded', 'false');
-      addBtn.focus();
-    }
-
-    check.addEventListener('click', look);
-    address.addEventListener('input', function () {
-      forgetFound();
-      out.replaceChildren(hint);
-    });
-    address.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); look(); }
-    });
-    panel.onkeydown = function (e) { if (e.key === 'Escape') { e.preventDefault(); close(); } };
-
-    out.appendChild(hint);
-    panel.replaceChildren(label, l, out, named, end, status);
-    come(panel);
-    addBtn.hidden = true;
-    addBtn.setAttribute('aria-expanded', 'true');
-    panel.hidden = false;
-    MM.settings.rows.bringIntoView(panel);
-    address.focus({ preventScroll: true });
-  }
-
-  /* ── the address TVs use ── */
-
-  // A bracketed IPv6 literal as its eight 16-bit groups ([] if it is not one): every spelling of ::, zeros
-  // left out, and a dotted IPv4 on the end.
-  function v6Groups(host) {
-    var h = host.slice(1, -1).toLowerCase();
-    var dotted = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
-    if (dotted) {
-      if ([2, 3, 4, 5].some(function (k) { return +dotted[k] > 255; })) return [];
-      h = dotted[1] + ((+dotted[2] << 8) + +dotted[3]).toString(16) + ':' + ((+dotted[4] << 8) + +dotted[5]).toString(16);
-    }
-    var halves = h.split('::');
-    if (halves.length > 2) return [];
-    var side = function (t) { return t ? t.split(':') : []; };
-    var head = side(halves[0]);
-    var tail = halves.length === 2 ? side(halves[1]) : [];
-    var fill = 8 - head.length - tail.length;
-    if (halves.length === 2 ? fill < 1 : fill !== 0) return [];
-    var all = head.concat(new Array(fill > 0 ? fill : 0).fill('0'), tail);
-    return all.every(function (g) { return /^[0-9a-f]{1,4}$/.test(g); })
-      ? all.map(function (g) { return parseInt(g, 16); }) : [];
-  }
-
-  // The IPv4 address an IPv6 host wraps (::ffff:a.b.c.d in any spelling), or ''.
-  function mappedV4(host) {
-    var g = host.charAt(0) === '[' ? v6Groups(host) : [];
-    if (g.length !== 8 || g[5] !== 0xffff || g.slice(0, 5).some(Boolean)) return '';
-    return [g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255].join('.');
-  }
-
-  // An IPv6 host the server refuses a TV at: unspecified, loopback, multicast (ff00::/8), or an IPv4 one
-  // wrapped in it that is itself unspecified, loopback or multicast.
-  function v6Refused(host) {
-    var g = v6Groups(host);
-    if (g.length !== 8) return false;
-    if (!g.slice(0, 7).some(Boolean) && g[7] <= 1) return true;
-    if ((g[0] & 0xff00) === 0xff00) return true;
-    var v4 = mappedV4(host);
-    return !!v4 && (v4 === '0.0.0.0' || /^(?:127|22[4-9]|23\d)\./.test(v4));
-  }
-
-  // The shapes the server refuses on Save, said as they are typed.
-  function wrongShape(value) {
-    var rest = /^https?:\/\/(.*)$/i.exec(value);
-    if (!rest) return '';
-    var at = /^([^/?#]*)(.*)$/.exec(rest[1]);
-    var authority = at[1];
-    var sample = ' Use this server’s home address or its name, such as http://nas.local:8282.';
-    if (authority.indexOf('@') >= 0) return 'Leave out the sign-in.' + sample;
-    if (at[2] && at[2] !== '/') return 'Leave nothing after the address, not even a path.' + sample;
-    var parts = /^(\[[^\]]*\]|[^:]*)(?::(\d*))?$/.exec(authority);
-    if (!parts) return 'That isn’t a valid address.' + sample;
-    var host = parts[1];
-    if (parts[2] && (+parts[2] < 1 || +parts[2] > 65535)) return 'That port can’t be used.' + sample;
-    if (host.charAt(0) === '[') {
-      if (host.indexOf('%') >= 0) return 'A TV can’t use this kind of address.' + sample;
-      return v6Refused(host) ? 'That address can’t be used by a TV.' + sample : '';
-    }
-    host = host.replace(/\.$/, '');
-    if (!host) return authority ? 'URL must include a host.' + sample : '';
-    if (IPV4.test(host)) {
-      return host === '0.0.0.0' || /^(?:22[4-9]|23\d)\./.test(host) ? 'That address can’t be used by a TV.' + sample : '';
-    }
-    if (/^(?:\d+|0x[0-9a-f]*)$/i.test(host.slice(host.lastIndexOf('.') + 1)) || !NAME.test(host)) {
-      return 'That isn’t a valid address.' + sample;
-    }
-    return '';
-  }
-
-  function wireAddress() {
-    var input = document.getElementById('tv_address');
-    var hint = document.getElementById('tv-address-hint');
-    if (!input || !hint) return;
-    var usual = hint.textContent;
-    function paint() {
-      var value = input.value.trim();
-      var bad = '';
-      var warn = '';
-      var host = (/^https?:\/\/(?:[^/?#]*@)?(\[[^\]]*\]|[^/:?#]*)/i.exec(value) || [])[1] || '';
-      host = mappedV4(host) || host;
-      if (/^(localhost|.*\.localhost|127\..*|\[::1\])\.?$/i.test(host)) {
-        bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address or its name.';
-      } else if (/^\[fe[89ab]/i.test(host)) {
-        bad = 'A TV can’t reach this kind of address. Use this server’s home address or its name, such as http://nas.local:8282.';
-      } else if (/^http:/i.test(value) && /^169\.254\./.test(host)) {
-        bad = 'A device gives itself this address, and it changes, so TVs can’t rely on it. Use this server’s home ' +
-          'address or its name, such as http://nas.local:8282.';
-      } else if (/^http:/i.test(value) && (/^\d+(\.\d+){3}$/.test(host) &&
-          !/^(10|192\.168|172\.(1[6-9]|2\d|3[01])|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./.test(host) ||
-          /^\[/.test(host) && !/^\[f[cd]/i.test(host))) {
-        bad = 'This address is on the internet, so it needs https://. With http://, use this server’s home address or its name.';
-      } else if (!/^https?:/i.test(value) && /\w\.\w/.test(value)) {
-        bad = 'Start with http:// before a home address, or https:// before a name.';
-      } else if (wrongShape(value)) {
-        bad = wrongShape(value);
-      } else if (/^https:/i.test(value)) {
-        warn = refusedHttps && refusedHttps.address === value
-          ? 'This starts with https. Older TVs often refuse it, and ' + refusedHttps.name + ' did.'
-          : 'This starts with https. Older TVs often refuse it.';
-      } else if (/^http:/i.test(value) && /\.[a-z][^.]*\.?$/i.test(host) && !/\.(local|lan|internal|home\.arpa)\.?$/i.test(host)) {
-        bad = 'A name on the internet needs https://. With http://, use a home name: one word, or one that ends in .local, ' +
-          '.lan, .home.arpa or .internal.';
-      } else if (/^http:/i.test(value) && document.getElementById('older_tvs_http').value !== 'true') {
-        warn = 'Older TVs can use this only while Plain http for older TVs is on.';
-      }
-      hint.textContent = bad || warn || usual;
-      hint.classList.toggle('is-bad', !!bad);
-      if (bad) input.setAttribute('aria-invalid', 'true');
-      else input.removeAttribute('aria-invalid');
-    }
-    paintAddress = paint;
-    input.addEventListener('input', paint);
-    // The switches and Discard set values without an event of their own.
-    document.addEventListener('click', function () { if (shown()) setTimeout(paint, 0); });
-    document.addEventListener('keyup', function () { if (shown()) paint(); });
-    paint();
-  }
-
-  function shown() { return !MM.you || MM.you.shown('settings'); }
-
   function init() {
     wrap = document.getElementById('tv-list-wrap');
-    panel = document.getElementById('tv-add');
-    addBtn = document.getElementById('btn-add-tv');
-    if (!wrap || !panel || !addBtn) return;
-    addBtn.addEventListener('click', openAdd);
-    wireAddress();
+    if (!wrap) return;
+    var more = document.getElementById('cast-more');
+    if (more) MM.dom.fold(more, document.getElementById('cast-more-toggle'));
     load();
   }
 

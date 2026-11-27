@@ -197,9 +197,45 @@ def test_the_tvs_own_page_opens_with_any_cookie_and_ends_no_session(tv, amy, hom
     assert after == before
 
 
-def test_only_an_admin_reaches_the_older_tvs(whole, amy, conn):
+@pytest.fixture
+def root(whole, conn):
     create_user(conn, "root", "password1234", enforce_policy=False)
-    admin = TestClient(whole)
+    admin = TestClient(whole, headers=ORIGIN)
     admin.cookies.set("session_token", create_session(conn, "root"))
-    url = "/api/settings/older-tvs"
-    assert (amy.get(url).status_code, admin.get(url).status_code) == (403, 200)
+    return admin
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["/api/settings/older-tvs", "/api/cast/a-ticket/from/0.ts", "/api/cast/a-ticket/test.jpg"],
+)
+def test_there_is_no_route_for_older_tvs(root, url):
+    assert root.get(url).status_code == 404
+
+
+@pytest.fixture
+def older(conn):
+    """An older TV's row, as the table may still hold one."""
+    tv_id = conn.execute(
+        "INSERT INTO tvs (kind, name, address, created_at)"
+        " VALUES ('older', 'Kitchen', '192.0.2.7', '2020')"
+    ).lastrowid
+    conn.commit()
+    return tv_id
+
+
+def test_an_older_tvs_row_is_listed_nowhere(amy, root, home, older):
+    assert [tv["id"] for tv in amy.get("/api/tvs").json()["tvs"]] == [home]
+    assert [tv["id"] for tv in root.get("/api/tvs/all").json()["tvs"]] == [home]
+
+
+def test_an_older_tvs_row_cannot_be_played_on_steered_or_changed(amy, root, older, conn):
+    asked = [
+        amy.get(f"/api/tvs/{older}"),
+        _play(amy, older),
+        amy.post(f"/api/tvs/{older}/commands", json={"kind": "stop"}),
+        root.patch(f"/api/tvs/{older}", json={"name": "Den"}),
+        root.delete(f"/api/tvs/{older}?everyone=1"),
+    ]
+    assert [answer.status_code for answer in asked] == [404] * len(asked)
+    assert conn.execute("SELECT name FROM tvs WHERE id = ?", (older,)).fetchone()[0] == "Kitchen"

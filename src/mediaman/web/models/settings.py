@@ -11,10 +11,7 @@ to ``_common``.
 
 from __future__ import annotations
 
-import ipaddress
-import re
 from typing import Annotated, Any
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
@@ -57,94 +54,6 @@ def _validate_url(v: str | None) -> str | None:
     if not parsed.netloc:
         raise ValueError("URL must include a host")
     return v
-
-
-_HOME_NETWORKS = tuple(
-    ipaddress.ip_network(net)
-    for net in (
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "100.64.0.0/10",
-        "fc00::/7",
-    )
-)
-
-
-_HOME_NAME_ENDS = (".local", ".lan", ".home.arpa", ".internal")
-_PLAIN_RE = re.compile("[!-~]+")
-_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
-_HOST_RE = re.compile(rf"(?=.{{1,253}}\Z){_LABEL}(?:\.{_LABEL})*")
-_NUMBER_RE = re.compile("[0-9]+|0x[0-9a-f]*")
-
-
-def _validate_tv_address(v: str) -> str:
-    """Return the address TVs fetch films from: an origin, and over http a home one."""
-    # Reading it would drop a tab, and take a name in other letters for another than browsers do.
-    if not _PLAIN_RE.fullmatch(v):
-        raise ValueError("must be a home address in plain characters")
-    if not v.lower().startswith(("http://", "https://")):
-        raise ValueError("must be a home address after http:// or a name after https://")
-    _validate_url(v)
-    parts = urlsplit(v)
-    if "@" in parts.netloc:
-        raise ValueError("must be a home address with no sign-in")
-    if parts.path not in ("", "/") or "?" in v or "#" in v:
-        raise ValueError("must be a home address with nothing after it")
-    try:
-        host, port = parts.hostname or "", parts.port
-    except ValueError as exc:
-        raise ValueError("must be a home address with a port in use") from exc
-    if not host.rstrip("."):
-        raise ValueError("URL must include a host")
-    try:
-        ip: ipaddress.IPv4Address | ipaddress.IPv6Address | None = ipaddress.ip_address(host)
-    except ValueError:
-        ip = None
-    if isinstance(ip, ipaddress.IPv6Address):
-        if ip.scope_id:
-            raise ValueError("must be a home address")
-        host = f"[{ip}]"
-        ip = ip.ipv4_mapped or ip
-    if ip is not None:
-        if ip.is_loopback or ip.is_unspecified:
-            raise ValueError("must be a home address and not localhost")
-        if ip.is_multicast:
-            raise ValueError("must be a home address")
-        # Without the zone a browser cannot give, no TV can reach a link-local address.
-        if ip.version == 6 and ip.is_link_local:
-            raise ValueError(
-                "must be a home address and not a link-local one: "
-                "use this server's other address or its name"
-            )
-        if parts.scheme != "https" and ip.version == 4 and ip.is_link_local:
-            raise ValueError(
-                "must be a home address and not a self-assigned one: "
-                "use this server's other address or its name"
-            )
-        if parts.scheme != "https" and not any(ip in net for net in _HOME_NETWORKS):
-            raise ValueError(
-                "must be a home address and not one of another network: "
-                "with http use a home address, or with https any address"
-            )
-    else:
-        host = host.rstrip(".")
-        # A last part like a number makes the whole an address in some other spelling.
-        if ":" in host or _NUMBER_RE.fullmatch(host.rpartition(".")[2]):
-            raise ValueError("must be a home address")
-        if not _HOST_RE.fullmatch(host):
-            raise ValueError("must be a home address or a valid name")
-        if host == "localhost" or host.endswith(".localhost"):
-            raise ValueError("must be a home address and not localhost")
-        # A home name is found only on the home network, as a home address is.
-        if parts.scheme != "https" and "." in host and not host.endswith(_HOME_NAME_ENDS):
-            raise ValueError(
-                "must be a home address, or a name with https: "
-                "with http use a home name, such as nas.local, nas.lan or nas, or a home address"
-            )
-    if port == 0:
-        raise ValueError("must be a home address with a port in use")
-    return f"{parts.scheme}://{host}" + (f":{port}" if port is not None else "")
 
 
 # Field -> (label on the Settings page, lowest, highest), matching the min and
@@ -270,15 +179,11 @@ class SettingsUpdate(BaseModel):
     auto_abandon_enabled: bool | None = None
     import_retry_enabled: bool | None = None
 
+    # Never stored or read: a settings page left open from an earlier version still sends them.
     older_tvs_enabled: bool | None = None
     older_tvs_http: bool | None = None
+    tv_address: str | None = None
     google_cast_enabled: bool | None = None
-    tv_address: Annotated[str | None, Field(max_length=_URL_MAX)] = None
-
-    @field_validator("tv_address", mode="after")
-    @classmethod
-    def validate_tv_address(cls, v: str | None) -> str | None:
-        return _validate_tv_address(v) if v else v
 
     @field_validator(
         "plex_url",

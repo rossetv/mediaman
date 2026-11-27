@@ -988,12 +988,12 @@ const scenarios = {
     await p.pass(400);
     return out.concat(p.bar().shown, p.toasts.length);
   },
-  async olderTaken() {
+  async listedTaken() {
     const out = [];
     for (const open of [false, true]) {
-      const p = await page({ tvs: [aTv({ kind: 'older' })] });
+      const p = await page({ tvs: [aTv()] });
       if (open) await p.open();
-      p.api.tvs[0].play = null; // everyone's: it stays listed, with nothing of theirs
+      p.api.tvs[0].play = null; // it stays listed, with nothing of theirs
       p.api.gone = { reason: 'taken', last: aPlay({ position_s: 1268 }) };
       p.api.goneIds = [7];
       await p.pass(5100);
@@ -1001,27 +1001,24 @@ const scenarios = {
     }
     return out;
   },
-  async olderWords() {
+  async pairedWords() {
     const out = {};
-    for (const kind of ['page', 'older']) {
-      out[kind] = {};
-      for (const reason of ['taken', 'unpaired', 'signed_out', 'lost']) {
-        const p = await page({ tvs: [aTv({ kind })] });
-        await p.open();
-        Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay(), reason } });
-        await p.pass(1100);
-        out[kind][reason] = p.card() + '. ' + p.$('[data-card-line]').textContent;
-      }
-      const p = await page({ tvs: [aTv({ kind })] });
+    for (const reason of ['taken', 'unpaired', 'signed_out', 'lost']) {
+      const p = await page({ tvs: [aTv()] });
       await p.open();
-      Object.assign(p.api.tvs[0], { on: false, lost_s: 11 });
+      Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay(), reason } });
       await p.pass(1100);
-      out[kind].live = p.$('[data-card-line]').textContent;
-      const q = await page({ tvs: [aTv({ kind })] });
-      q.api.refuse = 'tv_off';
-      await q.press('[data-mini-play]');
-      out[kind].off = q.toasts[0];
+      out[reason] = p.card() + '. ' + p.$('[data-card-line]').textContent;
     }
+    const p = await page({ tvs: [aTv()] });
+    await p.open();
+    Object.assign(p.api.tvs[0], { on: false, lost_s: 11 });
+    await p.pass(1100);
+    out.live = p.$('[data-card-line]').textContent;
+    const q = await page({ tvs: [aTv()] });
+    q.api.refuse = 'tv_off';
+    await q.press('[data-mini-play]');
+    out.off = q.toasts[0];
     return out;
   },
   async barOffline() {
@@ -1038,22 +1035,19 @@ const scenarios = {
     return { says, down, back: p.bar().says, up: buttons() };
   },
   async restarted() {
-    const out = {};
-    for (const kind of ['page', 'older']) {
-      const p = await page({ tvs: [aTv({ kind, boot: 'a' })] });
-      await p.open();
-      p.api.tvs[0].play.position_s = 1268;
-      await p.pass(1000);
-      Object.assign(p.api.tvs[0], { play: null, boot: 'b' });
-      await p.pass(1100);
-      const card = [p.card(), p.$('[data-card-line]').textContent];
-      click(p.doc, p.$('[data-card-actions]').querySelectorAll('button').find((b) => b.textContent === 'Continue watching'));
-      await settle();
-      const q = await page({ tvs: [aTv({ kind, boot: 'a' })] });
-      Object.assign(q.api.tvs[0], { play: null, boot: 'b' });
-      await q.pass(5100);
-      out[kind] = { card, sent: p.sent(), bar: q.bar().shown, toasts: q.toasts };
-    }
+    const p = await page({ tvs: [aTv({ boot: 'a' })] });
+    await p.open();
+    p.api.tvs[0].play.position_s = 1268;
+    await p.pass(1000);
+    Object.assign(p.api.tvs[0], { play: null, boot: 'b' });
+    await p.pass(1100);
+    const card = [p.card(), p.$('[data-card-line]').textContent];
+    click(p.doc, p.$('[data-card-actions]').querySelectorAll('button').find((b) => b.textContent === 'Continue watching'));
+    await settle();
+    const q = await page({ tvs: [aTv({ boot: 'a' })] });
+    Object.assign(q.api.tvs[0], { play: null, boot: 'b' });
+    await q.pass(5100);
+    const out = { card, sent: p.sent(), bar: q.bar().shown, toasts: q.toasts };
     const same = await page({ tvs: [aTv({ boot: 'a' })] });
     Object.assign(same.api.tvs[0], { play: null });
     await same.pass(5100);
@@ -1383,7 +1377,6 @@ const scenarios = {
   },
   // The real sheet and the remote: here after all, while another TV is starting.
   async calledOff() {
-    const older = () => aTv({ id: 8, kind: 'older', name: 'Bedroom', play: null });
     const paired = () => aTv({ id: 8, kind: 'page', name: 'Bedroom', play: null });
     const begin = async (tv, opts) => {
       const p = await page({ sheet: true, tvs: [aTv()].concat(tv || []), ...opts });
@@ -1423,12 +1416,6 @@ const scenarios = {
     gaveHeld.forEach((yes) => yes());
     await gave.pass(1100); await settle();
     out.given = gave.did();
-
-    const old = await begin(older(), { gives: true });
-    await old.pass(1100); await settle();
-    await old.row('here');
-    await old.pass(50); await settle();
-    out.begun = [old.did(), old.win.location.href];
 
     const no = await begin(paired(), { hold: [] });
     await no.row('here');

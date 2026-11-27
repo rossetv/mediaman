@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from html.parser import HTMLParser
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qs, parse_qsl, urlsplit
 
 import pytest
@@ -153,12 +154,10 @@ _SETTINGS_IDS = [
     "btn-refresh-picks",
     "tmdb_read_token",
     "omdb_api_key",
-    "btn-add-tv",
     "tv-list-wrap",
-    "tv-add",
+    "cast-more",
+    "cast-more-toggle",
     "cast-lets",
-    "tv_address",
-    "tv-address-hint",
     "tv-needs",
     "subscriber-list",
     "new-subscriber-email",
@@ -368,7 +367,11 @@ def test_a_fragment_names_its_assets_by_the_static_version_and_carries_no_script
 
 def test_settings_loads_its_modules_after_the_helpers_and_its_bootstrap_last():
     html = _TEMPLATES.env.get_template("panes/_settings.html").render(
-        settings={}, plex_libraries_selected=[], timezones=[], username="a"
+        settings={},
+        plex_libraries_selected=[],
+        timezones=[],
+        username="a",
+        request=SimpleNamespace(base_url="http://mm.local/"),
     )
     scripts = [s.split("?")[0] for s in _fragment(html).root["data-scripts"].split()]
 

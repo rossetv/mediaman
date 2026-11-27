@@ -211,7 +211,7 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     from mediaman.services.downloads._notification_claims import release_claims_on_shutdown
     from mediaman.services.infra import allowed_outbound_hosts
     from mediaman.services.media_meta.plex_stream import init_stream_manager
-    from mediaman.web.routes import older_stream, tv
+    from mediaman.web.routes import tv
     from mediaman.web.routes.watch.stream_api import read_plex_credentials
 
     manager = init_stream_manager(
@@ -226,21 +226,16 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     ).start()
     stop_reaper = _start_stream_reaper(manager.reap, _STREAM_REAP_INTERVAL_SECONDS)
 
-    older_stream.ending.clear()
     _notification_claims._ending.clear()
 
     def told_to_end() -> None:
         try:
             tv.save_places()
         finally:
-            # First, as giving the claims back can wait on the database lock for a long while.
             try:
-                older_stream.ending.set()
+                release_claims_on_shutdown(get_db())
             finally:
-                try:
-                    release_claims_on_shutdown(get_db())
-                finally:
-                    close_db()
+                close_db()
 
     stop_listening = _when_told_to_end(told_to_end)
 
@@ -256,8 +251,8 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
 def _when_told_to_end(act: Callable[[], None]) -> Callable[[], None]:
     """Call *act* on a thread of its own once the process is told to end; return what undoes this.
 
-    uvicorn runs the lifespan's end only after the last open response, which may be a whole film
-    on its way to a TV, and the process may be killed before.
+    uvicorn runs the lifespan's end only after the last open response, which may be a long one,
+    and the process may be killed before.
     """
     if threading.current_thread() is not threading.main_thread():
         return lambda: None
@@ -437,8 +432,6 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.kept import router as kept_router
     from mediaman.web.routes.library import router as library_router
     from mediaman.web.routes.library_api import router as library_api_router
-    from mediaman.web.routes.older_stream import router as older_stream_router
-    from mediaman.web.routes.older_tvs import router as older_tvs_router
     from mediaman.web.routes.plex_link import router as plex_link_router
     from mediaman.web.routes.poster import router as poster_router
     from mediaman.web.routes.ratings import router as ratings_router
@@ -495,8 +488,6 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(cast_router)
     app.include_router(tv_router)
     app.include_router(tv_page_router)
-    app.include_router(older_tvs_router)
-    app.include_router(older_stream_router)
     app.include_router(watch_preview_api_router)
     app.include_router(watch_marks_api_router)
     app.include_router(ratings_router)

@@ -50,9 +50,6 @@
   /* A TV just paired is heard of with its next question. */
   var FRESH_MS = 6000;
   var FRESH_EVERY_MS = 800;
-  /* An older TV says only as it begins whether it can play the film. */
-  var BEGIN_EVERY_MS = 1000;
-  var BEGIN_WAIT_MS = 60000;
   var LEAVE_MS = 300;
   var NAME_MAX = 30;          // a longer one does not stand in a sentence
   var DAY_MS = 24 * 60 * 60 * 1000;
@@ -91,7 +88,6 @@
   var limit = false;          // three streams play already
   var asking = 0;             // bumps with every press that starts something
   var underway = Promise.resolve(); // settles once no start, nor what ends one, is still to be answered
-  var callOff = null;         // ends what a TV has begun to start without its next word
 
   function now() { return Date.now(); }
 
@@ -158,7 +154,6 @@
 
   function tvUrl(tv) { return TVS + '/' + encodeURIComponent(tv.id); }
   function idOf(tv) { return 'tv-' + tv.id; }
-  function isOlder(tv) { return tv.kind === 'older'; }
 
   function lastSeen(tv) {
     var at = new Date(tv.last_seen_at || '');
@@ -173,9 +168,7 @@
   }
 
   function about(tv) {
-    if (tv.busy) return 'Playing for someone else';
     if (tv.on && tv.play && tv.play.title && tv.play.state !== 'ended') return 'Playing ' + tv.play.title + (tv.play.mine === false ? ' for ' + tv.play.by : '');
-    if (isOlder(tv)) return tv.on ? 'Older TV, added by an admin' : 'Older TV. Not answering.';
     return tv.on ? 'On and ready' : lastSeen(tv);
   }
 
@@ -187,8 +180,7 @@
     return {
       id: idOf(tv),
       title: short(tv) + ' isn’t open',
-      line: isOlder(tv) ? ['It didn’t answer. Turn it on, wait a moment, then try again.']
-        : ['Turn it on, open its web browser and go to ', { code: tvAddress() }, '. It will appear here by itself.'],
+      line: ['Turn it on, open its web browser and go to ', { code: tvAddress() }, '. It will appear here by itself.'],
     };
   }
 
@@ -208,15 +200,6 @@
   function refused(tv, err, left) {
     var code = err && err.error;
     if (code === 'in_use') return busy(tv, err.data);
-    if (isOlder(tv) && (code === 'tv_off' || code === 'unreachable')) return notOpen(tv);
-    if (code === 'cant_play') {
-      return {
-        id: idOf(tv),
-        title: short(tv) + ' can’t play this one',
-        line: ['Its picture is in a form older TVs refuse, and converting it failed. Try another TV, or watch here.' + (left || '')],
-        bad: true,
-      };
-    }
     var line = code === 'tv_off' ? 'It stopped answering. Check it still shows mediaman, then choose it again.'
       : err && err.data && err.data.message || FAILED[code] || 'Choose it again in a moment.';
     return {
@@ -254,20 +237,6 @@
     });
   }
 
-  /* Settles as an older TV has begun; rejects where it cannot play it. */
-  function begun(tv, wanted, until) {
-    var play = tv.play;
-    if (!play || !wanted() || now() > until) return Promise.resolve(tv);
-    if (play.state === 'failed') {
-      stopTv(tv).catch(function () { /* it plays nothing */ });
-      return Promise.reject({ error: play.error === 'tv' ? 'cant_play' : play.error });
-    }
-    if (play.state !== 'starting' && play.state !== 'loading') return Promise.resolve(tv);
-    return later(BEGIN_EVERY_MS).then(function () {
-      return MM.api.get(tvUrl(tv)).then(function (data) { return data.tv; }, function () { return tv; });
-    }).then(function (heard) { return begun(heard, wanted, until); });
-  }
-
   function hold(promise) {
     function over() { /* however it went */ }
     underway = Promise.all([underway, Promise.resolve(promise).then(over, over)]);
@@ -301,10 +270,6 @@
       return askPlay(tv, what, stopper.signal, freshUntil || 0, wanted);
     }).then(function (data) {
       clearTimeout(late);
-      if (!isOlder(tv) || !data.tv) return data;
-      var off = new Promise(function (resolve) { callOff = function () { resolve(data.tv); }; });
-      return Promise.race([off, begun(data.tv, wanted, now() + BEGIN_WAIT_MS)]).then(function (heard) { return { tv: heard }; });
-    }).then(function (data) {
       if (mine !== asking) {
         /* Called off too late not to begin: that play is stopped, and nothing the TV has since. */
         if (data.tv && data.tv.play) hold(stopTv(data.tv));
@@ -336,8 +301,6 @@
   function cancel() {
     asking++;
     say = wait = null;
-    if (callOff) callOff();
-    callOff = null;
     draw();
     return settled();
   }
@@ -596,16 +559,14 @@
     var id = idOf(tv);
     var here = on === id;
     row(list, {
-      id: id, icon: TV_ICON, name: tv.name, on: here, starting: wait === id, off: !tv.on && !tv.busy,
+      id: id, icon: TV_ICON, name: tv.name, on: here, starting: wait === id, off: !tv.on,
       sub: here ? 'Playing here now' : wait === id ? 'Starting…' : about(tv),
     }, function () {
       if (here) { close(); return; }
       if (wait) return;
       limit = false;
-      /* An older TV's answer is known only by asking it. */
-      if (!tv.on && !tv.busy && !isOlder(tv)) say = notOpen(tv);
-      else if (tv.busy) say = busy(tv);
-      else { startTv(tv, false); return; }
+      if (tv.on) { startTv(tv, false); return; }
+      say = notOpen(tv);
       draw();
     });
   }
@@ -639,9 +600,9 @@
     found.forEach(function (way) { sheet.rows[way.id] = { way: way }; });
     Object.keys(sheet.rows).forEach(function (id) {
       var one = sheet.rows[id];
-      if (one.tv && known.indexOf(one.tv) === -1) one.tv = Object.assign({}, one.tv, { on: false, busy: false });
+      if (one.tv && known.indexOf(one.tv) === -1) one.tv = Object.assign({}, one.tv, { on: false });
     });
-    var off = function (tv) { return !tv.on && !tv.busy; };
+    var off = function (tv) { return !tv.on; };
     var now = known.filter(function (tv) { return !off(tv); }).map(idOf)
       .concat(found.map(function (way) { return way.id; }), known.filter(off).map(idOf));
     sheet.order = sheet.order.concat(now.filter(function (id) { return sheet.order.indexOf(id) === -1; }));

@@ -63,7 +63,7 @@ Play on also lists AirPlay and Chromecast, which need no pairing:
 - AirPlay: Safari on an iPhone, iPad or Mac, and a TV with AirPlay, such as an Apple TV. The player must stay open: leaving it stops the film.
 - Chromecast: Chrome, or a browser built on it, on a computer or an Android device, mediaman opened over https, and a TV with Chromecast or Google Cast. It is off until an admin turns on Allow Chromecast in Settings, under TVs & Casting, since it loads Google's Cast script into mediaman's pages. The [install guide](docs/install.md#chromecast) says what that lets in.
 
-Either way the TV must be able to open mediaman's address. TVs too old for a browser are added by an admin, see [TVs](docs/install.md#tvs).
+Either way the TV must be able to open mediaman's address.
 
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/tv-still.webp">

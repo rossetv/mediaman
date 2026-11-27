@@ -406,19 +406,24 @@ def test_a_tv_the_person_drops_leaves_the_bar_quietly_and_the_others_stay() -> N
     assert out[3:] == [False, 0]
 
 
-def test_a_takeover_of_an_older_tv_which_stays_listed_is_said() -> None:
-    bar, card = _run("olderTaken")
+def test_a_takeover_of_a_tv_which_stays_listed_is_said() -> None:
+    bar, card = _run("listedTaken")
     assert bar.startswith("Stopped on Living room")
     assert card == "Someone else is using Living room"
 
 
-def test_an_older_tv_gets_no_word_of_pairing_or_of_a_browser() -> None:
-    out = _run("olderWords")
-    for said in out["older"].values():
-        for word in ("pair", "browser", "everywhere", "shows mediaman", "carries on"):
-            assert word not in said, said
-    assert "paired" in out["page"]["taken"]
-    assert "browser" in out["page"]["live"]
+def test_a_paired_tv_says_why_it_stopped_in_words_of_pairing_and_of_its_browser() -> None:
+    assert _run("pairedWords") == {
+        "taken": "Someone else is using Living room. They paired it, and yours stopped at 20:00.",
+        "unpaired": "Living room was unpaired. It was unpaired in Settings, or in your Profile, "
+        "or on the TV. To use it again, pair it.",
+        "signed_out": "Living room stopped. You signed out everywhere, which ends what plays on a TV.",
+        "lost": "Living room stopped answering. It was off, asleep or away from its browser "
+        "for 2 minutes, so it stopped at 20:00.",
+        "live": "It may be off, asleep or away from its browser. If it comes back within 2 minutes, "
+        "it carries on by itself.",
+        "off": "! The TV isn’t answering. Check it still shows mediaman.",
+    }
 
 
 def test_the_bar_says_that_mediaman_is_out_of_reach_and_offers_nothing_it_cannot_do() -> None:
@@ -429,15 +434,14 @@ def test_the_bar_says_that_mediaman_is_out_of_reach_and_offers_nothing_it_cannot
     assert out["up"] == ["[data-mini-play]", "[data-mini-back]", "[data-mini-stop]"]
 
 
-@pytest.mark.parametrize("kind", ["page", "older"])
-def test_a_restart_of_mediaman_is_said_with_the_place_and_a_way_to_go_on_from_it(kind: str) -> None:
+def test_a_restart_of_mediaman_is_said_with_the_place_and_a_way_to_go_on_from_it() -> None:
     out = _run("restarted")
     said = "Your place in Glass Orchard is kept."
-    assert out[kind]["card"] == ["mediaman restarted", said]
-    assert out[kind]["sent"][0]["rating_key"] == "9001"
-    assert 1268 < out[kind]["sent"][0]["position_s"] < 1272
-    assert out[kind]["bar"] is False
-    assert out[kind]["toasts"] == ["mediaman restarted. " + said]
+    assert out["card"] == ["mediaman restarted", said]
+    assert out["sent"][0]["rating_key"] == "9001"
+    assert 1268 < out["sent"][0]["position_s"] < 1272
+    assert out["bar"] is False
+    assert out["toasts"] == ["mediaman restarted. " + said]
     assert out["same"] == []
     assert out["both"].startswith("Lost")
 
@@ -603,10 +607,6 @@ def test_what_is_called_off_is_stopped_before_the_page_is_left() -> None:
 
 def test_what_the_new_tv_took_before_the_page_heard_is_brought_here_the_same() -> None:
     assert _called_off()["given"] == [START, STOP_NEW, STOP_OLD, "go"]
-
-
-def test_an_older_tv_that_is_called_off_is_stopped_without_its_next_word() -> None:
-    assert _called_off()["begun"] == [[START, STOP_NEW, "go"], "/watch/play/9001?resume=1"]
 
 
 def test_a_start_refused_as_it_is_called_off_is_waited_for_no_longer_and_not_said() -> None:

@@ -50,17 +50,14 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
         "ai_everyone_per_day",
         "auto_abandon_enabled",
         "import_retry_enabled",
-        "older_tvs_enabled",
-        "older_tvs_http",
         "google_cast_enabled",
-        "tv_address",
     }
 )
 
 #: Settings keys that require a recent-reauth ticket before they can be
-#: written: credentials, where mediaman connects or sends mail, what TVs may
-#: fetch from it, whether Google's script may run in people's browsers, and
-#: the settings that decide when media is deleted.
+#: written: credentials, where mediaman connects or sends mail, whether Google's
+#: script may run in people's browsers, and the settings that decide when media
+#: is deleted.
 SENSITIVE_KEYS: frozenset[str] = frozenset(
     {
         "plex_url",
@@ -81,10 +78,7 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "dry_run",
         "plex_libraries",
         "disk_thresholds",
-        "older_tvs_enabled",
-        "older_tvs_http",
         "google_cast_enabled",
-        "tv_address",
     }
     | SECRET_FIELDS
 )

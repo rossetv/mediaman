@@ -11,9 +11,6 @@ import re
 import subprocess
 from pathlib import Path
 
-import pytest
-from pydantic import ValidationError
-
 from mediaman.app_factory import _TEMPLATE_DIR
 from mediaman.web.models.settings import SettingsUpdate
 
@@ -237,42 +234,12 @@ def test_the_newsletter_buttons_keep_the_focus_after_a_click_that_gave_them_none
     assert _run("newsletterWithoutFocus") == dict.fromkeys(("open", "close", "add", "next"), True)
 
 
-_REFUSED_TV_ADDRESSES = {
-    "watch.example.org": "http:// before a home address, or https:// before a name",
-    "https://u:p@watch.example.org": "no sign-in",
-    "http://192.168.1.10:8282/watch": "nothing after the server name or port",
-    "https://a.example?x=1": "nothing after the server name or port",
-    "http://192.168.1.10:0": "port from 1 to 65535",
-    "http://192.168.1.10:99999": "port from 1 to 65535",
-    "http://192.168.1.10:abc": "port from 1 to 65535",
-    "https://a.example:99999": "port from 1 to 65535",
-    "https://my_server.example": "letters a to z, digits, dots and hyphens",
-    "https://bücher.example": "no letters other than a to z",
-    "https://a b.example": "no spaces",
-    "http://203.0.113.5": "needs https:// before an address on the internet",
-    "http://[2001:db8::1]": "needs https:// before an address on the internet",
-    "http://watch.example.org": "ends in .local, .lan, .home.arpa or .internal",
-    "https://localhost": "localhost",
-    "https://[::1]": "localhost",
-    "http://[fe80::1]:8282": "a kind of address a TV can’t reach. Use this server’s home address or its name",
-    "https://:8282": "needs a server name",
-    "http://[fd00::1%25en0]": "must be this server’s home address or its name, such as http://nas.local:8282",
-    "https://1.2.3": "must be this server’s home address or its name, such as http://nas.local:8282",
-    "http://169.254.1.1": "is an address a device gives itself, and it changes",
-}
-
-
-def test_a_refused_tv_address_is_told_what_is_wrong_with_it() -> None:
-    said = []
-    for typed in _REFUSED_TV_ADDRESSES:
-        with pytest.raises(ValidationError) as refused:
-            SettingsUpdate(tv_address=typed)
-        said.append(refused.value.errors()[0]["msg"])
-    told = dict(zip(_REFUSED_TV_ADDRESSES, _run("tvAddressError", json.dumps(said)), strict=True))
-    wrong = {t: w for t, w in told.items() if _REFUSED_TV_ADDRESSES[t] not in w}
-    assert wrong == {}
-    assert [w for w in told.values() if "192.168.1.10" in w or "example.com" in w] == []
-    assert "internet" not in told["http://169.254.1.1"]
+def test_an_address_for_tvs_from_a_page_left_open_is_not_refused() -> None:
+    # Nothing reads it any more, so what such a page sends is never a reason to refuse the save.
+    for sent in ("http://localhost", "watch.example.org", "https://u:p@watch.example.org/x?y"):
+        assert SettingsUpdate(tv_address=sent).tv_address == sent
+    long = "https://watch.example.org/" + "x" * 5000
+    assert SettingsUpdate(tv_address=long).tv_address == long
 
 
 def test_a_refused_save_brings_the_refused_field_out_from_under_the_bar() -> None:

@@ -20,16 +20,15 @@ Node.prototype.replaceChildren = function (...kids) { this.textContent = ''; kid
 Node.prototype.select = function () {};
 
 const PAIRED = { id: 1, kind: 'page', name: 'Living room', owner: 'maren', on: true };
-const OLDER = { id: 2, kind: 'older', name: 'Kitchen TV', owner: null, on: false };
+const DEN = { id: 2, kind: 'page', name: 'Den', owner: 'tobias', on: false };
 
-async function page(answers, all = [PAIRED, OLDER], reduced = true) {
+async function page(answers, all = [PAIRED, DEN], reduced = true) {
   const doc = makeDocument();
   doc.body.appendChild(build(doc, ['div', { class: 'setg-pg' },
-    ['button', { id: 'btn-add-tv' }], ['div', { id: 'tv-list-wrap' }], ['div', { id: 'tv-add', hidden: '' }],
-    ['input', { id: 'older_tvs_http' }], ['span', { id: 'tv-address-hint' }, 'usual'], ['input', { id: 'tv_address' }]]));
+    ['div', { id: 'tv-list-wrap' }],
+    ['details', { id: 'cast-more' }, ['summary', { id: 'cast-more-toggle' }, 'What this lets in']]]));
   doc.addEventListener = () => {};
-  doc.getElementById('older_tvs_http').value = 'false';
-  doc.getElementById('tv_address').value = '';
+  const folded = [];
   const calls = [];
   const call = (method) => (url, body) => {
     calls.push([method, url].concat(body ? [body] : []));
@@ -37,7 +36,6 @@ async function page(answers, all = [PAIRED, OLDER], reduced = true) {
     return typeof answer === 'function' ? answer() : Promise.resolve(answer);
   };
   answers['GET /api/tvs/all'] = answers['GET /api/tvs/all'] || { tvs: all };
-  answers['GET /api/settings/older-tvs'] = { tvs: [{ id: 2, name: 'Kitchen TV', address: '192.168.1.44' }] };
   const said = [];
   const dropped = [];
   const went = [];
@@ -48,7 +46,8 @@ async function page(answers, all = [PAIRED, OLDER], reduced = true) {
       api: { get: call('GET'), post: call('POST'), patch: call('PATCH'), delete: call('DELETE'),
         messageOf: (e, words) => e.message || words },
       tvRemote: { drop: (id) => dropped.push(id) },
-      dom: { focusStillIn: () => true, icon: (name) => build(doc, ['svg', { class: name }]) },
+      dom: { focusStillIn: () => true, icon: (name) => build(doc, ['svg', { class: name }]),
+        fold: (details, toggle) => folded.push([details.id, toggle.id]) },
       settings: { rows: { enter() {}, bringIntoView() {}, leave: (row, o) => { went.push(row.className); row.remove(); if (o && o.done) o.done(); } } },
     },
     UIFeedback: { success: (m) => said.push(m) },
@@ -63,31 +62,23 @@ async function page(answers, all = [PAIRED, OLDER], reduced = true) {
   return {
     dropped,
     went,
+    folded,
     doc, calls, said, row,
     press: async (root, words) => { click(doc, within(root, words)); await settle(); },
     button: within,
-    panel: doc.getElementById('tv-add'),
     list: doc.getElementById('tv-list-wrap'),
-    add: async (address) => {
-      click(doc, doc.getElementById('btn-add-tv'));
-      doc.getElementById('tv-add-address').value = address;
-      click(doc, within(doc.getElementById('tv-add'), 'Check'));
-    },
-    states: (root) => root.querySelectorAll('.tv-chk li').map((li) => li.className),
     fire: (el, type) => (el.listeners[type] || []).forEach((f) => f({ target: el, preventDefault() {} })),
   };
 }
 
 const refused = (error, message) => () => Promise.reject({ error, message, data: {} });
-const CHECK = 'POST /api/settings/older-tvs/check';
-const PICTURE = 'POST /api/settings/older-tvs/picture';
-const FROM = { from: 'http://192.168.1.10:8282' };
-const FOUND = { name: '<b>TV</b>', address: '192.168.1.44' };
 
 const scenarios = {
   async list() {
     const p = await page({});
-    return { rows: p.doc.querySelectorAll('.tv-li').map((li) => [li.querySelector('.tv-sub').textContent, !!p.button(li, 'Check')]) };
+    const names = (li) => li.querySelectorAll('button').map((b) => b.textContent);
+    return { rows: p.doc.querySelectorAll('.tv-li').map((li) => [li.querySelector('.tv-sub').textContent, names(li)]),
+      asked: p.calls.map((c) => c.slice(0, 2).join(' ')), folded: p.folded };
   },
   async empty() { return (await page({}, [])).list.textContent; },
   async unloaded() {
@@ -98,104 +89,8 @@ const scenarios = {
     await p.press(p.list, 'Try again');
     return { before, after: p.doc.querySelectorAll('.tv-li').length };
   },
-  async found() {
-    let answer, shown;
-    const p = await page({
-      [CHECK]: () => new Promise((resolve) => { answer = resolve; }),
-      [PICTURE]: () => new Promise((resolve) => { shown = resolve; }),
-      'POST /api/settings/older-tvs': { tv: { id: 3, name: 'Attic', address: '192.168.1.44' } },
-    });
-    await p.add('192.168.1.44');
-    const out = { checking: p.states(p.panel), early: p.button(p.panel, 'Add this TV').disabled };
-    answer(FOUND);
-    await settle();
-    out.showing = [p.states(p.panel), p.button(p.panel, 'Add this TV').disabled];
-    out.picture = p.calls[p.calls.length - 1];
-    shown(FROM);
-    await settle();
-    out.found = p.states(p.panel);
-    out.from = p.panel.textContent.includes('Fetched a test picture from http://192.168.1.10:8282');
-    out.text = p.panel.textContent.includes('<b>TV</b>') && !p.panel.querySelector('li b');
-    p.doc.getElementById('tv-add-name').value = ' Attic ';
-    await p.press(p.panel, 'Add this TV');
-    return Object.assign(out, { sent: p.calls.pop(), rows: p.doc.querySelectorAll('.tv-li').length, shut: p.panel.hidden });
-  },
-  async edited() {
-    const p = await page({ [CHECK]: FOUND, [PICTURE]: FROM });
-    await p.add('192.168.1.44');
-    await settle();
-    const ready = !p.button(p.panel, 'Add this TV').disabled;
-    p.fire(p.doc.getElementById('tv-add-address'), 'input');
-    return { ready, after: p.button(p.panel, 'Add this TV').disabled };
-  },
-  async late() {
-    let answer;
-    const p = await page({ [CHECK]: () => new Promise((resolve) => { answer = resolve; }) });
-    await p.add('192.168.1.44');
-    p.fire(p.doc.getElementById('tv-add-address'), 'input');
-    answer(FOUND);
-    await settle();
-    return p.button(p.panel, 'Add this TV').disabled;
-  },
-  async typed() {
-    const p = await page({});
-    await p.add('tv.example.com');
-    return { states: p.states(p.panel), asked: p.calls.some((c) => c[0] === 'POST') };
-  },
-  async failures() {
-    const out = {};
-    for (const code of ['unreachable', 'not_a_tv', 'own_network', 'off']) {
-      const p = await page({ [CHECK]: refused(code, 'said ' + code) });
-      await p.add('192.168.1.44');
-      await settle();
-      out[code] = [p.states(p.panel).pop(), p.panel.querySelector('.tv-chk').textContent];
-    }
-    return out;
-  },
-  async pictures() {
-    const out = {};
-    for (const code of ['no_fetch', 'no_picture', 'no_tv_address', 'http_off', 'host_not_allowed', 'busy']) {
-      const p = await page({ [CHECK]: FOUND, [PICTURE]: refused(code, 'said ' + code) });
-      const input = p.doc.getElementById('tv_address');
-      input.value = input.defaultValue = 'https://mediaman.example';
-      await p.add('192.168.1.44');
-      await settle();
-      out[code] = [p.states(p.panel), p.panel.querySelector('.tv-chk').textContent,
-        p.button(p.panel, 'Add this TV').disabled, p.doc.getElementById('tv-address-hint').textContent];
-    }
-    return out;
-  },
-  async checked() {
-    // A browser whose own language writes the time with AM and PM.
-    const time = Date.prototype.toLocaleTimeString;
-    Date.prototype.toLocaleTimeString = function (locale, o) { return time.call(this, locale || 'en-US', o); };
-    const answers = { 'POST /api/settings/older-tvs/2/check': refused('unreachable', 'x') };
-    const p = await page(answers);
-    await p.press(p.row(1), 'Check');
-    const off = p.states(p.row(1));
-    answers['POST /api/settings/older-tvs/2/check'] = { tv: { last_seen_at: new Date().toISOString(), address: '192.168.1.77' } };
-    await p.press(p.row(1), 'Check');
-    return { off, on: p.states(p.row(1)), says: p.row(1).querySelector('.tv-sub').textContent };
-  },
-  // Which lines of the steps before are still the same elements, by their words.
-  async stands() {
-    const pending = [];
-    const later = () => new Promise((resolve, reject) => { pending.push({ resolve, reject }); });
-    const p = await page({ [CHECK]: later, 'POST /api/settings/older-tvs/picture': { from: 'x' }, 'POST /api/settings/older-tvs/2/check': later });
-    const out = {};
-    for (const [name, root, start, answer] of [
-      ['add', p.panel, () => p.add('192.168.1.44'), FOUND],
-      ['row', p.row(1), () => p.press(p.row(1), 'Check'), { tv: { last_seen_at: null, address: '192.168.1.44' } }]]) {
-      await start();
-      const before = root.querySelectorAll('.tv-chk li');
-      pending.pop().resolve(answer);
-      await settle();
-      out[name] = root.querySelectorAll('.tv-chk li').filter((li) => before.includes(li)).map((li) => [li.className, li.textContent]);
-    }
-    return out;
-  },
   async leaving() {
-    const p = await page({}, [PAIRED, OLDER], false);
+    const p = await page({}, [PAIRED, DEN], false);
     const done = (n) => p.fire(n, 'animationend');
     await p.press(p.row(1), 'Unpair');
     const first = p.row(1).querySelector('.tv-sure');
@@ -203,19 +98,10 @@ const scenarios = {
     const out = { question: [first.isConnected, first.className, first.inert] };
     done(first);
     out.gone = first.isConnected;
-    await p.add('x');
-    await p.press(p.panel, 'Cancel');
-    out.panel = [p.panel.hidden, p.panel.className, p.doc.getElementById('btn-add-tv').hidden];
-    await p.add('x');
-    done(p.panel);
-    out.again = [p.panel.hidden, p.panel.className, p.panel.inert];
-    await p.press(p.panel, 'Cancel');
-    done(p.panel);
-    out.shut = [p.panel.hidden, p.panel.childNodes.length];
     const still = await page({});
-    await still.add('x');
-    await still.press(still.panel, 'Cancel');
-    return Object.assign(out, { reduced: still.panel.hidden });
+    await still.press(still.row(1), 'Unpair');
+    await still.press(still.row(1), 'Cancel');
+    return Object.assign(out, { reduced: !still.row(1).querySelector('.tv-sure') });
   },
   async forget() {
     const p = await page({});
@@ -252,11 +138,9 @@ const scenarios = {
     await p.press(sure, 'Unpair this TV');
     out.words = out.words.concat(read(p.row(0)));
     await p.press(p.row(1), 'Unpair');
-    out.older = p.row(1).querySelector('.tv-sure').textContent;
+    out.again = p.row(1).querySelector('.tv-sure').textContent;
     await p.press(p.row(1), 'Rename');
     out.rename = names(p.row(1).querySelector('.tv-edit'));
-    await p.add('x');
-    out.add = names(p.panel.querySelector('.tv-add-end'));
     return out;
   },
   async rename() {
@@ -270,72 +154,18 @@ const scenarios = {
     await p.press(p.row(0), 'Save');
     return { failed, name: p.row(0).querySelector('.tv-lbl').textContent };
   },
-  async address() {
-    const p = await page({});
-    const input = p.doc.getElementById('tv_address');
-    const hint = p.doc.getElementById('tv-address-hint');
-    return ['http://localhost:8282', 'https://mediaman.example', 'http://192.168.1.10', 'http://tv.example.com:8282',
-      'http://203.0.113.5', 'http://[2001:db8::1]', 'watch.example.org', 'http://u:p@192.168.1.10', 'http://172.31.0.2', 'https:',
-      'https://203.0.113.5', 'http://100.64.1.2', 'http://[fd00::5]:8282', 'http://nas.local:8282', 'http://mediaman:8282', 'https://[FE80::1]',
-      'http://nas.lan:8282', 'http://nas.home.arpa', 'http://box.internal', 'http://[::ffff:192.168.1.10]:8282',
-      'http://nas.lan.example', 'http://[::ffff:8.8.8.8]', 'http://169.254.1.1'].map((v) => {
-      input.value = v;
-      p.fire(input, 'input');
-      return [input.getAttribute('aria-invalid'), hint.textContent];
-    });
-  },
-  // What the live hint says of each address the server refuses on Save, and of ones it takes.
-  async shapes() {
-    const p = await page({});
-    const input = p.doc.getElementById('tv_address');
-    const hint = p.doc.getElementById('tv-address-hint');
-    const read = (v) => {
-      input.value = v;
-      p.fire(input, 'input');
-      return input.getAttribute('aria-invalid') === 'true';
-    };
-    const refused = ['http://[fd00::1%25eth0]:8282', 'http://nas.123:8282', 'http://nas.local:0', 'http://user:pw@nas.local:8282',
-      'http://nas.local:8282/app', 'http://nas..local:8282', 'http://-nas.local:8282', 'https://nas.local?x=1', 'http://nas.local:70000',
-      'https://10.999.0.300', 'https://nas.0x1f', 'https://a b.example.com', 'http://:8282', 'https://0.0.0.0', 'https://224.0.0.1',
-      'https://239.255.255.250', 'https://[::]', 'https://[0:0:0:0:0:0:0:0]', 'https://[ff02::1]', 'https://[ff00::1]:8282',
-      'https://[::ffff:0.0.0.0]', 'https://[::ffff:224.0.0.1]', 'https://[::ffff:e000:1]', 'http://[::ffff:7f00:1]',
-      'https://[::0]', 'https://[0::]', 'https://[::0.0.0.0]', 'https://[0::0]', 'https://[0:0:0:0:0:0:0:1]', 'https://[0::1]',
-      'https://[::0001]', 'https://[0::ffff:7f00:1]', 'https://[0:0::ffff:e000:1]', 'https://[::0:ffff:e000:1]',
-      'https://[::1]', 'https://[::ffff:127.0.0.1]', 'https://[FF02::1]'];
-    const taken = ['http://nas.local:8282', 'http://nas.local:8282/', 'https://nas.example.com', 'http://192.168.1.10:8282',
-      'https://203.0.113.5', 'http://[fd00::5]:8282', 'https://nas.example.com.', 'http://nas.local:', 'http://', 'https://0.0.0.1', 'https://240.0.0.1',
-      'https://[ff:1::1]', 'http://[::ffff:c0a8:105]:8282',
-      'https://[2001:db8::1]', 'https://[::2]', 'https://[0::ffff:c0a8:105]', 'https://[::ffff:8.8.8.8]', 'https://[1::]'];
-    const out = { refused: refused.map(read), taken: taken.map(read) };
-    const said = (v) => { read(v); return hint.textContent; };
-    out.noHost = said('http://:8282');
-    out.unspecified = said('https://0.0.0.0');
-    out.multicast = said('https://224.0.0.1');
-    return out;
-  },
-  // Which addresses the add dialog takes as a home one.
-  async homeAddresses() {
-    const out = {};
-    for (const v of ['192.168.1.44', '10.255.0.7', '172.16.0.20', '10.999.0.300', '192.168.1.256', '10.0.0.1.5', '172.32.0.1']) {
-      const p = await page({ [CHECK]: FOUND, [PICTURE]: FROM });
-      await p.add(v);
-      await settle();
-      out[v] = p.calls.some((c) => c[0] === 'POST' && c[1] === '/api/settings/older-tvs/check');
-    }
-    return out;
-  },
-  // The page's own save bar, with the section's fields and one of the add form's.
+  // The page's own save bar, with the section's switch and a TV's name being typed.
   async saved() {
     const doc = makeDocument();
     doc.addEventListener = () => {};
     const field = (id) => ['input', { id }];
     doc.body.appendChild(build(doc, ['div', { class: 'setg-pg' },
-      field('older_tvs_enabled'), field('older_tvs_http'), field('google_cast_enabled'), field('tv_address'),
-      ['div', { class: 'tv-add' }, field('tv-add-address')],
+      field('google_cast_enabled'),
+      ['ul', { class: 'tv-list' }, field('tv-name')],
       ['div', { id: 'setg-savebar', class: 'savebar' }, ['span', { class: 'sb-msg' }], ['span', { id: 'save-status' }],
         ['button', { id: 'btn-discard' }], ['button', { id: 'btn-save' }]]]));
     const set = (id, value) => { doc.getElementById(id).value = value; };
-    const start = { older_tvs_enabled: 'false', older_tvs_http: 'false', google_cast_enabled: 'false', tv_address: '', 'tv-add-address': '' };
+    const start = { google_cast_enabled: 'false', 'tv-name': '' };
     Object.keys(start).forEach((id) => { set(id, start[id]); doc.getElementById(id).defaultValue = start[id]; });
     const sent = [];
     const ctx = {
@@ -348,16 +178,13 @@ const scenarios = {
     ctx.MM.settings.general.init();
     const bar = doc.getElementById('setg-savebar');
     const shows = () => { ctx.MM.settings.savebar.markDirty(); return bar.classList.contains('on'); };
-    set('tv-add-address', '192.168.1.44');
-    const afterAdd = shows();
-    set('older_tvs_enabled', 'true');
-    set('older_tvs_http', 'true');
+    set('tv-name', 'Den');
+    const afterName = shows();
     set('google_cast_enabled', 'true');
-    set('tv_address', ' http://192.168.1.10:8282 ');
     const afterEdit = shows();
     click(doc, doc.getElementById('btn-save'));
     await settle();
-    return { afterAdd, afterEdit, sent };
+    return { afterName, afterEdit, sent };
   },
 };
 

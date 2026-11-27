@@ -61,7 +61,6 @@ from mediaman.web.repository.watch_progress import (
     get_progress,
     show_progress,
 )
-from mediaman.web.routes import older_play
 from mediaman.web.routes.downloads_strip import payload_for
 from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch import all_titles, list_page, ratings_warm
@@ -1217,7 +1216,7 @@ def movie_page(request: Request, key: str) -> Response:
 def _is_on_a_tv(conn: sqlite3.Connection, username: str, rating_key: str) -> bool:
     """Whether a TV plays the title for the person: a start anywhere else would end it there."""
     players = get_players()
-    theirs = tvs.owned(conn, username) + older_play.everyones(conn, username)
+    theirs = tvs.owned(conn, username)
     return any(held.token_hash and players.plays(held.token_hash, rating_key) for held in theirs)
 
 

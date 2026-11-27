@@ -171,6 +171,18 @@ class TestSensitiveSettingsRequireReauth:
         resp = client.put("/api/settings", json={"plex_token": "****"})
         assert resp.status_code == 200
 
+    def test_the_tv_keys_a_page_left_open_still_sends_are_ignored(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
+        old = {"older_tvs_enabled": True, "older_tvs_http": True, "tv_address": "http://localhost"}
+
+        resp = client.put("/api/settings", json={"scan_day": "mon", **old})
+        assert resp.status_code == 200
+        assert set(resp.json()["ignored"]) == set(old)
+        stored = {row["key"] for row in conn.execute("SELECT key FROM settings")}
+        assert "scan_day" in stored and stored.isdisjoint(old)
+
     def test_with_reauth_succeeds(self, app_factory, authed_client, conn):
         client = _client(app_factory, authed_client, conn, with_reauth=True)
 
