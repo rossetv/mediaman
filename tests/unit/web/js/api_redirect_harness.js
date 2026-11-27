@@ -12,11 +12,15 @@ const location = Object.assign({ origin, search: '', hash: '' }, c.location);
 location.href = origin + location.pathname + location.search + location.hash;
 const start = location.href;
 const toasts = [];
+const asked = [];
 const answer = Object.assign({ status: 200, redirected: false, url: origin + '/api/x', body: {} }, c.answer);
 const window = {
   location,
   URL,
-  UIFeedback: { error: (t) => toasts.push(t) },
+  UIFeedback: Object.assign(
+    { error: (t) => toasts.push(t) },
+    'confirm' in c ? { confirm: (o) => { asked.push(o); return Promise.resolve(c.confirm); } } : {},
+  ),
   fetch: () => Promise.resolve({
     status: answer.status,
     ok: answer.status >= 200 && answer.status < 300,
@@ -28,17 +32,22 @@ const window = {
 };
 vm.runInNewContext(fs.readFileSync(file, 'utf8'), Object.assign(window, { window, console }));
 if (c.unsaved) window.MM.api.hasUnsavedChanges = () => true;
-const out = { settled: 'pending', toasts };
-const call = c.method === 'post' ? window.MM.api.post('/api/x', {}, c.options) : window.MM.api.get('/api/x', c.options);
-call.then(
-  (data) => { out.settled = 'resolved'; out.data = data; },
-  (err) => {
-    out.settled = 'rejected';
-    out.apiError = err instanceof window.MM.api.APIError;
-    out.status = err.status;
-    out.redirect = err.data && err.data.redirect;
-  },
-);
+const out = { settled: 'pending', toasts, asked, all: [] };
+for (let i = 0; i < (c.reads || 1); i++) {
+  const call = c.method === 'post' ? window.MM.api.post('/api/x', {}, c.options) : window.MM.api.get('/api/x', c.options);
+  out.all.push('pending');
+  call.then(
+    (data) => { out.all[i] = 'resolved'; if (!i) { out.settled = 'resolved'; out.data = data; } },
+    (err) => {
+      out.all[i] = 'rejected';
+      if (i) return;
+      out.settled = 'rejected';
+      out.apiError = err instanceof window.MM.api.APIError;
+      out.status = err.status;
+      out.redirect = err.data && err.data.redirect;
+    },
+  );
+}
 setImmediate(() => setImmediate(() => {
   out.href = location.href === start ? null : location.href;
   process.stdout.write(JSON.stringify(out));

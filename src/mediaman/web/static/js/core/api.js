@@ -51,8 +51,10 @@
  *
  * A page holding edits that a redirect would throw away sets
  * ``MM.api.hasUnsavedChanges = () => boolean``. While it returns true a 401
- * or such a redirect shows an error and rejects as an APIError instead of
- * leaving, so the caller's error path runs and the form keeps its values.
+ * or such a redirect first asks whether to leave and lose the edits. A yes
+ * leaves as above; a no (asked once per page, then taken as given) shows an
+ * error and rejects as an APIError, so the caller's error path runs and the
+ * form keeps its values.
  * A redirected read rejects with status 401 (to /login) or 403 (to
  * /force-password-change) and ``.data.redirect`` naming the page.
  *
@@ -170,34 +172,65 @@
           window.location.href = away === '/login' ? loginUrl() : away;
           return new Promise(function () {});
         }
-        if (window.UIFeedback) window.UIFeedback.error(SENT_TO[away].held);
+        return askToLeave(away).then(function (left) {
+          if (left) return new Promise(function () {});
+          return settle(resp, to);
+        });
       }
-      if (to) {
-        var sent = SENT_TO[to];
-        throw new APIError(sent.error, sent.message, sent.status, null, { redirect: to });
+      return settle(resp, to);
+    });
+  }
+
+  /* One question per page each place a redirect leads to, however many reads hit it:
+   * a yes leaves, a no keeps the page, says how to go on, and stands for later reads. */
+  var asked = {};
+  function askToLeave(away) {
+    if (asked[away]) return asked[away];
+    var sent = SENT_TO[away];
+    var ui = window.UIFeedback;
+    var answer = (ui && ui.confirm) ? ui.confirm({
+      title: sent.message,
+      body: 'Leaving now loses the changes you have not saved.',
+      confirmLabel: away === '/login' ? 'Sign in' : 'Change password',
+      confirmVariant: 'danger',
+      cancelLabel: 'Stay',
+      leave: true,
+    }) : Promise.resolve(false);
+    asked[away] = answer.then(function (ok) {
+      if (ok) window.location.href = away === '/login' ? loginUrl() : away;
+      else if (ui) ui.error(sent.held);
+      return ok;
+    });
+    return asked[away];
+  }
+
+  function settle(resp, to) {
+    var status = resp.status;
+    if (to) {
+      var sent = SENT_TO[to];
+      throw new APIError(sent.error, sent.message, sent.status, null, { redirect: to });
+    }
+    return resp.json().catch(function () {
+      /* Non-JSON body (e.g. a 204 No Content). */
+      return {};
+    }).then(function (data) {
+      /* Prefer the server's human-readable .message over the machine code
+       * when surfacing an error message to the user; fall back through
+       * .error → resp.statusText → "HTTP <status>". The .issues array (if
+       * present) is forwarded so the UI can render per-rule failures. */
+      if (!resp.ok) {
+        var errCode = (data && data.error) || ('http_' + status);
+        var errMsg = (data && data.message) || (data && data.error) ||
+                      resp.statusText || ('HTTP ' + status);
+        throw new APIError(errCode, errMsg, status, data && data.issues, data);
       }
-      return resp.json().catch(function () {
-        /* Non-JSON body (e.g. a 204 No Content). */
-        return {};
-      }).then(function (data) {
-        /* Prefer the server's human-readable .message over the machine code
-         * when surfacing an error message to the user; fall back through
-         * .error → resp.statusText → "HTTP <status>". The .issues array (if
-         * present) is forwarded so the UI can render per-rule failures. */
-        if (!resp.ok) {
-          var errCode = (data && data.error) || ('http_' + status);
-          var errMsg = (data && data.message) || (data && data.error) ||
-                        resp.statusText || ('HTTP ' + status);
-          throw new APIError(errCode, errMsg, status, data && data.issues, data);
-        }
-        /* Honour the `{"ok": false}` envelope this codebase uses. */
-        if (data && data.ok === false) {
-          var envCode = data.error || 'request_failed';
-          var envMsg = data.message || data.error || 'Request failed';
-          throw new APIError(envCode, envMsg, status, data.issues, data);
-        }
-        return data;
-      });
+      /* Honour the `{"ok": false}` envelope this codebase uses. */
+      if (data && data.ok === false) {
+        var envCode = data.error || 'request_failed';
+        var envMsg = data.message || data.error || 'Request failed';
+        throw new APIError(envCode, envMsg, status, data.issues, data);
+      }
+      return data;
     });
   }
 
