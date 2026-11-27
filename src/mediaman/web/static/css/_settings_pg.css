@@ -289,6 +289,9 @@
    sensitive-settings password gate. The shared inline drawer pattern
    (.pw-prompt) sits before the fixed savebar and ends up with its action
    row hidden underneath; a centred modal removes the ambiguity. */
+/* Asked for by whatever is open, the pane over Watch or a title's page among them, so it
+   stands over them all like the confirm dialog; :root outranks html.has-ttl .modal-backdrop. */
+:root .modal-backdrop.reauth-backdrop { z-index: var(--z-confirm); }
 .reauth-sheet { max-width: 460px; padding: 28px 28px 24px; }
 .reauth-sheet .reauth-title {
   font-family: var(--font-display);

@@ -42,6 +42,7 @@ class El {
   get src() { return this.attrs.src; }
   removeAttribute(k) { delete this.attrs[k]; }
   focus() {}
+  contains(n) { for (let a = n; a; a = a.parentNode) if (a === this) return true; return false; }
   cloneNode() {
     const copy = new El(this.tagName, this.doc);
     copy.attrs = { ...this.attrs }; copy.className = this.className; copy._text = this._text; copy.hidden = this.hidden;
@@ -123,7 +124,7 @@ function build(pollGet) {
   vm.createContext(ctx);
   const load = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
   doc.getElementById = (id) => (id === 'dl-root' ? root : root.all().find((e) => e.id === id) || null);
-  return { ctx, doc, root, add, load, listeners, fire: (t, e) => (listeners[t] || []).forEach((f) => f(e)) };
+  return { ctx, doc, root, add, load, listeners, fire: (t, e) => (listeners[t] || []).forEach((f) => f({ preventDefault() {}, ...e })) };
 }
 
 const item = (id, extra) => Object.assign({

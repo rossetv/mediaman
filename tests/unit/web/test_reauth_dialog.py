@@ -124,3 +124,67 @@ def test_the_dialog_holds_the_width_of_the_page_s_scrollbar_until_it_closes() ->
 def test_a_closed_dialog_leaves_the_keyboard_on_no_field_of_its_own() -> None:
     # Safari scrolls the page to its end when a field is removed with the keyboard in it
     assert _run("letGo") == {"had": True, "kept": False}
+
+
+def _specificity(selector: str) -> tuple[int, int, int]:
+    ids = len(re.findall(r"#[\w-]+", selector))
+    classes = len(re.findall(r"\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+", selector))
+    tags = len(re.findall(r"(?:^|[\s>+~])([a-z][\w-]*)", selector))
+    return ids, classes, tags
+
+
+def _z_of(selector_matches) -> list[tuple[tuple[int, int, int], int]]:
+    """(specificity, z-index) of every rule outside @media, in any sheet, whose selector picks
+    an element as *selector_matches* says, its token resolved to a number."""
+    tokens = dict(re.findall(r"--(z-[\w-]+):\s*(\d+);", (_CSS / "_tokens.css").read_text()))
+    found = []
+    for sheet in _CSS.glob("*.css"):
+        css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
+        css = re.sub(r"@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", "", css)
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+            z = re.search(r"z-index:\s*(?:var\(--(z-[\w-]+)\)|(\d+))\s*;", body)
+            if not z:
+                continue
+            value = int(tokens[z.group(1)] if z.group(1) else z.group(2))
+            found += [
+                (_specificity(sel.strip()), value)
+                for sel in head.split(",")
+                if selector_matches(sel.strip())
+            ]
+    return found
+
+
+def test_the_dialog_stands_over_the_pane_over_watch_and_a_title_s_page() -> None:
+    # The pane over Watch holds Settings; a save there asks for the password over it.
+    pane = max(_z_of(lambda sel: sel == ".you"))[1]
+
+    def picks_the_backdrop(sel: str) -> bool:
+        *above, last = sel.split()
+        own = set(re.findall(r"\.([\w-]+)", last))
+        return (
+            bool(own)
+            and own <= {"modal-backdrop", "reauth-backdrop"}
+            and re.fullmatch(r"(?:\.[\w-]+)+", last) is not None
+            and all(re.fullmatch(r"html(?:\.has-ttl)?|:root", a) for a in above)
+        )
+
+    rules = _z_of(picks_the_backdrop)
+    top = max(spec for spec, _ in rules)
+    winners = {z for spec, z in rules if spec == top}
+    # one rule wins outright, whatever order the sheets load in, and it is over the pane
+    assert len([1 for spec, _ in rules if spec == top]) == 1
+    assert winners.pop() > pane
+
+
+def test_escape_closes_the_dialog_alone_and_not_the_pane_it_was_opened_over() -> None:
+    assert _run("escape") == {
+        "whileOpen": [True, True],
+        "afterCancel": False,
+        "afterPassword": False,
+    }
+
+
+def test_cancel_lets_the_focus_go_for_the_asker_to_take_back() -> None:
+    # left on Cancel, it would fall to nothing as the dialog goes, and the save bar keeps
+    # only a focus it can see was lost
+    assert _run("cancelLetGo") == {"onBody": True}

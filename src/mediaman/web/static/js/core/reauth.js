@@ -131,17 +131,23 @@
        onClose runs for every route, so a close that is not a success is a cancel. */
     var done = false;
     var closed = false;
+    /* Escape closes this dialog alone: what it was opened over, the pane over Watch among them,
+       leaves an Escape that was already taken. */
+    function escapeTaken(e) { if (e.key === 'Escape') e.preventDefault(); }
+    document.addEventListener('keydown', escapeTaken, true);
     var modal = MM.modal.setupDetail(backdrop, {
       manageBodyOverflow: false, /* _ui_feedback.css holds the page */
       useModalA11y: false,
       onClose: function () {
         if (closed) return;
         closed = true;
+        document.removeEventListener('keydown', escapeTaken, true);
         input.value = '';
         letGo();
         if (opener && opener !== document.body && opener.focus) opener.focus();
-        /* Safari scrolls the page to its end when the field that has the keyboard is removed. */
-        if (document.activeElement === input) input.blur();
+        /* Safari scrolls the page to its end when the field that has the keyboard is removed. Left on
+           Cancel, the focus would go to nothing as the dialog goes, where the asker cannot see it lost. */
+        if (sheet.contains(document.activeElement)) document.activeElement.blur();
         if (closeOpen === modal.close) closeOpen = null;
         /* The exit is 150 ms and the modal gives up waiting for it at 250 ms; 400 is past both. */
         setTimeout(function () { backdrop.remove(); }, 400);

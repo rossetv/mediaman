@@ -32,6 +32,7 @@ class El {
   select() {}
   remove() {}
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
+  contains(el) { return el === this || this.all().includes(el); }
   querySelector(sel) { return this.all().find((e) => e.className.split(/\s+/).includes(sel.slice(1))) || null; }
 }
 
@@ -76,6 +77,18 @@ function open(result) {
 }
 
 const scenarios = {
+  // Escape while the dialog is open, and once it was cancelled or the password was taken: whether
+  // what the dialog was opened over (the pane over Watch) is told it was already taken
+  async escape() {
+    const cancelled = open({ ok: true });
+    const open1 = key('keydown', { key: 'Escape' });
+    cancelled.sheet.querySelector('.btn--ghost').emit('click');
+    const afterCancel = key('keydown', { key: 'Escape' });
+    const accepted = open({ ok: true });
+    const open2 = key('keydown', { key: 'Escape' });
+    await accepted.submit('pw');
+    return { whileOpen: [open1, open2], afterCancel, afterPassword: key('keydown', { key: 'Escape' }) };
+  },
   // the width of the page's scrollbar is held while the dialog is open
   async bar() {
     const root = doc.documentElement;
@@ -206,6 +219,15 @@ const scenarios = {
     const cancel = doc.activeElement.children[0].querySelector('.btn--ghost');
     cancel.emit('click');
     return { restored: doc.activeElement === asker };
+  },
+  // asked by a button that was disabled meanwhile, as a save's is, and Cancel pressed with the keyboard:
+  // whether the focus is left on Cancel, which goes with the dialog, or let go for the asker to take back
+  async cancelLetGo() {
+    doc.activeElement = doc.body;
+    const cancel = open({ ok: true }).sheet.querySelector('.btn--ghost');
+    cancel.focus();
+    cancel.emit('click');
+    return { onBody: doc.activeElement === doc.body };
   },
   // a refusal and an empty password both fade the message in
   async error() {
