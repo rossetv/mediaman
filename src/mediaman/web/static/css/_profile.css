@@ -21,10 +21,13 @@
 .yo-fold > summary { display: flex; justify-content: space-between; width: 100%; padding: 0 14px 0 56px; border-radius: 0; font-size: 14px; color: var(--t2); transition: background-color var(--dur-fast) var(--ease-out); }
 .yo-fold > summary:focus-visible { outline-offset: -2px; }
 .yo-fold__body { padding: 0 14px 14px 56px; font-size: 13px; line-height: 1.4; color: var(--t3); }
-.yo-fold .fold-more-head { margin-top: 10px; font-weight: 600; color: var(--t2); }
+.yo-fold .fold-more-head { margin: 14px 0 4px; font-size: 12px; font-weight: 500; color: var(--t3); }
 .yo-fold .fold-more-head:first-child { margin-top: 0; }
-.yo-fold .fold-more-list li + li { margin-top: 4px; }
-.yo-fold__note { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--hair); }
+.yo-fold .fold-more-list { margin: 0; padding: 0; list-style: none; color: var(--t2); }
+.yo-fold .fold-more-list li { position: relative; padding-left: 14px; }
+.yo-fold .fold-more-list li::before { content: ""; position: absolute; top: .6em; left: 2px; width: 4px; height: 4px; border-radius: 50%; background: var(--t4); }
+.yo-fold .fold-more-list li + li { margin-top: 3px; }
+.yo-fold__note { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--hair); }
 .yo-mini { flex: none; min-height: 32px; padding: 0 12px; border-radius: var(--r-pill); font-size: 13px; font-weight: 500; color: var(--t1); background: var(--s4); transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .yo-note { margin: 0; font-size: 13px; line-height: 1.45; color: var(--t3); }
 .yo-note--center { text-align: center; }
