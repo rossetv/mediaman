@@ -19,6 +19,14 @@
 .making-reel__rim { fill: none; stroke: currentColor; stroke-width: 2; }
 .making-reel__hole,
 .making-reel__hub { fill: currentColor; }
+.ai-star-lg { animation: var(--ai-twinkle-lg, none); }
+.ai-star-sm { animation: var(--ai-twinkle-sm, none); }
+.ai-star-lg, .ai-star-sm { transform-box: fill-box; transform-origin: center; }
+.ai-label { position: relative; }
+.ai-label::before {
+  content: ""; position: absolute; left: 7px; top: 50%; width: 12px; height: 12px; margin-top: -6px;
+  border-radius: 50%; background: currentColor; filter: blur(5px); opacity: 0; pointer-events: none;
+}
 .rec-line.is-making .row-tool.is-busy { color: var(--t2); }
 
 @media (min-width: 700px) {
@@ -40,12 +48,20 @@
   .making-reel__hole:nth-child(4) { animation-delay: -.9s; }
   .making-reel__hole:nth-child(5) { animation-delay: -.6s; }
   .making-reel__hole:nth-child(6) { animation-delay: -.3s; }
-  .rec-line.is-making > .ai-label > .ico { animation: making-twinkle 2.6s ease-in-out infinite; }
-  .rec-line:has(> .making.is-end) > .ai-label > .ico { animation: making-sparkle .9s .2s var(--ease-out); }
+  .rec-line.is-making > .ai-label > .ico {
+    --ai-twinkle-lg: ai-twinkle-big 1.2s ease-in-out infinite;
+    --ai-twinkle-sm: ai-twinkle-small 1.2s ease-in-out infinite;
+  }
+  .rec-line.is-making > .ai-label::before { animation: ai-twinkle-glow 1.2s ease-in-out infinite; }
+  .rec-line:has(> .making.is-end) > .ai-label > .ico {
+    --ai-twinkle-lg: ai-twinkle-big .9s .2s ease-in-out;
+    --ai-twinkle-sm: ai-twinkle-small .9s .2s ease-in-out;
+  }
 }
 /* A still reel says nothing: it fades instead, as the other spinners do. */
 @media (prefers-reduced-motion: reduce) {
   .making-reel { animation: loading-pulse 2.4s ease-in-out infinite !important; }
+  .rec-line.is-making > .ai-label > .ico { animation: ai-twinkle-pulse 2.4s ease-in-out infinite !important; }
 }
 @keyframes making-in { from { opacity: 0; transform: translateY(7px); } }
 @keyframes making-out { to { opacity: 0; transform: translateY(-7px); } }
@@ -53,13 +69,9 @@
   0% { opacity: 0; transform: translateY(7px) scale(.96); }
   60% { opacity: 1; transform: translateY(-1px) scale(1.02); }
 }
-@keyframes making-sparkle {
-  35% { transform: scale(1.45) rotate(14deg); }
-  65% { transform: scale(.94) rotate(-4deg); }
-}
 @keyframes making-hole { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
-@keyframes making-twinkle {
-  0%, 100% { opacity: 1; transform: none; }
-  30% { opacity: .5; transform: scale(.86) rotate(-8deg); }
-  62% { opacity: 1; transform: scale(1.14) rotate(5deg); }
-}
+/* The big star and the small ones glow and swell in turn. */
+@keyframes ai-twinkle-big { 0%, 100% { opacity: .55; transform: scale(.88); } 40% { opacity: 1; transform: scale(1.18); } }
+@keyframes ai-twinkle-small { 0%, 100% { opacity: .5; transform: scale(.8); } 40% { opacity: .5; transform: scale(.8); } 75% { opacity: 1; transform: scale(1.3); } }
+@keyframes ai-twinkle-glow { 0%, 100% { opacity: 0; transform: scale(.7); } 40% { opacity: .35; transform: scale(1.2); } }
+@keyframes ai-twinkle-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }

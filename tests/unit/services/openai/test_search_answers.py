@@ -329,3 +329,34 @@ def test_a_plain_question_uses_their_taste_only_to_choose(model, monkeypatch):
 )
 def test_a_question_about_the_asker_is_personal(text, personal):
     assert is_personal(text) is personal
+
+
+def test_an_answer_carries_the_short_heading_the_model_gave_it(model, monkeypatch):
+    model["items"] = [_item(NAMES[0]), {"kind": "heading", "text": "Heists worth your time"}]
+    _check_with(monkeypatch, lambda item, at: _found(item, at + 1))
+    assert _answer()["heading"] == "Heists worth your time"
+
+
+@pytest.mark.parametrize(
+    "heading",
+    ["x" * 61, "Read more at https://example.test", "<b>Heists</b>", 42],
+)
+def test_a_heading_that_may_not_be_shown_is_left_out(model, monkeypatch, heading):
+    model["items"] = [_item(NAMES[0]), {"kind": "heading", "text": heading}]
+    _check_with(monkeypatch, lambda item, at: _found(item, at + 1))
+    assert _answer()["heading"] is None
+
+
+def test_an_answer_with_no_title_has_no_heading(model, monkeypatch):
+    model["items"] = [_item(NAMES[0]), {"kind": "heading", "text": "Heists worth your time"}]
+    _check_with(monkeypatch, lambda item, at: None)
+    assert _answer()["heading"] is None
+
+
+def test_a_question_that_names_a_title_sends_both_and_asks_for_more_like_it(model, monkeypatch):
+    _check_with(monkeypatch, lambda item, at: None)
+    _answer(Question(text="similar to alibi", like="Alibi", like_year=2019, like_key=("movie", 2)))
+
+    before, data = _block(model["prompts"][-1])
+    assert (data["question"], data["title"], data["year"]) == ("similar to alibi", ["Alibi"], 2019)
+    assert '"title"' in before and '"question"' in before

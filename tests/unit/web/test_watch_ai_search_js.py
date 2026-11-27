@@ -18,64 +18,92 @@ def _run(scenario: str, harness: str = "watch_search_harness.js") -> dict:
     return json.loads(result.stdout)
 
 
-def test_similar_to_names_the_title_and_shows_tmdbs_like_it_before_the_ai_is_asked() -> None:
+def test_similar_to_finds_the_title_it_names_and_holds_the_answers_place_under_it() -> None:
     out = _run("similar")
     assert "/api/watch/similar?q=90%20days%20fiance" in out["asked"]
     # The plain search is for the title named, not for the words around it.
     assert "/api/watch/search?q=90%20days%20fiance" in out["asked"]
-    offered = out["offered"]
-    assert offered["head"].startswith("Because you like 90 Day Fiancé")
-    assert offered["face"] is True
-    assert offered["cards"] == ["Love Is Blind", "Married at First Sight"]
+    waiting = out["waiting"]
+    assert waiting["head"].startswith("Ask AI: “similar to 90 days fiance”")
+    assert (waiting["because"], waiting["face"]) == ("90 Day Fiancé", True)
+    # Outlines hold the answer's place; nothing is shown that the AI did not pick.
+    assert (waiting["cards"], waiting["outlines"]) == ([], 10)
 
 
-def test_while_the_ai_looks_tmdbs_titles_stay_with_outlines_and_each_step_is_said() -> None:
+def test_similar_to_is_asked_as_any_question_with_the_title_it_names() -> None:
+    assert _run("similar")["sent"] == [
+        {
+            "q": "similar to 90 days fiance",
+            "like": {"tmdb_id": 70, "kind": "tv", "title": "90 Day Fiancé"},
+        }
+    ]
+
+
+def test_a_question_naming_a_title_is_asked_once_that_title_is_known_and_once_only() -> None:
+    out = _run("similarWaits")
+    like = {"tmdb_id": 70, "kind": "tv", "title": "90 Day Fiancé"}
+    assert out["found"] == [0, [{"q": "similar to 90 days fiance", "like": like}]]
+    # Found in the library, it is named by its TMDB id all the same; with none known, or not
+    # found at all, it is asked in words alone.
+    assert out["held"] == [0, [{"q": "similar to 90 days fiance", "like": like}]]
+    assert out["heldUnknown"] == [0, [{"q": "similar to 90 days fiance"}]]
+    assert out["failed"] == [0, [{"q": "similar to 90 days fiance"}]]
+
+
+def test_while_the_ai_looks_its_outlines_hold_the_place_and_each_step_is_said() -> None:
     out = _run("similar")
     thinking = out["thinking"]
-    assert thinking["head"] == "Because you like 90 Day Fiancé | Reading what you watch…"
-    assert thinking["cards"] == ["Love Is Blind", "Married at First Sight"]
-    assert thinking["outlines"] > 0
+    assert thinking["kicker"] == "AI is looking"
+    assert thinking["head"] == "Shows like 90 Day Fiancé | Reading what you watch…"
+    assert (thinking["cards"], thinking["outlines"]) == ([], 10)
     assert out["choosing"].endswith("Choosing titles…")
-    assert out["checking"].endswith("Checking the details…")
+    assert out["checking"].endswith("Checking each one is real…")
 
 
-def test_the_ais_picks_merge_in_marked_once_each_and_never_the_title_named() -> None:
+def test_the_answer_is_one_grid_of_picks_ready_ones_first_never_the_title_named() -> None:
     answered = _run("similar")["answered"]
-    # Those already shown keep their places; the AI's own come after them.
+    assert answered["kicker"] == "AI picks"
+    assert (
+        answered["head"]
+        == "Reality romance worth your time | 3 titles · 1 ready to watch, 2 to download"
+    )
+    assert answered["because"] == "90 Day Fiancé"
     assert answered["cards"] == [
-        "Love Is Blind",
-        "*Married at First Sight (The same leap of faith.)",
         "*Nine Locks (The vault opens first time.)",
+        "*Married at First Sight (The same leap of faith.)",
         "*<b>Thunder</b> (<img src=x onerror=alert(1)>)",
     ]
-    assert answered["groups"] == ["Not in your library", "AI picks"]
     assert answered["outlines"] == 0
 
 
 def test_a_title_nothing_names_leaves_the_ais_answer_alone() -> None:
     out = _run("similarUnnamed")
-    assert out["offered"]["head"].startswith("Ask AI: “similar to zzz qqq”")
+    assert out["waiting"]["head"].startswith("Ask AI: “similar to zzz qqq”")
+    assert out["waiting"]["because"] is None
+    assert out["sent"] == [{"q": "similar to zzz qqq"}]
     assert out["answered"]["cards"] == [
         "*Nine Locks (The vault opens first time.)",
         "*<b>Thunder</b> (<img src=x onerror=alert(1)>)",
     ]
 
 
-def test_without_the_ai_the_title_named_and_its_like_show_with_why_there_are_no_ai_picks() -> None:
+def test_without_the_ai_an_admin_is_told_what_it_needs_and_a_viewer_nothing() -> None:
     out = _run("similarNoAi")
-    for who in ("admin", "noKey", "viewer"):
-        assert out[who]["cards"] == ["Love Is Blind"]
-        assert out[who]["enter"] == 0
-    assert out["admin"]["note"].startswith("AI picks: OpenAI refused the key.")
-    assert out["admin"]["link"] == "/settings#intg-openai"
-    for who in ("noKey", "viewer"):
-        assert (out[who]["note"], out[who]["link"]) == (None, None)
+    for who in ("admin", "noKey", "off", "viewer"):
+        assert (out[who]["cards"], out[who]["enter"]) == ([], 0)
+    assert out["admin"]["head"] == "OpenAI refused the key | Check it in the OpenAI card."
+    assert out["noKey"]["head"].startswith("AI could answer this")
+    for who in ("admin", "noKey"):
+        assert out[who]["link"] == "/settings#intg-openai"
+    # Switched off on purpose it is no news; a viewer has nothing to set.
+    for who in ("off", "viewer"):
+        assert (out[who]["shown"], out[who]["head"]) == (False, None)
 
 
 def test_no_title_having_the_words_is_said_only_once_the_ai_is_done() -> None:
     out = _run("pendingQuiet")
-    assert out["thinking"] == [False, False]
-    assert out["answered"] == ["No title has these words in its name.", True]
+    assert out["thinking"] is False
+    assert out["answered"] == "No title has these words in its name."
 
 
 def test_each_way_an_answer_fails_has_a_way_on() -> None:
@@ -84,14 +112,12 @@ def test_each_way_an_answer_fails_has_a_way_on() -> None:
     assert "Open the OpenAI card -> /settings#intg-openai" in out["keyAdmin"]["ways"]
     assert out["keyViewer"]["head"].startswith("AI isn’t available right now")
     assert not any("settings" in w for w in out["keyViewer"]["ways"])
-    assert out["offAdmin"]["head"].startswith("AI needs an OpenAI key")
-    assert out["late"]["head"].startswith("The answer didn’t arrive")
+    assert out["offAdmin"]["head"].startswith("AI could answer this")
+    assert out["late"]["head"].startswith("AI couldn’t answer just now")
     assert out["nothing"]["ways"][0] == "a reality dating show"
     for way in out.values():
         assert "Search for “90 days fiance”" in way["ways"]
         assert way["search"] == "90 days fiance"
-        # What TMDB found like it stays.
-        assert way["cards"] == ["Love Is Blind"]
 
 
 def test_an_ai_picks_why_is_in_its_preview_and_goes_to_its_page() -> None:

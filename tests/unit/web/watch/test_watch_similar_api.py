@@ -150,3 +150,13 @@ def test_similar_without_tmdb_says_so(viewer, no_tmdb, arr):
     body = viewer.get("/api/watch/similar", params={"q": "anything"}).json()
 
     assert (body["tmdb_configured"], body["title"]) == (False, None)
+
+
+def test_the_title_named_says_its_tmdb_id_even_when_it_is_the_librarys(viewer, library, paths, arr):
+    paths.answers["/search/multi", "90 day fiance"] = [FIANCE]
+
+    held = viewer.get("/api/watch/similar", params={"q": "the glasshouse"}).json()["title"]
+    tmdbs = viewer.get("/api/watch/similar", params={"q": "90 day fiance"}).json()["title"]
+
+    assert (held["ref"], held["tmdb_id"]) == ("movie-100", 11)
+    assert (tmdbs["ref"], tmdbs["tmdb_id"]) == ("tmdb-tv-70", 70)

@@ -225,7 +225,7 @@ def test_single_shadow_token():
                 continue
             # Status-dot / focus-ring style glows and hairline rings: zero offset. These are
             # light effects, not elevation.
-            is_glow = bool(re.match(r"0 0 \d+(px)? ", layer))
+            is_glow = bool(re.match(r"(inset )?0 0 \d+(px)? ", layer))
             # The dl-hero poster uses a single bespoke deep drop because the
             # backdrop blur already provides the room-level lift.
             is_hero_poster = "rgba(0,0,0,.6) 0 20px 40px" in layer

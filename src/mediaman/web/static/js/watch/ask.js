@@ -1,6 +1,7 @@
 /* Watch: Ask AI. What the search panel knows of the AI (whether there is one, the person's
- * recent searches and phrases), their questions, and a question's place on the page: the row
- * that offers it, the wait, the titles that answer it and the ways to narrow them.
+ * recent searches and phrases, how many answers they have left), what reads as a wish, their
+ * questions, and a question's place on the page: the outlines that hold it, the wait, the
+ * titles that answer it and the ways to narrow them.
  * A question belongs to the page, not to what shows it: it goes on while another is looked at
  * or the bar is closed, and is drawn where it is asked for again. One is asked at a time; a
  * newer one stops the one before. Nothing is built with innerHTML: every word comes from the
@@ -27,6 +28,7 @@
   var STORE = 'mm.watch.ask'; // of this tab: what was asked and the run begun last, with whose they are
   var LIKES = 20; // pages of titles like one it remembers
   var LONGEST = 200; // of a question, as the server takes it
+  var LOW = 3; // answers left at which a wish waits for Return
 
   function tidy(text) { return String(text || '').replace(/\s+/g, ' ').trim().slice(0, LONGEST).trim(); }
 
@@ -34,9 +36,47 @@
     return tidy(text).split(' ').filter(function (word) { return /[\p{L}\p{N}]/u.test(word); }).length;
   }
 
+  /* ── What reads as a wish ── */
+
+  // Always a wish, even over a title of the same words.
+  var STRONG = /^(?:something|anything|shows?|films?|movies?|series|tv|documentar(?:y|ies)|anime)\s+(?:like|similar to)\b|\b(?:similar to|more like|close to|in the mood for|recommend|suggest|what (?:should|to|can)|to watch|i want|i'?m in the mood|for (?:kids|a date|date night|a rainy|tonight|a long|a short)|but (?:funnier|darker|shorter|lighter|scarier|sadder|newer|older|less|more|with|without|set))\b|\?\s*$/i;
+  // A wish where no title has the words: a kind, a mood, a maker, a place or a time.
+  var CUES = /\b(?:movies|films|shows|series|documentaries|docs|sitcoms|thrillers|comedies|dramas|westerns|musicals|originals|classics|miniseries|anime|horror|feel[- ]?good|funny|cosy|cozy|dark|underrated|mind[- ]?bending|slow[- ]?burn|netflix|hbo|apple tv|disney|pixar|a24|ghibli|marvel|bbc|nordic|korean|french|japanese|\d0s|(?:19|20)\d\d)\b/i;
+  var JOINS = /\b(?:with|about|where|that|who|set in|without|not)\b/;
+  // Ends in a word that waits for more: "shows like", "movies with".
+  var TAIL = /\b(?:similar to|like|with|without|but|and|or|for|of|the|a|an|about|than|from|set in|in)\s*$/;
+
+  function plainWords(text) { return tidy(text).toLowerCase().replace(/[^\p{L}\p{N}'\s]+/gu, ' ').replace(/\s+/g, ' ').trim(); }
+
+  // A title's words as they are matched: no accents, apostrophes or leading "the".
+  function titleWords(text) { return plainWords(text).normalize('NFD').replace(/[\p{M}']/gu, '').replace(/^the /, ''); }
+
+  /* Whether *text* is one of *names*, the titles a search found: the whole of one, its start, or
+     one followed by a year or a number ("dune 2021", "spy kids 2"). */
+  function titled(text, names) {
+    var typed = titleWords(text);
+    if (!typed) return false;
+    var numbered = /^(.+) \d{1,4}$/.exec(typed);
+    return (names || []).some(function (name) {
+      var whole = titleWords(name);
+      return !!whole && (whole.indexOf(typed) === 0 || (!!numbered && numbered[1] === whole));
+    });
+  }
+
+  /* Whether *text* reads as a wish for titles, and whether it is whole enough to ask. *exact*: it
+     is a title the search found (see titled), so only a strong cue makes it a wish. */
+  function intent(text, exact) {
+    var n = plainWords(text);
+    var words = n ? n.split(' ') : [];
+    var wish = STRONG.test(tidy(text)) || (!exact && words.length >= 2 && CUES.test(n)) ||
+      (!exact && words.length >= 6 && JOINS.test(n));
+    wish = wish && words.length >= 2 && n.replace(/[\s']/g, '').length >= 6;
+    return { wish: wish, ready: wish && !TAIL.test(n) };
+  }
+
   /* ── What the panel knows ── */
 
-  var state = null; // { account, available, tonight, records, recent, phrases, min_words }
+  var state = null; // { account, available, tonight, records, recent, phrases, left, auto, why }
   var loading = null;
   var wipes = 0; // times the searches were forgotten
   var pageLeft = false; // the page is being left for the next person's
@@ -56,7 +96,9 @@
         records: data.records === true,
         recent: data.recent || [],
         phrases: data.personal && data.phrases ? data.phrases : [],
-        min_words: data.min_words || 3,
+        // Answers left today: a number, or none known. Asking on its own is on unless switched off.
+        left: typeof data.left === 'number' ? data.left : null,
+        auto: data.auto !== false,
         why: data.why || null // why there is no AI, where there is none
       };
       if (available() !== was) sayAvailable();
@@ -94,14 +136,30 @@
 
   function available() { return !!state && state.available; }
 
-  function fits(text) { return available() && wordCount(text) >= state.min_words; }
+  /* Whether *text* reads as a wish the AI is there to answer. */
+  function fits(text, exact) { return available() && intent(text, exact).wish; }
 
-  /* Whether *text* is what the AI would be asked, were it on: a question, or "similar to …". */
-  function shaped(text) { return !!state && (wordCount(text) >= state.min_words || !!similarOf(text)); }
+  /* Whether the AI may be asked *text* at all, wish or not, when the person asks for it: a word is
+     enough then. Asking on its own takes a wish, of two words or more. */
+  function canAsk(text) { return available() && wordCount(text) >= 1; }
 
-  /* Whether the AI is set up and fails, which an admin is told of before asking: never set up or
-     switched off, it is no news on every question. Only an admin is told why. */
-  function failing() { return !available() && !!state && (state.why === 'refused' || state.why === 'no_tmdb'); }
+  /* What a reply says of the answers left today; with nothing said, a run begun has spent one. */
+  function told(left, begun) {
+    if (!state) return;
+    if (typeof left === 'number') state = Object.assign({}, state, { left: left });
+    else if (begun && state.left !== null) state = Object.assign({}, state, { left: Math.max(0, state.left - 1) });
+  }
+
+  /* Whether a wish is asked once the person pauses: they have not switched it off, and it leaves
+     them a few answers of the day to ask for themselves. */
+  function autoOk() { return available() && state.auto && !(state.left !== null && state.left <= LOW); }
+
+  /* Whether *text* would be a wish, were the AI on. */
+  function shaped(text, exact) { return !!state && intent(text, exact).wish; }
+
+  /* Whether an admin is told, under a wish, what the AI needs: never switched off, which is no news
+     on every question. */
+  function failing() { return !available() && !!state && /^(no_key|refused|no_tmdb)$/.test(state.why || ''); }
 
   function same(a, b) { return tidy(a).toLowerCase() === tidy(b).toLowerCase(); }
 
@@ -197,6 +255,9 @@
       narrowing: false, slow: false, waiting: false, note: '', refused: null,
       stage: '', // the step of its answer the server is at
       like: kind === 'ask' ? similarOf(value) : '', // what "similar to …" names
+      top: null, // the title the search found under its words, named as the one the person likes
+      heading: '', // the AI's few words for its answer
+      halted: false, // stopped by the person: not asked again on its own
       base: null, shown: null, chips: [], instead: []
     };
     if (name) item.name = name;
@@ -251,7 +312,14 @@
     if (item.state === 'thinking') item.state = 'new';
   }
 
-  function stop(item) { if (going && going.item === item) leave(); }
+  /* The person stops it: it is not asked again until they ask. */
+  function stop(item) {
+    item.halted = true;
+    if (going && going.item === item) leave();
+  }
+
+  /* Whether *item* is being asked. */
+  function asking(item) { return !!going && going.item === item; }
 
   function pause(g, ms) {
     return new Promise(function (resolve) {
@@ -261,20 +329,25 @@
   }
 
   /* Ask it, or for it narrowed by *chip*, which is words of its own answer. *over* is the run
-     of another tab whose place it takes. */
-  function start(item, chip, over) {
+     of another tab whose place it takes; *auto*: the page asks it, as the person paused;
+     *fresh*: other titles than its answer's, asked for by the person. A question that names a
+     title is asked once that title is found, with it. */
+  function start(item, chip, over, auto, fresh) {
     chip = chip || '';
     remember(item);
     leave();
-    var g = going = { item: item, chip: chip, left: false, timer: null, slow: null, wake: null };
+    var g = going = { item: item, chip: chip, auto: !!auto && !chip && !fresh, fresh: !!fresh, left: false, timer: null, slow: null, wake: null };
     g.posted = inTime(leaving).then(function () {
       return over && !g.left ? inTime(endRun(over)) : null;
-    }).then(function () { return post(g, STOPPING_TRIES); });
+    }).then(function () { return item.like && !g.left ? lookSimilar(item) : null; })
+      .then(function () { return post(g, STOPPING_TRIES); });
+    item.halted = false;
     item.pressed = chip;
     item.note = '';
     item.refused = null;
     item.stage = '';
-    if (chip) item.narrowing = true;
+    // Other picks are looked for over the answer, which stays, dimmed, with its chips.
+    if (chip || fresh) item.narrowing = true;
     else item.state = 'thinking';
     changed(item);
     g.slow = setTimeout(function () {
@@ -288,8 +361,13 @@
     if (g.left) return null;
     var item = g.item;
     var body = item.kind === 'like' ? { ref: item.value } : { q: item.value };
+    var like = likeOf(item);
+    if (like) body.like = like;
+    if (g.auto) body.auto = true;
     if (g.chip) body.refine = g.chip;
+    if (g.fresh) body.fresh = true;
     return send('post', '/' + item.kind, body).then(function (data) {
+      told(data.left, data.status === 'running');
       if (data.status !== 'running') {
         if (!g.left) done(g, data);
         return null;
@@ -325,11 +403,12 @@
     g.timer = setTimeout(function () {
       MM.api.get(URL + '/runs/' + run).then(function (data) {
         if (g.left) return;
+        told(data.left, false);
         if (data.status === 'done') done(g, data);
         else if (data.status === 'running') {
           var more = (data.owned || []).length + (data.others || []).length;
           // What is checked already shows, the rest outlined after it. A narrowing keeps the answer it narrows.
-          if (!g.chip && more > titles(g.item).length) {
+          if (!g.chip && !g.fresh && more > titles(g.item).length) {
             g.item.shown = { owned: data.owned || [], others: data.others || [], lead: data.lead };
             g.item.stage = data.stage || g.item.stage;
             changed(g.item);
@@ -367,13 +446,14 @@
     if (!g.chip) {
       item.base = item.shown;
       item.instead = data.instead || [];
-      // What already stands on the page keeps its place: the later of the two comes after it.
-      var found = looked(item);
-      item.foundFirst = !!named(item) && found.items.length > 0;
+      item.heading = tidy(data.heading);
     }
     item.state = g.chip || titles(item).length ? 'answer' : 'nothing';
     changed(item);
   }
+
+  /* Whether other picks than the answer's are being looked for. */
+  function renewing(item) { return !!going && going.item === item && going.fresh; }
 
   /* Narrow the answer by *chip*; by the one it is narrowed by already, back to all of it. */
   function narrow(item, chip) {
@@ -409,9 +489,8 @@
     }
     if (code === 'limit') {
       return {
-        title: limit === null ? 'You’ve asked all your questions for today'
-          : 'You’ve asked ' + limit + (limit === 1 ? ' question today' : ' questions today'),
-        text: 'You can ask again' + (resets(data.resets_at) || ' tomorrow') + '. ' + search
+        title: limit === null ? 'That’s today’s AI answers' : 'That’s today’s ' + limit + (limit === 1 ? ' AI answer' : ' AI answers'),
+        text: 'They come back' + (resets(data.resets_at) || ' tomorrow') + '. ' + search
       };
     }
     if (code === 'limit_everyone') {
@@ -433,19 +512,30 @@
     if (code === 'too_many_requests') {
       return { title: 'That was a lot at once', text: 'Wait a minute, then ask again.', again: 'Try again' };
     }
-    if (code === 'too_short') return { title: 'Ask with a few more words', text: 'Three or more say what you want.' };
-    return { title: 'The answer didn’t arrive', text: 'Your question is still here.', again: 'Try again' };
+    if (code === 'too_short') return { title: 'Ask with a few more words', text: 'Two or more say what you want.' };
+    return { title: 'AI couldn’t answer just now', text: search, again: 'Try again' };
   }
 
   function refuse(g, err) {
     var item = g.item;
-    var why = reason(err, item.kind);
+    var code = err && err.error;
     ended(g);
+    // Asked on its own, and switched off on another device since, too few answers left, or another
+    // tab's run going: it waits for Return, and says nothing of it.
+    if (g.auto && /^(auto_off|auto_low|running)$/.test(code || '')) {
+      if (code === 'auto_off' && state) state = Object.assign({}, state, { auto: false });
+      if (code === 'auto_low' && state && !(state.left !== null && state.left <= LOW)) state = Object.assign({}, state, { left: LOW });
+      item.halted = true;
+      changed(item);
+      return;
+    }
+    if (code === 'limit' && state) state = Object.assign({}, state, { left: 0 });
+    var why = reason(err, item.kind);
     if (why.off && state) {
       state = Object.assign({}, state, { available: false });
       sayAvailable();
     }
-    if (g.chip) {
+    if (g.chip || g.fresh) {
       item.note = err && err.error === 'not_found' ? 'This answer is too old to narrow. Ask again for a new one.'
         : why.title + '. ' + why.text;
     } else {
@@ -470,55 +560,37 @@
     return Math.floor(minutes / 60) + ' h' + (minutes % 60 ? ' ' + minutes % 60 + ' min' : '');
   }
 
-  function mark() {
-    var node = el('span', 'ask__mark');
+  function orb(icon) {
+    var node = el('span', 'ask__orb');
     node.setAttribute('aria-hidden', 'true');
-    node.appendChild(MM.dom.icon('i-sparkles'));
+    node.appendChild(icon ? MM.dom.icon(icon) : core.sparkle());
     return node;
   }
 
-  /* The poster of the title the others are like, in the mark's place. */
-  function face(url) {
-    var node = el('span', 'ask__mark ask__mark--art');
-    node.setAttribute('aria-hidden', 'true');
-    node.appendChild(MM.dom.icon('i-sparkles'));
-    var src = safePath(url);
+  /* "Because you like" the title a question names, with its poster. */
+  function because(like) {
+    var node = el('span', 'ask__because');
+    var pic = node.appendChild(el('span', 'ask__because-pic'));
+    pic.setAttribute('aria-hidden', 'true');
+    var src = safePath(like.poster_url);
     if (src) {
-      var img = el('img');
+      var img = pic.appendChild(el('img'));
       img.src = src;
       img.alt = '';
       img.setAttribute('data-broken-on-error', '');
-      node.appendChild(img);
     }
+    node.appendChild(el('span', '', 'Because you like'));
+    node.appendChild(el('b', '', like.title));
     return node;
   }
 
-  function words(title, text) {
-    var node = el('span', 'ask__words');
-    node.appendChild(el('b', '', title));
-    node.appendChild(el('small', '', text));
-    return node;
-  }
-
-  /* What is asked, or what became of it, over the answer; *pic* stands in the mark's place. */
-  function head(title, text, after, pic) {
-    var node = el('div', 'ask__row');
-    node.tabIndex = -1;
-    node.appendChild(pic || mark());
-    var said = words(title, text);
-    said.classList.add('ask__swapin');
-    node.appendChild(said);
-    if (after) node.appendChild(after);
-    return node;
-  }
-
-  /* ── The title a search names, and those like it ── */
+  /* ── The title a search names ── */
 
   var SIMILAR_URL = '/api/watch/similar?q=';
   // A bare "like …" is a title's own words as often as not ("Like Crazy"): it is searched for as it is.
   var SIMILAR_RE = /^(?:(?:(?:something|anything|shows?|films?|movies?|series|titles?)\s+)?(?:(?:similar|close)\s+to|more\s+like)|(?:something|anything|shows?|films?|movies?|series|titles?)\s+like)\s+(.+)$/i;
   var LOOKS = 20; // titles named that the page remembers
-  var looks = new Map(); // by what was named: { state: loading or ok, title, items }
+  var looks = new Map(); // by what was named: { state: loading or ok, title, ready }
 
   /* What "similar to …" or "more like …" names, or ''. */
   function similarOf(text) {
@@ -528,37 +600,49 @@
 
   function looked(item) { return item.like ? looks.get(item.like.toLowerCase()) || null : null; }
 
-  /* The title *item* names, once TMDB has told it: { ref, library_ref, title, kind, year, poster_url }. */
+  /* The title *item* names, once TMDB has told it, or the one its words are the name of:
+     { ref, library_ref, title, kind, year, poster_url }. */
   function named(item) {
     var found = looked(item);
-    return found && found.state === 'ok' ? found.title : null;
+    return found && found.state === 'ok' ? found.title : item.top || null;
   }
 
-  /* Ask for what *item* names and the titles like it, once for each name. One that failed is asked again. */
+  /* Find what *item* names, once for each name; one that failed is looked for again. Settles
+     once it is known, found or not. */
   function lookSimilar(item) {
     var key = item.like && item.like.toLowerCase();
-    if (!key || looks.has(key)) return;
-    var found = { state: 'loading', title: null, items: [] };
+    if (!key) return Promise.resolve();
+    if (looks.has(key)) return looks.get(key).ready;
+    var found = { state: 'loading', title: null };
     looks.set(key, found);
     if (looks.size > LOOKS) looks.delete(looks.keys().next().value);
-    MM.api.get(SIMILAR_URL + encodeURIComponent(item.like)).then(function (data) {
+    found.ready = MM.api.get(SIMILAR_URL + encodeURIComponent(item.like)).then(function (data) {
       found.state = 'ok';
       found.title = data.title || null;
-      found.items = data.items || [];
     }, function () {
       looks.delete(key);
     }).then(function () {
       views.forEach(function (v) { if (v.item && v.item.like && v.item.like.toLowerCase() === key) v.draw(); });
     });
+    return found.ready;
+  }
+
+  /* The title named, as the server takes it: by its TMDB id. With none known, its question
+     names it in words alone. */
+  function likeOf(item) {
+    var t = named(item);
+    if (!t) return null;
+    if (typeof t.tmdb_id === 'number' && t.tmdb_id > 0) return { tmdb_id: t.tmdb_id, kind: t.kind === 'movie' ? 'movie' : 'tv', title: t.title };
+    var ref = /^tmdb-(movie|tv)-([0-9]{1,10})$/.exec(t.tmdb_ref || t.ref || '');
+    return ref ? { tmdb_id: Number(ref[2]), kind: ref[1], title: t.title } : null;
   }
 
   /* ── The titles shown ── */
 
-  var WAITING = 8; // poster outlines while the AI looks
-  var WAITING_AFTER = 4; // of them after titles already shown
+  var WAITING = 10; // poster outlines that hold the answer's place: one row of them shows
   var STAGGER_MS = 35;
-  var BELOW_PX = 120; // of the screen's foot, where a heading is too low to be seen with its titles
-  var STAGES = { taste: 'Reading what you watch…', choosing: 'Choosing titles…', checking: 'Checking the details…' };
+  var LONG_Q = 48; // a question longer than this is said again under the AI's heading for it
+  var STAGES = { taste: 'Reading what you watch…', choosing: 'Choosing titles…', checking: 'Checking each one is real…' };
 
   function titles(item) { return item.shown ? item.shown.owned.concat(item.shown.others) : []; }
 
@@ -567,46 +651,33 @@
   // Of the library, or downloaded and on its way to it.
   function isHeld(t) { return window.MMWatch.search.isHeld(t); }
 
-  /* What the grid holds: [{ t, ai, why, lead, late }]. The titles like the one named and the AI's picks:
-     those of the two that came first, where they stand, then the rest of the other, *late*. One the AI
-     picked of the titles like it is its pick, *why* it picked it. *phase* is the question's. */
-  function picks(item, phase) {
+  /* The AI's picks, those ready to watch first, never the title the question names. */
+  function picks(item) {
     var like = named(item);
-    var found = like && !item.chip ? looked(item).items : [];
-    var ai = phase === 'answer' || phase === 'thinking' ? titles(item) : [];
-    var aiFirst = ai.length > 0 && !item.foundFirst;
-    var chosen = new Map();
-    ai.forEach(function (t) { chosen.set(t.ref, t); });
-    var seen = new Set();
-    var all = [];
-    function add(t, pick, late) {
-      if (seen.has(t.ref)) return;
-      seen.add(t.ref);
-      all.push({ t: t, ai: !!pick, why: (pick && pick.reason) || '', lead: (pick && pick.reason_lead) || '', late: late });
-    }
-    function addFound() { found.forEach(function (t) { add(t, chosen.get(t.ref), aiFirst); }); }
-    if (!aiFirst) addFound();
-    ai.forEach(function (t) {
-      var itself = like && (t.ref === like.ref || (!!like.library_ref && t.library_ref === like.library_ref));
-      if (!itself) add(t, t, !aiFirst && found.length > 0);
+    var all = titles(item).filter(function (t) {
+      return !(like && (t.ref === like.ref || (!!like.library_ref && t.library_ref === like.library_ref)));
     });
-    if (aiFirst) addFound();
-    return all;
+    return all.filter(isHeld).concat(all.filter(function (t) { return !isHeld(t); }));
   }
 
-  function count(item, phase) {
-    var all = picks(item, phase);
-    var held = all.filter(function (x) { return isHeld(x.t); }).length;
+  /* "8 titles · 4 ready to watch, 4 to download". *can* is the page's can_download. */
+  function count(item, can) {
+    var all = picks(item);
     var n = all.length;
-    return n + (n === 1 ? ' title' : ' titles') + (n ? ', ' + (held === n ? 'all' : held || 'none') + ' already here' : '');
+    var ready = all.filter(isHeld).length;
+    var get = all.filter(function (t) { return !isHeld(t) && can[t.kind] !== false; }).length;
+    var parts = [];
+    if (ready) parts.push(ready === n && n > 1 ? 'all ready to watch' : ready + ' ready to watch');
+    if (get) parts.push(get + ' to download');
+    return n + (n === 1 ? ' title' : ' titles') + (parts.length ? ' · ' + parts.join(', ') : '');
   }
 
   /* Marks *node* as the AI's pick, once, with why in its preview and its page. */
-  function markPick(node, x) {
-    if (!x.ai || node.classList.contains('is-ai-pick')) return;
+  function markPick(node, t) {
+    if (node.classList.contains('is-ai-pick')) return;
     node.classList.add('is-ai-pick');
     var link = node.querySelector('.watch-card__link');
-    if (x.why) link.setAttribute('data-ai-why', x.why);
+    if (t.reason) link.setAttribute('data-ai-why', t.reason);
     var title = node.querySelector('.watch-card__title');
     var spark = el('span', 'watch-card__spark');
     spark.setAttribute('aria-hidden', 'true');
@@ -615,26 +686,31 @@
     title.after(el('span', 'sr-only', 'AI pick'));
   }
 
-  /* A poster card as every row has, with what a library card says of a show. One in a group of
-     its own says too whether the library has it. */
-  function card(x) {
+  /* A poster card as every row has, marked Ready or Download. */
+  function card(t, can) {
     var search = window.MMWatch.search;
-    var t = x.t;
-    var node = isHeld(t) ? search.heldCard(Object.assign({}, t, { ref: refOf(t) }), x.late) : search.tmdbCard(t);
+    var node = isHeld(t) ? search.heldCard(Object.assign({}, t, { ref: refOf(t) }), true) : search.tmdbCard(t);
     if (t.in_library && t.kind === 'show' && t.season_count) {
       core.caption(node.querySelector('.watch-card__sub'), 'TV · ' + t.season_count + (t.season_count === 1 ? ' season' : ' seasons'));
     }
-    markPick(node, x);
-    addWhy(node, x);
+    var poster = node.querySelector('.watch-card__poster');
+    if (!isHeld(t) && can[t.kind] !== false && !poster.querySelector('.watch-badge--state')) {
+      var badge = el('span', 'watch-badge watch-badge--state watch-badge--get');
+      badge.appendChild(MM.dom.icon('i-arrow-down'));
+      badge.appendChild(document.createTextNode('Download'));
+      poster.appendChild(badge);
+    }
+    markPick(node, t);
+    addWhy(node, t);
     return node;
   }
 
   /* The why goes under a card once, so a card drawn while checking keeps its place when the answer says why. */
-  function addWhy(node, x) {
-    if (!x.why || node.querySelector('.watch-card__why')) return;
+  function addWhy(node, t) {
+    if (!t.reason || node.querySelector('.watch-card__why')) return;
     var sub = node.querySelector('.watch-card__sub');
-    if (sub) sub.after(whyLine(x.why, x.lead));
-    else node.appendChild(whyLine(x.why, x.lead));
+    if (sub) sub.after(whyLine(t.reason, t.reason_lead));
+    else node.appendChild(whyLine(t.reason, t.reason_lead));
   }
 
   /* Why the AI picked it, under the card. The server names the "Because you liked …" it starts with,
@@ -653,82 +729,23 @@
     node.setAttribute('aria-hidden', 'true');
     node.appendChild(el('span', 'skel skel--poster'));
     node.appendChild(el('span', 'skel skel--line'));
+    node.appendChild(el('span', 'skel skel--line'));
     return node;
   }
 
-  /* A group's heading; one of no titles yet is over the outlines of those to come. */
-  function groupRow(key, title, note, n) {
-    return {
-      key: 'head-' + key,
-      sig: title,
-      make: function () {
-        var node = el('div', 'results-group__head ask__group ask__group--' + key);
-        node.appendChild(el('h2', 'results-group__title', title));
-        node.appendChild(el('span', 'results-group__count'));
-        node.appendChild(el('span', 'ask__group-note'));
-        return node;
-      },
-      update: function (node) {
-        node.querySelector('.results-group__count').textContent = n ? n + (n === 1 ? ' title' : ' titles') : '';
-        var said = node.querySelector('.ask__group-note');
-        said.textContent = note;
-        said.hidden = !note;
-      }
-    };
-  }
-
-  /* A card drawn already stays as it is, and is only marked once the AI picks it too. */
-  function cardRows(list) {
-    return list.map(function (x) {
+  /* The one grid: the picks, and while the AI looks, outlines where the rest will land, so nothing
+     on the page moves when they come. A card drawn already stays, and is only given its why. */
+  function gridRows(item, phase, can) {
+    var shown = phase === 'thinking' || phase === 'answer' ? picks(item) : [];
+    var rows = shown.map(function (t) {
       return {
-        key: refOf(x.t), sig: JSON.stringify([x.t, x.late]), keepFocus: true,
-        make: function () { return card(x); },
-        update: function (node) { markPick(node, x); addWhy(node, x); }
+        key: refOf(t), sig: JSON.stringify(t), keepFocus: true,
+        make: function () { return card(t, can); },
+        update: function (node) { markPick(node, t); addWhy(node, t); }
       };
     });
-  }
-
-  /* The grid's rows, grouped by whether the library has them, then those that came later, so that
-     nothing on the page moves when they come. While the AI looks, outlines stand where they will:
-     under the heading of those to come, once titles are shown above it.
-     *can* is the page's can_download: those not in the library are offered for download only of a kind it allows. */
-  function gridRows(item, phase, can) {
-    var all = picks(item, phase);
-    var lead = all.filter(function (x) { return !x.late; });
-    var late = all.filter(function (x) { return x.late; });
-    var held = lead.filter(function (x) { return isHeld(x.t); });
-    var others = lead.filter(function (x) { return !isHeld(x.t); });
-    late = late.filter(function (x) { return isHeld(x.t); }).concat(late.filter(function (x) { return !isHeld(x.t); }));
-    function note(list) {
-      return list.some(function (x) { return !isHeld(x.t) && can[x.t.kind] !== false; }) ? 'Open one to download it' : '';
-    }
-    /* Of a group of both: how many are ready to watch, and how many may be downloaded. */
-    function mixNote(list) {
-      var have = list.filter(function (x) { return isHeld(x.t); }).length;
-      if (!have) return note(list);
-      if (have === list.length) return have === 1 ? 'Ready to watch' : 'All ready to watch';
-      var get = list.filter(function (x) { return !isHeld(x.t) && can[x.t.kind] !== false; }).length;
-      return have + ' ready to watch' + (get ? ', ' + get + ' to download' : '');
-    }
-    var found = looked(item);
-    var waits = phase === 'thinking' || (!!found && found.state === 'loading' && phase !== 'refused');
-    var rows = [];
-    var mine = held.length ? groupRow('owned', 'In your library', '', held.length) : null;
-    var get = others.length ? groupRow('others', 'Not in your library', note(others), others.length) : null;
-    // The group the best fit is in comes first, and keeps its place through a narrowing.
-    var said = item.base || item.shown;
-    var othersFirst = !!said && said.lead === 'others';
-    if (othersFirst && get) rows = rows.concat(get, cardRows(others));
-    if (mine) rows = rows.concat(mine, cardRows(held));
-    if (!othersFirst && get) rows = rows.concat(get, cardRows(others));
-    if (late.length || (waits && all.length)) {
-      var name = phase === 'thinking' || item.foundFirst ? 'AI picks' : 'Titles like it';
-      rows = rows.concat(groupRow('late', name, mixNote(late), late.length), cardRows(late));
-    }
-    if (waits) {
-      for (var i = 0; i < (all.length ? WAITING_AFTER : WAITING); i++) {
-        rows.push({ key: 'skel-' + i, make: outlineCard });
-      }
+    if (phase === 'thinking' || phase === 'new') {
+      for (var i = rows.length; i < WAITING; i++) rows.push({ key: 'skel-' + i, make: outlineCard });
     }
     if (!rows.length && phase === 'answer' && item.chip) {
       rows = [{ key: 'none', sig: item.chip, make: function () { return el('p', 'ask__none', 'Nothing here fits “' + item.chip + '”'); } }];
@@ -738,12 +755,13 @@
 
   /* What the person is told where the AI is off: its *code* is the server's. An admin is told what to set. */
   function offWords(code, admin) {
+    var card = ['Open the OpenAI card', '/settings#intg-openai'];
     if (!admin) return { title: 'AI isn’t available right now', text: 'Search works as always.' };
-    if (code === 'no_key') return { title: 'AI needs an OpenAI key', text: 'Add one in Settings, then ask again.', link: ['Open the OpenAI card', '/settings#intg-openai'] };
-    if (code === 'refused') return { title: 'OpenAI refused the key', text: 'Check it in the OpenAI card.', link: ['Open the OpenAI card', '/settings#intg-openai'] };
+    if (code === 'no_key') return { title: 'AI could answer this', text: 'Add an OpenAI key in Settings and it will, right here.', link: card };
+    if (code === 'refused') return { title: 'OpenAI refused the key', text: 'Check it in the OpenAI card.', link: card };
     // The search itself offers to set TMDB up, under its results.
     if (code === 'no_tmdb') return { title: 'AI needs TMDB', text: 'It checks every title it names against TMDB.' };
-    if (code === 'off') return { title: 'AI in search is switched off', text: 'A daily limit is set to 0 in the OpenAI card.', link: ['Open the OpenAI card', '/settings#intg-openai'] };
+    if (code === 'off') return { title: 'AI in search is switched off', text: 'A daily limit is set to 0 in the OpenAI card.', link: card };
     return { title: 'AI isn’t available right now', text: 'Search works as always.' };
   }
 
@@ -761,29 +779,29 @@
       item.base = set(item.base);
       item.shown = all ? item.base : set(item.shown);
     });
-    looks.forEach(function (found) { found.items = found.items.map(now); });
     views.forEach(function (v) { if (v.item) v.draw(); });
   });
 
   /* ── The place of a question ── */
 
-  /* *host*, which stands on the page, shows a question. *opts*: say(text) reads it out, ask(text) asks another,
-     plain(text) searches for it as it is, stopped(item), around(change) makes a change of height, can is the
-     page's can_download and admin whether the person may change the settings. */
+  /* *host*, which stands on the page, shows a question. *opts*: ask(text) asks another, plain(text)
+     searches for it as it is, stopped(item), acted() when a chip is pressed, drawn(item) after each
+     drawing, around(change) makes a change of height, can is the page's can_download and admin
+     whether the person may change the settings. */
   function view(host, opts) {
     // Beside it: what is read out must not wait for what is busy.
     var status = el('p', 'sr-only');
     status.setAttribute('role', 'status');
     host.parentNode.insertBefore(status, host);
     var inside = host.appendChild(el('div', 'ask__in'));
-    var v = { host: host, item: null, draw: draw, row: row, show: show, hide: hide, pick: pick, offered: offered };
-    var drawn = null; // what *inside* holds: { item, phase, shape, grid, ... }
+    var v = { host: host, item: null, draw: draw, row: row, show: show, hide: hide };
+    var drawn = null; // what *inside* holds: { item, phase, shape, part, grid, head, ... }
+    var can = opts.can || {};
     views.push(v);
 
     /* *inside* holds *nodes*, with *part*, the titles, among them. What stays is not taken off the
        page: the cards in it are not drawn again. */
-    function fill(item, phase, nodes, part) {
-      dropBelow();
+    function fill(item, phase, nodes, part, head) {
       var had = inside.contains(document.activeElement);
       nodes = nodes.filter(Boolean);
       core.toArray(inside.children).forEach(function (node) { if (nodes.indexOf(node) < 0) node.remove(); });
@@ -793,8 +811,10 @@
       });
       if (part) part.node.removeAttribute('aria-hidden');
       host.hidden = !nodes.length;
-      drawn = nodes.length ? { item: item, phase: phase, shape: shapeOf(item), part: part || null, grid: part ? part.grid : null } : null;
+      drawn = nodes.length ? { item: item, phase: phase, shape: shapeOf(item), part: part || null, grid: part ? part.grid : null, head: head || null } : null;
       host.classList.toggle('is-thinking', phase === 'thinking');
+      host.classList.toggle('is-waiting', phase === 'new' && !!part);
+      host.classList.remove('is-refining');
       host.setAttribute('aria-busy', phase === 'thinking' ? 'true' : 'false');
       if (had && nodes.length && !inside.contains(document.activeElement)) nodes[0].focus({ preventScroll: true });
     }
@@ -805,73 +825,131 @@
       v.item = null;
       say('');
       if (drawn) opts.around(function () { fill(null, '', []); });
+      if (opts.drawn) opts.drawn(null);
     }
 
-    /* Show *item* where it stands; a new one as the row that asks it. */
     function show(item) {
       if (views.indexOf(v) < 0) views.push(v);
       v.item = item;
       draw();
     }
 
-    function row(text) { show(question('ask', text)); }
+    /* The question of *text*; *exact*: it is a title the search found. */
+    function row(text, exact) {
+      var item = question('ask', text);
+      item.exact = !!exact;
+      show(item);
+    }
 
-    /* Whether Return would ask what is shown. */
-    function offered() { return !!v.item && v.item.state === 'new' && (v.item.kind === 'like' || fits(v.item.value)); }
-
-    /* The row is what Return does, until the arrow keys are on something else. */
-    function pick(on) {
-      var node = drawn && drawn.phase === 'new' && inside.firstChild && inside.firstChild.tagName === 'BUTTON' ? inside.firstChild : null;
-      if (node) node.classList.toggle('is-picked', on);
+    /* What a question not asked yet shows: the place its answer will take, a line where the AI
+       cannot answer, or nothing. */
+    function mode(item) {
+      if (item.state !== 'new') return '';
+      if (!available()) return item.kind === 'ask' && opts.admin && failing() && shaped(item.value, item.exact) ? 'off' : 'none';
+      if (item.kind === 'ask' && !fits(item.value, item.exact)) return 'none';
+      return state.left === 0 ? 'spent' : 'waiting';
     }
 
     /* What is drawn the same way: a change of it is drawn anew. */
     function shapeOf(item) {
       var like = named(item);
-      return [item.state, like ? like.ref : '', offered()].join('|');
+      return [item.state, like ? like.ref : '', mode(item)].join('|');
     }
 
     function draw() {
       var item = v.item;
       if (!item) return;
       var phase = item.state;
-      var here = drawn && drawn.shape === shapeOf(item) ? drawn : null;
-      if (here && phase === 'new') {
-        var title = inside.querySelector('.ask__words b');
-        if (title) title.textContent = rowTitle(item);
-        drawn.item = item;
-        drawGrid(item);
-        return;
+      var here = drawn && drawn.item === item && drawn.shape === shapeOf(item) ? drawn : null;
+      if (here && phase === 'new') { drawHead(item); }
+      else if (here && phase === 'answer') update(item);
+      else if (here && phase === 'thinking') wait(item);
+      else {
+        opts.around(function () {
+          if (phase === 'new') waiting(item);
+          else if (phase === 'thinking') thinking(item);
+          else if (phase === 'answer') answer(item);
+          else if (phase === 'nothing') nothing(item);
+          else refused(item);
+        });
       }
-      if (here && here.item === item && phase === 'answer') { update(item); return; }
-      if (here && here.item === item && phase === 'thinking') { wait(item); return; }
-      opts.around(function () {
-        if (phase === 'new') offer(item);
-        else if (phase === 'thinking') thinking(item);
-        else if (phase === 'answer') answer(item);
-        else if (phase === 'nothing') nothing(item);
-        else refused(item);
-      });
+      if (opts.drawn) opts.drawn(item);
     }
 
-    function heading(item) {
+    /* ── Its heading, which stays from the wait to the answer ── */
+
+    function headFor(item) {
+      if (drawn && drawn.item === item && drawn.head) return drawn.head;
+      var node = el('div', 'ask__row');
+      node.tabIndex = -1;
+      node.appendChild(orb());
+      var words = node.appendChild(el('div', 'ask__words'));
+      return {
+        node: node, words: words, end: null,
+        kicker: words.appendChild(el('span', 'ask__kicker')),
+        title: words.appendChild(el('h2', 'ask__title')),
+        asked: words.appendChild(el('p', 'ask__asked')),
+        line: words.appendChild(el('p', 'ask__line'))
+      };
+    }
+
+    function titleOf(item, phase) {
+      if (item.kind === 'like') return 'More like ' + item.name;
+      if (phase === 'answer' && item.heading) return item.heading;
       var like = named(item);
-      if (like) return 'Because you like ' + like.title;
-      return item.kind === 'like' ? 'More like ' + item.name : '“' + item.value + '”';
+      if (like && phase !== 'new') return (like.kind === 'movie' ? 'Films like ' : 'Shows like ') + like.title.split(':')[0];
+      return phase === 'new' ? 'Ask AI: “' + item.value + '”' : '“' + item.value + '”';
     }
 
-    function rowTitle(item) {
-      if (named(item)) return heading(item);
-      return item.kind === 'like' ? 'Find more like ' + item.name : 'Ask AI: “' + item.value + '”';
+    function waitingLine(item) {
+      var touch = core.coarsePointer();
+      if (item.kind === 'like') return 'Titles like it, chosen for you';
+      if (autoOk() && !item.halted) return touch ? 'Answers when you stop typing, or tap Search' : 'Answers when you stop typing, or press ↵';
+      return touch ? 'Tap Search to ask AI' : 'Press ↵ to ask AI';
     }
 
-    function pic(item) {
+    function lineOf(item, phase) {
+      if (phase === 'new') return waitingLine(item);
+      if (phase === 'thinking') return waitText(item);
+      if (item.narrowing) return renewing(item) ? 'Finding other picks…' : 'Narrowing…';
+      var left = !opts.admin && state && state.left !== null ? ' · ' + state.left + (state.left === 1 ? ' AI answer' : ' AI answers') + ' left today' : '';
+      return count(item, can) + left;
+    }
+
+    var KICKERS = { new: 'AI', thinking: 'AI is looking', answer: 'AI picks' };
+
+    /* The heading of *item* as its phase has it; *end*: what stands at its end. */
+    function drawHead(item, end) {
+      var phase = item.state;
+      var h = headFor(item);
+      h.kicker.textContent = KICKERS[phase] || 'AI';
+      h.title.textContent = titleOf(item, phase);
+      var asked = phase === 'answer' && item.kind === 'ask' && item.heading && item.value.length > LONG_Q ? '“' + item.value + '”' : '';
+      h.asked.textContent = asked;
+      h.asked.hidden = !asked;
+      setLine(h, lineOf(item, phase));
       var like = named(item);
-      return like ? face(like.poster_url) : null;
+      if (like && !h.words.querySelector('.ask__because')) h.words.appendChild(because(like));
+      // What stands at its end: Stop, or nothing.
+      if (end !== undefined && end !== h.end) {
+        if (h.end) h.end.remove();
+        h.end = end;
+        if (end) h.node.appendChild(end);
+      }
+      host.classList.toggle('is-refining', phase === 'answer' && item.narrowing);
+      return h;
     }
 
-    /* The grid of titles, which every phase but a refusal of no title named has. Of the same
-       question it is the one already drawn, cards and all. */
+    /* The line under the heading; a new step takes the place of the one before. */
+    function setLine(h, text) {
+      if (h.line.textContent === text) return;
+      if (!h.line.textContent) { h.line.textContent = text; return; }
+      var next = el('p', 'ask__line ask__step', text);
+      h.line.replaceWith(next);
+      h.line = next;
+    }
+
+    /* The grid of titles. Of the same question it is the one already drawn, cards and all. */
     function body(item) {
       if (drawn && drawn.item === item && drawn.part) return drawn.part;
       var node = el('div', 'ask__body');
@@ -881,78 +959,40 @@
 
     function drawGrid(item) {
       if (!drawn || !drawn.grid) return;
-      window.MMWatch.search.glide(drawn.grid, gridRows(item, drawn.phase, opts.can || {}), null, STAGGER_MS);
-      if (below && below.head.parentNode !== drawn.grid) dropBelow();
+      window.MMWatch.search.glide(drawn.grid, gridRows(item, drawn.phase, can), null, STAGGER_MS);
     }
 
-    /* Titles that came after the others land below them, often off the screen: a chip on the
-       screen says so, and takes the person to them when pressed. Nothing moves by itself. */
-    var below = null; // { node, head, off }
-
-    function pointBelow() {
-      var head = drawn && drawn.grid && drawn.grid.querySelector('.ask__group--late');
-      var first = head && head.nextElementSibling;
-      if (!first || below || !first.querySelector('.watch-card__link') || head.getBoundingClientRect().top < window.innerHeight - BELOW_PX) return;
-      var title = head.querySelector('.results-group__title');
-      var b = button('chip ask__below');
-      b.appendChild(MM.dom.icon('i-sparkles'));
-      b.appendChild(el('span', '', title.textContent + ' below'));
-      b.appendChild(MM.dom.icon('i-arrow-down'));
-      function seen() { if (head.getBoundingClientRect().top < window.innerHeight - BELOW_PX) dropBelow(); }
-      b.addEventListener('click', function () {
-        dropBelow();
-        head.scrollIntoView({ block: 'start', behavior: core.reduceMotion() ? 'auto' : 'smooth' });
-        title.tabIndex = -1;
-        title.focus({ preventScroll: true });
-      });
-      window.addEventListener('scroll', seen, { passive: true });
-      drawn.part.node.appendChild(b);
-      below = { node: b, head: head, off: function () { window.removeEventListener('scroll', seen); } };
-    }
-
-    function dropBelow() {
-      if (!below) return;
-      var node = below.node;
-      below.off();
-      below = null;
-      if (core.reduceMotion() || !node.animate) { node.remove(); return; }
-      node.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateY(8px)' }], { duration: 160, easing: 'ease-out', fill: 'forwards' })
-        .onfinish = function () { node.remove(); };
-    }
-
-    /* Where the AI would be asked and fails: why, for an admin with the way to it. Under titles like
-       the one named, of the AI's picks alone. */
-    function offNote(like) {
-      if (!failing()) return null;
-      var off = offWords(state && state.why, opts.admin);
-      var note = el('p', 'ask__note ask__note--quiet');
-      note.appendChild(document.createTextNode((like ? 'AI picks: ' : '') + off.title + '.' + (off.link || !like ? ' ' + off.text : '') + (off.link ? ' ' : '')));
-      if (off.link) {
-        var a = note.appendChild(el('a', 'ask__link', off.link[0]));
-        a.href = off.link[1];
+    /* One quiet line where the answer would be: why there is none, and the way on. */
+    function quiet(item, phase, words, icon, after) {
+      var node = el('div', 'ask__off');
+      node.appendChild(orb(icon));
+      var said = node.appendChild(el('div', 'ask__off-words'));
+      said.appendChild(el('b', '', words.title));
+      said.appendChild(el('span', '', words.text));
+      if (words.link) {
+        var a = node.appendChild(el('a', 'ask__link', words.link[0]));
+        a.href = words.link[1];
       }
-      return note;
+      (after || []).forEach(function (b) { if (b) node.appendChild(b); });
+      fill(item, phase, [node]);
+      say(words.title + '. ' + words.text);
     }
 
-    function offer(item) {
-      var like = named(item);
-      var b = null;
-      if (offered()) {
-        b = button('ask__row is-picked');
-        b.appendChild(pic(item) || mark());
-        b.appendChild(words(rowTitle(item), like ? 'Ask AI for picks that fit you too' : 'Real titles that fit, yours first'));
-        var key = b.appendChild(el('kbd', 'ask__key', 'return'));
-        key.setAttribute('aria-hidden', 'true');
-        b.addEventListener('click', function () {
-          if (v.item.kind === 'like') start(v.item);
-          else opts.ask(v.item.value);
-        });
-      } else if (like) {
-        b = head(heading(item), 'Titles like it', null, pic(item));
+    function waiting(item) {
+      var m = mode(item);
+      if (m === 'none') { fill(item, 'new', []); say(''); return; }
+      if (m === 'off') { quiet(item, 'new', offWords(state && state.why, opts.admin)); return; }
+      if (m === 'spent') { quiet(item, 'new', reason({ error: 'limit', data: {} }, item.kind)); return; }
+      var ask = null;
+      if (item.kind === 'like') {
+        ask = button('chip chip--again', 'Ask AI');
+        ask.insertBefore(MM.dom.icon('i-sparkles'), ask.firstChild);
+        ask.addEventListener('click', function () { start(v.item); });
       }
-      var part = like ? body(item) : null;
-      var off = item.kind === 'ask' && shaped(item.value) ? offNote(!!like) : null;
-      fill(item, 'new', [b, part && part.node, off], part);
+      var h = drawHead(item, ask);
+      var part = body(item);
+      fill(item, 'new', [h.node, part.node], part, h);
+      part.node.setAttribute('aria-hidden', 'true');
       drawGrid(item);
       say('');
     }
@@ -966,13 +1006,8 @@
 
     /* The step it is at, in place of the one before. */
     function wait(item) {
-      var text = waitText(item);
-      var small = inside.querySelector('.ask__words small');
-      if (small && small.textContent !== text) {
-        var next = el('small', 'ask__step', text);
-        small.replaceWith(next);
-      }
-      say(text);
+      drawHead(item);
+      say(waitText(item));
       if (drawn.part && titles(item).length) drawn.part.node.removeAttribute('aria-hidden');
       drawGrid(item);
     }
@@ -983,60 +1018,57 @@
         stop(item);
         opts.stopped(item);
       });
+      var h = drawHead(item, b);
       var part = body(item);
-      fill(item, 'thinking', [head(heading(item), waitText(item), b, pic(item)), part.node], part);
-      if (!named(item) && !titles(item).length) part.node.setAttribute('aria-hidden', 'true');
+      fill(item, 'thinking', [h.node, part.node], part, h);
+      if (!titles(item).length) part.node.setAttribute('aria-hidden', 'true');
       drawGrid(item);
       say(waitText(item));
     }
 
-    function chip(text) { return button('chip', text); }
-
-    function foot(item) {
+    function foot() {
       var node = el('p', 'ask__foot');
       node.appendChild(MM.dom.icon('i-sparkles'));
-      node.appendChild(document.createTextNode(named(item) && !item.chip
-        ? 'Marked titles are chosen by AI and checked to be real. The rest are like the one you named.'
-        : 'Chosen by AI and checked to be real.'));
+      node.appendChild(document.createTextNode('Chosen by AI from your question' + (state && state.records ? ' and what you watch' : '') + ', each checked to be real.'));
       return node;
     }
 
     function answer(item) {
+      var h = drawHead(item, null);
       var part = body(item);
       var refine = el('div', 'refine');
       refine.setAttribute('role', 'group');
       refine.setAttribute('aria-label', 'Narrow it');
       var note = el('p', 'ask__note');
       note.hidden = true;
-      fill(item, 'answer', [head(heading(item), '', null, pic(item)), part.node, note, refine, foot(item)], part);
+      fill(item, 'answer', [h.node, refine, note, part.node, foot()], part, h);
       drawn.refine = refine;
       drawn.note = note;
       drawChips(item);
       drawGrid(item);
-      pointBelow();
       sayCount(item);
     }
 
     function sayCount(item) {
-      var text = item.narrowing ? 'Narrowing' : count(item, 'answer');
-      inside.querySelector('.ask__words small').textContent = text;
       drawn.note.hidden = !item.note;
       drawn.note.textContent = item.note;
-      say(item.note || text);
+      say(item.note || lineOf(item, 'answer'));
     }
 
     function update(item) {
-      host.classList.toggle('is-refining', item.narrowing);
+      drawHead(item);
       drawChips(item);
       opts.around(function () {
         drawGrid(item);
         sayCount(item);
-      }, [drawn.refine, drawn.refine.nextElementSibling]);
+      }, [drawn.part.node.nextElementSibling]);
     }
 
+    function chip(text) { return button('chip', text); }
+
+    /* The ways to narrow it, and to ask for others, over the titles. */
     function drawChips(item) {
       var refine = drawn.refine;
-      refine.hidden = !item.chips.length;
       if (drawn.chips !== item.chips) {
         drawn.chips = item.chips;
         refine.textContent = '';
@@ -1044,11 +1076,26 @@
         item.chips.forEach(function (text) {
           var b = chip(text);
           b.setAttribute('data-chip', text);
-          b.addEventListener('click', function () { narrow(item, text); });
+          b.addEventListener('click', function () {
+            if (opts.acted) opts.acted(item);
+            narrow(item, text);
+          });
           refine.appendChild(b);
         });
+        var other = refine.appendChild(chip('Different picks'));
+        other.classList.add('chip--again');
+        other.insertBefore(MM.dom.icon('i-rotate-right'), other.firstChild);
+        other.addEventListener('click', function () {
+          if (opts.acted) opts.acted(item);
+          start(item, '', null, false, true);
+        });
       }
-      core.toArray(refine.querySelectorAll('.chip')).forEach(function (b) {
+      refine.firstChild.hidden = !item.chips.length;
+      var other = refine.querySelector('.chip--again');
+      var busy = renewing(item);
+      other.setAttribute('aria-pressed', String(busy));
+      other.disabled = busy;
+      core.toArray(refine.querySelectorAll('.chip[data-chip]')).forEach(function (b) {
         var on = b.getAttribute('data-chip') === item.pressed;
         if (b.getAttribute('aria-pressed') === String(on)) return;
         b.setAttribute('aria-pressed', String(on));
@@ -1058,8 +1105,8 @@
       });
     }
 
-    /* The ways on from a question that came to nothing: its own, a plain search for the title it named, and a setting to change. */
-    function ways(item, own, link) {
+    /* The ways on from a question that came to nothing: its own, and a plain search for the title it named. */
+    function ways(item, own) {
       var row = el('div', 'refine is-wrap ask__ways');
       (own || []).forEach(function (b) { row.appendChild(b); });
       if (item.like && opts.plain) {
@@ -1067,18 +1114,7 @@
         b.insertBefore(MM.dom.icon('i-magnifying-glass'), b.firstChild);
         b.addEventListener('click', function () { opts.plain(item.like); });
       }
-      if (link) {
-        var a = row.appendChild(el('a', 'chip', link[0]));
-        a.href = link[1];
-      }
       return row.children.length ? row : null;
-    }
-
-    /* What is like the title named stays under what came of the question. */
-    function withLike(item, phase, nodes) {
-      var part = named(item) ? body(item) : null;
-      fill(item, phase, nodes.concat(part ? [part.node] : []), part);
-      drawGrid(item);
     }
 
     function nothing(item) {
@@ -1088,9 +1124,9 @@
         b.addEventListener('click', function () { opts.ask(text); });
         return b;
       });
-      withLike(item, 'nothing', [head('No title fits all of that', 'Nothing was made up to fill the gap', null, pic(item)),
-        el('p', 'ask__note', told + (less.length ? ' Dropping one part may be enough:' : '')), ways(item, less)]);
-      say('No title fits all of that');
+      quiet(item, 'nothing', { title: 'No title fits all of that', text: told + (less.length ? ' Dropping one part may be enough:' : ' Nothing was made up to fill the gap.') });
+      var more = ways(item, less);
+      if (more) inside.appendChild(more);
     }
 
     function refused(item) {
@@ -1099,10 +1135,13 @@
       var b = null;
       if (why.again) {
         b = chip(why.again);
+        b.classList.add('chip--again');
+        b.insertBefore(MM.dom.icon('i-rotate-right'), b.firstChild);
         b.addEventListener('click', function () { again(item); });
       }
-      withLike(item, 'refused', [head(off.title, off.text, b, pic(item)), ways(item, [], off.link)]);
-      say(off.title + '. ' + off.text);
+      quiet(item, 'refused', off, why.again ? 'i-circle-exclamation' : null, [b]);
+      var more = ways(item);
+      if (more) inside.appendChild(more);
     }
 
     host.hidden = true;
@@ -1113,7 +1152,11 @@
     load: load,
     state: function () { return state; },
     available: available,
+    intent: intent,
+    titled: titled,
     fits: fits,
+    canAsk: canAsk,
+    autoOk: autoOk,
     shaped: shaped,
     failing: failing,
     record: record,
@@ -1124,6 +1167,8 @@
     keepLike: keepLike,
     question: question,
     start: start,
+    stop: stop,
+    asking: asking,
     view: view,
     dur: dur,
     similarOf: similarOf,

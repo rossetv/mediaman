@@ -280,7 +280,7 @@ def test_what_radarr_or_sonarr_has_is_never_under_available_to_download() -> Non
     assert out["heads"] == ["In your library", "Available to download"]
     assert out["titles"] == ["in_library", "partial", "null"]
     assert out["counts"] == ["2 titles", "1 title"]
-    assert out["badge"] == "Ready to watch"
+    assert out["badge"] == "Ready"
 
 
 def test_a_download_badge_names_its_percentage_and_a_library_one_its_class() -> None:
@@ -540,10 +540,10 @@ def test_nothing_stands_where_nothing_is_known_of_a_person() -> None:
         assert (out[state]["hidden"], out[state]["skeletons"]) == ([True, True, True], 0)
 
 
-def test_what_a_person_is_known_for_is_a_row_of_watch_cards_under_who_they_are() -> None:
+def test_what_a_person_is_known_for_is_a_row_of_watch_cards_in_who_they_are() -> None:
     out = _run("personKnownRow")
     assert out["cards"] == ["movie-1", "tmdb-movie-9"]
-    assert (out["inHead"], out["beforeTitles"]) == (False, True)
+    assert (out["inHead"], out["beforeTitles"]) == (True, True)
 
 
 def test_who_a_person_is_comes_though_their_titles_wait_below_the_fold() -> None:
@@ -633,7 +633,7 @@ def test_a_persons_title_is_listed_once_and_a_page_of_repeats_leads_on_to_the_ne
         "T2",
     ]
     # Held, but found after the rest had begun: no heading, and its badge says so.
-    assert [t.split("Movie")[0] for t in out["cards"]] == ["T3", "T4Ready to watch"]
+    assert [t.split("Movie")[0] for t in out["cards"]] == ["T3", "T4Ready"]
     assert (out["next"], out["calls"]) == (4, 4)
     assert out["last"] == [0, None]
 
@@ -1074,28 +1074,30 @@ def test_the_field_and_its_sheet_keep_to_what_a_keyboard_leaves_to_be_seen() -> 
 
 # ── Ask AI ──
 
-Q = "a gentle heist film"
+Q = "a gentle heist films"
 
 
-OFF = {"ai": False, "tab": -1, "hidden": "true", "described": None, "mode": ""}
+WAITING = f"Ask AI: “{Q}” | Answers when you stop typing, or press ↵"
 
 
-def test_a_request_turns_the_field_ai_from_three_words_in_place_of_an_ask_row() -> None:
+def test_a_wish_turns_the_field_the_ais_and_holds_the_place_of_its_answer() -> None:
     out = _run("askOffered")
-    assert out["two"] == [None, OFF]
-    assert out["less"] == [None, OFF]
-    # No row of its own: the field turns the AI's, its pill a stop for Tab, and it is said once.
+    # Two plain words may be asked for: the pill shows, plain, and nothing else does.
+    plain = {"ai": False, "tab": 0, "hidden": "false", "described": None, "mode": ""}
+    assert out["two"] == [None, plain]
+    assert out["less"] == [None, plain]
+    # A wish: the field turns the AI's, its pill a stop for Tab, said once, and its answer's place shows.
     assert out["three"] == [
-        None,
+        f"Ask AI: “{Q}” | Answers when you stop typing, or press ↵",
         {
             "ai": True,
             "tab": 0,
             "hidden": "false",
             "described": "watch-search-ai-hint",
-            "mode": "AI search: Return asks AI for titles that fit",
+            "mode": "AI search: AI answers once you pause, or press Return",
         },
     ]
-    assert out["like"] is False
+    assert out["like"] is True
     assert out["searched"] == ["/api/watch/search", "/api/watch/search/tmdb"]
 
 
@@ -1124,11 +1126,11 @@ def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
     assert out["sent"] == [["POST", "/ask", {"q": Q}]]
     assert out["search"] == 1  # beside the search itself
     assert (out["thinking"].endswith("Reading what you watch…"), out["busy"]) == (True, "true")
-    assert out["head"] == f"“{Q}” | 2 titles, 1 already here"
+    assert out["head"] == f"“{Q}” | 2 titles · 1 ready to watch, 1 to download"
     assert [t[0] for t in out["titles"]] == ["Nine Locks", "<b>Thunder</b>"]
     # Each is the poster card every row has, marked as the AI's pick.
     assert out["marked"] == [["AI pick"], ["AI pick"]]
-    assert out["said"] == "2 titles, 1 already here"
+    assert out["said"] == "2 titles · 1 ready to watch, 1 to download"
     assert out["recorded"] == [["POST", "/searches", {"q": Q}]]
     assert out["asksAgain"] == 1
 
@@ -1148,11 +1150,11 @@ def test_a_newer_question_stops_the_one_before_and_only_its_own_answer_shows() -
     out = _run("askNewer")
     assert out["waitsForOld"] == 1
     assert out["stopped"] == [["DELETE", "/runs/7", None]]
-    assert out["asked"] == [Q, "a much newer question"]
+    assert out["asked"] == [Q, "much newer heist films"]
     assert "Finishing your last question" in out["stopping"]
-    assert out["head"].startswith("“a much newer question” | 2 titles")
-    # Back at the old question the field offers it again, with no titles of the other's.
-    assert out["old"] == [None, 0, True]
+    assert out["head"].startswith("“much newer heist films” | 2 titles")
+    # Back at the old question its answer's place is held again, with no titles of the other's.
+    assert out["old"] == [WAITING, 0, True]
 
 
 def test_a_question_can_be_stopped_even_before_its_run_is_known() -> None:
@@ -1163,18 +1165,22 @@ def test_a_question_can_be_stopped_even_before_its_run_is_known() -> None:
     assert out["late"].startswith("Ask AI")
 
 
-def test_a_question_goes_on_while_the_bar_is_closed_and_is_there_again() -> None:
+def test_a_question_goes_on_while_the_bar_is_cleared_and_is_there_again() -> None:
     out = _run("askSurvives")
     assert out["closed"] == ["", None]
     assert out["still"] is None
-    assert out["again"] == [f"“{Q}” | 2 titles, 1 already here", 1]
+    assert out["again"] == [f"“{Q}” | 2 titles · 1 ready to watch, 1 to download", 1]
+
+
+def test_esc_stops_an_answer_being_thought_of_before_it_clears_the_field() -> None:
+    assert _run("askSurvives")["esc"] == [Q, f"Ask AI: “{Q}” | Press ↵ to ask AI", ["DELETE"], ""]
 
 
 def test_a_question_left_for_another_page_is_shown_again_but_a_link_asks_nothing() -> None:
     out = _run("askReloaded")
     assert out["mine"] == [Q]
     assert out["recorded"] == 0  # it was when it was asked
-    assert out["link"] == [0, None, True]  # offered by the field, not asked
+    assert out["link"] == [0, WAITING, True]  # its place held, not asked
     assert out["left"] == ["DELETE/runs/7"]
 
 
@@ -1192,7 +1198,7 @@ def test_taking_the_place_of_another_tab_s_question_can_be_stopped_and_is_asked_
 
 
 def test_another_question_asked_meanwhile_is_the_one_that_goes_on() -> None:
-    newer = "a much newer question"
+    newer = "much newer heist films"
     for asked, head, runs in _run("askTakeover")["other"]:
         assert asked == [Q, newer]
         assert head.startswith(f"“{newer}” | Reading")
@@ -1203,15 +1209,15 @@ def test_a_question_asked_straight_after_stop_waits_till_the_server_was_told() -
     out = _run("askAfterStop")
     for waits, head, stopped in out["same"] + out["other"]:
         assert waits == [1, 1, 2]
-        assert head.endswith("2 titles, 1 already here")
+        assert head.endswith("2 titles · 1 ready to watch, 1 to download")
         assert stopped == ["/runs/7"]
 
 
 def test_a_limit_names_the_number_in_force_and_when_it_ends() -> None:
     out = _run("askRefused")
-    assert out["limit"]["head"].startswith("You’ve asked 12 questions today")
-    assert "after midnight. Search below works as always." in out["limit"]["head"]
-    assert out["one"]["head"].startswith("You’ve asked 1 question today")
+    assert out["limit"]["head"].startswith("That’s today’s 12 AI answers")
+    assert "come back after midnight. Search below works as always." in out["limit"]["head"]
+    assert out["one"]["head"].startswith("That’s today’s 1 AI answer |")
     assert not re.search(r"\d", out["noNumber"]["head"])
     assert "40" in out["everyone"]["head"]
     for way in ("limit", "one", "noNumber", "everyone"):
@@ -1232,7 +1238,7 @@ def test_what_may_work_the_next_time_can_be_tried_again() -> None:
     out = _run("askRefused")
     for way in ("busy", "quick", "tmdb"):
         assert out[way]["again"] == "Try again"
-    assert out["failed"].startswith("The answer didn’t arrive")
+    assert out["failed"].startswith("AI couldn’t answer just now")
     assert out["retried"] == 2
 
 
@@ -1252,7 +1258,7 @@ def test_a_refused_key_reads_as_unavailable_and_is_not_offered_again() -> None:
 
 def test_an_answer_that_did_not_come_may_be_tried_again() -> None:
     out = _run("askOutcomes")["failed"]
-    assert out["head"].startswith("The answer didn’t arrive")
+    assert out["head"].startswith("AI couldn’t answer just now")
     assert (out["again"], out["offered"]) == ("Try again", True)
 
 
@@ -1266,18 +1272,18 @@ def test_a_chip_narrows_the_answer_and_pressed_again_gives_all_of_it_back() -> N
     out = _run("askNarrow")
     assert out["sent"] == {"q": Q, "refine": "Funnier"}
     # What is there stays till the narrower answer is in.
-    assert out["narrowing"] == ["Narrowing", ["Nine Locks", "<b>Thunder</b>"], ["Funnier"]]
-    assert out["narrowed"] == ["1 title, none already here", ["<b>Thunder</b>"], ["Funnier"]]
-    whole = ["2 titles, 1 already here", ["Nine Locks", "<b>Thunder</b>"], []]
+    assert out["narrowing"] == ["Narrowing…", ["Nine Locks", "<b>Thunder</b>"], ["Funnier"]]
+    assert out["narrowed"] == ["1 title · 1 to download", ["<b>Thunder</b>"], ["Funnier"]]
+    whole = ["2 titles · 1 ready to watch, 1 to download", ["Nine Locks", "<b>Thunder</b>"], []]
     assert out["back"] == [whole, 2]
-    assert out["refused"] == [whole, "You’ve asked 5 questions today"]
+    assert out["refused"] == [whole, "That’s today’s 5 AI answers"]
     assert out["none"][1] == "Nothing here fits “Only in your library”"
 
 
 def test_a_film_of_an_answer_queued_from_its_page_says_so_on_its_card() -> None:
     out = _run("askDownload")
-    assert out["before"] == [[], []]
-    assert out["queued"] == [[], ["Queued"]]
+    assert out["before"] == [["Ready"], ["Download"]]
+    assert out["queued"] == [["Ready"], ["Queued"]]
     # the card follows the page's word alone: nothing is read or posted for it
     assert out["calls"] == []
 
@@ -1407,7 +1413,7 @@ def test_titles_like_one_have_a_page_that_back_leaves() -> None:
     assert out["none"] is False
     assert out["sent"] == [{"ref": "movie-1"}]
     assert out["page"][:2] == ["/?like=movie-1", "Like Nine Locks"]
-    assert out["answer"] == "More like Nine Locks | 2 titles, 1 already here"
+    assert out["answer"] == "More like Nine Locks | 2 titles · 1 ready to watch, 1 to download"
     assert out["back"] == ["/", "browse", True]
 
 
@@ -1425,7 +1431,7 @@ def test_what_is_remembered_is_the_person_s_own_and_goes_at_sign_out() -> None:
     out = _run("askNextPerson")
     # Nothing is asked, kept or stopped for the next person of the tab.
     assert (out["asked"], out["recorded"], out["runs"]) == (0, 0, 0)
-    assert (out["head"], out["field"]) == (None, True)  # offered by the field, not asked
+    assert (out["head"], out["field"]) == (WAITING, True)  # its place held, not asked
     assert out["like"] == [0, "/"]
     assert out["kept"] is False
     assert out["signedOut"] == ["other"]
@@ -1444,7 +1450,7 @@ def test_a_card_of_an_answer_drawn_again_keeps_the_focus() -> None:
 
 def test_clearing_forgets_the_answers_and_the_question_remembered() -> None:
     out = _run("askForgotten")
-    assert (out["head"], out["field"]) == (None, True)  # offered anew by the field
+    assert (out["head"], out["field"]) == (WAITING, True)  # its place held anew
     assert (out["kept"], out["asked"]) == (False, 0)
 
 
@@ -1453,7 +1459,7 @@ def test_a_page_back_brings_is_brought_up_to_date() -> None:
     assert out["head"].startswith("Ask AI")
     assert out["tries"] == ["popular action movies", "popular comedy movies", "top rated sci-fi"]
     assert out["other"] == [["/"], None]
-    assert out["first"].endswith("already here")
+    assert out["first"].endswith("to download")
 
 
 def test_titles_like_one_can_be_found_from_all_titles() -> None:
@@ -1466,7 +1472,7 @@ def test_titles_like_one_can_be_found_from_all_titles() -> None:
 def test_what_is_read_out_stands_outside_what_is_busy() -> None:
     out = _run("askStatus")
     assert out["text"] == [
-        "AI search: Return asks AI for titles that fit",
+        "AI search: AI answers once you pause, or press Return",
         "Reading what you watch…",
     ]
     assert out["busy"] == [False, False]
@@ -1547,8 +1553,11 @@ def test_titles_that_cannot_be_downloaded_are_not_called_available_to_download()
 
 def test_an_answer_offers_no_download_of_a_kind_that_cannot_be_downloaded() -> None:
     out = _run("askNoDownload")
-    assert out["films"] == [["In your library", ""], ["Not in your library", ""]]
-    assert out["shows"][1] == ["Not in your library", "Open one to download it"]
+    assert out["films"] == [["Ready", ""], "2 titles · 1 ready to watch"]
+    assert out["shows"] == [
+        ["Ready", "", "Download"],
+        "3 titles · 1 ready to watch, 1 to download",
+    ]
 
 
 def test_the_field_hint_for_asking_is_short_enough_for_a_narrow_phone() -> None:
@@ -1640,11 +1649,15 @@ def test_with_history_not_used_the_sheet_is_as_it_is_for_anyone() -> None:
     assert (out["hint"], out["favs"]) == (None, [])
 
 
-def test_where_no_title_has_a_request_s_words_it_says_how_to_ask_the_ai() -> None:
+def test_where_no_title_has_a_wish_s_words_it_says_how_the_ai_answers_and_does_on_a_pause() -> None:
     out = _run("aiNoTitle")
-    none = "No title has these words in its name."
-    assert out["desk"] == [none, "Press Return to ask AI for titles that fit."]
-    assert out["phone"] == [none, "Tap Ask AI, or Search, for titles that fit."]
+    none = ["No title has these words in its name."]
+    assert out["desk"] == [none, WAITING, [True]]
+    assert out["phone"] == [
+        none,
+        f"Ask AI: “{Q}” | Answers when you stop typing, or tap Search",
+        [True],
+    ]
 
 
 def test_a_found_title_shows_what_critics_scored_it_and_nothing_where_none_is_known() -> None:
@@ -1653,3 +1666,219 @@ def test_a_found_title_shows_what_critics_scored_it_and_nothing_where_none_is_kn
         None,
         ["watch-card__title", ["Rotten Tomatoes 40%", "TMDB 6.3"]],
     ]
+
+
+# ── Asked on its own ──
+
+
+def test_the_intent_rules_ask_for_a_wish_and_never_for_a_title() -> None:
+    out = _run("intentTable")
+    assert [q for q, wish, ready in out["asks"] if not (wish and ready)] == []
+    assert [q for q, wish, _ in out["plain"] if wish] == []
+
+
+def test_a_wish_ending_in_a_joining_word_waits_for_more() -> None:
+    assert [ready for _, _, ready in _run("intentTable")["waits"]] == [False, False, False]
+
+
+def test_a_long_request_with_a_joining_word_is_a_wish_unless_a_title_has_its_words() -> None:
+    assert [wish for _, wish, _ in _run("intentTable")["long"]] == [True, False]
+
+
+def test_a_wish_is_asked_once_the_person_pauses_and_its_search_is_in() -> None:
+    out = _run("autoAsk")
+    assert (out["typing"], out["pause"], out["beforeSearch"]) == (0, [700], 0)
+    assert out["asked"] == [{"q": "feel good pixar movies", "auto": True}]
+    assert out["head"].endswith("Reading what you watch…")
+    # Asked on its own, it is not kept as one of the person's searches.
+    assert out["recorded"] == 0
+
+
+def test_an_answered_wish_is_not_asked_again_on_a_later_pause() -> None:
+    assert _run("autoAsk")["again"] == 2  # the wish, and the other words paused on between
+
+
+def test_a_newer_wish_that_settles_stops_the_run_of_the_one_before() -> None:
+    assert _run("autoNewer") == {"stopped": 1, "asked": ["netflix originals", "korean thrillers"]}
+
+
+def test_a_title_found_with_all_its_words_is_not_asked_but_a_strong_cue_asks_under_it() -> None:
+    out = _run("autoExact")
+    assert {k: out["plain"][k] for k in ("asked", "head", "top")} == {
+        "asked": 0,
+        "head": None,
+        "top": None,
+    }
+    assert out["strong"]["asked"] == 1
+    assert out["strong"]["top"].startswith("Top matchIn the Mood for Love")
+
+
+def test_a_title_begun_or_named_with_its_year_is_not_asked_of_the_ai() -> None:
+    out = _run("autoExact")
+    assert (out["begun"]["asked"], out["begun"]["head"]) == (0, None)
+    assert (out["year"]["asked"], out["year"]["head"]) == (0, None)
+
+
+def test_a_wish_over_its_top_match_names_that_title_as_the_one_the_person_likes() -> None:
+    out = _run("autoExact")
+    like = {"tmdb_id": 843, "kind": "movie", "title": "In the Mood for Love"}
+    assert out["strong"]["sent"] == [{"q": "in the mood for love", "like": like, "auto": True}]
+    assert out["strong"]["because"] == "In the Mood for Love"
+    assert out["elsewhere"]["sent"][0]["like"] == like
+
+
+def test_the_top_match_plays_a_library_title_and_opens_any_other() -> None:
+    out = _run("autoExact")
+    assert out["strong"]["go"] == "Play"
+    assert out["elsewhere"]["go"] == "Open"
+
+
+def test_the_top_match_play_goes_to_the_player_as_the_titles_own_play_does() -> None:
+    out = _run("autoExact")["strong"]
+    assert out["previews"] == ["/api/watch/preview/movie-5"]
+    assert out["href"] == "/watch/play/5?from=%2F%23title%3Dmovie-5"
+    # Not the title sheet, which a ref on the link opens instead.
+    assert out["sheet"] is None
+
+
+def test_a_held_top_match_that_cannot_be_played_opens_its_title() -> None:
+    out = _run("autoExact")
+    for way in ("unplayable", "unknown"):
+        assert (out[way]["go"], out[way]["href"], out[way]["sheet"]) == (
+            "Open",
+            "/watch/movie/5",
+            "movie-5",
+        )
+    assert out["elsewhere"]["previews"] == []
+
+
+def test_switched_off_or_with_few_answers_left_a_wish_waits_for_return() -> None:
+    out = _run("autoHeld")
+    for way in ("off", "low"):
+        assert out[way] == {
+            "asked": 0,
+            "head": "Ask AI: “netflix originals” | Press ↵ to ask AI",
+            "pill": 0,
+            "enter": [False],
+        }
+    assert out["plenty"]["enter"] == [True]
+
+
+def test_with_no_answers_left_today_a_wish_says_so_in_one_line() -> None:
+    none = _run("autoHeld")["none"]
+    assert (none["asked"], none["pill"]) == (0, -1)
+    assert none["head"].startswith("That’s today’s AI answers")
+
+
+def test_switched_off_elsewhere_the_refusal_is_quiet_and_return_still_asks() -> None:
+    out = _run("autoRefused")["off"]
+    assert out == {
+        "head": "Ask AI: “netflix originals” | Press ↵ to ask AI",
+        "asked": [True, False],
+    }
+
+
+def test_with_few_answers_left_or_another_run_going_an_answer_asked_on_its_own_waits_quietly() -> (
+    None
+):
+    out = _run("autoRefused")
+    for way in ("low", "running"):
+        assert out[way] == {
+            "head": "Ask AI: “netflix originals” | Press ↵ to ask AI",
+            "asked": [True, False],
+        }, way
+
+
+def test_a_plain_query_may_be_asked_of_the_ai_from_its_last_suggestion() -> None:
+    out = _run("askPlain")
+    assert out["rows"][-1] == "Ask AI about “salt and ember” | Titles that fit, yours first"
+    assert out["head"] is None
+    assert out["pill"] == ["false", True]
+    assert out["enter"] == 0  # Return searches
+    assert out["asked"] == [
+        [{"q": "salt and ember"}],
+        ["salt and ember"],
+        "“salt and ember” | Reading what you watch…",
+    ]
+    assert out["rowsAfter"] == 0
+
+
+def test_a_single_word_may_be_asked_of_the_ai_when_the_person_asks() -> None:
+    out = _run("askPlain")
+    assert out["oneWord"] == 1
+    assert out["oneAsked"] == [{"q": "dune"}]
+
+
+def test_the_pill_asks_then_thinks_and_goes_once_answered() -> None:
+    out = _run("pill")
+    assert out["wish"][:4] == ["Ask AI", "false", False, True]
+    assert out["thinking"][:4] == ["Thinking", "false", True, True]
+    assert out["done"][1:4] == ["true", False, True]
+
+
+def test_the_pill_is_named_for_a_screen_reader_where_it_shows_its_sparkle_alone() -> None:
+    out = _run("pill")
+    assert (out["wish"][4], out["thinking"][4]) == ("Ask AI", "AI is thinking")
+
+
+def test_the_top_match_then_the_answer_then_the_loose_matches_in_page_and_key_order() -> None:
+    out = _run("order")
+    assert [c for c in out["column"] if not c.endswith(":hidden")][-4:] == [
+        "ask-top-wrap",
+        "ask",
+        "ordinary",
+        "watch-grid",
+    ]
+    assert out["keys"] == [
+        "watch-suggestion:movie-5",
+        "ask-top:movie-5",
+        "watch-card__link:movie-1",
+        "chip:Funnier",
+        "watch-card__link:movie-5",
+    ]
+
+
+def test_a_viewer_s_answer_says_how_many_are_left_and_different_picks_asks_again() -> None:
+    out = _run("answerWays")
+    assert out["line"].endswith("· 7 AI answers left today")
+    assert out["chips"][-1] == "Different picks"
+    assert out["again"] == [{"q": Q}, {"q": Q, "fresh": True}]
+
+
+def test_different_picks_keeps_the_chips_and_the_answer_in_place_while_it_works() -> None:
+    out = _run("answerWays")
+    assert out["busy"] == {
+        "chips": 3, "pressed": "true", "disabled": True, "dim": True,
+        "cards": 2, "outlines": 0, "sameGrid": True, "kicker": "AI picks",
+    }  # fmt: skip
+    after = out["after"]
+    assert (after["pressed"], after["disabled"], after["dim"], after["cards"]) == (
+        "false",
+        False,
+        False,
+        1,
+    )
+    assert after["sameGrid"] is True
+
+
+def test_answers_left_fall_as_a_run_starts_and_follow_what_each_reply_says() -> None:
+    out = _run("answersLeft")
+    assert (out["started"], out["polled"]) == (9, 8)
+    assert out["line"].endswith("· 7 AI answers left today")
+    assert out["kept"] == 10
+
+
+def test_a_question_asked_on_its_own_is_asked_again_on_its_own_as_the_page_comes_back() -> None:
+    assert _run("autoRestored") == {"plenty": [True], "low": [], "off": []}
+
+
+def test_a_wish_typed_before_the_ai_is_known_is_asked_once_it_is() -> None:
+    out = _run("autoLate")
+    assert out["before"] == 0
+    assert out["after"] == [{"q": "netflix originals", "auto": True}]
+
+
+def test_one_group_of_titles_under_an_answer_is_named_by_the_line_over_them() -> None:
+    out = _run("oneGroup")
+    assert out["one"] == {"line": "Matching your words1 title", "heads": []}
+    assert out["two"]["heads"] == ["In your library", "Available to download"]
