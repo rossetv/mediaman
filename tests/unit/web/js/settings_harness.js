@@ -374,6 +374,27 @@ const scenarios = {
     return { dirty, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
   },
 
+  // The page is told the bar's height when it shows, and again each time the bar is resized.
+  async saveBarHeight() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const input = h.add('input', { id: 'plex_url', value: 'http://a', type: 'text' }, page);
+    h.ctx.MM.api = {};
+    const told = [];
+    h.doc.documentElement.style = { setProperty: (k, v) => told.push({ [k]: v }) };
+    const resized = [];
+    h.ctx.ResizeObserver = function (fn) { this.observe = (el) => { if (el === bar) resized.push(fn); }; this.disconnect = () => {}; };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    bar.offsetHeight = 61;
+    input.value = 'http://b'; input.fire('input');
+    // the caption wraps to more lines
+    bar.offsetHeight = 258;
+    resized.forEach((fn) => fn());
+    return told;
+  },
+
   // A refused save shows the field it refused, out from under the bar, and leaves the focus where it was.
   async refusedInView() {
     const h = build();

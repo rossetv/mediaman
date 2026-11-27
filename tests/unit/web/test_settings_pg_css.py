@@ -123,6 +123,25 @@ def test_save_bar_buttons_are_a_finger_tall_on_phones() -> None:
     assert ".stx-save .btn { min-height: 44px; }" in phone
 
 
+def test_save_bar_caption_is_never_taken_out_of_reach_of_a_screen_reader_on_phones() -> None:
+    caption = (".stx-save__text", ".sb-msg", "#save-status")
+    for sheet in CSS.glob("*.css"):
+        css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
+        for m in re.finditer(r"@media [^{]*max-width[^{]*\{", css):
+            depth, i = 1, m.end()
+            while depth:
+                depth += {"{": 1, "}": -1}.get(css[i], 0)
+                i += 1
+            for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css[m.end() : i - 1]):
+                # the bar itself hides only while nothing is unsaved
+                whole_bar = ".stx-save" in head and ":not(.on)" not in head
+                if whole_bar or any(c in head for c in caption):
+                    assert not re.search(r"display:\s*none|visibility:\s*hidden", body), (
+                        sheet.name,
+                        head.strip(),
+                    )
+
+
 def test_a_save_error_or_what_a_save_left_out_wraps_whole_and_is_never_hidden() -> None:
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
     for state in ("is-error", "is-partial"):
