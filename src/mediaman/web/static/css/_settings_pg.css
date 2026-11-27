@@ -263,7 +263,7 @@
 /* The save bar, under the sections while anything is not saved. */
 .stx-save {
   flex: none; display: flex; align-items: center; gap: 10px;
-  padding: 12px 20px max(12px, env(safe-area-inset-bottom, 0px));
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--hair-strong);
   background: color-mix(in srgb, var(--s2) 92%, transparent);
   -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
@@ -291,11 +291,11 @@
   @keyframes fade-in-stx-save { from { opacity: 0; } }
 }
 /* Its dot in line with the list and its button with the sections' cards above it. */
+@media (min-width: 700px) {
+  .stx-save { padding-inline: 20px; }
+}
 @media (min-width: 1000px) {
   .stx-save { padding-right: 28px; }
-}
-@media (max-width: 699.98px) {
-  .stx-save { padding-inline: 16px; }
 }
 @media (max-width: 380px) {
   .stx-save { flex-wrap: wrap; }

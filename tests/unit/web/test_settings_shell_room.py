@@ -67,15 +67,14 @@ def test_the_save_bar_sits_under_the_sections_scroller_and_keeps_room_for_the_ho
 
 
 def test_the_save_bar_starts_its_line_where_the_section_list_does() -> None:
-    wide = re.search(r"padding: 12px (\d+)px", _rule(".stx-save")).group(1)  # type: ignore[union-attr]
-    nav = re.search(r"\.stx__nav \{[^}]*padding: \S+ \S+ \S+ (\d+)px", _block(WIDE)).group(1)  # type: ignore[union-attr]
-    assert wide == nav
-    # on a phone both come in to 16px, the bar's rule after its own so it wins
     at = CSS.index("\n.stx-save {")
-    phone = re.search(
-        r"@media \(max-width: 699\.98px\) \{\s*\.stx-save \{ padding-inline: 16px; \}", CSS
+    nav = re.search(r"\.stx__nav \{[^}]*padding: \S+ \S+ \S+ (\d+)px", _block(WIDE)).group(1)  # type: ignore[union-attr]
+    # from 700px the bar's sides match the list's left; below it keeps its own 16px, as the list does
+    mid = re.search(
+        r"@media \(min-width: 700px\) \{\s*\.stx-save \{ padding-inline: (\d+)px; \}", CSS
     )
-    assert phone and phone.start() > at
+    assert mid and mid.group(1) == nav and mid.start() > at
+    assert re.search(r"padding: 12px 16px max\(", _rule(".stx-save"))
     assert re.search(r"\.stx__nav, \.stx__body \{ padding-right: 16px; padding-left: 16px; \}", CSS)
 
 
