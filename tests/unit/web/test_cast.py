@@ -625,6 +625,19 @@ def test_without_a_choice_a_tv_plays_the_persons_default_languages(alice, conn, 
     assert (started["audio"], started["subtitle"]) == ("22", "31")
 
 
+def test_default_tracks_plex_will_not_play_give_way_to_its_own_on_a_tv(alice, conn, plex):
+    conn.execute("UPDATE admin_users SET audio_lang = 'pl', subtitle_lang = 'en'")
+    conn.commit()
+    plex.knows_tracks = False
+    started = _cast(alice)
+    asked = [p for path, p in plex.calls if path == f"{TRANSCODE}/decision"]
+    assert [(p.get("audioStreamID"), p["subtitles"]) for p in asked] == [
+        ("22", "burn"),
+        (None, "none"),
+    ]
+    assert (started["audio"], started["subtitle"]) == ("21", None)
+
+
 @pytest.mark.parametrize("choice", [{"audio": "31"}, {"subtitle": "999"}])
 def test_a_track_the_title_does_not_have_is_refused_before_anything_starts(alice, plex, choice):
     resp = _start(alice, **choice)

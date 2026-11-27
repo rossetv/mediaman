@@ -9,6 +9,7 @@ maker's; none may send credentials.
 from __future__ import annotations
 
 import contextlib
+import logging
 import sqlite3
 from dataclasses import asdict
 from functools import partial
@@ -20,7 +21,7 @@ from starlette.responses import Response
 
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import TICKET_SECONDS, Ticket, get_ticket_store
-from mediaman.services.cast.tracks import read_tracks
+from mediaman.services.cast.tracks import Pick, read_tracks
 from mediaman.services.media_meta.plex_quality import TvQuality
 from mediaman.services.media_meta.plex_stream import (
     StreamGone,
@@ -50,9 +51,12 @@ from mediaman.web.routes.watch.stream_api import (
     _StreamRoute,
     pick_tracks,
     plex_failure,
+    selected,
     session_lasts,
     stream_lives,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(route_class=_StreamRoute)
 
@@ -132,16 +136,30 @@ def _start(
             conn, username, item, audio, subtitles, audio_id=body.audio, subtitle=body.subtitle
         )
         quality = "best" if body.quality == "auto" else body.quality
-        stream_id = manager.start(
-            username,
-            body.rating_key,
-            quality,
-            pick.burn,
-            _progress_info(item),
-            page=body.page,
-            asked_ago=body.asked_s + manager.now() - began,
-            tv=TvTracks(audio=pick.audio, subtitle=pick.subtitle),
-        )
+
+        def start(chosen: Pick) -> str:
+            return manager.start(
+                username,
+                body.rating_key,
+                quality,
+                chosen.burn,
+                _progress_info(item),
+                page=body.page,
+                asked_ago=body.asked_s + manager.now() - began,
+                tv=TvTracks(audio=chosen.audio, subtitle=chosen.subtitle),
+            )
+
+        try:
+            stream_id = start(pick)
+        except TrackUnavailable:
+            asked = Pick(body.audio, subtitle)
+            if asked == pick:
+                raise
+            # Tracks only the person's defaults or their choice for the title named: what
+            # Plex selects plays rather than nothing.
+            logger.warning("cast: Plex would not play the tracks picked")
+            stream_id = start(asked)
+            pick = Pick(body.audio or selected(audio), subtitle)
     except TooManyStreams:
         return respond_err("too_many_streams", status=429)
     except TrackUnavailable:
