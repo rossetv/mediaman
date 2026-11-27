@@ -196,3 +196,165 @@ def test_a_fragment_s_styles_and_scripts_load_only_from_the_app_s_own_static_fil
 
 def test_history_is_fetched_with_only_its_own_keys_from_the_address() -> None:
     assert _run("historyKeys") == ["/history?pane=1&action=plays"]
+
+
+def test_profile_is_fetched_ahead_only_on_intent_and_history_and_settings_once_the_hub_shows() -> (
+    None
+):
+    out = _run("prefetch")
+    admin, viewer = out["admin"], out["viewer"]
+    assert admin["before"] == []
+    # an idle page asks for nothing: only the pointer, a press or the focus on the button does
+    assert admin["idle"] == []
+    assert admin["opened"] == ["Profile", 1]
+    assert admin["hub"] == ["/account?pane=1", "/history?pane=1", "/settings?pane=1"]
+    # History asked for with other filters than it was fetched ahead with is fetched afresh
+    assert (admin["filtered"], admin["title"]) == (["/history?pane=1&action=plays"], "History")
+    assert viewer["hub"] == ["/account?pane=1", "/history?pane=1"]
+    assert admin["toasts"] == viewer["toasts"] == []
+
+
+def test_a_fetch_ahead_that_fails_says_nothing_and_is_asked_for_again_on_opening() -> None:
+    out = _run("prefetchFails")
+    assert out["quiet"] == [[], False, "/"]
+    assert out["opened"] == ["Profile", ["/account?pane=1", "/account?pane=1"], []]
+
+
+def test_the_pointer_on_the_profile_button_fetches_profile_ahead_once() -> None:
+    out = _run("prefetchOnButton")
+    assert out["hovered"] == ["/account?pane=1"]
+    assert out["pressed"] == ["/account?pane=1"]
+
+
+def test_a_step_to_a_group_on_its_way_slides_the_old_view_out_and_puts_the_focus_on_the_title() -> (
+    None
+):
+    out = _run("stepWhileLoading")
+    assert out["waiting"] == {
+        "on": [],
+        "loading": True,
+        "focus": "title",
+        "hubDir": -1,
+        "hubInert": True,
+    }
+    assert (out["came"], out["title"]) == (["history"], "History")
+
+
+def test_a_pull_down_on_the_content_at_its_top_closes_the_sheet_and_a_scroll_does_not() -> None:
+    out = _run("pullFromContent")
+    assert out["top"]["kept"] == [True, True, True]
+    assert out["top"]["moved"].startswith("translateY(")
+    assert out["top"]["at"] == "/"
+    for way in ("scrolled", "up", "side", "inner", "innerStart"):
+        assert out[way]["kept"] == [False] * len(out[way]["kept"]), way
+        assert out[way]["at"] == "/?you=profile", way
+
+
+def test_a_sheet_pulled_up_gives_less_the_further_it_is_pulled_never_past_36px_and_comes_back() -> (
+    None
+):
+    out = _run("rubberBand")
+    gave = [-float(t.removeprefix("translateY(").removesuffix("px)")) for t in out["up"]]
+    assert 3 <= gave[0] <= 10
+    assert gave == sorted(gave) and len(set(gave)) == 4
+    # pulled 10, 100, 300 then 3000 px: each further pixel gives less than the last
+    assert (gave[1] - gave[0]) / 90 > (gave[2] - gave[1]) / 200 > (gave[3] - gave[2]) / 2700
+    assert gave[3] <= 36 and gave[3] > 30
+    assert out["after"] == ["", "/?you=profile"]
+
+
+def test_a_step_moves_the_old_title_out_and_the_new_in_and_with_reduced_motion_only_fades() -> None:
+    out = _run("titleMoves")
+    full = out["full"]["step"]
+    assert full["title"] == "Email"
+    assert full["ghost"] == ["Profile", "true"]
+    assert full["out"] == [[[1, "none"], [0, "translateX(-12px)"]]]
+    assert full["in"] == [[[0, "translateX(12px)"], [1, "none"]]]
+    assert full["label"] == [[[0, "translateX(12px)"], [1, "none"]]]
+    assert out["full"]["left"] == 0
+    # back up, both move the other way
+    title, gone, came = out["full"]["back"]
+    assert title == "Profile"
+    assert gone == [[[1, "none"], [0, "translateX(12px)"]]]
+    assert came == [[[0, "translateX(-12px)"], [1, "none"]]]
+    calm = out["calm"]["step"]
+    assert calm["out"] == [[[1, "none"], [0, "none"]]]
+    assert calm["in"] == [[[0, "none"], [1, "none"]]]
+    assert calm["timing"]["in"][0][0] >= calm["timing"]["out"][0][1] - 30
+
+
+def test_the_old_title_is_gone_before_the_new_one_is_legible_and_the_new_moves_with_the_view() -> (
+    None
+):
+    out = _run("titleMoves")
+    timing = out["full"]["step"]["timing"]
+    (gone_delay, gone_ms, _), (came_delay, came_ms, came_ease) = timing["out"][0], timing["in"][0]
+    assert gone_delay == 0 and gone_ms <= 100
+    # the new title starts once the old is mostly faded, and ends with the step
+    assert 50 <= came_delay <= gone_ms
+    assert came_delay + came_ms == 250
+    tokens = _run("widthSteps")["full"]["tokens"]
+    assert came_ease == tokens["--ease-push"]
+
+
+def test_stepping_between_a_narrow_and_a_wide_view_moves_the_panel_s_edge_and_never_its_width() -> (
+    None
+):
+    full = _run("widthSteps")["full"]
+    push = full["tokens"]["--ease-push"]
+    back, into = full["back"], full["into"]
+    # back to the narrow hub: the box is held wide while the frame's left edge moves 440 px to the right
+    assert back["held"] and back["frames"] == 1
+    assert back["edge"] == [["translateX(0px)", "translateX(440px)"]]
+    assert back["fill"] == [["scaleX(1)", "scaleX(0.5)"]]
+    # the hub comes in with the edge, its own left on it from first frame to last, and opaque
+    assert back["hub"] == [["translateX(-440px)", "translateX(0px)"]]
+    assert back["hubShown"] == [[1, 1]]
+    assert back["ease"] == [push]
+    # Back and the title keep to the frame: Back on its edge, the title in its middle
+    assert back["up"] == [["0px", "440px"]]
+    assert back["title"] == [["0px", "220px"]] and back["old"] == [["0px", "220px"]]
+    # once the step ends, the panel is its own width again and nothing is held
+    assert back["after"] == [False, 0]
+    # into the wide view, the other way
+    assert into["edge"] == [["translateX(440px)", "translateX(0px)"]]
+    assert into["fill"] == [["scaleX(0.5)", "scaleX(1)"]]
+    assert into["hub"] == [["translateX(0px)", "translateX(-440px)"]]
+    assert into["title"] == [["220px", "0px"]] and into["old"] == [["220px", "0px"]]
+    assert into["after"] == [False, 0]
+    assert full["at"] == "/?you=history&h=action%3Dplays"
+
+
+def test_a_group_that_comes_in_a_moment_is_pushed_over_the_view_on_show_not_after_a_wait() -> None:
+    first = _run("widthSteps")["full"]["first"]
+    # History was not yet in: it came within the moment, so the hub stayed to travel with the edge
+    assert first["hub"] == [["translateX(0px)", "translateX(-440px)"]]
+    assert first["edge"] == [["translateX(440px)", "translateX(0px)"]]
+
+
+def test_with_reduced_motion_the_wide_frame_fades_over_the_narrow_and_nothing_slides() -> None:
+    calm = _run("widthSteps")["calm"]
+    for way, fade in (("back", [1, 0]), ("into", [0, 1])):
+        step = calm[way]
+        assert step["held"] and step["frames"] == 2, way
+        # the narrow frame stands, the wide one over it fades
+        assert step["fade"] == [[], [fade]], way
+        assert all(a == b for a, b in step["edge"]), way
+        assert step["hub"] == [], way
+        assert step["after"] == [False, 0], way
+
+
+def test_on_a_phone_the_sheet_keeps_its_width_and_no_frame_is_drawn() -> None:
+    phone = _run("widthSteps")["phone"]
+    for way in ("back", "into"):
+        assert (phone[way]["held"], phone[way]["frames"], phone[way]["hub"]) == (False, 0, []), way
+
+
+def test_with_reduced_motion_a_back_that_fades_out_stays_at_its_start_and_one_that_fades_in_at_its_end() -> (
+    None
+):
+    calm = _run("widthSteps")["calm"]
+    # back to the hub, which has no Back: it fades where it was, not in the middle of the bar
+    assert calm["back"]["up"] == [["0px", "0px"]]
+    # into the wide view Back comes in at its end position
+    assert calm["into"]["up"] == [["0px", "0px"]]

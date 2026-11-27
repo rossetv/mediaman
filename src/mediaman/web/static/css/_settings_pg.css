@@ -353,6 +353,18 @@
   .setg-pg .setg-row-sub a::before { content: ""; position: absolute; inset: -6px -4px -21px; }
 }
 
+/* A section fades out under the bar once it scrolls, rather than being cut at the bar's edge. */
+@property --stx-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@supports (animation-timeline: scroll()) {
+  .stx__body {
+    mask-image: linear-gradient(to bottom, transparent, #000 var(--stx-fade));
+    animation: stx-fade linear both;
+    animation-timeline: scroll(self);
+    animation-range: 0 24px;
+  }
+  @keyframes stx-fade { to { --stx-fade: 20px; } }
+}
+
 /* Forced colours drop backgrounds, which is all that dots, bars and a current choice are. */
 @media (forced-colors: active) {
   .setg-pg .conn-dot, .stx-save__dot, .setg-pg .chip-dot {

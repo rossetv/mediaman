@@ -94,6 +94,9 @@
   --dur-draw-man: .5s;
   --delay-draw-man: .42s;
   --ease-out: cubic-bezier(.2,.8,.2,1);
+  /* A view pushed in settles quickly, as one of iOS does; what is put away leaves at speed. */
+  --ease-push: cubic-bezier(.32, .72, 0, 1);
+  --ease-exit: cubic-bezier(.4, 0, 1, 1);
 
   /* Z-index scale — single source of truth for app-wide stacking.
      Local stacking contexts inside positioned ancestors stay numeric. */

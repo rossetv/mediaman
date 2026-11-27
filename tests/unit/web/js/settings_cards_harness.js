@@ -12,6 +12,7 @@ Node.prototype.querySelectorAll = function (sel) {
   return sel === 'h3' ? this.descendants().filter((e) => e.tagName === 'H3') : queryAll.call(this, sel);
 };
 Node.prototype.removeChild = function (c) { c.remove(); return c; };
+Node.prototype.click = function () { if (!this.disabled) click(this.ownerDocument, this); };
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js/settings');
 
@@ -53,7 +54,7 @@ function card(doc, parent, service, title) {
           ['h3', {}, ['button', { class: 'intg-fold', 'aria-expanded': 'false', 'aria-controls': 'intg-body-' + service }, title]],
           ['div', { class: 'sub' }, 'What it does']],
         ['div', { class: 'hd-actions' },
-          ['span', { class: 'conn', 'data-conn': service }, ['span', { 'data-conn-short': '' }, 'Untested'], ['span', { 'data-conn-label': '' }, 'Untested']],
+          ['span', { class: 'conn', 'data-conn': service }, ['span', { 'data-conn-label': '' }, 'Untested']],
           ['div', { class: 'hd-btns' },
             ['button', { class: 'btn-test', 'data-test-service': service, 'aria-label': 'Test ' + title }, 'Test'],
             ['svg', { class: 'intg-chev' }]]]]],
@@ -99,7 +100,12 @@ const scenarios = {
     const p = load(['integrations.js']);
     const page = p.doc.body.appendChild(build(p.doc, ['div', { class: 'setg-pg' }]));
     const c = card(p.doc, page, 'plex', 'Plex');
-    const said = () => [c.querySelector('[data-conn-short]').textContent, c.querySelector('[data-conn-label]').textContent];
+    // The pill's word, and the line the open card shows above its fields (null when hidden).
+    const said = () => {
+      const why = c.querySelector('.intg-why');
+      return [c.querySelector('[data-conn-label]').textContent,
+        why && !why.hidden ? why.textContent : null];
+    };
     const set = p.ctx.MM.settings.integrations.setConnStatus;
     const out = {};
     set('plex', 'err', 'The service refused the request: check the API key and the address.'); out.err = said();
@@ -107,6 +113,34 @@ const scenarios = {
     set('plex', 'ok', 'Connected'); out.ok = said();
     set('plex', 'off', 'Not configured'); out.off = said();
     set('plex', 'untested', 'Testing…'); out.testing = said();
+    return out;
+  },
+
+  // The open card's Save, as drawn for a card with edits and one without, and what pressing it does.
+  async saveInCard() {
+    const p = load(['toggles.js', 'integrations.js'], { edited: ['radarr_api_key'] });
+    const page = p.doc.body.appendChild(build(p.doc, ['div', { class: 'setg-pg' }]));
+    card(p.doc, page, 'sonarr', 'Sonarr');
+    const radarr = card(p.doc, page, 'radarr', 'Radarr');
+    const bar = p.doc.body.appendChild(build(p.doc, ['button', { id: 'btn-save' }, 'Save']));
+    let saved = 0;
+    bar.addEventListener('click', () => { saved += 1; });
+    p.ctx.MM.settings.toggles.init();
+    p.ctx.MM.settings.integrations.paintTests();
+    const shown = (svc) => {
+      const b = p.doc.querySelector('#intg-' + svc + ' .intg-save');
+      return b && !b.hidden ? [b.textContent, b.parentNode.className, b.nextElementSibling && b.nextElementSibling.getAttribute('data-test-service')] : null;
+    };
+    const out = { sonarr: shown('sonarr'), radarr: shown('radarr') };
+    const btn = radarr.querySelector('.intg-save');
+    btn.focus();
+    click(p.doc, btn);
+    out.saved = saved;
+    // The save stored the edits: the card is clean, and the focus moves on to Test.
+    p.ctx.MM.settings.savebar.isEdited = () => false;
+    p.ctx.MM.settings.integrations.paintTests();
+    out.after = shown('radarr');
+    out.focus = p.doc.activeElement.getAttribute('data-test-service');
     return out;
   },
 

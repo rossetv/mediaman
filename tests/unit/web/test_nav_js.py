@@ -176,11 +176,26 @@ def test_the_ring_and_the_count_say_how_what_is_downloading_stands_with_no_note_
         # What it last was is not told as what it is.
         "lost": (", downloads not updating", ["is-on", "is-lost"], 57, None),
         "found": (", 4 in progress", ["is-on"], 40, None),
+        # once seen, what is ready is told on its own and not counted as in progress
+        "seenMixed": (", 3 in progress, 1 ready to watch", ["is-on"], 57, None),
+        "seenDownloading": (", 1 downloading, 2 ready to watch", ["is-on"], 30, None),
+        "seenWaiting": (
+            ", 1 waiting to download, 1 ready to watch",
+            ["is-on", "is-ready"],
+            6,
+            None,
+        ),
     }
     # nothing is left once the last one has gone
     over = out["over"]
     assert (over["name"], over["count"]) == (name, None)
     assert "is-on" not in over["ring"]
+
+
+def test_the_label_counts_the_ready_titles_downloading_lists_not_all_the_summary_counts() -> None:
+    out = _run("cappedReady")
+    assert out["mixed"].endswith(", 1 downloading, 2 ready to watch")
+    assert out["ready"].endswith(", 2 ready to watch")
 
 
 def test_on_watch_the_profile_button_opens_the_pane_and_never_the_menu() -> None:
@@ -315,3 +330,60 @@ def test_the_ring_link_covers_the_ring_and_a_thumb_s_width_but_leaves_the_face_t
     assert "width: 44px" in rule and "height: 44px" in rule
     # a ring-shaped area: the picture inside it is still the profile button's
     assert "clip-path: path(evenodd" in rule
+
+
+def test_the_number_counts_only_what_is_ready_and_not_yet_seen() -> None:
+    out = _run("unseen")
+    # two of three are new; one only added to the library and one downloading are not counted
+    assert out["first"]["count"] == "2"
+    assert out["first"]["badge"] == "2 ready to watch"
+    assert out["first"]["ring"] == "2 ready to watch"
+    assert out["first"]["name"].endswith(", 2 ready to watch")
+    assert out["first"]["menu"] == "2 ready to watch"
+    # what is no longer ready is forgotten
+    assert out["pruned"] == ["radarr::1"]
+
+
+def test_opening_a_title_or_seeing_it_in_downloading_takes_it_off_the_count() -> None:
+    out = _run("unseen")
+    assert out["opened"]["count"] == "1"
+    shown = out["shown"]
+    assert (shown["count"], shown["menu"]) == (None, None)
+    # with nothing new, the ring tells what still downloads
+    assert shown["ring"] == "Downloading, 50%"
+    assert out["kept"] == ["radarr::1", "radarr::2", "radarr::3"]
+    assert out["newTab"] is False
+
+
+def test_what_one_person_has_seen_leaves_the_count_of_another_on_the_same_browser() -> None:
+    assert _run("unseen")["otherPerson"] == "3"
+
+
+def test_ready_titles_the_strip_does_not_list_are_never_counted() -> None:
+    out = _run("unlisted")
+    assert out["count"] is None
+    assert out["name"] == "Profile menu, robin, 20 ready to watch"
+
+
+def test_a_browser_that_refuses_its_storage_still_counts_and_forgets_what_was_seen() -> None:
+    assert _run("noStorage") == {"first": "2", "seen": "1"}
+
+
+def test_a_tap_on_the_number_follows_the_ring_s_link_and_opens_no_menu() -> None:
+    assert _run("badgeTap") == {"followed": ["/?dl=1"], "went": [], "open": False}
+
+
+def test_the_menu_line_of_what_is_ready_is_reached_only_while_it_shows() -> None:
+    assert _run("readyKeys") == {"hidden": "account", "shown": "profile-ready", "href": "/?dl=1"}
+
+
+def test_the_number_scales_out_on_the_exit_curve_and_only_fades_with_reduced_motion() -> None:
+    css = NAV_CSS.read_text()
+    rest = re.search(r"\n\.profile-count\s*\{([^}]*)\}", css).group(1)
+    assert "scale(0)" in rest
+    assert "transform var(--dur) var(--ease-exit)" in rest
+    calm = css[css.index("@media (prefers-reduced-motion: reduce)") :]
+    calm = calm[: calm.index("\n}\n")]
+    # the same whether it comes or goes
+    rule = re.search(r"\.profile-count,\s*\.profile-count\.is-on\s*\{([^}]*)\}", calm).group(1)
+    assert "transform: none" in rule and "opacity var(--dur)" in rule

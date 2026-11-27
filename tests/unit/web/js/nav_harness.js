@@ -4,18 +4,22 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { makeDocument, build, click } = require('./fake_dom.js');
+const { Node, makeDocument, build, click } = require('./fake_dom.js');
+
+Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-function page(isPhone, downloading, reduced, pane) {
+function page(isPhone, downloading, reduced, pane, stored, who = 'robin', storage) {
   const doc = makeDocument();
-  const button = ['button', { class: 'profile-btn', id: 'button', 'aria-expanded': 'false', 'aria-label': 'Profile menu, robin' },
-    ['span', { class: 'avatar' }, 'R'], ['span', { class: 'profile-ring', id: 'ring' }], ['span', { class: 'profile-count', id: 'count' }]];
+  const button = ['button', { class: 'profile-btn', id: 'button', 'aria-expanded': 'false', 'aria-label': 'Profile menu, ' + who },
+    ['span', { class: 'avatar' }, 'R'], ['span', { class: 'profile-ring', id: 'ring' }], ['span', { class: 'profile-count', id: 'count' }],
+    ['span', { class: 'profile-btn-name' }, who]];
   const item = (id, tag) => [tag, { id, role: 'menuitem', href: '/' + id, tabindex: '-1' }, id];
   doc.body.appendChild(build(doc, ['header', { id: 'top', class: 'nav-glass' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
-    ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
+    ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]],
+    ['div', { id: 'profile-menu-items' }, item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]]));
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x'],
     ['div', { class: 'dlg__head' }, ['a', { id: 'dl-back', href: '/' }, 'Back']]]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
@@ -23,8 +27,11 @@ function page(isPhone, downloading, reduced, pane) {
   const $ = (id) => doc.getElementById(id);
   $('already-inert').inert = true;
   const media = { matches: isPhone, on: [], addEventListener(t, fn) { this.on.push(fn); } };
-  const win = { listeners: {}, scrollY: 0, location: { hash: '' }, matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
-  if (downloading) win.MM = { downloading };
+  const store = { ...stored };
+  const localStorage = storage || { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
+  const win = { listeners: {}, scrollY: 0, location: { hash: '', pathname: '/' }, localStorage, setTimeout: (fn) => fn(), matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
+  win.MM = { dom: { icon: () => doc.createElement('svg') } };
+  if (downloading) win.MM.downloading = downloading;
   if (pane) win.MM = { ...win.MM, you: pane };
   win.visualViewport = { height: 800, scale: 1, addEventListener(t, fn) { win.listeners['seen ' + t] = fn; } };
   const images = [];
@@ -42,7 +49,7 @@ function page(isPhone, downloading, reduced, pane) {
     return e;
   };
   return {
-    $, win, media, fire, images, doc, clock,
+    $, win, media, fire, images, doc, clock, store,
     click: (id, extra) => click(doc, $(id), extra),
     key: (key) => fire('keydown', doc.activeElement, { key }),
     focused: () => doc.activeElement.id,
@@ -53,6 +60,9 @@ function page(isPhone, downloading, reduced, pane) {
     expanded: (id) => $(id).getAttribute('aria-expanded'),
   };
 }
+
+// What is ready, as the strip lists it: *n* titles, each with a key of its own.
+const readyItems = (n) => Array.from({ length: n }, (_, i) => ({ key: 'radarr::r' + i, state: 'ready', playable: true }));
 
 const scenarios = {
   // The focus comes into the bar, moves in it, and leaves it for the page, then for nothing.
@@ -289,13 +299,29 @@ const scenarios = {
     p.$('ring').style.setProperty = (k, v) => { set.ring = v; };
     const on = (id) => ['is-on', 'is-ready', 'is-waiting', 'is-lost'].filter((c) => p.$(id).classList.contains(c));
     const at = (active, waiting, ready, percent, lost) => {
-      tell({ summary: { total: active + waiting + ready, active, waiting, ready, percent }, lost: !!lost });
+      tell({ summary: { total: active + waiting + ready, active, waiting, ready, percent }, lost: !!lost, items: readyItems(ready) });
       return {
         name: p.$('button').getAttribute('aria-label'), ring: on('ring'), filled: set.ring,
         count: on('count').length ? p.$('count').textContent : null,
       };
     };
-    return { none: at(0, 0, 0, 0), one: at(1, 0, 0, 42), many: at(2, 2, 0, 40), mixed: at(2, 1, 1, 57), ready: at(0, 1, 1, 100), waiting: at(0, 3, 0, 0), lost: at(2, 1, 1, 57, true), found: at(2, 2, 0, 40), over: at(0, 0, 0, 0, true) };
+    return { none: at(0, 0, 0, 0), one: at(1, 0, 0, 42), many: at(2, 2, 0, 40), mixed: at(2, 1, 1, 57), ready: at(0, 1, 1, 100), waiting: at(0, 3, 0, 0), lost: at(2, 1, 1, 57, true), found: at(2, 2, 0, 40), ...seenThen(), over: at(0, 0, 0, 0, true) };
+    // Once what is ready has been seen, it is told apart from what is still on its way.
+    function seenThen() {
+      p.fire('mm:ready-shown', p.doc, { detail: { keys: readyItems(2).map((item) => item.key) } });
+      return { seenDownloading: at(1, 0, 2, 30), seenMixed: at(2, 1, 1, 57), seenWaiting: at(0, 1, 1, 0) };
+    }
+  },
+  // The answer lists fewer titles than the summary counts: the label tells the listed ones.
+  cappedReady() {
+    let tell;
+    const p = page(false, { subscribe(fn) { tell = fn; } });
+    p.fire('mm:ready-shown', p.doc, { detail: { keys: readyItems(2).map((item) => item.key) } });
+    const items = [...readyItems(2), { key: 'sonarr::s0', state: 'downloading' }];
+    tell({ summary: { total: 4, active: 1, waiting: 0, ready: 3, percent: 30 }, lost: false, items });
+    const mixed = p.$('button').getAttribute('aria-label');
+    tell({ summary: { total: 3, active: 0, waiting: 0, ready: 3, percent: 100 }, lost: false, items: readyItems(2) });
+    return { mixed, ready: p.$('button').getAttribute('aria-label') };
   },
   // The ring is its own link beside the face, there only while something downloads.
   ringLink() {
@@ -303,7 +329,7 @@ const scenarios = {
     const went = [];
     const p = page(false, { subscribe(fn) { tell = fn; } }, false, { go: (to) => went.push(to) });
     const link = () => p.doc.querySelector('[data-dl-open]');
-    const at = (active, waiting, ready, percent, lost) => tell({ summary: { total: active + waiting + ready, active, waiting, ready, percent }, lost: !!lost });
+    const at = (active, waiting, ready, percent, lost) => tell({ summary: { total: active + waiting + ready, active, waiting, ready, percent }, lost: !!lost, items: readyItems(ready) });
     const seen = () => { const l = link(); return l && { hidden: l.hasAttribute('hidden'), label: l.getAttribute('aria-label'), href: l.getAttribute('href'), tag: l.tagName.toLowerCase(), inButton: p.$('button').contains(l), sibling: l.parentNode === p.$('button').parentNode }; };
     const out = { off: seen() };
     at(2, 0, 0, 89);
@@ -336,6 +362,88 @@ const scenarios = {
     p.$('button').focus();
     const arrow = p.key('ArrowDown');
     return { went, open: p.open(), arrowed: arrow.prevented, popup: p.$('button').getAttribute('aria-haspopup'), controls: p.$('button').getAttribute('aria-controls') };
+  },
+  // Only what is ready and not seen yet is counted: seen in Downloading, or with its title opened.
+  unseen() {
+    let tell;
+    const went = [];
+    const stored = { 'mm:ready-seen:robin': JSON.stringify(['radarr::1', 'radarr::gone']) };
+    const p = page(false, { subscribe(fn) { tell = fn; } }, false, null, stored);
+    const ready = (n) => ({ key: 'radarr::' + n, state: 'ready', playable: true, ref: 'tmdb-movie-' + n, tmdb_ref: 'tmdb-movie-' + n, href: '/#title=tmdb-movie-' + n });
+    const items = [ready(1), ready(2), ready(3), { key: 'radarr::4', state: 'ready', playable: false }, { key: 'radarr::5', state: 'downloading' }];
+    const state = { summary: { total: 5, active: 1, waiting: 1, ready: 3, percent: 50 }, items };
+    const link = () => p.doc.querySelector('[data-dl-open]');
+    const look = () => ({
+      count: p.$('count').classList.contains('is-on') ? p.$('count').textContent : null,
+      badge: p.$('count').getAttribute('title'),
+      ring: link().getAttribute('aria-label'),
+      name: p.$('button').getAttribute('aria-label'),
+      menu: p.$('profile-ready').hasAttribute('hidden') ? null : p.$('profile-ready').textContent,
+    });
+    tell(state);
+    const out = { first: look(), pruned: JSON.parse(p.store['mm:ready-seen:robin']) };
+    p.win.location.hash = '#title=tmdb-movie-2';
+    p.win.listeners.hashchange();
+    out.opened = look();
+    p.fire('mm:ready-shown', p.doc, { detail: { keys: ['radarr::3'] } });
+    out.shown = look();
+    out.kept = JSON.parse(p.store['mm:ready-seen:robin']).sort();
+    // A new tab remembers it.
+    let again;
+    const q = page(false, { subscribe(fn) { again = fn; } }, false, null, p.store);
+    again(state);
+    out.newTab = q.$('count').classList.contains('is-on');
+    // Somebody else signed in on this browser has seen none of it.
+    let theirs;
+    const r = page(false, { subscribe(fn) { theirs = fn; } }, false, null, p.store, 'sam');
+    theirs(state);
+    out.otherPerson = r.$('count').classList.contains('is-on') ? r.$('count').textContent : null;
+    return out;
+  },
+  // Ready titles past what the strip lists are never counted: Downloading could not show them.
+  unlisted() {
+    let tell;
+    const p = page(false, { subscribe(fn) { tell = fn; } });
+    tell({ summary: { total: 25, active: 0, waiting: 0, ready: 25, percent: 100 }, items: readyItems(20) });
+    p.fire('mm:ready-shown', p.doc, { detail: { keys: readyItems(20).map((item) => item.key) } });
+    return { count: p.$('count').classList.contains('is-on') ? p.$('count').textContent : null, name: p.$('button').getAttribute('aria-label') };
+  },
+  // A browser that refuses its storage still counts, and still forgets what was seen in this tab.
+  noStorage() {
+    let tell;
+    const refuse = () => { throw new Error('SecurityError'); };
+    const p = page(false, { subscribe(fn) { tell = fn; } }, false, null, {}, 'robin', { getItem: refuse, setItem: refuse });
+    const state = { summary: { total: 2, active: 0, waiting: 0, ready: 2, percent: 100 }, items: readyItems(2) };
+    tell(state);
+    const count = () => (p.$('count').classList.contains('is-on') ? p.$('count').textContent : null);
+    const out = { first: count() };
+    p.fire('mm:ready-shown', p.doc, { detail: { keys: ['radarr::r0'] } });
+    out.seen = count();
+    return out;
+  },
+  // A tap on the number goes where the ring leads, and opens neither the menu nor the pane.
+  badgeTap() {
+    let tell;
+    const went = [];
+    const p = page(false, { subscribe(fn) { tell = fn; } }, false, { go: (to) => went.push(to) });
+    tell({ summary: { total: 1, active: 0, waiting: 0, ready: 1, percent: 100 }, items: [{ key: 'radarr::1', state: 'ready', playable: true }] });
+    const followed = [];
+    p.doc.addEventListener('click', (e) => { if (e.target.hasAttribute && e.target.hasAttribute('data-dl-open')) followed.push(e.target.getAttribute('href')); });
+    p.click('count');
+    return { followed, went, open: p.open() };
+  },
+  // The menu's line of what is ready is passed over by the arrows while it is hidden.
+  readyKeys() {
+    let tell;
+    const p = page(false, { subscribe(fn) { tell = fn; } });
+    p.click('button');
+    const out = { hidden: p.focused() };
+    p.click('button');
+    tell({ summary: { total: 1, active: 0, waiting: 0, ready: 1, percent: 100 }, items: [{ key: 'radarr::1', state: 'ready', playable: true }] });
+    p.click('button');
+    out.shown = p.focused();
+    out.href = p.$('profile-ready').getAttribute('href');
+    return out;
   },
   // Nothing tells of downloads: the rest of the bar works.
   noDownloads() {

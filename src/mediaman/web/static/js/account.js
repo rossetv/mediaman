@@ -867,8 +867,9 @@
       var sum = state.summary;
       row.hidden = !sum.total;
       if (!sum.total) return;
-      rowSays(link, state.lost ? 'Not updating' : sum.active ? sum.percent + '%'
-        : sum.ready ? sum.ready + ' ready' : sum.waiting + ' waiting');
+      // What can be watched now matters more than how far the rest has come.
+      rowSays(link, state.lost ? 'Not updating' : sum.ready ? sum.ready + ' ready to watch'
+        : sum.active ? sum.percent + '%' : sum.waiting + ' waiting');
     });
     link.addEventListener('click', function (e) {
       var ring = document.querySelector('.profile-dl');

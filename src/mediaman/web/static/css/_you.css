@@ -33,10 +33,22 @@
   outline: 0;
   opacity: 0;
   transform: translateX(48px);
-  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), width var(--dur-slow) var(--ease-out);
+  /* Its width is not animated: a step draws the frame below in its place meanwhile. */
+  transition: transform var(--dur) var(--ease-exit), opacity calc(var(--dur) * .6) var(--ease-exit) calc(var(--dur) * .4);
 }
 .you.is-wide .you__panel { --you-w: var(--you-wide); }
-.you.is-open .you__panel { opacity: 1; transform: none; }
+.you.is-open .you__panel { opacity: 1; transform: none; transition: transform var(--dur-slow) var(--ease-push), opacity var(--dur-fast) var(--ease-out); }
+
+/* A step between a narrow view and a wide one (watch/you.js): the panel's box is held at the wide
+   width, clear, and this frame is drawn where it was; its left edge moves and its fill grows or
+   shrinks from the right, so the panel is never seen to jump or stand half empty. */
+.you.is-sizing .you__panel { --you-w: var(--you-wide); background: transparent; border-color: transparent; box-shadow: none; }
+.you__frame { position: absolute; display: none; pointer-events: none; }
+.you.is-sizing .you__frame.is-on { display: block; }
+.you__frame-fill, .you__frame-edge, .you__frame-end { position: absolute; top: 0; bottom: 0; background: var(--s1); border: 1px solid var(--hair-strong); }
+.you__frame-fill { left: 0; right: 0; border-inline-width: 0; transform-origin: right; box-shadow: var(--shadow-card); }
+.you__frame-edge { left: 0; width: 20px; border-right-width: 0; border-radius: 20px 0 0 20px; }
+.you__frame-end { right: 0; width: 20px; border-left-width: 0; border-radius: 0 20px 20px 0; }
 
 .you__grab { display: none; -webkit-user-select: none; user-select: none; }
 .you__bar {
@@ -54,12 +66,15 @@
   grid-column: 2;
   margin: 0;
   font-size: 17px;
+  grid-row: 1;
   font-weight: 600;
   text-align: center;
   white-space: nowrap;
   outline: 0;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
+/* The title a step leaves, in the same place as it fades out (watch/you.js). */
+.you__title.is-old { pointer-events: none; }
 .you__back {
   grid-column: 1;
   justify-self: start;
@@ -99,10 +114,14 @@
   .you__back:hover { background: var(--s3); }
   .you__close:hover { background: var(--s3); color: var(--t1); }
 }
+/* After the hover rule, so a press lights under the mouse too: at once, easing off when let go. */
+.you__back:active, .you__close:active { background: var(--s4); transition-duration: 0s; }
 
 .you__views { position: relative; flex: 1; min-height: 0; }
 /* Each view is as wide as the panel it ends in, pinned to the right edge the panel grows from,
-   so its text never reflows while the panel widens or narrows: the panel clips it meanwhile. */
+   so its text never reflows while the panel widens or narrows: the panel clips it meanwhile.
+   A step pushes the deeper view (--dir 1, on the right) in or out over the other, opaque and on top;
+   the shallower one (--dir -1) slips a little way to the left under it and fades. */
 .you-view {
   --view-w: var(--you-narrow);
   position: absolute;
@@ -118,10 +137,12 @@
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--s5) transparent;
-  opacity: 0;
+  background: var(--s1);
+  z-index: calc(var(--dir, 1) + 1);
+  opacity: calc((var(--dir, 1) + 1) / 2);
   visibility: hidden;
-  transform: translateX(calc(var(--dir, 1) * 36px));
-  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow);
+  transform: translateX(calc(var(--dir, 1) * 64% + 36%));
+  transition: transform var(--dur-slow) var(--ease-push), opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur-slow);
 }
 .you-view[data-wide] { --view-w: var(--you-wide); }
 .you-view > * { flex-shrink: 0; }
@@ -129,13 +150,29 @@
   opacity: 1;
   visibility: visible;
   transform: none;
-  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s;
+  transition: transform var(--dur-slow) var(--ease-push), opacity var(--dur-slow) var(--ease-out), visibility 0s;
 }
 
 /* While a group's fragment is on its way. */
 .you__wait { display: none; flex-direction: column; gap: 12px; padding: 12px 20px; }
 .you.is-loading .you__wait { display: flex; }
 .you__wait > .skel { height: 52px; border-radius: 14px; }
+/* Profile's is drawn as its hub: the picture and two lines, two tiles, a group of rows. */
+.you[data-wait="profile"] .you__wait { gap: 20px; padding-top: 12px; }
+.you[data-wait="profile"] .you__wait > .skel:first-child {
+  height: 76px;
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 38px 50%, var(--s3) 37.5px, transparent 38px),
+    linear-gradient(var(--s3) 0 0) 96px 18px / min(50%, 180px) 20px no-repeat,
+    linear-gradient(var(--s3) 0 0) 96px 48px / min(30%, 110px) 14px no-repeat;
+}
+.you[data-wait="profile"] .you__wait > .skel:nth-child(2) {
+  height: 96px;
+  background: linear-gradient(90deg, var(--s2) calc(50% - 5px), transparent 0 calc(50% + 5px), var(--s2) 0);
+}
+.you[data-wait="profile"] .you__wait > .skel:last-child { height: 104px; background: var(--s2); }
+.you[data-wait="profile"] .you__wait > .skel::after { display: none; }
 
 /* Phones: a sheet from the foot, pulled down by its handle or its bar. */
 @media (max-width: 699.98px) {
@@ -145,11 +182,15 @@
     height: calc(100% - max(16px, env(safe-area-inset-top, 0px) + 8px));
     border-width: 1px 0 0;
     border-radius: 20px 20px 0 0;
+    overflow: visible;
     opacity: 1;
     transform: translateY(100%);
-    transition: transform var(--dur-slow) var(--ease-out);
+    transition: transform var(--dur-slow) var(--ease-exit);
   }
-  .you.is-open .you__panel { transform: none; }
+  /* A copy of the sheet below it, so pulled up it shows no gap at its foot; the views clip themselves. */
+  .you__panel::after { content: ""; position: absolute; top: 100%; right: 0; left: 0; height: 50vh; background: var(--s1); pointer-events: none; }
+  .you__views { overflow: hidden; }
+  .you.is-open .you__panel { transform: none; transition: transform var(--dur-slow) var(--ease-push); }
   .you__panel.is-dragged { transition: none; }
   .you__grab { display: block; flex: none; height: 18px; touch-action: none; cursor: grab; }
   .you__grab::after {
@@ -179,7 +220,7 @@
     transition: opacity var(--dur-fast) var(--ease-out) !important;
   }
   .you:not(.is-open) .you__panel { opacity: 0; }
-  .you-view { transform: none; transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast) !important; }
+  .you-view { transform: none; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast) !important; }
   .you__back.is-off { transition: opacity var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-fast) !important; }
   .you-view.is-on { transition: opacity var(--dur-fast) var(--ease-out), visibility 0s !important; }
 }

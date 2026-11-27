@@ -424,13 +424,10 @@ def test_on_a_phone_a_subscriber_row_keeps_its_state_under_the_address_and_remov
     assert "grid-area: st" in _phone_rule(".setg-pg .sub-row .sub-stat")
 
 
-def test_a_closed_service_shows_its_short_state_and_an_open_one_the_whole_answer() -> None:
-    assert "display: none" in _declarations(
-        ".setg-pg .intg-card.is-collapsed .conn [data-conn-label]"
-    )
-    assert "display: none" in _declarations(
-        ".setg-pg .intg-card:not(.is-collapsed) .conn [data-conn-short]"
-    )
+def test_a_service_s_pill_is_one_span_and_no_rule_hides_a_duplicate_word() -> None:
+    assert "data-conn-short" not in PANELS
+    hiding = [h for h, b in re.findall(r"([^{}]+)\{([^{}]*)\}", PANELS) if "display: none" in b]
+    assert not [h for h in hiding if "[data-conn-label]" in h]
 
 
 def test_on_reduced_motion_a_section_arriving_beside_the_list_fades_in_150ms() -> None:

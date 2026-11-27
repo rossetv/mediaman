@@ -1,7 +1,7 @@
 /* Watch: Downloading, grown out of its row at /?dl=1. Every download gets the row's card, with
  * what the row has no room for under it: the size, what Radarr or Sonarr says is wrong and what
- * comes of it, the last search, its episodes and an admin's buttons. Groups: Needs attention,
- * Downloading, Looking for a copy, Coming soon. While open it reads /api/downloads every 2 s and
+ * comes of it, the last search, its episodes and an admin's buttons. Groups: Ready to watch (for
+ * the minute the row says so), Needs attention, Downloading, Looking for a copy, Coming soon. While open it reads /api/downloads every 2 s and
  * patches each card in place.
  *
  * Every link to it is <a href="/?dl=1" data-dl-open>, which works without JavaScript too. One in
@@ -35,7 +35,7 @@
   var RACE_MS = 120; // how long a tap waits for a first answer before it grows into placeholders
   // What the address of anything else that holds the page says; opening Downloading clears it.
   var OTHERS = { all: null, view: null, q: null, genre: null, type: null, where: null, decade: null, person: null, page: null, per_page: null, sort: null };
-  var GROUPS = [['attention', 'Needs attention'], ['coming', 'Downloading'], ['looking', 'Looking for a copy'], ['soon', 'Coming soon']];
+  var GROUPS = [['ready', 'Ready to watch'], ['attention', 'Needs attention'], ['coming', 'Downloading'], ['looking', 'Looking for a copy'], ['soon', 'Coming soon']];
   var ETA = /^~(?:(\d+) hr )?(\d+) (min|sec) remaining$/;
   var TOP_STATES = ['downloading', 'almost_ready', 'needs_attention', 'finding_copy', 'queued', 'searching'];
 
@@ -342,6 +342,19 @@
     return node;
   }
 
+  /* One that is done, as the row has it: the downloads no longer list it. */
+  function readyCardOf(item) {
+    var key = 'ready:' + item.key;
+    var node = cards[key];
+    if (!node) {
+      node = cards[key] = watch.downloading.card(item);
+      node.classList.remove('watch-card');
+      node.classList.add('dwx');
+      node.setAttribute('data-dl-card', '');
+    } else watch.downloading.paint(node, item, false);
+    return node;
+  }
+
   function soonCardOf(item) {
     var key = 'soon:' + item.id;
     var node = cards[key];
@@ -399,7 +412,7 @@
 
   function curly(text) { return String(text).replace(/'/g, '’'); }
 
-  function wordsOf(data, items) {
+  function wordsOf(data, items, ready) {
     if (!setUpIn(data)) return '';
     var soon = (data.upcoming || []).length;
     var bits = [];
@@ -409,6 +422,7 @@
     else if (!data.outage) bits.push('Nothing downloading');
     else if (admin) bits.push(curly(data.outage));
     if (soon) bits.push(soon + '\u00a0coming\u00a0soon');
+    if (ready) bits.push(ready + '\u00a0ready\u00a0to\u00a0watch');
     if (!admin && data.outage && items.length) bits.push('some may be missing');
     // A wrapped head never starts a line with the dot.
     return bits.join('\u00a0· ');
@@ -544,6 +558,7 @@
     var data = last;
     var items = data ? (data.hero ? [data.hero] : []).concat(data.queue || []) : [];
     var upcoming = data && setUpIn(data) ? data.upcoming || [] : [];
+    var ready = watch.downloading.items().filter(function (item) { return item.state === 'ready' && item.playable !== false; });
     var waiting = !data && !lost;
     var held = skeletonsHeld();
     // Placeholders still growing out of the row land before the answer takes their place.
@@ -552,12 +567,12 @@
     var countHeld = dom.count.querySelector('.skel');
     if (waiting && !countHeld) dom.count.appendChild(el('span', 'skel dlg-skel__count')).setAttribute('aria-hidden', 'true');
     if (!waiting && countHeld) countHeld.remove();
-    if (!waiting) setText(dom.count, data ? wordsOf(data, items) : '');
+    if (!waiting) setText(dom.count, data ? wordsOf(data, items, ready.length) : '');
     var note = noteOf(data, items) || (waiting ? rowNote() : '');
     if (note) setText(dom.noteText, note);
     dom.note.hidden = !note;
-    drawEmpty(emptyOf(data, items));
-    var groups = { attention: [], coming: [], looking: [], soon: [] };
+    drawEmpty(emptyOf(data, items.concat(ready)));
+    var groups = { ready: ready.map(readyCardOf), attention: [], coming: [], looking: [], soon: [] };
     items.forEach(function (item) { groups[groupOf(item)].push(cardOf(item, items)); });
     upcoming.forEach(function (item) { groups.soon.push(soonCardOf(item)); });
     var want = waiting ? skeletons().nodes.slice() : [];
@@ -573,6 +588,10 @@
       return { left: r.left - from.left, top: r.top - from.top, width: r.width, height: r.height };
     });
     place(want);
+    // The header's count of what is ready leaves out what has been on show here.
+    if (isOpen && ready.length) {
+      document.dispatchEvent(new CustomEvent('mm:ready-shown', { detail: { keys: ready.map(function (item) { return item.key; }) } }));
+    }
     if (!swap) return;
     var fade = { duration: core.tokenMs('--dur', 200), easing: ease() };
     toArray(dom.grid.children).concat(dom.empty.hidden ? [] : [dom.empty]).forEach(function (n) {

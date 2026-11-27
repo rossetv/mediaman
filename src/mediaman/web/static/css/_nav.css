@@ -259,11 +259,18 @@
   line-height: 15px;
   text-align: center;
   opacity: 0;
-  transform: scale(.5);
+  transform: scale(0);
   pointer-events: none;
-  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+  /* Going, it shrinks away whole, and only then is gone. */
+  transition: transform var(--dur) var(--ease-exit), opacity 0s linear var(--dur);
 }
-.profile-count.is-on { opacity: 1; transform: none; }
+.profile-count.is-on {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
 
 /* Profile menu. Closed: invisible and out of the tab order once the fade-out
    ends. One step above the nav surfaces and page dropdowns. */
@@ -324,6 +331,7 @@
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .profile-item > .ico { font-size: 15px; flex-shrink: 0; }
+#profile-ready > .ico { color: var(--success); }
 .profile-item:hover,
 .profile-item:active,
 .profile-item:focus-visible { color: var(--t1); background: var(--s3); }
@@ -407,8 +415,9 @@
   .profile-menu *,
   .profile-btn > .ico,
   .nav-back > .ico,
-  .profile-ring,
-  .profile-count { transition: none; }
+  .profile-ring { transition: none; }
+  .profile-count,
+  .profile-count.is-on { transform: none; transition: opacity var(--dur) var(--ease-out); }
   .nav-glass .brand { transition: none; }
   .nav-back:hover > .ico { transform: none; }
   /* The pill still lights, but nothing grows. */
