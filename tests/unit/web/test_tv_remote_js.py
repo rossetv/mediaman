@@ -209,6 +209,12 @@ def test_a_poll_that_finds_the_session_gone_asks_before_leaving_unsaved_edits() 
     assert out["signedOutSaved"]["asked"] == []
 
 
+def test_on_the_page_a_read_is_sent_to_the_remote_never_reloads_it_and_stops_asking() -> None:
+    out = _run("onTheWayPage")
+    assert out["/force-password-change"] == {"went": "", "reads": 1}
+    assert out["/login"] == {"went": "", "reads": 1}
+
+
 def test_opening_a_tv_while_the_phone_is_offline_blames_the_connection_not_the_tv() -> None:
     (toast,) = _run("phoneOffline")["toasts"]
     assert "TV" not in toast

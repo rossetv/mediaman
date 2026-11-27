@@ -90,16 +90,25 @@
   gap: 6px;
   height: 64px;
   padding: 0 var(--pad);
+  /* What sits on the glass it comes to rest on: veils for its fills, so a lit control shows
+     lighter than the glass, quiet words lifted, and rings in the blue lifted for glass. */
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent: var(--g-accent);
 }
 .watch-all__glass {
   position: absolute;
   /* Up behind the bar, so cards pass only under its islands and never show above the head. */
   inset: calc(-1 * var(--nav-h)) 0 0;
   z-index: -1;
-  background: color-mix(in srgb, var(--scrim) 82%, transparent);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--hair);
+  background: var(--g-thin);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border-bottom: 1px solid var(--g-edge);
   opacity: 0;
   transition: opacity var(--dur) var(--ease-out);
 }
