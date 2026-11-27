@@ -22,11 +22,25 @@ def _declarations(selector: str, css: str) -> str:
     )
 
 
-def test_the_overview_cards_may_be_narrower_than_their_words() -> None:
+def test_the_overview_cards_are_one_full_width_column_that_may_shrink_below_their_words() -> None:
     panels = _sheet("_settings_pg_panels.css")
-    assert "minmax(0, 1.55fr)" in _declarations(".setg-pg .ov-hero", panels)
+    assert "grid-template-columns: minmax(0, 1fr)" in _declarations(".setg-pg .ov-hero", panels)
     assert "min-width: 0" in _declarations(".setg-pg .ov-card", panels)
-    assert "grid-template-columns: minmax(0, 1fr)" in panels
+    assert ".ov-hero" not in "".join(re.findall(r"@media[^{]*\{[^@]*", panels))
+
+
+def test_storage_comes_before_the_next_scan_in_the_overview() -> None:
+    page = (CSS.parents[1] / "templates" / "settings" / "_sec_overview.html").read_text()
+    assert 0 <= page.index('class="ov-card ov-storage"') < page.index('class="ov-card ov-scan"')
+
+
+def test_an_overview_figure_wraps_its_words_whole_onto_an_unindented_line() -> None:
+    panels = _sheet("_settings_pg_panels.css")
+    big = _declarations(".setg-pg .ov-card .big", panels)
+    assert "flex-wrap: wrap" in big and "column-gap" in big
+    small = _declarations(".setg-pg .ov-card .big small", panels)
+    assert "white-space: nowrap" in small
+    assert "margin-left" not in small
 
 
 def test_a_download_row_lets_its_title_column_shrink() -> None:
