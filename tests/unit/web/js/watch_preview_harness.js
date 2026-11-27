@@ -901,6 +901,16 @@ const scenarios = {
     const e = h.key('Escape', h.doc.body, { isComposing: true });
     return [h.title(), e.defaultPrevented];
   },
+  /* An Escape a layer over the preview has already taken, then one nobody has. */
+  async escapeTaken() {
+    const h = load();
+    await h.rest('film');
+    const taken = h.key('Escape', h.doc.body, { defaultPrevented: true });
+    const out = [[h.title(), taken.stopped]];
+    const free = h.key('Escape', h.doc.body);
+    out.push([h.title(), free.defaultPrevented]);
+    return out;
+  },
   async layer() {
     const h = load();
     await h.rest('film');

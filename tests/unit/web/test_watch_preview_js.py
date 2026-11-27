@@ -307,6 +307,10 @@ def test_an_escape_that_ends_a_composition_leaves_the_preview() -> None:
     assert _run("escapeComposing") == ["Fieldwork", False]
 
 
+def test_an_escape_a_layer_over_the_preview_took_leaves_the_preview_for_the_next() -> None:
+    assert _run("escapeTaken") == [["Fieldwork", False], [None, True]]
+
+
 def _rule(selector: str) -> str:
     rule = re.search(r"^" + re.escape(selector) + r" \{([^}]*)\}", CSS.read_text("utf-8"), re.M)
     assert rule is not None
