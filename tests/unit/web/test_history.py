@@ -966,3 +966,30 @@ class TestWhoReadsWhat:
     def test_one_device_signed_out_has_its_label(self, clients, conn):
         security_event(conn, event="session.revoke_one", actor="ana")
         assert self._titles(clients[1])[0] == "Device signed out"
+
+
+def _history_css() -> str:
+    css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text(encoding="utf-8")
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
+def test_a_persons_own_events_show_their_face_like_anyone_elses() -> None:
+    assert not re.search(r"\.hx\.is-mine[^{]*\{[^}]*display: none", _history_css())
+
+
+def test_a_tapped_event_shows_a_press_and_leaves_no_hover_behind_on_a_touch_screen() -> None:
+    css = _history_css()
+    assert re.search(r"\.hist-sum:active \{[^}]*background: var\(--s4\)", css)
+    outside_hover = re.sub(r"@media \(hover: hover\) \{(?:[^{}]*\{[^{}]*\})*\s*\}", "", css)
+    assert not re.search(r"\.hist-sum:hover[^{]*\{", outside_hover)
+    assert re.search(r"\.hist-sum:hover \{", css)
+
+
+def test_on_a_phone_the_tucked_tools_move_by_transform_and_the_days_heads_stick_under_them() -> (
+    None
+):
+    css = _history_css()
+    assert re.search(
+        r"\.hx-tools\.is-tucked \{ transform: translateY\(calc\(-1 \* var\(--hx-fold", css
+    )
+    assert re.search(r"\.hx-day__top \{[^}]*position: sticky", css)

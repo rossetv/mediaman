@@ -53,7 +53,7 @@ function open(opts) {
   const listeners = {};
   const win = {
     location: { href: 'http://mm.test/?you=history' },
-    innerWidth: 1280, innerHeight: 900, scrollY: 0, isSecureContext: true,
+    innerWidth: opts.width || 1280, innerHeight: 900, scrollY: 0, isSecureContext: true,
     matchMedia: () => ({ matches: !!opts.reduced }),
     setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
     clearTimeout: (t) => { if (t) t.fn = () => {}; },
@@ -164,6 +164,28 @@ function watchMoves(h) {
 }
 
 const state = (r) => ({ open: r.open, closing: r.classList.contains('is-closing') });
+
+
+/* The tools as a phone draws them: 196px high, of which the pills and chips under the search take 100. */
+function sized(h) {
+  const tools = h.q('.hx-tools');
+  const def = (node, props) => Object.entries(props).forEach(([k, v]) => Object.defineProperty(node, k, { get: () => v }));
+  def(tools, { offsetHeight: 196 });
+  def(h.q('.hx-line'), { offsetTop: 4, offsetHeight: 44 });
+  def(h.q('.hx-filters'), { offsetTop: 102, offsetHeight: 46 });
+  h.sizes.forEach((fn) => fn());
+}
+
+/* Whether the tools are tucked after each scroll, through a walk down, up a little, up more and back to the top. */
+function tucking(h) {
+  sized(h);
+  const tools = h.q('.hx-tools');
+  return [50, 150, 140, 100, 300, 40].map((top) => {
+    h.scroller.scrollTop = top;
+    h.scroll();
+    return tools.classList.contains('is-tucked');
+  }).concat(h.view.style['--hx-fold'] || null);
+}
 
 const scenarios = {
   close: (h = open({ search: '?action=kept&event=5', filters: { action: 'kept' } })) => {
@@ -753,6 +775,66 @@ const scenarios = {
     h.kinds[1].resolve(counted({ kept: 0, plays: 2 }));
     await settle();
     return { first, then: pills() };
+  },
+  tuck: () => tucking(open({ width: 402 })),
+  tuckWide: () => tucking(open({})),
+  tuckFocus: () => {
+    const h = open({ width: 402 });
+    sized(h);
+    const tools = h.q('.hx-tools');
+    [150, 300].forEach((top) => { h.scroller.scrollTop = top; h.scroll(); });
+    const before = tools.classList.contains('is-tucked');
+    h.fire(tools, 'focusin', { target: h.q('.hx-group') });
+    return [before, tools.classList.contains('is-tucked')];
+  },
+  dayStuck: () => {
+    const h = open({ items: [item(1, { fields: [at('2026-11-25T01:00:00Z')] }), item(2, { fields: [at('2026-11-24T10:00:00Z')] }), item(3, { fields: [at('2026-11-20T10:00:00Z')] })] });
+    const heads = h.root.querySelectorAll('.hx-day__top');
+    const look = (tops) => {
+      heads.forEach((d, i) => { d.getBoundingClientRect = () => ({ top: tops[i], bottom: tops[i] + 30 }); });
+      h.scroller.scrollTop = 500;
+      h.scroll();
+      h.tick();
+      return { stuck: heads.map((d) => d.classList.contains('is-stuck')), tools: h.q('.hx-tools').classList.contains('has-day') };
+    };
+    // The scroller's top is at 60 and the heads stick 52px below it.
+    return [look([-40, 112, 400]), look([200, 400, 800])];
+  },
+  sumPlace: async () => {
+    const h = open({});
+    const where = () => (h.q('.hx-sum').parentNode.matches('.hx-day__top') ? 'day' : h.q('.hx-sum').parentNode.className);
+    const out = [where()];
+    h.back('?q=x');
+    h.tick(600);
+    out.push(where(), h.q('.hx-sum').classList.contains('is-waiting'));
+    h.asked[0].resolve(page([8, 9], null, 2));
+    await settle();
+    out.push(where(), h.q('.hx-day__top').querySelectorAll('.hx-sum').length);
+    h.back('?q=y');
+    h.asked[h.asked.length - 1].resolve(page([], null, 0));
+    await settle();
+    out.push(where());
+    return out;
+  },
+  record: () => {
+    const h = open({});
+    const dds = h.rows()[0].querySelectorAll('.hist-field dd');
+    return dds.map((dd) => (dd.firstElementChild ? dd.firstElementChild.tagName + '.' + dd.firstElementChild.className : null));
+  },
+  dateButton: () => {
+    const h = open({});
+    h.press('[data-menu="date"]');
+    const form = h.q('.hx-menu form');
+    const [a] = form.querySelectorAll('input');
+    const go = form.querySelector('button');
+    const out = [go.className, a.className, !!go.disabled];
+    a.value = '2026-11-05';
+    h.fire(a, 'input');
+    out.push(!!go.disabled);
+    a.value = '';
+    h.fire(a, 'input');
+    out.push(!!go.disabled);
+    return out;
   },
   toolsHeight: () => {
     const h = open({});

@@ -101,8 +101,12 @@ def test_in_the_history_pane_the_keyboard_lands_clear_of_the_tools_but_their_own
     assert "scroll-padding-top: 0" in _of(held, "_history.css")
 
 
-def test_on_a_wide_pane_historys_kinds_wrap_rather_than_run_past_its_edge() -> None:
-    assert "flex-wrap: wrap" in _of(".hx-groups", "_history.css", "(min-width: 700px)")
+def test_on_a_wide_pane_historys_kinds_keep_one_line_that_fades_out_where_it_runs_past_its_edge() -> (
+    None
+):
+    row = _of(".hx-groups", "_history.css")
+    assert "overflow-x: auto" in row and "mask-image: linear-gradient(90deg, transparent" in row
+    assert "flex-wrap: wrap" not in _of(".hx-groups", "_history.css", "(min-width: 700px)")
 
 
 def test_the_password_views_fields_keep_no_empty_room_for_a_reason_until_one_is_said() -> None:
@@ -222,4 +226,7 @@ def _token_sheet() -> str:
 
 def test_on_a_low_wide_pane_historys_kinds_stay_on_one_line_and_scroll_sideways() -> None:
     low = "(max-height: 500px) and (min-width: 700px)"
-    assert "flex-wrap: nowrap" in _of(".hx-groups", "_history.css", low)
+    assert "flex-wrap: wrap" not in _of(".hx-groups", "_history.css", low) + _of(
+        ".hx-groups", "_history.css"
+    )
+    assert "overflow-x: auto" in _of(".hx-groups", "_history.css")
