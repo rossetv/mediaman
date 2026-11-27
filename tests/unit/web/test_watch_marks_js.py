@@ -944,3 +944,10 @@ def test_a_thumb_on_its_way_to_the_caption_has_a_mask_of_its_own() -> None:
     [flying] = _run("flierMasks")
     assert len(flying["ids"]) == len(set(flying["ids"])) > 1
     assert sorted(flying["refs"]) == sorted(f"url(#{i})" for i in flying["ids"])
+
+
+@pytest.mark.parametrize("how", ["replaced", "card", "row"])
+def test_a_card_the_server_s_page_brings_in_has_thumb_masks_of_its_own(how: str) -> None:
+    out = _run("broughtMasks")[how]
+    assert len(out["ids"]) == len(set(out["ids"])) == len(out["marks"])
+    assert sorted(out["refs"]) == sorted(f"url(#{i})" for i in out["ids"])

@@ -18,9 +18,10 @@
   var copies = 0;
 
   /* A deep copy whose masks are its own: of an id met twice the first is drawn, and in
-     Chromium nothing at all where that one is hidden. */
+     Chromium nothing at all where that one is hidden. The server numbers its masks from 1 on
+     each page, so a node from a page it sent is copied here too, into this one. */
   function copy(node) {
-    var twin = node.cloneNode(true);
+    var twin = document.importNode(node, true);
     var n = ++copies;
     toArray(twin.querySelectorAll('mask[id]')).forEach(function (mask) {
       var was = 'url(#' + mask.getAttribute('id') + ')';

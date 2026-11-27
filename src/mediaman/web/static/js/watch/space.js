@@ -1735,7 +1735,7 @@
     if (!row) {
       var rows = document.querySelector('.watch-rows');
       if (!rows) return;
-      row = document.importNode(now, true);
+      row = core.copy(now);
       var next = null;
       for (var n = now.nextElementSibling; n && !next; n = n.nextElementSibling) {
         var id = n.getAttribute('data-row-id');
@@ -1755,7 +1755,7 @@
     liveCards(now).reverse().forEach(function (card) {
       var mine = liveCards(row).filter(function (c) { return idOf(c) === idOf(card); })[0];
       if (!mine) {
-        mine = document.importNode(card, true);
+        mine = core.copy(card);
         scroller.insertBefore(mine, before);
         fresh.push(mine);
         if (mine.getClientRects().length) watch.keep.growCard(mine, row);
