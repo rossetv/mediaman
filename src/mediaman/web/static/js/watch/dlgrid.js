@@ -32,6 +32,7 @@
   var FALL_UP = 28; // px the rows above the row go up by as it grows, and come back from
   var FALL_DOWN = 44; // and those below it, down
   var RISE = 26; // px a grid card that was not in the row rises from
+  var RACE_MS = 120; // how long a tap waits for a first answer before it grows into placeholders
   // What the address of anything else that holds the page says; opening Downloading clears it.
   var OTHERS = { all: null, view: null, q: null, genre: null, type: null, where: null, decade: null, person: null, page: null, per_page: null, sort: null };
   var GROUPS = [['attention', 'Needs attention'], ['coming', 'Downloading'], ['looking', 'Looking for a copy'], ['soon', 'Coming soon']];
@@ -62,6 +63,7 @@
   var asked = 0; // which asking is the current one
   var opener = null;
   var tapped = false; // opened by a tap or a click, not a key: its heading takes no ring
+  var opens = 0; // which opening is the current one
   var savedY = 0;
   var lefts = []; // how far each row was scrolled when the grid took the page
   var moving = null; // ends the motion under way
@@ -899,15 +901,32 @@
     failures = 0;
     opener = from || null;
     savedY = window.scrollY;
-    // With no answer yet, it grows into placeholders the answer then fills.
-    if (how === 'push' && inRow(from) && !core.reduceMotion()) {
-      draw();
-      grow();
-    } else {
+    if (!(how === 'push' && inRow(from) && !core.reduceMotion())) {
       fadeIn(how);
       draw();
+      ask();
+      return;
     }
-    ask();
+    var mine = ++opens;
+    var grown = false;
+    var go = function () {
+      // A fold and an open since: that open grows it, once.
+      if (grown || !isOpen || mine !== opens) return;
+      grown = true;
+      draw();
+      grow();
+    };
+    if (last) {
+      go();
+      ask();
+      return;
+    }
+    // An answer in time grows the row's own cards; a later one fills the placeholders grown instead.
+    var late = setTimeout(go, RACE_MS);
+    ask().then(function () {
+      clearTimeout(late);
+      go();
+    });
   }
 
   function close(how) {

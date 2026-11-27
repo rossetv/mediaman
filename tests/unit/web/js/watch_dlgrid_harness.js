@@ -235,6 +235,24 @@ const USUAL = () => [row('Ember Coast'), row('Sundial', { state: 'almost_ready',
 const USUAL_ALL = () => all([dl('Ember Coast', { size_done: '4.1 GB', size_total: '9.6 GB', progress: 43, eta: '~5 min remaining' }),
   dl('Sundial', { state: 'almost_ready', state_label: 'Waiting to import', progress: 100 })], { upcoming: [dl('Lanterns', { release_label: 'Not yet released' })] });
 
+async function race(late) {
+  const p = load({ strip: [strip(USUAL())], all: ['hang'] });
+  await p.step(1100);
+  const from = p.anims.length;
+  p.click(p.q('#watch-downloading .row-open'));
+  const at = p.at();
+  let skels = 0;
+  for (let t = 0; t < late; t += 10) {
+    await p.step(10);
+    skels = Math.max(skels, p.qa('#watch-dl .dlg-skel').length);
+  }
+  p.answer(USUAL_ALL());
+  await p.step(400);
+  const flown = p.anims.slice(from).filter((a) => a.frames[0].clipPath);
+  return { at, skels, cards: flown.filter((a) => a.node.matches('[data-dl-card]')).length,
+    placeholders: flown.filter((a) => a.node.matches('.dlg-skel')).length, grown: p.open() && p.rowsAway() };
+}
+
 const scenarios = {
   async opensFromTheRow() {
     const p = load({ strip: [strip(USUAL())], all: [USUAL_ALL()] });
@@ -543,7 +561,7 @@ const scenarios = {
     const of = (sel) => anims.filter((a) => a.node.matches && a.node.matches(sel));
     const above = of('.watch-banner').concat(of('[data-row-id="continue"]'));
     const below = of('[data-row-id="recent"]');
-    const card = of('.dwx, .dlg-skel')[0];
+    const card = of('.dwx')[0];
     return {
       above: above.map((a) => a.frames[1].transform), below: below.map((a) => a.frames[1].transform),
       card: card && { from: card.frames[0].clipPath && card.frames[0].clipPath.startsWith('inset('), to: card.frames[1].transform, ms: card.opts.duration },
@@ -695,7 +713,7 @@ const scenarios = {
     await p.step(10);
     await p.back();
     p.click(p.q('#watch-downloading .row-open'));
-    await p.step(10);
+    await p.step(130);
     const again = { open: p.open(), skels: p.qa('#watch-dl .dlg-skel').length, asks: p.asks.all, aborted: p.aborted };
     p.answer(USUAL_ALL());
     await p.step(400);
@@ -711,7 +729,9 @@ const scenarios = {
     await p.step(1100);
     const skels = () => p.qa('#watch-dl .dlg-skel').length;
     p.click(p.q('#watch-downloading .row-open'));
-    const tapped = { at: p.at(), open: p.open(), skels: skels(), asked: p.asks.all,
+    const at = p.at();
+    await p.step(130);
+    const tapped = { at, open: p.open(), skels: skels(), asked: p.asks.all,
       busy: p.q('#watch-dl .dlg__body').getAttribute('aria-busy'), empty: p.q('#watch-dl .dlg__empty').hidden };
     const rising = p.anims.filter((a) => a.node.classList.contains('dlg-skel')).length;
     await p.step(400);
@@ -723,6 +743,9 @@ const scenarios = {
     const filled = { skels: skels(), cards: p.qa('#watch-dl [data-dl-card]').length, busy: p.q('#watch-dl .dlg__body').getAttribute('aria-busy') };
     return { tapped, rising, grown, fades, filled };
   },
+  // A tap with no answer yet races it a moment: in time, the row's own cards fly; late, placeholders.
+  async raceFast() { return race(60); },
+  async raceSlow() { return race(200); },
   async skeletonThenOutage() {
     const skels = (p) => p.qa('#watch-dl .dlg-skel').length;
     const of = (p) => ({ skels: skels(p), empty: p.text(p.q('#watch-dl .dlg__empty')) || null,

@@ -472,10 +472,11 @@ def test_the_answer_replaces_the_placeholders_and_its_cards_fade_in(out) -> None
 
 def test_placeholders_give_way_to_the_outage_header_on_a_failure_and_on_a_hang(out) -> None:
     run = out["skeletonThenOutage"]
-    assert run["down"]["first"] > 0
+    # a failure inside the moment a tap waits grows straight into the outage
+    assert run["down"]["first"] == 0
     assert run["down"]["then"]["skels"] == 0
     assert run["down"]["then"]["empty"].startswith("Downloads can’t be checked right now")
-    assert run["hung"]["waiting"] == {"skels": run["down"]["first"], "empty": None, "note": None}
+    assert run["hung"]["waiting"] == {"skels": 2, "empty": None, "note": None}
     assert run["hung"]["late"]["skels"] == 0
     assert run["hung"]["late"]["empty"].startswith("Downloads can’t be checked right now")
     assert run["hung"]["late"]["note"] == "Can’t reach mediaman right now."
@@ -487,3 +488,21 @@ def test_with_reduced_motion_the_placeholders_show_at_once_and_the_answer_lands_
     run = out["reducedBeforeTheAnswer"]
     assert run == {"open": True, "skels": run["skels"], "moved": 0, "cards": 3}
     assert run["skels"] > 0
+
+
+def test_an_answer_within_a_moment_of_the_tap_flies_the_row_s_own_cards(out) -> None:
+    run = out["raceFast"]
+    assert run["at"] == "/?dl=1"
+    assert run["skels"] == 0
+    assert run["cards"] == 2
+    assert run["placeholders"] == 0
+    assert run["grown"] is True
+
+
+def test_a_later_answer_flies_placeholders_out_of_the_row_and_fills_them(out) -> None:
+    run = out["raceSlow"]
+    assert run["at"] == "/?dl=1"
+    assert run["skels"] == 2
+    assert run["cards"] == 0
+    assert run["placeholders"] == 2
+    assert run["grown"] is True
