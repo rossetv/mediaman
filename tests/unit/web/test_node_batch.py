@@ -54,6 +54,7 @@ def test_what_one_run_leaves_in_its_globals_or_modules_is_not_seen_by_the_next(t
             "own words",
         ),
     ],
+    ids=["thrown", "thrown_in_a_timer", "rejected", "exited"],
 )
 def test_a_run_that_fails_says_why_and_the_next_run_is_unharmed(tmp_path, source, code, says):
     bad = _script(tmp_path, "bad.js", source)
