@@ -501,12 +501,12 @@
   html.is-arriving .nav-glass .brand .wm-media > path { animation: wm-draw calc(var(--dur) * 2) var(--ease-out) backwards; }
   html.is-arriving .nav-glass .brand .wm-media > circle { animation: wm-dot calc(var(--dur) * 2) var(--ease-out) backwards; }
   html.is-arriving .nav-glass .brand .wm-man > path { animation: wm-draw calc(var(--dur) * 1.75) var(--dur-slow) var(--ease-out) backwards; }
-  /* Late by --dur-fast, so its outline does not stand empty before what it holds comes in. */
+  /* Late by --dur-fast, with the name, so its outline does not stand empty before what it holds. */
   html.is-arriving .nav-glass .nav-end { animation: mm-fade-in var(--dur-slow) var(--dur-fast) var(--ease-out) backwards; }
   html.is-arriving .nav-glass .profile-ava .avatar { animation: mm-pop-in calc(var(--dur) * 1.5) var(--ease-spring, var(--ease-out)) backwards; }
   html.is-arriving .nav-glass .profile-ring { animation: mm-ring-fill calc(var(--dur) * 1.5) var(--dur-fast) var(--ease-out) backwards; }
   html.is-arriving .nav-glass .profile-count { animation: mm-pop-in var(--dur) calc(var(--dur) * 1.75) var(--ease-spring, var(--ease-out)) backwards; }
-  html.is-arriving .nav-glass :is(.profile-btn-name, .profile-btn > .ico) { animation: mm-fade-in var(--dur) var(--dur) var(--ease-out) backwards; }
+  html.is-arriving .nav-glass :is(.profile-btn-name, .profile-btn > .ico) { animation: mm-fade-in var(--dur) var(--dur-fast) var(--ease-out) backwards; }
   html.is-arriving .nav-glass .space-meter { animation: mm-fade-in var(--dur) var(--dur-fast) var(--ease-out) backwards; }
   html.is-arriving .nav-glass .watch-search { animation: mm-drop var(--dur-slow) calc(var(--dur) * .5) var(--ease-out) backwards; }
 
