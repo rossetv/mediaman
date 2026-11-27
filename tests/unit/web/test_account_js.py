@@ -533,8 +533,8 @@ def test_a_service_not_known_to_answer_never_reads_as_everything_connected() -> 
 
 def test_opening_the_hub_checks_no_service_and_asks_history_again_each_time() -> None:
     out = _run("tiles")
-    for case in ("play", "down", "fine", "none"):
-        asked = (out[case][0] if case == "play" else out[case])["asked"]
+    for case in ("play", "down", "fine", "none", "own"):
+        asked = (out[case][0] if case in ("play", "own") else out[case])["asked"]
         assert not [u for u in asked if u.startswith("/api/settings")], (case, asked)
     assert out["play"][0]["again"] is True
 
