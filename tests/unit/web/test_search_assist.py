@@ -542,7 +542,7 @@ class TestAsk:
         self, amy, model, tmdb
     ):
         model.error = openai_client.OpenAIUnavailable()
-        assert _ask(amy) == {"ok": True, "status": "failed", "run_id": 1}
+        assert _ask(amy) == {"ok": True, "status": "failed", "run_id": 1, "left": 19}
         model.error, model.items, tmdb.failing = None, [_title("Alibi")], True
         assert _ask(amy)["status"] == "failed"
         tmdb.failing = False

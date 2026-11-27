@@ -9,9 +9,12 @@ from __future__ import annotations
 import pytest
 
 from mediaman.core.time import now_utc
+from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.routes.search import assist
 from tests.helpers.factories import insert_settings
 from tests.unit.web.test_search_assist import (  # noqa: F401  (fixtures)
     BASE,
+    HeldThread,
     Q,
     _ask,
     _id,
@@ -54,6 +57,31 @@ class TestLeft:
         assert people["amy"].get(BASE).json()["left"] == 1
         _spent(conn, "bob-secret", 3, "phrases")
         assert people["amy"].get(BASE).json()["left"] == 0
+
+    def test_with_three_or_fewer_left_nothing_is_asked_on_its_own_but_a_pressed_one_is(
+        self, people, conn, model
+    ):
+        model.items = [_title("Alibi")]
+        insert_settings(conn, ai_questions_per_day="5")
+        _spent(conn, "amy-secret", 1)
+        assert people["amy"].post(f"{BASE}/ask", json={"q": Q, "auto": True}).status_code == 202
+        assert people["amy"].get(BASE).json()["left"] == 3
+
+        resp = people["amy"].post(f"{BASE}/ask", json={"q": "another question", "auto": True})
+
+        assert (resp.status_code, resp.json()["error"], len(model.prompts)) == (409, "auto_low", 1)
+        assert people["amy"].get(BASE).json()["left"] == 3
+        assert people["amy"].post(f"{BASE}/ask", json={"q": "another question"}).status_code == 202
+
+    def test_an_answer_and_its_run_say_how_many_are_left_after_it(self, amy, model):
+        model.items = [_title("Alibi")]
+
+        started = amy.post(f"{BASE}/ask", json={"q": Q})
+        polled = amy.get(f"{BASE}/runs/{started.json()['run_id']}")
+        kept = amy.post(f"{BASE}/ask", json={"q": Q})
+
+        assert [r.json()["left"] for r in (started, polled, kept)] == [19, 19, 19]
+        assert polled.json()["status"] == kept.json()["status"] == "done"
 
     def test_a_question_asked_on_its_own_is_not_kept_as_a_search(self, amy, model):
         model.items = [_title("Alibi")]
@@ -181,6 +209,23 @@ class TestDifferentPicks:
         assert '"shown": ["Alibi"]' in model.prompts[-1]
         assert [t["title"] for t in _ask(amy)["others"]] == ["Kestrel"]
 
+    @pytest.mark.parametrize("history", [True, False])
+    def test_a_chip_after_other_picks_narrows_the_new_picks(self, amy, model, history):
+        amy.put(f"{BASE}/history", json={"enabled": history})
+        chip = {"kind": "chip", "text": "Funnier"}
+        model.items = [_title("Alibi"), chip]
+        _ask(amy)
+        model.items = [_title("Train Job")]
+        _ask(amy, refine="Funnier")
+        model.items = [_title("Kestrel"), chip]
+        _ask(amy, fresh=True)
+        model.items = [_title("Harbour")]
+
+        found = _ask(amy, refine="Funnier")
+
+        assert [t["title"] for t in found["others"]] == ["Harbour"]
+        assert (len(model.prompts), "Kestrel" in model.prompts[-1]) == (4, True)
+
     def test_others_count_toward_the_day_and_are_refused_past_it(self, people, conn, model):
         insert_settings(conn, ai_questions_per_day="2")
         amy = people["amy"]
@@ -206,3 +251,26 @@ class TestDifferentPicks:
         resp = amy.post(f"{BASE}/like", json={"ref": "tmdb-movie-2", "fresh": True})
 
         assert resp.status_code == 202 and len(model.prompts) == 2
+
+
+class TestStopping:
+    def test_asking_again_while_a_stopped_run_ends_spends_none_of_the_minute(
+        self, amy, model, monkeypatch
+    ):
+        held = []
+
+        class Held(HeldThread):
+            def __init__(self, target, name, daemon) -> None:
+                held.append(target)
+
+        monkeypatch.setattr(assist.threading, "Thread", Held)
+        monkeypatch.setattr(assist, "_ASK_LIMITER", ActionRateLimiter(2, 60))
+        run = amy.post(f"{BASE}/ask", json={"q": Q}).json()["run_id"]
+        amy.delete(f"{BASE}/runs/{run}")
+
+        tries = [amy.post(f"{BASE}/ask", json={"q": "another question"}) for _ in range(4)]
+
+        assert [(r.status_code, r.json()["error"]) for r in tries] == [(409, "stopping")] * 4
+        held.pop()()
+        assert amy.post(f"{BASE}/ask", json={"q": "another question"}).status_code == 202
+        assert amy.post(f"{BASE}/ask", json={"q": "a third question"}).status_code == 429
