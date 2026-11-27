@@ -71,6 +71,9 @@ class TestForceChange:
         new = resp.cookies["session_token"]
         assert new != old
         for token, signed_in in ((new, True), (old, False)):
+            # The answer's cookie sits in the jar beside the one set here, and is sent with it
+            # unless marked Secure; the jar holds only the token under test.
+            client.cookies.clear()
             client.cookies.set("session_token", token)
             page = client.get("/force-password-change", follow_redirects=False)
             assert (page.status_code == 200) is signed_in
