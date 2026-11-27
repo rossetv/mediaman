@@ -467,3 +467,22 @@ def test_the_date_menus_button_is_primary_and_waits_for_a_date_and_its_fields_ar
     out = _run("dateButton")
     assert "btn--primary" in out[0] and "inp" in out[1].split()
     assert out[2:] == [True, False, True]
+
+
+def test_a_row_of_kinds_wider_than_the_pane_has_mouse_arrows_that_page_it_and_show_only_where_more_is_hidden() -> (
+    None
+):
+    out = _run("kindArrows")
+    assert out["start"] == ["has-next"]
+    assert out["top"] == "58px"
+    # Pointer-only, like the poster rows' arrows: the pills themselves are what Tab reaches.
+    assert [a[1:] for a in out["arrows"]] == [["true", "-1", True]] * 2
+    assert [s["behavior"] for s in out["scrolled"]] == ["smooth"]
+    assert out["scrolled"][0]["left"] > 0
+    assert out["end"] == ["has-prev"]
+    assert out["back"][0]["left"] < 0
+    assert out["fits"] == []
+
+
+def test_with_reduced_motion_the_kinds_arrows_jump_rather_than_glide() -> None:
+    assert [s["behavior"] for s in _run("kindArrowsReduced")["scrolled"]] == ["auto"]

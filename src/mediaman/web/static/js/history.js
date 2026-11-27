@@ -817,6 +817,30 @@
       groupsBox.scrollLeft = to;
     }, { passive: false });
 
+    /* With a mouse, arrows at the row's ends show there are more kinds past its fade, and page to
+       them. Like the poster rows' arrows they are out of the Tab order: Tab walks the pills. */
+    var kindArrows = ['prev', 'next'].map(function (way) {
+      var b = button('hx-kinds-arrow hx-kinds-arrow--' + way, icon(way === 'prev' ? 'i-chevron-left' : 'i-chevron-right'),
+        { 'aria-hidden': 'true', tabindex: '-1', title: way === 'prev' ? 'Previous' : 'Next' });
+      // A press leaves focus where it was, so a button that hides at the row's end never holds it.
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      b.addEventListener('click', function () {
+        var by = Math.round(groupsBox.clientWidth * 0.7) * (way === 'prev' ? -1 : 1);
+        groupsBox.scrollBy({ left: by, behavior: reduceMotion() ? 'auto' : 'smooth' });
+      });
+      return b;
+    });
+    kindArrows.forEach(function (b) { tools.insertBefore(b, filtersBox); });
+
+    function kindEnds() {
+      var room = groupsBox.scrollWidth - groupsBox.clientWidth;
+      tools.style.setProperty('--hx-kinds', groupsBox.offsetTop + 'px');
+      groupsBox.classList.toggle('has-prev', groupsBox.scrollLeft > 2);
+      groupsBox.classList.toggle('has-next', groupsBox.scrollLeft < room - 2);
+    }
+    groupsBox.addEventListener('scroll', kindEnds, { passive: true });
+    if (window.ResizeObserver) new window.ResizeObserver(kindEnds).observe(groupsBox);
+
     /* The pane's scroller may come only once it is shown. */
     function bindScroll() {
       var sc = scroller();
@@ -854,6 +878,7 @@
         groupsBox.appendChild(pill);
       });
       fillKinds();
+      kindEnds();
       if (had) focusChip('action');
     }
 
@@ -868,6 +893,7 @@
         if (o.count) pill.setAttribute('aria-label', o.label + ': ' + small.textContent);
         else pill.removeAttribute('aria-label');
       });
+      kindEnds();
     }
 
     /* The count of each kind of event under the other filters, for its pill. */
