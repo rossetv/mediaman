@@ -348,11 +348,11 @@ def test_the_menu_line_of_what_is_ready_is_reached_only_while_it_shows() -> None
     assert _run("readyKeys") == {"hidden": "account", "shown": "profile-ready", "href": "/?dl=1"}
 
 
-def test_the_number_scales_out_on_the_spring_and_only_fades_with_reduced_motion() -> None:
+def test_the_number_scales_out_on_the_shared_ease_out_and_only_fades_with_reduced_motion() -> None:
     css = NAV_CSS.read_text()
     rest = re.search(r"\n\.profile-count\s*\{([^}]*)\}", css).group(1)
     assert "scale(0)" in rest
-    assert "transform var(--dur) var(--ease-spring" in rest
+    assert "transform var(--dur) var(--ease-out)" in rest
     calm = css[css.index("@media (prefers-reduced-motion: reduce)") :]
     calm = calm[: calm.index("\n}\n")]
     # the same whether it comes or goes
