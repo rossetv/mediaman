@@ -833,6 +833,7 @@ def test_a_search_in_the_address_opens_the_page_on_its_results() -> None:
 def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
     scripts = re.findall(r'src="/static/js/(watch[^"?]*)\.js', _watch())
     scripts.remove("watch/play-on")  # every page's own, before them
+    scripts.remove("watch/arrive")  # in the head, before the first paint, and needs none of them
     place = {name: n for n, name in enumerate(scripts)}
 
     assert scripts[0] == "watch/core"

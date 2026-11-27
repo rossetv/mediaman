@@ -29,6 +29,7 @@ def build_item(
     search_count: int = 0,
     last_search_ts: float = 0.0,
     added_at: float = 0.0,
+    searching_since: float = 0.0,
     search_hint: str = "",
     arr_link: str = "",
     arr_source: str = "",
@@ -45,6 +46,7 @@ def build_item(
 
     search_count and last_search_ts are set only for the searching state; added_at is
     the fallback before the first search (first 5 minutes, or after a restart).
+    searching_since is when the current search began, 0 where that is not known.
     label is what to call it where its title does not tell it from another.
     attention is what Radarr or Sonarr says is wrong with one that needs attention.
     abandon_visible is a server-side threshold check so the frontend needs no logic.
@@ -71,6 +73,7 @@ def build_item(
         "search_count": search_count,
         "last_search_ts": last_search_ts,
         "added_at": added_at,
+        "searching_since": searching_since,
         "search_hint": search_hint,
         "arr_link": arr_link,
         "arr_source": arr_source,

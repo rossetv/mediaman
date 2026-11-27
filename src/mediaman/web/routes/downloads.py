@@ -6,6 +6,7 @@ The /downloads address leads to Downloading on Watch.
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -32,12 +33,16 @@ from mediaman.web.routes.download import drop_arr_cache
 from mediaman.web.routes.downloads_strip import (
     held_poster,
     in_library,
+    is_tmdb_id,
+    known_year,
     library_of,
     library_title,
     mark_playable,
+    title_ref,
     with_retrying,
 )
 from mediaman.web.routes.poster.title_art import title_art
+from mediaman.web.routes.watch.card_marks import scored
 
 router = APIRouter()
 
@@ -101,6 +106,33 @@ def _poster(item: dict[str, object], index: catalog.LibraryIndex) -> str:
     return known or (title_art(ref.partition("-")[2])["poster_url"] if ref else "")
 
 
+def _scores(
+    conn: sqlite3.Connection, items: list[dict[str, object]], arr: catalog.ArrView
+) -> dict[tuple[str, int], dict[str, object]]:
+    """What critics scored each of *items* that has a TMDB id, by its kind and id, as the ratings
+    cache holds it: {"rt", "imdb"}, either None where only the other is held. Each is noted by
+    its title and year, where *arr* or TMDB told that, for the background job to ask OMDb of."""
+    cards: list[dict[str, Any]] = []
+    for item in items:
+        tmdb_id, kind = _tmdb_id_of(item), _kind_of(item)
+        if tmdb_id is None or not is_tmdb_id(tmdb_id):
+            continue
+        cards.append(
+            {
+                "tmdb_ref": f"tmdb-{kind}-{tmdb_id}",
+                "key": (kind, tmdb_id),
+                "title": str(item["title"]),
+                "year": known_year(kind, tmdb_id, arr),
+            }
+        )
+    scored(conn, cards)
+    return {
+        card["key"]: {"rt": card.get("rt"), "imdb": card.get("imdb")}
+        for card in cards
+        if "rt" in card or "imdb" in card
+    }
+
+
 def _page_payload(
     conn: sqlite3.Connection, secret_key: str, *, admin: bool
 ) -> tuple[DownloadsResponse, dict[str, object] | None]:
@@ -114,10 +146,22 @@ def _page_payload(
     asked_at = strip.on_page.now()
     data = with_retrying(conn, build_downloads_response(conn, secret_key))
     index = library_of(conn, secret_key)
+    every = [*([data["hero"]] if data["hero"] else []), *data["queue"], *data["upcoming"]]
+    every += data["recent"]
+    # The row's own view, as it was last read: the page's poll asks Radarr and Sonarr no more.
+    held = catalog.held_arr_view()
+    scores = _scores(conn, every, held)
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         title = item.get("label") or item["title"]
-        page_item = {**item, "title": title, "poster_url": _poster(item, index)}
+        tmdb_id = _tmdb_id_of(item)
+        page_item = {
+            **item,
+            "title": title,
+            "poster_url": _poster(item, index),
+            "title_ref": title_ref(index, held, _kind_of(item), tmdb_id, str(item["title"])),
+            "scores": scores.get((_kind_of(item), tmdb_id)) if tmdb_id else None,
+        }
         page_item.pop("retry_key", None)
         page_item.pop("attention_reasons", None)
         return page_item
@@ -212,6 +256,7 @@ def _for_viewer(payload: DownloadsResponse) -> None:
         )
         item.pop("tmdb_id", None)
         item.pop("queued_since", None)
+        item.pop("searching_since", None)
     for item in [*items, *payload["recent"]]:
         item.update(strip.for_viewer(item))
 
@@ -248,7 +293,8 @@ def downloads_abandon(
 
     Movies ignore seasons; a series needs at least one season number. Returns 404 if the
     item is no longer in the queue (another tab abandoned it, or Radarr just grabbed a
-    release), 409 if it names more than one title and 400 for a malformed request (empty
+    release), 409 if it names more than one title or no longer offers Abandon (it started
+    downloading, or has not searched long enough) and 400 for a malformed request (empty
     seasons on a series).
     """
     try:
@@ -272,6 +318,11 @@ def _abandon(request: Request, body: AbandonRequest, dl_id: str) -> JSONResponse
     arr_id: int = int(arr_id_raw) if isinstance(arr_id_raw, int) else 0
     if arr_id == 0:
         raise HTTPException(status_code=400, detail="Radarr and Sonarr don't track it.")
+    # A confirm left open while it started downloading must not unmonitor it.
+    if item.get("state") != "upcoming" and not item.get("abandon_visible"):
+        raise HTTPException(
+            status_code=409, detail="It's no longer stuck searching. Reload and try again."
+        )
 
     if item.get("kind") == "movie":
         result = abandon_movie(conn, secret_key, arr_id=arr_id, dl_id=dl_id)

@@ -799,12 +799,15 @@
     if (!form) return;
     form.addEventListener('submit', function (e) {
       e.preventDefault();
+      // Already logging out: asking again would only stand a second confirm over the page leaving.
+      if (document.documentElement.classList.contains('is-leaving')) return;
       UIFeedback.confirm({
         title: 'Log out?',
         body: 'You will need your password to come back.',
         confirmLabel: 'Log out',
         confirmVariant: 'danger',
-      }).then(function (yes) { if (yes) form.submit(); });
+        leave: true,
+      }).then(function (yes) { if (yes) window.MM.logOut(form, form.closest('.you__panel')); });
     });
   }
 

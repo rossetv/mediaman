@@ -262,5 +262,28 @@ function shortcutPassesOn() {
   out.push(told());
   return out;
 }
-const scenarios = { pressed, shortcutPassesOn, shortcuts, named, bar, held, stray, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
+/* How long a confirm asked with *leave* stays to fade, answered yes and answered no: the CSS gives a
+   leaving one (data-leave) 220 ms after 80, the rest none here. */
+function leaving() {
+  const doc = makeDocument();
+  let now = 0;
+  const waits = [];
+  const ctx = {
+    document: doc, navigator: { platform: 'Linux' }, setTimeout(fn, ms) { waits.push(ms); }, requestAnimationFrame() {}, Array, Math, WeakMap, parseFloat, Promise,
+    performance: { now: () => (now += 1000) },
+    getComputedStyle: (n) => (n.hasAttribute('data-leave') ? { transitionDuration: '0.22s', transitionDelay: '80ms' } : { transitionDuration: '0s', transitionDelay: '0s' }),
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  load(ctx);
+  const answer = (button) => {
+    ctx.UIFeedback.confirm({ title: 'Log out?', leave: true });
+    const overlay = doc.querySelector('.ui-confirm-overlay:not(.is-leaving)');
+    waits.length = 0;
+    overlay.querySelectorAll('button')[button].listeners.click.forEach((fn) => fn({}));
+    return { marked: overlay.hasAttribute('data-leave'), staysMs: Math.max(...waits) };
+  };
+  return { yes: answer(1), no: answer(0) };
+}
+const scenarios = { leaving, pressed, shortcutPassesOn, shortcuts, named, bar, held, stray, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
 Promise.resolve(scenarios[process.argv[2]]()).then((out) => console.log(JSON.stringify(out)));

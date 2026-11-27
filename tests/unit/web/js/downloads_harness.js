@@ -209,19 +209,23 @@ const scenarios = {
 
 // The abandon dialog on fake parts: `post` hands back each request so a test
 // settles it when it likes, `closes` counts the times the dialog shut itself.
-function abandonRig() {
+function abandonRig(named) {
   const h = build(() => Promise.resolve({}));
   const mk = (cls) => { const e = new El('div', h.doc); e.className = cls || ''; return e; };
   const modal = mk(); modal.setAttribute('id', 'abandon-modal');
   const title = mk(); const copy = mk(); const list = mk();
+  // *named*: the dialog names what it is of, with its poster.
+  const who = mk('abandon-who');
+  ['abandon-who__pic', 'abandon-who__name', 'abandon-who__fact'].forEach((cls) => who.appendChild(mk(cls)));
   const confirm = mk(); confirm.setAttribute('data-abandon-confirm', ''); confirm.setAttribute('aria-disabled', 'false');
   const label = mk(); label.setAttribute('data-confirm-label', ''); confirm.appendChild(label);
   modal.appendChild(confirm);
   const byId = { 'abandon-modal': modal, 'abandon-modal-title': title, 'abandon-modal-copy': copy, 'abandon-season-list': list };
+  if (named) byId['abandon-modal-who'] = who;
   h.doc.getElementById = (id) => byId[id] || null;
   h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel), holdPage: () => () => {} };
   let dismissFn;
-  const rig = { h, label, confirm, list, copy, posts: [], closes: 0, refreshes: 0, errors: 0, toasts: [] };
+  const rig = { h, who, label, confirm, list, copy, posts: [], closes: 0, refreshes: 0, errors: 0, toasts: [] };
   h.ctx.MM.modal = {
     setupDetail: (_m, opts) => (dismissFn = () => opts.onClose(), {
       open() {},
@@ -236,8 +240,8 @@ function abandonRig() {
   h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
   h.doc.dispatchEvent = (e) => { if (e.type === 'mediaman:downloads:refresh') rig.refreshes += 1; };
   h.load('dl-abandon.js');
-  rig.openItem = (dlId, kind, stuck, title, arrId, upcoming) => {
-    const t = mk(); t.dataset = { dlId, kind, title: title || 'T' + dlId, arrId, stuckSeasons: JSON.stringify(stuck || []) };
+  rig.openItem = (dlId, kind, stuck, title, arrId, upcoming, poster) => {
+    const t = mk(); t.dataset = { dlId, kind, title: title || 'T' + dlId, arrId, stuckSeasons: JSON.stringify(stuck || []), poster };
     if (upcoming) t.dataset.abandonUpcoming = '1';
     t.closest = () => t;
     h.fire('click', { target: t });
@@ -262,6 +266,17 @@ scenarios.abandon = async function () {
   r.posts[0].reject(new Error('x'));
   await r.settle();
   return { idle, working, disabled, after: r.label.textContent, reenabled: r.confirm.getAttribute('aria-disabled') };
+};
+
+// the poster the dialog shows is only ever one of mediaman's own
+scenarios.abandonPoster = async function () {
+  const r = abandonRig(true);
+  const shown = (poster) => {
+    r.openItem('m1', 'movie', [], 'Film', 1, false, poster);
+    const img = r.who.querySelector('img');
+    return img ? img.getAttribute('src') : null;
+  };
+  return Object.fromEntries(['/p/1.jpg', '//host/x.jpg', '/\\host/x.jpg', 'https://host/x.jpg', '/a b.jpg'].map((p) => [p, shown(p)]));
 };
 
 // the season picker is shown for a multi-season show only
@@ -335,6 +350,16 @@ scenarios.abandonGone = async function () {
   r.openItem('m1', 'movie');
   r.confirmClick();
   r.posts[0].reject(Object.assign(new Error('gone'), { status: 404 }));
+  await r.settle();
+  return { closes: r.closes, refreshes: r.refreshes, errors: r.errors, toasts: r.toasts };
+};
+
+// it started downloading, or stopped searching, after the dialog opened: the server refuses
+scenarios.abandonNoLongerStuck = async function () {
+  const r = abandonRig();
+  r.openItem('m1', 'movie');
+  r.confirmClick();
+  r.posts[0].reject(Object.assign(new Error('refused'), { status: 409 }));
   await r.settle();
   return { closes: r.closes, refreshes: r.refreshes, errors: r.errors, toasts: r.toasts };
 };

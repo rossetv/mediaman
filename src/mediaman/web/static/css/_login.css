@@ -96,9 +96,10 @@
 
 /* Sized and pressed as a large primary .btn. */
 .login-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  /* The label and the busy line share one cell, so the button never changes size. */
+  display: grid;
+  place-items: center;
   width: 100%;
   min-height: 44px;
   /* A label that takes two lines on a narrow phone keeps air above and below. */
@@ -168,3 +169,155 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 }
 .fpc-subtitle { color: var(--t3); font-size: 14px; line-height: 1.5; margin-bottom: 24px; overflow-wrap: anywhere; }
 .fpc-subtitle strong { color: var(--t1); font-weight: 500; }
+
+/* ── The sign-in page ── */
+
+/* The lights, as gradients soft enough to need no blur filter, so they drift on the compositor.
+   Watch draws the same layer when it hands over, so the two pages meet on one frame. */
+.mm-sky { position: fixed; inset: -12%; z-index: 0; opacity: .3; pointer-events: none; }
+.mm-sky > i { position: absolute; inset: 0; }
+.mm-sky > i:first-child { background: radial-gradient(ellipse at 20% 30%, rgba(41,151,255,.42), transparent 58%); }
+.mm-sky > i:last-child { background: radial-gradient(ellipse at 80% 70%, rgba(191,90,242,.32), transparent 58%); }
+@media (prefers-reduced-motion: no-preference) {
+  /* Only on the sign-in page, where they stay on screen; on Watch they are seen only in passing. */
+  .login-page--signin > .mm-sky > i { will-change: transform; }
+  .mm-sky > i:first-child { animation: mm-sky-a 46s ease-in-out infinite alternate; }
+  .mm-sky > i:last-child { animation: mm-sky-b 58s ease-in-out infinite alternate; }
+}
+@keyframes mm-sky-a { to { transform: translate(6%, 4%) scale(1.08); } }
+@keyframes mm-sky-b { to { transform: translate(-5%, -3%) scale(1.06); } }
+.login-page--signin::before { display: none; }
+
+.login-page--signin { --ease-spring: var(--ease-out); }
+@supports (animation-timing-function: linear(0, 1)) {
+  .login-page--signin { --ease-spring: linear(0, .06 5%, .2 11%, .42 19%, .65 28%, .84 38%, .96 48%, 1.006 56%, 1.016 64%, 1.01 76%, 1.003 88%, 1); }
+}
+.login-page--signin .login-card { border-top-color: rgba(255,255,255,.2); }
+
+/* After log-out the signed-out line sits where the subtitle is, and gives it back. */
+.login-page--signin .login-sub { display: grid; min-height: 20px; }
+.login-sub > * { grid-area: 1 / 1; display: flex; align-items: center; gap: 6px; }
+.sub-out { color: var(--t2); }
+.sub-out svg { width: 15px; height: 15px; flex: none; fill: none; stroke: var(--success); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Focus: a ring and a soft halo that fade in over the field, where the outline snapped on. */
+.login-box { position: relative; }
+.login-field input { text-overflow: ellipsis; }
+/* Transparent, so forced colours still draw it. */
+.login-box input:focus-visible { outline-color: transparent; }
+.login-box::before, .login-box::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: var(--r-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.login-box::after { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rgba(41,151,255,.16); transform: scale(1.015); }
+.login-box:has(input:focus-visible)::after { opacity: 1; transform: none; }
+/* Red is for what was typed. */
+.login-box::before { box-shadow: inset 0 0 0 1px var(--danger-text); }
+.login-box.is-bad::before { opacity: 1; }
+.login-box.is-bad:has(input:focus-visible)::after { box-shadow: inset 0 0 0 2px var(--danger-text), 0 0 0 4px color-mix(in srgb, var(--danger) 14%, transparent); }
+
+/* Submitting: "Sign in" lifts out and "Signing in…" rises in; the button keeps its colour. */
+.login-btn > span { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 9px; }
+.login-btn .btn-busy { opacity: 0; }
+.login-btn .btn-spinner { width: 16px; height: 16px; margin: 0; border-color: rgba(255,255,255,.3); border-top-color: #fff; }
+form[data-busy] .login-btn:has(> .btn-busy) { opacity: 1; }
+form[data-busy] .login-btn .btn-label { opacity: 0; }
+form[data-busy] .login-btn .btn-busy { opacity: 1; }
+/* Still unanswered after a while (login.js): the busy line gives way to "Opening your library…". */
+.login-btn .btn-hold { opacity: 0; }
+form[data-busy][data-hold] .login-btn .btn-busy { opacity: 0; }
+form[data-busy][data-hold] .login-btn .btn-hold { opacity: 1; }
+
+/* What went wrong. Amber for waiting, which is nobody's fault. */
+.login-msg {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: var(--rgba-danger-bg-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: var(--r-sm);
+  color: var(--danger-text);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.login-msg[hidden] { display: none; }
+.login-msg svg { width: 16px; height: 16px; flex: none; margin-top: 1px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.login-msg.is-wait { background: rgba(255,159,10,.1); border-color: rgba(255,159,10,.3); color: var(--orange); }
+
+/* A phone held sideways: the name beside the form, so the card fits without scrolling. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .login-page--signin { padding: 16px 24px; }
+  .login-page--signin .login-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    gap: 0 36px;
+    align-items: center;
+    max-width: 720px;
+    padding: 26px 30px;
+  }
+  .login-page--signin .login-sub { margin-bottom: 0; }
+  .login-page--signin .login-field { margin-bottom: 12px; }
+  .login-page--signin .login-field input { padding-block: 10px; }
+}
+
+/* The motion. is-entering: the card settles, the name draws, the rest follows in a short wave.
+   is-room (login.js): the card and the form ease to make room for a line. is-out: just signed out,
+   where the lights are already on screen. */
+@media (prefers-reduced-motion: no-preference) {
+  .is-entering:not(.is-out) > .mm-sky { animation: login-fade var(--dur-slow) var(--ease-out) backwards; }
+  .is-entering .login-card { animation: login-card-in calc(var(--dur) * 1.5) var(--ease-spring) backwards; }
+  .is-entering .login-sub { animation: login-rise var(--dur-slow) calc(var(--dur) * .6) var(--ease-out) backwards; }
+  .is-entering .login-field:nth-of-type(1) { animation: login-rise var(--dur-slow) calc(var(--dur) * .8) var(--ease-out) backwards; }
+  .is-entering .login-field:nth-of-type(2) { animation: login-rise var(--dur-slow) var(--dur) var(--ease-out) backwards; }
+  .is-entering .login-btn { animation: login-rise var(--dur-slow) calc(var(--dur) * 1.2) var(--ease-out) backwards; }
+  .is-room .login-card { animation: login-room-card var(--dur-slow) var(--ease-out) backwards; }
+  .is-room .login-form { animation: login-room-form var(--dur-slow) var(--ease-out) backwards; }
+  .is-room .login-msg { animation: login-msg-in var(--dur) calc(var(--dur) * .45) var(--ease-out) backwards; }
+  .is-room .login-box.is-bad::before { animation: login-fade var(--dur) calc(var(--dur) * .45) var(--ease-out) backwards; }
+  form[data-busy] .login-btn .btn-label { animation: login-lift-out var(--dur) var(--ease-out); }
+  form[data-busy] .login-btn .btn-busy { animation: login-busy-in var(--dur-slow) calc(var(--dur) * .3) var(--ease-out) backwards; }
+  form[data-busy][data-hold] .login-btn .btn-busy { animation: login-fade-out var(--dur) var(--ease-out); }
+  form[data-busy][data-hold] .login-btn .btn-hold { animation: login-fade var(--dur) var(--ease-out) backwards; }
+  .is-out .sub-out { animation: login-out-line calc(var(--dur) * 18) calc(var(--dur) * .6) linear both; }
+  .is-out .sub-main { animation: login-main-back calc(var(--dur) * 18) calc(var(--dur) * .6) linear both; }
+}
+/* Under reduced motion the same changes are 150 ms fades. Important, to stand against _base.css,
+   which makes every animation instant there. */
+@media (prefers-reduced-motion: reduce) {
+  .is-entering:not(.is-out) > .mm-sky,
+  .is-entering .login-card,
+  .is-room .login-msg,
+  .is-room .login-box.is-bad::before,
+  form[data-busy] .login-btn .btn-busy { animation: login-fade var(--dur-fast) linear backwards !important; }
+  form[data-busy] .login-btn .btn-label { animation: login-fade-out var(--dur-fast) linear !important; }
+  /* The hold line is a swap here, not a fade. */
+  form[data-busy][data-hold] .login-btn :is(.btn-busy, .btn-hold) { animation: none !important; }
+  .login-box::after { transform: none; transition: opacity var(--dur-fast) var(--ease-out) !important; }
+  .is-out .sub-out { animation: login-out-line-still 3.6s 120ms linear both !important; }
+  .is-out .sub-main { animation: login-main-back 3.6s 120ms linear both !important; }
+}
+@keyframes login-fade { from { opacity: 0; } }
+@keyframes login-fade-out { from { opacity: 1; } }
+@keyframes login-card-in { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+@keyframes login-rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes login-room-card { from { transform: translateY(var(--dc, 0px)); } }
+@keyframes login-room-form { from { transform: translateY(var(--df, 0px)); } }
+@keyframes login-msg-in { from { opacity: 0; transform: translateY(-4px) scale(.99); } }
+@keyframes login-lift-out { from { opacity: 1; } to { transform: translateY(-8px); } }
+@keyframes login-busy-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes login-out-line {
+  0% { opacity: 0; transform: translateY(4px); }
+  5.6%, 88.9% { opacity: 1; transform: none; }
+  94.4%, 100% { opacity: 0; transform: translateY(-3px); }
+}
+@keyframes login-out-line-still { 0% { opacity: 0; } 4.2%, 88.9% { opacity: 1; } 93%, 100% { opacity: 0; } }
+@keyframes login-main-back { 0%, 88.9% { opacity: 0; } 94.4%, 100% { opacity: 1; } }

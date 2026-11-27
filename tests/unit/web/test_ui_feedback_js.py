@@ -4,6 +4,7 @@ and confirms asked together."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -125,3 +126,13 @@ def test_the_undo_shortcut_is_told_and_pressed_for_the_newest_undo_and_no_other_
 
 def test_the_undo_that_answers_the_shortcut_once_a_newer_one_has_gone_is_told_with_it() -> None:
     assert _run("shortcutPassesOn") == [["c"], ["b"], ["b"], ["b"]]
+
+
+def test_a_confirm_whose_yes_leaves_the_page_fades_slower_behind_it_and_only_on_a_yes() -> None:
+    out = _run("leaving")
+    assert out["yes"] == {"marked": True, "staysMs": 400}
+    assert out["no"] == {"marked": False, "staysMs": 100}
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_ui_feedback.css").read_text()
+    rule = re.search(r"\.ui-confirm-overlay\[data-leave\]\.is-leaving\s*\{([^}]*)\}", css).group(1)
+    assert "transition-duration: calc(var(--dur) * 1.1)" in rule
+    assert "transition-delay: calc(var(--dur) * .4)" in rule

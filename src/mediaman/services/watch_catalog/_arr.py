@@ -271,6 +271,14 @@ def arr_view(
         return late
 
 
+def held_arr_view() -> ArrView:
+    """The view last built, however old and though invalidate() was called since, or an empty one
+    when there is none: nobody is asked."""
+    with _lock:
+        held = _memo.get("arr") or _memo.get("last")
+    return held.view if held else ArrView({**build_radarr_cache(None), **build_sonarr_cache(None)})
+
+
 def _build(
     future: Future[ArrView],
     generation: int,
@@ -306,6 +314,7 @@ def _build(
                 now = clock()
                 until = max(held.until, now + RETRY_S) if held else now + TTL_S
                 _memo["arr"] = _Held(view, until, until if known else now + RETRY_S)
+                _memo.pop("last", None)
     future.set_result(view)
 
 
@@ -317,7 +326,9 @@ def _failed(future: Future[ArrView], generation: int, exc: BaseException) -> Non
 
 
 def invalidate() -> None:
-    """Forget the held state, so the next answer asks Radarr and Sonarr again."""
+    """Forget the held state, so the next answer asks Radarr and Sonarr again. held_arr_view()
+    still has it until a view is built in its place."""
     with _lock:
-        _memo.clear()
+        if (held := _memo.pop("arr", None)) is not None:
+            _memo["last"] = held
         _generation[0] += 1

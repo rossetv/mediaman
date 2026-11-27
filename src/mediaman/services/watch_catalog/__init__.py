@@ -4,7 +4,7 @@ Radarr and Sonarr download state."""
 
 from __future__ import annotations
 
-from ._arr import ArrView, arr_view, invalidate
+from ._arr import ArrView, arr_view, held_arr_view, invalidate
 from ._collection import film_collection
 from ._dedupe import LibraryIndex, SeenTitles, folder_year, library_ids, normalise_title
 from ._discover import (
@@ -87,6 +87,7 @@ __all__ = [
     "folder_year",
     "gate",
     "genre_posters",
+    "held_arr_view",
     "held_details",
     "held_tmdb_id_for_tvdb",
     "invalidate",
