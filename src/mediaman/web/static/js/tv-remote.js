@@ -322,12 +322,13 @@
   /* A page the server sends the person on to: api.js only tells of it (`stay`), so the remote
      goes first. The sign-in leads back here. */
   var SENT_TO = ['/login', '/force-password-change'];
+  function holdsEdits() { return !!(MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()); }
   function away(to) {
     var was = isOpen;
     ended = true;
     clearTimeout(timer);
-    // The page holds edits that leaving would lose: the remote stops asking and the page stays.
-    if (MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()) return new Promise(function () {});
+    // The person chose to keep the edits leaving would lose (api.js asked): the page stays.
+    if (holdsEdits()) return new Promise(function () {});
     close();
     if (to === '/login') to = MM.api.loginUrl();
     settled(function () { setTimeout(function () { global.location.href = to; }, was ? EXIT_MS : 0); });
@@ -335,11 +336,12 @@
   }
   function sentTo(err) { return err && err.data && SENT_TO.indexOf(err.data.redirect) !== -1 ? err.data.redirect : ''; }
 
-  /* An answer cut off in its body comes as an empty one. */
+  /* An answer cut off in its body comes as an empty one. Where the page holds edits, api.js
+     asks before leaving, as for any read. */
   function get(path, key) {
     var stopper = new AbortController();
     var late = setTimeout(function () { stopper.abort(); }, ANSWER_MS);
-    return MM.api.get(LIST + path, { signal: stopper.signal, stay: true }).then(function (data) {
+    return MM.api.get(LIST + path, { signal: stopper.signal, stay: !holdsEdits() }).then(function (data) {
       clearTimeout(late);
       if (!data[key]) throw new Error('no answer');
       return data[key];
@@ -665,7 +667,8 @@
       what: function () {
         var p = about();
         return Object.assign({ quality: p.quality || 'auto', autoplay: autoplays(), asked_s: pressed ? Math.max(0, now() - pressed) / 1000 : 0 },
-          p.subtitle || !isCast() ? { subtitle: p.subtitle || 'off' } : {},
+          // With none showing the server picks the person's own: "off" would hide the next episodes' signs and songs.
+          p.subtitle ? { subtitle: p.subtitle } : {},
           { rating_key: what().rating_key, position_s: what().position_s });
       },
       on: function () { return !play() || ['ended', 'failed'].indexOf(play().state) !== -1 ? null : isCast() ? CAST : 'tv-' + tv.id; },

@@ -241,7 +241,11 @@ async function page(opts = {}) {
   const apiWin = { location: { origin: 'http://testserver', href: 'http://testserver/watch', pathname: '/watch', search: '', hash: '' }, URL, console };
   apiWin.window = apiWin;
   apiWin.fetch = (url, o) => ctx.fetch(url, o);
+  // Leaving, asking and its wait are the page's own.
+  Object.defineProperty(apiWin.location, 'href', { get: () => 'http://testserver/watch', set: (to) => { win.location.href = to; } });
+  Object.assign(apiWin, { UIFeedback: win.UIFeedback, setTimeout: ctx.setTimeout, clearTimeout: ctx.clearTimeout, addEventListener() {}, removeEventListener() {} });
   vm.runInNewContext(fs.readFileSync(path.join(JS, 'core/api.js'), 'utf8'), apiWin);
+  apiWin.MM.api.hasUnsavedChanges = () => !!(win.MM.api.hasUnsavedChanges && win.MM.api.hasUnsavedChanges());
   win.MM.api.get = apiWin.MM.api.get;
   win.MM.api.APIError = apiWin.MM.api.APIError;
   // The sign-in address is built from the page's own place.
@@ -298,7 +302,42 @@ async function page(opts = {}) {
   return p;
 }
 
+// A title with an intro and credits on a TV that does not skip them by itself, the remote open.
+const INTRO = { kind: 'intro', start_s: 60, end_s: 150, final: false };
+const CREDITS = { kind: 'credits', start_s: 2700, end_s: 2880, final: true };
+const NEXT = { rating_key: '9002', season: 1, episode: 5, title: 'Windfall' };
+async function skipping(play) {
+  const p = await page({ tvs: [aTv({ play: aPlay({ markers: [INTRO, CREDITS], position_s: 70, subtitle_tracks: [], auto_skip: false, ...play }) })] });
+  await p.open();
+  await p.pass(100);
+  p.skip = () => (p.$('[data-skip]').hidden || p.$('[data-skip]').classList.contains('is-leaving') ? null : p.$('[data-skip-text]').textContent);
+  p.pressSkip = async () => {
+    const shown = p.skip();
+    await p.press('[data-skip]');
+    await p.pass(400);
+    return { shown, sent: p.sent() };
+  };
+  return p;
+}
+const SKIPS = {
+  intro: async () => (await skipping({})).pressSkip(),
+  // Its end a second away, it goes, as the player's own button does.
+  async introEnds() {
+    const p = await skipping({});
+    p.api.tvs[0].play.position_s = 149.5;
+    await p.pass(3000);
+    return p.skip();
+  },
+  outside: async () => (await skipping({ position_s: 400 })).skip(),
+  autoSkips: async () => (await skipping({ auto_skip: true })).skip(),
+  lastCredits: async () => (await skipping({ position_s: 2710, next: NEXT })).pressSkip(),
+  // Credits a scene may follow are skipped, not led on from, though a next episode is there.
+  midCredits: async () => (await skipping({ position_s: 1210, markers: [INTRO, { kind: 'credits', start_s: 1200, end_s: 1260, final: false }, CREDITS], next: NEXT })).skip(),
+  filmCredits: async () => (await skipping({ position_s: 2710, season: null, episode: null, episode_title: null })).pressSkip(),
+};
+
 const scenarios = {
+  async skip(name) { return SKIPS[name](); },
   async idle() {
     const p = await page({ tvs: [aTv({ play: null })] });
     await p.pass(120000);
@@ -621,20 +660,25 @@ const scenarios = {
     await p.pass(60000);
     return p.reads().length - n;
   },
-  // A read sent away while the page holds unsaved edits leaves the page as it is and asks no more.
+  // A read sent away while the page holds unsaved edits asks first: a no keeps the page, and the
+  // remote asks the server no more; a yes leaves.
   async unsavedEdits() {
     const out = {};
-    for (const [why, unsaved] of [['redirect', true], ['signedOut', true], ['signedOutSaved', false]]) {
+    const cases = [['redirect', true, false], ['signedOut', true, false], ['signedOutLeave', true, true], ['signedOutSaved', false, false]];
+    for (const [why, unsaved, leave] of cases) {
       const p = await page();
+      const asked = [];
+      p.win.UIFeedback.confirm = (o) => { asked.push(o.title); return Promise.resolve(leave); };
       await p.pass(5100);
       p.win.MM.api.hasUnsavedChanges = () => unsaved;
       if (why === 'redirect') p.api.away = '/force-password-change';
       else p.api.fail = ['http_401', 401];
       await p.pass(5100);
       await p.pass(1000);
+      const href = p.win.location.href;
       const reads = p.reads().length;
       await p.pass(60000);
-      out[why] = { href: p.win.location.href, asksOn: p.reads().length - reads };
+      out[why] = { href, asked, asksOn: p.reads().length - reads };
     }
     return out;
   },
@@ -1484,6 +1528,8 @@ const scenarios = {
     const u = await make({ tvs: [aTv({ play: aPlay({ state: 'upnext', next: { rating_key: '9002', season: 1, episode: 5, title: 'x' } }) })] });
     u.host.before({ id: 8 });
     out.upnext = [u.host.what().rating_key, u.host.before({ id: 8 })];
+    const shows = await make({ tvs: [aTv({ play: aPlay({ subtitle: '11' }) })] });
+    out.subtitleShown = shows.host.what().subtitle;
     return out;
   },
   // The real sheet and the remote: here after all, while another TV is starting.
@@ -1677,4 +1723,4 @@ const scenarios = {
   },
 };
 
-scenarios[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));
+scenarios[process.argv[2]](...process.argv.slice(3)).then((out) => console.log(JSON.stringify(out)));

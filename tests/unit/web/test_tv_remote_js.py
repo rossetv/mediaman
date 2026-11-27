@@ -199,11 +199,14 @@ def test_one_failed_request_says_nothing_and_a_lasting_one_does_until_it_is_back
     assert _run("offline") == {"once": None, "twice": "This device is offline", "back": None}
 
 
-def test_a_poll_that_finds_the_session_gone_leaves_a_page_with_unsaved_edits_where_it_is() -> None:
+def test_a_poll_that_finds_the_session_gone_asks_before_leaving_unsaved_edits() -> None:
     out = _run("unsavedEdits")
-    assert out["redirect"] == {"href": "", "asksOn": 0}
-    assert out["signedOut"] == {"href": "", "asksOn": 0}
+    password = "You must change your password before continuing."
+    assert out["redirect"] == {"href": "", "asked": [password], "asksOn": 0}
+    assert out["signedOut"] == {"href": "", "asked": ["Your session has expired."], "asksOn": 0}
+    assert out["signedOutLeave"]["href"].startswith("/login")
     assert out["signedOutSaved"]["href"].startswith("/login")
+    assert out["signedOutSaved"]["asked"] == []
 
 
 def test_opening_a_tv_while_the_phone_is_offline_blames_the_connection_not_the_tv() -> None:
@@ -566,7 +569,6 @@ def test_play_on_in_the_remote_moves_what_plays_to_another_tv_or_here() -> None:
         "quality": "auto",
         "autoplay": True,
         "asked_s": 0,
-        "subtitle": "off",
         "rating_key": "9001",
         "position_s": 1200,
     }
@@ -586,6 +588,9 @@ def test_play_on_in_the_remote_moves_what_plays_to_another_tv_or_here() -> None:
     assert out["calledOff"] == [[1, "stop", here], [1, "", here]]
     assert out["said"] == ["Stopped. Your place is saved at 20:00."]
     assert out["upnext"] == ["9002", 0]
+    # Moved with no subtitle showing, the server picks the person's own again: "off" would be
+    # kept on to the next episodes and hide their signs and songs.
+    assert out["subtitleShown"] == "11"
 
 
 @cache
