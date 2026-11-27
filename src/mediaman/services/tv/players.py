@@ -130,6 +130,8 @@ class Play:
     paused_by: str | None = None
     #: Whose film, and which, someone else started this over.
     replaced: Mapping[str, Any] | None = None
+    #: Whether the TV jumps past intros and credits by itself, as its person chose.
+    auto_skip: bool = True
 
 
 @dataclass
@@ -573,6 +575,7 @@ class Players:
             "upnext_in_s": None if upnext is None else max(0.0, upnext - now),
             "still_in_s": None if still is None else max(0.0, still + STILL_SECONDS - now),
             "error": play.error,
+            "auto_skip": play.auto_skip,
         }
 
 

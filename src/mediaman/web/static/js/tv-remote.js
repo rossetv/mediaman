@@ -105,7 +105,7 @@
     bring: $('[data-bring]'), playOn: $('[data-play-on]'), stop: $('[data-stop]'), dim: $('[data-dim]'), card: $('[data-card]'),
     cardTitle: $('[data-card-title]'), cardLine: $('[data-card-line]'), cardActions: $('[data-card-actions]'),
     status: $('[data-status]'), po: $('[data-po]'), poVeil: $('[data-po-veil]'), poTitle: $('[data-po-title]'),
-    poList: $('[data-po-list]'), poNote: $('[data-po-note]'),
+    poList: $('[data-po-list]'), poNote: $('[data-po-note]'), skip: $('[data-skip]'), skipText: $('[data-skip-text]'),
   };
   var live = MM.dom.qa('[data-live]', root);
   var arts = MM.dom.qa('[data-art]', root);
@@ -950,8 +950,40 @@
     attr(els.playOn, 'aria-disabled', String(coming));
     MM.dom.setText(els.stop, isEnd ? 'Disconnect' : 'Stop');
     drawMarks(what);
+    showSkip(p);
     renderCard(p);
     reach();
+  }
+
+  /* ── skip intro and credits ── */
+
+  /* The intro or credits on the TV's screen, where it does not skip them itself; as the
+     player's own button, from a second before their end it is gone. */
+  function markerNow(p) {
+    if (!p || p.auto_skip !== false || isCast() || !canSteer()) return null;
+    var t = position();
+    var m = (p.markers || []).filter(function (x) { return x.start_s <= t; }).pop();
+    return m && t < m.end_s - 1 ? m : null;
+  }
+  /* Only the last credits lead on; a scene may follow the others. */
+  function leadsOn(p, m) { return m.kind === 'credits' && m.final && !!p.next && p.next.season != null; }
+
+  var skipShown = '';
+  function showSkip(p) {
+    var m = markerNow(p);
+    var label = !m ? '' : leadsOn(p, m) ? 'Next episode' : m.kind === 'intro' ? 'Skip intro' : 'Skip credits';
+    if (label === skipShown) return;
+    skipShown = label;
+    if (!m) { leave(els.skip); return; }
+    MM.dom.setText(els.skipText, label);
+    enter(els.skip);
+  }
+  function skipOn() {
+    var p = play();
+    var m = markerNow(p);
+    if (!m) return;
+    if (leadsOn(p, m)) start({ kind: 'next' });
+    else seekTo(m.end_s);
   }
 
   /* What had the focus went out of reach: the keys would be the page's again. */
@@ -1020,6 +1052,7 @@
     attr($('[data-menu="chapters"]'), 'aria-label', c ? 'Chapters: ' + c.title : 'Chapters');
     var p = play();
     if (cardKey && p && p.state === 'upnext') MM.dom.setText(els.cardTitle, upnextTitle(p));
+    showSkip(p);
   }
   setInterval(function () {
     if (!play() || isHidden()) return;
@@ -1434,6 +1467,7 @@
     else if (hit('[data-mute]')) mute();
     else if (pill) openMenu(pill.getAttribute('data-menu'), pill);
     else if (hit('[data-next]')) start({ kind: 'next' });
+    else if (hit('[data-skip]')) skipOn();
     else if (hit('[data-again]')) start({ kind: 'again' });
     else if (hit('[data-play-on]')) choose();
     else if (hit('[data-bring]')) bring();

@@ -23,10 +23,12 @@
   var IDLE_DIM_MS = 600000;
   var MOVE_MS = 60000;
   var LIT_MS = 500;
+  var SKIPPED_MS = 3000;
 
   var body = document.body;
   var stage = document.getElementById('s');
   var leaving = document.getElementById('o');
+  var notes = document.getElementById('k');
   var video = document.getElementById('v');
   var base = body.getAttribute('data-base') || (location.protocol + '//' + location.host);
 
@@ -534,6 +536,7 @@
       wanted = !next.paused;
       counted = next.played_s || 0;
       breaks = 0;
+      skipped = {};
     }
     endsAt = next.upnext_in_s === null || next.upnext_in_s === undefined ? 0 : now() + next.upnext_in_s * 1000;
     if (next.url && loaded !== next.play_id) load(lastPlace(next));
@@ -596,7 +599,7 @@
   function carryOut(c) {
     if (c.kind === 'play') go();
     else if (c.kind === 'pause') hold();
-    else if (c.kind === 'seek') seek(c.position_s);
+    else if (c.kind === 'seek') seekAsked(c.position_s);
     else if (c.kind === 'volume') setVolume(c.level);
     else if (c.kind === 'mute') video.muted = c.muted;
   }
@@ -726,6 +729,14 @@
     putThere();
     atPlace();
     tick();
+  }
+  /* A place a person asked for: an intro or credits there are theirs to watch. */
+  function seekAsked(to) {
+    var list = (play && play.markers) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (to >= list[i].start_s && to < list[i].end_s) skipped[list[i].start_s] = true;
+    }
+    seek(to);
   }
   function setVolume(level) {
     video.volume = level;
@@ -872,9 +883,45 @@
       else put('in', nextLine());
     }
     if (play) bar();
+    skipMarks();
     rest();
   }
   setInterval(tick, 500);
+
+  /* ── intros and credits ── */
+
+  var skipped = {};          // of the play, by where each starts: a marker is skipped once
+  var noteTimer = null;
+
+  /* Where its person wants it, the TV plays on past an intro or credits as they start: a TV's
+     remote may have no key to skip with. Credits that end the title are skipped only where a next
+     episode follows, to the end, where the TV's own next episode and "still watching" take over. */
+  function skipMarks() {
+    if (!play || !play.auto_skip || !loaded || !ready || !there || !wanted || video.seeking || overAt !== null || broken || reloadDue) return;
+    var t = video.currentTime, list = play.markers || [];
+    var end = video.duration || play.duration_s || 0;
+    var goesOn = !!play.next && play.next.season != null;
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i];
+      if (t < m.start_s || t >= m.end_s - 1 || skipped[m.start_s]) continue;
+      var last = m.kind === 'credits' && (m.final || (end && m.end_s >= end - 1));
+      if (last && !goesOn) continue;
+      skipped[m.start_s] = true;
+      seek(m.end_s);
+      tell();
+      if (!last) note(m.kind === 'intro' ? 'Skipped intro' : 'Skipped credits');
+      return;
+    }
+  }
+
+  function note(text) {
+    var node = document.getElementById('sk');
+    if (!node) return;
+    node.innerHTML = glyph('step') + text;
+    node.className = 'sk on';
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(function () { node.className = 'sk'; }, SKIPPED_MS);
+  }
 
   function put(id, text) {
     var node = document.getElementById(id);
@@ -909,7 +956,7 @@
   var FOR_GOOD = { unplayable: 1, unplayable_dolby_vision_5: 1 };
   var ICONS = {
     play: 'M7 4l13 8-13 8z', pause: 'M6 4h4v16H6zM14 4h4v16h-4z', back: 'M11 5v14l-9-7zM22 5v14l-9-7z',
-    fwd: 'M2 5v14l9-7zM13 5v14l9-7z', stop: 'M5 5h14v14H5z', ok: 'M9 17l-5-5-2 2 7 7L22 8l-2-2z',
+    fwd: 'M2 5v14l9-7zM13 5v14l9-7z', step: 'M4 4v16l12-8zM17 4h3v16h-3z', stop: 'M5 5h14v14H5z', ok: 'M9 17l-5-5-2 2 7 7L22 8l-2-2z',
   };
   function glyph(name) { return '<svg class="i" viewBox="0 0 24 24"><path d="' + ICONS[name] + '"/></svg>'; }
 
@@ -1218,7 +1265,7 @@
     else if (what === 'r') { tries = 0; ask('again'); }
     else if (what === 's') ask('stop');
     else if (what === 'p') { if (wanted) hold(); else go(); tell(); }
-    else if (what === 'b' || what === 'f') seek(position() + (what === 'b' ? -10 : 10));
+    else if (what === 'b' || what === 'f') seekAsked(position() + (what === 'b' ? -10 : 10));
     show();
   }
 
@@ -1343,6 +1390,10 @@
     stage.style.transform = move;
     leaving.style.webkitTransform = move;
     leaving.style.transform = move;
+    if (notes) {
+      notes.style.webkitTransform = move;
+      notes.style.transform = move;
+    }
   }
   window.onresize = fit;
   fit();

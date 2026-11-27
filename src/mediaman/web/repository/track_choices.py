@@ -1,5 +1,5 @@
-"""Each person's audio and subtitle languages, what they chose for a show or movie, and the
-languages the library's tracks are in."""
+"""Each person's audio and subtitle languages, what they chose for a show or movie, the
+languages the library's tracks are in, and whether their TV skips intros and credits."""
 
 from __future__ import annotations
 
@@ -34,6 +34,20 @@ def set_defaults(conn: sqlite3.Connection, username: str, defaults: Defaults) ->
         conn.execute(
             "UPDATE admin_users SET audio_lang = ?, subtitle_lang = ? WHERE username = ?",
             (defaults.audio_lang, defaults.subtitle_lang, username),
+        )
+
+
+def skips_on_tv(conn: sqlite3.Connection, username: str) -> bool:
+    row = conn.execute(
+        "SELECT tv_auto_skip FROM admin_users WHERE username = ?", (username,)
+    ).fetchone()
+    return row is None or bool(row["tv_auto_skip"])
+
+
+def set_skips_on_tv(conn: sqlite3.Connection, username: str, on: bool) -> None:
+    with conn:
+        conn.execute(
+            "UPDATE admin_users SET tv_auto_skip = ? WHERE username = ?", (int(on), username)
         )
 
 

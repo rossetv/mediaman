@@ -1,5 +1,6 @@
 """Audio and subtitles: a title's tracks with those that play for the signed-in person, their
-choice for the title, and the languages they want by default.
+choice for the title, the languages they want by default, and whether their TV skips intros
+and credits.
 
 Each acts on the signed-in person alone. A choice holds for the whole show, and for the item it
 was made on, its exact tracks; it plays from the next start of a stream.
@@ -10,7 +11,7 @@ from __future__ import annotations
 import sqlite3
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from starlette.responses import Response
 
 from mediaman.db import get_db
@@ -61,6 +62,8 @@ class _Defaults(BaseModel):
 
     audio_lang: str | None = Field(default=None, pattern=_LANGUAGE)
     subtitle_lang: str | None = Field(default=None, pattern=rf"(^off$)|{_LANGUAGE}")
+    #: Whether a paired TV skips intros and credits by itself; null is refused.
+    auto_skip: StrictBool = True
 
 
 def _title(
@@ -211,6 +214,7 @@ def _defaults_answer(conn: sqlite3.Connection, username: str, defaults: Defaults
         {
             "audio_lang": defaults.audio_lang,
             "subtitle_lang": defaults.subtitle_lang,
+            "auto_skip": track_choices.skips_on_tv(conn, username),
             "languages": [
                 {"code": code, "name": name, "native": NATIVE_NAMES[code]}
                 for code, name in LANGUAGES.items()
@@ -245,5 +249,8 @@ def set_playback(body: _Defaults, username: str = Depends(get_current_user)) -> 
             if subtitle_lang is None:
                 return respond_err("unknown_language", status=422)
     defaults = Defaults(audio_lang, subtitle_lang)
-    track_choices.set_defaults(conn, username, defaults)
+    if {"audio_lang", "subtitle_lang"} & sent:
+        track_choices.set_defaults(conn, username, defaults)
+    if "auto_skip" in sent:
+        track_choices.set_skips_on_tv(conn, username, body.auto_skip)
     return _defaults_answer(conn, username, defaults)

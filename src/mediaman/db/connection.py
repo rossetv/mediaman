@@ -154,6 +154,7 @@ _ADDED_COLUMNS = (
     ("admin_users", "ai_auto_ask", "INTEGER NOT NULL DEFAULT 1"),
     ("admin_users", "audio_lang", "TEXT"),
     ("admin_users", "subtitle_lang", "TEXT"),
+    ("admin_users", "tv_auto_skip", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.

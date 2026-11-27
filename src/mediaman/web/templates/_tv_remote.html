@@ -39,6 +39,9 @@
       <p class="tv-rem__on">{{ icon("i-tv") }}<span data-on></span></p>
       <p class="tv-rem__hint" data-hint></p>
     </div>
+    {# While an intro or credits play on a TV that does not skip them by itself; its place stays,
+       so nothing around it moves as it comes and goes. #}
+    <div class="tv-rem__skip-slot"><button type="button" class="player-pill player-pill--primary tv-rem__skip" data-skip hidden><span data-skip-text></span>{{ icon("i-forward-step") }}</button></div>
   </div>
 
   <div class="player-bottom" data-bottom>

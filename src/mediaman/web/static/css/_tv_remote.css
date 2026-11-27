@@ -58,6 +58,15 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem .player-volume { min-width: 0; }
 .tv-rem .player-volume-slider { display: block; }
 .tv-rem .player-bubble { animation: none; }
+.tv-rem__skip-slot { flex: none; display: flex; justify-content: center; min-height: 44px; }
+/* As large as the player's own Skip button. */
+.tv-rem__skip.player-pill { gap: 8px; font-size: 15px; padding: 0 18px; }
+.tv-rem__skip { animation: tv-rise var(--dur) var(--ease-out); }
+.tv-rem__skip.is-leaving { animation: tv-sink var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+@media (max-width: 699.98px) {
+  .tv-rem__skip-slot { min-height: 48px; }
+  .tv-rem__skip.player-pill { height: 48px; }
+}
 .tv-rem__vol-no { padding: 0 8px; font-size: 13px; line-height: 1.35; color: var(--t2); }
 .tv-rem__end { display: flex; gap: 8px; }
 .tv-rem__danger { color: var(--danger-soft); }
@@ -249,7 +258,7 @@ html.has-tv-rem .ui-toast-host {
 }
 @media (prefers-reduced-motion: reduce) {
   .tv-rem, .tv-rem.is-leaving, .tv-rem__art, .tv-rem__say, .tv-rem .player-bottom, .tv-rem__dim,
-  .tv-po, .tv-po-veil, .tv-po.is-leaving, .tv-po-veil.is-leaving, .tv-rem__dim.is-leaving, .tv-rem .player-message.is-leaving, .tv-rem .player-upnext.is-leaving, .tv-mini, .tv-mini.is-leaving { animation: none; }
+  .tv-rem__skip, .tv-rem__skip.is-leaving, .tv-po, .tv-po-veil, .tv-po.is-leaving, .tv-po-veil.is-leaving, .tv-rem__dim.is-leaving, .tv-rem .player-message.is-leaving, .tv-rem .player-upnext.is-leaving, .tv-mini, .tv-mini.is-leaving { animation: none; }
   .tv-rem__ring, .tv-mini .player-btn-ring, .tv-rem .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite; }
 }
 @media (forced-colors: active) {

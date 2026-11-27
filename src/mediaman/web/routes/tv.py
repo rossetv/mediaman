@@ -54,6 +54,7 @@ from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.auth.session_store import validate_session
+from mediaman.web.repository import track_choices
 from mediaman.web.repository import tv as repo
 from mediaman.web.repository.ratings import find_user_id
 from mediaman.web.repository.watch_progress import get_progress
@@ -554,6 +555,7 @@ def _start_on(
             renewed=renewed,
             asked=players.now() - asked_s,
             next_state="end" if item.type == "movie" else "unknown",
+            auto_skip=track_choices.skips_on_tv(conn, user),
         )
         command.append(players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed))
         begun.append(play)
