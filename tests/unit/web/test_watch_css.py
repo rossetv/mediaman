@@ -728,3 +728,9 @@ def test_on_a_poster_under_120px_the_ready_to_watch_pill_tightens_so_its_words_f
     narrow = _of(".watch-card__poster > .watch-badge--state", "poster (max-width: 103.98px)")
     assert "padding-inline: 5px" in narrow
     assert "gap: 3px" in narrow
+
+
+def test_a_search_downloading_row_draws_its_scores_without_the_poster_s_shade() -> None:
+    search = SHEET.with_name("_watch_search.css")
+    assert "text-shadow: none" in _of(".results-dl__text > .watch-card__scores", sheet=search)
+    assert "filter: none" in _of(".results-dl__text .watch-score > .ico", sheet=search)
