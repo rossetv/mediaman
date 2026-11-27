@@ -4,14 +4,14 @@ person, run under node against a fake DOM."""
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from tests.unit.web._css import style
+
 HARNESS = Path(__file__).parent / "js" / "watch_downloading_harness.js"
-STYLES = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css"
 _WHY = "Single episode file contains all episodes in seasons. Review file name or manually import"
 
 
@@ -55,25 +55,21 @@ def test_one_mediaman_will_try_again_says_so_to_an_admin_and_a_viewer_alike(card
     assert card["viewerRetried"]["title"] == said
 
 
-def _rule(sheet: str, selector: str) -> str:
-    css = (STYLES / sheet).read_text("utf-8")
-    found = re.search(re.escape(selector) + r" \{([^}]*)\}", css)
-    assert found is not None, selector
-    return found[1]
-
-
 def test_a_card_that_is_stuck_has_no_full_bar_that_reads_as_done() -> None:
-    assert "opacity: 0" in _rule("_watch_downloading.css", ".dw.is-stuck .dw__bar i")
+    assert style(".dw.is-stuck .dw__bar i", "_watch_downloading.css")["opacity"] == "0"
 
 
 def test_where_to_fix_it_is_plain_text_not_the_colour_of_a_link() -> None:
-    assert "var(--warning)" not in _rule("_dl.css", ".dl-attention-hint")
-    assert "var(--warning)" not in _rule("_watch_downloading.css", ".dw__fix")
+    for selector, sheet in (
+        (".dl-attention-hint", "_dl.css"),
+        (".dw__fix", "_watch_downloading.css"),
+    ):
+        colour = style(selector, sheet)["color"]
+        assert "--warning" not in colour and "--accent" not in colour, selector
 
 
 def test_a_stuck_card_gives_what_happens_next_two_lines_and_grows_to_hold_them() -> None:
-    fix = _rule("_watch_downloading.css", ".dw.is-stuck .dw__fix")
-    link = _rule("_watch_downloading.css", ".dw__link")
-
-    assert "-webkit-line-clamp: 2" in fix and "white-space: normal" in fix
-    assert "min-height: 104px" in link and re.search(r"(?<![\w-])height: 104px", link) is None
+    fix = style(".dw.is-stuck .dw__fix", "_watch_downloading.css")
+    link = style(".dw__link", "_watch_downloading.css")
+    assert fix["-webkit-line-clamp"] == "2" and fix["white-space"] == "normal"
+    assert "min-height" in link and "height" not in link

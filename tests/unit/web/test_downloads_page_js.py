@@ -17,9 +17,40 @@ from fastapi.testclient import TestClient
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
 from tests.helpers.factories import insert_admin_user
+from tests.unit.web._css import style
+from tests.unit.web._css import text as sheet_text
 
 HARNESS = Path(__file__).parent / "js" / "downloads_harness.js"
-CSS = Path(__file__).parents[3] / "src/mediaman/web/static/css"
+SHEET = "_dl.css"
+
+
+def _times(animation: str) -> list[str]:
+    """The duration and delay tokens an animation or transition names, in order."""
+    return re.findall(r"var\((--dur[-\w]*)\)", animation)
+
+
+def _part(transition: str, prop: str) -> str:
+    """What *transition* says of *prop*: its timing, after the property's name."""
+    for part in transition.split(","):
+        name, _, timing = part.strip().partition(" ")
+        if name == prop:
+            return timing
+    raise AssertionError(f"no {prop} in {transition}")
+
+
+def _end_frame(keyframes: str) -> dict[str, str]:
+    """What the `to` (or 100%) frame of `@keyframes *keyframes*` declares; {} when it has none."""
+    found = re.search(
+        rf"@keyframes {re.escape(keyframes)}\s*{{((?:[^{{}}]*{{[^{{}}]*}})*)\s*}}",
+        sheet_text(SHEET),
+    )
+    assert found, f"no @keyframes {keyframes} in {SHEET}"
+    for head, body in re.findall(r"([^{}]+){([^{}]*)}", found[1]):
+        if {"to", "100%"} & {h.strip() for h in head.split(",")}:
+            return {
+                k.strip(): v.strip() for k, _, v in (d.partition(":") for d in body.split(";")) if v
+            }
+    return {}
 
 
 def _run(scenario: str) -> dict:
@@ -415,22 +446,19 @@ def test_the_top_cards_fading_copy_is_laid_out_in_the_cards_own_box() -> None:
     out = _run("heroSwap")
     assert out["moving"]["ghosts"] == [""]
     assert out["reduced"]["ghosts"] == []
-    css = (CSS / "_dl.css").read_text()
-    rule = css.split(".dl-hero-ghost__card {", 1)[1].split("}", 1)[0]
-    assert "inset: 0;" in rule and "min-height" not in rule and "height:" not in rule
+    card = style(".dl-hero-ghost__card", SHEET)
+    assert card["inset"] == "0" and "min-height" not in card and "height" not in card
 
 
 def test_the_new_content_of_the_top_card_waits_for_the_old_to_fade() -> None:
     out = _run("heroSwap")
     assert out["moving"]["swapping"] and not out["moving"]["later"]
     assert not out["reduced"]["swapping"]
-    css = (CSS / "_dl.css").read_text()
-    fade = re.search(r"\.dl-hero-ghost \{[^}]*animation: dl-hero-out var\(--(dur[-\w]*)\)", css)
-    came = re.search(
-        r"\.dl-hero\.is-swapping \.dl-hero-content \{ animation: dl-hero-in \S+ \S+ var\(--(dur[-\w]*)\) backwards",
-        css,
-    )
-    assert fade and came and fade[1] == came[1], "it begins as the old has gone"
+    ghost = style(".dl-hero-ghost", SHEET)["animation"]
+    fade = _times(ghost)[0]
+    delay = _times(style(".dl-hero.is-swapping .dl-hero-content", SHEET)["animation"])[1]
+    assert fade == delay == "--dur-fast", "it begins as the old has gone, at the quick pace"
+    assert _end_frame(ghost.split()[0]).get("opacity") == "0", "the old card fades all the way out"
 
 
 def test_a_row_that_changes_place_slides_with_those_it_passes_unless_motion_is_off() -> None:
@@ -440,14 +468,9 @@ def test_a_row_that_changes_place_slides_with_those_it_passes_unless_motion_is_o
     # a row put back in the list would play its entrance again, over the slide
     assert out["moving"]["entering"] == [False, False, False]
     assert out["reduced"]["sliding"] == [False, False, False]
-    css = (CSS / "_dl.css").read_text()
-    leave = re.search(
-        r"\.dl-fold \{[^}]*transition: height (var\(--dur-slow\) var\(--ease-out\))", css
-    )
-    assert (
-        leave
-        and f"transform {leave[1]}" in css.split(".dl-compact.is-sliding {", 1)[1].split("}", 1)[0]
-    )
+    # a row slides as long as a leaving row takes to close
+    fold = _part(style(".dl-fold", SHEET)["transition"], "height")
+    assert _part(style(".dl-compact.is-sliding", SHEET)["transition"], "transform") == fold
 
 
 def test_rows_below_a_row_that_grows_slide_down_unless_motion_is_off() -> None:
@@ -499,18 +522,17 @@ def test_the_downloads_api_says_a_viewers_outage_once(app_factory, conn) -> None
 
 
 def test_in_forced_colours_a_row_has_the_edge_the_top_card_has() -> None:
-    forced = (CSS / "_dl.css").read_text().split("@media (forced-colors: active) {", 1)[1]
-    edges = re.findall(r"([^{}]+)\{[^}]*border: 1px solid CanvasText", forced)
-    assert any(".dl-hero" in sel for sel in edges)
-    assert any(re.search(r"(^|,)\s*\.dl-row\s*(,|$)", sel) for sel in edges)
+    forced = "(forced-colors: active)"
+    edge = style(".dl-hero", SHEET, forced)["border"]
+    assert "CanvasText" in edge
+    assert style(".dl-row", SHEET, forced).get("border") == edge
 
 
 def test_a_poster_that_is_missing_or_does_not_load_is_stood_for_by_a_mark() -> None:
     out = _run("posterMark")
     assert out["hero"] == [["IMG.", "SPAN.dl-poster-mark"]]
     assert out["rows"] == [["SPAN.dl-poster-mark"], ["IMG.", "SPAN.dl-poster-mark"]]
-    css = (CSS / "_dl.css").read_text()
-    assert "img:not([data-broken]) ~ .dl-poster-mark { visibility: hidden; }" in css
+    assert style("img:not([data-broken]) ~ .dl-poster-mark", SHEET)["visibility"] == "hidden"
 
 
 def test_the_queues_heading_is_true_of_its_rows() -> None:
@@ -536,15 +558,14 @@ def test_only_an_admins_rows_hold_a_link_into_radarr_or_sonarr() -> None:
 
 
 def test_a_queued_episode_reads_as_a_queued_row_does() -> None:
-    css = (CSS / "_dl.css").read_text()
-    pill = css.split(".dl-ep-status-pill.queued {", 1)[1].split("}", 1)[0]
-    assert "warning" not in pill
+    # a queued row's pill has no state of its own and is drawn as the plain pill
+    episode, row = style(".dl-ep-status-pill.queued", SHEET), style(".dl-state-pill", SHEET)
+    assert (episode["color"], episode["background"]) == (row["color"], row["background"])
 
 
 def test_a_long_title_wraps_on_a_narrow_phone() -> None:
-    css = (CSS / "_dl.css").read_text()
-    narrow = css.split("@media (max-width: 374.98px) {", 1)[1].split("\n}\n", 1)[0]
-    assert "white-space: normal" in narrow.split(".dl-row-title {", 1)[1].split("}", 1)[0]
+    title = ".dl-compact > .dl-row .dl-row-title"
+    assert style(title, SHEET, "(max-width: 374.98px)")["white-space"] == "normal"
 
 
 def test_a_redrawn_abandon_button_is_named_by_its_title_and_follows_a_new_one() -> None:

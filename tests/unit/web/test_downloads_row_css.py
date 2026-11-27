@@ -3,37 +3,18 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-CSS = (Path(__file__).parents[3] / "src/mediaman/web/static/css/_dl.css").read_text()
+from tests.unit.web._css import px, rules, style
 
-
-def _media(query: str) -> str:
-    """The body of every ``@media <query>`` block, joined."""
-    bodies = []
-    for start in [m.end() for m in re.finditer(re.escape(f"@media {query}") + r"\s*\{", CSS)]:
-        depth, i = 1, start
-        while depth:
-            depth += {"{": 1, "}": -1}.get(CSS[i], 0)
-            i += 1
-        bodies.append(CSS[start : i - 1])
-    return "\n".join(bodies)
-
-
-def _top_level() -> str:
-    return re.sub(r"@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", "", CSS)
-
-
-def _value(text: str, selector: str, prop: str) -> str | None:
-    """*prop* of the last rule in *text* whose selector list holds *selector*."""
-    found = None
-    for sels, body in re.findall(
-        r"([^{}]+)\{([^{}]*)\}", re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    ):
-        if selector in [s.strip() for s in sels.split(",")]:
-            m = re.search(rf"(?:^|;)\s*{re.escape(prop)}\s*:\s*([^;]+)", body)
-            found = m.group(1).strip() if m else found
-    return found
+SHEET = "_dl.css"
+ROW = ".dl-compact > .dl-row"
+WITH_BUTTON = ".dl-compact > .dl-row--has-abandon"
+WIDE = "(min-width: 375px)"
+ROOMY = "(min-width: 640px)"
+NARROW = "(max-width: 374.98px)"
+PHONE = "(max-width: 639.98px)"
+TINY = "(max-width: 259.98px)"
+TOUCH = "(pointer: coarse)"
 
 
 def _tracks(columns: str | None) -> int:
@@ -41,54 +22,71 @@ def _tracks(columns: str | None) -> int:
     return len(re.findall(r"minmax\([^)]*\)|calc\([^)]*\)|var\([^)]*\)|[^\s()]+", columns))
 
 
-ROW = ".dl-compact > .dl-row"
-WITH_BUTTON = ".dl-compact > .dl-row--has-abandon"
-WIDE = _media("(min-width: 375px)")
-ROOMY = _media("(min-width: 640px)")
-NARROW = _media("(max-width: 374.98px)")
-PHONE = _media("(max-width: 639.98px)")
+def _columns(selector: str, media: str | None = None) -> str | None:
+    return style(selector, SHEET, media).get("grid-template-columns")
+
+
+def _area(selector: str, media: str) -> list[str]:
+    """The grid-area of *selector* in *media* as its row-start, column-start, row-end, column-end."""
+    return [part.strip() for part in style(selector, SHEET, media)["grid-area"].split("/")]
 
 
 def test_a_rows_abandon_button_has_a_column_of_its_own_at_the_rows_end() -> None:
-    plain = _value(_top_level(), ".dl-compact-row", "grid-template-columns")
-    assert _tracks(_value(WIDE, WITH_BUTTON, "grid-template-columns")) == _tracks(plain) + 1
-    assert _value(_top_level(), ".dl-compact .dl-row-abandon", "grid-area") == "1 / -2"
+    plain = _columns(".dl-compact-row")
+    assert _tracks(_columns(WITH_BUTTON, WIDE)) == _tracks(plain) + 1
+    button = style(".dl-compact .dl-row-abandon", SHEET)
+    assert button["grid-area"] == "1 / -2"
+    # the column and the row padding the button reaches into hold the button, at both sizes
+    reach = -px(button["margin-right"])
+    for media, icon in (
+        (None, style(".btn--icon", "_buttons.css")),
+        (TOUCH, style(".dl-row-abandon .btn.btn--icon", SHEET, TOUCH)),
+    ):
+        column = px(style(".dl-compact-list", SHEET, media)["--dl-abandon-col"])
+        assert column + reach == px(icon["width"]), media
 
 
 def test_rows_without_the_button_keep_its_column_so_percentages_line_up_down_the_list() -> None:
     aligned = [
-        sel.strip()
-        for sels, _ in re.findall(r"([^{}]+)\{([^{}]*)\}", ROOMY)
-        for sel in sels.split(",")
+        sel
+        for where, sels, _ in rules(SHEET)
+        if where == (ROOMY,)
+        for sel in sels
         if ":has(" in sel and ".dl-row--has-abandon" in sel
     ]
     assert aligned, "no rule for the rows beside one with the button"
-    columns = {_value(ROOMY, sel, "grid-template-columns") for sel in aligned}
-    columns.add(_value(WIDE, WITH_BUTTON, "grid-template-columns"))
+    assert all(sel.endswith("> .dl-compact > .dl-row") for sel in aligned), aligned
+    columns = {_columns(sel, ROOMY) for sel in aligned}
+    columns.add(_columns(WITH_BUTTON, WIDE))
     assert len(columns) == 1
 
 
 def test_on_a_narrow_phone_the_button_is_the_only_extra_column() -> None:
-    assert _value(NARROW, WITH_BUTTON, "grid-template-columns") is None
-    assert _tracks(_value(NARROW, ROW, "grid-template-columns")) == 3
+    assert _columns(WITH_BUTTON, NARROW) is None
+    assert _tracks(_columns(ROW, NARROW)) == 3
     # the percentage and time left go under the title, out of the button's column
-    right = _value(NARROW, ".dl-compact > .dl-row--has-abandon .dl-compact-right", "grid-area")
-    assert right is not None and right.split("/")[1].strip() == "2"
+    right = _area(".dl-compact > .dl-row--has-abandon .dl-compact-right", NARROW)
+    assert right[1] == "2"
 
 
 def test_on_a_phone_an_episodes_name_has_the_mini_bars_room() -> None:
-    assert _value(PHONE, ".dl-ep-mini-bar", "display") == "none"
-    assert _value(PHONE, ".dl-ep-status-pill", "grid-column") == "3 / -1"
+    assert style(".dl-ep-mini-bar", SHEET, PHONE)["display"] == "none"
+    assert style(".dl-ep-status-pill", SHEET, PHONE)["grid-column"] == "3 / -1"
 
 
-def test_upcoming_row_gives_the_title_a_full_line_below_260px():
+def test_upcoming_row_gives_the_title_a_full_line_below_260px() -> None:
     """With the poster and the button sharing a line, the title keeps the row's width and the
     button is no longer laid over the pill."""
-    tiny = _media("(max-width: 259.98px)")
-    assert _value(tiny, ".dl-upcoming-row > .dl-row-info", "grid-area") == "2 / 1 / 3 / -1"
-    assert _value(tiny, ".dl-upcoming-row > .pill", "grid-area") == "3 / 1 / 4 / -1"
-    assert _value(tiny, ".dl-upcoming-row > .dl-row-abandon", "position") == "static"
-    assert _value(tiny, ".dl-upcoming-row > .dl-row-abandon", "grid-area") == "1 / 3"
+    poster = _area(".dl-upcoming-row > .dl-row-poster", TINY)
+    button = _area(".dl-upcoming-row > .dl-row-abandon", TINY)
+    info = _area(".dl-upcoming-row > .dl-row-info", TINY)
+    pill = _area(".dl-upcoming-row > .pill", TINY)
+    assert button[0] == poster[0], "the button shares the poster's line"
+    assert int(info[0]) > int(poster[0]) and int(pill[0]) > int(info[0])
+    assert int(info[2]) <= int(pill[0]), "the title ends above the pill"
+    assert info[1::2] == pill[1::2] == ["1", "-1"], "the title and the pill span the row"
+    assert style(".dl-upcoming-row > .dl-row-abandon", SHEET, TINY)["position"] == "static"
     # The row's right padding no longer reserves the button's column.
-    assert _value(tiny, ".dl-upcoming-row.dl-row--has-abandon", "padding") == "12px"
-    assert _value(tiny, ".dl-upcoming-row .dl-row-title", "white-space") == "normal"
+    tiny_row = style(".dl-upcoming-row.dl-row--has-abandon", SHEET, TINY)
+    assert "padding-right" not in tiny_row and len(set(tiny_row["padding"].split())) == 1
+    assert style(".dl-upcoming-row .dl-row-title", SHEET, TINY)["white-space"] == "normal"

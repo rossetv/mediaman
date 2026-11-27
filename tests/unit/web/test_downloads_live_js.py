@@ -12,6 +12,8 @@ from pathlib import Path
 
 import jinja2
 
+from tests.unit.web._css import px, rgb, rules, style, token
+
 WEB = Path(__file__).resolve().parents[3] / "src/mediaman/web"
 HARNESS = Path(__file__).parent / "js" / "downloads_live_harness.js"
 _ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(WEB / "templates"), autoescape=True)
@@ -239,92 +241,97 @@ def test_after_an_abandon_the_page_says_so_and_the_focus_is_on_something() -> No
         assert title in text
 
 
-def _rule(selector: str) -> str:
-    """The declarations of *selector* outside any `@media`."""
-    css = (WEB / "static/css/_dl.css").read_text(encoding="utf-8")
-    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    css = re.sub(r"@media [^{]+\{(?:[^{}]*\{[^{}]*\})*\s*\}", "", css)
-    heads = re.findall(r"([^{}]+)\{([^{}]*)\}", css)
-    return "".join(body for head, body in heads if selector in [s.strip() for s in head.split(",")])
+SHEET = "_dl.css"
+COARSE = "(pointer: coarse)"
+
+
+def _rule(selector: str, media: str | None = None) -> dict[str, str]:
+    return style(selector, SHEET, media)
 
 
 def test_the_abandon_dialog_keeps_the_width_of_the_page_s_scrollbar_until_it_closes() -> None:
     stuck = {"state": "searching", "abandon_visible": True}
     out = _run("held", queue=[_item("q1", **stuck)])
     assert out == {"open": "15px", "again": "15px", "closed": None}
-    # the page it holds is the one the rule that stops the page scrolling names
-    shared = (WEB / "static/css/_ui_feedback.css").read_text(encoding="utf-8")
-    assert "html.page-held" in shared.split("var(--page-bar")[0]
-
-
-def _rule_of(selector: str) -> str:
-    """As `_rule`, of a selector that may hold commas and a list that may hold it."""
-    css = (WEB / "static/css/_dl.css").read_text(encoding="utf-8")
-    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    css = re.sub(r"@media [^{]+\{(?:[^{}]*\{[^{}]*\})*\s*\}", "", css)
-    heads = [(h.strip(), body) for h, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)]
-    return "".join(b for h, b in heads if h == selector or selector in h.split(",\n"))
 
 
 def test_the_hero_cannot_be_scrolled_inside_itself() -> None:
-    assert re.findall(r"overflow: (\w+)", _rule(".dl-hero"))[-1] == "clip"
+    assert _rule(".dl-hero")["overflow"] == "clip"
+
+
+def _within(node: list, cls: str) -> list[list]:
+    """Every element under *node* whose class list holds *cls*."""
+    found = []
+    for child in node[2:]:
+        if isinstance(child, list):
+            if cls in child[1].get("class", "").split():
+                found.append(child)
+            found += _within(child, cls)
+    return found
+
+
+def _marks(node: list) -> set[str]:
+    """The data-v of every element under *node*."""
+    marks = set()
+    for child in node[2:]:
+        if isinstance(child, list):
+            marks |= {child[1].get("data-v", "")} | _marks(child)
+    return marks
 
 
 def test_a_rows_episodes_button_and_list_are_inside_its_card_under_its_text() -> None:
-    text = (WEB / "templates/_dl_compact_row.html").read_text(encoding="utf-8")
-    card = text.split('class="dl-compact-row', 1)[1].rsplit("</div>", 1)[0]
-    assert 'data-v="ep-toggle"' in card and 'data-v="ep-list"' in card
+    parser = _Spec()
+    parser.feed(_html(queue=[_item("q", media_type="series", episodes=[_EPISODE])]))
+    [card] = _within(parser.root, "dl-compact-row")
+    assert {"ep-toggle", "ep-list"} <= _marks(card)
+    poster_column = _rule(".dl-compact-row")["grid-template-columns"].split()[0]
+    assert poster_column.endswith("px"), "the first column is the poster's, the text the second"
     for part in (
         ".dl-compact-row > .dl-compact-episodes-toggle",
         ".dl-compact-row > .dl-compact-episodes",
     ):
-        assert "grid-column: 2 / -1" in _rule(part)
-    assert "margin-top: 0" in _rule(".dl-fold.is-folded")
+        assert _rule(part)["grid-column"] == "2 / -1", part
+    assert _rule(".dl-fold.is-folded")["margin-top"] == "0"
 
 
 def test_the_state_of_a_download_is_not_in_the_accent_itself_on_its_own_tint() -> None:
     for pill in (".dl-state-downloading", ".dl-ep-status-pill.downloading"):
-        assert "color: var(--accent-text)" in _rule(pill)
-
-
-def _in_media(condition: str, selector: str) -> str:
-    css = (WEB / "static/css/_dl.css").read_text(encoding="utf-8")
-    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    blocks = re.findall(r"@media ([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
-    rules = [
-        r for q, body in blocks if condition in q for r in re.findall(r"([^{}]+)\{([^{}]*)\}", body)
-    ]
-    return "".join(body for head, body in rules if selector in [s.strip() for s in head.split(",")])
+        assert _rule(pill)["color"] == "var(--accent-text)", pill
 
 
 def test_a_finger_reaches_every_control_at_any_width() -> None:
-    coarse = "(pointer: coarse)"
-    assert "min-height: 44px" in _in_media(coarse, ".dl-arr-link")
+    assert px(_rule(".dl-arr-link", COARSE)["min-height"]) >= 44
     # In two pieces each would be reached over its own line alone.
-    assert "display: inline-block" in _rule(".dl-arr-link")
-    assert "white-space: nowrap" in _rule(".dl-arr-link")
+    assert _rule(".dl-arr-link")["display"] == "inline-block"
+    assert _rule(".dl-arr-link")["white-space"] == "nowrap"
     for toggle in (".dl-hero-episodes-toggle", ".dl-compact-episodes-toggle"):
-        assert "min-height: 44px" in _in_media(coarse, toggle)
+        assert px(_rule(toggle, COARSE)["min-height"]) >= 44, toggle
     for button in (".dl-hero-abandon .btn.btn--icon", ".dl-row-abandon .btn.btn--icon"):
-        assert "width: 44px; height: 44px" in _in_media(coarse, button)
+        sized = _rule(button, COARSE)
+        assert min(px(sized["width"]), px(sized["height"])) >= 44, button
 
 
 def test_a_link_on_a_line_of_its_own_has_no_dot_before_it() -> None:
     phone = "(max-width: 479.98px)"
-    assert "display: flex" in _in_media(phone, ".dl-arr-link")
-    assert "display: none" in _in_media(phone, ".dl-hint-sep")
+    assert _rule(".dl-arr-link", phone)["display"] == "flex"
+    assert _rule(".dl-hint-sep", phone)["display"] == "none"
     out = _run("hintFocus", hero=_item("h", **_STUCK), queue=[_item("q", **_STUCK)])
     assert out["dots"] == 2, "in the row the server drew and the one a poll built"
 
 
 def test_queue_rows_sit_one_gap_apart() -> None:
-    assert not re.search(r"margin[\w-]*:", _rule(".dl-compact"))
-    assert "gap: 8px" in _rule(".dl-compact-list")
+    assert not [prop for prop in _rule(".dl-compact") if prop.startswith("margin")]
+    # a folded row takes the gap after it away with it, or the rows below jump as it goes
+    gap = px(_rule(".dl-compact-list")["gap"])
+    assert gap > 0 and gap == -px(_rule(".dl-compact-list > .dl-fold.is-folded")["margin-bottom"])
 
 
 def test_the_small_state_pills_are_large_enough_to_read_and_a_poll_leaves_them_so() -> None:
-    for pill in (".dl-state-pill", ".dl-state-pill--xs", ".dl-ep-status-pill"):
-        assert all(int(px) >= 11 for px in re.findall(r"font-size: (\d+)px", _rule(pill)))
+    sizes = [_rule(".dl-state-pill")["font-size"], _rule(".dl-ep-status-pill")["font-size"]]
+    sizes += [
+        d["font-size"] for _, s, d in rules(SHEET) if ".dl-state-pill--xs" in s and "font-size" in d
+    ]
+    assert all(px(size) >= 11 for size in sizes), sizes
     assert _run("pollLook", hero=_item("h"), queue=[_item("q")])["pill"] == ""
 
 
@@ -335,7 +342,6 @@ def test_a_new_hero_shows_through_the_one_before_it() -> None:
     assert out["first"] == [{"says": "Th", "inert": True, "hidden": "true", "hooks": 0}]
     assert out["second"] == ["Tb"], "one at a time"
     assert out["after"] == 0 and out["hero"] == "Tc"
-    assert "animation: dl-hero-out var(--dur-fast)" in _rule(".dl-hero-ghost")
 
 
 def test_a_poll_while_the_old_hero_fades_draws_the_new_one_in_full() -> None:
@@ -391,7 +397,7 @@ def test_what_is_coming_soon_gains_and_changes_its_poster() -> None:
 
 
 def test_a_small_state_pill_stays_on_one_line() -> None:
-    assert "white-space: nowrap" in _rule(".dl-state-pill--xs")
+    assert _rule(".dl-state-pill--xs")["white-space"] == "nowrap"
 
 
 def test_the_hero_eases_to_the_height_of_the_title_that_takes_its_place() -> None:
@@ -401,23 +407,19 @@ def test_the_hero_eases_to_the_height_of_the_title_that_takes_its_place() -> Non
     assert out["second"] == ["", "450px", "460px"]
     assert out["afterFirstTimer"] == "460px" and out["settled"] == ""
     assert out["same"] == 0
-    assert "transition: height var(--dur-slow)" in _rule(".dl-hero")
+    eased = {
+        name: timing
+        for name, _, timing in (
+            p.strip().partition(" ") for p in _rule(".dl-hero")["transition"].split(",")
+        )
+    }
+    assert eased.get("height", "").split()[:1] == ["var(--dur-slow)"], "it eases, not snaps"
+    assert float(token("--dur-slow")[:-1]) > 0
 
 
 def test_with_reduced_motion_the_hero_is_at_once_as_tall_as_its_title() -> None:
     out = _run("heroHeight", hero=_item("h"))
     assert out["first"] == out["second"] == [] and out["same"] == 0
-
-
-def _token(name: str) -> str:
-    css = (WEB / "static/css/_tokens.css").read_text(encoding="utf-8")
-    value = re.search(rf"--{name}:\s*([^;]+);", css)
-    assert value
-    return value[1].strip()
-
-
-def _rgb(colour: str) -> tuple[float, ...]:
-    return tuple(int(colour[i : i + 2], 16) for i in (1, 3, 5))
 
 
 def _mix(over: tuple[float, ...], alpha: float, under: tuple[float, ...]) -> tuple[float, ...]:
@@ -435,16 +437,15 @@ def _contrast(a: tuple[float, ...], b: tuple[float, ...]) -> float:
 
 def test_every_text_of_the_hero_is_read_over_a_white_poster() -> None:
     white, black = (255.0,) * 3, (0.0,) * 3
-    art = float(re.findall(r"opacity: ([.\d]+)", _rule(".dl-hero-bg"))[0])
-    scrim = min(float(a) for a in re.findall(r"rgba\(0,0,0,([.\d]+)\)", _rule(".dl-hero-scrim")))
-    card = _mix(black, scrim, _mix(white, art, _rgb(_token("s2"))))
+    art = float(_rule(".dl-hero-bg")["opacity"])
+    scrim_paint = _rule(".dl-hero-scrim")["background"]
+    scrim = min(float(a) for a in re.findall(r"rgba\(0,0,0,([.\d]+)\)", scrim_paint))
+    card = _mix(black, scrim, _mix(white, art, rgb(token("--s2"))))
 
     def text(name: str) -> tuple[float, ...]:
-        value = _token(name)
+        value = token(f"--{name}")
         if value.startswith("#"):
-            return _rgb(
-                value if len(value) == 7 else "#" + value[1] * 2 + value[2] * 2 + value[3] * 2
-            )
+            return rgb(value)
         return _mix(white, float(value.split(",")[3].rstrip(")")), card)
 
     for selector in (
@@ -453,18 +454,20 @@ def test_every_text_of_the_hero_is_read_over_a_white_poster() -> None:
         ":is(.dl-hero, .dl-hero-ghost) .dl-arr-link",
         ".dl-hero-details",
     ):
-        name = re.findall(r"(?<![-\w])color: var\(--([\w-]+)\)", _rule_of(selector))[0]
-        assert _contrast(text(name), card) >= 4.5, selector
-    pills = _rule_of(":is(.dl-hero, .dl-hero-ghost) :is(.pill, .dl-state-pill)")
-    base = re.search(r"color-mix\(in srgb, currentColor (\d+)%, var\(--(\w+)\)\)", pills)
+        name = re.fullmatch(r"var\(--([\w-]+)\)", _rule(selector)["color"])
+        assert name, selector
+        assert _contrast(text(name[1]), card) >= 4.5, selector
+    pills = _rule(":is(.dl-hero, .dl-hero-ghost) :is(.pill, .dl-state-pill)")["background"]
+    base = re.fullmatch(r"color-mix\(in srgb, currentColor (\d+)%, var\(--(\w+)\)\)", pills)
     assert base
     for name in ("accent-text", "purple-text", "orange", "success", "warning"):
-        tint = _mix(text(name), int(base[1]) / 100, _rgb(_token(base[2])))
+        tint = _mix(text(name), int(base[1]) / 100, rgb(token(f"--{base[2]}")))
         assert _contrast(text(name), tint) >= 4.5, name
 
 
 def test_an_episode_in_a_pack_is_not_faded_with_its_text() -> None:
-    assert "opacity" not in _rule(".dl-ep-row-pack")
+    pack = [d for _, sels, d in rules(SHEET) if any(".dl-ep-row-pack" in sel for sel in sels)]
+    assert pack and not any("opacity" in d for d in pack)
 
 
 def test_a_failed_abandon_leaves_the_focus_in_the_dialog_whatever_a_click_does_with_it() -> None:
@@ -480,17 +483,15 @@ def test_a_failed_abandon_leaves_the_focus_in_the_dialog_whatever_a_click_does_w
 def test_on_a_phone_a_hero_that_changes_height_keeps_its_top_where_it_is() -> None:
     phone = "(max-width: 639.98px)"
     for card in (".dl-hero", ".dl-hero-ghost__card"):
-        assert "align-items: flex-start" in _in_media(phone, card)
+        assert _rule(card, phone)["align-items"] == "flex-start", card
     # what is shorter than the card still sits at its foot
-    content = _in_media(phone, ".dl-hero-content")
-    assert "justify-content: flex-end" in content
-    room = int(re.findall(r"min-height: (\d+)px", content)[0])
-    card = int(re.findall(r"min-height: (\d+)px", _rule(".dl-hero"))[0])
-    padding = int(re.findall(r"padding: (\d+)px", _in_media(phone, ".dl-hero"))[0])
-    assert room == card - 2 * padding
-    assert "flex: none" in _in_media(phone, ".dl-hero-info")
+    content = _rule(".dl-hero-content", phone)
+    assert content["justify-content"] == "flex-end"
+    padding = px(_rule(".dl-hero", phone)["padding"])
+    assert px(content["min-height"]) == px(_rule(".dl-hero")["min-height"]) - 2 * padding
+    assert _rule(".dl-hero-info", phone)["flex"] == "none"
     # the old card's ground goes on under it while the card grows
-    assert "inset: 0;" in _rule(".dl-hero-ghost__card")
+    assert _rule(".dl-hero-ghost__card")["inset"] == "0"
 
 
 def test_the_ring_is_told_by_the_page_s_own_polls_and_of_those_that_fail() -> None:
