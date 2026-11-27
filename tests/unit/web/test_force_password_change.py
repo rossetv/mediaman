@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +13,7 @@ from mediaman.web.routes.force_password_change import (
     _FORCE_CHANGE_LIMITER,
     router,
 )
+from tests.unit.web._css import px, style
 
 
 def _reset_limiters() -> None:
@@ -23,143 +23,84 @@ def _reset_limiters() -> None:
     _FORCE_CHANGE_IP_LIMITER.reset()
 
 
-SESSION_PATCH = "mediaman.web.routes.force_password_change.resolve_page_session"
 WEB = Path(__file__).parents[3] / "src" / "mediaman" / "web"
+_LOGIN, _PASSWORD = "_login.css", "_password.css"
+_FORCED = "(forced-colors: active)"
 
 
-class TestForceChangeGet:
-    def test_redirects_when_no_session(self, app_factory, conn, templates_stub):
-        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
-        client = TestClient(app, raise_server_exceptions=True)
-        with patch(SESSION_PATCH) as mock_resolve:
-            from fastapi.responses import RedirectResponse as RR
+class TestForceChange:
+    """Over HTTP with a real session; what each refusal says is in test_password_change_answers."""
 
-            mock_resolve.return_value = RR("/login", status_code=302)
-            resp = client.get("/force-password-change", follow_redirects=False)
-        assert resp.status_code == 302
-
-    def test_renders_form_for_valid_session(self, app_factory, conn, templates_stub):
-        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
-        client = TestClient(app, raise_server_exceptions=True)
-        with patch(SESSION_PATCH, return_value=("admin", conn)):
-            resp = client.get("/force-password-change")
-        assert resp.status_code == 200
-
-
-class TestForceChangePost:
-    @pytest.fixture(autouse=True)
-    def _reset_limiters_fixture(self):
+    @pytest.fixture
+    def client(self, app_factory, authed_client, conn, templates_stub):
         _reset_limiters()
-
-    def _post(self, app, **form):
-        client = TestClient(app, raise_server_exceptions=True)
-        return client.post("/force-password-change", data=form)
-
-    def test_missing_fields_renders_error(self, app_factory, conn, templates_stub):
         app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
-        with patch(SESSION_PATCH, return_value=("admin", conn)):
-            resp = self._post(app, old_password="", new_password="", confirm_password="")
-        assert "Please fill in every field" in resp.text
+        return authed_client(app, conn)
 
-    def test_mismatched_passwords_renders_error(self, app_factory, conn, templates_stub):
-        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
-        with patch(SESSION_PATCH, return_value=("admin", conn)):
-            resp = self._post(app, old_password="old", new_password="new1", confirm_password="new2")
-        assert "don't match" in resp.text
+    def _post(self, client, old: str):
+        new = "Harbour-glass-27"
+        data = {"old_password": old, "new_password": new, "confirm_password": new}
+        return client.post("/force-password-change", data=data, follow_redirects=False)
 
-    def test_policy_violation_renders_issues(self, app_factory, conn, templates_stub):
+    def test_signed_out_it_leads_to_sign_in(self, app_factory, conn, templates_stub):
         app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
-        with (
-            patch(SESSION_PATCH, return_value=("admin", conn)),
-            patch(
-                "mediaman.web.routes.force_password_change.password_issues",
-                return_value=["Too short"],
-            ),
-        ):
-            resp = self._post(app, old_password="old", new_password="weak", confirm_password="weak")
-        assert "Too short" in resp.text
-
-    def test_wrong_old_password_logs_security_event(self, app_factory, conn, templates_stub):
-        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
-        with (
-            patch(SESSION_PATCH, return_value=("admin", conn)),
-            patch("mediaman.web.routes.force_password_change.password_issues", return_value=[]),
-            patch("mediaman.web.routes.force_password_change.change_password", return_value=False),
-            patch("mediaman.web.routes.force_password_change.security_event") as mock_event,
-        ):
-            resp = self._post(
-                app,
-                old_password="wrong",
-                new_password="Str0ng!Pass",
-                confirm_password="Str0ng!Pass",
-            )
-        assert "incorrect" in resp.text
-        mock_event.assert_called_once()
-
-    def test_success_rotates_session_and_redirects(self, app_factory, conn, templates_stub):
-        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
-        with (
-            patch(SESSION_PATCH, return_value=("admin", conn)),
-            patch("mediaman.web.routes.force_password_change.password_issues", return_value=[]),
-            patch("mediaman.web.routes.force_password_change.change_password", return_value=True),
-            patch("mediaman.web.auth.session_store.create_session", return_value="new-token"),
-        ):
-            client = TestClient(app, raise_server_exceptions=True)
-            resp = client.post(
-                "/force-password-change",
-                data={
-                    "old_password": "old",
-                    "new_password": "Strong!Pass1",
-                    "confirm_password": "Strong!Pass1",
-                },
-                follow_redirects=False,
-            )
+        resp = TestClient(app).get("/force-password-change", follow_redirects=False)
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/"
+        assert resp.headers["location"].startswith("/login")
+
+    def test_a_wrong_current_password_is_a_security_event(self, client, conn):
+        self._post(client, old="wrong")
+        rows = conn.execute(
+            "SELECT 1 FROM audit_log WHERE action = 'sec:password.force_change_failed'"
+        ).fetchall()
+        assert len(rows) == 1
+
+    def test_success_signs_in_with_a_new_session_and_ends_the_old(self, client):
+        old = client.cookies["session_token"]
+        resp = self._post(client, old="password1234")
+        assert (resp.status_code, resp.headers["location"]) == (302, "/")
+        new = resp.cookies["session_token"]
+        assert new != old
+        for token, signed_in in ((new, True), (old, False)):
+            client.cookies.set("session_token", token)
+            page = client.get("/force-password-change", follow_redirects=False)
+            assert (page.status_code == 200) is signed_in
 
 
 def test_the_sign_out_link_can_be_pressed_with_a_finger() -> None:
-    css = (WEB / "static" / "css" / "_login.css").read_text()
-    reach = re.search(r"\.security-note a::after \{[^}]*inset: -(\d+)px", css)
-    # the link's own box is one 12px line, 15px tall
-    assert reach and 15 + 2 * int(reach.group(1)) >= 44
-
-
-def _rule(css: str, selector: str) -> str:
-    found = re.search(rf"^\s*{re.escape(selector)} \{{([^}}]*)\}}", css, re.M)
-    assert found, selector
-    return found[1]
+    note = style(".security-note", _LOGIN)
+    reach = px(style(".security-note a::after", _LOGIN)["inset"].split()[0])
+    # an inline link's box is about one and a quarter of its font size tall
+    assert px(note["font-size"]) * 1.25 + 2 * -reach >= 44
 
 
 def test_a_field_the_browser_filled_in_keeps_the_eye_in_sight() -> None:
-    login = (WEB / "static" / "css" / "_login.css").read_text()
-    password = (WEB / "static" / "css" / "_password.css").read_text()
     # its pale blue is as light as the eye, and so is the text it puts on a dark one
-    assert "color-scheme: dark" in _rule(login, ".login-page")
-    filled = _rule(password, ".pwd-box > .inp:autofill")
-    assert "box-shadow: inset" in filled and "-webkit-text-fill-color" in filled
+    assert style(".login-page", _LOGIN)["color-scheme"] == "dark"
+    filled = style(".pwd-box > .inp:autofill", _PASSWORD)
+    assert filled["box-shadow"].startswith("inset") and "-webkit-text-fill-color" in filled
 
 
 def test_the_system_s_colours_keep_the_eye_and_the_button_drawn() -> None:
-    login = (WEB / "static" / "css" / "_login.css").read_text()
-    password = (WEB / "static" / "css" / "_password.css").read_text()
-    forced = password.split("@media (forced-colors: active)", 1)[1]
-    # a focused field's own rule is the stronger one
-    assert ".pwd-box > .inp:focus ~ .pwd-eye .cut { stroke: Canvas; }" in forced
-    assert "border: 1px solid transparent" in _rule(login, ".login-btn")
+    # a focused field's own rule is the stronger one, so it is named again there
+    focused = ".pwd-box > .inp:focus ~ .pwd-eye .cut"
+    assert style(focused, _PASSWORD, _FORCED)["stroke"] == "Canvas"
+    width, kind, colour = style(".login-btn", _LOGIN)["border"].split()
+    assert px(width) > 0 and kind == "solid" and colour == "transparent"
 
 
 def test_a_long_unbroken_word_in_a_refusal_breaks_inside_the_card() -> None:
-    login = (WEB / "static" / "css" / "_login.css").read_text()
-    assert "overflow-wrap: anywhere" in _rule(login, ".error-msg")
+    assert style(".error-msg", _LOGIN)["overflow-wrap"] == "anywhere"
 
 
 def test_a_sign_in_field_draws_one_ring_over_its_border_as_the_password_form_does() -> None:
-    login = (WEB / "static" / "css" / "_login.css").read_text()
-    ring = _rule(login, ".login-field input:focus-visible")
-    assert "outline: 2px solid var(--accent)" in ring and "outline-offset: -1px" in ring
-    forced = login.split("@media (forced-colors: active)", 1)[1]
-    assert ".login-field input:focus-visible { outline-color: Highlight; }" in forced
+    ring = style(".login-field input:focus-visible", _LOGIN)
+    form = style(".pwd .inp.inp:focus-visible", _PASSWORD)
+    assert ring["outline"] == form["outline"] and ring["outline-offset"] == form["outline-offset"]
+    assert px(ring["outline-offset"]) < 0
+    assert (
+        style(".login-field input:focus-visible", _LOGIN, _FORCED)["outline-color"] == "Highlight"
+    )
 
 
 @pytest.mark.parametrize("page", ["login", "error", "force_password_change"])
@@ -168,24 +109,23 @@ def test_the_brand_is_the_drawn_name_that_keeps_to_its_width(page) -> None:
     brand = re.search(r'class="login-brand[^>]*>(.*?)</div>', html)
     assert brand and 'aria-label="mediaman"' in brand[1] and "wordmark" in brand[1]
     assert "<b>man</b>" not in brand[1]
-    # Under a large text zoom it narrows with the card, and keeps its proportions.
-    login = (WEB / "static" / "css" / "_login.css").read_text()
-    mark = _rule(login, ".login-brand .wordmark")
-    assert "max-width: 100%" in mark and "height: auto" in mark
-    assert "aspect-ratio: 4.4316 / 1.0211" in mark
-    assert "min-width: 0" in _rule(login, ".login-brand a")
+    # Under a large text zoom it narrows with the card, and keeps the top bar's proportions.
+    mark, bar = style(".login-brand .wordmark", _LOGIN), style(".wordmark", "_base.css")
+    assert (mark["max-width"], mark["height"]) == ("100%", "auto")
+    wide, tall = (float(v.split()[0]) for v in mark["aspect-ratio"].split("/"))
+    assert wide / tall == pytest.approx(float(bar["width"][:-2]) / float(bar["height"][:-2]))
+    assert style(".login-brand a", _LOGIN)["min-width"] == "0"
     # A grid item is no narrower than its content unless told, so the card would not narrow.
-    assert "min-width: 0" in _rule(login, ".login-card")
+    assert style(".login-card", _LOGIN)["min-width"] == "0"
 
 
 def test_the_top_bar_s_name_keeps_its_width() -> None:
-    assert "max-width" not in _rule((WEB / "static" / "css" / "_base.css").read_text(), ".wordmark")
+    assert "max-width" not in style(".wordmark", "_base.css")
 
 
 def test_an_open_form_s_fold_follows_its_height_in_safari() -> None:
-    password = (WEB / "static" / "css" / "_password.css").read_text()
     fold = ".setg-pg .setg-fold:has(.pwd):not(.is-shut, .is-moving, [hidden])"
-    assert "display: flow-root" in _rule(password, fold)
+    assert style(fold, _PASSWORD)["display"] == "flow-root"
 
 
 def _page(**context) -> str:
