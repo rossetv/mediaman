@@ -219,7 +219,7 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 /* Red is for what was typed. */
 .login-box::before { box-shadow: inset 0 0 0 1px var(--danger-text); }
 .login-box.is-bad::before { opacity: 1; }
-.login-box.is-bad:has(input:focus-visible)::after { box-shadow: inset 0 0 0 2px var(--danger-text), 0 0 0 4px rgba(255,69,58,.14); }
+.login-box.is-bad:has(input:focus-visible)::after { box-shadow: inset 0 0 0 2px var(--danger-text), 0 0 0 4px color-mix(in srgb, var(--danger) 14%, transparent); }
 
 /* Submitting: "Sign in" lifts out and "Signing in…" rises in; the button keeps its colour. */
 .login-btn > span { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 9px; }
@@ -269,19 +269,19 @@ form[data-busy] .login-btn .btn-busy { opacity: 1; }
    where the lights are already on screen. */
 @media (prefers-reduced-motion: no-preference) {
   .is-entering:not(.is-out) > .mm-sky { animation: login-fade var(--dur-slow) var(--ease-out) backwards; }
-  .is-entering .login-card { animation: login-card-in .3s var(--ease-spring) backwards; }
-  .is-entering .login-sub { animation: login-rise var(--dur-slow) 120ms var(--ease-out) backwards; }
-  .is-entering .login-field:nth-of-type(1) { animation: login-rise var(--dur-slow) 160ms var(--ease-out) backwards; }
-  .is-entering .login-field:nth-of-type(2) { animation: login-rise var(--dur-slow) 200ms var(--ease-out) backwards; }
-  .is-entering .login-btn { animation: login-rise var(--dur-slow) 240ms var(--ease-out) backwards; }
+  .is-entering .login-card { animation: login-card-in calc(var(--dur) * 1.5) var(--ease-spring) backwards; }
+  .is-entering .login-sub { animation: login-rise var(--dur-slow) calc(var(--dur) * .6) var(--ease-out) backwards; }
+  .is-entering .login-field:nth-of-type(1) { animation: login-rise var(--dur-slow) calc(var(--dur) * .8) var(--ease-out) backwards; }
+  .is-entering .login-field:nth-of-type(2) { animation: login-rise var(--dur-slow) var(--dur) var(--ease-out) backwards; }
+  .is-entering .login-btn { animation: login-rise var(--dur-slow) calc(var(--dur) * 1.2) var(--ease-out) backwards; }
   .is-room .login-card { animation: login-room-card var(--dur-slow) var(--ease-out) backwards; }
   .is-room .login-form { animation: login-room-form var(--dur-slow) var(--ease-out) backwards; }
-  .is-room .login-msg { animation: login-msg-in var(--dur) 90ms var(--ease-out) backwards; }
-  .is-room .login-box.is-bad::before { animation: login-fade var(--dur) 90ms var(--ease-out) backwards; }
+  .is-room .login-msg { animation: login-msg-in var(--dur) calc(var(--dur) * .45) var(--ease-out) backwards; }
+  .is-room .login-box.is-bad::before { animation: login-fade var(--dur) calc(var(--dur) * .45) var(--ease-out) backwards; }
   form[data-busy] .login-btn .btn-label { animation: login-lift-out var(--dur) var(--ease-out); }
-  form[data-busy] .login-btn .btn-busy { animation: login-busy-in var(--dur-slow) 60ms var(--ease-out) backwards; }
-  .is-out .sub-out { animation: login-out-line 3.6s 120ms linear both; }
-  .is-out .sub-main { animation: login-main-back 3.6s 120ms linear both; }
+  form[data-busy] .login-btn .btn-busy { animation: login-busy-in var(--dur-slow) calc(var(--dur) * .3) var(--ease-out) backwards; }
+  .is-out .sub-out { animation: login-out-line calc(var(--dur) * 18) calc(var(--dur) * .6) linear both; }
+  .is-out .sub-main { animation: login-main-back calc(var(--dur) * 18) calc(var(--dur) * .6) linear both; }
 }
 /* Under reduced motion the same changes are 150 ms fades. Important, to stand against _base.css,
    which makes every animation instant there. */
@@ -292,7 +292,7 @@ form[data-busy] .login-btn .btn-busy { opacity: 1; }
   .is-room .login-box.is-bad::before,
   form[data-busy] .login-btn .btn-busy { animation: login-fade var(--dur-fast) linear backwards !important; }
   form[data-busy] .login-btn .btn-label { animation: login-fade-out var(--dur-fast) linear !important; }
-  .login-box::after { transform: none; transition: opacity var(--dur-fast) linear !important; }
+  .login-box::after { transform: none; transition: opacity var(--dur-fast) var(--ease-out) !important; }
   .is-out .sub-out { animation: login-out-line-still 3.6s 120ms linear both !important; }
   .is-out .sub-main { animation: login-main-back 3.6s 120ms linear both !important; }
 }
