@@ -550,3 +550,12 @@ def test_save_waits_for_the_rules_and_a_press_before_says_what_is_missing() -> N
 
 def test_opening_the_password_view_puts_the_cursor_in_its_first_field() -> None:
     assert _run("passwordFocus") == ["account-open-password", "account-old-password"]
+
+
+def test_the_hub_leads_to_downloading_while_something_downloads() -> None:
+    out = _run("hubDownloading")
+    assert out["busy"] == {"hidden": False, "says": "89%"}
+    assert out["lost"] == {"hidden": False, "says": "Not updating"}
+    assert out["before"] == {"went": ["close"], "ringClicks": 0, "prevented": True}
+    assert (out["after"], out["again"]) == (1, 1), "Downloading opens once the pane has closed"
+    assert out["none"] is True
