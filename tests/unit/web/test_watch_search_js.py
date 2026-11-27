@@ -1749,4 +1749,4 @@ def test_a_viewer_s_answer_says_how_many_are_left_and_different_picks_asks_again
     out = _run("answerWays")
     assert out["line"].endswith("· 7 AI answers left today")
     assert out["chips"][-1] == "Different picks"
-    assert out["again"] == [{"q": Q}, {"q": Q}]
+    assert out["again"] == [{"q": Q}, {"q": Q, "fresh": True}]

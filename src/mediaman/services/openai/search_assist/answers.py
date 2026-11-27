@@ -93,6 +93,8 @@ class Question:
     skip: frozenset[tuple[str, int]] = frozenset()
     #: As *skip*, by (kind, normalised title), for those TMDB was never matched to.
     skip_titles: frozenset[tuple[str, str]] = frozenset()
+    #: The titles of the answer given before, when others are asked for.
+    shown: tuple[str, ...] = ()
 
 
 class AnswerTitle(TypedDict):
@@ -166,6 +168,9 @@ def _prompt(question: Question, taste: Taste) -> str:
             ' It was answered with "answered". Narrow it to "narrow_to": keep those that fit '
             "and add others that do."
         )
+    if question.shown:
+        data["shown"] = clean_list(question.shown)
+        wish += ' The titles under "shown" were offered already: give others.'
     if taste.fields() and not personal:
         wish += " The other lists are the asker's own taste: use them only to choose between fits."
     return f"{wish}\n{data_block(data)}\n{_RULES}"

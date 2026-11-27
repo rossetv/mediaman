@@ -3329,7 +3329,8 @@ scenarios.similarWaits = async () => {
   };
   return {
     found: await run((p) => p.answer('/api/watch/similar', { tmdb_configured: true, title: NAMED, items: [] })),
-    held: await run((p) => p.answer('/api/watch/similar', { tmdb_configured: true, title: { ...NAMED, ref: 'show-5', library_ref: 'show-5' }, items: [] })),
+    held: await run((p) => p.answer('/api/watch/similar', { tmdb_configured: true, title: { ...NAMED, ref: 'show-5', library_ref: 'show-5', tmdb_id: 70 }, items: [] })),
+    heldUnknown: await run((p) => p.answer('/api/watch/similar', { tmdb_configured: true, title: { ...NAMED, ref: 'show-5', library_ref: 'show-5', tmdb_id: null }, items: [] })),
     failed: await run((p) => p.fail('/api/watch/similar', 'tmdb_request_failed', {}, 502)),
   };
 };

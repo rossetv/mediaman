@@ -306,13 +306,14 @@
   }
 
   /* Ask it, or for it narrowed by *chip*, which is words of its own answer. *over* is the run
-     of another tab whose place it takes; *auto*: the page asks it, as the person paused. A
-     question that names a title is asked once that title is found, with it. */
-  function start(item, chip, over, auto) {
+     of another tab whose place it takes; *auto*: the page asks it, as the person paused;
+     *fresh*: other titles than its answer's, asked for by the person. A question that names a
+     title is asked once that title is found, with it. */
+  function start(item, chip, over, auto, fresh) {
     chip = chip || '';
     remember(item);
     leave();
-    var g = going = { item: item, chip: chip, auto: !!auto && !chip, left: false, timer: null, slow: null, wake: null };
+    var g = going = { item: item, chip: chip, auto: !!auto && !chip && !fresh, fresh: !!fresh, left: false, timer: null, slow: null, wake: null };
     g.posted = inTime(leaving).then(function () {
       return over && !g.left ? inTime(endRun(over)) : null;
     }).then(function () { return item.like && !g.left ? lookSimilar(item) : null; })
@@ -340,6 +341,7 @@
     if (like) body.like = like;
     if (g.auto) body.auto = true;
     if (g.chip) body.refine = g.chip;
+    if (g.fresh) body.fresh = true;
     return send('post', '/' + item.kind, body).then(function (data) {
       if (data.status !== 'running') {
         if (!g.left) done(g, data);
@@ -608,11 +610,13 @@
     return found.ready;
   }
 
-  /* The title named, as the server takes it: by its TMDB id, which a title found only in the
-     library does not show; its question then names it in words alone. */
+  /* The title named, as the server takes it: by its TMDB id. With none known, its question
+     names it in words alone. */
   function likeOf(item) {
     var t = named(item);
-    var ref = t && /^tmdb-(movie|tv)-([0-9]{1,10})$/.exec(t.ref || '');
+    if (!t) return null;
+    if (typeof t.tmdb_id === 'number' && t.tmdb_id > 0) return { tmdb_id: t.tmdb_id, kind: t.kind === 'movie' ? 'movie' : 'tv', title: t.title };
+    var ref = /^tmdb-(movie|tv)-([0-9]{1,10})$/.exec(t.ref || '');
     return ref ? { tmdb_id: Number(ref[2]), kind: ref[1], title: t.title } : null;
   }
 
@@ -1069,7 +1073,7 @@
         other.insertBefore(MM.dom.icon('i-rotate-right'), other.firstChild);
         other.addEventListener('click', function () {
           if (opts.acted) opts.acted(item);
-          start(item);
+          start(item, '', null, false, true);
         });
       }
       refine.firstChild.hidden = !item.chips.length;

@@ -153,3 +153,56 @@ class TestNamedTitle:
     def test_a_named_title_that_is_not_one_is_refused(self, amy, model, like):
         assert amy.post(f"{BASE}/ask", json={"q": Q, "like": like}).status_code == 422
         assert model.prompts == []
+
+
+class TestDifferentPicks:
+    def test_others_are_asked_afresh_away_from_those_shown_and_kept_in_their_place(
+        self, amy, model
+    ):
+        model.items = [_title("Alibi")]
+        _ask(amy)
+        model.items = [_title("Alibi"), _title("Kestrel")]
+
+        found = _ask(amy, fresh=True)
+
+        assert [t["title"] for t in found["owned"] + found["others"]] == ["Kestrel"]
+        assert '"shown": ["Alibi"]' in model.prompts[-1]
+        kept = _ask(amy)
+        assert ([t["title"] for t in kept["others"]], len(model.prompts)) == (["Kestrel"], 2)
+
+    def test_of_someone_whose_history_is_not_kept_the_new_picks_stand_too(self, amy, model):
+        amy.put(f"{BASE}/history", json={"enabled": False})
+        model.items = [_title("Alibi")]
+        _ask(amy)
+        model.items = [_title("Kestrel")]
+
+        _ask(amy, fresh=True)
+
+        assert '"shown": ["Alibi"]' in model.prompts[-1]
+        assert [t["title"] for t in _ask(amy)["others"]] == ["Kestrel"]
+
+    def test_others_count_toward_the_day_and_are_refused_past_it(self, people, conn, model):
+        insert_settings(conn, ai_questions_per_day="2")
+        amy = people["amy"]
+        model.items = [_title("Alibi")]
+        _ask(amy)
+        _ask(amy, fresh=True)
+        assert amy.get(BASE).json()["left"] == 0
+
+        resp = amy.post(f"{BASE}/ask", json={"q": Q, "fresh": True})
+
+        assert (resp.status_code, resp.json()["error"], len(model.prompts)) == (429, "limit", 2)
+
+    @pytest.mark.parametrize("auto_on", [True, False])
+    def test_others_are_never_asked_for_on_their_own(self, amy, model, auto_on):
+        amy.put(f"{BASE}/history", json={"auto": auto_on})
+        resp = amy.post(f"{BASE}/ask", json={"q": Q, "fresh": True, "auto": True})
+        assert (resp.status_code, model.prompts) == (422, [])
+
+    def test_titles_like_one_can_be_asked_afresh(self, amy, model):
+        model.items = [_title("Kestrel")]
+        amy.post(f"{BASE}/like", json={"ref": "tmdb-movie-2"})
+
+        resp = amy.post(f"{BASE}/like", json={"ref": "tmdb-movie-2", "fresh": True})
+
+        assert resp.status_code == 202 and len(model.prompts) == 2

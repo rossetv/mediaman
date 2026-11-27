@@ -123,12 +123,21 @@ class _AskBody(BaseModel):
     like: _NamedTitle | None = None
     #: Asked by the page on its own, as the person paused typing; not when they pressed.
     auto: StrictBool = False
+    #: Other titles than those of the answer kept: asked afresh, only when the person presses.
+    fresh: StrictBool = False
+
+    @model_validator(mode="after")
+    def _pressed_when_fresh(self) -> _AskBody:
+        if self.fresh and self.auto:
+            raise ValueError("fresh is never asked on its own")
+        return self
 
 
 class _LikeBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ref: Annotated[str, Field(max_length=40)]
     refine: Annotated[str, Field(max_length=60)] = ""
+    fresh: StrictBool = False
 
 
 class _HistoryBody(BaseModel):
@@ -491,7 +500,9 @@ def api_ask(
     if _RELATIVE_RE.search(text):
         key += "\n" + now_utc().date().isoformat()
     question = replace(named, text=text, skip=skip, skip_titles=skip_titles)
-    return _answer(request, conn, client, user_id, username, "ask", key, question, body.refine)
+    return _answer(
+        request, conn, client, user_id, username, "ask", key, question, body.refine, body.fresh
+    )
 
 
 def _question_key(text: str) -> str:
@@ -523,7 +534,16 @@ def api_like(
     if question is None:
         return _not_found()
     return _answer(
-        request, conn, client, user_id, username, "like", body.ref, question, body.refine
+        request,
+        conn,
+        client,
+        user_id,
+        username,
+        "like",
+        body.ref,
+        question,
+        body.refine,
+        body.fresh,
     )
 
 
@@ -595,7 +615,9 @@ def _answer(
     key: str,
     question: ai.Question,
     refine: str,
+    fresh: bool = False,
 ) -> JSONResponse:
+    """With *fresh*, the answer kept is not given: others are asked for, and take its place."""
     base = None
     asked_key = key
     key = base_key = _digest(request, kind, asked_key)
@@ -611,8 +633,15 @@ def _answer(
             question, refine=refine, narrowing=tuple(t["title"] for t in base["titles"])
         )
     stored = _fetch(conn, user_id, kind, key)
-    if stored is not None:
+    if stored is not None and not fresh:
         return _done(request, conn, client, user_id, username, stored, base or stored)
+    if stored is not None:
+        before = stored["titles"]
+        question = replace(
+            question,
+            skip=question.skip | {(t["media_type"], t["tmdb_id"]) for t in before},
+            shown=tuple(t["title"] for t in before),
+        )
     if not _ASK_LIMITER.check(username):
         return _too_many()
     run_id = repo.start_run(conn, user_id, kind, now_utc())

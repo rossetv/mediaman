@@ -40,8 +40,10 @@ def test_a_question_naming_a_title_is_asked_once_that_title_is_known_and_once_on
     out = _run("similarWaits")
     like = {"tmdb_id": 70, "kind": "tv", "title": "90 Day Fiancé"}
     assert out["found"] == [0, [{"q": "similar to 90 days fiance", "like": like}]]
-    # Found only in the library, or not at all, it is asked in words alone.
-    assert out["held"] == [0, [{"q": "similar to 90 days fiance"}]]
+    # Found in the library, it is named by its TMDB id all the same; with none known, or not
+    # found at all, it is asked in words alone.
+    assert out["held"] == [0, [{"q": "similar to 90 days fiance", "like": like}]]
+    assert out["heldUnknown"] == [0, [{"q": "similar to 90 days fiance"}]]
     assert out["failed"] == [0, [{"q": "similar to 90 days fiance"}]]
 
 
