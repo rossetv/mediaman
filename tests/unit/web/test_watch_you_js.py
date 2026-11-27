@@ -380,3 +380,11 @@ def test_with_reduced_motion_a_back_that_fades_out_stays_at_its_start_and_one_th
     assert calm["back"]["up"] == [["220px", "220px"]]
     # into the wide view Back comes in at its end position
     assert calm["into"]["up"] == [["220px", "220px"]]
+
+
+def test_a_profile_view_a_step_below_another_goes_back_to_that_one() -> None:
+    out = _run("nestedProfile")
+    assert out["deep"] == ["/?you=profile/subtitles/language", "Subtitle language", False]
+    assert out["escaped"] == ["/?you=profile/subtitles", "Subtitles"]
+    assert out["upped"] == ["/?you=profile/subtitles", "Subtitles"]
+    assert out["hub"] == ["/?you=profile", "Profile", True]

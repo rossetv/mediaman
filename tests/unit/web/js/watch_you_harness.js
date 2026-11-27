@@ -57,7 +57,9 @@ const FRAGMENTS = {
     view('profile', 'Profile', [['button', { id: 'to-email', 'data-you-go': 'profile/email' }], ['a', { id: 'to-history', href: '/history?action=plays&bogus=1' }], ['button', { id: 'last' }],
       ['div', { id: 'inner', class: 'scroller' }, ['p', { id: 'deep' }]]]),
     view('profile/email', 'Email', [['input', { id: 'email' }], ['a', { id: 'out', href: '/downloads' }],
-      ['form', { id: 'loose', method: 'post' }], ['form', { id: 'logout', method: 'post', action: '/api/auth/logout' }]])],
+      ['form', { id: 'loose', method: 'post' }], ['form', { id: 'logout', method: 'post', action: '/api/auth/logout' }]]),
+    view('profile/subtitles', 'Subtitles', [['button', { id: 'to-sublang', 'data-you-go': 'profile/subtitles/language' }]]),
+    view('profile/subtitles/language', 'Subtitle language', [['button', { id: 'lang' }]])],
   '/history': ['div', { 'data-you-group': 'history', 'data-styles': '', 'data-scripts': '/static/js/reauth.js?v=1 /static/js/history.js?v=1' }, view('history', 'History', [], 'wide')],
   '/settings': ['div', { 'data-you-group': 'settings', 'data-styles': '/static/css/password.css?v=1', 'data-scripts': '/static/js/settings.js?v=1' }, view('settings', 'Settings', [['button', { id: 'field' }],
     ['section', { class: 'stx-sec', 'data-sec': 'integrations', 'data-title': 'Integrations' }]], 'wider')],
@@ -439,6 +441,21 @@ const scenarios = {
   },
 
   // With nothing unsaved, as while a picture is sent, Up and the close button still work.
+  // A view a step below another: Up and Escape go back to that one, not to the hub.
+  async nestedProfile() {
+    const p = open('/?you=profile/subtitles');
+    await p.settle();
+    await p.click('to-sublang');
+    const deep = [p.at(), p.title(), p.upHidden()];
+    await p.key('Escape');
+    const escaped = [p.at(), p.title()];
+    await p.click('to-sublang');
+    await p.click('up');
+    const upped = [p.at(), p.title()];
+    await p.click('up');
+    return { deep, escaped, upped, hub: [p.at(), p.title(), p.upHidden()] };
+  },
+
   async stillCloses() {
     const p = open('/');
     p.you.guard('profile', { dirty: () => false, discard() {} });

@@ -1,10 +1,10 @@
-{# The Profile pane over Watch: a hub, and one view for each place of it. account.js, profile-picture.js and profile-plex.js run it. #}
+{# The Profile pane over Watch: a hub, and one view for each place of it. account.js, profile-picture.js, profile-plex.js and profile-playback.js run it. #}
 {% import "_components.html" as c %}
 {% import "_password.html" as pw %}
 {% macro row(view, icon, tone, label, id, value="") -%}
 <button type="button" class="yo-row" data-you-go="{{ view }}" id="{{ id }}"><span class="yo-row__ico yo-ico--{{ tone }}">{{ c.icon(icon) }}</span><span class="yo-row__label">{{ label }}</span><span class="yo-row__value" data-row-value>{{ value }}</span>{{ c.icon("i-chevron-right", "yo-row__chev") }}</button>
 {%- endmacro %}
-<div data-you-group="profile" data-styles="/static/css/_password.css?v={{ static_v }}" data-scripts="/static/js/core/reauth.js?v={{ static_v }} /static/js/password-form.js?v={{ static_v }} /static/js/settings/rows.js?v={{ static_v }} /static/js/account.js?v={{ static_v }} /static/js/profile-picture.js?v={{ static_v }} /static/js/profile-plex.js?v={{ static_v }}">
+<div data-you-group="profile" data-styles="/static/css/_password.css?v={{ static_v }}" data-scripts="/static/js/core/reauth.js?v={{ static_v }} /static/js/password-form.js?v={{ static_v }} /static/js/settings/rows.js?v={{ static_v }} /static/js/account.js?v={{ static_v }} /static/js/profile-picture.js?v={{ static_v }} /static/js/profile-plex.js?v={{ static_v }} /static/js/profile-playback.js?v={{ static_v }}">
   <div class="you-view" data-view="profile" data-title="Profile">
     <div class="yo-head">
       <button type="button" class="yo-pic" id="pic-open" aria-label="Change your picture">
@@ -44,6 +44,12 @@
     <div class="yo-group">
       {{ row("profile/plex", "i-play", "yellow", "Plex account", "account-row-plex") }}
       {{ row("profile/devices", "i-laptop", "green", "Devices & TVs", "account-row-devices") }}
+    </div>
+
+    <h2 class="yo-group__head">Watching</h2>
+    <div class="yo-group">
+      {{ row("profile/audio", "i-volume-high", "orange", "Audio language", "account-row-audio") }}
+      {{ row("profile/subtitles", "i-captions", "blue", "Subtitles", "account-row-subs") }}
     </div>
 
     <section class="fade-in" id="account-ai" aria-labelledby="me-ai" hidden>
@@ -98,6 +104,42 @@
     <form class="yo-out" id="account-logout" method="post" action="/api/auth/logout">
       <button type="submit" class="yo-out__btn">{{ c.icon("i-right-from-bracket") }}Log out</button>
     </form>
+  </div>
+
+  {# The languages are put in by profile-playback.js, from GET /api/account/playback. #}
+  {% macro languages(attr) -%}
+    <div class="hx-search yo-lang-search">
+      {{ c.icon("i-magnifying-glass") }}
+      <input type="search" placeholder="Search languages" aria-label="Search languages" autocomplete="off" data-lang-q>
+      <button type="button" class="hx-x" aria-label="Clear search" data-lang-x>{{ c.icon("i-xmark") }}</button>
+    </div>
+    <div data-lang-list="{{ attr }}"></div>
+    <p class="yo-lang-none" data-lang-none hidden></p>
+  {%- endmacro %}
+  {% macro pick(attr, value, main, small) -%}
+    <button type="button" class="yo-pick-row" role="radio" {{ attr }}="{{ value }}" aria-checked="false" tabindex="-1"><span class="yo-pick-row__text">{{ main }}<small>{{ small }}</small></span>{{ c.icon("i-check", "yo-pick-row__tick") }}</button>
+  {%- endmacro %}
+
+  <div class="you-view" data-view="profile/audio" data-title="Audio language">
+    <p class="yo-note">Tried first on everything you play, on every device and TV. A title without it plays in the language it comes in.</p>
+    {{ languages("audio") }}
+    <p class="yo-note yo-watch-note">You can still pick another for a title while it plays.</p>
+  </div>
+
+  <div class="you-view" data-view="profile/subtitles" data-title="Subtitles">
+    <div class="yo-group" role="radiogroup" aria-label="Subtitles" data-subs-group>
+      {{ pick("data-subs", "needed", "Only when needed", "Signs, songs and lines in another language") }}
+      <button type="button" class="yo-pick-row" role="radio" data-subs="always" aria-checked="false" tabindex="-1"><span class="yo-pick-row__text">Always, in <span data-sub-lang-name>English</span><small>Whenever the audio isn’t in that language</small></span>{{ c.icon("i-check", "yo-pick-row__tick") }}</button>
+      {{ pick("data-subs", "off", "Off", "None, not even signs and songs") }}
+    </div>
+    <div class="yo-fold-in" data-sub-fold><div><div class="yo-group">
+      <button type="button" class="yo-row" data-you-go="profile/subtitles/language" id="account-row-sublang"><span class="yo-row__label">Subtitle language</span><span class="yo-row__value" data-row-value></span>{{ c.icon("i-chevron-right", "yo-row__chev") }}</button>
+    </div></div></div>
+    <p class="yo-note yo-watch-note">Subtitles in the language you hear are left out. You can still change them for a title while it plays; that choice is kept for the rest of the show.</p>
+  </div>
+
+  <div class="you-view" data-view="profile/subtitles/language" data-title="Subtitle language">
+    {{ languages("sub") }}
   </div>
 
   <div class="you-view" data-view="profile/picture" data-title="Picture" id="pic-dialog"

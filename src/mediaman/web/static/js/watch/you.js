@@ -26,6 +26,7 @@
   if (!root || !address) return;
 
   var PATHS = ['profile', 'profile/picture', 'profile/email', 'profile/password', 'profile/plex', 'profile/devices',
+    'profile/audio', 'profile/subtitles', 'profile/subtitles/language',
     'history', 'settings', 'settings/overview', 'settings/general', 'settings/libraries', 'settings/cleanup',
     'settings/integrations', 'settings/tvs', 'settings/newsletter', 'settings/users',
     'settings/integrations/plex', 'settings/integrations/sonarr', 'settings/integrations/radarr',
@@ -86,9 +87,13 @@
   function allowed(p) { return admin || group(p) !== 'settings'; }
   function wide() { return wideMq.matches; }
   function section(p) { var x = p.split('/'); return x[0] === 'settings' && x[1] ? x[1] : null; }
-  function depth(p) { return p === 'profile' ? 0 : section(p) && !wide() ? 2 : 1; }
+  function depth(p) {
+    if (group(p) === 'profile') return p.split('/').length - 1;
+    return section(p) && !wide() ? 2 : 1;
+  }
   function parent(p) {
     if (p === 'profile') return null;
+    if (group(p) === 'profile') return p.split('/').slice(0, -1).join('/');
     return section(p) && !wide() ? 'settings' : 'profile';
   }
 
