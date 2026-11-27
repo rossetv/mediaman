@@ -112,12 +112,13 @@ def test_a_step_into_a_section_pushes_it_over_the_list_as_the_pane_s_views_do_an
     out = _run("sectionPush")
     narrow = out["narrow"]
     ease = "cubic-bezier(.32, .72, 0, 1)"
-    body, nav = dict((a[0], a) for a in narrow["into"])["stx__body"], dict((a[0], a) for a in narrow["into"])["stx__nav"]
+    into = {a[0]: a for a in narrow["into"]}
+    body, nav = into["stx__body"], into["stx__nav"]
     # the section comes the full width from the right, opaque; the list slips a little way under it and fades
     assert body[1] == [["translateX(100%)", 1], ["none", 1]]
     assert nav[1] == [["none", 1], ["translateX(-28%)", 0]]
     assert body[2:] == nav[2:] == [250, ease]
-    back = dict((a[0], a[1]) for a in narrow["back"])
+    back = {a[0]: a[1] for a in narrow["back"]}
     assert back["stx__body"] == [["none", 1], ["translateX(100%)", 1]]
     assert back["stx__nav"] == [["translateX(-28%)", 0], ["none", 1]]
     # nothing is pushed where the list stays beside the section, with reduced motion (the stylesheet

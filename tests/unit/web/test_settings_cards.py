@@ -206,7 +206,9 @@ def test_the_list_says_how_a_service_stands_in_a_word_while_it_is_tested() -> No
     assert out["testing"] == ["Testing…", None]
 
 
-def test_an_open_card_says_the_whole_answer_above_its_fields_and_the_single_pill_span_keeps_a_word() -> None:
+def test_an_open_card_says_the_whole_answer_above_its_fields_and_the_single_pill_span_keeps_a_word() -> (
+    None
+):
     out = _cards("answers")
     long = "The service refused the request: check the API key and the address."
     assert out["err"] == ["Not answering", long]

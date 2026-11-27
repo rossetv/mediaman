@@ -179,7 +179,12 @@ def test_the_ring_and_the_count_say_how_what_is_downloading_stands_with_no_note_
         # once seen, what is ready is told on its own and not counted as in progress
         "seenMixed": (", 3 in progress, 1 ready to watch", ["is-on"], 57, None),
         "seenDownloading": (", 1 downloading, 2 ready to watch", ["is-on"], 30, None),
-        "seenWaiting": (", 1 waiting to download, 1 ready to watch", ["is-on", "is-ready"], 6, None),
+        "seenWaiting": (
+            ", 1 waiting to download, 1 ready to watch",
+            ["is-on", "is-ready"],
+            6,
+            None,
+        ),
     }
     # nothing is left once the last one has gone
     over = out["over"]
