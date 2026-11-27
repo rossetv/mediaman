@@ -148,6 +148,15 @@ const scenarios = {
     const esc = p.key('Escape');
     return { trail, open: p.open(), focused: p.focused(), escStopped: esc.stopped };
   },
+  // An Escape a layer over the menu has already taken, then one the menu hears first.
+  escapeTaken() {
+    const p = page(false);
+    p.click('button');
+    p.fire('keydown', p.doc.activeElement, { key: 'Escape', defaultPrevented: true });
+    const taken = p.open();
+    const own = p.key('Escape');
+    return { taken, own: p.open(), marked: own.prevented };
+  },
   upOpensAtTheEnd() {
     const p = page(false);
     p.$('button').focus();

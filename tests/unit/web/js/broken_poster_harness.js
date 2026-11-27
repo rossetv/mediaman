@@ -64,6 +64,18 @@ const retries = {
   unfitThenWide: retried(TALL, WIDE), goneThenWide: retried(GONE, WIDE), unfitTwice: retried(TALL, TALL),
   unfitThenGone: retried(TALL, GONE), wide: retried(WIDE), early: retried(TALL, WIDE, true), earlyGone: retried(GONE, WIDE, true),
 };
+/* A banner's picture beside its blurred copy, both first given the same address: where the copy
+   stands once the picture has loaded or failed as *first* says. */
+function blurred([w, h]) {
+  const copy = { dataset: { nextSrc: '/next.jpg' }, src: '/x.jpg' };
+  copy.getAttribute = (a) => (a === 'src' ? copy.src : null);
+  const img = image(ART, w, h);
+  img.dataset.nextSrc = '/next.jpg';
+  img.parentNode = { querySelectorAll: (sel) => (sel === '.mm-bg-blur' ? [copy] : []) };
+  listeners[w ? 'load' : 'error']({ target: img });
+  return { src: copy.src, next: copy.dataset.nextSrc || null };
+}
+const copies = { unfit: blurred(TALL), gone: blurred(GONE), wide: blurred(WIDE) };
 /* The mark of a wide picture that fits, as one image is given picture after picture, and of
    those the script met on the page. */
 const fit = (img) => ('fit' in img.dataset ? img.dataset.fit : null);
@@ -195,6 +207,6 @@ function crowd(n, answerMs, inView = []) {
 }
 const crowds = { quick: crowd(100, 2), slow: crowd(100, 5000) };
 const seenFirst = crowd(40, 5000, [37, 39]).firstAsked;
-process.stdout.write(JSON.stringify({ tries, crowds, seenFirst, fits, retries, marks: Object.fromEntries(
+process.stdout.write(JSON.stringify({ tries, crowds, seenFirst, fits, retries, copies, marks: Object.fromEntries(
   Object.entries(events).map(([k, [, img]]) => [k, marked(img)])
     .concat(Object.entries(before).map(([k, img]) => [k, marked(img)]))) }));

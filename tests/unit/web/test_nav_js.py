@@ -50,6 +50,11 @@ def test_arrows_home_and_end_move_round_the_menu_and_escape_returns_focus() -> N
     assert out["escStopped"] is True
 
 
+def test_an_escape_a_layer_over_the_menu_took_leaves_the_menu_open() -> None:
+    # one press closes one layer; the next is the menu's, and marked so none under it acts
+    assert _run("escapeTaken") == {"taken": True, "own": False, "marked": True}
+
+
 def test_arrow_up_on_the_avatar_opens_the_menu_at_its_last_item() -> None:
     assert _run("upOpensAtTheEnd") == {"focused": "logout"}
 

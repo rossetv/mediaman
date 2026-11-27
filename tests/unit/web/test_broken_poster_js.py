@@ -59,6 +59,13 @@ def test_a_picture_with_another_to_try_is_marked_only_when_that_one_fails_too() 
     assert out["wide"][0] == {"src": None, "marked": False, "retrying": False}
 
 
+def test_a_banner_s_blurred_copy_goes_on_to_the_next_picture_with_it() -> None:
+    out = _run()["copies"]
+    # a first picture too narrow still loads, so the copy would keep showing it
+    assert out["unfit"] == out["gone"] == {"src": "/next.jpg", "next": None}
+    assert out["wide"] == {"src": "/x.jpg", "next": "/next.jpg"}
+
+
 def test_a_failed_picture_is_marked_at_once_and_tried_three_times_behind_its_stand_in() -> None:
     out = _run()["tries"]
     assert out["comesBack"]["seen"][:2] == [[True, 0, 0], [True, 1, 0]]

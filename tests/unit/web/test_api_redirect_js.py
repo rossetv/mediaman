@@ -105,3 +105,75 @@ def test_a_write_that_ends_on_the_sign_in_page_is_not_sent_there():
 
     assert out["href"] is None
     assert out["settled"] == "resolved"
+
+
+@pytest.mark.parametrize(
+    ("answer", "href"),
+    [
+        (_redirect("/login"), "/login?next=%2Fsettings"),
+        (_redirect("/force-password-change"), "/force-password-change"),
+        ({"status": 401, "body": {}}, "/login?next=%2Fsettings"),
+    ],
+)
+def test_unsaved_edits_ask_first_and_a_yes_leaves(answer, href):
+    out = _run(answer=answer, unsaved=True, confirm=True)
+
+    assert len(out["asked"]) == 1
+    assert out["href"] == href
+    assert out["settled"] == "pending"
+    assert out["toasts"] == []
+
+
+def test_a_no_keeps_the_edits_and_several_reads_ask_once():
+    out = _run(answer=_redirect("/login"), unsaved=True, confirm=False, reads=3)
+
+    assert len(out["asked"]) == 1
+    assert out["href"] is None
+    assert out["all"] == ["rejected"] * 3
+    assert out["status"] == 401
+    assert len(out["toasts"]) == 1
+
+
+def test_a_normal_read_resolves_with_its_body():
+    out = _run(answer={"status": 200, "body": {"items": [1]}}, unsaved=True, confirm=True)
+
+    assert out["settled"] == "resolved"
+    assert out["data"] == {"items": [1]}
+    assert out["href"] is None
+    assert out["asked"] == []
+
+
+def test_a_yes_keeps_the_page_s_own_leave_guard_from_asking_again():
+    agreed = _run(answer={"status": 401, "body": {}}, unsaved=True, confirm=True)
+    stayed = _run(answer={"status": 401, "body": {}}, unsaved=True, confirm=False)
+
+    assert agreed["guardAsks"] is False
+    assert stayed["guardAsks"] is True
+
+
+def test_a_yes_the_browser_does_not_follow_fails_every_read_and_save_with_the_message():
+    out = _run(answer={"status": 401, "body": {}}, unsaved=True, confirm=True, stays=True)
+
+    assert out["afterStay"]["first"] == "rejected"
+    assert out["afterStay"]["later"] == {"get": "rejected", "post": "rejected"}
+    assert "Log in again in a new tab" in out["toasts"][0]
+    assert len(out["asked"]) == 1
+    assert out["afterStay"]["guardAsks"] is True
+
+
+def test_a_write_answered_401_with_edits_held_asks_nothing_keeps_the_page_and_fails():
+    out = _run(answer={"status": 401, "body": {}}, unsaved=True, confirm=True, method="post")
+
+    assert out["asked"] == []
+    assert out["href"] is None
+    assert out["settled"] == "rejected"
+    assert out["status"] == 401
+    assert len(out["toasts"]) == 1
+    assert "Log in again in a new tab" in out["toasts"][0]
+
+
+def test_without_the_dialog_each_read_says_how_to_go_on():
+    out = _run(answer=_redirect("/login"), unsaved=True, reads=2)
+
+    assert out["all"] == ["rejected"] * 2
+    assert len(out["toasts"]) == 2

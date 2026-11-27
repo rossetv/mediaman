@@ -554,6 +554,8 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.isComposing || e.altKey || e.ctrlKey || e.metaKey || !e.target || !e.target.closest) return;
+    // An Escape a layer over the levels has already taken is that layer's alone.
+    if (e.key === 'Escape' && e.defaultPrevented) return;
     if (open && e.key === 'Escape' && !e.target.closest('.watch-keep-menu')) {
       e.preventDefault();
       e.stopImmediatePropagation();

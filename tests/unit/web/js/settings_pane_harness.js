@@ -257,7 +257,10 @@ const scenarios = {
     const out = {};
     for (const edited of [true, false]) {
       const p = pane({ at: 'settings/general' });
-      if (edited) p.type(p.$('base_url'), 'http://new');
+      if (edited) {
+        p.type(p.$('base_url'), 'http://new');
+        p.ctx.UIFeedback.confirm = () => Promise.resolve(false); // asked to leave, the person stays
+      }
       p.ctx.MM.api.get('/api/settings').catch(() => {});
       await settle();
       out[edited ? 'edited' : 'clean'] = { href: p.location.href, said: p.said };
