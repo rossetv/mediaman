@@ -334,7 +334,9 @@
     settled(function () { setTimeout(function () { global.location.href = to; }, was ? EXIT_MS : 0); });
     return new Promise(function () {});
   }
-  function sentTo(err) { return err && err.data && SENT_TO.indexOf(err.data.redirect) !== -1 ? err.data.redirect : ''; }
+  function sentTo(err) { return notHere(err && err.data && SENT_TO.indexOf(err.data.redirect) !== -1 ? err.data.redirect : ''); }
+  // On the very page it is sent to, going there would only load it again, to be sent on again.
+  function notHere(to) { return to === global.location.pathname ? '' : to; }
 
   /* An answer cut off in its body comes as an empty one. Where the page holds edits, api.js
      asks before leaving, as for any read. */
@@ -347,7 +349,7 @@
       return data[key];
     }, function (err) {
       clearTimeout(late);
-      var to = sentTo(err) || (err && err.status === 401 ? '/login' : '');
+      var to = sentTo(err) || notHere(err && err.status === 401 ? '/login' : '');
       if (to) return away(to);
       throw err;
     });
