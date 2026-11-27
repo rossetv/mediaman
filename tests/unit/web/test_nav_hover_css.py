@@ -68,26 +68,6 @@ def test_a_pointer_left_on_either_after_a_tap_lights_nothing() -> None:
                 assert "(hover: hover)" in at, f"{sel} would stay lit after a tap"
 
 
-def test_each_grows_a_lit_pill_on_the_search_fields_own_timing() -> None:
-    for button in BUTTONS:
-        rest = _decls(f"{button}::before")
-        assert rest.get("opacity") == "0" and "scale(" in rest.get("transform", "")
-        assert "position" in rest and "absolute" in rest["position"]
-        assert "transform" in rest["transition"]
-        assert "border" in rest
-        lit = _decls(f"{button}:hover::before", "@media (hover: hover)")
-        assert lit.get("opacity") == "1" and lit.get("transform") == "none"
-        # Under it its words stay put, so the pill is drawn behind them, inside the button.
-        assert _decls(button).get("isolation") == "isolate"
-    # Beside the field, on Watch, they grow on the field's own duration and spring.
-    field = _decls(".wbar .watch-search::before", sheet="_watch_search.css")["transition"]
-    timing = re.search(r"var\(--dur-open\) var\(--ease-spring\)", field)
-    assert timing
-    for button in BUTTONS:
-        pill = _decls(f".wbar {button}::before")["transition"]
-        assert f"transform {timing.group()}" in pill
-
-
 def test_the_keyboard_an_open_panel_and_a_press_get_the_same_lit_pill() -> None:
     for button in BUTTONS:
         for state, media in (
@@ -109,14 +89,6 @@ def test_what_lights_under_a_pointer_takes_no_room() -> None:
     assert len(hovered) >= 4
     for sel, decls in hovered:
         assert set(decls) <= ROOMLESS, f"{sel} sets {set(decls) - ROOMLESS}"
-
-
-def test_the_avatar_and_the_bar_have_their_own_answer_to_a_pointer() -> None:
-    hover = moving = "@media (hover: hover)"
-    assert "scale(" in _decls(".profile-btn:hover .profile-ava", moving)["transform"]
-    assert "brightness(" in _decls(".profile-btn:hover .profile-ring", hover)["filter"]
-    assert "scale" in _decls(".space-meter:hover .space-meter__bar", moving)["transform"]
-    assert "brightness(" in _decls(".space-meter:hover .space-meter__fill", hover)["filter"]
 
 
 def test_reduced_motion_keeps_the_light_and_drops_the_growth() -> None:

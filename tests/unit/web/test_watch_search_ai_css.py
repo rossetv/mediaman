@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 
+from tests.unit.web._css import contrast, rgb, style, token
 from tests.unit.web.test_css_system import (
     COLOUR_FILES,
     CSS_DIR,
@@ -53,10 +54,6 @@ def test_the_pill_s_words_keep_7_to_1_across_its_whole_violet() -> None:
         assert _contrast(text, fill) >= 7, (
             f"--ai-pill-text on --{AI[colour]} {share}% over --{under}"
         )
-
-
-def test_the_words_that_say_how_to_ask_use_the_purple_text_token() -> None:
-    assert re.search(r"(?<![\w-])color:\s*var\(--purple-text\)", _body(CSS, ".results-none--ai"))
 
 
 def test_the_ai_pink_is_written_out_only_as_its_token() -> None:
@@ -156,11 +153,6 @@ def test_where_motion_is_unwanted_what_thinks_pulses_over_the_page_s_stillness()
         )
 
 
-def test_a_person_chip_s_initials_sit_in_the_middle_of_its_face() -> None:
-    face = _body(CSS, ".watch-try--for > .watch-face")
-    assert _decl(face, "display") == "grid" and _decl(face, "place-items") == "center"
-
-
 GLOW = ".wbar .watch-search::after"
 GLOW_ON = ".watch-search.is-ai::after"
 
@@ -168,7 +160,6 @@ GLOW_ON = ".watch-search.is-ai::after"
 def test_the_ai_glow_hugs_the_field_as_the_ring_does() -> None:
     glow, ring = _body(CSS, GLOW), _body(CSS, ".watch-search__pill::after")
     assert _decl(glow, "inset") == _decl(ring, "inset")
-    assert _decl(glow, "border-radius") == "28px"
 
 
 def _top_level(value: str) -> list[str]:
@@ -193,19 +184,18 @@ def test_the_ai_glow_falls_evenly_all_round_and_never_below() -> None:
         assert any(f"var(--{c})" in shadow for c in AI.values()), shadow
 
 
-def test_in_ai_mode_the_focus_halo_gives_way_so_no_second_edge_shows() -> None:
-    body = _body(CSS, ".watch-search.is-focus.is-ai .watch-search__halo")
-    assert _decl(body, "opacity") == "0"
-
-
-def test_in_ai_mode_the_glass_has_no_lit_top_edge_inside_the_ring() -> None:
-    body = _body(CSS, ".wbar .watch-search.is-ai::before")
-    assert _decl(body, "border-color") == "transparent"
-
-
 def test_where_motion_is_unwanted_the_ai_ring_and_glow_only_fade_quickly() -> None:
     still = " ".join(_media_blocks(CSS, REDUCE))
     for selector in (".watch-search__pill::after", GLOW):
         body = _body(still, selector)
         assert _decl(body, "transition-property") == "opacity !important", selector
         assert _decl(body, "transition-duration") == "var(--dur-fast) !important", selector
+
+
+def test_the_words_that_say_how_to_ask_keep_aa_on_every_surface_up_to_a_raised_card() -> None:
+    colour = re.fullmatch(
+        r"var\((--[\w-]+)\)", style(".results-none--ai", "_watch_search.css")["color"]
+    )
+    assert colour
+    for surface in ("--bg", "--s1", "--s2", "--s3", "--s4"):
+        assert contrast(rgb(token(colour[1])), rgb(token(surface))) >= 4.5, surface

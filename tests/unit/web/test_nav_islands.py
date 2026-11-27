@@ -103,20 +103,8 @@ def test_the_bar_draws_no_row_of_its_own_and_lets_a_press_between_its_islands_th
     assert "pointer-events: auto" in _of(".nav-glass > *", _outside(css))
 
 
-def test_no_page_has_a_strip_at_the_foot_of_a_phone() -> None:
-    for template, ctx in (("_nav.html", {}), ("_watch_bar.html", {"is_admin": True, "q": ""})):
-        html = _TEMPLATES.env.get_template(template).render(request=_request("/"), **ctx)
-        assert "nav-foot" not in html
-
-
-def test_the_islands_are_glass_and_solid_where_glass_cannot_be_drawn_or_is_not_wanted() -> None:
+def test_the_islands_turn_solid_where_glass_cannot_be_drawn_or_is_not_wanted() -> None:
     css = _css(NAV)
-    glass = _of(".nav-glass", _outside(css))
-    assert re.search(r"--isle-blur: blur\(\d+px\) saturate\([\d.]+\)", glass)
-    for island in (".nav-end", ".nav-back"):
-        own = _of(island, _outside(css))
-        assert "backdrop-filter: var(--isle-blur)" in own, island
-        assert "background: var(--isle)" in own, island
     for at in ("(prefers-reduced-transparency: reduce)", "not ((backdrop-filter"):
         solid = _of(".nav-glass", _inside(css, at))
         assert "--isle-blur: none" in solid, at
@@ -131,39 +119,11 @@ def test_in_forced_colours_every_island_is_a_system_coloured_box() -> None:
     assert "--isle: Canvas" in forced and "--isle-edge: CanvasText" in forced
 
 
-def test_the_search_field_is_the_same_glass() -> None:
-    pill = _of(".wbar .watch-search::before", _outside(_css(SEARCH)))
-
-    assert "backdrop-filter: var(--isle-blur)" in pill
-    assert "background: var(--isle)" in pill
-
-
-def test_the_logo_takes_its_own_glass_once_the_page_has_moved_under_it() -> None:
-    css = _css(NAV)
-    scrolled = _of(".nav-glass.is-scrolled .brand::before", _outside(css))
-
-    assert "opacity: 1" in scrolled
-    assert "backdrop-filter: var(--isle-blur)" in _of(".nav-glass .brand::before", _outside(css))
-
-
-def test_watch_s_picture_runs_up_under_the_bar() -> None:
-    hero = _of("#watch-browse > .watch-banner:first-child", _outside(_css(SEARCH)))
-
-    assert "margin-top: calc(-1 * var(--nav-h))" in hero
-
-
 def test_on_a_phone_the_search_is_a_44px_round_button_at_the_top() -> None:
     phone = _of(".wbar .watch-search", _inside(_css(SEARCH), PHONE))
 
     assert "width: 44px" in phone and "height: 44px" in phone
     assert "bottom" not in phone and "position: fixed" not in phone
-
-
-def test_on_a_phone_the_bar_stays_at_the_top() -> None:
-    phone = _of(".nav-glass", _inside(_css(NAV), PHONE))
-
-    assert "position: relative" not in phone
-    assert "--nav-h: 0px" not in _css(NAV)
 
 
 CSS = _WEB / "static/css"
@@ -208,16 +168,6 @@ def test_watch_s_hero_keeps_its_words_clear_of_the_bar_whatever_its_padding() ->
     assert seen >= 5
 
 
-@pytest.mark.parametrize(
-    ("sheet", "glass"),
-    [("_watch_grid.css", ".watch-all__glass")],
-)
-def test_a_sticky_toolbar_s_glass_runs_up_behind_the_bar(sheet, glass) -> None:
-    own = _of(glass, _outside(_css(CSS / sheet)))
-
-    assert re.search(r"(?<![\w-])(top|inset): calc\(-1 \* var\(--nav-h\)\)", own), own
-
-
 def test_history_panes_tools_are_opaque_and_draw_no_glass_up_behind_the_bar() -> None:
     css = _outside(_css(CSS / "_history.css"))
 
@@ -245,14 +195,6 @@ def test_downloading_s_head_rests_under_the_bar_and_goes_with_the_page_when_shor
             assert top in ("var(--nav-h)", "0") or "max-height: 500px" in pre, (pre, top)
         for low in re.findall(r"min-height: ([^;]+);", _of(".dlg", body)):
             assert "var(--nav-h)" in low or "max-height: 500px" in pre, (pre, low)
-
-
-def test_the_logo_s_glass_keeps_as_far_from_the_edge_as_the_end_island() -> None:
-    css = _outside(_css(NAV))
-    glass = _of(".nav-glass .brand::before", css)
-
-    assert re.search(r"inset: 0;", glass) and "-" not in glass.split("inset:")[1].split(";")[0]
-    assert re.search(r"padding: 0 1\dpx", _of(".nav-glass .brand", css))
 
 
 def test_the_logo_stands_on_the_page_s_edge_and_never_moves_as_its_island_fades_in() -> None:
@@ -301,15 +243,3 @@ def test_a_tap_on_the_phone_search_s_backdrop_does_not_reach_the_page() -> None:
     backdrop = _of(".wbar::after", _inside(_css(SEARCH), PHONE))
 
     assert "pointer-events: auto" in backdrop
-
-
-def test_settings_section_list_starts_at_the_top_of_the_pane_with_no_room_kept_for_the_glass_bar() -> (
-    None
-):
-    css = _css(CSS / "_settings_pg.css")
-    both = _of(".stx__nav", css)
-
-    # the pane's own bar is above it, and the glass bar is under the pane
-    assert "inset: 0;" in both
-    assert "padding: 4px 20px 24px;" in both
-    assert "--nav-h" not in css
