@@ -11,7 +11,6 @@ from mediaman.db import set_connection
 from mediaman.main import create_app
 from mediaman.services.rate_limit import reset_all_limiters
 from mediaman.web.auth.login_lockout import reauth_key, record_failure
-from mediaman.web.auth.password_hash import _change_password as rotation
 from mediaman.web.auth.password_hash import (
     change_password,
     delete_user,
@@ -30,12 +29,6 @@ _PAGE = "/force-password-change"
 _OLD = "Copper-lantern-19"
 _NEW = "Harbour-glass-27"
 _NOW = "2026-03-14T09:26:53+00:00"
-
-
-@pytest.fixture(autouse=True)
-def _cheap_hashes(monkeypatch):
-    monkeypatch.setattr(rotation, "BCRYPT_ROUNDS", 4)
-    monkeypatch.setattr("mediaman.web.auth.password_hash._user_crud.BCRYPT_ROUNDS", 4)
 
 
 @pytest.fixture

@@ -39,6 +39,7 @@ class TestCreateUser:
         row = conn.execute("SELECT username FROM admin_users WHERE username='alice'").fetchone()
         assert row["username"] == "alice"
 
+    @pytest.mark.real_bcrypt_cost
     def test_password_is_bcrypt_hashed(self, conn):
         create_user(conn, "alice", "pass", enforce_policy=False)
         row = conn.execute(
