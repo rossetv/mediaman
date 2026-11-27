@@ -71,6 +71,38 @@ def test_the_rows_above_go_up_and_those_below_go_down_as_the_row_s_cards_grow(ou
     assert run["title"] == [True], "the row's name travels into the header"
 
 
+def test_a_bar_scrolled_out_of_sight_comes_down_with_the_grow_and_goes_up_with_the_fold(
+    out,
+) -> None:
+    run = out["barAndChevrons"]["away"]
+    out_of_sight = {"opacity": 0, "transform": "translateY(528px)"}
+    at_the_top = {"opacity": 1, "transform": "translateY(600px)"}
+    # held where it ends until the page is scrolled to match, so it never blinks away first
+    assert run["grow"]["bar"] == [{"frames": [out_of_sight, at_the_top], "fill": "forwards"}]
+    assert run["fold"]["bar"] == [{"frames": [at_the_top, out_of_sight], "fill": "forwards"}]
+    assert run["y"] == 600
+
+
+def test_a_bar_partly_in_sight_slides_without_fading_and_one_that_stays_is_left_alone(
+    out,
+) -> None:
+    near = out["barAndChevrons"]["near"]
+    assert near["grow"]["bar"][0]["frames"] == [
+        {"opacity": 1, "transform": "translateY(0px)"},
+        {"opacity": 1, "transform": "translateY(30px)"},
+    ]
+    assert out["barAndChevrons"]["sticky"]["grow"]["bar"] == []
+    assert out["barAndChevrons"]["sticky"]["fold"]["bar"] == []
+
+
+def test_the_row_s_chevrons_fade_with_the_row_as_it_grows_and_come_back_as_it_folds(
+    out,
+) -> None:
+    run = out["barAndChevrons"]["away"]
+    assert [a["frames"][-1]["opacity"] for a in run["grow"]["arrow"]] == [0]
+    assert [a["frames"][-1]["opacity"] for a in run["fold"]["arrow"]] == [1]
+
+
 def test_with_reduced_motion_it_only_fades_in_150_ms(out) -> None:
     run = out["reduced"]
     assert run["open"] == {"durations": [150], "keys": ["opacity"], "shown": True}
@@ -351,17 +383,19 @@ def test_a_slow_answer_is_told_at_20_s_and_given_up_at_120_s_for_another(out) ->
     assert run["then"] == {"asked": 1, "note": None}
 
 
-def test_before_the_first_answer_it_says_it_is_checking_and_a_failure_says_so_at_once(
+def test_before_the_first_answer_it_holds_placeholders_and_a_failure_says_so_at_once(
     out,
 ) -> None:
     run = out["firstLoad"]
     assert run["waiting"] == {
         "busy": "true",
-        "empty": "Checking downloads…",
+        "empty": None,
+        "skels": 3,
         "note": None,
         "count": "",
     }
     assert run["down"]["busy"] == "false"
+    assert run["down"]["skels"] == 0
     assert run["down"]["empty"].startswith("Downloads can’t be checked right now")
     assert run["down"]["note"] == "Can’t reach mediaman right now."
 
@@ -380,6 +414,11 @@ def test_in_an_outage_the_head_never_says_nothing_downloads(out) -> None:
     assert states["outageViewerSoon"]["count"] == "1 coming soon"
 
 
+def test_a_wrapped_head_never_starts_a_line_with_the_dot_or_splits_coming_soon(out) -> None:
+    raw = out["states"]["outageAdminNothing"]["raw"]
+    assert raw == "Can’t reach Radarr, Sonarr and NZBGet · 1 coming soon"
+
+
 def test_an_opener_under_a_title_s_page_steps_back_down_to_downloading(out) -> None:
     run = out["openerUnderATitle"]
     assert run == {
@@ -395,6 +434,9 @@ def test_closed_and_opened_again_before_the_answer_it_grows_once_and_keeps_the_r
     out,
 ) -> None:
     run = out["reopenedBeforeTheAnswer"]
+    # the first asking is given up with the fold; the second grows the placeholders at once
+    assert run["again"] == {"open": True, "skels": 2, "asks": 2, "aborted": 1}
+    assert run["filled"] == {"skels": 0, "cards": 3}
     assert run["grown"] is True
     assert run["left"] == 300
     assert run["open"] is False
@@ -403,3 +445,120 @@ def test_closed_and_opened_again_before_the_answer_it_grows_once_and_keeps_the_r
 def test_a_deep_link_focuses_the_heading_with_no_ring_and_a_press_with_one(out) -> None:
     assert out["deepLink"]["quiet"] is True
     assert out["opensFromTheRow"]["quiet"] is False
+
+
+def test_with_no_answer_yet_a_tap_sets_the_address_and_grows_into_placeholders_at_once(
+    out,
+) -> None:
+    run = out["growsBeforeTheAnswer"]
+    assert run["tapped"]["at"] == "/?dl=1"
+    assert run["tapped"]["open"] is True
+    assert run["tapped"]["skels"] > 0
+    assert run["tapped"]["busy"] == "true"
+    assert run["tapped"]["empty"] is True
+    assert run["rising"] > 0
+    assert run["grown"] == {
+        "rowsAway": True,
+        "skels": run["tapped"]["skels"],
+        "on": "watch-dl-title",
+    }
+
+
+def test_the_answer_replaces_the_placeholders_and_its_cards_fade_in(out) -> None:
+    run = out["growsBeforeTheAnswer"]
+    assert run["filled"] == {"skels": 0, "cards": 3, "busy": "false"}
+    assert run["fades"] > 0
+
+
+def test_placeholders_give_way_to_the_outage_header_on_a_failure_and_on_a_hang(out) -> None:
+    run = out["skeletonThenOutage"]
+    # a failure inside the moment a tap waits grows straight into the outage
+    assert run["down"]["first"] == 0
+    assert run["down"]["then"]["skels"] == 0
+    assert run["down"]["then"]["empty"].startswith("Downloads can’t be checked right now")
+    assert run["hung"]["waiting"] == {"skels": 2, "empty": None, "note": None}
+    assert run["hung"]["late"]["skels"] == 0
+    assert run["hung"]["late"]["empty"].startswith("Downloads can’t be checked right now")
+    assert run["hung"]["late"]["note"] == "Can’t reach mediaman right now."
+    assert run["hung"]["aborted"] == 1
+    assert run["hung"]["then"]["skels"] == 0
+
+
+def test_with_reduced_motion_the_placeholders_show_at_once_and_the_answer_lands_still(out) -> None:
+    run = out["reducedBeforeTheAnswer"]
+    assert run == {"open": True, "skels": run["skels"], "moved": 0, "cards": 3}
+    assert run["skels"] > 0
+
+
+def test_an_answer_within_a_moment_of_the_tap_flies_the_row_s_own_cards(out) -> None:
+    run = out["raceFast"]
+    assert run["at"] == "/?dl=1"
+    assert run["skels"] == 0
+    assert run["cards"] == 2
+    assert run["placeholders"] == 0
+    assert run["grown"] is True
+
+
+def test_a_later_answer_flies_placeholders_out_of_the_row_and_fills_them(out) -> None:
+    run = out["raceSlow"]
+    assert run["at"] == "/?dl=1"
+    assert run["skels"] == 2
+    assert run["cards"] == 0
+    assert run["placeholders"] == 2
+    assert run["grown"] is True
+
+
+def test_placeholders_take_the_filled_grid_s_layout_heading_line_and_cards(out) -> None:
+    run = out["placeholderLayout"]
+    assert run["waiting"]["kids"] == [
+        "grid-group dlg-skel-head hidden",
+        "dlg-skel hidden",
+        "dlg-skel hidden",
+    ]
+    # the line under the title keeps its room, and says nothing
+    assert run["waiting"]["count"] == 1
+    assert run["waiting"]["countText"] == ""
+    assert run["kids"][0] == "grid-group"
+
+
+def test_placeholders_follow_the_row_s_groups_and_hold_the_buttons_their_cards_have(out) -> None:
+    grouped = out["placeholderLayout"]["grouped"]
+    # an admin's stuck film links to Radarr; a show has its episodes
+    assert grouped == ["head", "card+buttons", "head", "card", "card+buttons"]
+
+
+def test_the_answer_fades_the_placeholders_out_where_they_stood_and_then_drops_them(out) -> None:
+    run = out["placeholderLayout"]
+    assert run["filling"] == {
+        "going": 3,
+        "outs": 3,
+        "count": 0,
+        "countText": "2 in progress · 1 coming soon",
+    }
+    assert run["gone"] == 0
+
+
+def test_an_answer_while_the_placeholders_fly_waits_for_them_to_land(out) -> None:
+    run = out["answerMidGrow"]
+    assert run["mid"] == {"skels": 2, "cards": 0}
+    assert run["landed"] == {"skels": 0, "cards": 3}
+
+
+def test_a_placeholder_s_band_holds_the_lines_and_buttons_its_card_will_have_by_role(out) -> None:
+    run = out["placeholderBands"]
+    # needs attention, downloading, a queued show, a queued film
+    assert run["admin"] == ["why line acts", "line", "line acts", "line acts"]
+    assert run["viewer"] == ["line", "line", "line acts", "line"]
+
+
+def test_while_it_waits_the_grid_says_the_outage_the_row_already_says(out) -> None:
+    run = out["placeholderBands"]
+    assert run["rowNote"] == "Can’t sign in to Sonarr right now."
+    assert run["gridNote"] == run["rowNote"]
+
+
+def test_a_stuck_placeholder_lays_out_the_words_its_card_will_wrap(out) -> None:
+    assert out["placeholderBands"]["words"] == [
+        "Not enough articles",
+        "mediaman will look for another copy",
+    ]

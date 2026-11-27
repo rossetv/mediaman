@@ -71,8 +71,8 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dlg.is-moving :focus-visible { outline: none; }
 .dlg__count { flex: none; padding: 7px 0 0 6px; font-size: 13px; color: var(--t3); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dlg__count:empty { display: none; }
-.dlg__body { padding: 8px var(--pad) calc(24px + env(safe-area-inset-bottom)); }
-.dlg__note { display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px; font-size: 13px; color: var(--warning); }
+.dlg__body { position: relative; padding: 8px var(--pad) calc(24px + env(safe-area-inset-bottom)); }
+.dlg__note { display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px; font-size: 13px; color: var(--warning); text-wrap: pretty; }
 .dlg__note[hidden] { display: none; }
 .dlg__note > .ico { flex: none; align-self: center; }
 .dlg__empty[hidden] { display: none; }
@@ -86,7 +86,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   .dlg__count { padding: 0; font-size: 12px; line-height: 1.25; white-space: normal; text-wrap: pretty; }
   /* The ring takes in the line under the heading, which it would cut through. */
   .dlg__title:focus-visible { outline: none; }
-  .dlg:not(.is-moving) .dlg__names:has(> .dlg__title:focus-visible:not(.is-quiet)) { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .dlg:not(.is-moving) .dlg__names:has(> .dlg__title:focus-visible:not(.is-quiet)) { outline: 2px solid var(--accent); outline-offset: 5px; }
 }
 /* Little height: the head goes with the page, as the bar does. */
 @media (max-height: 500px) {
@@ -141,7 +141,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   line-height: 1.45;
   color: var(--t2);
 }
-.dwx__more > p { margin: 0; }
+.dwx__more > p { margin: 0; text-wrap: pretty; }
 .dwx__more > [hidden] { display: none; }
 .dwx__more:not(:has(> :not([hidden]))) { display: none; }
 .dwx__facts { font-variant-numeric: tabular-nums; }
@@ -205,6 +205,34 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   .dwx--small .dwx__act .ico { font-size: 13px; }
 }
 
+/* ── What holds the grid's place until the first answer, laid out as the answer lays out its
+   own: a group's heading, the line under the title, and cards of a one-line band ── */
+
+.dlg-skel-head .skel { width: 120px; height: 10px; margin-block: calc((1lh - 10px) / 2); }
+.dlg__count > .skel { width: 150px; height: 10px; margin-block: calc((1lh - 10px) / 2); }
+.dlg-skel { position: relative; display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-lg); background: var(--s1); outline: 1px solid var(--hair); outline-offset: -1px; pointer-events: none; }
+.dlg-skel.is-flyer { z-index: 5; will-change: transform, clip-path; }
+.dlg__body > .is-going { position: absolute; margin: 0; pointer-events: none; }
+.dlg-skel__top { display: flex; align-items: center; gap: 14px; min-height: 104px; padding: 12px 16px 14px 12px; background: var(--s2); }
+.dlg-skel .skel { flex: none; }
+.dlg-skel__top .skel { background: var(--s3); }
+.dlg-skel__poster { width: 52px; height: 78px; border-radius: var(--r-xs); }
+.dlg-skel__words { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 0; }
+.dlg-skel__words > .skel { width: 64%; height: 12px; }
+.dlg-skel__words > .skel + .skel { width: 40%; height: 10px; }
+/* As tall as the band's one line of facts. */
+.dlg-skel__more { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px 14px; font-size: 13px; line-height: 1.45; }
+.dlg-skel__more > .skel--line { width: 62%; height: 10px; margin-block: calc((1lh - 10px) / 2); }
+/* And as the row of buttons, after the band's gap and the buttons' margin. */
+.dlg-skel__acts { display: flex; margin-top: 8px; }
+.dlg-skel__pill { width: 112px; height: 34px; border-radius: var(--r-pill); }
+/* What Radarr or Sonarr says, after who says it, and what comes of it after its icon: the
+   words themselves, unseen, each line of them a bar. */
+.dlg-skel__why { display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.dlg-skel__why > .skel { width: 22%; height: 8px; margin-block: calc((11px * 1.45 - 8px) / 2) calc((11px * 1.45 - 8px) / 2 + 1px); }
+.dlg-skel__fix { padding-left: 19px; }
+.dlg-skel-said { color: transparent; background: var(--s2); border-radius: var(--r-pill); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+
 /* ── The row while nothing downloads: one slim card, so Coming soon keeps a way in ── */
 
 .dw--calm .dw__link { min-height: 64px; padding: 10px 16px 10px 14px; background: var(--s1); }
@@ -216,7 +244,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dw__calm-go { flex: none; color: var(--t3); font-size: 12px; }
 
 @media (forced-colors: active) {
-  .dwx { border: 1px solid CanvasText; }
+  .dwx, .dlg-skel { border: 1px solid CanvasText; }
   .dwx__act--quiet { border: 1px solid ButtonText; }
   .dwx__ep-bar { forced-color-adjust: none; outline: 1px solid CanvasText; }
 }

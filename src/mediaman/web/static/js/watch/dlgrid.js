@@ -32,6 +32,7 @@
   var FALL_UP = 28; // px the rows above the row go up by as it grows, and come back from
   var FALL_DOWN = 44; // and those below it, down
   var RISE = 26; // px a grid card that was not in the row rises from
+  var RACE_MS = 120; // how long a tap waits for a first answer before it grows into placeholders
   // What the address of anything else that holds the page says; opening Downloading clears it.
   var OTHERS = { all: null, view: null, q: null, genre: null, type: null, where: null, decade: null, person: null, page: null, per_page: null, sort: null };
   var GROUPS = [['attention', 'Needs attention'], ['coming', 'Downloading'], ['looking', 'Looking for a copy'], ['soon', 'Coming soon']];
@@ -57,11 +58,12 @@
   var request = null; // the asking under way
   var cards = {}; // by key: the card node
   var heads = {}; // by group: its heading
+  var skels = null; // { nodes, cards }: what holds the grid's place until the first answer
+  var growing = false; // the grid is growing out of the row
   var timer = null;
   var asked = 0; // which asking is the current one
   var opener = null;
   var tapped = false; // opened by a tap or a click, not a key: its heading takes no ring
-  var opens = 0; // which opening is the current one
   var savedY = 0;
   var lefts = []; // how far each row was scrolled when the grid took the page
   var moving = null; // ends the motion under way
@@ -184,8 +186,18 @@
 
   function show(node, on) { node.hidden = !on; return on; }
 
+  // Only these say their size and how far along they are; only those not yet fetching link to
+  // Radarr or Sonarr, for an admin.
+  var FACT_STATES = ['downloading', 'almost_ready', 'queued'];
+  function linksOut(state) { return admin && state !== 'downloading' && state !== 'almost_ready'; }
+
+  function fixWords(item) {
+    return item.retrying ? 'mediaman will look for another copy'
+      : (admin && item.attention_hint) || 'Won’t finish until an admin sorts it out';
+  }
+
   function facts(p, item) {
-    if (['downloading', 'almost_ready', 'queued'].indexOf(item.state) < 0) return show(p, false);
+    if (FACT_STATES.indexOf(item.state) < 0) return show(p, false);
     var parts = [];
     if (item.state === 'queued') parts.push('Waiting its turn');
     var sized = item.state !== 'queued' && item.size_done && item.size_total;
@@ -265,8 +277,7 @@
       fix.classList.toggle('is-ok', ok);
       fix.classList.toggle('is-act', !ok);
       window.MM.dom.setIcon(fix.querySelector('.ico'), ok ? 'i-rotate-right' : 'i-triangle-exclamation');
-      setText(fix.children[1], ok ? 'mediaman will look for another copy'
-        : (admin && item.attention_hint) || 'Won’t finish until an admin sorts it out');
+      setText(fix.children[1], fixWords(item));
     }
     var seen = more.querySelector('.dwx__seen');
     if (show(seen, (item.state === 'searching' || item.state === 'finding_copy') && !!item.search_hint)) setText(seen, item.search_hint);
@@ -279,7 +290,7 @@
       return node;
     } : null, card);
     if (eps) setText(eps.querySelector('span'), episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '') + (item.has_pack ? ' · pack download' : ''));
-    var link = admin && item.state !== 'downloading' && item.state !== 'almost_ready' ? outside(item.arr_link) : '';
+    var link = linksOut(item.state) ? outside(item.arr_link) : '';
     var arr = pill(acts, 'arr', link ? function () {
       var node = el('a', 'dwx__act dwx__act--quiet');
       node.setAttribute('target', '_blank');
@@ -392,14 +403,15 @@
     if (!setUpIn(data)) return '';
     var soon = (data.upcoming || []).length;
     var bits = [];
-    if (items.length) bits.push(items.length + ' in progress');
+    if (items.length) bits.push(items.length + '\u00a0in\u00a0progress');
     // In an outage nobody can tell that nothing downloads: an admin is told what does not
     // answer, a viewer only that some may be missing, or nothing where nothing is shown.
     else if (!data.outage) bits.push('Nothing downloading');
     else if (admin) bits.push(curly(data.outage));
-    if (soon) bits.push(soon + ' coming soon');
+    if (soon) bits.push(soon + '\u00a0coming\u00a0soon');
     if (!admin && data.outage && items.length) bits.push('some may be missing');
-    return bits.join(' · ');
+    // A wrapped head never starts a line with the dot.
+    return bits.join('\u00a0· ');
   }
 
   function setUpIn(data) {
@@ -414,8 +426,7 @@
   }
 
   function emptyOf(data, items) {
-    if (items.length) return null;
-    if (!data && !lost) return ['i-download', 'Checking downloads…', ''];
+    if (items.length || (!data && !lost)) return null;
     if (data && !setUpIn(data)) {
       return admin ? ['i-download', 'Downloads aren’t set up', 'Connect Radarr or Sonarr in ', 'Settings']
         : ['i-download', 'Downloads aren’t set up', 'Ask whoever runs mediaman to set it up.'];
@@ -450,26 +461,124 @@
     }
   }
 
+  function skeletonCard(item) {
+    var card = el('div', 'dlg-skel');
+    card.setAttribute('aria-hidden', 'true');
+    var top = card.appendChild(el('div', 'dlg-skel__top'));
+    top.appendChild(el('span', 'skel dlg-skel__poster'));
+    var words = top.appendChild(el('span', 'dlg-skel__words'));
+    words.appendChild(el('span', 'skel skel--line'));
+    words.appendChild(el('span', 'skel skel--line'));
+    var more = card.appendChild(el('div', 'dlg-skel__more'));
+    var state = item.state;
+    // A stuck one's reason and what comes of it are laid out unseen, to wrap as the card's will.
+    if (state === 'needs_attention') {
+      if (admin && item.attention) {
+        var why = more.appendChild(el('span', 'dlg-skel__why'));
+        why.appendChild(el('span', 'skel skel--line'));
+        why.appendChild(el('span')).appendChild(el('span', 'dlg-skel-said', item.attention));
+      }
+      more.appendChild(el('span', 'dlg-skel__fix')).appendChild(el('span', 'dlg-skel-said', fixWords(item)));
+    } else if (!state || FACT_STATES.indexOf(state) >= 0 || state === 'searching' || state === 'finding_copy') {
+      more.appendChild(el('span', 'skel skel--line')); // its facts, or its last search
+    }
+    // A show's episodes, and an admin's way into Radarr or Sonarr, are buttons under it.
+    if (item.kind === 'show' || (state && linksOut(state))) {
+      more.appendChild(el('span', 'dlg-skel__acts')).appendChild(el('span', 'skel dlg-skel__pill'));
+    }
+    return card;
+  }
+
+  /* The grid as the row says it will be: its groups' headings, and a card for each of the row's
+     downloads with the room its band will take. Three cards where the row has said nothing. */
+  function skeletons() {
+    if (skels) return skels;
+    var items = watch.downloading.items().slice(0, 6);
+    if (!items.length) items = [{}, {}, {}];
+    var groups = { attention: [], coming: [], looking: [] };
+    items.forEach(function (item) { groups[groupOf(item)].push(item); });
+    skels = { nodes: [], cards: {} };
+    GROUPS.forEach(function (g) {
+      var list = groups[g[0]];
+      if (!list || !list.length) return;
+      var head = el('p', 'grid-group dlg-skel-head');
+      head.setAttribute('aria-hidden', 'true');
+      head.appendChild(el('span', 'skel dlg-skel__label'));
+      skels.nodes.push(head);
+      list.forEach(function (item) {
+        var card = skeletonCard(item);
+        skels.nodes.push(card);
+        if (item.title) skels.cards[nameOf(item.title)] = card;
+      });
+    });
+    return skels;
+  }
+
+  /* What the row says of an outage, which the first answer will most likely say again. */
+  function rowNote() {
+    var slot = rowSlot();
+    var note = slot && slot.querySelector('.dlx__notes.is-on .dlx__note');
+    return note ? note.textContent.trim() : '';
+  }
+
+  function skeletonsHeld() { return !!skels && !!skels.nodes[0].parentNode; }
+
+  /* The placeholders fade where they stood, over the answer's cards fading in. */
+  function fadeAway(nodes, at) {
+    var fade = { duration: core.tokenMs('--dur', 200), easing: ease(), fill: 'forwards' };
+    nodes.forEach(function (n, i) {
+      n.classList.add('is-going');
+      n.style.left = at[i].left + 'px';
+      n.style.top = at[i].top + 'px';
+      n.style.width = at[i].width + 'px';
+      n.style.height = at[i].height + 'px';
+      dom.body.appendChild(n);
+      var a = animate(n, [{ opacity: 1 }, { opacity: 0 }], fade);
+      if (a) a.onfinish = function () { n.remove(); };
+      else n.remove();
+    });
+  }
+
   function draw() {
     build();
     var data = last;
     var items = data ? (data.hero ? [data.hero] : []).concat(data.queue || []) : [];
     var upcoming = data && setUpIn(data) ? data.upcoming || [] : [];
-    dom.body.setAttribute('aria-busy', data || lost ? 'false' : 'true');
-    setText(dom.count, data ? wordsOf(data, items) : '');
-    var note = noteOf(data, items);
+    var waiting = !data && !lost;
+    var held = skeletonsHeld();
+    // Placeholders still growing out of the row land before the answer takes their place.
+    if (held && !waiting && growing) return;
+    dom.body.setAttribute('aria-busy', waiting ? 'true' : 'false');
+    var countHeld = dom.count.querySelector('.skel');
+    if (waiting && !countHeld) dom.count.appendChild(el('span', 'skel dlg-skel__count')).setAttribute('aria-hidden', 'true');
+    if (!waiting && countHeld) countHeld.remove();
+    if (!waiting) setText(dom.count, data ? wordsOf(data, items) : '');
+    var note = noteOf(data, items) || (waiting ? rowNote() : '');
     if (note) setText(dom.noteText, note);
     dom.note.hidden = !note;
     drawEmpty(emptyOf(data, items));
     var groups = { attention: [], coming: [], looking: [], soon: [] };
     items.forEach(function (item) { groups[groupOf(item)].push(cardOf(item, items)); });
     upcoming.forEach(function (item) { groups.soon.push(soonCardOf(item)); });
-    var want = [];
+    var want = waiting ? skeletons().nodes.slice() : [];
     GROUPS.forEach(function (g) {
       if (groups[g[0]].length) want.push(headOf(g[0], g[1], groups[g[0]].length));
       want = want.concat(groups[g[0]]);
     });
+    var swap = held && !waiting && !core.reduceMotion();
+    var leaving = swap ? skels.nodes.filter(function (n) { return n.parentNode; }) : [];
+    var from = dom.body.getBoundingClientRect();
+    var at = leaving.map(function (n) {
+      var r = n.getBoundingClientRect();
+      return { left: r.left - from.left, top: r.top - from.top, width: r.width, height: r.height };
+    });
     place(want);
+    if (!swap) return;
+    var fade = { duration: core.tokenMs('--dur', 200), easing: ease() };
+    toArray(dom.grid.children).concat(dom.empty.hidden ? [] : [dom.empty]).forEach(function (n) {
+      animate(n, [{ opacity: 0 }, { opacity: 1 }], fade);
+    });
+    fadeAway(leaving, at);
   }
 
   /* The grid's nodes in the order of *want*, moving only those out of place; those gone pass
@@ -661,6 +770,23 @@
 
   function animate(node, frames, opts) { return node && node.animate ? node.animate(frames, opts) : null; }
 
+  /* At little height the bar is in the page's flow (_watch_search.css), out of sight once the
+     page is scrolled *y* down, while the grid stands where the page's top will be: the bar comes
+     down with the grid, and goes back up as it folds. Held where it ends until the page is
+     scrolled to match. */
+  function barMoves(y, coming, D, E) {
+    if (y <= 0) return [];
+    return toArray(document.querySelectorAll('.nav-glass')).filter(function (bar) {
+      var cs = getComputedStyle(bar);
+      return cs.display !== 'none' && cs.position !== 'sticky' && cs.position !== 'fixed';
+    }).map(function (bar) {
+      var h = bar.getBoundingClientRect().height;
+      var away = { opacity: y >= h ? 0 : 1, transform: 'translateY(' + Math.max(0, y - h) + 'px)' };
+      var here = { opacity: 1, transform: 'translateY(' + y + 'px)' };
+      return animate(bar, coming ? [away, here] : [here, away], { duration: D, easing: E, fill: 'forwards' });
+    });
+  }
+
   function headingTo(title, from) {
     var fs = parseFloat(getComputedStyle(from).fontSize) || 19;
     var tfs = parseFloat(getComputedStyle(title).fontSize) || fs;
@@ -692,10 +818,18 @@
     sides.up.forEach(function (n) { anims.push(animate(n, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-' + FALL_UP + 'px)' }], fall)); });
     sides.down.forEach(function (n) { anims.push(animate(n, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(' + FALL_DOWN + 'px)' }], fall)); });
     var to = gridCards();
+    // Placeholders have no titles: each grows out of the row's card in its place.
+    if (skeletonsHeld()) {
+      Object.keys(from).forEach(function (k) {
+        var card = skels.cards[k];
+        var r = card && card.getBoundingClientRect();
+        if (r && onScreen(r)) to[k] = { node: card, r: r };
+      });
+    }
     var paired = {};
     Object.keys(to).forEach(function (k) { if (from[k]) paired[k] = true; });
     if (sides.slot) {
-      var rest = toArray(sides.slot.querySelectorAll('.dlx__count, .row-open__cue')).concat(toArray(sides.slot.querySelectorAll('.dw')).filter(function (n) {
+      var rest = toArray(sides.slot.querySelectorAll('.dlx__count, .row-open__cue, .watch-row__arrow')).concat(toArray(sides.slot.querySelectorAll('.dw')).filter(function (n) {
         return !Object.keys(paired).some(function (k) { return from[k].node === n; });
       }));
       rest.forEach(function (n) { anims.push(animate(n, [{ opacity: 1 }, { opacity: 0 }], { duration: FAST, easing: E, fill: 'forwards' })); });
@@ -727,8 +861,11 @@
     [dom.count, dom.back, dom.note].forEach(function (n) {
       anims.push(animate(n, [{ opacity: 0 }, { opacity: 1 }], { duration: FAST, delay: FAST * 0.6, easing: E, fill: 'backwards' }));
     });
+    anims = anims.concat(barMoves(savedY, true, D, E));
     document.documentElement.classList.add('is-dl-moving');
+    growing = true;
     play(anims, D, function () {
+      growing = false;
       hidden.forEach(function (n) { n.style.opacity = ''; });
       toArray(dom.grid.querySelectorAll('.is-flyer')).forEach(function (n) { n.classList.remove('is-flyer'); });
       rowsAway(true);
@@ -736,6 +873,7 @@
       document.documentElement.classList.remove('is-dl-moving');
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
       focusTitle(tapped);
+      draw(); // an answer that came while it grew
     });
   }
 
@@ -784,10 +922,11 @@
     sides.up.forEach(function (n) { anims.push(animate(n, [{ opacity: 0, transform: 'translateY(-' + FALL_UP + 'px)' }, { opacity: 1, transform: 'none' }], { duration: D, easing: E })); });
     sides.down.forEach(function (n) { anims.push(animate(n, [{ opacity: 0, transform: 'translateY(' + FALL_DOWN + 'px)' }, { opacity: 1, transform: 'none' }], { duration: D, easing: E })); });
     if (sides.slot) {
-      toArray(sides.slot.querySelectorAll('.dlx__count, .row-open__cue')).concat(toArray(sides.slot.querySelectorAll('.dw')).filter(function (n) {
+      toArray(sides.slot.querySelectorAll('.dlx__count, .row-open__cue, .watch-row__arrow')).concat(toArray(sides.slot.querySelectorAll('.dw')).filter(function (n) {
         return hidden.indexOf(n) < 0;
       })).forEach(function (n) { anims.push(animate(n, [{ opacity: 0 }, { opacity: 1 }], { duration: D, easing: E })); });
     }
+    anims = anims.concat(barMoves(savedY, false, D, E));
     document.documentElement.classList.add('is-dl-moving');
     play(anims, D, function () {
       hidden.forEach(function (n) { n.style.opacity = ''; });
@@ -844,25 +983,31 @@
     failures = 0;
     opener = from || null;
     savedY = window.scrollY;
-    var growing = how === 'push' && inRow(from) && !core.reduceMotion();
-    if (!growing) {
+    if (!(how === 'push' && inRow(from) && !core.reduceMotion())) {
       fadeIn(how);
       draw();
       ask();
       return;
     }
-    var mine = ++opens;
+    var grown = false;
     var go = function () {
-      // A fold and an open since: that open grows it, once.
-      if (!isOpen || mine !== opens) return;
+      // A fold since aborted the asking, which ended this open's wait: a later open has its own.
+      if (grown || !isOpen) return;
+      grown = true;
       draw();
       grow();
     };
-    // The grid is laid out from what the downloads say, so it grows once they have said it.
     if (last) {
       go();
       ask();
-    } else ask().then(go);
+      return;
+    }
+    // An answer in time grows the row's own cards; a later one fills the placeholders grown instead.
+    var late = setTimeout(go, RACE_MS);
+    ask().then(function () {
+      clearTimeout(late);
+      go();
+    });
   }
 
   function close(how) {

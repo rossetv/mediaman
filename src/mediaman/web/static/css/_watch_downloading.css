@@ -40,7 +40,7 @@
 .dlx__notes { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-slow) var(--ease-out); }
 .dlx__notes.is-on { grid-template-rows: 1fr; }
 .dlx__notes > div { min-height: 0; overflow: hidden; }
-.dlx__note { display: flex; align-items: baseline; gap: 8px; margin: 0 var(--pad) 10px; font-size: 13px; color: var(--warning); }
+.dlx__note { display: flex; align-items: baseline; gap: 8px; margin: 0 var(--pad) 10px; font-size: 13px; color: var(--warning); text-wrap: pretty; }
 .dlx__note[hidden] { display: none; }
 .dlx__note > .ico { flex: none; align-self: center; }
 

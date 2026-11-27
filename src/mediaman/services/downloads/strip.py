@@ -409,6 +409,11 @@ class Shared:
         with self._lock:
             return None if self._is_stale() else self._answer()
 
+    def newest(self) -> Answer | None:
+        """The last answer however old it is; nobody is asked."""
+        with self._lock:
+            return None if self._strip is None else self._answer()
+
     def clear(self) -> None:
         with self._lock:
             self._strip = None
