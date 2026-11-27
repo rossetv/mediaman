@@ -19,6 +19,10 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   gap: 6px;
   height: 64px;
   padding: 0 var(--pad);
+  /* Its quiet words lifted for the glass it comes to rest on. */
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
 }
 /* Fixed while it moves, the layer holds its head where it stood (watch/dlgrid.js). */
 .dlg.is-moving .dlg__head { position: relative; top: 0; }
@@ -27,10 +31,10 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   /* Up behind the bar, so cards pass only under its islands and never show above the head. */
   inset: calc(-1 * var(--nav-h)) 0 0;
   z-index: -1;
-  background: color-mix(in srgb, var(--scrim) 82%, transparent);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--hair);
+  background: var(--g-thin);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border-bottom: 1px solid var(--g-edge);
   opacity: 0;
   transition: opacity var(--dur) var(--ease-out);
 }
@@ -329,6 +333,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dw__calm-go { flex: none; color: var(--t3); font-size: 12px; }
 
 @media (forced-colors: active) {
+  .dlg__glass { opacity: 1; border-bottom-color: CanvasText; }
   .dwx, .dlg-skel { border: 1px solid CanvasText; }
   .dwx__tool, .dwx__eps, .dwx__play { border: 1px solid ButtonText; }
   .dwx__ep-bar { forced-color-adjust: none; outline: 1px solid CanvasText; }

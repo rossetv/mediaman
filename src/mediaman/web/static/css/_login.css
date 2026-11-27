@@ -38,8 +38,8 @@
   border-radius: var(--r-lg);
   padding: 44px 36px;
   box-shadow: var(--g-inset), var(--g-shadow);
-  /* What sits on its glass: veils for its fills, quiet words and coloured ones lifted. --accent
-     stays: it marks rings and the button, never words. */
+  /* What sits on its glass: veils for its fills, quiet words and coloured ones lifted, and rings
+     in the blue lifted for glass (the button's fill is --accent-cta, so it keeps its blue). */
   --s1: var(--g-s1);
   --s2: var(--g-s2);
   --s3: var(--g-s3);
@@ -48,10 +48,22 @@
   --t2: var(--g-t2);
   --t3: var(--g-t3);
   --t4: var(--g-t3);
-  --accent-hi: var(--g-accent-text);
+  --accent: var(--g-accent);
   --accent-text: var(--g-accent-text);
   --danger-text: var(--g-danger-text);
   --orange: var(--g-warning-text);
+}
+/* Every ring on the card, the page's own included, so none is the dark blue that fades into glass. */
+.login-card :focus-visible { outline-color: var(--accent); }
+/* A browser's own fill for what it filled in shows through the card's veils: an opaque field as the
+   card draws it over a dark page, its tint over the halved page and then the veil. */
+.login-card :is(.pwd-box > .inp, .login-field input):autofill {
+  box-shadow: inset 0 0 0 99px color-mix(in srgb, color-mix(in srgb, rgb(var(--g-tint)) calc(var(--g-a) * 100%), #000), #fff 7%);
+  -webkit-text-fill-color: var(--t1);
+  caret-color: var(--t1);
+}
+.login-card :is(.pwd-box > .inp, .login-field input):autofill:focus {
+  box-shadow: inset 0 0 0 99px color-mix(in srgb, color-mix(in srgb, rgb(var(--g-tint)) calc(var(--g-a) * 100%), #000), #fff 11%);
 }
 .login-brand { display: flex; min-height: 1.47em; margin-bottom: 4px; font-size: 32px; }
 /* A flex item is no narrower than its content unless told: so the name can narrow with the card. */
@@ -164,7 +176,8 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
   align-items: center;
   gap: 6px;
   padding: 5px 12px;
-  background: rgba(255,159,10,.12);
+  /* A light tint, so the amber words keep a margin over 4.5:1 on glass over a white page. */
+  background: rgba(255,159,10,.08);
   color: var(--orange);
   border-radius: var(--r-pill);
   font-size: 11px;

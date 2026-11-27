@@ -9,7 +9,17 @@ import re
 
 import pytest
 
-from tests.unit.web._css import CSS_DIR, _top_level, contrast, medias, rgb, rules, style, token
+from tests.unit.web._css import (
+    CSS_DIR,
+    _top_level,
+    contrast,
+    medias,
+    px,
+    rgb,
+    rules,
+    style,
+    token,
+)
 
 NAV = "_nav.css"
 TOASTS = "_ui_feedback.css"
@@ -387,18 +397,43 @@ def _on_tint_over_white_glass(tint: str) -> tuple[float, ...]:
 
 
 @pytest.mark.parametrize(
-    ("message", "tint"),
-    [(".login-msg", "var(--rgba-danger-bg-soft)"), (".login-msg.is-wait", "rgba(255,159,10,.1)")],
+    ("message", "need"), [(".login-msg", 4.5), (".login-msg.is-wait", 4.7), (".fpc-eyebrow", 4.7)]
 )
-def test_the_sign_in_card_s_red_and_amber_lines_hold_on_their_tints_over_a_white_page(
-    message: str, tint: str
+def test_the_sign_in_card_s_red_and_amber_words_hold_on_their_tints_over_a_white_page(
+    message: str, need: float
 ) -> None:
+    # Amber small words get a margin over 4.5: the browser's blur lands a little under the model.
     drawn = style(message, LOGIN)
-    assert drawn["background"] == tint
     word = re.fullmatch(r"var\((--[\w-]+)\)", drawn["color"])[1]
     lifted = _resolve(style(".login-card", LOGIN)[word])
-    under = _on_tint_over_white_glass(tint)
-    assert contrast(_on(lifted, under), under) >= 4.5, (message, lifted)
+    under = _on_tint_over_white_glass(drawn["background"])
+    assert contrast(_on(lifted, under), under) >= need, (message, lifted)
+
+
+@pytest.mark.parametrize("surface", [(".login-card", LOGIN), (EPISODES, DL_PAGE)])
+def test_rings_on_glass_take_the_lifted_blue_and_keep_3_to_1_over_a_white_page(
+    surface: tuple[str, str],
+) -> None:
+    assert style(*surface)["--accent"] == "var(--g-accent)"
+    # --g-accent is worked out where the tokens declare it, from the page's own blue.
+    blue = _colour(token("--g-accent"), {"--accent": token("--accent")})
+    glass = _glass_over(WHITE, float(token("--g-a")), filtered=True)
+    assert contrast(_over(blue, glass), glass) >= 3
+
+
+def test_the_page_s_own_ring_takes_the_card_s_blue_on_the_card() -> None:
+    assert style(".login-card :focus-visible", LOGIN)["outline-color"] == "var(--accent)"
+
+
+def test_a_field_the_browser_fills_in_on_the_card_is_masked_opaque_as_the_card_draws_it() -> None:
+    mask = style(".login-card :is(.pwd-box > .inp, .login-field input):autofill", LOGIN)
+    colour = mask["box-shadow"].split("99px ", 1)[1]
+    colour = colour.replace("calc(var(--g-a) * 100%)", f"{float(token('--g-a')) * 100}%")
+    drawn = _colour(colour, {})
+    assert drawn[3] == 1, "the browser's own fill shows through"
+    # The empty field: its veil over the card over a dark page.
+    field = _on(token("--g-s2"), _glass_over((0.0, 0.0, 0.0), float(token("--g-a")), True))
+    assert all(abs(a - b) < 1 for a, b in zip(drawn[:3], field, strict=True)), (drawn, field)
 
 
 def test_the_sign_in_card_s_link_is_a_word_lifted_for_glass() -> None:
@@ -409,13 +444,54 @@ def test_a_state_chip_on_the_episodes_glass_has_a_dark_floor_under_its_tint() ->
     assert style(".share-eps .dl-ep-status-pill", DL_PAGE)["box-shadow"] == "var(--g-chip-floor)"
 
 
-def test_a_pointer_over_the_download_page_s_button_lightens_its_glass_and_keeps_the_tint() -> None:
-    lit = style(".share-bar .btn:hover", SHARE)["background"]
-    assert lit.endswith(", var(--g-thin)"), lit
+def test_the_ready_chip_on_the_episodes_glass_is_a_solid_green_with_words_that_hold() -> None:
+    chip = style(".share-eps .dl-ep-status-pill.ready", DL_PAGE)
+    fill = _colour(chip["background"], {})
+    assert fill[3] == 1, "a see-through green turns dull under the chip's floor"
+    assert contrast(_colour(chip["color"], {}), fill) >= 4.5
+
+
+def test_the_episodes_glass_takes_its_border_out_of_its_padding_so_no_row_moves() -> None:
+    panel = style(EPISODES, DL_PAGE)
+    border = px(panel["border"].split()[0])
+    assert px(panel["padding"]) + border == px(style(".dl-hero-episodes", "_dl.css")["padding"])
+
+
+def test_a_pointer_over_the_download_page_s_button_eases_light_over_the_tint() -> None:
+    # Only for a pointer that hovers: on touch, a tap would leave it lit.
+    assert ":hover" not in "".join(s for w, sels, _ in rules(SHARE) if not w for s in sels)
+    lit = style(".share-bar .btn:hover", SHARE, "(hover: hover)")
+    assert lit["background-color"].startswith("color-mix(in srgb, var(--g-thin),"), lit
 
 
 def test_the_trailer_fades_the_bar_s_parts_and_not_the_bar_that_holds_their_glass() -> None:
+    # All of the bar is drawn in one sheet, so no later rule of another can undo the fade.
+    assert not any(".share-bar" in s for _, sels, _ in rules(DL_PAGE) for s in sels)
     playing = ".share-bar:has(~ main .is-trailer)"
-    assert "opacity" not in style(playing, DL_PAGE)
-    assert style(f"{playing} > *", DL_PAGE)["opacity"] == "0"
-    assert "opacity" in style(".share-bar > .btn", DL_PAGE)["transition"]
+    assert "opacity" not in style(playing, SHARE)
+    assert style(f"{playing} > *", SHARE)["opacity"] == "0"
+    moves = style(".share-bar .btn", SHARE)["transition"]
+    # The button's own moves, and the fade.
+    assert moves.startswith("var(--btn-moves),") and "opacity" in moves, moves
+    assert style(".btn", "_buttons.css")["transition"] == "var(--btn-moves)"
+
+
+@pytest.mark.parametrize(
+    ("head", "sheet"),
+    [(".dlg__head", "_watch_dlgrid.css"), (".watch-all__head", "_watch_grid.css")],
+)
+def test_a_grid_s_sticky_head_is_glass_with_its_words_lifted_for_it(head: str, sheet: str) -> None:
+    glass = style(head.replace("__head", "__glass"), sheet)
+    assert glass["background"] == "var(--g-thin)"
+    assert glass["backdrop-filter"] == glass["-webkit-backdrop-filter"] == "var(--g-filter)"
+    words = style(head, sheet)
+    under = _glass_over(WHITE, float(token("--g-a")), filtered=True)
+    for name in ("--t2", "--t3", "--t4"):
+        assert contrast(_on(_resolve(words[name]), under), under) >= 4.5, (head, name)
+
+
+def test_the_share_note_s_words_hold_on_its_card_over_a_white_page() -> None:
+    word = style(".share-note p", SHARE)["color"]
+    lifted = _colour(word, style(".login-card", LOGIN))
+    glass = _glass_over(WHITE, float(token("--g-a")), filtered=True)
+    assert contrast(_over(lifted, glass), glass) >= 4.5

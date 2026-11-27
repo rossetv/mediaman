@@ -107,9 +107,7 @@ def _over(colour: str, under: tuple[float, ...]) -> tuple[float, ...]:
 
 
 def test_text_stays_readable_and_phone_inputs_do_not_trigger_zoom():
-    # The card is glass: its words take the colours lifted for it (test_glass_css.py measures them).
-    assert style(".share-note p", "_share.css")["color"] == "var(--t2)"
-    assert style(".login-card", "_login.css")["--t2"] == "var(--g-t2)"
+    # The card is glass: test_glass_css.py measures its words over a white page.
     assert "color" not in style(".share-note .share-note__small", "_share.css")
     # under 16px, iOS zooms the page when a field is focused, on a narrow screen or a wide touch one
     for selector, sheet, narrow in (
