@@ -217,6 +217,7 @@ def test_suggestions_come_from_the_top_two_categories_the_most_seen_actor_and_th
         "ref": "tmdb-movie-5",
         "name": "Rick and Morty",
         "text": "More like Rick and Morty",
+        "poster_url": "/api/poster/5",
     }
 
 
@@ -421,3 +422,37 @@ def test_more_like_is_the_title_liked_most_lately_not_one_rated_higher_long_ago(
     conn.commit()
 
     assert _taste(conn, "ann", user_id)["like"]["ref"] == "tmdb-movie-5"
+
+
+def test_more_like_carries_the_library_poster_of_a_show_by_its_show_key(conn, lib):
+    user_id, played, rated = _person(conn, "ann")
+    for tmdb_id in (1, 2, 3):
+        lib(tmdb_id, ["drama"])
+        played(tmdb_id, 0)
+    insert_media_item(
+        conn, id="ep-1", plex_rating_key="ep-1", title="Pilot", show_title="Severance",
+        show_rating_key="77", media_type="episode", plex_library_id=1,
+    )  # fmt: skip
+    conn.execute("UPDATE media_items SET tmdb_id = 95396 WHERE id = 'ep-1'")
+    conn.execute(
+        "INSERT INTO title_meta (id_type, id, tmdb_id, details, cast_json, fetched_at)"
+        " VALUES ('tv', 95396, 95396, ?, '[]', '2026-06-01')",
+        (
+            json.dumps(
+                {
+                    "title": "Severance", "released": "2022-02-18", "poster": None,
+                    "rating": 8.0, "votes": 100, "popularity": 1.0, "genres": ["drama"],
+                }
+            ),
+        ),
+    )  # fmt: skip
+    conn.execute(
+        "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, title, updated_at)"
+        " VALUES (?, 'tv', 95396, 2, 'Severance', ?)",
+        (user_id, NOW.isoformat()),
+    )
+    conn.commit()
+
+    like = _taste(conn, "ann", user_id)["like"]
+
+    assert (like["ref"], like["poster_url"]) == ("tmdb-tv-95396", "/api/poster/77")

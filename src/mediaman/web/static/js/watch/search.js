@@ -1013,7 +1013,7 @@
         var b = el('button', 'watch-try watch-try--for watch-try--ai');
         b.appendChild(MM.dom.icon('i-sparkles'));
         b.appendChild(el('span', '', liked.text));
-        b.addEventListener('click', function () { leaveSheet(); like(liked.ref, liked.name, ''); });
+        b.addEventListener('click', function () { leaveSheet(); like(liked.ref, liked.name, liked.poster_url); });
         // Second, after their first category.
         nodes.splice(Math.min(1, nodes.length), 0, b);
       }
@@ -1524,7 +1524,6 @@
     function likeFace(poster) {
       var node = el('span', 'watch-face watch-face--art');
       node.setAttribute('aria-hidden', 'true');
-      node.appendChild(el('span'));
       var src = safePath(poster);
       if (src) {
         var img = node.appendChild(el('img'));
@@ -1532,6 +1531,8 @@
         img.alt = '';
         img.setAttribute('data-broken-on-error', '');
       }
+      // Seen only where there is no poster, or it does not load.
+      node.appendChild(MM.dom.icon('i-sparkles'));
       return node;
     }
 

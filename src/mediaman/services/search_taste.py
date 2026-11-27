@@ -50,6 +50,7 @@ _NOUN = {
 }
 _KINDS = ("movie", "tv", "all")
 
+_Known = tuple[list[str], list[Any], str]
 _Weights = tuple[dict[tuple[str, int], float], dict[tuple[str, int], str], set[tuple[str, int]]]
 _lock = threading.Lock()
 # (database file, user id, username) -> (what their rows were when read, the day, the weights).
@@ -95,7 +96,7 @@ def search_taste(
         "order": [*liked, *unplayed, *disliked],
         "favourites": favourites,
         "chips": _chips(liked, kinds, weights, known),
-        "like": _like(weights, names),
+        "like": _like(weights, names, known),
     }
 
 
@@ -193,7 +194,7 @@ def _chips(
     liked: list[str],
     kinds: dict[str, dict[str, float]],
     weights: dict[tuple[str, int], float],
-    known: dict[tuple[str, int], tuple[list[str], list[Any]]],
+    known: dict[tuple[str, int], _Known],
 ) -> list[dict[str, Any]]:
     """Their top category, their second at its best rated, the actor in most of what they
     liked, and what is new in their top category."""
@@ -221,7 +222,7 @@ def _chips(
 
 def _star(
     weights: dict[tuple[str, int], float],
-    known: dict[tuple[str, int], tuple[list[str], list[Any]]],
+    known: dict[tuple[str, int], _Known],
 ) -> list[Any] | None:
     """The billed actor in most of the titles they liked, two at least; the more liked wins a
     tie."""
@@ -240,11 +241,18 @@ def _star(
 
 
 def _like(
-    weights: dict[tuple[str, int], float], names: dict[tuple[str, int], str]
+    weights: dict[tuple[str, int], float],
+    names: dict[tuple[str, int], str],
+    known: dict[tuple[str, int], _Known],
 ) -> dict[str, str] | None:
     best = max((kv for kv in weights.items() if kv[0] in names), key=lambda kv: kv[1], default=None)
     if best is None or best[1] < 1.0:
         return None
     (kind, tmdb_id), _ = best
     name = names[(kind, tmdb_id)]
-    return {"ref": f"tmdb-{kind}-{tmdb_id}", "name": name, "text": f"More like {name}"}
+    return {
+        "ref": f"tmdb-{kind}-{tmdb_id}",
+        "name": name,
+        "text": f"More like {name}",
+        "poster_url": f"/api/poster/{known[(kind, tmdb_id)][2].partition('-')[2]}",
+    }

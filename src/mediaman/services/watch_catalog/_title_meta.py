@@ -405,7 +405,7 @@ def _build(conn: sqlite3.Connection) -> _Library:
         )
         casts.append((kept["genres"], json.loads(row["cast_json"])))
     known = {
-        (i["media_type"], i["id"]): (i["genres"], cast)
+        (i["media_type"], i["id"]): (i["genres"], cast, i["library_ref"])
         for i, (_, cast) in zip(items, casts, strict=True)
     }
     return _Library(items, _people(coverage(conn), casts), known)
@@ -470,12 +470,15 @@ class LibraryPeople:
 class _Library:
     titles: list[dict[str, Any]]
     people: LibraryPeople
-    #: Each title's genre ids and billed cast ([id, name, profile path]), by (kind, TMDB id).
-    known: dict[tuple[str, int], tuple[list[str], list[Any]]]
+    #: Each title's genre ids, billed cast ([id, name, profile path]) and library ref, by (kind,
+    #: TMDB id).
+    known: dict[tuple[str, int], tuple[list[str], list[Any], str]]
 
 
-def library_known(conn: sqlite3.Connection) -> dict[tuple[str, int], tuple[list[str], list[Any]]]:
-    """The genres and cast of each title the library holds, by (kind, TMDB id). Read at each
+def library_known(
+    conn: sqlite3.Connection,
+) -> dict[tuple[str, int], tuple[list[str], list[Any], str]]:
+    """The genres, cast and library ref of each title the library holds, by (kind, TMDB id). Read at each
     Watch page, so what is held serves until a change to the library clears it: a title deleted
     without one counts for little in what someone watches."""
     return _current(conn, checked=False).known

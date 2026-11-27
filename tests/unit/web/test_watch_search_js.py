@@ -1427,6 +1427,16 @@ def test_a_link_to_titles_like_one_asks_nothing_but_the_way_back_to_them_does() 
     ]
 
 
+def test_the_title_s_poster_stands_in_the_search_field_and_comes_back_with_the_page() -> None:
+    out = _run("like")
+    assert out["face"] == ["/api/poster/1", "#i-sparkles"]
+    assert out["againFace"] == ["/api/poster/1", "#i-sparkles"]
+
+
+def test_a_title_with_no_poster_shows_the_sparkle_in_the_search_field_not_an_empty_box() -> None:
+    assert _run("like")["noPoster"] == [None, "#i-sparkles"]
+
+
 def test_what_is_remembered_is_the_person_s_own_and_goes_at_sign_out() -> None:
     out = _run("askNextPerson")
     # Nothing is asked, kept or stopped for the next person of the tab.
@@ -1609,6 +1619,8 @@ def test_a_suggestion_for_you_opens_its_category_sorted_its_person_or_titles_lik
     assert out["opened"] == "/?genre=science-fiction&type=tv&sort=top_rated"
     assert out["person"] == "/?person=77"
     assert out["like"] == ["/?like=tmdb-tv-60625", [{"ref": "tmdb-tv-60625"}]]
+    # The title's poster in the search field, the sparkle under it for when it does not load.
+    assert out["likeFace"] == ["/api/poster/60625", "#i-sparkles"]
 
 
 def test_categories_stand_in_the_person_s_order_and_none_is_left_out() -> None:

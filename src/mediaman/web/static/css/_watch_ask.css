@@ -160,8 +160,9 @@ a.chip { text-decoration: none; }
 .ordinary { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
 .ordinary__count { font-size: 13px; color: var(--t3); }
 .ordinary__title { margin: 0; font: 600 20px/1.25 var(--font-display); letter-spacing: -.01em; }
-.watch-face--art,
-.watch-search__token .watch-face--art { border-radius: 5px; }
+.watch-face--art { border-radius: 5px; }
+/* Its sparkle, seen where the title has no poster, is the one of the suggestion that opened it. */
+.watch-search__token .watch-face--art { border-radius: 5px; color: var(--accent-hi); font-size: 13px; }
 
 @media (max-width: 599.98px) {
   .tn__head { flex-direction: column; align-items: stretch; }
