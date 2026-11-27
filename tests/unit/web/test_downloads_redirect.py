@@ -274,13 +274,13 @@ def test_downloading_without_javascript_lists_the_last_answer_past_its_time_with
     assert "Salt Road" in shown
 
 
-def _held_answer(monkeypatch, age_s):
+def _held_answer(monkeypatch, age_s, outage=""):
     from mediaman.services.downloads import strip
 
     clock = [1000.0]
     held = strip.Shared(clock=lambda: clock[0])
     film = StripItem(key="radarr:3", title="Salt Road", kind="movie", state="queued")
-    held.get(lambda _before: strip.Strip((film,)))
+    held.get(lambda _before: strip.Strip((film,), outage=outage))
     clock[0] += age_s
     monkeypatch.setattr(strip, "shared", held)
 
@@ -295,6 +295,27 @@ def test_downloading_without_javascript_lists_a_stale_answer_and_says_how_old_it
     assert asked == []
     assert "Salt Road" in shown and "As of 12 min ago" in shown
     assert "available right now" not in shown
+
+
+def test_a_stale_answer_without_javascript_never_says_downloads_cannot_be_checked(
+    signed_in, downloading, asked, monkeypatch
+):
+    _held_answer(monkeypatch, 12 * 60)
+
+    shown = _noscript_downloads(signed_in("viewer").get("/?dl=1").text)
+
+    assert "As of 12 min ago" in shown
+    assert "check downloads" not in shown
+
+
+def test_a_stale_answer_without_javascript_still_says_a_check_that_failed(
+    signed_in, downloading, asked, monkeypatch
+):
+    _held_answer(monkeypatch, 12 * 60, outage="Radarr isn’t answering.")
+
+    shown = _noscript_downloads(signed_in("admin").get("/?dl=1").text)
+
+    assert "As of 12 min ago" in shown and "Radarr isn’t answering." in shown
 
 
 def test_downloading_without_javascript_says_no_age_for_a_fresh_answer(

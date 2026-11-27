@@ -1023,6 +1023,9 @@ def watch_page(
     downloading = (
         payload_for(conn, request.app.state.config.secret_key, username, answer) if answer else None
     )
+    # An old answer is said by its age here; nothing failed unless the answer says so.
+    if downloading and downloading_as_of and not answer.strip.outage:
+        downloading["outage"] = ""
     library_total = sum(count_titles(conn).values()) if is_admin else len(titles)
     downloads_on = can_download(conn, request.app.state.config.secret_key)
     return _render(
