@@ -303,33 +303,55 @@ def test_stepping_between_a_narrow_and_a_wide_view_moves_the_panel_s_edge_and_ne
     full = _run("widthSteps")["full"]
     push = full["tokens"]["--ease-push"]
     back, into = full["back"], full["into"]
-    # back to the narrow hub: the box is held wide while the frame's left edge moves 440 px to the right
+    # back to the narrow hub: the box is held at the widest width, 1100 px, while the frame's left
+    # edge moves 440 px to the right, from History's 880 px to the hub's 440
     assert back["held"] and back["frames"] == 1
-    assert back["edge"] == [["translateX(0px)", "translateX(440px)"]]
-    assert back["fill"] == [["scaleX(1)", "scaleX(0.5)"]]
+    assert back["edge"] == [["translateX(220px)", "translateX(660px)"]]
+    assert back["fill"] == [["scaleX(0.8)", "scaleX(0.4)"]]
     # the hub comes in with the edge, its own left on it from first frame to last, and opaque
     assert back["hub"] == [["translateX(-440px)", "translateX(0px)"]]
     assert back["hubShown"] == [[1, 1]]
     assert back["ease"] == [push]
     # Back and the title keep to the frame: Back on its edge, the title in its middle
-    assert back["up"] == [["0px", "440px"]]
-    assert back["title"] == [["0px", "220px"]] and back["old"] == [["0px", "220px"]]
+    assert back["up"] == [["220px", "660px"]]
+    assert back["title"] == [["110px", "330px"]] and back["old"] == [["110px", "330px"]]
     # once the step ends, the panel is its own width again and nothing is held
     assert back["after"] == [False, 0]
     # into the wide view, the other way
-    assert into["edge"] == [["translateX(440px)", "translateX(0px)"]]
-    assert into["fill"] == [["scaleX(0.5)", "scaleX(1)"]]
+    assert into["edge"] == [["translateX(660px)", "translateX(220px)"]]
+    assert into["fill"] == [["scaleX(0.4)", "scaleX(0.8)"]]
     assert into["hub"] == [["translateX(0px)", "translateX(-440px)"]]
-    assert into["title"] == [["220px", "0px"]] and into["old"] == [["220px", "0px"]]
+    assert into["title"] == [["330px", "110px"]] and into["old"] == [["330px", "110px"]]
     assert into["after"] == [False, 0]
     assert full["at"] == "/?you=history&h=action%3Dplays"
+
+
+def test_settings_opens_wider_than_history_and_the_edge_moves_all_the_way_from_the_hub() -> None:
+    out = _run("settingsSteps")
+    into, back = out["full"]["into"], out["full"]["back"]
+    push = out["full"]["tokens"]["--ease-push"]
+    # 440 px to 1100 px: the frame's edge runs the whole 660 px between them, on the push curve
+    assert into["held"] and into["edge"] == [["translateX(660px)", "translateX(0px)"]]
+    assert into["fill"] == [["scaleX(0.4)", "scaleX(1)"]]
+    assert into["hub"] == [["translateX(0px)", "translateX(-660px)"]] and into["ease"] == [push]
+    assert into["up"] == [["660px", "0px"]] and into["title"] == [["330px", "0px"]]
+    assert back["edge"] == [["translateX(0px)", "translateX(660px)"]]
+    assert back["hub"] == [["translateX(-660px)", "translateX(0px)"]]
+    assert into["after"] == back["after"] == [False, 0]
+    # with reduced motion the wide frame only fades over the narrow, nothing moves
+    calm = out["calm"]["into"]
+    assert (
+        calm["fade"] == [[], [[0, 1]]]
+        and all(a == b for a, b in calm["edge"])
+        and calm["hub"] == []
+    )
 
 
 def test_a_group_that_comes_in_a_moment_is_pushed_over_the_view_on_show_not_after_a_wait() -> None:
     first = _run("widthSteps")["full"]["first"]
     # History was not yet in: it came within the moment, so the hub stayed to travel with the edge
     assert first["hub"] == [["translateX(0px)", "translateX(-440px)"]]
-    assert first["edge"] == [["translateX(440px)", "translateX(0px)"]]
+    assert first["edge"] == [["translateX(660px)", "translateX(220px)"]]
 
 
 def test_with_reduced_motion_the_wide_frame_fades_over_the_narrow_and_nothing_slides() -> None:
@@ -355,6 +377,6 @@ def test_with_reduced_motion_a_back_that_fades_out_stays_at_its_start_and_one_th
 ):
     calm = _run("widthSteps")["calm"]
     # back to the hub, which has no Back: it fades where it was, not in the middle of the bar
-    assert calm["back"]["up"] == [["0px", "0px"]]
+    assert calm["back"]["up"] == [["220px", "220px"]]
     # into the wide view Back comes in at its end position
-    assert calm["into"]["up"] == [["0px", "0px"]]
+    assert calm["into"]["up"] == [["220px", "220px"]]

@@ -33,11 +33,12 @@ Node.prototype.animate = function (frames, opts) {
 const TOKENS = {};
 fs.readFileSync(path.resolve(JS, '../css/_tokens.css'), 'utf8').replace(/(--ease-[\w-]+)\s*:\s*([^;]+);/g, (_m, k, v) => { TOKENS[k] = v.trim(); });
 
-// The panel's width as the stylesheet sets it: the screen's on a phone, else 880 px held or wide, 440 px narrow;
-// a view as wide as the panel it ends in, pinned to its right.
+// The panel's width as the stylesheet sets it: the screen's on a phone, else 1100 px held or wider (Settings),
+// 880 px wide (History), 440 px narrow; a view as wide as the panel it ends in, pinned to its right.
 function layout(doc, opts) {
   const root = doc.getElementById('you');
-  const panelW = () => (opts.phone ? 402 : root.classList.contains('is-sizing') || root.classList.contains('is-wide') ? 880 : 440);
+  const has = (c) => root.classList.contains(c);
+  const panelW = () => (opts.phone ? 402 : has('is-sizing') || has('is-wider') ? 1100 : has('is-wide') ? 880 : 440);
   Object.defineProperty(doc.getElementById('panel'), 'offsetWidth', { get: panelW });
   doc.getElementById('panel').getBoundingClientRect = () => ({ top: 12, left: 1428 - panelW(), width: panelW(), height: 876 });
   Object.defineProperty(Node.prototype, 'offsetLeft', {
@@ -45,21 +46,21 @@ function layout(doc, opts) {
     get() {
       if (!this.classList.contains('you-view')) return 0;
       const inner = panelW() - 2;
-      return inner - (this.hasAttribute('data-wide') || opts.phone ? inner : 438);
+      return inner - (opts.phone ? inner : this.hasAttribute('data-wider') ? 1098 : this.hasAttribute('data-wide') ? 878 : 438);
     },
   });
 }
 
-const view = (name, title, kids, wide) => ['div', Object.assign({ class: 'you-view', 'data-view': name, 'data-title': title }, wide ? { 'data-wide': '' } : {}), ...kids];
+const view = (name, title, kids, wide) => ['div', Object.assign({ class: 'you-view', 'data-view': name, 'data-title': title }, wide ? { ['data-' + wide]: '' } : {}), ...kids];
 const FRAGMENTS = {
   '/account': ['div', { 'data-you-group': 'profile', 'data-styles': '/static/css/password.css?v=1', 'data-scripts': '/static/js/reauth.js?v=1 /static/js/account.js?v=1' },
     view('profile', 'Profile', [['button', { id: 'to-email', 'data-you-go': 'profile/email' }], ['a', { id: 'to-history', href: '/history?action=plays&bogus=1' }], ['button', { id: 'last' }],
       ['div', { id: 'inner', class: 'scroller' }, ['p', { id: 'deep' }]]]),
     view('profile/email', 'Email', [['input', { id: 'email' }], ['a', { id: 'out', href: '/downloads' }],
       ['form', { id: 'loose', method: 'post' }], ['form', { id: 'logout', method: 'post', action: '/api/auth/logout' }]])],
-  '/history': ['div', { 'data-you-group': 'history', 'data-styles': '', 'data-scripts': '/static/js/reauth.js?v=1 /static/js/history.js?v=1' }, view('history', 'History', [], true)],
+  '/history': ['div', { 'data-you-group': 'history', 'data-styles': '', 'data-scripts': '/static/js/reauth.js?v=1 /static/js/history.js?v=1' }, view('history', 'History', [], 'wide')],
   '/settings': ['div', { 'data-you-group': 'settings', 'data-styles': '/static/css/password.css?v=1', 'data-scripts': '/static/js/settings.js?v=1' }, view('settings', 'Settings', [['button', { id: 'field' }],
-    ['section', { class: 'stx-sec', 'data-sec': 'integrations', 'data-title': 'Integrations' }]], true)],
+    ['section', { class: 'stx-sec', 'data-sec': 'integrations', 'data-title': 'Integrations' }]], 'wider')],
 };
 
 function open(url, opts = {}) {
@@ -396,7 +397,7 @@ const scenarios = {
       shown: [p.you.shown('settings'), p.you.shown('profile')],
       scroller: p.you.scroller('settings/integrations/openai').getAttribute('data-view'),
       told: p.told,
-      wide: p.$('you').classList.contains('is-wide'),
+      wide: p.$('you').classList.contains('is-wider'),
       up: [p.upHidden(), p.$('up-label').textContent],
     };
   },
@@ -622,12 +623,13 @@ const scenarios = {
 };
 
 // A step between a narrow view and a wide one, out and back, and what moves while the panel changes width.
-async function widthSteps(opts) {
+async function widthSteps(opts, to = 'history') {
   const p = open('/', opts);
   p.you.go('profile');
   await p.settle();
   p.animations.length = 0;
-  await p.click('to-history');
+  if (to === 'history') await p.click('to-history');
+  else p.you.go(to);
   await p.idle();
   const grab = (dir) => {
     const root = p.$('you');
@@ -661,6 +663,7 @@ async function widthSteps(opts) {
   return { first, back, into, at: p.at(), tokens: TOKENS };
 }
 scenarios.widthSteps = async () => ({ full: await widthSteps({}), calm: await widthSteps({ calm: true }), phone: await widthSteps({ phone: true }) });
+scenarios.settingsSteps = async () => ({ full: await widthSteps({}, 'settings'), calm: await widthSteps({ calm: true }, 'settings') });
 
 const name = process.argv[2];
 if (!scenarios[name]) { console.error('unknown scenario ' + name); process.exit(2); }

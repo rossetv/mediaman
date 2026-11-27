@@ -75,7 +75,11 @@ def test_each_view_is_laid_out_at_the_width_it_ends_at_so_nothing_reflows_while_
 ):
     rules = _rules(TOP)
     assert "container-type: inline-size" in rules[".you"]
-    for sel, w in ((".you-view", "--you-narrow"), (".you-view[data-wide]", "--you-wide")):
+    for sel, w in (
+        (".you-view", "--you-narrow"),
+        (".you-view[data-wide]", "--you-wide"),
+        (".you-view[data-wider]", "--you-wider"),
+    ):
         assert re.search(r"--view-w: var\(" + w + r"\)", rules[sel]), sel
     view = rules[".you-view"]
     assert "100cqw" in view and "var(--view-w)" in view
@@ -83,6 +87,23 @@ def test_each_view_is_laid_out_at_the_width_it_ends_at_so_nothing_reflows_while_
     assert "right: 0" in view and "left: auto" in view
     # a phone's sheet is the screen's width at every step
     assert "left: 0" in _rules(_block("@media (max-width: 699.98px)"))[".you-view"]
+
+
+def test_settings_opens_wider_than_history_and_profile_keeps_the_narrow_panel() -> None:
+    rules = _rules(TOP)
+    px = {k: int(v) for k, v in re.findall(r"(--you-[a-z]+): (\d+)px", rules[".you"])}
+    assert px["--you-narrow"] < px["--you-wide"] < px["--you-wider"] <= 1100
+    assert "--you-w: var(--you-wide)" in rules[".you.is-wide .you__panel"]
+    assert "--you-w: var(--you-wider)" in rules[".you.is-wider .you__panel"]
+    panes = WEB / "templates/panes"
+    widths = {}
+    for name in ("profile", "history", "settings"):
+        tag = re.search(
+            r'<div class="you-view" data-view="' + name + r'"[^>]*>',
+            (panes / f"_{name}.html").read_text(),
+        )
+        widths[name] = re.findall(r"\sdata-(wide|wider)\b", tag.group(0))  # type: ignore[union-attr]
+    assert widths == {"profile": [], "history": ["wide"], "settings": ["wider"]}
 
 
 def test_back_fades_by_a_class_the_page_s_hidden_rule_cannot_cut() -> None:
@@ -186,7 +207,8 @@ def test_while_the_panel_changes_width_a_frame_is_drawn_in_its_place_and_its_own
 ):
     rules = _rules(TOP)
     held = rules[".you.is-sizing .you__panel"]
-    assert "--you-w: var(--you-wide)" in held
+    # held at the widest of the pane's widths, so a step between any two of them fits inside it
+    assert "--you-w: var(--you-wider)" in held
     assert "background: transparent" in held and "box-shadow: none" in held
     assert "border-color: transparent" in held
     assert "display: block" in rules[".you.is-sizing .you__frame.is-on"]
