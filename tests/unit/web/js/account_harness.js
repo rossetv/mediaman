@@ -36,7 +36,7 @@ Node.prototype.getBoundingClientRect = () => ({ top: 300, bottom: 320 });
 
 // `ai` adds the AI section, `tvs` the lists of TVs of a role, and `yes` answers a question.
 // `tiles` puts the hub's tiles of a role: History's for everyone, Settings' for an admin.
-function page(api, { ai = false, yes = true, tvs = '', changed = '', tiles = '', scripts = ['password-form.js'] } = {}) {
+function page(api, { ai = false, yes = true, tvs = '', changed = '', tiles = '', downloading = null, scripts = ['password-form.js'] } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.documentElement.clientHeight = 600;
@@ -66,6 +66,11 @@ function page(api, { ai = false, yes = true, tvs = '', changed = '', tiles = '',
     root.appendChild(build(doc, ['span', { id: 'account-tile-history', class: 'yo-tile__sub', 'data-me': 'amy' }, 'What was played']));
     if (tiles === 'admin') root.appendChild(build(doc, ['span', { id: 'account-tile-settings', class: 'yo-tile__sub' }, 'Libraries and more']));
   }
+  if (downloading) {
+    root.appendChild(build(doc, ['div', { id: 'account-dl' }, ['a', { href: '/?dl=1' }, ['span', { 'data-row-value': '' }]]]));
+    doc.getElementById('account-dl').hidden = true;
+    doc.body.appendChild(build(doc, ['a', { class: 'profile-dl', href: '/?dl=1', 'data-dl-open': '' }]));
+  }
   if (tvs) {
     root.appendChild(build(doc, ['section', { id: 'account-tvs', 'data-me': 'amy' }, ['ul', { class: 'dev-list' }]]));
     doc.getElementById('account-tvs').hidden = true;
@@ -82,6 +87,7 @@ function page(api, { ai = false, yes = true, tvs = '', changed = '', tiles = '',
   // The shell's pane, as watch/you.js gives it.
   const you = { went: [], guards: [], shown: () => true, go: (to) => you.went.push(to), close: () => you.went.push('close'), guard: (group, how) => you.guards.push([group, how]), scroller: () => null };
   const MM = { api: { messageOf: (e, d) => (e instanceof Error && e.message) || d, ...api }, reauth: { run: (f, words) => { asked.push(words); return f(); } }, you };
+  if (downloading) MM.downloading = { subscribe: (fn) => { downloading.readers.push(fn); } };
   const dropped = [];
   MM.tvRemote = { drop: (id) => dropped.push(id) };
   const asked = [];
@@ -128,6 +134,8 @@ function page(api, { ai = false, yes = true, tvs = '', changed = '', tiles = '',
   };
 }
 
+const dlState = (total, active, percent, lost = false) => ({ summary: { total, active, ready: 0, waiting: total - active, percent }, items: [], lost });
+
 const tvOf = (id, name, more) => ({ id, name, on: false, paired_at: '2026-03-12T09:00:00Z', last_seen_at: at(-30), ...more });
 // The TV lists' answers by address; the rest of the page gets none.
 const tvApi = (mine, all, more) => ({
@@ -139,6 +147,32 @@ const buttonOf = (row, words) => row.querySelectorAll('button').find((b) => b.te
 const push = (button) => button.listeners.click.forEach((fn) => fn({}));
 
 const scenarios = {
+  // While something downloads the hub has a row that leads to it: the pane closes, then Downloading opens.
+  async hubDownloading() {
+    const downloading = { readers: [] };
+    const p = page({ get: () => Promise.resolve({ sessions: [] }) }, { downloading });
+    const row = p.$('account-dl');
+    const tell = (state) => downloading.readers.forEach((fn) => fn(state));
+    const seen = () => ({ hidden: row.hidden, says: row.querySelector('[data-row-value]').textContent });
+    tell(dlState(2, 1, 89));
+    const busy = seen();
+    tell(dlState(1, 0, 0, true));
+    const lost = seen();
+    p.doc.removeEventListener = (t, fn) => { p.doc.listeners[t] = (p.doc.listeners[t] || []).filter((f) => f !== fn); };
+    let ringClicks = 0;
+    p.doc.querySelector('.profile-dl').click = () => { ringClicks += 1; };
+    const { click } = require('./fake_dom.js');
+    const e = { defaultPrevented: false };
+    click(p.doc, row.querySelector('a'), { preventDefault() { e.defaultPrevented = true; this.defaultPrevented = true; } });
+    const before = { went: p.you.went.slice(), ringClicks, prevented: e.defaultPrevented };
+    (p.doc.listeners['mm:you-hidden'] || []).forEach((fn) => fn({ detail: { group: 'profile', view: 'profile' } }));
+    await p.rest();
+    const after = ringClicks;
+    (p.doc.listeners['mm:you-hidden'] || []).forEach((fn) => fn({ detail: { group: 'profile', view: 'profile' } }));
+    await p.rest();
+    tell(dlState(0, 0, 0));
+    return { busy, lost, before, after, again: ringClicks, none: row.hidden };
+  },
   async tvs() {
     const p = page(tvApi([tvOf(1, 'Living room', { on: true }), tvOf(2, '<b>Den'), tvOf(3, 'New', { last_seen_at: at(-400) }), tvOf(4, 'Kitchen TV', { kind: 'older' })], []), { tvs: 'viewer' });
     await settle();

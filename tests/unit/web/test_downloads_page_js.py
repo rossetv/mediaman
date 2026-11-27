@@ -12,7 +12,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 from mediaman.web.auth.session_store import create_session
@@ -455,10 +454,9 @@ def test_a_viewers_outage_with_nothing_in_progress_is_said_once() -> None:
     assert out["admin"] == ["Can't reach Radarr"]
 
 
-def test_the_server_says_a_viewers_outage_once(app_factory, conn) -> None:
+def test_the_downloads_api_says_a_viewers_outage_once(app_factory, conn) -> None:
     insert_admin_user(conn, username="person", role="viewer")
     app = app_factory(downloads_router, conn=conn)
-    app.state.templates = Jinja2Templates(directory=str(CSS.parents[1] / "templates"))
     client = TestClient(app)
     client.cookies.set("session_token", create_session(conn, "person"))
     down = {
@@ -473,11 +471,11 @@ def test_the_server_says_a_viewers_outage_once(app_factory, conn) -> None:
         "downloads_set_up": {"movies": True, "shows": True},
     }
     with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=down):
-        page = client.get("/downloads").text
-    header = page.split('class="ph"', 1)[1].split("</div>", 1)[0]
-    assert "<p>" not in header
-    assert "Downloads can&#39;t be checked right now" in page
-    assert "Radarr" not in page
+        answer = client.get("/api/downloads")
+    body = answer.json()
+    assert body["subtitle"] == ""
+    assert body["outage"] == "Downloads aren't available"
+    assert "Radarr" not in answer.text
 
 
 def test_in_forced_colours_a_row_has_the_edge_the_top_card_has() -> None:

@@ -234,6 +234,19 @@ def test_all_titles_head_comes_to_rest_under_the_bar_at_every_width() -> None:
             assert "var(--nav-h)" in low, (pre, low)
 
 
+def test_downloading_s_head_rests_under_the_bar_and_goes_with_the_page_when_short() -> None:
+    dlg = _css(CSS / "_watch_dlgrid.css")
+    head = _of(".dlg__head", _outside(dlg))
+    assert "position: sticky" in head and "top: var(--nav-h)" in head
+    short = _of(".dlg__head", _inside(dlg, "max-height: 500px"))
+    assert "position: relative" in short and "top: 0" in short
+    for pre, body in _contexts(dlg):
+        for top in re.findall(r"(?<![\w-])top: ([^;]+);", _of(".dlg__head", body)):
+            assert top in ("var(--nav-h)", "0") or "max-height: 500px" in pre, (pre, top)
+        for low in re.findall(r"min-height: ([^;]+);", _of(".dlg", body)):
+            assert "var(--nav-h)" in low or "max-height: 500px" in pre, (pre, low)
+
+
 def test_the_logo_s_glass_keeps_as_far_from_the_edge_as_the_end_island() -> None:
     css = _outside(_css(NAV))
     glass = _of(".nav-glass .brand::before", css)

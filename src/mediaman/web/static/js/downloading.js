@@ -61,7 +61,7 @@
   function take(data) {
     if (!data || !data.summary || !Array.isArray(data.items)) return false;
     age = data.age_ms || 0;
-    state = { summary: data.summary, items: data.items, outage: data.outage || '', lost: false };
+    state = { summary: data.summary, items: data.items, outage: data.outage || '', soon: data.soon || 0, lost: false };
     return true;
   }
 

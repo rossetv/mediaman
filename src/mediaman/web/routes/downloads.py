@@ -1,16 +1,14 @@
-"""Downloads page: unified NZBGet + Radarr/Sonarr queue. Merging, matching and state mapping
-live under mediaman.services; the route only authenticates and hands the result to the
-template or JSON.
+"""Downloads: unified NZBGet + Radarr/Sonarr queue. Merging, matching and state mapping
+live under mediaman.services; the routes only authenticate and hand the result over as JSON.
+The /downloads address leads to Downloading on Watch.
 """
 
 from __future__ import annotations
 
 import sqlite3
-from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 
@@ -62,7 +60,7 @@ def _ring(
 
     def make(before: strip.Strip) -> strip.Strip:
         items = mark_playable(conn, strip.collect(data, before.items, now_utc()), index)
-        return strip.Strip(tuple(items), data["outage"])
+        return strip.Strip(tuple(items), data["outage"], len(data["upcoming"]))
 
     answer = strip.on_page.offer(make, asked_at)
     return {**strip.payload(answer, admin=admin), "items": []} if answer else None
@@ -139,7 +137,7 @@ def _page_payload(
             item["readiness"] = "unknown"
     if not admin and data["outage"]:
         page["outage"], page["unreachable"], page["refused"] = VIEWER_OUTAGE, [], []
-        # In the words downloads.js keeps the line in, so the first render and the poll agree.
+        # In the words downloads.js keeps the line in, so what is drawn and what is polled agree.
         rows, coming = (1 if page["hero"] else 0) + len(page["queue"]), len(page["upcoming"])
         soon = f"{coming} coming soon" if coming else ""
         page["subtitle"] = (
@@ -218,36 +216,13 @@ def _for_viewer(payload: DownloadsResponse) -> None:
         item.update(strip.for_viewer(item))
 
 
-@router.get("/downloads", response_class=HTMLResponse)
+@router.get("/downloads")
 def downloads_page(request: Request) -> Response:
+    """Downloads open under Downloading on Watch; this address leads there."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    username, conn = resolved
-
-    config = request.app.state.config
-    can_abandon = get_user_role(conn, username) == "admin"
-    data, ring = _page_payload(conn, config.secret_key, admin=can_abandon)
-    if not can_abandon:
-        _for_viewer(data)
-    templates = cast(Jinja2Templates, request.app.state.templates)
-    return templates.TemplateResponse(
-        request,
-        "downloads.html",
-        {
-            "nav_active": "downloads",
-            "hero": data["hero"],
-            "queue": data["queue"],
-            "upcoming": data["upcoming"],
-            "recent": data["recent"],
-            "subtitle": data["subtitle"],
-            "outage": data["outage"],
-            "refused": data["refused"],
-            "downloads_set_up": data["downloads_set_up"],
-            "strip": ring,
-            "can_abandon": can_abandon,
-        },
-    )
+    return RedirectResponse("/?dl=1", status_code=303)
 
 
 @router.get("/api/downloads")

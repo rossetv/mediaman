@@ -275,5 +275,43 @@ def test_a_drag_that_loses_its_pointer_springs_back() -> None:
 
 
 def test_the_page_is_marked_while_the_focus_is_in_the_bar_and_only_then() -> None:
-    # in, moved within, left for the page, settled there, left for nothing
-    assert _run("barFocus") == [True, True, False, False, False]
+    # in, moved within, left for the page, settled there, left for nothing, in Downloading's head
+    assert _run("barFocus") == [True, True, False, False, False, True]
+
+
+def test_the_ring_is_a_link_of_its_own_beside_the_face_while_something_downloads() -> None:
+    out = _run("ringLink")
+    sibling = {"tag": "a", "inButton": False, "sibling": True, "href": "/?dl=1"}
+    # off, there is only the profile button
+    assert out["off"]["hidden"] is True
+    assert {**out["on"], "label": None, "hidden": None} == {
+        **sibling,
+        "label": None,
+        "hidden": None,
+    }
+    assert out["on"]["hidden"] is False
+    assert out["on"]["label"] == "Downloading, 89%"
+    assert out["waiting"] == "2 waiting to download"
+    assert out["ready"] == "2 ready to watch"
+    assert out["lost"] == "Downloads not updating"
+    assert out["focused"] is True
+    assert out["gone"] is True
+
+
+def test_a_tap_on_the_face_opens_the_pane_and_a_tap_on_the_ring_leaves_it_to_the_link() -> None:
+    out = _run("ringLink")
+    assert out["face"] == ["profile"]
+    assert out["menuAfterFace"] is False
+    # the link's own press is not taken by the menu or the pane
+    assert out["ring"] == []
+    assert out["ringPrevented"] is False
+
+
+def test_the_ring_link_covers_the_ring_and_a_thumb_s_width_but_leaves_the_face_to_its_button() -> (
+    None
+):
+    css = NAV_CSS.read_text()
+    rule = re.search(r"\.profile-dl\s*\{([^}]*)\}", css).group(1)
+    assert "width: 44px" in rule and "height: 44px" in rule
+    # a ring-shaped area: the picture inside it is still the profile button's
+    assert "clip-path: path(evenodd" in rule

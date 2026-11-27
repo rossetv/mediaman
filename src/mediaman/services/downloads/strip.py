@@ -96,7 +96,7 @@ class StripItem:
     dl_id: str = ""
     #: The title it opens, None when not known.
     ref: str | None = None
-    href: str = "/downloads"
+    href: str = "/?dl=1"
     #: Of one that needs attention: what Radarr or Sonarr says is wrong, and where to deal with
     #: it, which only an admin is told.
     attention: str = ""
@@ -109,6 +109,8 @@ class StripItem:
 class Strip:
     items: tuple[StripItem, ...] = ()
     outage: str = ""
+    #: How many titles are coming soon: not downloading yet, so not among the items.
+    soon: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,6 +339,7 @@ def payload(answer: Answer, *, admin: bool = False) -> dict[str, Any]:
         if answer.strip.outage and not admin
         else answer.strip.outage or (STALE_LINE if stale else ""),
         "items": [_shown(item, admin=admin) for item in items[:MAX_ITEMS]],
+        "soon": answer.strip.soon,
         "age_ms": round(answer.age_s * 1000),
     }
 
@@ -405,6 +408,11 @@ class Shared:
         """The last answer, while it is not how things once were; nobody is asked."""
         with self._lock:
             return None if self._is_stale() else self._answer()
+
+    def newest(self) -> Answer | None:
+        """The last answer however old it is; nobody is asked."""
+        with self._lock:
+            return None if self._strip is None else self._answer()
 
     def clear(self) -> None:
         with self._lock:

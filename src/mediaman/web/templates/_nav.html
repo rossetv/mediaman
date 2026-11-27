@@ -40,7 +40,7 @@
   <a class="brand" href="/" aria-label="mediaman, home"{{ current('watch') }}>{{ icon("i-wordmark", "wordmark") }}</a>
   {% block nav_center %}<a class="nav-back" href="/">{{ icon("i-chevron-left") }}Watch</a>{% endblock %}
   {# The menu needs its script. #}
-  <noscript><a class="nav-noscript" href="/downloads">Downloads</a></noscript>
+  <noscript><a class="nav-noscript" href="/?dl=1">Downloads</a></noscript>
   <div class="nav-end">
   {% block nav_end %}{% endblock %}
   <button type="button" class="profile-btn{% if in_menu %} on{% endif %}" aria-haspopup="menu" aria-expanded="false" aria-controls="profile-menu-items" aria-label="Profile menu, {{ who }}{% if in_menu %}, {{ titles[active] }} is open{% endif %}">

@@ -1,4 +1,5 @@
-"""Each abandon and stop-tracking button is named by its title, not by its label alone."""
+"""Each abandon and stop-tracking button is named by its title, not by its label alone: on the
+old Downloads page template, drawn from what the downloads API tells an admin."""
 
 from __future__ import annotations
 
@@ -6,9 +7,9 @@ import re
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 from jinja2 import Environment, FileSystemLoader
+from starlette.requests import Request
 
 import mediaman
 from mediaman.web.auth.session_store import create_session
@@ -48,14 +49,24 @@ def _payload(*_args):
     }
 
 
-def test_every_abandon_button_is_named_by_its_title(app_factory, conn) -> None:
+def test_on_the_old_page_template_every_abandon_button_is_named_by_its_title(
+    app_factory, conn
+) -> None:
     insert_admin_user(conn, username="person", role="admin")
-    app = app_factory(downloads_router, conn=conn)
-    app.state.templates = Jinja2Templates(directory=str(_WEB / "templates"))
-    client = TestClient(app)
+    client = TestClient(app_factory(downloads_router, conn=conn))
     client.cookies.set("session_token", create_session(conn, "person"))
     with patch("mediaman.web.routes.downloads.build_downloads_response", side_effect=_payload):
-        html = client.get("/downloads").text
+        body = client.get("/api/downloads").json()
+    scope = {"type": "http", "path": "/", "query_string": b"", "headers": [], "state": {}}
+    told = ("hero", "queue", "upcoming", "recent", "subtitle", "outage", "refused")
+    env = Environment(loader=FileSystemLoader(str(_WEB / "templates")), autoescape=True)
+    html = env.get_template("downloads.html").render(
+        request=Request(scope),
+        downloads_set_up=body["downloads_set_up"],
+        strip=body["strip"],
+        can_abandon=True,
+        **{key: body[key] for key in told},
+    )
     names = re.findall(r'<button[^>]*data-abandon-trigger[^>]*aria-label="([^"]*)"', html)
     assert sorted(names) == [
         "Abandon search: Hero Film",

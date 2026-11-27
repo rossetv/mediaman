@@ -2011,8 +2011,9 @@
   function followNote(text) {
     var p = el('p', 'ttl__note');
     var words = p.appendChild(el('span', '', text + 'Follow it in '));
-    var link = words.appendChild(el('a', '', 'Downloads'));
-    link.setAttribute('href', '/downloads');
+    var link = words.appendChild(el('a', '', 'Downloading'));
+    link.setAttribute('href', '/?dl=1');
+    link.setAttribute('data-dl-open', '');
     words.appendChild(document.createTextNode('.'));
     return p;
   }

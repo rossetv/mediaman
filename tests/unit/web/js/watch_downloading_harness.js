@@ -50,12 +50,12 @@ function load(answers, opts = {}) {
       ['section', { class: 'watch-row', 'data-row-id': 'recent' }, ['div', { class: 'watch-row__viewport' },
         ['div', { class: 'watch-row__scroll' }, recentCard('movie-1', 'Salt'), recentCard('movie-2', 'Fieldwork')]]]],
     ...(opts.fed ? [['script', { id: 'downloads-page-data' }, JSON.stringify({ downloading: opts.fed })]] : []),
-    ...(opts.drawn ? [['script', { id: 'watch-page-data' }, JSON.stringify({ downloading: opts.drawn })]] : [])]));
+    ...(opts.drawn || opts.setUp ? [['script', { id: 'watch-page-data' }, JSON.stringify({ downloading: opts.drawn || null, can_download: { movie: !!opts.setUp } })]] : [])]));
   const bare = doc.createElement;
   const styled = (el) => { if (opts.still === false) el.animate = () => ({}); el.style = { set: {}, setProperty(k, v) { this.set[k] = v; }, removeProperty(k) { delete this.set[k]; } }; return el; };
   doc.createElement = (t) => styled(bare(t));
   (function all(n) { if (n.nodeType === 1) styled(n); n.childNodes.forEach(all); })(doc.body);
-  const p = { doc, asks: 0, aborted: 0, answers: answers.slice(), time: 1000000 };
+  const p = { doc, asks: 0, urls: [], aborted: 0, answers: answers.slice(), time: 1000000 };
   let timers = [];
   let ids = 0;
   const clock = {
@@ -86,6 +86,7 @@ function load(answers, opts = {}) {
     location: { pathname: '/settings', href: 'start' },
     fetch: (url, o) => {
       p.asks += 1;
+      p.urls.push(url);
       const a = p.answers.length > 1 ? p.answers.shift() : p.answers[0];
       if (typeof a === 'number') return Promise.resolve({ ok: false, status: a, json: () => Promise.resolve({}) });
       if (a === 'never') return new Promise((_ok, no) => o.signal.addEventListener('abort', () => { p.aborted += 1; no(new Error('aborted')); }));
@@ -154,7 +155,7 @@ const scenarios = {
   },
   async links() {
     const p = load([answer([
-      item('Known'), item('Nzb', { ref: null, href: '/downloads' }),
+      item('Known'), item('Nzb', { ref: null, href: '/?dl=1' }),
       item('Bad', { ref: 'javascript:1', href: 'javascript:alert(1)', poster_url: 'http://elsewhere/x', art_url: '//elsewhere/y' }),
       item('Far', { poster_url: 'https://pictures.example/x', art_url: 'https://pictures.example/y' }),
     ])]);
@@ -223,7 +224,7 @@ const scenarios = {
     return p.recent();
   },
   async readyWithoutTitle() {
-    const p = load([answer([ready('Nzb', 2, { ref: null, href: '/downloads' })]), answer([])]);
+    const p = load([answer([ready('Nzb', 2, { ref: null, href: '/?dl=1' })]), answer([])]);
     await p.step(3000);
     return { hidden: p.slot.hidden, recent: p.recent() };
   },
@@ -546,6 +547,14 @@ const scenarios = {
     const soon = p.asks - before;
     await p.step(20000);
     return { soon, then: p.asks - before };
+  },
+  async calmSoon() {
+    const p = load([{ ...answer([]), soon: 2 }, { ...answer([]), soon: 0 }], { setUp: true });
+    const calmLine = () => p.slot.querySelector('.dw--calm .dw__line').textContent;
+    await p.step(10);
+    const first = calmLine();
+    await p.step(600000);
+    return { first, after: calmLine(), asked: [...new Set(p.urls)] };
   },
   async drawn() {
     const p = load([answer([item('Later')])], { drawn: answer([item('A')]) });

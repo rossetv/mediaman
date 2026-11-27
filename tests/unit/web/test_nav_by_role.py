@@ -103,9 +103,9 @@ def test_no_page_has_a_menu_of_links_in_its_bar_or_at_its_foot(role):
         assert "nav-foot" not in html
 
 
-def test_without_scripts_downloads_is_still_a_link_in_every_bar():
+def test_without_scripts_downloading_on_watch_is_still_a_link_in_every_bar():
     for html in (_render("viewer"), _watch_bar("viewer", is_admin=False, view="rows", q="")):
-        assert re.search(r'<noscript><a [^>]*href="/downloads">', _bar_of(html))
+        assert re.search(r'<noscript><a [^>]*href="/\?dl=1">', _bar_of(html))
 
 
 def test_on_watch_one_bar_holds_the_search_and_the_storage_in_reading_order():

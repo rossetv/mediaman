@@ -9,7 +9,7 @@
 .yo-group:focus { outline: none; }
 .yo-row { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 14px; color: var(--t1); text-align: left; transition: background-color var(--dur-fast) var(--ease-out); }
 .yo-row + .yo-row::before { content: ""; position: absolute; top: 0; right: 0; left: 56px; border-top: 1px solid var(--hair); }
-button.yo-row:hover { background: var(--s3); }
+:is(a, button).yo-row:hover { background: var(--s3); }
 .yo-row--top { align-items: flex-start; }
 .yo-row__ico { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; font-size: 14px; color: #fff; background: var(--tone, #8e8e93); }
 .yo-row__label { flex: 1; min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
@@ -35,6 +35,8 @@ button.yo-row:hover { background: var(--s3); }
 .yo-role__pill { padding: 2px 9px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; color: var(--accent-text); background: var(--rgba-accent-bg); }
 .yo-role__pill.is-admin { color: var(--orange); background: var(--rgba-orange-bg); }
 .yo-mail { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yo-dl { margin-top: 20px; }
+.yo-dl[hidden] { display: none; }
 .yo-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
 .yo-tiles.is-one { grid-template-columns: 1fr; }
 .yo-tile { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 10px; min-height: 96px; padding: 14px; border-radius: 14px; background: var(--s2); color: var(--t1); text-align: left; transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }

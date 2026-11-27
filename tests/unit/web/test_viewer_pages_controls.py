@@ -1,10 +1,9 @@
-"""Downloads page: a viewer is not shown the admin-only controls (Abandon) and the page
-does not load the script that calls an admin-only endpoint; an admin sees them all."""
+"""Downloads: a viewer is told nothing of the admin-only controls (Abandon) and Watch does not
+load the script that calls an admin-only endpoint; an admin is told them all."""
 
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,6 +16,7 @@ import mediaman
 from mediaman.services.downloads import strip
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
+from mediaman.web.routes.watch.pages import router as watch_router
 from tests.helpers.factories import insert_admin_user
 
 _WEB = Path(mediaman.__file__).parent / "web"
@@ -67,8 +67,9 @@ def _payload(*_args):
 def make_client(app_factory, conn):
     """A client logged in as a user of the given role, against the real templates."""
 
-    def _make(router, role):
-        insert_admin_user(conn, username="person", role=role)
+    def _make(router, role, *, again=False):
+        if not again:
+            insert_admin_user(conn, username="person", role=role)
         app = app_factory(router, conn=conn)
         app.mount("/static", StaticFiles(directory=str(_WEB / "static")), name="static")
         app.state.templates = Jinja2Templates(directory=str(_WEB / "templates"))
@@ -81,49 +82,52 @@ def make_client(app_factory, conn):
 
 def _get_downloads(client):
     with patch("mediaman.web.routes.downloads.build_downloads_response", side_effect=_payload):
-        return client.get("/downloads"), client.get("/api/downloads")
+        return client.get("/api/downloads")
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])
-def test_downloads_abandon_controls_follow_the_role(make_client, role):
-    page, api = _get_downloads(make_client(downloads_router, role))
-    html = page.text
+def test_downloads_abandon_is_offered_by_the_api_and_on_watch_to_an_admin_alone(make_client, role):
+    api = _get_downloads(make_client(downloads_router, role))
+    watch = make_client(watch_router, role, again=True).get("/")
     shown = role == "admin"
 
-    assert page.status_code == 200
-    assert ("data-abandon-trigger" in html) is shown
-    assert ('id="abandon-modal"' in html) is shown
-    assert ("dl-row-abandon" in html) is shown
-    assert ('data-can-abandon="true"' in html) is shown
     body = api.json()
     assert body["hero"]["abandon_visible"] is shown
     assert body["queue"][0]["abandon_visible"] is shown
+    assert watch.status_code == 200
+    assert ('id="abandon-modal"' in watch.text) is shown
+    assert ("/static/js/dl-abandon.js" in watch.text) is shown
 
 
-def test_each_abandon_button_names_the_very_title_it_is_of(make_client):
-    html = _get_downloads(make_client(downloads_router, "admin"))[0].text
-    assert re.findall(r'data-arr-id="(\d+)"', html) == ["1", "1", "9"]
+def test_each_item_an_admin_may_abandon_carries_the_number_of_its_very_title(make_client):
+    body = _get_downloads(make_client(downloads_router, "admin")).json()
+
+    items = [body["hero"], *body["queue"], *body["upcoming"]]
+    assert [(i["title"], i["arr_id"]) for i in items] == [
+        ("Stuck Movie", 1),
+        ("Queued Movie", 1),
+        ("Soon Show", 9),
+    ]
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])
 def test_where_radarr_and_sonarr_are_is_told_to_admins_alone(make_client, role):
-    page, api = _get_downloads(make_client(downloads_router, role))
+    api = _get_downloads(make_client(downloads_router, role))
     body = api.json()
     items = [body["hero"], *body["queue"], *body["upcoming"]]
     told = [(i["arr_link"], i["arr_source"], i["arr_id"]) for i in items]
 
     if role == "admin":
         assert [t[2] for t in told] == [1, 1, 9]
-        assert "radarr.internal" in page.text
+        assert "radarr.internal" in api.text
     else:
         assert told == [("", "", 0)] * 3
-        assert ".internal" not in page.text
-        assert 'data-v="arr-link"' not in page.text
+        assert ".internal" not in api.text
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])
 def test_the_ids_and_dates_kept_for_completion_are_told_to_admins_alone(make_client, role):
-    page, api = _get_downloads(make_client(downloads_router, role))
+    api = _get_downloads(make_client(downloads_router, role))
     body = api.json()
     items = [body["hero"], *body["queue"]]
     told = [(i.get("tmdb_id"), i.get("queued_since")) for i in items]
@@ -132,59 +136,53 @@ def test_the_ids_and_dates_kept_for_completion_are_told_to_admins_alone(make_cli
         assert told == [(603, "2020-02-02T10:00:00+00:00")] * 2
     else:
         assert told == [(None, None)] * 2
-        assert "2020-02-02" not in page.text
+        assert "2020-02-02" not in api.text
 
 
-def test_downloads_page_still_lists_the_items_for_a_viewer(make_client):
-    html = _get_downloads(make_client(downloads_router, "viewer"))[0].text
+def test_the_downloads_api_still_lists_the_items_for_a_viewer(make_client):
+    body = _get_downloads(make_client(downloads_router, "viewer")).json()
 
-    assert "Stuck Movie" in html
-    assert "Queued Movie" in html
-    assert "Soon Show" in html
+    titles = [i["title"] for i in (body["hero"], *body["queue"], *body["upcoming"])]
+    assert titles == ["Stuck Movie", "Queued Movie", "Soon Show"]
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])
-def test_an_outage_is_shown_to_every_role_and_never_as_all_caught_up(make_client, role):
+def test_the_downloads_api_tells_every_role_of_an_outage_and_never_all_caught_up(make_client, role):
     line = "Can't reach Radarr and Sonarr"
     down = dict(_payload(), hero=None, queue=[], outage=line, subtitle=line)
     with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=down):
-        html = make_client(downloads_router, role).get("/downloads").text
+        api = make_client(downloads_router, role).get("/api/downloads")
 
-    assert "All caught up" not in html
+    body = api.json()
+    assert "caught up" not in api.text.lower()
     if role == "admin":
-        assert "reach Radarr and Sonarr" in html
+        assert body["outage"] == line
     else:
-        assert "Downloads can&#39;t be checked right now" in html
-        assert "Radarr and Sonarr" not in html
-
-
-@pytest.mark.parametrize(
-    ("role", "said"),
-    [
-        ("admin", "Check the details for Radarr in"),
-        ("viewer", "This page keeps trying."),
-    ],
-)
-def test_a_refused_key_is_drawn_from_the_first_render_and_named_to_an_admin_alone(
-    make_client, role, said
-):
-    line = "Can't sign in to Radarr"
-    down = dict(_payload(), hero=None, queue=[], outage=line, subtitle=line, refused=["Radarr"])
-    with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=down):
-        html = make_client(downloads_router, role).get("/downloads").text
-
-    assert said in html
-    assert ("Radarr" in html) is (role == "admin")
+        assert body["outage"] == "Downloads aren't available"
+        assert "Radarr and Sonarr" not in api.text
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])
-def test_the_ring_on_the_downloads_page_begins_with_what_the_page_was_drawn_from(make_client, role):
-    strip.on_page.clear()
-    page, polled = _get_downloads(make_client(downloads_router, role))
+def test_the_downloads_api_names_a_refused_key_to_an_admin_alone(make_client, role):
+    line = "Can't sign in to Radarr"
+    down = dict(_payload(), hero=None, queue=[], outage=line, subtitle=line, refused=["Radarr"])
+    with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=down):
+        body = make_client(downloads_router, role).get("/api/downloads").json()
 
-    island = re.search(r'id="downloads-page-data">(.*?)</script>', page.text, re.S)
-    assert island
-    drawn = json.loads(island[1])["downloading"]
-    assert drawn["summary"]["total"] > 0
-    assert drawn["items"] == []
-    assert drawn["summary"] == polled.json()["strip"]["summary"]
+    if role == "admin":
+        assert (body["outage"], body["refused"]) == (line, ["Radarr"])
+    else:
+        assert body["refused"] == [] and body["unreachable"] == []
+        assert "Radarr" not in json.dumps(body)
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_the_downloads_api_tells_the_ring_what_it_read_without_its_items(make_client, role):
+    strip.on_page.clear()
+    client = make_client(downloads_router, role)
+    first, again = _get_downloads(client).json(), _get_downloads(client).json()
+
+    told = first["strip"]
+    assert told["summary"]["total"] > 0
+    assert told["items"] == []
+    assert told["summary"] == again["strip"]["summary"]

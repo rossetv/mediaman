@@ -133,7 +133,7 @@ function open(url, opts = {}) {
     return el;
   };
   const loaded = [];
-  ['core/dom.js', 'modal-a11y.js', 'ui-feedback.js', 'watch/core.js', 'watch/address.js', 'watch/you.js']
+  ['core/api.js', 'core/dom.js', 'modal-a11y.js', 'ui-feedback.js', 'watch/core.js', 'watch/address.js', 'watch/you.js']
     .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   ctx.UIFeedback.error = (m) => toasts.push(m);
   ctx.MM.you.insert = (html) => {
@@ -288,9 +288,12 @@ const scenarios = {
   },
 
   async loginRedirect() {
-    const p = open('/?you=settings/libraries', { server: () => ({ status: 200, to: '/login' }) });
-    await p.settle();
-    return p.assigned;
+    const at = async (url) => {
+      const p = open(url, { server: () => ({ status: 200, to: '/login' }) });
+      await p.settle();
+      return p.assigned;
+    };
+    return { plain: await at('/?you=settings/libraries'), hash: await at('/?you=settings/libraries&h=q%3Dx#title=movie-1') };
   },
 
   async didNotLoad() {

@@ -27,7 +27,7 @@
 
   // The page says when the focus is in a bar that stays in sight, whose scroll padding would
   // scroll the page for it (_watch_search.css, _history.css).
-  var BARS = '.nav-glass, .hx-tools, .watch-all__head';
+  var BARS = '.nav-glass, .hx-tools, .watch-all__head, .dlg__head';
   function inBar(node) {
     document.documentElement.classList.toggle('is-bar-focus', !!(node && node.closest && node.closest(BARS)));
   }
@@ -217,6 +217,19 @@
   var name = button.getAttribute('aria-label');
   var ring = button.querySelector('.profile-ring');
   var count = button.querySelector('.profile-count');
+  // The ring is a link of its own beside the face: a link inside a button is not valid. It sits over
+  // the ring, only while something downloads, and the face stays the profile button.
+  var slot = document.createElement('span');
+  slot.className = 'profile-slot';
+  button.parentNode.insertBefore(slot, button);
+  slot.appendChild(button);
+  var ringLink = document.createElement('a');
+  ringLink.className = 'profile-dl';
+  ringLink.setAttribute('href', '/?dl=1');
+  ringLink.setAttribute('data-dl-open', '');
+  ringLink.setAttribute('tabindex', '0'); // Safari leaves out links that say nothing of it
+  ringLink.setAttribute('hidden', '');
+  slot.appendChild(ringLink);
   if (pane) {
     button.setAttribute('aria-haspopup', 'dialog');
     button.setAttribute('aria-controls', 'you');
@@ -235,6 +248,12 @@
       : sum.active ? sum.total + (sum.active === sum.total ? ' downloading' : ' in progress')
       : sum.waiting + ' waiting to download';
     button.setAttribute('aria-label', name + (!sum.total ? '' : state.lost ? ', downloads not updating' : ', ' + words));
+
+    ringLink.toggleAttribute('hidden', !sum.total);
+    if (sum.total) {
+      ringLink.setAttribute('aria-label', state.lost ? 'Downloads not updating'
+        : sum.active ? 'Downloading, ' + sum.percent + '%' : words);
+    }
 
     var was = ring.classList.contains('is-on');
     ring.classList.toggle('is-on', sum.total > 0);

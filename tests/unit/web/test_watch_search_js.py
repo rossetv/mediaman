@@ -1505,7 +1505,7 @@ def test_words_that_came_with_the_address_are_not_kept_for_a_press_on_a_result()
 def test_what_is_downloading_leads_the_results_from_what_the_page_knows_already() -> None:
     out = _run("downloading")
     gate = ["The Órchard Gate", "42% · 14 min left", "tmdb-movie-9", "/#title=tmdb-movie-9"]
-    salt = ["Salt", "Queued", None, "/downloads"]
+    salt = ["Salt", "Queued", None, "/?dl=1"]
     # Shown as it is typed, before anything is asked, and nothing is asked for it.
     assert out["typed"] == [gate]
     assert out["calls"] == [0, 4]
@@ -1520,15 +1520,15 @@ def test_what_is_downloading_leads_the_results_from_what_the_page_knows_already(
     assert out["gone"] == [[], True]
 
 
-def test_the_empty_search_leads_to_all_titles_and_to_downloads_with_their_live_number() -> None:
+def test_the_empty_search_leads_to_all_titles_and_to_downloading_with_its_live_number() -> None:
     out = _run("libraryBlock")
-    assert out["look"] == [["All 36 titles", None], ["Downloads · 5", "/downloads"]]
+    assert out["look"] == [["All 36 titles", None, False], ["Downloading · 5", "/?dl=1", True]]
     assert out["before"] == "Browse by category"
-    assert out["none"] == "Downloads"
+    assert out["none"] == "Downloading"
     # All titles opens in place, with the sheet shut, and nothing is asked for.
     assert out["opened"] == [[["", "", {"fromSearch": True}]], False, 0]
     assert out["changed"] == ["All 1 title", None, "All 2 titles"]
-    assert out["bare"] == "Downloads"
+    assert out["bare"] == "Downloading"
 
 
 def test_titles_that_cannot_be_downloaded_are_not_called_available_to_download() -> None:

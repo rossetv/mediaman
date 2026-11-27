@@ -1,7 +1,8 @@
-/* Watch page: the row of what is downloading, after Continue watching and only
- * while there is something in it. A card fills with colour as its title comes
- * in; one that is done says so for a minute, then its poster goes to the front
- * of Recently added.
+/* Watch page: the row of what is downloading, after Continue watching. A card
+ * fills with colour as its title comes in; one that is done says so for a
+ * minute, then its poster goes to the front of Recently added. With nothing
+ * downloading it stays, where downloads are set up, as one slim card that
+ * opens Downloading. Its heading opens it too (watch/dlgrid.js).
  * Needs downloading.js, watch/core.js and watch/rows-load.js.
  */
 (function () {
@@ -13,7 +14,7 @@
   var toArray = core.toArray;
 
   var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/;
-  var HREF = '/downloads';
+  var HREF = '/?dl=1';
   var STATES = {
     queued: ['is-queued'],
     searching: ['is-looking'],
@@ -48,6 +49,14 @@
   var opening = null;
   var noting = null;
   var staying = new WeakSet(); // the rows that do not snap while at their start
+  var calm = null; // the slim card while nothing downloads
+  var soon = 0; // how many titles are coming soon, as the downloads last said
+  var setUp = (function () {
+    try {
+      var can = JSON.parse(core.byId('watch-page-data').textContent).can_download || {};
+      return !!(can.movie || can.show);
+    } catch (e) { return false; }
+  })();
 
   // Outside the row, which is not there to be read out when it has nothing.
   var said = el('p', 'sr-only');
@@ -135,11 +144,9 @@
 
   function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
 
-  function patch(card, item, lost) {
-    var node = card.node;
+  /* What *node* shows of *item*; the grid draws the tops of its cards with it too. */
+  function paint(node, item, lost) {
     var link = node.querySelector('.dw__link');
-    var wasReady = card.item && card.item.state === 'ready';
-    card.item = item;
     toArray(link.querySelectorAll('img')).forEach(function (img) { setPicture(img, item); });
     var on = item.state === 'ready' && !playable(item) ? [] : STATES[item.state] || [];
     ['is-queued', 'is-looking', 'is-stuck', 'is-ready'].forEach(function (name) {
@@ -149,6 +156,7 @@
     node.style.setProperty('--p', String(item.percent));
     var ref = refOf(item);
     link.setAttribute('href', hrefOf(item));
+    link.toggleAttribute('data-dl-open', !ref);
     if (ref) {
       link.setAttribute('data-title-ref', ref);
       link.setAttribute('data-title', item.title);
@@ -165,6 +173,12 @@
     var where = node.querySelector('.dw__fix');
     setText(where, hint);
     where.hidden = !hint;
+  }
+
+  function patch(card, item, lost) {
+    var wasReady = card.item && card.item.state === 'ready';
+    card.item = item;
+    paint(card.node, item, lost);
     if (item.state === 'ready' && !wasReady) {
       card.timer = setTimeout(function () { land(item.key, Object.keys(cards).length === 1); draw(last); }, Math.max(1, item.ready_seconds || 1) * 1000);
     }
@@ -179,7 +193,8 @@
     var head = section.appendChild(el('div', 'watch-row__head'));
     var link = head.appendChild(el('h2', 'watch-row__title')).appendChild(el('a', 'row-open'));
     link.setAttribute('href', HREF);
-    var name = link.appendChild(el('span'));
+    link.setAttribute('data-dl-open', '');
+    var name = link.appendChild(el('span', 'dlx__name'));
     var count = link.appendChild(el('span', 'dlx__count'));
     var cue = link.appendChild(el('span', 'row-open__cue'));
     var tail = cue.appendChild(el('span', 'row-open__words'));
@@ -234,19 +249,20 @@
     closing = setTimeout(function () {
       closing = null;
       inner.remove();
-      inner = scroller = words = null;
+      inner = scroller = words = calm = null;
       slot.hidden = true;
     }, core.reduceMotion() ? 0 : core.tokenMs('--dur-slow', 250));
   }
 
   function heading(state, list) {
-    var busy = list.some(function (item) { return !playable(item); });
+    var busy = !list.length || list.some(function (item) { return !playable(item); });
     var gone = state.items.length - list.length;
     var total = Math.max(list.length, state.summary.total - gone);
     var name = busy ? 'Downloading' : 'Ready';
     setText(words.name, name);
-    setText(words.count, String(total));
-    words.link.setAttribute('aria-label', name + ', ' + total + ', see all in Downloads');
+    setText(words.count, list.length ? String(total) : '');
+    words.count.hidden = !list.length;
+    words.link.setAttribute('aria-label', name + ', ' + (list.length ? total : 'nothing') + ', see all in Downloads');
     scroller.setAttribute('aria-label', name);
     var outage = state.lost ? 'Can’t reach mediaman' : state.outage.replace("'", '’');
     var held = state.lost || list.some(function (item) { return item.held; });
@@ -306,6 +322,7 @@
 
   function draw(state) {
     last = state;
+    soon = state.soon || 0;
     var held = {};
     state.items.forEach(function (item) { held[item.key] = true; });
     Object.keys(landed).forEach(function (key) { if (!held[key]) delete landed[key]; });
@@ -316,21 +333,33 @@
     var there = {};
     list.forEach(function (item) { there[item.key] = true; });
     var going = Object.keys(cards).filter(function (key) { return !there[key]; });
+    // With nothing left the row goes, unless downloads are set up: then it stays as its slim card.
+    var whole = !list.length && !setUp;
     // Before the rest is put in order round them, and so that the focus goes to none of them.
-    if (list.length) going.forEach(function (key) { cards[key].node.classList.add('is-leaving'); });
+    if (!whole) going.forEach(function (key) { cards[key].node.classList.add('is-leaving'); });
     function letGo() {
       going.forEach(function (key) {
         if (!cards[key]) return;
         // Its minute ran out between two answers.
-        if (cards[key].item.state === 'ready') land(key, !list.length);
-        else drop(key, !list.length);
+        if (cards[key].item.state === 'ready') land(key, whole);
+        else drop(key, whole);
       });
     }
-    if (!list.length) { letGo(); close(); return; }
+    if (whole) { letGo(); close(); return; }
     if (closing) comeBack();
     // The row the page came with is open, but none of its cards are there yet.
     var isNew = !inner || !slot.classList.contains('is-open');
     if (!inner) buildRow();
+    if (!list.length) {
+      showCalm(isNew, !!(state.lost || state.outage));
+      tellSoon();
+      letGo();
+      sole();
+      heading(state, list);
+      open();
+      return;
+    }
+    if (calm) { calm.remove(); calm = null; }
     var play = isNew ? null : core.flip(toArray(scroller.children));
     var ready = [];
     list.forEach(function (item) {
@@ -352,6 +381,49 @@
     open();
   }
 
+  /* ── Nothing downloading ── */
+
+  /* *down*: what downloads cannot be told, so nobody is told that nothing downloads. */
+  function showCalm(isNew, down) {
+    if (!calm) buildCalm(isNew);
+    calm.classList.toggle('is-down', down);
+    setText(calm.querySelector('.dw__title'), down ? 'Downloads not updating' : 'Nothing downloading');
+    var mark = calm.querySelector('.dw__calm-ico');
+    var glyph = down ? 'i-triangle-exclamation' : 'i-check';
+    if (mark.getAttribute('data-icon') !== glyph) {
+      mark.textContent = '';
+      mark.appendChild(icon(glyph));
+      mark.setAttribute('data-icon', glyph);
+    }
+  }
+
+  function buildCalm(isNew) {
+    calm = el('article', 'watch-card dw dw--calm');
+    var link = calm.appendChild(el('a', 'dw__link'));
+    link.setAttribute('href', HREF);
+    link.setAttribute('data-dl-open', '');
+    var mark = link.appendChild(el('span', 'dw__calm-ico'));
+    mark.setAttribute('aria-hidden', 'true');
+    var text = link.appendChild(el('span', 'dw__text'));
+    text.appendChild(el('span', 'dw__title'));
+    text.appendChild(el('span', 'dw__line'));
+    var go = link.appendChild(el('span', 'dw__calm-go'));
+    go.setAttribute('aria-hidden', 'true');
+    go.appendChild(icon('i-chevron-right'));
+    scroller.appendChild(calm);
+    if (!isNew) core.fadeIn(calm);
+  }
+
+  function tellSoon() {
+    if (calm) setText(calm.querySelector('.dw__line'), soon ? soon + ' coming soon' : '');
+  }
+
+  function hearAll(data) {
+    if (!data || !Array.isArray(data.upcoming)) return;
+    soon = data.upcoming.length;
+    tellSoon();
+  }
+
   function say(titles) {
     if (!titles.length) return;
     var end = titles.length > 1 ? ' and ' + titles[titles.length - 1] + ' are' : ' is';
@@ -366,6 +438,7 @@
     closing = null;
     toArray(scroller.children).forEach(function (n) { n.remove(); });
     Object.keys(cards).forEach(function (key) { scroller.appendChild(cards[key].node); });
+    if (calm) scroller.appendChild(calm);
     slot.classList.add('is-open');
     rest();
   }
@@ -557,7 +630,16 @@
     picture: core.safePath,
     line: function (item) { return says(item).join(''); },
     ref: refOf,
-    href: hrefOf
+    href: hrefOf,
+    /* A card's top as the row draws it, for the grid; paint() draws it anew. */
+    card: function (item) {
+      var node = build(item);
+      paint(node, item, false);
+      return node;
+    },
+    paint: paint,
+    items: function () { return last ? last.items : []; },
+    hearAll: hearAll
   };
   window.MM.downloading.subscribe(draw);
   starting = false;

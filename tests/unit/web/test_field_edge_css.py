@@ -171,6 +171,12 @@ def test_downloading_cards_sit_on_canvas_in_forced_colours() -> None:
     assert "forced-color-adjust" not in _of(".dw__text", "_watch_downloading.css", media)
 
 
+def test_without_javascript_the_downloading_placeholder_is_not_shown() -> None:
+    # Nothing fills it without JavaScript, so it would read as a load that never ends.
+    hidden = _of(".dlx.is-resting", "_watch_downloading.css", "(scripting: none)")
+    assert "display: none" in hidden
+
+
 def test_a_long_name_that_cannot_fit_its_column_breaks_at_a_syllable_with_a_hyphen() -> None:
     # A card's title and a person's name break only where hyphens allows, so "Cartographer's"
     # or "Bartholomew" never loses its last letter to a line of its own.

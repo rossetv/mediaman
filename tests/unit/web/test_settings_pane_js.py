@@ -30,6 +30,13 @@ def test_an_edit_stays_unsaved_across_sections_and_only_leaving_settings_asks() 
     assert out["leaving"] == {"toSection": False, "toHistory": True, "closed": True}
 
 
+def test_edits_held_elsewhere_on_watch_hold_a_redirect_but_ask_nothing_on_leaving() -> None:
+    assert _run("elsewhereUnsaved") == {
+        "unsaved": True,
+        "leaving": {"toSection": False, "toHistory": False, "closed": False},
+    }
+
+
 def test_typing_in_watch_search_does_not_make_settings_unsaved() -> None:
     out = _run("watchSearch")
     assert out == {

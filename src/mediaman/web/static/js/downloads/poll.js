@@ -50,8 +50,7 @@
       })
       .catch(function (err) {
         if (err.status === 401 || err.status === 403) {
-          var here = window.location;
-          here.href = '/login?next=' + encodeURIComponent(here.pathname + here.search) + here.hash;
+          window.location.href = MM.api.loginUrl();
           return;
         }
         /* A hidden tab gave its poll up; the next starts when it is shown. */

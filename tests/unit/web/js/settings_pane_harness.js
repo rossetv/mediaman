@@ -84,6 +84,8 @@ function pane(opts) {
   vm.createContext(ctx);
   const load = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
   load('core/api.js');
+  // Another part of Watch holding edits of its own, loaded before Settings.
+  if (opts.elsewhere) ctx.MM.api.hasUnsavedChanges = () => true;
   doc.body.appendChild(build(doc, fragment()));
   ['settings/savebar.js', 'settings/toggles.js', 'settings/general.js', 'settings/sections.js'].forEach(load);
   ctx.MM.settings.rows = { open: (b) => b.classList.add('is-open'), close: (b) => b.classList.remove('is-open') };
@@ -106,6 +108,11 @@ const leaving = (guard) => ({
 });
 
 const scenarios = {
+  // Edits held elsewhere on Watch keep a redirect back but are no Settings edits to discard.
+  async elsewhereUnsaved() {
+    const p = pane({ at: 'settings/general', elsewhere: true });
+    return { unsaved: p.ctx.MM.api.hasUnsavedChanges(), leaving: leaving(p.guards.settings) };
+  },
   // An edit in one section, then a step to another through the list.
   async acrossSections() {
     const p = pane({ at: 'settings/general' });

@@ -344,15 +344,16 @@ def test_download_turns_into_queued_then_downloading_then_in_library_in_place() 
     queued = out["queued"]
     assert "dl-state--queued" in queued["primary"]["cls"]
     assert queued["primary"]["text"] == "Queued"
-    assert "Downloads" in queued["note"]
+    assert "Downloading" in queued["note"]
     assert queued["focusKept"] is True
     assert queued["email"] is False
     assert out["downloading"]["primary"]["text"] == "Downloading 42%"
     assert out["downloading"]["bar"] == 42
     assert "3.1 GB of 7.4 GB" in out["downloading"]["line"]
     assert "about 6 min left" in out["downloading"]["line"]
-    assert out["downloading"]["note"] == "Follow it in Downloads."
-    assert out["downloading"]["to"] == "/downloads"
+    assert out["downloading"]["note"] == "Follow it in Downloading."
+    assert out["downloading"]["to"] == "/?dl=1"
+    assert out["downloading"]["opener"] is True
     assert out["done"]["primary"]["text"] == "In library"
     assert "Added just now" in out["done"]["note"]
     named = {"ref": "tmdb-movie-77", "title": "Meridian", "kind": "movie", "year": 2026}
@@ -1632,13 +1633,13 @@ def test_a_film_queued_elsewhere_on_the_page_is_queued_in_its_panel() -> None:
 
 
 def test_a_title_still_looked_for_says_so_as_its_card_does() -> None:
-    queued = ["Queued", "Waiting for a download slot. Follow it in Downloads."]
+    queued = ["Queued", "Waiting for a download slot. Follow it in Downloading."]
     assert _run("lookedFor") == {
-        "searching": ["Looking for a copy", "Follow it in Downloads."],
+        "searching": ["Looking for a copy", "Follow it in Downloading."],
         "redrawn": False,  # nothing new: an open menu stays
         "stuck": [
             "Looking for a copy",
-            "Nothing found yet · next attempt in ~4h. Follow it in Downloads.",
+            "Nothing found yet · next attempt in ~4h. Follow it in Downloading.",
         ],
         "queued": queued,
         "other": queued,
@@ -1650,21 +1651,21 @@ def test_a_film_the_arr_will_not_import_says_it_needs_attention_not_downloading(
     assert out["plain"] == {
         "pill": "Downloading 42%",
         "status": None,
-        "note": "Follow it in Downloads.",
+        "note": "Follow it in Downloading.",
         "bar": True,
     }
     stuck = "No files found are eligible for import · Fix it in Radarr: Activity → Queue"
     assert out["admin"] == {
         "pill": None,
         "status": "Needs attention",
-        "note": stuck + ". Follow it in Downloads.",
+        "note": stuck + ". Follow it in Downloading.",
         "bar": False,
     }
     assert (out["viewer"]["pill"], out["viewer"]["status"]) == (None, "Needs attention")
     assert out["finding"] == {
         "pill": None,
         "status": "Finding another copy",
-        "note": "Follow it in Downloads.",
+        "note": "Follow it in Downloading.",
         "bar": False,
     }
     assert out["other"] == out["plain"]
@@ -1672,16 +1673,16 @@ def test_a_film_the_arr_will_not_import_says_it_needs_attention_not_downloading(
 
 def test_a_viewer_is_told_a_stuck_film_waits_for_an_admin_as_the_download_page_says() -> None:
     note = _run("troubled")["viewer"]["note"]
-    assert note == "It won’t finish until an admin sorts it out. Follow it in Downloads."
+    assert note == "It won’t finish until an admin sorts it out. Follow it in Downloading."
 
 
 def test_a_film_that_mediaman_will_try_again_says_so_instead_of_where_to_fix_it() -> None:
     out = _run("troubled")
     retry = "mediaman will look for another copy"
     assert out["retryingAdmin"]["note"] == (
-        "No files found are eligible for import · " + retry + ". Follow it in Downloads."
+        "No files found are eligible for import · " + retry + ". Follow it in Downloading."
     )
-    assert out["retryingViewer"]["note"] == retry + ". Follow it in Downloads."
+    assert out["retryingViewer"]["note"] == retry + ". Follow it in Downloading."
 
 
 def test_a_season_the_arr_holds_back_or_looks_again_for_is_not_called_downloading() -> None:

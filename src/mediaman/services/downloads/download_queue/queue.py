@@ -138,10 +138,12 @@ def _mark_series_nzb_matches(
     arr_candidates: list[str],
     nzb_parsed: list[dict[str, object]],
     normalise_for_match: Callable[[str], str],
-) -> None:
+) -> list[dict[str, object]]:
     """Mark NZB entries matching *arr_candidates* as _matched=True, claiming sibling NZBs
-    (e.g. episodes when a pack is the primary match) so they are not shown as unmatched.
+    (e.g. episodes when a pack is the primary match) so they are not shown as unmatched;
+    return those it claimed.
     """
+    claimed: list[dict[str, object]] = []
     for nzb in nzb_parsed:
         if nzb["_matched"]:
             continue
@@ -149,6 +151,26 @@ def _mark_series_nzb_matches(
         nzb_t_norm = normalise_for_match(title_val if isinstance(title_val, str) else "")
         if nzb_t_norm and nzb_matches_arr(nzb_t_norm, arr_candidates):
             nzb["_matched"] = True
+            claimed.append(nzb)
+    return claimed
+
+
+# The order in which one of a card's NZBGet downloads speaks for the card: one still bringing
+# data in, else one being unpacked, else one waiting its turn.
+_STATE_RANK = ("downloading", "almost_ready", "queued")
+
+
+def _card_state(nzbs: Sequence[dict[str, object]], map_state: Callable[..., str]) -> str:
+    """The state of a card whose download is *nzbs*: that of the one furthest along."""
+    states = {
+        map_state(s if isinstance(s := nzb["raw_status"], str) else None, has_nzbget_match=True)
+        for nzb in nzbs
+    }
+    return next((rank for rank in _STATE_RANK if rank in states), next(iter(states)))
+
+
+def _remain_mb(nzbs: Sequence[dict[str, object]]) -> float:
+    return sum(float(r) for nzb in nzbs if isinstance(r := nzb["remain_mb"], int | float))
 
 
 def build_arr_items(
@@ -221,15 +243,12 @@ def build_arr_items(
 
         if matched_nzb and not matched_nzb["_matched"]:
             matched_nzb["_matched"] = True
+            nzbs = [matched_nzb]
             if arr_is_series and arr_candidates:
-                _mark_series_nzb_matches(arr_candidates, nzb_parsed, normalise_for_match)
-            raw_status = matched_nzb["raw_status"]
-            state = map_state(
-                raw_status if isinstance(raw_status, str) else None, has_nzbget_match=True
-            )
-            raw_remain_mb = matched_nzb["remain_mb"]
-            remain_mb_val = float(raw_remain_mb) if isinstance(raw_remain_mb, int | float) else 0.0
-            eta = _eta(state, remain_mb_val, download_rate)
+                nzbs += _mark_series_nzb_matches(arr_candidates, nzb_parsed, normalise_for_match)
+            # NZBGet fetches one download at a time, so the card is done once all of its are.
+            state = _card_state(nzbs, map_state)
+            eta = _eta(state, _remain_mb(nzbs), download_rate)
 
             items.append(_build_matched_item(arr, matched_nzb, state, eta, download_rate))
             trigger_search(conn, arr, matched_nzb=True, secret_key=secret_key)

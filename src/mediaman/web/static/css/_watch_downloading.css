@@ -15,6 +15,8 @@
 .dlx.is-open { grid-template-rows: 1fr; margin-top: 0; opacity: 1; }
 .dlx__in { min-height: 0; min-width: 0; overflow: hidden; }
 .dlx.is-resting > .dlx__in { overflow: visible; }
+/* Only watch/downloading.js fills the room the page holds. */
+@media (scripting: none) { .dlx.is-resting { display: none; } }
 @media (max-width: 599.98px) {
   .dlx { --rows-gap: 22px; }
 }
@@ -38,7 +40,7 @@
 .dlx__notes { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-slow) var(--ease-out); }
 .dlx__notes.is-on { grid-template-rows: 1fr; }
 .dlx__notes > div { min-height: 0; overflow: hidden; }
-.dlx__note { display: flex; align-items: baseline; gap: 8px; margin: 0 var(--pad) 10px; font-size: 13px; color: var(--warning); }
+.dlx__note { display: flex; align-items: baseline; gap: 8px; margin: 0 var(--pad) 10px; font-size: 13px; color: var(--warning); text-wrap: pretty; }
 .dlx__note[hidden] { display: none; }
 .dlx__note > .ico { flex: none; align-self: center; }
 
@@ -204,3 +206,10 @@
   .dw__bar i { forced-color-adjust: none; }
   .dw__link::before { background: Canvas; }
 }
+
+/* Downloading for a browser without JavaScript: a plain list where the row would be. */
+.dl-noscript { padding: 0 var(--pad); color: var(--t2); }
+.dl-noscript > .watch-row__title { padding: 0; margin: 0 0 10px; }
+.dl-noscript ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.dl-noscript li > span { color: var(--t1); font-weight: 600; }
+.dl-noscript p { margin: 8px 0 0; }

@@ -16,7 +16,8 @@ function page(isPhone, downloading, reduced, pane) {
   doc.body.appendChild(build(doc, ['header', { id: 'top', class: 'nav-glass' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
     ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
-  doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x']]));
+  doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x'],
+    ['div', { class: 'dlg__head' }, ['a', { id: 'dl-back', href: '/' }, 'Back']]]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
   if (pane) doc.body.appendChild(build(doc, ['div', { id: 'you', hidden: '' }]));
   const $ = (id) => doc.getElementById(id);
@@ -24,7 +25,7 @@ function page(isPhone, downloading, reduced, pane) {
   const media = { matches: isPhone, on: [], addEventListener(t, fn) { this.on.push(fn); } };
   const win = { listeners: {}, scrollY: 0, location: { hash: '' }, matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
   if (downloading) win.MM = { downloading };
-  if (pane) win.MM = { you: pane };
+  if (pane) win.MM = { ...win.MM, you: pane };
   win.visualViewport = { height: 800, scale: 1, addEventListener(t, fn) { win.listeners['seen ' + t] = fn; } };
   const images = [];
   function Image() { images.push(this); }
@@ -64,6 +65,8 @@ const scenarios = {
     p.fire('focusout', p.$('skip'), { relatedTarget: p.$('elsewhere') }); out.push(marked());
     p.fire('focusin', p.$('elsewhere')); out.push(marked());
     p.fire('focusin', p.$('button')); p.fire('focusout', p.$('button'), { relatedTarget: null }); out.push(marked());
+    // Downloading's head stays in sight as the page scrolls, as the bar does.
+    p.fire('focusin', p.$('dl-back')); out.push(marked());
     return out;
   },
   // The skip link pressed again on the address it already led to: the browser moves the
@@ -293,6 +296,37 @@ const scenarios = {
       };
     };
     return { none: at(0, 0, 0, 0), one: at(1, 0, 0, 42), many: at(2, 2, 0, 40), mixed: at(2, 1, 1, 57), ready: at(0, 1, 1, 100), waiting: at(0, 3, 0, 0), lost: at(2, 1, 1, 57, true), found: at(2, 2, 0, 40), over: at(0, 0, 0, 0, true) };
+  },
+  // The ring is its own link beside the face, there only while something downloads.
+  ringLink() {
+    let tell;
+    const went = [];
+    const p = page(false, { subscribe(fn) { tell = fn; } }, false, { go: (to) => went.push(to) });
+    const link = () => p.doc.querySelector('[data-dl-open]');
+    const at = (active, waiting, ready, percent, lost) => tell({ summary: { total: active + waiting + ready, active, waiting, ready, percent }, lost: !!lost });
+    const seen = () => { const l = link(); return l && { hidden: l.hasAttribute('hidden'), label: l.getAttribute('aria-label'), href: l.getAttribute('href'), tag: l.tagName.toLowerCase(), inButton: p.$('button').contains(l), sibling: l.parentNode === p.$('button').parentNode }; };
+    const out = { off: seen() };
+    at(2, 0, 0, 89);
+    out.on = seen();
+    at(0, 2, 0, 0);
+    out.waiting = seen().label;
+    at(0, 1, 2, 100);
+    out.ready = seen().label;
+    at(1, 0, 0, 40, true);
+    out.lost = seen().label;
+    const l = link();
+    l.focus();
+    out.focused = p.doc.activeElement === l;
+    p.click('button');
+    out.face = went.slice();
+    out.menuAfterFace = p.open();
+    went.length = 0;
+    const tap = p.fire('click', l, { button: 0 });
+    out.ring = went.slice();
+    out.ringPrevented = tap.prevented;
+    at(0, 0, 0, 0);
+    out.gone = seen().hidden;
+    return out;
   },
   // On Watch the button opens the pane over it, and never the menu.
   onWatch() {

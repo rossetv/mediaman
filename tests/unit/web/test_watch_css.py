@@ -527,7 +527,7 @@ CONTROLS = ":is(a, button, input, select, textarea, [tabindex])"
 def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scroll_it() -> None:
     page = 'html[data-page="watch"]'
     assert "scroll-padding-top: var(--bar-clear)" in _of(page, sheet=BAR)
-    # While the focus is in the bar or All titles' head, the page has no padding to scroll for.
+    # While the focus is in the bar or a grid's head, the page has no padding to scroll for.
     held = 'html[data-page="watch"].is-bar-focus'
     assert "scroll-padding-top: 0" in _of(held, sheet=BAR)
     sticky = {
@@ -537,7 +537,7 @@ def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scrol
         if "position: sticky" in body
     }
     # A title's overlay scrolls itself, under its own padding for its bar.
-    assert sticky == {".watch-all__head", ".ttl__bar"}
+    assert sticky == {".watch-all__head", ".dlg__head", ".ttl__bar"}
 
 
 def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
