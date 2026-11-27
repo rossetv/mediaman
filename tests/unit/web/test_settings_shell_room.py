@@ -27,13 +27,9 @@ def test_a_narrow_screen_slides_the_section_in_over_the_list() -> None:
 
 def test_a_wide_screen_keeps_the_list_beside_the_section_at_the_width_the_script_reads() -> None:
     wide = _block(WIDE)
-    nav = re.search(r"\.stx__nav \{[^}]*width: (\d+)px", wide).group(1)  # type: ignore[union-attr]
-    # the list keeps to about a third of the wide panel, and the section starts where it ends
-    assert 320 <= int(nav) <= 360
+    assert re.search(r"\.stx__nav \{[^}]*width: 340px", wide)
     assert re.search(
-        r"\.stx__body, \.stx\.is-in > \.stx__body \{[^}]*left: "
-        + nav
-        + r"px[^}]*visibility: visible",
+        r"\.stx__body, \.stx\.is-in > \.stx__body \{[^}]*left: 340px[^}]*visibility: visible",
         wide,
     )
     assert "'(min-width: 1000px)'" in (ROOT / "js/settings/sections.js").read_text()
@@ -63,7 +59,7 @@ def test_the_save_bar_sits_under_the_sections_scroller_and_keeps_room_for_the_ho
     assert view.index('<div class="stx__body">') < view.index('\n  <div class="stx-save"')
     bar = _rule(".stx-save")
     assert "flex: none" in bar
-    assert re.search(r"padding: 12px \d+px max\(12px, env\(safe-area-inset-bottom, 0px\)\);", bar)
+    assert "padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px));" in bar
 
 
 def test_the_save_bar_starts_its_line_where_the_section_list_does() -> None:
