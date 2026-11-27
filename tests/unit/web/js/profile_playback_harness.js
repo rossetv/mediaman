@@ -31,7 +31,7 @@ function pick(value, text) {
   return ['button', { class: 'yo-pick-row', role: 'radio', 'data-subs': value, 'aria-checked': 'false', tabindex: '-1' }, ['span', {}, text]];
 }
 
-function page(held, { put = null, fails = false } = {}) {
+function page(held, { put = null, fails = false, more = {} } = {}) {
   const doc = makeDocument();
   doc.body.appendChild(build(doc, ['div', { id: 'you' }, ['button', { 'data-you-back': '' }], ['div', { 'data-you-group': 'profile' },
     row('account-row-audio', 'profile/audio'), row('account-row-subs', 'profile/subtitles'),
@@ -45,7 +45,7 @@ function page(held, { put = null, fails = false } = {}) {
   const puts = [];
   const toasts = [];
   const timers = [];
-  const answer = () => ({ ...held, languages: LANGUAGES });
+  const answer = () => ({ ...held, languages: LANGUAGES, ...more });
   const MM = {
     api: {
       get: () => Promise.resolve(answer()),
@@ -95,6 +95,19 @@ const scenarios = {
     await settle();
     out.plain = { audio: q.value('account-row-audio'), subs: q.value('account-row-subs'), folded: q.folded(), checked: q.checked('profile/audio') };
     return out;
+  },
+
+  /* What the library's titles are in comes first, each by the name the server gives it. */
+  async library() {
+    const named = LANGUAGES.map((l) => ({ ...l, native: l.code === 'zh' ? '中文 (server)' : l.name }));
+    const p = page({ audio_lang: 'en', subtitle_lang: null }, { more: { languages: named, library_languages: ['zh', 'fr'] } });
+    await settle();
+    const v = p.view('profile/audio');
+    return {
+      head: v.querySelector('[data-lang-head]').textContent,
+      first: p.shown('profile/audio').slice(0, 4),
+      zh: p.rowOf('profile/audio', 'data-audio-lang', 'zh').textContent,
+    };
   },
 
   async pickAudio() {

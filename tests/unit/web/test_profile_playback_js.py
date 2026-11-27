@@ -34,6 +34,14 @@ def test_the_hub_says_what_is_set_and_each_view_checks_it() -> None:
     }
 
 
+def test_the_languages_of_the_library_come_first_by_the_servers_own_names() -> None:
+    out = _run("library")
+    assert out["head"] == "In your library"
+    # As the title comes, the one set, then the library's: not the browser's.
+    assert out["first"] == ["", "en", "zh", "fr"]
+    assert out["zh"].startswith("中文 (server)")
+
+
 def test_a_language_picked_is_saved_alone_and_named_on_the_hub() -> None:
     out = _run("pickAudio")
     assert out["at"]["checked"] == ["fr"]

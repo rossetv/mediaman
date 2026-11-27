@@ -2,7 +2,8 @@
  *  play, and what the hub's rows say of them. Requires: core/api.js (MM.api), core/dom.js (MM.dom), ui-feedback.js
  *  (UIFeedback), watch/you.js (MM.you).
  *
- *   GET /api/account/playback  → {audio_lang, subtitle_lang, languages: [{code, name}]}
+ *   GET /api/account/playback  → {audio_lang, subtitle_lang, languages: [{code, name, native}],
+ *                                 library_languages: [code]}
  *   PUT /api/account/playback  {audio_lang} or {subtitle_lang}, null to clear; answers the same
  *
  *  audio_lang null plays a title in the language it comes in. subtitle_lang null shows subtitles
@@ -40,10 +41,12 @@
   var held = { audio_lang: null, subtitle_lang: null };
   var langs = [];      // [{code, name, own}] by English name
   var byCode = {};
+  var library = [];    // codes of the languages the library's titles are in, as far as known
   var shownView = '';
   var savedTimer = null;
 
-  /* The language's name in itself, as the browser knows it; the English one where it does not. */
+  /* The language's name in itself, where the server does not say it: as the browser knows it, or
+     the English one. */
   function ownName(code, english) {
     var own = '';
     try { own = new Intl.DisplayNames([code], { type: 'language' }).of(code) || ''; } catch (e) { own = ''; }
@@ -132,9 +135,10 @@
     return g;
   }
 
-  /* The languages first offered: the one set, English and the browser's own. */
+  /* The languages first offered: the one set, then those of the library; before anything is known
+     of the library, English and the browser's own. */
   function suggested(current) {
-    var wanted = [current, 'en'].concat(Array.prototype.slice.call(navigator.languages || [navigator.language || '']));
+    var wanted = [current].concat(library.length ? library : ['en'].concat(Array.prototype.slice.call(navigator.languages || [navigator.language || ''])));
     var out = [];
     wanted.forEach(function (tag) {
       var code = String(tag || '').toLowerCase().split(/[-_]/)[0];
@@ -148,8 +152,9 @@
     box.textContent = '';
     var first = suggested(current).map(function (code) { return langRow(attr, byCode[code]); });
     if (withTitle) first.unshift(radio(attr, '', TITLE_LANG, 'Usually the language it was made in'));
-    box.appendChild(head('Suggested'));
-    box.appendChild(group('Suggested', first));
+    var title = library.length ? 'In your library' : 'Suggested';
+    box.appendChild(head(title));
+    box.appendChild(group(title, first));
     box.appendChild(head('All languages'));
     box.appendChild(group('All languages', langs.map(function (l) { return langRow(attr, l); })));
     check(view, attr, current || '');
@@ -283,7 +288,8 @@
 
   MM.api.get(URL_).then(function (data) {
     take(data);
-    langs = (data.languages || []).map(function (l) { return { code: l.code, name: l.name, own: ownName(l.code, l.name) }; });
+    langs = (data.languages || []).map(function (l) { return { code: l.code, name: l.name, own: l.native || ownName(l.code, l.name) }; });
+    library = data.library_languages || [];
     byCode = {};
     langs.forEach(function (l) { byCode[l.code] = l; });
     fill();
