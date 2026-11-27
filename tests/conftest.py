@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import bcrypt
 import pytest
 
 # Tests directory root, used by ``pytest_collection_modifyitems`` to attach
@@ -43,6 +44,28 @@ def pytest_collection_modifyitems(config, items):
             m.name for m in item.iter_markers()
         }:
             item.add_marker(pytest.mark.integration)
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "real_bcrypt_cost: hash passwords at the production bcrypt cost"
+    )
+
+
+_CHEAP_DUMMY_HASH = bcrypt.hashpw(b"dummy", bcrypt.gensalt(rounds=4))
+
+
+@pytest.fixture(autouse=True)
+def _cheap_bcrypt(request, monkeypatch):
+    """Hash new passwords at bcrypt's lowest cost: the production cost takes about 0.2 s a hash,
+    and most tests make a user. A test of the production cost asks for it with
+    ``@pytest.mark.real_bcrypt_cost``."""
+    if request.node.get_closest_marker("real_bcrypt_cost"):
+        return
+    monkeypatch.setattr("mediaman.web.auth.password_hash._user_crud.BCRYPT_ROUNDS", 4)
+    monkeypatch.setattr("mediaman.web.auth.password_hash._change_password.BCRYPT_ROUNDS", 4)
+    # Checked against for every unknown or locked-out user, so its cost is paid on each try.
+    monkeypatch.setattr("mediaman.web.auth._password_hash_helpers._DUMMY_HASH", _CHEAP_DUMMY_HASH)
 
 
 @pytest.fixture(autouse=True)
@@ -565,7 +588,8 @@ def freezer():
     """
     from freezegun import freeze_time
 
-    with freeze_time("2026-05-01T12:00:00+00:00") as frozen:
+    # pytest's own clock stays real, so --durations reports what a test took.
+    with freeze_time("2026-05-01T12:00:00+00:00", ignore=["_pytest.timing"]) as frozen:
         yield frozen
 
 
