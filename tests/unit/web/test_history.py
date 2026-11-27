@@ -993,3 +993,18 @@ def test_on_a_phone_the_tucked_tools_move_by_transform_and_the_days_heads_stick_
         r"\.hx-tools\.is-tucked \{ transform: translateY\(calc\(-1 \* var\(--hx-fold", css
     )
     assert re.search(r"\.hx-day__top \{[^}]*position: sticky", css)
+
+
+def test_with_reduced_motion_the_tucking_pills_and_chips_still_fade_over_the_short_duration() -> (
+    None
+):
+    # The global reduced-motion rule cuts every transition to nothing with !important, so the
+    # fade has to win with !important of its own, and only for opacity.
+    reduced = re.search(
+        r"@media \(prefers-reduced-motion: reduce\) \{((?:[^{}]*\{[^{}]*\})*)\s*\}", _history_css()
+    )
+    assert reduced
+    rule = re.search(r"\.hx-groups,\s*\.hx-filters \{([^}]*)\}", reduced.group(1))
+    assert rule
+    assert "transition-property: opacity !important" in rule.group(1)
+    assert "transition-duration: var(--dur-fast) !important" in rule.group(1)

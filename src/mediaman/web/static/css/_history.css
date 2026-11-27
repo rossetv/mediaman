@@ -128,10 +128,44 @@
   overscroll-behavior-x: contain;
   scrollbar-width: none;
   /* The kinds fade out at the sides rather than end cut flat. */
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 20px), transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 20px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent var(--hx-clear-l, 0px), #000 var(--hx-fade-l, 16px), #000 calc(100% - var(--hx-fade-r, 20px)), transparent calc(100% - var(--hx-clear-r, 0px)));
+  mask-image: linear-gradient(90deg, transparent var(--hx-clear-l, 0px), #000 var(--hx-fade-l, 16px), #000 calc(100% - var(--hx-fade-r, 20px)), transparent calc(100% - var(--hx-clear-r, 0px)));
 }
 .hx-groups::-webkit-scrollbar { display: none; }
+/* A mouse's arrows at the ends of the row, where more kinds are past its fade; touch swipes. */
+.hx-kinds-arrow { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  /* Under an arrow the pills have faded out by its middle, so its chevron stands clear. */
+  .hx-groups.has-prev { --hx-clear-l: 36px; --hx-fade-l: 76px; }
+  .hx-groups.has-next { --hx-clear-r: 36px; --hx-fade-r: 76px; }
+  .hx-kinds-arrow {
+    position: absolute;
+    z-index: 1;
+    top: calc(var(--hx-kinds, 58px) + 2px);
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--hair-strong);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--s2) 72%, transparent);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    backdrop-filter: blur(12px) saturate(1.4);
+    color: var(--t1);
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur), background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  }
+  .hx-kinds-arrow--prev { left: 20px; }
+  .hx-kinds-arrow--next { right: 20px; }
+  .hx-groups.has-prev ~ .hx-kinds-arrow--prev,
+  .hx-groups.has-next ~ .hx-kinds-arrow--next { opacity: 1; visibility: visible; transition-delay: 0s; }
+  .hx-tools.is-tucked > .hx-kinds-arrow { opacity: 0; visibility: hidden; pointer-events: none; transition-duration: var(--dur-fast); transition-delay: 0s, var(--dur-fast), 0s, 0s; }
+  .hx-kinds-arrow:hover { background: color-mix(in srgb, var(--s5) 90%, transparent); }
+  .hx-kinds-arrow:active { transform: scale(.94); }
+}
 .hx-group {
   flex: none;
   min-height: 36px;
@@ -502,6 +536,9 @@
   .hx-tools,
   .hx-line,
   .hist-chev { transition-property: opacity, border-color, color; }
+  /* A fade is not motion, so it outlasts the base rule that cuts every transition short. */
+  .hx-groups,
+  .hx-filters { transition-property: opacity !important; transition-duration: var(--dur-fast) !important; }
 }
 
 @media (pointer: coarse) {

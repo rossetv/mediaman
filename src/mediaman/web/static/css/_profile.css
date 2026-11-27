@@ -9,8 +9,6 @@
 .yo-group:focus { outline: none; }
 .yo-row { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 14px; color: var(--t1); text-align: left; transition: background-color var(--dur-fast) var(--ease-out); }
 .yo-row + .yo-row::before { content: ""; position: absolute; top: 0; right: 0; left: 56px; border-top: 1px solid var(--hair); }
-/* A press lights at once and eases off when let go. */
-:is(a, button).yo-row:active { background: var(--s4); transition-duration: 0s; }
 .yo-row--top { align-items: flex-start; }
 .yo-row__ico { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; font-size: 14px; color: #fff; background: var(--tone, #8e8e93); }
 .yo-row__label { flex: 1; min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
@@ -18,8 +16,7 @@
 .yo-row__value { flex: 0 1 auto; min-width: 0; max-width: 55%; font-size: 15px; color: var(--t3); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .yo-row__chev { flex: none; font-size: 11px; color: var(--t4); }
 .yo-row .tog { flex: none; margin-top: 2px; }
-.yo-mini { flex: none; min-height: 32px; padding: 0 12px; border-radius: var(--r-pill); font-size: 13px; font-weight: 500; color: var(--t1); background: var(--s4); transition: background-color var(--dur-fast) var(--ease-out); }
-.yo-mini:active { background: var(--s5); transition-duration: 0s; }
+.yo-mini { flex: none; min-height: 32px; padding: 0 12px; border-radius: var(--r-pill); font-size: 13px; font-weight: 500; color: var(--t1); background: var(--s4); transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .yo-note { margin: 0; font-size: 13px; line-height: 1.45; color: var(--t3); }
 .yo-note--center { text-align: center; }
 
@@ -29,7 +26,6 @@
 .yo-pic > .avatar { width: 76px; height: 76px; }
 .yo-pic:focus-visible { outline-offset: 4px; }
 .yo-pic__badge { position: absolute; right: -2px; bottom: -2px; display: grid; place-items: center; width: 28px; height: 28px; border: 3px solid var(--s1); border-radius: 50%; font-size: 11px; color: var(--t1); background: var(--s4); transition: background-color var(--dur-fast) var(--ease-out); }
-.yo-pic:active .yo-pic__badge { background: var(--accent-cta); transition-duration: 0s; }
 .yo-head__text { min-width: 0; }
 /* A long name shrinks a little, then stops at two lines; its whole self is in its title. */
 .yo-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 0; font: 700 clamp(20px, 6cqi, 26px)/1.15 var(--font-display); letter-spacing: -.02em; overflow-wrap: anywhere; }
@@ -42,20 +38,24 @@
 .yo-dl[hidden] { display: none; }
 .yo-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
 .yo-tile { display: grid; grid-template-columns: auto 1fr; align-content: start; align-items: center; gap: 8px 10px; min-height: 96px; padding: 14px; border-radius: 14px; background: var(--s2); color: var(--t1); text-align: left; transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
-.yo-tile:active { background: var(--s4); transform: scale(.98); transition-duration: 0s; }
 .yo-tile__ico { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; font-size: 16px; color: #fff; background: var(--tone); }
 .yo-tile__name { font-size: 16px; font-weight: 600; }
 .yo-tile__sub { grid-column: 1 / -1; align-self: start; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.35; color: var(--t3); }
 .yo-tile__sub.is-bad { color: var(--danger-text); }
 .yo-out { margin-top: 24px; }
 .yo-out__btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 50px; border-radius: 14px; font-size: 15px; font-weight: 500; color: var(--danger-text); background: var(--s2); transition: background-color var(--dur-fast) var(--ease-out); }
-.yo-out__btn:active { background: var(--rgba-danger-bg); transition-duration: 0s; }
 @media (hover: hover) {
   :is(a, button).yo-row:hover, .yo-tile:hover { background: var(--s3); }
   .yo-mini:hover { background: var(--s5); }
   .yo-pic:hover .yo-pic__badge { background: var(--accent-cta); }
   .yo-out__btn:hover { background: var(--rgba-danger-bg); }
 }
+/* A press lights at once and eases off when let go; after the hover rules, so it lights under the mouse too. */
+:is(a, button).yo-row:active { background: var(--s4); transition-duration: 0s; }
+.yo-mini:active { background: var(--s5); transform: scale(.96); transition-duration: 0s; }
+.yo-pic:active .yo-pic__badge { background: var(--accent-cta-hover); transition-duration: 0s; }
+.yo-tile:active { background: var(--s4); transform: scale(.98); transition-duration: 0s; }
+.yo-out__btn:active { background: var(--rgba-danger-bg-hover); transition-duration: 0s; }
 
 /* A view that saves: its fields, and the button at its foot that stays in sight. */
 .yo-form { flex: 1 0 auto; display: flex; flex-direction: column; gap: 16px; padding-top: 8px; }
@@ -140,7 +140,7 @@
 .yo-plex .plex-link-go > [hidden] { display: none !important; }
 
 @media (prefers-reduced-motion: reduce) {
-  .yo-tile:active { transform: none; }
+  .yo-tile:active, .yo-mini:active { transform: none; }
 }
 @media (forced-colors: active) {
   .yo-pic__badge, .dev-ico, .dev-here, .yo-row__ico { border: 1px solid CanvasText; }

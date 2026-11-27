@@ -54,7 +54,7 @@
   {%- endif -%}
 {%- endmacro %}
 
-{# A title's download state on its poster: "In library", "Queued" or "↓ 42%";
+{# A title's download state on its poster: "Ready to watch", "Queued" or "↓ 42%";
    none means it can be downloaded. browse.js builds the same badge. #}
 {% macro state_badge(item) -%}
   {%- if item.download_state == "downloading" -%}

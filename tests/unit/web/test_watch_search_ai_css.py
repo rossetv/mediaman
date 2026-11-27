@@ -183,13 +183,14 @@ def _top_level(value: str) -> list[str]:
 
 def test_the_ai_glow_falls_evenly_all_round_and_never_below() -> None:
     assert _decl(_body(CSS, GLOW_ON), "opacity") == "1"
-    shadows = _top_level(_decl(_body(CSS, GLOW), "box-shadow"))
+    assert _decl(_body(CSS, GLOW), "box-shadow") == "var(--glow-ai)"
+    shadows = _top_level(" ".join(_token("glow-ai").split()))
     assert len(shadows) >= 2
     for shadow in shadows:
         offsets = re.match(r"(-?[\d.]+)(?:px)? (-?[\d.]+)(?:px)?", shadow.strip())
         assert offsets, shadow
         assert float(offsets.group(2)) == 0, f"a glow cast downward pools: {shadow}"
-        assert "--ai-a" in shadow or "--ai-b" in shadow, shadow
+        assert any(f"var(--{c})" in shadow for c in AI.values()), shadow
 
 
 def test_in_ai_mode_the_focus_halo_gives_way_so_no_second_edge_shows() -> None:

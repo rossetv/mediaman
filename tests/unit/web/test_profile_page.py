@@ -325,7 +325,7 @@ def test_each_thing_openai_is_sent_is_said_in_the_right_part_beside_its_switch(
 # Each of the three sentences always in view beside a switch, by the words it must hold.
 _SHORT = {
     "profile": [
-        ("titles you played", "Plex’s own apps", "linked"),
+        ("titles you played or marked as watched", "Plex’s own apps", "linked"),
         ("With this on", "searches", "ratings", "requests"),
         ("never", "account name"),
     ],

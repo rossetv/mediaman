@@ -203,16 +203,18 @@ def test_remove_and_delete_keep_a_border_in_forced_colours() -> None:
 
 def test_the_list_says_how_a_service_stands_in_a_word_while_it_is_tested() -> None:
     out = _cards("answers")
-    assert out["testing"] == ["Testing…", "Testing…", None]
+    assert out["testing"] == ["Testing…", None]
 
 
-def test_an_open_card_says_the_whole_answer_above_its_fields_and_the_pill_keeps_a_word() -> None:
+def test_an_open_card_says_the_whole_answer_above_its_fields_and_the_single_pill_span_keeps_a_word() -> (
+    None
+):
     out = _cards("answers")
     long = "The service refused the request: check the API key and the address."
-    assert out["err"] == ["Not answering", "Not answering", long]
-    assert out["warn"] == ["Rate limited", "Rate limited", None]
-    assert out["ok"] == ["Connected", "Connected", None]
-    assert out["off"] == ["Not set up", "Not set up", None]
+    assert out["err"] == ["Not answering", long]
+    assert out["warn"] == ["Rate limited", None]
+    assert out["ok"] == ["Connected", None]
+    assert out["off"] == ["Not set up", None]
 
 
 def test_a_card_with_edits_offers_save_beside_its_test_and_a_clean_one_does_not() -> None:
@@ -228,11 +230,11 @@ def test_once_saved_the_cards_save_goes_and_the_focus_moves_on_to_test() -> None
     assert out["focus"] == "radarr"
 
 
-SETG = (WEB / "static/css/_settings_pg.css").read_text(encoding="utf-8")
+PANELS = (WEB / "static/css/_settings_pg_panels.css").read_text(encoding="utf-8")
 
 
 def _rule(selector: str) -> str:
-    found = re.search(re.escape(selector) + r" \{([^}]*)\}", SETG)
+    found = re.search(r"(?:^|\n)\s*" + re.escape(selector) + r" \{([^}]*)\}", PANELS)
     assert found, selector
     return found.group(1)
 
@@ -244,10 +246,13 @@ def test_an_open_cards_fields_run_in_one_column_to_its_edges() -> None:
 
 
 def test_the_badge_the_fields_and_the_dividers_share_one_gutter() -> None:
-    assert "padding-inline: var(--intg-gutter)" in _rule(".setg-pg .intg-card .intg-card-hd")
+    assert "--intg-gutter: 16px" in _rule(".setg-pg .intg-card")
+    assert "padding: 10px var(--intg-gutter)" in _rule(".setg-pg .intg-card-hd")
     assert "padding: 4px var(--intg-gutter) 16px" in _rule(
-        ".setg-pg .intg-card .intg-card-bd > .setg-fold-inner"
+        ".setg-pg .intg-card-bd > .setg-fold-inner"
     )
-    assert "left: var(--intg-gutter)" in _rule(
-        ".setg-pg .setg-block .intg-card + .intg-card::before"
-    )
+    assert "left: var(--intg-gutter)" in _rule(".setg-pg .intg-card + .intg-card::before")
+    # a narrow screen gives the row more height and keeps the gutter
+    narrow = PANELS.split("@media (max-width: 520px) {\n", 1)[1].split("\n}", 1)[0]
+    row = re.search(r"\.setg-pg \.intg-card-hd \{([^}]*)\}", narrow).group(1)
+    assert row.strip() == "padding-block: 16px;"

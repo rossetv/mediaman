@@ -35,6 +35,10 @@ ALONE = {
     "number_of_seasons": 11,
 }
 
+# Sonarr's pictures are TheTVDB's.
+SONARR_POSTER = "https://artworks.thetvdb.com/banners/v4/series/295604/posters/62d1b6c8a9c35.jpg"
+SONARR_WIDE = "https://artworks.thetvdb.com/banners/fanart/original/295604-3.jpg"
+
 SERIES = {
     "title": "Alone",
     "tvdbId": 9,
@@ -44,10 +48,10 @@ SERIES = {
     "images": [
         {
             "coverType": "poster",
-            "remoteUrl": "https://image.tmdb.org/t/p/original/sonarrPoster.jpg?apikey=SONARRKEY",
+            "remoteUrl": SONARR_POSTER + "?apikey=SONARRKEY",
             "url": "/MediaCover/1/poster.jpg?apikey=SONARRKEY",
         },
-        {"coverType": "fanart", "remoteUrl": "https://image.tmdb.org/t/p/original/sonarrWide.jpg"},
+        {"coverType": "fanart", "remoteUrl": SONARR_WIDE},
     ],
 }
 
@@ -103,7 +107,7 @@ def test_a_show_never_picked_takes_its_pictures_year_and_words_from_tmdb(conn, t
     assert ALONE["overview"] in html
     assert "Shaw Daly" in html
     assert "7.4" in html
-    assert "sonarrWide.jpg" not in html and "Sonarr&#39;s own words" not in html
+    assert "thetvdb" not in html and "Sonarr&#39;s own words" not in html
     tmdb.assert_called_once_with("tv", 5)
 
 
@@ -120,9 +124,35 @@ def test_with_tmdb_failing_the_show_takes_sonarrs_entry(conn, tmdb):
 
     html = _html(conn, series=SERIES)
 
-    assert "/api/img/tmdb/w1280/sonarrWide.jpg?sig=" in html
+    assert f'src="{SONARR_WIDE}"' in html
     assert "2015" in html
     assert "Sonarr&#39;s own words about the show." in html
+
+
+def test_with_no_tmdb_key_the_show_has_sonarrs_pictures(tmp_path, tmdb):
+    bare = init_db(str(tmp_path / "bare.db"))
+    no_wide = SERIES | {"images": [{"coverType": "poster", "remoteUrl": SONARR_POSTER}]}
+
+    assert f'src="{SONARR_WIDE}"' in _html(bare, series=SERIES)
+    assert f'src="{SONARR_POSTER}"' in _html(bare, series=no_wide)
+    tmdb.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "remote",
+    [
+        SONARR_WIDE.replace("https://", "http://"),
+        SONARR_WIDE.replace("artworks.thetvdb.com", "artworks.thetvdb.com.evil.example"),
+        "https://thetvdb.com/banners/fanart/original/295604-3.jpg",
+        "https://artworks.thetvdb.com/banners/fanart/original/295604-3.svg",
+    ],
+)
+def test_a_picture_sonarr_names_elsewhere_is_not_put_in_the_mail(tmp_path, tmdb, remote):
+    series = SERIES | {"images": [{"coverType": "fanart", "remoteUrl": remote}]}
+
+    html = _html(init_db(str(tmp_path / "bare.db")), series=series)
+
+    assert "<img" not in html and "295604" not in html
 
 
 def test_a_row_with_only_a_tvdb_id_asks_tmdb_by_the_series_tmdb_id(conn, tmdb):

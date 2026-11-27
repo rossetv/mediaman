@@ -134,16 +134,66 @@ def test_a_step_pushes_the_new_view_over_the_old_which_slips_a_little_way_under_
     assert _at(z, 1) > _at(z, -1)
 
 
-def test_the_pane_slides_on_the_shared_ease_out_curve_and_fades_only_once_under_way() -> None:
+def test_the_pane_comes_on_the_push_curve_leaves_on_the_exit_curve_and_fades_once_under_way() -> (
+    None
+):
     rules = _rules(TOP)
     opening = rules[".you.is-open .you__panel"]
     closing = rules[".you__panel"]
-    assert "transform var(--dur-slow) var(--ease-out)" in opening
-    assert "transform var(--dur) var(--ease-out)" in closing
+    assert "transform var(--dur-slow) var(--ease-push)" in opening
+    assert "transform var(--dur) var(--ease-exit)" in closing
     # the panel fades only once it is under way, so it does not hang over Watch half seen
     assert re.search(
-        r"opacity calc\(var\(--dur[^)]*\) \* [.\d]+\) var\(--ease-out\) calc\(", closing
+        r"opacity calc\(var\(--dur[^)]*\) \* [.\d]+\) var\(--ease-exit\) calc\(", closing
     )
+    phone = _rules(_block("@media (max-width: 699.98px)"))
+    assert "var(--ease-exit)" in phone[".you__panel, .you.is-wide .you__panel"]
+    assert "var(--ease-push)" in phone[".you.is-open .you__panel"]
+    # a step moves both views on the push curve, the one the bar's words move on (watch/you.js)
+    for sel in (".you-view", ".you-view.is-on"):
+        assert "transform var(--dur-slow) var(--ease-push)" in rules[sel], sel
+
+
+def test_the_push_and_exit_curves_are_tokens_of_their_own() -> None:
+    tokens = (WEB / "static/css/_tokens.css").read_text()
+    assert re.search(r"--ease-push:\s*cubic-bezier\(\.32,\s*\.72,\s*0,\s*1\)", tokens)
+    assert re.search(r"--ease-exit:\s*cubic-bezier\(\.4,\s*0,\s*1,\s*1\)", tokens)
+
+
+def _press_after_hover(path: str) -> list[str]:
+    """The :active rules of *path* that come before the hover rule of the same thing, which would then
+    win over them under a desktop's mouse."""
+    css = re.sub(r"/\*.*?\*/", "", (WEB / path).read_text(), flags=re.S)
+    early = []
+    for m in re.finditer(r"([^{}]*:active[^{}]*)\{", css):
+        for sel in re.split(r",(?![^()]*\))", m.group(1)):
+            hover = css.find(sel.strip().replace(":active", ":hover"))
+            if hover > m.start():
+                early.append(sel.strip())
+    return early
+
+
+def test_a_press_lights_on_a_desktop_too_as_it_comes_after_the_hover_rule() -> None:
+    assert _press_after_hover("static/css/_profile.css") == []
+    assert _press_after_hover("static/css/_you.css") == []
+    you = _rules(TOP)
+    assert any(":active" in sel and ".you__back" in sel for sel in you)
+    assert any(":active" in sel and ".you__close" in sel for sel in you)
+
+
+def test_while_the_panel_changes_width_a_frame_is_drawn_in_its_place_and_its_own_box_is_clear() -> (
+    None
+):
+    rules = _rules(TOP)
+    held = rules[".you.is-sizing .you__panel"]
+    assert "--you-w: var(--you-wide)" in held
+    assert "background: transparent" in held and "box-shadow: none" in held
+    assert "border-color: transparent" in held
+    assert "display: block" in rules[".you.is-sizing .you__frame.is-on"]
+    # the fill shrinks or grows from the right, the left edge only moves
+    assert "transform-origin: right" in rules[".you__frame-fill"]
+    assert "border-radius: 20px 0 0 20px" in rules[".you__frame-edge"]
+    assert "border-radius: 0 20px 20px 0" in rules[".you__frame-end"]
 
 
 def test_the_pane_moves_only_by_transform_and_opacity_never_by_its_width() -> None:

@@ -843,6 +843,36 @@ const scenarios = {
     h.sizes.forEach((fn) => fn());
     return h.view.style['--hx-tools'] || null;
   },
+  /* The row of kinds wider than the pane, then scrolled to its end, then narrow enough to fit. */
+  kindArrows: (reduced) => {
+    const h = open({ reduced });
+    const g = h.q('.hx-groups');
+    let wide = 1300;
+    Object.defineProperty(g, 'clientWidth', { get: () => 1000 });
+    Object.defineProperty(g, 'scrollWidth', { get: () => wide });
+    Object.defineProperty(g, 'offsetTop', { get: () => 58 });
+    g.scrollLeft = 0;
+    const scrolled = [];
+    g.scrollBy = (o) => scrolled.push(o);
+    const ends = () => ['has-prev', 'has-next'].filter((c) => g.classList.contains(c));
+    const arrows = h.root.querySelectorAll('.hx-kinds-arrow');
+    h.sizes.forEach((fn) => fn());
+    const out = { start: ends(), top: h.q('.hx-tools').style['--hx-kinds'] || null };
+    out.arrows = arrows.map((b) => [b.className, b.getAttribute('aria-hidden'), b.getAttribute('tabindex'), b.previousElementSibling === g || b.previousElementSibling.matches('.hx-kinds-arrow')]);
+    click(h.doc, arrows[1]);
+    out.scrolled = scrolled.splice(0);
+    g.scrollLeft = 300;
+    h.fire(g, 'scroll');
+    out.end = ends();
+    click(h.doc, arrows[0]);
+    out.back = scrolled.splice(0);
+    wide = 1000;
+    g.scrollLeft = 0;
+    h.sizes.forEach((fn) => fn());
+    out.fits = ends();
+    return out;
+  },
+  kindArrowsReduced: () => scenarios.kindArrows(true),
   handTyped: () => ['?since=20261110', '?since=2026-11-12%2010:00', '?since=2026-02-30', '?until=2026-02-30T10:00', '?since=2026-11-01T24:00', '?since=2026-11-01'].map((search) => {
     const h = open({ search });
     return [h.q('[data-menu="date"]').textContent, h.asked.map((a) => a.url), h.url().split('/history')[1]];

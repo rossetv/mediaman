@@ -346,7 +346,7 @@
         el.classList.remove('ok', 'warn', 'err', 'off', 'untested');
         el.classList.add(tone);
         var word = SHORT[tone] || label;
-        el.querySelectorAll('[data-conn-label], [data-conn-short]').forEach(function (span) { span.textContent = word; });
+        el.querySelectorAll('[data-conn-label]').forEach(function (span) { span.textContent = word; });
       });
       drawWhy(service, tone, label, SHORT[tone] || label);
       document.querySelectorAll('[data-ov-service="' + service + '"]').forEach(function (el) {

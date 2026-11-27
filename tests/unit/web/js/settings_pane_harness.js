@@ -14,6 +14,9 @@ Node.prototype.click = function () { click(this.ownerDocument, this); };
 const hidden = (n) => !n.ownerDocument.live && !!n.closest('.you-view');
 Node.prototype.scrollIntoView = function () { if (!hidden(this)) this.ownerDocument.revealed.push(this.id); };
 Node.prototype.focus = function () { if (!hidden(this)) this.ownerDocument.activeElement = this; };
+// Each animation asked for, by the element's class, its frames and its timing.
+const animations = [];
+Node.prototype.animate = function (frames, opts) { animations.push({ el: this.className, frames, opts }); return { cancel() {} }; };
 
 const link = (sec) => ['li', {}, ['a', { class: 'stx-link', href: '/?you=settings/' + sec, 'data-sec': sec }, sec]];
 
@@ -57,10 +60,11 @@ function pane(opts) {
     setTimeout: (fn) => { fn(); return 0; }, clearTimeout: () => {},
     requestAnimationFrame: (fn) => { fn(); return 0; },
     matchMedia: (q) => ({
-      get matches() { return q.includes('min-width') ? p.wide : false; },
+      get matches() { return q.includes('min-width') ? p.wide : q.includes('reduce') ? !!opts.calm : false; },
       addEventListener: (type, fn) => { if (q.includes('min-width')) p.widths.push(fn); },
     }),
     addEventListener: () => {},
+    getComputedStyle: () => ({ getPropertyValue: (k) => (k === '--ease-push' ? 'cubic-bezier(.32, .72, 0, 1)' : '') }),
     fetch: () => Promise.resolve({ status: 401, ok: false, statusText: 'Unauthorized', json: () => Promise.resolve({}) }),
     UIFeedback: { error: (m) => p.said.push(m), toast: () => {}, confirm: () => Promise.resolve(true) },
     MM: {
@@ -184,6 +188,23 @@ const scenarios = {
       };
     }
     return out;
+  },
+  // A step from the list into a section and back up, on a narrow screen, a wide one, and with reduced motion.
+  async sectionPush() {
+    const run = (opts) => {
+      const p = pane(opts);
+      animations.length = 0;
+      click(p.doc, p.doc.querySelector('.stx-link[data-sec="general"]'));
+      const into = animations.splice(0).map((a) => [a.el, a.frames.map((f) => [f.transform, f.opacity]), a.opts.duration, a.opts.easing]);
+      p.emit('mm:you-shown', { group: 'settings', view: 'settings' });
+      const back = animations.splice(0).map((a) => [a.el, a.frames.map((f) => [f.transform, f.opacity])]);
+      p.wide = true;
+      p.widths.forEach((fn) => fn({ matches: true }));
+      p.wide = false;
+      p.widths.forEach((fn) => fn({ matches: false }));
+      return { into, back, resized: animations.splice(0).length };
+    };
+    return { narrow: run({}), wide: run({ wide: true }), calm: run({ calm: true }) };
   },
   // A section open on a narrow screen, then the window widened past the width the list sits beside.
   async widened() {
