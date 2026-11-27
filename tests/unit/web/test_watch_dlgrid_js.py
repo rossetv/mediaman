@@ -455,6 +455,8 @@ def test_a_title_that_is_done_leads_the_grid_and_the_grid_says_it_showed_it(out)
     # told only once it is on screen
     assert got["closed"] == 0
     assert got["told"] == ["radarr:Harbour"]
+    # the head counts it beside what downloads
+    assert got["count"] == "1 in progress · 1 ready to watch"
 
 
 def test_with_no_answer_yet_a_tap_sets_the_address_and_grows_into_placeholders_at_once(

@@ -412,7 +412,7 @@
 
   function curly(text) { return String(text).replace(/'/g, '’'); }
 
-  function wordsOf(data, items) {
+  function wordsOf(data, items, ready) {
     if (!setUpIn(data)) return '';
     var soon = (data.upcoming || []).length;
     var bits = [];
@@ -422,6 +422,7 @@
     else if (!data.outage) bits.push('Nothing downloading');
     else if (admin) bits.push(curly(data.outage));
     if (soon) bits.push(soon + '\u00a0coming\u00a0soon');
+    if (ready) bits.push(ready + '\u00a0ready\u00a0to\u00a0watch');
     if (!admin && data.outage && items.length) bits.push('some may be missing');
     // A wrapped head never starts a line with the dot.
     return bits.join('\u00a0· ');
@@ -566,7 +567,7 @@
     var countHeld = dom.count.querySelector('.skel');
     if (waiting && !countHeld) dom.count.appendChild(el('span', 'skel dlg-skel__count')).setAttribute('aria-hidden', 'true');
     if (!waiting && countHeld) countHeld.remove();
-    if (!waiting) setText(dom.count, data ? wordsOf(data, items) : '');
+    if (!waiting) setText(dom.count, data ? wordsOf(data, items, ready.length) : '');
     var note = noteOf(data, items) || (waiting ? rowNote() : '');
     if (note) setText(dom.noteText, note);
     dom.note.hidden = !note;

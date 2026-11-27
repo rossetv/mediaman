@@ -857,7 +857,7 @@ const scenarios = {
     p.click(p.q('#elsewhere'));
     await p.step(400);
     const order = p.qa('#watch-dl .grid-group, #watch-dl [data-dl-card]').map((n) => (n.classList.contains('grid-group') ? '# ' : '') + p.text(n.querySelector(n.classList.contains('grid-group') ? 'span' : '.dw__title')));
-    return { closed, order, told: told[told.length - 1], href: p.card('Harbour').querySelector('.dw__link').getAttribute('href') };
+    return { closed, order, told: told[told.length - 1], href: p.card('Harbour').querySelector('.dw__link').getAttribute('href'), count: p.text(p.q('#watch-dl .dlg__count')) };
   },
 };
 
