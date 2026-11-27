@@ -250,7 +250,9 @@
     node.classList.toggle('is-waiting', !state.lost && !sum.active && !sum.ready);
   }
 
-  var SEEN_KEY = 'mm:ready-seen';
+  // Kept for each person, since people share a browser.
+  var who = button.querySelector('.profile-btn-name');
+  var SEEN_KEY = 'mm:ready-seen:' + (who ? who.textContent.trim() : '');
   // The menu's line of what is ready, there only while some is new: Downloading is not in the menu.
   var readyLine = document.createElement('a');
   readyLine.className = 'profile-item';
@@ -290,7 +292,8 @@
     return !!item.href && item.href.indexOf('#') < 0 && item.href === window.location.pathname;
   }
 
-  /* How many of what is ready have not been seen. Those the answer does not list are counted. */
+  /* How many of what is ready have not been seen. Only those the answer lists are counted, since
+     Downloading shows no more than that. */
   function unseenOf(state) {
     var ready = readyOf(state);
     var keys = ready.map(function (item) { return item.key; });
@@ -301,7 +304,7 @@
     now = now.filter(function (key, i) { return now.indexOf(key) === i; });
     if (now.join('\n') !== seen.join('\n')) keepSeen(now);
     var fresh = keys.filter(function (key) { return seen.indexOf(key) < 0; }).length;
-    return fresh + Math.max(0, state.summary.ready - ready.length);
+    return fresh;
   }
 
   function see(keys) {
@@ -321,12 +324,14 @@
     shown = state;
     var sum = state.summary;
     var fresh = unseenOf(state);
+    var going = sum.total - sum.ready;
     var words = fresh ? fresh + ' ready to watch'
-      : sum.active ? sum.total + (sum.active === sum.total ? ' downloading' : ' in progress')
+      : sum.active ? going + (sum.waiting ? ' in progress' : ' downloading')
       : sum.waiting ? sum.waiting + ' waiting to download'
       : sum.ready + ' ready to watch';
+    var also = !fresh && going && sum.ready ? ', ' + sum.ready + ' ready to watch' : '';
     var told = fresh > 0 && !state.lost;
-    button.setAttribute('aria-label', name + (!sum.total ? '' : state.lost ? ', downloads not updating' : ', ' + words));
+    button.setAttribute('aria-label', name + (!sum.total ? '' : state.lost ? ', downloads not updating' : ', ' + words + also));
 
     ringLink.toggleAttribute('hidden', !sum.total);
     if (sum.total) {

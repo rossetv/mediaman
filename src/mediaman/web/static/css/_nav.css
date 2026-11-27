@@ -262,7 +262,7 @@
   transform: scale(0);
   pointer-events: none;
   /* Going, it shrinks away whole, and only then is gone. */
-  transition: transform var(--dur) var(--ease-out), opacity 0s linear var(--dur);
+  transition: transform var(--dur) var(--ease-exit), opacity 0s linear var(--dur);
 }
 .profile-count.is-on {
   opacity: 1;
