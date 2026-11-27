@@ -955,12 +955,20 @@ function keyIn(p, el, k, shift) {
   return e.defaultPrevented;
 }
 
+/* What the server says is kept for the subtitles, as `remembered_subtitle_choice`. */
+const KEPT_CHOICE = { rating_key: '400', subtitle: null, subtitle_id: null, subtitle_lang: null, subtitle_forced: false, subtitle_hearing_impaired: false };
+const KEPT_SUBTITLES = {
+  audioKept: KEPT_CHOICE,
+  offKept: Object.assign({}, KEPT_CHOICE, { subtitle: 'off' }),
+  onKept: Object.assign({}, KEPT_CHOICE, { subtitle: 'on', subtitle_id: '9', subtitle_lang: 'en', subtitle_hearing_impaired: true }),
+};
+
 /* English subtitles for the TV over a choice kept for the audio alone, which it plays as the forced
    ones instead: it starts again with what played before, naming no subtitle, so the server starts
    what is kept, not "off", which would go on to the next episodes. */
 async function awaySubtitle(p) {
   p.elsewhere.languages = true;
-  p.held.tracks = { remembered: true, remembered_subtitle: null, defaults: { audio_lang: 'en', subtitle_lang: null } };
+  p.held.tracks = { remembered: true, remembered_subtitle_choice: KEPT_CHOICE, defaults: { audio_lang: 'en', subtitle_lang: null } };
   await streamPlays(p, 30);
   const way = await castPlays(p, true);
   mediaPlays(way.media, 200);
@@ -978,6 +986,8 @@ const scenarios = {
   async tracks_switch(p) {
     const how = p.win.serverPlays || 'ok';
     p.replies[0] = answer('best', TRACKS);
+    // Nothing kept for the title before, as the server says.
+    p.held.tracks = { remembered: false, remembered_subtitle_choice: null, defaults: { audio_lang: null, subtitle_lang: null } };
     if (how === 'put_fails') p.held.put = 'fails';
     await streamPlays(p, 1268);
     const streams = p.hlsList.length;
@@ -1010,13 +1020,15 @@ const scenarios = {
     return out;
   },
 
-  /* English subtitles picked over a choice kept for the audio alone (or for Off, by `serverPlays`
-     'offKept'): Plex will not play them, and what is put back is what was kept; or they play,
-     and Undo goes back to it. */
+  /* English subtitles picked over a choice kept for the audio alone, by `serverPlays` for Off
+     ('offKept'), for English for the hard of hearing of which nothing shows here ('onKept'), or
+     not yet known ('unknown'): Plex will not play them, and what was kept is put back as the
+     server gave it; or they play, and Undo goes back to it ('undo'). */
   async tracks_refused(p) {
     const how = p.win.serverPlays || 'audioKept';
     p.replies[0] = answer('best', TRACKS);
-    p.held.tracks = { remembered: true, remembered_subtitle: how === 'offKept' ? 'off' : null, defaults: { audio_lang: 'en', subtitle_lang: null } };
+    const kept = KEPT_SUBTITLES[how] || KEPT_SUBTITLES.audioKept;
+    if (how !== 'unknown') p.held.tracks = { remembered: true, remembered_subtitle_choice: kept, defaults: { audio_lang: 'en', subtitle_lang: null } };
     await streamPlays(p, 1268);
     await settle();
     const bodies = () => p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url) && !c.gone && c.body).map((c) => c.body);

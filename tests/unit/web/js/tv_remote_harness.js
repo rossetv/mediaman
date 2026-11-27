@@ -725,13 +725,19 @@ const scenarios = {
       p.api.refuse = why;
       out[why] = await tracksOn(p);
     }
-    // English subtitles the TV cannot play: put back is what was kept for them, by what the
-    // server said was kept (audio alone, Off, or not known).
-    const kinds = [['audioKept', { remembered: true, remembered_subtitle: null }], ['offKept', { remembered: true, remembered_subtitle: 'off' }], ['unknown', { remembered: null }], ['onKept', { remembered: true, remembered_subtitle: 'on' }]];
+    // English subtitles the TV cannot play: put back is what was kept for them, as the server
+    // gave it (audio alone, Off, English for the hard of hearing of which nothing shows here), or
+    // nothing where that is not known.
+    const choice = (more) => ({ rating_key: '8001', subtitle: null, subtitle_id: null, subtitle_lang: null, subtitle_forced: false, subtitle_hearing_impaired: false, ...more });
+    const kinds = [
+      ['audioKept', { remembered: true, remembered_subtitle_choice: choice() }],
+      ['offKept', { remembered: true, remembered_subtitle_choice: choice({ subtitle: 'off' }) }],
+      ['unknown', { remembered: null }],
+      ['onKept', { remembered: true, remembered_subtitle_choice: choice({ subtitle: 'on', subtitle_id: '5', subtitle_lang: 'en', subtitle_hearing_impaired: true }) }],
+    ];
     for (const [why, kept] of kinds) {
-      const on = why === 'onKept';
       const subtitles = [{ id: '11', label: 'English' }, { id: '12', label: 'Deutsch' }];
-      const p = await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO, subtitle_tracks: subtitles, subtitle: on ? '12' : null }) })] });
+      const p = await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO, subtitle_tracks: subtitles, subtitle: null }) })] });
       p.api.kept = kept;
       p.api.refuse = 'track_unavailable';
       await p.open();

@@ -3392,11 +3392,33 @@ def test_a_track_plex_will_not_play_gives_way_to_the_old_one(markup, how):
     assert ["error", "Couldn’t change the audio. Staying on English.", None] in out["toasts"]
 
 
-@pytest.mark.parametrize(("how", "back"), [("audioKept", None), ("offKept", "off"), ("undo", None)])
+KEPT = {
+    "rating_key": "400",
+    "subtitle": None,
+    "subtitle_id": None,
+    "subtitle_lang": None,
+    "subtitle_forced": False,
+    "subtitle_hearing_impaired": False,
+}
+KEPT_ON = {**KEPT, "subtitle": "on", "subtitle_id": "9", "subtitle_lang": "en"}
+KEPT_ON["subtitle_hearing_impaired"] = True
+
+
+@pytest.mark.parametrize(
+    ("how", "back"),
+    [
+        ("audioKept", {"subtitle_choice": KEPT}),
+        ("offKept", {"subtitle_choice": {**KEPT, "subtitle": "off"}}),
+        # Kept on, though nothing of it shows here: it is not lost.
+        ("onKept", {"subtitle_choice": KEPT_ON}),
+        ("undo", {"subtitle_choice": KEPT}),
+        # Not yet known: nothing kept is wiped, and nothing is made Off.
+        ("unknown", {"subtitle": None}),
+    ],
+)
 def test_subtitles_given_up_go_back_to_what_was_kept_and_never_to_a_new_off(markup, how, back):
     out = run(markup, "tracks_refused", plays=how)
-    # Off hides signs and songs for the whole show: only an Off that was kept is put back.
-    assert out["kept"] == [{"subtitle": "71"}, {"subtitle": back}]
+    assert out["kept"] == [{"subtitle": "71"}, back]
 
 
 def test_the_chooser_moves_as_radios_and_gives_the_focus_back(markup):

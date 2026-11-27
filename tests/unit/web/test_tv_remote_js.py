@@ -757,11 +757,23 @@ def test_audio_kept_when_the_tv_fails_for_another_reason_stays_kept() -> None:
 def test_subtitles_the_tv_cannot_play_put_back_what_was_kept_and_never_a_new_off() -> None:
     out = _run("tracksRefused")
     pick = ["PUT", {"subtitle": "11"}]
-    # Off hides signs and songs for the whole show: only an Off that was kept is put back.
-    assert out["audioKept"] == [pick, ["PUT", {"subtitle": None}]]
-    assert out["offKept"] == [pick, ["PUT", {"subtitle": "off"}]]
+    choice = {
+        "rating_key": "8001",
+        "subtitle": None,
+        "subtitle_id": None,
+        "subtitle_lang": None,
+        "subtitle_forced": False,
+        "subtitle_hearing_impaired": False,
+    }
+    # What was kept goes back as the server gave it: Off only where Off was kept, and a kept
+    # track of which nothing shows here is not lost.
+    assert out["audioKept"] == [pick, ["PUT", {"subtitle_choice": choice}]]
+    assert out["offKept"] == [pick, ["PUT", {"subtitle_choice": {**choice, "subtitle": "off"}}]]
+    on = {**choice, "subtitle": "on", "subtitle_id": "5", "subtitle_lang": "en"}
+    on["subtitle_hearing_impaired"] = True
+    assert out["onKept"] == [pick, ["PUT", {"subtitle_choice": on}]]
+    # Not known: nothing is named for the subtitles, so none is made Off.
     assert out["unknown"] == [pick, ["PUT", {"subtitle": None}]]
-    assert out["onKept"] == [pick, ["PUT", {"subtitle": "12"}]]
 
 
 def test_a_choice_kept_for_the_title_can_go_back_to_the_defaults_from_the_remote() -> None:

@@ -13,7 +13,8 @@ from mediaman.web.routes.watch import tracks_api
 
 PLEX_URL = "http://plex-lan.example.test:32400"
 
-# Two episodes of show 199, whose stream ids differ, and a movie in a library not scanned.
+# Episodes of show 199, whose stream ids differ (203 has no subtitles), and a movie in a library
+# not scanned.
 STREAMS = {
     "201": (
         '<Stream id="11" streamType="2" languageCode="eng" selected="1"/>'
@@ -27,6 +28,7 @@ STREAMS = {
         '<Stream id="23" streamType="3" languageCode="eng"/>'
         '<Stream id="24" streamType="3" languageCode="eng" hearingImpaired="1"/>'
     ),
+    "203": '<Stream id="31" streamType="2" languageCode="eng" selected="1"/>',
 }
 
 
@@ -103,20 +105,84 @@ def test_changing_one_track_keeps_the_other(alice):
     assert _picked(alice.put("/api/watch/tracks/202", json={"audio": None})) == ("21", None)
 
 
-def test_the_answer_tells_what_is_kept_for_the_subtitles_apart_from_what_plays(alice):
-    def kept() -> str | None:
-        return alice.get("/api/watch/tracks/202").json()["remembered_subtitle"]
+def _kept(alice, key: str = "202"):
+    return alice.get(f"/api/watch/tracks/{key}").json()["remembered_subtitle_choice"]
 
-    assert kept() is None
+
+def test_the_answer_tells_what_is_kept_for_the_subtitles_apart_from_what_plays(alice):
+    assert _kept(alice) is None
     # Audio alone kept: subtitles are left to the defaults, which is not Off.
     alice.put("/api/watch/tracks/201", json={"audio": "12"})
-    assert kept() is None
+    assert _kept(alice)["subtitle"] is None
     alice.put("/api/watch/tracks/201", json={"subtitle": "off"})
-    assert kept() == "off"
+    assert _kept(alice)["subtitle"] == "off"
     alice.put("/api/watch/tracks/201", json={"subtitle": "13"})
-    assert kept() == "on"
-    alice.put("/api/watch/tracks/201", json={"subtitle": None})
-    assert kept() is None
+    assert _kept(alice) == {
+        "rating_key": "201",
+        "subtitle": "on",
+        "subtitle_id": "13",
+        "subtitle_lang": "en",
+        "subtitle_forced": False,
+        "subtitle_hearing_impaired": True,
+    }
+
+
+def test_a_kept_subtitle_choice_given_back_is_kept_exactly_where_nothing_of_it_shows(alice):
+    # English for the hard of hearing, kept on one episode; another has no subtitles at all.
+    alice.put("/api/watch/tracks/201", json={"audio": "12", "subtitle": "13"})
+    assert _picked(alice.get("/api/watch/tracks/203"))[1] is None
+    kept = _kept(alice, "203")
+    alice.put("/api/watch/tracks/203", json={"subtitle": "off"})
+
+    resp = alice.put("/api/watch/tracks/203", json={"subtitle_choice": kept})
+
+    assert resp.status_code == 200, resp.text
+    assert {k: v for k, v in _kept(alice).items() if k not in ("rating_key", "subtitle_id")} == {
+        "subtitle": "on",
+        "subtitle_lang": "en",
+        "subtitle_forced": False,
+        "subtitle_hearing_impaired": True,
+    }
+    # The episode that has them shows them again, with the audio as it was.
+    assert _picked(alice.get("/api/watch/tracks/202")) == ("22", "24")
+
+
+def test_a_kept_choice_given_back_on_its_own_item_keeps_its_track(alice):
+    alice.put("/api/watch/tracks/201", json={"subtitle": "14"})
+    kept = _kept(alice, "201")
+    alice.put("/api/watch/tracks/201", json={"subtitle": "13"})
+    alice.put("/api/watch/tracks/201", json={"subtitle_choice": kept})
+    assert _picked(alice.get("/api/watch/tracks/201"))[1] == "14"
+
+
+ON = {
+    "rating_key": "201",
+    "subtitle": "on",
+    "subtitle_id": "13",
+    "subtitle_lang": "en",
+    "subtitle_forced": False,
+    "subtitle_hearing_impaired": True,
+}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"subtitle_choice": {**ON, "extra": 1}},
+        {"subtitle_choice": {**ON, "subtitle": "maybe"}},
+        {"subtitle_choice": {**ON, "subtitle_id": "x1"}},
+        {"subtitle_choice": {**ON, "subtitle_lang": "english!"}},
+        {"subtitle_choice": {**ON, "subtitle_forced": "yes"}},
+        {"subtitle_choice": {**ON, "subtitle": "off"}},
+        {"subtitle_choice": {**ON, "subtitle": None}},
+        {"subtitle_choice": None},
+        {"subtitle_choice": ON, "subtitle": "13"},
+    ],
+)
+def test_a_kept_choice_given_back_not_as_one_is_kept_is_refused(alice, body):
+    alice.put("/api/watch/tracks/201", json={"subtitle": "14"})
+    assert alice.put("/api/watch/tracks/201", json=body).status_code == 422
+    assert _picked(alice.get("/api/watch/tracks/201"))[1] == "14"
 
 
 def test_going_back_to_the_defaults_forgets_the_choice_for_the_whole_show(alice):

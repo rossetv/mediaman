@@ -1281,7 +1281,8 @@
     if (!open) render();
   }
   /* By title, whether a choice is kept for it, what a change that fails goes back to, what is
-     kept for its subtitles ("on", "off" or null) and the person's defaults: {remembered, subtitle, defaults}. */
+     kept for its subtitles as the server gave it, and the person's defaults:
+     {remembered, subtitle, defaults}. */
   var keptFor = {};
   function openTracks() {
     closeMenu();
@@ -1296,7 +1297,7 @@
 
   function heardKept(key, data) {
     if (!data || typeof data.remembered !== 'boolean') return false;
-    keptFor[key] = { remembered: data.remembered, subtitle: data.remembered_subtitle || null, defaults: data.defaults || (keptFor[key] || {}).defaults || null };
+    keptFor[key] = { remembered: data.remembered, subtitle: data.remembered_subtitle_choice || null, defaults: data.defaults || (keptFor[key] || {}).defaults || null };
     return true;
   }
 
@@ -1350,9 +1351,10 @@
         say(MM.tracks.said(what, after, false));
       }, function (err) {
         if (!err || err.error !== 'track_unavailable') { refuse(err || {}); return; }
-        // Off only where Off was kept: it hides every episode's signs and songs. Not known is none.
+        // The subtitles kept, given back as they were; not known, none is named, as Off would
+        // hide every episode's signs and songs.
         var back = was === false || what === 'reset' ? null : what === 'audio' ? { audio: before.audio }
-          : { subtitle: wasSubtitle === 'off' ? 'off' : wasSubtitle === 'on' && before.subtitle || null };
+          : wasSubtitle ? { subtitle_choice: wasSubtitle } : { subtitle: null };
         (back ? MM.api.put(tracksUrl(key), back) : MM.api.delete(tracksUrl(key))).then(function (d) {
           heardKept(key, d);
         }, function () { /* said below */ });
