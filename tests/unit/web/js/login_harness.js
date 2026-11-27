@@ -18,13 +18,18 @@ doc.body.appendChild(build(doc, ['main', {},
   ['div', { class: 'login-page login-page--signin' },
     ['div', { class: 'mm-sky', 'aria-hidden': 'true' }, ['i', { id: 'sky-a' }], ['i', { id: 'sky-b' }]],
     ['div', { class: 'login-card' },
+      ['div', { class: 'login-sub' }, ['span', { class: 'sub-main' }, 'Sign in to your library'],
+        ...(opts.out ? [['span', { class: 'sub-out', role: 'status', 'data-said': 'Signed out. See you soon.' }, ['svg', {}]]] : [])],
       ['div', { class: 'login-body' },
         ...msg,
-        ['div', { class: 'login-msg is-wait', id: 'login-down', role: 'alert', hidden: '' }],
+        ['div', { class: 'login-msg is-wait', id: 'login-down', role: 'alert', hidden: '' }, ['svg', {}], ['span', {}, 'Could not reach mediaman.']],
         ['form', { class: 'login-form', method: 'post', 'data-submit-guard': '' },
           ['div', { class: 'login-field' }, ['div', { class: opts.refused ? 'login-box is-bad' : 'login-box' },
             ['div', { class: 'pwd-box' }, ['input', { id: 'password', type: 'password' }]]]],
-          ['button', { class: 'login-btn', type: 'submit' }, 'Sign in']]]]]]));
+          ['button', { class: 'login-btn', type: 'submit' }, ['span', { class: 'btn-label' }, 'Sign in'],
+            ['span', { class: 'btn-busy', 'aria-hidden': 'true' }, 'Signing in…'],
+            ['span', { class: 'btn-hold', 'aria-hidden': 'true' }, 'Opening your library…']],
+          ['p', { class: 'sr-only', id: 'login-said', role: 'status' }]]]]]]));
 doc.getElementById('login-down').hidden = true;
 const refused = doc.querySelector('.login-msg:not(#login-down)');
 if (refused) refused.hidden = false;
@@ -43,6 +48,11 @@ const sessionStorage = {
 const url = new URL(opts.href || 'https://mm.test/login');
 const replaced = [];
 const transforms = { 'sky-a': 'matrix(1.02, 0, 0, 1.02, 12, 8)', 'sky-b': 'none' };
+const timers = [];
+const frames = [];
+// The next frame, and the timers that come due in *ms*.
+const frame = () => frames.splice(0).forEach((fn) => fn());
+const after = (ms) => timers.filter((t) => t.ms === ms).forEach((t) => t.fn());
 const ctx = {
   document: doc, console, URLSearchParams, JSON, Date, Array,
   location: { search: url.search, pathname: url.pathname, hash: url.hash },
@@ -50,7 +60,8 @@ const ctx = {
   navigator: { onLine: !opts.offline },
   sessionStorage,
   getComputedStyle: (el) => ({ transform: transforms[el.id] }),
-  setTimeout() { return 0; }, clearTimeout() {}, requestAnimationFrame() {},
+  setTimeout(fn, ms) { timers.push({ fn, ms }); return timers.length; }, clearTimeout(id) { if (timers[id - 1]) timers[id - 1].fn = () => {}; },
+  requestAnimationFrame(fn) { frames.push(fn); },
   addEventListener() {},
 };
 ctx.window = ctx;
@@ -73,6 +84,34 @@ function submit() {
 const page = doc.querySelector('.login-page');
 const room = () => ({ on: page.classList.contains('is-room'), dc: page.style['--dc'], df: page.style['--df'] });
 const out = { stored: Object.fromEntries(store), replaced, room: room() };
+const form = doc.querySelector('.login-form');
+const holding = () => ({ hold: form.hasAttribute('data-hold'), said: doc.getElementById('login-said').textContent });
+if (scenario === 'load') {
+  const said = doc.querySelector('.sub-out');
+  out.out = said && [said.textContent];
+  frame();
+  if (said) out.out.push(said.textContent);
+}
+if (scenario === 'offlineTwice') {
+  submit();
+  frame();
+  const line = () => doc.querySelector('#login-down span');
+  const first = line();
+  first.mark = 'first';
+  doc.activeElement = doc.body;
+  submit();
+  out.sameBeforeFrame = line() === first;
+  frame();
+  out.again = line() !== first && line().textContent === first.textContent && !doc.getElementById('login-down').hidden;
+  out.focused = doc.activeElement.id;
+}
+if (scenario === 'hold') {
+  submit();
+  out.atOnce = holding();
+  if (opts.released) form.removeAttribute('data-busy');
+  after(1200);
+  out.late = holding();
+}
 if (scenario === 'submit') {
   out.sent = submit();
   out.flag = store.has('mm.arrive') ? JSON.parse(store.get('mm.arrive')) : null;

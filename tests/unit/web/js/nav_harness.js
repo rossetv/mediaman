@@ -10,7 +10,7 @@ Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-function page(isPhone, downloading, reduced, pane, stored, who = 'robin', storage) {
+function page(isPhone, downloading, reduced, pane, stored, who = 'robin', storage, menuless = false) {
   const doc = makeDocument();
   const button = ['button', { class: 'profile-btn', id: 'button', 'aria-expanded': 'false', 'aria-label': 'Profile menu, ' + who },
     ['span', { class: 'avatar' }, 'R'], ['span', { class: 'profile-ring', id: 'ring' }], ['span', { class: 'profile-count', id: 'count' }],
@@ -20,6 +20,7 @@ function page(isPhone, downloading, reduced, pane, stored, who = 'robin', storag
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
     ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]],
     ['div', { id: 'profile-menu-items' }, item('account', 'a'), item('settings', 'a'), ['form', { id: 'out-form', action: '/api/auth/logout', method: 'post' }, item('logout', 'button')]]]]));
+  if (menuless) doc.getElementById('profile-menu').remove();
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x'],
     ['div', { class: 'dlg__head' }, ['a', { id: 'dl-back', href: '/' }, 'Back']]]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
@@ -29,7 +30,7 @@ function page(isPhone, downloading, reduced, pane, stored, who = 'robin', storag
   const media = { matches: isPhone, on: [], addEventListener(t, fn) { this.on.push(fn); } };
   const store = { ...stored };
   const localStorage = storage || { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
-  const win = { listeners: {}, scrollY: 0, location: { hash: '', pathname: '/' }, localStorage, setTimeout: (fn) => fn(), matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
+  const win = { listeners: {}, scrollY: 0, location: { hash: '', pathname: '/' }, localStorage, setTimeout: (fn) => fn(), matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { const was = win.listeners[t]; win.listeners[t] = was ? (e) => { was(e); fn(e); } : fn; } };
   win.MM = { dom: { icon: () => doc.createElement('svg') } };
   if (downloading) win.MM.downloading = downloading;
   if (pane) win.MM = { ...win.MM, you: pane };
@@ -505,8 +506,8 @@ const scenarios = {
     return out;
   },
   // Back to the page from the history after log-out: what it took away comes back; a fresh load is untouched.
-  pageshow() {
-    const p = page(false);
+  pageshow({ menuless = false } = {}) {
+    const p = page(false, null, false, false, {}, 'robin', undefined, menuless);
     const html = p.doc.documentElement;
     const show = (persisted) => {
       html.classList.add('is-leaving', 'is-leaving-flat');

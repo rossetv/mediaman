@@ -15,7 +15,8 @@
       <h1 class="sr-only">Sign in to mediaman</h1>
       <div class="login-brand{% if not error %} login-brand--drawn{% endif %}"><a href="/" aria-label="mediaman">{# Not from the sprite: WebKit does not animate what is. #}<svg class="ico wordmark" viewBox="0 -735 4210 970" aria-hidden="true" focusable="false">{% include "_wordmark.html" %}</svg></a></div>
       <div class="login-sub"><span class="sub-main">Sign in to your library</span>
-        {%- if signed_out %}<span class="sub-out" role="status"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>Signed out. See you soon.</span>{% endif %}</div>
+        {#- Its words are put in by login.js once the page is up: a live region is only read out for what changes in it. #}
+        {%- if signed_out %}<span class="sub-out" role="status" data-said="Signed out. See you soon."><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>{% endif %}</div>
     </div>
 
     <div class="login-body">
@@ -48,7 +49,9 @@
           </div></div>
         </div>
 
-        <button class="login-btn" type="submit"><span class="btn-label">Sign in</span><span class="btn-busy" aria-hidden="true"><span class="btn-spinner"></span>Signing in…</span></button>
+        {# btn-hold takes over from btn-busy when the answer is slow (login.js), and is read out by #login-said. #}
+        <button class="login-btn" type="submit"><span class="btn-label">Sign in</span><span class="btn-busy" aria-hidden="true"><span class="btn-spinner"></span>Signing in…</span><span class="btn-hold" aria-hidden="true"><span class="btn-spinner"></span>Opening your library…</span></button>
+        <p class="sr-only" id="login-said" role="status"></p>
       </form>
     </div>
   </div>

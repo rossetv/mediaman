@@ -179,7 +179,8 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 .mm-sky > i:first-child { background: radial-gradient(ellipse at 20% 30%, rgba(41,151,255,.42), transparent 58%); }
 .mm-sky > i:last-child { background: radial-gradient(ellipse at 80% 70%, rgba(191,90,242,.32), transparent 58%); }
 @media (prefers-reduced-motion: no-preference) {
-  .mm-sky > i { will-change: transform; }
+  /* Only on the sign-in page, where they stay on screen; on Watch they are seen only in passing. */
+  .login-page--signin > .mm-sky > i { will-change: transform; }
   .mm-sky > i:first-child { animation: mm-sky-a 46s ease-in-out infinite alternate; }
   .mm-sky > i:last-child { animation: mm-sky-b 58s ease-in-out infinite alternate; }
 }
@@ -228,6 +229,10 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 form[data-busy] .login-btn:has(> .btn-busy) { opacity: 1; }
 form[data-busy] .login-btn .btn-label { opacity: 0; }
 form[data-busy] .login-btn .btn-busy { opacity: 1; }
+/* Still unanswered after a while (login.js): the busy line gives way to "Opening your library…". */
+.login-btn .btn-hold { opacity: 0; }
+form[data-busy][data-hold] .login-btn .btn-busy { opacity: 0; }
+form[data-busy][data-hold] .login-btn .btn-hold { opacity: 1; }
 
 /* What went wrong. Amber for waiting, which is nobody's fault. */
 .login-msg {
@@ -280,6 +285,8 @@ form[data-busy] .login-btn .btn-busy { opacity: 1; }
   .is-room .login-box.is-bad::before { animation: login-fade var(--dur) calc(var(--dur) * .45) var(--ease-out) backwards; }
   form[data-busy] .login-btn .btn-label { animation: login-lift-out var(--dur) var(--ease-out); }
   form[data-busy] .login-btn .btn-busy { animation: login-busy-in var(--dur-slow) calc(var(--dur) * .3) var(--ease-out) backwards; }
+  form[data-busy][data-hold] .login-btn .btn-busy { animation: login-fade-out var(--dur) var(--ease-out); }
+  form[data-busy][data-hold] .login-btn .btn-hold { animation: login-fade var(--dur) var(--ease-out) backwards; }
   .is-out .sub-out { animation: login-out-line calc(var(--dur) * 18) calc(var(--dur) * .6) linear both; }
   .is-out .sub-main { animation: login-main-back calc(var(--dur) * 18) calc(var(--dur) * .6) linear both; }
 }
@@ -292,6 +299,8 @@ form[data-busy] .login-btn .btn-busy { opacity: 1; }
   .is-room .login-box.is-bad::before,
   form[data-busy] .login-btn .btn-busy { animation: login-fade var(--dur-fast) linear backwards !important; }
   form[data-busy] .login-btn .btn-label { animation: login-fade-out var(--dur-fast) linear !important; }
+  /* The hold line is a swap here, not a fade. */
+  form[data-busy][data-hold] .login-btn :is(.btn-busy, .btn-hold) { animation: none !important; }
   .login-box::after { transform: none; transition: opacity var(--dur-fast) var(--ease-out) !important; }
   .is-out .sub-out { animation: login-out-line-still 3.6s 120ms linear both !important; }
   .is-out .sub-main { animation: login-main-back 3.6s 120ms linear both !important; }

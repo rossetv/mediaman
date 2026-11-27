@@ -88,12 +88,15 @@ def test_the_banner_has_its_picture_blurred_beside_it_and_none_without_one() -> 
     art = {
         "title": "Dune",
         "backdrop_url": "/art/dune.jpg",
+        "next_backdrop_url": "/art/dune-2.jpg",
         "poster_url": "/p/dune.jpg",
         "primary": play,
     }
     html = _watch(art)
+    # it falls back the way the banner's picture does, and is marked when none loads
     assert re.search(
-        r'data-wide-art data-broken-on-error>\s*(\{#.*?#\}\s*)?<img class="mm-bg-blur" src="/art/dune.jpg" alt="">',
+        r'data-wide-art data-broken-on-error>\s*(\{#.*?#\}\s*)?<img class="mm-bg-blur" src="/art/dune.jpg" alt=""'
+        r' data-next-src="/art/dune-2.jpg" data-broken-on-error>',
         html,
     )
     assert "mm-bg-blur" not in _watch(
@@ -111,7 +114,7 @@ _PARTS = {
     "_watch.css": "/* Signing in and out.",
     "_nav.css": "/* Signing in and out",
     "_you.css": "/* Log-out (nav.js)",
-    "_ui_feedback.css": "/* Log-out (nav.js)",
+    "_ui_feedback.css": "/* A yes that leaves the page",
 }
 
 
@@ -125,8 +128,14 @@ def test_a_normal_load_plays_nothing_every_motion_waits_for_signing_in_or_out() 
                 continue
             for one in re.split(r",(?![^()]*\))", selector):
                 one = one.strip()
+                # data-leave: put on a confirm only as its yes leaves the page (ui-feedback.js)
                 assert one.startswith(
-                    ("html.is-arriving", "html.is-leaving", "html.has-watch-search")
+                    (
+                        "html.is-arriving",
+                        "html.is-leaving",
+                        "html.has-watch-search",
+                        ".ui-confirm-overlay[data-leave]",
+                    )
                 ), (name, one)
 
 

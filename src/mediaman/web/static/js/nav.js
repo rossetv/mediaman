@@ -63,7 +63,8 @@
   function logOut(form, panel) {
     var html = document.documentElement;
     if (html.classList.contains('is-leaving')) return;
-    var answer = window.fetch(form.action, { method: 'POST', credentials: 'same-origin', redirect: 'manual' });
+    // keepalive: the POST still lands if the page leaves before its answer.
+    var answer = window.fetch(form.action, { method: 'POST', credentials: 'same-origin', redirect: 'manual', keepalive: true });
     var played = false;
     var out = false;
     var gone = false;
@@ -79,10 +80,14 @@
     html.classList.add('is-leaving');
     var calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     window.setTimeout(function () { played = true; both(); }, calm ? LEAVE_CALM_MS : LEAVE_MS);
-    window.setTimeout(function () { leave(signIn); }, LEAVE_LATEST_MS);
+    // Unanswered, the session may still stand: the home page shows which, sending a signed-out
+    // person to sign in, where "Signed out" could be untrue.
+    window.setTimeout(function () {
+      leave(out ? signIn : function () { window.location.replace('/'); });
+    }, LEAVE_LATEST_MS);
     answer.then(function (res) {
       // The redirect is the session ended; a 401, one that had already ended.
-      if (res.type === 'opaqueredirect' || res.status === 401) {
+      if (res.ok || res.type === 'opaqueredirect' || res.status === 401) {
         out = true;
         both();
       } else {
@@ -92,6 +97,12 @@
   }
   window.MM = window.MM || {};
   window.MM.logOut = logOut;
+
+  // Back from the history after log-out: what it took away comes back. On every page, Watch too,
+  // which has no menu.
+  window.addEventListener('pageshow', function (e) {
+    if (e.persisted) document.documentElement.classList.remove('is-leaving', 'is-leaving-flat');
+  });
 
   var menu = document.getElementById('profile-menu');
   if (!menu) return;
@@ -447,9 +458,6 @@
     picture.src = e.detail.url;
   });
 
-  // Back brings the page as it was left, open menu and all, and what log-out had taken away.
-  window.addEventListener('pageshow', function (e) {
-    close(false);
-    if (e.persisted) document.documentElement.classList.remove('is-leaving', 'is-leaving-flat');
-  });
+  // Back brings the page as it was left, open menu and all.
+  window.addEventListener('pageshow', function () { close(false); });
 })();

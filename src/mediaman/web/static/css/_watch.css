@@ -979,7 +979,8 @@ html.has-watch-search.is-arriving .mm-sky > i:last-child { transform: var(--sky-
   opacity: 0;
   pointer-events: none;
 }
-.watch-banner__bg--art:is([data-broken], [data-retrying]) ~ .mm-bg-blur { display: none; }
+.watch-banner__bg--art:is([data-broken], [data-retrying]) ~ .mm-bg-blur,
+.mm-bg-blur:is([data-broken], [data-retrying]) { display: none; }
 @keyframes mm-sky-out { from { opacity: .3; } to { opacity: 0; } }
 @keyframes mm-sky-in { from { opacity: 0; } to { opacity: .3; } }
 @keyframes mm-forward { from { opacity: 0; transform: translateY(8px) scale(.98); } }

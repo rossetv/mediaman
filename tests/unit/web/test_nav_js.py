@@ -401,7 +401,12 @@ def test_log_out_posts_at_once_and_opens_sign_in_once_answered_and_played() -> N
     assert out["sent"] == [
         [
             "http://app.test/api/auth/logout",
-            {"method": "POST", "credentials": "same-origin", "redirect": "manual"},
+            {
+                "method": "POST",
+                "credentials": "same-origin",
+                "redirect": "manual",
+                "keepalive": True,
+            },
         ]
     ]
     assert out["leaving"] == ["is-leaving"]
@@ -439,10 +444,10 @@ def test_log_out_that_cannot_reach_the_server_or_is_refused_posts_the_form_as_be
         assert out["atLatest"] == [[], 1]
 
 
-def test_log_out_never_answered_opens_sign_in_after_two_seconds() -> None:
+def test_log_out_never_answered_goes_home_after_two_seconds_and_does_not_say_signed_out() -> None:
     out = _run("logOut", answer="never")
     assert out["steps"] == [["answer", [], 0], ["played", [], 0]]
-    assert out["atLatest"] == [[SIGNED_OUT], 0]
+    assert out["atLatest"] == [["/"], 0]
 
 
 def test_log_out_under_reduced_motion_waits_only_for_its_fade() -> None:
@@ -453,5 +458,11 @@ def test_log_out_under_reduced_motion_waits_only_for_its_fade() -> None:
 
 def test_a_page_back_from_the_history_after_log_out_is_whole_again() -> None:
     out = _run("pageshow")
+    assert out["fresh"] == ["is-leaving", "is-leaving-flat"]
+    assert out["restored"] == []
+
+
+def test_a_page_with_no_menu_back_from_the_history_after_log_out_is_whole_again() -> None:
+    out = _run("pageshow", menuless=True)
     assert out["fresh"] == ["is-leaving", "is-leaving-flat"]
     assert out["restored"] == []

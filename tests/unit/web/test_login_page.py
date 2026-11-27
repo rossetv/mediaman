@@ -52,6 +52,9 @@ def _message(html: str) -> str:
 def test_the_page_says_signed_out_only_after_a_log_out(client):
     after = client.get("/login?out=1").text
     assert _SIGNED_OUT in after and "is-out" in after
+    # the live region comes empty, for login.js to fill once it is up
+    region = re.search(r'<span class="sub-out" role="status"[^>]*>(.*?)</span>', after, re.S)[1]
+    assert _SIGNED_OUT not in region
     for plain in (client.get("/login").text, client.get("/login?out=0").text):
         assert _SIGNED_OUT not in plain and "is-out" not in plain
 
@@ -122,3 +125,21 @@ def test_the_signed_out_mark_leaves_the_address_and_the_rest_stays():
     out = _run("load", href="https://mm.test/login?out=1&next=%2Fkeep#here")
     assert out["replaced"] == ["/login?next=%2Fkeep#here"]
     assert _run("load", href="https://mm.test/login?next=%2F")["replaced"] == []
+
+
+def test_the_signed_out_line_is_put_in_its_live_region_once_the_page_is_up():
+    assert _run("load", out=True)["out"] == ["", _SIGNED_OUT]
+
+
+def test_offline_tapped_again_the_line_is_said_again_and_the_password_has_the_focus():
+    out = _run("offlineTwice", offline=True)
+    assert out["again"] is True and out["sameBeforeFrame"] is True
+    assert out["focused"] == "password"
+
+
+def test_a_sign_in_unanswered_after_a_while_says_it_is_opening_the_library():
+    out = _run("hold")
+    assert out["atOnce"] == {"hold": False, "said": ""}
+    assert out["late"] == {"hold": True, "said": "Opening your library\u2026"}
+    # a post no longer under way says nothing more
+    assert _run("hold", released=True)["late"] == {"hold": False, "said": ""}

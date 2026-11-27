@@ -3,7 +3,7 @@
 {% macro pictures(art) -%}
 {% if art.backdrop_url %}<img class="watch-banner__bg watch-banner__bg--art" src="{{ art.backdrop_url }}" alt=""{% if art.next_backdrop_url %} data-next-src="{{ art.next_backdrop_url }}"{% endif %} data-wide-art data-broken-on-error>
 {# The same picture blurred and darkened, seen only as the page signs in or out: only its opacity moves, so the blur is drawn once. #}
-<img class="mm-bg-blur" src="{{ art.backdrop_url }}" alt="">{% endif %}
+<img class="mm-bg-blur" src="{{ art.backdrop_url }}" alt=""{% if art.next_backdrop_url %} data-next-src="{{ art.next_backdrop_url }}"{% endif %} data-broken-on-error>{% endif %}
 {# Lazy and hidden until no backdrop loads that is a wide picture, so the browser only then asks for the poster. #}
 {% if art.poster_url %}
 <img class="watch-banner__bg watch-banner__bg--fill" src="{{ art.poster_url }}" alt="" loading="lazy" data-broken-on-error>

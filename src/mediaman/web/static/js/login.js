@@ -8,6 +8,7 @@
   'use strict';
 
   var ARRIVE = 'mm.arrive';
+  var HOLD_MS = 1200; // a sign-in still unanswered this long says the library is on its way
   var d = document;
   var page = d.querySelector('.login-page--signin');
   if (!page) return;
@@ -16,6 +17,8 @@
   var down = d.getElementById('login-down');
   var pass = d.getElementById('password');
   var pbox = pass && pass.closest('.login-box');
+  var said = d.getElementById('login-said');
+  var hold = form.querySelector('.btn-hold');
 
   // A flag left by a sign-in that was refused, or that went elsewhere, would play Watch's arrival later.
   try { window.sessionStorage.removeItem(ARRIVE); } catch (e) { /* storage blocked */ }
@@ -27,6 +30,14 @@
     var rest = query.toString();
     window.history.replaceState(window.history.state, '',
       window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+  }
+
+  // Said once the page is up: words a live region is drawn with are not read out.
+  var out = page.querySelector('.sub-out');
+  if (out) {
+    window.requestAnimationFrame(function () {
+      out.appendChild(d.createTextNode(out.getAttribute('data-said')));
+    });
   }
 
   // Lays the page out as *change* leaves it, and has the card and the form ease there from where they were.
@@ -64,21 +75,36 @@
     } catch (e) { /* storage blocked: Watch opens as on any load */ }
   }
 
+  var holding = 0;
   // On the form itself, so it runs before submit-guard.js, which listens on the document.
   form.addEventListener('submit', function (e) {
     if (window.navigator.onLine === false) {
       // Nothing is sent, so the password stays in its field and the form is not marked busy.
       e.preventDefault();
       e.stopPropagation();
+      var again = !down.hidden;
       makeRoom(function () {
         if (refused) refused.hidden = true;
         if (pbox) pbox.classList.remove('is-bad');
-        down.hidden = true;
-        void down.offsetWidth; // said again when it was already shown
         down.hidden = false;
       });
+      if (again) {
+        // The same words, put in afresh, so the alert is read out again.
+        var words = down.querySelector('span');
+        window.requestAnimationFrame(function () { words.replaceWith(words.cloneNode(true)); });
+      }
+      if (pass) pass.focus();
       return;
     }
-    if (!form.hasAttribute('data-busy') && toWatch()) leaveFlag();
+    if (form.hasAttribute('data-busy')) return;
+    if (toWatch()) leaveFlag();
+    form.removeAttribute('data-hold');
+    if (said) said.textContent = '';
+    window.clearTimeout(holding);
+    holding = window.setTimeout(function () {
+      if (!form.hasAttribute('data-busy') || !hold) return;
+      form.setAttribute('data-hold', '');
+      if (said) said.textContent = hold.textContent;
+    }, HOLD_MS);
   });
 })();
