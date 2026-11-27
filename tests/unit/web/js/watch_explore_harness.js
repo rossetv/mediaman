@@ -10,8 +10,9 @@ const { makeDocument, settle } = require('./fake_dom');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-/* *frames*: where the frames asked for wait to be run, or none to run them at once. */
-function load(data, frames) {
+/* *frames*: where the frames asked for wait to be run, or none to run them at once.
+   *still*: whether the person asks for reduced motion, as they do unless told. */
+function load(data, frames, still = true) {
   const doc = makeDocument();
   const replies = {};
   const lists = [];
@@ -20,7 +21,7 @@ function load(data, frames) {
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Number, Math, Promise, Set, Map, URLSearchParams,
     setTimeout: () => 0, clearTimeout: () => {}, requestAnimationFrame: (fn) => (frames ? frames.push(fn) : fn()),
-    matchMedia: () => ({ matches: true }), getComputedStyle: () => ({ getPropertyValue: () => '' }),
+    matchMedia: (q) => ({ matches: still || !/reduced-motion/.test(q) }), getComputedStyle: () => ({ getPropertyValue: () => '' }),
     location: { search: '' },
     addEventListener: () => {},
     MM: { api: { get: (url) => Promise.resolve(replies[url]) } },
@@ -147,6 +148,33 @@ Object.assign(scenarios, {
     land();
     await settle();
     return { flying, landed: look() };
+  },
+});
+
+Object.assign(scenarios, {
+  // A person with no biography: the placeholder for it folds shut, so Known for under it rises, not jumps.
+  async noStory() {
+    const open = async (still) => {
+      const p = load({ can_download: { movie: true, show: true } }, null, still);
+      const anims = [];
+      Object.getPrototypeOf(p.ctx.document.createElement('div')).animate = function (frames, opts) {
+        const a = { node: this, frames, opts, cancel() {}, onfinish: null };
+        anims.push(a);
+        return a;
+      };
+      p.replies['/api/watch/person/9001'] = { tmdb_configured: true, person: { person_id: 9001, name: 'Mara Ellison', job: 'Actor', biography: '' },
+        items: [TITLE(1, true)], total: 1, in_library: 1, next_page: null, known_for: [TITLE(2, false)] };
+      p.ctx.MMWatch.explore.openPerson({ person_id: 9001, name: 'Mara Ellison' }, null);
+      const story = p.opened[0].node.querySelector('.explore-story');
+      await p.lists[0].fetchPage(1);
+      await settle();
+      const fold = anims.filter((a) => a.node === story)[0];
+      const look = () => ({ hidden: !!story.hidden, lines: story.querySelectorAll('.skel').length });
+      const out = { now: look(), fold: fold ? { frames: fold.frames, ms: fold.opts.duration } : null };
+      if (fold) { fold.onfinish(); out.after = look(); }
+      return out;
+    };
+    return { moving: await open(false), still: await open(true) };
   },
 });
 

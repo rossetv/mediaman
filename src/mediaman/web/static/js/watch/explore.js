@@ -749,6 +749,35 @@
       });
     }
 
+    var folding = null;
+
+    /* No story after all: its placeholder folds shut, and what stands under it rises with it. */
+    function fold() {
+      if (folding) return;
+      if (story.hidden || !bio.querySelector('.skel') || core.reduceMotion() || !story.animate) {
+        shut();
+        return;
+      }
+      story.style.overflow = 'hidden';
+      folding = story.animate([{ height: story.offsetHeight + 'px', opacity: 1 }, { height: '0px', opacity: 0 }],
+        { duration: core.tokenMs('--dur', 200), easing: core.token('--ease-out', 'ease-out') });
+      folding.onfinish = shut;
+    }
+
+    function shut() {
+      unfold();
+      bio.textContent = '';
+      story.hidden = true;
+    }
+
+    function unfold() {
+      if (!folding) return;
+      folding.onfinish = null;
+      folding.cancel();
+      folding = null;
+      story.style.overflow = '';
+    }
+
     /* Open, it keeps its way back. */
     function fit() {
       if (drawn && !bio.classList.contains('is-whole')) more.hidden = !(bio.scrollHeight > bio.clientHeight + 1);
@@ -771,12 +800,17 @@
           var p = (of && of.person) || {};
           years.textContent = born(p);
           years.hidden = !years.textContent;
-          bio.textContent = p.biography || '';
+          if (p.biography) {
+            unfold();
+            bio.textContent = p.biography;
+            story.hidden = false;
+          } else {
+            fold();
+          }
           bio.classList.remove('is-whole');
           more.textContent = 'More';
           more.setAttribute('aria-expanded', 'false');
           more.classList.remove('is-unknown');
-          story.hidden = !p.biography;
           posters.textContent = '';
           ((of && of.known_for) || []).slice(0, 4).forEach(function (t) { posters.appendChild(knownCard(t)); });
           known.hidden = away || !posters.children.length;
