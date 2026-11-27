@@ -157,7 +157,8 @@ a.chip { text-decoration: none; }
 .ask__off > .chip { flex: none; }
 
 /* What parts the answer from the titles that only have the words. */
-.ordinary { margin-bottom: 14px; }
+.ordinary { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.ordinary__count { font-size: 13px; color: var(--t3); }
 .ordinary__title { margin: 0; font: 600 20px/1.25 var(--font-display); letter-spacing: -.01em; }
 .watch-face--art,
 .watch-search__token .watch-face--art { border-radius: 5px; }
@@ -237,8 +238,9 @@ a.chip { text-decoration: none; }
   /* Fades alone: the step, the sparkle and the light over the outlines. */
   .ask__step { animation: watch-ask-fade var(--dur-fast) ease-out backwards; }
   .watch-card__spark { animation: watch-ask-fade var(--dur-fast) ease-out .12s backwards; }
-  .is-thinking .ask__skel .skel--poster::after { background: color-mix(in srgb, var(--ai-a) 10%, transparent); animation: ai-twinkle-pulse 2.4s ease-in-out infinite; }
-  .is-thinking .ask__orb > .ico { --ai-twinkle-lg: none; --ai-twinkle-sm: none; animation: ai-twinkle-pulse 2.4s ease-in-out infinite; }
+  /* !important: the page's own stillness cuts every animation to one short run. */
+  .is-thinking .ask__skel .skel--poster::after { background: color-mix(in srgb, var(--ai-a) 10%, transparent); animation: ai-twinkle-pulse 2.4s ease-in-out infinite !important; }
+  .is-thinking .ask__orb > .ico { --ai-twinkle-lg: none; --ai-twinkle-sm: none; animation: ai-twinkle-pulse 2.4s ease-in-out infinite !important; }
   .chip:active { transform: none; }
 }
 @keyframes watch-ask-fade { from { opacity: 0; } }

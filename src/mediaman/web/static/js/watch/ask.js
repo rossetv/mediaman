@@ -41,15 +41,30 @@
   // Always a wish, even over a title of the same words.
   var STRONG = /^(?:something|anything|shows?|films?|movies?|series|tv|documentar(?:y|ies)|anime)\s+(?:like|similar to)\b|\b(?:similar to|more like|close to|in the mood for|recommend|suggest|what (?:should|to|can)|to watch|i want|i'?m in the mood|for (?:kids|a date|date night|a rainy|tonight|a long|a short)|but (?:funnier|darker|shorter|lighter|scarier|sadder|newer|older|less|more|with|without|set))\b|\?\s*$/i;
   // A wish where no title has the words: a kind, a mood, a maker, a place or a time.
-  var CUES = /\b(?:movies|films|shows|series|documentaries|docs|sitcoms|thrillers|comedies|dramas|westerns|musicals|originals|classics|miniseries|anime|horror|feel[- ]?good|funny|scary|cosy|cozy|dark|romantic|underrated|mind[- ]?bending|slow[- ]?burn|comfort|bingeable|short|quick|kids|family|netflix|hbo|apple tv|disney|pixar|a24|ghibli|marvel|bbc|nordic|korean|french|japanese|\d0s|(?:19|20)\d\d)\b/i;
+  var CUES = /\b(?:movies|films|shows|series|documentaries|docs|sitcoms|thrillers|comedies|dramas|westerns|musicals|originals|classics|miniseries|anime|horror|feel[- ]?good|funny|cosy|cozy|dark|underrated|mind[- ]?bending|slow[- ]?burn|netflix|hbo|apple tv|disney|pixar|a24|ghibli|marvel|bbc|nordic|korean|french|japanese|\d0s|(?:19|20)\d\d)\b/i;
   var JOINS = /\b(?:with|about|where|that|who|set in|without|not)\b/;
   // Ends in a word that waits for more: "shows like", "movies with".
   var TAIL = /\b(?:similar to|like|with|without|but|and|or|for|of|the|a|an|about|than|from|set in|in)\s*$/;
 
   function plainWords(text) { return tidy(text).toLowerCase().replace(/[^\p{L}\p{N}'\s]+/gu, ' ').replace(/\s+/g, ' ').trim(); }
 
-  /* Whether *text* reads as a wish for titles, and whether it is whole enough to ask. *exact*: a
-     title has all its words, so only a strong cue makes it a wish. */
+  // A title's words as they are matched: no accents, apostrophes or leading "the".
+  function titleWords(text) { return plainWords(text).normalize('NFD').replace(/[\p{M}']/gu, '').replace(/^the /, ''); }
+
+  /* Whether *text* is one of *names*, the titles a search found: the whole of one, its start, or
+     one followed by a year or a number ("dune 2021", "spy kids 2"). */
+  function titled(text, names) {
+    var typed = titleWords(text);
+    if (!typed) return false;
+    var numbered = /^(.+) \d{1,4}$/.exec(typed);
+    return (names || []).some(function (name) {
+      var whole = titleWords(name);
+      return !!whole && (whole.indexOf(typed) === 0 || (!!numbered && numbered[1] === whole));
+    });
+  }
+
+  /* Whether *text* reads as a wish for titles, and whether it is whole enough to ask. *exact*: it
+     is a title the search found (see titled), so only a strong cue makes it a wish. */
   function intent(text, exact) {
     var n = plainWords(text);
     var words = n ? n.split(' ') : [];
@@ -61,7 +76,7 @@
 
   /* ── What the panel knows ── */
 
-  var state = null; // { account, available, tonight, records, recent, phrases, min_words }
+  var state = null; // { account, available, tonight, records, recent, phrases, left, auto, why }
   var loading = null;
   var wipes = 0; // times the searches were forgotten
   var pageLeft = false; // the page is being left for the next person's
@@ -81,7 +96,6 @@
         records: data.records === true,
         recent: data.recent || [],
         phrases: data.personal && data.phrases ? data.phrases : [],
-        min_words: data.min_words || 2,
         // Answers left today: a number, or none known. Asking on its own is on unless switched off.
         left: typeof data.left === 'number' ? data.left : null,
         auto: data.auto !== false,
@@ -125,8 +139,16 @@
   /* Whether *text* reads as a wish the AI is there to answer. */
   function fits(text, exact) { return available() && intent(text, exact).wish; }
 
-  /* Whether the AI may be asked *text* at all, wish or not, when the person asks for it. */
-  function canAsk(text) { return available() && wordCount(text) >= state.min_words; }
+  /* Whether the AI may be asked *text* at all, wish or not, when the person asks for it: a word is
+     enough then. Asking on its own takes a wish, of two words or more. */
+  function canAsk(text) { return available() && wordCount(text) >= 1; }
+
+  /* What a reply says of the answers left today; with nothing said, a run begun has spent one. */
+  function told(left, begun) {
+    if (!state) return;
+    if (typeof left === 'number') state = Object.assign({}, state, { left: left });
+    else if (begun && state.left !== null) state = Object.assign({}, state, { left: Math.max(0, state.left - 1) });
+  }
 
   /* Whether a wish is asked once the person pauses: they have not switched it off, and it leaves
      them a few answers of the day to ask for themselves. */
@@ -233,6 +255,7 @@
       narrowing: false, slow: false, waiting: false, note: '', refused: null,
       stage: '', // the step of its answer the server is at
       like: kind === 'ask' ? similarOf(value) : '', // what "similar to …" names
+      top: null, // the title the search found under its words, named as the one the person likes
       heading: '', // the AI's few words for its answer
       halted: false, // stopped by the person: not asked again on its own
       base: null, shown: null, chips: [], instead: []
@@ -323,7 +346,8 @@
     item.note = '';
     item.refused = null;
     item.stage = '';
-    if (chip) item.narrowing = true;
+    // Other picks are looked for over the answer, which stays, dimmed, with its chips.
+    if (chip || fresh) item.narrowing = true;
     else item.state = 'thinking';
     changed(item);
     g.slow = setTimeout(function () {
@@ -343,6 +367,7 @@
     if (g.chip) body.refine = g.chip;
     if (g.fresh) body.fresh = true;
     return send('post', '/' + item.kind, body).then(function (data) {
+      told(data.left, data.status === 'running');
       if (data.status !== 'running') {
         if (!g.left) done(g, data);
         return null;
@@ -378,11 +403,12 @@
     g.timer = setTimeout(function () {
       MM.api.get(URL + '/runs/' + run).then(function (data) {
         if (g.left) return;
+        told(data.left, false);
         if (data.status === 'done') done(g, data);
         else if (data.status === 'running') {
           var more = (data.owned || []).length + (data.others || []).length;
           // What is checked already shows, the rest outlined after it. A narrowing keeps the answer it narrows.
-          if (!g.chip && more > titles(g.item).length) {
+          if (!g.chip && !g.fresh && more > titles(g.item).length) {
             g.item.shown = { owned: data.owned || [], others: data.others || [], lead: data.lead };
             g.item.stage = data.stage || g.item.stage;
             changed(g.item);
@@ -424,9 +450,10 @@
     }
     item.state = g.chip || titles(item).length ? 'answer' : 'nothing';
     changed(item);
-    // How many are left today, which an answer may have spent.
-    load();
   }
+
+  /* Whether other picks than the answer's are being looked for. */
+  function renewing(item) { return !!going && going.item === item && going.fresh; }
 
   /* Narrow the answer by *chip*; by the one it is narrowed by already, back to all of it. */
   function narrow(item, chip) {
@@ -493,9 +520,12 @@
     var item = g.item;
     var code = err && err.error;
     ended(g);
-    // Switched off on another device since: it waits for Return, and says nothing of it.
-    if (code === 'auto_off' && g.auto) {
-      if (state) state = Object.assign({}, state, { auto: false });
+    // Asked on its own, and switched off on another device since, too few answers left, or another
+    // tab's run going: it waits for Return, and says nothing of it.
+    if (g.auto && /^(auto_off|auto_low|running)$/.test(code || '')) {
+      if (code === 'auto_off' && state) state = Object.assign({}, state, { auto: false });
+      if (code === 'auto_low' && state && !(state.left !== null && state.left <= LOW)) state = Object.assign({}, state, { left: LOW });
+      item.halted = true;
       changed(item);
       return;
     }
@@ -505,7 +535,7 @@
       state = Object.assign({}, state, { available: false });
       sayAvailable();
     }
-    if (g.chip) {
+    if (g.chip || g.fresh) {
       item.note = err && err.error === 'not_found' ? 'This answer is too old to narrow. Ask again for a new one.'
         : why.title + '. ' + why.text;
     } else {
@@ -530,24 +560,10 @@
     return Math.floor(minutes / 60) + ' h' + (minutes % 60 ? ' ' + minutes % 60 + ' min' : '');
   }
 
-  /* The sparkle with its stars as paths of its own: WebKit runs no animation inside what a <use>
-     copies, and they twinkle in turn while the AI thinks. */
-  function sparkle() {
-    var icon = MM.dom.icon('i-sparkles');
-    var symbol = document.getElementById('i-sparkles');
-    var use = icon.querySelector && icon.querySelector('use');
-    if (!symbol || !use) return icon;
-    icon.setAttribute('viewBox', symbol.getAttribute('viewBox'));
-    icon.setAttribute('overflow', 'visible');
-    core.toArray(symbol.childNodes).forEach(function (n) { icon.insertBefore(n.cloneNode(true), use); });
-    use.remove();
-    return icon;
-  }
-
   function orb(icon) {
     var node = el('span', 'ask__orb');
     node.setAttribute('aria-hidden', 'true');
-    node.appendChild(icon ? MM.dom.icon(icon) : sparkle());
+    node.appendChild(icon ? MM.dom.icon(icon) : core.sparkle());
     return node;
   }
 
@@ -584,10 +600,11 @@
 
   function looked(item) { return item.like ? looks.get(item.like.toLowerCase()) || null : null; }
 
-  /* The title *item* names, once TMDB has told it: { ref, library_ref, title, kind, year, poster_url }. */
+  /* The title *item* names, once TMDB has told it, or the one its words are the name of:
+     { ref, library_ref, title, kind, year, poster_url }. */
   function named(item) {
     var found = looked(item);
-    return found && found.state === 'ok' ? found.title : null;
+    return found && found.state === 'ok' ? found.title : item.top || null;
   }
 
   /* Find what *item* names, once for each name; one that failed is looked for again. Settles
@@ -616,7 +633,7 @@
     var t = named(item);
     if (!t) return null;
     if (typeof t.tmdb_id === 'number' && t.tmdb_id > 0) return { tmdb_id: t.tmdb_id, kind: t.kind === 'movie' ? 'movie' : 'tv', title: t.title };
-    var ref = /^tmdb-(movie|tv)-([0-9]{1,10})$/.exec(t.ref || '');
+    var ref = /^tmdb-(movie|tv)-([0-9]{1,10})$/.exec(t.tmdb_ref || t.ref || '');
     return ref ? { tmdb_id: Number(ref[2]), kind: ref[1], title: t.title } : null;
   }
 
@@ -777,7 +794,7 @@
     status.setAttribute('role', 'status');
     host.parentNode.insertBefore(status, host);
     var inside = host.appendChild(el('div', 'ask__in'));
-    var v = { host: host, item: null, draw: draw, row: row, show: show, hide: hide, offered: offered };
+    var v = { host: host, item: null, draw: draw, row: row, show: show, hide: hide };
     var drawn = null; // what *inside* holds: { item, phase, shape, part, grid, head, ... }
     var can = opts.can || {};
     views.push(v);
@@ -817,15 +834,12 @@
       draw();
     }
 
-    /* The question of *text*; *exact*: a title has all its words. */
+    /* The question of *text*; *exact*: it is a title the search found. */
     function row(text, exact) {
       var item = question('ask', text);
       item.exact = !!exact;
       show(item);
     }
-
-    /* Whether Return would ask what is shown. */
-    function offered() { return !!v.item && v.item.state === 'new' && (v.item.kind === 'like' || fits(v.item.value, v.item.exact)); }
 
     /* What a question not asked yet shows: the place its answer will take, a line where the AI
        cannot answer, or nothing. */
@@ -897,7 +911,7 @@
     function lineOf(item, phase) {
       if (phase === 'new') return waitingLine(item);
       if (phase === 'thinking') return waitText(item);
-      if (item.narrowing) return 'Narrowing…';
+      if (item.narrowing) return renewing(item) ? 'Finding other picks…' : 'Narrowing…';
       var left = !opts.admin && state && state.left !== null ? ' · ' + state.left + (state.left === 1 ? ' AI answer' : ' AI answers') + ' left today' : '';
       return count(item, can) + left;
     }
@@ -1077,6 +1091,10 @@
         });
       }
       refine.firstChild.hidden = !item.chips.length;
+      var other = refine.querySelector('.chip--again');
+      var busy = renewing(item);
+      other.setAttribute('aria-pressed', String(busy));
+      other.disabled = busy;
       core.toArray(refine.querySelectorAll('.chip[data-chip]')).forEach(function (b) {
         var on = b.getAttribute('data-chip') === item.pressed;
         if (b.getAttribute('aria-pressed') === String(on)) return;
@@ -1135,6 +1153,7 @@
     state: function () { return state; },
     available: available,
     intent: intent,
+    titled: titled,
     fits: fits,
     canAsk: canAsk,
     autoOk: autoOk,
@@ -1151,7 +1170,6 @@
     stop: stop,
     asking: asking,
     view: view,
-    sparkle: sparkle,
     dur: dur,
     similarOf: similarOf,
     lookSimilar: lookSimilar

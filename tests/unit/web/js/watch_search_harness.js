@@ -23,7 +23,7 @@ Node.prototype.scrollIntoView = function () {};
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
-function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {}, session = {}, assist = null, visualViewport, set = {}, downloading = null, gridWaits = false } = {}) {
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {}, session = {}, assist = null, visualViewport, set = {}, downloading = null, gridWaits = false, assistWaits = false } = {}) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -92,7 +92,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     MM: {
       api: {
         get: (url) => (url === '/api/watch/explore' && ctx.categories ? Promise.resolve(ctx.categories)
-          : url === '/api/search/assist' ? Promise.resolve({ ...assist })
+          : url === '/api/search/assist' && !assistWaits ? Promise.resolve({ ...assist })
           : new Promise((resolve, reject) => { calls.push({ url, resolve, reject }); })),
         post: (url, body, opts) => new Promise((resolve, reject) => { calls.push({ method: 'POST', url, body, opts, resolve, reject }); }),
         delete: (url, opts) => new Promise((resolve, reject) => { calls.push({ method: 'DELETE', url, opts, resolve, reject }); }),
@@ -2821,6 +2821,13 @@ scenarios.askStatus = async () => {
   return { text: said.map((n) => n.textContent), busy: said.map((n) => !!n.closest('[aria-busy]')) };
 };
 
+// Whether Return on a new wish asks the AI for it.
+async function returnAsks(p) {
+  const before = p.sent('/ask').length;
+  p.type(Q + ' too'); p.key('Enter'); await settle();
+  return p.sent('/ask').length > before;
+}
+
 scenarios.askRefused = async () => {
   const say = async (error, data, status) => {
     const p = await asking();
@@ -2828,8 +2835,7 @@ scenarios.askRefused = async () => {
     await p.fail('/ask', error, data, status);
     const again = p.doc.querySelector('.ask__off .chip');
     const head = p.head();
-    p.type(Q + ' too');
-    return { head, again: again && again.textContent, offered: p.offered() };
+    return { head, again: again && again.textContent, offered: await returnAsks(p) };
   };
   const p = await asking();
   await p.ask(Q);
@@ -2871,8 +2877,7 @@ scenarios.askOutcomes = async () => {
     await p.poll(end);
     const again = p.doc.querySelector('.ask__off .chip');
     const out = { head: p.head(), again: again && again.textContent, kept: p.input.value };
-    p.type(Q + ' too');
-    out.offered = p.offered();
+    out.offered = await returnAsks(p);
     return out;
   };
   return {
@@ -3121,15 +3126,21 @@ scenarios.intentTable = async () => {
   const p = await asking();
   const ai = p.ctx.MMWatch.ask;
   const read = (q, exact) => { const it = ai.intent(q, exact); return [q, it.wish, it.ready]; };
+  // *found*: the titles the search found, which what is typed may begin or name with a year.
+  const among = (q, found) => read(q, ai.titled(q, found));
   return {
     asks: [
       read('similar to 90 day fiance'), read('netflix originals'), read('feel good pixar movies'),
       read('something like Severance but funnier'), read('80s horror'), read('what should I watch tonight?'),
       read('a24 films'), read('korean thrillers'), read('bleak nordic noir, slow burn'), read('in the mood for love', true),
+      among('korean thrillers', ['Korean Odyssey']), among('80s horror', ['Horror Express']),
     ],
     plain: [
       read('dune'), read('alone'), read('the bear'), read('breaking bad'), read('the dark knight', true),
       read('feel good', true), read('the originals', true), read('netflix'), read('pixar'), read('everything everywhere all at once'),
+      among('the dark kni', ['The Dark Knight']), among('family gu', ['Family Guy']), among('dune 2021', ['Dune']),
+      among('spy kids 2', ['Spy Kids']), among('amelie 2001', ['Amélie']),
+      read('short circuit'), read('modern family'), read('spy kids 2'), read('quick change'), read('romantic comedy'),
     ],
     waits: [read('shows like'), read('movies with'), read('netflix originals with')],
     long: [read('a heist about a crew that robs a bank'), read('an old house where nobody lives anymore', true)],
@@ -3176,14 +3187,27 @@ scenarios.autoNewer = async () => {
 
 // A title the search found with all of the words is opened, not asked of the AI; a strong cue asks over it.
 scenarios.autoExact = async () => {
-  const run = async (q, title) => {
+  const run = async (q, title, more = {}, tmdb = false) => {
     const p = await asking();
     await p.search(q);
-    await SEARCHED(p, [{ ref: 'movie-5', title, href: '/watch/movie/5', subtitle: 'Movie · 2008' }]);
+    const found = { ref: 'movie-5', title, href: '/watch/movie/5', subtitle: 'Movie · 2008', ...more };
+    await (tmdb ? SEARCHED(p, [], [found]) : SEARCHED(p, [found]));
     const top = p.doc.querySelector('.ask-top');
-    return { asked: p.sent('/ask').length, head: p.head(), top: top && !top.closest('[hidden]') ? top.textContent : null };
+    const go = p.doc.querySelector('.ask-top__go');
+    return {
+      asked: p.sent('/ask').length, head: p.head(), top: top && !top.closest('[hidden]') ? top.textContent : null,
+      sent: p.sent('/ask').map((c) => c[2]), because: aiPlace(p).because, go: go && go.textContent,
+    };
   };
-  return { plain: await run('the dark knight', 'The Dark Knight'), strong: await run('in the mood for love', 'In the Mood for Love') };
+  return {
+    plain: await run('the dark knight', 'The Dark Knight'),
+    strong: await run('in the mood for love', 'In the Mood for Love', { tmdb_ref: 'tmdb-movie-843' }),
+    // Found outside the library: it is opened, not played, and named by its TMDB id.
+    elsewhere: await run('in the mood for love', 'In the Mood for Love', { ref: 'tmdb-movie-843', href: null, kind: 'movie', tmdb_id: 843, subtitle: 'Movie · 2000' }, true),
+    // Begun, or named with its year: a title, not a wish.
+    begun: await run('the dark kni', 'The Dark Knight'),
+    year: await run('dune 2021', 'Dune'),
+  };
 };
 
 // It waits for Return where the person switched it off, or few answers are left; with none left it says so.
@@ -3201,13 +3225,18 @@ scenarios.autoHeld = async () => {
 
 // Switched off on another device: the server's refusal is quiet, and Return still asks.
 scenarios.autoRefused = async () => {
-  const p = await asking();
-  await p.search('netflix originals'); await SEARCHED(p);
-  await p.fail('/ask', 'auto_off', {}, 409);
-  const out = { head: p.head() };
-  p.key('Enter'); await settle();
-  out.asked = p.sent('/ask').map((c) => !!c[2].auto);
-  return out;
+  const run = async (error, data) => {
+    const p = await asking();
+    await p.search('netflix originals'); await SEARCHED(p);
+    await p.fail('/ask', error, data, 409);
+    const out = { head: p.head() };
+    // Paused on again, it is not asked on its own.
+    await p.search('netflix originals'); await SEARCHED(p);
+    p.key('Enter'); await settle();
+    out.asked = p.sent('/ask').map((c) => !!c[2].auto);
+    return out;
+  };
+  return { off: await run('auto_off', {}), low: await run('auto_low', {}), running: await run('running', { run_id: 99 }) };
 };
 
 // A plain query: the last suggestion asks the AI, as the plain pill does; Return searches.
@@ -3225,6 +3254,8 @@ scenarios.askPlain = async () => {
   const one = await asking();
   await one.search('dune'); await SEARCHED(one);
   out.oneWord = one.suggested().filter((r) => r.startsWith('Ask AI')).length;
+  click(one.doc, one.doc.querySelector('.watch-suggestion--ai')); await settle();
+  out.oneAsked = one.sent('/ask').map((c) => c[2]);
   return out;
 };
 
@@ -3232,7 +3263,7 @@ scenarios.askPlain = async () => {
 scenarios.pill = async () => {
   const p = await asking();
   const pill = p.$('watch-search-ai');
-  const now = () => [pill.textContent, pill.getAttribute('aria-hidden'), pill.classList.contains('is-thinking'), p.doc.querySelector('.watch-search').classList.contains('is-ai')];
+  const now = () => [pill.textContent, pill.getAttribute('aria-hidden'), pill.classList.contains('is-thinking'), p.doc.querySelector('.watch-search').classList.contains('is-ai'), pill.getAttribute('aria-label')];
   p.type(Q);
   const out = { wish: now() };
   p.key('Enter'); await settle();
@@ -3268,9 +3299,75 @@ scenarios.answerWays = async () => {
   p.calls.filter((c) => c.url.includes('/searches')).forEach((c) => { c.done = true; c.resolve({ recorded: true }); });
   await p.reply('POST', '/ask', ANSWER);
   const out = { line: p.head().split(' | ')[1], chips: p.doc.querySelectorAll('.ask .refine .chip').map((b) => b.textContent) };
-  click(p.doc, p.doc.querySelectorAll('.ask .chip--again')[0]); await settle();
+  const grid = p.doc.querySelector('.ask__grid');
+  const other = () => p.doc.querySelectorAll('.ask .chip--again')[0];
+  click(p.doc, other()); await settle();
   out.again = p.sent('/ask').map((c) => c[2]);
+  const host = p.doc.querySelector('.ask');
+  const now = () => ({
+    chips: p.doc.querySelectorAll('.ask .refine .chip').length, pressed: other().getAttribute('aria-pressed'), disabled: !!other().disabled,
+    dim: host.classList.contains('is-refining'), cards: p.cards().length, outlines: host.querySelectorAll('.watch-card--skel').length,
+    sameGrid: p.doc.querySelector('.ask__grid') === grid, kicker: p.kicker(),
+  });
+  out.busy = now();
+  await p.reply('POST', '/ask', { ...ANSWER, owned: [], others: [OTHER] });
+  out.after = now();
   return out;
+};
+
+// Answers left: one is spent as a run that is not kept starts, and each reply says how many are left.
+scenarios.answersLeft = async () => {
+  const p = await asking({ left: 10 }, { page: { is_admin: false } });
+  const left = () => p.ctx.MMWatch.ask.state().left;
+  await p.ask(Q);
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  const out = { started: left() };
+  await p.poll({ status: 'running', run_id: 7, left: 8 });
+  out.polled = left();
+  await p.poll({ ...ANSWER, left: 7 });
+  out.line = p.head().split(' | ')[1];
+  // One kept from before costs nothing.
+  const kept = await asking({ left: 10 });
+  await kept.ask(Q);
+  await kept.reply('POST', '/ask', ANSWER);
+  out.kept = kept.ctx.MMWatch.ask.state().left;
+  return out;
+};
+
+// A question the page asked on its own is asked again on its own as the page comes back, as the rules have it.
+scenarios.autoRestored = async () => {
+  const run = async (more) => {
+    const session = { 'mm.watch.ask': JSON.stringify({ who: 'a1', q: 'netflix originals', auto: true }) };
+    const p = await asking(more, { session }, 'netflix originals', '/?q=netflix+originals');
+    return p.sent('/ask').map((c) => !!c[2].auto);
+  };
+  return { plenty: await run({}), low: await run({ left: 3 }), off: await run({ auto: false }) };
+};
+
+// What is typed before the page knows of the AI is asked once it does.
+scenarios.autoLate = async () => {
+  const p = await asking({}, { assistWaits: true });
+  await p.search('netflix originals'); p.wait(); await settle(); await SEARCHED(p);
+  const out = { before: p.sent('/ask').length };
+  await p.answer('/api/search/assist', p.assist);
+  out.after = p.sent('/ask').map((c) => c[2]);
+  return out;
+};
+
+// Over the titles that only have the words, one group of them needs no heading of its own.
+scenarios.oneGroup = async () => {
+  const run = async (lib, tmdb) => {
+    const p = await asking();
+    await p.ask(Q);
+    await SEARCHED(p, lib, tmdb);
+    await p.reply('POST', '/ask', ANSWER);
+    const ordinary = p.doc.querySelector('.ordinary');
+    return {
+      line: ordinary.hidden ? null : ordinary.textContent,
+      heads: p.doc.querySelectorAll('.results-group__head').filter((h) => !h.hidden).map((h) => h.querySelector('.results-group__title').textContent),
+    };
+  };
+  return { one: await run([LIB]), two: await run([LIB], [TM]) };
 };
 
 // ── Titles like one a search names ──

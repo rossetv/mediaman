@@ -20,8 +20,8 @@
         <span class="watch-search__ph" id="watch-search-hint" aria-hidden="true">{{ search_label }}</span>
         <input id="watch-search" class="watch-search__input" type="search" role="combobox" placeholder="{{ search_label }}" aria-label="{{ search_label }}" aria-autocomplete="list" aria-expanded="false" aria-controls="watch-sheet" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search"{% if q %} value="{{ q }}"{% endif %}>
       </span>
-      {# "Ask AI ↵" while what is typed reads as a request, "Ask AI" for a title, "Thinking" while it answers, gone once it has (watch/search.js). #}
-      <button type="button" class="watch-search__ai" id="watch-search-ai" tabindex="-1" aria-hidden="true">{{ icon("i-sparkles") }}<span>Ask AI</span><kbd aria-hidden="true">&#x21B5;</kbd></button>
+      {# "Ask AI ↵" while what is typed reads as a request, "Ask AI" for a title, "Thinking" while it answers, gone once it has (watch/search.js). A phone shows its sparkle alone, named by its aria-label. #}
+      <button type="button" class="watch-search__ai" id="watch-search-ai" tabindex="-1" aria-hidden="true" aria-label="Ask AI">{{ icon("i-sparkles") }}<span>Ask AI</span><kbd aria-hidden="true">&#x21B5;</kbd></button>
       <span class="sr-only" id="watch-search-ai-hint">AI search: Return asks AI for titles that fit</span>
     </div>
   </div>

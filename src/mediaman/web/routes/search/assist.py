@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Of a question asked on its own; one the person presses may be a single word.
 MIN_WORDS = 2
 _ACCOUNT_HEADER = "X-Assist-Account"
 _OWNED_CHIP = "Only in your library"
@@ -458,9 +459,9 @@ def _make_phrases_later(
 def api_ask(
     body: _AskBody, request: Request, username: str = Depends(get_current_user)
 ) -> JSONResponse:
-    """Titles for a question of two words or more, which may name a title to find more like,
-    or for it narrowed to a chip of its answer: at once when answered before, else a run to
-    poll. Nothing is kept of it as a search: the page records one when the person acts on it."""
+    """Titles for a question, of a word or more when pressed and two when asked on its own,
+    which may name a title to find more like, or for it narrowed to a chip of its answer: at
+    once when answered before, else a run to poll. Nothing is kept of it as a search: the page records one when the person acts on it."""
     text = repo.tidy(body.q)
     conn, user_id = _person(username)
     if user_id is None:
@@ -471,7 +472,7 @@ def api_ask(
     client = _client(request, conn)
     if client is None:
         return _unavailable(request, conn, username)
-    if ai.words(text) < MIN_WORDS:
+    if ai.words(text) < (MIN_WORDS if body.auto else 1):
         return respond_err("too_short", status=400)
     if body.auto and not repo.asks_on_its_own(conn, user_id):
         return respond_err("auto_off", status=409)

@@ -492,19 +492,11 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .results-hint a::after { content: ""; position: absolute; inset: -12px -6px; }
 .results-hint a:hover { color: var(--accent-hi); }
 
-/* Where a download is in its course, top right of a poster. */
-.watch-badge--state { right: 8px; display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
-.watch-badge--state > .ico { font-size: 9px; }
-.watch-badge--in { background: color-mix(in srgb, var(--success) 90%, transparent); color: #00210b; }
-.watch-badge--queued { background: color-mix(in srgb, var(--warning) 90%, transparent); color: #2a2400; }
-.watch-badge--downloading { background: color-mix(in srgb, var(--accent) 92%, transparent); color: var(--color-on-accent); }
-
 @media (max-width: 599.98px) {
   .results-group__title { font-size: 17px; }
   .is-people .watch-suggestion--person { gap: 14px; min-height: 92px; }
   .is-people .watch-suggestion--person :is(.watch-suggestion__pic, .watch-face) { width: 72px; height: 72px; font-size: 25px; }
   .is-people .watch-suggestion--person b { font-size: 19px; }
-  .watch-badge--state { right: 6px; }
   /* Three across on a phone. */
   .results-page .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
 }
@@ -667,17 +659,19 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .watch-search.is-ai-plain .watch-search__ai > kbd { display: none; }
 .watch-search.is-ai-plain .watch-search__ai:hover { background: var(--s4); color: var(--t1); }
 .watch-search.is-ai-plain .watch-search__ai:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* On a phone, upright or on its side, the pill folds once the field is left: the words asked keep the room. */
+/* On a phone, upright or on its side, the pill is its sparkle alone: the words typed keep the room.
+   Its name is read out from its aria-label. */
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
-  .watch-search:is(.is-ai, .is-ai-plain):not(.is-focus) .watch-search__ai,
-  .watch-search.is-ai:not(.is-focus) .watch-search__ai { max-width: 0; margin: 0 -8px 0 0; padding: 0; opacity: 0; visibility: hidden; pointer-events: none; transition-delay: 0s, 0s, 0s, 0s, 0s, var(--dur-slow); }
+  .watch-search:is(.is-ai, .is-ai-plain) .watch-search__ai { justify-content: center; width: 30px; height: 30px; max-width: 30px; padding: 0; border-radius: 50%; }
+  .watch-search .watch-search__ai > span,
+  .watch-search .watch-search__ai > kbd { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .watch-search.is-ai .watch-search__pill::after,
   .watch-search.is-ai .watch-search__ai > .ico { animation: none; }
   .watch-search .watch-search__ai > .ico { --ai-twinkle-lg: none; --ai-twinkle-sm: none; }
   /* Thinking, the sparkle fades slowly in and out instead. */
-  .watch-search .watch-search__ai.is-thinking > .ico { animation: ai-twinkle-pulse 2.4s ease-in-out infinite; }
+  .watch-search .watch-search__ai.is-thinking > .ico { animation: ai-twinkle-pulse 2.4s ease-in-out infinite !important; }
   .watch-search__pill::after,
   .wbar .watch-search::after { transition-property: opacity !important; transition-duration: var(--dur-fast) !important; }
 }
