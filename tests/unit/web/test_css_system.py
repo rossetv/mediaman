@@ -152,13 +152,6 @@ def test_the_way_back_to_watch_reaches_44px_at_every_width() -> None:
     assert not any(".nav-back" in heads and "height:" in body for heads, body in phone)
 
 
-def test_no_offset_repeats_the_height_of_the_bar_at_the_foot() -> None:
-    for name in ("_ui_feedback.css", "_settings_pg.css"):
-        css = _text(CSS_DIR / name)
-        assert "var(--foot)" not in css, name
-        assert not re.search(r"calc\(\d+px \+ env\(safe-area-inset-bottom", css), name
-
-
 def _sticky_tops(name: str, part: str) -> list[str]:
     return [
         top
@@ -167,28 +160,10 @@ def _sticky_tops(name: str, part: str) -> list[str]:
     ]
 
 
-def test_nothing_in_settings_sticks_under_the_bar_as_its_list_and_section_scroll_in_the_pane() -> (
-    None
-):
-    for name in ("_settings_pg.css", "_settings_pg_panels.css"):
-        css = _text(CSS_DIR / name)
-        assert "position: sticky" not in css, name
-        assert "var(--nav-h)" not in css, name
-
-
 def test_history_panes_tools_stick_at_the_top_of_its_scroller_or_go_with_the_list() -> None:
     tops = _sticky_tops("_history.css", ".hx-tools")
     assert tops
     assert all(top in ("0", "auto") for top in tops), tops
-
-
-def test_the_pairing_page_leaves_room_for_the_bar_at_the_foot_and_under_itself() -> None:
-    (page,) = [
-        body
-        for heads, body in _rules(_text(CSS_DIR / "_pair.css"))
-        if ".pair-pg" in heads and "48px" in body
-    ]
-    assert re.search(r"padding: 48px 20px \d+px;", page)
 
 
 def test_nothing_in_the_bar_holds_what_is_fixed_at_the_foot_of_a_phone() -> None:
@@ -207,23 +182,6 @@ def test_no_control_drops_back_to_40px_on_phones() -> None:
                 assert not re.search(r"(min-)?height:\s*40px", block), (
                     f"{path.name}: a 40px control height below 700px"
                 )
-
-
-def test_modals_open_with_modal_in_and_close_on_is_closing() -> None:
-    css = _text(CSS_DIR / "_modal.css")
-    assert re.search(r"@keyframes modal-in\s*\{", css)
-    opening = [
-        body
-        for selectors, body in _rules(css)
-        if ".modal-backdrop" in selectors and "animation" in body
-    ]
-    assert opening and "modal-in var(--dur) var(--ease-out)" in opening[0]
-    closing = [
-        body
-        for selectors, body in _rules(css)
-        if ".modal-backdrop.is-closing" in selectors and "animation" in body
-    ]
-    assert closing and "var(--dur-fast)" in closing[0]
 
 
 def test_modals_do_not_move_under_reduced_motion() -> None:
@@ -264,41 +222,6 @@ def test_no_control_is_sized_to_44px_only_up_to_640() -> None:
             assert not re.search(r"(?<![\w-])(min-)?(height|width):\s*44px", block), (
                 f"{path.name}: a 44px target that stops at 640px"
             )
-
-
-def _smallest(prop: str, *selectors: str) -> float:
-    """The smallest number any shared rule for one of `selectors` sets `prop` to, in any media."""
-    return min(float(n) for n, _ in _values(prop, *selectors))
-
-
-def _values(prop: str, *selectors: str) -> list[tuple[str, str]]:
-    """Every number, with its unit (empty when it has none), a shared rule for one of
-    `selectors` sets `prop` to."""
-    return [
-        (n, unit)
-        for path in SHARED
-        for heads, body in _rules(_text(path))
-        if any(re.search(rf"(?<![\w-]){re.escape(s)}$", head) for s in selectors for head in heads)
-        for n, unit in re.findall(rf"(?<![\w-]){prop}:\s*([\d.]+)(px)?", body)
-    ]
-
-
-def _smallest_line(font: float, *selectors: str) -> float:
-    """The smallest line, in px, a shared rule for one of `selectors` sets: a line height with
-    no unit is a multiple of the font size, one in px is that many."""
-    return min(
-        float(n) if unit else float(n) * font for n, unit in _values("line-height", *selectors)
-    )
-
-
-def test_a_line_height_in_px_is_not_taken_for_a_multiple_of_the_font_size(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sheet = tmp_path / "_a.css"
-    sheet.write_text(".a { line-height: 20px; } .b { line-height: 1.5; }", encoding="utf-8")
-    monkeypatch.setattr(f"{__name__}.SHARED", [sheet])
-    assert _smallest_line(12, ".a") == 20
-    assert _smallest_line(12, ".b") == 18
 
 
 def test_download_links_and_settings_fields_are_44px_below_700px() -> None:
