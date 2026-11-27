@@ -239,6 +239,7 @@ def test_a_viewer_is_never_drawn_a_menu_a_stop_tracking_or_a_reason_even_if_sent
     run = out["viewer"]
     assert (run["triggers"], run["menus"], run["buttons"], run["menu"]) == (0, 0, 0, False)
     assert not run["modal"]
+    assert run["links"] == 0, "no way out to Radarr or Sonarr"
     assert run["say"] == [
         "Won’t finish until an admin sorts it out",
         "mediaman will look for another copy",
@@ -665,3 +666,69 @@ def test_with_reduced_motion_a_card_that_goes_only_fades(out) -> None:
     assert run["frames"] == [{"opacity": 1}, {"opacity": 0}]
     assert (run["ms"], run["easing"]) == (150, "linear")
     assert run["gone"] is True
+
+
+def test_a_ready_card_s_play_is_its_own_control_that_plays_and_opens_no_sheet(out) -> None:
+    run = out["readyPlay"]
+    assert run["play"] == {
+        "tag": "A",
+        "href": "/watch/play/12",
+        "label": "Resume Harbour",
+        "inLink": False,
+        "hidden": None,
+    }
+    assert run["spans"] == 0, "no drawn Play left inside the card's link"
+    assert run["pressed"] == {"opened": [], "followed": True}
+    assert run["askedOnce"] is True
+
+
+def test_a_ready_card_with_nothing_safe_to_play_shows_no_play(out) -> None:
+    # an unsafe address, no play, and no preview at all
+    assert out["readyPlay"]["noPlay"] == [False, False, False]
+
+
+def test_a_ready_card_says_when_it_finished_and_its_size_and_only_what_it_knows(out) -> None:
+    assert out["readyPlay"]["say"] == [
+        "Finished 3 min ago · 14.2 GB",
+        "2.5 GB",
+        "Finished just now",
+        "Now in your library",
+    ]
+
+
+def test_a_stale_menu_never_abandons_what_has_started_downloading_or_gone(out) -> None:
+    for case, run in out["staleMenu"].items():
+        assert run["opened"] is True, case
+        assert run["open"] is False, case
+        assert run["dialog"] is False, case
+
+
+def test_a_card_s_menu_lines_its_right_edge_up_with_its_button(out) -> None:
+    assert out["menuPlace"]["left"] == "692px"
+
+
+def test_episodes_opened_by_a_click_take_the_focus_and_shut_on_escape_before_the_grid(
+    out,
+) -> None:
+    run = out["escapeUnfocused"]
+    assert run["focused"] is True
+    assert run["first"] == {"expanded": "false", "open": True, "on": True}
+    assert run["then"] is False
+
+
+def test_escape_with_the_sheet_over_the_grid_shuts_confirm_sheet_menu_episodes_in_turn(
+    out,
+) -> None:
+    run = out["escapeOrderWithSheet"]
+    base = {"dialog": False, "sheet": False, "menu": "false", "eps": True, "grid": True}
+    assert run["all"] == {**base, "dialog": True, "sheet": True}
+    assert run["dialog"] == {**base, "sheet": True}
+    assert run["sheet"] == base
+    assert run["menuOpen"] == "true"
+    assert run["menu"] == base
+    assert run["eps"] == {**base, "eps": False}
+    assert run["grid"]["grid"] is False
+
+
+def test_coming_soon_draws_its_scores_where_the_server_sends_them(out) -> None:
+    assert out["soonScores"] == ["Rotten Tomatoes 88%IMDb 7.4", None]

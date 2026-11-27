@@ -91,7 +91,7 @@ const MODAL = ['div', { class: 'modal-backdrop', id: 'abandon-modal', hidden: ''
 /* A Watch page at *url*. opts: admin, strip (the row's answers), all (/api/downloads' answers: a
    number is that status, 'hang' one that has not come until p.answer(), or until given up),
    canDownload, reduced, grid (a stand-in for the grid of a row, at ?all=), title (one for a
-   title's page over it, at ?t=). */
+   title's page over it, at ?t=), preview (by title ref: what /api/watch/preview answers, else 404). */
 function load(opts) {
   const o = { admin: true, url: '/', strip: [strip([])], all: [all([])], canDownload: { movie: true, show: true }, ...opts };
   const doc = makeDocument();
@@ -107,7 +107,7 @@ function load(opts) {
   doc.body.appendChild(build(doc, ['a', { id: 'elsewhere', href: '/?dl=1', 'data-dl-open': '' }, 'Your library → Downloading']));
   if (o.admin) doc.body.appendChild(build(doc, MODAL));
 
-  const p = { doc, time: 1000000, anims: [], asks: { strip: 0, all: 0 }, log: [], hanging: [], aborted: 0, askedAt: [] };
+  const p = { doc, time: 1000000, anims: [], asks: { strip: 0, all: 0, preview: 0 }, log: [], hanging: [], aborted: 0, askedAt: [] };
   let timers = [];
   let ids = 0;
   const clock = {
@@ -173,6 +173,13 @@ function load(opts) {
       href: '',
     },
     fetch: (url, opts) => {
+      const ref = /^\/api\/watch\/preview\/(.+)$/.exec(url);
+      if (ref) {
+        p.asks.preview += 1;
+        const found = (o.preview || {})[decodeURIComponent(ref[1])];
+        return Promise.resolve(found ? { ok: true, status: 200, redirected: false, json: () => Promise.resolve(JSON.parse(JSON.stringify(found))) }
+          : { ok: false, status: 404, redirected: false, json: () => Promise.resolve({}) });
+      }
       const name = url === '/api/downloads' ? 'all' : 'strip';
       p.asks[name] += 1;
       if (name === 'all') p.askedAt.push(p.time);
@@ -413,7 +420,8 @@ const scenarios = {
     });
     await p.step(100);
     return { triggers: p.qa('[data-abandon-trigger]').length, menus: p.qa('#watch-dl [data-dl-more]').length, buttons: p.qa('#watch-dl .dwx--small button').length,
-      say: p.qa('#watch-dl .dwx__say').map((n) => p.text(n)), modal: !!p.q('#abandon-modal'), menu: !!p.q('#watch-dl-menu') };
+      say: p.qa('#watch-dl .dwx__say').map((n) => p.text(n)), modal: !!p.q('#abandon-modal'), menu: !!p.q('#watch-dl-menu'),
+      links: p.qa('#watch-dl a').filter((n) => /^http/.test(n.getAttribute('href') || '')).length };
   },
   async patched() {
     const ep = (label, state, progress) => ({ label, title: 'Ep ' + label, state, progress, is_pack_episode: false });
@@ -996,6 +1004,143 @@ const scenarios = {
     await p.step(400);
     const order = p.qa('#watch-dl .grid-group, #watch-dl [data-dl-card]').map((n) => (n.classList.contains('grid-group') ? '# ' : '') + p.text(n.querySelector(n.classList.contains('grid-group') ? 'span' : '.dw__title')));
     return { closed, order, told: told[told.length - 1], href: p.card('Harbour').querySelector('.dw__link').getAttribute('href'), count: p.text(p.q('#watch-dl .dlg__count')) };
+  },
+  // A ready card's Play is a control of its own that plays, and its line says when it finished and how big it is.
+  async readyPlay() {
+    const GB = 1024 * 1024 * 1024;
+    const now = 1000; // the clock's epoch seconds at the start
+    const p = load({
+      strip: [strip([
+        row('Harbour', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-12', finished_at: now - 180, size_bytes: Math.round(14.2 * GB) }),
+        row('Cinder', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-13', finished_at: null, size_bytes: Math.round(2.5 * GB) }),
+        row('Lowland', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-14', finished_at: now - 30, size_bytes: null }),
+        row('Pell', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-15', finished_at: null, size_bytes: null }),
+      ])],
+      all: [all([])],
+      preview: {
+        'movie-12': { in_library: true, play: { href: '/watch/play/12', label: 'Resume from 41:02' } },
+        'movie-13': { in_library: true, play: { href: 'javascript:alert(1)', label: 'Play' } },
+        'movie-14': { in_library: true, play: null },
+      },
+    });
+    await p.step(1100);
+    p.click(p.q('#elsewhere'));
+    await p.step(400);
+    const opened = [];
+    p.doc.addEventListener('click', (e) => { const t = e.target.closest('[data-title-ref]'); if (t) opened.push(t.getAttribute('data-title-ref')); });
+    const play = (t) => p.card(t).querySelector('[data-act="play"]');
+    const harbour = play('Harbour');
+    const out = {
+      play: harbour && { tag: harbour.tagName, href: harbour.getAttribute('href'), label: harbour.getAttribute('aria-label'),
+        inLink: !!harbour.closest('.dw__link'), hidden: harbour.getAttribute('aria-hidden') },
+      noPlay: ['Cinder', 'Lowland', 'Pell'].map((t) => !!play(t)),
+      spans: p.qa('#watch-dl .dw__link .dw__go').length,
+      say: ['Harbour', 'Cinder', 'Lowland', 'Pell'].map((t) => p.text(p.card(t).querySelector('.dwx__say'))),
+    };
+    if (!harbour) return out;
+    const e = { defaultPrevented: false };
+    p.click(harbour, { preventDefault() { e.defaultPrevented = true; } });
+    out.pressed = { opened: opened.slice(), followed: !e.defaultPrevented };
+    const asked = p.asks.preview;
+    await p.step(2000);
+    out.askedOnce = p.asks.preview === asked;
+    return out;
+  },
+  // A menu left open over a card a poll has changed can never abandon what has started downloading.
+  async staleMenu() {
+    const of = async (before, after) => {
+      const p = load({ url: '/?dl=1', all: [all([before, dl('Finchley', { state: 'finding_copy' })]), all([after, dl('Finchley', { state: 'finding_copy' })])] });
+      await p.step(100);
+      const more = p.card('Quiet Engines').querySelector('[data-dl-more]');
+      p.click(more);
+      const opened = p.q('#watch-dl-menu').classList.contains('is-open');
+      await p.step(2000);
+      const open = p.q('#watch-dl-menu').classList.contains('is-open');
+      const item = p.q('#watch-dl-menu [data-dl-abandon]');
+      if (item) p.click(item);
+      await p.step(10);
+      return { opened, open, dialog: !p.q('#abandon-modal').hidden };
+    };
+    const searching = dl('Quiet Engines', { state: 'searching', abandon_visible: true, arr_source: 'Radarr', arr_link: 'https://radarr.local/movie/2' });
+    return {
+      started: await of(searching, dl('Quiet Engines', { state: 'downloading', abandon_visible: false, arr_link: 'https://radarr.local/movie/2' })),
+      stillLinked: await of(searching, dl('Quiet Engines', { state: 'searching', abandon_visible: false, arr_source: 'Radarr', arr_link: 'https://radarr.local/movie/2' })),
+      startedStillOffered: await of(searching, dl('Quiet Engines', { state: 'downloading', abandon_visible: true })),
+      gone: await of(searching, dl('Other', { state: 'searching' })),
+    };
+  },
+  // The menu of a card lines its right edge up with its button's.
+  async menuPlace() {
+    const p = load({ url: '/?dl=1', all: [all([dl('Quiet Engines', { state: 'searching', abandon_visible: true })])] });
+    await p.step(100);
+    const more = p.card('Quiet Engines').querySelector('[data-dl-more]');
+    more.getBoundingClientRect = () => ({ left: 900, right: 932, top: 300, bottom: 332, width: 32, height: 32 });
+    Object.defineProperty(p.q('#watch-dl-menu'), 'offsetWidth', { get: () => 240 });
+    p.click(more);
+    return { left: p.q('#watch-dl-menu').style.left };
+  },
+  // Safari focuses no button it is clicked on: the episodes opened by a click still shut on Escape before the grid.
+  async escapeUnfocused() {
+    const ep = { label: 'S01E01', title: 'Weir', state: 'ready', progress: 100, is_pack_episode: false };
+    const p = load({ url: '/?dl=1', all: [all([dl('Brightwater', { media_type: 'series', episodes: [ep] })])] });
+    await p.step(100);
+    const pill = p.card('Brightwater').querySelector('[data-dl-eps]');
+    p.click(pill);
+    const focused = p.doc.activeElement === pill;
+    p.doc.activeElement = p.doc.body;
+    p.key('Escape');
+    await p.step(10);
+    const first = { expanded: pill.getAttribute('aria-expanded'), open: p.open(), on: p.doc.activeElement === pill };
+    p.key('Escape');
+    await p.step(400);
+    return { focused, first, then: p.open() };
+  },
+  // With the title's sheet over the grid: the confirm, then the sheet, then the menu, then the episodes, then the grid.
+  async escapeOrderWithSheet() {
+    const ep = { label: 'S01E01', title: 'Weir', state: 'ready', progress: 100, is_pack_episode: false };
+    const p = load({ url: '/?dl=1', title: true, all: [all([dl('Brightwater', { media_type: 'series', episodes: [ep], state: 'searching', abandon_visible: true })])] });
+    await p.step(100);
+    const address = p.ctx.MMWatch.address;
+    // as watch/detail.js shuts its sheet
+    p.doc.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || address.top() !== 'title') return;
+      e.preventDefault();
+      address.back('title');
+    });
+    const card = p.card('Brightwater');
+    const eps = card.querySelector('[data-dl-eps]');
+    const more = card.querySelector('[data-dl-more]');
+    p.click(eps);
+    address.push('title', '/?dl=1&t=x');
+    await p.step(10);
+    p.ctx.MM.dlAbandon.open(more);
+    await p.step(10);
+    const look = () => ({ dialog: !p.q('#abandon-modal').hidden, sheet: address.top() === 'title', menu: more.getAttribute('aria-expanded'), eps: card.classList.contains('is-open'), grid: p.open() });
+    const out = { all: look() };
+    p.key('Escape');
+    await p.step(300);
+    out.dialog = look();
+    p.key('Escape');
+    await p.step(400);
+    out.sheet = look();
+    p.click(more);
+    out.menuOpen = more.getAttribute('aria-expanded');
+    p.key('Escape');
+    await p.step(10);
+    out.menu = look();
+    p.key('Escape');
+    await p.step(10);
+    out.eps = look();
+    p.key('Escape');
+    await p.step(400);
+    out.grid = look();
+    return out;
+  },
+  // Coming soon draws what critics scored it, where the server says.
+  async soonScores() {
+    const p = load({ url: '/?dl=1', all: [all([], { upcoming: [dl('Lanterns', { release_label: 'Not yet released', scores: { rt: 88, imdb: '7.4' } }), dl('Orchard', { release_label: 'Not yet aired' })] })] });
+    await p.step(100);
+    return ['Lanterns', 'Orchard'].map((t) => p.text(p.card(t).querySelector('.watch-card__scores')));
   },
 };
 

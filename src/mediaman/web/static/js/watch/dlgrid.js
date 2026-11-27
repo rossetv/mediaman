@@ -240,7 +240,11 @@
   function control(box, name, make, card) {
     var node = box.querySelector('[data-act="' + name + '"]');
     if (!make) {
-      if (node) { letGoOf(node, card); node.remove(); }
+      if (node) {
+        if (menu && menu.trigger() === node) menu.close(false);
+        letGoOf(node, card);
+        node.remove();
+      }
       return null;
     }
     if (!node) {
@@ -292,7 +296,10 @@
   /* What Radarr or Sonarr says is wrong, an admin's alone. */
   function whyOf(item) { return admin && item.state === 'needs_attention' && item.attention ? item.attention : ''; }
 
-  function menuHolds(item) { return admin && !!(whyOf(item) || linkOf(item) || item.abandon_visible); }
+  /* What the server lets go of, but never once it has a copy coming. */
+  function canAbandon(item) { return !!item.abandon_visible && item.state !== 'downloading' && item.state !== 'almost_ready'; }
+
+  function menuHolds(item) { return admin && !!(whyOf(item) || linkOf(item) || canAbandon(item)); }
 
   function fillFoot(card, item) {
     var foot = footOf(card);
@@ -322,6 +329,12 @@
       if (foot.lastElementChild !== more) foot.appendChild(more);
       more.setAttribute('aria-label', 'More for ' + (item.title || 'this download'));
       arm(more, item, false);
+      // A menu open on what a poll has changed holds what is no longer so.
+      var holds = JSON.stringify([item.state, canAbandon(item), linkOf(item), whyOf(item)]);
+      if (more.getAttribute('data-holds') !== holds) {
+        if (menu && menu.trigger() === more) menu.close(false);
+        more.setAttribute('data-holds', holds);
+      }
     }
     var list = card.querySelector('.dwx__list');
     var said = JSON.stringify(episodes.map(function (ep) { return [ep.label, ep.title, ep.state, ep.progress, ep.is_pack_episode]; }));
@@ -347,6 +360,9 @@
       node.classList.remove('watch-card');
       node.classList.add('dwx');
       node.setAttribute('data-dl-card', '');
+      // The row's Play is drawn in its link; a ready card here has one of its own (readyCardOf).
+      var drawn = node.querySelector('.dw__link .dw__go');
+      if (drawn) drawn.remove();
     } else watch.downloading.paint(node, top, false);
     return node;
   }
@@ -365,10 +381,58 @@
     return node;
   }
 
+  /* The server's format_bytes. */
+  function sizeOf(n) {
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return (i && n < 100 ? n.toFixed(1) : Math.round(n)) + ' ' + units[i];
+  }
+
+  function agoOf(seconds) {
+    var m = Math.floor(Math.max(0, Date.now() / 1000 - seconds) / 60);
+    if (m < 1) return 'just now';
+    if (m < 60) return m + ' min ago';
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + ' hr ago';
+    var d = Math.floor(h / 24);
+    return d === 1 ? 'yesterday' : d + ' days ago';
+  }
+
+  function readyWords(item) {
+    var at = Number(item.finished_at);
+    var bytes = Number(item.size_bytes);
+    var parts = [];
+    if (item.finished_at != null && at > 0 && isFinite(at)) parts.push('Finished ' + agoOf(at));
+    if (item.size_bytes != null && bytes > 0 && isFinite(bytes)) parts.push(sizeOf(bytes));
+    return parts.join(' · ') || 'Now in your library';
+  }
+
+  /* Play goes where the title's own Play does, as its preview has it; with nowhere to go there is
+     none, and the card opens the title. */
+  function askPlay(node, item) {
+    if (node.playAsked || !item.ref) return;
+    node.playAsked = true;
+    var title = item.title || '';
+    window.MM.api.get('/api/watch/preview/' + encodeURIComponent(item.ref)).then(function (d) {
+      var href = d && d.in_library && d.play && core.safePath(d.play.href);
+      if (!href || !node.isConnected) return;
+      var word = String(d.play.label || 'Play').split(' ')[0];
+      var go = el('a', 'dwx__play');
+      go.setAttribute('data-act', 'play');
+      go.setAttribute('href', href);
+      go.setAttribute('aria-label', word + ' ' + title);
+      go.setAttribute('title', word);
+      go.appendChild(icon('i-play'));
+      node.insertBefore(go, node.querySelector('.dw__link').nextSibling);
+    }, function () {});
+  }
+
   /* One that is done, as the row has it: the downloads no longer list it. */
   function readyCardOf(item) {
     var node = bigCard('ready:' + item.key, item);
-    setSay(footOf(node).querySelector('.dwx__say'), ['', 'Now in your library'], false);
+    setSay(footOf(node).querySelector('.dwx__say'), ['', readyWords(item)], false);
+    askPlay(node, item);
     return node;
   }
 
@@ -400,7 +464,14 @@
     var src = core.safePath(item.poster_url);
     if (src && img2.getAttribute('src') !== src) img2.setAttribute('src', src);
     else if (!src) img2.removeAttribute('src');
-    setText(node.querySelector('.dw__title'), item.title || '');
+    var name = node.querySelector('.dw__title');
+    setText(name, item.title || '');
+    var had = node.querySelector('.watch-card__scores');
+    var scores = item.scores && typeof item.scores === 'object' ? core.scores({ rt: item.scores.rt, imdb: item.scores.imdb }) : null;
+    if ((had ? had.textContent : '') !== (scores ? scores.textContent : '')) {
+      if (had) had.remove();
+      if (scores) name.parentNode.insertBefore(scores, name);
+    }
     setText(node.querySelector('.dwx__small-line'), item.release_label || '');
     var stop = control(node, 'stop', admin ? function () {
       var b = tool('i-xmark');
@@ -450,7 +521,7 @@
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     }
-    if (item.abandon_visible) {
+    if (canAbandon(item)) {
       if (box.children.length) box.appendChild(el('div', 'dwx-menu__line')).setAttribute('role', 'separator');
       menuItem('button', 'i-xmark', 'Abandon search…', 'is-danger').setAttribute('data-dl-abandon', '');
     }
@@ -467,7 +538,11 @@
       trigger: '[data-dl-more]',
       fill: fillMenu,
       choose: function (trigger, item) {
-        if (item.hasAttribute('data-dl-abandon') && window.MM.dlAbandon) window.MM.dlAbandon.open(trigger);
+        if (!item.hasAttribute('data-dl-abandon') || !window.MM.dlAbandon) return;
+        // Only what the last answer still lets go of, on a card still here.
+        var card = trigger.isConnected && trigger.closest('[data-dl-card]:not(.is-going)');
+        var now = card && known[card.getAttribute('data-dl-id')];
+        if (now && canAbandon(now)) window.MM.dlAbandon.open(trigger);
       },
       spare: function () { return dom && dom.title; }
     });
@@ -692,6 +767,7 @@
     var order = want.slice();
     toArray(grid.children).forEach(function (node, i, all) {
       if (want.indexOf(node) >= 0) return;
+      if (menu && menu.trigger() && node.contains(menu.trigger())) menu.close(false);
       if (node.contains(document.activeElement)) {
         var to = nextControl(node);
         if (to) to.focus({ preventScroll: true });
@@ -1240,6 +1316,7 @@
     var eps = e.target.closest('[data-dl-eps]');
     if (eps) {
       toggleEpisodes(eps, eps.getAttribute('aria-expanded') !== 'true');
+      eps.focus({ preventScroll: true }); // as Safari does not on a click, for Escape to find it
       return;
     }
     // Anywhere on a card but its controls opens its title, as its own link does (watch/detail.js);
@@ -1257,17 +1334,25 @@
 
   window.addEventListener('scroll', stuck, { passive: true });
 
+  // A card lifts as its menu opens: the menu lines up with its button where the lift ends.
+  document.addEventListener('transitionend', function (e) {
+    var trigger = menu && menu.trigger();
+    if (trigger && e.propertyName === 'transform' && e.target === trigger.closest('.dwx')) menu.place();
+  });
+
   // On window, so that a dialog or a menu has had its Escape first.
   window.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape' || e.defaultPrevented || !isOpen || address.top() !== 'dl') return;
     var modal = core.byId('abandon-modal');
     if (modal && !modal.hidden) return;
     e.preventDefault();
+    // The focused card's open episodes, else any open: Escape never folds the grid over them.
     var card = document.activeElement && document.activeElement.closest && document.activeElement.closest('.dwx');
-    var eps = card && card.querySelector('[data-dl-eps][aria-expanded="true"]');
-    if (eps) {
-      toggleEpisodes(eps, false);
-      eps.focus({ preventScroll: true });
+    var mine = card && card.querySelector('[data-dl-eps][aria-expanded="true"]');
+    var open = mine ? [mine] : toArray(dom.grid.querySelectorAll('[data-dl-eps][aria-expanded="true"]'));
+    if (open.length) {
+      open.forEach(function (eps) { toggleEpisodes(eps, false); });
+      open[0].focus({ preventScroll: true });
       return;
     }
     address.back('dl');

@@ -140,13 +140,38 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   .dwx:has([data-title-ref]):is(:hover, :has([aria-expanded="true"])) .dw__fill { filter: saturate(1.15) brightness(1.16); }
   .dwx--small:has([data-title-ref]):hover .dwx__pic { filter: brightness(1.1); }
   .dwx:not(:has([data-title-ref])):hover { outline-color: var(--hair-strong); }
+  .dwx:has([data-title-ref]):has(> .dw__link:focus-visible, > .dwx__open:focus-visible):is(:hover, :has([data-dl-more][aria-expanded="true"])) {
+    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent), var(--shadow-card);
+  }
 }
 /* A press anywhere but on one of its controls. */
-.dwx:has([data-title-ref]):active:not(:has(button:active)) { transform: scale(.985); transition-duration: var(--dur-fast); }
+.dwx:has([data-title-ref]):active:not(:has(button:active, .dwx__play:active)) { transform: scale(.985); transition-duration: var(--dur-fast); }
 /* Its link is its one tab stop, and the ring goes round the whole card. */
 .dwx:has(> .dw__link:focus-visible, > .dwx__open:focus-visible) { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
 .dwx > .dw__link:focus-visible, .dwx > .dwx__open:focus-visible { outline: none; }
 .dwx .dw__line { white-space: nowrap; }
+/* Play on a ready card: a control of its own, over the picture where the row draws it. */
+.dwx__play {
+  position: absolute;
+  z-index: 3;
+  top: 32px;
+  right: 16px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--t1);
+  color: var(--bg);
+  font-size: 14px;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.dwx__play::after { content: ""; position: absolute; inset: -2px; }
+.dwx__play:active { transform: scale(.9); }
+.dwx__play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) { .dwx__play:hover { background: color-mix(in srgb, var(--t1) 85%, transparent); } }
+.dwx:has(> .dwx__play) .dw__text { padding-right: 52px; }
 /* The grid has room to say a long name whole, in two lines. */
 .dwx .dw__title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 /* What comes of one that needs attention is said on the line under it. */
@@ -259,7 +284,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 /* Reduced motion: nothing moves, but what comes and goes still fades. _base.css takes every
    transition to .01ms, so these fades carry their own !important. */
 @media (prefers-reduced-motion: reduce) {
-  .dwx, .dwx:hover, .dwx:active, .dwx__tool:active, .dwx__eps:active { transform: none !important; }
+  .dwx, .dwx:hover, .dwx:active, .dwx__tool:active, .dwx__eps:active, .dwx__play:active { transform: none !important; }
   .dwx__ep { transform: none !important; transition: opacity var(--dur-fast) linear !important; }
   .dwx.is-open .dwx__ep { transition-delay: 0s !important; }
   .dwx-menu { transform: none !important; transition: opacity var(--dur-fast) linear !important; }
@@ -297,6 +322,6 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 
 @media (forced-colors: active) {
   .dwx, .dlg-skel { border: 1px solid CanvasText; }
-  .dwx__tool, .dwx__eps { border: 1px solid ButtonText; }
+  .dwx__tool, .dwx__eps, .dwx__play { border: 1px solid ButtonText; }
   .dwx__ep-bar { forced-color-adjust: none; outline: 1px solid CanvasText; }
 }
