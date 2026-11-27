@@ -155,8 +155,6 @@
   font-size: 12px; font-weight: 600; line-height: 1.35; color: var(--t2); background: var(--s4);
 }
 .setg-pg .intg-card-hd .conn .conn-dot { display: none; }
-/* The pill holds the same word twice; it is said once. */
-.setg-pg .intg-card-hd .conn [data-conn-short] { display: none; }
 .setg-pg .intg-card-hd .conn.ok { color: var(--success); background: var(--rgba-success-bg); }
 .setg-pg .intg-card-hd .conn.warn { color: var(--warning); background: var(--rgba-warning-bg); }
 .setg-pg .intg-card-hd .conn.err { color: var(--danger-text); background: var(--rgba-danger-bg); }

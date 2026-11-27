@@ -203,16 +203,16 @@ def test_remove_and_delete_keep_a_border_in_forced_colours() -> None:
 
 def test_the_list_says_how_a_service_stands_in_a_word_while_it_is_tested() -> None:
     out = _cards("answers")
-    assert out["testing"] == ["Testing…", "Testing…", None]
+    assert out["testing"] == ["Testing…", None]
 
 
-def test_an_open_card_says_the_whole_answer_above_its_fields_and_the_pill_keeps_a_word() -> None:
+def test_an_open_card_says_the_whole_answer_above_its_fields_and_the_single_pill_span_keeps_a_word() -> None:
     out = _cards("answers")
     long = "The service refused the request: check the API key and the address."
-    assert out["err"] == ["Not answering", "Not answering", long]
-    assert out["warn"] == ["Rate limited", "Rate limited", None]
-    assert out["ok"] == ["Connected", "Connected", None]
-    assert out["off"] == ["Not set up", "Not set up", None]
+    assert out["err"] == ["Not answering", long]
+    assert out["warn"] == ["Rate limited", None]
+    assert out["ok"] == ["Connected", None]
+    assert out["off"] == ["Not set up", None]
 
 
 def test_a_card_with_edits_offers_save_beside_its_test_and_a_clean_one_does_not() -> None:

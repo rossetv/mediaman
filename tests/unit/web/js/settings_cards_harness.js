@@ -54,7 +54,7 @@ function card(doc, parent, service, title) {
           ['h3', {}, ['button', { class: 'intg-fold', 'aria-expanded': 'false', 'aria-controls': 'intg-body-' + service }, title]],
           ['div', { class: 'sub' }, 'What it does']],
         ['div', { class: 'hd-actions' },
-          ['span', { class: 'conn', 'data-conn': service }, ['span', { 'data-conn-short': '' }, 'Untested'], ['span', { 'data-conn-label': '' }, 'Untested']],
+          ['span', { class: 'conn', 'data-conn': service }, ['span', { 'data-conn-label': '' }, 'Untested']],
           ['div', { class: 'hd-btns' },
             ['button', { class: 'btn-test', 'data-test-service': service, 'aria-label': 'Test ' + title }, 'Test'],
             ['svg', { class: 'intg-chev' }]]]]],
@@ -100,10 +100,10 @@ const scenarios = {
     const p = load(['integrations.js']);
     const page = p.doc.body.appendChild(build(p.doc, ['div', { class: 'setg-pg' }]));
     const c = card(p.doc, page, 'plex', 'Plex');
-    // The pill's two words, and the line the open card shows above its fields (null when hidden).
+    // The pill's word, and the line the open card shows above its fields (null when hidden).
     const said = () => {
       const why = c.querySelector('.intg-why');
-      return [c.querySelector('[data-conn-short]').textContent, c.querySelector('[data-conn-label]').textContent,
+      return [c.querySelector('[data-conn-label]').textContent,
         why && !why.hidden ? why.textContent : null];
     };
     const set = p.ctx.MM.settings.integrations.setConnStatus;

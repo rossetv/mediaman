@@ -424,8 +424,8 @@ def test_on_a_phone_a_subscriber_row_keeps_its_state_under_the_address_and_remov
     assert "grid-area: st" in _phone_rule(".setg-pg .sub-row .sub-stat")
 
 
-def test_a_service_s_pill_says_its_word_once_open_or_closed() -> None:
-    assert "display: none" in _declarations(".setg-pg .intg-card-hd .conn [data-conn-short]")
+def test_a_service_s_pill_is_one_span_and_no_rule_hides_a_duplicate_word() -> None:
+    assert "data-conn-short" not in PANELS
     hiding = [h for h, b in re.findall(r"([^{}]+)\{([^{}]*)\}", PANELS) if "display: none" in b]
     assert not [h for h in hiding if "[data-conn-label]" in h]
 
