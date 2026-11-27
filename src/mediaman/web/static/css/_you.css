@@ -182,12 +182,14 @@
     height: calc(100% - max(16px, env(safe-area-inset-top, 0px) + 8px));
     border-width: 1px 0 0;
     border-radius: 20px 20px 0 0;
-    /* A copy of the sheet below it, so pulled up it shows no gap at its foot. */
-    box-shadow: var(--shadow-card), 0 50vh 0 var(--s1);
+    overflow: visible;
     opacity: 1;
     transform: translateY(100%);
     transition: transform var(--dur-slow) var(--ease-exit);
   }
+  /* A copy of the sheet below it, so pulled up it shows no gap at its foot; the views clip themselves. */
+  .you__panel::after { content: ""; position: absolute; top: 100%; right: 0; left: 0; height: 50vh; background: var(--s1); pointer-events: none; }
+  .you__views { overflow: hidden; }
   .you.is-open .you__panel { transform: none; transition: transform var(--dur-slow) var(--ease-push); }
   .you__panel.is-dragged { transition: none; }
   .you__grab { display: block; flex: none; height: 18px; touch-action: none; cursor: grab; }
