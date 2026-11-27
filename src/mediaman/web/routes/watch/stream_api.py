@@ -17,6 +17,7 @@ from collections import Counter
 from collections.abc import Callable, Coroutine
 from dataclasses import asdict
 from typing import Annotated, Any
+from xml.etree.ElementTree import Element
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from fastapi.routing import APIRoute
@@ -28,7 +29,7 @@ from mediaman.core.scrub_filter import register_secret
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import Ticket, get_ticket_store
-from mediaman.services.cast.tracks import Pick, Track, read_tracks, resolve
+from mediaman.services.cast.tracks import Pick, Track, resolve, tracks_of
 from mediaman.services.infra import SafeHTTPClient, allowed_outbound_hosts
 from mediaman.services.infra.settings_reader import get_setting, get_string_setting
 from mediaman.services.media_meta.plex_quality import (
@@ -51,6 +52,7 @@ from mediaman.services.media_meta.plex_stream import (
     Tracks,
     TrackUnavailable,
     get_stream_manager,
+    seen_in,
 )
 from mediaman.services.media_meta.plex_watch import (
     PREVIEW_INTERVAL_S,
@@ -315,6 +317,17 @@ def pick_tracks(
     )
 
 
+def title_tracks(
+    conn: sqlite3.Connection, plex: PlexWatch, rating_key: str
+) -> tuple[Element, list[Track], list[Track]]:
+    """The item's metadata node, as ``get_item`` read it, with its audio and subtitle tracks,
+    whose languages are noted as the library's."""
+    node = plex.item_node(rating_key)
+    audio, subtitles = tracks_of(node)
+    track_choices.note_languages(conn, audio + subtitles)
+    return node, audio, subtitles
+
+
 def selected(tracks: list[Track]) -> str | None:
     return next((t["id"] for t in tracks if t["selected"]), None)
 
@@ -330,12 +343,14 @@ def _start(
     conn = get_db()
     try:
         plex = _open_plex(request, conn)
+        mark = manager.selection_mark()
         item = plex.get_item(body.rating_key, marks=True)
         if item.type not in ("movie", "episode") or not is_in_libraries(
             item, _scanned_library_ids(conn)
         ):
             return respond_err("not_found", status=404)
-        audio, subtitles = read_tracks(plex, body.rating_key)
+        node, audio, subtitles = title_tracks(conn, plex, body.rating_key)
+        seen = seen_in(node, mark)
         pick = pick_tracks(conn, username, item, audio, subtitles)
         info = _progress_info(item)
         if item.media is not None and item.preview_count:
@@ -361,13 +376,14 @@ def _start(
                 page=body.page,
                 # Plex was asked about the title first, and that may have taken long.
                 asked_ago=body.asked_s + manager.now() - began,
-                tracks=Tracks(chosen.audio, chosen.subtitle),
+                tracks=Tracks(chosen.audio, chosen.subtitle, seen),
             )
 
         try:
             stream_id = start(pick)
         except TrackUnavailable:
-            # What Plex selects plays rather than nothing.
+            # Plex would not select the tracks, or not play them: what it selects plays rather
+            # than nothing, and the answer says so.
             logger.warning("watch.stream: Plex would not play the tracks picked")
             pick = Pick(selected(audio), None)
             stream_id = start(Pick(None, None))

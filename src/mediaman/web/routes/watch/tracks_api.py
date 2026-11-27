@@ -16,12 +16,13 @@ from starlette.responses import Response
 from mediaman.db import get_db
 from mediaman.services.cast.tracks import (
     LANGUAGES,
+    NATIVE_NAMES,
     Remembered,
     Track,
     normalise_language,
-    read_tracks,
 )
 from mediaman.services.media_meta.plex_watch import PlexError, PlexItem, is_in_libraries
+from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import track_choices
 from mediaman.web.repository.track_choices import Defaults
@@ -32,9 +33,13 @@ from mediaman.web.routes.watch.stream_api import (
     pick_tracks,
     plex_failure,
     title_key,
+    title_tracks,
 )
 
 router = APIRouter()
+
+# Per person, over these routes together: each but the defaults' asks Plex for the title.
+_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
 
 _KEY = r"^[0-9]{1,18}$"
 _LANGUAGE = r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{1,8})?$"
@@ -68,7 +73,7 @@ def _title(
             item, _scanned_library_ids(conn)
         ):
             return respond_err("not_found", status=404)
-        audio, subtitles = read_tracks(plex, rating_key)
+        _, audio, subtitles = title_tracks(conn, plex, rating_key)
     except PlexError as exc:
         return plex_failure(exc)
     return item, audio, subtitles
@@ -102,6 +107,8 @@ def _answer(
 def get_tracks(
     request: Request, rating_key: str, username: str = Depends(get_current_user)
 ) -> Response:
+    if not _LIMITER.check(username):
+        return _rate_limited()
     if not _valid_key(rating_key):
         return respond_err("not_found", status=404)
     conn = get_db()
@@ -118,6 +125,8 @@ def set_tracks(
     body: _Choice,
     username: str = Depends(get_current_user),
 ) -> Response:
+    if not _LIMITER.check(username):
+        return _rate_limited()
     if not _valid_key(rating_key):
         return respond_err("not_found", status=404)
     conn = get_db()
@@ -176,6 +185,8 @@ def clear_tracks(
     request: Request, rating_key: str, username: str = Depends(get_current_user)
 ) -> Response:
     """Go back to the person's defaults for the whole title."""
+    if not _LIMITER.check(username):
+        return _rate_limited()
     if not _valid_key(rating_key):
         return respond_err("not_found", status=404)
     conn = get_db()
@@ -187,27 +198,38 @@ def clear_tracks(
     return _answer(conn, username, item, audio, subtitles)
 
 
+def _rate_limited() -> Response:
+    return respond_err("too_many_requests", status=429)
+
+
 def _valid_key(rating_key: str) -> bool:
     return rating_key.isascii() and rating_key.isdigit() and len(rating_key) <= 18
 
 
-def _defaults_answer(defaults: Defaults) -> Response:
+def _defaults_answer(conn: sqlite3.Connection, username: str, defaults: Defaults) -> Response:
     return respond_ok(
         {
             "audio_lang": defaults.audio_lang,
             "subtitle_lang": defaults.subtitle_lang,
-            "languages": [{"code": code, "name": name} for code, name in LANGUAGES.items()],
+            "languages": [
+                {"code": code, "name": name, "native": NATIVE_NAMES[code]}
+                for code, name in LANGUAGES.items()
+            ],
+            "library_languages": track_choices.library_languages(conn, username),
         }
     )
 
 
 @router.get("/api/account/playback")
 def get_playback(username: str = Depends(get_current_user)) -> Response:
-    return _defaults_answer(track_choices.get_defaults(get_db(), username))
+    conn = get_db()
+    return _defaults_answer(conn, username, track_choices.get_defaults(conn, username))
 
 
 @router.put("/api/account/playback")
 def set_playback(body: _Defaults, username: str = Depends(get_current_user)) -> Response:
+    if not _LIMITER.check(username):
+        return _rate_limited()
     conn = get_db()
     held = track_choices.get_defaults(conn, username)
     sent = body.model_fields_set
@@ -224,4 +246,4 @@ def set_playback(body: _Defaults, username: str = Depends(get_current_user)) -> 
                 return respond_err("unknown_language", status=422)
     defaults = Defaults(audio_lang, subtitle_lang)
     track_choices.set_defaults(conn, username, defaults)
-    return _defaults_answer(defaults)
+    return _defaults_answer(conn, username, defaults)

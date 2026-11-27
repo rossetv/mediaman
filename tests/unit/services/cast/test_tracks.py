@@ -5,7 +5,14 @@ from __future__ import annotations
 import defusedxml.ElementTree as ET
 import pytest
 
-from mediaman.services.cast.tracks import Remembered, normalise_language, resolve, tracks_of
+from mediaman.services.cast.tracks import (
+    Remembered,
+    normalise_language,
+    read_tracks,
+    resolve,
+    tracks_of,
+)
+from mediaman.services.media_meta.plex_watch import PlexWatch
 
 
 def _streams(*streams: str) -> tuple[list, list]:
@@ -246,3 +253,25 @@ def test_tracks_asked_for_one_start_come_before_everything():
     chosen = Remembered("10", audio_id="1", subtitle="on", subtitle_id="3")
     pick = resolve(audio, subs, "10", remembered=chosen, audio_id="2", subtitle="off")
     assert (pick.audio, pick.subtitle) == ("2", None)
+
+
+def test_the_tracks_of_an_item_just_read_come_without_asking_plex_again(monkeypatch):
+    reads = []
+    node = ET.fromstring(
+        '<Video type="movie" ratingKey="7"><Media><Part>'
+        '<Stream id="1" streamType="2" languageCode="ger" selected="1"/></Part></Media></Video>'
+    )
+
+    def metadata(self, key, query=""):
+        reads.append(key)
+        return ET.fromstring("<MediaContainer/>"), node
+
+    monkeypatch.setattr(PlexWatch, "_metadata", metadata)
+    plex = PlexWatch("http://plex.test", "tok")
+
+    plex.get_item("7", marks=True)
+    audio, _ = read_tracks(plex, "7")
+    read_tracks(plex, "8")
+
+    assert [t["language"] for t in audio] == ["de"]
+    assert reads == ["7", "8"]

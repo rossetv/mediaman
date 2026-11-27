@@ -17,126 +17,129 @@ _ID_RE = re.compile(r"[0-9]{1,18}")
 _LABEL_MAX = 120
 _NAME_MAX = 60
 
-# ISO 639-1, 639-2/B where it differs from /T, 639-2/T, English name. A language without a
-# 639-1 code has "-" there and goes by its 639-2 code.
+# ISO 639-1, 639-2/B where it differs from /T, 639-2/T, English name | name in the language
+# itself. A language without a 639-1 code has "-" there and goes by its 639-2 code.
 _LANGUAGES = """
-af - afr Afrikaans
-sq alb sqi Albanian
-am - amh Amharic
-ar - ara Arabic
-hy arm hye Armenian
-az - aze Azerbaijani
-eu baq eus Basque
-be - bel Belarusian
-bn - ben Bengali
-bs - bos Bosnian
-br - bre Breton
-bg - bul Bulgarian
-my bur mya Burmese
-ca - cat Catalan
-zh chi zho Chinese
-- - yue Cantonese
-hr - hrv Croatian
-cs cze ces Czech
-da - dan Danish
-nl dut nld Dutch
-en - eng English
-eo - epo Esperanto
-et - est Estonian
-fo - fao Faroese
-- - fil Filipino
-fi - fin Finnish
-fr fre fra French
-gl - glg Galician
-ka geo kat Georgian
-de ger deu German
-el gre ell Greek
-gu - guj Gujarati
-ha - hau Hausa
-- - haw Hawaiian
-he - heb Hebrew
-hi - hin Hindi
-hu - hun Hungarian
-is ice isl Icelandic
-ig - ibo Igbo
-id - ind Indonesian
-ga - gle Irish
-it - ita Italian
-ja - jpn Japanese
-kn - kan Kannada
-kk - kaz Kazakh
-km - khm Khmer
-ko - kor Korean
-ku - kur Kurdish
-lo - lao Lao
-la - lat Latin
-lv - lav Latvian
-lt - lit Lithuanian
-lb - ltz Luxembourgish
-mk mac mkd Macedonian
-ms may msa Malay
-ml - mal Malayalam
-mt - mlt Maltese
-mi mao mri Maori
-mr - mar Marathi
-mn - mon Mongolian
-ne - nep Nepali
-no - nor Norwegian
-nb - nob Norwegian
-nn - nno Norwegian Nynorsk
-fa per fas Persian
-pl - pol Polish
-pt - por Portuguese
-pa - pan Punjabi
-ps - pus Pashto
-ro rum ron Romanian
-ru - rus Russian
-gd - gla Scottish Gaelic
-sr - srp Serbian
-si - sin Sinhala
-sk slo slk Slovak
-sl - slv Slovenian
-so - som Somali
-es - spa Spanish
-sw - swa Swahili
-sv - swe Swedish
-tl - tgl Tagalog
-ta - tam Tamil
-te - tel Telugu
-th - tha Thai
-bo tib bod Tibetan
-tr - tur Turkish
-uk - ukr Ukrainian
-ur - urd Urdu
-uz - uzb Uzbek
-vi - vie Vietnamese
-cy wel cym Welsh
-xh - xho Xhosa
-yi - yid Yiddish
-yo - yor Yoruba
-zu - zul Zulu
+af - afr Afrikaans | Afrikaans
+sq alb sqi Albanian | Shqip
+am - amh Amharic | አማርኛ
+ar - ara Arabic | العربية
+hy arm hye Armenian | Հայերեն
+az - aze Azerbaijani | Azərbaycanca
+eu baq eus Basque | Euskara
+be - bel Belarusian | Беларуская
+bn - ben Bengali | বাংলা
+bs - bos Bosnian | Bosanski
+br - bre Breton | Brezhoneg
+bg - bul Bulgarian | Български
+my bur mya Burmese | မြန်မာ
+ca - cat Catalan | Català
+zh chi zho Chinese | 中文
+- - yue Cantonese | 粵語
+hr - hrv Croatian | Hrvatski
+cs cze ces Czech | Čeština
+da - dan Danish | Dansk
+nl dut nld Dutch | Nederlands
+en - eng English | English
+eo - epo Esperanto | Esperanto
+et - est Estonian | Eesti
+fo - fao Faroese | Føroyskt
+- - fil Filipino | Filipino
+fi - fin Finnish | Suomi
+fr fre fra French | Français
+gl - glg Galician | Galego
+ka geo kat Georgian | ქართული
+de ger deu German | Deutsch
+el gre ell Greek | Ελληνικά
+gu - guj Gujarati | ગુજરાતી
+ha - hau Hausa | Hausa
+- - haw Hawaiian | ʻŌlelo Hawaiʻi
+he - heb Hebrew | עברית
+hi - hin Hindi | हिन्दी
+hu - hun Hungarian | Magyar
+is ice isl Icelandic | Íslenska
+ig - ibo Igbo | Igbo
+id - ind Indonesian | Bahasa Indonesia
+ga - gle Irish | Gaeilge
+it - ita Italian | Italiano
+ja - jpn Japanese | 日本語
+kn - kan Kannada | ಕನ್ನಡ
+kk - kaz Kazakh | Қазақ тілі
+km - khm Khmer | ខ្មែរ
+ko - kor Korean | 한국어
+ku - kur Kurdish | Kurdî
+lo - lao Lao | ລາວ
+la - lat Latin | Latina
+lv - lav Latvian | Latviešu
+lt - lit Lithuanian | Lietuvių
+lb - ltz Luxembourgish | Lëtzebuergesch
+mk mac mkd Macedonian | Македонски
+ms may msa Malay | Bahasa Melayu
+ml - mal Malayalam | മലയാളം
+mt - mlt Maltese | Malti
+mi mao mri Maori | Māori
+mr - mar Marathi | मराठी
+mn - mon Mongolian | Монгол
+ne - nep Nepali | नेपाली
+no - nor Norwegian | Norsk
+nb - nob Norwegian | Norsk bokmål
+nn - nno Norwegian Nynorsk | Norsk nynorsk
+fa per fas Persian | فارسی
+pl - pol Polish | Polski
+pt - por Portuguese | Português
+pa - pan Punjabi | ਪੰਜਾਬੀ
+ps - pus Pashto | پښتو
+ro rum ron Romanian | Română
+ru - rus Russian | Русский
+gd - gla Scottish Gaelic | Gàidhlig
+sr - srp Serbian | Српски
+si - sin Sinhala | සිංහල
+sk slo slk Slovak | Slovenčina
+sl - slv Slovenian | Slovenščina
+so - som Somali | Soomaali
+es - spa Spanish | Español
+sw - swa Swahili | Kiswahili
+sv - swe Swedish | Svenska
+tl - tgl Tagalog | Tagalog
+ta - tam Tamil | தமிழ்
+te - tel Telugu | తెలుగు
+th - tha Thai | ไทย
+bo tib bod Tibetan | བོད་སྐད་
+tr - tur Turkish | Türkçe
+uk - ukr Ukrainian | Українська
+ur - urd Urdu | اردو
+uz - uzb Uzbek | Oʻzbekcha
+vi - vie Vietnamese | Tiếng Việt
+cy wel cym Welsh | Cymraeg
+xh - xho Xhosa | isiXhosa
+yi - yid Yiddish | ייִדיש
+yo - yor Yoruba | Yorùbá
+zu - zul Zulu | isiZulu
 """
 
 
-def _language_table() -> tuple[dict[str, str], dict[str, str]]:
+def _language_table() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     codes: dict[str, str] = {}
     names: dict[str, str] = {}
+    natives: dict[str, str] = {}
     for line in _LANGUAGES.strip().splitlines():
-        one, bib, term, name = line.split(" ", 3)
+        one, bib, term, both = line.split(" ", 3)
         code = term if one == "-" else one
-        names[code] = name
+        names[code], natives[code] = both.split(" | ")
         for alias in (one, bib, term):
             if alias != "-":
                 codes[alias] = code
     # Bokmål is what "Norwegian" means on nearly every file.
     codes["nb"] = codes["nob"] = "no"
-    del names["nb"]
-    return codes, names
+    del names["nb"], natives["nb"]
+    return codes, names, natives
 
 
-_CODES, _NAMES = _language_table()
+_CODES, _NAMES, _NATIVES = _language_table()
 #: Every language a default may be set to, by code: its English name.
 LANGUAGES: dict[str, str] = dict(sorted(_NAMES.items(), key=lambda kv: kv[1]))
+#: Each of ``LANGUAGES`` by code: its name in itself, so every browser shows the same.
+NATIVE_NAMES: dict[str, str] = {code: _NATIVES[code] for code in LANGUAGES}
 
 
 def normalise_language(code: str | None) -> str | None:
@@ -211,9 +214,8 @@ def tracks_of(node: Element) -> tuple[list[Track], list[Track]]:
 
 
 def read_tracks(plex: PlexWatch, rating_key: str) -> tuple[list[Track], list[Track]]:
-    """Return ``(audio, subtitles)``."""
-    _, node = plex._metadata(rating_key)
-    return tracks_of(node)
+    """Return ``(audio, subtitles)``, from the metadata ``get_item`` read where it did."""
+    return tracks_of(plex.item_node(rating_key))
 
 
 @dataclass(frozen=True)

@@ -81,6 +81,8 @@ class FakePlex:
         self.streams = ""
         #: Whether the decision plays the audio track asked for.
         self.knows_tracks = True
+        #: Whether Plex refuses to change a part's selected tracks.
+        self.refuses_puts = False
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
         self.calls.append({"path": urlsplit(url).path, "params": dict(params or {})})
@@ -88,6 +90,8 @@ class FakePlex:
             raise requests.ConnectionError(f"cannot connect to {url}?X-Plex-Token={TOKEN}")
         path = urlsplit(url).path
         session = (params or {}).get("session")
+        if method == "PUT" and self.refuses_puts:
+            return FakeResponse(403)
         if path == f"{TRANSCODE}/start.m3u8":
             return FakeResponse(200, f"#EXTM3U\nsession/{session}/base/index.m3u8\n".encode())
         if path == f"{TRANSCODE}/decision":
@@ -269,6 +273,32 @@ def test_tracks_plex_will_not_play_give_way_to_its_own_rather_than_no_picture(al
     assert resp.json()["audio"] == "21"
     decisions = [c["params"] for c in plex.calls if c["path"] == f"{TRANSCODE}/decision"]
     assert [d.get("audioStreamID") for d in decisions] == ["22", None]
+
+
+def test_tracks_plex_refuses_to_select_give_way_to_its_own_and_the_answer_says_so(
+    alice, conn, plex, monkeypatch
+):
+    conn.execute("UPDATE admin_users SET audio_lang = 'de'")
+    conn.commit()
+    plex.refuses_puts = True
+    streams = (
+        '<Stream id="21" streamType="2" languageCode="eng" selected="1"/>'
+        '<Stream id="22" streamType="2" languageCode="ger"/>'
+    )
+    node = ET.fromstring(f'<Video><Media><Part id="77">{streams}</Part></Media></Video>')
+    monkeypatch.setattr(PlexWatch, "_metadata", lambda self, key, query="": (None, node))
+
+    resp = _start(alice)
+
+    assert resp.status_code == 200
+    assert resp.json()["audio"] == "21"
+    assert [c["params"] for c in plex.calls if c["path"] == "/library/parts/77"] == [
+        {"audioStreamID": "22"}
+    ]
+    decisions = [c["params"] for c in plex.calls if c["path"] == f"{TRANSCODE}/decision"]
+    assert [d.get("audioStreamID") for d in decisions] == [None]
+    # The selection the route read served: Plex's metadata was not read again.
+    assert not any(c["path"].startswith("/library/metadata/") for c in plex.calls)
 
 
 def test_started_stream_plays_through_mediaman_with_no_store_headers(alice, plex):

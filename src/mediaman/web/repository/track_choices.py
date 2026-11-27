@@ -1,19 +1,24 @@
-"""Each person's audio and subtitle languages, and what they chose for a show or movie."""
+"""Each person's audio and subtitle languages, what they chose for a show or movie, and the
+languages the library's tracks are in."""
 
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from mediaman.core.time import now_iso
-from mediaman.services.cast.tracks import Remembered
+from mediaman.services.cast.tracks import LANGUAGES, Remembered, Track
+
+#: A person's choices kept, the latest first; older ones go back to the defaults.
+MAX_CHOICES_PER_PERSON = 500
 
 
 @dataclass(frozen=True)
 class Defaults:
     #: An ISO 639 code, or None for the track Plex has selected.
     audio_lang: str | None = None
-    #: An ISO 639 code, "off", or None: neither shows subtitles but forced ones.
+    #: An ISO 639 code; None for only the forced ones in the audio's language; "off" for none.
     subtitle_lang: str | None = None
 
 
@@ -86,6 +91,12 @@ def save_choice(
                 "at": now_iso(),
             },
         )
+        conn.execute(
+            "DELETE FROM user_track_choices WHERE rowid IN (SELECT c.rowid FROM"
+            " user_track_choices c JOIN admin_users u ON u.id = c.user_id WHERE u.username = ?"
+            " ORDER BY c.updated_at DESC, c.rowid DESC LIMIT -1 OFFSET ?)",
+            (username, MAX_CHOICES_PER_PERSON),
+        )
 
 
 def clear_choice(conn: sqlite3.Connection, username: str, title_key: str) -> None:
@@ -95,3 +106,33 @@ def clear_choice(conn: sqlite3.Connection, username: str, title_key: str) -> Non
             " AND user_id = (SELECT id FROM admin_users WHERE username = ?)",
             (title_key, username),
         )
+
+
+def note_languages(conn: sqlite3.Connection, tracks: Iterable[Track]) -> None:
+    """Keep the languages of *tracks* among those the library holds."""
+    codes = {t["language"] for t in tracks if t["language"] in LANGUAGES}
+    # At most one row a language, so all of them are few.
+    known = {row[0] for row in conn.execute("SELECT code FROM track_languages").fetchall()}
+    new = codes - known
+    if not new:
+        # Most starts: nothing to write.
+        return
+    with conn:
+        conn.executemany(
+            "INSERT OR IGNORE INTO track_languages (code, seen_at) VALUES (?, ?)",
+            [(code, now_iso()) for code in sorted(new)],
+        )
+
+
+def library_languages(conn: sqlite3.Connection, username: str) -> list[str]:
+    """The codes of the languages seen in the library's tracks and in *username*'s choices, in
+    the order of ``LANGUAGES``."""
+    rows = conn.execute(
+        "SELECT code FROM track_languages UNION SELECT c.audio_lang FROM user_track_choices c"
+        " JOIN admin_users u ON u.id = c.user_id WHERE u.username = :user"
+        " UNION SELECT c.subtitle_lang FROM user_track_choices c"
+        " JOIN admin_users u ON u.id = c.user_id WHERE u.username = :user",
+        {"user": username},
+    ).fetchall()
+    found = {row[0] for row in rows}
+    return [code for code in LANGUAGES if code in found]

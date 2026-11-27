@@ -21,7 +21,7 @@ from starlette.responses import Response
 
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import TICKET_SECONDS, Ticket, get_ticket_store
-from mediaman.services.cast.tracks import Pick, read_tracks
+from mediaman.services.cast.tracks import Pick
 from mediaman.services.media_meta.plex_quality import TvQuality
 from mediaman.services.media_meta.plex_stream import (
     StreamGone,
@@ -31,6 +31,7 @@ from mediaman.services.media_meta.plex_stream import (
     TrackUnavailable,
     TvTracks,
     get_stream_manager,
+    seen_in,
     segment_type,
 )
 from mediaman.services.media_meta.plex_watch import PlexError, is_in_libraries
@@ -54,6 +55,7 @@ from mediaman.web.routes.watch.stream_api import (
     selected,
     session_lasts,
     stream_lives,
+    title_tracks,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,12 +123,14 @@ def _start(
     conn = get_db()
     try:
         plex = _open_plex(request, conn)
+        mark = manager.selection_mark()
         item = plex.get_item(body.rating_key, marks=True)
         if item.type not in ("movie", "episode") or not is_in_libraries(
             item, _scanned_library_ids(conn)
         ):
             return respond_err("not_found", status=404)
-        audio, subtitles = read_tracks(plex, body.rating_key)
+        node, audio, subtitles = title_tracks(conn, plex, body.rating_key)
+        seen = seen_in(node, mark)
         subtitle = None if body.subtitle == "off" else body.subtitle
         if (body.audio is not None and body.audio not in {t["id"] for t in audio}) or (
             subtitle is not None and subtitle not in {t["id"] for t in subtitles}
@@ -146,7 +150,7 @@ def _start(
                 _progress_info(item),
                 page=body.page,
                 asked_ago=body.asked_s + manager.now() - began,
-                tv=TvTracks(audio=chosen.audio, subtitle=chosen.subtitle),
+                tv=TvTracks(audio=chosen.audio, subtitle=chosen.subtitle, seen=seen),
             )
 
         try:

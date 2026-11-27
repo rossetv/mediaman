@@ -5,7 +5,10 @@ from __future__ import annotations
 import defusedxml.ElementTree as ET
 import pytest
 
+from mediaman.services.cast.tracks import Remembered
 from mediaman.services.media_meta.plex_watch import PlexItem, PlexItemNotFound, PlexWatch
+from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.repository import track_choices
 from mediaman.web.routes.watch import tracks_api
 
 PLEX_URL = "http://plex-lan.example.test:32400"
@@ -45,6 +48,7 @@ def app(app_factory, conn, monkeypatch):
             (key, value),
         )
     conn.commit()
+    monkeypatch.setattr(tracks_api, "_LIMITER", ActionRateLimiter(60, 60))
     monkeypatch.setattr(PlexWatch, "get_item", lambda self, key, marks=False: _item(key))
     monkeypatch.setattr(
         PlexWatch,
@@ -130,7 +134,7 @@ def test_only_titles_of_the_scanned_libraries_answer(alice, key):
 def test_default_languages_are_kept_in_one_form_and_play(alice):
     resp = alice.put("/api/account/playback", json={"audio_lang": "ger", "subtitle_lang": "EN"})
     assert (resp.json()["audio_lang"], resp.json()["subtitle_lang"]) == ("de", "en")
-    assert {"code": "de", "name": "German"} in resp.json()["languages"]
+    assert {"code": "de", "name": "German", "native": "Deutsch"} in resp.json()["languages"]
     assert _picked(alice.get("/api/watch/tracks/201")) == ("12", "14")
     resp = alice.put("/api/account/playback", json={"subtitle_lang": "off"})
     assert (resp.json()["audio_lang"], resp.json()["subtitle_lang"]) == ("de", "off")
@@ -142,3 +146,54 @@ def test_default_languages_are_kept_in_one_form_and_play(alice):
 def test_a_language_not_known_is_refused(alice, body):
     assert alice.put("/api/account/playback", json=body).status_code == 422
     assert alice.get("/api/account/playback").json()["audio_lang"] is None
+
+
+def test_the_library_s_languages_are_those_of_tracks_read_and_of_the_person_s_choices(
+    alice, bob, conn
+):
+    assert alice.get("/api/account/playback").json()["library_languages"] == []
+    alice.get("/api/watch/tracks/201")
+    conn.execute(
+        "INSERT INTO user_track_choices (user_id, title_key, rating_key, audio_lang, updated_at)"
+        " SELECT id, '500', '501', 'ja', datetime('now') FROM admin_users WHERE username = 'alice'"
+    )
+    conn.commit()
+
+    # In the order of the full list, by English name.
+    assert alice.get("/api/account/playback").json()["library_languages"] == ["en", "de", "ja"]
+    assert bob.get("/api/account/playback").json()["library_languages"] == ["en", "de"]
+
+
+def test_every_language_has_a_name_in_itself(alice):
+    languages = alice.get("/api/account/playback").json()["languages"]
+    assert all(lang["native"] for lang in languages)
+    assert {"code": "sq", "name": "Albanian", "native": "Shqip"} in languages
+
+
+def test_the_routes_that_ask_plex_are_rate_limited_per_person(alice, bob, monkeypatch):
+    monkeypatch.setattr(tracks_api, "_LIMITER", ActionRateLimiter(2, 60))
+    assert alice.get("/api/watch/tracks/201").status_code == 200
+    assert alice.put("/api/watch/tracks/201", json={"audio": "12"}).status_code == 200
+
+    for resp in (
+        alice.get("/api/watch/tracks/201"),
+        alice.put("/api/watch/tracks/201", json={}),
+        alice.delete("/api/watch/tracks/201"),
+        alice.put("/api/account/playback", json={"audio_lang": "de"}),
+    ):
+        assert (resp.status_code, resp.json()["error"]) == (429, "too_many_requests")
+    assert bob.get("/api/watch/tracks/201").status_code == 200
+
+
+def test_a_person_s_oldest_choices_go_back_to_the_defaults_past_the_cap(conn, monkeypatch):
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, created_at)"
+        " VALUES ('carol', 'x', datetime('now'))"
+    )
+    monkeypatch.setattr(track_choices, "MAX_CHOICES_PER_PERSON", 2)
+    for title in ("1", "2", "3"):
+        track_choices.save_choice(conn, "carol", title, Remembered(title, audio_lang="de"))
+
+    assert track_choices.get_choice(conn, "carol", "1") is None
+    assert track_choices.get_choice(conn, "carol", "3") is not None
+    assert track_choices.get_choice(conn, "carol", "2") is not None
