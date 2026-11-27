@@ -122,7 +122,16 @@ def test_the_words_move_only_where_motion_is_wanted() -> None:
     assert moving
     rest = css.replace(moving[0], "")
     assert "animation:" in moving[1]
-    assert re.findall(r"animation: (?!loading-pulse)[^;]+", rest) == []
+    # The stars' own lines run only where a custom property sets them, and it is none by default.
+    allowed = r"loading-pulse|ai-twinkle-pulse|var\(--ai-twinkle-(?:lg|sm), none\)"
+    assert re.findall(rf"animation: (?!{allowed})[^;]+", rest) == []
+
+
+def test_the_pulse_that_stands_in_for_the_twinkle_changes_only_opacity() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    body = re.search(r"@keyframes ai-twinkle-pulse \{(.*)\}\n", css)
+    assert body
+    assert set(re.findall(r"([\w-]+)\s*:", body[1])) == {"opacity"}
 
 
 def test_the_ai_labels_stars_are_drawn_in_its_own_icon_so_webkit_twinkles_them(
