@@ -3,7 +3,8 @@
                      the brand, the way back to Watch (on Watch the search), and .nav-end
    - .nav-end      — one island at the end: on Watch the storage meter, and the profile button
    - .profile-menu — what the profile button opens: a menu under it on desktop,
-                     a bottom sheet on phones
+                     a bottom sheet on phones. On Watch the button opens the pane
+                     over it instead (_you.html, watch/you.js).
 
    Set `nav_active` in template context to one of:
      watch | downloads | history | settings | account
@@ -27,7 +28,6 @@
 {% set active = nav_active or ('watch' if (path == '/' or path.startswith('/watch/')) else '') %}
 
 {% set titles = {
-  'downloads':   'Downloads',
   'history':     'History',
   'settings':    'Settings',
   'account':     'Profile',
@@ -70,7 +70,6 @@
     </div>
     <div id="profile-menu-items" role="menu" aria-label="Profile menu">
       <a class="profile-item" role="menuitem" tabindex="-1" href="/account"{{ current('account') }}>{{ icon("i-user") }}Profile</a>
-      <a class="profile-item" role="menuitem" tabindex="-1" href="/downloads"{{ current('downloads') }}>{{ icon("i-download") }}Downloads<span class="profile-note" id="profile-note" hidden></span></a>
       <a class="profile-item" role="menuitem" tabindex="-1" href="/history"{{ current('history') }}>{{ icon("i-clock-rotate-left") }}History</a>
       {% if not is_viewer %}
       <a class="profile-item" role="menuitem" tabindex="-1" href="/settings"{{ current('settings') }}>{{ icon("i-gear") }}Settings</a>

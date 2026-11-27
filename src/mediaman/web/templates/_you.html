@@ -1,0 +1,17 @@
+{# The pane over Watch that holds Profile, History and Settings: watch/you.js fills its views with
+   each group's fragment and runs it. A direct child of <body>, so the rest of the page can be inert under it. #}
+{% from "_components.html" import icon %}
+<div class="you" id="you" hidden{% if is_admin %} data-admin{% endif %}>
+  <div class="you__veil" data-you-close></div>
+  <section class="you__panel" role="dialog" aria-modal="true" aria-labelledby="you-title" tabindex="-1">
+    <div class="you__grab" aria-hidden="true"></div>
+    <header class="you__bar">
+      <button type="button" class="you__back" data-you-back hidden>{{ icon("i-chevron-left") }}<span class="you__back-label"></span></button>
+      <h2 class="you__title" id="you-title" tabindex="-1"></h2>
+      <button type="button" class="you__close" data-you-close aria-label="Close">{{ icon("i-xmark") }}</button>
+    </header>
+    <div class="you__views">
+      <div class="you__wait" aria-hidden="true"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+    </div>
+  </section>
+</div>

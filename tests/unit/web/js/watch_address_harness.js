@@ -87,6 +87,14 @@ function open(tab, opts = {}) {
   add('explore', 20, ['genre', 'person', 'type', 'decade'], false, keep(['genre', 'person', 'type', 'decade']));
   add('grid', 10, ['all', 'sort'], false, (h) => (['movies', 'tv'].includes(h.params.get('all')) ? keep(['all', 'sort'])(h) : null));
   add('list', 5, ['view'], false, (h) => (h.params.get('view') === 'list' ? h.params.toString() : null));
+  // A pane over the page, as the shell's: a deep link to it gets an entry under it, and it may hold a step back.
+  if (opts.pane) {
+    address.layer({ name: 'pane', depth: 45, params: ['you', 'h'], under: true,
+      read: (h) => h.params.get('you'),
+      open: (v, how) => { log.push('open pane ' + v + ' ' + how); },
+      close: (how) => { log.push('close pane ' + how); },
+      leave: (to) => { log.push('leave ' + to); return opts.pane.leave ? opts.pane.leave(to) : true; } });
+  }
   const api = {
     doc, address, log, timers, fire, scroll, win, observers, tab, ctx,
     took: () => log.splice(0),
@@ -757,6 +765,52 @@ const scenarios = {
     p = open(tab);
     await p.step(-1);
     return { scroll: p.win.scrollY };
+  },
+
+  // A deep link to the pane: an entry of the page without it goes under, so Back closes it and stays.
+  async paneDeepLinked() {
+    const tab = makeTab('/?you=settings&x=1');
+    const p = open(tab, { pane: {} });
+    const opened = p.took();
+    const entries = tab.entries.map((e) => e.url);
+    await p.step(-1);
+    const back = [p.at(), p.took()];
+    tab.entries = [{ url: '/?you=profile', state: tab.entries[1].state }];
+    tab.index = 0;
+    const again = open(tab, { pane: {} });
+    return { opened, entries, back, reloaded: tab.entries.length, still: again.took() };
+  },
+
+  // Back while the pane holds the step: the step is taken back, and made again only when let go.
+  async paneHoldsBack() {
+    const tab = makeTab('/');
+    let answer;
+    const p = open(tab, { pane: { leave: () => new Promise((r) => { answer = r; }) } });
+    p.address.push('pane', '/?you=profile');
+    p.address.push('pane', '/?you=settings');
+    p.took();
+    await p.step(-1);
+    const asked = [p.at(), p.took(), tab.calls.slice(-1)[0]];
+    answer(false);
+    await p.settle();
+    const kept = [p.at(), p.took()];
+    await p.step(-2);
+    const twice = [p.at(), p.took()];
+    answer(true);
+    await p.settle();
+    return { asked, kept, twice, let: [p.at(), p.took(), tab.calls.slice(-1)[0]] };
+  },
+
+  // Closing the pane steps back past it at once, asking nothing on the way.
+  async paneClosesWithoutAsking() {
+    const tab = makeTab('/');
+    const p = open(tab, { pane: { leave: () => new Promise(() => {}) } });
+    p.address.push('pane', '/?you=profile');
+    p.address.push('pane', '/?you=settings');
+    p.took();
+    p.address.close('pane');
+    await p.settle();
+    return { at: p.at(), log: p.took() };
   },
 
   // Back over a link the browser followed itself: its entry stands after those the page pushed.

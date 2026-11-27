@@ -60,13 +60,12 @@ def _buttons(html: str) -> list[str]:
     return re.findall(r'<button[^>]*class="profile-btn[^>]*>', html)
 
 
-def test_a_viewer_gets_the_way_back_to_watch_and_a_menu_of_what_they_may_open():
+def test_a_viewer_gets_the_way_back_to_watch_and_a_menu_of_what_they_may_open_without_downloads():
     html = _render("viewer")
 
     assert set(_links(_bar_of(html).split("<noscript>")[0])) == {"/"}
     assert _menu_items(html) == [
         ("/account", "Profile"),
-        ("/downloads", "Downloads"),
         ("/history", "History"),
         ("/api/auth/logout", "Log out"),
     ]
@@ -74,7 +73,7 @@ def test_a_viewer_gets_the_way_back_to_watch_and_a_menu_of_what_they_may_open():
 
 
 @pytest.mark.parametrize("role", ["admin", None])
-def test_an_admin_and_a_missing_role_find_settings_too_in_the_menu_and_nothing_more_in_the_bar(
+def test_an_admin_and_a_missing_role_find_settings_too_in_the_menu_but_no_downloads(
     role,
 ):
     html = _render(role)
@@ -82,7 +81,6 @@ def test_an_admin_and_a_missing_role_find_settings_too_in_the_menu_and_nothing_m
     assert set(_links(_bar_of(html).split("<noscript>")[0])) == {"/"}
     assert _menu_items(html) == [
         ("/account", "Profile"),
-        ("/downloads", "Downloads"),
         ("/history", "History"),
         ("/settings", "Settings"),
         ("/api/auth/logout", "Log out"),
@@ -191,12 +189,12 @@ def test_one_button_at_every_width_names_the_person_and_opens_the_menu():
     assert re.search(rf'id="{controlled}" role="menu"', html)
 
 
-def test_the_ring_and_the_count_are_read_to_nobody_and_the_menu_s_note_waits_for_its_script():
+def test_the_ring_and_the_count_are_read_to_nobody_and_the_menu_has_no_downloads_note():
     html = _render("viewer")
 
     for part in ("profile-ring", "profile-count"):
         assert re.search(rf'<span class="{part}" aria-hidden="true"></span>', html)
-    assert re.search(r'id="profile-note" hidden>', _menu(html))
+    assert "profile-note" not in html
 
 
 def test_the_phone_sheet_s_close_button_is_named_and_is_no_menu_item():
@@ -207,11 +205,11 @@ def test_the_phone_sheet_s_close_button_is_named_and_is_no_menu_item():
     assert "profile-close" not in menu
 
 
-def test_every_menu_item_is_a_menuitem_the_tab_key_passes_by():
+def test_every_one_of_the_four_menu_items_is_a_menuitem_the_tab_key_passes_by():
     items = _menu(_render("admin")).split('role="menu"')[1]
     tags = re.findall(r"<(?:a|button)\b[^>]*>", items)
 
-    assert len(tags) == 5
+    assert len(tags) == 4
     assert all('role="menuitem"' in t and 'tabindex="-1"' in t for t in tags)
 
 
@@ -221,7 +219,6 @@ def test_every_menu_item_is_a_menuitem_the_tab_key_passes_by():
         ("settings", "/settings", "Settings"),
         ("history", "/history", "History"),
         ("account", "/account", "Profile"),
-        ("downloads", "/downloads", "Downloads"),
     ],
 )
 def test_a_page_of_the_menu_marks_the_avatar_and_its_item(active, href, title):
@@ -231,6 +228,13 @@ def test_a_page_of_the_menu_marks_the_avatar_and_its_item(active, href, title):
         assert 'class="profile-btn on"' in button
         assert f'aria-label="Profile menu, robin, {title} is open"' in button
     assert re.findall(r'href="([^"]+)" aria-current="page"', html) == [href]
+
+
+def test_on_the_downloads_page_the_menu_marks_nothing_as_it_no_longer_leads_there():
+    html = _render("admin", path="/downloads", nav_active="downloads")
+
+    assert 'class="profile-btn"' in html
+    assert 'aria-current="page"' not in _menu(html)
 
 
 def test_the_menu_shows_the_person_s_picture_wherever_it_shows_them_and_reads_it_to_nobody():
