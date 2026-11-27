@@ -2,7 +2,13 @@
 
 Only transcode sessions are touched on Plex (decision, start, playlist and segment reads, ping,
 stop). Nothing is ever reported back to the account: no timeline, no scrobble, no settings, so
-watched marks and resume positions on Plex stay as they were.
+watched marks and resume positions on Plex stay as they were. The one write is a title's
+selected audio and subtitle tracks, for the moment of a start's decision only, since Plex plays
+the selected tracks and ignores the ones a session asks for; what was selected is put back.
+Plex's API does not tell a selection it made by itself (from the account's languages) from one
+a person made, and has no way to give a part back to the former: an audio track put back stays
+selected for that part, so only what a start must change is written, and the subtitles are
+left alone unless one is burned in.
 
 Plex session URLs work without a token, so they never leave this module: the browser sees only
 ``/api/watch/stream/<stream_id>/...`` paths, ``stream_id`` is unrelated to the Plex session id,
@@ -21,6 +27,7 @@ import posixpath
 import re
 import secrets
 import socket
+import sqlite3
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -43,6 +50,7 @@ from mediaman.services.infra.http.streaming import (
     _read_capped,
     _SizeCapExceeded,
 )
+from mediaman.services.media_meta import held_selections
 from mediaman.services.media_meta.plex_quality import ORIGINAL, QUALITY_PRESETS
 from mediaman.services.media_meta.plex_watch import (
     _RATING_KEY_RE,
@@ -112,6 +120,7 @@ MAX_STARTS_HELD = 2 * MAX_STARTS_PER_USER
 MAX_STARTS_TOTAL = 10
 HUNG_START_SECONDS = 10.0
 
+_ID_RE = re.compile(r"[0-9]{1,18}")
 _SEGMENT_NAME_RE = re.compile(r"[0-9]{1,6}\.(ts|m4s|mp4|vtt|aac)")
 _VARIANT_RE = re.compile(r"[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*/index\.m3u8")
 _EXTINF_RE = re.compile(r"#EXTINF:([0-9]{1,6}(?:\.[0-9]{1,9})?)(?:,.*)?")
@@ -184,6 +193,10 @@ class _Unservable(PlexUnavailable):
     """Plex answered, and what it answered cannot be played: asking again soon changes nothing."""
 
 
+class _Answered(PlexUnavailable):
+    """Plex answered with an error, so it did not do what it was asked."""
+
+
 class FileUnplayable(PlexError):
     """Plex says it can neither play nor convert the file, so no start or retry can play it.
 
@@ -235,11 +248,34 @@ class StreamInfo:
 
 
 @dataclass(frozen=True)
-class TvTracks:
-    """Marks a stream as one for a TV, with the tracks asked for; None leaves Plex's own choice."""
+class Seen:
+    """Plex's selection for an item's part, read while the manager's writes stood at *mark*."""
+
+    part: str
+    audio: str
+    subtitle: str
+    mark: int
+
+
+def seen_in(node: Element, mark: int) -> Seen | None:
+    """The selection an item's metadata *node* shows, read at *mark*; None without a part."""
+    found = _part_selection(node.find("Media/Part"))
+    return None if found is None else Seen(*found, mark)
+
+
+@dataclass(frozen=True)
+class Tracks:
+    """The tracks asked for; None leaves Plex's own choice."""
 
     audio: str | None = None
     subtitle: str | None = None
+    #: Plex's selection as the caller read it, which spares reading it again.
+    seen: Seen | None = None
+
+
+@dataclass(frozen=True)
+class TvTracks(Tracks):
+    """Marks a stream as one for a TV, with the tracks asked for."""
 
 
 class SegmentRead:
@@ -366,6 +402,14 @@ class _Viewing:
     asked: float = float("-inf")
 
 
+@dataclass(frozen=True)
+class _Held:
+    """Plex's own ids of the fields a start changed on *part*, by Plex's parameter names."""
+
+    part: str
+    ids: dict[str, str]
+
+
 @dataclass
 class _CopyVerdict:
     """Whether Plex would copy a file's video; *known* is False while Plex has not answered."""
@@ -426,9 +470,13 @@ class StreamManager:
         session: requests.Session | None = None,
         clock: Callable[[], float] = time.monotonic,
         allowed_hosts: AllowedHosts = None,
+        db: Callable[[], sqlite3.Connection] | None = None,
     ) -> None:
+        """*db* keeps Plex's own selections held while a start has others selected, so that
+        a later run puts back what this one could not; without it they are kept in memory."""
         self._credentials = credentials
         self._allowed_hosts = allowed_hosts
+        self._db = db
         if session is None:
             session = requests.Session()
             adapter = _Adapter(pool_maxsize=_POOL_MAXSIZE)
@@ -457,10 +505,24 @@ class StreamManager:
         # An ended stream's reads stay here until Plex lets go of them, so starting anew is no
         # way around the limits.
         self._reads: set[SegmentRead] = set()
+        # rating key -> (the lock its decisions take turns at, the starts holding or awaiting it).
+        # Plex's selected tracks are shared by all, so only one start may change them at a time;
+        # mediaman runs as one process, so a lock in memory is enough.
+        self._deciding: dict[str, tuple[threading.Lock, list[int]]] = {}
+        # rating key -> Plex's own selection of the fields a start changed, until put back.
+        self._held: dict[str, _Held] = {}
+        # Counts writes of selections begun and ended: a selection read while it stood still
+        # was no start's temporary one.
+        self._writes = 0
 
     def now(self) -> float:
         """The time on the manager's clock, in seconds from no set moment."""
         return self._clock()
+
+    def selection_mark(self) -> int:
+        """Take before reading an item's metadata, for ``seen_in``."""
+        with self._lock:
+            return self._writes
 
     @contextlib.contextmanager
     def starting(
@@ -514,6 +576,7 @@ class StreamManager:
         page: str | None = None,
         asked_ago: float = 0.0,
         tv: TvTracks | None = None,
+        tracks: Tracks | None = None,
     ) -> str:
         """Open a Plex transcode session at offset 0 and return the new stream id.
 
@@ -530,8 +593,8 @@ class StreamManager:
         restart; they count as replaced unless nothing could be started in their place. Of two
         starts of one item at the same time the later wins, and the other's id is returned as
         one already replaced.
-        With *tv* the video and audio are converted to what any TV plays, and a track it names
-        that Plex would not play raises ``TrackUnavailable``.
+        With *tv* the video and audio are converted to what any TV plays. A track *tv* or
+        *tracks* names that Plex would not play raises ``TrackUnavailable``.
         Raises ``ValueError`` for an unknown quality or a malformed rating key, and
         ``TooManyStreams`` when the user, or mediaman as a whole, is at the limit.
         """
@@ -556,7 +619,7 @@ class StreamManager:
             for session_id in dropped.values():
                 self._call_quietly("stop", session_id)
             return self._start_new(
-                creds, user, rating_key, quality, burn_subtitles, info, fallback, order, tv
+                creds, user, rating_key, quality, burn_subtitles, info, fallback, order, tv, tracks
             )
         finally:
             with self._lock:
@@ -590,6 +653,7 @@ class StreamManager:
         fallback: str | None,
         order: int,
         tv: TvTracks | None,
+        tracks: Tracks | None,
     ) -> str:
         asked = quality
         base, token = creds
@@ -605,7 +669,15 @@ class StreamManager:
                 self._issued.add(session_id)
             try:
                 child_path = self._open_session(
-                    base, token, session_id, rating_key, quality, burn_subtitles, deadline, tv
+                    base,
+                    token,
+                    session_id,
+                    rating_key,
+                    quality,
+                    burn_subtitles,
+                    deadline,
+                    tv,
+                    tracks,
                 )
                 break
             except PlexUnavailable as exc:
@@ -1070,27 +1142,36 @@ class StreamManager:
         burn_subtitles: bool,
         deadline: float,
         tv: TvTracks | None,
+        tracks: Tracks | None = None,
     ) -> str:
-        params = _session_params(session_id, rating_key, quality, burn_subtitles, tv)
+        chosen = tv or tracks
+        params = _session_params(session_id, rating_key, quality, burn_subtitles, tv, chosen)
         session_header = {"X-Plex-Session-Identifier": session_id}
         # start.m3u8 answers 400 unless a decision for the same session came first.
         for action in ("decision", "start.m3u8"):
-            body = self._get(
-                base,
-                token,
-                f"{_TRANSCODE}/{action}",
-                op=action,
-                params=params,
-                extra_headers=session_header,
-                max_bytes=_PLAYLIST_MAX_BYTES,
-                deadline=deadline,
+            # The session keeps the tracks its decision found selected, whatever is selected later.
+            selecting = (
+                self._tracks_selected(base, token, rating_key, chosen, deadline)
+                if action == "decision"
+                else contextlib.nullcontext()
             )
+            with selecting:
+                body = self._get(
+                    base,
+                    token,
+                    f"{_TRANSCODE}/{action}",
+                    op=action,
+                    params=params,
+                    extra_headers=session_header,
+                    max_bytes=_PLAYLIST_MAX_BYTES,
+                    deadline=deadline,
+                )
             if action == "decision":
                 _check_playable(body)
             if action == "decision" and quality == ORIGINAL and not _video_copied(body):
                 raise _Unservable("Plex would not copy the video")
-            if action == "decision" and tv is not None:
-                _check_tracks(body, tv)
+            if action == "decision" and chosen is not None:
+                _check_tracks(body, chosen)
         variant = next(
             (
                 line.strip()
@@ -1110,6 +1191,230 @@ class StreamManager:
             # A copied video may be packaged in a way mediaman does not serve: know it now.
             _rewrite_playlist(playlist.decode("utf-8", "replace"), "")
         return child_path
+
+    @contextlib.contextmanager
+    def _tracks_selected(
+        self, base: str, token: str, rating_key: str, chosen: Tracks | None, deadline: float
+    ) -> Iterator[None]:
+        """Have *chosen*'s tracks selected on Plex for the item while the block runs.
+
+        Plex decides on the tracks selected for the item's part, the same for every client, so
+        where they differ the chosen ones are selected, and Plex's own put back as the block
+        ends, however it ends. Only what differs is written: a subtitle of None burns none,
+        and leaves Plex's selection of subtitles as it is. Plex's own is held until it is put
+        back, and a selection a start left behind is put right before anything else, never
+        taken for Plex's own. Raises ``TrackUnavailable`` when Plex refuses the chosen tracks.
+        Starts of one item take turns.
+        """
+        with self._taking_turns(rating_key, deadline):
+            with self._lock:
+                held = self._held.get(rating_key)
+            asked = {} if chosen is None else _ids(chosen.audio, chosen.subtitle)
+            if not asked and held is None:
+                yield
+                return
+            found = self._selection(base, token, rating_key, chosen, deadline)
+            if found is None:
+                yield
+                return
+            part, now = found[0], _ids(*found[1:])
+            original = now | (held.ids if held is not None and held.part == part else {})
+            want = original | asked
+            writes = {name: id_ for name, id_ in want.items() if id_ != now[name]}
+            if not writes:
+                self._hold(rating_key, part, original, now)
+                try:
+                    yield
+                finally:
+                    # Puts back Plex's own where a selection left behind is what was asked.
+                    self._put_back(base, token, rating_key)
+                return
+            self._hold(rating_key, part, original, now, want)
+            refused = False
+            try:
+                self._select(base, token, part, writes, deadline=deadline)
+            except _Answered:
+                # Plex did nothing it was asked.
+                self._hold(rating_key, part, original, now)
+                refused = True
+            except PlexUnavailable:
+                # Plex may have done it all the same.
+                self._put_back(base, token, rating_key)
+                refused = True
+            except BaseException:
+                self._put_back(base, token, rating_key)
+                raise
+            if refused and any(want[name] != original[name] for name in asked):
+                raise TrackUnavailable("Plex would not select the tracks")
+            if refused:
+                # Only a selection left behind was to be put right; it plays as it is.
+                logger.warning("plex_stream: could not put item %s's selection right", rating_key)
+                yield
+                return
+            try:
+                yield
+            finally:
+                self._put_back(base, token, rating_key)
+
+    @contextlib.contextmanager
+    def _taking_turns(self, rating_key: str, deadline: float) -> Iterator[None]:
+        with self._lock:
+            lock, holders = self._deciding.setdefault(rating_key, (threading.Lock(), [0]))
+            holders[0] += 1
+        try:
+            if not lock.acquire(timeout=max(0.0, deadline - self._clock())):
+                raise PlexUnavailable("Plex took too long")
+            try:
+                yield
+            finally:
+                lock.release()
+        finally:
+            with self._lock:
+                holders[0] -= 1
+                if not holders[0]:
+                    del self._deciding[rating_key]
+
+    def _selection(
+        self, base: str, token: str, rating_key: str, chosen: Tracks | None, deadline: float
+    ) -> tuple[str, str, str] | None:
+        """``(part id, audio id, subtitle id or "0")`` selected on Plex for the item's first part,
+        which a session plays; None when Plex names no such part. What *chosen* saw serves
+        where no selection was written since."""
+        seen = chosen.seen if chosen is not None else None
+        with self._lock:
+            fresh = seen is not None and seen.mark == self._writes
+        if seen is not None and fresh:
+            return seen.part, seen.audio, seen.subtitle
+        body = self._get(
+            base,
+            token,
+            f"/library/metadata/{rating_key}",
+            op="metadata",
+            max_bytes=_PLAYLIST_MAX_BYTES,
+            deadline=deadline,
+        )
+        try:
+            return _part_selection(ET.fromstring(body).find("./*/Media/Part"))
+        except (ParseError, ValueError):
+            return None
+
+    def _hold(
+        self, rating_key: str, part: str, original: dict[str, str], *states: dict[str, str]
+    ) -> None:
+        """Hold Plex's *original* ids of each field that differs from it in any of *states*,
+        which Plex may be in until the next hold; forget the item where none does."""
+        ids = {name: id_ for name, id_ in original.items() if any(s[name] != id_ for s in states)}
+        held = _Held(part, ids) if ids else None
+        with self._lock:
+            if self._held.get(rating_key) == held:
+                return
+            if held is None:
+                del self._held[rating_key]
+            else:
+                self._held[rating_key] = held
+        if self._db is None:
+            return
+        try:
+            held_selections.save(self._db(), rating_key, part, ids)
+        except sqlite3.Error as exc:
+            logger.warning(
+                "plex_stream: could not keep the selection held for item %s (%s)",
+                rating_key,
+                type(exc).__name__,
+            )
+
+    def put_back_held(self) -> int:
+        """Put back on Plex each selection held, as an earlier run or a refused put-back left
+        them; return how many were put back.
+
+        Meant for startup: Plex trouble is logged, and what is still held waits for the next
+        start of its item.
+        """
+        if self._db is not None:
+            try:
+                rows = held_selections.load(self._db())
+            except sqlite3.Error as exc:
+                logger.warning(
+                    "plex_stream: could not read held selections (%s)", type(exc).__name__
+                )
+                rows = []
+            with self._lock:
+                for rating_key, part, ids in rows:
+                    if ids:
+                        self._held.setdefault(rating_key, _Held(part, ids))
+        with self._lock:
+            keys = list(self._held)
+        creds = self._credentials()
+        if not keys or creds is None or not creds[0] or not creds[1]:
+            return 0
+        put_back = 0
+        try:
+            base, token = self._creds()
+            for rating_key in keys:
+                deadline = self._clock() + START_DEADLINE_SECONDS
+                with self._taking_turns(rating_key, deadline):
+                    put_back += self._put_back(base, token, rating_key)
+        except PlexError as exc:
+            logger.warning("plex_stream: could not put held selections back (%s)", exc)
+        return put_back
+
+    def _select(
+        self,
+        base: str,
+        token: str,
+        part: str,
+        ids: dict[str, str],
+        *,
+        deadline: float | None = None,
+        timeout: tuple[float, float] = _TIMEOUT,
+    ) -> None:
+        with self._lock:
+            self._writes += 1
+        try:
+            self._get(
+                base,
+                token,
+                f"/library/parts/{part}",
+                method="PUT",
+                op="select",
+                params=ids,
+                max_bytes=_PLAYLIST_MAX_BYTES,
+                deadline=deadline,
+                timeout=timeout,
+            )
+        finally:
+            with self._lock:
+                self._writes += 1
+
+    def _put_back(self, base: str, token: str, rating_key: str) -> bool:
+        """Select Plex's own ids held for the item again, trying twice, and forget them once
+        Plex has them; a start given up still does it. False when they stay held."""
+        with self._lock:
+            held = self._held.get(rating_key)
+        if held is None:
+            return True
+        read, _reading.read = getattr(_reading, "read", None), None
+        try:
+            for attempt in (1, 2):
+                try:
+                    self._select(base, token, held.part, held.ids, timeout=_QUIET_TIMEOUT)
+                except Exception as exc:
+                    failure = str(exc) if isinstance(exc, PlexError) else type(exc).__name__
+                    logger.warning(
+                        "plex_stream: putting back the tracks selected for item %s failed"
+                        " (try %d of 2: %s); they were audio %s, subtitle %s",
+                        rating_key,
+                        attempt,
+                        failure,
+                        held.ids.get("audioStreamID", "unchanged"),
+                        held.ids.get("subtitleStreamID", "unchanged"),
+                    )
+                else:
+                    self._hold(rating_key, held.part, held.ids)
+                    return True
+            return False
+        finally:
+            _reading.read = read
 
     def _call_quietly(self, action: str, session_id: str) -> None:
         if action == "stop":
@@ -1149,8 +1454,9 @@ class StreamManager:
         timeout: tuple[float, float] = _TIMEOUT,
         deadline: float | None = None,
         check: Callable[[], None] = lambda: None,
+        method: str = "GET",
     ) -> bytes:
-        """GET *path* on Plex with the token in a header only, inside a DNS pin, body capped.
+        """Ask for *path* on Plex with the token in a header only, inside a DNS pin, body capped.
 
         With a *deadline* (on the manager's clock) the call is refused once it has passed, and
         its timeouts never run beyond it, nor the reading of the body. *check* runs before each
@@ -1195,7 +1501,7 @@ class StreamManager:
         try:
             with pinned:
                 response = self._session.request(
-                    "GET",
+                    method,
                     url,
                     params=params,
                     headers=headers,
@@ -1206,7 +1512,7 @@ class StreamManager:
                 try:
                     if response.status_code != 200:
                         logger.warning("plex_stream: %s answered HTTP %s", op, response.status_code)
-                        raise PlexUnavailable(f"Plex answered HTTP {response.status_code}")
+                        raise _Answered(f"Plex answered HTTP {response.status_code}")
                     body = cast(requests.Response, _CheckedBody(response, go_on))
                     return _read_capped(body, max_bytes)
                 finally:
@@ -1237,6 +1543,7 @@ def _session_params(
     quality: str,
     burn_subtitles: bool,
     tv: TvTracks | None = None,
+    tracks: Tracks | None = None,
 ) -> dict[str, str]:
     params = {
         "path": f"/library/metadata/{rating_key}",
@@ -1260,11 +1567,34 @@ def _session_params(
             "audioChannelCount": "2",
             "X-Plex-Client-Profile-Extra": _TV_PROFILE,
         }
-        if tv.audio is not None:
-            params["audioStreamID"] = tv.audio
-        if tv.subtitle is not None:
-            params["subtitleStreamID"] = tv.subtitle
+    if tracks is not None and tracks.audio is not None:
+        params["audioStreamID"] = tracks.audio
+    if tracks is not None and tracks.subtitle is not None:
+        params["subtitleStreamID"] = tracks.subtitle
     return params
+
+
+def _ids(audio: str | None, subtitle: str | None) -> dict[str, str]:
+    """The ids given, by Plex's parameter names; a subtitle of "0" is none."""
+    named = (("audioStreamID", audio), ("subtitleStreamID", subtitle))
+    return {name: id_ for name, id_ in named if id_ is not None}
+
+
+def _part_selection(part: Element | None) -> tuple[str, str, str] | None:
+    """``(part id, audio id, subtitle id or "0")`` selected in a part's metadata; None when it
+    names no usable part or audio."""
+    if part is None or not _ID_RE.fullmatch(part.get("id", "")):
+        return None
+    picked = {
+        s.get("streamType"): s.get("id", "")
+        for s in part.iter("Stream")
+        if s.get("selected") == "1" and s.get("streamType") in ("2", "3")
+    }
+    audio = picked.get("2", "")
+    if not _ID_RE.fullmatch(audio):
+        return None
+    subtitle = picked.get("3", "0")
+    return part.get("id", ""), audio, subtitle if _ID_RE.fullmatch(subtitle) else "0"
 
 
 def _decided_streams(body: bytes) -> list[Element]:
@@ -1278,7 +1608,7 @@ def _decided_streams(body: bytes) -> list[Element]:
     return [s for m in chosen for s in m.iter("Stream")]
 
 
-def _check_tracks(body: bytes, tv: TvTracks) -> None:
+def _check_tracks(body: bytes, tv: Tracks) -> None:
     """Raise ``TrackUnavailable`` unless Plex decided on each track *tv* names.
 
     Plex ignores what it does not know, and would play the wrong language without a word.
@@ -1380,11 +1710,14 @@ _manager: StreamManager | None = None
 
 
 def init_stream_manager(
-    credentials: CredentialsProvider, *, allowed_hosts: AllowedHosts = None
+    credentials: CredentialsProvider,
+    *,
+    allowed_hosts: AllowedHosts = None,
+    db: Callable[[], sqlite3.Connection] | None = None,
 ) -> StreamManager:
     """Create the process-wide manager (replacing any earlier one) and return it."""
     global _manager
-    _manager = StreamManager(credentials, allowed_hosts=allowed_hosts)
+    _manager = StreamManager(credentials, allowed_hosts=allowed_hosts, db=db)
     return _manager
 
 

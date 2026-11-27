@@ -647,6 +647,8 @@ def test_a_play_that_is_left_shows_at_once_with_all_a_remote_needs() -> None:
         "quality": "low",
         "subtitle_id": "44",
         "subtitle_tracks": [{"id": "44", "label": "English"}],
+        "audio_id": None,
+        "audio_tracks": [],
         "next": {"rating_key": "102", "label": "S1 · E5 — Windfall"},
         "upnext_in_s": None,
         "still_in_s": None,
@@ -1026,3 +1028,15 @@ def test_what_played_again_with_no_page_open_is_saved_where_it_was_paused() -> N
     # Paused where it starts, it has not played.
     assert out["still"]["last"][1] == 3000
     assert out["stillPlayer"]["saved"] == 3000
+
+
+def test_audio_asked_for_the_tv_goes_with_its_next_stream() -> None:
+    out = _run("other")["audio"]
+    (body,) = out["opened"]
+    assert (body["audio"], body["subtitle"]) == ("5", "off")
+
+
+def test_a_stream_asked_for_with_no_subtitle_names_none_though_off_was_asked_before() -> None:
+    (body,) = _run("other")["ownSubtitle"]["opened"]
+    assert body["audio"] == "5"
+    assert "subtitle" not in body

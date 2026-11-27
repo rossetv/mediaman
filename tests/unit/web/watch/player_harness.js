@@ -364,13 +364,15 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
         }).then(settled(resolve), settled(reject));
       });
     },
-    get: (url) => (elsewhere && /\/api\/tvs/.test(url)) ? elsewhere.get(url) : Promise.resolve({ ratings: { 'movie-501': { level: null, rateable: !held.unrateable }, 'show-77': { level: null, rateable: true } } }),
+    get: (url) => (elsewhere && /\/api\/tvs/.test(url)) ? elsewhere.get(url) : (held.tracks && /\/api\/watch\/tracks\//.test(url)) ? Promise.resolve(held.tracks) : Promise.resolve({ ratings: { 'movie-501': { level: null, rateable: !held.unrateable }, 'show-77': { level: null, rateable: true } } }),
     put(url, body) {
       calls.push({ url: url, body: body });
+      if (held.put === 'fails') return Promise.reject({ status: 502, error: 'unreachable' });
       return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve({ media_type: 'movie', tmdb_id: 5 });
     },
     delete(url) {
       calls.push({ url: url, gone: true });
+      if (held.put === 'fails') return Promise.reject({ status: 502, error: 'unreachable' });
       return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve({ media_type: 'movie', tmdb_id: 5 });
     },
     messageOf(err, fallback) { return fallback; },
@@ -537,7 +539,7 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
   const ctx = vm.createContext(win);
   if (elsewhere) elsewhere.setup(win);
   const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
-  ['core/dom.js', 'ratings.js'].concat(elsewhere ? elsewhere.scripts : []).forEach(run);
+  ['core/dom.js', 'ratings.js', 'watch/tracks.js'].concat(elsewhere ? elsewhere.scripts : []).forEach(run);
   if (elsewhere && elsewhere.ready) elsewhere.ready(win);
   run('player.js');
 
@@ -803,6 +805,8 @@ function elsewhereOf(mode) {
       if (/cast\/stream$/.test(url)) {
         if (e.castFails.length) return e.castFails.shift()(opts);
         e.casts++;
+        // With `languages`, a title in three of them whose subtitles show only when asked for.
+        if (e.languages) return Promise.resolve(Object.assign({ stream_id: 'c' + e.casts, url: '/api/cast/T' + e.casts + '/index.m3u8', duration_s: 3000, quality: body.quality }, TRACKS, { audio: body.audio || '61', subtitle: body.subtitle === 'off' ? null : body.subtitle || null }));
         return Promise.resolve({ stream_id: 'c' + e.casts, url: '/api/cast/T' + e.casts + '/index.m3u8', duration_s: 3000, quality: body.quality, subtitle: body.subtitle === 'off' ? null : body.subtitle || '31', subtitle_tracks: SUBS });
       }
       if (/\/play$/.test(url)) return e.plays.length ? e.plays.shift()(opts) : Promise.resolve({ tv: Object.assign({}, LIVING, { play: { rating_key: body.rating_key, state: 'starting' } }) });
@@ -914,7 +918,141 @@ async function castPlays(p, carriesOn) {
 
 /* ---- scenarios ----------------------------------------------------------- */
 
+/* A title in three languages, with subtitles, as a start's answer gives its tracks. */
+const TRACKS = {
+  audio: '61', subtitle: null,
+  audio_tracks: [
+    { id: '61', label: 'English (AC3 5.1)', language: 'en', language_name: 'English', channels: 6, commentary: false, forced: false, hearing_impaired: false },
+    { id: '62', label: 'Deutsch (AAC Stereo)', language: 'de', language_name: 'Deutsch', channels: 2, commentary: false, forced: false, hearing_impaired: false },
+    { id: '63', label: 'English (AAC Stereo)', language: 'en', language_name: 'English', title: 'Director’s commentary', channels: 2, commentary: true, forced: false, hearing_impaired: false },
+  ],
+  subtitle_tracks: [
+    { id: '71', label: 'English', language: 'en', language_name: 'English', forced: false, hearing_impaired: false },
+    { id: '72', label: 'English (Forced)', language: 'en', language_name: 'English', forced: true, hearing_impaired: false },
+  ],
+};
+
+function chooserState(p) {
+  const wrap = p.q('[data-tracks]');
+  const btn = wrap.querySelector('[data-av-btn]');
+  const box = wrap.querySelector('.player-av');
+  return {
+    shown: !wrap.hidden,
+    label: btn.textContent,
+    open: !!box && !box.classList.contains('is-leaving'),
+    expanded: btn.getAttribute('aria-expanded'),
+    checked: box ? box.querySelectorAll('[aria-checked="true"]').map((r) => r.getAttribute('data-audio') || r.getAttribute('data-subtitle')) : null,
+    foot: box ? box.querySelector('.player-av-foot').textContent : null,
+    note: box ? box.querySelectorAll('.player-av-none').map((n) => n.textContent) : null,
+    link: box && box.querySelector('.player-av-link') ? [box.querySelector('.player-av-link').textContent, box.querySelector('.player-av-link').target || null] : null,
+  };
+}
+
+function keyIn(p, el, k, shift) {
+  const e = { bubbles: true, key: k, shiftKey: !!shift, defaultPrevented: false };
+  e.preventDefault = () => { e.defaultPrevented = true; };
+  fire(el, 'keydown', e);
+  return e.defaultPrevented;
+}
+
 const scenarios = {
+  /* A pick in Audio & subtitles is kept for the title and the stream starts again where it was, the
+     last frame held; by `serverPlays` the keeping fails, Plex plays other tracks, or the start fails. */
+  async tracks_switch(p) {
+    const how = p.win.serverPlays || 'ok';
+    p.replies[0] = answer('best', TRACKS);
+    if (how === 'put_fails') p.held.put = 'fails';
+    await streamPlays(p, 1268);
+    const streams = p.hlsList.length;
+    if (how === 'refused') p.replies.push(answer('best', TRACKS), answer('best', TRACKS));
+    else if (how === 'start_fails') p.replies.push({ err: { status: 409, error: 'track_unavailable' } }, answer('best', TRACKS));
+    else if (how === 'too_many') p.replies.push({ err: { status: 429, error: 'too_many_streams' } });
+    else p.replies.push(answer('best', Object.assign({}, TRACKS, { audio: '62' })));
+    const before = chooserState(p);
+    await pickTrack(p, '[data-audio="62"]');
+    const out = {
+      before: before,
+      kept: p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).map((c) => (c.gone ? 'DELETE ' : 'PUT ') + c.url + (c.body ? ' ' + JSON.stringify(c.body) : '')),
+      held: p.root.classList.contains('is-held'),
+      restarts: p.hlsList.length - streams,
+      from: p.hlsList.length > streams ? p.hlsList[p.hlsList.length - 1].config.startPosition : null,
+      message: p.q('[data-message]').hidden ? null : p.q('[data-message-text]').textContent,
+    };
+    if (p.hlsList.length > streams) await streamPlays(p, 1268);
+    await settle();
+    out.after = chooserState(p);
+    out.toasts = p.toasts.map((t) => [t.kind, t.text, t.action ? t.action.label : null]);
+    out.restartsInAll = p.hlsList.length - streams;
+    const undo = p.toasts.filter((t) => t.action)[0];
+    if (undo) {
+      p.replies.push(answer('best', TRACKS));
+      undo.action.onClick();
+      await settle();
+      out.undo = p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).slice(-1).map((c) => (c.gone ? 'DELETE ' : 'PUT ') + c.url)[0];
+    }
+    return out;
+  },
+
+  /* A subtitle picked while the stream starts again for the audio just picked: it follows. Till
+     the start answers, the control says what played and the play button stays as it was. */
+  async tracks_queued(p) {
+    p.replies[0] = answer('best', TRACKS);
+    await streamPlays(p, 1268);
+    let answered;
+    // The start for the audio is answered only once the subtitle has been picked.
+    p.replies.push({ ok: new Promise((r) => { answered = r; }) }, answer('best', Object.assign({}, TRACKS, { audio: '62', subtitle: '71' })));
+    await pickTrack(p, '[data-audio="62"]');
+    const held = { label: chooserState(p).label, faded: p.q('[data-tracks]').querySelector('[data-av-btn]').classList.contains('is-changing'), play: playState(p), held: p.root.classList.contains('is-held') };
+    await pickTrack(p, '[data-subtitle="71"]');
+    const whileStarting = p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).length;
+    answered(answer('best', Object.assign({}, TRACKS, { audio: '62' })).ok);
+    await settle();
+    await streamPlays(p, 1268);
+    p.tick(800);
+    await settle();
+    await streamPlays(p, 1268);
+    p.tick(800);
+    await settle();
+    return {
+      held: held,
+      whileStarting: whileStarting,
+      kept: p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url) && c.body).map((c) => JSON.stringify(c.body)),
+      after: chooserState(p).label,
+    };
+  },
+
+  /* The keyboard in Audio & subtitles: radios by the arrows, Tab on to the next group, Escape out. */
+  async tracks_keys(p) {
+    p.replies[0] = answer('best', TRACKS);
+    p.held.tracks = { remembered: true, defaults: { audio_lang: 'en', subtitle_lang: null } };
+    await streamPlays(p, 30);
+    await settle();
+    const btn = p.q('[data-tracks]').querySelector('[data-av-btn]');
+    btn.focus();
+    fire(btn, 'click', { bubbles: true, detail: 0 });
+    const out = { open: chooserState(p), focus: p.win.document.activeElement.getAttribute('data-audio') };
+    keyIn(p, p.win.document.activeElement, 'ArrowDown');
+    out.down = p.win.document.activeElement.getAttribute('data-audio');
+    keyIn(p, p.win.document.activeElement, 'End');
+    out.end = p.win.document.activeElement.getAttribute('data-audio');
+    const seeks = p.video.currentTime;
+    out.arrowsSeek = keyIn(p, p.win.document.activeElement, 'ArrowRight') && p.video.currentTime !== seeks;
+    keyIn(p, p.win.document.activeElement, 'Tab');
+    out.tab = p.win.document.activeElement.getAttribute('data-subtitle');
+    keyIn(p, p.win.document.activeElement, 'Escape');
+    out.closed = chooserState(p).expanded;
+    out.back = p.win.document.activeElement === btn;
+    return out;
+  },
+
+  /* A title with one audio track and no subtitles. */
+  async tracks_one(p) {
+    p.replies[0] = answer('best', { audio: '61', subtitle: null, audio_tracks: [TRACKS.audio_tracks[0]], subtitle_tracks: [] });
+    await streamPlays(p, 30);
+    click(p.q('[data-tracks]').querySelector('[data-av-btn]'));
+    return chooserState(p);
+  },
+
   /* Switch quality while playing; the new stream starts and plays. */
   async quality_switch(p) {
     await streamPlays(p, 30);
@@ -5414,13 +5552,11 @@ const scenarios = {
     await settle();
     out.quality = way.loads.map((s) => [s.position_s, s.paused]);
     mediaPlays(way.media, 200);
-    click(p.q('[data-tracks]').querySelector('[data-subtitle="off"]'));
-    await settle();
+    await pickTrack(p, '[data-subtitle="off"]');
     out.asked = p.elsewhere.starts().map((b) => [b.quality, b.subtitle]);
     mediaPlays(way.media, 200);
     p.elsewhere.castFails.push(() => p.elsewhere.refuse(409, 'track_unavailable'));
-    click(p.q('[data-tracks]').querySelector('[data-subtitle="32"]'));
-    await settle();
+    await pickTrack(p, '[data-subtitle="32"]');
     out.refused = p.elsewhere.starts().slice(3).map((b) => b.subtitle);
     out.saved = p.storage['mediaman.watch.quality'] || null;
     out.local = p.starts().length;
@@ -5428,6 +5564,18 @@ const scenarios = {
     await settle();
     out.here = { qualities: menuState(p).ids, start: p.starts().pop(), tracks: p.q('[data-tracks]').hidden, stops: way.stops };
     return out;
+  },
+
+  /* Another audio for the TV: it is asked for with no subtitle named, so the server starts what is
+     kept for the person, not subtitles "off", which would go on to the next episodes. */
+  async away_audio(p) {
+    p.elsewhere.languages = true;
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    mediaPlays(way.media, 200);
+    await pickTrack(p, '[data-audio="62"]');
+    const asked = p.elsewhere.starts().slice(-1)[0];
+    return { audio: asked.audio, subtitle: 'subtitle' in asked ? asked.subtitle : 'none named' };
   },
 
   /* The next episode goes on where this one played. */
@@ -6316,6 +6464,7 @@ const scenarios = {
       win.MM.playOn.register(again);
     });
     await settle();
+    click(opened.q('[data-tracks]').querySelector('[data-av-btn]'));
     const out = {
       tracks: opened.q('[data-tracks]').querySelectorAll('[data-subtitle]').map((b) => b.getAttribute('data-subtitle') + (b.getAttribute('aria-checked') === 'true' ? '*' : '')),
       chapters: opened.q('[data-chapter-menu]').querySelectorAll('[data-chapter]').length,
@@ -6703,6 +6852,17 @@ const scenarios = {
     return introState(p);
   },
 };
+
+/* Opens Audio & subtitles from the row and picks the row *sel*, as a press does: the tick, then the
+   chooser goes, then the change. */
+async function pickTrack(p, sel) {
+  click(p.q('[data-tracks]').querySelector('[data-av-btn]'));
+  click(p.q('[data-tracks]').querySelector(sel));
+  p.tick(400);
+  await settle();
+  p.tick(400);
+  await settle();
+}
 
 /* The player's own video plays on an AirPlay TV, and its stream answers 410 with *body*. */
 async function lostBeforeTv(p, details) {

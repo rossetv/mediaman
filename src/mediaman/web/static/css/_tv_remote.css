@@ -256,3 +256,20 @@ html.has-tv-rem .ui-toast-host {
   .tv-mini, .tv-po { border: 1px solid CanvasText; }
   .tv-mini__bar i { background: Highlight; forced-color-adjust: none; }
 }
+
+/* While a TV plays it: the player's own Audio & subtitles, among the remote's pills. It keeps its
+   icon, so it is not one of the .opt pills, which drop theirs on a phone; it stands where they do. */
+.tv-rem .player-av-wrap { position: relative; }
+@media (max-width: 899.98px) {
+  .tv-rem .player-av-wrap, .tv-rem .player-av-btn { order: 7; }
+}
+@media (max-width: 699.98px) {
+  .tv-rem .player-av-wrap { display: contents; }
+  .tv-rem .player-av-btn .player-av-state::before { content: "Audio · "; }
+}
+@media (max-width: 600px) {
+  .tv-rem .player-av-btn.player-pill { flex: 1 1 auto; max-width: 50%; min-width: 0; padding: 0 12px; }
+}
+@media (max-width: 899.98px) and (max-height: 520px) {
+  .tv-rem .player-av-btn.player-pill { flex: none; min-height: 44px; min-width: 0; }
+}

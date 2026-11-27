@@ -429,3 +429,19 @@ def test_every_control_fits_the_row_at_the_common_phone_widths_after_the_steps()
         assert left(width, 3) >= 0, width
     # The steps are what make it fit: with none of them the row is too full at 320.
     assert left(320, 0) < 0
+
+
+def test_the_chooser_s_rows_light_up_under_a_pointer_that_hovers_only() -> None:
+    css = _text("_player.css")
+    hovering = "".join(
+        m.group(1) for m in re.finditer(r"@media \(hover: hover\) \{(.*?)\n\}", css, re.S)
+    )
+    for selector in (".player-av-row:hover", ".player-av-link:hover"):
+        assert selector in hovering
+        assert css.count(selector + " {") == hovering.count(selector + " {")
+
+
+def test_the_chooser_of_a_tvs_remote_leaves_moving_and_out_of_reach_on_a_wide_screen() -> None:
+    body = _rule(_text("_player.css"), ".tv-rem .player-av.is-leaving")
+    assert "animation: player-drop" in body
+    assert "pointer-events: none" in body

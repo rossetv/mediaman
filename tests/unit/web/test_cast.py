@@ -44,10 +44,11 @@ PLAYLIST = "#EXTM3U\n#EXT-X-TARGETDURATION:8\n#EXTINF:8.0,\n00000.ts\n#EXT-X-END
 ITEM = """<MediaContainer librarySectionID="{section}"><Video type="movie" ratingKey="{key}"
  title="Film" duration="6000000"><Media><Part id="7">
  <Stream id="11" streamType="1"/>
- <Stream id="21" streamType="2" selected="1" displayTitle="English (AC3 5.1)"/>
- <Stream id="22" streamType="2" displayTitle="Polski (AAC Stereo)"/>
- <Stream id="31" streamType="3" displayTitle="English"/>
- <Stream id="32" streamType="3" displayTitle="Polski"/>
+ <Stream id="21" streamType="2" selected="1" displayTitle="English (AC3 5.1)" languageCode="eng"
+  language="English" codec="ac3" channels="6"/>
+ <Stream id="22" streamType="2" displayTitle="Polski (AAC Stereo)" languageCode="pol"/>
+ <Stream id="31" streamType="3" displayTitle="English" languageCode="eng"/>
+ <Stream id="32" streamType="3" displayTitle="Polski" languageCode="pol"/>
 </Part></Media><Marker type="credits" final="1" startTimeOffset="5000000" endTimeOffset="6000000"/>
 <Chapter tag="The boat" startTimeOffset="0" endTimeOffset="3000000"/>
 <Chapter tag="The shore" startTimeOffset="3000000" endTimeOffset="6000000"/>
@@ -564,10 +565,24 @@ def test_the_chosen_tracks_are_played_and_listed(alice, plex):
     assert (params["audioStreamID"], params["subtitleStreamID"]) == ("22", "32")
     assert (params["subtitles"], params["videoResolution"]) == ("burn", "1280x720")
     assert (started["audio"], started["subtitle"]) == ("22", "32")
-    assert started["audio_tracks"] == [
-        {"id": "21", "label": "English (AC3 5.1)", "selected": True},
-        {"id": "22", "label": "Polski (AAC Stereo)", "selected": False},
-    ]
+    english = {
+        "id": "21",
+        "label": "English (AC3 5.1)",
+        "selected": True,
+        "language": "en",
+        "language_name": "English",
+        "title": None,
+        "codec": "ac3",
+        "channels": 6,
+        "forced": False,
+        "default": False,
+        "hearing_impaired": False,
+        "commentary": False,
+        "external": False,
+    }
+    polish = {"id": "22", "label": "Polski (AAC Stereo)", "selected": False, "language": "pl"}
+    assert started["audio_tracks"][0] == english
+    assert started["audio_tracks"][1].items() >= polish.items()
     assert [t["id"] for t in started["subtitle_tracks"]] == ["31", "32"]
 
 
@@ -584,6 +599,44 @@ def test_a_start_answers_the_marks_the_player_draws_and_skips_by(alice):
 
 def test_without_a_choice_the_tracks_selected_in_plex_play(alice):
     started = _cast(alice)
+    assert (started["audio"], started["subtitle"]) == ("21", None)
+
+
+def test_a_subtitle_plex_selected_by_itself_is_not_burned_in_for_a_tv(alice, plex, monkeypatch):
+    # Plex selects a forced signs track on its own, in another language than the audio.
+    forced = ITEM.replace(
+        '<Stream id="32" streamType="3"', '<Stream id="32" streamType="3" selected="1" forced="1"'
+    )
+    monkeypatch.setitem(globals(), "ITEM", forced)
+    started = _cast(alice)
+    params = plex.decision()
+    assert params["subtitles"] == "none" and "subtitleStreamID" not in params
+    assert started["subtitle"] is None
+
+
+def test_without_a_choice_a_tv_plays_the_persons_default_languages(alice, conn, plex):
+    conn.execute("UPDATE admin_users SET audio_lang = 'pl', subtitle_lang = 'en'")
+    conn.commit()
+    started = _cast(alice)
+    params = plex.decision()
+    assert (params["audioStreamID"], params["subtitleStreamID"], params["subtitles"]) == (
+        "22",
+        "31",
+        "burn",
+    )
+    assert (started["audio"], started["subtitle"]) == ("22", "31")
+
+
+def test_default_tracks_plex_will_not_play_give_way_to_its_own_on_a_tv(alice, conn, plex):
+    conn.execute("UPDATE admin_users SET audio_lang = 'pl', subtitle_lang = 'en'")
+    conn.commit()
+    plex.knows_tracks = False
+    started = _cast(alice)
+    asked = [p for path, p in plex.calls if path == f"{TRANSCODE}/decision"]
+    assert [(p.get("audioStreamID"), p["subtitles"]) for p in asked] == [
+        ("22", "burn"),
+        (None, "none"),
+    ]
     assert (started["audio"], started["subtitle"]) == ("21", None)
 
 

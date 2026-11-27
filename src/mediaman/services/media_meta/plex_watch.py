@@ -304,6 +304,8 @@ class PlexWatch:
             default_max_bytes=_XML_MAX_BYTES,
             allowed_hosts=allowed_hosts,
         )
+        # The rating key and metadata node ``get_item`` read last.
+        self._node_read: tuple[str, Element] | None = None
 
     def _get(
         self,
@@ -355,6 +357,12 @@ class PlexWatch:
             raise PlexItemNotFound("Item not found in Plex")
         return container, node
 
+    def item_node(self, rating_key: str) -> Element:
+        """The item's metadata node: the one ``get_item`` read last, else read now."""
+        if self._node_read is not None and self._node_read[0] == rating_key:
+            return self._node_read[1]
+        return self._metadata(rating_key)[1]
+
     def _children(self, rating_key: str) -> tuple[Element, list[Element]]:
         container = self._xml(f"/library/metadata/{_check_key(rating_key)}/children")
         return container, [n for n in container if n.tag in ("Video", "Directory")]
@@ -363,6 +371,7 @@ class PlexWatch:
         """One item; with *marks*, also the intro and credits markers and chapters Plex has for it."""
         query = "?includeMarkers=1&includeChapters=1" if marks else ""
         container, node = self._metadata(rating_key, query)
+        self._node_read = (rating_key, node)
         item_type: ItemType = node.get("type")  # type: ignore[assignment]  # checked in _metadata
         is_episode = item_type == "episode"
         duration_s = _seconds(node.get("duration"))

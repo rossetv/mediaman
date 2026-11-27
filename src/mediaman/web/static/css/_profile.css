@@ -151,8 +151,32 @@
 .yo-plex .plex-link-go { flex-direction: row; }
 .yo-plex .plex-link-go > [hidden] { display: none !important; }
 
+/* Watching: the language heard first and the subtitles, chosen as radios. */
+.yo-pick-row { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 14px 8px 16px; color: var(--t1); text-align: left; transition: background-color var(--dur-fast) var(--ease-out); }
+.yo-pick-row + .yo-pick-row::before { content: ""; position: absolute; top: 0; right: 0; left: 16px; border-top: 1px solid var(--hair); }
+@media (hover: hover) { .yo-pick-row:hover { background: var(--s3); } }
+.yo-pick-row:active { background: var(--s4); transition-duration: 0s; }
+.yo-pick-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 14px; }
+.yo-pick-row__text { flex: 1; min-width: 0; font-size: 15px; }
+.yo-pick-row__text > small { display: block; margin-top: 2px; font-size: 13px; line-height: 1.35; color: var(--t3); }
+.yo-pick-row__tick { flex: none; width: 16px; height: 16px; color: var(--accent); visibility: hidden; }
+.yo-pick-row[aria-checked="true"] .yo-pick-row__tick { visibility: visible; }
+/* The tick lands as the row is pressed, so the press is seen to take. */
+.yo-pick-row.is-picked .yo-pick-row__tick { animation: player-av-tick var(--dur-fast) var(--ease-out); }
+.yo-pick-row[hidden], .yo-group[hidden], .yo-group__head[hidden] { display: none; }
+.yo-lang-search { margin: 14px 0 2px; }
+.yo-lang-none { padding: 18px 16px; font-size: 15px; color: var(--t3); text-align: center; }
+.yo-lang-none[hidden] { display: none; }
+.yo-watch-note { margin: 10px 4px 0; }
+/* The language row folds out under Always. */
+.yo-fold-in { display: grid; grid-template-rows: 0fr; opacity: 0; margin-top: 0; transition: grid-template-rows var(--dur-slow) var(--ease-push), opacity var(--dur) var(--ease-out), margin var(--dur-slow) var(--ease-push); }
+.yo-fold-in > * { min-height: 0; overflow: hidden; }
+.yo-fold-in.is-open { grid-template-rows: 1fr; opacity: 1; margin-top: 12px; }
+.yo-fold-in:not(.is-open) { visibility: hidden; transition-property: grid-template-rows, opacity, margin, visibility; }
+
 @media (prefers-reduced-motion: reduce) {
   .yo-tile:active, .yo-mini:active { transform: none; }
+  .yo-pick-row.is-picked .yo-pick-row__tick { animation: none; }
 }
 @media (forced-colors: active) {
   .yo-pic__badge, .dev-ico, .dev-here, .yo-row__ico { border: 1px solid CanvasText; }

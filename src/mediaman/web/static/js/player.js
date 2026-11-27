@@ -18,8 +18,12 @@
  *   POST /api/watch/keep              {media_item_id, days}
  *   POST /api/watch/ratings/ask/<key>  (in the last credits or at the end, the place saved:
  *                                     whether to ask for a rating)
- *   POST /api/cast/stream             {rating_key, quality, subtitle, page, asked_s} → {stream_id, url,
- *                                     subtitle, subtitle_tracks} (a stream for a TV; watch/play-on.js)
+ *   POST /api/cast/stream             {rating_key, quality, audio, subtitle, page, asked_s} → {stream_id,
+ *                                     url, audio, subtitle, audio_tracks, subtitle_tracks} (a stream for a
+ *                                     TV; watch/play-on.js)
+ *   GET  /api/watch/tracks/<key>      (whether a choice of tracks is kept for the title, and the defaults)
+ *   PUT  /api/watch/tracks/<key>      {audio} or {subtitle} (kept for the title; the stream starts again
+ *                                     with it), DELETE for the person's defaults again
  *   GET  /api/tvs/<id>, POST /api/tvs/<id>/commands  (what plays on a TV of the person's)
  *   GET  /healthz                     (whether mediaman is reached where something went unanswered)
  *
@@ -174,7 +178,6 @@
     quiet: 'It’s back, but hasn’t said what it plays. If it does within 10 minutes, it carries on by itself.',
   };
   var NOTE_QUALITY = 'TVs get up to 1080p, in a form every TV can play. 4K and HDR stay on this device. Changing quality restarts the picture where you are.';
-  var NOTE_SUBTITLES = 'On a TV the subtitles are drawn into the picture. Changing them restarts the picture where you are; it takes a few seconds.';
   var CAST_URL = '/api/cast/stream';
   /* What a TV can be given, as rows of the quality menu. */
   var TV_ROWS = [
@@ -308,6 +311,7 @@
     openRemote: q('[data-open-remote]'),
     noVolume: q('[data-no-volume]'),
     tracks: q('[data-tracks]'),
+    tracksTop: q('[data-tracks-top]'),
     leaveCard: q('[data-leave-card]'),
     bottom: q('.player-bottom'),
     message: q('[data-message]'),
@@ -385,9 +389,16 @@
   var lostLine = '';         // and why it may still carry on
   var holding = null;        // {way, told, heard} while it is not known whether it plays elsewhere
   var here = null;           // what this device goes on with: {rows, quality, override}
-  var subtitle = null;       // what the TV is asked for: 'off', a track, or null for Plex's own choice
+  var subtitle = null;       // what the TV is asked for: 'off', a track, or null for the person's choice
   var subtitleGood = null;   // what it was last given
-  var given = null;          // the subtitles it can be given and has, as its start said
+  var audio = null;          // the same of the audio
+  var audioGood = null;
+  var given = null;          // the tracks it can be given and has, as its start said
+  var tracks = null;         // the title's tracks and those that play, as the last start said (watch/tracks.js)
+  var askedTracks = null;    // the title whose kept choice and defaults were asked for
+  var trackSwitch = null;    // a change of tracks on its way: {what, before, want}
+  var trackHold = false;     // the picture is held for it: the play button stays as it was
+  var trackNotice = null;    // what it says once the stream with the new tracks plays
   var pausedHere = false;    // the pause to come is the person's
   var pausedThereAt = -Infinity;
   var autoplay = readSetting(AUTOPLAY_KEY) !== 'false';
@@ -850,6 +861,7 @@
 
   function setLoading(on) {
     root.classList.toggle('is-loading', on);
+    if (!on) trackHold = false;
     if (!on) waitingSince = null;
     else if (waitingSince === null) waitingSince = Date.now();
     showIntro();
@@ -1247,6 +1259,7 @@
       asked_s: Math.max(0, Date.now() - pressedAt) / 1000,
     };
     if (away && subtitle !== null) body.subtitle = subtitle;
+    if (away && audio !== null) body.audio = audio;
     return body;
   }
 
@@ -1320,8 +1333,10 @@
           streamId = data.stream_id;
           streamChoice = choice();
           takeQualities(data);
+          takeTracks(data);
+          switched(data);
+          pickQueued();
           if (away) {
-            takeSubtitles(data);
             if (data.markers) takeMarks(data);
             loadAway(data);
             return;
@@ -1344,10 +1359,23 @@
           /* Asked for by itself, after the person asked another page. */
           if (status === 410 && code === 'replaced') { streamReplaced(); return; }
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
-          if (code === 'track_unavailable' && subtitle !== subtitleGood) {
+          if (trackSwitch && trackSwitch.want && code !== 'track_unavailable') {
+            /* Not for the tracks: the choice stays, for the next start, and the failure is said
+               as any other. */
+            dropSwitch();
+          } else if (trackSwitch && trackSwitch.want) {
+            /* The new tracks would not start: the old ones again, also as what is kept. */
+            var failed = trackSwitch;
+            trackSwitch = null;
             subtitle = subtitleGood;
-            swapNotice = "Couldn't change the subtitles.";
-            return attempt(tries);
+            audio = audioGood;
+            if (tracks) {
+              tracks.audio = failed.before.audio;
+              tracks.subtitle = failed.before.subtitle;
+            }
+            swapNotice = MM.tracks.said(failed.what, trackState(), true);
+            chooser.changing(false);
+            return putBack(failed).then(function () { return attempt(tries); });
           }
           var known = err && START_ERRORS[err.error];
           if (status === 422 && !known && quality !== 'auto' && !hasPlayed) {
@@ -1363,6 +1391,7 @@
             return startStream(position());
           }
           starting = false;
+          queuedPick = null;
           showMessage(known ? known.text : MSG_FAILED, known && !known.retry ? null : retry);
         });
     }
@@ -1980,10 +2009,12 @@
   /* While a stream loads to play, the button shows it working, not a Pause
      that has nothing to pause yet; pressing it still means "don't play". */
   function showPlayState() {
-    var busy = wantPlaying && root.classList.contains('is-loading');
-    var paused = shown(els.message) || ((video.paused || video.ended) && !busy && countdownTimer === null);
+    var loading = wantPlaying && root.classList.contains('is-loading');
+    /* New tracks are a pause in the picture, not in the play: only the spinner over it says so. */
+    var busy = loading && !trackHold;
+    var paused = shown(els.message) || ((video.paused || video.ended) && !loading && countdownTimer === null);
     setName(els.play, paused ? 'Play' : 'Pause', 'Space');
-    if (busy) els.play.setAttribute('aria-busy', 'true');
+    if (loading) els.play.setAttribute('aria-busy', 'true');
     else els.play.removeAttribute('aria-busy');
     var icon = els.play.querySelector('.ico');
     MM.dom.setIcon(icon, paused ? 'i-play' : 'i-pause');
@@ -2020,6 +2051,10 @@
     if (swapNotice) {
       if (window.UIFeedback) window.UIFeedback.error(swapNotice);
       swapNotice = null;
+    }
+    if (trackNotice) {
+      trackNotice();
+      trackNotice = null;
     }
     swapping = false;
     pendingStart = null;
@@ -2580,6 +2615,7 @@
 
   /* Close every menu; with `refocus`, put focus back on the trigger of the one that was open. */
   function closeMenus(refocus) {
+    if (chooser && chooser.isOpen()) chooser.close(refocus);
     var opened = openTrigger();
     if (!opened) return;
     opened.setAttribute('aria-expanded', 'false');
@@ -2588,7 +2624,7 @@
     leave(opened.parentNode.querySelector('.player-menu'));
   }
   function openTrigger() { return root.querySelector('[data-menu-trigger][aria-expanded="true"]'); }
-  function menuOpen() { return !!openTrigger(); }
+  function menuOpen() { return !!openTrigger() || !!(chooser && chooser.isOpen()); }
 
   function focusMenu(menu) {
     var first = menu.querySelector('[aria-checked="true"]') || menu.querySelector('button');
@@ -2838,6 +2874,11 @@
       }
       return;
     }
+    if (chooser && chooser.key(e)) {
+      focusByPointer = false;
+      showControls();
+      return;
+    }
     showControls();
     /* Option and Tab is how Safari reaches the buttons. */
     if (e.key === 'Tab') focusByPointer = false;
@@ -3084,7 +3125,9 @@
       rows = TV_ROWS;
       /* Tracks are the title's own; that there are to be none is not. */
       if (subtitle !== 'off') subtitle = null;
+      audio = null;
     }
+    dropSwitch();
     resetVideo(startS);
     wantPlaying = want;
     if (stepped) {
@@ -3905,7 +3948,7 @@
     elsewhere.onGone(function (why) { if (away && away.play === elsewhere) letGo(why); });
     buildQualityMenu();
     takeQualities(data);
-    takeSubtitles(data);
+    takeTracks(data);
     keepWith();
     swapping = false;
     render();
@@ -3987,6 +4030,7 @@
     }
     here = null;
     subtitle = subtitleGood = null;
+    audio = audioGood = null;
     showLost(false);
     showAway();
   }
@@ -4255,7 +4299,7 @@
     els.away.hidden = !on;
     els.awayEnd.hidden = !on || !!goneFrom && !opening();
     els.noVolume.hidden = !silent;
-    if (!plays) els.tracks.hidden = true;
+    showTracks();
     els.openRemote.hidden = !(onTv() && MM.tvRemote);
     els.bring.classList.toggle('player-pill--primary', els.openRemote.hidden);
     if (on) {
@@ -4371,52 +4415,202 @@
     placeCards();
   }
 
-  /* The subtitles the TV can be given, and which it has. */
-  function takeSubtitles(data) {
-    var tracks = data.subtitle_tracks || [];
-    var now = data.subtitle || 'off';
-    subtitleGood = subtitle;
-    given = { subtitle: data.subtitle || null, subtitle_tracks: tracks };
-    els.tracks.hidden = !tracks.length;
-    var hadFocus = els.tracks.contains(document.activeElement);
-    els.tracks.textContent = '';
-    var trigger = document.createElement('button');
-    trigger.type = 'button';
-    trigger.className = 'player-pill';
-    trigger.setAttribute('data-menu-trigger', '');
-    trigger.setAttribute('aria-haspopup', 'menu');
-    trigger.setAttribute('aria-expanded', 'false');
-    trigger.textContent = 'Subtitles';
-    var menu = document.createElement('div');
-    menu.className = 'player-menu player-menu--up player-menu--wide';
-    menu.setAttribute('role', 'menu');
-    menu.setAttribute('aria-label', 'Subtitles');
-    menu.hidden = true;
-    els.tracks.appendChild(trigger);
-    els.tracks.appendChild(menu);
-    addTitle(menu, 'Subtitles');
-    var list = addList(menu);
-    list.setAttribute('role', 'group');
-    list.setAttribute('aria-label', 'Subtitles');
-    [{ id: 'off', label: 'Off' }].concat(tracks).forEach(function (t) {
-      var btn = menuRow(t.label, '');
-      btn.setAttribute('data-subtitle', t.id);
-      btn.setAttribute('aria-checked', String(t.id === now));
-      list.appendChild(btn);
-    });
-    addNote(menu, NOTE_SUBTITLES);
-    if (hadFocus) trigger.focus();
+  /* ---- audio and subtitles ------------------------------------------- */
+
+  var chooser = MM.tracks ? MM.tracks.create({
+    wraps: [els.tracks, els.tracksTop],
+    root: root,
+    opening: function () {
+      closeMenus();
+      showControls();
+    },
+    pick: pickTracks,
+  }) : null;
+
+  function tracksUrl(key) { return '/api/watch/tracks/' + encodeURIComponent(key); }
+
+  function trackState() {
+    return Object.assign({ title: item.title, series: !!showHref, on: away && away.play ? awayName() : null }, tracks);
   }
 
-  els.tracks.addEventListener('click', function (e) {
-    var btn = e.target.closest('[data-subtitle]');
-    if (!btn) return;
-    closeMenus(true);
-    if (btn.getAttribute('aria-checked') === 'true' || !away) return;
-    subtitle = btn.getAttribute('data-subtitle');
-    pressedPlay();
-    restartStream(true);
-  });
+  /* The chooser, where it may change what plays: not while a TV with a remote of its own plays it,
+     nor while it begins elsewhere. */
+  function showTracks() {
+    if (!chooser) return;
+    var mine = !!tracks && tracks.key === String(item.rating_key) && !opening() && (!away || !!away.play);
+    chooser.set(mine ? trackState() : null);
+  }
+
+  /* The tracks a start's answer says the title has, and those it plays. */
+  function takeTracks(data) {
+    var key = String(item.rating_key);
+    var was = tracks && tracks.key === key ? tracks : {};
+    if (!Array.isArray(data.audio_tracks) && !Array.isArray(data.subtitle_tracks)) {
+      tracks = null;
+    } else {
+      tracks = {
+        key: key,
+        audio: data.audio || null,
+        subtitle: data.subtitle || null,
+        audio_tracks: data.audio_tracks || [],
+        subtitle_tracks: data.subtitle_tracks || [],
+        remembered: !!was.remembered,
+        defaults: was.defaults || null,
+      };
+    }
+    if (away) {
+      subtitleGood = subtitle;
+      audioGood = audio;
+      given = tracks && {
+        audio: tracks.audio, subtitle: tracks.subtitle,
+        audio_tracks: tracks.audio_tracks, subtitle_tracks: tracks.subtitle_tracks,
+      };
+    }
+    showTracks();
+    if (tracks) askTracks();
+  }
+
+  /* Whether a choice is kept for the title, and what the person's defaults are, for the chooser's foot. */
+  function askTracks() {
+    var key = tracks.key;
+    if (askedTracks === key) return;
+    askedTracks = key;
+    MM.api.get(tracksUrl(key)).then(function (data) {
+      if (!data || typeof data.remembered !== 'boolean') return;
+      keptTracks(key, data);
+    }, function () { if (askedTracks === key) askedTracks = null; });
+  }
+
+  function keptTracks(key, data) {
+    if (!tracks || tracks.key !== key) return;
+    tracks.remembered = data.remembered;
+    tracks.defaults = data.defaults || null;
+    showTracks();
+  }
+
+  function sameTracks(a, b) { return (a.audio || null) === (b.audio || null) && (a.subtitle || null) === (b.subtitle || null); }
+
+  /* A pick in the chooser: kept for the title, then the stream starts again where it is, with it. */
+  function pickTracks(change) {
+    if (!tracks) return;
+    var key = tracks.key;
+    if (trackSwitch || switching || !streamId) {
+      /* Made while the stream starts again: it follows once that has started, for this title. */
+      queuedPick = { key: key, change: change };
+      return;
+    }
+    var what = change.reset ? 'reset' : change.audio !== undefined ? 'audio' : 'subtitle';
+    var mine = trackSwitch = {
+      key: key,
+      what: what,
+      before: { audio: tracks.audio, subtitle: tracks.subtitle, remembered: tracks.remembered },
+    };
+    chooser.changing(true);
+    var body = what === 'audio' ? { audio: change.audio } : { subtitle: change.subtitle };
+    (what === 'reset' ? MM.api.delete(tracksUrl(key)) : MM.api.put(tracksUrl(key), body)).then(function (data) {
+      if (trackSwitch !== mine) return;
+      data = data || {};
+      if (typeof data.remembered === 'boolean') keptTracks(key, data);
+      var asked = what === 'audio' ? change.audio : mine.before.audio;
+      var sub = what === 'subtitle' ? (change.subtitle === 'off' ? null : change.subtitle) : mine.before.subtitle;
+      mine.want = {
+        audio: data.audio !== undefined ? data.audio || null : asked,
+        subtitle: data.subtitle !== undefined ? data.subtitle || null : sub,
+      };
+      if (sameTracks(mine.want, mine.before)) {
+        trackSwitch = null;
+        chooser.changing(false);
+        showTracks();
+        tellTracks(mine);
+        return;
+      }
+      if (away) {
+        /* "off" is kept on to the next episodes: sent only for Off picked. Otherwise none is
+           named, and the server starts what is kept for the person. */
+        audio = mine.want.audio;
+        subtitle = mine.want.subtitle || (what === 'subtitle' ? 'off' : null);
+      }
+      pressedPlay();
+      trackHold = !away;
+      restartStream(true);
+    }, function () {
+      if (trackSwitch !== mine) return;
+      trackSwitch = null;
+      chooser.changing(false);
+      showTracks();
+      if (window.UIFeedback) window.UIFeedback.error(MM.tracks.said(what, trackState(), true));
+    });
+  }
+
+  /* What the new stream plays: the tracks asked for, or, where Plex would not play them, the old
+     ones again, also as what is kept. */
+  function switched(data) {
+    var mine = trackSwitch;
+    if (!mine || !mine.want) return;
+    trackSwitch = null;
+    chooser.changing(false);
+    var plays = { audio: data.audio || null, subtitle: data.subtitle || null };
+    if (data.audio === undefined || sameTracks(plays, mine.want)) {
+      tellTracks(mine);
+      return;
+    }
+    var text = MM.tracks.said(mine.what, Object.assign(trackState(), mine.before), true);
+    queuedPick = null;
+    putBack(mine).then(function () {
+      if (sameTracks(plays, mine.before) || String(item.rating_key) !== mine.key) return;
+      if (away) {
+        audio = mine.before.audio;
+        subtitle = mine.before.subtitle || (mine.what === 'subtitle' ? 'off' : null);
+      }
+      restartStream(true);
+    });
+    if (window.UIFeedback) window.UIFeedback.error(text);
+  }
+
+  /* The choice as it was before a change that did not take. */
+  function putBack(mine) {
+    var key = mine.key;
+    var b = mine.before;
+    var done = !b.remembered ? MM.api.delete(tracksUrl(key))
+      : MM.api.put(tracksUrl(key), mine.what === 'audio' ? { audio: b.audio } : mine.what === 'subtitle' ? { subtitle: b.subtitle || 'off' } : { audio: b.audio, subtitle: b.subtitle || 'off' });
+    return done.then(function (data) {
+      if (data && typeof data.remembered === 'boolean') keptTracks(key, data);
+    }, function () { /* kept as the change left it; the chooser says so */ });
+  }
+
+  /* Said once the new tracks play, with the way back. */
+  function tellTracks(mine) {
+    var state = trackState();
+    var text = MM.tracks.said(mine.what, state, false);
+    var b = mine.before;
+    var undo = mine.what === 'reset' || state.on ? null : {
+      label: 'Undo',
+      onClick: function () {
+        pickTracks(!b.remembered ? { reset: true } : mine.what === 'audio' ? { audio: b.audio } : { subtitle: b.subtitle || 'off' });
+      },
+    };
+    var tell = function () {
+      if (window.UIFeedback) window.UIFeedback.toast(text, undo ? { variant: 'info', action: undo } : { variant: 'info' });
+    };
+    if (wantPlaying && !away && !video.ended) trackNotice = tell;
+    else tell();
+  }
+
+  var queuedPick = null;
+  function pickQueued() {
+    var q = queuedPick;
+    if (!q || trackSwitch) return;
+    queuedPick = null;
+    if (tracks && tracks.key === q.key && String(item.rating_key) === q.key) pickTracks(q.change);
+  }
+
+  function dropSwitch() {
+    trackSwitch = null;
+    trackHold = false;
+    trackNotice = null;
+    if (chooser) chooser.changing(false);
+    showTracks();
+  }
 
   els.bring.addEventListener('click', function (e) {
     /* The second press of a double one would take back what the first began. */
@@ -4665,8 +4859,13 @@
   /* ---- leaving the page ----------------------------------------------- */
 
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden') beaconProgress();
-    else if (onReturn) askRating(onReturn);
+    if (document.visibilityState === 'hidden') { beaconProgress(); return; }
+    if (onReturn) askRating(onReturn);
+    /* The defaults may have been changed in the tab the chooser opened. */
+    if (tracks) {
+      askedTracks = null;
+      askTracks();
+    }
   });
 
   // A phone may not say so.

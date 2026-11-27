@@ -44,6 +44,22 @@ function aTv(more) {
   return { id: 7, name: 'Living room', on: true, lost_s: null, acked: 0, volume: 0.4, muted: false, can_volume: true, play: aPlay(), last: null, ...more };
 }
 
+const AUDIO = [{ id: '61', label: 'English', language: 'en', language_name: 'English', channels: 6 }, { id: '62', label: 'Deutsch', language: 'de', language_name: 'Deutsch', channels: 2 }];
+
+async function tracksOn(p) {
+  await p.open();
+  await p.openTracks();
+  const label = p.$('[data-av-btn]').textContent;
+  const foot = p.$('.player-av-foot').textContent;
+  await p.press('[data-audio="62"]');
+  await p.pass(400);
+  return {
+    label, foot,
+    kept: p.api.calls.filter((c) => c.method !== 'GET' && /\/api\/watch\/tracks\//.test(c.url)).map((c) => [c.method, c.url, c.body]),
+    sent: p.sent(), did: p.cast.did, toasts: p.toasts,
+  };
+}
+
 function aCast(more) {
   return {
     id: 's1', name: 'Den', rating_key: '9001', title: 'Glass Orchard', subtitle: 'S1 · E4 — The Grafting Knife',
@@ -97,6 +113,11 @@ async function page(opts = {}) {
     if (api.fail) throw new APIError(...api.fail);
     if (method === 'POST' && api.hold) await new Promise((r) => { api.hold.push(r); });
     if (url === '/api/tvs') return { tvs: copy(api.tvs) };
+    // A choice of tracks, kept: what then plays for the person.
+    if (/^\/api\/watch\/tracks\//.test(url)) {
+      if (method === 'GET') return { remembered: false, ...api.kept };
+      return { audio: (body && body.audio) || null, subtitle: body && body.subtitle !== 'off' ? (body && body.subtitle) || null : null, remembered: method !== 'DELETE', ...api.plays };
+    }
     if (/^\/api\/(cast|watch)\//.test(url)) return { stream_id: 'c1', url: '/c1' };
     const tv = api.tvs.find((t) => url.startsWith('/api/tvs/' + t.id) && !(api.goneIds || []).includes(t.id));
     if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, (api.gone && api.gone.data) || { last: api.gone && api.gone.last });
@@ -146,7 +167,7 @@ async function page(opts = {}) {
     addEventListener(t, fn) { win.listeners[t] = fn; },
     UIFeedback: { toast: (t) => { toasts.push(t); overRemote.push(doc.documentElement.classList.contains('has-tv-rem')); }, error: (t) => toasts.push('! ' + t) },
     ModalA11y: { register() {}, onOpened() {}, onClosed() {} },
-    MM: { api: { APIError: RealAPIError, get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
+    MM: { api: { APIError: RealAPIError, get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), put: (u, b) => call('PUT', u, b), delete: (u) => call('DELETE', u, null), messageOf: (e, f) => f } },
   };
   // What cast-sender.js tells and does; the tab that follows the play is another with `away`.
   const cast = { now: null, over: null, did: [], away: false, saved: true, hold: null, refuse: null, change() {}, ...opts.cast };
@@ -201,7 +222,7 @@ async function page(opts = {}) {
     win.crypto = { getRandomValues: (a) => a };
   }
   const ctx = vm.createContext({
-    fetch: (url, o) => (/^\/api\/tvs/.test(url) ? answer(url, o) : new Promise((yes) => pages.push(() => yes({ text: async () => '' })))),
+    fetch: (url, o) => (/^\/api\/(tvs|watch\/tracks\/)/.test(url) ? answer(url, o) : new Promise((yes) => pages.push(() => yes({ text: async () => '' })))),
     URL,
     DOMParser: class { parseFromString() { return { getElementById: () => ({ getAttribute: (k) => ({ 'data-item': '{"title":"Glass Orchard"}' }[k] || null) }) }; } },
     window: win, document: doc, AbortController,
@@ -228,6 +249,7 @@ async function page(opts = {}) {
   pageApi.window = pageApi;
   vm.runInNewContext(fs.readFileSync(path.join(JS, 'core/api.js'), 'utf8'), pageApi);
   win.MM.api.loginUrl = pageApi.MM.api.loginUrl;
+  vm.runInContext(fs.readFileSync(path.join(JS, 'watch/tracks.js'), 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
@@ -248,6 +270,13 @@ async function page(opts = {}) {
       clock = end;
     },
     async press(sel) { click(doc, $(sel)); await settle(); },
+    /* Audio & subtitles opened from the keyboard, and the row with *text* picked in it. */
+    async openTracks() { click(doc, $('[data-av-btn]'), { detail: 0 }); await settle(); },
+    async pickTrack(text) {
+      if (!p.$('.player-av') || !p.seen('.player-av')) await p.openTracks();
+      await p.pressText(text);
+      await p.pass(400);
+    },
     async pressText(text) { click(doc, doc.querySelectorAll('button').find((b) => b.textContent === text)); await settle(); },
     async on(sel, type, e) {
       $(sel).listeners[type].forEach((fn) => fn({ button: 0, pointerId: 1, pointerType: 'touch', preventDefault() {}, stopPropagation() {}, target: $(sel), ...e }));
@@ -642,15 +671,70 @@ const scenarios = {
     out.sent = p.sent();
     return out;
   },
+  /* German audio from Audio & subtitles: on a TV, on a Chromecast, and refused by the TV. */
+  async tracksTv() { return tracksOn(await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO }) })] })); },
+  async tracksCast() { return tracksOn(await page({ tvs: [], cast: { now: aCast({ audio_id: '61', audio_tracks: AUDIO }) } })); },
+  async tracksRefused() {
+    const out = {};
+    for (const why of ['track_unavailable', 'tv_off']) {
+      const p = await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO }) })] });
+      p.api.refuse = why;
+      out[why] = await tracksOn(p);
+    }
+    return out;
+  },
+  /* German audio while English subtitles show, which the server says go on showing. */
+  async tracksKeepSubtitle() {
+    const p = await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO, subtitle: '11' }) })] });
+    p.api.plays = { subtitle: '11' };
+    return tracksOn(p);
+  },
+  /* German audio while English subtitles show, which the server says no longer show. */
+  async tracksDropSubtitle() {
+    return tracksOn(await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO, subtitle: '11' }) })] }));
+  },
+  /* What is said of signs and songs, back to the defaults and picked. */
+  async saidSigns() {
+    const p = await page();
+    const state = { audio: '61', subtitle: '12', audio_tracks: AUDIO, subtitle_tracks: [{ id: '12', label: 'English', language: 'en', forced: true }], title: 'Glass Orchard' };
+    return ['reset', 'subtitle'].map((what) => p.win.MM.tracks.said(what, state, false));
+  },
+  /* Use my defaults, from the remote of a title with a choice kept for it. */
+  async tracksDefaults() {
+    const out = {};
+    for (const cast of [false, true]) {
+      const p = cast ? await page({ tvs: [], cast: { now: aCast({ audio_id: '62', audio_tracks: AUDIO }) } })
+        : await page({ tvs: [aTv({ play: aPlay({ audio: '62', audio_tracks: AUDIO }) })] });
+      p.api.kept = { remembered: true, defaults: { audio_lang: 'en', subtitle_lang: null } };
+      p.api.plays = { audio: '61' };
+      await p.open();
+      await p.openTracks();
+      await p.pass(50);
+      const box = p.$('.player-av');
+      out[cast ? 'cast' : 'tv'] = { tag: box.querySelector('[data-audio="61"]').textContent, foot: box.querySelector('.player-av-foot').textContent };
+      await p.press('[data-av-reset]');
+      await p.pass(400);
+      Object.assign(out[cast ? 'cast' : 'tv'], {
+        kept: p.api.calls.filter((c) => c.method !== 'GET' && /\/api\/watch\/tracks\//.test(c.url)).map((c) => [c.method, c.url]),
+        sent: p.sent(), did: p.cast.did, toasts: p.toasts,
+      });
+    }
+    return out;
+  },
   async subtitles() {
     const p = await page();
     await p.open();
-    await p.press('[data-menu="subtitles"]');
-    const out = { focus: p.doc.activeElement.textContent, under: p.$('[data-bottom]').inert };
-    p.key('[data-po]', 'Escape');
-    out.escape = { menu: p.seen('[data-po]'), open: p.isOpen(), focus: p.doc.activeElement.getAttribute('data-menu') };
-    await p.press('[data-menu="subtitles"]');
-    await p.pressText('English');
+    await p.openTracks();
+    // What the chooser stands over is out of reach, and stays so as the remote hears the TV again.
+    const reach = () => ['[data-seek-row]', '[data-mid]', '[data-play]', '[data-menu="quality"]', '[data-next]'].map((sel) => p.$(sel).inert);
+    const out = { focus: p.doc.activeElement.textContent, under: reach() };
+    const reads = p.reads().length;
+    await p.pass(1200);
+    out.polled = { reads: p.reads().length > reads, under: reach() };
+    p.key('.player-av', 'Escape');
+    out.escape = { menu: p.seen('.player-av'), open: p.isOpen(), focus: p.doc.activeElement.hasAttribute('data-av-btn') ? 'subtitles' : null };
+    out.after = reach();
+    await p.pickTrack('English');
     out.sent = p.sent();
     return out;
   },
@@ -946,7 +1030,7 @@ const scenarios = {
     const chapters = [{ title: 'One', start_s: 0, end_s: 9 }, { title: 'Two', start_s: 100, end_s: 200 }];
     const p = await page({ tvs: [aTv({ play: aPlay({ chapters, quality: 'low', next: { season: 1, episode: 5, title: 'x', rating_key: '2' } }) })] });
     await p.open();
-    const shown = () => ['[data-menu="chapters"]', '[data-menu="subtitles"]', '[data-next]'].map((s) => !p.$(s).hidden).concat(p.$('[data-quality]').textContent, p.$('[data-play]').querySelector('use').getAttribute('href'));
+    const shown = () => ['[data-menu="chapters"]', '[data-av]', '[data-next]'].map((s) => !p.$(s).hidden).concat(p.$('[data-quality]').textContent, p.$('[data-play]').querySelector('use').getAttribute('href'));
     const out = [shown()];
     p.api.tvs = [];
     p.api.gone = { reason: 'taken', last: { reason: 'taken', rating_key: '9001', position_s: 1268, title: 'Glass Orchard', year: 2022, season: 1, episode: 4, episode_title: 'The Grafting Knife', duration_s: 2880 } };
@@ -1123,7 +1207,7 @@ const scenarios = {
     out.asks = p.reads().length - reads;
     await p.open();
     const controls = ['[data-play]', '[data-back10]', '[data-seek-row]', '[data-bring]', '[data-stop]', '[data-volume]', '[data-mute]',
-      '[data-menu="chapters"]', '[data-menu="subtitles"]', '[data-menu="quality"]', '[data-next]', '[data-no-volume]'];
+      '[data-menu="chapters"]', '[data-av]', '[data-menu="quality"]', '[data-next]', '[data-no-volume]'];
     out.shown = controls.filter((c) => p.seen(c)).length;
     out.nextName = p.$('[data-next]').getAttribute('aria-label');
     out.hint = p.$('[data-hint]').textContent;
@@ -1143,8 +1227,7 @@ const scenarios = {
     p.$('[data-volume]').value = '70';
     await p.on('[data-volume]', 'change', {});
     await p.press('[data-mute]');
-    await p.press('[data-menu="subtitles"]');
-    await p.pressText('English');
+    await p.pickTrack('English');
     await p.press('[data-menu="quality"]');
     await p.pressText('720p4 Mbps');
     out.quality = p.$('[data-quality]').textContent;

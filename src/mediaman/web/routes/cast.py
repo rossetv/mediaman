@@ -9,6 +9,7 @@ maker's; none may send credentials.
 from __future__ import annotations
 
 import contextlib
+import logging
 import sqlite3
 from dataclasses import asdict
 from functools import partial
@@ -20,7 +21,7 @@ from starlette.responses import Response
 
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import TICKET_SECONDS, Ticket, get_ticket_store
-from mediaman.services.cast.tracks import Track, read_tracks
+from mediaman.services.cast.tracks import Pick
 from mediaman.services.media_meta.plex_quality import TvQuality
 from mediaman.services.media_meta.plex_stream import (
     StreamGone,
@@ -30,6 +31,7 @@ from mediaman.services.media_meta.plex_stream import (
     TrackUnavailable,
     TvTracks,
     get_stream_manager,
+    seen_in,
     segment_type,
 )
 from mediaman.services.media_meta.plex_watch import PlexError, is_in_libraries
@@ -48,10 +50,15 @@ from mediaman.web.routes.watch.stream_api import (
     _scanned_library_ids,
     _StartRequest,
     _StreamRoute,
+    pick_tracks,
     plex_failure,
+    selected,
     session_lasts,
     stream_lives,
+    title_tracks,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(route_class=_StreamRoute)
 
@@ -73,7 +80,8 @@ _CORS = {
 
 class _CastRequest(_StartRequest):
     quality: TvQuality = "auto"
-    #: Track ids as an earlier answer gave them; without one, what is selected in Plex.
+    #: Track ids as an earlier answer gave them; without one, the person's choice for the title,
+    #: else their defaults.
     audio: str | None = Field(default=None, pattern=r"^[0-9]{1,18}$")
     subtitle: str | None = Field(default=None, pattern=r"^(off|[0-9]{1,18})$")
 
@@ -99,10 +107,6 @@ def start_cast(
     )
 
 
-def _selected(tracks: list[Track]) -> str | None:
-    return next((t["id"] for t in tracks if t["selected"]), None)
-
-
 def _start(
     request: Request,
     body: _CastRequest,
@@ -119,29 +123,47 @@ def _start(
     conn = get_db()
     try:
         plex = _open_plex(request, conn)
+        mark = manager.selection_mark()
         item = plex.get_item(body.rating_key, marks=True)
         if item.type not in ("movie", "episode") or not is_in_libraries(
             item, _scanned_library_ids(conn)
         ):
             return respond_err("not_found", status=404)
-        audio, subtitles = read_tracks(plex, body.rating_key)
+        node, audio, subtitles = title_tracks(conn, plex, body.rating_key)
+        seen = seen_in(node, mark)
         subtitle = None if body.subtitle == "off" else body.subtitle
         if (body.audio is not None and body.audio not in {t["id"] for t in audio}) or (
             subtitle is not None and subtitle not in {t["id"] for t in subtitles}
         ):
             return respond_err("track_unavailable", status=409)
-        burn = subtitle is not None or (body.subtitle is None and item.subtitle_selected)
-        quality = "best" if body.quality == "auto" else body.quality
-        stream_id = manager.start(
-            username,
-            body.rating_key,
-            quality,
-            burn,
-            _progress_info(item),
-            page=body.page,
-            asked_ago=body.asked_s + manager.now() - began,
-            tv=TvTracks(audio=body.audio, subtitle=subtitle),
+        pick = pick_tracks(
+            conn, username, item, audio, subtitles, audio_id=body.audio, subtitle=body.subtitle
         )
+        quality = "best" if body.quality == "auto" else body.quality
+
+        def start(chosen: Pick) -> str:
+            return manager.start(
+                username,
+                body.rating_key,
+                quality,
+                chosen.burn,
+                _progress_info(item),
+                page=body.page,
+                asked_ago=body.asked_s + manager.now() - began,
+                tv=TvTracks(audio=chosen.audio, subtitle=chosen.subtitle, seen=seen),
+            )
+
+        try:
+            stream_id = start(pick)
+        except TrackUnavailable:
+            asked = Pick(body.audio, subtitle)
+            if asked == pick:
+                raise
+            # Tracks only the person's defaults or their choice for the title named: what
+            # Plex selects plays rather than nothing.
+            logger.warning("cast: Plex would not play the tracks picked")
+            stream_id = start(asked)
+            pick = Pick(body.audio or selected(audio), subtitle)
     except TooManyStreams:
         return respond_err("too_many_streams", status=429)
     except TrackUnavailable:
@@ -173,8 +195,8 @@ def _start(
             "expires_in_s": int(TICKET_SECONDS),
             "duration_s": item.duration_s,
             "quality": body.quality,
-            "audio": body.audio or _selected(audio),
-            "subtitle": (subtitle or _selected(subtitles)) if burn else None,
+            "audio": pick.audio,
+            "subtitle": pick.subtitle,
             "audio_tracks": audio,
             "subtitle_tracks": subtitles,
             "markers": [asdict(m) for m in item.markers],

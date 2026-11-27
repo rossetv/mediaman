@@ -201,7 +201,7 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
 def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     """Create the Watch stream manager, tidy Plex sessions left by an earlier run, start the reaper.
 
-    The tidy runs on its own thread so a Plex that is down never holds up startup. Returns
+    The tidy also puts back the selections of tracks an earlier run left on Plex. It runs on its own thread so a Plex that is down never holds up startup. Returns
     the function that saves the places of what plays on TVs, stops the reaper and then every
     live stream. When told to end, it also frees the download-ready emails claimed and not
     yet sent, since a kill may come before the lifespan's end does.
@@ -217,10 +217,16 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     manager = init_stream_manager(
         lambda: read_plex_credentials(get_db(), secret_key),
         allowed_hosts=lambda: allowed_outbound_hosts(get_db()),
+        db=get_db,
     )
+
+    def tidy() -> int:
+        manager.put_back_held()
+        return manager.tidy_orphans()
+
     threading.Thread(
         target=_tidy_stream_orphans,
-        args=(manager.tidy_orphans,),
+        args=(tidy,),
         name="watch-stream-tidy",
         daemon=True,
     ).start()
@@ -460,6 +466,7 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.watch.signed_image_api import router as signed_image_api_router
     from mediaman.web.routes.watch.stream_api import router as watch_stream_api_router
     from mediaman.web.routes.watch.title_preview_api import router as watch_title_preview_api_router
+    from mediaman.web.routes.watch.tracks_api import router as watch_tracks_api_router
 
     app.include_router(auth_router)
     app.include_router(force_pw_router)
@@ -503,6 +510,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(watch_explore_api_router)
     app.include_router(watch_next_api_router)
     app.include_router(watch_title_preview_api_router)
+    app.include_router(watch_tracks_api_router)
 
 
 def _register_probes(app: FastAPI) -> None:

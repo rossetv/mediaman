@@ -1165,3 +1165,221 @@
   .player-menu-item:hover,
   .player-menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 }
+
+/* ── Audio & subtitles (watch/tracks.js) ── */
+
+/* The control: the speech bubble, then what plays. In the row from 601 px and on a
+   phone on its side; on a phone held upright the row is full, so it sits in the top bar,
+   as the TV button does when it plays elsewhere. */
+.player-av-btn { gap: 8px; }
+.player-av-btn > .ico { font-size: 17px; }
+.player-av-state { min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; transition: opacity var(--dur-fast) var(--ease-out); }
+.player-av-btn.is-changing .player-av-state { opacity: 0; }
+.player-top .player-av-wrap { display: none; }
+@media (max-width: 1199.98px) { .player-av-more { display: none; } }
+@media (max-width: 600px) and (orientation: portrait) {
+  .player:not(.is-away) .player-top .player-av-wrap { display: block; position: static; }
+  .player:not(.is-away) .player-controls .player-av-wrap { display: none; }
+  .player-top .player-av-btn { padding: 0 14px 0 12px; }
+}
+@media (max-width: 420px) and (orientation: portrait) { .player-top .player-av-state { max-width: 92px; } }
+
+/* The chooser. On a laptop it opens up from the control: Audio beside Subtitles. */
+.player-av {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 3;
+  width: 572px;
+  max-width: calc(100vw - 24px);
+  max-height: min(600px, calc(100vh - 136px));
+  max-height: min(600px, calc(100dvh - 136px));
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border-radius: var(--r-lg);
+  background: var(--s2);
+  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
+  text-align: left;
+  white-space: normal;
+  user-select: none;
+  -webkit-user-select: none;
+  animation: player-pop var(--dur) var(--ease-out);
+}
+.player-av:focus { outline: 0; }
+.player-av.is-redrawn:not(.is-leaving) { animation: none; }
+/* The remote is not in .player: its chooser goes as the player's menus do. */
+.tv-rem .player-av.is-leaving { animation: player-drop var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+.player-av-veil { display: none; }
+.player-av-head { display: none; }
+.player-av-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; min-height: 0; overflow: hidden; }
+.player-av-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* Each list scrolls on its own, fading at an end that has more, as the player's menus do. */
+.player-av-list, .player-av-cols {
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+  mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+}
+.player-av-list { display: flex; flex-direction: column; max-height: min(468px, calc(100vh - 290px)); max-height: min(468px, calc(100dvh - 290px)); overflow-y: auto; overscroll-behavior: contain; }
+:is(.player-av-list, .player-av-cols).has-more-above { --above: 28px; }
+:is(.player-av-list, .player-av-cols).has-more-below { --below: 28px; }
+.player-av-col + .player-av-col { padding-left: 6px; border-left: 1px solid var(--hair); }
+.player-av-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .player-av-row:hover { background: var(--hair-strong); }
+  .player-av-row:disabled:hover { background: none; }
+  .player-av-link:hover { background: var(--hair-strong); text-decoration: none; }
+}
+.player-av-row:focus-visible { background: var(--hair-strong); outline: 2px solid var(--accent); outline-offset: -2px; }
+.player-av-row:active { background: var(--hair-strong); }
+.player-av-text { flex: 1; min-width: 0; }
+.player-av-main { display: block; font-size: 15px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-av-sub { display: block; margin-top: 2px; font-size: 13px; line-height: 1.3; color: var(--t3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-av-tag { flex: none; padding: 2px 8px; border-radius: var(--r-pill); background: var(--rgba-overlay-md); font-size: 12px; color: var(--t2); }
+.player-av-row .player-menu-tick { width: 14px; height: 14px; }
+.player-av-row[aria-checked="true"] > .player-menu-tick { visibility: visible; }
+/* The tick lands before the chooser goes, so the press is seen to take. */
+@keyframes player-av-tick { from { opacity: 0; transform: scale(.4); } }
+.player-av-row.is-picked > .player-menu-tick { animation: player-av-tick var(--dur-fast) var(--ease-out); }
+.player-av-row:disabled { cursor: default; }
+.player-av-none { padding: 4px 12px 10px; font-size: 13px; line-height: 1.45; color: var(--t3); }
+/* What is kept, and the way back to the defaults. */
+.player-av-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  margin-top: 6px;
+  padding: 6px 4px 2px 12px;
+  border-top: 1px solid var(--hair-strong);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--t2);
+}
+.player-av-foot > .ico { flex: none; font-size: 14px; color: var(--t3); }
+.player-av-foot-text { flex: 1; min-width: 0; }
+.player-av-foot-text b { font-weight: 600; color: var(--t1); }
+.player-av-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.player-av-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.player-av-titles { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; }
+.player-av-titles > .player-menu-title + .player-menu-title { padding-left: 18px; }
+.player-av-col > .player-menu-title { display: none; }
+
+/* Phones held upright: a sheet from the foot, as the remote's menus are. */
+@media (max-width: 699.98px) {
+  .player-av-veil {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 6;
+    background: color-mix(in srgb, var(--scrim) 55%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    animation: tv-fade var(--dur-slow) var(--ease-out);
+  }
+  .player-av {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 7;
+    width: auto;
+    max-width: none;
+    max-height: calc(100% - max(48px, env(safe-area-inset-top, 0px) + 24px));
+    padding: 0 12px max(16px, env(safe-area-inset-bottom, 0px));
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 0 0 1px var(--hair-strong);
+    animation: player-av-up var(--dur-slow) var(--ease-push);
+  }
+  .player-av::before { content: ""; flex: none; display: block; width: 36px; height: 5px; margin: 8px auto 2px; border-radius: var(--r-pill); background: var(--hair-hover); }
+  .player-av-head { display: flex; align-items: center; gap: 4px; flex: none; min-height: 48px; padding: 0 0 0 12px; font-size: 17px; font-weight: 600; }
+  .player-av-head > span { flex: 1; min-width: 0; }
+  .player-av-close { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--t2); font-size: 13px; background: radial-gradient(circle, var(--rgba-overlay-lg) 15px, transparent 15.5px); }
+  .player-av-titles { display: none; }
+  .player-av-cols { grid-template-columns: 1fr; overflow-y: auto; overscroll-behavior: contain; }
+  .player-av-list { max-height: none; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+  .player-av-col { min-height: auto; }
+  .player-av-col + .player-av-col { margin-top: 6px; padding-left: 0; border-left: 0; }
+  .player-av-col > .player-menu-title { display: block; padding: 10px 12px 4px; }
+  .player-av-row { min-height: 56px; }
+  .player-av-foot { margin-top: 8px; }
+}
+@keyframes player-av-up { from { transform: translateY(100%); } }
+@keyframes player-av-down { to { transform: translateY(100%); } }
+@keyframes player-av-in { from { transform: translateX(100%); } }
+@keyframes player-av-out { to { transform: translateX(100%); } }
+@media (max-width: 699.98px) {
+  .player .player-av.is-leaving, .tv-rem .player-av.is-leaving { animation: player-av-down var(--dur) var(--ease-exit) forwards; pointer-events: none; }
+  .player-av-veil.is-leaving { animation: tv-fade-out var(--dur) var(--ease-exit) forwards; pointer-events: none; }
+}
+
+/* A phone on its side: a sheet from the right edge, clear of the middle of the picture.
+   Nothing dims the picture; a tap beside the sheet closes it. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .player-av-veil { display: block; position: fixed; inset: 0; z-index: 6; background: linear-gradient(90deg, transparent 40%, color-mix(in srgb, var(--scrim) 45%, transparent)); -webkit-backdrop-filter: none; backdrop-filter: none; animation: tv-fade var(--dur-slow) var(--ease-out); }
+  .player-av {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    z-index: 7;
+    width: calc(360px + env(safe-area-inset-right, 0px));
+    max-width: none;
+    max-height: none;
+    padding: max(14px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) max(10px, env(safe-area-inset-bottom, 0px)) 8px;
+    border-radius: 20px 0 0 20px;
+    box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
+    animation: player-av-in var(--dur-slow) var(--ease-push);
+  }
+  .player-av::before { display: none; }
+  .player-av-head { display: flex; align-items: center; flex: none; min-height: 44px; padding: 0 0 0 12px; font-size: 15px; font-weight: 600; }
+  .player-av-head > span { flex: 1; }
+  .player-av-close { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--t2); font-size: 15px; }
+  .player-av-titles { display: none; }
+  .player-av-cols { grid-template-columns: 1fr; overflow-y: auto; overscroll-behavior: contain; }
+  .player-av-list { max-height: none; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+  .player-av-col { min-height: auto; }
+  .player-av-col + .player-av-col { margin-top: 4px; padding-left: 0; border-left: 0; }
+  .player-av-col > .player-menu-title { display: block; padding: 8px 12px 2px; }
+  .player-av-row { min-height: 48px; padding-block: 4px; }
+  .player-av-foot { margin-top: 4px; }
+  .player .player-av.is-leaving, .tv-rem .player-av.is-leaving { animation: player-av-out var(--dur) var(--ease-exit) forwards; pointer-events: none; }
+  .player-av-veil.is-leaving { animation: tv-fade-out var(--dur) var(--ease-exit) forwards; pointer-events: none; }
+}
+
+/* Reduced motion: it only fades, quickly. */
+@media (prefers-reduced-motion: reduce) {
+  .player-av, .player-av-veil { animation: tv-fade var(--dur-fast) var(--ease-out) !important; }
+  .player .player-av.is-leaving, .tv-rem .player-av.is-leaving, .player-av-veil.is-leaving { animation: tv-fade-out var(--dur-fast) var(--ease-out) forwards !important; }
+  .player-av-row.is-picked > .player-menu-tick { animation: none; }
+  /* Drawn again in place, it does not fade in again. */
+  .player-av.is-redrawn:not(.is-leaving) { animation: none !important; }
+}
+@media (forced-colors: active) {
+  .player-av { border: 1px solid CanvasText; }
+  .player-av-row[aria-checked="true"] { outline: 1px solid Highlight; }
+}
+.player.is-away .player-av-btn > .ico { font-size: 15px; }

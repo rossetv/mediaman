@@ -2609,6 +2609,10 @@ def test_subtitles_a_tv_cannot_have_give_way_to_those_it_had(markup):
     assert elsewhere(markup, "away_choices")["refused"] == ["32", "off"]
 
 
+def test_another_audio_for_a_tv_names_no_subtitles_when_none_show(markup):
+    assert elsewhere(markup, "away_audio") == {"audio": "62", "subtitle": "none named"}
+
+
 def test_the_next_episode_goes_on_where_this_one_played(markup, tmp_path_factory):
     next_item = {**EPISODE["item"], "rating_key": "502", "subtitle": "S2 · E5"}
     next_page = _markup(tmp_path_factory, {**EPISODE, "item": next_item})
@@ -3338,6 +3342,72 @@ def test_a_full_row_of_controls_gives_up_the_mute_then_shortens_its_pills_then_d
     ]
     # A control shown, hidden or relabelled is seen even where the row keeps its own size.
     assert out["watched"] == [True, True, True, True]
+
+
+def test_a_new_audio_track_is_kept_and_the_stream_starts_again_where_it_was(markup):
+    out = run(markup, "tracks_switch", plays="ok")
+    assert out["before"]["label"] == "English"
+    assert out["kept"] == ['PUT /api/watch/tracks/501 {"audio":"62"}']
+    assert (out["held"], out["restarts"], out["from"]) == (True, 1, 1268)
+    assert out["after"]["label"] == "Deutsch"
+    assert out["toasts"] == [["info", "Deutsch audio. Kept for The Long Coast.", "Undo"]]
+    # Nothing was kept for the title before: the way back is the person's defaults.
+    assert out["undo"] == "DELETE /api/watch/tracks/501"
+
+
+def test_while_new_tracks_start_the_control_says_what_played_and_only_the_picture_waits(markup):
+    held = run(markup, "tracks_queued")["held"]
+    assert (held["held"], held["label"], held["faded"]) == (True, "English", False)
+    assert (held["play"]["ring"], held["play"]["icon"]) == (False, "#i-pause")
+
+
+def test_a_start_that_fails_for_other_than_the_tracks_keeps_the_choice(markup):
+    out = run(markup, "tracks_switch", plays="too_many")
+    assert out["kept"] == ['PUT /api/watch/tracks/501 {"audio":"62"}']
+    assert out["message"].startswith("You have too many videos playing.")
+    assert not [t for t in out["toasts"] if "Couldn’t change" in t[1]]
+
+
+def test_a_track_picked_while_the_stream_starts_again_follows_it(markup):
+    out = run(markup, "tracks_queued")
+    assert out["whileStarting"] == 1
+    assert out["kept"] == ['{"audio":"62"}', '{"subtitle":"71"}']
+    assert out["after"].startswith("Deutsch")
+
+
+def test_a_track_that_cannot_be_kept_leaves_the_stream_alone(markup):
+    out = run(markup, "tracks_switch", plays="put_fails")
+    assert (out["restartsInAll"], out["after"]["label"]) == (0, "English")
+    assert out["toasts"] == [["error", "Couldn’t change the audio. Staying on English.", None]]
+
+
+@pytest.mark.parametrize("how", ["refused", "start_fails"])
+def test_a_track_plex_will_not_play_gives_way_to_the_old_one(markup, how):
+    out = run(markup, "tracks_switch", plays=how)
+    # The choice is taken back, so that the next start plays what played.
+    assert out["kept"][-1] == "DELETE /api/watch/tracks/501"
+    assert out["after"]["label"] == "English"
+    assert ["error", "Couldn’t change the audio. Staying on English.", None] in out["toasts"]
+
+
+def test_the_chooser_moves_as_radios_and_gives_the_focus_back(markup):
+    out = run(markup, "tracks_keys")
+    assert out["open"]["checked"] == ["61", "off"]
+    assert out["open"]["foot"].startswith("Kept for every episode of The Long Coast.")
+    assert (out["focus"], out["down"], out["end"]) == ("61", "62", "63")
+    assert out["arrowsSeek"] is False
+    assert out["tab"] == "off"
+    assert (out["closed"], out["back"]) == ("false", True)
+
+
+def test_a_title_with_one_track_says_so(markup):
+    out = run(markup, "tracks_one")
+    assert out["shown"] is True
+    assert out["note"] == ["This title has one audio track.", "This title has no subtitles."]
+
+
+def test_the_defaults_open_beside_the_player_so_that_it_goes_on_playing(markup):
+    assert run(markup, "tracks_one")["link"] == ["Change", "_blank"]
 
 
 @pytest.mark.parametrize(
