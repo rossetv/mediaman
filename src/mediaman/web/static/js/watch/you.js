@@ -276,7 +276,9 @@
 
   function titleOf(p) {
     var v = ready[group(p)] ? viewOf(p) : null;
-    return (v && v.getAttribute('data-title')) || TITLES[group(p)];
+    // A section stands alone on a narrow pane, so it is named; beside the list, the pane is Settings.
+    var sec = v && section(p) && !wide() ? v.querySelector('.stx-sec[data-sec="' + section(p) + '"]') : null;
+    return (sec && sec.getAttribute('data-title')) || (v && v.getAttribute('data-title')) || TITLES[group(p)];
   }
 
   function seen(node) {
@@ -294,6 +296,8 @@
     backLabel.textContent = up ? titleOf(up) : '';
     title.textContent = titleOf(p);
   }
+  // Up and the title of a Settings section depend on the width.
+  if (wideMq.addEventListener) wideMq.addEventListener('change', function () { if (openNow && path) drawBar(path); });
 
   /* A step leaves the focus on what was pressed if it is still there; else, on the way back, on
      what led here; else on the title. */

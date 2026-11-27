@@ -137,3 +137,14 @@ def test_a_place_without_a_view_of_its_own_shows_the_nearest_and_says_where_it_i
 
 def test_the_pane_opened_over_a_title_closes_it() -> None:
     assert _run("overATitle") == "/?you=profile"
+
+
+def test_a_narrow_pane_titles_an_open_settings_section_by_its_own_name_and_follows_the_width() -> (
+    None
+):
+    out = _run("sectionTitle")
+    assert out["narrow"] == ["Integrations", False, "Settings"]
+    # beside the list on a wide pane, the pane is Settings and Up goes to Profile
+    assert out["widened"] == ["Settings", False, "Profile"]
+    assert out["narrowed"] == ["Integrations", False, "Settings"]
+    assert out["missing"] == ["Settings", False, "Settings"]

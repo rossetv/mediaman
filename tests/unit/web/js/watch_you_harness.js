@@ -29,7 +29,8 @@ const FRAGMENTS = {
     view('profile/email', 'Email', [['input', { id: 'email' }], ['a', { id: 'out', href: '/downloads' }],
       ['form', { id: 'loose', method: 'post' }], ['form', { id: 'logout', method: 'post', action: '/api/auth/logout' }]])],
   '/history': ['div', { 'data-you-group': 'history', 'data-styles': '', 'data-scripts': '/j/reauth.js?v=1 /j/history.js?v=1' }, view('history', 'History', [], true)],
-  '/settings': ['div', { 'data-you-group': 'settings', 'data-styles': '/s/password.css?v=1', 'data-scripts': '/j/settings.js?v=1' }, view('settings', 'Settings', [['button', { id: 'field' }]], true)],
+  '/settings': ['div', { 'data-you-group': 'settings', 'data-styles': '/s/password.css?v=1', 'data-scripts': '/j/settings.js?v=1' }, view('settings', 'Settings', [['button', { id: 'field' }],
+    ['section', { class: 'stx-sec', 'data-sec': 'integrations', 'data-title': 'Integrations' }]], true)],
 };
 
 function open(url, opts = {}) {
@@ -61,7 +62,13 @@ function open(url, opts = {}) {
       ['div', { class: 'you__views', id: 'views' }]]]));
   const $ = (id) => doc.getElementById(id);
 
-  const media = (q) => ({ matches: /reduce/.test(q) ? !!opts.calm : /min-width/.test(q) ? !!opts.wide : !!opts.phone, addEventListener() {} });
+  const widths = [];
+  const media = (q) => ({
+    get matches() { return /reduce/.test(q) ? !!opts.calm : /min-width/.test(q) ? !!opts.wide : !!opts.phone; },
+    addEventListener: (t, fn) => { if (/min-width/.test(q)) widths.push(fn); },
+  });
+  // The window made wide or narrow, and what listens to its width told.
+  const resize = (wide) => { opts.wide = wide; widths.forEach((fn) => fn({ matches: wide })); };
   const go = (by) => {
     const to = tab.index + by;
     if (to < 0 || to >= tab.entries.length || by === 0) return;
@@ -141,7 +148,7 @@ function open(url, opts = {}) {
   };
   const late = () => { for (let n = 0; n < 5; n++) timers.filter((t) => t.on).forEach((t) => { t.on = false; t.fn(); }); };
   const api = {
-    doc, tab, $, ctx, fetched, assets, loaded, toasts, told, assigned, timers, clock, winListeners,
+    doc, tab, $, ctx, fetched, assets, loaded, toasts, told, assigned, timers, clock, winListeners, resize,
     you: ctx.MM.you,
     at: () => tab.entries[tab.index].url,
     settle: async () => { for (let i = 0; i < 4; i++) { await settle(); late(); } },
@@ -347,6 +354,22 @@ const scenarios = {
       wide: p.$('you').classList.contains('is-wide'),
       up: [p.$('up').hasAttribute('hidden'), p.$('up-label').textContent],
     };
+  },
+
+  // A Settings section on a narrow pane, then on a wide one, and a section not in the fragment.
+  async sectionTitle() {
+    const bar = (p) => [p.title(), p.$('up').hasAttribute('hidden'), p.$('up-label').textContent];
+    const p = open('/');
+    p.you.go('settings/integrations/openai');
+    await p.settle();
+    const narrow = bar(p);
+    p.resize(true);
+    const widened = bar(p);
+    p.resize(false);
+    const narrowed = bar(p);
+    p.you.go('settings/general');
+    await p.settle();
+    return { narrow, widened, narrowed, missing: bar(p) };
   },
 
   // The pane opened over a title's page closes it: the title's hash is not in the pane's address.
