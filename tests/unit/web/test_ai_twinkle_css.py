@@ -40,3 +40,13 @@ def test_the_twinkle_moves_only_transform_and_opacity() -> None:
 def test_reduced_motion_pulses_opacity_slowly_and_keeps_the_stars_still() -> None:
     reduced = re.search(r"@media \(prefers-reduced-motion: reduce\)\s*\{(.*?)\n\}", SHEET, re.S)
     assert reduced and "ai-twinkle-pulse" in reduced.group(1)
+
+
+def test_no_ai_motion_in_search_turns_its_sparkle() -> None:
+    for name in ("_watch_ask.css", "_watch_search.css"):
+        sheet = re.sub(r"/\*.*?\*/", "", (CSS / name).read_text(encoding="utf-8"), flags=re.S)
+        frames = re.findall(r"@keyframes (watch-a[is]\w*-[\w-]+)\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}", sheet)
+        assert frames, name
+        assert [n for n, body in frames if "rotate" in body] == [], name
+        # Thinking, the sparkle twinkles with the shared stars.
+        assert "--ai-twinkle-lg: ai-twinkle-big" in sheet, name

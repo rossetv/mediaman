@@ -62,37 +62,23 @@ def test_a_reason_is_text_never_markup_and_an_empty_one_draws_no_line() -> None:
     assert len(out["whys"]) == 3
 
 
-def test_the_library_leads_when_the_best_fit_is_there() -> None:
-    assert _run("leadOwned")["heads"] == ["In your library", "Not in your library"]
+def test_the_library_s_picks_lead_the_one_grid() -> None:
+    assert _run("leadOwned")["cards"] == ["Film 1", "Film 2"]
 
 
-def test_the_group_to_download_leads_when_the_server_says_so_and_holds_through_a_narrowing() -> (
-    None
-):
+def test_the_library_s_picks_lead_whatever_the_server_names_first_and_through_a_narrowing() -> None:
     out = _run("leadHolds")
-    assert out["before"] == ["Not in your library", "In your library"]
+    assert out["before"] == ["Film 1", "Film 2"]
     assert "Funnier" in out["sent"]
     # A narrowing run's titles so far do not replace the answer it narrows.
-    assert out["during"] == [["Film 2", "Film 1"], ["Not in your library", "In your library"]]
-    assert out["after"] == ["Not in your library", "In your library"]
+    assert out["during"] == ["Film 1", "Film 2"]
+    assert out["after"] == ["Film 1", "Film 2"]
 
 
 def test_a_running_poll_draws_the_titles_checked_so_far_with_outlines_after_them() -> None:
     out = _run("partial")
-    assert out["none"][0] == []
-    assert out["none"][1] > 0
-    cards, outlines, heads, whys = out["one"]
-    assert (cards, heads, whys) == (
-        ["Film 2"],
-        ["Not in your library", "AI picks"],
-        ["It is funny."],
-    )
-    assert outlines > 0
-    assert out["three"][0] == ["Film 2", "Film 3", "Film 1"]
-    assert out["three"][1] > 0
-    # Done: the outlines go and the groups stand in the order the server gave.
-    assert out["done"] == [
-        ["Film 2", "Film 3", "Film 1"],
-        0,
-        ["Not in your library", "In your library"],
-    ]
+    assert out["none"] == [[], 10]
+    assert out["one"] == [["Film 2"], 9, ["It is funny."]]
+    assert out["three"] == [["Film 1", "Film 2", "Film 3"], 7]
+    # Done: the outlines go.
+    assert out["done"] == [["Film 1", "Film 2", "Film 3"], 0]

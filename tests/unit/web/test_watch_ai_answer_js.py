@@ -22,24 +22,28 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_the_answer_keeps_the_cards_already_drawn_in_their_places() -> None:
+def test_the_answer_lands_where_its_outlines_stood_and_keeps_the_cards_already_drawn() -> None:
     out = _run("answerKeeps")
-    assert out["kept"] == [True, True]
-    assert out["head"] == 0
-    assert out["cards"][:2] == [
-        "Love Is Blind",
-        "*Married at First Sight (The same leap of faith.)",
-    ]
+    assert out["thinking"] == ["outline"] * 10
+    assert out["checking"] == ["card"] + ["outline"] * 9
+    assert out["answered"] == ["card"] * 3
+    assert out["kept"] is True
 
 
-def test_a_title_downloaded_for_the_library_is_grouped_with_it_and_not_badged() -> None:
+def test_a_title_downloaded_for_the_library_is_ready_to_watch_and_stands_with_it() -> None:
     out = _run("heldByDownload")
-    assert out["groups"] == ["In your library", "Not in your library"]
-    assert out["badges"] == []
+    assert out["cards"] == ["*Married at First Sight", "*Love Is Blind"]
+    assert out["badges"] == ["Ready to watch", "Download"]
+    assert out["line"] == "2 titles · 1 ready to watch, 1 to download"
 
 
 def test_an_ai_pick_of_a_show_in_the_library_says_its_seasons() -> None:
     assert _run("aiShowMeta")["sub"] == "TV · 2 seasons"
+
+
+def test_a_library_pick_keeps_its_keep_and_its_leaving_badge() -> None:
+    leaver = _run("aiShowMeta")["leaver"]
+    assert leaver["keep"] == 1 and "watch-badge--leaving" in leaver["badges"]
 
 
 def test_a_bare_like_is_searched_as_typed_and_similar_to_searches_both() -> None:
@@ -61,21 +65,23 @@ def test_similar_to_asks_tmdb_for_the_title_alone_and_outlives_the_sentence_fail
 
 def test_where_the_ai_is_set_up_and_fails_a_question_tells_an_admin_why() -> None:
     out = _run("offSaid")
-    assert out["refused"]["note"].startswith("OpenAI refused the key.")
+    assert out["refused"]["note"].startswith("OpenAI refused the key |")
     assert out["refused"]["link"] == "/settings#intg-openai"
     assert "spelling" not in out["refused"]["none"]
 
 
-def test_where_the_ai_was_never_set_up_or_is_switched_off_a_question_says_nothing_of_it() -> None:
+def test_with_no_key_an_admin_is_nudged_to_the_openai_card_and_a_viewer_told_nothing() -> None:
     out = _run("offSaid")
-    for who in ("noKey", "off", "viewer"):
+    assert out["noKey"]["note"].startswith("AI could answer this |")
+    assert out["noKey"]["link"] == "/settings#intg-openai"
+    for who in ("off", "viewer"):
         assert (out[who]["note"], out[who]["link"]) == (None, None)
 
 
 def test_without_tmdb_similar_to_searches_the_library_for_the_title_and_says_why() -> None:
     out = _run("offSaid")["noTmdb"]
     assert "/api/watch/search?q=harrow lane" in out["searched"]
-    assert out["note"].startswith("AI needs TMDB.")
+    assert out["note"].startswith("AI needs TMDB |")
 
 
 def test_without_tmdb_an_admin_is_offered_to_set_it_up_once_whatever_the_library_has() -> None:
@@ -83,40 +89,8 @@ def test_without_tmdb_an_admin_is_offered_to_set_it_up_once_whatever_the_library
     assert (out["noTmdb"]["setups"], out["noTmdbFound"]["setups"]) == (1, 1)
 
 
-def test_the_ai_s_outlines_stand_under_its_own_heading_and_its_picks_land_there() -> None:
-    out = _run("lateGroup")
-    assert (
-        out["thinking"]
-        == ["head:Not in your library", "card", "card", "head:AI picks"] + ["outline"] * 4
-    )
-    assert (
-        out["answered"]
-        == ["head:Not in your library", "card", "card", "head:AI picks"] + ["card"] * 3
-    )
-    assert out["sameHead"] is True
-
-
-def test_late_library_picks_are_library_cards_and_the_group_says_its_mix() -> None:
-    out = _run("lateGroup")
-    leaving, held = out["cards"]
-    assert leaving["keep"] == 1 and "watch-badge--leaving" in leaving["badges"]
-    assert held["badges"] == ["watch-badge--in"]
-    assert out["note"] == "2 in your library, 1 to download"
-
-
-def test_picks_landing_below_the_screen_are_pointed_to_and_scrolled_to_only_when_pressed() -> None:
-    out = _run("belowChip")
-    assert out["low"] == {"chip": "AI picks below", "scrolled": [], "scrollY": 0}
-    pressed = out["pressed"]
-    assert pressed["chip"] is False and pressed["focused"] == "AI picks"
-    assert pressed["scrolled"] and "ask__group--late" in pressed["scrolled"][0]
-    # Once they are on the screen, by the person's own scrolling or from the start, it is not shown.
-    assert (out["scrolledTo"], out["seen"]) == (False, False)
-
-
 def test_return_on_a_title_typed_in_full_opens_it_and_asks_nothing() -> None:
     out = _run("exactReturn")
-    assert out["rowPicked"] is False
     assert (out["opened"], out["asked"]) == (["movie-5"], 0)
 
 
@@ -132,5 +106,5 @@ def test_the_veil_behind_the_open_sheet_can_still_be_pressed() -> None:
 
 def test_no_step_or_line_a_viewer_reads_names_tmdb() -> None:
     out = _run("similar")
-    said = [out["choosing"], out["checking"], out["foot"], _run("similarNoAi")["viewer"]["head"]]
+    said = [out["choosing"], out["checking"], out["foot"], _run("similarErrors")["keyViewer"]["head"]]
     assert not [line for line in said if "TMDB" in line]
