@@ -1733,6 +1733,25 @@ def test_the_top_match_plays_a_library_title_and_opens_any_other() -> None:
     assert out["elsewhere"]["go"] == "Open"
 
 
+def test_the_top_match_play_goes_to_the_player_as_the_titles_own_play_does() -> None:
+    out = _run("autoExact")["strong"]
+    assert out["previews"] == ["/api/watch/preview/movie-5"]
+    assert out["href"] == "/watch/play/5?from=%2F%23title%3Dmovie-5"
+    # Not the title sheet, which a ref on the link opens instead.
+    assert out["sheet"] is None
+
+
+def test_a_held_top_match_that_cannot_be_played_opens_its_title() -> None:
+    out = _run("autoExact")
+    for way in ("unplayable", "unknown"):
+        assert (out[way]["go"], out[way]["href"], out[way]["sheet"]) == (
+            "Open",
+            "/watch/movie/5",
+            "movie-5",
+        )
+    assert out["elsewhere"]["previews"] == []
+
+
 def test_switched_off_or_with_few_answers_left_a_wish_waits_for_return() -> None:
     out = _run("autoHeld")
     for way in ("off", "low"):

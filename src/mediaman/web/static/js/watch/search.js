@@ -1340,8 +1340,24 @@
       // Of the library: the search's own titles, or one TMDB found that it holds.
       var own = isHeld(t) || /^(movie|show)-[0-9]+$/.test(t.ref);
       words.appendChild(el('span', '', [t.subtitle || kindLine(t)].concat(own ? ['In your library'] : []).join(' · ')));
-      var go = link.appendChild(el('span', 'ask-top__go', own && safePath(t.href) ? 'Play' : 'Open'));
+      var go = link.appendChild(el('span', 'ask-top__go', own ? 'Play' : 'Open'));
       go.setAttribute('aria-hidden', 'true');
+      if (own) playTop(key, link, go);
+    }
+
+    /* Play goes where the title's own Play does, as its preview has it; one that cannot be played opens. */
+    function playTop(key, link, go) {
+      MM.api.get('/api/watch/preview/' + encodeURIComponent(key)).then(function (d) {
+        if (top.getAttribute('data-top') !== key || !top.contains(link)) return;
+        var href = d && d.in_library && d.play && safePath(d.play.href);
+        if (!href) { go.textContent = 'Open'; return; }
+        link.href = href;
+        // Without its ref the title sheet leaves the click to the link.
+        link.removeAttribute('data-title-ref');
+        go.textContent = String(d.play.label || 'Play').split(' ')[0];
+      }, function () {
+        if (top.getAttribute('data-top') === key) go.textContent = 'Open';
+      });
     }
 
     /* The field itself says what the AI does with what is typed: a wish is asked ("Ask AI ↵",
@@ -2533,7 +2549,7 @@
     });
     results.addEventListener('click', function (e) {
       var q = input.value.trim();
-      if (view === 'results' && q === ownWords && e.target.closest('.watch-suggestion, [data-title-ref]')) record(q);
+      if (view === 'results' && q === ownWords && e.target.closest('.watch-suggestion, [data-title-ref], .ask-top')) record(q);
     });
     veil.addEventListener('click', leaveSheet);
     clear.addEventListener('click', function () {

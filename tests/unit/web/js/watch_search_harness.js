@@ -3210,16 +3210,22 @@ scenarios.autoNewer = async () => {
 
 // A title the search found with all of the words is opened, not asked of the AI; a strong cue asks over it.
 scenarios.autoExact = async () => {
-  const run = async (q, title, more = {}, tmdb = false) => {
+  // *preview*: what the title's preview says of it, the source of its own Play.
+  const run = async (q, title, more = {}, tmdb = false, preview = { in_library: true, play: { label: 'Play', href: '/watch/play/5?from=%2F%23title%3Dmovie-5' } }) => {
     const p = await asking();
     await p.search(q);
     const found = { ref: 'movie-5', title, href: '/watch/movie/5', subtitle: 'Movie · 2008', ...more };
     await (tmdb ? SEARCHED(p, [], [found]) : SEARCHED(p, [found]));
+    const previews = p.calls.filter((c) => c.url.startsWith('/api/watch/preview/')).map((c) => c.url);
+    if (preview) await p.answer('/api/watch/preview/', preview);
+    else p.calls.filter((c) => c.url.startsWith('/api/watch/preview/')).forEach((c) => c.reject(new Error('502')));
+    await settle();
     const top = p.doc.querySelector('.ask-top');
     const go = p.doc.querySelector('.ask-top__go');
     return {
       asked: p.sent('/ask').length, head: p.head(), top: top && !top.closest('[hidden]') ? top.textContent : null,
       sent: p.sent('/ask').map((c) => c[2]), because: aiPlace(p).because, go: go && go.textContent,
+      href: top && top.href, sheet: top && top.getAttribute('data-title-ref'), previews,
     };
   };
   return {
@@ -3227,6 +3233,9 @@ scenarios.autoExact = async () => {
     strong: await run('in the mood for love', 'In the Mood for Love', { tmdb_ref: 'tmdb-movie-843' }),
     // Found outside the library: it is opened, not played, and named by its TMDB id.
     elsewhere: await run('in the mood for love', 'In the Mood for Love', { ref: 'tmdb-movie-843', href: null, kind: 'movie', tmdb_id: 843, subtitle: 'Movie · 2000' }, true),
+    // Held, but Plex cannot play it now, or its preview cannot be had: it opens.
+    unplayable: await run('in the mood for love', 'In the Mood for Love', { tmdb_ref: 'tmdb-movie-843' }, false, { in_library: true, play: null }),
+    unknown: await run('in the mood for love', 'In the Mood for Love', { tmdb_ref: 'tmdb-movie-843' }, false, null),
     // Begun, or named with its year: a title, not a wish.
     begun: await run('the dark kni', 'The Dark Knight'),
     year: await run('dune 2021', 'Dune'),
