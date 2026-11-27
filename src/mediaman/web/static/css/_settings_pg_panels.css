@@ -105,19 +105,22 @@
 .setg-pg .gy-tmdb    { background: var(--brand-tmdb-bg);    color: var(--brand-tmdb); }
 .setg-pg .gy-omdb    { background: var(--brand-omdb-bg);    color: var(--brand-omdb); }
 
-/* The services are one list: a row each, with its answer as a pill, that opens into its card. */
+/* The services are one list: a row each, with its answer as a pill, that opens into its card.
+   The badge, the dividers, every field, Save and Test start on one gutter, and the fields, the
+   pill and the chevron end on the same one. */
 .setg-pg .intg-card {
+  --intg-gutter: 16px;
   position: relative;
   background: var(--s2);
   overflow: hidden;
 }
 .setg-pg .setg-block-hd + .intg-card { border-radius: 14px 14px 0 0; }
 .setg-pg .intg-card:last-child { border-radius: 0 0 14px 14px; }
-.setg-pg .intg-card + .intg-card::before { content: ""; position: absolute; z-index: 1; top: 0; right: 0; left: 60px; border-top: 1px solid var(--hair); }
+.setg-pg .intg-card + .intg-card::before { content: ""; position: absolute; z-index: 1; top: 0; right: 0; left: var(--intg-gutter); border-top: 1px solid var(--hair); }
 .setg-pg .intg-card-hd {
   display: flex; align-items: center; gap: 12px;
   min-height: 62px;
-  padding: 10px 14px;
+  padding: 10px var(--intg-gutter);
   cursor: pointer;
 }
 .setg-pg .intg-card-hd:hover, .setg-pg .intg-card:not(.is-collapsed) > .intg-card-hd { background: var(--s3); }
@@ -152,11 +155,8 @@
   font-size: 12px; font-weight: 600; line-height: 1.35; color: var(--t2); background: var(--s4);
 }
 .setg-pg .intg-card-hd .conn .conn-dot { display: none; }
-.setg-pg .intg-card-hd .conn [data-conn-label] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.setg-pg .intg-card:not(.is-collapsed) .intg-card-hd .conn [data-conn-label] { white-space: normal; }
-/* The list says how a service stands in a word; its card, once open, says all of it. */
-.setg-pg .intg-card.is-collapsed .conn [data-conn-label],
-.setg-pg .intg-card:not(.is-collapsed) .conn [data-conn-short] { display: none; }
+/* The pill holds the same word twice; it is said once. */
+.setg-pg .intg-card-hd .conn [data-conn-short] { display: none; }
 .setg-pg .intg-card-hd .conn.ok { color: var(--success); background: var(--rgba-success-bg); }
 .setg-pg .intg-card-hd .conn.warn { color: var(--warning); background: var(--rgba-warning-bg); }
 .setg-pg .intg-card-hd .conn.err { color: var(--danger-text); background: var(--rgba-danger-bg); }
@@ -170,14 +170,31 @@
   transform: rotate(180deg);
 }
 .setg-pg .intg-card-bd { background: var(--s3); }
-.setg-pg .intg-card-bd > .setg-fold-inner { padding: 6px 14px 16px 60px; }
+.setg-pg .intg-card-bd > .setg-fold-inner { padding: 4px var(--intg-gutter) 16px; }
 .setg-pg .intg-card-bd .inp { background-color: var(--s2); }
 .setg-pg .intg-card-bd > .setg-fold-inner > .fld-row + .fld-row,
 .setg-pg .intg-card-bd > .setg-fold-inner > .intg-acts { margin-top: 14px; }
 .setg-pg .intg-acts { display: flex; flex-wrap: wrap; gap: 8px; }
-.setg-pg .intg-acts .btn-test { min-height: 40px; border-color: transparent; background: var(--s5); }
-@media (max-width: 699.98px) {
-  .setg-pg .intg-card-bd > .setg-fold-inner { padding-left: 14px; }
+.setg-pg .intg-acts .btn-test { border-color: transparent; background: var(--s5); }
+.setg-pg .intg-card-bd .fld-row { grid-template-columns: 1fr; }
+.setg-pg .intg-card-bd .inp-wrap,
+.setg-pg .intg-card-bd .inp--lg { max-width: none; }
+.setg-pg .intg-card .intg-why {
+  margin-bottom: 14px; padding: 10px 12px; border-radius: 10px;
+  font-size: 13px; line-height: 1.4; overflow-wrap: anywhere;
+  color: var(--danger-text); background: var(--rgba-danger-bg);
+}
+.setg-pg .intg-card .intg-why.is-warn { color: var(--warning); background: var(--rgba-warning-bg); }
+.setg-pg .intg-card .intg-acts { align-items: center; }
+.setg-pg .intg-card .intg-acts .btn-test,
+.setg-pg .intg-card .intg-acts .intg-save {
+  position: relative; min-height: 34px; padding: 0 16px; font-size: 13px; font-weight: 500;
+}
+.setg-pg .intg-card .intg-acts .intg-save[hidden] { display: none; }
+/* A finger gets 44px though the pill draws 34. */
+@media (pointer: coarse) {
+  .setg-pg .intg-card .intg-acts .btn-test::after,
+  .setg-pg .intg-card .intg-acts .intg-save::after { content: ""; position: absolute; inset: -5px -4px; }
 }
 .setg-pg .lib-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .setg-pg .lib-pill-count { font-size: 11.5px; }
@@ -498,7 +515,7 @@
   .setg-pg .sub-row .em { grid-area: em; }
   .setg-pg .sub-row .sub-stat { grid-area: st; justify-self: start; }
   .setg-pg .sub-row .link-danger { grid-area: rm; align-self: center; }
-  .setg-pg .intg-card-hd { padding: 16px 18px; }
+  .setg-pg .intg-card-hd { padding-block: 16px; }
 }
 
 @media (max-width: 359.98px) {

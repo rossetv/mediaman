@@ -228,11 +228,11 @@ def test_once_saved_the_cards_save_goes_and_the_focus_moves_on_to_test() -> None
     assert out["focus"] == "radarr"
 
 
-SETG = (WEB / "static/css/_settings_pg.css").read_text(encoding="utf-8")
+PANELS = (WEB / "static/css/_settings_pg_panels.css").read_text(encoding="utf-8")
 
 
 def _rule(selector: str) -> str:
-    found = re.search(re.escape(selector) + r" \{([^}]*)\}", SETG)
+    found = re.search(r"(?:^|\n)\s*" + re.escape(selector) + r" \{([^}]*)\}", PANELS)
     assert found, selector
     return found.group(1)
 
@@ -244,10 +244,13 @@ def test_an_open_cards_fields_run_in_one_column_to_its_edges() -> None:
 
 
 def test_the_badge_the_fields_and_the_dividers_share_one_gutter() -> None:
-    assert "padding-inline: var(--intg-gutter)" in _rule(".setg-pg .intg-card .intg-card-hd")
+    assert "--intg-gutter: 16px" in _rule(".setg-pg .intg-card")
+    assert "padding: 10px var(--intg-gutter)" in _rule(".setg-pg .intg-card-hd")
     assert "padding: 4px var(--intg-gutter) 16px" in _rule(
-        ".setg-pg .intg-card .intg-card-bd > .setg-fold-inner"
+        ".setg-pg .intg-card-bd > .setg-fold-inner"
     )
-    assert "left: var(--intg-gutter)" in _rule(
-        ".setg-pg .setg-block .intg-card + .intg-card::before"
-    )
+    assert "left: var(--intg-gutter)" in _rule(".setg-pg .intg-card + .intg-card::before")
+    # a narrow screen gives the row more height and keeps the gutter
+    narrow = PANELS.split("@media (max-width: 520px) {\n", 1)[1].split("\n}", 1)[0]
+    row = re.search(r"\.setg-pg \.intg-card-hd \{([^}]*)\}", narrow).group(1)
+    assert row.strip() == "padding-block: 16px;"
