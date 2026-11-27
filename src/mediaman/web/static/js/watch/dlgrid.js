@@ -186,8 +186,18 @@
 
   function show(node, on) { node.hidden = !on; return on; }
 
+  // Only these say their size and how far along they are; only those not yet fetching link to
+  // Radarr or Sonarr, for an admin.
+  var FACT_STATES = ['downloading', 'almost_ready', 'queued'];
+  function linksOut(state) { return admin && state !== 'downloading' && state !== 'almost_ready'; }
+
+  function fixWords(item) {
+    return item.retrying ? 'mediaman will look for another copy'
+      : (admin && item.attention_hint) || 'Won’t finish until an admin sorts it out';
+  }
+
   function facts(p, item) {
-    if (['downloading', 'almost_ready', 'queued'].indexOf(item.state) < 0) return show(p, false);
+    if (FACT_STATES.indexOf(item.state) < 0) return show(p, false);
     var parts = [];
     if (item.state === 'queued') parts.push('Waiting its turn');
     var sized = item.state !== 'queued' && item.size_done && item.size_total;
@@ -267,8 +277,7 @@
       fix.classList.toggle('is-ok', ok);
       fix.classList.toggle('is-act', !ok);
       window.MM.dom.setIcon(fix.querySelector('.ico'), ok ? 'i-rotate-right' : 'i-triangle-exclamation');
-      setText(fix.children[1], ok ? 'mediaman will look for another copy'
-        : (admin && item.attention_hint) || 'Won’t finish until an admin sorts it out');
+      setText(fix.children[1], fixWords(item));
     }
     var seen = more.querySelector('.dwx__seen');
     if (show(seen, (item.state === 'searching' || item.state === 'finding_copy') && !!item.search_hint)) setText(seen, item.search_hint);
@@ -281,7 +290,7 @@
       return node;
     } : null, card);
     if (eps) setText(eps.querySelector('span'), episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '') + (item.has_pack ? ' · pack download' : ''));
-    var link = admin && item.state !== 'downloading' && item.state !== 'almost_ready' ? outside(item.arr_link) : '';
+    var link = linksOut(item.state) ? outside(item.arr_link) : '';
     var arr = pill(acts, 'arr', link ? function () {
       var node = el('a', 'dwx__act dwx__act--quiet');
       node.setAttribute('target', '_blank');
@@ -461,9 +470,22 @@
     words.appendChild(el('span', 'skel skel--line'));
     words.appendChild(el('span', 'skel skel--line'));
     var more = card.appendChild(el('div', 'dlg-skel__more'));
-    more.appendChild(el('span', 'skel skel--line'));
-    // A show's download has its episodes' button under its facts.
-    if (item.kind === 'show') more.appendChild(el('span', 'skel dlg-skel__pill'));
+    var state = item.state;
+    // A stuck one's reason and what comes of it are laid out unseen, to wrap as the card's will.
+    if (state === 'needs_attention') {
+      if (admin && item.attention) {
+        var why = more.appendChild(el('span', 'dlg-skel__why'));
+        why.appendChild(el('span', 'skel skel--line'));
+        why.appendChild(el('span')).appendChild(el('span', 'dlg-skel-said', item.attention));
+      }
+      more.appendChild(el('span', 'dlg-skel__fix')).appendChild(el('span', 'dlg-skel-said', fixWords(item)));
+    } else if (!state || FACT_STATES.indexOf(state) >= 0 || state === 'searching' || state === 'finding_copy') {
+      more.appendChild(el('span', 'skel skel--line')); // its facts, or its last search
+    }
+    // A show's episodes, and an admin's way into Radarr or Sonarr, are buttons under it.
+    if (item.kind === 'show' || (state && linksOut(state))) {
+      more.appendChild(el('span', 'dlg-skel__acts')).appendChild(el('span', 'skel dlg-skel__pill'));
+    }
     return card;
   }
 
@@ -490,6 +512,13 @@
       });
     });
     return skels;
+  }
+
+  /* What the row says of an outage, which the first answer will most likely say again. */
+  function rowNote() {
+    var slot = rowSlot();
+    var note = slot && slot.querySelector('.dlx__notes.is-on .dlx__note');
+    return note ? note.textContent.trim() : '';
   }
 
   function skeletonsHeld() { return !!skels && !!skels.nodes[0].parentNode; }
@@ -524,7 +553,7 @@
     if (waiting && !countHeld) dom.count.appendChild(el('span', 'skel dlg-skel__count')).setAttribute('aria-hidden', 'true');
     if (!waiting && countHeld) countHeld.remove();
     if (!waiting) setText(dom.count, data ? wordsOf(data, items) : '');
-    var note = noteOf(data, items);
+    var note = noteOf(data, items) || (waiting ? rowNote() : '');
     if (note) setText(dom.noteText, note);
     dom.note.hidden = !note;
     drawEmpty(emptyOf(data, items));

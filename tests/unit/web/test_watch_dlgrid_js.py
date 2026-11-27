@@ -521,9 +521,10 @@ def test_placeholders_take_the_filled_grid_s_layout_heading_line_and_cards(out) 
     assert run["kids"][0] == "grid-group"
 
 
-def test_placeholders_follow_the_row_s_groups_and_hold_a_show_s_episodes_button(out) -> None:
+def test_placeholders_follow_the_row_s_groups_and_hold_the_buttons_their_cards_have(out) -> None:
     grouped = out["placeholderLayout"]["grouped"]
-    assert grouped == ["head", "card", "head", "card", "card+eps"]
+    # an admin's stuck film links to Radarr; a show has its episodes
+    assert grouped == ["head", "card+buttons", "head", "card", "card+buttons"]
 
 
 def test_the_answer_fades_the_placeholders_out_where_they_stood_and_then_drops_them(out) -> None:
@@ -541,3 +542,23 @@ def test_an_answer_while_the_placeholders_fly_waits_for_them_to_land(out) -> Non
     run = out["answerMidGrow"]
     assert run["mid"] == {"skels": 2, "cards": 0}
     assert run["landed"] == {"skels": 0, "cards": 3}
+
+
+def test_a_placeholder_s_band_holds_the_lines_and_buttons_its_card_will_have_by_role(out) -> None:
+    run = out["placeholderBands"]
+    # needs attention, downloading, a queued show, a queued film
+    assert run["admin"] == ["why line acts", "line", "line acts", "line acts"]
+    assert run["viewer"] == ["line", "line", "line acts", "line"]
+
+
+def test_while_it_waits_the_grid_says_the_outage_the_row_already_says(out) -> None:
+    run = out["placeholderBands"]
+    assert run["rowNote"] == "Can’t sign in to Sonarr right now."
+    assert run["gridNote"] == run["rowNote"]
+
+
+def test_a_stuck_placeholder_lays_out_the_words_its_card_will_wrap(out) -> None:
+    assert out["placeholderBands"]["words"] == [
+        "Not enough articles",
+        "mediaman will look for another copy",
+    ]

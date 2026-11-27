@@ -765,8 +765,34 @@ const scenarios = {
     await mixed.step(1100);
     mixed.click(mixed.q('#watch-downloading .row-open'));
     await mixed.step(500);
-    const grouped = mixed.q('#watch-dl .dlg__grid').children.map((n) => (n.classList.contains('grid-group') ? 'head' : n.querySelector('.dlg-skel__pill') ? 'card+eps' : 'card'));
+    const grouped = mixed.q('#watch-dl .dlg__grid').children.map((n) => (n.classList.contains('grid-group') ? 'head' : n.querySelector('.dlg-skel__pill') ? 'card+buttons' : 'card'));
     return { waiting, filling, gone: p.qa('#watch-dl .is-going').length, kids: kids(), grouped };
+  },
+  // Each placeholder's band holds what the card's own will: its lines, and its row of buttons
+  // where the card has one, by who looks.
+  async placeholderBands() {
+    const of = async (admin) => {
+      const p = load({ admin, strip: [strip([row('Salt Road', { state: 'needs_attention', attention: admin ? 'Not enough articles on the server' : '' }), row('Ember Coast'),
+        row('Tallow Hill', { kind: 'show', state: 'queued' }), row('Finchley', { state: 'queued' })])], all: ['hang'] });
+      await p.step(1100);
+      p.click(p.q('#watch-downloading .row-open'));
+      await p.step(500);
+      return p.qa('#watch-dl .dlg__grid .dlg-skel').map((card) => card.querySelector('.dlg-skel__more').children
+        .map((n) => (n.classList.contains('dlg-skel__why') ? 'why' : n.classList.contains('dlg-skel__acts') ? 'acts' : 'line')).join(' '));
+    };
+    // What a stuck one's reason and its outcome will say is laid out, unseen, to wrap as they will.
+    const said = load({ strip: [strip([row('Salt Road', { state: 'needs_attention', attention: 'Not enough articles', retrying: true })])], all: ['hang'] });
+    await said.step(1100);
+    said.click(said.q('#watch-downloading .row-open'));
+    await said.step(500);
+    const words = said.qa('#watch-dl .dlg__grid .dlg-skel-said').map((n) => n.textContent);
+    const down = load({ strip: [{ ...strip(USUAL()), outage: 'Can\'t sign in to Sonarr' }], all: ['hang'] });
+    await down.step(1100);
+    const rowNote = down.text(down.q('#watch-downloading .dlx__note'));
+    down.click(down.q('#watch-downloading .row-open'));
+    await down.step(500);
+    const gridNote = down.q('#watch-dl .dlg__note').hidden ? null : down.text(down.q('#watch-dl .dlg__note'));
+    return { admin: await of(true), viewer: await of(false), rowNote, gridNote, words };
   },
   // An answer while the placeholders still fly waits for them to land.
   async answerMidGrow() {
