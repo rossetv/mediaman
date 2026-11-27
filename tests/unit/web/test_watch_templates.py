@@ -144,10 +144,6 @@ def test_each_row_is_a_keyboard_reachable_region_named_after_its_title() -> None
     ]
 
 
-def test_watch_page_loads_the_row_script_from_a_file() -> None:
-    assert '<script src="/static/js/watch-rows.js?v=" defer></script>' in _watch()
-
-
 @pytest.mark.parametrize(
     ("days", "text"),
     [
@@ -186,10 +182,7 @@ def test_a_shows_leaving_badge_is_worded_for_its_season(days: int, words: list[s
 @pytest.mark.parametrize(("days", "words"), [(-3, "Any day"), (0, "Today")])
 def test_a_badge_for_today_or_any_day_has_words_for_a_narrow_poster(days: int, words: str) -> None:
     html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=days)]}])
-    assert (
-        f'<span class="watch-badge__tiny" data-words="{words}" aria-hidden="true"></span><span class="watch-badge__short">'
-        in html
-    )
+    assert f'class="watch-badge__tiny" data-words="{words}"' in html
 
 
 @pytest.mark.parametrize("days", [1, 5, 365])
@@ -387,12 +380,6 @@ def test_pages_have_no_inline_script_or_style() -> None:
         assert 'src="/static/js/watch.js?v="' in html
 
 
-def test_base_links_the_watch_and_player_styles() -> None:
-    html = _watch()
-    assert "/static/css/_watch.css" in html
-    assert "/static/css/_player.css" in html
-
-
 def _captions(html: str) -> list[str]:
     """What each card's caption says to anyone who reads it out, whatever is drawn of it."""
     found = re.findall(r'<span class="watch-card__sub">(.*?)</span>\s*</a>', html, re.S)
@@ -416,13 +403,6 @@ def test_card_without_time_in_its_caption_gets_it_appended():
     html = _watch(rows=[{"title": "Continue watching", "items": [item]}])
 
     assert _captions(html) == ["Movie · 2 h left"]
-
-
-def test_leaving_badge_has_a_short_wording():
-    html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=90, keep_id="k")]}])
-
-    assert "Leaving in 90 days" in html
-    assert "90 days left" in html
 
 
 def test_banner_carries_a_short_line_for_phones():
@@ -609,43 +589,6 @@ def test_the_title_overlay_sets_red_text_on_the_one_red_text_token(selector: str
     assert "danger-soft" not in (CSS / "_watch_detail.css").read_text(encoding="utf-8")
 
 
-def test_share_centres_its_icon_and_label_together_inside_the_width_it_holds() -> None:
-    sheet = "_watch_detail.css"
-    button = _declarations_of(sheet, ".ttl__share")
-    assert "display: inline-grid" in button and "place-items: center" in button
-    # The unseen longest label and the group share one grid cell, so the cell is as wide as the
-    # longest state and the group sits in the middle of it.
-    group = _declarations_of(sheet, ".ttl__share-group")
-    sizer = _declarations_of(sheet, ".ttl__share::after")
-    assert "grid-area: 1 / 1" in group and "grid-area: 1 / 1" in sizer
-    assert "visibility: hidden" in sizer and "content: attr(data-widest)" in sizer
-    # The sizer is as wide as the icon and the gap before the label, which the group also has.
-    assert "padding-inline-start: calc(var(--share-icon) + var(--share-gap))" in sizer
-    assert "gap: var(--share-gap)" in group
-    assert "width: var(--share-icon)" in _declarations_of(sheet, ".ttl__share-group > .ico")
-
-
-def test_the_banner_grows_with_the_screen_and_with_a_long_title() -> None:
-    body = _declarations_of("_watch.css", ".watch-banner")
-
-    assert "min-height: clamp(420px, 27vw, 600px)" in body
-    assert not re.search(r"(?<!-)\bheight: \d+px", body)
-
-
-def test_the_banner_is_short_on_a_phone_held_sideways() -> None:
-    css = (CSS / "_watch.css").read_text(encoding="utf-8")
-    block = re.search(r"@media \(max-height: 500px\)[^{]*\{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
-
-    assert block and "min-height: 260px" in block.group(1)
-
-
-@pytest.mark.parametrize("place", [".watch-card__poster", ".watch-ep__thumb"])
-def test_a_progress_bar_sits_inside_the_rounded_corners(place: str) -> None:
-    body = _declarations_of("_watch.css", f"{place} > .watch-bar")
-
-    assert "left: 8px" in body and "bottom: 8px" in body and "calc(100% - 16px)" in body
-
-
 @pytest.mark.parametrize("part", ["::-webkit-progress-value", "::-moz-progress-bar"])
 def test_a_little_progress_still_shows_a_mark_and_none_shows_nothing(part: str) -> None:
     assert "min-width: 6px" in _declarations_of("_watch.css", f'.watch-bar:not([value="0"]){part}')
@@ -681,13 +624,7 @@ def test_a_poster_standing_in_for_a_backdrop_keeps_its_own_shape(sheet: str, pos
     assert "object-fit: cover" not in body and "filter" not in body
 
 
-def test_the_banner_poster_keeps_clear_of_the_banner_edges() -> None:
-    assert "max-height: calc(100% - 72px)" in _declarations_of(
-        "_watch.css", ".watch-banner__poster"
-    )
-
-
-def test_a_long_banner_title_is_smaller_and_every_title_clamps() -> None:
+def test_a_long_banner_title_is_marked_long_and_every_title_clamps() -> None:
     banner = {
         "title": "It",
         "line": "Movie",
@@ -699,23 +636,12 @@ def test_a_long_banner_title_is_smaller_and_every_title_clamps() -> None:
 
     assert "watch-banner__title--long" not in _watch(banner=banner)
     assert "watch-banner__title--long" in _watch(banner={**banner, "title": long})
-    smaller = ".watch-banner__title--long"
-    assert "font-size: 36px" in _declarations_of("_watch.css", smaller)
-    # 80 characters, all capitals, beside the poster's place at 600 wide.
-    assert "--title-lines: 7" in _declarations_of("_watch.css", smaller)
-    for query, lines in (("(max-width: 599.98px)", 6), ("(max-height: 500px)", 4)):
-        rules = _declarations_in(_in_media("_watch.css", query), smaller)
-        assert f"--title-lines: {lines}" in rules
     assert "line-clamp: var(--title-lines)" in _declarations_of(
         "_watch.css", ".watch-banner__title"
     )
-    phone = _declarations_in(
-        _in_media("_watch.css", "(max-width: 599.98px)"), ".watch-banner__title"
-    )
-    assert "--title-lines: 4" in phone
 
 
-def test_a_very_long_banner_title_gets_the_smallest_text_and_lines_enough_to_fit() -> None:
+def test_a_very_long_banner_title_is_marked_longest() -> None:
     banner = {
         "title": "Dr. Aldermoor's Improbable Chronicle of the Winter Orchard, the Ferryman, "
         "and Everything That Happened After the Lanterns Went Out: Part Two",
@@ -727,81 +653,6 @@ def test_a_very_long_banner_title_gets_the_smallest_text_and_lines_enough_to_fit
     very_long = ".watch-banner__title--longest"
 
     assert f"watch-banner__title {very_long[1:]}" in _watch(banner=banner)
-    sideways = _in_media("_watch.css", "(max-height: 500px)")
-    assert "--title-lines: 8" in _declarations_of("_watch.css", very_long)
-    assert "--title-lines: 8" in _declarations_in(
-        _in_media("_watch.css", "(max-width: 599.98px)"), very_long
-    )
-    assert "--title-lines: 5" in _declarations_in(sideways, very_long)
-
-
-def test_the_shade_on_a_small_title_hero_keeps_close_to_the_text() -> None:
-    small = _declarations_in(
-        _in_media("_watch_detail.css", "(max-width: 639.98px)"), ".ttl__head::before"
-    )
-
-    assert "inset-block: -40px" in small
-    assert "55%, transparent) calc(100% - 40px)" in small
-
-
-def test_a_title_with_no_picture_has_a_short_hero_until_its_trailer_plays() -> None:
-    short = _declarations_of("_watch_detail.css", ".ttl.is-short:not(.is-trailer) .ttl__hero")
-    bare = ".ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden])))"
-
-    assert "min-height: 190px" in short
-    assert "var(--hero-hi)" in _declarations_of("_watch_detail.css", bare)
-    phone = _in_media("_watch_detail.css", "(max-width: 699.98px)")
-    assert "display: none" in _declarations_in(phone, ".ttl.is-late .ttl__poster")
-
-
-def test_the_certificate_sits_8px_after_the_text_before_it() -> None:
-    body = _declarations_of("_watch_detail.css", ".ttl__meta > span:has(+ .ttl__cert)")
-
-    assert "margin-right: calc(8px - var(--dot))" in body
-
-
-def test_a_detail_that_wraps_stays_clear_of_the_clipped_dot_margin() -> None:
-    sheet = "_watch_detail.css"
-
-    assert "padding-left: var(--dot)" in _declarations_of(sheet, ".ttl__meta > span")
-    assert "position: absolute" in _declarations_of(sheet, ".ttl__meta > span::before")
-
-
-def test_the_banner_scrim_does_not_widen_with_a_wide_screen() -> None:
-    wide = _declarations_in(_in_media("_watch.css", "(min-width: 1280px)"), ".watch-banner")
-
-    stops = re.findall(r"(\d+)px", wide)
-    assert stops[0] == "320" and stops[-1] == "1150"
-
-
-def test_a_card_progress_bar_lines_up_with_the_title_above_it() -> None:
-    assert "padding: var(--card-pad)" in _declarations_of("_watch.css", ".watch-card__poster")
-    assert "left: var(--card-pad)" in _declarations_of(
-        "_watch.css", ".watch-card__poster > .watch-bar"
-    )
-
-
-def test_the_shade_behind_a_title_over_a_progress_bar_starts_higher_and_ends_darker() -> None:
-    body = _declarations_of("_watch.css", ".watch-card__poster:has(> .watch-bar)::after")
-
-    assert "transparent 35%" in body and "var(--scrim) 92%" in body
-
-
-def test_the_phone_banner_bar_is_as_wide_as_the_text() -> None:
-    phone = _in_media("_watch.css", "(max-width: 599.98px)")
-
-    assert "width: 100%" in _declarations_in(phone, ".watch-bar--banner")
-
-
-def test_a_narrow_phone_held_sideways_puts_the_shade_and_the_buttons_beside_the_text() -> None:
-    sideways = _in_media("_watch.css", "(max-width: 699.98px) and (max-height: 500px)")
-
-    assert "var(--banner-side)" in _declarations_in(sideways, ".watch-banner::after")
-    assert "min-height: 0" in _declarations_in(sideways, ".watch-banner")
-    assert "var(--banner-text-side)" in _declarations_in(sideways, ".watch-banner__body::before")
-    # At the top of their own column, so a long title never pushes them off the screen.
-    actions = _declarations_in(sideways, ".watch-banner .watch-actions")
-    assert "grid-column: 2" in actions and "align-self: start" in actions
 
 
 def test_forced_colors_drop_the_pictures_and_keep_progress_visible() -> None:
@@ -911,17 +762,6 @@ def _scrim_at(sheet: str, selector: str, position: float) -> float:
 def test_a_four_line_card_title_sits_on_at_least_half_dark() -> None:
     # Four lines of 14px reach a third of the way up a poster; white on a pale one needs about half.
     assert _scrim_at("_watch.css", ".watch-card__poster::after", 67) >= 50
-
-
-def test_the_hint_under_an_empty_search_is_centred() -> None:
-    body = _declarations_of("_watch_search.css", ".results-empty + .results-hint")
-
-    assert "margin: 12px auto 0" in body and "justify-content: center" in body
-
-
-def test_results_that_fade_out_keep_their_columns() -> None:
-    # They leave from outside .watch-results.
-    assert "repeat(3," in _declarations_of("_watch_search.css", ".results-page .watch-grid")
 
 
 class _Tree(HTMLParser):

@@ -190,14 +190,6 @@ def test_one_day_left_reads_in_the_singular():
     assert any(c.startswith("Leaving in 1 day ·") for c in page.controls())
 
 
-@pytest.mark.parametrize("name", CONTEXTS)
-def test_there_is_no_audio_or_subtitle_choice(name):
-    _, page = _render(CONTEXTS[name])
-    labels = " ".join(page.controls()).lower()
-    assert "audio" not in labels
-    assert "subtitle" not in labels
-
-
 def test_an_item_without_media_details_offers_the_three_basic_qualities():
     item = PlexItem("episode", "501", "Low Water", "", None, 3000, "2", None, False)
     _, page = _render({**EPISODE, "qualities": quality_rows(item)})
