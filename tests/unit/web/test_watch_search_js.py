@@ -1437,7 +1437,10 @@ def test_a_broken_poster_in_the_search_field_lets_the_sparkle_show() -> None:
     css = (
         Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_search.css"
     ).read_text()
-    assert ".watch-face > img:not([data-broken]) ~ :is(.watch-face__letters, .ico) { visibility: hidden; }" in css
+    assert (
+        ".watch-face > img:not([data-broken]) ~ :is(.watch-face__letters, .ico) { visibility: hidden; }"
+        in css
+    )
     assert _run("like")["posterHides"] == [True, False]
 
 
