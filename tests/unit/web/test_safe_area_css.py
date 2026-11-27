@@ -85,10 +85,12 @@ def test_a_phone_s_tv_bar_is_off_the_home_indicator_and_what_stands_over_it_rise
     assert bar >= max(8, insets["bottom"])
     toast = _of("html.has-tv-mini.has-watch-search .ui-toast-host", PHONE, remote)
     assert _px(_last("bottom", toast), insets) - bar >= 68
-    ask = _px(
-        _last("bottom", _of("html.has-tv-mini .ask__below", sheet=CSS / "_watch_ask.css")), insets
-    )
-    assert ask - bar >= 80
+    # The AI's answer stands in the page's flow, nothing of it fixed at the foot: the room the
+    # page keeps under its last line lifts the answer's last row over the bar.
+    ask = (CSS / "_watch_ask.css").read_text(encoding="utf-8")
+    assert not re.search(r"\.ask[\w-]*[^{}]*\{[^}]*position:\s*fixed", ask)
+    body = _of("html.has-tv-mini:not(.is-tv-mini-leaving) body", PHONE, remote)
+    assert _px(_last("padding-bottom", body), insets) - bar >= 68
 
 
 def test_the_storage_panel_and_its_toasts_keep_clear_of_a_sideways_phone_s_notch() -> None:
