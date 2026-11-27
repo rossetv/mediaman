@@ -432,7 +432,7 @@
     frames.forEach(function (f) { f.classList.remove('is-on'); });
   }
 
-  /* A step that changes the panel's width from *w0*. Its box is held at the wider width meanwhile and
+  /* A step that changes the panel's width from *w0*. Its box is held at the widest width meanwhile and
      a frame drawn in its place, whose left edge moves while its fill grows or shrinks from the right;
      Back keeps to the edge, the title to the middle, and *under*, the view the step's other one
      covers, travels with the edge, so no frame shows a view cut or the panel half empty. With reduced
@@ -442,9 +442,8 @@
     if (w0 === w1 || !dir || !panel.animate || root.hidden) return;
     root.classList.add('is-sizing');
     var W = panel.offsetWidth;
-    var d = W - Math.min(w0, w1);
-    var e0 = w0 < w1 ? d : 0; // how far right of the box's left the frame's left edge is: at first,
-    var e1 = d - e0; // and at the end
+    var e0 = W - w0; // how far right of the box's left the frame's left edge is: at first,
+    var e1 = W - w1; // and at the end
     var still = calm.matches;
     var how = { duration: still ? FADE_MS : STEP_MS, easing: curve(still ? '--ease-out' : '--ease-push'), fill: 'forwards' };
     var box = panel.getBoundingClientRect();
@@ -464,8 +463,8 @@
     }
     var old = root.querySelector('.you__title.is-old');
     if (still) {
-      draw(frame(0), d);
-      draw(frame(1), 0);
+      draw(frame(0), Math.max(e0, e1));
+      draw(frame(1), Math.min(e0, e1));
       move(frame(1), function (o) { return { opacity: o }; }, w0 < w1 ? 0 : 1, w0 < w1 ? 1 : 0);
       // A Back that fades out stays where it was; at the end position it would cross the title.
       var backAt = backBtn.classList.contains('is-off') ? e0 : e1;
@@ -514,6 +513,7 @@
       to.inert = false;
     }
     root.classList.toggle('is-wide', to.hasAttribute('data-wide'));
+    root.classList.toggle('is-wider', to.hasAttribute('data-wider'));
     drawBar(p, dir);
     if (from !== to) resize(w0, dir > 0 ? from : to, dir);
     if (how !== 'start' && was) keepFocus(was, to);

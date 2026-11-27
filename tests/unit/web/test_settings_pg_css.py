@@ -438,3 +438,14 @@ def test_on_reduced_motion_a_section_arriving_beside_the_list_fades_in_150ms() -
     assert name and "animation-duration: var(--dur-fast) !important" in arriving, arriving
     frames = re.search(r"@keyframes " + name.group(1) + r" \{([^}]*)\}", css)
     assert frames and re.fullmatch(r"\s*from \{ opacity: 0;?\s*", frames.group(1) + " "), frames
+
+
+def test_beside_its_words_every_role_pill_stands_in_one_column_even_on_a_row_with_no_actions() -> (
+    None
+):
+    wide = PANELS[PANELS.index("@media (min-width: 700px) {") :]
+    assert "grid-template-columns: subgrid" in _declarations(".setg-pg .usr-row", wide)
+    columns = _declarations(".setg-pg #user-list", wide)
+    # avatar, words, role, actions: your own row leaves the last empty and its pill stays put
+    assert re.search(r"grid-template-columns: auto minmax\(0, 1fr\) auto auto", columns)
+    assert "grid-column: 1 / -1" in _declarations(".setg-pg #user-list > *", wide)

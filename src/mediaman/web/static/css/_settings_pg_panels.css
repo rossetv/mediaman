@@ -494,6 +494,15 @@
 .setg-pg .sub-row.is-leaving { margin-top: -6px; }
 .setg-pg .tv-ppl.is-leaving { margin-top: 0; }
 
+/* Every role pill in one column, the same whether its row has actions after it or not (your own has none). */
+@media (min-width: 700px) {
+  .setg-pg #user-list { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; }
+  .setg-pg #user-list > * { grid-column: 1 / -1; }
+  .setg-pg .usr-row { display: grid; grid-template-columns: subgrid; }
+  .setg-pg .usr-row .pill { justify-self: start; }
+  .setg-pg .usr-row .usr-email { grid-column: 1 / -1; }
+}
+
 @media (max-width: 699.98px) {
   /* Name and email take the first line; the role and actions wrap under them. */
   .setg-pg .usr-row { column-gap: 12px; }
@@ -576,7 +585,6 @@
 /* Where focus lands once the last TV is unpaired; the words, not a control, so no ring. */
 .setg-pg #tv-list-wrap:focus { outline: none; }
 /* What Chromecast lets in, folded under its switch: the full width, so it always wraps under it. */
-.setg-pg .setg-row > .tv-fold { max-width: none; }
 .setg-pg .tv-fold .fold-more-list { max-width: 62ch; padding-bottom: 4px; line-height: 1.45; color: var(--t2); }
 .setg-pg .tv-fold .fold-more-list li + li { margin-top: 4px; }
 .setg-pg .tv-fold .fold-more-list li::marker { color: var(--t3); }

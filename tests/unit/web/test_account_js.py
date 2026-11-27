@@ -445,7 +445,7 @@ def test_a_persons_tvs_are_listed_as_text_and_with_none_there_is_no_section() ->
 
 def test_an_admin_sees_the_tvs_of_others_and_unpairs_one_only_after_a_yes() -> None:
     out = _run("tvsOfAll")
-    # neither their own again nor an older TV, which is nobody's
+    # not their own again
     assert len(out["rows"]) == 1
     assert "Theirs" in out["rows"][0] and "Paired by bob 12 March." in out["rows"][0]
     assert out["asked"][0]["title"] == "Unpair Theirs?"

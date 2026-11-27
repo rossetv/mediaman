@@ -27,9 +27,10 @@ def test_a_narrow_screen_slides_the_section_in_over_the_list() -> None:
 
 def test_a_wide_screen_keeps_the_list_beside_the_section_at_the_width_the_script_reads() -> None:
     wide = _block(WIDE)
-    assert re.search(r"\.stx__nav \{[^}]*width: 300px", wide)
+    assert re.search(r"\.stx__nav \{[^}]*width: 340px", wide)
     assert re.search(
-        r"\.stx__body, \.stx\.is-in > \.stx__body \{[^}]*left: 300px[^}]*visibility: visible", wide
+        r"\.stx__body, \.stx\.is-in > \.stx__body \{[^}]*left: 340px[^}]*visibility: visible",
+        wide,
     )
     assert "'(min-width: 1000px)'" in (ROOT / "js/settings/sections.js").read_text()
 
@@ -59,3 +60,67 @@ def test_the_save_bar_sits_under_the_sections_scroller_and_keeps_room_for_the_ho
     bar = _rule(".stx-save")
     assert "flex: none" in bar
     assert "padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px));" in bar
+
+
+def test_the_save_bar_starts_its_line_where_the_section_list_does() -> None:
+    at = CSS.index("\n.stx-save {")
+    nav = re.search(r"\.stx__nav \{[^}]*padding: \S+ \S+ \S+ (\d+)px", _block(WIDE)).group(1)  # type: ignore[union-attr]
+    # from 700px the bar's sides match the list's left; below it keeps its own 16px, as the list does
+    mid = re.search(
+        r"@media \(min-width: 700px\) \{\s*\.stx-save \{ padding-inline: (\d+)px; \}", CSS
+    )
+    assert mid and mid.group(1) == nav and mid.start() > at
+    assert re.search(r"padding: 12px 16px max\(", _rule(".stx-save"))
+    assert re.search(r"\.stx__nav, \.stx__body \{ padding-right: 16px; padding-left: 16px; \}", CSS)
+
+
+def test_a_focused_section_link_draws_its_ring_inside_the_list_that_clips_it() -> None:
+    assert "overflow: hidden" in _rule(".stx-list")
+    assert "outline-offset: -2px" in _rule(".stx-link:focus-visible")
+
+
+def test_help_lines_stop_at_a_reading_measure_however_wide_the_panel() -> None:
+    for sel in (".setg-pg .setg-row-sub", ".setg-pg .setg-card-hd .sub"):
+        width = re.search(r"max-width: (\d+)ch", _rule(sel))
+        assert width and 50 <= int(width.group(1)) <= 66, sel
+
+
+def test_beside_the_list_a_card_s_lists_and_times_line_up_in_one_column() -> None:
+    sel = '.setg-pg .setg-row select.inp, .setg-pg .setg-row input[type="time"].inp'
+    base = CSS.index("\n" + sel + " {")
+    wide = re.search(
+        r"@media \(min-width: 1000px\) \{\s*" + re.escape(sel) + r" \{ width: (\d+)px; \}", CSS
+    )
+    # after the rule that lets each be as wide as it holds, so it wins at that width
+    assert wide and wide.start() > base
+    assert f"max-width: {wide.group(1)}px" in _rule(sel)
+
+
+def test_what_the_ai_switch_lacks_and_a_row_s_fold_always_start_a_line_of_their_own() -> None:
+    sel = ".setg-pg .setg-row > .ai-need, .setg-pg .setg-row > .fold-more"
+    lone = _rule(sel)
+    # both also carry the help's class, whose measure would let them fit beside the words and switch
+    assert "flex: 1 1 100%" in lone and "max-width: none" in lone
+    # their words keep the help's measure
+    assert re.search(
+        r"max-width: \d+ch",
+        _rule(".setg-pg .setg-row > .ai-need p, .setg-pg .setg-row > .fold-more > div"),
+    )
+
+
+def test_beside_the_list_the_save_button_ends_where_the_sections_cards_do() -> None:
+    body = re.search(
+        r"\.stx__body, \.stx\.is-in > \.stx__body \{[^}]*padding: \S+ (\d+)px", _block(WIDE)
+    ).group(1)  # type: ignore[union-attr]
+    bar = re.search(
+        r"@media \(min-width: 1000px\) \{\s*\.stx-save \{ padding-right: (\d+)px; \}", CSS
+    )
+    assert bar and bar.group(1) == body and bar.start() > CSS.index("\n.stx-save {")
+
+
+def test_the_first_and_last_section_links_round_their_ring_with_the_list() -> None:
+    radius = re.search(r"border-radius: (\d+px)", _rule(".stx-list")).group(1)  # type: ignore[union-attr]
+    assert f"border-radius: {radius} {radius} 0 0" in _rule(
+        ".stx-list > li:first-child > .stx-link"
+    )
+    assert f"border-radius: 0 0 {radius} {radius}" in _rule(".stx-list > li:last-child > .stx-link")

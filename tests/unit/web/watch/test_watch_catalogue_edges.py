@@ -77,6 +77,7 @@ def _title(conn, key: str, title: str, year: int | None = None) -> None:
         plex_library_id=1,
     )
     conn.execute("UPDATE media_items SET year = ? WHERE id = ?", (year, key))
+    conn.commit()
 
 
 def _found(client, q: str) -> list[str]:
