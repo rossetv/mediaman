@@ -73,7 +73,11 @@
     track_unavailable: 'Those subtitles can’t be played.',
     rate_limited: 'Too many tries. Wait a minute, then try again.',
     network_error: 'mediaman didn’t answer. Check that this device is online, then try again.',
+    unplayable: 'This file can’t play here. Plex can’t play this file.',
+    unplayable_dolby_vision_5: 'This file can’t play here. Plex can’t convert its picture (Dolby Vision Profile 5).',
   };
+  /* What no try can mend: no Try again is offered for it. */
+  var FOR_GOOD = { unplayable: 1, unplayable_dolby_vision_5: 1 };
 
   var ways = [];
   var listeners = [];
@@ -207,7 +211,7 @@
       title: short(tv, 'It') + ' didn’t start',
       line: [line + (left || UNCHANGED)],
       bad: true,
-      again: function () { startTv(tv, false); },
+      again: FOR_GOOD[code] ? null : function () { startTv(tv, false); },
     };
   }
 
@@ -356,7 +360,7 @@
           title: told ? told.title : way.label + ' didn’t start',
           line: [told ? told.line : (FAILED[code] || 'Choose it again in a moment.') + (err && err.left || UNCHANGED)],
           bad: true,
-          again: function () { startWay(way); },
+          again: FOR_GOOD[code] ? null : function () { startWay(way); },
         });
       }
       draw();

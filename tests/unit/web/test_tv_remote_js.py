@@ -766,9 +766,22 @@ def test_a_choice_kept_for_the_title_can_go_back_to_the_defaults_from_the_remote
     assert out["tv"]["toasts"][-1] == "Back to your defaults: English."
 
 
-
 def test_signs_and_songs_are_capitalised_only_where_a_sentence_begins() -> None:
     assert _run("saidSigns") == [
         "Back to your defaults: English, signs & songs only.",
         "Signs & songs only. Kept for Glass Orchard.",
     ]
+
+
+def test_a_file_plex_cannot_play_is_said_with_no_try_again_unlike_an_outage() -> None:
+    out = _run("failed")
+    assert "Dolby Vision Profile 5" in out["unplayable_dolby_vision_5"]["line"]
+    assert "Try again" not in out["unplayable_dolby_vision_5"]["labels"]
+    assert "Try again" in out["unreachable"]["labels"]
+
+
+def test_a_tv_that_cannot_start_a_file_plex_cannot_play_offers_no_try_again() -> None:
+    out = _run("sheetRefused")
+    assert "Dolby Vision Profile 5" in out["unplayable_dolby_vision_5"]
+    assert "Try again" not in out["unplayable_dolby_vision_5"]
+    assert "Try again" in out["unreachable"]

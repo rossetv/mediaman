@@ -639,6 +639,15 @@ function messageState(p) {
     acts.length ? { acts: acts, line: p.q('[data-message-line]').textContent } : {});
 }
 
+async function refusedStart(p, status, error) {
+  p.replies.length = 0;
+  p.held.answer = () => ({ err: { status: status, error: error } });
+  await settle();
+  p.tick(5000);
+  await settle();
+  return { starts: p.starts(), message: messageState(p) };
+}
+
 /* The connection fails again as often as the page tries, for this long. */
 async function failFor(p, ms, fail) {
   for (let i = 0; i < ms; i += 500) {
@@ -1115,6 +1124,11 @@ const scenarios = {
     await streamPlays(p, 30);
     return Object.assign(menuState(p), { starts: p.starts(), message: !gone(p.q('[data-message]')) });
   },
+
+  /* A start the server refuses, at a saved choice, with each error that says why. */
+  refused_unplayable: (p) => refusedStart(p, 422, 'unplayable'),
+  refused_unplayable_dolby_vision_5: (p) => refusedStart(p, 422, 'unplayable_dolby_vision_5'),
+  refused_unreachable: (p) => refusedStart(p, 502, 'unreachable'),
 
   /* The choice that Automatic already plays is made the person's. */
   async quality_same(p) {

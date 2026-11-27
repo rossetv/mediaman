@@ -41,6 +41,7 @@ from mediaman.services.media_meta.plex_quality import (
     without_original,
 )
 from mediaman.services.media_meta.plex_stream import (
+    FileUnplayable,
     SegmentRead,
     StreamGone,
     StreamInfo,
@@ -182,6 +183,10 @@ def plex_failure(exc: PlexError) -> Response:
         return respond_err("not_found", status=404)
     if isinstance(exc, PlexNotConfigured):
         return respond_err("not_set_up", status=503)
+    if isinstance(exc, FileUnplayable):
+        logger.info("watch.stream: Plex cannot play the file (%s)", exc.cause or "no known cause")
+        code = f"unplayable_{exc.cause}" if exc.cause else "unplayable"
+        return respond_err(code, status=422)
     logger.warning("watch.stream: Plex call failed (%s)", type(exc).__name__)
     return respond_err("unreachable", status=502)
 

@@ -1,0 +1,109 @@
+/* Watch next: the endless grid under the last row of Watch (watch/watchnext.js). Its cards are
+   Watch's own; each says under its caption why it is there. */
+
+/* Cards land under what is on screen, and rows go and come back far above: the section places
+   its scroll itself, or Chromium would follow what it holds down as each page lands. */
+.wn { position: relative; padding-top: 30px; overflow-anchor: none; }
+.wn[hidden] { display: none; }
+.wn__label { margin-bottom: 0; }
+.wn__label > h2 { margin: 0; font: inherit; letter-spacing: inherit; color: inherit; }
+.wn__filter { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; text-transform: none; letter-spacing: 0; }
+.wn__filter .fpill {
+  position: relative; min-height: 0; padding: 4px 11px; font-size: 12px; font-weight: 500;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+/* A finger's target is taller than the pill. */
+.wn__filter .fpill::before { content: ""; position: absolute; inset: -10px -1px; }
+.wn__filter .fpill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wn__note { margin: 10px var(--pad) 0; font-size: 13px; color: var(--t3); text-wrap: pretty; }
+.wn__body { padding: 18px var(--pad) 0; }
+/* What a switch of the filter replaces dims, once the wait is long enough to notice. */
+.wn.is-switching .watch-grid { opacity: .4; transition-delay: .1s; }
+/* Rows let go far above stand as this much room. */
+.wn .watch-grid { padding-top: var(--wn-shed, 0px); }
+
+/* The card: Watch's own, with one line of why under its caption. */
+.wn .watch-card { gap: 6px; }
+.wn .watch-card__link { gap: 4px; }
+.wn-why {
+  display: flex; align-items: flex-start; gap: 5px; min-width: 0; min-height: 32px;
+  font-size: 12px; line-height: 16px; color: var(--t3);
+}
+.wn-why > .ico { flex: none; width: 11px; height: 11px; margin-top: 2.5px; font-size: 11px; color: var(--t3); }
+.wn-why--ai > .ico { color: color-mix(in srgb, var(--purple) 55%, var(--t1)); }
+.wn-why__t { min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.wn-why__short { display: none; }
+@media (max-width: 599.98px) {
+  .wn-why { gap: 4px; min-height: 15px; font-size: 11px; line-height: 15px; }
+  .wn-why > .ico { width: 10px; height: 10px; }
+  /* Read out whole, drawn short. */
+  .wn-why__long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .wn-why__short { display: block; white-space: nowrap; text-overflow: ellipsis; }
+}
+
+/* Placeholders: a poster over the caption and the line of why, as high as the card. */
+.wn .watch-card--skel { gap: 4px; }
+.wn .watch-card--skel .skel--line { width: 62%; height: 10px; font-size: 12px; margin-block: calc((1lh - 10px) / 2); border-radius: var(--r-xxs); }
+.wn .watch-card--skel .wn-skel-why { display: block; min-height: 32px; padding-top: 3px; }
+.wn .watch-card--skel .wn-skel-why > .skel--line { width: 84%; margin-block: 0; }
+@media (max-width: 599.98px) {
+  .wn .watch-card--skel .wn-skel-why { min-height: 15px; padding-top: 2.5px; }
+}
+.wn .watch-grid.is-static .skel,
+.wn .watch-grid.is-static .skel::after { animation: none; }
+/* After a failure only the rest of the last row stays held. */
+.wn .watch-grid.is-static .watch-card--skel.is-spare { display: none; }
+
+/* Far off: no picture and no layout work; the box keeps the height of a card. */
+.wn .watch-grid .watch-card[data-far] { content-visibility: auto; contain-intrinsic-height: auto var(--wn-h, 290px); }
+
+/* Arriving: a short rise and fade, a step later for each column and row. */
+.wn .watch-card.is-pending { opacity: 0; }
+.wn .watch-card.is-in { animation: wn-in .42s var(--ease-out) var(--wn-delay, 0ms) both; }
+@keyframes wn-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes wn-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  /* A fade alone, held to its length against the page's rule that cuts animations short. */
+  .wn .watch-card.is-in { animation: wn-fade .24s linear both; animation-duration: .24s !important; }
+}
+
+/* What stands after the cards: the line a failure leaves. */
+.wn .grid-fail { margin-top: 22px; }
+.wn .grid-fail__retry { display: inline-flex; align-items: center; gap: 6px; }
+.wn .grid-fail__retry .ico { font-size: 12px; }
+.wn .grid-fail__retry[aria-busy="true"] .ico { animation: wn-spin .8s linear infinite; }
+@keyframes wn-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .wn .grid-fail__retry[aria-busy="true"] .ico { animation: none; }
+}
+.wn__end { height: 1px; }
+
+/* Back to top: a quiet glass pill, only once the section is a long way down. */
+.wn-top {
+  position: fixed; z-index: 40; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 16px 0 13px;
+  border: 0; border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--s3) 78%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
+  color: var(--t1); font: 600 13px/1 var(--font-text); letter-spacing: -.01em; cursor: pointer;
+  opacity: 0; transform: translate(-50%, 10px) scale(.96); pointer-events: none;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.wn-top .ico { font-size: 11px; transform: rotate(180deg); }
+.wn-top.is-on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.wn-top:hover { background: color-mix(in srgb, var(--s4) 88%, transparent); }
+.wn-top:active { transform: translate(-50%, 0) scale(.96); }
+.wn-top:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 599.98px) { .wn-top { height: 44px; padding: 0 18px 0 15px; } }
+@media (prefers-reduced-motion: reduce) {
+  .wn-top, .wn-top.is-on, .wn-top:active { transform: translate(-50%, 0); }
+}
+
+/* The preview's label of a reason that is not the AI's (watch/preview.js). */
+.pv__label {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px 0 8px;
+  border-radius: var(--r-pill); background: var(--s4); color: var(--t2);
+  font-size: 12px; font-weight: 600;
+}
+.pv__label > .ico { width: 11px; height: 11px; font-size: 11px; }

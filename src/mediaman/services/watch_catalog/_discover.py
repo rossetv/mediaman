@@ -199,6 +199,25 @@ def discover_shelves(client: TmdbClient) -> list[tuple[str, str, list[dict[str, 
     return shelves
 
 
+def held_shelves() -> list[list[dict[str, object]]]:
+    """The TMDB items of each discover row that ``discover_shelves`` cached in the last week.
+    TMDB is not asked, and nothing is refreshed."""
+
+    def fetch() -> list[dict[str, object]]:
+        raise TmdbUnavailable("not held")
+
+    shelves = []
+    for shelf_id, _, _, _ in SHELVES:
+        try:
+            items = _cache().get_or_fetch(
+                f"tmdb:discover:{shelf_id}:1", 7 * _DAY, 7 * _DAY, fetch, allow_fetch=lambda: False
+            )
+        except (TmdbUnavailable, disk_cache.Refused):
+            continue
+        shelves.append([i for i in items if not i.get("adult")])
+    return shelves
+
+
 def discover_page(
     client: TmdbClient, row_id: str, page: int, *, allow_fetch: Callable[[], bool] | None = None
 ) -> tuple[list[dict[str, object]], int | None]:

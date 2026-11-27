@@ -11,7 +11,6 @@ from mediaman.main import create_app
 from mediaman.services.rate_limit import reset_all_limiters
 from mediaman.services.tv import players
 from mediaman.services.tv.players import Choice, Play, Players
-from mediaman.web.auth.password_hash import _change_password as rotation
 from mediaman.web.routes import tv as tv_routes
 from mediaman.web.routes.auth import _limiter
 from mediaman.web.routes.auth import router as auth_router
@@ -25,12 +24,6 @@ from tests.helpers.factories import insert_admin_user
 
 _KEY = "hash-of-the-tvs-token"
 _NEW = "Harbour-glass-27"
-
-
-@pytest.fixture(autouse=True)
-def _cheap_hashes(monkeypatch):
-    monkeypatch.setattr(rotation, "BCRYPT_ROUNDS", 4)
-    monkeypatch.setattr("mediaman.web.auth.password_hash._user_crud.BCRYPT_ROUNDS", 4)
 
 
 @pytest.fixture

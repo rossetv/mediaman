@@ -1640,6 +1640,11 @@ _OK_BODY = {
 class TestConnectionTestsSayWhy:
     """The Sonarr, Radarr, NZBGet and Mailgun tests name the cause of a failure."""
 
+    @pytest.fixture(autouse=True)
+    def _no_retry_wait(self, monkeypatch):
+        monkeypatch.setattr("mediaman.services.infra.http.retry.time.sleep", lambda _: None)
+        monkeypatch.setattr("mediaman.services.infra.http.retry.random.uniform", lambda _a, _b: 0.0)
+
     @staticmethod
     def _run(app_factory, authed_client, conn, fake_http, service):
         verb, settings = _TESTER_SETTINGS[service]

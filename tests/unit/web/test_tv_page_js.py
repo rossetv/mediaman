@@ -606,3 +606,10 @@ def test_a_page_whose_only_button_is_harmless_goes_full_screen_and_acts_at_the_f
     out = _run("fullThenAct", page)
     assert out["asks"] == 1
     assert out["then"] != out["said"]
+
+
+def test_a_file_plex_cannot_play_says_why_and_offers_no_try_again() -> None:
+    said = _run("failsWith", "unplayable_dolby_vision_5")
+    assert "Dolby Vision Profile 5" in said
+    assert "Try again" not in said
+    assert "Try again" in _run("failsWith", "unreachable")

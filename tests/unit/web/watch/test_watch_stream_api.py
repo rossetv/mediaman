@@ -83,6 +83,7 @@ class FakePlex:
         self.knows_tracks = True
         #: Whether Plex refuses to change a part's selected tracks.
         self.refuses_puts = False
+        self.refusal = ""
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
         self.calls.append({"path": urlsplit(url).path, "params": dict(params or {})})
@@ -102,7 +103,8 @@ class FakePlex:
                 stream += (
                     f'<Stream id="{params["subtitleStreamID"]}" streamType="3" decision="burn"/>'
                 )
-            return FakeResponse(200, f"<MediaContainer>{MEDIA % stream}</MediaContainer>".encode())
+            body = f"<MediaContainer {self.refusal}>{MEDIA % stream}</MediaContainer>"
+            return FakeResponse(200, body.encode())
         if path.endswith("/base/index.m3u8"):
             return FakeResponse(200, CHILD_PLAYLIST.encode())
         if path.endswith("/base/00000.ts"):
@@ -367,6 +369,26 @@ def test_start_says_not_set_up_when_plex_has_no_token(alice, conn, plex):
     resp = _start(alice)
     assert resp.status_code == 503
     assert resp.json()["error"] == "not_set_up"
+
+
+@pytest.mark.parametrize(
+    ("why", "error"),
+    [
+        (
+            "File is unplayable. DoVi (Profile 5) color space is not supported.",
+            "unplayable_dolby_vision_5",
+        ),
+        ("", "unplayable"),
+    ],
+)
+def test_start_says_plex_cannot_play_the_file_without_starting_it(alice, plex, why, error):
+    plex.refusal = (
+        f'generalDecisionCode="2000" transcodeDecisionCode="2003" transcodeDecisionText="{why}"'
+    )
+    resp = _start(alice)
+    assert (resp.status_code, resp.json()["error"]) == (422, error)
+    assert "DoVi" not in resp.text
+    assert not [c for c in plex.calls if c["path"] == f"{TRANSCODE}/start.m3u8"]
 
 
 @pytest.mark.parametrize("where", ["item lookup", "transcoder"])

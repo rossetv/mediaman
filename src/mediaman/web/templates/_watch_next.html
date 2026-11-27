@@ -1,0 +1,21 @@
+{# Watch next: the endless grid under the last row of Watch. Its titles come from
+   /api/watch/next once the person scrolls near the end of the rows: watch/watchnext.js. #}
+{% from "_components.html" import icon %}
+<section class="wn" id="watch-next" aria-labelledby="watch-next-title" data-wn-who="{{ username }}">
+  <div class="watch-group-label wn__label">
+    <h2 id="watch-next-title">Watch next</h2>
+    <div class="wn__filter" role="group" aria-label="Show">
+      <button type="button" class="fpill on" data-wn-filter="all" aria-pressed="true">All</button>
+      <button type="button" class="fpill" data-wn-filter="movie" aria-pressed="false">Movies</button>
+      <button type="button" class="fpill" data-wn-filter="tv" aria-pressed="false">TV</button>
+    </div>
+  </div>
+  <p class="wn__note" hidden>What’s popular and trending for now. Watch or rate a few titles and this follows your taste.</p>
+  <div class="wn__body watch-grid-host">
+    <div class="watch-grid" id="watch-next-grid"></div>
+    <div class="wn__tail" id="watch-next-tail"></div>
+    <div class="wn__end" id="watch-next-end"></div>
+    <p class="sr-only" role="status" id="watch-next-said"></p>
+  </div>
+  <button type="button" class="wn-top" id="watch-next-top" tabindex="-1" aria-hidden="true">{{ icon("i-chevron-down") }}Back to top</button>
+</section>

@@ -203,6 +203,11 @@
     not_set_up: { text: "Plex isn't set up yet.", retry: false },
     too_many_streams: { text: 'You have too many videos playing. Close one and try again.', retry: true },
     rate_limited: { text: 'Too many tries. Wait a moment and try again.', retry: true },
+    unplayable: { text: "This file can't play here. Plex can't play this file.", retry: false },
+    unplayable_dolby_vision_5: {
+      text: "This file can't play here. Plex can't convert its picture (Dolby Vision Profile 5).",
+      retry: false,
+    },
   };
   /* Only a fault of the server's or of its answer is worth one more try. */
   var RETRY_STATUS = { 0: 1, 500: 1, 502: 1, 504: 1 };
@@ -1372,14 +1377,14 @@
             chooser.changing(false);
             return putBack(failed).then(function () { return attempt(tries); });
           }
-          if (status === 422 && quality !== 'auto' && !hasPlayed) {
+          var known = err && START_ERRORS[err.error];
+          if (status === 422 && !known && quality !== 'auto' && !hasPlayed) {
             /* A saved choice the server does not know. It stays saved. */
             quality = 'auto';
             good = choice();
             showQuality();
             return attempt(tries);
           }
-          var known = err && START_ERRORS[err.error];
           if (mayRevert() && (!known || known.retry)) {
             /* The old stream is already stopped. */
             revertQuality();

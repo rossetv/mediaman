@@ -3408,3 +3408,21 @@ def test_a_title_with_one_track_says_so(markup):
 
 def test_the_defaults_open_beside_the_player_so_that_it_goes_on_playing(markup):
     assert run(markup, "tracks_one")["link"] == ["Change", "_blank"]
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        ("unplayable", "Plex can't play this file."),
+        ("unplayable_dolby_vision_5", "Plex can't convert its picture (Dolby Vision Profile 5)."),
+    ],
+)
+def test_a_file_plex_cannot_play_is_said_once_with_no_try_again(markup, error, reason):
+    out = run(markup, f"refused_{error}", saved={"mediaman.watch.quality": "1080p-8000"})
+    assert out["starts"] == ["1080p-8000"]
+    assert out["message"] == {"text": f"This file can't play here. {reason}", "button": None}
+
+
+def test_plex_out_of_reach_is_still_said_with_try_again(markup):
+    out = run(markup, "refused_unreachable", saved={"mediaman.watch.quality": "1080p-8000"})
+    assert out["message"] == {"text": "Can't reach Plex right now.", "button": "Try again"}

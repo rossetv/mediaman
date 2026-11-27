@@ -31,6 +31,7 @@ from mediaman.services.media_meta.plex_stream import (
     MAX_STARTS_TOTAL,
     MAX_STREAMS_PER_USER,
     MAX_STREAMS_TOTAL,
+    FileUnplayable,
     SegmentRead,
     StreamGone,
     StreamManager,
@@ -402,6 +403,46 @@ def test_start_gives_up_after_the_retry(manager, plex):
     assert len(plex.calls_to("decision")) == 2
 
 
+DOLBY_VISION_5 = (
+    'generalDecisionCode="2000" generalDecisionText="Neither direct play nor conversion is'
+    ' available." transcodeDecisionCode="2003" transcodeDecisionText="File is unplayable. DoVi'
+    ' (Profile 5) color space is not supported."'
+)
+UNPLAYABLE = 'generalDecisionCode="2000" transcodeDecisionCode="2003"'
+
+
+@pytest.mark.parametrize(
+    ("refusal", "cause"), [(DOLBY_VISION_5, "dolby_vision_5"), (UNPLAYABLE, None)]
+)
+@pytest.mark.parametrize("quality", ["best", "original"])
+def test_a_file_plex_cannot_play_is_not_started_nor_retried(manager, plex, refusal, cause, quality):
+    plex.decision = f"<MediaContainer {refusal}/>".encode()
+
+    with pytest.raises(FileUnplayable) as raised:
+        _start(manager, quality=quality, fallback="720p-4000")
+
+    assert raised.value.cause == cause
+    assert len(plex.calls_to("decision")) == 1
+    assert plex.calls_to("start.m3u8") == []
+    session = plex.calls_to("decision")[0]["params"]["session"]
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [session]
+
+
+@pytest.mark.parametrize(
+    "codes",
+    [
+        'generalDecisionCode="1001" transcodeDecisionCode="1001"',
+        'generalDecisionCode="2000" transcodeDecisionCode="2002"',
+    ],
+)
+def test_a_decision_that_can_pass_still_starts(manager, plex, codes):
+    plex.decision = f"<MediaContainer {codes}/>".encode()
+
+    stream_id = _start(manager)
+
+    _segment(manager, stream_id, "alice", "00000.ts")
+
+
 @pytest.mark.parametrize(
     ("quality", "resolution", "bitrate"),
     [("best", "1920x1080", "8000"), ("medium", "1280x720", "4000"), ("low", "854x480", "1500")],
@@ -571,6 +612,16 @@ def test_an_original_plex_would_not_copy_still_puts_the_selection_back(manager, 
 
     assert plex.selection == ("6", "0")
     assert plex.selections == [("7", "0"), ("6", "0")] * 2
+
+
+def test_a_file_plex_cannot_play_still_puts_the_selection_back(manager, plex):
+    plex.decision = f"<MediaContainer {UNPLAYABLE}/>".encode()
+
+    with pytest.raises(FileUnplayable):
+        _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    assert plex.selections == [("7", "0"), ("6", "0")]
+    assert manager._held == {}
 
 
 def test_putting_the_selection_back_is_tried_once_more_and_logged(manager, plex, caplog):
