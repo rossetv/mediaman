@@ -27,6 +27,10 @@ _MAX_CREDIT = 100
 # Pages one seed may read for a page, so that a seed of little to show (all of it given, or
 # not of the kind asked for) leaves the rest of the reads to the others.
 _SEED_READS = 4
+# A seed's id in a cursor: short, as the cursor has little room; two seeds of a kind that share
+# one (one in 4096) share a place, which costs no more than a title passed over.
+_ID_CHARS = 2
+_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
 
 class Bloom:
@@ -63,19 +67,23 @@ class Bloom:
         if not isinstance(text, str) or len(text) != (BLOOM_BYTES + 2) // 3 * 4:
             return None
         try:
-            return cls(base64.urlsafe_b64decode(text))
+            bits = base64.urlsafe_b64decode(text)
         except (binascii.Error, ValueError):
             return None
+        return cls(bits) if len(bits) == BLOOM_BYTES else None
 
 
 @dataclass(frozen=True, slots=True)
 class Seed:
     """One list a kind of source draws from. *read* answers a page of it, and the page after
-    it or None at its end; *reason* says why a title of it is shown."""
+    it or None at its end; *reason* says why a title of it is shown. *key* names it among its
+    kind's seeds (the title played, the words searched), so that its place follows it when
+    the seeds before it change."""
 
     reason: Mapping[str, str]
     read: Callable[[int], tuple[Sequence[Any], int | None]]
     first_page: int = 1
+    key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,17 +96,17 @@ class Source:
 @dataclass(slots=True)
 class MixState:
     """Each kind's round-robin credit, the kind last given, and each kind's turn among its
-    seeds and place in each (page, index)."""
+    seeds, place in each (page, index) and the seeds' ids, two characters each."""
 
     credit: dict[str, int] = field(default_factory=dict)
     last: str = ""
-    places: dict[str, tuple[int, list[list[int]]]] = field(default_factory=dict)
+    places: dict[str, tuple[int, list[list[int]], str]] = field(default_factory=dict)
 
     def as_json(self) -> dict[str, object]:
         return {
             "c": self.credit,
             "l": self.last,
-            "p": {k: [turn, seeds] for k, (turn, seeds) in self.places.items()},
+            "p": {k: [turn, seeds, ids] for k, (turn, seeds, ids) in self.places.items()},
         }
 
     @classmethod
@@ -118,15 +126,22 @@ class MixState:
             return None
         state = cls(credit=dict(credit), last=last if last in kinds else "")
         for kind, place in places.items():
-            if kind not in kinds or not isinstance(place, list) or len(place) != 2:
+            if kind not in kinds or not isinstance(place, list) or len(place) != 3:
                 return None
-            turn, seeds = place
+            turn, seeds, ids = place
             if not _small_int(turn, 0, MAX_SEEDS) or not isinstance(seeds, list):
                 return None
             if len(seeds) > MAX_SEEDS or not all(_page_place(s) for s in seeds):
                 return None
-            state.places[kind] = (turn, [list(s) for s in seeds])
+            if not isinstance(ids, str) or len(ids) != _ID_CHARS * len(seeds):
+                return None
+            state.places[kind] = (turn, [list(s) for s in seeds], ids)
         return state
+
+
+def _seed_id(seed: Seed) -> str:
+    digest = hashlib.sha256(seed.key.encode()).digest()
+    return "".join(_ID_ALPHABET[b & 63] for b in digest[:_ID_CHARS])
 
 
 def _small_int(value: object, low: int, high: int) -> bool:
@@ -151,6 +166,7 @@ class _Kind:
     source: Source
     turn: int
     places: list[list[int]]
+    ids: str
 
 
 class Mixer:
@@ -176,9 +192,15 @@ class Mixer:
             if not source.seeds:
                 continue
             seeds = source.seeds[:MAX_SEEDS]
-            turn, places = state.places.get(source.kind, (0, []))
-            places = places[: len(seeds)] + [[s.first_page, 0] for s in seeds[len(places) :]]
-            self._kinds[source.kind] = _Kind(source, turn % len(seeds), places)
+            turn, held, held_ids = state.places.get(source.kind, (0, [], ""))
+            by_id = {
+                held_ids[i * _ID_CHARS : (i + 1) * _ID_CHARS]: place for i, place in enumerate(held)
+            }
+            ids = [_seed_id(s) for s in seeds]
+            places = [
+                list(by_id.get(i, [s.first_page, 0])) for i, s in zip(ids, seeds, strict=True)
+            ]
+            self._kinds[source.kind] = _Kind(source, turn % len(seeds), places, "".join(ids))
         self._out: set[tuple[str, int]] = set()
         self._seed_reads: dict[tuple[str, int], int] = {}
 
@@ -197,7 +219,7 @@ class Mixer:
 
     def state(self) -> MixState:
         for kind, held in self._kinds.items():
-            self._state.places[kind] = (held.turn, held.places)
+            self._state.places[kind] = (held.turn, held.places, held.ids)
         return self._state
 
     def _weights(self, live: Sequence[str]) -> dict[str, int]:
@@ -244,7 +266,8 @@ class Mixer:
                 self._out.add((kind, at))
                 return None
             items, following = found
-            while place[1] < len(items):
+            # Past the index a cursor may hold, the rest of a page is passed over.
+            while place[1] < min(len(items), _MAX_INDEX):
                 item = items[place[1]]
                 place[1] += 1
                 card = self._accept(item, seed.reason)
@@ -253,7 +276,7 @@ class Mixer:
             if following is None or following <= place[0]:
                 break
             place[0], place[1] = following, 0
-        place[0] = _MAX_PAGE + 1
+        place[0], place[1] = _MAX_PAGE + 1, 0
         self._out.add((kind, at))
         return None
 

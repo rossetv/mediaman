@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.core.time import now_utc
-from mediaman.crypto import generate_watch_next_cursor
+from mediaman.crypto import generate_watch_next_cursor, validate_watch_next_cursor
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
@@ -24,6 +24,7 @@ from tests.helpers.factories import (
     insert_media_item,
     insert_settings,
     insert_suggestion,
+    insert_user_pick,
 )
 
 NEXT = "/api/watch/next"
@@ -71,8 +72,11 @@ def tmdb(monkeypatch):
         "/movie/popular": 500_000,
         "/tv/popular": 600_000,
     }
+    asked: list[tuple[str, int]] = []
+    answers["asked"] = asked
 
     def get(self, path, params=None):
+        asked.append((path, (params or {}).get("page", 1)))
         answer = answers[path]
         if callable(answer):
             return answer(params or {})
@@ -107,13 +111,13 @@ def _user_id(conn) -> int:
     return conn.execute("SELECT id FROM admin_users WHERE username = 'viewer'").fetchone()[0]
 
 
-def _played(conn, *tmdb_ids: int) -> None:
+def _played(conn, *tmdb_ids: int, kind: str = "movie", hours_ago: int = 0) -> None:
     for n, tmdb_id in enumerate(tmdb_ids):
-        at = (now_utc() - timedelta(hours=n)).isoformat()
+        at = (now_utc() - timedelta(hours=hours_ago + n)).isoformat()
         conn.execute(
             "INSERT INTO played_titles (username, media_type, title, tmdb_id, played_at)"
-            " VALUES ('viewer', 'movie', ?, ?, ?)",
-            (f"Played {tmdb_id}", tmdb_id, at),
+            " VALUES ('viewer', ?, ?, ?, ?)",
+            (kind, f"Played {tmdb_id}", tmdb_id, at),
         )
     conn.commit()
 
@@ -194,6 +198,16 @@ class TestCursor:
 
         assert again.status_code == 200
         assert _ids(again.json()) == _ids(first)
+        assert first["restarted"] is False
+        assert again.json()["restarted"] is bool(spoil(first["cursor"]))
+
+    def test_a_cursor_as_issued_goes_on_and_is_not_said_to_restart(self, viewer, tmdb):
+        first = viewer.get(NEXT).json()
+
+        second = viewer.get(NEXT, params={"cursor": first["cursor"]}).json()
+
+        assert second["restarted"] is False
+        assert not set(_ids(first)) & set(_ids(second))
 
     def test_a_cursor_of_another_filter_starts_that_filter_from_its_head(self, viewer, tmdb):
         films = viewer.get(NEXT, params={"type": "movie"}).json()
@@ -204,31 +218,77 @@ class TestCursor:
         assert _ids(shows) == _ids(viewer.get(NEXT, params={"type": "tv"}).json())
 
     def test_a_signed_cursor_of_another_person_starts_again(self, viewer, tmdb, secret_key):
-        state = {"v": 1, "u": "someone-else", "t": "all", "m": MixState().as_json()}
-        cursor = generate_watch_next_cursor(
-            state={**state, "b": Bloom().text()}, ttl_s=60, secret_key=secret_key
+        first = viewer.get(NEXT).json()
+        payload = validate_watch_next_cursor(first["cursor"], secret_key)
+        assert payload is not None
+        theirs = generate_watch_next_cursor(
+            state={**payload["st"], "u": "someone-else"}, ttl_s=60, secret_key=secret_key
         )
 
-        body = viewer.get(NEXT, params={"cursor": cursor}).json()
+        body = viewer.get(NEXT, params={"cursor": theirs}).json()
 
-        assert _ids(body) == _ids(viewer.get(NEXT).json())
+        assert _ids(body) == _ids(first)
+        assert body["restarted"] is True
 
     def test_the_fullest_cursor_still_fits_the_signed_token(self, secret_key):
-        places = {k: (MAX_SEEDS - 1, [[501, 1000]] * MAX_SEEDS) for k in next_api.WEIGHTS}
+        places = {
+            k: (MAX_SEEDS - 1, [[501, 1000]] * MAX_SEEDS, "__" * MAX_SEEDS)
+            for k in next_api.WEIGHTS
+        }
         state = MixState(dict.fromkeys(next_api.WEIGHTS, -100), "popular", places)
         bloom = Bloom(bytes([0xFF]) * BLOOM_BYTES)
         cursor = generate_watch_next_cursor(
-            state={"v": 1, "u": "f" * 16, "t": "movie", "m": state.as_json(), "b": bloom.text()},
+            state={
+                "v": next_api._CURSOR_V,
+                "u": "f" * 16,
+                "t": "movie",
+                "m": state.as_json(),
+                "b": bloom.text(),
+            },
             ttl_s=60,
             secret_key=secret_key,
         )
 
-        read, _ = next_api._read_cursor(cursor, secret_key, "f" * 16, "movie")
+        read, _, restarted = next_api._read_cursor(cursor, secret_key, "f" * 16, "movie")
 
-        assert read.last == "popular"
+        assert read.last == "popular" and restarted is False
 
     def test_an_unknown_filter_is_refused(self, viewer, tmdb):
         assert viewer.get(NEXT, params={"type": "anime"}).status_code == 400
+
+    def test_pages_asked_too_fast_are_refused(self, viewer, tmdb, monkeypatch):
+        monkeypatch.setattr(
+            next_api, "_LIMITER", ActionRateLimiter(max_in_window=1, window_seconds=60)
+        )
+
+        assert viewer.get(NEXT).status_code == 200
+        assert viewer.get(NEXT).status_code == 429
+
+
+class TestFailed:
+    def test_a_page_left_short_by_tmdb_failing_says_it_failed(self, viewer, tmdb):
+        for path in ("/trending/all/week", "/movie/popular", "/tv/popular"):
+            tmdb[path] = 500
+
+        body = viewer.get(NEXT).json()
+
+        assert body["items"] == [] and body["failed"] is True
+
+    def test_a_page_left_short_by_sources_with_no_more_did_not_fail(self, viewer, tmdb):
+        for path in ("/trending/all/week", "/movie/popular", "/tv/popular"):
+            tmdb[path] = _titles(1000, count=3)
+
+        body = viewer.get(NEXT).json()
+
+        assert len(body["items"]) < 24 and body["failed"] is False
+
+    def test_a_full_page_did_not_fail_though_a_source_did(self, viewer, conn, tmdb):
+        _played(conn, 77)
+        tmdb["/movie/77/recommendations"] = 500
+
+        body = viewer.get(NEXT).json()
+
+        assert len(body["items"]) == 24 and body["failed"] is False
 
 
 class TestFilter:
@@ -247,9 +307,15 @@ class TestPersonal:
         tmdb["/movie/77/recommendations"] = _titles(70_000)
         tmdb["/search/multi"] = _titles(80_000)
         insert_suggestion(conn, title="Shown", tmdb_id=90_001, batch_id="2099-01-02")
+        insert_user_pick(conn, "viewer", title="Own", tmdb_id=90_002, batch_id="2099-01-02")
         for n in range(10):
-            insert_suggestion(
-                conn, title=f"Older {n}", tmdb_id=91_000 + n, batch_id="2099-01-01", reason="Yes."
+            insert_user_pick(
+                conn,
+                "viewer",
+                title=f"Older {n}",
+                tmdb_id=91_000 + n,
+                batch_id="2099-01-01",
+                reason="Yes.",
             )
 
         body = viewer.get(NEXT).json()
@@ -260,9 +326,36 @@ class TestPersonal:
         assert all(a != b for a, b in itertools.pairwise(kinds))
         ai = [i for i in body["items"] if i["reason"]["kind"] == "ai"]
         assert ai[0]["reason"]["why"] == "Yes."
-        assert "tmdb-movie-90001" not in _ids(body)  # the Recommended row shows it
+        # The Recommended row shows them.
+        assert not {"tmdb-movie-90001", "tmdb-movie-90002"} & set(_ids(body))
         watched = next(i for i in body["items"] if i["reason"]["kind"] == "watched")
         assert watched["reason"]["text"] == "Because you watched Played 77"
+        searched = next(i for i in body["items"] if i["reason"]["kind"] == "search")
+        assert searched["reason"]["text"] == "Because you searched “quiet anime”"
+        assert searched["tmdb_ref"].startswith("tmdb-movie-8")
+
+    def test_picks_made_for_everyone_are_not_given_as_the_person_s_own(self, viewer, conn, tmdb):
+        _played(conn, 77)
+        tmdb["/movie/77/recommendations"] = _titles(70_000)
+        insert_suggestion(conn, title="Shown", tmdb_id=90_001, batch_id="2099-01-02")
+        for n in range(10):
+            insert_suggestion(conn, title=f"Shared {n}", tmdb_id=91_000 + n, batch_id="2099-01-01")
+
+        body = viewer.get(NEXT).json()
+
+        assert body["personal"] is True and body["items"]
+        assert "ai" not in _reasons(body)
+
+    def test_a_filter_of_shows_has_the_shows_played_though_films_were_played_since(
+        self, viewer, conn, tmdb
+    ):
+        _played(conn, *range(71, 71 + MAX_SEEDS))
+        _played(conn, 55, kind="tv", hours_ago=100)
+        tmdb["/tv/55/recommendations"] = _titles(55_000, kind="tv")
+
+        body = viewer.get(NEXT, params={"type": "tv"}).json()
+
+        assert "watched" in _reasons(body)
 
     def test_searches_are_left_out_when_the_person_keeps_no_history(self, viewer, conn, tmdb):
         _searched(conn, "quiet anime")
@@ -323,6 +416,24 @@ class TestPersonal:
 
 
 class TestLeftOut:
+    def test_the_discover_rows_are_read_from_the_cache_and_tmdb_not_asked_for_them(
+        self, viewer, tmdb
+    ):
+        viewer.get(NEXT)
+
+        assert not [path for path, page in tmdb["asked"] if page == 1]
+
+    def test_a_title_on_a_cached_discover_row_is_left_out(self, viewer, tmdb):
+        def same(params):
+            return {"results": _titles(2000), "total_pages": 9}
+
+        tmdb["/trending/all/week"] = same
+        catalog.discover_shelves(TmdbClient("token"))
+
+        ids = _ids(viewer.get(NEXT).json())
+
+        assert not [i for i in ids if i.startswith("tmdb-movie-20")]
+
     def test_a_title_on_the_first_page_of_a_library_row_is_left_out(self, viewer, conn, tmdb):
         insert_media_item(conn, id="100", plex_rating_key="100", title="T3000")
         conn.execute("UPDATE media_items SET tmdb_id = 3000 WHERE id = '100'")

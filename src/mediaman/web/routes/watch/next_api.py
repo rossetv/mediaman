@@ -3,8 +3,8 @@
 It mixes the AI's stored picks, TMDB's recommendations for what the person played, their
 searches, TMDB's trending list, titles of the genres they like and, for someone it knows
 nothing of, trending and popular titles. Nothing asks the AI: the picks are those it already
-made. TMDB is read through the same caches as the discover rows, and a source that fails is
-passed over for the page. No title comes twice in one cursor's pages, none of the first page of
+made for the person. TMDB is read through the same caches as the discover rows, and a source
+that fails is passed over for the page. No title comes twice in one cursor's pages, none of the first page of
 a row on Watch, and none the person marked watched or rated down.
 """
 
@@ -15,6 +15,7 @@ import hashlib
 import sqlite3
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -54,6 +55,7 @@ WEIGHTS = {"ai": 3, "watched": 3, "trending": 3, "search": 2, "taste": 2, "popul
 NEW_WEIGHTS = {"trending": 1, "popular": 1}
 _KINDS = tuple(WEIGHTS)
 _CURSOR_TTL_S = 7 * 24 * 60 * 60
+_CURSOR_V = 2
 # A page reads at most this many pages of its sources, cached or not, and asks TMDB at most
 # this many times; what is left waits for the next page.
 _READS = 40
@@ -89,9 +91,11 @@ def api_watch_next(
     """24 cards, each as on a discover row (a stored AI pick as on the Recommended row) with
     ``reason``: ``kind`` (ai, watched, search, trending, taste or popular), ``text``, ``short``
     for a narrow card and ``why``, said in full. ``cursor`` asks for the page after; one that
-    is not this server's, this person's or this *type*'s starts again from the head. Fewer
-    than 24 come back only when the sources had no more to give this time. ``personal`` is
-    False for someone with no plays, ratings, marks or searches."""
+    is not this server's, this person's or this *type*'s starts again from the head, and the
+    answer says ``restarted``. Fewer than 24 come back only when the sources had no more to give
+    this time; ``failed`` says TMDB failed or was asked too often for them, so that more may
+    come once asked again. ``personal`` is False for someone with no plays, ratings, marks or
+    searches."""
     if type not in _TYPES:
         return respond_err("invalid_request", status=400)
     if not _LIMITER.check(username):
@@ -102,7 +106,7 @@ def api_watch_next(
     libraries = lib.scanned_library_ids(conn)
     index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
     now = now_utc()
-    known = _known(conn, username, client, libraries, index, now)
+    known = _known(conn, username, libraries, index, now)
     marks = person_marks(conn, username)
     user_id = assist_repo.user_id_of(conn, username)
     searches = (
@@ -113,7 +117,7 @@ def api_watch_next(
     personal = bool(known.plays or marks.levels or marks.seen or searches)
 
     who = hashlib.sha256(username.encode()).hexdigest()[:16]
-    state, bloom = _read_cursor(cursor, secret_key, who, type)
+    state, bloom, restarted = _read_cursor(cursor, secret_key, who, type)
     above = set(known.above)
     arr = _arr(request, conn)
     build = _Cards(
@@ -159,7 +163,13 @@ def api_watch_next(
 
     mixer = Mixer(sources, state, accept, _FAILURES, _READS)
     items = scored(conn, mixer.take(PAGE_SIZE))
-    following = {"v": 1, "u": who, "t": type, "m": mixer.state().as_json(), "b": bloom.text()}
+    following = {
+        "v": _CURSOR_V,
+        "u": who,
+        "t": type,
+        "m": mixer.state().as_json(),
+        "b": bloom.text(),
+    }
     return respond_ok(
         {
             "items": items,
@@ -168,41 +178,53 @@ def api_watch_next(
             ),
             "personal": personal,
             "tmdb_configured": client is not None,
+            "restarted": restarted,
+            "failed": len(items) < PAGE_SIZE and asks.failed,
         }
     )
 
 
 def _read_cursor(
     cursor: str | None, secret_key: str, who: str, type_: str
-) -> tuple[MixState, Bloom]:
-    """The state a cursor holds; a fresh one for none, or one that is not as this page wrote it."""
+) -> tuple[MixState, Bloom, bool]:
+    """The state a cursor holds; a fresh one for none, or for one that is not as this page wrote
+    it, which is then said to have restarted."""
     payload = validate_watch_next_cursor(cursor, secret_key) if cursor else None
     st: Mapping[str, object] = payload["st"] if payload else {}
-    if st.get("v") == 1 and st.get("u") == who and st.get("t") == type_:
+    if st.get("v") == _CURSOR_V and st.get("u") == who and st.get("t") == type_:
         mix = st.get("m")
         state = MixState.read(mix, _KINDS) if isinstance(mix, dict) else None
         bloom = Bloom.read(st.get("b"))
         if state is not None and bloom is not None:
-            return state, bloom
-    return MixState(), Bloom()
+            return state, bloom, False
+    return MixState(), Bloom(), bool(cursor)
 
 
 class _Asks:
     """A page's TMDB asks: at most ``_ASKS`` of them, and none more for a kind of source once
     one of its reads failed, so that a failing source cannot spend the asks of the others. Its
-    cached pages are still read."""
+    cached pages are still read. ``failed`` once a read failed or the person's limit of TMDB
+    pages refused an ask; not for an ask past ``_ASKS``, which the next page makes."""
 
     def __init__(self, username: str) -> None:
         self._username = username
         self._left = _ASKS
         self._down: set[str] = set()
+        self._limited = False
+
+    @property
+    def failed(self) -> bool:
+        return bool(self._down) or self._limited
 
     def of(self, kind: str) -> Callable[[], bool]:
         def ask() -> bool:
             if kind in self._down or self._left <= 0:
                 return False
             self._left -= 1
-            return _PAGE_LIMITER.check(self._username)
+            if _PAGE_LIMITER.check(self._username):
+                return True
+            self._limited = True
+            return False
 
         return ask
 
@@ -216,7 +238,7 @@ class _Asks:
                 self._down.add(kind)
                 raise
 
-        return Seed(seed.reason, read, seed.first_page)
+        return Seed(seed.reason, read, seed.first_page, seed.key)
 
 
 # --- Cards ---------------------------------------------------------------------------
@@ -287,7 +309,6 @@ def _keys(card: Mapping[str, Any]) -> list[str]:
 def _known(
     conn: sqlite3.Connection,
     username: str,
-    client: TmdbClient | None,
     libraries: list[str],
     index: catalog.LibraryIndex,
     now: datetime,
@@ -297,8 +318,14 @@ def _known(
         held = _held.get(key)
     if held is not None and time.monotonic() - held[0] < _HELD_S:
         return held[1]
-    plays = tuple(p for p in person_plays(conn, username) if p.tmdb_id)[:MAX_SEEDS]
-    found = _Known(_rows_above(conn, username, client, libraries, index, now), plays)
+    # As many of each kind as a filter of one kind takes.
+    taken: Counter[str] = Counter()
+    plays: list[PlayedTitle] = []
+    for play in person_plays(conn, username):
+        if play.tmdb_id and taken[play.kind] < MAX_SEEDS:
+            taken[play.kind] += 1
+            plays.append(play)
+    found = _Known(_rows_above(conn, username, libraries, index, now), tuple(plays))
     with _held_lock:
         if len(_held) >= _HELD_MAX:
             _held.clear()
@@ -309,14 +336,14 @@ def _known(
 def _rows_above(
     conn: sqlite3.Connection,
     username: str,
-    client: TmdbClient | None,
     libraries: list[str],
     index: catalog.LibraryIndex,
     now: datetime,
 ) -> frozenset[str]:
     """The names, as ``_keys`` gives them, of the titles on the first page of each row of
     Watch: Continue watching, Leaving soon, Recently added, the library's rows, what the
-    person asked for and the discover rows. The Recommended row's are added with the picks."""
+    person asked for and the discover rows, as far as they are cached: TMDB is not asked. The
+    Recommended row's are added with the picks."""
     keys: set[str] = set()
 
     def library(ref: str) -> None:
@@ -348,15 +375,10 @@ def _rows_above(
     for request in asked.requests_of(conn, username):
         if request.kind is not None and request.tmdb_id:
             keys.add(f"{request.kind}:{request.tmdb_id}")
-    if client is not None:
-        try:
-            shelves = catalog.discover_shelves(client)
-        except catalog.TmdbUnavailable:
-            shelves = []
-        for _, _, items in shelves:
-            for item in items:
-                if item.get("media_type") in ("movie", "tv") and isinstance(item.get("id"), int):
-                    keys.add(f"{item['media_type']}:{item['id']}")
+    for items in catalog.held_shelves():
+        for item in items:
+            if item.get("media_type") in ("movie", "tv") and isinstance(item.get("id"), int):
+                keys.add(f"{item['media_type']}:{item['id']}")
     return frozenset(keys)
 
 
@@ -375,8 +397,9 @@ def _ai_source(
     above: set[str],
     today: date,
 ) -> Source:
-    """The picks of the batches the Recommended row is not showing, newest first. Those of
-    the one it shows join *above*."""
+    """The person's own picks of the batches the Recommended row is not showing, newest
+    first: the picks made for everyone are not chosen from what they watch. The titles of the
+    batch it shows join *above*."""
     if not get_bool_setting(conn, "suggestions_enabled", default=True):
         return Source("ai", 0, [])
     batches = group_into_batches(
@@ -388,14 +411,14 @@ def _ai_source(
         for row in cast(list[dict[str, object]], batch["items"]):
             if place == 0:
                 above.update(_row_keys(row))
-            else:
+            elif row.get("own"):
                 rows.append(row)
     if not rows:
         return Source("ai", 0, [])
     thunks = [functools.partial(build.pick, row) for row in rows]
     why = "Picked for you by the AI, from what you watch."
     reason = _reason("ai", "AI pick", "AI pick", why)
-    return Source("ai", 0, [Seed(reason, lambda _page: (thunks, None))])
+    return Source("ai", 0, [Seed(reason, lambda _page: (thunks, None), key="ai")])
 
 
 def _row_keys(row: Mapping[str, object]) -> list[str]:
@@ -414,17 +437,20 @@ def _watched_source(
     ask: Callable[[], bool],
 ) -> Source:
     """TMDB's recommendations for each title played, the latest first."""
-    seeds = []
+    seeds: list[Seed] = []
     for play in plays:
         if play.tmdb_id is None or (type_ != "all" and play.kind != type_):
             continue
+        if len(seeds) == MAX_SEEDS:
+            break
         reason = _reason(
             "watched",
             f"Because you watched {play.title}",
             f"Like {play.title}",
             f"People who watched {play.title} went on to this.",
         )
-        seeds.append(Seed(reason, _similar_read(client, play.kind, play.tmdb_id, build, ask)))
+        read = _similar_read(client, play.kind, play.tmdb_id, build, ask)
+        seeds.append(Seed(reason, read, key=f"{play.kind}:{play.tmdb_id}"))
     return Source("watched", 0, seeds)
 
 
@@ -459,7 +485,7 @@ def _search_source(
             quoted,
             f"You searched {quoted} {_when(at, now)}.",
         )
-        seeds.append(Seed(reason, _search_read(client, phrase, build, ask)))
+        seeds.append(Seed(reason, _search_read(client, phrase, build, ask), key=name))
         if len(seeds) == MAX_SEEDS:
             break
     return Source("search", 0, seeds)
@@ -515,7 +541,9 @@ def _taste_source(
         f"From what you watch and rate highly: {names}.",
     )
     return Source(
-        "taste", 0, [Seed(reason, _genre_read(client, g, type_, build, ask)) for g in genres]
+        "taste",
+        0,
+        [Seed(reason, _genre_read(client, g, type_, build, ask), key=g.id) for g in genres],
     )
 
 
@@ -553,7 +581,8 @@ def _trending_source(client: TmdbClient, build: _Cards, ask: Callable[[], bool])
         "Trending",
         "One of the most watched titles on TMDB this week.",
     )
-    return Source("trending", 0, [Seed(reason, _list_read(client, "trending", build, ask), 2)])
+    read = _list_read(client, "trending", build, ask)
+    return Source("trending", 0, [Seed(reason, read, 2, "trending")])
 
 
 def _popular_source(
@@ -571,7 +600,9 @@ def _popular_source(
         for row, kind in (("popular_movies", "movie"), ("popular_tv", "tv"))
         if type_ in ("all", kind)
     ]
-    return Source("popular", 0, [Seed(reason, _list_read(client, r, build, ask), 2) for r in rows])
+    return Source(
+        "popular", 0, [Seed(reason, _list_read(client, r, build, ask), 2, r) for r in rows]
+    )
 
 
 __all__ = ["router"]

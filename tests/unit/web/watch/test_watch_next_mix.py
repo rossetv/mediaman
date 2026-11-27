@@ -155,12 +155,37 @@ def test_a_full_bloom_filter_starts_afresh_rather_than_take_every_title_as_given
 
 def test_a_state_not_as_written_is_refused():
     kinds = ["ai", "trending"]
-    assert MixState.read({"c": {"ai": 1}, "l": "ai", "p": {"ai": [0, [[1, 2]]]}}, kinds)
+    assert MixState.read({"c": {"ai": 1}, "l": "ai", "p": {"ai": [0, [[1, 2]], "Ab"]}}, kinds)
     for bad in (
         {"c": {"nope": 1}, "l": "", "p": {}},
         {"c": {"ai": 10**9}, "l": "", "p": {}},
-        {"c": {}, "l": "", "p": {"ai": [0, [[1, 2]] * 50]}},
-        {"c": {}, "l": "", "p": {"ai": [0, [["1", 2]]]}},
+        {"c": {}, "l": "", "p": {"ai": [0, [[1, 2]] * 50, "Ab" * 50]}},
+        {"c": {}, "l": "", "p": {"ai": [0, [["1", 2]], "Ab"]}},
+        {"c": {}, "l": "", "p": {"ai": [0, [[1, 2]], "Abc"]}},
         {"c": [], "l": "", "p": {}},
     ):
         assert MixState.read(bad, kinds) is None
+
+
+def test_a_seed_keeps_its_place_when_a_new_one_comes_before_it():
+    def seed(key):
+        return Seed({"kind": key}, lambda _p: ([f"{key}{n}" for n in range(3)], None), key=key)
+
+    def take(seeds, state, count):
+        mixer = Mixer([Source("watched", 1, seeds)], state, _accept, (), 40)
+        return [c["id"] for c in mixer.take(count)], mixer.state()
+
+    first, state = take([seed("a")], MixState(), 3)
+    later, _ = take([seed("new"), seed("a")], MixState.read(state.as_json(), ["watched"]), 3)
+
+    assert first == ["a0", "a1", "a2"]
+    assert later == ["new0", "new1", "new2"]
+
+
+def test_a_page_longer_than_a_cursor_may_hold_ends_its_seed_with_a_state_that_reads_back():
+    sources = [Source("ai", 1, [Seed({"kind": "ai"}, lambda _p: (list(range(1500)), None))])]
+
+    cards, state = _mix(sources, count=1200)
+
+    assert len(cards) == 1000
+    assert MixState.read(state.as_json(), ["ai"]) is not None
