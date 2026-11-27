@@ -7,7 +7,7 @@
  *   MM.castSender.over()       how the last such play went by itself, or null
  *   MM.castSender.on(fn)       called as that may have changed, with what over() says as it goes
  *   MM.castSender.play(), .pause(), .toggle(), .seek(s), .setVolume(0..1), .setMuted(bool)
- *   MM.castSender.start({quality} | {subtitle} | {next: true})   another stream on the same TV
+ *   MM.castSender.start({quality} | {subtitle, audio} | {next: true})   another stream on the same TV
  *   MM.castSender.cancel()     the next episode does not begin by itself
  *   MM.castSender.stop()       a promise of {position_s, saved}
  *   MM.castSender.holds(key)   whether this browser plays the title on a TV
@@ -979,6 +979,8 @@
       quality: keep.quality || 'auto',
       subtitle_id: keep.subtitle || given.subtitle || null,
       subtitle_tracks: given.subtitle_tracks || [],
+      audio_id: given.audio || null,
+      audio_tracks: given.audio_tracks || [],
       next: keep.next || null,
       upnext_in_s: waits(p, 'upnext'),
       still_in_s: waits(p, 'still'),
@@ -1040,9 +1042,10 @@
     });
   }
 
-  function openStream(key, quality, subtitle) {
+  function openStream(key, quality, subtitle, audio) {
     var ask = { rating_key: key, quality: quality, page: me, asked_s: 0 };
     if (subtitle) ask.subtitle = subtitle;
+    if (audio) ask.audio = audio;
     return limited(START_WAIT_MS, function (signal) {
       return MM.api.post('/api/cast/stream', ask, { signal: signal });
     }).catch(function (err) { throw refusal(err && err.error || 'network_error'); });
@@ -1052,14 +1055,19 @@
   function goOn(p, change) {
     var keep = p.keep || {};
     if (p.lost !== null || (change.next ? !keep.next : !!p.wait)) return Promise.reject(refusal('failed', NOT_TAKEN));
-    var asked = { quality: change.quality || keep.quality || 'auto', subtitle: change.subtitle || keep.subtitle || null };
+    var asked = {
+      quality: change.quality || keep.quality || 'auto',
+      subtitle: change.subtitle || keep.subtitle || null,
+      audio: change.audio || keep.audio || null,
+    };
     /* A track is one film's own. */
     if (change.next && asked.subtitle !== 'off') asked.subtitle = null;
+    if (change.next) asked.audio = null;
     return swap(p, function (stale) {
       var page = change.next ? readPage(keep.next.rating_key) : Promise.resolve(null);
       return page.then(function (about) {
         if (stale()) throw refusal('superseded');
-        return openStream(about ? about.title.rating_key : p.title.rating_key, asked.quality, asked.subtitle).then(function (data) {
+        return openStream(about ? about.title.rating_key : p.title.rating_key, asked.quality, asked.subtitle, asked.audio).then(function (data) {
           return put(p, stale, data, about, asked);
         });
       }).catch(function (err) {
@@ -1111,8 +1119,12 @@
       p.keep = {
         quality: asked.quality,
         subtitle: asked.subtitle,
+        audio: asked.audio || null,
         played_s: Math.round(p.played),
-        given: { subtitle: data.subtitle || null, subtitle_tracks: data.subtitle_tracks || [] },
+        given: {
+          subtitle: data.subtitle || null, subtitle_tracks: data.subtitle_tracks || [],
+          audio: data.audio || null, audio_tracks: data.audio_tracks || [],
+        },
         markers: data.markers || [],
         chapters: data.chapters || [],
         next: next,
@@ -1139,8 +1151,8 @@
 
   function openAgain(p, stale) {
     var keep = p.keep || {};
-    var asked = { quality: keep.quality || 'auto', subtitle: keep.subtitle || null };
-    return openStream(p.title.rating_key, asked.quality, asked.subtitle).then(function (data) {
+    var asked = { quality: keep.quality || 'auto', subtitle: keep.subtitle || null, audio: keep.audio || null };
+    return openStream(p.title.rating_key, asked.quality, asked.subtitle, asked.audio).then(function (data) {
       return put(p, stale, data, null, asked);
     }).catch(function () {
       if (!stale()) goneBy(p, 'stopped', true);

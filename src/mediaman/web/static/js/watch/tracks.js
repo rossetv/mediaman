@@ -2,7 +2,7 @@
  * watch/tracks.js — the Audio & subtitles chooser, of the player (player.js) and of the remote
  * of a TV (tv-remote.js).
  *
- * MM.tracks.create({wraps, root, opening, pick}) puts a control in each of `wraps` that opens
+ * MM.tracks.create({wraps, root, opening, closed, pick}) puts a control in each of `wraps` that opens
  * the chooser: a popover on a laptop, a sheet from the foot on a phone, from the right edge on
  * a phone on its side (the stylesheet decides which). Its two groups are radios: the arrow keys,
  * Home and End move within one, Tab goes on to the next, Escape closes it and gives the focus
@@ -121,6 +121,7 @@
     var veil = null;
     var from = null;
     var busy = false;
+    var seen;
 
     var triggers = opts.wraps.map(function (wrap) {
       var b = document.createElement('button');
@@ -332,6 +333,7 @@
       leave(b);
       leave(v);
       if (opts.root) opts.root.classList.remove('has-av-open');
+      if (opts.closed) opts.closed();
       if (refocus) t.focus({ preventScroll: true });
     }
 
@@ -408,6 +410,10 @@
 
     return {
       set: function (next) {
+        /* Told again of what it shows already, as a remote is on each poll, it is left as it is. */
+        var said = JSON.stringify(next);
+        if (said === seen) return;
+        seen = said;
         state = next;
         showState();
         if (box) {

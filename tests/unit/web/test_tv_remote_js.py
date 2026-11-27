@@ -712,3 +712,24 @@ def test_nothing_playing_said_while_the_remote_closes_waits_until_it_has_gone() 
     said = ["Nothing is playing on Living room now."]
     assert out["moves"] == {"early": 0, "toasts": said, "over": [False]}
     assert out["still"] == {"early": 0, "toasts": said, "over": [False]}
+
+
+def test_audio_picked_on_the_remote_is_kept_and_the_tv_starts_again_with_it() -> None:
+    out = _run("tracksTv")
+    assert out["label"] == "English"
+    assert out["foot"].startswith("Changes play on Living room.")
+    assert out["kept"] == [["PUT", "/api/watch/tracks/9001", {"audio": "62"}]]
+    assert out["sent"] == [{"kind": "subtitles", "subtitle": "off", "play_id": "p1"}]
+    assert out["toasts"] == ["Deutsch audio on Living room."]
+
+
+def test_audio_picked_for_a_chromecast_is_asked_of_its_next_stream() -> None:
+    out = _run("tracksCast")
+    assert out["did"] == [["start", {"subtitle": "off", "audio": "62"}]]
+    assert out["toasts"] == ["Deutsch audio on Den."]
+
+
+def test_audio_the_tv_will_not_start_again_with_is_taken_back() -> None:
+    out = _run("tracksRefused")
+    assert out["kept"][-1] == ["DELETE", "/api/watch/tracks/9001", None]
+    assert "! Couldn’t change the audio. Staying on English." in out["toasts"]

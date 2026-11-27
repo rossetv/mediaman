@@ -936,7 +936,7 @@ function chooserState(p) {
   };
 }
 
-function key(p, el, k, shift) {
+function keyIn(p, el, k, shift) {
   const e = { bubbles: true, key: k, shiftKey: !!shift, defaultPrevented: false };
   e.preventDefault = () => { e.defaultPrevented = true; };
   fire(el, 'keydown', e);
@@ -989,15 +989,15 @@ const scenarios = {
     btn.focus();
     fire(btn, 'click', { bubbles: true, detail: 0 });
     const out = { open: chooserState(p), focus: p.win.document.activeElement.getAttribute('data-audio') };
-    key(p, p.win.document.activeElement, 'ArrowDown');
+    keyIn(p, p.win.document.activeElement, 'ArrowDown');
     out.down = p.win.document.activeElement.getAttribute('data-audio');
-    key(p, p.win.document.activeElement, 'End');
+    keyIn(p, p.win.document.activeElement, 'End');
     out.end = p.win.document.activeElement.getAttribute('data-audio');
     const seeks = p.video.currentTime;
-    out.arrowsSeek = key(p, p.win.document.activeElement, 'ArrowRight') && p.video.currentTime !== seeks;
-    key(p, p.win.document.activeElement, 'Tab');
+    out.arrowsSeek = keyIn(p, p.win.document.activeElement, 'ArrowRight') && p.video.currentTime !== seeks;
+    keyIn(p, p.win.document.activeElement, 'Tab');
     out.tab = p.win.document.activeElement.getAttribute('data-subtitle');
-    key(p, p.win.document.activeElement, 'Escape');
+    keyIn(p, p.win.document.activeElement, 'Escape');
     out.closed = chooserState(p).expanded;
     out.back = p.win.document.activeElement === btn;
     return out;

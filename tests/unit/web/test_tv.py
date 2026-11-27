@@ -1099,6 +1099,8 @@ def test_the_tv_is_given_the_owners_stream_and_the_remote_is_not_given_the_ticke
         assert ticket not in text
     shown = _tv_of(amy, home)
     assert (shown["play"]["subtitle"], shown["play"]["subtitle_tracks"][0]["id"]) == (None, "31")
+    # The remote shows which audio plays, as it does the subtitles.
+    assert shown["play"]["audio"] == shown["play"]["audio_tracks"][0]["id"]
 
 
 def test_a_title_goes_on_from_the_place_the_person_left_it(tv, home, amy, conn):

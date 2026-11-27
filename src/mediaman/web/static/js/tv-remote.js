@@ -13,7 +13,10 @@
  * A Chromecast that this browser plays on, and that no player follows, is one of the TVs here: it is
  * heard of and steered by watch/cast-sender.js, where the page has it, and not by the server.
  *
- * Requires: core/api.js, core/dom.js, modal-a11y.js, ui-feedback.js.
+ * Audio & subtitles is the player's own chooser (watch/tracks.js): a pick is kept for the title
+ * (PUT /api/watch/tracks/<key>), then the TV starts the picture again where it is, with it.
+ *
+ * Requires: core/api.js, core/dom.js, modal-a11y.js, ui-feedback.js, watch/tracks.js.
  */
 (function (global) {
   'use strict';
@@ -357,7 +360,8 @@
         play_id: CAST + '-' + c.id, state: c.state, rating_key: c.rating_key, title: c.title,
         season: c.season, episode: c.episode, episode_title: c.episode_title,
         position_s: c.position_s, duration_s: c.duration_s, markers: c.markers, chapters: c.chapters,
-        quality: c.quality, subtitle: c.subtitle_id, subtitle_tracks: c.subtitle_tracks, next: c.next,
+        quality: c.quality, subtitle: c.subtitle_id, subtitle_tracks: c.subtitle_tracks,
+        audio: c.audio_id, audio_tracks: c.audio_tracks, next: c.next,
         upnext_in_s: c.upnext_in_s, still_in_s: c.still_in_s,
         still_since_s: c.still_in_s == null ? null : STILL_S - c.still_in_s,
       },
@@ -416,6 +420,7 @@
       });
     }
     var what = body.kind === 'quality' ? { quality: body.quality } : body.kind === 'subtitles' ? { subtitle: body.subtitle } : { next: true };
+    if (body.audio) what.audio = body.audio;
     return sender.start(what).then(function () {
       hearCast();
       return {};
@@ -904,10 +909,10 @@
     var chapters = (what.chapters || []).length > 1;
     if (!isEnd) {
       setHidden($('[data-menu="chapters"]'), !chapters);
-      setHidden($('[data-menu="subtitles"]'), !(what.subtitle_tracks || []).length);
       setHidden($('[data-menu="quality"]'), isCast() && !what.quality);
       setHidden(els.next, !what.next);
     }
+    showTracks(isEnd ? null : what, steers);
     MM.dom.setText(els.quality, (QUALITIES.filter(function (q) { return q[0] === what.quality; })[0] || QUALITIES[0])[1]);
     if (p && p.next && p.next.season != null) {
       attr(els.next, 'aria-label', 'Next episode, ' + code(p.next) + (p.next.title ? ', ' + p.next.title : ''));
@@ -1160,9 +1165,11 @@
   function reach() {
     var blocked = asks;
     root.classList.toggle('is-asking', blocked);
-    els.mid.inert = els.bottom.inert = blocked || !!menuOpen;
+    var av = !!chooser && chooser.isOpen();
+    els.mid.inert = blocked || !!menuOpen || av;
+    els.bottom.inert = blocked || !!menuOpen;
     els.card.inert = !cardKey || !!menuOpen;
-    els.top.inert = !!menuOpen;
+    els.top.inert = !!menuOpen || av;
     els.play.toggleAttribute('data-modal-focus', !blocked && !els.play.hidden && !els.play.inert);
     els.again.toggleAttribute('data-modal-focus', !blocked && !els.again.hidden);
     keepFocus();
@@ -1176,14 +1183,6 @@
       return { title: 'Chapters', rows: (p.chapters || []).map(function (c) {
         return [c.title, fmt(c.start_s), c === at, function () { seekTo(c.start_s); }];
       }) };
-    },
-    subtitles: function (p) {
-      function row(id, label) {
-        var on = (p.subtitle || 'off') === id;
-        return [label, '', on, function () { if (!on) start({ kind: 'subtitles', subtitle: id }); }];
-      }
-      return { title: 'Subtitles', rows: [row('off', 'Off')].concat((p.subtitle_tracks || []).map(function (t) { return row(t.id, t.label); })),
-        note: 'On a TV the subtitles are drawn into the picture. Changing them restarts the picture where you are; it takes a few seconds.' };
     },
     quality: function (p) {
       return { title: 'Quality', rows: QUALITIES.map(function (q) {
@@ -1225,6 +1224,93 @@
     placeMenu();
     reach();
     (els.poList.querySelector('[aria-checked="true"]') || els.poList.firstElementChild).focus({ preventScroll: true });
+  }
+
+  /* ── audio and subtitles ── */
+
+  var avWrap = $('[data-av]');
+  var chooser = MM.tracks ? MM.tracks.create({ wraps: [avWrap], opening: openTracks, closed: underTracks, pick: pickTracks }) : null;
+
+  /* While it is open what is under it is out of reach, as under the remote's menus. */
+  function underTracks(open) {
+    els.mid.inert = els.top.inert = els.seekRow.inert = !!open;
+    MM.dom.qa('.player-controls > *', root).forEach(function (el) { if (el !== avWrap) el.inert = !!open; });
+    if (!open) render();
+  }
+  /* Whether a choice was kept for the title before, by title: what a change that fails goes back to. */
+  var keptFor = {};
+  function openTracks() {
+    closeMenu();
+    underTracks(true);
+    var p = play();
+    var key = p && String(p.rating_key);
+    if (!key || key in keptFor) return;
+    MM.api.get(tracksUrl(key)).then(function (data) {
+      if (data && typeof data.remembered === 'boolean') keptFor[key] = data.remembered;
+    }, function () { /* not known: what was is kept as a choice */ });
+  }
+
+  function trackState(p, change) {
+    return Object.assign({
+      audio: p.audio || null, subtitle: p.subtitle && p.subtitle !== 'off' ? p.subtitle : null,
+      audio_tracks: p.audio_tracks || [], subtitle_tracks: p.subtitle_tracks || [],
+      title: p.title, series: episode(p), on: name(),
+    }, change || {});
+  }
+
+  /* What the TV plays, or played; a pick only while it may be steered. */
+  function showTracks(what, steers) {
+    if (!chooser) return;
+    chooser.set(what ? trackState(what) : null);
+    avWrap.inert = !steers;
+    avWrap.classList.toggle('is-dead', !steers);
+    if (!steers) chooser.close(false);
+    else if (chooser.isOpen()) underTracks(true);
+  }
+
+  function tracksUrl(key) { return '/api/watch/tracks/' + encodeURIComponent(key); }
+
+  /* Kept for the title, then the TV starts the picture again where it is, with what the server
+     says now plays for the person; where that fails the choice goes back to what it was. */
+  function pickTracks(change) {
+    var p = play();
+    if (!p || !canSteer()) return;
+    var id = tv.id;
+    var key = String(p.rating_key);
+    var what = change.reset ? 'reset' : change.audio !== undefined ? 'audio' : 'subtitle';
+    var before = trackState(p);
+    chooser.changing(true);
+    var kept = what === 'reset' ? MM.api.delete(tracksUrl(key)) : MM.api.put(tracksUrl(key), what === 'audio' ? { audio: change.audio } : { subtitle: change.subtitle });
+    kept.then(function (data) {
+      var after = trackState(p, { audio: data.audio || null, subtitle: data.subtitle || null });
+      var was = keptFor[key];
+      if (typeof data.remembered === 'boolean') keptFor[key] = data.remembered;
+      if (after.audio === before.audio && after.subtitle === before.subtitle) {
+        say(MM.tracks.said(what, after, false));
+        return null;
+      }
+      var body = { kind: 'subtitles', subtitle: after.subtitle || 'off', play_id: p.play_id };
+      if (isCast() && after.audio) body.audio = after.audio;
+      starting[id] = true;
+      render();
+      return (isCast() ? postCast(body) : post(body)).then(function () {
+        say(MM.tracks.said(what, after, false));
+      }, function () {
+        var back = was === false || what === 'reset' ? null : what === 'audio' ? { audio: before.audio } : { subtitle: before.subtitle || 'off' };
+        (back ? MM.api.put(tracksUrl(key), back) : MM.api.delete(tracksUrl(key))).then(function (d) {
+          if (d && typeof d.remembered === 'boolean') keptFor[key] = d.remembered;
+        }, function () { /* said below */ });
+        global.UIFeedback.error(MM.tracks.said(what, before, true));
+      }).then(function () {
+        delete starting[id];
+        render();
+        schedule();
+      });
+    }, function () {
+      global.UIFeedback.error(MM.tracks.said(what, before, true));
+    }).then(function () {
+      chooser.changing(false);
+    });
   }
 
   /* Over its button; a sheet on a phone, where the stylesheet places it. */
@@ -1329,6 +1415,10 @@
 
   root.addEventListener('keydown', function (e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (chooser && chooser.key(e)) {
+      e.stopPropagation();
+      return;
+    }
     if (menuOpen) {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -1510,6 +1600,7 @@
 
   function close() {
     if (!isOpen) return;
+    if (chooser) chooser.close(false);
     isOpen = false;
     if (MM.playOn && MM.playOn.isOpen()) MM.playOn.close();
     closeMenu();

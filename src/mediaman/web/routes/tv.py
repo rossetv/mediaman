@@ -601,7 +601,9 @@ def _take_stream(answer: Response, manager: StreamManager, held: repo.Tv, play: 
     stream_id, user, key = started["stream_id"], play.user, held.token_hash or ""
     players = get_players()
     until = manager.now() + TICKET_SECONDS
-    tracks = {name: started[name] for name in ("audio_tracks", "subtitle_tracks", "subtitle")}
+    tracks = {
+        name: started[name] for name in ("audio_tracks", "subtitle_tracks", "audio", "subtitle")
+    }
     try:
         manager.allow(
             stream_id, user, partial(_may_go_on, key, user, play.id, lambda: manager.now() < until)
