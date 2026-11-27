@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 
 from mediaman import app_factory
-from mediaman.web.routes import older_stream, tv
+from mediaman.web.routes import tv
 
 
 def test_the_stream_reaper_is_stopped_before_the_database_is_closed(monkeypatch):
@@ -60,7 +60,9 @@ def test_shutdown_saves_the_places_then_stops_the_reaper_then_every_live_stream(
     assert order == ["places", "reaper", "streams stopped"]
 
 
-def test_at_the_signal_the_places_are_saved_and_then_the_films_to_tvs_end(monkeypatch):
+def _told_to_end(monkeypatch, order: list[str]):
+    """What is done at the signal, with each step noted in *order*."""
+    from mediaman import db
     from mediaman.services.media_meta import plex_stream
 
     manager = SimpleNamespace(reap=lambda: 0, tidy_orphans=lambda: 0, stop_all=lambda: None)
@@ -69,23 +71,31 @@ def test_at_the_signal_the_places_are_saved_and_then_the_films_to_tvs_end(monkey
     monkeypatch.setattr(app_factory, "_start_stream_reaper", lambda reap, interval: lambda: None)
     acts: list = []
     monkeypatch.setattr(app_factory, "_when_told_to_end", lambda act: acts.append(act))
-    saved: list[bool] = []
+    monkeypatch.setattr(db, "get_db", lambda: None)
+    monkeypatch.setattr(db, "close_db", lambda: order.append("closed"))
+    app_factory._start_watch_streams("k")
+    return acts[0]
+
+
+def test_at_the_signal_the_claims_are_given_back_after_the_places_even_where_saving_fails(
+    monkeypatch,
+):
+    from mediaman.services.downloads import _notification_claims
+
+    order: list[str] = []
 
     def save() -> None:
-        saved.append(older_stream.ending.is_set())
+        order.append("places")
         raise RuntimeError("no database")
 
     monkeypatch.setattr(tv, "save_places", save)
-    older_stream.ending.set()
-    try:
-        app_factory._start_watch_streams("k")
-        assert not older_stream.ending.is_set(), "a start anew sends films again"
-        with pytest.raises(RuntimeError):
-            acts[0]()
-        assert saved == [False]
-        assert older_stream.ending.is_set()
-    finally:
-        older_stream.ending.clear()
+    monkeypatch.setattr(
+        _notification_claims, "release_claims_on_shutdown", lambda db: order.append("claims")
+    )
+    act = _told_to_end(monkeypatch, order)
+    with pytest.raises(RuntimeError):
+        act()
+    assert order == ["places", "claims", "closed"]
 
 
 def test_a_start_after_a_release_lets_a_tick_claim_again(monkeypatch):
@@ -110,7 +120,7 @@ def test_a_start_after_a_release_lets_a_tick_claim_again(monkeypatch):
 
 @pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGINT])
 def test_what_is_done_at_the_signal_waits_for_no_open_response(number):
-    """The lifespan's end comes after the last of them, and a film to a TV may be one."""
+    """The lifespan's end comes after the last of them, and one may never end."""
     if threading.current_thread() is not threading.main_thread():
         pytest.skip("only the main thread takes signals")
     heard: list[int] = []
@@ -141,33 +151,19 @@ def test_elsewhere_than_the_main_thread_no_signal_is_taken():
     assert undone == [True]
 
 
-def test_older_tv_films_are_told_to_stop_before_the_claims_are_given_back(monkeypatch):
-    """Giving the claims back can wait on the database lock, and films must not go on meanwhile."""
-    from mediaman.services.media_meta import plex_stream
-
-    manager = SimpleNamespace(reap=lambda: 0, tidy_orphans=lambda: 0, stop_all=lambda: None)
-    monkeypatch.setattr(plex_stream, "init_stream_manager", lambda *a, **k: manager)
-    monkeypatch.setattr(app_factory, "_tidy_stream_orphans", lambda tidy: None)
-    monkeypatch.setattr(app_factory, "_start_stream_reaper", lambda reap, interval: lambda: None)
-    acts: list = []
-    monkeypatch.setattr(app_factory, "_when_told_to_end", lambda act: acts.append(act))
-    monkeypatch.setattr(tv, "save_places", lambda: None)
-    from mediaman import db
+def test_at_the_signal_the_database_is_closed_even_where_the_claims_cannot_be_given_back(
+    monkeypatch,
+):
     from mediaman.services.downloads import _notification_claims
 
-    monkeypatch.setattr(db, "get_db", lambda: None)
-    monkeypatch.setattr(db, "close_db", lambda: None)
-    waiting: list[bool] = []
+    order: list[str] = []
+    monkeypatch.setattr(tv, "save_places", lambda: None)
 
     def release(db) -> None:
-        waiting.append(older_stream.ending.is_set())
         raise RuntimeError("database is locked")
 
     monkeypatch.setattr(_notification_claims, "release_claims_on_shutdown", release)
-    try:
-        app_factory._start_watch_streams("k")
-        with pytest.raises(RuntimeError):
-            acts[0]()
-        assert waiting == [True]
-    finally:
-        older_stream.ending.clear()
+    act = _told_to_end(monkeypatch, order)
+    with pytest.raises(RuntimeError):
+        act()
+    assert order == ["closed"]

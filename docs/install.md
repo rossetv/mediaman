@@ -194,7 +194,7 @@ Delete, pressed by an admin, asks Radarr or Sonarr to delete the files, and does
 
 Open `/tv` at mediaman's address in the TV's browser, for example `https://mediaman.example.com/tv`, and enter the code it shows at `/pair`, on a phone or computer where you are signed in. The TV is then yours, and needs no password. Your TVs are on your Profile, where you can rename and unpair them.
 
-To play on any TV, press Play on, on a film's page or in the player. A paired TV and an older one are steered from a phone's remote. AirPlay and Chromecast are listed there too; neither needs pairing.
+To play on any TV, press Play on, on a film's page or in the player. A paired TV is steered from a phone's remote. AirPlay and Chromecast are listed there too; neither needs pairing.
 
 ### AirPlay
 
@@ -212,16 +212,6 @@ It is off until an admin turns on Allow Chromecast, in Settings under TVs & Cast
 - Google's player on the TV gets the film's title and a ticket for that one film, never anyone's sign-in.
 
 Turning it off stops no Chromecast that is playing: stop it there first. AirPlay and paired TVs do not need it.
-
-### Older TVs
-
-Older TVs, without a browser that can do this, are added by an admin with their address, in Settings under TVs & Casting:
-
-1. Turn on Allow older TVs.
-2. Set Address TVs use to one that works on your home network, such as `http://192.168.1.20:8282`. Most of these TVs cannot use https: for them turn on Plain http for older TVs as well. Others on your network can then see what those TVs fetch.
-3. Save, then press Add an older TV. It is shown a test picture first.
-
-For these, mediaman must be in a container network of its own, as it is above. With `network_mode: host`, macvlan on the home network or no container, it refuses every TV on that network. Where `MEDIAMAN_ALLOWED_HOSTS` is set, it must hold the host of that address too.
 
 ## The AI, and what it is sent
 
@@ -297,6 +287,5 @@ mediaman does not start on a database too old for it. The error names the image 
 | `/readyz` answers 503 | The key is not the one of this database, or the scheduler has not started |
 | Nothing is deleted | `MEDIAMAN_DELETE_ROOTS` is not set, or one of its folders is refused; the log says which |
 | The video stalls behind a proxy | It buffers: see [Https](#https-and-a-reverse-proxy) |
-| An older TV is refused | mediaman shares its network: see [TVs](#tvs) |
 
 `/healthz` answers 200 while the process runs.

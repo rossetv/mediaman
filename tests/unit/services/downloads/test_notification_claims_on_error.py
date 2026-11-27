@@ -116,10 +116,10 @@ def test_an_email_an_unknown_error_cut_short_mid_send_keeps_its_claim(conn, mail
 def test_being_told_to_end_frees_the_emails_a_tick_claimed_and_none_is_sent_twice(
     conn, mailgun, monkeypatch
 ):
-    """A film on its way to a TV can hold off the lifespan's end until the process is killed."""
+    """The process may be killed before the lifespan's end comes."""
     from mediaman import app_factory
     from mediaman.services.media_meta import plex_stream
-    from mediaman.web.routes import older_stream, tv
+    from mediaman.web.routes import tv
 
     db_path = conn.execute("PRAGMA database_list").fetchone()["file"]
     gate = threading.Event()
@@ -162,7 +162,6 @@ def test_being_told_to_end_frees_the_emails_a_tick_claimed_and_none_is_sent_twic
     finally:
         gate.set()
         ticking.join(10)
-        older_stream.ending.clear()
     assert mailgun.sent == []
 
     from mediaman.services.downloads import _notification_claims

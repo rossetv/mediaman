@@ -58,7 +58,6 @@ from mediaman.web.repository import tv as repo
 from mediaman.web.repository.ratings import find_user_id
 from mediaman.web.repository.watch_progress import get_progress
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes import older_play
 from mediaman.web.routes.cast import _CastRequest
 from mediaman.web.routes.cast import _start as _start_cast
 from mediaman.web.routes.watch.browse_api import api_watch_thumb
@@ -503,7 +502,6 @@ def _start_on(
     paused: bool = False,
     renewed: bool = False,
     pressed: bool = True,
-    offer: older_play.Offer | None = None,
     asked_by: str | None = None,
     asker: str | None = None,
 ) -> int | Response:
@@ -511,7 +509,6 @@ def _start_on(
 
     *start_s* None goes on from the saved place. With *over* it starts only while that plays.
     *asked_by* is the session that asks, where one does, and nothing starts once it has ended.
-    With *offer* the TV is taken only for a stream that has started, where that can be.
     """
     user, user_id, key = held.owner, held.owner_id, held.token_hash
     if user is None or user_id is None or key is None:
@@ -558,45 +555,19 @@ def _start_on(
             asked=players.now() - asked_s,
             next_state="end" if item.type == "movie" else "unknown",
         )
-        session = older_play.session_of(key) if offer is None else offer.session_hash
-        started: Response | None = None
-        if offer is not None:
-            own = offer.own_title()
-            # The title's own stream makes way at once, whatever comes of it.
-            if own != rating_key:
-                started = _start_cast(request, body, user, session, manager, began)
-                if started.status_code != 200:
-                    if own is None or _error_of(started) != "too_many_streams":
-                        return started
-                    started = None
-        try:
-            refused = offer.take() if offer is not None else None
-            if refused is not None:
-                if started is not None:
-                    _end_started(manager, started, user)
-                return refused
-            command.append(
-                players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed)
-            )
-            begun.append(play)
-            # Not before: signing out everywhere ends what has begun by then.
-            if asked_by is not None and not repo.has_session(conn, asker or user, asked_by):
-                with contextlib.suppress(NotPlaying, Stale):
-                    players.stop(key, play.id)
-                raise _not_signed_in()
-            # What played counts among the owner's streams until it has ended.
-            _carry_out(players)
-            answer = started or _start_cast(request, body, user, session, manager, began)
-            if answer.status_code == 200:
-                answer = _take_stream(answer, manager, held, play)
-            return answer
-        except BaseException:
-            if started is not None:
-                _end_started(manager, started, user)
-            raise
-        finally:
-            if offer is not None:
-                offer.drive()
+        command.append(players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed))
+        begun.append(play)
+        # Not before: signing out everywhere ends what has begun by then.
+        if asked_by is not None and not repo.has_session(conn, asker or user, asked_by):
+            with contextlib.suppress(NotPlaying, Stale):
+                players.stop(key, play.id)
+            raise _not_signed_in()
+        # What played counts among the owner's streams until it has ended.
+        _carry_out(players)
+        answer = _start_cast(request, body, user, key, manager, began)
+        if answer.status_code == 200:
+            answer = _take_stream(answer, manager, held, play)
+        return answer
 
     answer: Response | None = None
     try:
@@ -648,7 +619,7 @@ def _may_go_on(key: str, user: str, play_id: str, in_time: Callable[[], bool]) -
     """Whether the reaper is to leave a TV's stream: its TV answers and is still the person's."""
     players = get_players()
     conn = get_db()
-    paired = repo.is_paired(conn, key, user) or older_play.is_held(conn, key, user)
+    paired = repo.is_paired(conn, key, user)
     if not paired:
         players.forget(key, "unpaired")
     goes_on = paired and players.holds(key, play_id) and in_time()
@@ -686,7 +657,7 @@ def _carry_on(
     except (NotPlaying, Stale) as exc:
         return _refusal(exc)
     conn = get_db()
-    if not (repo.is_paired(conn, key, play.user) or older_play.is_held(conn, key, play.user)):
+    if not repo.is_paired(conn, key, play.user):
         # Nothing goes on as somebody the TV is no longer theirs.
         with contextlib.suppress(NotPlaying, Stale):
             players.stop(key, play.id)
@@ -766,7 +737,7 @@ def _not_found() -> Response:
 
 
 def _own(username: str, tv_id: _TvId) -> repo.Tv | Response:
-    """The person's paired TV, or an older one; the answer to give where it is not theirs."""
+    """The person's paired TV; the answer to give where it is not theirs."""
     held = repo.find(get_db(), tv_id)
     if (
         held is not None
@@ -774,10 +745,6 @@ def _own(username: str, tv_id: _TvId) -> repo.Tv | Response:
         and repo.is_member(get_db(), tv_id, username)
     ):
         return _as(held, username)
-    if held is not None and held.kind == "older":
-        everyones = older_play.held_by(get_db(), username, held)
-        if everyones is not None:
-            return everyones
     user_id = find_user_id(get_db(), username)
     was = get_players().gone(user_id, tv_id) if user_id is not None else None
     if was is None:
@@ -804,11 +771,9 @@ def _shown(held: repo.Tv) -> dict[str, Any]:
         last = view["last"] = dict(view["last"])
         by, stopped_by = last.pop("by", None), last.pop("stopped_by", None)
         # Their own stop needs no name.
-        page = held.kind == "page"
-        last["stopped_by"] = stopped_by if page and stopped_by != held.owner else None
-        if page:
-            last["mine"] = by == held.owner
-    if play and held.kind == "page":
+        last["stopped_by"] = stopped_by if stopped_by != held.owner else None
+        last["mine"] = by == held.owner
+    if play:
         mine = play["mine"] = play["by"] == held.owner
         play["started_by"] = None if mine else play["by"]
         replaced = play.pop("replaced", None)
@@ -818,9 +783,6 @@ def _shown(held: repo.Tv) -> dict[str, Any]:
         # Their own pause needs no name.
         if play["paused_by"] == held.owner:
             play["paused_by"] = None
-    elif play:
-        for told in ("by", "paused_by", "replaced"):
-            play.pop(told, None)
     return {
         "id": held.id,
         "kind": held.kind,
@@ -828,8 +790,7 @@ def _shown(held: repo.Tv) -> dict[str, Any]:
         "paired_at": held.paired_at,
         "last_seen_at": held.last_seen_at,
         **view,
-        "people": repo.people(get_db(), held.id) if held.kind == "page" else [],
-        **(older_play.told_of(held) if held.kind == "older" else {}),
+        "people": repo.people(get_db(), held.id),
     }
 
 
@@ -911,7 +872,6 @@ def own_tvs(username: _Username) -> Response:
     players = get_players()
     conn = get_db()
     theirs = [_as(held, username) for held in repo.owned(conn, username)]
-    theirs += older_play.everyones(conn, username)
     shown = [_shown(held) for held in theirs]
     _carry_out(players)
     return respond_ok({"tvs": shown})
@@ -925,7 +885,6 @@ def all_tvs(admin: Annotated[str, Depends(get_current_admin)]) -> Response:
         return limited
     players = get_players()
     every = repo.every(get_db())
-    keys = {held.id: held.token_hash or older_play.key_of(held.id) for held in every}
     return respond_ok(
         {
             "tvs": [
@@ -934,11 +893,11 @@ def all_tvs(admin: Annotated[str, Depends(get_current_admin)]) -> Response:
                     "kind": held.kind,
                     "name": held.name,
                     "owner": held.owner,
-                    "people": repo.people(get_db(), held.id) if held.kind == "page" else [],
+                    "people": repo.people(get_db(), held.id),
                     "paired_at": held.paired_at,
                     "last_seen_at": held.last_seen_at,
-                    "on": players.is_on(keys[held.id]),
-                    "playing": players.is_playing(keys[held.id]),
+                    "on": players.is_on(held.token_hash or ""),
+                    "playing": players.is_playing(held.token_hash or ""),
                 }
                 for held in every
             ]
@@ -1010,7 +969,7 @@ def remove_person(
     if limited is not None:
         return limited
     held = repo.find(get_db(), tv_id)
-    if held is None or held.kind != "page" or not repo.is_member(get_db(), tv_id, person):
+    if held is None or not repo.is_member(get_db(), tv_id, person):
         return _not_found()
     if not _leave(request, held, person, actor=admin):
         _unpair(request, held, actor=admin)
@@ -1044,7 +1003,6 @@ def _unpair(request: Request, held: repo.Tv, *, actor: str) -> None:
     players = get_players()
     players.forget(held.token_hash or "", "unpaired", held.id)
     _carry_out(players)
-    older_play.end(held.id, "unpaired", _carry_out)
 
 
 @router.post("/api/tvs/{tv_id}/play")
@@ -1053,23 +1011,12 @@ def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Usern
     limited = _limited(_COMMAND_LIMITER, username)
     if limited is not None:
         return limited
-    tv = repo.find(get_db(), tv_id)
-    offer: older_play.Offer | None = None
-    theirs: dict[str, Any] | None = None
-    if tv is not None and tv.kind == "older":
-        steering = older_play.Steering(_carry_on, _carry_out, _keep_alive)
-        asked = older_play.ask_for(request, tv, username, confirm=body.confirm, steering=steering)
-        if isinstance(asked, Response):
-            return asked
-        offer, held = asked, asked.held
-    else:
-        own = _own(username, tv_id)
-        if isinstance(own, Response):
-            return own
-        held = own
-        theirs = _others_play(held, username)
-        if theirs is not None and not body.confirm:
-            return respond_err("in_use", status=409, playing=True, **theirs)
+    held = _own(username, tv_id)
+    if isinstance(held, Response):
+        return held
+    theirs = _others_play(held, username)
+    if theirs is not None and not body.confirm:
+        return respond_err("in_use", status=409, playing=True, **theirs)
     choice = Choice(quality=body.quality, subtitle=body.subtitle, autoplay=body.autoplay)
     done = _start_on(
         request,
@@ -1078,13 +1025,12 @@ def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Usern
         choice,
         start_s=body.position_s,
         asked_s=body.asked_s,
-        offer=offer,
         asked_by=session_hash,
         asker=username,
     )
     if isinstance(done, Response):
         return done
-    if offer is None and theirs is not None:
+    if theirs is not None:
         security_event(
             get_db(),
             event="tv.play_replaced",

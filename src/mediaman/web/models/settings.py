@@ -270,6 +270,7 @@ class SettingsUpdate(BaseModel):
     auto_abandon_enabled: bool | None = None
     import_retry_enabled: bool | None = None
 
+    # Never stored or read: a settings page left open from an earlier version still sends them.
     older_tvs_enabled: bool | None = None
     older_tvs_http: bool | None = None
     google_cast_enabled: bool | None = None

@@ -1,4 +1,7 @@
-"""Repository functions for the TVs to play on, and who they belong to."""
+"""Repository functions for the TVs to play on, and who they belong to.
+
+Only paired TVs count: a row of any other kind in the table is passed over everywhere.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +28,6 @@ class Tv:
     id: int
     kind: str
     name: str
-    #: None for an older TV, which is everyone's.
     owner: str | None
     owner_id: int | None
     token_hash: str | None
@@ -38,6 +40,7 @@ _SELECT = (
     " tvs.created_at AS paired_at, tvs.last_seen_at"
     " FROM tvs LEFT JOIN admin_users u ON u.id = tvs.owner_id"
 )
+_PAIRED = "tvs.kind = 'page'"
 
 
 def _tv(row: sqlite3.Row | None) -> Tv | None:
@@ -45,12 +48,12 @@ def _tv(row: sqlite3.Row | None) -> Tv | None:
 
 
 def find(conn: sqlite3.Connection, tv_id: int) -> Tv | None:
-    return _tv(conn.execute(f"{_SELECT} WHERE tvs.id = ?", (tv_id,)).fetchone())
+    return _tv(conn.execute(f"{_SELECT} WHERE tvs.id = ? AND {_PAIRED}", (tv_id,)).fetchone())
 
 
 def find_by_token(conn: sqlite3.Connection, token_hash: str) -> Tv | None:
     """The paired TV that holds the token."""
-    sql = f"{_SELECT} WHERE tvs.token_hash = ?"
+    sql = f"{_SELECT} WHERE tvs.token_hash = ? AND {_PAIRED}"
     return _tv(conn.execute(sql, (token_hash,)).fetchone())
 
 
@@ -84,14 +87,15 @@ def owned(conn: sqlite3.Connection, username: str) -> list[Tv]:
     """The TVs paired with *username*, each as theirs."""
     rows = conn.execute(
         f"{_SELECT} JOIN tv_people p ON p.tv_id = tvs.id"
-        " JOIN admin_users me ON me.id = p.user_id WHERE me.username = ? ORDER BY tvs.id",
+        f" JOIN admin_users me ON me.id = p.user_id WHERE me.username = ? AND {_PAIRED}"
+        " ORDER BY tvs.id",
         (username,),
     )
     return [Tv(**dict(row)) for row in rows]
 
 
 def every(conn: sqlite3.Connection) -> list[Tv]:
-    return [Tv(**dict(row)) for row in conn.execute(f"{_SELECT} ORDER BY tvs.id")]
+    return [Tv(**dict(row)) for row in conn.execute(f"{_SELECT} WHERE {_PAIRED} ORDER BY tvs.id")]
 
 
 def has_session(conn: sqlite3.Connection, username: str, session_hash: str) -> bool:

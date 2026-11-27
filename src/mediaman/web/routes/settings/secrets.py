@@ -50,8 +50,6 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
         "ai_everyone_per_day",
         "auto_abandon_enabled",
         "import_retry_enabled",
-        "older_tvs_enabled",
-        "older_tvs_http",
         "google_cast_enabled",
         "tv_address",
     }
@@ -81,8 +79,6 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "dry_run",
         "plex_libraries",
         "disk_thresholds",
-        "older_tvs_enabled",
-        "older_tvs_http",
         "google_cast_enabled",
         "tv_address",
     }
