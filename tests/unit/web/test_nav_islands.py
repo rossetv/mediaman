@@ -12,6 +12,7 @@ from starlette.requests import Request
 _WEB = Path(__file__).resolve().parents[3] / "src" / "mediaman" / "web"
 _TEMPLATES = Jinja2Templates(directory=str(_WEB / "templates"))
 NAV = _WEB / "static/css/_nav.css"
+TOKENS = _WEB / "static/css/_tokens.css"
 SEARCH = _WEB / "static/css/_watch_search.css"
 PHONE = "(max-width: 699.98px)"
 
@@ -104,19 +105,24 @@ def test_the_bar_draws_no_row_of_its_own_and_lets_a_press_between_its_islands_th
 
 
 def test_the_islands_turn_solid_where_glass_cannot_be_drawn_or_is_not_wanted() -> None:
-    css = _css(NAV)
+    # The islands draw the glass tokens, so the tokens' own fallbacks reach them.
+    own = _of(".nav-glass", _outside(_css(NAV)))
+    assert "--isle: var(--g-thin)" in own and "--isle-blur: var(--g-filter)" in own
+    tokens = _css(TOKENS)
     for at in ("(prefers-reduced-transparency: reduce)", "not ((backdrop-filter"):
-        solid = _of(".nav-glass", _inside(css, at))
-        assert "--isle-blur: none" in solid, at
-        assert re.search(r"--isle: var\(--s\d\)", solid), at
+        solid = _of(":root", _inside(tokens, at))
+        assert "--g-filter: none" in solid, at
+        assert float(re.search(r"--g-a: ([\d.]+)", solid)[1]) >= 0.94, at
 
 
 def test_in_forced_colours_every_island_is_a_system_coloured_box() -> None:
     css = _css(NAV)
     for island in (".nav-end", ".nav-back"):
         assert "border: 1px solid var(--isle-edge)" in _of(island, _outside(css)), island
-    forced = _of(".nav-glass", _inside(css, "(forced-colors: active)"))
-    assert "--isle: Canvas" in forced and "--isle-edge: CanvasText" in forced
+    own = _of(".nav-glass", _outside(css))
+    assert "--isle: var(--g-thin)" in own and "--isle-edge: var(--g-edge)" in own
+    forced = _of(":root", _inside(_css(TOKENS), "(forced-colors: active)"))
+    assert "--g-thin: Canvas" in forced and "--g-edge: CanvasText" in forced
 
 
 def test_on_a_phone_the_search_is_a_44px_round_button_at_the_top() -> None:

@@ -5,11 +5,10 @@
 /* The bar draws no row of its own: islands of glass float over the top of the page, a picture
    runs up under them, and what scrolls passes between them. */
 .nav-glass {
-  --isle: color-mix(in srgb, var(--s2) 38%, transparent);
-  /* Darkened under the tint, so white words keep their contrast over a white poster. */
-  --isle-blur: blur(22px) saturate(1.7) brightness(.72);
-  --isle-edge: color-mix(in srgb, var(--t1) 16%, transparent);
-  --isle-lit: color-mix(in srgb, var(--t1) 26%, transparent);
+  --isle: var(--g-thin);
+  --isle-blur: var(--g-filter);
+  --isle-edge: var(--g-edge);
+  --isle-lit: var(--g-lit);
   position: sticky;
   top: 0;
   z-index: var(--z-nav);
@@ -30,7 +29,31 @@
   backdrop-filter: var(--isle-blur);
   border: 1px solid var(--isle-edge);
   border-top-color: var(--isle-lit);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
+}
+/* The search field's glass is its ::before (_watch_search.css); it takes the same light. */
+.nav-glass.wbar .watch-search::before { box-shadow: var(--g-inset), var(--g-shadow); }
+/* The search's leaving hint (watch/search.js) is seen only through its fade: where the fade does
+   not run, it must not stay drawn over the new one. */
+.nav-glass .watch-search__ph.is-old { opacity: 0; }
+/* What sits on an island's glass: veils for its fills, quiet words and blue and red ones lifted.
+   --accent stays: it marks rings, fills and the avatar's colour here, never words. */
+.nav-back,
+.nav-noscript,
+.nav-end,
+.nav-glass .watch-search,
+.profile-panel {
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
 }
 .brand { display: inline-flex; align-items: center; font-size: 19px; color: var(--t1); }
 /* Its padding is the room its island, when it has one, takes. Its margin pulls that room out past
@@ -59,10 +82,15 @@
   backdrop-filter: var(--isle-blur);
   border: 1px solid var(--isle-edge);
   border-top-color: var(--isle-lit);
+  box-shadow: var(--g-inset), var(--g-shadow);
   opacity: 0;
   transition: opacity var(--dur-slow) var(--ease-out);
 }
 .nav-glass.is-scrolled .brand::before { opacity: 1; }
+/* On its island the name's blue is lifted with it: the brand's own blue is under 3:1 on glass over
+   a white page. */
+.nav-glass .brand .wm-man { transition: stroke var(--dur-slow) var(--ease-out); }
+.nav-glass.is-scrolled .brand .wm-man { stroke: var(--g-accent-text); }
 .nav-glass .brand:focus-visible { outline-offset: 2px; border-radius: var(--r-pill); }
 
 .nav-back,
@@ -84,8 +112,9 @@
 .nav-noscript { padding: 0 18px; }
 .nav-back > .ico { font-size: 11px; transition: transform var(--dur) var(--ease-out); }
 @media (hover: hover) {
+  /* Lit over the glass's tint, not in place of it: the tint is what holds the word over a white page. */
   .nav-back:hover,
-  .nav-noscript:hover { background: color-mix(in srgb, var(--s4) 60%, transparent); }
+  .nav-noscript:hover { background-color: color-mix(in srgb, var(--isle), var(--t1) 11%); }
   .nav-back:hover > .ico { transform: translateX(-2px); }
 }
 .nav-back:active { transform: scale(.97); }
@@ -279,33 +308,40 @@
   z-index: calc(var(--z-nav) + 1);
   top: calc(var(--nav-h) + 4px);
   right: var(--pad);
-  opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transform: translateY(-6px) scale(.97);
   transform-origin: 100% 0;
-  transition: opacity var(--dur-fast) var(--ease-out),
-              transform var(--dur-fast) var(--ease-out),
+  transition: transform var(--dur-fast) var(--ease-out),
               visibility 0s linear var(--dur-fast);
 }
 .profile-menu[open] {
-  opacity: 1;
   visibility: visible;
   pointer-events: auto;
   transform: none;
-  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+  transition: transform var(--dur) var(--ease-out);
 }
+/* The panel fades, not the menu round it: glass under a fading parent sees none of the page. */
 .profile-panel {
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
   width: 256px;
   max-height: calc(100vh - var(--nav-h) - 16px);
   max-height: calc(100dvh - var(--nav-h) - 16px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 6px;
-  background: var(--s2);
-  border: 1px solid var(--hair-strong);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
+}
+.profile-menu[open] .profile-panel {
+  opacity: 1;
+  transition: opacity var(--dur) var(--ease-out);
 }
 .profile-handle { display: none; }
 .profile-who { display: flex; align-items: center; gap: 12px; padding: 12px 12px 14px; }
@@ -352,11 +388,15 @@
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    background: color-mix(in srgb, var(--scrim) 55%, transparent);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
     transform: none;
     padding: 0 8px max(8px, env(safe-area-inset-bottom, 0px));
+    transition: background-color var(--dur-fast) var(--ease-out),
+                visibility 0s linear var(--dur-fast);
+  }
+  /* A plain dim: a blurred one would be a third layer of glass under the sheet. */
+  .profile-menu[open] {
+    background-color: var(--g-dim);
+    transition: background-color var(--dur) var(--ease-out);
   }
   .profile-panel {
     width: 100%;
@@ -367,9 +407,9 @@
     border-width: 1px;
     border-radius: var(--r-lg);
     transform: translateY(24px);
-    transition: transform var(--dur-fast) var(--ease-out);
+    transition: transform var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
   }
-  .profile-menu[open] .profile-panel { transform: none; transition-duration: var(--dur); }
+  .profile-menu[open] .profile-panel { transform: none; transition: transform var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out); }
   /* A strip to take hold of that a thumb fits, with the small bar drawn in it. */
   .profile-handle {
     display: block;
@@ -411,6 +451,7 @@
 @media (prefers-reduced-motion: reduce) {
   .profile-menu,
   .profile-menu[open],
+  .profile-menu[open] .profile-panel,
   /* An item whose own visibility eased would not take the focus yet. */
   .profile-menu *,
   .profile-btn > .ico,
@@ -442,15 +483,8 @@
   .profile-count { border-color: Canvas; background: Highlight; color: HighlightText; forced-color-adjust: none; }
 }
 
-/* Where glass cannot be drawn, or is not wanted, the islands are solid. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .nav-glass { --isle: var(--s2); --isle-blur: none; }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .nav-glass { --isle: var(--s2); --isle-blur: none; }
-}
+/* Where glass cannot be drawn, or is not wanted, the glass tokens turn solid (_tokens.css). */
 @media (forced-colors: active) {
-  .nav-glass { --isle: Canvas; --isle-blur: none; --isle-edge: CanvasText; --isle-lit: CanvasText; }
   .nav-glass .brand > .ico { filter: none; }
 }
 
@@ -493,6 +527,8 @@
 @keyframes mm-pop-out { to { opacity: 0; transform: scale(.4); } }
 @keyframes mm-drop { from { opacity: 0; transform: translateY(-6px); } }
 @keyframes mm-lift-out { to { opacity: 0; transform: translateY(-4px); } }
+@keyframes mm-drop-move { from { transform: translateY(-6px); } }
+@keyframes mm-lift-move { to { transform: translateY(-4px); } }
 @keyframes mm-ring-fill { from { --ring: 0; } }
 @keyframes mm-ring-empty { to { --ring: 0; } }
 /* A panel folding into the avatar: --fx, --fy and --fs are its way there, measured by nav.js. */
@@ -508,7 +544,11 @@
   html.is-arriving .nav-glass .profile-count { animation: mm-pop-in var(--dur) calc(var(--dur) * 1.75) var(--ease-spring, var(--ease-out)) backwards; }
   html.is-arriving .nav-glass :is(.profile-btn-name, .profile-btn > .ico) { animation: mm-fade-in var(--dur) var(--dur-fast) var(--ease-out) backwards; }
   html.is-arriving .nav-glass .space-meter { animation: mm-fade-in var(--dur) var(--dur-fast) var(--ease-out) backwards; }
-  html.is-arriving .nav-glass .watch-search { animation: mm-drop var(--dur-slow) calc(var(--dur) * .5) var(--ease-out) backwards; }
+  /* The search field moves as one, but fades its glass and what is on it: glass under a fading
+     parent sees none of the page. */
+  html.is-arriving .nav-glass .watch-search { animation: mm-drop-move var(--dur-slow) calc(var(--dur) * .5) var(--ease-out) backwards; }
+  html.is-arriving .nav-glass .watch-search::before,
+  html.is-arriving .nav-glass .watch-search > * { animation: mm-fade-in var(--dur-slow) calc(var(--dur) * .5) var(--ease-out) backwards; }
 
   /* The menu folds back into the avatar (a plain fade where the avatar is out of sight), the ring
      empties, the badge and the picture shrink out, the name follows and the bar goes. */
@@ -519,7 +559,10 @@
   html.is-leaving .nav-glass .profile-ava .avatar { animation: mm-pop-out var(--dur-slow) calc(var(--dur) * 2.35) var(--ease-out) both; }
   html.is-leaving .nav-glass :is(.profile-btn-name, .profile-btn > .ico) { animation: mm-out var(--dur) calc(var(--dur) * 2.8) var(--ease-out) both; }
   html.is-leaving .nav-glass .space-meter { animation: mm-out var(--dur) calc(var(--dur) * 2.5) var(--ease-out) both; }
-  html.is-leaving .nav-glass :is(.watch-search, .nav-back) { animation: mm-lift-out var(--dur-slow) calc(var(--dur) * 2.2) var(--ease-out) both; }
+  html.is-leaving .nav-glass .nav-back { animation: mm-lift-out var(--dur-slow) calc(var(--dur) * 2.2) var(--ease-out) both; }
+  html.is-leaving .nav-glass .watch-search { animation: mm-lift-move var(--dur-slow) calc(var(--dur) * 2.2) var(--ease-out) both; }
+  html.is-leaving .nav-glass .watch-search::before,
+  html.is-leaving .nav-glass .watch-search > * { animation: mm-out var(--dur-slow) calc(var(--dur) * 2.2) var(--ease-out) both; }
   html.is-leaving .nav-glass .nav-end { animation: mm-out var(--dur-slow) calc(var(--dur) * 3.25) var(--ease-out) both; }
   html.is-leaving .nav-glass .brand .wm-man > path { animation: wm-draw var(--dur-slow) calc(var(--dur) * 3) var(--ease-out) reverse both; }
   html.is-leaving .nav-glass .brand .wm-media > path { animation: wm-draw calc(var(--dur) * 1.5) calc(var(--dur) * 3.4) var(--ease-out) reverse both; }

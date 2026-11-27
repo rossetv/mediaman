@@ -21,6 +21,10 @@
   var SEARCH_DELAY_MS = 200;
   var COMPOSING_MS = 400;
   var EXAMPLE_MS = 3200;
+  // The field's words change: eased out, the old ones are under a twentieth by halfway, and the
+  // new ones start there, so the two are never drawn together and the field is never empty for long.
+  var HINT_OUT_MS = 120;
+  var HINT_IN_DELAY_MS = 60;
   var STEP_MS = 10000; // a step back this late was never made: a Back after it is the person's
   var SKELETONS = 6;
   // The categories the sheet opens on; the rest stand below what else it offers.
@@ -707,19 +711,27 @@
 
     function setPending(on) { box.classList.toggle('is-pending', on); }
 
+    var hintIn = null; // the new words coming in
+
     function setHint(text) {
       if (hintText.textContent === text) return;
-      var old = box.querySelector('.watch-search__ph.is-old');
-      if (old) old.remove();
-      if (moves(hintText) && !input.value) {
-        old = hintText.cloneNode(true);
-        old.removeAttribute('id');
-        old.classList.add('is-old');
-        hintText.parentNode.insertBefore(old, hintText);
-        play(old, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-12px)' }], 180,
-          { fill: 'forwards' }).onfinish = old.remove.bind(old);
-        play(hintText, [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], 240,
-          { delay: 40, fill: 'backwards' });
+      // Words still waiting for the old ones to go were never seen: they change and keep their turn.
+      var unseen = hintIn && hintIn.playState === 'running' && hintIn.currentTime < HINT_IN_DELAY_MS;
+      if (!unseen) {
+        var old = box.querySelector('.watch-search__ph.is-old');
+        if (old) old.remove();
+        if (moves(hintText) && !input.value) {
+          var seen = getComputedStyle(hintText).opacity;
+          if (hintIn) hintIn.cancel();
+          old = hintText.cloneNode(true);
+          old.removeAttribute('id');
+          old.classList.add('is-old');
+          hintText.parentNode.insertBefore(old, hintText);
+          play(old, [{ opacity: seen, transform: 'none' }, { opacity: 0, transform: 'translateY(-12px)' }], HINT_OUT_MS,
+            { fill: 'forwards' }).onfinish = old.remove.bind(old);
+          hintIn = play(hintText, [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], 240,
+            { delay: HINT_IN_DELAY_MS, fill: 'backwards' });
+        }
       }
       hintText.textContent = text;
     }
