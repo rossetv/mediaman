@@ -162,6 +162,7 @@ function makeDocument() {
     createElementNS: (ns, t) => new Node(doc, t),
     createTextNode: (t) => { const n = new Node(doc, '#text'); n._text = t; return n; },
     addEventListener: (t, fn) => { (doc.listeners[t] = doc.listeners[t] || []).push(fn); },
+    removeEventListener: (t, fn) => { doc.listeners[t] = (doc.listeners[t] || []).filter((f) => f !== fn); },
     getElementById: (id) => doc.documentElement.querySelector('#' + id),
     querySelector: (s) => doc.documentElement.querySelector(s),
     querySelectorAll: (s) => doc.documentElement.querySelectorAll(s),
