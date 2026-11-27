@@ -718,8 +718,9 @@
         hintText.parentNode.insertBefore(old, hintText);
         play(old, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-12px)' }], 180,
           { fill: 'forwards' }).onfinish = old.remove.bind(old);
+        // Only once the old words have gone, so the two are never drawn over each other.
         play(hintText, [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], 240,
-          { delay: 40, fill: 'backwards' });
+          { delay: 180, fill: 'backwards' });
       }
       hintText.textContent = text;
     }
