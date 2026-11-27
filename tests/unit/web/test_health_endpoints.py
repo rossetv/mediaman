@@ -120,12 +120,16 @@ class TestReadyzInRealApp:
         from mediaman.main import create_app
 
         async def ask() -> int:
-            threads = anyio.to_thread.current_default_thread_limiter()
-            threads.total_tokens = 1
-            await threads.acquire()
             transport = httpx.ASGITransport(create_app())
-            with anyio.fail_after(1):
-                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                # FastAPI builds every route's state on the first request, synchronously
+                # on the loop; under coverage on a busy runner that alone can pass the
+                # deadline, so it is paid before the clock starts.
+                await client.get("/healthz")
+                threads = anyio.to_thread.current_default_thread_limiter()
+                threads.total_tokens = 1
+                await threads.acquire()
+                with anyio.fail_after(1):
                     return (await client.get("/healthz")).status_code
 
         assert anyio.run(ask) == 200
