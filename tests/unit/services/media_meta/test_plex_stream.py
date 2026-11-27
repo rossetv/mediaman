@@ -92,6 +92,21 @@ class FakePlex:
         self.prefix = ""
         self.on_start = None
         self.on_call = None
+        #: The tracks selected for the item's part on Plex, which a decision plays.
+        self.selection = ("6", "0")
+        self.selections: list[tuple[str, str]] = []
+        self.fail_puts = 0
+        #: Make each decision play the selected tracks.
+        self.decides_by_selection = False
+
+    def metadata(self) -> bytes:
+        streams = "".join(
+            f'<Stream id="{i}" streamType="{t}"'
+            + (' selected="1"' if i in self.selection else "")
+            + "/>"
+            for i, t in (("6", "2"), ("7", "2"), ("9", "3"), ("10", "3"))
+        )
+        return f'<MediaContainer><Video><Media><Part id="55">{streams}</Part></Media></Video></MediaContainer>'.encode()
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
         self.calls.append(
@@ -112,11 +127,26 @@ class FakePlex:
             return FakeResponse(404)
         path = path[len(self.prefix) :]
         session = (params or {}).get("session")
+        if path.startswith("/library/metadata/"):
+            return FakeResponse(200, self.metadata())
+        if method == "PUT" and path == "/library/parts/55":
+            if self.fail_puts:
+                self.fail_puts -= 1
+                return FakeResponse(500)
+            self.selection = (params["audioStreamID"], params["subtitleStreamID"])
+            self.selections.append(self.selection)
+            return FakeResponse(200)
         if path == f"{TRANSCODE}/decision":
             if self.fail_decisions:
                 self.fail_decisions -= 1
                 return FakeResponse(500)
             self.decided.add(session)
+            if self.decides_by_selection:
+                audio, subtitle = self.selection
+                burn = subtitle != "0" and params["subtitles"] == "burn"
+                burned = f'<Stream id="{subtitle}" streamType="3" decision="burn"/>' if burn else ""
+                body = f'<Media><Stream id="{audio}" streamType="2" selected="1"/>{burned}</Media>'
+                return FakeResponse(200, f"<MediaContainer>{body}</MediaContainer>".encode())
             return FakeResponse(200, self.decision)
         if path == f"{TRANSCODE}/start.m3u8":
             if self.on_start:
@@ -406,6 +436,187 @@ def test_a_player_s_audio_track_plex_ignores_is_refused_and_its_session_stopped(
     assert [c["params"]["session"] for c in plex.calls_to("stop")] == [
         plex.calls_to("decision")[0]["params"]["session"]
     ]
+
+
+def _selections_at(plex: FakePlex, action: str) -> list[tuple[str, str]]:
+    """The tracks selected on Plex at each call to *action*, as the fake saw them in order."""
+    seen, selection = [], ("6", "0")
+    for call in plex.calls:
+        if call["method"] == "PUT":
+            selection = (call["params"]["audioStreamID"], call["params"]["subtitleStreamID"])
+        elif urlsplit(call["url"]).path == f"{TRANSCODE}/{action}":
+            seen.append(selection)
+    return seen
+
+
+@pytest.mark.parametrize("kind", [plex_stream.Tracks, plex_stream.TvTracks])
+def test_tracks_other_than_plex_s_are_selected_for_the_decision_and_then_put_back(
+    manager, plex, kind
+):
+    plex.decides_by_selection = True
+
+    _start(manager, burn_subtitles=True, **{_kind_arg(kind): kind(audio="7", subtitle="9")})
+
+    assert _selections_at(plex, "decision") == [("7", "9")]
+    assert _selections_at(plex, "start.m3u8") == [("6", "0")]
+    assert plex.selections == [("7", "9"), ("6", "0")]
+
+
+def _kind_arg(kind: type) -> str:
+    return "tv" if kind is plex_stream.TvTracks else "tracks"
+
+
+@pytest.mark.parametrize(
+    ("tracks", "selected"),
+    [
+        (plex_stream.Tracks(audio="6"), ("6", "0")),
+        (plex_stream.Tracks(audio="6", subtitle="9"), ("6", "9")),
+        # Without a subtitle none is burned, whatever Plex has selected.
+        (plex_stream.Tracks(audio="6"), ("6", "10")),
+        (plex_stream.Tracks(), ("7", "9")),
+        (None, ("7", "9")),
+    ],
+)
+def test_tracks_plex_already_plays_are_not_written(manager, plex, tracks, selected):
+    plex.selection = selected
+    plex.decides_by_selection = True
+
+    _start(manager, burn_subtitles=bool(tracks and tracks.subtitle), tracks=tracks)
+
+    assert [c for c in plex.calls if c["method"] == "PUT"] == []
+    assert plex.selection == selected
+
+
+def test_no_subtitle_is_selected_as_none_when_the_audio_changes(manager, plex):
+    plex.selection = ("6", "10")
+    plex.decides_by_selection = True
+
+    _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    assert plex.selections == [("7", "0"), ("6", "10")]
+
+
+def test_a_decision_plex_refuses_puts_the_selection_back(manager, plex):
+    plex.fail_decisions = 2
+
+    with pytest.raises(PlexUnavailable):
+        _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    assert plex.selections == [("7", "0"), ("6", "0")] * 2
+
+
+@pytest.mark.parametrize("error", [requests.Timeout, requests.ConnectionError])
+def test_a_decision_that_times_out_or_fails_puts_the_selection_back(manager, plex, error):
+    def fail(path):
+        if path == f"{TRANSCODE}/decision":
+            raise error("no answer")
+
+    plex.on_call = fail
+
+    with pytest.raises(PlexUnavailable):
+        _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    assert plex.selection == ("6", "0")
+    assert plex.selections[-1] == ("6", "0")
+
+
+def test_a_start_given_up_during_its_decision_still_puts_the_selection_back(manager, plex):
+    with manager.starting("alice", "123") as start:
+
+        def give_up(path):
+            if path == f"{TRANSCODE}/decision":
+                start.give_up(TooManyStarts("the start hung"))
+
+        plex.on_call = give_up
+        with pytest.raises(TooManyStarts):
+            _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    assert plex.selections == [("7", "0"), ("6", "0")]
+
+
+def test_an_original_plex_would_not_copy_still_puts_the_selection_back(manager, plex):
+    plex.decision = b'<MediaContainer><Media><Stream streamType="1" decision="transcode"/></Media></MediaContainer>'
+
+    with pytest.raises(PlexUnavailable):
+        _start(manager, quality="original", tracks=plex_stream.Tracks(audio="7"))
+
+    assert plex.selection == ("6", "0")
+    assert plex.selections == [("7", "0"), ("6", "0")] * 2
+
+
+def test_putting_the_selection_back_is_tried_once_more_and_logged(manager, plex, caplog):
+    plex.decides_by_selection = True
+
+    def fail_the_first_put_back(path):
+        if path == f"{TRANSCODE}/decision":
+            plex.fail_puts = 1
+
+    plex.on_call = fail_the_first_put_back
+
+    with caplog.at_level(logging.WARNING):
+        _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    assert plex.selection == ("6", "0")
+    assert any(
+        "putting back" in r.getMessage() and "audio 6" in r.getMessage() for r in caplog.records
+    )
+
+
+def test_a_selection_that_cannot_be_put_back_does_not_stop_the_stream(manager, plex, caplog):
+    plex.decides_by_selection = True
+
+    def fail_put_backs(path):
+        if path == f"{TRANSCODE}/decision":
+            plex.fail_puts = 2
+
+    plex.on_call = fail_put_backs
+
+    with caplog.at_level(logging.WARNING):
+        stream_id = _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    assert manager.get(stream_id, "alice").rating_key == "123"
+    assert sum("putting back" in r.getMessage() for r in caplog.records) == 2
+
+
+def test_two_starts_of_one_item_take_turns_with_its_selection(manager, plex):
+    plex.decides_by_selection = True
+    in_decision, go_on = threading.Event(), threading.Event()
+
+    def hold_the_first_decision(path):
+        if path == f"{TRANSCODE}/decision" and not in_decision.is_set():
+            in_decision.set()
+            assert go_on.wait(5)
+
+    plex.on_call = hold_the_first_decision
+    errors: list[BaseException] = []
+
+    def start_bob():
+        try:
+            _start(manager, "bob", tracks=plex_stream.Tracks(audio="7"))
+        except BaseException as exc:
+            errors.append(exc)
+
+    bob = threading.Thread(target=start_bob)
+    bob.start()
+    assert in_decision.wait(5)
+    carol = threading.Thread(
+        target=lambda: _start(manager, "carol", tracks=plex_stream.Tracks(audio="6"))
+    )
+    carol.start()
+    deadline = time.monotonic() + 5
+    while manager._deciding["123"][1] != [2] and time.monotonic() < deadline:
+        time.sleep(0.001)
+    # Carol's start waits for Bob's decision and so never sees his tracks as Plex's own.
+    assert len(plex.calls_to("decision")) == 1
+    assert plex.paths().count("/library/metadata/123") == 1
+    go_on.set()
+    bob.join(5)
+    carol.join(5)
+
+    assert errors == []
+    assert _selections_at(plex, "decision") == [("7", "0"), ("6", "0")]
+    assert plex.selections == [("7", "0"), ("6", "0")]
+    assert manager._deciding == {}
 
 
 @pytest.mark.parametrize(("quality", "rating_key"), [("ultra", "123"), ("best", "1&path=/x")])
