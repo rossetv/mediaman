@@ -2,7 +2,8 @@
 
 ``run_node(script, *args)`` answers like ``subprocess.run(["node", script, *args])``:
 a ``CompletedProcess`` with the script's exit code, stdout and stderr. Each run gets a
-fresh vm context in ``node_batch.js``, so runs share nothing but the process. The same
+fresh vm context in ``node_batch.js``, and the environment is put back after each, so
+runs share only the process and its built-in modules (``node_batch.js`` lists the limits). The same
 run asked for twice is answered once, from memory, since the harnesses are deterministic.
 
 A node process that dies, or stops answering, raises here: a test never reads an answer
