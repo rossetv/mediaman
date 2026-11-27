@@ -170,11 +170,9 @@
   var MSG_MAYBE_TV = 'This may still be playing on a TV.';
   var LOST_LINES = {
     tv: 'It may be off, asleep or away from its browser. If it comes back within 2 minutes, it carries on by itself.',
-    older: 'It may be off or away from the network. If it answers within 2 minutes, you can go on from here.',
     way: 'It may be off or away from the network. If it comes back within 2 minutes, it carries on by itself.',
     quiet: 'It’s back, but hasn’t said what it plays. If it does within 10 minutes, it carries on by itself.',
   };
-  var BAD_FILE = 'Its picture is in a form older TVs refuse, and converting it failed. Try another TV, or watch here.';
   var NOTE_QUALITY = 'TVs get up to 1080p, in a form every TV can play. 4K and HDR stay on this device. Changing quality restarts the picture where you are.';
   var NOTE_SUBTITLES = 'On a TV the subtitles are drawn into the picture. Changing them restarts the picture where you are; it takes a few seconds.';
   var CAST_URL = '/api/cast/stream';
@@ -4158,7 +4156,7 @@
       return;
     }
     restHere();
-    showOver(tv.kind === 'older' ? 'older' : 'tv', tv, tv.name, why);
+    showOver('tv', tv, tv.name, why);
   }
 
   /* ---- no longer answering, and over ---- */
@@ -4179,7 +4177,7 @@
   /* While it may come back. */
   function showLost(on) {
     var tv = onTv() ? away.tv : null;
-    var line = on ? LOST_LINES[!tv ? (away.play.quiet ? 'quiet' : 'way') : tv.kind === 'older' ? 'older' : 'tv'] : '';
+    var line = on ? LOST_LINES[!tv ? (away.play.quiet ? 'quiet' : 'way') : 'tv'] : '';
     if (on === lostShown) {
       /* Back but silent, or gone again: the same card, with the words that are true now. */
       if (on && line !== lostLine && els.messageLine.textContent === lostLine) els.messageLine.textContent = lostLine = line;
@@ -4202,11 +4200,9 @@
     var way = kind === 'way';
     var lines = {
       lost: [name + ' stopped answering', way ? 'It was off or away from the network for 2 minutes, so it stopped' + after + '.'
-        : kind === 'older' ? 'It didn’t answer for 2 minutes, so it stopped' + after + '.'
-          : 'It was off, asleep or away from its browser for 2 minutes, so it stopped' + after + '.'],
-      taken: ['Someone else is using ' + name, (way || kind === 'older' ? 'They started something on it, and yours stopped' : 'They paired it, and yours stopped') + after + '.'],
-      unpaired: kind === 'older' ? [name + ' can’t be used now', 'An admin removed it or turned older TVs off. Yours stopped' + after + '.']
-        : [name + ' was unpaired', 'It was unpaired in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
+        : 'It was off, asleep or away from its browser for 2 minutes, so it stopped' + after + '.'],
+      taken: ['Someone else is using ' + name, (way ? 'They started something on it, and yours stopped' : 'They paired it, and yours stopped') + after + '.'],
+      unpaired: [name + ' was unpaired', 'It was unpaired in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
       moved: ['You’re watching on another device', 'It goes on there, so ' + name + ' stopped' + after + '.'],
       still: [name + ' stopped by itself', 'Nobody answered, so it stopped' + after + '.'],
       silent: [name + ' stopped answering', 'It came back, but said nothing of what it plays for 10 minutes. It may still be playing there.'],
@@ -4356,7 +4352,7 @@
     setText(els.awayOn, says + awayName());
     var hint = 'You can lock or close this device. The TV carries on.';
     if (lost || over) hint = position() || anew === null ? 'Your place is saved at ' + fmt(position()) + '.' : 'Your place is kept.';
-    else if (failed) hint = tv && tv.kind === 'older' && tv.play.error === 'tv' ? BAD_FILE : 'Your place is kept.';
+    else if (failed) hint = 'Your place is kept.';
     else if (begins) hint = 'Starting. This can take a few seconds.';
     else if (ended && upnextOpen()) hint = autoplay && countdownTimer !== null ? (away.play && away.play.carriesOn ? 'The next episode starts by itself, even if you leave this page.' : 'Keep this page open for the next episode.') : awayName() + ' waits for you to choose.';
     else if (ended) hint = awayName() + ' is ready for something else.';

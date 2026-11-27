@@ -763,7 +763,7 @@ async function restedOnBar(p, move) {
 
 const LIVING = { id: 5, kind: 'page', name: 'Living room', on: true, last_seen_at: null, play: null, last: null };
 const BEDROOM = { id: 6, kind: 'page', name: 'Bedroom TV', on: false, last_seen_at: null, play: null, last: null };
-const KITCHEN = { id: 7, kind: 'older', name: 'Kitchen TV', on: true, busy: true, last_seen_at: null, play: null, last: null };
+const KITCHEN = { id: 7, kind: 'page', name: 'Kitchen TV', on: true, busy: true, last_seen_at: null, play: null, last: null };
 const SUBS = [{ id: '31', label: 'English', selected: true }, { id: '32', label: 'Polski', selected: false }];
 
 /* The TVs, streams for TVs, AirPlay and a way such as Google Cast, as *mode* has them. */
@@ -5618,7 +5618,7 @@ const scenarios = {
     await openSheet(p);
     await pickRow(p, 'tv-5');
     const play = { play_id: 'p1', rating_key: '501', state: 'playing', position_s: 40 };
-    let say = { tv: Object.assign({}, LIVING, { on: false, lost_s: 12, play: play, kind: /older/.test(how) ? 'older' : 'page' }) };
+    let say = { tv: Object.assign({}, LIVING, { on: false, lost_s: 12, play: play, kind: 'page' }) };
     p.elsewhere.tv = () => Promise.resolve(say);
     p.tick(6000);
     await settle();
@@ -5650,7 +5650,7 @@ const scenarios = {
     await streamPlays(p, 30);
     await openSheet(p);
     await pickRow(p, 'tv-5');
-    p.elsewhere.tv = () => Promise.resolve({ tv: Object.assign({}, LIVING, { kind: p.win.serverPlays, play: { rating_key: '501', state: 'failed', error: 'tv' } }) });
+    p.elsewhere.tv = () => Promise.resolve({ tv: Object.assign({}, LIVING, { kind: 'page', play: { rating_key: '501', state: 'failed', error: 'tv' } }) });
     p.tick(6000);
     await settle();
     return awayState(p);

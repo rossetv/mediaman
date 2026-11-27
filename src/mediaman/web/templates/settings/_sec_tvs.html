@@ -1,73 +1,48 @@
-{# TVs & Casting — every TV, older ones added by address, and the addresses TVs use. #}
+{# TVs & Casting — the paired TVs, Chromecast, and what each way needs. #}
 {% import "_components.html" as c %}
 
-{% call c.setg_block("setg-tvs", "TVs & Casting", "Where people can play, besides the device in their hand") %}
+{% call c.setg_block("setg-tvs", "TVs & Casting", "Other screens people can play on.") %}
 
-  {% set tv_actions %}
-    <button type="button" class="btn btn--primary btn--sm" id="btn-add-tv" aria-expanded="false" aria-controls="tv-add">{{ c.icon("i-plus") }}Add an older TV</button>
-  {% endset %}
-  {% call c.setg_card(title="TVs", sub="Every paired TV, and the older ones you added.", header_actions=tv_actions) %}
-    <div id="tv-list-wrap"><div class="tv-empty">Loading…</div></div>
-    <div class="tv-add" id="tv-add" hidden></div>
-  {% endcall %}
-
-  {% call c.setg_card(title="Older TVs") %}
-    {% set older_on = settings.get('older_tvs_enabled', False) in (True, 'true') %}
-    {% call c.setg_row("Allow older TVs", "Lets people play on TVs from before AirPlay and Chromecast, added by their address. When off, mediaman contacts none of them.") %}
-      <span class="tog {% if older_on %}on{% endif %}" role="switch" tabindex="0" aria-label="Allow older TVs"
-            data-toggle data-target="older_tvs_enabled" aria-checked="{{ 'true' if older_on else 'false' }}"></span>
-      <input type="hidden" id="older_tvs_enabled" value="{{ 'true' if older_on else 'false' }}">
-    {% endcall %}
-    {% set http_on = settings.get('older_tvs_http', False) in (True, 'true') %}
-    {% call c.setg_row("Plain http for older TVs", "Most of them can’t use https. With it on, others on your home network could see what those TVs fetch.") %}
-      <span class="tog {% if http_on %}on{% endif %}" role="switch" tabindex="0" aria-label="Plain http for older TVs"
-            data-toggle data-target="older_tvs_http" aria-checked="{{ 'true' if http_on else 'false' }}"></span>
-      <input type="hidden" id="older_tvs_http" value="{{ 'true' if http_on else 'false' }}">
+  {% call c.setg_card(title="Paired TVs") %}
+    <div id="tv-list-wrap" tabindex="-1"><div class="tv-empty">Loading…</div></div>
+    {% call c.setg_row("To pair a TV", "Type this into the TV’s browser.") %}
+      {% set base = (settings.get('base_url', '') or '')|string %}
+      <span class="tv-pair-at">{% if base %}{{ base.split('://')[-1].rstrip('/') }}/tv{% else %}Set a Base URL first{% endif %}</span>
     {% endcall %}
   {% endcall %}
 
   {% call c.setg_card(title="Chromecast") %}
     {% set cast_on = settings.get('google_cast_enabled', False) in (True, 'true') %}
-    {% call c.setg_row("Allow Chromecast", "When off, mediaman loads nothing from Google. AirPlay and paired TVs don’t need this.") %}
-      <span class="tog {% if cast_on %}on{% endif %}" role="switch" tabindex="0" aria-label="Allow Chromecast"
-            aria-describedby="cast-lets" data-toggle data-target="google_cast_enabled" aria-checked="{{ 'true' if cast_on else 'false' }}"></span>
-      <input type="hidden" id="google_cast_enabled" value="{{ 'true' if cast_on else 'false' }}">
-    {% endcall %}
-    <div class="setg-row tv-lets" id="cast-lets">
+    {# Hand-made rather than setg_row: the fold comes after the switch, so on a phone the switch stays by its words. #}
+    <div class="setg-row">
       <div>
-        <div class="setg-row-lbl"><span class="tv-lets-off">What turning it on lets in:</span><span class="tv-lets-on">On. What this lets in:</span></div>
-        <ul>
-          <li>Scripts from Google (gstatic.com) run inside mediaman. They can see and do all that the person signed in there can.</li>
-          <li>They load when someone opens Play on in Chrome, Edge or another browser built on Chromium, and while a Chromecast plays. Not on Settings, Profile, History or sign-in.</li>
-          <li>Google sees that person’s internet address, and the address they open mediaman at.</li>
-          <li>Google’s player on the TV gets the film’s title and a ticket for that one film. It never gets anyone’s sign-in.</li>
-          <li>Turning it off stops no Chromecast that is playing. Stop it there first.</li>
-        </ul>
+        <div class="setg-row-lbl">Allow Chromecast</div>
+        <div class="setg-row-sub">Loads Google’s cast scripts.</div>
       </div>
+      <div>
+        <span class="tog {% if cast_on %}on{% endif %}" role="switch" tabindex="0" aria-label="Allow Chromecast"
+              aria-describedby="cast-lets" data-toggle data-target="google_cast_enabled" aria-checked="{{ 'true' if cast_on else 'false' }}"></span>
+        <input type="hidden" id="google_cast_enabled" value="{{ 'true' if cast_on else 'false' }}">
+      </div>
+      <details class="setg-row-sub fold-more tv-fold" id="cast-more">
+        <summary id="cast-more-toggle">What this lets in {{ c.icon("i-chevron-down") }}</summary>
+        <ul class="fold-more-list" id="cast-lets">
+          <li>Google’s scripts (gstatic.com) run inside mediaman, with the signed-in person’s access.</li>
+          <li>Only in Play on, in Chrome, Edge and other Chromium browsers, and while casting.</li>
+          <li>Google sees each viewer’s internet address and mediaman’s address.</li>
+          <li>The TV gets the title and a ticket for that one film, never a sign-in.</li>
+          <li>Turning it off doesn’t stop a cast already playing.</li>
+        </ul>
+      </details>
     </div>
-  {% endcall %}
-
-  {% call c.setg_card(title="Addresses") %}
-    {% call c.setg_row("To pair a TV", "What people type into the TV’s browser. It follows your Base URL.") %}
-      {% set base = (settings.get('base_url', '') or '')|string %}
-      <span class="tv-pair-at">{% if base %}{{ base.split('://')[-1].rstrip('/') }}/tv{% else %}Set a Base URL first{% endif %}</span>
-    {% endcall %}
-    {% call c.setg_row("Address TVs use", "<span id=\"tv-address-hint\">Older TVs fetch films from here: this server’s home address or its name, such as http://nas.local:8282. A name or address on the internet needs https://, and many older TVs can’t use it.</span>") %}
-      <input class="inp inp--fluid" type="text" id="tv_address" size="30" aria-label="Address TVs use"
-             aria-describedby="tv-address-hint" inputmode="url" autocomplete="off" spellcheck="false"
-             value="{{ settings.get('tv_address', '') }}" placeholder="http://192.168.1.10:8282">
-    {% endcall %}
   {% endcall %}
 
   {% call c.setg_card(title="What each way needs") %}
-    <div class="setg-row tv-lets" id="tv-needs">
-      <ul>
-        <li><b>A paired TV:</b> a web browser on the TV that can open the address to pair it at.</li>
-        <li><b>AirPlay:</b> Safari on an iPhone, iPad or Mac, and a TV that can open the address mediaman is open at.</li>
-        <li><b>Chromecast:</b> mediaman opened over https, in Chrome, Edge or another browser built on Chromium, on a computer or an Android device, and a TV that can open that address. Other browsers show nothing of it.</li>
-        <li><b>An older TV:</b> Allow older TVs on, and an Address TVs use: this server’s home address or its name with http://, such as http://nas.local:8282, which needs Plain http on too. A home name is one word, or ends in .local, .lan, .home.arpa or .internal. A name or address on the internet needs https://, and many older TVs can’t use it. Where MEDIAMAN_ALLOWED_HOSTS is set, it must hold that address’s host. An IPv6 address goes in square brackets there, such as [fd00::10].</li>
-      </ul>
-    </div>
+    <ul class="tv-needs" id="tv-needs">
+      <li class="setg-row"><div><div class="setg-row-lbl">Paired TV</div><div class="setg-row-sub">A browser on the TV.</div></div></li>
+      <li class="setg-row"><div><div class="setg-row-lbl">AirPlay</div><div class="setg-row-sub">Safari on iPhone, iPad or Mac.</div></div></li>
+      <li class="setg-row"><div><div class="setg-row-lbl">Chromecast</div><div class="setg-row-sub">Chrome or Edge, over https.</div></div></li>
+    </ul>
   {% endcall %}
 
 {% endcall %}
