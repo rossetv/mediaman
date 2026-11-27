@@ -85,11 +85,6 @@ def test_a_saved_key_ends_the_need_and_a_new_key_ends_the_refusal() -> None:
     assert out["keyCleared"] == {"open": True, "text": NEEDS}
 
 
-def test_the_link_opens_the_openai_card_and_moves_there() -> None:
-    out = _run("link")
-    assert out == {"prevented": True, "opened": 1, "focus": "openai-fold", "scrolled": True}
-
-
 def test_a_passing_openai_test_takes_the_refused_line_away_and_a_failing_one_keeps_it() -> None:
     out = _run("tested")
     assert out["passed"]["open"] is False

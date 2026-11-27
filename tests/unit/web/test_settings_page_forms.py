@@ -45,8 +45,8 @@ class _Page(HTMLParser):
             self.forms[self._form].append(a.get("id"))
         elif tag == "input" and a.get("type") == "password" and a.get("autocomplete") != "off":
             self.passwords.append(a)
-        elif tag == "a" and "setg-rail-item" in classes:
-            self._rail_link = a["href"]
+        elif tag == "a" and "stx-link" in classes:
+            self._rail_link = a["data-sec"]
             self.rail[self._rail_link] = []
         elif tag == "span" and self._rail_link:
             self.rail[self._rail_link].append(" ".join(classes))
@@ -114,11 +114,11 @@ def test_the_newsletter_message_is_announced(settings_html):
     assert re.search(r'id="newsletter-send-status" role="status"', settings_html)
 
 
-def test_integrations_rail_item_carries_no_fixed_count(settings_html):
+def test_integrations_list_row_carries_no_fixed_count(settings_html):
     rail = _parse(settings_html).rail
 
-    assert "#setg-integrations" in rail
-    assert [c for c in rail["#setg-integrations"] if "rail-count" in c] == []
+    assert "integrations" in rail
+    assert [c for c in rail["integrations"] if "stx-badge" in c] == []
 
 
 def test_a_stored_model_outside_the_list_is_shown_not_swapped_for_the_first(

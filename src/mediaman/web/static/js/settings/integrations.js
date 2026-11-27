@@ -8,7 +8,7 @@
  *   - Plex library sync button (#btn-sync-library), with the server's reason on failure
  *   - Refresh of the shared picks (#btn-refresh-picks), with how long until the next
  *   - The line by the AI switch (#setg-ai-need): a key to save, or the one OpenAI refused
- *   - Rail badge counting the services whose check failed
+ *   - The section list's badge counting the services whose check failed
  *
  * Cross-module dependencies:
  *   MM.api  (core/api.js)
@@ -19,7 +19,7 @@
  * Exposes:
  *   MM.settings.integrations.init()
  *   MM.settings.integrations.setConnStatus(service, tone, label)
- *   MM.settings.integrations.paintRailCount()
+ *   MM.settings.integrations.paintListCount()
  *   MM.settings.integrations.paintTests()   — called by savebar.js
  *   MM.settings.integrations.recheck(keys, values) — called by savebar.js: the settings just stored
  */
@@ -60,7 +60,7 @@
   }
 
   // A throttled service is not a disconnected one, so a 429 gets the
-  // warning tone, which the rail badge does not count. Returns the label.
+  // warning tone, which the list's badge does not count. Returns the label.
   function setFailedStatus(service, err) {
     var label = (err && err.status === 429)
       ? 'Rate limited'
@@ -164,7 +164,8 @@
       drawPicks();
       if (err.status === 403) window.UIFeedback.error('You are no longer signed in as an admin.');
     } else {
-      window.location.href = '/login?next=%2Fsettings' + (window.location.hash || '');
+      var here = window.location.pathname + (window.location.search || '');
+      window.location.href = '/login?next=' + encodeURIComponent(here) + (window.location.hash || '');
     }
     return true;
   }
@@ -266,16 +267,6 @@
     text.append(need === 'refused' ? 'OpenAI refused the key. Check it in the ' : 'Needs an ', link, '.');
   }
 
-  function goToOpenAi() {
-    var card = document.getElementById('intg-openai');
-    var fold = card && card.querySelector('.intg-fold');
-    if (!fold) return;
-    if (card.classList.contains('is-collapsed')) fold.click();
-    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    card.scrollIntoView({ block: 'start', behavior: still ? 'auto' : 'smooth' });
-    fold.focus({ preventScroll: true });
-  }
-
   function startAiNeed() {
     var line = aiLine();
     if (!line) return;
@@ -284,13 +275,9 @@
     // On the document, so the switch has flipped by the time the line is drawn.
     ['click', 'keydown'].forEach(function (type) {
       document.addEventListener(type, function (e) {
+        if (MM.you && !MM.you.shown('settings')) return;
         if (e.target && e.target.closest && e.target.closest('[data-target="suggestions_enabled"]')) drawAiNeed();
       });
-    });
-    line.addEventListener('click', function (e) {
-      if (!e.target.closest('a[href="#intg-openai"]')) return;
-      e.preventDefault();
-      goToOpenAi();
     });
   }
 
@@ -316,7 +303,7 @@
         var stEl = el.querySelector('[data-ov-status]');
         if (stEl) stEl.textContent = label;
       });
-      MM.settings.integrations.paintRailCount();
+      MM.settings.integrations.paintListCount();
       // OpenAI took the saved key, which the server has forgotten refusing.
       if (service === 'openai' && tone === 'ok' && aiRefused) {
         aiRefused = false;
@@ -324,11 +311,11 @@
       }
     },
 
-    paintRailCount: function () {
-      var item = document.querySelector('.setg-rail-item[href="#setg-integrations"]');
+    paintListCount: function () {
+      var item = document.querySelector('.stx-link[data-sec="integrations"]');
       if (!item) return;
       var failed = document.querySelectorAll('[data-conn].err').length;
-      var badge = item.querySelector('.rail-count');
+      var badge = item.querySelector('.stx-badge');
       if (!failed) {
         if (badge) badge.remove();
         item.removeAttribute('aria-label');
@@ -336,8 +323,8 @@
       }
       if (!badge) {
         badge = document.createElement('span');
-        badge.className = 'rail-count err';
-        item.appendChild(badge);
+        badge.className = 'stx-badge';
+        item.insertBefore(badge, item.querySelector('.stx-link__chev'));
       }
       badge.textContent = String(failed);
       item.setAttribute('aria-label', 'Integrations, ' + failed + ' not connected');

@@ -36,17 +36,15 @@ def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
     assert margin and int(margin.group(1)) >= 13
 
 
-def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
-    css = (CSS / "_settings_pg.css").read_text()
-
-    bar = re.search(r"html\.has-savebar \{([^{}]*)\}", css)
-    assert bar and "--savebar-below: 0px" in bar.group(1)
-    assert "scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--savebar-below)" in bar.group(
-        1
-    )
-    # no other rule sets it to a size of its own
-    assert css.count("scroll-padding-bottom") == 1
-    assert "var(--foot)" not in css
+def test_the_save_bar_takes_its_own_room_under_the_sections_and_covers_none_of_them() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    pane = _declarations('.you-view[data-view="settings"]', css)
+    assert "display: flex" in pane and "flex-direction: column" in pane
+    assert "flex: 1" in _declarations(".setg-pg.stx", css)
+    bar = _declarations(".stx-save", css)
+    assert "flex: none" in bar and "position" not in bar
+    assert "overflow-y: auto" in _declarations(".stx__body", css)
+    assert "scroll-padding-bottom" not in css and "var(--foot)" not in css
 
 
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
@@ -119,21 +117,18 @@ def _phone_block_with(selector: str) -> str:
     raise AssertionError(f"no phone block holds {selector}")
 
 
-def test_save_error_stays_visible_on_phones() -> None:
-    phone = _phone_block_with(".setg-pg .savebar.is-error .sb-sub")
-    assert ".setg-pg .savebar:not(.is-error) .sb-sub" in phone
-    assert ".setg-pg .savebar .btn { min-height: 44px; }" in phone
+def test_save_bar_buttons_are_a_finger_tall_on_phones() -> None:
+    phone = _phone_block_with(".stx-save .btn")
+    assert ".stx-save .btn { min-height: 44px; }" in phone
 
 
-def test_save_bar_caption_is_never_taken_out_of_reach_of_a_screen_reader_on_phones() -> None:
-    phone = _phone_block_with(".setg-pg .savebar.is-error .sb-sub")
-    assert "display: none" not in phone
-    partial = re.findall(r"([^{}]*\.savebar\.is-partial \.sb-sub[^{}]*)\{([^{}]*)\}", phone)
-    # the notice that newer edits are unsaved is shown, after and over the rule that folds captions away
-    assert any("position: static" in body and "clip-path: none" in body for _, body in partial)
-    assert phone.index("clip-path: inset(50%)") < phone.index("clip-path: none")
+def test_a_save_error_or_what_a_save_left_out_wraps_whole_and_is_never_hidden() -> None:
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
-    assert not re.search(r"\.savebar \.sb-sub \{\s*display: none", css)
+    for state in ("is-error", "is-partial"):
+        assert "white-space: normal" in _declarations(f".stx-save.{state} #save-status", css)
+    for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        if "#save-status" in head and ":empty" not in head:
+            assert "display: none" not in body, head
 
 
 def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
@@ -143,12 +138,12 @@ def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
     for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block):
         for part in head.split(","):
             rules[part.strip()] = rules.get(part.strip(), "") + body
-    for dot in (".conn-dot", ".sb-dot", ".chip-dot"):
-        assert "forced-color-adjust: none" in rules[f".setg-pg {dot}"]
-        assert "solid CanvasText" in rules[f".setg-pg {dot}"]
+    for dot in (".setg-pg .conn-dot", ".stx-save__dot", ".setg-pg .chip-dot"):
+        assert "forced-color-adjust: none" in rules[dot]
+        assert "solid CanvasText" in rules[dot]
     for bar in (".ov-storage .bar span", ".lp-bar2 span"):
         assert "forced-color-adjust: none" in rules[f".setg-pg {bar}"]
-    assert "background: Highlight" in rules[".setg-pg .setg-rail-item.on"]
+    assert "background: Highlight" in rules[".stx-link[aria-current]"]
 
 
 def test_a_selected_library_shows_in_forced_colours() -> None:
@@ -173,7 +168,7 @@ def test_touch_screens_of_any_width_get_the_phone_targets() -> None:
         ("_settings_pg_panels.css", (".btn--sm", ".link-danger")),
         (
             "_settings_pg.css",
-            (".setg-rail-item", ".inp", ".lib-pill", ".fpill", ".reauth-actions .btn"),
+            (".inp", ".lib-pill", ".fpill", ".reauth-actions .btn"),
         ),
         ("_settings.css", (".btn-test",)),
     ):
@@ -217,13 +212,10 @@ def test_the_browsers_own_field_parts_are_drawn_for_a_dark_page() -> None:
     assert page and "color-scheme: dark" in page.group(1)
 
 
-def test_scrolled_into_view_controls_clear_the_sticky_bars() -> None:
-    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
-    rules = re.findall(r"html\.has-setg-pg\s*\{([^{}]*)\}", css)
-    assert len(rules) == 2
-    assert all("scroll-padding-top" in body for body in rules)
-    # the phone rule reaches past the top bar and the chip strip (65 px)
-    assert "var(--nav-h) + 65px" in rules[1]
+def test_no_rule_is_keyed_to_the_full_page_classes_nothing_sets_any_more() -> None:
+    css = (CSS / "_settings_pg.css").read_text() + PANELS
+    for gone in ("has-setg-pg", "has-setg-rail", "has-savebar", "--savebar-h", ".setg-rail"):
+        assert gone not in css, gone
 
 
 def test_blocks_add_no_scroll_margin_on_top_of_the_page_scroll_padding() -> None:
