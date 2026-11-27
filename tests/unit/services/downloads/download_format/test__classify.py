@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 import pytest
@@ -149,15 +150,41 @@ class TestClassifySeriesUpcoming:
         is_up, _label = classify_series_upcoming(self._series(status="continuing"), eps)
         assert is_up is False
 
-    def test_episodes_with_bad_dates_counted_in_unknown_bucket(self, caplog):
-        """Episodes with unparseable airDateUtc should not raise — just log."""
-        eps = [{"airDateUtc": "not-a-date"}]
-        import logging
+    def test_unparseable_airdateutc_does_not_drop_episode(self):
+        """A malformed airDateUtc goes into the unknown bucket; the parseable
+        episodes still decide the classification."""
+        eps = [{"airDateUtc": "not-a-date"}, {"airDateUtc": "2099-01-01T00:00:00Z"}]
+        is_up, label = classify_series_upcoming(self._series(status="upcoming"), eps)
+        assert is_up is True
+        assert "Premieres" in label
 
-        with caplog.at_level(logging.DEBUG):
-            is_up, _label = classify_series_upcoming(self._series(status="upcoming"), eps)
-        # Classification should still work
-        assert isinstance(is_up, bool)
+    def test_all_unparseable_airdates_fallback_to_status(self):
+        eps = [{"airDateUtc": "garbage"}, {"airDateUtc": ""}]
+        is_up, label = classify_series_upcoming(self._series(status="upcoming"), eps)
+        assert is_up is True
+        assert label == "Not yet aired"
+
+    def test_missing_airdateutc_key_counted_as_unknown(self):
+        eps = [{}, {"airDateUtc": "2099-01-01T00:00:00Z"}]
+        is_up, _label = classify_series_upcoming(self._series(status="upcoming"), eps)
+        assert is_up is True
+
+    def test_not_upcoming_when_has_aired_episodes_beside_unknown_ones(self):
+        eps = [{"airDateUtc": "2020-01-01T00:00:00Z"}, {"airDateUtc": "not-a-date"}]
+        is_up, _label = classify_series_upcoming(self._series(status="continuing"), eps)
+        assert is_up is False
+
+    def test_unparseable_airdateutc_logged(self, caplog):
+        eps = [{"airDateUtc": "not-a-valid-date"}]
+        with caplog.at_level(logging.DEBUG, logger="mediaman"):
+            classify_series_upcoming(self._series(status="continuing"), eps)
+        assert "unknown_airdate_count" in caplog.text
+
+    def test_no_log_when_all_dates_valid(self, caplog):
+        eps = [{"airDateUtc": "2099-06-01T00:00:00Z"}]
+        with caplog.at_level(logging.DEBUG, logger="mediaman"):
+            classify_series_upcoming(self._series(status="continuing"), eps)
+        assert "unknown_airdate_count" not in caplog.text
 
 
 class TestMapState:

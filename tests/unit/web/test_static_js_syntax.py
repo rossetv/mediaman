@@ -16,7 +16,6 @@ check as a subprocess-spawn error.
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -28,10 +27,6 @@ JS_DIR = REPO / "src/mediaman/web/static/js"
 
 def _js_files() -> list[Path]:
     return sorted(JS_DIR.rglob("*.js"))
-
-
-def test_node_is_on_path() -> None:
-    assert shutil.which("node") is not None, "no `node` binary found on PATH — install Node.js"
 
 
 def test_static_js_files_found() -> None:

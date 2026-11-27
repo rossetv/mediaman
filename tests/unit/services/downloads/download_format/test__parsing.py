@@ -55,6 +55,15 @@ class TestParseCleanTitle:
     def test_webdl_token_stripped(self):
         assert parse_clean_title("Succession.S04E09.WEB-DL.1080p") == "Succession"
 
+    def test_resolution_4k_stripped(self):
+        assert parse_clean_title("Avatar.2009.4K.HDR.HEVC") == "Avatar"
+
+    def test_webrip_stripped(self):
+        assert parse_clean_title("Andor.S01.WEBRip.x265") == "Andor"
+
+    def test_trailing_year_stripped(self):
+        assert parse_clean_title("Inception.2010") == "Inception"
+
     def test_hevc_stripped(self):
         """HEVC codec token is stripped; year token is also stripped by the parser."""
         assert parse_clean_title("Dune.HEVC.x265") == "Dune"
