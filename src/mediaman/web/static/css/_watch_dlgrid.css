@@ -205,6 +205,21 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   .dwx--small .dwx__act .ico { font-size: 13px; }
 }
 
+/* ── What holds a card's place until the first answer: the card's box, its top and its band ── */
+
+.dlg-skel { position: relative; display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-lg); background: var(--s1); outline: 1px solid var(--hair); outline-offset: -1px; pointer-events: none; }
+.dlg-skel.is-flyer { z-index: 5; will-change: transform, clip-path; }
+.dlg-skel__top { display: flex; align-items: center; gap: 14px; min-height: 104px; padding: 12px 16px 14px 12px; background: var(--s2); }
+.dlg-skel .skel { flex: none; }
+.dlg-skel__top .skel { background: var(--s3); }
+.dlg-skel__poster { width: 52px; height: 78px; border-radius: var(--r-xs); }
+.dlg-skel__words { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 0; }
+.dlg-skel__words > .skel { width: 64%; height: 12px; }
+.dlg-skel__words > .skel + .skel { width: 40%; height: 10px; }
+.dlg-skel__more { display: flex; flex-direction: column; gap: 9px; padding: 15px 16px 17px; }
+.dlg-skel__more > .skel { width: 86%; height: 10px; }
+.dlg-skel__more > .skel + .skel { width: 52%; }
+
 /* ── The row while nothing downloads: one slim card, so Coming soon keeps a way in ── */
 
 .dw--calm .dw__link { min-height: 64px; padding: 10px 16px 10px 14px; background: var(--s1); }
@@ -216,7 +231,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dw__calm-go { flex: none; color: var(--t3); font-size: 12px; }
 
 @media (forced-colors: active) {
-  .dwx { border: 1px solid CanvasText; }
+  .dwx, .dlg-skel { border: 1px solid CanvasText; }
   .dwx__act--quiet { border: 1px solid ButtonText; }
   .dwx__ep-bar { forced-color-adjust: none; outline: 1px solid CanvasText; }
 }

@@ -383,17 +383,19 @@ def test_a_slow_answer_is_told_at_20_s_and_given_up_at_120_s_for_another(out) ->
     assert run["then"] == {"asked": 1, "note": None}
 
 
-def test_before_the_first_answer_it_says_it_is_checking_and_a_failure_says_so_at_once(
+def test_before_the_first_answer_it_holds_placeholders_and_a_failure_says_so_at_once(
     out,
 ) -> None:
     run = out["firstLoad"]
     assert run["waiting"] == {
         "busy": "true",
-        "empty": "Checking downloads…",
+        "empty": None,
+        "skels": 3,
         "note": None,
         "count": "",
     }
     assert run["down"]["busy"] == "false"
+    assert run["down"]["skels"] == 0
     assert run["down"]["empty"].startswith("Downloads can’t be checked right now")
     assert run["down"]["note"] == "Can’t reach mediaman right now."
 
@@ -432,6 +434,9 @@ def test_closed_and_opened_again_before_the_answer_it_grows_once_and_keeps_the_r
     out,
 ) -> None:
     run = out["reopenedBeforeTheAnswer"]
+    # the first asking is given up with the fold; the second grows the placeholders at once
+    assert run["again"] == {"open": True, "skels": 2, "asks": 2, "aborted": 1}
+    assert run["filled"] == {"skels": 0, "cards": 3}
     assert run["grown"] is True
     assert run["left"] == 300
     assert run["open"] is False
@@ -440,3 +445,45 @@ def test_closed_and_opened_again_before_the_answer_it_grows_once_and_keeps_the_r
 def test_a_deep_link_focuses_the_heading_with_no_ring_and_a_press_with_one(out) -> None:
     assert out["deepLink"]["quiet"] is True
     assert out["opensFromTheRow"]["quiet"] is False
+
+
+def test_with_no_answer_yet_a_tap_sets_the_address_and_grows_into_placeholders_at_once(
+    out,
+) -> None:
+    run = out["growsBeforeTheAnswer"]
+    assert run["tapped"]["at"] == "/?dl=1"
+    assert run["tapped"]["open"] is True
+    assert run["tapped"]["skels"] > 0
+    assert run["tapped"]["busy"] == "true"
+    assert run["tapped"]["empty"] is True
+    assert run["rising"] > 0
+    assert run["grown"] == {
+        "rowsAway": True,
+        "skels": run["tapped"]["skels"],
+        "on": "watch-dl-title",
+    }
+
+
+def test_the_answer_replaces_the_placeholders_and_its_cards_fade_in(out) -> None:
+    run = out["growsBeforeTheAnswer"]
+    assert run["filled"] == {"skels": 0, "cards": 3, "busy": "false"}
+    assert run["fades"] > 0
+
+
+def test_placeholders_give_way_to_the_outage_header_on_a_failure_and_on_a_hang(out) -> None:
+    run = out["skeletonThenOutage"]
+    assert run["down"]["first"] > 0
+    assert run["down"]["then"]["skels"] == 0
+    assert run["down"]["then"]["empty"].startswith("Downloads can’t be checked right now")
+    assert run["hung"]["waiting"] == {"skels": run["down"]["first"], "empty": None, "note": None}
+    assert run["hung"]["late"]["skels"] == 0
+    assert run["hung"]["late"]["empty"].startswith("Downloads can’t be checked right now")
+    assert run["hung"]["late"]["note"] == "Can’t reach mediaman right now."
+    assert run["hung"]["aborted"] == 1
+    assert run["hung"]["then"]["skels"] == 0
+
+
+def test_with_reduced_motion_the_placeholders_show_at_once_and_the_answer_lands_still(out) -> None:
+    run = out["reducedBeforeTheAnswer"]
+    assert run == {"open": True, "skels": run["skels"], "moved": 0, "cards": 3}
+    assert run["skels"] > 0

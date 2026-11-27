@@ -57,11 +57,11 @@
   var request = null; // the asking under way
   var cards = {}; // by key: the card node
   var heads = {}; // by group: its heading
+  var skels = null; // the cards that hold the grid's place until the first answer
   var timer = null;
   var asked = 0; // which asking is the current one
   var opener = null;
   var tapped = false; // opened by a tap or a click, not a key: its heading takes no ring
-  var opens = 0; // which opening is the current one
   var savedY = 0;
   var lefts = []; // how far each row was scrolled when the grid took the page
   var moving = null; // ends the motion under way
@@ -415,8 +415,7 @@
   }
 
   function emptyOf(data, items) {
-    if (items.length) return null;
-    if (!data && !lost) return ['i-download', 'Checking downloads…', ''];
+    if (items.length || (!data && !lost)) return null;
     if (data && !setUpIn(data)) {
       return admin ? ['i-download', 'Downloads aren’t set up', 'Connect Radarr or Sonarr in ', 'Settings']
         : ['i-download', 'Downloads aren’t set up', 'Ask whoever runs mediaman to set it up.'];
@@ -451,12 +450,35 @@
     }
   }
 
+  /* Shaped as the cards they stand for, as many as the row shows. */
+  function skeletons() {
+    if (skels) return skels;
+    var n = Math.min(watch.downloading.items().length || 3, 6);
+    skels = [];
+    for (var i = 0; i < n; i++) {
+      var card = el('div', 'dlg-skel');
+      card.setAttribute('aria-hidden', 'true');
+      var top = card.appendChild(el('div', 'dlg-skel__top'));
+      top.appendChild(el('span', 'skel dlg-skel__poster'));
+      var words = top.appendChild(el('span', 'dlg-skel__words'));
+      words.appendChild(el('span', 'skel skel--line'));
+      words.appendChild(el('span', 'skel skel--line'));
+      var more = card.appendChild(el('div', 'dlg-skel__more'));
+      more.appendChild(el('span', 'skel skel--line'));
+      more.appendChild(el('span', 'skel skel--line'));
+      skels.push(card);
+    }
+    return skels;
+  }
+
   function draw() {
     build();
     var data = last;
     var items = data ? (data.hero ? [data.hero] : []).concat(data.queue || []) : [];
     var upcoming = data && setUpIn(data) ? data.upcoming || [] : [];
-    dom.body.setAttribute('aria-busy', data || lost ? 'false' : 'true');
+    var waiting = !data && !lost;
+    var held = !!skels && !!skels[0].parentNode;
+    dom.body.setAttribute('aria-busy', waiting ? 'true' : 'false');
     setText(dom.count, data ? wordsOf(data, items) : '');
     var note = noteOf(data, items);
     if (note) setText(dom.noteText, note);
@@ -465,12 +487,18 @@
     var groups = { attention: [], coming: [], looking: [], soon: [] };
     items.forEach(function (item) { groups[groupOf(item)].push(cardOf(item, items)); });
     upcoming.forEach(function (item) { groups.soon.push(soonCardOf(item)); });
-    var want = [];
+    var want = waiting ? skeletons() : [];
     GROUPS.forEach(function (g) {
       if (groups[g[0]].length) want.push(headOf(g[0], g[1], groups[g[0]].length));
       want = want.concat(groups[g[0]]);
     });
     place(want);
+    if (held && !waiting && !core.reduceMotion()) {
+      var fade = { duration: core.tokenMs('--dur', 200), easing: ease() };
+      toArray(dom.grid.children).concat(dom.empty.hidden ? [] : [dom.empty]).forEach(function (n) {
+        animate(n, [{ opacity: 0 }, { opacity: 1 }], fade);
+      });
+    }
   }
 
   /* The grid's nodes in the order of *want*, moving only those out of place; those gone pass
@@ -710,6 +738,13 @@
     sides.up.forEach(function (n) { anims.push(animate(n, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-' + FALL_UP + 'px)' }], fall)); });
     sides.down.forEach(function (n) { anims.push(animate(n, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(' + FALL_DOWN + 'px)' }], fall)); });
     var to = gridCards();
+    // Placeholders have no titles: each grows out of the row's card in its place.
+    if (skels && skels[0].parentNode) {
+      Object.keys(from).forEach(function (k, n) {
+        var r = skels[n] && skels[n].getBoundingClientRect();
+        if (r && onScreen(r)) to[k] = { node: skels[n], r: r };
+      });
+    }
     var paired = {};
     Object.keys(to).forEach(function (k) { if (from[k]) paired[k] = true; });
     if (sides.slot) {
@@ -864,25 +899,15 @@
     failures = 0;
     opener = from || null;
     savedY = window.scrollY;
-    var growing = how === 'push' && inRow(from) && !core.reduceMotion();
-    if (!growing) {
-      fadeIn(how);
-      draw();
-      ask();
-      return;
-    }
-    var mine = ++opens;
-    var go = function () {
-      // A fold and an open since: that open grows it, once.
-      if (!isOpen || mine !== opens) return;
+    // With no answer yet, it grows into placeholders the answer then fills.
+    if (how === 'push' && inRow(from) && !core.reduceMotion()) {
       draw();
       grow();
-    };
-    // The grid is laid out from what the downloads say, so it grows once they have said it.
-    if (last) {
-      go();
-      ask();
-    } else ask().then(go);
+    } else {
+      fadeIn(how);
+      draw();
+    }
+    ask();
   }
 
   function close(how) {

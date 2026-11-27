@@ -543,7 +543,7 @@ const scenarios = {
     const of = (sel) => anims.filter((a) => a.node.matches && a.node.matches(sel));
     const above = of('.watch-banner').concat(of('[data-row-id="continue"]'));
     const below = of('[data-row-id="recent"]');
-    const card = of('.dwx')[0];
+    const card = of('.dwx, .dlg-skel')[0];
     return {
       above: above.map((a) => a.frames[1].transform), below: below.map((a) => a.frames[1].transform),
       card: card && { from: card.frames[0].clipPath && card.frames[0].clipPath.startsWith('inset('), to: card.frames[1].transform, ms: card.opts.duration },
@@ -661,6 +661,7 @@ const scenarios = {
     const waiting = load({ url: '/?dl=1', strip: [strip(USUAL())], all: ['hang'] });
     await waiting.step(100);
     const of = (p) => ({ busy: p.q('#watch-dl .dlg__body').getAttribute('aria-busy'), empty: p.text(p.q('#watch-dl .dlg__empty')) || null,
+      skels: p.qa('#watch-dl .dlg-skel').length,
       note: p.q('#watch-dl .dlg__note').hidden ? null : p.text(p.q('#watch-dl .dlg__note')), count: p.text(p.q('#watch-dl .dlg__count')) });
     const down = load({ url: '/?dl=1', strip: [strip(USUAL())], all: [503] });
     await down.step(100);
@@ -695,12 +696,62 @@ const scenarios = {
     await p.back();
     p.click(p.q('#watch-downloading .row-open'));
     await p.step(10);
+    const again = { open: p.open(), skels: p.qa('#watch-dl .dlg-skel').length, asks: p.asks.all, aborted: p.aborted };
     p.answer(USUAL_ALL());
     await p.step(400);
     const grown = p.open() && p.rowsAway();
+    const filled = { skels: p.qa('#watch-dl .dlg-skel').length, cards: p.qa('#watch-dl [data-dl-card]').length };
     p.key('Escape');
     await p.step(400);
-    return { grown, left: scroller.scrollLeft, open: p.open() };
+    return { grown, again, filled, left: scroller.scrollLeft, open: p.open() };
+  },
+  // With no answer yet, a tap grows the row at once into cards that hold the grid's place.
+  async growsBeforeTheAnswer() {
+    const p = load({ strip: [strip(USUAL())], all: ['hang'] });
+    await p.step(1100);
+    const skels = () => p.qa('#watch-dl .dlg-skel').length;
+    p.click(p.q('#watch-downloading .row-open'));
+    const tapped = { at: p.at(), open: p.open(), skels: skels(), asked: p.asks.all,
+      busy: p.q('#watch-dl .dlg__body').getAttribute('aria-busy'), empty: p.q('#watch-dl .dlg__empty').hidden };
+    const rising = p.anims.filter((a) => a.node.classList.contains('dlg-skel')).length;
+    await p.step(400);
+    const grown = { rowsAway: p.rowsAway(), skels: skels(), on: p.on() };
+    const before = p.anims.length;
+    p.answer(USUAL_ALL());
+    await p.step(10);
+    const fades = p.anims.slice(before).filter((a) => a.node.matches('[data-dl-card]') && a.frames[0].opacity === 0).length;
+    const filled = { skels: skels(), cards: p.qa('#watch-dl [data-dl-card]').length, busy: p.q('#watch-dl .dlg__body').getAttribute('aria-busy') };
+    return { tapped, rising, grown, fades, filled };
+  },
+  async skeletonThenOutage() {
+    const skels = (p) => p.qa('#watch-dl .dlg-skel').length;
+    const of = (p) => ({ skels: skels(p), empty: p.text(p.q('#watch-dl .dlg__empty')) || null,
+      note: p.q('#watch-dl .dlg__note').hidden ? null : p.text(p.q('#watch-dl .dlg__note')) });
+    const down = load({ strip: [strip(USUAL())], all: [503] });
+    await down.step(1100);
+    down.click(down.q('#watch-downloading .row-open'));
+    const first = skels(down);
+    await down.step(400);
+    const hung = load({ strip: [strip(USUAL())], all: ['hang'] });
+    await hung.step(1100);
+    hung.click(hung.q('#watch-downloading .row-open'));
+    await hung.step(19000);
+    const waiting = of(hung);
+    await hung.step(1100);
+    const late = of(hung);
+    await hung.step(100000);
+    return { down: { first, then: of(down) }, hung: { waiting, late, aborted: hung.aborted, then: of(hung) } };
+  },
+  async reducedBeforeTheAnswer() {
+    const p = load({ reduced: true, strip: [strip(USUAL())], all: ['hang'] });
+    await p.step(1100);
+    p.click(p.q('#watch-downloading .row-open'));
+    const skels = p.qa('#watch-dl .dlg-skel').length;
+    await p.step(400);
+    const before = p.anims.length;
+    p.answer(USUAL_ALL());
+    await p.step(10);
+    return { open: p.open(), skels, moved: p.anims.slice(before).length, cards: p.qa('#watch-dl [data-dl-card]').length };
   },
   async artFromTheRow() {
     const p = load({ strip: [strip([row('Ember Coast'), row('Twin'), row('Twin', { key: 'radarr:Twin2' })])], all: [all([dl('Ember Coast'), dl('Twin'), dl('Twin', { id: 'radarr:Twin2' })])] });
