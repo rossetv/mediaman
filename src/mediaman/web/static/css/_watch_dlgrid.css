@@ -66,6 +66,9 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 }
 .dlg__title:focus { outline: none; }
 .dlg__title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+/* Focused as the page opened on it, with nothing pressed; and nothing carries its ring as it moves. */
+.dlg__title.is-quiet:focus-visible,
+.dlg.is-moving :focus-visible { outline: none; }
 .dlg__count { flex: none; padding: 7px 0 0 6px; font-size: 13px; color: var(--t3); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dlg__count:empty { display: none; }
 .dlg__body { padding: 8px var(--pad) calc(24px + env(safe-area-inset-bottom)); }

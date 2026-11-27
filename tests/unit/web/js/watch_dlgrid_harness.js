@@ -48,7 +48,12 @@ Node.prototype.toggleAttribute = function (k, on) {
   if (want) this.setAttribute(k, ''); else this.removeAttribute(k);
   return want;
 };
-Node.prototype.scrollLeft = 0;
+/* What takes no room has no scroll of its own to read. */
+Object.defineProperty(Node.prototype, 'scrollLeft', {
+  get() { return this.getClientRects().length ? this.scrolled || 0 : 0; },
+  set(v) { this.scrolled = v; },
+});
+Object.defineProperty(Node.prototype, 'lastElementChild', { get() { return this.children[this.children.length - 1] || null; } });
 Node.prototype.replaceChildren = function () { [...this.childNodes].forEach((c) => c.remove()); };
 
 const TOKENS = { '--dur-fast': '.15s', '--dur': '.2s', '--dur-slow': '.25s', '--ease-out': 'cubic-bezier(.2,.8,.2,1)' };
@@ -78,8 +83,10 @@ const MODAL = ['div', { class: 'modal-backdrop', id: 'abandon-modal', hidden: ''
     ['div', { class: 'modal-actions' }, ['button', { type: 'button', class: 'btn', 'data-abandon-cancel': '' }, 'Cancel'],
       ['button', { type: 'button', class: 'btn', 'data-abandon-confirm': '' }, ['span', { 'data-confirm-label': '' }, 'Abandon']]]]]];
 
-/* A Watch page at *url*. opts: admin, strip (the row's answers), all (/api/downloads' answers),
-   canDownload, reduced, grid (a stand-in for the grid of a row, at ?all=). */
+/* A Watch page at *url*. opts: admin, strip (the row's answers), all (/api/downloads' answers: a
+   number is that status, 'hang' one that has not come until p.answer(), or until given up),
+   canDownload, reduced, grid (a stand-in for the grid of a row, at ?all=), title (one for a
+   title's page over it, at ?t=). */
 function load(opts) {
   const o = { admin: true, url: '/', strip: [strip([])], all: [all([])], canDownload: { movie: true, show: true }, ...opts };
   const doc = makeDocument();
@@ -95,7 +102,7 @@ function load(opts) {
   doc.body.appendChild(build(doc, ['a', { id: 'elsewhere', href: '/?dl=1', 'data-dl-open': '' }, 'Your library → Downloading']));
   if (o.admin) doc.body.appendChild(build(doc, MODAL));
 
-  const p = { doc, time: 1000000, anims: [], asks: { strip: 0, all: 0 }, log: [] };
+  const p = { doc, time: 1000000, anims: [], asks: { strip: 0, all: 0 }, log: [], hanging: [], aborted: 0, askedAt: [] };
   let timers = [];
   let ids = 0;
   const clock = {
@@ -160,10 +167,18 @@ function load(opts) {
       get hash() { return here().hash; },
       href: '',
     },
-    fetch: (url) => {
+    fetch: (url, opts) => {
       const name = url === '/api/downloads' ? 'all' : 'strip';
       p.asks[name] += 1;
+      if (name === 'all') p.askedAt.push(p.time);
       const a = take(name);
+      if (a === 'hang') {
+        return new Promise((resolve, reject) => {
+          const signal = opts && opts.signal;
+          p.hanging.push((data) => resolve({ ok: true, status: 200, redirected: false, json: () => Promise.resolve(JSON.parse(JSON.stringify(data))) }));
+          if (signal) signal.addEventListener('abort', () => { p.aborted += 1; reject(Object.assign(new Error('aborted'), { name: 'AbortError' })); });
+        });
+      }
       if (typeof a === 'number') return Promise.resolve({ ok: false, status: a, redirected: false, json: () => Promise.resolve({}) });
       return Promise.resolve({ ok: true, status: 200, redirected: false, json: () => Promise.resolve(JSON.parse(JSON.stringify(a))) });
     },
@@ -187,7 +202,12 @@ function load(opts) {
     address.layer({ name: 'grid', depth: 10, params: ['all'], read: (h) => h.params.get('all'),
       open: (v, how) => { p.log.push('open grid ' + how); }, close: (how) => { p.log.push('close grid ' + how); } });
   }
+  if (o.title) {
+    address.layer({ name: 'title', depth: 50, params: ['t'], read: (h) => h.params.get('t'),
+      open: () => { p.log.push('open title'); }, close: () => { p.log.push('close title'); } });
+  }
   address.start();
+  p.answer = (data) => p.hanging.splice(0).forEach((fn) => fn(data));
   p.ctx = ctx;
   p.tab = tab;
   p.at = () => tab.entries[tab.index].url;
@@ -230,10 +250,11 @@ const scenarios = {
     await p.step(400);
     const grow = p.durations(before);
     const opened = { open: p.open(), rowsAway: p.rowsAway(), on: p.on(), at: p.at(), entries: p.tab.entries.length };
+    const quiet = p.q('.dlg__title').classList.contains('is-quiet');
     const folding = p.anims.length;
     p.key('Escape');
     await p.step(400);
-    return { drawn, pushed, growing, opened, grow: Math.max(...grow), folded: { at: p.at(), open: p.open(), rowsAway: p.rowsAway(), on: p.on() },
+    return { drawn, pushed, growing, opened, quiet, grow: Math.max(...grow), folded: { at: p.at(), open: p.open(), rowsAway: p.rowsAway(), on: p.on() },
       fold: Math.max(...p.durations(folding)) };
   },
   // Its head holds under the bar, with its glass once the grid passes under it, and stays where
@@ -289,10 +310,11 @@ const scenarios = {
   async deepLink() {
     const p = load({ url: '/?dl=1', strip: [strip(USUAL())], all: [USUAL_ALL()] });
     const at = { entries: p.tab.entries.map((e) => e.url), index: p.tab.index, open: p.open(), rowsAway: p.rowsAway(), anims: p.anims.length, on: p.on() };
+    const quiet = p.q('.dlg__title').classList.contains('is-quiet');
     await p.step(100);
     const drawn = p.qa('#watch-dl .dwx').length;
     await p.back();
-    return { at, drawn, back: { url: p.at(), index: p.tab.index, open: p.open(), rowsAway: p.rowsAway() } };
+    return { at, quiet, drawn, back: { url: p.at(), index: p.tab.index, open: p.open(), rowsAway: p.rowsAway() } };
   },
   async otherValuesAreTakenOut() {
     const p = load({ url: '/?dl=yes&x=1' });
@@ -335,7 +357,13 @@ const scenarios = {
     const out = {};
     ['Ember Coast', 'Honest Forger', 'Sundial', 'Windward', 'Tallow Hill', 'Quiet Engines', 'Cobblestone', 'Finchley', 'Lanterns'].forEach((t) => { out[t] = band(t); });
     const trigger = p.card('Quiet Engines').querySelector('[data-abandon-trigger]');
-    return { order, count: p.text(p.q('.dlg__count')), title: p.text(p.q('.dlg__title')), cards: out,
+    const states = {};
+    ['Windward', 'Honest Forger', 'Quiet Engines', 'Ember Coast'].forEach((t) => {
+      states[t] = ['is-stuck', 'is-looking', 'is-queued'].filter((k) => p.card(t).classList.contains(k));
+    });
+    const lanterns = p.card('Lanterns');
+    return { order, count: p.text(p.q('.dlg__count')), title: p.text(p.q('.dlg__title')), cards: out, states,
+      stopLast: lanterns.lastElementChild === lanterns.querySelector('[data-abandon-trigger]'),
       trigger: ['data-dl-id', 'data-arr-id', 'data-kind', 'data-title', 'data-stuck-seasons'].map((k) => trigger.getAttribute(k)),
       stop: p.card('Lanterns').querySelector('[data-abandon-trigger]').getAttribute('data-abandon-upcoming') };
   },
@@ -457,6 +485,8 @@ const scenarios = {
       refusedAdmin: await shot(true, all([], { ...down, refused: ['Radarr'] })),
       outageViewer: await shot(false, all([dl('Ember Coast')], { outage: "Downloads aren't available" })),
       outageViewerNothing: await shot(false, all([], { outage: "Downloads aren't available" })),
+      outageViewerSoon: await shot(false, all([], { outage: "Downloads aren't available", upcoming: [dl('Lanterns')] })),
+      outageAdminNothing: await shot(true, all([], { outage: "Can't reach Radarr, Sonarr and NZBGet", unreachable: ['Radarr', 'Sonarr', 'NZBGet'], upcoming: [dl('Lanterns')] })),
       caughtUp: await shot(true, all([], { upcoming: [dl('Lanterns')] })),
     };
   },
@@ -519,6 +549,98 @@ const scenarios = {
     await p.step(400);
     const top = p.card('Nzb').querySelector('.dw__link');
     return { inRow, inGrid: [top.getAttribute('href'), top.hasAttribute('data-dl-open')], open: p.open() };
+  },
+  async bannerFirst() {
+    const p = load({ strip: [strip(USUAL())], all: [USUAL_ALL()] });
+    await p.step(1100);
+    const first = () => p.q('#watch-browse').firstElementChild.getAttribute('class');
+    p.click(p.q('#watch-downloading .row-open'));
+    await p.step(400);
+    const open = first();
+    p.key('Escape');
+    await p.step(400);
+    return { open, folded: first() };
+  },
+  async packEpisode() {
+    const ep = (label, over) => ({ label, title: 'Weir', state: 'downloading', progress: 30, is_pack_episode: false, ...over });
+    const p = load({ url: '/?dl=1', all: [all([dl('Brightwater', { media_type: 'series', has_pack: true, episodes: [ep('S01E01', { is_pack_episode: true }), ep('S01E02')] })])] });
+    await p.step(100);
+    const c = p.card('Brightwater');
+    return { words: c.querySelectorAll('.dwx__ep-s').map((n) => p.text(n)), pack: c.querySelectorAll('.dwx__ep').map((n) => n.classList.contains('is-pack')),
+      pill: p.text(c.querySelector('[data-dl-eps]')) };
+  },
+  async failing() {
+    const p = load({ url: '/?dl=1', strip: [strip(USUAL())], all: [USUAL_ALL(), 500, 500, 500, USUAL_ALL()] });
+    const note = () => (p.q('#watch-dl .dlg__note').hidden ? null : p.text(p.q('#watch-dl .dlg__note')));
+    await p.step(100);
+    await p.step(2000);
+    const once = { note: note(), cards: p.qa('#watch-dl .dwx').length };
+    await p.step(4000);
+    const twice = note();
+    await p.step(24000);
+    const back = note();
+    await p.step(2000);
+    const at = p.askedAt;
+    return { once, twice, back, gaps: at.slice(1).map((t, i) => t - at[i]) };
+  },
+  async slow() {
+    const p = load({ url: '/?dl=1', strip: [strip(USUAL())], all: [USUAL_ALL(), 'hang', USUAL_ALL()] });
+    const note = () => (p.q('#watch-dl .dlg__note').hidden ? null : p.text(p.q('#watch-dl .dlg__note')));
+    await p.step(2100);
+    await p.step(19800);
+    const before = note();
+    await p.step(200);
+    const late = note();
+    const asks = p.asks.all;
+    await p.step(100000);
+    const hung = { aborted: p.aborted, asked: p.asks.all - asks, note: note() };
+    await p.step(4000);
+    return { before, late, hung, then: { asked: p.asks.all - asks, note: note() } };
+  },
+  async firstLoad() {
+    const waiting = load({ url: '/?dl=1', strip: [strip(USUAL())], all: ['hang'] });
+    await waiting.step(100);
+    const of = (p) => ({ busy: p.q('#watch-dl .dlg__body').getAttribute('aria-busy'), empty: p.text(p.q('#watch-dl .dlg__empty')) || null,
+      note: p.q('#watch-dl .dlg__note').hidden ? null : p.text(p.q('#watch-dl .dlg__note')), count: p.text(p.q('#watch-dl .dlg__count')) });
+    const down = load({ url: '/?dl=1', strip: [strip(USUAL())], all: [503] });
+    await down.step(100);
+    return { waiting: of(waiting), down: of(down) };
+  },
+  async hiddenTab() {
+    const p = load({ url: '/?dl=1', all: [USUAL_ALL()] });
+    await p.step(100);
+    p.hide(true);
+    const n = p.asks.all;
+    p.tell('mediaman:downloads:refresh');
+    await p.step(6000);
+    return { asked: p.asks.all - n };
+  },
+  async openerUnderATitle() {
+    const p = load({ url: '/?dl=1', title: true, all: [USUAL_ALL()] });
+    await p.step(100);
+    p.ctx.MMWatch.address.push('title', '/?dl=1&t=x');
+    await p.step(10);
+    p.log.splice(0);
+    p.click(p.q('#elsewhere'));
+    await p.step(400);
+    return { at: p.at(), top: p.ctx.MMWatch.address.top(), on: p.on(), open: p.open(), log: p.log };
+  },
+  async reopenedBeforeTheAnswer() {
+    const p = load({ strip: [strip(USUAL())], all: ['hang'] });
+    await p.step(1100);
+    const scroller = p.q('[data-row-id="recent"] .watch-row__scroll');
+    scroller.scrollLeft = 300;
+    p.click(p.q('#watch-downloading .row-open'));
+    await p.step(10);
+    await p.back();
+    p.click(p.q('#watch-downloading .row-open'));
+    await p.step(10);
+    p.answer(USUAL_ALL());
+    await p.step(400);
+    const grown = p.open() && p.rowsAway();
+    p.key('Escape');
+    await p.step(400);
+    return { grown, left: scroller.scrollLeft, open: p.open() };
   },
   async artFromTheRow() {
     const p = load({ strip: [strip([row('Ember Coast'), row('Twin'), row('Twin', { key: 'radarr:Twin2' })])], all: [all([dl('Ember Coast'), dl('Twin'), dl('Twin', { id: 'radarr:Twin2' })])] });

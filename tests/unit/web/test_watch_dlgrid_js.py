@@ -290,3 +290,96 @@ def test_a_card_takes_its_title_s_page_and_picture_from_the_row_only_when_one_ti
     run = out["artFromTheRow"]
     assert run["ember"] == ["/watch#title=tmdb-movie-11", "/api/poster/1?kind=art"]
     assert [href for href, _ in run["twins"]] == [None, None]
+
+
+def test_the_banner_stays_the_first_of_the_page_so_it_still_runs_up_under_the_bar(out) -> None:
+    assert out["bannerFirst"] == {"open": "watch-banner", "folded": "watch-banner"}
+
+
+def test_a_card_keeps_the_row_s_state_on_it_from_the_first_draw(out) -> None:
+    assert out["groups"]["states"] == {
+        "Windward": ["is-stuck", "is-looking"],
+        "Honest Forger": ["is-queued"],
+        "Quiet Engines": ["is-looking"],
+        "Ember Coast": [],
+    }
+
+
+def test_stop_tracking_comes_after_the_poster_and_the_words(out) -> None:
+    assert out["groups"]["stopLast"] is True
+
+
+def test_an_episode_inside_a_pack_says_so(out) -> None:
+    run = out["packEpisode"]
+    assert run["words"] == ["In pack", "30%"]
+    assert run["pack"] == [True, False]
+
+
+def test_one_failed_asking_is_no_news_two_are_told_and_each_asks_later(out) -> None:
+    run = out["failing"]
+    assert run["once"] == {"note": None, "cards": 3}
+    assert run["twice"] == "Can’t reach mediaman right now. This is how it last was."
+    assert run["back"] is None
+    assert run["gaps"] == [2000, 4000, 8000, 16000, 2000]
+
+
+def test_a_slow_answer_is_told_at_20_s_and_given_up_at_120_s_for_another(out) -> None:
+    run = out["slow"]
+    assert run["before"] is None
+    assert run["late"] == "Can’t reach mediaman right now. This is how it last was."
+    assert run["hung"]["aborted"] == 1
+    assert run["then"] == {"asked": 1, "note": None}
+
+
+def test_before_the_first_answer_it_says_it_is_checking_and_a_failure_says_so_at_once(
+    out,
+) -> None:
+    run = out["firstLoad"]
+    assert run["waiting"] == {
+        "busy": "true",
+        "empty": "Checking downloads…",
+        "note": None,
+        "count": "",
+    }
+    assert run["down"]["busy"] == "false"
+    assert run["down"]["empty"].startswith("Downloads can’t be checked right now")
+    assert run["down"]["note"] == "Can’t reach mediaman right now."
+
+
+def test_a_hidden_tab_does_not_ask_even_when_told_of_an_abandon(out) -> None:
+    assert out["hiddenTab"]["asked"] == 0
+
+
+def test_in_an_outage_the_head_never_says_nothing_downloads(out) -> None:
+    states = out["states"]
+    assert states["outageAdminNothing"]["count"] == (
+        "Can’t reach Radarr, Sonarr and NZBGet · 1 coming soon"
+    )
+    assert states["refusedAdmin"]["count"] == "Can’t reach Radarr"
+    assert states["outageViewerNothing"]["count"] == ""
+    assert states["outageViewerSoon"]["count"] == "1 coming soon"
+
+
+def test_an_opener_under_a_title_s_page_steps_back_down_to_downloading(out) -> None:
+    run = out["openerUnderATitle"]
+    assert run == {
+        "at": "/?dl=1",
+        "top": "dl",
+        "on": "watch-dl-title",
+        "open": True,
+        "log": ["close title"],
+    }
+
+
+def test_closed_and_opened_again_before_the_answer_it_grows_once_and_keeps_the_rows_place(
+    out,
+) -> None:
+    run = out["reopenedBeforeTheAnswer"]
+    assert run["grown"] is True
+    assert run["left"] == 300
+    assert run["open"] is False
+
+
+def test_a_deep_link_focuses_the_heading_with_no_ring_and_a_press_with_one(out) -> None:
+    assert out["deepLink"]["quiet"] is True
+    assert out["opensFromTheRow"]["quiet"] is False

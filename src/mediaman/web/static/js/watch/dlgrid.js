@@ -24,6 +24,11 @@
 
   var URL_ALL = '/api/downloads';
   var POLL_MS = 2000;
+  /* An answer this late is told; one that outlasts what the server itself gives a service that
+     hangs will never come, and another is asked for. */
+  var LATE_MS = 20000;
+  var HUNG_MS = 120000;
+  var BACKOFF_MAX = 30000;
   var FALL_UP = 28; // px the rows above the row go up by as it grows, and come back from
   var FALL_DOWN = 44; // and those below it, down
   var RISE = 26; // px a grid card that was not in the row rises from
@@ -47,12 +52,15 @@
   var dom = null; // { section, title, count, note, noteText, empty, grid }
   var isOpen = false;
   var last = null; // the last answer
-  var lost = false; // the last asking failed
+  var lost = false; // mediaman did not answer, or not in time
+  var failures = 0; // askings failed in a row
+  var request = null; // the asking under way
   var cards = {}; // by key: the card node
   var heads = {}; // by group: its heading
   var timer = null;
   var asked = 0; // which asking is the current one
   var opener = null;
+  var opens = 0; // which opening is the current one
   var savedY = 0;
   var lefts = []; // how far each row was scrolled when the grid took the page
   var moving = null; // ends the motion under way
@@ -77,6 +85,7 @@
     title.id = 'watch-dl-title';
     title.setAttribute('tabindex', '-1');
     title.setAttribute('data-dl-heading', '');
+    title.addEventListener('blur', function () { title.classList.remove('is-quiet'); });
     var count = names.appendChild(el('span', 'dlg__count'));
     var body = section.appendChild(el('div', 'dlg__body'));
     var note = body.appendChild(el('p', 'dlg__note'));
@@ -86,7 +95,8 @@
     var empty = body.appendChild(el('div', 'grid-empty dlg__empty'));
     empty.hidden = true;
     var grid = body.appendChild(el('div', 'dlg__grid'));
-    browse.insertBefore(section, browse.firstChild);
+    // Last, so that the banner stays the first of the page and runs up under the bar.
+    browse.appendChild(section);
     dom = { section: section, head: head, back: back, title: title, count: count, body: body, note: note, noteText: noteText, empty: empty, grid: grid };
   }
 
@@ -305,7 +315,8 @@
     var node = cards[key];
     if (!node) {
       node = cards[key] = watch.downloading.card(top);
-      node.className = 'dwx dw';
+      node.classList.remove('watch-card');
+      node.classList.add('dwx');
       node.setAttribute('data-dl-card', '');
     } else watch.downloading.paint(node, top, false);
     node.setAttribute('data-dl-id', String(item.id));
@@ -341,7 +352,10 @@
     setText(node.querySelector('.dw__title'), item.title || '');
     setText(node.querySelector('.dwx__small-line span'), item.release_label || '');
     var stop = pill(node, 'stop', admin ? function () { return button('dwx__act--quiet', 'i-xmark', 'Stop tracking'); } : null, node);
-    if (stop) arm(stop, item, true);
+    if (stop) {
+      if (node.lastElementChild !== stop) node.appendChild(stop);
+      arm(stop, item, true);
+    }
     return node;
   }
 
@@ -371,12 +385,18 @@
 
   /* ── Drawing ── */
 
+  function curly(text) { return String(text).replace(/'/g, '’'); }
+
   function wordsOf(data, items) {
     if (!setUpIn(data)) return '';
     var soon = (data.upcoming || []).length;
-    var bits = [items.length ? items.length + ' in progress' : 'Nothing downloading'];
+    var bits = [];
+    if (items.length) bits.push(items.length + ' in progress');
+    // In an outage nobody can tell that nothing downloads: an admin is told what does not
+    // answer, a viewer only that some may be missing, or nothing where nothing is shown.
+    else if (!data.outage) bits.push('Nothing downloading');
+    else if (admin) bits.push(curly(data.outage));
     if (soon) bits.push(soon + ' coming soon');
-    // A viewer is told of an outage only that some may be missing.
     if (!admin && data.outage && items.length) bits.push('some may be missing');
     return bits.join(' · ');
   }
@@ -389,11 +409,12 @@
   function noteOf(data, items) {
     if (lost) return 'Can’t reach mediaman right now.' + (data ? ' This is how it last was.' : '');
     if (!data || !data.outage || !items.length || !setUpIn(data)) return '';
-    return String(data.outage).replace("'", '’') + ' right now.';
+    return curly(data.outage) + ' right now.';
   }
 
   function emptyOf(data, items) {
-    if (items.length || (!data && !lost)) return null;
+    if (items.length) return null;
+    if (!data && !lost) return ['i-download', 'Checking downloads…', ''];
     if (data && !setUpIn(data)) {
       return admin ? ['i-download', 'Downloads aren’t set up', 'Connect Radarr or Sonarr in ', 'Settings']
         : ['i-download', 'Downloads aren’t set up', 'Ask whoever runs mediaman to set it up.'];
@@ -419,6 +440,7 @@
     if (!said) return;
     box.appendChild(icon(said[0]));
     box.appendChild(el('p', 'grid-empty__title', said[1]));
+    if (!said[2]) return;
     var text = box.appendChild(el('p', 'grid-empty__text', said[2]));
     if (said[3]) {
       var link = text.appendChild(el('a', '', said[3]));
@@ -475,29 +497,49 @@
   /* ── Asking ── */
 
   function ask() {
-    clearTimeout(timer);
-    timer = null;
+    stopAsking();
     if (!isOpen || document.hidden) return Promise.resolve();
-    var mine = ++asked;
-    return window.MM.api.get(URL_ALL).then(function (data) {
-      if (mine !== asked || !isOpen || !data || typeof data !== 'object') return;
+    var mine = asked;
+    var ctl = request = new AbortController();
+    var late = setTimeout(function () {
+      if (mine !== asked) return;
+      lost = true;
+      draw();
+    }, LATE_MS);
+    var hung = setTimeout(function () { ctl.abort(); }, HUNG_MS);
+    var wait = POLL_MS;
+    return window.MM.api.get(URL_ALL, { signal: ctl.signal }).then(function (data) {
+      if (mine !== asked || !isOpen) return;
+      failures = 0;
+      if (!data || typeof data !== 'object') return;
       last = data;
       lost = false;
       if (watch.downloading.hearAll) watch.downloading.hearAll(data);
       draw();
     }, function () {
       if (mine !== asked || !isOpen) return;
-      lost = true;
-      draw();
+      failures += 1;
+      wait = Math.min(POLL_MS * Math.pow(2, failures), BACKOFF_MAX);
+      // One failed asking is no news while there is something to show: the next is close behind.
+      if (failures > 1 || !last) {
+        lost = true;
+        draw();
+      }
     }).then(function () {
-      if (mine === asked && isOpen && !document.hidden) timer = setTimeout(ask, POLL_MS);
+      clearTimeout(late);
+      clearTimeout(hung);
+      if (request === ctl) request = null;
+      if (mine === asked && isOpen) timer = setTimeout(ask, wait);
     });
   }
 
+  /* An asking under way is given up: a phone put away may never hear back. */
   function stopAsking() {
     asked += 1;
     clearTimeout(timer);
     timer = null;
+    if (request) request.abort();
+    request = null;
   }
 
   /* ── Open and fold ── */
@@ -681,7 +723,7 @@
       unpin();
       document.documentElement.classList.remove('is-dl-moving');
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-      focusTitle();
+      focusTitle(false);
     });
   }
 
@@ -746,12 +788,13 @@
   }
 
   /* Without the grow: with reduced motion, or from a link outside the row. Opacity alone. */
-  function fadeIn(fade) {
+  function fadeIn(how) {
     rowsAway(true);
     dom.section.hidden = false;
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-    focusTitle();
-    if (!fade) return;
+    // Opened with the page, nothing was pressed: no ring.
+    focusTitle(how === 'start');
+    if (how === 'start') return;
     var D = core.tokenMs('--dur-fast', 150);
     play([animate(dom.section, [{ opacity: 0 }, { opacity: 1 }], { duration: D, easing: 'linear' })], D, function () {});
   }
@@ -769,7 +812,10 @@
     play(anims, D, function () {});
   }
 
-  function focusTitle() { dom.title.focus({ preventScroll: true }); }
+  function focusTitle(quiet) {
+    dom.title.classList.toggle('is-quiet', !!quiet);
+    dom.title.focus({ preventScroll: true });
+  }
 
   function inRow(node) {
     var slot = rowSlot();
@@ -782,17 +828,20 @@
     finishMoving();
     build();
     isOpen = true;
+    failures = 0;
     opener = from || null;
     savedY = window.scrollY;
     var growing = how === 'push' && inRow(from) && !core.reduceMotion();
     if (!growing) {
-      fadeIn(how !== 'start');
+      fadeIn(how);
       draw();
       ask();
       return;
     }
+    var mine = ++opens;
     var go = function () {
-      if (!isOpen) return;
+      // A fold and an open since: that open grows it, once.
+      if (!isOpen || mine !== opens) return;
       draw();
       grow();
     };
@@ -872,13 +921,21 @@
     wrap.hidden = !on;
   }
 
+  /* Open under a title or a pane: back down to it. */
+  function toGrid() {
+    var over = address.top();
+    if (!isOpen) return;
+    if (over && over !== 'dl') address.back(over, toGrid);
+    else focusTitle(false);
+  }
+
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     var link = e.target.closest('[data-dl-open]');
     if (link && plainClick(e) && (link.tagName !== 'A' || link.hasAttribute('href'))) {
       e.preventDefault();
       link.focus({ preventScroll: true }); // as Safari does not on a click, for the way back
-      if (isOpen) { focusTitle(); return; }
+      if (isOpen) { toGrid(); return; }
       address.push('dl', address.url(Object.assign({}, OTHERS, { dl: '1' }), ''));
       open('push', link);
       return;
