@@ -50,13 +50,13 @@ def test_each_state_is_drawn_apart(out) -> None:
     assert classes["Ready"] == {"is-ready"}
 
 
-def test_a_card_opens_its_title_or_the_downloads_page_when_none_is_known(out) -> None:
+def test_a_card_opens_its_title_or_downloading_on_watch_when_none_is_known(out) -> None:
     assert out["links"]["known"] == ["/watch#title=tmdb-movie-5", "tmdb-movie-5"]
-    assert out["links"]["nzb"] == ["/downloads", None]
+    assert out["links"]["nzb"] == ["/?dl=1", None]
 
 
-def test_addresses_that_are_not_mediamans_own_lead_nowhere(out) -> None:
-    assert out["links"]["bad"] == ["/downloads", None]
+def test_addresses_that_are_not_mediamans_own_lead_only_to_downloading_on_watch(out) -> None:
+    assert out["links"]["bad"] == ["/?dl=1", None]
     assert out["links"]["pictures"] == [None, None, None]
 
 

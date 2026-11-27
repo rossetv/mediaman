@@ -9,7 +9,7 @@
 // our own server, treating them as untrusted in the DOM layer makes
 // future additions safe by default.
 //
-// Requires: core/api.js (MM.api), core/dom.js (MM.dom), downloads/build_dom.js.
+// Requires: core/api.js (MM.api), core/dom.js (MM.dom), core/modal.js (MM.modal).
 
 (function () {
   'use strict';
@@ -24,7 +24,7 @@
   var confirmLabel = MM.dom.q('[data-confirm-label]', confirmBtn);
 
   var inflight = {};   // dlId -> true while its abandon request runs
-  var current = null;  // { dlId, arrId, kind, title, stuckSeasons, upcoming }
+  var current = null;  // { dlId, arrId, kind, title, stuckSeasons, upcoming, trigger }
   var letGo = null;    // gives the page back once the dialog has closed
 
   /* setupDetail owns the display/aria-hidden lifecycle and registers with
@@ -34,17 +34,30 @@
     manageBodyOverflow: false, /* _ui_feedback.css holds the page */
     closeSelectors: ['[data-abandon-cancel]'],
     onClose: function () {
+      var was = current;
       current = null;
       if (letGo) { letGo(); letGo = null; }
       /* The focus goes back to the button that opened this; a poll may have taken it away. */
       setTimeout(function () {
         var active = document.activeElement;
-        if (!current && (!active || active === document.body || modal.contains(active))) {
-          MM.downloads.buildDom.focusHeading();
-        }
+        if (!current && (!active || active === document.body || modal.contains(active))) refocus(was);
       }, 0);
     },
   });
+
+  function shown(node) { return !!node && node.isConnected && node.getClientRects().length > 0; }
+
+  /* The button that opened the dialog, else a control of its card, else the heading over
+     them; on the old Downloads page, its heading. */
+  function refocus(was) {
+    var card = was && was.trigger.closest('[data-dl-card]');
+    var heading = document.querySelector('[data-dl-heading]');
+    var to = was && shown(was.trigger) ? was.trigger
+      : shown(card) ? card.querySelector('a[href], button') : null;
+    if (!to && shown(heading)) to = heading;
+    if (to) to.focus({ preventScroll: true });
+    else if (MM.downloads && MM.downloads.buildDom) MM.downloads.buildDom.focusHeading();
+  }
 
   function open(trigger) {
     var dlId = trigger.dataset.dlId;
@@ -57,7 +70,7 @@
       stuck = JSON.parse(trigger.dataset.stuckSeasons || '[]');
     } catch (e) { stuck = []; }
 
-    current = { dlId: dlId, arrId: arrId, kind: kind, title: title, stuckSeasons: stuck, upcoming: upcoming };
+    current = { dlId: dlId, arrId: arrId, kind: kind, title: title, stuckSeasons: stuck, upcoming: upcoming, trigger: trigger };
 
     titleEl.textContent = upcoming
       ? 'Stop tracking ' + title + '?'

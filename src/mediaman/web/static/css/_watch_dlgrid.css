@@ -1,0 +1,193 @@
+/* Watch page: Downloading, grown out of its row (watch/dlgrid.js), and the row's slim card while
+   nothing downloads. The row's own card is in _watch_downloading.css; the group headings and the
+   empty state are the grid's (_watch_grid.css). */
+
+/* ── The layer ── */
+
+/* It takes the page from the rows, which stay where they were under it while it moves. */
+#watch-browse.has-dl > :not(.dlg) { display: none !important; }
+.dlg { position: relative; z-index: 2; min-height: calc(100vh - var(--nav-h)); min-height: calc(100dvh - var(--nav-h)); }
+.dlg[hidden] { display: none; }
+.dlg.is-moving { position: fixed; left: 0; right: 0; pointer-events: none; }
+html.is-dl-moving .watch-page { overflow-anchor: none; }
+.dlg__head {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 64px;
+  padding: 0 var(--pad);
+}
+.dlg__back {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-left: -12px;
+  border-radius: 50%;
+  color: var(--t1);
+  font-size: 18px;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.dlg__back:hover { background: var(--rgba-overlay-lg); }
+.dlg__back:active { background: var(--s4); }
+.dlg__back:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 50%; }
+.dlg__names { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dlg__title {
+  min-width: 0;
+  margin: -4px -2px;
+  padding: 4px 2px;
+  overflow: hidden;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform-origin: 0 0;
+}
+.dlg__title:focus { outline: none; }
+.dlg__title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+.dlg__count { flex: none; padding: 7px 0 0 6px; font-size: 13px; color: var(--t3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dlg__count:empty { display: none; }
+.dlg__body { padding: 8px var(--pad) calc(24px + env(safe-area-inset-bottom)); }
+.dlg__note { display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px; font-size: 13px; color: var(--warning); }
+.dlg__note[hidden] { display: none; }
+.dlg__note > .ico { flex: none; align-self: center; }
+.dlg__empty[hidden] { display: none; }
+.dlg__empty { padding: 40px 0 24px; }
+.dlg__empty a { color: var(--accent); font-weight: 600; }
+@media (max-width: 599.98px) {
+  .dlg__head { height: 56px; }
+  .dlg__names { flex-direction: column; align-items: flex-start; gap: 1px; }
+  .dlg__title { max-width: calc(100% + 4px); font-size: 16px; }
+  .dlg__count { padding: 0; font-size: 12px; line-height: 1.2; }
+}
+
+/* One column on a phone; columns of at least 336px wider than that. */
+.dlg__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 336px), 1fr));
+  gap: 14px 16px;
+  align-items: start;
+}
+.dlg__grid > .grid-group { padding-top: 18px; }
+.dlg__grid > .grid-group:first-child { padding-top: 0; }
+.dlg__n { color: var(--t3); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* ── A download's card: the row's card at the top, what the row has no room for under it ── */
+
+.dwx {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--s1);
+  outline: 1px solid var(--hair);
+  outline-offset: -1px;
+}
+.dwx.is-flyer { z-index: 5; will-change: transform, clip-path; }
+.dwx > .dw__link { flex: none; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.dwx > .dw__link:not([href]) { cursor: default; }
+.dwx > .dw__link:active { transform: none; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .dwx > .dw__link:hover:not(:active) { transform: none; box-shadow: none; }
+  .dwx:hover { outline-color: var(--hair-strong); }
+}
+.dwx .dw__line { white-space: nowrap; }
+/* The grid has room to say a long name whole, in two lines. */
+.dwx .dw__title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.dwx.is-stuck .dw__line { display: block; -webkit-line-clamp: none; }
+/* What comes of one that needs attention is said whole under it. */
+.dw.dwx .dw__fix { display: none; }
+.dwx__more {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--t2);
+}
+.dwx__more > p { margin: 0; }
+.dwx__more > [hidden] { display: none; }
+.dwx__more:not(:has(> :not([hidden]))) { display: none; }
+.dwx__facts { font-variant-numeric: tabular-nums; }
+.dwx__facts b { font-weight: 600; color: var(--t1); }
+.dwx__why { color: var(--t1); overflow-wrap: anywhere; }
+.dwx__why-by { display: block; margin-bottom: 1px; font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--t3); }
+.dwx__fix { display: flex; align-items: baseline; gap: 7px; color: var(--warning); }
+.dwx__fix > .ico { flex: none; align-self: center; font-size: 12px; }
+.dwx__fix.is-ok { color: color-mix(in srgb, var(--success) 60%, var(--t1)); }
+.dwx__seen { font-variant-numeric: tabular-nums; }
+.dwx__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.dwx__act {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  background: var(--rgba-overlay-sm);
+  color: var(--t1);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.dwx__act::after { content: ""; position: absolute; inset: -5px -2px; } /* 44px to tap */
+.dwx__act:hover { background: var(--s3); }
+.dwx__act:active { transform: scale(.96); }
+.dwx__act:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dwx__act .ico { font-size: 11px; transition: transform var(--dur) var(--ease-out); }
+.dwx__act[aria-expanded="true"] .ico { transform: rotate(90deg); }
+.dwx__act--quiet { background: transparent; color: var(--t2); border: 1px solid var(--hair-strong); }
+.dwx__act--quiet:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
+.dwx__act--danger { color: var(--danger-text); }
+.dwx__act--danger:hover { background: var(--rgba-danger-bg); }
+.dwx__eps-wrap { overflow: hidden; }
+.dwx__eps { margin: 8px 0 0; padding: 0; list-style: none; }
+.dwx__ep { display: grid; grid-template-columns: 58px minmax(0, 1fr) 56px 64px; align-items: center; gap: 10px; min-height: 34px; border-top: 1px solid var(--hair); font-size: 12px; }
+.dwx__ep-n { color: var(--t3); font-variant-numeric: tabular-nums; }
+.dwx__ep-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--t1); }
+.dwx__ep-bar { height: 3px; border-radius: 2px; background: var(--rgba-overlay-lg); background-image: linear-gradient(var(--accent), var(--accent)); background-repeat: no-repeat; background-size: calc(var(--p, 0) * 1%) 100%; }
+.dwx__ep.is-ready .dwx__ep-bar { background-image: linear-gradient(var(--success), var(--success)); }
+.dwx__ep.is-pack .dwx__ep-bar { visibility: hidden; }
+.dwx__ep-s { text-align: right; color: var(--t2); font-variant-numeric: tabular-nums; }
+.dwx__ep.is-ready .dwx__ep-s { color: color-mix(in srgb, var(--success) 60%, var(--t1)); }
+
+/* Coming soon: a poster and two lines. */
+.dwx--small { flex-direction: row; align-items: center; gap: 14px; padding: 10px 12px 10px 10px; min-height: 98px; }
+.dwx__pic { flex: none; width: 52px; height: 78px; overflow: hidden; border-radius: var(--r-xs); background: linear-gradient(160deg, var(--s4), var(--s1)); }
+.dwx__pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.dwx__pic img:is([data-broken=""], :not([src])) { visibility: hidden; }
+.dwx__small-text { flex: 1; min-width: 0; }
+.dwx__small-text .dw__title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+.dwx__small-line { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 13px; color: var(--t2); }
+.dwx__small-line > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dwx--small .dwx__act { flex: none; }
+@media (max-width: 599.98px) {
+  .dwx--small .dwx__act > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .dwx--small .dwx__act { width: 40px; padding: 0; justify-content: center; }
+  .dwx--small .dwx__act .ico { font-size: 13px; }
+}
+
+/* ── The row while nothing downloads: one slim card, so Coming soon keeps a way in ── */
+
+.dw--calm .dw__link { min-height: 64px; padding: 10px 16px 10px 14px; background: var(--s1); }
+.dw--calm .dw__link::before { display: none; }
+.dw__calm-ico { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--rgba-success-bg); color: var(--success); font-size: 15px; }
+.dw--calm .dw__line { color: var(--t2); }
+.dw--calm .dw__line:empty { display: none; }
+.dw__calm-go { flex: none; color: var(--t3); font-size: 12px; }
+
+@media (forced-colors: active) {
+  .dwx { border: 1px solid CanvasText; }
+  .dwx__act--quiet { border: 1px solid ButtonText; }
+  .dwx__ep-bar { forced-color-adjust: none; outline: 1px solid CanvasText; }
+}

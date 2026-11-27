@@ -154,7 +154,7 @@ const scenarios = {
   },
   async links() {
     const p = load([answer([
-      item('Known'), item('Nzb', { ref: null, href: '/downloads' }),
+      item('Known'), item('Nzb', { ref: null, href: '/?dl=1' }),
       item('Bad', { ref: 'javascript:1', href: 'javascript:alert(1)', poster_url: 'http://elsewhere/x', art_url: '//elsewhere/y' }),
       item('Far', { poster_url: 'https://pictures.example/x', art_url: 'https://pictures.example/y' }),
     ])]);
@@ -223,7 +223,7 @@ const scenarios = {
     return p.recent();
   },
   async readyWithoutTitle() {
-    const p = load([answer([ready('Nzb', 2, { ref: null, href: '/downloads' })]), answer([])]);
+    const p = load([answer([ready('Nzb', 2, { ref: null, href: '/?dl=1' })]), answer([])]);
     await p.step(3000);
     return { hidden: p.slot.hidden, recent: p.recent() };
   },
