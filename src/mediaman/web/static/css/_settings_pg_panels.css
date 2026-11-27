@@ -569,6 +569,9 @@
 .setg-pg .tv-empty { padding: 26px 20px; text-align: center; font-size: 14px; line-height: 1.5; color: var(--t2); }
 .setg-pg .tv-empty b { display: block; color: var(--t1); font-weight: 600; font-size: 15px; }
 .setg-pg .tv-empty .btn { margin-top: 12px; }
+/* The pair row's words start where the TV names do, past their 38px icon and its gap. */
+.setg-pg .tv-pair > :first-child { padding-left: 52px; }
+.setg-pg .tv-pair + #tv-list-wrap { border-top: 1px solid var(--hair); }
 .setg-pg .tv-pair-at { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 /* Where focus lands once the last TV is unpaired; the words, not a control, so no ring. */
 .setg-pg #tv-list-wrap:focus { outline: none; }

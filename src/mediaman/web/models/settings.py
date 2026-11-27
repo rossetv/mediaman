@@ -182,7 +182,7 @@ class SettingsUpdate(BaseModel):
     # Never stored or read: a settings page left open from an earlier version still sends them.
     older_tvs_enabled: bool | None = None
     older_tvs_http: bool | None = None
-    tv_address: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    tv_address: str | None = None
     google_cast_enabled: bool | None = None
 
     @field_validator(

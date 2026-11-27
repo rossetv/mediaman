@@ -68,8 +68,10 @@ def test_an_admin_is_told_what_the_switch_lets_in_and_what_each_way_needs(
     assert "One script" not in told
     assert "Google’s scripts (gstatic.com) run" in told
     assert "Chromium" in told
-    assert "internet address" in told
-    assert 'aria-describedby="cast-lets"' in html
+    assert "viewer’s IP" in told
+    switch = html.split('aria-label="Allow Chromecast"', 1)[1].split(">", 1)[0]
+    note = switch.split('aria-describedby="', 1)[1].split('"', 1)[0]
+    assert "Loads Google’s cast scripts." in html.split(f'id="{note}"', 1)[1].split("</", 1)[0]
 
 
 def test_the_section_holds_no_older_tv_control_or_words(app, authed_client, conn) -> None:
@@ -84,6 +86,27 @@ def test_the_section_holds_no_older_tv_control_or_words(app, authed_client, conn
         "MEDIAMAN_ALLOWED_HOSTS",
     ):
         assert gone.lower() not in section.lower()
+
+
+def _pair_at(html: str) -> str:
+    return html.split('class="tv-pair-at">', 1)[1].split("<", 1)[0]
+
+
+def test_the_way_to_pair_comes_before_the_tvs(app, authed_client, conn) -> None:
+    section = _tvs_section(authed_client(app, conn).get("/settings?pane=1").text)
+    assert section.index("To pair a TV") < section.index('id="tv-list-wrap"')
+    assert "then pair from Play on" in section
+
+
+def test_with_no_base_url_the_tvs_go_to_where_mediaman_was_opened(app, authed_client, conn) -> None:
+    html = authed_client(app, conn).get("/settings?pane=1").text
+    assert _pair_at(html) == "testserver/tv"
+
+
+def test_the_tvs_go_to_the_base_url_without_its_name_and_password(app, authed_client, conn) -> None:
+    insert_settings(conn, base_url="https://me:secret@watch.example.org/mm/")
+    html = authed_client(app, conn).get("/settings?pane=1").text
+    assert _pair_at(html) == "watch.example.org/mm/tv"
 
 
 def _scripts(path: str, conn, stored: str) -> str:
@@ -176,10 +199,10 @@ def test_an_admin_is_told_how_far_googles_script_reaches(app, authed_client, con
     html = authed_client(app, conn).get("/settings?pane=1").text
     told = html.split('id="cast-lets"', 1)[1].split("</ul>", 1)[0]
     for said in (
-        "with the signed-in person’s access",
+        "(gstatic.com) run as the viewer",
         "Only in Play on",
         "mediaman’s address",
-        "a ticket for that one film, never a sign-in",
+        "a one-title ticket, no sign-in",
         "Turning it off doesn’t stop a cast already playing",
     ):
         assert said in told

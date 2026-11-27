@@ -238,6 +238,8 @@ def test_an_address_for_tvs_from_a_page_left_open_is_not_refused() -> None:
     # Nothing reads it any more, so what such a page sends is never a reason to refuse the save.
     for sent in ("http://localhost", "watch.example.org", "https://u:p@watch.example.org/x?y"):
         assert SettingsUpdate(tv_address=sent).tv_address == sent
+    long = "https://watch.example.org/" + "x" * 5000
+    assert SettingsUpdate(tv_address=long).tv_address == long
 
 
 def test_a_refused_save_brings_the_refused_field_out_from_under_the_bar() -> None:

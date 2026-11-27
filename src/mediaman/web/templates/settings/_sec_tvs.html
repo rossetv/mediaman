@@ -1,14 +1,25 @@
-{# TVs & Casting — the paired TVs, Chromecast, and what each way needs. #}
+{# TVs & Casting — the paired TVs, Chromecast, and what each needs. #}
 {% import "_components.html" as c %}
 
 {% call c.setg_block("setg-tvs", "TVs & Casting", "Other screens people can play on.") %}
 
   {% call c.setg_card(title="Paired TVs") %}
+    {# Hand-made rather than setg_row: its words line up with the TV names, past their icons. #}
+    <div class="setg-row tv-pair">
+      <div>
+        <div class="setg-row-lbl">To pair a TV</div>
+        <div class="setg-row-sub">Open this in the TV’s browser, then pair from Play on.</div>
+      </div>
+      <div>
+        {# The address the pair page gives: the Base URL's, else the one mediaman was opened at. #}
+        {% set base = (settings.get('base_url', '') or '')|string|trim %}
+        {% set at = base.split('://', 1)[1] if base.startswith(('http://', 'https://')) else '' %}
+        {% set host = at.partition('/')[0].rpartition('@')[2] %}
+        {% set pair_at = (host ~ at.partition('/')[1] ~ at.partition('/')[2]) if host else (request.base_url|string).split('://', 1)[1] %}
+        <span class="tv-pair-at">{{ pair_at.rstrip('/') }}/tv</span>
+      </div>
+    </div>
     <div id="tv-list-wrap" tabindex="-1"><div class="tv-empty">Loading…</div></div>
-    {% call c.setg_row("To pair a TV", "Type this into the TV’s browser.") %}
-      {% set base = (settings.get('base_url', '') or '')|string %}
-      <span class="tv-pair-at">{% if base %}{{ base.split('://')[-1].rstrip('/') }}/tv{% else %}Set a Base URL first{% endif %}</span>
-    {% endcall %}
   {% endcall %}
 
   {% call c.setg_card(title="Chromecast") %}
@@ -17,31 +28,31 @@
     <div class="setg-row">
       <div>
         <div class="setg-row-lbl">Allow Chromecast</div>
-        <div class="setg-row-sub">Loads Google’s cast scripts.</div>
+        <div class="setg-row-sub" id="cast-note">Loads Google’s cast scripts.</div>
       </div>
       <div>
         <span class="tog {% if cast_on %}on{% endif %}" role="switch" tabindex="0" aria-label="Allow Chromecast"
-              aria-describedby="cast-lets" data-toggle data-target="google_cast_enabled" aria-checked="{{ 'true' if cast_on else 'false' }}"></span>
+              aria-describedby="cast-note" data-toggle data-target="google_cast_enabled" aria-checked="{{ 'true' if cast_on else 'false' }}"></span>
         <input type="hidden" id="google_cast_enabled" value="{{ 'true' if cast_on else 'false' }}">
       </div>
       <details class="setg-row-sub fold-more tv-fold" id="cast-more">
         <summary id="cast-more-toggle">What this lets in {{ c.icon("i-chevron-down") }}</summary>
         <ul class="fold-more-list" id="cast-lets">
-          <li>Google’s scripts (gstatic.com) run inside mediaman, with the signed-in person’s access.</li>
-          <li>Only in Play on, in Chrome, Edge and other Chromium browsers, and while casting.</li>
-          <li>Google sees each viewer’s internet address and mediaman’s address.</li>
-          <li>The TV gets the title and a ticket for that one film, never a sign-in.</li>
-          <li>Turning it off doesn’t stop a cast already playing.</li>
+          <li>Google’s scripts (gstatic.com) run as the viewer</li>
+          <li>Only in Play on, in Chromium browsers, while casting</li>
+          <li>Google sees the viewer’s IP and mediaman’s address</li>
+          <li>The TV gets the title and a one-title ticket, no sign-in</li>
+          <li>Turning it off doesn’t stop a cast already playing</li>
         </ul>
       </details>
     </div>
   {% endcall %}
 
-  {% call c.setg_card(title="What each way needs") %}
+  {% call c.setg_card(title="What each needs") %}
     <ul class="tv-needs" id="tv-needs">
       <li class="setg-row"><div><div class="setg-row-lbl">Paired TV</div><div class="setg-row-sub">A browser on the TV.</div></div></li>
       <li class="setg-row"><div><div class="setg-row-lbl">AirPlay</div><div class="setg-row-sub">Safari on iPhone, iPad or Mac.</div></div></li>
-      <li class="setg-row"><div><div class="setg-row-lbl">Chromecast</div><div class="setg-row-sub">Chrome or Edge, over https.</div></div></li>
+      <li class="setg-row"><div><div class="setg-row-lbl">Chromecast</div><div class="setg-row-sub">Chrome or Edge on a computer or Android, over https.</div></div></li>
     </ul>
   {% endcall %}
 

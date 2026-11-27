@@ -33,10 +33,9 @@ def test_what_chromecast_lets_in_opens_and_shuts_as_a_fold() -> None:
     assert _run("list")["folded"] == [["cast-more", "cast-more-toggle"]]
 
 
-def test_no_tvs_says_how_to_get_one() -> None:
+def test_no_tvs_says_so_and_nothing_more() -> None:
     said = _run("empty")
-    assert "No TVs yet" in said
-    assert "Pair one from Play on" in said
+    assert said.strip() == "No TVs yet"
     assert "older" not in said.lower()
 
 

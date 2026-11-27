@@ -129,7 +129,6 @@
   function showEmpty() {
     var box = el('div', 'tv-empty');
     box.appendChild(el('b', '', 'No TVs yet'));
-    box.appendChild(document.createTextNode('Pair one from Play on, in the player.'));
     wrap.replaceChildren(box);
   }
 
