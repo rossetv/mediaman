@@ -1,4 +1,4 @@
-"""download.html must load downloads/build_dom.js before download.js.
+"""The emailed download page loads downloads/build_dom.js before download.js.
 
 download.js draws the episodes with ``MM.downloads.buildDom.syncEpisodes``, which
 build_dom.js alone defines, and ``defer`` scripts execute in document order.
@@ -6,28 +6,18 @@ build_dom.js alone defines, and ``defer`` scripts execute in document order.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[3]
-TEMPLATES = REPO / "src/mediaman/web/templates"
+import jinja2
 
-_BUILD_DOM_TAG = '<script src="/static/js/downloads/build_dom.js?v={{ static_v }}" defer></script>'
-_DOWNLOAD_JS_TAG = '<script src="/static/js/download.js?v={{ static_v }}" defer></script>'
+TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
 
 
-def _tpl(name: str) -> str:
-    return (TEMPLATES / name).read_text(encoding="utf-8")
-
-
-def test_download_html_loads_build_dom_before_download_js() -> None:
-    download = _tpl("download.html")
-    assert _BUILD_DOM_TAG in download, (
-        "download.html must load downloads/build_dom.js — download.js calls "
-        "MM.downloads.buildDom.syncEpisodes(box, item)"
-    )
-    assert _DOWNLOAD_JS_TAG in download
-
-    assert download.index(_BUILD_DOM_TAG) < download.index(_DOWNLOAD_JS_TAG), (
-        "downloads/build_dom.js must be loaded before download.js — defer "
-        "scripts execute in document order"
-    )
+def test_the_download_page_runs_build_dom_before_download_js() -> None:
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=True)
+    item = {"title": "Film", "media_type": "tv", "tmdb_id": 7, "action": "download"}
+    html = env.get_template("download.html").render(state="confirm", item=item, token="t")
+    scripts = re.findall(r'<script src="/static/js/([^"?]+)[^>]*\bdefer\b', html)
+    assert "downloads/build_dom.js" in scripts and "download.js" in scripts, scripts
+    assert scripts.index("downloads/build_dom.js") < scripts.index("download.js")
