@@ -122,7 +122,8 @@ def test_a_filter_is_in_the_address_and_back_brings_the_list_before_it() -> None
 
 def test_a_person_who_is_no_admin_has_no_filter_by_user() -> None:
     out = _run("viewer")
-    assert out["chips"] == ["action", "title", "date"]
+    assert out["chips"] == ["title", "date"]
+    assert out["groups"] == 3
     assert "user=" not in out["asked"]
 
 
@@ -209,17 +210,17 @@ def test_days_the_wrong_way_round_are_told_and_not_asked_for() -> None:
     assert _run("wrongDates") == {"asked": 0, "told": True}
 
 
-def test_the_newest_are_a_link_away_whenever_the_list_begins_further_down() -> None:
-    assert _run("newest") == {
-        "deep": "/history",
-        "filtered": None,
-        "answered": None,
-        "back": "/history",
+def test_the_newest_are_a_press_away_whenever_the_list_begins_further_down() -> None:
+    assert _run("newest") == {"deep": True, "filtered": False, "answered": False, "back": True}
+
+
+def test_the_newest_under_a_date_are_a_step_of_the_pane_that_keeps_the_date() -> None:
+    assert _run("newestOfDates") == {
+        "hidden": False,
+        "steps": ["push /history?date=week"],
+        "asked": "/api/history",
+        "own": [],
     }
-
-
-def test_the_newest_under_a_date_are_a_link_away_only_when_the_list_begins_further_down() -> None:
-    assert _run("newestOfDates") == {"hidden": None, "deep": "/history?date=week"}
 
 
 def test_the_moments_an_address_names_stay_a_filter_until_cleared() -> None:
@@ -230,7 +231,7 @@ def test_the_moments_an_address_names_stay_a_filter_until_cleared() -> None:
         "next": "/api/history?q=x&user=bob&since=2026-11-01&until=2026-11-03",
         "url": "http://mm.test/history?q=x&user=bob&since=2026-11-01&until=2026-11-03",
         "cleared": "/api/history?q=x&user=bob",
-        "bad": "Date",
+        "bad": "Any day",
     }
 
 
@@ -281,7 +282,7 @@ def test_counts_fill_the_menu_in_place_and_an_older_answer_is_dropped() -> None:
         "same": True,
         "counts": ["1,200", "1,199", "1,198", "1,197"],
         "focus": True,
-        "late": ["", "7"],
+        "late": ["", "7", "", ""],
     }
 
 
@@ -307,7 +308,7 @@ def test_titles_that_do_not_load_say_so() -> None:
 
 def test_a_hand_typed_day_is_a_filter_only_where_the_page_shows_it() -> None:
     out = _run("handTyped")
-    assert out[:5] == [["Date", ["/api/history"], ""]] * 5
+    assert out[:5] == [["Any day", ["/api/history"], ""]] * 5
     assert out[5] == ["From 1 Nov", ["/api/history?per_page=1"], "?since=2026-11-01"]
 
 
@@ -369,3 +370,42 @@ def test_every_tab_in_a_menu_goes_to_its_next_stop_and_round() -> None:
     assert out["from"] == "INPUTFind a title"
     assert out["on"] == ["Aces", "Low Tide", "BUTTONClose", "INPUTFind a title"]
     assert out["back"] == ["BUTTONClose", "Low Tide", "Aces", "INPUTFind a title"]
+
+
+def test_filters_are_written_to_the_panes_address_and_read_back_from_it() -> None:
+    out = _run("roundTrip")
+    assert out["steps"] == ["push /history?user=bob", "push /history?user=bob&action=plays"]
+    assert out["pressed"] == ["plays"]
+    assert out["askedBack"] == "/api/history?title=Low+Tide"
+    assert out["chips"] == ["title", "date"]
+    assert out["pressedBack"] == [""]
+    assert out["own"] == []
+
+
+def test_an_event_in_the_address_opens_its_row_and_loads_its_page_when_not_listed() -> None:
+    out = _run("eventRow")
+    assert out["shown"] == {"asked": 0, "open": ["6"]}
+    assert out["asked"] == ["/api/history?event=7"]
+    assert out["open"] == ["7"]
+    assert out["url"] == "http://mm.test/history?event=7"
+    assert out["own"] == []
+
+
+def test_more_is_asked_for_as_the_panes_scroller_nears_the_end_and_not_the_window() -> None:
+    assert _run("scroller") == {
+        "windowScroll": 0,
+        "asked": ["/api/history?cursor=c1"],
+        "stuck": True,
+    }
+
+
+def test_the_slash_key_finds_the_search_only_while_history_is_shown() -> None:
+    assert _run("slashShown") == [True]
+
+
+def test_the_script_loaded_twice_starts_the_pane_once() -> None:
+    assert _run("twice") == {"asked": 1, "rows": 2}
+
+
+def test_an_empty_history_hides_search_and_filters_until_a_filter_finds_nothing() -> None:
+    assert _run("emptyTools") == {"tools": True, "filtered": False}

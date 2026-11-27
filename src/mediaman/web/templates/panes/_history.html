@@ -11,22 +11,20 @@
 <div class="you-view" data-view="history" data-title="History" data-wide>
   <div class="container">
   <div class="hx{% if not is_admin %} is-mine{% endif %}" data-hist>
-    <div class="ph">
-      <h1>History</h1>
-      <p>{% if is_admin %}What everyone played, downloaded and kept, and what Mediaman did.{% else %}What you played, downloaded and kept, and your sign-ins.{% endif %}</p>
-    </div>
-
-    <div class="hx-tools">
+    <div class="hx-tools"{% if not total and not chosen %} hidden{% endif %}>
       <form class="hx-line" role="search" method="post">
         <div class="hx-search{% if filters.q %} has-q{% endif %}">
           {{ c.icon("i-magnifying-glass") }}
           <input type="search" name="q" value="{{ filters.q }}" maxlength="200" placeholder="{% if is_admin %}Search people, titles and events{% else %}Search your history{% endif %}" aria-label="Search history" autocomplete="off">
           <button type="button" class="hx-x" aria-label="Clear search">{{ c.icon("i-xmark") }}</button>
         </div>
-        <div class="hx-chips"></div>
       </form>
+      <div class="hx-groups" role="group" aria-label="Show"></div>
+      <div class="hx-filters">
+        <div class="hx-chips"></div>
+        <div class="hx-sum"><span role="status">{% if total %}{{ "{:,}".format(total) }} event{{ "s" if total != 1 }}{% endif %}</span><button type="button" data-hist-clear hidden>Clear all</button>{% if page > 1 %}<a class="hx-newest" href="{{ page_href(1) }}">Show the newest</a>{% endif %}</div>
+      </div>
     </div>
-    <div class="hx-sum"><span role="status">{% if total %}{{ "{:,}".format(total) }} event{{ "s" if total != 1 }}{% endif %}</span><button type="button" data-hist-clear hidden>Clear all</button>{% if page > 1 %}<a class="hx-newest" href="{{ page_href(1) }}">Show the newest</a>{% endif %}</div>
 
     {# What shows should the script not load: it replaces all of this. #}
     <div class="hx-list" tabindex="-1">
@@ -63,7 +61,6 @@
       {% if page < total_pages %}<p class="hx-end hx-plain"><a class="btn btn--secondary" rel="next" href="{{ page_href(page + 1) }}">Show earlier events</a></p>{% endif %}
     </div>
     <span class="sr-only" role="status" data-hist-said></span>
-    <div class="page-bottom-spacer"></div>
   </div>
   </div>
   <script type="application/json" id="history-data">{{ {

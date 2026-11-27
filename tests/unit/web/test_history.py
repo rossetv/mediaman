@@ -746,9 +746,10 @@ class TestHistoryPageMarkup:
         assert json.loads(island[1])["items"][0]["line_title"] == title
         assert "<b>&'" not in html
 
-    def test_the_last_row_does_not_double_the_card_border(self):
+    def test_a_hairline_parts_two_rows_and_none_closes_the_card(self):
         css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
-        assert re.search(r"\.hist:last-child\s*\{\s*border-bottom:\s*0", css)
+        assert re.search(r"\.hist \+ \.hist::before \{[^}]*border-top: 1px solid", css)
+        assert not re.search(r"\.hist(:last-child)? \{[^}]*border-bottom: 1px", css)
 
     def test_the_events_are_counted(self, app_factory, authed_client, conn):
         insert_audit_log(conn, media_item_id="m1", action="deleted")
