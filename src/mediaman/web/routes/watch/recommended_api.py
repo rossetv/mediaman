@@ -211,6 +211,7 @@ def api_watch_recommended(
     payload["batch"] = batches[chosen]["id"]
     held = held_fields(conn, username, libraries)
     marks = card_marks(own, client)
-    payload["items"] = [_card(row, index, arr, held, marks) for row in rows]
-    scored(conn, payload["items"])
+    items = [_card(row, index, arr, held, marks) for row in rows]
+    scored(conn, items)
+    payload["items"] = items
     return respond_ok(payload)
