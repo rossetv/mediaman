@@ -119,15 +119,28 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 .space { position: fixed; inset: 0; z-index: var(--z-modal-backdrop); }
 /* On its way out under what opened over it. */
 .space.is-under { z-index: calc(var(--z-modal-backdrop) - 1); }
+/* A plain dim, light enough that the panel's glass has the page to show. */
 .space__veil {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--scrim) 58%, transparent);
+  background: var(--g-veil);
   opacity: 0;
   transition: opacity var(--dur-slow) var(--ease-out);
 }
 .space.is-open .space__veil { opacity: 1; }
+/* Glass that fades itself, never under a fading parent, which would leave it nothing to blur. */
 .space__panel {
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   position: absolute;
   top: max(12px, env(safe-area-inset-top, 0px));
   right: max(12px, env(safe-area-inset-right, 0px));
@@ -135,10 +148,13 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
   width: min(520px, calc(100vw - 24px));
   display: flex;
   flex-direction: column;
-  background: var(--s1);
-  border: 1px solid var(--hair-strong);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: 20px;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
   overflow: hidden;
   outline: 0;
   opacity: 0;
@@ -198,25 +214,32 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--s5) transparent;
-  /* A fade at the foot while more is below: the shade stays on the pane, the cover goes with the content's end. */
-  background:
-    linear-gradient(var(--s1), var(--s1)) local 0 100% / 100% 36px no-repeat,
-    linear-gradient(to bottom, transparent, color-mix(in srgb, var(--t1) 10%, var(--s1))) scroll 0 100% / 100% 32px no-repeat;
   opacity: 0;
   pointer-events: none;
   transform: translateX(calc(var(--dir, 1) * 14px));
   transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out);
 }
 .space-pane.is-on { opacity: 1; pointer-events: auto; transform: none; }
+/* While more is below, what is at the foot fades out into the glass; at the end it does not. */
+@property --space-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@supports (animation-timeline: scroll()) {
+  .space-pane {
+    mask-image: linear-gradient(to top, transparent, #000 var(--space-fade));
+    animation: space-fade linear both;
+    animation-timeline: scroll(self);
+    animation-range: calc(100% - 32px) 100%;
+  }
+  @keyframes space-fade { from { --space-fade: 32px; } to { --space-fade: 0px; } }
+}
 .space__foot { flex: none; display: flex; align-items: center; gap: 12px; min-height: 65px; padding: 12px 14px 12px 20px; border-top: 1px solid var(--hair); }
 .space__scan-status { flex: 1; min-width: 0; font-size: 12px; line-height: 1.35; color: var(--t3); overflow-wrap: anywhere; }
 .space__scan-status--ok { color: var(--success); }
 .space__scan-status--error { color: var(--danger-text); }
-.space__scan-status a { position: relative; color: var(--accent); }
+.space__scan-status a { position: relative; color: var(--accent-text); }
 .space__scan-status a::after { content: ""; position: absolute; inset: -15px -6px; }
 .space__scan { min-width: 10.5em; }
 .space__scan[aria-disabled="true"] { opacity: 1; cursor: default; }
-.space__scan.is-busy { background: var(--rgba-accent-bg); color: var(--accent); }
+.space__scan.is-busy { background: var(--rgba-accent-bg); color: var(--accent-text); }
 .space__scan.is-busy > .ico { animation: spin 1s linear infinite; }
 
 /* A focus target that is not a control: an empty list, when the last row goes. */
@@ -333,7 +356,7 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 .space-cat[aria-disabled="true"]:hover { background: none; }
 .space-cat[aria-disabled="true"] > .ico { visibility: hidden; }
 .space-peek { display: flex; min-height: 42px; }
-.space-peek .space-mini { width: 28px; height: 42px; margin-left: -12px; border-radius: var(--r-xxs); outline: 2px solid var(--s1); outline-offset: 0; transition: transform var(--dur) var(--ease-out); }
+.space-peek .space-mini { width: 28px; height: 42px; margin-left: -12px; border-radius: var(--r-xxs); outline: 2px solid rgb(var(--g-tint)); outline-offset: 0; transition: transform var(--dur) var(--ease-out); }
 .space-peek .space-mini:nth-child(1) { z-index: 3; }
 .space-peek .space-mini:nth-child(2) { z-index: 2; opacity: .75; }
 .space-peek .space-mini:nth-child(3) { z-index: 1; opacity: .45; }
@@ -387,7 +410,7 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
   border-radius: var(--r-lg);
   font-size: 13px;
   font-weight: 500;
-  color: var(--accent);
+  color: var(--accent-text);
   white-space: nowrap;
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
@@ -419,7 +442,7 @@ a.space-heavy__row:hover { background: var(--s2); }
 .space-line { display: block; height: 4px; margin-top: 6px; border-radius: var(--r-pill); background: var(--hair); overflow: hidden; }
 .space-line__fill { display: block; height: 100%; border-radius: inherit; background: var(--c); transform: scaleX(var(--share)); transform-origin: 0 50%; }
 .space-tag { font-weight: 500; }
-.space-tag--kept { color: var(--success); }
+.space-tag--kept { color: color-mix(in srgb, var(--success) 70%, var(--t1)); }
 .space-tag--leaving { color: color-mix(in srgb, var(--orange) 70%, var(--t1)); }
 .space-note { padding: 6px 0; font-size: 12px; color: var(--t3); }
 
@@ -478,6 +501,7 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
 .space-item__when > .ico { flex: none; font-size: 11px; }
 .space-item small.space-item__when--soon { color: color-mix(in srgb, var(--orange) 70%, var(--t1)); }
 .space-item .watch-keep { align-self: center; }
+.space-item .watch-keep::before { box-shadow: var(--g-chip-floor); }
 .space-item--deleted .space-mini > img { filter: saturate(.35) brightness(.75); }
 .space-redo { min-width: 112px; }
 .space-redo.is-success { opacity: 1; }

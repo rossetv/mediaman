@@ -666,8 +666,20 @@
 .watch-keep[aria-disabled="true"] { opacity: .55; cursor: progress; }
 
 /* One shared menu, fixed under the pressed trigger, so a scrolling row never clips it.
-   place() caps its height to the room on screen; a longer list scrolls. */
+   place() caps its height to the room on screen; a longer list scrolls. It is glass, and it fades
+   itself: glass under a fading parent has nothing to blur. */
 .watch-keep-menu {
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   position: fixed;
   z-index: var(--z-dropdown);
   min-width: 170px;
@@ -675,10 +687,13 @@
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  background: var(--s2);
-  border: 1px solid var(--hair-strong);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: var(--r-md);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
   overflow-y: auto;
   overscroll-behavior: contain;
   opacity: 0;
@@ -689,6 +704,14 @@
 }
 .watch-keep-menu.is-above { transform: translateY(4px) scale(.98); transform-origin: bottom left; }
 .watch-keep-menu.is-open { opacity: 1; transform: none; pointer-events: auto; }
+/* On a phone, over the Space sheet or a title's sheet, it is solid: no third layer of glass. */
+@media (max-width: 699.98px) {
+  html:is(.has-space, .has-ttl) .watch-keep-menu {
+    background: var(--g-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
 .watch-keep-menu__item {
   flex: none;
   min-height: 44px;
@@ -700,8 +723,9 @@
   white-space: nowrap;
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
+/* A light step over the glass, no more: a red word on it still holds over a white page. */
 .watch-keep-menu__item:hover,
-.watch-keep-menu__item:focus-visible { background: var(--s3); color: var(--t1); outline: none; }
+.watch-keep-menu__item:focus-visible { background: var(--s2); color: var(--t1); outline: none; }
 
 /* Search results replace the rows. */
 .watch-results { padding: 24px var(--pad) 0; }

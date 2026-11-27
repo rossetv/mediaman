@@ -177,7 +177,12 @@ def test_watch_s_hero_keeps_its_words_clear_of_the_bar_whatever_its_padding() ->
 def test_history_panes_tools_are_opaque_and_draw_no_glass_up_behind_the_bar() -> None:
     css = _outside(_css(CSS / "_history.css"))
 
-    assert "background: var(--s1)" in _of(".hx-tools", css)
+    # Once the list passes under them, the tools are a layer of glass of their own over it.
+    stuck = _of(".hx-tools.is-stuck", css)
+    assert (
+        "background-color: var(--g-regular)" in stuck
+        and "backdrop-filter: var(--g-filter)" in stuck
+    )
     assert not _of(".hx-tools::after", css)
 
 

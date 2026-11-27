@@ -9,18 +9,20 @@
 /* The view sets the sides; the page's container adds none of its own. */
 .you-view[data-view="history"] > .container { max-width: none; margin: 0; padding: 0; }
 
-/* Opaque, so a row moving over an opening one covers its details until it has passed. */
-.hist { position: relative; background: var(--s2); }
+/* No fill over its card's: on glass nothing is opaque, and a second veil only greys its quiet words. */
+.hist { position: relative; }
 .hist + .hist::before { content: ""; position: absolute; z-index: 1; top: 0; right: 0; left: 70px; border-top: 1px solid var(--hair); }
 .hist-sum { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 14px; cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; transition: background-color var(--dur-fast) var(--ease-out); }
 .hist-sum::-webkit-details-marker { display: none; }
 .hist-sum:focus-visible { outline-offset: -2px; }
 /* A touch leaves no hover behind; a press shows at once and lets go slowly. */
 @media (hover: hover) {
-  .hist-sum:hover { background: var(--s3); }
+  .hist-sum:hover { background: var(--s2); }
 }
-.hist[open] > .hist-sum { background: var(--s3); }
-.hist-sum:active { background: var(--s4); transition-duration: 0s; }
+/* A row lights one step over its card's glass, open or pressed: a second step would be too light
+   for its quiet and red words over a white page. */
+.hist[open] > .hist-sum { background: var(--s2); }
+.hist-sum:active { background: var(--s2); transition-duration: 0s; }
 .hist-date { flex: none; font-size: 13px; color: var(--t3); letter-spacing: -.01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hist-msg { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; line-height: 1.3; color: var(--t2); }
 .hist-msg b { color: var(--t1); font-weight: 600; }
@@ -28,7 +30,7 @@
 .hist[open]:not(.is-closing) > .hist-sum .hist-chev { transform: rotate(180deg); color: var(--t2); }
 .hist[open] > .hist-sum .hist-date { color: var(--t2); }
 
-.hist-body { padding: 4px 14px 14px 70px; background: var(--s3); }
+.hist-body { padding: 4px 14px 14px 70px; background: var(--s2); }
 .hist[open] > .hist-body { animation: hist-open var(--dur) var(--ease-out); }
 .hist.is-closing > .hist-body { animation: hist-close var(--dur-fast) ease-in forwards; }
 @keyframes hist-open  { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
@@ -65,10 +67,17 @@
   margin: 0 -20px;
   padding: 4px 20px 12px;
   border-bottom: 1px solid transparent;
-  background: var(--s1);
-  transition: border-color var(--dur-fast) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
 .hx-tools[hidden] { display: none; }
+/* Once the list passes under them, the tools and a day's head stuck below them are a layer of glass
+   of their own, over the list, so its words never show through theirs. */
+.hx-tools.is-stuck,
+.hx-day__top.is-stuck {
+  background-color: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+}
 .hx-tools.is-stuck { border-bottom-color: var(--hair); }
 /* A day's head stuck under the tools draws the line instead. */
 .hx-tools.is-stuck.has-day { border-bottom-color: transparent; }
@@ -228,7 +237,7 @@
 /* Among the filters it only waits for the list: it takes no line of its own. */
 .hx-filters > .hx-sum.is-waiting { display: none; }
 .hx-sum button,
-.hx-newest { position: relative; min-height: 32px; padding: 0 4px; font-size: 13px; color: var(--accent); }
+.hx-newest { position: relative; min-height: 32px; padding: 0 4px; font-size: 13px; color: var(--accent-text); }
 .hx-sum button::after { content: ""; position: absolute; inset: -6px -4px; }
 .hx-sum button:hover { color: var(--accent-hi); }
 .hx-newest { display: inline-flex; align-items: center; }
@@ -250,8 +259,7 @@
   margin: 0 -20px;
   padding: 8px 24px 7px;
   border-bottom: 1px solid transparent;
-  background: var(--s1);
-  transition: border-color var(--dur-fast) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
 .hx-day__top.is-stuck { border-bottom-color: var(--hair); }
 .hx-day__h { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; }
@@ -268,9 +276,9 @@
   height: 20px;
   display: grid;
   place-items: center;
-  border: 2px solid var(--s2);
+  border: 2px solid rgb(var(--g-tint));
   border-radius: 50%;
-  background: var(--s5);
+  background: var(--g-tip);
   color: #fff;
   font-size: 8px;
 }
@@ -279,21 +287,17 @@
 .hx-act--keep { background: #a05a00; }
 .hx-act--bad,
 .hx-act--del { background: var(--danger-solid); }
-@media (hover: hover) {
-  .hist-sum:hover .hx-act { border-color: var(--s3); }
-}
-.hist[open] .hx-act { border-color: var(--s3); }
-.hist-sum:active .hx-act { border-color: var(--s4); transition-duration: 0s; }
 .hx-l1 { display: block; font-size: 15px; overflow-wrap: anywhere; }
 .hx-l2 { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--t3); }
 /* What a fault needs is said whole. */
 .hx-l2.is-bad { color: var(--danger-text); white-space: normal; overflow-wrap: anywhere; }
-.hx mark { background: color-mix(in srgb, var(--warning) 35%, transparent); color: inherit; border-radius: 3px; }
+/* Faint enough that the white word on it holds over a white page. */
+.hx mark { background: color-mix(in srgb, var(--warning) 28%, transparent); color: inherit; border-radius: 3px; }
 .hx-bar { display: block; width: min(160px, 70%); height: 3px; margin-top: 3px; border-radius: var(--r-pill); background: var(--s5); overflow: hidden; }
 .hx-bar i { display: block; height: 100%; background: var(--accent); }
 .hx-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.hx-acts .btn { min-height: 36px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: var(--s5); color: var(--t1); font-size: 13px; }
-.hx-acts .btn:hover { background: var(--hair-hover); }
+.hx-acts .btn { min-height: 36px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: var(--s4); color: var(--t1); font-size: 13px; }
+.hx-acts .btn:hover { background: var(--s5); }
 
 .hx-in { animation: fade-in var(--dur-slow) var(--ease-out) backwards; }
 .hx .skel { background: var(--s3); border-radius: var(--r-pill); }
@@ -352,7 +356,8 @@
   display: flex;
   flex-direction: column;
   padding: 6px;
-  background: var(--s3);
+  /* It opens on the pane's glass: solid, so no third layer of glass stacks there. */
+  background: var(--g-solid);
   border: 1px solid var(--hair-strong);
   border-radius: 14px;
   box-shadow: var(--shadow-card);
@@ -423,7 +428,7 @@
 .hx-opt-skel:nth-child(even) .skel { width: 40%; }
 .hx-opt .k { width: 20px; text-align: center; color: var(--t3); }
 .hx-opt[aria-checked=true] { color: var(--t1); }
-.hx-opt > .tick { font-size: 12px; color: var(--accent); visibility: hidden; margin-right: -4px; }
+.hx-opt > .tick { font-size: 12px; color: var(--accent-text); visibility: hidden; margin-right: -4px; }
 .hx-opt[aria-checked=true] > .tick { visibility: visible; }
 .hx-dates {
   display: grid;

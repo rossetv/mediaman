@@ -47,7 +47,8 @@
   color: var(--t1); text-decoration: none;
   transition: background-color var(--dur-fast) var(--ease-out);
 }
-.stx-link:hover { background: var(--s3); }
+/* One step over the list's glass: a third veil is too light for its quiet and red words. */
+.stx-link:hover { background: var(--s2); }
 /* Inside the row, as the list's rounded clip would cut a ring drawn outside it. */
 .stx-link:focus-visible { outline-offset: -2px; }
 .stx-list > li:first-child > .stx-link { border-radius: 14px 14px 0 0; }
@@ -81,7 +82,7 @@
   .stx__nav { right: auto; width: 340px; padding: 4px 14px 24px 20px; border-right: 1px solid var(--hair); }
   .stx__body, .stx.is-in > .stx__body { left: 340px; padding: 8px 28px 28px; opacity: 1; visibility: visible; transform: none; }
   .stx.is-in > .stx__nav { opacity: 1; visibility: visible; transform: none; }
-  .stx-link[aria-current] { background: var(--s3); }
+  .stx-link[aria-current] { background: var(--s2); }
   .stx-link[aria-current] .stx-link__chev { opacity: 0; }
   .setg-pg .setg-block-hd h2 { display: block; }
 }
@@ -154,7 +155,7 @@
 .setg-pg .setg-row > .ai-need p, .setg-pg .setg-row > .fold-more > div { max-width: 60ch; }
 .setg-pg .setg-row-lbl { font-size: 15px; }
 .setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 2px; line-height: 1.4; max-width: 60ch; }
-.setg-pg .setg-row-sub a { color: var(--accent); }
+.setg-pg .setg-row-sub a { color: var(--accent-text); }
 .setg-pg .setg-row select.inp, .setg-pg .setg-row input[type="time"].inp { width: auto; max-width: 200px; min-height: 40px; font-size: 15px; }
 /* Beside the section list, one column of controls down a card's right, whatever each one holds. */
 @media (min-width: 1000px) {
@@ -226,13 +227,13 @@
   display: flex; align-items: center; gap: 8px;
 }
 .setg-pg .fld-lbl .opt {
-  font-size: 10px; font-weight: 500; color: var(--t3);
+  font-size: 10px; font-weight: 500; color: var(--t2);
   text-transform: none; letter-spacing: 0;
   padding: 1px 7px; border-radius: var(--r-pill);
   background: var(--s3);
 }
 .setg-pg .fld-sub { font-size: 12px; color: var(--t3); line-height: 1.4; }
-.setg-pg .fld-sub a { color: var(--accent); }
+.setg-pg .fld-sub a { color: var(--accent-text); }
 .setg-pg .fld-row { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
 .setg-pg .fld-row--full { grid-template-columns: 1fr; }
 @media (max-width: 639.98px) { .setg-pg .fld-row { grid-template-columns: 1fr; } }

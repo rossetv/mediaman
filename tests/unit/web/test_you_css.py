@@ -110,16 +110,21 @@ def _at(value: str, d: int) -> float:
 
 def test_a_step_pushes_the_new_view_over_the_old_which_slips_a_little_way_under_and_fades() -> None:
     view = style(".you-view", "_you.css")
-    # Opaque, so the two views never show through each other.
-    assert view["background"] == "var(--s1)"
     shift = re.fullmatch(r"translateX\((.*)\)", view["transform"])[1]
-    # The deeper view, on the right (--dir 1), comes or goes the full width, on top and opaque.
+    # The deeper view, on the right (--dir 1), comes or goes the full width, on top.
     assert _at(shift, 1) == 100
-    assert _at(view["opacity"], 1) == 1
-    # The shallower, on the left (--dir -1), slips a short way under it and fades out.
+    # The shallower, on the left (--dir -1), slips a short way under it.
     assert -40 <= _at(shift, -1) <= -20
-    assert _at(view["opacity"], -1) == 0
     assert _at(view["z-index"], 1) > _at(view["z-index"], -1)
+
+
+def test_views_on_the_glass_never_show_their_words_through_each_other() -> None:
+    # A view draws no fill: the glass is the panel's, so no view covers the one under it.
+    assert "background" not in style(".you-view", "_you.css")
+    # Whichever way a step goes, the view it leaves fades out, even where the step holds it at full
+    # strength while the panel changes width (watch/you.js).
+    assert style(".you-view:not(.is-on)", "_you.css")["opacity"] == "0 !important"
+    assert style(".you-view.is-on", "_you.css")["opacity"] == "1"
 
 
 def _press_after_hover(sheet: str) -> list[str]:

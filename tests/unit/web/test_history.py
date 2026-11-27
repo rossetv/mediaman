@@ -961,8 +961,8 @@ def test_a_persons_own_events_show_their_face_like_anyone_elses() -> None:
 
 
 def test_a_tapped_event_shows_a_press_and_leaves_no_hover_behind_on_a_touch_screen() -> None:
-    assert (
-        style(".hist-sum:active", _HISTORY)["background"] != style(".hist", _HISTORY)["background"]
+    assert style(".hist-sum:active", _HISTORY)["background"] != style(".hist", _HISTORY).get(
+        "background", "none"
     )
     hovers = [where for where, sels, _ in rules(_HISTORY) if ".hist-sum:hover" in sels]
     assert hovers and all("(hover: hover)" in where for where in hovers)

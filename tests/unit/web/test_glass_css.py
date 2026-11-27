@@ -1,5 +1,6 @@
-"""Glass: one material named once in the tokens, drawn by the top bar's islands, the profile menu
-and toasts, legible over a white page, and solid wherever glass cannot or should not be drawn."""
+"""Glass: one material named once in the tokens, drawn by the top bar's islands, the profile menu,
+toasts and the side panels (the pane over Watch, Space and the keep menu), legible over a white page,
+and solid wherever glass cannot or should not be drawn."""
 
 from __future__ import annotations
 
@@ -11,6 +12,14 @@ from tests.unit.web._css import CSS_DIR, contrast, rgb, rules, style, token
 
 NAV = "_nav.css"
 TOASTS = "_ui_feedback.css"
+YOU = "_you.css"
+PROFILE = "_profile.css"
+HISTORY = "_history.css"
+SETTINGS = "_settings_pg.css"
+PANELS = "_settings_pg_panels.css"
+SPACE = "_watch_space.css"
+KEEP = "_watch.css"
+PHONE = "(max-width: 699.98px)"
 NO_BLUR = "@supports not"
 WHITE = (255.0, 255.0, 255.0)
 
@@ -18,6 +27,9 @@ WHITE = (255.0, 255.0, 255.0)
 SURFACES = [
     (".profile-panel", NAV, "background"),
     (".ui-toast", TOASTS, "background-color"),
+    (".you__panel::before", YOU, "background"),
+    (".space__panel", SPACE, "background"),
+    (".watch-keep-menu", KEEP, "background"),
 ]
 # What sits on the glass of each surface: what its words, fills and blue and red words resolve to.
 ON_GLASS = [
@@ -26,6 +38,9 @@ ON_GLASS = [
     (".nav-glass .watch-search", NAV),
     (".profile-panel", NAV),
     (".ui-toast", TOASTS),
+    (".you__panel", YOU),
+    (".space__panel", SPACE),
+    (".watch-keep-menu", KEEP),
 ]
 WORDS = ("--t2", "--t3", "--t4", "--accent-text", "--danger-text")
 
@@ -178,3 +193,142 @@ def test_the_search_s_new_hint_comes_in_only_once_the_old_one_has_gone() -> None
 def test_a_pointer_over_the_way_back_lights_its_glass_and_keeps_the_tint_under_its_word() -> None:
     lit = style(".nav-back:hover", NAV, "(hover: hover)")
     assert lit["background-color"].startswith("color-mix(in srgb, var(--isle),"), lit
+
+
+def _side_glass() -> tuple[float, ...]:
+    """A side panel's glass over a white page, the page under the panel's veil."""
+    return _glass_over(_on(token("--g-veil"), WHITE), float(token("--g-a")), filtered=True)
+
+
+def _fill(value: str) -> str:
+    """A fill of the side panels, as their glass resolves it."""
+    found = re.fullmatch(r"var\(--(s\d)\)", value.strip())
+    assert found, value
+    return token(f"--g-{found[1]}")
+
+
+@pytest.mark.parametrize(("veil", "sheet"), [(".you__veil", YOU), (".space__veil", SPACE)])
+def test_a_side_panel_dims_the_page_with_a_plain_veil(veil: str, sheet: str) -> None:
+    drawn = style(veil, sheet)
+    assert drawn["background"] == "var(--g-veil)"
+    # Blurred, it would be one more layer of glass under the panel's.
+    assert "backdrop-filter" not in drawn and "-webkit-backdrop-filter" not in drawn
+
+
+def test_the_pane_s_glass_is_a_layer_of_its_own_that_fades_and_the_pane_does_not() -> None:
+    # Blur or a fade on the pane itself would leave every blur inside it (the History tools) nothing
+    # of the page to show, and would make the pane the box its fixed menus are placed in.
+    for state in (".you__panel", ".you.is-open .you__panel"):
+        drawn = style(state, YOU)
+        for prop in ("backdrop-filter", "-webkit-backdrop-filter", "opacity", "filter"):
+            assert prop not in drawn, (state, prop)
+    assert style(".you__panel::before", YOU)["opacity"] == "0"
+    assert style(".you.is-open .you__panel::before", YOU)["opacity"] == "1"
+    # On a phone the sheet slides in whole.
+    assert style(".you__panel::before", YOU, PHONE)["opacity"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("glass", "shown", "sheet"),
+    [
+        (".space__panel", ".space.is-open .space__panel", SPACE),
+        (".watch-keep-menu", ".watch-keep-menu.is-open", KEEP),
+    ],
+)
+def test_a_panel_and_the_keep_menu_fade_their_own_glass(glass: str, shown: str, sheet: str) -> None:
+    assert style(glass, sheet)["opacity"] == "0"
+    assert style(shown, sheet)["opacity"] == "1"
+
+
+def test_while_the_pane_changes_width_its_frame_carries_the_glass_once() -> None:
+    assert style(".you.is-sizing .you__panel::before", YOU)["visibility"] == "hidden"
+    fill = style(".you__frame-fill", YOU)
+    assert fill["background"] == "var(--g-regular)"
+    assert fill["backdrop-filter"] == fill["-webkit-backdrop-filter"] == "var(--g-filter)"
+    # Its ends lie over the fill: glass of their own there would be laid twice, and darker.
+    ends = style(".you__frame-end", YOU)
+    assert "background" not in ends and "backdrop-filter" not in ends
+
+
+@pytest.mark.parametrize(
+    ("menu", "sheet", "media"),
+    [
+        (".hx-menu", HISTORY, None),
+        ("html:is(.has-space, .has-ttl) .watch-keep-menu", KEEP, PHONE),
+    ],
+)
+def test_a_menu_that_opens_on_a_panel_s_glass_is_solid(menu: str, sheet: str, media: str) -> None:
+    drawn = style(menu, sheet, media)
+    assert drawn["background"] == "var(--g-solid)"
+    assert drawn.get("backdrop-filter", "none") == "none"
+
+
+# A row lit on a card of the side panels, and what is laid open under one: the card's veil and the
+# row's, one over the other.
+LIT = [
+    (".hist[open] > .hist-sum", HISTORY, None),
+    (".hist-sum:active", HISTORY, None),
+    (".hist-body", HISTORY, None),
+    (".stx-link:hover", SETTINGS, None),
+    (".stx-link[aria-current]", SETTINGS, "(min-width: 1000px)"),
+    (":is(a, button).yo-row:hover", PROFILE, "(hover: hover)"),
+    (":is(a, button).yo-row:active", PROFILE, None),
+    (".yo-pick-row:active", PROFILE, None),
+    (".setg-pg .intg-card-hd:hover", PANELS, None),
+    (".dev .btn--danger", PROFILE, None),
+]
+
+
+@pytest.mark.parametrize(("selector", "sheet", "media"), LIT)
+def test_a_row_lit_on_a_card_keeps_its_quiet_blue_and_red_words_over_a_white_page(
+    selector: str, sheet: str, media: str | None
+) -> None:
+    card = _on(token("--g-s2"), _side_glass())
+    lit = _on(_fill(style(selector, sheet, media)["background"]), card)
+    for words in ("--g-t3", "--g-accent-text", "--g-danger-text"):
+        assert contrast(_on(token(words), lit), lit) >= 4.5, words
+
+
+# A chip tinted with a see-through colour, on a panel's glass.
+FLOORED = [
+    (".yo-role__pill", PROFILE),
+    (".dev-here", PROFILE),
+    (".setg-pg .glyph", PANELS),
+    (".setg-pg .intg-card-hd .conn", PANELS),
+    (".setg-pg .lp-head .lp-glyph", PANELS),
+    (".setg-pg .usr-row .you-pill", PANELS),
+    (".space-item .watch-keep::before", SPACE),
+]
+
+
+@pytest.mark.parametrize(("chip", "sheet"), FLOORED)
+def test_a_tinted_chip_on_a_panel_has_a_floor_under_its_tint(chip: str, sheet: str) -> None:
+    assert style(chip, sheet)["box-shadow"] == "var(--g-chip-floor)"
+
+
+@pytest.mark.parametrize("brand", ["plex", "sonarr", "radarr", "mailgun", "openai", "tmdb", "omdb"])
+def test_a_service_s_letters_hold_on_the_lit_head_of_its_open_card(brand: str) -> None:
+    letters = re.fullmatch(
+        r"color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, var\(--t1\)\)",
+        style(f".setg-pg .gy-{brand}", PANELS)["color"],
+    )
+    assert letters, brand
+    share = int(letters[2]) / 100
+    colour = tuple(
+        share * c + (1 - share) * w
+        for c, w in zip(rgb(token(letters[1])), rgb(token("--t1")), strict=True)
+    )
+    head = _fill(style(".setg-pg .intg-card-hd:hover", PANELS)["background"])
+    row = _on(head, _on(token("--g-s2"), _side_glass()))
+    floor = _on(re.search(r"rgb\([^)]*\)", token("--g-chip-floor"))[0], row)
+    chip = _on(token(f"--brand-{brand}-bg"), floor)
+    assert contrast(colour, chip) >= 4.5
+
+
+@pytest.mark.parametrize("sheet", [YOU, PROFILE, HISTORY, SETTINGS, PANELS, SPACE])
+def test_no_word_or_tick_in_the_side_panels_is_in_the_blue_kept_for_fills_and_rings(
+    sheet: str,
+) -> None:
+    # On glass the fills' blue is under 4.5:1 over a white page; words and ticks take --accent-text.
+    for where, selectors, decls in rules(sheet):
+        assert decls.get("color") != "var(--accent)", (sheet, where, selectors)
