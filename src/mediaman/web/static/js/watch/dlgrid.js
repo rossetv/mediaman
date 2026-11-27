@@ -60,6 +60,7 @@
   var timer = null;
   var asked = 0; // which asking is the current one
   var opener = null;
+  var tapped = false; // opened by a tap or a click, not a key: its heading takes no ring
   var opens = 0; // which opening is the current one
   var savedY = 0;
   var lefts = []; // how far each row was scrolled when the grid took the page
@@ -605,6 +606,17 @@
 
   function ease() { return core.token('--ease-out', 'ease-out'); }
 
+  /* Where the grid will stand on the page once it has it alone. The first of the page (the
+     banner) runs up under the bar by its top margin, which falls through to the page's top. */
+  function landing() {
+    var top = browse.getBoundingClientRect().top + window.scrollY;
+    var first = toArray(browse.children).filter(function (n) { return n !== dom.section; })[0];
+    if (!first || !first.getClientRects().length) return top;
+    var cs = getComputedStyle(browse);
+    if ((parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.borderTopWidth) || 0) > 0) return top;
+    return top - (parseFloat(getComputedStyle(first).marginTop) || 0);
+  }
+
   function pin(top) {
     dom.section.classList.add('is-moving');
     dom.section.style.top = top + 'px';
@@ -671,7 +683,7 @@
     var sides = around();
     var name = sides.slot && sides.slot.querySelector('.dlx__name');
     var nameSeen = name && onScreen(name.getBoundingClientRect());
-    var topAt = browse.getBoundingClientRect().top + window.scrollY;
+    var topAt = landing();
     dom.section.hidden = false;
     pin(topAt);
     var anims = [];
@@ -723,7 +735,7 @@
       unpin();
       document.documentElement.classList.remove('is-dl-moving');
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-      focusTitle(false);
+      focusTitle(tapped);
     });
   }
 
@@ -793,7 +805,7 @@
     dom.section.hidden = false;
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     // Opened with the page, nothing was pressed: no ring.
-    focusTitle(how === 'start');
+    focusTitle(how === 'start' || tapped);
     if (how === 'start') return;
     var D = core.tokenMs('--dur-fast', 150);
     play([animate(dom.section, [{ opacity: 0 }, { opacity: 1 }], { duration: D, easing: 'linear' })], D, function () {});
@@ -828,6 +840,7 @@
     finishMoving();
     build();
     isOpen = true;
+    if (!from) tapped = false;
     failures = 0;
     opener = from || null;
     savedY = window.scrollY;
@@ -926,7 +939,7 @@
     var over = address.top();
     if (!isOpen) return;
     if (over && over !== 'dl') address.back(over, toGrid);
-    else focusTitle(false);
+    else focusTitle(tapped);
   }
 
   document.addEventListener('click', function (e) {
@@ -935,6 +948,7 @@
     if (link && plainClick(e) && (link.tagName !== 'A' || link.hasAttribute('href'))) {
       e.preventDefault();
       link.focus({ preventScroll: true }); // as Safari does not on a click, for the way back
+      tapped = byPointer;
       if (isOpen) { toGrid(); return; }
       address.push('dl', address.url(Object.assign({}, OTHERS, { dl: '1' }), ''));
       open('push', link);
@@ -949,6 +963,11 @@
     var eps = e.target.closest('[data-dl-eps]');
     if (eps) toggleEpisodes(eps, eps.getAttribute('aria-expanded') !== 'true');
   });
+
+  /* What was last pressed: the Profile hub's row opens it with a click of its own, after a tap. */
+  var byPointer = false;
+  document.addEventListener('pointerdown', function () { byPointer = true; }, true);
+  document.addEventListener('keydown', function () { byPointer = false; }, true);
 
   window.addEventListener('scroll', stuck, { passive: true });
 

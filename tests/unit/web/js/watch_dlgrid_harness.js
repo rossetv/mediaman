@@ -225,7 +225,7 @@ function load(opts) {
   p.card = (title) => p.qa('#watch-dl [data-dl-card]').find((n) => n.querySelector('.dw__title').textContent === title);
   p.shown = (n) => !!n && n.getClientRects().length > 0;
   p.text = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : null);
-  p.click = (n) => click(doc, n);
+  p.click = (n, extra) => click(doc, n, extra);
   p.durations = (from) => p.anims.slice(from).map((a) => a.opts.duration + (a.opts.delay || 0));
   p.keys = (from) => [...new Set(p.anims.slice(from).flatMap((a) => a.frames.flatMap((f) => Object.keys(f))))].sort();
   return p;
@@ -465,7 +465,37 @@ const scenarios = {
     const back = load({ strip: [strip([row('Ember Coast')]), strip([])], all: [all([])] });
     await back.step(1100);
     await back.step(5000);
-    return { withSoon, opened, none: of(none), unset: of(unset), afterLast: of(back), asked: none.asks.all };
+    const down = load({ strip: [{ ...strip([]), outage: "Can't reach Sonarr", soon: 2 }], all: [all([])] });
+    await down.step(1100);
+    return { withSoon, opened, none: of(none), unset: of(unset), afterLast: of(back), outage: of(down), asked: none.asks.all };
+  },
+  // The banner runs up under the bar by its own top margin; with the grid alone in its place that
+  // margin is gone, so the grid grows to where it will stand, below the bar.
+  async growsWhereItLands() {
+    const p = load({ strip: [strip(USUAL())], all: [USUAL_ALL()] });
+    await p.step(1100);
+    const browse = p.q('#watch-browse');
+    const banner = p.q('.watch-banner');
+    browse.getBoundingClientRect = () => ({ top: -200, bottom: 2000, left: 0, right: 1280, width: 1280, height: 2200 });
+    p.ctx.scrollTo(200);
+    const style = p.ctx.getComputedStyle;
+    p.ctx.getComputedStyle = (n) => ({ ...style(n), marginTop: n === banner ? '-72px' : '0px', paddingTop: '0px', borderTopWidth: '0px' });
+    p.click(p.q('#watch-downloading .row-open'));
+    await p.step(10);
+    return { pinned: p.section().style.top };
+  },
+  // A tap or a click opens it with no ring on its heading; a key press with one.
+  async quietByPointer() {
+    const run = async (sel, how) => {
+      const p = load({ strip: [strip(USUAL())], all: [USUAL_ALL()] });
+      await p.step(1100);
+      if (how === 'key') p.key('Enter');
+      else p.tell('pointerdown');
+      p.click(p.q(sel));
+      await p.step(400);
+      return { open: p.open(), on: p.on(), quiet: p.q('.dlg__title').classList.contains('is-quiet') };
+    };
+    return { rowTap: await run('#watch-downloading .row-open', 'tap'), linkTap: await run('#elsewhere', 'tap'), linkKey: await run('#elsewhere', 'key') };
   },
   async states() {
     const shot = async (admin, answer) => {

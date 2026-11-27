@@ -234,6 +234,21 @@ def test_with_nothing_downloading_the_row_stays_as_a_slim_card_that_opens_it(out
     assert run["afterLast"]["cards"] == [["Nothing downloading", ""]]
 
 
+def test_in_an_outage_the_slim_row_never_says_nothing_downloads(out) -> None:
+    assert out["slimRow"]["outage"]["cards"] == [["Downloads not updating", "2 coming soon"]]
+
+
+def test_it_grows_to_where_it_lands_below_the_bar_and_not_where_the_banner_ran_up(out) -> None:
+    assert out["growsWhereItLands"]["pinned"] == "72px"
+
+
+def test_a_tap_or_click_opens_it_with_no_ring_and_a_key_press_with_one(out) -> None:
+    run = out["quietByPointer"]
+    assert run["rowTap"] == {"open": True, "on": "watch-dl-title", "quiet": True}
+    assert run["linkTap"] == {"open": True, "on": "watch-dl-title", "quiet": True}
+    assert run["linkKey"] == {"open": True, "on": "watch-dl-title", "quiet": False}
+
+
 def test_the_slim_row_learns_what_is_coming_soon_from_the_strip_without_asking_for_more(
     out,
 ) -> None:

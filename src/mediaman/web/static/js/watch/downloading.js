@@ -351,7 +351,7 @@
     var isNew = !inner || !slot.classList.contains('is-open');
     if (!inner) buildRow();
     if (!list.length) {
-      showCalm(isNew);
+      showCalm(isNew, !!(state.lost || state.outage));
       tellSoon();
       letGo();
       sole();
@@ -383,17 +383,29 @@
 
   /* ── Nothing downloading ── */
 
-  function showCalm(isNew) {
-    if (calm) return;
+  /* *down*: what downloads cannot be told, so nobody is told that nothing downloads. */
+  function showCalm(isNew, down) {
+    if (!calm) buildCalm(isNew);
+    calm.classList.toggle('is-down', down);
+    setText(calm.querySelector('.dw__title'), down ? 'Downloads not updating' : 'Nothing downloading');
+    var mark = calm.querySelector('.dw__calm-ico');
+    var glyph = down ? 'i-triangle-exclamation' : 'i-check';
+    if (mark.getAttribute('data-icon') !== glyph) {
+      mark.textContent = '';
+      mark.appendChild(icon(glyph));
+      mark.setAttribute('data-icon', glyph);
+    }
+  }
+
+  function buildCalm(isNew) {
     calm = el('article', 'watch-card dw dw--calm');
     var link = calm.appendChild(el('a', 'dw__link'));
     link.setAttribute('href', HREF);
     link.setAttribute('data-dl-open', '');
     var mark = link.appendChild(el('span', 'dw__calm-ico'));
     mark.setAttribute('aria-hidden', 'true');
-    mark.appendChild(icon('i-check'));
     var text = link.appendChild(el('span', 'dw__text'));
-    text.appendChild(el('span', 'dw__title', 'Nothing downloading'));
+    text.appendChild(el('span', 'dw__title'));
     text.appendChild(el('span', 'dw__line'));
     var go = link.appendChild(el('span', 'dw__calm-go'));
     go.setAttribute('aria-hidden', 'true');

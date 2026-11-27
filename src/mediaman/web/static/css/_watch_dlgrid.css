@@ -79,10 +79,14 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dlg__empty { padding: 40px 0 24px; }
 .dlg__empty a { color: var(--accent); font-weight: 600; }
 @media (max-width: 599.98px) {
-  .dlg__head { height: 56px; }
-  .dlg__names { flex-direction: column; align-items: flex-start; gap: 1px; }
+  .dlg__head { height: auto; min-height: 56px; padding-block: 6px; }
+  .dlg__names { flex-direction: column; align-items: flex-start; gap: 1px; border-radius: var(--r-xs); }
   .dlg__title { max-width: calc(100% + 4px); font-size: 16px; }
-  .dlg__count { padding: 0; font-size: 12px; line-height: 1.2; }
+  /* An outage is said whole, so it wraps. */
+  .dlg__count { padding: 0; font-size: 12px; line-height: 1.25; white-space: normal; text-wrap: pretty; }
+  /* The ring takes in the line under the heading, which it would cut through. */
+  .dlg__title:focus-visible { outline: none; }
+  .dlg:not(.is-moving) .dlg__names:has(> .dlg__title:focus-visible:not(.is-quiet)) { outline: 2px solid var(--accent); outline-offset: 3px; }
 }
 /* Little height: the head goes with the page, as the bar does. */
 @media (max-height: 500px) {
@@ -206,6 +210,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dw--calm .dw__link { min-height: 64px; padding: 10px 16px 10px 14px; background: var(--s1); }
 .dw--calm .dw__link::before { display: none; }
 .dw__calm-ico { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--rgba-success-bg); color: var(--success); font-size: 15px; }
+.dw--calm.is-down .dw__calm-ico { background: var(--rgba-warning-bg); color: var(--warning); }
 .dw--calm .dw__line { color: var(--t2); }
 .dw--calm .dw__line:empty { display: none; }
 .dw__calm-go { flex: none; color: var(--t3); font-size: 12px; }
