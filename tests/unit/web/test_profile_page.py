@@ -370,9 +370,7 @@ def test_the_three_sentences_beside_the_settings_switch_say_the_most_of_it(setti
         assert all(w in sentence for w in words), (sentence, words)
 
 
-def test_each_profile_ai_row_and_each_line_of_its_fold_is_short(
-    app_factory, authed_client, conn
-):
+def test_each_profile_ai_row_and_each_line_of_its_fold_is_short(app_factory, authed_client, conn):
     app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
     html = authed_client(app, conn).get("/account?pane=1").text
     ai = html.split('id="account-ai"')[1].split("</section>")[0]
