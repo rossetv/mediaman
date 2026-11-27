@@ -134,22 +134,15 @@ def test_a_step_pushes_the_new_view_over_the_old_which_slips_a_little_way_under_
     assert _at(z, 1) > _at(z, -1)
 
 
-def _curve(name: str) -> tuple[float, ...]:
-    value = re.search(name + r": cubic-bezier\(([^)]*)\);", CSS).group(1)
-    return tuple(float(n) for n in value.split(","))
-
-
-def test_the_pane_comes_in_on_a_quick_settling_curve_and_leaves_on_one_that_speeds_up() -> None:
+def test_the_pane_slides_on_the_shared_ease_out_curve_and_fades_only_once_under_way() -> None:
     rules = _rules(TOP)
     opening = rules[".you.is-open .you__panel"]
     closing = rules[".you__panel"]
-    assert "var(--you-push)" in opening and "var(--you-out)" in closing
-    push, out = _curve("--you-push"), _curve("--you-out")
-    assert push[1] > push[0], "the push starts fast"
-    assert out[1] < out[0] and out[2:] == (1.0, 1.0), "the exit starts slow and leaves at speed"
+    assert "transform var(--dur-slow) var(--ease-out)" in opening
+    assert "transform var(--dur) var(--ease-out)" in closing
     # the panel fades only once it is under way, so it does not hang over Watch half seen
     assert re.search(
-        r"opacity calc\(var\(--dur[^)]*\) \* [.\d]+\) var\(--you-out\) calc\(", closing
+        r"opacity calc\(var\(--dur[^)]*\) \* [.\d]+\) var\(--ease-out\) calc\(", closing
     )
 
 

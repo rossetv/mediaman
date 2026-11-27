@@ -41,8 +41,8 @@
   var CALM_MS = 160; // its fade (--dur-fast) and a frame
   var STEP_MS = 250; // a step between views (--dur-slow)
   var FADE_MS = 150; // --dur-fast
-  var PUSH = 'cubic-bezier(.32, .72, 0, 1)'; // --you-push in _you.css
-  var OUT = 'cubic-bezier(.4, 0, 1, 1)'; // --you-out
+  var PUSH = 'cubic-bezier(.32, .72, 0, 1)'; // settles quickly, as a view of iOS does
+  var OUT = 'cubic-bezier(.4, 0, 1, 1)'; // leaves at speed
   var NUDGE_PX = 12; // how far the bar's words move with a step
   var GIVE = 0.35; // pulled up, the sheet moves this much of the way
   var IDLE_MS = 1500; // where the browser cannot say when it is idle
