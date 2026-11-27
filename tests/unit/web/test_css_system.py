@@ -53,6 +53,22 @@ def _declarations(prop: str) -> list[tuple[str, str]]:
 
 
 LITERAL_TIME = re.compile(r"(?<![\w.-])\.?\d+(\.\d+)?m?s\b")
+# The curves the motion tokens name: --ease-out, and any other --ease-<name> _tokens.css declares.
+CURVES = set(re.findall(r"(--ease-[\w-]+)\s*:", _text(CSS_DIR / "_tokens.css")))
+
+
+def _curve_ok(part: str) -> bool:
+    """A transition part runs on a curve token, and every curve it names is one _tokens.css declares."""
+    named = re.findall(r"var\((--ease-[\w-]+)\)", part)
+    return bool(named) and all(n in CURVES for n in named)
+
+
+def test_a_transition_s_curve_is_only_a_curve_token_declared_in_the_tokens() -> None:
+    assert "--ease-out" in CURVES
+    assert _curve_ok("transform var(--dur) var(--ease-out)")
+    assert not _curve_ok("transform var(--dur) var(--ease-wobble)")
+    assert not _curve_ok("transform var(--dur) ease-in")
+    assert not _curve_ok("transform var(--dur) cubic-bezier(.4, 0, 1, 1)")
 
 
 def test_transitions_use_the_motion_tokens() -> None:
@@ -66,7 +82,7 @@ def test_transitions_use_the_motion_tokens() -> None:
         for part in value.split(","):
             # a `visibility 0s <delay>` part only flips at the end, so it has no curve
             if "var(--dur" in part and " 0s" not in part:
-                assert "var(--ease-out)" in part, f"{name}: transition without ease-out: {part}"
+                assert _curve_ok(part), f"{name}: transition without a declared curve token: {part}"
 
 
 def test_one_shot_animations_use_the_motion_tokens() -> None:
