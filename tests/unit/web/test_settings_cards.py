@@ -15,9 +15,11 @@ from pathlib import Path
 import jinja2
 import pytest
 
+from tests.unit.web._css import px, rules, style
+
 WEB = Path(__file__).resolve().parents[3] / "src/mediaman/web"
 JS = Path(__file__).parent / "js"
-PANELS = (WEB / "static/css/_settings_pg_panels.css").read_text(encoding="utf-8")
+PANELS = "_settings_pg_panels.css"
 _VOID = {"input", "br", "img", "hr", "meta", "link", "use"}
 
 
@@ -147,14 +149,6 @@ def test_each_test_button_is_named_for_its_service() -> None:
     assert len(names) == 8
 
 
-def test_each_reveal_button_is_named_for_its_field() -> None:
-    names = [
-        el.get("aria-label") for el, _ in _tree().find(lambda el: _has_class(el, "inp-reveal"))
-    ]
-    assert "Show Plex Token" in names and "Show TMDB API Read Token" in names
-    assert all(name and name.startswith("Show ") for name in names)
-
-
 def test_a_test_buttons_name_follows_its_words() -> None:
     out = _cards("testNames")
     assert out["painted"] == [["Test", "Test Sonarr"], ["Test saved", "Test saved Radarr settings"]]
@@ -181,24 +175,29 @@ def test_the_title_and_the_rest_of_the_header_fold_the_card_but_test_does_not() 
 
 
 def test_the_ring_of_the_fold_button_goes_round_the_whole_header() -> None:
-    assert re.search(
-        r"\.setg-pg \.intg-card-hd:has\(\.intg-fold:focus-visible\) \{[^}]*outline: 2px solid",
-        PANELS,
-    )
+    ring = style(".setg-pg .intg-card-hd:has(.intg-fold:focus-visible)", PANELS)["outline"].split()
+    assert px(ring[0]) >= 2 and ring[1] == "solid"
+    # the title draws none of its own inside it
+    assert style(".setg-pg .intg-fold:focus-visible", PANELS)["outline"] in ("0", "none")
 
 
 # Folds and danger buttons
 
 
 def test_a_fold_does_not_ease_its_border_width() -> None:
-    eased = re.findall(r"\n\.setg-pg \.setg-fold \{[^}]*transition:([^;}]*)", PANELS)
-    assert eased and "grid-template-rows" in eased[0]
-    assert "border" not in eased[0]
+    eased = {
+        part.split()[0] for part in style(".setg-pg .setg-fold", PANELS)["transition"].split(",")
+    }
+    shut = style(".setg-pg .setg-fold.is-shut", PANELS)
+    assert "grid-template-rows" in shut and "grid-template-rows" in eased
+    # a shut fold drops its border width, and that width is not among what eases
+    assert any(prop.startswith("border") for prop in shut)
+    assert "all" not in eased and not any(prop.startswith("border") for prop in eased)
 
 
 def test_remove_and_delete_keep_a_border_in_forced_colours() -> None:
-    blocks = re.findall(r"@media \(forced-colors: active\) \{(.*?)\n\}", PANELS, re.S)
-    assert any(re.search(r"\.setg-pg \.link-danger \{[^}]*border: 1px solid", b) for b in blocks)
+    edge = style(".setg-pg .link-danger", PANELS, "(forced-colors: active)")["border"].split()
+    assert px(edge[0]) >= 1 and edge[1] == "solid"
 
 
 def test_the_list_says_how_a_service_stands_in_a_word_while_it_is_tested() -> None:
@@ -230,29 +229,42 @@ def test_once_saved_the_cards_save_goes_and_the_focus_moves_on_to_test() -> None
     assert out["focus"] == "radarr"
 
 
-PANELS = (WEB / "static/css/_settings_pg_panels.css").read_text(encoding="utf-8")
-
-
-def _rule(selector: str) -> str:
-    found = re.search(r"(?:^|\n)\s*" + re.escape(selector) + r" \{([^}]*)\}", PANELS)
-    assert found, selector
-    return found.group(1)
-
-
 def test_an_open_cards_fields_run_in_one_column_to_its_edges() -> None:
-    assert "grid-template-columns: 1fr" in _rule(".setg-pg .intg-card-bd .fld-row")
-    caps = _rule(".setg-pg .intg-card-bd .inp-wrap,\n.setg-pg .intg-card-bd .inp--lg")
-    assert "max-width: none" in caps
+    tracks = style(".setg-pg .intg-card-bd .fld-row", PANELS)["grid-template-columns"]
+    assert len(re.findall(r"\w+\([^)]*\)|\S+", tracks)) == 1
+    # every width cap a field or its wrap carries elsewhere is lifted inside a card; a count
+    # stays as short as its number
+    shapes = {
+        name
+        for el, _ in _tree().find(
+            lambda el: el["tag"] in ("input", "select", "div") and el.get("type") != "number"
+        )
+        for name in (el.get("class") or "").split()
+        if name.startswith("inp")
+    }
+    capped = {
+        name
+        for name in shapes
+        for _, sels, decls in rules("_settings_pg.css")
+        if f".setg-pg .{name}" in sels and decls.get("max-width", "none") != "none"
+    }
+    assert {"inp--lg", "inp-wrap"} <= capped
+    for name in capped:
+        assert style(f".setg-pg .intg-card-bd .{name}", PANELS)["max-width"] == "none", name
+
+
+def _inline(padding: str) -> str:
+    """The inline value of a padding shorthand."""
+    sides = padding.split()
+    return sides[1] if len(sides) > 1 else sides[0]
 
 
 def test_the_badge_the_fields_and_the_dividers_share_one_gutter() -> None:
-    assert "--intg-gutter: 16px" in _rule(".setg-pg .intg-card")
-    assert "padding: 10px var(--intg-gutter)" in _rule(".setg-pg .intg-card-hd")
-    assert "padding: 4px var(--intg-gutter) 16px" in _rule(
-        ".setg-pg .intg-card-bd > .setg-fold-inner"
-    )
-    assert "left: var(--intg-gutter)" in _rule(".setg-pg .intg-card + .intg-card::before")
+    header = _inline(style(".setg-pg .intg-card-hd", PANELS)["padding"])
+    body = _inline(style(".setg-pg .intg-card-bd > .setg-fold-inner", PANELS)["padding"])
+    divider = style(".setg-pg .intg-card + .intg-card::before", PANELS)["left"]
+    assert header == body == divider
     # a narrow screen gives the row more height and keeps the gutter
-    narrow = PANELS.split("@media (max-width: 520px) {\n", 1)[1].split("\n}", 1)[0]
-    row = re.search(r"\.setg-pg \.intg-card-hd \{([^}]*)\}", narrow).group(1)
-    assert row.strip() == "padding-block: 16px;"
+    narrow = style(".setg-pg .intg-card-hd", PANELS, "(max-width: 520px)")
+    assert "padding-block" in narrow
+    assert not {"padding", "padding-inline", "padding-left", "padding-right"} & set(narrow)

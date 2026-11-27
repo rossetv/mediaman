@@ -111,7 +111,8 @@ def test_every_setting_on_the_page_is_sent_when_it_is_saved(settings_html):
 
 
 def test_the_newsletter_message_is_announced(settings_html):
-    assert re.search(r'id="newsletter-send-status" role="status"', settings_html)
+    tag = re.search(r'<[^>]*\bid="newsletter-send-status"[^>]*>', settings_html)
+    assert tag and 'role="status"' in tag[0]
 
 
 def test_integrations_list_row_carries_no_fixed_count(settings_html):

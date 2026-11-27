@@ -6,28 +6,47 @@ Read from the stylesheet, since no layout engine runs here.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-CSS = re.sub(
-    r"/\*.*?\*/",
-    "",
-    (Path(__file__).parents[3] / "src/mediaman/web/static/css/_settings_pg.css").read_text(),
-    flags=re.S,
-)
-REDUCED = "@media (prefers-reduced-motion: reduce) {"
+from tests.unit.web._css import style, text, token
+
+SHEET = "_settings_pg.css"
+REDUCED = "(prefers-reduced-motion: reduce)"
 
 
-def test_reduced_motion_moves_nothing_in_the_pane_and_fades_at_the_short_duration() -> None:
-    blocks = [
-        CSS[m.end() : CSS.index("\n}", m.end())] for m in re.finditer(re.escape(REDUCED), CSS)
-    ]
-    pane = next(b for b in blocks if ".stx__nav" in b)
-    assert "transform: none" in pane and "var(--dur-fast)" in pane
-    # a section arriving beside the list fades, and does not rise
-    assert (
-        ".stx-sec.is-arriving { animation-name: stx-sec-fade; animation-duration: var(--dur-fast) !important; }"
-        in pane
+def _seconds(value: str) -> list[float]:
+    """Each time of a comma-separated list, with var() read from the tokens."""
+    value = re.sub(r"var\((--[\w-]+)\)", lambda m: token(m[1]), value.replace("!important", ""))
+    times = re.findall(r"([\d.]+)(m?s)\b", value)
+    return [float(n) / (1000 if unit == "ms" else 1) for n, unit in times]
+
+
+def _animates(name: str) -> set[str]:
+    """What the keyframes called *name* change."""
+    found = re.search(
+        rf"@keyframes {re.escape(name)}\s*\{{((?:[^{{}}]*\{{[^}}]*\}})*)\s*\}}", text(SHEET)
     )
-    assert "@keyframes stx-sec-fade { from { opacity: 0; } }" in pane
-    bar = next(b for b in blocks if ".stx-save" in b)
-    assert "var(--dur-fast)" in bar
+    assert found, name
+    return {prop.strip() for prop in re.findall(r"([\w-]+)\s*:", found[1])}
+
+
+def _fades_only(selector: str) -> None:
+    rule = style(selector, SHEET, REDUCED)
+    assert _animates(rule["animation-name"]) == {"opacity"}
+    assert max(_seconds(rule["animation-duration"])) <= _seconds(token("--dur-fast"))[0]
+
+
+def test_reduced_motion_moves_neither_side_of_the_pane_and_fades_at_the_short_duration() -> None:
+    fast = _seconds(token("--dur-fast"))[0]
+    for side in (".stx__nav", ".stx__body", ".stx.is-in > .stx__nav", ".stx.is-in > .stx__body"):
+        rule = style(side, SHEET, REDUCED)
+        assert rule["transform"].split()[0] == "none", side
+        assert "transform" not in rule["transition-property"], side
+        assert max(_seconds(rule["transition-duration"])) <= fast, side
+
+
+def test_a_section_arriving_beside_the_list_fades_and_does_not_rise() -> None:
+    _fades_only(".stx-sec.is-arriving")
+
+
+def test_the_save_bar_fades_in_at_the_short_duration() -> None:
+    _fades_only(".stx-save")
