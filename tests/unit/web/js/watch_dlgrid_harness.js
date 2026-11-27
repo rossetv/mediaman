@@ -249,6 +249,8 @@ function load(opts) {
   p.shown = (n) => !!n && n.getClientRects().length > 0;
   p.text = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : null);
   p.click = (n, extra) => click(doc, n, extra);
+  // The cards flying between row and grid, apart from the fades that go with them.
+  p.flights = (from) => p.anims.slice(from).filter((a) => a.frames && a.frames[0].clipPath).map((a) => a.opts.duration + (a.opts.delay || 0));
   p.durations = (from) => p.anims.slice(from).map((a) => a.opts.duration + (a.opts.delay || 0));
   p.keys = (from) => [...new Set(p.anims.slice(from).flatMap((a) => a.frames.flatMap((f) => Object.keys(f))))].sort();
   return p;
@@ -289,14 +291,14 @@ const scenarios = {
     await p.step(10);
     const growing = { open: p.open(), rowsStill: !p.rowsAway() };
     await p.step(400);
-    const grow = p.durations(before);
+    const grow = p.flights(before);
     const opened = { open: p.open(), rowsAway: p.rowsAway(), on: p.on(), at: p.at(), entries: p.tab.entries.length };
     const quiet = p.q('.dlg__title').classList.contains('is-quiet');
     const folding = p.anims.length;
     p.key('Escape');
     await p.step(400);
     return { drawn, pushed, growing, opened, quiet, grow: Math.max(...grow), folded: { at: p.at(), open: p.open(), rowsAway: p.rowsAway(), on: p.on() },
-      fold: Math.max(...p.durations(folding)) };
+      fold: Math.max(...p.flights(folding)) };
   },
   // Its head holds under the bar, with its glass once the grid passes under it, and stays where
   // it stood as the grid folds back.
