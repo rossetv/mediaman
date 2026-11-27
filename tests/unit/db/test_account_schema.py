@@ -142,6 +142,12 @@ def test_an_older_version_still_starts_and_writes_on_the_new_database(old_path):
     conn = init_db(old_path)
     assert conn.execute("SELECT ai_history FROM admin_users").fetchall()[1][0] == 1
     assert conn.execute("SELECT ai_auto_ask FROM admin_users").fetchall()[1][0] == 1
+    assert tuple(
+        conn.execute("SELECT audio_lang, subtitle_lang FROM admin_users").fetchall()[1]
+    ) == (
+        None,
+        None,
+    )
     assert [r[0] for r in conn.execute("SELECT actor_id FROM audit_log")] == [None, None]
     conn.close()
 

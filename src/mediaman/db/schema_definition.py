@@ -30,7 +30,32 @@ CREATE TABLE IF NOT EXISTS admin_users (
     -- stars in Plex go for their picks either way.
     ai_history INTEGER NOT NULL DEFAULT 1,
     -- 1 while search asks the AI on its own once this person pauses typing a request.
-    ai_auto_ask INTEGER NOT NULL DEFAULT 1
+    ai_auto_ask INTEGER NOT NULL DEFAULT 1,
+    -- The language this person hears first where a title has it (an ISO 639 code); NULL for
+    -- the track Plex has selected.
+    audio_lang TEXT,
+    -- The language of the subtitles this person reads when the audio is in another; NULL or
+    -- 'off' for none. Forced signs in the audio's language show either way.
+    subtitle_lang TEXT
+);
+
+-- A person's audio and subtitles for a show or movie (title_key), kept until they go back to
+-- their defaults. The stream ids are of rating_key, the item they were chosen on; the language
+-- and kind carry the choice to the other episodes. subtitle is 'off', 'on' (the track
+-- described), or NULL where only the audio was chosen.
+CREATE TABLE IF NOT EXISTS user_track_choices (
+    user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    title_key TEXT NOT NULL,
+    rating_key TEXT NOT NULL,
+    audio_stream_id TEXT,
+    audio_lang TEXT,
+    subtitle TEXT CHECK (subtitle IN ('off', 'on')),
+    subtitle_stream_id TEXT,
+    subtitle_lang TEXT,
+    subtitle_forced INTEGER NOT NULL DEFAULT 0,
+    subtitle_hearing_impaired INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, title_key)
 );
 
 -- The avatar a person set; without a row they have a default one. kind is "drawn" (choice) or
