@@ -14,6 +14,7 @@ from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai import client as openai_client
+from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.watch_catalog import _arr, _library
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.watch import next_api
@@ -33,6 +34,7 @@ def _fresh_state(monkeypatch, tmp_path):
     catalog.invalidate()
     disk_cache.init(tmp_path)
     monkeypatch.setattr(disk_cache, "sync", True)
+    monkeypatch.setattr(disk_cache, "_failed", {})
     monkeypatch.setattr(_library, "_tvdb", {})
     monkeypatch.setattr(_library, "_held", {})
     monkeypatch.setattr(_library, "sync", True)
@@ -122,6 +124,19 @@ def _searched(conn, phrase: str) -> None:
         (_user_id(conn), phrase.casefold(), phrase, now_utc().isoformat()),
     )
     conn.commit()
+
+
+def _count_asks(monkeypatch) -> list[int]:
+    """The page's real TMDB asks, as many as reach the rate limit."""
+    asks = [0]
+    limiter = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=1500)
+
+    def check(username: str) -> bool:
+        asks[0] += 1
+        return limiter.check(username)
+
+    monkeypatch.setattr(next_api._PAGE_LIMITER, "check", check)
+    return asks
 
 
 def _ids(body) -> list[str]:
@@ -269,6 +284,32 @@ class TestPersonal:
 
         assert body["personal"] is True
         assert "search" not in _reasons(body)
+
+    def test_a_source_that_always_fails_leaves_the_others_their_asks(
+        self, viewer, conn, tmdb, monkeypatch
+    ):
+        asks = _count_asks(monkeypatch)
+        _played(conn, *range(71, 71 + MAX_SEEDS))
+        for tmdb_id in range(71, 71 + MAX_SEEDS):
+            tmdb[f"/movie/{tmdb_id}/recommendations"] = 500
+
+        body = viewer.get(NEXT).json()
+
+        assert len(body["items"]) == 24
+        assert "trending" in _reasons(body) and "watched" not in _reasons(body)
+        assert 0 < asks[0] <= next_api._ASKS
+
+    def test_a_source_that_failed_is_asked_again_on_a_later_page(self, viewer, conn, tmdb):
+        _played(conn, 77)
+        tmdb["/movie/77/recommendations"] = 500
+        first = viewer.get(NEXT).json()
+        tmdb["/movie/77/recommendations"] = _titles(70_000)
+        disk_cache._failed.clear()  # the failure's hold has run out
+
+        second = viewer.get(NEXT, params={"cursor": first["cursor"]}).json()
+
+        assert "watched" not in _reasons(first)
+        assert "watched" in _reasons(second)
 
     def test_a_failing_source_is_skipped_and_the_page_still_fills(self, viewer, conn, tmdb):
         _played(conn, 77)

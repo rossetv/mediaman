@@ -119,7 +119,7 @@ def api_watch_next(
     build = _Cards(
         conn, username, index, arr, held_fields(conn, username, libraries), marks, client
     )
-    ask = _asker(username)
+    asks = _Asks(username)
 
     sources: list[Source] = []
     if personal:
@@ -127,14 +127,19 @@ def api_watch_next(
     if client is not None:
         if personal:
             sources += [
-                _watched_source(client, known.plays, type, build, ask),
-                _search_source(client, searches, index, build, ask, now),
-                _taste_source(conn, username, user_id, client, type, build, ask, now),
+                _watched_source(client, known.plays, type, build, asks.of("watched")),
+                _search_source(client, searches, index, build, asks.of("search"), now),
+                _taste_source(conn, username, user_id, client, type, build, asks.of("taste"), now),
             ]
-        sources += [_trending_source(client, build, ask), _popular_source(client, type, build, ask)]
+        sources += [
+            _trending_source(client, build, asks.of("trending")),
+            _popular_source(client, type, build, asks.of("popular")),
+        ]
     weights = WEIGHTS if personal else NEW_WEIGHTS
     sources = [
-        Source(s.kind, weights.get(s.kind, 0), s.seeds) for s in sources if s.kind in weights
+        Source(s.kind, weights.get(s.kind, 0), [asks.watch(s.kind, seed) for seed in s.seeds])
+        for s in sources
+        if s.kind in weights
     ]
 
     def accept(item: Any, reason: Mapping[str, str]) -> dict[str, Any] | None:
@@ -182,16 +187,36 @@ def _read_cursor(
     return MixState(), Bloom()
 
 
-def _asker(username: str) -> Callable[[], bool]:
-    left = [_ASKS]
+class _Asks:
+    """A page's TMDB asks: at most ``_ASKS`` of them, and none more for a kind of source once
+    one of its reads failed, so that a failing source cannot spend the asks of the others. Its
+    cached pages are still read."""
 
-    def ask() -> bool:
-        if left[0] <= 0:
-            return False
-        left[0] -= 1
-        return _PAGE_LIMITER.check(username)
+    def __init__(self, username: str) -> None:
+        self._username = username
+        self._left = _ASKS
+        self._down: set[str] = set()
 
-    return ask
+    def of(self, kind: str) -> Callable[[], bool]:
+        def ask() -> bool:
+            if kind in self._down or self._left <= 0:
+                return False
+            self._left -= 1
+            return _PAGE_LIMITER.check(self._username)
+
+        return ask
+
+    def watch(self, kind: str, seed: Seed) -> Seed:
+        """*seed*, whose failure marks *kind* down for the page."""
+
+        def read(page: int) -> tuple[Sequence[Any], int | None]:
+            try:
+                return seed.read(page)
+            except catalog.TmdbUnavailable:
+                self._down.add(kind)
+                raise
+
+        return Seed(seed.reason, read, seed.first_page)
 
 
 # --- Cards ---------------------------------------------------------------------------
