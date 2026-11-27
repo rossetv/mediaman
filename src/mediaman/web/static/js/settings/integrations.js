@@ -165,7 +165,8 @@
     if (MM.api.hasUnsavedChanges()) {
       picks.running = false;
       drawPicks();
-      if (err.status === 403) window.UIFeedback.error('You are no longer signed in as an admin.');
+      // A redirected read has been told by MM.api already.
+      if (err.status === 403 && !(err.data && err.data.redirect)) window.UIFeedback.error('You are no longer signed in as an admin.');
     } else {
       var here = window.location.pathname + (window.location.search || '');
       window.location.href = '/login?next=' + encodeURIComponent(here) + (window.location.hash || '');

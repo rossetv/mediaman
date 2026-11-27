@@ -175,5 +175,22 @@ def test_a_page_that_is_refused_while_open_keeps_its_address_and_hash(part, path
     assert href.fragment == "title=movie-1"
 
 
+def test_the_rows_keep_no_address_that_would_read_as_another_host():
+    assert _run("browse", pathname="//evil.example/x", search="", hash="") == "/login"
+
+
 def test_the_rows_of_the_landing_page_need_no_address():
     assert _run("browse", pathname="/", search="", hash="") == "/login"
+
+
+def test_the_rows_keep_a_page_holding_unsaved_edits_when_the_session_runs_out():
+    location = {"pathname": "/", "search": "?a=1", "hash": "", "href": "/?a=1"}
+    result = subprocess.run(
+        ["node", str(JUMP_HARNESS), "browse", json.dumps(location), "unsaved"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["href"] == "/?a=1"

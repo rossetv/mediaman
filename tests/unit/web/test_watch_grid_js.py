@@ -39,6 +39,15 @@ def test_pages_load_to_the_end_behind_placeholders_that_finish_the_line_and_add_
     assert out["say"] == "2 more loaded. That is everything."
 
 
+def test_a_page_given_in_parts_is_said_whole_with_its_first_part() -> None:
+    assert _run("partsSaidOnce") == [
+        "3 more loaded.",
+        "1 more loaded.",
+        "2 more loaded.",
+        "That is everything.",
+    ]
+
+
 def test_a_failed_page_holds_still_and_try_again_goes_on_from_the_first_new_card() -> None:
     out = _run("failsAndComesBack")
     assert out["failed"] == {

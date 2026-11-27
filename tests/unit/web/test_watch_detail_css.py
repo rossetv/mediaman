@@ -304,3 +304,16 @@ def test_the_lines_of_how_a_title_stands_differ_in_colour_alone() -> None:
     for line in (".ttl__leaving", ".ttl__status--warn"):
         own = {d.split(":")[0].strip() for d in _of(line).split(";") if d.strip()}
         assert own == {"color"}, (line, own)
+
+
+def test_the_dim_behind_a_title_sent_aside_holds_then_fades_before_the_sheet_goes() -> None:
+    # The sheet is hidden --dur-slow (250 ms) after it goes aside: the dim's delay and fade fit in that.
+    tokens = {"--dur-fast": 150, "--dur": 200, "--dur-slow": 250}
+    rule = re.search(
+        r"transition:\s*opacity var\((--dur[-a-z]*)\) [^;]*? (\d+)ms",
+        _of(".ttl.is-aside + .ttl__dim"),
+    )
+    assert rule, "no held fade"
+    delay = int(rule.group(2))
+    assert delay >= 80
+    assert delay + tokens[rule.group(1)] <= tokens["--dur-slow"]

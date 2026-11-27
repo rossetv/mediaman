@@ -316,8 +316,8 @@
 
   function isGone(err) { return err.status === 404 && err.error === 'not_found' || err.status === 410 && err.error !== 'replaced'; }
 
-  /* A page the server sends the person on to, which api.js cannot tell of a read: the remote goes
-     first. The sign-in leads back here. */
+  /* A page the server sends the person on to: api.js only tells of it (`stay`), so the remote
+     goes first. The sign-in leads back here. */
   var SENT_TO = ['/login', '/force-password-change'];
   function away(to) {
     var was = isOpen;
@@ -326,10 +326,7 @@
     // The page holds edits that leaving would lose: the remote stops asking and the page stays.
     if (MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()) return new Promise(function () {});
     close();
-    if (to === '/login') {
-      var here = global.location.pathname + (global.location.search || '');
-      to += (here === '/' ? '' : '?next=' + encodeURIComponent(here)) + (global.location.hash || '');
-    }
+    if (to === '/login') to = MM.api.loginUrl();
     settled(function () { setTimeout(function () { global.location.href = to; }, was ? EXIT_MS : 0); });
     return new Promise(function () {});
   }
@@ -339,22 +336,14 @@
   function get(path, key) {
     var stopper = new AbortController();
     var late = setTimeout(function () { stopper.abort(); }, ANSWER_MS);
-    return fetch(LIST + path, { credentials: 'same-origin', signal: stopper.signal }).then(function (resp) {
-      var to = resp.redirected ? new URL(resp.url).pathname : '';
-      if (SENT_TO.indexOf(to) !== -1) return away(to);
-      if (resp.status === 401) return away('/login');
-      return resp.json().catch(function () { return {}; }).then(function (data) {
-        if (!resp.ok) throw new MM.api.APIError(data.error || 'http_' + resp.status, data.message || data.error, resp.status, data.issues, data);
-        if (!data[key]) throw new Error('no answer');
-        return data[key];
-      });
-    }).then(function (got) {
+    return MM.api.get(LIST + path, { signal: stopper.signal, stay: true }).then(function (data) {
       clearTimeout(late);
-      return got;
+      if (!data[key]) throw new Error('no answer');
+      return data[key];
     }, function (err) {
       clearTimeout(late);
-      // As api.js words a request that never reached the server; an abort keeps its own name.
-      if (err && err.name === 'TypeError') throw new MM.api.APIError('network_error', 'Could not reach mediaman. Check your connection and try again.', 0);
+      var to = sentTo(err) || (err && err.status === 401 ? '/login' : '');
+      if (to) return away(to);
       throw err;
     });
   }

@@ -24,3 +24,27 @@ def test_titles_not_held_are_offered_for_download_only_where_both_kinds_can_be()
         "films": ["In your library", "Not in your library"],
         "none": ["In your library", "Not in your library"],
     }
+
+
+def test_a_person_opened_under_a_flying_photo_is_told_once_it_lands() -> None:
+    assert _run("heldUntilLanded") == {
+        "flying": {"facts": "", "cards": None, "atOnce": True},
+        "landed": {"facts": "Actor · 1 in your library, 0 more", "cards": 2},
+    }
+
+
+def test_a_persons_titles_come_twelve_at_a_time_a_frame_apart() -> None:
+    # 30 titles and 2 headings: the first page at once, each part after it a frame later,
+    # all thirty said with the first part.
+    assert _run("batches") == [[12, True, 30], [12, False, 0], [8, False, 0]]
+
+
+def test_what_stands_below_a_person_waits_for_the_photo_to_land() -> None:
+    assert _run("keptBack") == {
+        "flying": {"known": True, "grid": True},
+        "landed": {"known": False, "grid": False},
+    }
+
+
+def test_rows_under_a_title_come_back_once_the_persons_photo_lands() -> None:
+    assert _run("closedUnderATitle") == {"title": [False, True], "rows": None, "pushed": None}

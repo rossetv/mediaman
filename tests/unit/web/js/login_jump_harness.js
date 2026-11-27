@@ -1,6 +1,6 @@
 'use strict';
 /* Runs the downloads poll or the Watch rows against a refused call on the page at the given
-   location; prints where the browser goes. Usage: node login_jump_harness.js <poll|browse> <json> */
+   location; prints where the browser goes. Usage: node login_jump_harness.js <poll|browse> <json> [unsaved] */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -25,10 +25,13 @@ const ctx = {
   setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
   clearTimeout() {}, addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }),
   history: { state: null, replaceState() {} },
-  MM: { api: { get: refuse, post: refuse, messageOf: (_e, m) => m } },
+  URL,
 };
 ctx.window = ctx;
 vm.createContext(ctx);
+// The real api.js, for the sign-in address it builds; its calls are refused.
+vm.runInContext(fs.readFileSync(path.join(JS, 'core/api.js'), 'utf8'), ctx);
+Object.assign(ctx.MM.api, { get: refuse, post: refuse, messageOf: (_e, m) => m, hasUnsavedChanges: () => process.argv[4] === 'unsaved' });
 FILES.forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
 if (ctx.MM.downloads) {
   ctx.MM.downloads.poll.start(() => {}, () => {});

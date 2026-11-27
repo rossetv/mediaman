@@ -625,6 +625,12 @@
   /* ── The photo flies to the person's page, and home from it ── */
 
   var flight = null; // the photo in the air: { node, home, turn }
+  var homing = null; // its way home from their page, { promise, ok }, until it lands or is given up
+
+  function landed(way) {
+    way.ok();
+    if (homing === way) homing = null;
+  }
 
   function at(r) { return 'translate(' + r.left + 'px,' + r.top + 'px) scale(' + r.width / PHOTO + ')'; }
 
@@ -635,6 +641,7 @@
   function fly(face, from, to, home, done) {
     if (core.reduceMotion() || !inSight(to) || !(flight || inSight(from))) {
       if (flight) flight.node.remove();
+      if (flight && homing) landed(homing);
       flight = null;
       done();
       return;
@@ -676,9 +683,9 @@
 
   /* What moves on *nodes* is held where it starts until the next frame, and stands still through a
      slow frame after it instead of leaping over it: making and drawing the person's page can take
-     150 ms or more, which Safari counts as gone by. */
+     40 ms or more, which Safari counts as gone by. A frame of a steady 30 fps (Low Power Mode) is not slow. */
   var FRAME_MS = 1000 / 60;
-  var SLOW_MS = 50;
+  var SLOW_MS = 40;
   function steady(nodes) {
     var clock = document.timeline;
     if (!clock) return;
@@ -707,12 +714,17 @@
     // What Back will find the focus on; Safari leaves a pressed button without it.
     quietUntil = now() + QUIET_MS;
     p.item.focus({ preventScroll: true, focusVisible: false });
-    watch.explore.openPerson({ person_id: p.id, name: p.name, job: (facts && facts.job) || null, profile_url: p.photo }, null);
+    var landed = null;
+    var landing = new Promise(function (ok) { landed = ok; });
+    watch.explore.openPerson({ person_id: p.id, name: p.name, job: (facts && facts.job) || null, profile_url: p.photo }, null, landing);
     var photo = document.querySelector('#watch-results .explore-photo');
-    if (!photo) return;
+    if (!photo) { landed(); return; }
     photo.style.visibility = 'hidden';
     // The card's own photo, already drawn, is the one that flies.
-    fly(held === p.face ? copyOf(held) : held, from, photo.getBoundingClientRect(), null, function () { photo.style.visibility = ''; });
+    fly(held === p.face ? copyOf(held) : held, from, photo.getBoundingClientRect(), null, function () {
+      photo.style.visibility = '';
+      landed();
+    });
     if (ghost) steady([ghost]);
   }
 
@@ -752,12 +764,16 @@
     if (!photo && !flight) return;
     var from = photo && photo.getBoundingClientRect();
     p.item.classList.add('is-out', 'is-away');
+    if (homing) landed(homing);
+    var way = homing = {};
+    way.promise = new Promise(function (ok) { way.ok = ok; });
     fly(copyOf(p.face), from, homeOf(p), key, function () {
       people.forEach(function (one) {
         if (one.key !== key) return;
         one.item.classList.remove('is-away');
         if (one !== live) one.item.classList.remove('is-out');
       });
+      landed(way);
     });
     if (photo && flight) photo.style.visibility = 'hidden';
   }
@@ -777,5 +793,8 @@
     return r;
   }
 
-  watch.cast = { section: section, drop: drop, dismiss: dismiss, land: land };
+  /* Their photo's way home, as a promise that it has landed; null where none is on its way. */
+  function landing() { return homing && homing.promise; }
+
+  watch.cast = { section: section, drop: drop, dismiss: dismiss, land: land, landing: landing };
 })();

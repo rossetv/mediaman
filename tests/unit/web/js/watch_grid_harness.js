@@ -140,7 +140,7 @@ function lone(opts, pages) {
   p.asked = [];
   p.list = p.grid.list(host, {
     title: 'Action', total: null, next: pages ? 'p0' : null,
-    fetchPage: (next) => { p.asked.push(next); const page = pages.shift(); return page instanceof Promise ? page : page.status ? Promise.reject(Object.assign(new Error('no'), page)) : Promise.resolve({ cards: page.cards.map(make), next: page.next }); },
+    fetchPage: (next) => { p.asked.push(next); const page = pages.shift(); return page instanceof Promise ? page : page.status ? Promise.reject(Object.assign(new Error('no'), page)) : Promise.resolve({ cards: page.cards.map(make), next: page.next, count: page.count }); },
     ...opts, cards: (opts.cards || []).map(make),
   });
   function make(n) { return typeof n === 'string' ? p.grid.group(n, 'Picks of ' + n) : p.card(n); }
@@ -167,6 +167,16 @@ const scenarios = {
     give({ cards: [7, 8, 9].map(p.make), next: 'p1' });
     await settle();
     return { waiting, nums: p.nums(), asked: p.asked, left: p.skels(), tail: p.tail(), say: p.say() };
+  },
+
+  // A page given in parts is said whole with its first part, and the parts after it say nothing but the end.
+  async partsSaidOnce() {
+    const said = [];
+    lone({ cards: range(1, 4), say: (t) => said.push(t) },
+      [{ cards: [4, 5], next: 'p1', count: 3 }, { cards: [6], next: 'p2', count: 0 }, { cards: [8], next: 'p3' },
+        { cards: [9], next: 'p4', count: 2 }, { cards: [10], next: null, count: 0 }]);
+    await settle();
+    return said;
   },
 
   async failsAndComesBack() {

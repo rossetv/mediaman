@@ -43,14 +43,22 @@
  *
  * A 401 from an admin page sends the browser to /login (and back to the page
  * after signing in) and never settles,
- * so callers do not flash an error while the page unloads. The public keep,
- * download and login pages, reached by emailed token or without a session,
- * keep their own 401 handling.
+ * so callers do not flash an error while the page unloads. A read the server
+ * redirected to /login or /force-password-change goes on to that page the
+ * same way, rather than resolving with the HTML page's empty body. The public
+ * keep, download and login pages, reached by emailed token or without a
+ * session, and the password-change page keep their own handling.
  *
  * A page holding edits that a redirect would throw away sets
  * ``MM.api.hasUnsavedChanges = () => boolean``. While it returns true a 401
- * shows an error and rejects as a normal APIError instead of redirecting, so
- * the caller's error path runs and the form keeps its values.
+ * or such a redirect shows an error and rejects as an APIError instead of
+ * leaving, so the caller's error path runs and the form keeps its values.
+ * A redirected read rejects with status 401 (to /login) or 403 (to
+ * /force-password-change) and ``.data.redirect`` naming the page.
+ *
+ * ``options.stay`` makes the call reject that way without leaving or saying
+ * anything, for a caller that goes on to ``.data.redirect`` (or /login on a
+ * 401) itself.
  *
  * No external dependencies. Load this before any page-specific script
  * that calls MM.api.*.
@@ -86,13 +94,34 @@
   APIError.prototype = Object.create(Error.prototype);
   APIError.prototype.constructor = APIError;
 
-  /* Pages reached by emailed token (or without a session) handle a 401 themselves. */
-  var PUBLIC_PATH = /^\/(keep|download|login)(\/|$)/;
+  /* Pages reached by emailed token (or without a session), and the pages a redirect leads
+   * to, handle a 401 themselves: sending them on again would loop. */
+  var PUBLIC_PATH = /^\/(keep|download|login|force-password-change)(\/|$)/;
 
-  /* Sign-in, and back to this page after it; the browser keeps the hash over the redirects. */
+  /* The only pages a redirected read is followed to. */
+  var SENT_TO = {
+    '/login': { error: 'session_expired', status: 401, message: 'Your session has expired.',
+      held: 'Your session has expired. Log in again in a new tab, then save.' },
+    '/force-password-change': { error: 'password_change_required', status: 403,
+      message: 'You must change your password before continuing.',
+      held: 'You must change your password. Change it in a new tab, then save.' },
+  };
+
+  /* The page a read was redirected to, if it is one of ours above, else ''. */
+  function redirectedTo(resp) {
+    if (!resp.redirected || !resp.url) return '';
+    var to;
+    try { to = new URL(resp.url, window.location.href); } catch (e) { return ''; }
+    if (to.origin !== window.location.origin) return '';
+    return Object.prototype.hasOwnProperty.call(SENT_TO, to.pathname) ? to.pathname : '';
+  }
+
+  /* Sign-in, and back to this page after it; the browser keeps the hash over the redirects.
+   * A path starting // or /\ would read as another host, so it is not kept. */
   function loginUrl() {
     var here = window.location.pathname + (window.location.search || '');
-    return '/login' + (here === '/' ? '' : '?next=' + encodeURIComponent(here)) +
+    var keep = here !== '/' && /^\/(?![\/\\])/.test(here);
+    return '/login' + (keep ? '?next=' + encodeURIComponent(here) : '') +
       (window.location.hash || '');
   }
 
@@ -134,6 +163,19 @@
       throw err;
     }).then(function (resp) {
       var status = resp.status;
+      var to = isWrite ? '' : redirectedTo(resp);
+      var away = to || (status === 401 ? '/login' : '');
+      if (away && !options.stay && !PUBLIC_PATH.test(window.location.pathname)) {
+        if (!global.MM.api.hasUnsavedChanges()) {
+          window.location.href = away === '/login' ? loginUrl() : away;
+          return new Promise(function () {});
+        }
+        if (window.UIFeedback) window.UIFeedback.error(SENT_TO[away].held);
+      }
+      if (to) {
+        var sent = SENT_TO[to];
+        throw new APIError(sent.error, sent.message, sent.status, null, { redirect: to });
+      }
       return resp.json().catch(function () {
         /* Non-JSON body (e.g. a 204 No Content). */
         return {};
@@ -142,16 +184,6 @@
          * when surfacing an error message to the user; fall back through
          * .error → resp.statusText → "HTTP <status>". The .issues array (if
          * present) is forwarded so the UI can render per-rule failures. */
-        if (status === 401 && !PUBLIC_PATH.test(window.location.pathname)) {
-          if (!global.MM.api.hasUnsavedChanges()) {
-            window.location.href = loginUrl();
-            return new Promise(function () {});
-          }
-          if (window.UIFeedback) {
-            window.UIFeedback.error(
-              'Your session has expired. Log in again in a new tab, then save.');
-          }
-        }
         if (!resp.ok) {
           var errCode = (data && data.error) || ('http_' + status);
           var errMsg = (data && data.message) || (data && data.error) ||
@@ -174,6 +206,8 @@
 
     /* Replaced by a page whose unsaved edits a login redirect would lose. */
     hasUnsavedChanges: function () { return false; },
+
+    loginUrl: loginUrl,
 
     /* The app's own message for a failure, or ``fallback``. Only a JSON body
      * that set ``message`` counts: otherwise the error holds a status line

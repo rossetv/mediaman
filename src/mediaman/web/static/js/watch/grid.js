@@ -193,14 +193,17 @@
         line.appendChild(button);
         tail.replaceChildren(line);
       },
-      took: function (fresh, done) {
+      took: function (fresh, done, count) {
         grid.classList.remove('is-static');
         tail.replaceChildren();
         if (done) ending();
         var added = fresh.filter(isCard);
         arrive(added);
+        // A page given in parts is said whole with its first.
+        var n = count === undefined ? added.length : count;
         var more = added.length < cards().length ? ' more loaded.' : ' loaded.';
-        if (added.length || done) say(added.length + more + (done ? ' That is everything.' : ''));
+        if (count === 0) { if (done) say('That is everything.'); }
+        else if (n || done) say(n + more + (done ? ' That is everything.' : ''));
         if (opts.took) opts.took();
         if (Date.now() - wantedAt > JUMP_MS) wanted = null;
         // The loader settles after this; a jump goes on from there.

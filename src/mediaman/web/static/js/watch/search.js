@@ -1141,8 +1141,10 @@
 
     /* ── What stands under the bar ── */
 
-    /* The rows fade and shrink behind what replaces them, and grow back. */
-    function show(to) {
+    /* The rows fade and shrink behind what replaces them, and grow back. *atOnce*: they go
+       without it, whose drawing over the whole page would cost a flight above it its frames.
+       *until*: a promise they wait for to come back, for the same reason. */
+    function show(to, atOnce, until) {
       if (view === to) return;
       var was = view;
       view = to;
@@ -1151,10 +1153,8 @@
         leave();
         hideAsk();
         results.hidden = true;
-        if (browse.hidden && moves(browse)) browse.classList.add('is-off');
-        browse.hidden = false;
-        void browse.offsetWidth;
-        browse.classList.remove('is-off');
+        if (until && moves(browse)) until.then(growBack, growBack);
+        else growBack();
         return;
       }
       results.hidden = false;
@@ -1163,13 +1163,21 @@
         browse.hidden = true;
         browse.classList.remove('is-off');
       }
-      if (moves(browse)) {
+      if (moves(browse) && !atOnce) {
         browse.classList.add('is-off');
         hiding = setTimeout(gone, core.tokenMs('--dur-fast', 150));
       } else {
         gone();
       }
       toTop();
+    }
+
+    function growBack() {
+      if (view !== 'browse') return;
+      if (browse.hidden && moves(browse)) browse.classList.add('is-off');
+      browse.hidden = false;
+      void browse.offsetWidth;
+      browse.classList.remove('is-off');
     }
 
     function toTop() {
@@ -2347,13 +2355,13 @@
     /* ── A page in the results' place ── */
 
     window.MMWatch.search.stage = {
-      /* *node* takes the place of what stands under the bar; *what* names it there. */
-      open: function (node, name, what) {
+      /* *node* takes the place of what stands under the bar; *what* names it there. *atOnce*: as show's. */
+      open: function (node, name, what, atOnce) {
         stop();
         input.value = '';
         openSheet(false);
         pick(null);
-        show('page');
+        show('page', atOnce);
         hideAsk();
         hold('page', name, node);
         status.textContent = '';
@@ -2362,9 +2370,9 @@
         toTop();
       },
       token: setToken,
-      close: function () {
+      close: function (until) {
         if (tokened) setToken(null);
-        if (view === 'page') show('browse');
+        if (view === 'page') show('browse', false, until);
       },
       say: function (text) { status.textContent = text; },
       rise: rise,

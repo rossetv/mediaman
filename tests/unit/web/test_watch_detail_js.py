@@ -99,6 +99,10 @@ def test_a_title_found_again_is_brought_up_to_date() -> None:
     assert out["gets"] == ["/api/watch/title/show-300", "/api/watch/title/tmdb-movie-77"]
 
 
+def test_only_a_back_to_a_title_finds_it_waiting_under_the_page_that_closes() -> None:
+    assert _run("waitingUnder") == [False, True]
+
+
 def test_back_before_a_title_has_stepped_aside_turns_it_round() -> None:
     assert _run("backMidway") == {
         "hidden": False,

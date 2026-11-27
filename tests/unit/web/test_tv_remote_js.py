@@ -703,6 +703,8 @@ def test_a_phone_sent_on_to_a_page_closes_the_remote_with_motion_and_goes_there(
     assert out["redirectStill"] == away
     assert out["refused"] == away
     assert out["signedOut"] == {**away, "href": "/login?next=%2Fwatch%3Fq%3D1"}
+    # A path that would read as another host is not kept for after signing in.
+    assert out["signedOutOddPath"]["href"] == "/login"
 
 
 def test_nothing_playing_said_while_the_remote_closes_waits_until_it_has_gone() -> None:

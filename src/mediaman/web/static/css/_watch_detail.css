@@ -55,7 +55,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* Another page takes the place of what is under it: it steps back, and returns the way it went. */
 .ttl.is-aside { pointer-events: none; }
 .ttl.is-aside .ttl__sheet { transform: translateY(14px) scale(.97); opacity: 0; }
-.ttl.is-aside + .ttl__dim { opacity: 0; }
+/* The dim holds a moment before it fades, so the page's sides do not cut from it at once. */
+.ttl.is-aside + .ttl__dim { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out) 100ms; }
 @keyframes ttl-fade-in  { from { opacity: 0; } }
 @keyframes ttl-fade-out { to { opacity: 0; } }
 @keyframes ttl-sheet-in  { from { opacity: 0; transform: translateY(16px) scale(.96); } }

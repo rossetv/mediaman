@@ -427,7 +427,8 @@ const scenarios = {
   },
 
   // The same hand-off once what is known of them has come in late: the copy left behind, the photo in the air, and their clocks.
-  async carriedHandOffSettled() {
+  // *gap*: how long the frame after the first one takes.
+  async carriedHandOffSettled(gap = 150) {
     const p = load(CAST, true);
     let queued = [];
     p.ctx.requestAnimationFrame = (fn) => { queued.push(fn); return queued.length; };
@@ -477,7 +478,7 @@ const scenarios = {
       const held = clocks();
       await frame(16);
       const first = { at: p.ctx.performance.now(), starts: clocks() };
-      await frame(150);
+      await frame(gap);
       const slow = clocks();
       await frame(16);
       return {
@@ -581,6 +582,74 @@ const scenarios = {
       delete Node.prototype.getAnimations;
     }
   },
+
+  // Back from their page, what waits for the photo's way home is told once it lands.
+  async homeLanding() {
+    const p = load(CAST, true);
+    const trips = [];
+    p.item(0).querySelector('.ttl-cast__avatar').offsetLeft = p.item(0).querySelector('.ttl-cast__avatar').offsetTop = 0;
+    Node.prototype.getAnimations = function () {
+      if (!this.classList.contains('cast-fly')) return [];
+      return [{ finished: new Promise((resolve) => trips.push(resolve)) }];
+    };
+    try {
+      p.ctx.MMWatch.explore.openPerson = () => {
+        p.doc.getElementById('watch-results').appendChild(build(p.doc, ['div', { class: 'results-page' },
+          ['h1', { class: 'explore-title' }, 'Mara Ellison'], ['span', { class: 'explore-photo' }]]));
+      };
+      click(p.doc, p.item(0));
+      trips[0]();
+      await settle();
+      const before = p.cast.landing();
+      p.doc.querySelector('.results-page').classList.add('is-leaving');
+      p.cast.land('cast-0');
+      let landed = false;
+      p.cast.landing().then(() => { landed = true; });
+      await settle();
+      const flying = landed;
+      trips[1]();
+      await settle();
+      return { before, flying, landed, after: p.cast.landing() };
+    } finally {
+      delete Node.prototype.getAnimations;
+    }
+  },
+
+  // The page is told when the photo flying to it lands, and at once where nothing flies.
+  async landing() {
+    const told = async (motion) => {
+      const p = load(CAST, motion);
+      const trips = [];
+      p.item(0).querySelector('.ttl-cast__avatar').offsetLeft = p.item(0).querySelector('.ttl-cast__avatar').offsetTop = 0;
+      Node.prototype.getAnimations = function () {
+        if (!this.classList.contains('cast-fly')) return [];
+        return [{ finished: new Promise((resolve) => trips.push(resolve)) }];
+      };
+      let landed = false;
+      try {
+        p.ctx.MMWatch.explore.openPerson = (who, from, landing) => {
+          landing.then(() => { landed = true; });
+          p.doc.getElementById('watch-results').appendChild(build(p.doc, ['div', { class: 'results-page' },
+            ['h1', { class: 'explore-title' }, 'Mara Ellison'], ['span', { class: 'explore-photo' }]]));
+        };
+        click(p.doc, p.item(0));
+        await settle();
+        const flying = landed;
+        trips.forEach((go) => go());
+        await settle();
+        return [flying, landed];
+      } finally {
+        delete Node.prototype.getAnimations;
+      }
+    };
+    return { flies: await told(true), still: await told(false) };
+  },
+};
+
+// How long each of a steady 30 fps frame and a stall a little longer held the hand-off back.
+scenarios.handOffGaps = async () => {
+  const held = async (gap) => (await scenarios.carriedHandOffSettled(gap)).heldBy;
+  return { thirty: await held(1000 / 30), stall: await held(50) };
 };
 
 scenarios[process.argv[2]]().then((out) => {
