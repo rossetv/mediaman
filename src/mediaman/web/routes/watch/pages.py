@@ -1023,9 +1023,11 @@ def watch_page(
     downloading = (
         payload_for(conn, request.app.state.config.secret_key, username, answer) if answer else None
     )
-    # An old answer is said by its age here; nothing failed unless the answer says so.
+    # An old answer is said by its age in the list; nothing failed unless the answer says so.
+    # The scripted row keeps the outage: it says so until its first poll.
+    listed = downloading
     if downloading and downloading_as_of and not answer.strip.outage:
-        downloading["outage"] = ""
+        listed = downloading | {"outage": ""}
     library_total = sum(count_titles(conn).values()) if is_admin else len(titles)
     downloads_on = can_download(conn, request.app.state.config.secret_key)
     return _render(
@@ -1048,7 +1050,7 @@ def watch_page(
             "downloading_held": len(downloading["items"]) if downloading else 0,
             "dl_open": dl_open,
             "downloads_on": downloads_on["movie"] or downloads_on["show"],
-            "downloading": downloading,
+            "downloading": listed,
             "downloading_as_of": downloading_as_of,
             "grid": grid,
             "library_types": [t for t in all_titles.TYPES if is_admin or not t[2]],

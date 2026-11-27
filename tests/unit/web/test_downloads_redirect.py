@@ -308,6 +308,19 @@ def test_a_stale_answer_without_javascript_never_says_downloads_cannot_be_checke
     assert "check downloads" not in shown
 
 
+def test_a_stale_answer_still_seeds_the_scripted_row_with_its_outage(
+    signed_in, downloading, asked, monkeypatch
+):
+    import json
+
+    _held_answer(monkeypatch, 12 * 60)
+
+    html = signed_in("viewer").get("/").text
+    seed = json.loads(re.search(r'id="watch-page-data">(.*?)</script>', html, re.S)[1])
+
+    assert seed["downloading"]["outage"]
+
+
 def test_a_stale_answer_without_javascript_still_says_a_check_that_failed(
     signed_in, downloading, asked, monkeypatch
 ):
