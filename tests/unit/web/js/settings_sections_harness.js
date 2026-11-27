@@ -236,7 +236,7 @@ const scenarios = {
 
   async overview() {
     const p = page([
-      ['div', { id: 'ov-scan-big' }], ['div', { id: 'ov-scan-when' }],
+      ['div', { id: 'ov-scan-big' }], ['div', { id: 'ov-scan-when' }], ['div', { id: 'ov-scan-support' }],
       ['div', { id: 'ov-storage-big' }], ['div', { id: 'ov-storage-bar' }], ['div', { id: 'ov-storage-chips' }],
       ['select', { id: 'scan_day' }], ['input', { id: 'scan_time' }], ['select', { id: 'scan_timezone' }],
       ['div', { id: 'plex-library-pills' }], ['div', { id: 'disk-threshold-rows' }],
@@ -262,7 +262,7 @@ const scenarios = {
       p.ctx.MM.settings.diskThresholds.fromServer({ plex_libraries: ['1'], disk_thresholds: thresholds });
       savebar.refreshOverviewHero();
       await settle();
-      return { scan: scan(), storage: storage() };
+      return { scan: scan(), storage: storage(), support: !p.id('ov-scan-support').hidden };
     };
     // what a browser put back over the served values
     set('fri', '01:00', 'UTC');
@@ -280,6 +280,8 @@ const scenarios = {
     edited.length = 0;
     set('', '10:00', 'Europe/London');
     out.unscheduled = await save({ scan_day: '', scan_time: '10:00', scan_timezone: 'Europe/London' }, {});
+    set('tue', '10:00', 'Europe/London');
+    out.rescheduled = await save({ scan_day: 'tue', scan_time: '10:00', scan_timezone: 'Europe/London' }, {});
     return out;
   },
 

@@ -38,7 +38,11 @@
     var big = document.getElementById('ov-scan-big');
     var when = document.getElementById('ov-scan-when');
     if (!big || !when) return;
-    if (!String(SCHEDULE.scan_day).trim()) {
+    var scheduled = !!String(SCHEDULE.scan_day).trim();
+    // How often it runs says nothing while it never runs.
+    var support = document.getElementById('ov-scan-support');
+    if (support) support.hidden = !scheduled;
+    if (!scheduled) {
       big.textContent = 'Not scheduled';
       when.replaceChildren();
       return;

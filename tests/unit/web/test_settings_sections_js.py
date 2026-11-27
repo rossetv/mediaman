@@ -272,6 +272,9 @@ def test_the_overview_shows_the_saved_schedule_and_storage() -> None:
     assert out["during"]["storage"] == ["Not configured", 0]
     # a blank day is no schedule: no weekday, time or timezone
     assert out["unscheduled"]["scan"].strip() == "Not scheduled"
+    # nor the line on how often it runs, until a day is set again
+    assert out["unscheduled"]["support"] is False
+    assert out["rescheduled"]["support"] is True
 
 
 def test_open_recipients_follow_the_subscribers_and_keep_what_was_chosen() -> None:
