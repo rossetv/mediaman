@@ -77,9 +77,11 @@ def _ua_hash(user_agent: str) -> str:
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page(request: Request) -> HTMLResponse:
+def login_page(request: Request, out: str = Query(default="")) -> HTMLResponse:
     templates = cast(Jinja2Templates, request.app.state.templates)
-    return templates.TemplateResponse(request, "login.html", {"error": None})
+    return templates.TemplateResponse(
+        request, "login.html", {"error": None, "signed_out": out == "1"}
+    )
 
 
 def _render_rate_limited(
@@ -94,6 +96,7 @@ def _render_rate_limited(
         "login.html",
         {
             "error": f"{reason} Try again in {minutes} minute{'' if minutes == 1 else 's'}.",
+            "wait": True,
             # Only the posted username comes back (the template escapes it); never the password.
             "username": username,
         },

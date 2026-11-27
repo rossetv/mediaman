@@ -6,6 +6,8 @@
  *     confirmLabel: 'Remove all',        // default: 'Confirm'
  *     confirmVariant: 'danger',           // 'danger' | 'primary' (default)
  *     cancelLabel: 'Cancel',              // default: 'Cancel'
+ *     leave: true,                        // a yes leaves the page: the dialog goes slower,
+ *                                         // behind its pressed button (data-leave)
  *   }) → Promise<boolean>
  *
  *   window.UIFeedback.dismissConfirm()   any that is open answers false
@@ -282,6 +284,8 @@
         if (closed) return;
         closed = true;
         open.splice(open.indexOf(cancel), 1);
+        // Set before it closes, so the exit timing read below is the slower one.
+        if (result && opts.leave) overlay.setAttribute('data-leave', '');
         overlay.classList.add('is-leaving');
         if (window.ModalA11y) window.ModalA11y.onClosed(id);
         // The caller gets its answer at once; the dialog fades out behind it.

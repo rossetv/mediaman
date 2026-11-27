@@ -481,3 +481,47 @@
   .nav-end .space-meter { display: none; }
   .nav-end:has(> .space-meter) { min-width: 46px; }
 }
+
+/* Signing in and out (Watch: _watch.css). is-arriving (watch/arrive.js): the bar comes in as Watch
+   opens straight after signing in, the name drawing itself, media then man. is-leaving (nav.js):
+   log-out takes it away again in reverse. Times are in --dur, 200 ms: nav.js waits the 980 ms the
+   leaving lasts. */
+@keyframes mm-fade-in { from { opacity: 0; } }
+@keyframes mm-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mm-out { to { opacity: 0; } }
+@keyframes mm-pop-in { from { opacity: 0; transform: scale(.4); } }
+@keyframes mm-pop-out { to { opacity: 0; transform: scale(.4); } }
+@keyframes mm-drop { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes mm-lift-out { to { opacity: 0; transform: translateY(-4px); } }
+@keyframes mm-ring-fill { from { --ring: 0; } }
+@keyframes mm-ring-empty { to { --ring: 0; } }
+/* A panel folding into the avatar: --fx, --fy and --fs are its way there, measured by nav.js. */
+@keyframes mm-fold { 0% { transform: none; opacity: 1; } 60% { opacity: 1; } 100% { transform: translate(var(--fx), var(--fy)) scale(var(--fs)); opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  html.is-arriving .nav-glass .brand .wm-media > path { animation: wm-draw calc(var(--dur) * 2) var(--ease-out) backwards; }
+  html.is-arriving .nav-glass .brand .wm-media > circle { animation: wm-dot calc(var(--dur) * 2) var(--ease-out) backwards; }
+  html.is-arriving .nav-glass .brand .wm-man > path { animation: wm-draw calc(var(--dur) * 1.75) var(--dur-slow) var(--ease-out) backwards; }
+  /* Late by --dur-fast, with the name, so its outline does not stand empty before what it holds. */
+  html.is-arriving .nav-glass .nav-end { animation: mm-fade-in var(--dur-slow) var(--dur-fast) var(--ease-out) backwards; }
+  html.is-arriving .nav-glass .profile-ava .avatar { animation: mm-pop-in calc(var(--dur) * 1.5) var(--ease-spring, var(--ease-out)) backwards; }
+  html.is-arriving .nav-glass .profile-ring { animation: mm-ring-fill calc(var(--dur) * 1.5) var(--dur-fast) var(--ease-out) backwards; }
+  html.is-arriving .nav-glass .profile-count { animation: mm-pop-in var(--dur) calc(var(--dur) * 1.75) var(--ease-spring, var(--ease-out)) backwards; }
+  html.is-arriving .nav-glass :is(.profile-btn-name, .profile-btn > .ico) { animation: mm-fade-in var(--dur) var(--dur-fast) var(--ease-out) backwards; }
+  html.is-arriving .nav-glass .space-meter { animation: mm-fade-in var(--dur) var(--dur-fast) var(--ease-out) backwards; }
+  html.is-arriving .nav-glass .watch-search { animation: mm-drop var(--dur-slow) calc(var(--dur) * .5) var(--ease-out) backwards; }
+
+  /* The menu folds back into the avatar (a plain fade where the avatar is out of sight), the ring
+     empties, the badge and the picture shrink out, the name follows and the bar goes. */
+  html.is-leaving .profile-menu[open] .profile-panel { transform-origin: 0 0; animation: mm-fold calc(var(--dur) * 1.5) calc(var(--dur) * .7) var(--ease-out) both; }
+  html.is-leaving.is-leaving-flat .profile-menu[open] .profile-panel { animation: mm-out calc(var(--dur) * 1.5) calc(var(--dur) * .7) var(--ease-out) both; }
+  html.is-leaving .nav-glass .profile-count { animation: mm-pop-out var(--dur-fast) calc(var(--dur) * 1.9) var(--ease-out) both; }
+  html.is-leaving .nav-glass .profile-ring { animation: mm-ring-empty var(--dur-slow) calc(var(--dur) * 1.9) var(--ease-out) both, mm-out var(--dur-fast) calc(var(--dur) * 3) var(--ease-out) both; }
+  html.is-leaving .nav-glass .profile-ava .avatar { animation: mm-pop-out var(--dur-slow) calc(var(--dur) * 2.35) var(--ease-out) both; }
+  html.is-leaving .nav-glass :is(.profile-btn-name, .profile-btn > .ico) { animation: mm-out var(--dur) calc(var(--dur) * 2.8) var(--ease-out) both; }
+  html.is-leaving .nav-glass .space-meter { animation: mm-out var(--dur) calc(var(--dur) * 2.5) var(--ease-out) both; }
+  html.is-leaving .nav-glass :is(.watch-search, .nav-back) { animation: mm-lift-out var(--dur-slow) calc(var(--dur) * 2.2) var(--ease-out) both; }
+  html.is-leaving .nav-glass .nav-end { animation: mm-out var(--dur-slow) calc(var(--dur) * 3.25) var(--ease-out) both; }
+  html.is-leaving .nav-glass .brand .wm-man > path { animation: wm-draw var(--dur-slow) calc(var(--dur) * 3) var(--ease-out) reverse both; }
+  html.is-leaving .nav-glass .brand .wm-media > path { animation: wm-draw calc(var(--dur) * 1.5) calc(var(--dur) * 3.4) var(--ease-out) reverse both; }
+  html.is-leaving .nav-glass .brand .wm-media > circle { animation: wm-dot calc(var(--dur) * 1.5) calc(var(--dur) * 3.4) var(--ease-out) reverse both; }
+}

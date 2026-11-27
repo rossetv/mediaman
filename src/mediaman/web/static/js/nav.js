@@ -36,6 +36,74 @@
   document.addEventListener('focusin', function (e) { inBar(e.target); });
   document.addEventListener('focusout', function (e) { inBar(e.relatedTarget); });
 
+  // Log out. The POST goes at once, the request the form itself makes, and the page leaves around
+  // it (is-leaving: _nav.css, _watch.css, _you.css, _ui_feedback.css), ending on the sign-in page's
+  // own first frame; once the answer is in and the leaving played, the sign-in page opens.
+  var LEAVE_MS = 980;
+  var LEAVE_CALM_MS = 150;     // under reduced motion the page only fades
+  var LEAVE_LATEST_MS = 2000;  // a page that never heard back leaves anyway, not sitting dark
+  var SIGNED_OUT = '/login?out=1';
+
+  // *panel* folds back into the avatar: the way there, for the fold's keyframes. False where the
+  // avatar is out of sight, and the panel only fades.
+  function foldInto(panel) {
+    var ava = document.querySelector('.nav-glass .profile-ava');
+    if (!panel || !ava) return false;
+    var a = ava.getBoundingClientRect();
+    var p = panel.getBoundingClientRect();
+    var seen = a.width > 0 && a.bottom > 0 && a.right > 0 && a.top < window.innerHeight && a.left < window.innerWidth;
+    if (!seen || !p.width || !p.height) return false;
+    var s = Math.max(a.width / p.width, 0.06);
+    panel.style.setProperty('--fs', String(s));
+    panel.style.setProperty('--fx', (a.left + a.width / 2 - p.left - p.width * s / 2) + 'px');
+    panel.style.setProperty('--fy', (a.top + a.height / 2 - p.top - p.height * s / 2) + 'px');
+    return true;
+  }
+
+  function logOut(form, panel) {
+    var html = document.documentElement;
+    if (html.classList.contains('is-leaving')) return;
+    // keepalive: the POST still lands if the page leaves before its answer.
+    var answer = window.fetch(form.action, { method: 'POST', credentials: 'same-origin', redirect: 'manual', keepalive: true });
+    var played = false;
+    var out = false;
+    var gone = false;
+    function leave(how) {
+      if (gone) return;
+      gone = true;
+      how();
+    }
+    function signIn() { window.location.replace(SIGNED_OUT); }
+    function both() { if (played && out) leave(signIn); }
+    function asToday() { form.submit(); }
+    html.classList.toggle('is-leaving-flat', !foldInto(panel));
+    html.classList.add('is-leaving');
+    var calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.setTimeout(function () { played = true; both(); }, calm ? LEAVE_CALM_MS : LEAVE_MS);
+    // Unanswered, the session may still stand: the home page shows which, sending a signed-out
+    // person to sign in, where "Signed out" could be untrue.
+    window.setTimeout(function () {
+      leave(out ? signIn : function () { window.location.replace('/'); });
+    }, LEAVE_LATEST_MS);
+    answer.then(function (res) {
+      // The redirect is the session ended; a 401, one that had already ended.
+      if (res.ok || res.type === 'opaqueredirect' || res.status === 401) {
+        out = true;
+        both();
+      } else {
+        leave(asToday);
+      }
+    }, function () { leave(asToday); });
+  }
+  window.MM = window.MM || {};
+  window.MM.logOut = logOut;
+
+  // Back from the history after log-out: what it took away comes back. On every page, Watch too,
+  // which has no menu.
+  window.addEventListener('pageshow', function (e) {
+    if (e.persisted) document.documentElement.classList.remove('is-leaving', 'is-leaving-flat');
+  });
+
   var menu = document.getElementById('profile-menu');
   if (!menu) return;
 
@@ -48,6 +116,13 @@
 
   var panel = menu.querySelector('.profile-panel');
   var handle = menu.querySelector('.profile-handle');
+  var outForm = menu.querySelector('form[action="/api/auth/logout"]');
+  if (outForm) {
+    outForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      logOut(outForm, panel);
+    });
+  }
   var calm = window.matchMedia('(prefers-reduced-motion: reduce)');
   var SHUT_PX = 80;      // dragged this far down, the sheet shuts
   var FLICK_PX_MS = 0.5; // or flicked down this fast, from 20 px on, over the last bit of the drag
