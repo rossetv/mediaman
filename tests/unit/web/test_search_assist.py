@@ -528,8 +528,8 @@ class TestAsk:
         # Another person's answer is not theirs to have.
         assert people["bob"].post(f"{BASE}/ask", json={"q": Q}).status_code == 202
 
-    def test_fewer_than_three_words_are_not_asked(self, amy, model):
-        assert amy.post(f"{BASE}/ask", json={"q": "two  words"}).json()["error"] == "too_short"
+    def test_fewer_than_two_words_are_not_asked(self, amy, model):
+        assert amy.post(f"{BASE}/ask", json={"q": "  lonely  "}).json()["error"] == "too_short"
         assert model.prompts == []
 
     def test_nothing_real_that_fits_is_an_answer_with_simpler_searches(self, amy, model):
@@ -777,7 +777,12 @@ class TestRuns:
         personal.refresh_people(conn, None, secret_key="0123456789abcdef" * 4)
         assert len(model.prompts) == 1 and "a secret wish" in model.prompts[0]
 
-        assert amy.get(f"{BASE}/history").json() == {"ok": True, "enabled": True, "available": True}
+        assert amy.get(f"{BASE}/history").json() == {
+            "ok": True,
+            "enabled": True,
+            "auto": True,
+            "available": True,
+        }
 
     def test_without_an_openai_key_nothing_can_use_the_history(self, amy, conn):
         conn.execute("DELETE FROM settings WHERE key = 'openai_api_key'")
@@ -930,9 +935,9 @@ class TestKept:
 
 class TestWords:
     @pytest.mark.parametrize(
-        "q", ["\U0001f600 \U0001f600 \U0001f600", "... !!! ---", "\U0001f600 two words"]
+        "q", ["\U0001f600 \U0001f600 \U0001f600", "... !!! ---", "\U0001f600 word !!!"]
     )
-    def test_a_question_with_no_three_words_to_send_is_not_asked(self, amy, model, q):
+    def test_a_question_with_no_two_words_to_send_is_not_asked(self, amy, model, q):
         resp = amy.post(f"{BASE}/ask", json={"q": q})
         assert (resp.status_code, resp.json()["error"]) == (400, "too_short")
         assert model.prompts == []

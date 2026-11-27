@@ -252,6 +252,25 @@ def test_the_ai_part_is_there_for_everyone_and_hidden_until_the_ai_is_known_to_b
     assert {"account-history-lbl", "account-clear-searches"} <= _parse(html).ids
 
 
+@pytest.mark.parametrize(("stored", "shown"), [(1, "true"), (0, "false")])
+def test_the_ask_as_i_type_switch_shows_how_the_person_left_it(
+    app_factory, authed_client, conn, stored, shown
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    client = authed_client(app, conn)
+    conn.execute("UPDATE admin_users SET ai_auto_ask = ?", (stored,))
+    conn.commit()
+
+    html = client.get("/account?pane=1").text
+
+    ai = html.split('id="account-ai"')[1].split("</section>")[0]
+    switch = re.search(r'<button[^>]*id="account-auto"[^>]*>', ai).group(0)
+    assert 'role="switch"' in switch and f'aria-checked="{shown}"' in switch
+    assert ("on" in switch.split('class="')[1].split('"')[0].split()) is (stored == 1)
+    label = re.search(r'id="account-auto-lbl">(.*?)<', ai).group(1)
+    assert (label, 'aria-labelledby="account-auto-lbl"' in switch) == ("Ask AI as I type", True)
+
+
 # Each fact: the part of the fold it belongs to, and words that must all be in one line of it.
 _SENT = [
     ("always", "played", "marked as watched"),
@@ -259,7 +278,8 @@ _SENT = [
     ("always", "suggested before", "year", "description", "reason", "choose from"),
     ("always", "picks", "titles", "played", "led to each"),
     ("always", "stars in Plex", "own", "link"),
-    ("always", "in search", "question", "title and year", "more like"),
+    ("always", "in search", "reads as a request", "sent once", "pause typing"),
+    ("always", "title and year", "more like"),
     ("always", "narrow", "choice", "titles it already gave"),
     ("history", "picks", "searches", "ratings", "requests", "plays went"),
     ("history", "questions", "daily phrases", "searches", "plays", "liked", "disliked"),

@@ -1,5 +1,5 @@
-"""Titles for a person's question, or like a title they chose: the model proposes, TMDB
-says which of them are real."""
+"""Titles for a person's question, or like a title they chose, or both: the model proposes,
+TMDB says which of them are real."""
 
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ MAX_TITLES = 36
 CHECKERS = 6
 _MAX_CHIPS = 4
 _CHIP_LEN = 32
+_HEADING_LEN = 60
 _REASON_LEN = 140
 _TITLE_LEN = 200
 # Seconds the TMDB checks of one answer may take, and failures before it is left alone.
@@ -79,8 +80,8 @@ def is_personal(text: str) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class Question:
-    """What is asked: *text* in the person's words, or titles like *like*. *refine* is a chip
-    of the answer whose titles are *narrowing*."""
+    """What is asked: *text* in the person's words, titles like *like*, or a question that
+    names *like*. *refine* is a chip of the answer whose titles are *narrowing*."""
 
     text: str = ""
     like: str = ""
@@ -113,6 +114,8 @@ class AssistAnswer(TypedDict):
     titles: list[AnswerTitle]
     chips: list[str]
     instead: list[str]
+    #: A few words over the titles. An answer kept from before it was given has none.
+    heading: str | None
 
 
 _RULES = f"""Answer with up to {_ASK_FOR} titles, the best fit first.
@@ -121,16 +124,25 @@ _RULES = f"""Answer with up to {_ASK_FOR} titles, the best fit first.
 - No adult titles. At most two of one franchise. Nothing under "disliked" and little like it.
 - "reason" is one plain British English sentence of at most 120 characters that says how this title fits what is asked, specific to it. No hype, no plot past the set-up, and nothing about the reader.
 - Also give 3 or 4 chips: short ways (2 to 4 words) to narrow this answer, such as "Under 100 minutes" or "Funnier".
+- Also give one heading: a plain title of at most 50 characters for the titles you give, such as "Netflix originals worth your time".
 - If no title fits, give instead 2 or 3 simpler searches, each the same wish with one part dropped.
 Return one JSON object and nothing else:
-{{"items":[{{"kind":"title","title":"official English title","year":2017,"media_type":"movie","reason":"..."}},{{"kind":"chip","text":"..."}},{{"kind":"instead","text":"..."}}]}}
+{{"items":[{{"kind":"heading","text":"..."}},{{"kind":"title","title":"official English title","year":2017,"media_type":"movie","reason":"..."}},{{"kind":"chip","text":"..."}},{{"kind":"instead","text":"..."}}]}}
 "media_type" is "movie" or "tv". "year" is the first release year."""
 
 
 def _prompt(question: Question, taste: Taste) -> str:
     data: dict[str, object] = {**taste.fields()}
     personal = not question.like and bool(data) and is_personal(question.text)
-    if question.like:
+    if question.like and question.text:
+        data["question"] = clean_text(question.text)
+        data["title"] = clean_list([question.like])
+        data["year"] = question.like_year
+        wish = (
+            'Find movies and TV shows for the wish under "question". It names the title under '
+            '"title": find titles like it, in what makes it itself. Leave it out.'
+        )
+    elif question.like:
         data["title"] = clean_list([question.like])
         data["year"] = question.like_year
         wish = 'Find titles like the one under "title", in what makes it itself. Leave it out.'
@@ -260,7 +272,13 @@ def make_answer(
         titles=titles,
         chips=_texts(items, "chip", _CHIP_LEN) if titles else [],
         instead=[] if titles else _texts(items, "instead", 60),
+        heading=_heading(items) if titles else None,
     )
+
+
+def _heading(items: list[dict[str, object]]) -> str | None:
+    said = next((i.get("text") for i in items if i.get("kind") == "heading"), None)
+    return checked_line(said, _HEADING_LEN)
 
 
 def _in_order(checked: dict[int, AnswerTitle]) -> list[AnswerTitle]:

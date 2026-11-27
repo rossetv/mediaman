@@ -18,6 +18,7 @@ from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.auth.password_hash._change_password import password_changed_at
 from mediaman.web.auth.reauth import reauth_seconds_left
 from mediaman.web.repository import avatars
+from mediaman.web.repository import search_assist as assist_repo
 
 router = APIRouter()
 
@@ -78,6 +79,9 @@ def account_page(request: Request) -> Response:
             is not None,
             "password_changed": _password_changed(conn, username),
             "picture": _picture(conn, username),
+            "auto_ask": assist_repo.asks_on_its_own(
+                conn, avatars.find_user_id(conn, username) or 0
+            ),
             "role": getattr(request.state, "user_role", "admin"),
             "password_good_for": reauth_seconds_left(
                 conn, request.cookies.get("session_token"), username
