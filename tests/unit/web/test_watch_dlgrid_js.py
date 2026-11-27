@@ -71,6 +71,38 @@ def test_the_rows_above_go_up_and_those_below_go_down_as_the_row_s_cards_grow(ou
     assert run["title"] == [True], "the row's name travels into the header"
 
 
+def test_a_bar_scrolled_out_of_sight_comes_down_with_the_grow_and_goes_up_with_the_fold(
+    out,
+) -> None:
+    run = out["barAndChevrons"]["away"]
+    out_of_sight = {"opacity": 0, "transform": "translateY(528px)"}
+    at_the_top = {"opacity": 1, "transform": "translateY(600px)"}
+    # held where it ends until the page is scrolled to match, so it never blinks away first
+    assert run["grow"]["bar"] == [{"frames": [out_of_sight, at_the_top], "fill": "forwards"}]
+    assert run["fold"]["bar"] == [{"frames": [at_the_top, out_of_sight], "fill": "forwards"}]
+    assert run["y"] == 600
+
+
+def test_a_bar_partly_in_sight_slides_without_fading_and_one_that_stays_is_left_alone(
+    out,
+) -> None:
+    near = out["barAndChevrons"]["near"]
+    assert near["grow"]["bar"][0]["frames"] == [
+        {"opacity": 1, "transform": "translateY(0px)"},
+        {"opacity": 1, "transform": "translateY(30px)"},
+    ]
+    assert out["barAndChevrons"]["sticky"]["grow"]["bar"] == []
+    assert out["barAndChevrons"]["sticky"]["fold"]["bar"] == []
+
+
+def test_the_row_s_chevrons_fade_with_the_row_as_it_grows_and_come_back_as_it_folds(
+    out,
+) -> None:
+    run = out["barAndChevrons"]["away"]
+    assert [a["frames"][-1]["opacity"] for a in run["grow"]["arrow"]] == [0]
+    assert [a["frames"][-1]["opacity"] for a in run["fold"]["arrow"]] == [1]
+
+
 def test_with_reduced_motion_it_only_fades_in_150_ms(out) -> None:
     run = out["reduced"]
     assert run["open"] == {"durations": [150], "keys": ["opacity"], "shown": True}
@@ -378,6 +410,11 @@ def test_in_an_outage_the_head_never_says_nothing_downloads(out) -> None:
     assert states["refusedAdmin"]["count"] == "Can’t reach Radarr"
     assert states["outageViewerNothing"]["count"] == ""
     assert states["outageViewerSoon"]["count"] == "1 coming soon"
+
+
+def test_a_wrapped_head_never_starts_a_line_with_the_dot_or_splits_coming_soon(out) -> None:
+    raw = out["states"]["outageAdminNothing"]["raw"]
+    assert raw == "Can’t reach Radarr, Sonarr and NZBGet · 1 coming soon"
 
 
 def test_an_opener_under_a_title_s_page_steps_back_down_to_downloading(out) -> None:

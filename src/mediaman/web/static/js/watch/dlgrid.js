@@ -392,14 +392,15 @@
     if (!setUpIn(data)) return '';
     var soon = (data.upcoming || []).length;
     var bits = [];
-    if (items.length) bits.push(items.length + ' in progress');
+    if (items.length) bits.push(items.length + '\u00a0in\u00a0progress');
     // In an outage nobody can tell that nothing downloads: an admin is told what does not
     // answer, a viewer only that some may be missing, or nothing where nothing is shown.
     else if (!data.outage) bits.push('Nothing downloading');
     else if (admin) bits.push(curly(data.outage));
-    if (soon) bits.push(soon + ' coming soon');
+    if (soon) bits.push(soon + '\u00a0coming\u00a0soon');
     if (!admin && data.outage && items.length) bits.push('some may be missing');
-    return bits.join(' · ');
+    // A wrapped head never starts a line with the dot.
+    return bits.join('\u00a0· ');
   }
 
   function setUpIn(data) {
@@ -661,6 +662,23 @@
 
   function animate(node, frames, opts) { return node && node.animate ? node.animate(frames, opts) : null; }
 
+  /* At little height the bar is in the page's flow (_watch_search.css), out of sight once the
+     page is scrolled *y* down, while the grid stands where the page's top will be: the bar comes
+     down with the grid, and goes back up as it folds. Held where it ends until the page is
+     scrolled to match. */
+  function barMoves(y, coming, D, E) {
+    if (y <= 0) return [];
+    return toArray(document.querySelectorAll('.nav-glass')).filter(function (bar) {
+      var cs = getComputedStyle(bar);
+      return cs.display !== 'none' && cs.position !== 'sticky' && cs.position !== 'fixed';
+    }).map(function (bar) {
+      var h = bar.getBoundingClientRect().height;
+      var away = { opacity: y >= h ? 0 : 1, transform: 'translateY(' + Math.max(0, y - h) + 'px)' };
+      var here = { opacity: 1, transform: 'translateY(' + y + 'px)' };
+      return animate(bar, coming ? [away, here] : [here, away], { duration: D, easing: E, fill: 'forwards' });
+    });
+  }
+
   function headingTo(title, from) {
     var fs = parseFloat(getComputedStyle(from).fontSize) || 19;
     var tfs = parseFloat(getComputedStyle(title).fontSize) || fs;
@@ -695,7 +713,7 @@
     var paired = {};
     Object.keys(to).forEach(function (k) { if (from[k]) paired[k] = true; });
     if (sides.slot) {
-      var rest = toArray(sides.slot.querySelectorAll('.dlx__count, .row-open__cue')).concat(toArray(sides.slot.querySelectorAll('.dw')).filter(function (n) {
+      var rest = toArray(sides.slot.querySelectorAll('.dlx__count, .row-open__cue, .watch-row__arrow')).concat(toArray(sides.slot.querySelectorAll('.dw')).filter(function (n) {
         return !Object.keys(paired).some(function (k) { return from[k].node === n; });
       }));
       rest.forEach(function (n) { anims.push(animate(n, [{ opacity: 1 }, { opacity: 0 }], { duration: FAST, easing: E, fill: 'forwards' })); });
@@ -727,6 +745,7 @@
     [dom.count, dom.back, dom.note].forEach(function (n) {
       anims.push(animate(n, [{ opacity: 0 }, { opacity: 1 }], { duration: FAST, delay: FAST * 0.6, easing: E, fill: 'backwards' }));
     });
+    anims = anims.concat(barMoves(savedY, true, D, E));
     document.documentElement.classList.add('is-dl-moving');
     play(anims, D, function () {
       hidden.forEach(function (n) { n.style.opacity = ''; });
@@ -784,10 +803,11 @@
     sides.up.forEach(function (n) { anims.push(animate(n, [{ opacity: 0, transform: 'translateY(-' + FALL_UP + 'px)' }, { opacity: 1, transform: 'none' }], { duration: D, easing: E })); });
     sides.down.forEach(function (n) { anims.push(animate(n, [{ opacity: 0, transform: 'translateY(' + FALL_DOWN + 'px)' }, { opacity: 1, transform: 'none' }], { duration: D, easing: E })); });
     if (sides.slot) {
-      toArray(sides.slot.querySelectorAll('.dlx__count, .row-open__cue')).concat(toArray(sides.slot.querySelectorAll('.dw')).filter(function (n) {
+      toArray(sides.slot.querySelectorAll('.dlx__count, .row-open__cue, .watch-row__arrow')).concat(toArray(sides.slot.querySelectorAll('.dw')).filter(function (n) {
         return hidden.indexOf(n) < 0;
       })).forEach(function (n) { anims.push(animate(n, [{ opacity: 0 }, { opacity: 1 }], { duration: D, easing: E })); });
     }
+    anims = anims.concat(barMoves(savedY, false, D, E));
     document.documentElement.classList.add('is-dl-moving');
     play(anims, D, function () {
       hidden.forEach(function (n) { n.style.opacity = ''; });

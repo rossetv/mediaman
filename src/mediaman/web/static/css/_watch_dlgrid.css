@@ -72,7 +72,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dlg__count { flex: none; padding: 7px 0 0 6px; font-size: 13px; color: var(--t3); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dlg__count:empty { display: none; }
 .dlg__body { padding: 8px var(--pad) calc(24px + env(safe-area-inset-bottom)); }
-.dlg__note { display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px; font-size: 13px; color: var(--warning); }
+.dlg__note { display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px; font-size: 13px; color: var(--warning); text-wrap: pretty; }
 .dlg__note[hidden] { display: none; }
 .dlg__note > .ico { flex: none; align-self: center; }
 .dlg__empty[hidden] { display: none; }
@@ -86,7 +86,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   .dlg__count { padding: 0; font-size: 12px; line-height: 1.25; white-space: normal; text-wrap: pretty; }
   /* The ring takes in the line under the heading, which it would cut through. */
   .dlg__title:focus-visible { outline: none; }
-  .dlg:not(.is-moving) .dlg__names:has(> .dlg__title:focus-visible:not(.is-quiet)) { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .dlg:not(.is-moving) .dlg__names:has(> .dlg__title:focus-visible:not(.is-quiet)) { outline: 2px solid var(--accent); outline-offset: 5px; }
 }
 /* Little height: the head goes with the page, as the bar does. */
 @media (max-height: 500px) {
@@ -141,7 +141,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   line-height: 1.45;
   color: var(--t2);
 }
-.dwx__more > p { margin: 0; }
+.dwx__more > p { margin: 0; text-wrap: pretty; }
 .dwx__more > [hidden] { display: none; }
 .dwx__more:not(:has(> :not([hidden]))) { display: none; }
 .dwx__facts { font-variant-numeric: tabular-nums; }

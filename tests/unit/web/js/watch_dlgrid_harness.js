@@ -505,7 +505,8 @@ const scenarios = {
       const note = p.q('#watch-dl .dlg__note');
       return { empty: empty.hidden ? null : [p.text(empty.querySelector('.grid-empty__title')), p.text(empty.querySelector('.grid-empty__text')),
         empty.querySelector('a') && empty.querySelector('a').getAttribute('href')],
-      note: note.hidden ? null : p.text(note), count: p.text(p.q('#watch-dl .dlg__count')), cards: p.qa('#watch-dl .dwx').length };
+      note: note.hidden ? null : p.text(note), count: p.text(p.q('#watch-dl .dlg__count')), raw: p.q('#watch-dl .dlg__count').textContent,
+      cards: p.qa('#watch-dl .dwx').length };
     };
     const unset = all([], { downloads_set_up: { movies: false, shows: false } });
     const down = { outage: "Can't reach Radarr", unreachable: ['Radarr'] };
@@ -548,6 +549,35 @@ const scenarios = {
       card: card && { from: card.frames[0].clipPath && card.frames[0].clipPath.startsWith('inset('), to: card.frames[1].transform, ms: card.opts.duration },
       title: of('.dlg__title').map((a) => !!a.frames[0].transform),
     };
+  },
+  // At little height the bar is in the page's flow: scrolled down to the row, it is out of sight
+  // while the grid grows where the page's top will be. The row's chevrons sit over the grid.
+  async barAndChevrons() {
+    const run = async (position, y) => {
+      const p = load({ strip: [strip(USUAL())], all: [USUAL_ALL()] });
+      await p.step(1100);
+      const bar = build(p.doc, ['header', { class: 'nav-glass' }, 'mediaman']);
+      p.doc.body.insertBefore(bar, p.doc.body.firstChild);
+      bar.getBoundingClientRect = () => ({ top: -y, bottom: 72 - y, left: 0, right: 1280, width: 1280, height: 72 });
+      const arrow = build(p.doc, ['button', { class: 'watch-row__arrow watch-row__arrow--next' }]);
+      p.q('#watch-downloading .watch-row__viewport').appendChild(arrow);
+      const style = p.ctx.getComputedStyle;
+      p.ctx.getComputedStyle = (n) => ({ ...style(n), position: n === bar ? position : 'static' });
+      p.ctx.scrollTo(y);
+      const of = (from, n) => p.anims.slice(from).filter((a) => a.node === n).map((a) => ({ frames: a.frames, fill: a.opts.fill || '' }));
+      const growing = p.anims.length;
+      p.click(p.q('#watch-downloading .row-open'));
+      await p.step(10);
+      const grow = { bar: of(growing, bar), arrow: of(growing, arrow) };
+      await p.step(400);
+      const folding = p.anims.length;
+      p.key('Escape');
+      await p.step(10);
+      const fold = { bar: of(folding, bar), arrow: of(folding, arrow) };
+      await p.step(400);
+      return { grow, fold, y: p.ctx.scrollY };
+    };
+    return { away: await run('relative', 600), near: await run('relative', 30), sticky: await run('sticky', 600) };
   },
   async abandonFocus() {
     const stuck = (over) => dl('Quiet Engines', { state: 'searching', abandon_visible: true, ...over });
