@@ -16,7 +16,8 @@
 .watch-try { max-width: 100%; line-height: 1.25; text-align: left; }
 .watch-try > .ico { flex: none; }
 .watch-try > span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
-.watch-try--ai > .ico { color: color-mix(in srgb, var(--purple) 55%, var(--t1)); opacity: .85; }
+.watch-try--ai > .ico, .watch-search__token .watch-face--art { color: color-mix(in srgb, var(--purple) 55%, var(--t1)); }
+.watch-try--ai > .ico { opacity: .85; }
 .watch-recent { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out); }
 /* Room inside for what is drawn round a highlighted one. */
 .watch-recent > div { min-height: 0; margin: 0 -4px; padding: 0 4px; overflow: hidden; }
@@ -161,8 +162,8 @@ a.chip { text-decoration: none; }
 .ordinary__count { font-size: 13px; color: var(--t3); }
 .ordinary__title { margin: 0; font: 600 20px/1.25 var(--font-display); letter-spacing: -.01em; }
 .watch-face--art { border-radius: 5px; }
-/* Its sparkle, seen where the title has no poster, is the one of the suggestion that opened it. */
-.watch-search__token .watch-face--art { border-radius: 5px; color: var(--accent-hi); font-size: 13px; }
+/* Its sparkle, seen where the title has no poster, is coloured as the For-you suggestion's (above). */
+.watch-search__token .watch-face--art { border-radius: 5px; font-size: 13px; }
 
 @media (max-width: 599.98px) {
   .tn__head { flex-direction: column; align-items: stretch; }

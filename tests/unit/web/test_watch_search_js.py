@@ -1433,6 +1433,14 @@ def test_the_title_s_poster_stands_in_the_search_field_and_comes_back_with_the_p
     assert out["againFace"] == ["/api/poster/1", "#i-sparkles"]
 
 
+def test_a_broken_poster_in_the_search_field_lets_the_sparkle_show() -> None:
+    css = (
+        Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_search.css"
+    ).read_text()
+    assert ".watch-face > img:not([data-broken]) ~ :is(.watch-face__letters, .ico) { visibility: hidden; }" in css
+    assert _run("like")["posterHides"] == [True, False]
+
+
 def test_a_title_with_no_poster_shows_the_sparkle_in_the_search_field_not_an_empty_box() -> None:
     assert _run("like")["noPoster"] == [None, "#i-sparkles"]
 

@@ -3111,6 +3111,12 @@ scenarios.like = async () => {
   out.sent = p.sent('/like').map((c) => c[2]);
   out.page = [p.url(), p.$('watch-search-token').textContent, p.head(), p.shown()];
   out.face = tokenFace(p);
+  // Marked broken as broken-poster.js does, the poster no longer matches the rule that hides the sparkle.
+  const img = p.$('watch-search-token').querySelector('.watch-face img');
+  const poster = () => img.matches('img:not([data-broken])');
+  out.posterHides = [poster()];
+  img.setAttribute('data-broken', '');
+  out.posterHides.push(poster());
   await p.reply('POST', '/like', ANSWER);
   out.answer = p.head();
   await p.back();
