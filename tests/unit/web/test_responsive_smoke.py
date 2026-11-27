@@ -192,7 +192,8 @@ def test_single_shadow_token():
     """Only one card-lift shadow is permitted; --shadow-card defines it.
 
     Decorative glows (status dots, focus rings) are allowed because they
-    aren't elevation — they're light effects on the same plane.
+    aren't elevation — they're light effects on the same plane. Every layer
+    of a shadow is held to this, not only its first.
     """
     css = _css()
     assert "--shadow-card:" in css
@@ -201,25 +202,58 @@ def test_single_shadow_token():
     for selector, value in (
         (sel, v) for sel, body in rules for v in re.findall(r"box-shadow:\s*([^;]+);", body)
     ):
-        v = value.strip()
-        # A shadow token is held to the same rule as a literal.
-        v = re.sub(r"^var\((--glow-[\w-]+)\)$", lambda m: tokens[m.group(1)].strip(), v)
-        if "var(--shadow-card)" in v or v in ("none", "inherit"):
+        v = " ".join(value.split())
+        if v in ("none", "inherit"):
             continue
-        # Status-dot / focus-ring style glows: small radius (≤12px) with
-        # zero offset. These are light effects, not elevation.
-        is_glow = bool(re.match(r"0 0 \d+px ", v))
-        # The dl-hero poster uses a single bespoke deep drop because the
-        # backdrop blur already provides the room-level lift.
-        is_hero_poster = "rgba(0,0,0,.6) 0 20px 40px" in v
-        # A field a browser filled in is painted over in its own surface colour with an
-        # inset spread: no offset, no blur, so nothing lifts.
-        is_autofill_paint = ":autofill" in selector and bool(
-            re.fullmatch(r"inset 0 0 0 99px var\(--s[23]\)", v)
-        )
-        assert is_glow or is_hero_poster or is_autofill_paint, (
-            f"unexpected box-shadow literal: {v!r}"
-        )
+        token = re.fullmatch(r"var\((--glow-[\w-]+)\)", v)
+        if token:
+            # A shadow token is held to the same rule as a literal, layer by layer: no offset
+            # and a blur of at most 12px. The AI ring's light is the one wider glow; it may
+            # spread sideways but never drops, so no layer of it has a y offset.
+            for layer in _shadow_layers(tokens[token.group(1)]):
+                if token.group(1) == "--glow-ai":
+                    assert re.match(r"-?\d+(px)? 0 \d+px ", layer), (
+                        f"--glow-ai layer drops: {layer!r}"
+                    )
+                else:
+                    assert re.match(r"0 0 ([0-9]|1[0-2])(px)? ", layer), (
+                        f"{token.group(1)} layer is not a small glow: {layer!r}"
+                    )
+            continue
+        for layer in _shadow_layers(v):
+            if layer == "var(--shadow-card)":
+                continue
+            # Status-dot / focus-ring style glows and hairline rings: zero offset. These are
+            # light effects, not elevation.
+            is_glow = bool(re.match(r"0 0 \d+(px)? ", layer))
+            # The dl-hero poster uses a single bespoke deep drop because the
+            # backdrop blur already provides the room-level lift.
+            is_hero_poster = "rgba(0,0,0,.6) 0 20px 40px" in layer
+            # A field a browser filled in is painted over in its own surface colour with an
+            # inset spread: no offset, no blur, so nothing lifts.
+            is_autofill_paint = ":autofill" in selector and bool(
+                re.fullmatch(r"inset 0 0 0 99px var\(--s[23]\)", layer)
+            )
+            assert is_glow or is_hero_poster or is_autofill_paint, (
+                f"unexpected box-shadow layer: {layer!r} in {v!r}"
+            )
+
+
+def _shadow_layers(value: str) -> list[str]:
+    """A box-shadow's layers: split at the commas that are not inside a function's brackets."""
+    layers, depth, start = [], 0, 0
+    value = " ".join(value.split())
+    for i, ch in enumerate(value):
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if ch == "," and depth == 0:
+            layers.append(value[start:i].strip())
+            start = i + 1
+    return [*layers, value[start:].strip()]
+
+
+def test_the_ai_search_glow_is_drawn_from_its_own_token():
+    assert "--glow-ai:" in _css()
+    assert re.search(r"\.wbar \.watch-search::after \{[^}]*box-shadow: var\(--glow-ai\);", _css())
 
 
 def test_nav_template_emits_all_surfaces():
