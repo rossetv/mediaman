@@ -13,8 +13,8 @@
  *
  * The address is /?you=<path>[&h=<History's query>]: the layer 'you' of watch/address.js. Each
  * group's fragment is fetched once per page life, then its styles, then its scripts in order.
- * Profile's is fetched ahead once the page is idle, or the pointer nears the profile button, and
- * History's and Settings' once the hub is on show; only put in the pane when it is opened.
+ * Profile's is fetched ahead once the pointer nears the profile button, or it is pressed or focused,
+ * and History's and Settings' once the hub is on show; only put in the pane when it is opened.
  *
  * Needs watch/address.js, modal-a11y.js, core/dom.js and ui-feedback.js.
  */
@@ -41,10 +41,11 @@
   var CALM_MS = 160; // its fade (--dur-fast) and a frame
   var STEP_MS = 250; // a step between views (--dur-slow)
   var FADE_MS = 150; // --dur-fast
-  var PUSH = 'cubic-bezier(.32, .72, 0, 1)'; // settles quickly, as a view of iOS does
-  var OUT = 'cubic-bezier(.4, 0, 1, 1)'; // leaves at speed
+  var WAIT_MS = 150; // a group not yet in that comes within this is stepped to as one that was
+  var GONE_MS = 90; // the title a step leaves is gone by then,
+  var LAG_MS = 60; // and the new one starts this much after it, so the two are never both legible
   var NUDGE_PX = 12; // how far the bar's words move with a step
-  var GIVE = 0.35; // pulled up, the sheet moves this much of the way
+  var GIVE_PX = 36; // pulled up, the sheet gives less the further it goes, and never this far
   var IDLE_MS = 1500; // where the browser cannot say when it is idle
 
   var admin = root.hasAttribute('data-admin');
@@ -72,6 +73,8 @@
   var asking = null; // the question on show
   var turn = 0; // counts each show, so a group that comes in is placed for the latest only
   var pressedIn = false; // the press that ends in a click began in the panel
+  var frames = []; // drawn in the panel's place while it changes width
+  var sizing = []; // the animations of that change, under way
 
   /* ── Paths and addresses ── */
 
@@ -350,15 +353,26 @@
 
   function nudge(px) { return calm.matches || !px ? 'none' : 'translateX(' + px + 'px)'; }
 
-  /* New words for the bar: on a step they come from the side the view comes from, as the old leave. */
+  /* A curve of _tokens.css, so what moves here moves on the curve the stylesheet moves the views on. */
+  function curve(name) {
+    return window.getComputedStyle(document.documentElement).getPropertyValue(name).trim() || 'ease-out';
+  }
+
+  /* New words for the bar: on a step they come from the side the view comes from, once the old,
+     leaving the other way, have all but gone. */
   function say(el, text, dir, ghost) {
     if (el.textContent === text) return;
     var was = el.textContent;
     el.textContent = text;
     if (!dir || !el.animate || root.hidden) return;
-    el.animate([{ opacity: 0, transform: nudge(dir * NUDGE_PX) }, { opacity: 1, transform: nudge(0) }],
-      { duration: calm.matches ? FADE_MS : STEP_MS, easing: calm.matches ? 'ease-out' : PUSH });
-    if (!ghost || !was) return;
+    var lag = ghost && was ? LAG_MS : 0;
+    el.animate([{ opacity: 0, transform: nudge(dir * NUDGE_PX) }, { opacity: 1, transform: nudge(0) }], {
+      duration: (calm.matches ? FADE_MS : STEP_MS) - lag,
+      delay: lag,
+      fill: 'backwards',
+      easing: curve(calm.matches ? '--ease-out' : '--ease-push')
+    });
+    if (!lag) return;
     Array.prototype.forEach.call(el.parentNode.querySelectorAll('.is-old'), function (n) { n.remove(); });
     var old = document.createElement('span');
     old.className = el.className + ' is-old';
@@ -366,7 +380,7 @@
     old.textContent = was;
     el.after(old);
     old.animate([{ opacity: 1, transform: nudge(0) }, { opacity: 0, transform: nudge(-dir * NUDGE_PX) }],
-      { duration: FADE_MS, easing: OUT, fill: 'forwards' }).onfinish = function () { old.remove(); };
+      { duration: GONE_MS, easing: curve('--ease-out'), fill: 'forwards' }).onfinish = function () { old.remove(); };
   }
 
   function drawBar(p, dir) {
@@ -396,6 +410,79 @@
     return depth(p) >= depth(was) ? 1 : -1;
   }
 
+  function frame(i) {
+    if (!frames[i]) {
+      var f = document.createElement('div');
+      f.className = 'you__frame';
+      f.setAttribute('aria-hidden', 'true');
+      ['fill', 'edge', 'end'].forEach(function (part) {
+        var piece = document.createElement('i');
+        piece.className = 'you__frame-' + part;
+        f.appendChild(piece);
+      });
+      root.insertBefore(f, panel);
+      frames[i] = f;
+    }
+    return frames[i];
+  }
+
+  function endSizing() {
+    sizing.splice(0).forEach(function (a) { a.onfinish = null; a.cancel(); });
+    root.classList.remove('is-sizing');
+    frames.forEach(function (f) { f.classList.remove('is-on'); });
+  }
+
+  /* A step that changes the panel's width from *w0*. Its box is held at the wider width meanwhile and
+     a frame drawn in its place, whose left edge moves while its fill grows or shrinks from the right;
+     Back keeps to the edge, the title to the middle, and *under*, the view the step's other one
+     covers, travels with the edge, so no frame shows a view cut or the panel half empty. With reduced
+     motion nothing moves: the wide frame fades over the narrow one. */
+  function resize(w0, under, dir) {
+    var w1 = panel.offsetWidth;
+    if (w0 === w1 || !dir || !panel.animate || root.hidden) return;
+    root.classList.add('is-sizing');
+    var W = panel.offsetWidth;
+    var d = W - Math.min(w0, w1);
+    var e0 = w0 < w1 ? d : 0; // how far right of the box's left the frame's left edge is: at first,
+    var e1 = d - e0; // and at the end
+    var still = calm.matches;
+    var how = { duration: still ? FADE_MS : STEP_MS, easing: curve(still ? '--ease-out' : '--ease-push'), fill: 'forwards' };
+    var box = panel.getBoundingClientRect();
+    function move(el, prop, from, to) {
+      if (el) sizing.push(el.animate([prop(from), prop(to)], how));
+    }
+    function x(px) { return { transform: 'translateX(' + px + 'px)' }; }
+    function by(px) { return { translate: px + 'px' }; }
+    function draw(f, e) {
+      f.classList.add('is-on');
+      f.style.top = box.top + 'px';
+      f.style.left = box.left + 'px';
+      f.style.width = box.width + 'px';
+      f.style.height = box.height + 'px';
+      move(f.querySelector('.you__frame-edge'), x, e, still ? e : e1);
+      move(f.querySelector('.you__frame-fill'), function (v) { return { transform: 'scaleX(' + (W - v) / W + ')' }; }, e, still ? e : e1);
+    }
+    var old = root.querySelector('.you__title.is-old');
+    if (still) {
+      draw(frame(0), d);
+      draw(frame(1), 0);
+      move(frame(1), function (o) { return { opacity: o }; }, w0 < w1 ? 0 : 1, w0 < w1 ? 1 : 0);
+      move(backBtn, by, e1, e1);
+      move(title, by, e1 / 2, e1 / 2);
+      move(old, by, e0 / 2, e0 / 2);
+    } else {
+      draw(frame(0), e0);
+      move(backBtn, by, e0, e1);
+      move(title, by, e0 / 2, e1 / 2);
+      move(old, by, e0 / 2, e1 / 2);
+      if (under) {
+        var left = under.offsetLeft;
+        move(under, function (e) { return { transform: 'translateX(' + (e - left) + 'px)', opacity: 1 }; }, e0, e1);
+      }
+    }
+    sizing[0].onfinish = endSizing;
+  }
+
   /* The view on show goes, to the side a step of *dir* sends it. */
   function leave(from, dir) {
     if (!from) return;
@@ -409,6 +496,8 @@
     if (!to) return;
     var from = views.querySelector('.you-view.is-on');
     var dir = dirOf(was, p, how);
+    endSizing();
+    var w0 = panel.offsetWidth;
     if (from !== to) {
       // It comes from its side, not from wherever it was last left.
       to.style.transition = 'none';
@@ -424,6 +513,7 @@
     }
     root.classList.toggle('is-wide', to.hasAttribute('data-wide'));
     drawBar(p, dir);
+    if (from !== to) resize(w0, dir > 0 ? from : to, dir);
     if (how !== 'start' && was) keepFocus(was, to);
     tell('mm:you-shown', group(p), p);
     if (p === 'profile') idle(function () { prefetch('history'); prefetch('settings'); });
@@ -453,16 +543,24 @@
     var mine = ++turn;
     if (ready[group(p)]) { place(was, p, how); return; }
     var dir = dirOf(was, p, how);
-    drawBar(p, dir);
-    // What waits shows at once in the place of the view that goes; the focus waits on the title.
     var on = views.querySelector('.you-view.is-on');
-    var focusIn = !!on && on.contains(document.activeElement);
-    leave(on, dir);
-    if (focusIn) title.focus({ preventScroll: true });
-    root.setAttribute('data-wait', group(p));
-    root.classList.add('is-loading');
+    var settled = false;
+    // What waits shows in the place of the view that goes, the focus on the title; at once when the
+    // pane opens, else only if the group has not come in a moment, so most steps are pushes.
+    function wait() {
+      if (settled || path !== p || mine !== turn) return;
+      settled = true;
+      drawBar(p, dir);
+      var focusIn = !!on && on.contains(document.activeElement);
+      leave(on, dir);
+      if (focusIn) title.focus({ preventScroll: true });
+      root.setAttribute('data-wait', group(p));
+      root.classList.add('is-loading');
+    }
+    if (on) setTimeout(wait, WAIT_MS); else wait();
     load(group(p)).then(function (ok) {
       if (path !== p || mine !== turn) return;
+      settled = true;
       root.classList.remove('is-loading');
       if (ok) place(was, p, how);
     });
@@ -471,6 +569,7 @@
   function hide() {
     if (!openNow) return;
     openNow = false;
+    endSizing();
     var was = path;
     path = null;
     root.classList.remove('is-open', 'is-loading');
@@ -615,7 +714,9 @@
   var pull = null;
   function drag(by) {
     pull.by = by;
-    panel.style.transform = 'translateY(' + (by < 0 ? Math.round(by * GIVE) : by) + 'px)';
+    // Pulled up, it gives as a rubber band does: at first about half the way, then ever less.
+    var give = by < 0 ? -GIVE_PX * (1 - 1 / (1 - by * 0.55 / GIVE_PX)) : by;
+    panel.style.transform = 'translateY(' + Math.round(give) + 'px)';
     veil.style.opacity = String(Math.max(0, Math.min(1, 1 - by / (panel.offsetHeight || 1))));
   }
   function letGo(ended, t) {
@@ -649,14 +750,19 @@
   });
 
   // The content scrolls under a finger, so its pull is followed by touch: it is the sheet's only once
-  // the finger has gone down far enough from a view at its top, more down than sideways.
+  // the finger has gone down far enough from a view at its top, more down than sideways. What
+  // scrolls inside the view, as Settings' list and section do, must be at its top too.
   var tug = null;
+  function scrolled(from, v) {
+    for (var n = from; n && n !== v.parentNode; n = n.parentNode) if (n.scrollTop > 0) return true;
+    return false;
+  }
   views.addEventListener('touchstart', function (e) {
     tug = null;
     if (!openNow || !phone.matches || pull || e.touches.length !== 1) return;
     var v = e.target.closest && e.target.closest('.you-view');
-    if (!v || v.scrollTop > 0 || e.target.closest('input, textarea, select, [contenteditable], [role="application"]')) return;
-    tug = { view: v, x: e.touches[0].clientX, y: e.touches[0].clientY };
+    if (!v || scrolled(e.target, v) || e.target.closest('input, textarea, select, [contenteditable], [role="application"]')) return;
+    tug = { view: v, at: e.target, x: e.touches[0].clientX, y: e.touches[0].clientY };
   }, { passive: true });
   views.addEventListener('touchmove', function (e) {
     if (!tug) return;
@@ -665,7 +771,7 @@
     var dx = Math.abs(t.clientX - tug.x);
     if (!pull) {
       if (Math.abs(dy) < 8 && dx < 8) return;
-      if (tug.view.scrollTop > 0 || dx > dy) { tug = null; return; }
+      if (scrolled(tug.at, tug.view) || dx > dy) { tug = null; return; }
       pull = { id: 'touch', y: tug.y, t: e.timeStamp, by: 0 };
       panel.classList.add('is-dragged');
     }
@@ -680,14 +786,14 @@
   views.addEventListener('touchend', touchEnd);
   views.addEventListener('touchcancel', touchEnd);
 
-  // The pointer nearing the profile button, or a press or the focus on it, fetches Profile ahead.
+  // The pointer nearing the profile button, or a press or the focus on it, fetches Profile ahead:
+  // only then, so a page that never opens it asks for nothing.
   var profileBtn = document.querySelector('.profile-btn');
   if (profileBtn) {
     ['pointerenter', 'pointerdown', 'focus'].forEach(function (type) {
       profileBtn.addEventListener(type, function () { prefetch('profile'); });
     });
   }
-  idle(function () { prefetch('profile'); });
 
   window.MM = window.MM || {};
   window.MM.you = {

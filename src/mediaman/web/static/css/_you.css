@@ -33,11 +33,22 @@
   outline: 0;
   opacity: 0;
   transform: translateX(48px);
-  /* Its width is not animated: the views pushing over each other carry the change. */
-  transition: transform var(--dur) var(--ease-out), opacity calc(var(--dur) * .6) var(--ease-out) calc(var(--dur) * .4);
+  /* Its width is not animated: a step draws the frame below in its place meanwhile. */
+  transition: transform var(--dur) var(--ease-exit), opacity calc(var(--dur) * .6) var(--ease-exit) calc(var(--dur) * .4);
 }
 .you.is-wide .you__panel { --you-w: var(--you-wide); }
-.you.is-open .you__panel { opacity: 1; transform: none; transition: transform var(--dur-slow) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
+.you.is-open .you__panel { opacity: 1; transform: none; transition: transform var(--dur-slow) var(--ease-push), opacity var(--dur-fast) var(--ease-out); }
+
+/* A step between a narrow view and a wide one (watch/you.js): the panel's box is held at the wide
+   width, clear, and this frame is drawn where it was; its left edge moves and its fill grows or
+   shrinks from the right, so the panel is never seen to jump or stand half empty. */
+.you.is-sizing .you__panel { --you-w: var(--you-wide); background: transparent; border-color: transparent; box-shadow: none; }
+.you__frame { position: absolute; display: none; pointer-events: none; }
+.you.is-sizing .you__frame.is-on { display: block; }
+.you__frame-fill, .you__frame-edge, .you__frame-end { position: absolute; top: 0; bottom: 0; background: var(--s1); border: 1px solid var(--hair-strong); }
+.you__frame-fill { left: 0; right: 0; border-inline-width: 0; transform-origin: right; box-shadow: var(--shadow-card); }
+.you__frame-edge { left: 0; width: 20px; border-right-width: 0; border-radius: 20px 0 0 20px; }
+.you__frame-end { right: 0; width: 20px; border-left-width: 0; border-radius: 0 20px 20px 0; }
 
 .you__grab { display: none; -webkit-user-select: none; user-select: none; }
 .you__bar {
@@ -103,6 +114,8 @@
   .you__back:hover { background: var(--s3); }
   .you__close:hover { background: var(--s3); color: var(--t1); }
 }
+/* After the hover rule, so a press lights under the mouse too: at once, easing off when let go. */
+.you__back:active, .you__close:active { background: var(--s4); transition-duration: 0s; }
 
 .you__views { position: relative; flex: 1; min-height: 0; }
 /* Each view is as wide as the panel it ends in, pinned to the right edge the panel grows from,
@@ -129,7 +142,7 @@
   opacity: calc((var(--dir, 1) + 1) / 2);
   visibility: hidden;
   transform: translateX(calc(var(--dir, 1) * 64% + 36%));
-  transition: transform var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur-slow);
+  transition: transform var(--dur-slow) var(--ease-push), opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur-slow);
 }
 .you-view[data-wide] { --view-w: var(--you-wide); }
 .you-view > * { flex-shrink: 0; }
@@ -137,7 +150,7 @@
   opacity: 1;
   visibility: visible;
   transform: none;
-  transition: transform var(--dur-slow) var(--ease-out), opacity var(--dur-slow) var(--ease-out), visibility 0s;
+  transition: transform var(--dur-slow) var(--ease-push), opacity var(--dur-slow) var(--ease-out), visibility 0s;
 }
 
 /* While a group's fragment is on its way. */
@@ -173,9 +186,9 @@
     box-shadow: var(--shadow-card), 0 50vh 0 var(--s1);
     opacity: 1;
     transform: translateY(100%);
-    transition: transform var(--dur-slow) var(--ease-out);
+    transition: transform var(--dur-slow) var(--ease-exit);
   }
-  .you.is-open .you__panel { transform: none; transition: transform var(--dur-slow) var(--ease-out); }
+  .you.is-open .you__panel { transform: none; transition: transform var(--dur-slow) var(--ease-push); }
   .you__panel.is-dragged { transition: none; }
   .you__grab { display: block; flex: none; height: 18px; touch-action: none; cursor: grab; }
   .you__grab::after {
