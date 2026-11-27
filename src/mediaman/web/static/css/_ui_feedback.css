@@ -84,9 +84,11 @@
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -.01em;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.ui-toast__action:hover { background: var(--s4); }
+/* White on the lit veil: the blue word would drop below 4.5:1 on it over a white page. */
+.ui-toast__action:hover,
+.ui-toast__action:active { background: var(--s4); color: var(--t1); }
 /* Touch and phones: a 44 px target without a taller toast (negative margin
    absorbs the extra height). */
 @media (pointer: coarse), (max-width: 600px) {

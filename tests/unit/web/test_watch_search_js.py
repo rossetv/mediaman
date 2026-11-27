@@ -947,6 +947,22 @@ def test_the_page_holds_still_behind_the_sheet_and_the_cross_shuts_it() -> None:
     assert _run("sheetHolds") == [shut, opened, [*shut, False], shut, opened]
 
 
+def test_words_changed_again_before_they_were_seen_are_never_faded_out() -> None:
+    out = _run("hintSwap")
+    label, first, second = (
+        "Search films and shows",
+        "Try “popular action movies”",
+        "Try “an actor’s name”",
+    )
+    assert out["first"] == {"hint": first, "old": [label], "coming": 1}
+    # The words fading out are still the ones that were on show, not the ones never seen.
+    assert out["again"] == {"hint": second, "old": [label], "coming": 1}
+    # Once the new words are in view, they are the ones that fade out next.
+    assert out["later"]["old"] == [second] and out["later"]["coming"] == 1
+    # Without motion the words change at once, with nothing fading.
+    assert out["reduced"] == {"hint": first, "old": 0, "moved": 0}
+
+
 def test_only_words_that_fit_stand_in_the_empty_field() -> None:
     out = _run("hintFits")
     assert out["narrow"] == ["Search", "Search films and shows"]
