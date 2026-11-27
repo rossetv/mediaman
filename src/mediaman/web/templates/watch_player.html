@@ -70,6 +70,8 @@
     </div>
     {% endif %}
     </div>
+    {# Audio & subtitles (watch/tracks.js) stand here on a phone held upright, where the row is full. #}
+    <div class="player-menu-wrap player-av-wrap" data-tracks-top hidden></div>
     <button type="button" class="player-back player-play-on" data-play-on
             aria-haspopup="dialog" aria-expanded="false" aria-label="Play on a TV" title="Play on a TV" hidden>
       <svg class="ico ico--tv" aria-hidden="true" focusable="false"><use href="#play-on-tv"/></svg>
@@ -139,8 +141,8 @@
         <div class="player-menu player-menu--up player-menu--wide" role="menu" aria-label="Chapters" data-chapter-menu hidden></div>
       </div>
 
-      {# Filled only while a TV plays it. #}
-      <div class="player-menu-wrap player-opt" data-tracks data-away-idle hidden></div>
+      {# Audio & subtitles, filled by watch/tracks.js once a start says what the title has. #}
+      <div class="player-menu-wrap player-opt player-av-wrap" data-tracks data-away-idle hidden></div>
 
       <div class="player-slot" data-slot="next">
       {% if next %}

@@ -3338,3 +3338,45 @@ def test_a_full_row_of_controls_gives_up_the_mute_then_shortens_its_pills_then_d
     ]
     # A control shown, hidden or relabelled is seen even where the row keeps its own size.
     assert out["watched"] == [True, True, True, True]
+
+
+def test_a_new_audio_track_is_kept_and_the_stream_starts_again_where_it_was(markup):
+    out = run(markup, "tracks_switch", plays="ok")
+    assert out["before"]["label"] == "English"
+    assert out["kept"] == ['PUT /api/watch/tracks/501 {"audio":"62"}']
+    assert (out["held"], out["restarts"], out["from"]) == (True, 1, 1268)
+    assert out["after"]["label"] == "Deutsch"
+    assert out["toasts"] == [["info", "Deutsch audio. Kept for The Long Coast.", "Undo"]]
+    # Nothing was kept for the title before: the way back is the person's defaults.
+    assert out["undo"] == "DELETE /api/watch/tracks/501"
+
+
+def test_a_track_that_cannot_be_kept_leaves_the_stream_alone(markup):
+    out = run(markup, "tracks_switch", plays="put_fails")
+    assert (out["restartsInAll"], out["after"]["label"]) == (0, "English")
+    assert out["toasts"] == [["error", "Couldn’t change the audio. Staying on English.", None]]
+
+
+@pytest.mark.parametrize("how", ["refused", "start_fails"])
+def test_a_track_plex_will_not_play_gives_way_to_the_old_one(markup, how):
+    out = run(markup, "tracks_switch", plays=how)
+    # The choice is taken back, so that the next start plays what played.
+    assert out["kept"][-1] == "DELETE /api/watch/tracks/501"
+    assert out["after"]["label"] == "English"
+    assert ["error", "Couldn’t change the audio. Staying on English.", None] in out["toasts"]
+
+
+def test_the_chooser_moves_as_radios_and_gives_the_focus_back(markup):
+    out = run(markup, "tracks_keys")
+    assert out["open"]["checked"] == ["61", "off"]
+    assert out["open"]["foot"].startswith("Kept for every episode of The Long Coast.")
+    assert (out["focus"], out["down"], out["end"]) == ("61", "62", "63")
+    assert out["arrowsSeek"] is False
+    assert out["tab"] == "off"
+    assert (out["closed"], out["back"]) == ("false", True)
+
+
+def test_a_title_with_one_track_says_so(markup):
+    out = run(markup, "tracks_one")
+    assert out["shown"] is True
+    assert out["note"] == ["This title has one audio track.", "This title has no subtitles."]
