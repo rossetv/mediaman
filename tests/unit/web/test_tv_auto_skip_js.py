@@ -1,0 +1,139 @@
+"""Skip intros and credits on the TV: tv.js under node against a fake TV browser, the phone
+remote (tv-remote.js) on its own template, both playing a title with an intro and credits, and
+Profile's switch for it (profile-playback.js)."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from functools import cache
+from pathlib import Path
+
+import jinja2
+
+JS = Path(__file__).parent / "js"
+TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
+
+
+def _run(harness: str, stdin: str = "") -> dict:
+    result = subprocess.run(
+        ["node", str(JS / harness)],
+        input=stdin,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@cache
+def _tv() -> dict:
+    return _run("tv_skip_harness.js")
+
+
+@cache
+def _remote() -> dict:
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=True)
+    return _run("tv_remote_skip_harness.js", env.get_template("_tv_remote.html").render())
+
+
+@cache
+def _profile() -> dict:
+    return _run("profile_skip_harness.js")
+
+
+# ── on the TV ──
+
+
+def test_the_tv_page_has_a_place_for_the_note_outside_the_pages_it_draws() -> None:
+    assert _tv()["page"] is True
+
+
+def test_the_tv_plays_up_to_an_intro_untouched() -> None:
+    assert _tv()["beforeIntro"] == {"sets": []}
+
+
+def test_an_intro_that_starts_is_jumped_past_with_a_note_that_then_goes() -> None:
+    out = _tv()["intro"]
+    assert 150 <= out["at"] <= 152
+    assert out["note"] == {"shown": True, "text": "Skipped intro"}
+    assert out["later"] is False
+
+
+def test_with_the_setting_off_or_no_markers_the_intro_plays() -> None:
+    assert _tv()["off"] == {"at": 65}
+    assert _tv()["noMarks"] == {"at": 65}
+
+
+def test_an_intro_skipped_once_plays_when_the_person_goes_back_into_it() -> None:
+    assert _tv()["back"] == {"at": 75}
+
+
+def test_the_last_credits_run_to_the_end_where_the_tv_s_own_next_episode_follows() -> None:
+    # The end, not a start of the next: the countdown, autoplay off and "still watching" hold.
+    assert _tv()["credits"] == {"to": 2879, "note": False, "asked": []}
+
+
+def test_credits_a_scene_follows_are_jumped_past_with_a_note() -> None:
+    out = _tv()["midCredits"]
+    assert 1260 <= out["at"] <= 1262
+    assert out["note"] == {"shown": True, "text": "Skipped credits"}
+
+
+def test_a_paused_tv_skips_nothing() -> None:
+    assert _tv()["paused"] == {"at": 70}
+
+
+# ── on the phone remote ──
+
+
+def test_with_the_setting_off_the_remote_skips_the_intro_on_screen() -> None:
+    out = _remote()["intro"]
+    assert out["shown"] == "Skip intro"
+    assert out["sent"] == [{"kind": "seek", "position_s": 150, "play_id": "p1"}]
+
+
+def test_the_remote_offers_no_skip_near_an_intro_s_end_or_outside_one() -> None:
+    assert _remote()["introEnds"] is None
+    assert _remote()["outside"] is None
+
+
+def test_the_remote_offers_no_skip_where_the_tv_skips_by_itself() -> None:
+    assert _remote()["autoSkips"] is None
+
+
+def test_the_last_credits_of_an_episode_lead_on_to_the_next_from_the_remote() -> None:
+    out = _remote()["lastCredits"]
+    assert out["shown"] == "Next episode"
+    assert out["sent"] == [{"kind": "next", "play_id": "p1"}]
+
+
+def test_a_film_s_credits_are_skipped_to_its_end_from_the_remote() -> None:
+    out = _remote()["filmCredits"]
+    assert out["shown"] == "Skip credits"
+    assert out["sent"] == [{"kind": "seek", "position_s": 2880, "play_id": "p1"}]
+
+
+# ── in Profile ──
+
+
+def test_the_switch_saves_each_way_and_says_so() -> None:
+    out = _profile()["off"]
+    assert out["off"]["state"] == {"checked": "false", "on": False}
+    assert out["off"]["puts"] == [["/api/account/playback", {"auto_skip": False}]]
+    assert len(out["off"]["toasts"]) == 1
+    assert out["on"] == {"checked": "true", "on": True}
+    assert out["puts"][-1] == ["/api/account/playback", {"auto_skip": True}]
+
+
+def test_the_switch_moves_at_once_and_back_where_it_was_not_saved() -> None:
+    out = _profile()["fails"]
+    assert out["moved"] == {"checked": "false", "on": False}
+    assert out["back"] == {"checked": "true", "on": True}
+    assert out["toasts"] == ["error: No luck"]
+
+
+def test_a_second_press_before_the_answer_sends_nothing_more() -> None:
+    assert _profile()["twice"] == 1

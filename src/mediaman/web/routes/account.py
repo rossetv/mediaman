@@ -17,7 +17,7 @@ from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.auth.password_hash._change_password import password_changed_at
 from mediaman.web.auth.reauth import reauth_seconds_left
-from mediaman.web.repository import avatars
+from mediaman.web.repository import avatars, track_choices
 from mediaman.web.repository import search_assist as assist_repo
 
 router = APIRouter()
@@ -82,6 +82,7 @@ def account_page(request: Request) -> Response:
             "auto_ask": assist_repo.asks_on_its_own(
                 conn, avatars.find_user_id(conn, username) or 0
             ),
+            "auto_skip": track_choices.skips_on_tv(conn, username),
             "role": getattr(request.state, "user_role", "admin"),
             "password_good_for": reauth_seconds_left(
                 conn, request.cookies.get("session_token"), username

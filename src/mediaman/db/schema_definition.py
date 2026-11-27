@@ -36,7 +36,9 @@ CREATE TABLE IF NOT EXISTS admin_users (
     audio_lang TEXT,
     -- The language of the subtitles this person reads when the audio is in another; NULL for
     -- only the forced signs in the audio's language, 'off' for none at all.
-    subtitle_lang TEXT
+    subtitle_lang TEXT,
+    -- 1 while a paired TV playing for this person jumps past intros and credits by itself.
+    tv_auto_skip INTEGER NOT NULL DEFAULT 1
 );
 
 -- A person's audio and subtitles for a show or movie (title_key), kept until they go back to

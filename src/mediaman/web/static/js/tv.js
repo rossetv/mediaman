@@ -23,10 +23,12 @@
   var IDLE_DIM_MS = 600000;
   var MOVE_MS = 60000;
   var LIT_MS = 500;
+  var SKIPPED_MS = 2500;
 
   var body = document.body;
   var stage = document.getElementById('s');
   var leaving = document.getElementById('o');
+  var notes = document.getElementById('k');
   var video = document.getElementById('v');
   var base = body.getAttribute('data-base') || (location.protocol + '//' + location.host);
 
@@ -534,6 +536,7 @@
       wanted = !next.paused;
       counted = next.played_s || 0;
       breaks = 0;
+      skipped = {};
     }
     endsAt = next.upnext_in_s === null || next.upnext_in_s === undefined ? 0 : now() + next.upnext_in_s * 1000;
     if (next.url && loaded !== next.play_id) load(lastPlace(next));
@@ -872,9 +875,41 @@
       else put('in', nextLine());
     }
     if (play) bar();
+    skipMarks();
     rest();
   }
   setInterval(tick, 500);
+
+  /* ── intros and credits ── */
+
+  var skipped = {};          // of the play, by where each starts: a marker is skipped once
+  var noteTimer = null;
+
+  /* Where its person wants it, the TV plays on past an intro or credits as they start: a TV's
+     remote may have no key to skip with. The last credits end the film, as they would. */
+  function skipMarks() {
+    if (!play || !play.auto_skip || !loaded || !ready || !there || !wanted || video.seeking || overAt !== null || broken || reloadDue) return;
+    var t = video.currentTime, list = play.markers || [];
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i];
+      if (t < m.start_s || t >= m.end_s - 1 || skipped[m.start_s]) continue;
+      skipped[m.start_s] = true;
+      seek(m.end_s);
+      tell();
+      if (m.kind === 'intro') note('Skipped intro');
+      else if (!m.final) note('Skipped credits');
+      return;
+    }
+  }
+
+  function note(text) {
+    var node = document.getElementById('sk');
+    if (!node) return;
+    node.innerHTML = glyph('fwd') + text;
+    node.className = 'sk on';
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(function () { node.className = 'sk'; }, SKIPPED_MS);
+  }
 
   function put(id, text) {
     var node = document.getElementById(id);
@@ -1343,6 +1378,10 @@
     stage.style.transform = move;
     leaving.style.webkitTransform = move;
     leaving.style.transform = move;
+    if (notes) {
+      notes.style.webkitTransform = move;
+      notes.style.transform = move;
+    }
   }
   window.onresize = fit;
   fit();

@@ -2,9 +2,10 @@
  *  play, and what the hub's rows say of them. Requires: core/api.js (MM.api), core/dom.js (MM.dom), ui-feedback.js
  *  (UIFeedback), watch/you.js (MM.you).
  *
- *   GET /api/account/playback  → {audio_lang, subtitle_lang, languages: [{code, name, native}],
+ *   GET /api/account/playback  → {audio_lang, subtitle_lang, auto_skip, languages: [{code, name, native}],
  *                                 library_languages: [code]}
- *   PUT /api/account/playback  {audio_lang} or {subtitle_lang}, null to clear; answers the same
+ *   PUT /api/account/playback  {audio_lang} or {subtitle_lang}, null to clear, or {auto_skip};
+ *                              answers the same
  *
  *  audio_lang null plays a title in the language it comes in. subtitle_lang null shows subtitles
  *  only where needed, "off" none, a code subtitles in it whenever the audio is in another.
@@ -282,6 +283,28 @@
     list.forEach(function (r) { r.tabIndex = r === next ? 0 : -1; });
     next.focus();
   });
+
+  /* Skip intros and credits on the TV: the switch moves at once, and back where it was not saved. */
+  var skip = q('#account-skip');
+  function drawSkip(on) {
+    skip.classList.toggle('on', on);
+    skip.setAttribute('aria-checked', String(on));
+  }
+  if (skip) {
+    skip.addEventListener('click', function () {
+      if (skip.getAttribute('aria-disabled') === 'true') return;
+      var was = skip.getAttribute('aria-checked') === 'true';
+      skip.setAttribute('aria-disabled', 'true');
+      drawSkip(!was);
+      MM.api.put(URL_, { auto_skip: !was }).then(function (data) {
+        drawSkip(data.auto_skip !== false);
+        toastSaved();
+      }, function (err) {
+        drawSkip(was);
+        UIFeedback.error(MM.api.messageOf ? MM.api.messageOf(err, FAILED) : FAILED);
+      }).then(function () { skip.removeAttribute('aria-disabled'); });
+    });
+  }
 
   document.addEventListener('mm:you-shown', function (e) { shownView = e.detail && e.detail.view || ''; });
   document.addEventListener('mm:you-hidden', function () { shownView = ''; });
