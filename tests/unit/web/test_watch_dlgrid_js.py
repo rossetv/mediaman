@@ -168,6 +168,12 @@ def test_each_card_says_in_one_line_under_it_what_the_old_page_said_of_its_downl
     assert cards["Finchley"]["say"] == "Finding another copy"
 
 
+def test_a_line_cut_short_cuts_the_sizes_and_keeps_what_follows_them(out) -> None:
+    cards = out["groups"]["cards"]
+    assert cards["Sundial"]["kept"] == "· Post-processing…"
+    assert cards["Ember Coast"]["kept"] is None
+
+
 def test_an_admin_is_told_what_is_wrong_on_its_line_and_whole_with_what_comes_of_it_in_its_menu(
     out,
 ) -> None:
@@ -680,6 +686,17 @@ def test_a_ready_card_s_play_is_its_own_control_that_plays_and_opens_no_sheet(ou
     assert run["spans"] == 0, "no drawn Play left inside the card's link"
     assert run["pressed"] == {"opened": [], "followed": True}
     assert run["askedOnce"] is True
+
+
+def test_a_ready_card_gets_its_play_once_the_library_catches_up(out) -> None:
+    run = out["readyPlayLate"]
+    assert run["first"] == 1
+    assert run["notYet"] == {"play": False, "asks": 0}, "asked again sooner than 10 s"
+    assert run["late"] == {"play": True, "asks": 1}
+
+
+def test_a_ready_card_with_its_play_asks_no_more(out) -> None:
+    assert out["readyPlayLate"]["after"] == 1
 
 
 def test_a_ready_card_with_nothing_safe_to_play_shows_no_play(out) -> None:

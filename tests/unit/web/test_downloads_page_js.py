@@ -265,6 +265,16 @@ def test_abandoning_a_title_already_gone_closes_the_dialog_and_refreshes_the_pag
     assert variant == "info"
 
 
+def test_abandoning_a_title_no_longer_stuck_closes_the_dialog_and_says_so() -> None:
+    out = _run("abandonNoLongerStuck")
+    assert (out["closes"], out["refreshes"], out["errors"]) == (1, 1, 0)
+    assert len(out["toasts"]) == 1
+    text, variant = out["toasts"][0]
+    assert "Tm1" in text and "no longer stuck searching" in text
+    assert "Reload" not in text
+    assert variant == "info"
+
+
 def test_a_failed_abandon_of_one_item_leaves_the_next_dialog_alone() -> None:
     out = _run("abandonStaleFailure")
     assert out["before"] == {"label": "Abandon search", "disabled": "false"}

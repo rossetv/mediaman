@@ -24,6 +24,7 @@
 
   var URL_ALL = '/api/downloads';
   var POLL_MS = 2000;
+  var PLAY_AGAIN_MS = 10000;
   /* An answer this late is told; one that outlasts what the server itself gives a service that
      hangs will never come, and another is asked for. */
   var LATE_MS = 20000;
@@ -202,7 +203,8 @@
       : (admin && item.attention_hint) || 'Won’t finish until an admin sorts it out';
   }
 
-  /* [what stands out, the rest]: what the row's card has no room for, in one line. */
+  /* [what stands out, the rest, what is kept when the line is cut]: what the row's card has no
+     room for, in one line. */
   function sayOf(item) {
     var state = item.state;
     if (state === 'needs_attention') return ['', (admin && item.attention) || fixWords(item)];
@@ -212,7 +214,7 @@
     var parts = [];
     if (item.episode_summary) parts.push(item.episode_summary);
     if (state === 'almost_ready') parts.push('Post-processing…');
-    if (item.size_done && item.size_total) return [item.size_done, ' of ' + item.size_total + (parts.length ? ' · ' + parts.join(' · ') : '')];
+    if (item.size_done && item.size_total) return [item.size_done, ' of ' + item.size_total, parts.length ? ' · ' + parts.join(' · ') : ''];
     return ['', parts.join(' · ') || item.state_label || 'Downloading'];
   }
 
@@ -221,8 +223,10 @@
     if (p.getAttribute('data-said') !== said) {
       p.setAttribute('data-said', said);
       p.textContent = '';
-      if (words[0]) p.appendChild(el('b', '', words[0]));
-      if (words[1]) p.appendChild(document.createTextNode(words[1]));
+      var lead = words[2] ? p.appendChild(el('span', 'dwx__lead')) : p;
+      if (words[0]) lead.appendChild(el('b', '', words[0]));
+      if (words[1]) lead.appendChild(document.createTextNode(words[1]));
+      if (words[2]) p.appendChild(el('span', 'dwx__keep', words[2]));
     }
     if (whole) p.setAttribute('title', words.join(''));
     else p.removeAttribute('title');
@@ -409,14 +413,18 @@
   }
 
   /* Play goes where the title's own Play does, as its preview has it; with nowhere to go there is
-     none, and the card opens the title. */
+     none, and the card opens the title. A card turns ready before the library has caught up, so
+     one with no Play yet asks again, though not more than every PLAY_AGAIN_MS. */
   function askPlay(node, item) {
-    if (node.playAsked || !item.ref) return;
-    node.playAsked = true;
+    if (!item.ref || node.playAsking || node.querySelector('.dwx__play')) return;
+    if (node.playAskedAt && Date.now() - node.playAskedAt < PLAY_AGAIN_MS) return;
+    node.playAsking = true;
+    node.playAskedAt = Date.now();
     var title = item.title || '';
     window.MM.api.get('/api/watch/preview/' + encodeURIComponent(item.ref)).then(function (d) {
+      node.playAsking = false;
       var href = d && d.in_library && d.play && core.safePath(d.play.href);
-      if (!href || !node.isConnected) return;
+      if (!href || !node.isConnected || node.querySelector('.dwx__play')) return;
       var word = String(d.play.label || 'Play').split(' ')[0];
       var go = el('a', 'dwx__play');
       go.setAttribute('data-act', 'play');
@@ -425,12 +433,13 @@
       go.setAttribute('title', word);
       go.appendChild(icon('i-play'));
       node.insertBefore(go, node.querySelector('.dw__link').nextSibling);
-    }, function () {});
+    }, function () { node.playAsking = false; });
   }
 
   /* One that is done, as the row has it: the downloads no longer list it. */
   function readyCardOf(item) {
     var node = bigCard('ready:' + item.key, item);
+    node.classList.add('dwx--ready');
     setSay(footOf(node).querySelector('.dwx__say'), ['', readyWords(item)], false);
     askPlay(node, item);
     return node;

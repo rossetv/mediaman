@@ -354,6 +354,16 @@ scenarios.abandonGone = async function () {
   return { closes: r.closes, refreshes: r.refreshes, errors: r.errors, toasts: r.toasts };
 };
 
+// it started downloading, or stopped searching, after the dialog opened: the server refuses
+scenarios.abandonNoLongerStuck = async function () {
+  const r = abandonRig();
+  r.openItem('m1', 'movie');
+  r.confirmClick();
+  r.posts[0].reject(Object.assign(new Error('refused'), { status: 409 }));
+  await r.settle();
+  return { closes: r.closes, refreshes: r.refreshes, errors: r.errors, toasts: r.toasts };
+};
+
 // what the dialog tells, for a film and a show, tracked or not yet in the library
 scenarios.abandonWords = async function () {
   const r = abandonRig();

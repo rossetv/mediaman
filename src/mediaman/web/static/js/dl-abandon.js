@@ -232,6 +232,7 @@
 
     var dlId = current.dlId;
     var title = current.title;
+    var upcoming = current.upcoming;
     var failure = current.upcoming ? 'Couldn’t stop tracking. Try again.' : 'Couldn’t abandon. Try again.';
     var message = current.upcoming ? 'Stopped tracking ' + title
       : 'Stopped searching for ' + (isPicker() ? seasons.length + ' season' + (seasons.length === 1 ? '' : 's') + ' of ' : '') + title;
@@ -255,6 +256,8 @@
       .catch(function (err) {
         delete inflight[dlId];
         if (err.status === 404) { finish('Already gone: ' + title, 'info'); return; }
+        // Refused as it has started downloading, or stopped searching: the refresh shows which.
+        if (err.status === 409 && !upcoming) { finish(title + ' is no longer stuck searching.', 'info'); return; }
         if (showsThis()) showConfirmState();
         window.UIFeedback.error(MM.api.messageOf(err, failure));
       });

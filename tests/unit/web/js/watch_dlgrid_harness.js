@@ -389,7 +389,7 @@ const scenarios = {
     grid.children.forEach((n) => (n.classList.contains('grid-group') ? order.push([p.text(n)]) : order[order.length - 1].push(p.text(n.querySelector('.dw__title')))));
     const card = (t) => {
       const c = p.card(t);
-      return { line: p.text(c.querySelector('.dw__line')), say: p.text(c.querySelector('.dwx__say')),
+      return { line: p.text(c.querySelector('.dw__line')), say: p.text(c.querySelector('.dwx__say')), kept: p.text(c.querySelector('.dwx__keep')),
         controls: c.querySelectorAll('button').map((n) => [n.getAttribute('data-act'), n.getAttribute('aria-label')]) };
     };
     const out = {};
@@ -1045,6 +1045,25 @@ const scenarios = {
     await p.step(2000);
     out.askedOnce = p.asks.preview === asked;
     return out;
+  },
+  // A card turns ready before the library has the title: its Play comes once the library does,
+  // asked again at most every 10 s, and no more once it has one or the card has gone.
+  async readyPlayLate() {
+    const preview = {};
+    const harbour = row('Harbour', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-12' });
+    const p = load({ strip: [strip([harbour])], all: [all([])], preview });
+    await p.step(1100);
+    p.click(p.q('#elsewhere'));
+    await p.step(400);
+    const play = () => !!p.card('Harbour') && !!p.card('Harbour').querySelector('[data-act="play"]');
+    const first = p.asks.preview;
+    await p.step(6000);
+    const notYet = { play: play(), asks: p.asks.preview - first };
+    preview['movie-12'] = { in_library: true, play: { href: '/watch/play/12', label: 'Play' } };
+    await p.step(12000);
+    const late = { play: play(), asks: p.asks.preview - first };
+    await p.step(30000);
+    return { first, notYet, late, after: p.asks.preview - first };
   },
   // A menu left open over a card a poll has changed can never abandon what has started downloading.
   async staleMenu() {

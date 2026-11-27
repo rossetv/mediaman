@@ -166,12 +166,15 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   font-size: 14px;
   -webkit-tap-highlight-color: transparent;
   transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+  animation: dwx-play-in var(--dur) var(--ease-out);
 }
+@keyframes dwx-play-in { from { opacity: 0; } }
 .dwx__play::after { content: ""; position: absolute; inset: -2px; }
 .dwx__play:active { transform: scale(.9); }
 .dwx__play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) { .dwx__play:hover { background: color-mix(in srgb, var(--t1) 85%, transparent); } }
-.dwx:has(> .dwx__play) .dw__text { padding-right: 52px; }
+/* Held from the first draw: Play comes once the library has the title, and moves nothing. */
+.dwx--ready .dw__text { padding-right: 52px; }
 /* The grid has room to say a long name whole, in two lines. */
 .dwx .dw__title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 /* What comes of one that needs attention is said on the line under it. */
@@ -181,6 +184,10 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dwx__foot { display: flex; align-items: center; gap: 6px; height: 48px; padding: 0 8px 0 16px; font-size: 13px; color: var(--t2); }
 .dwx__say { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dwx__say b { font-weight: 600; color: var(--t1); }
+/* Where the sizes and the episodes are both said, the sizes are cut first. */
+.dwx__say:has(> .dwx__keep) { display: flex; }
+.dwx__lead { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dwx__keep { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 
 /* A control on a card: 32px, as .btn--sm, reached from 44px. */
 .dwx__tool {
@@ -288,6 +295,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   .dwx__ep { transform: none !important; transition: opacity var(--dur-fast) linear !important; }
   .dwx.is-open .dwx__ep { transition-delay: 0s !important; }
   .dwx-menu { transform: none !important; transition: opacity var(--dur-fast) linear !important; }
+  .dwx__play { animation-duration: var(--dur-fast) !important; animation-timing-function: linear !important; }
 }
 
 /* ── What holds the grid's place until the first answer, laid out as the answer lays out its
