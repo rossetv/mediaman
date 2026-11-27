@@ -66,6 +66,7 @@
     section.setAttribute('aria-labelledby', 'watch-dl-title');
     section.hidden = true;
     var head = section.appendChild(el('div', 'dlg__head'));
+    head.appendChild(el('div', 'dlg__glass'));
     var back = head.appendChild(el('a', 'dlg__back'));
     back.setAttribute('href', '/');
     back.setAttribute('aria-label', 'Back to all rows');
@@ -570,6 +571,13 @@
   function unpin() {
     dom.section.classList.remove('is-moving');
     dom.section.style.top = '';
+    dom.head.style.top = '';
+  }
+
+  /* The head takes its glass once the grid passes under the bar. */
+  function stuck() {
+    if (!dom) return;
+    dom.head.classList.toggle('is-stuck', isOpen && !moving && dom.section.getBoundingClientRect().top < core.clearArea().top - 2);
   }
 
   function rowsAway(on) {
@@ -683,7 +691,9 @@
     var FAST = core.tokenMs('--dur-fast', 150);
     var E = ease();
     var at = gridCards();
+    var headAt = dom.head.getBoundingClientRect().top;
     pin(dom.section.getBoundingClientRect().top);
+    dom.head.style.top = headAt - dom.head.getBoundingClientRect().top + 'px';
     rowsAway(false);
     window.scrollTo({ top: savedY, left: 0, behavior: 'instant' });
     var to = rowCards();
@@ -797,6 +807,7 @@
     if (!isOpen) return;
     finishMoving();
     isOpen = false;
+    stuck();
     stopAsking();
     var back = opener && opener.isConnected ? opener : null;
     opener = null;
@@ -881,6 +892,8 @@
     var eps = e.target.closest('[data-dl-eps]');
     if (eps) toggleEpisodes(eps, eps.getAttribute('aria-expanded') !== 'true');
   });
+
+  window.addEventListener('scroll', stuck, { passive: true });
 
   // On window, so that a dialog or a menu has had its Escape first.
   window.addEventListener('keydown', function (e) {

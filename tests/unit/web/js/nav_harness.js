@@ -16,7 +16,8 @@ function page(isPhone, downloading, reduced, pane) {
   doc.body.appendChild(build(doc, ['header', { id: 'top', class: 'nav-glass' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
     ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
-  doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x']]));
+  doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x'],
+    ['div', { class: 'dlg__head' }, ['a', { id: 'dl-back', href: '/' }, 'Back']]]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
   if (pane) doc.body.appendChild(build(doc, ['div', { id: 'you', hidden: '' }]));
   const $ = (id) => doc.getElementById(id);
@@ -64,6 +65,8 @@ const scenarios = {
     p.fire('focusout', p.$('skip'), { relatedTarget: p.$('elsewhere') }); out.push(marked());
     p.fire('focusin', p.$('elsewhere')); out.push(marked());
     p.fire('focusin', p.$('button')); p.fire('focusout', p.$('button'), { relatedTarget: null }); out.push(marked());
+    // Downloading's head stays in sight as the page scrolls, as the bar does.
+    p.fire('focusin', p.$('dl-back')); out.push(marked());
     return out;
   },
   // The skip link pressed again on the address it already led to: the browser moves the

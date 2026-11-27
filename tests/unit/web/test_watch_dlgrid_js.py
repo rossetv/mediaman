@@ -39,6 +39,15 @@ def test_see_all_in_the_row_pushes_the_address_and_grows_the_row_in_place(out) -
     }
 
 
+def test_its_head_takes_its_glass_under_the_bar_and_stays_put_as_the_grid_folds(out) -> None:
+    got = out["stuckHead"]
+    assert got["glass"] is True
+    assert (got["still"], got["under"], got["back"]) == (False, True, False)
+    # Fixed to fold, the grid takes its head along unless it is held where it stood.
+    assert got["folding"] == {"stuck": False, "at": 72}
+    assert got["folded"] == {"stuck": False, "top": ""}
+
+
 def test_the_count_beside_the_row_s_name_opens_it_too(out) -> None:
     assert out["countOpensToo"]["at"] == "/?dl=1"
 

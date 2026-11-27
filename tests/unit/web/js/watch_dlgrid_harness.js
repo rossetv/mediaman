@@ -197,6 +197,7 @@ function load(opts) {
   p.hide = (on) => { doc.hidden = on; p.tell('visibilitychange'); };
   p.q = (s) => doc.querySelector(s);
   p.qa = (s) => doc.querySelectorAll(s);
+  p.scroll = (y) => { win.scrollY = y; fire('scroll'); };
   p.section = () => doc.getElementById('watch-dl');
   p.open = () => !!p.section() && !p.section().hidden;
   p.rowsAway = () => doc.getElementById('watch-browse').classList.contains('has-dl');
@@ -234,6 +235,37 @@ const scenarios = {
     await p.step(400);
     return { drawn, pushed, growing, opened, grow: Math.max(...grow), folded: { at: p.at(), open: p.open(), rowsAway: p.rowsAway(), on: p.on() },
       fold: Math.max(...p.durations(folding)) };
+  },
+  // Its head holds under the bar, with its glass once the grid passes under it, and stays where
+  // it stood as the grid folds back.
+  async stuckHead() {
+    const p = load({ strip: [strip(USUAL())], all: [USUAL_ALL()] });
+    await p.step(1100);
+    p.click(p.q('#watch-downloading .row-open'));
+    await p.step(400);
+    const section = p.section();
+    const head = section.querySelector('.dlg__head');
+    let top = 72;
+    section.getBoundingClientRect = () => ({ top, bottom: top + 2000, left: 0, right: 1280, width: 1280, height: 2000 });
+    // Held under the bar while the page scrolls; in place with the grid once it is fixed to move.
+    head.getBoundingClientRect = () => {
+      const at = section.classList.contains('is-moving') ? top + (parseFloat(head.style.top) || 0) : Math.max(top, 72);
+      return { top: at, bottom: at + 64, left: 0, right: 1280, width: 1280, height: 64 };
+    };
+    const stuck = () => head.classList.contains('is-stuck');
+    const glass = !!head.querySelector('.dlg__glass');
+    const out = { glass, still: stuck() };
+    top = -300; p.scroll(372);
+    out.under = stuck();
+    top = 72; p.scroll(0);
+    out.back = stuck();
+    top = -300; p.scroll(372);
+    p.key('Escape');
+    await p.step(10);
+    out.folding = { stuck: stuck(), at: head.getBoundingClientRect().top };
+    await p.step(400);
+    out.folded = { stuck: stuck(), top: head.style.top || '' };
+    return out;
   },
   async countOpensToo() {
     const p = load({ strip: [strip(USUAL())], all: [USUAL_ALL()] });

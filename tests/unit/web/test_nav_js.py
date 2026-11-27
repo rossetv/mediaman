@@ -275,8 +275,8 @@ def test_a_drag_that_loses_its_pointer_springs_back() -> None:
 
 
 def test_the_page_is_marked_while_the_focus_is_in_the_bar_and_only_then() -> None:
-    # in, moved within, left for the page, settled there, left for nothing
-    assert _run("barFocus") == [True, True, False, False, False]
+    # in, moved within, left for the page, settled there, left for nothing, in Downloading's head
+    assert _run("barFocus") == [True, True, False, False, False, True]
 
 
 def test_the_ring_is_a_link_of_its_own_beside_the_face_while_something_downloads() -> None:

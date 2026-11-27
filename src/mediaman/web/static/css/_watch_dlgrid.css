@@ -11,7 +11,8 @@
 .dlg.is-moving { position: fixed; left: 0; right: 0; pointer-events: none; }
 html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dlg__head {
-  position: relative;
+  position: sticky;
+  top: var(--nav-h);
   z-index: 20;
   display: flex;
   align-items: center;
@@ -19,6 +20,21 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   height: 64px;
   padding: 0 var(--pad);
 }
+/* Fixed while it moves, the layer holds its head where it stood (watch/dlgrid.js). */
+.dlg.is-moving .dlg__head { position: relative; top: 0; }
+.dlg__glass {
+  position: absolute;
+  /* Up behind the bar, so cards pass only under its islands and never show above the head. */
+  inset: calc(-1 * var(--nav-h)) 0 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--scrim) 82%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--hair);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease-out);
+}
+.dlg__head.is-stuck > .dlg__glass { opacity: 1; }
 .dlg__back {
   flex: none;
   display: grid;
@@ -64,6 +80,11 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   .dlg__names { flex-direction: column; align-items: flex-start; gap: 1px; }
   .dlg__title { max-width: calc(100% + 4px); font-size: 16px; }
   .dlg__count { padding: 0; font-size: 12px; line-height: 1.2; }
+}
+/* Little height: the head goes with the page, as the bar does. */
+@media (max-height: 500px) {
+  .dlg { min-height: 100vh; min-height: 100dvh; }
+  .dlg__head { position: relative; top: 0; }
 }
 
 /* One column on a phone; columns of at least 336px wider than that. */
