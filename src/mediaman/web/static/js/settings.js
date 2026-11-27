@@ -29,7 +29,7 @@
       MM.you.guard('settings', {
         // A step to another section keeps the edits; only leaving Settings would lose them.
         dirty: function (from, to) {
-          return MM.api.hasUnsavedChanges() && String(to || '').split('/')[0] !== 'settings';
+          return MM.settings.savebar.isDirty() && String(to || '').split('/')[0] !== 'settings';
         },
         discard: function () { MM.settings.savebar.discardNow(); },
         title: 'Discard unsaved changes?',

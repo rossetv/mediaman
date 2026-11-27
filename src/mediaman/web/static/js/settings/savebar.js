@@ -26,6 +26,7 @@
  *   MM.settings.savebar.markDirty()
  *   MM.settings.savebar.markClean()
  *   MM.settings.savebar.isEdited(el)   — el differs, or may differ, from what was last saved
+ *   MM.settings.savebar.isDirty()      — the bar is up: Settings holds edits not saved
  *   MM.settings.savebar.discardNow()   — puts back what was last saved, without asking
  *
  * `getPayload` is the function general.js exposes as collectSettings();
@@ -501,6 +502,8 @@
     observer.observe(savebar, { box: 'border-box' });
   }
 
+  function isDirty() { return !!savebar && savebar.classList.contains('on'); }
+
   function init(opts) {
     var getPayload = (opts && opts.getPayload) || function () { return {}; };
     var refreshOverviewHero = (opts && opts.refreshOverviewHero) || function () {};
@@ -510,10 +513,16 @@
     document.addEventListener('mm:you-hidden', tellPage);
     // A refusal wraps the bar to more lines.
     if (savebar && window.ResizeObserver) new window.ResizeObserver(tellPage).observe(savebar);
-    // An expired session must not redirect away from edits that are not saved.
-    MM.api.hasUnsavedChanges = function () {
-      return !!savebar && savebar.classList.contains('on');
+    // An expired session must not redirect away from edits that are not saved, here or
+    // elsewhere on the page; a second start takes the place of the first, not wraps it.
+    var before = MM.api.hasUnsavedChanges || function () { return false; };
+    if (before.settingsBefore) before = before.settingsBefore;
+    var unsaved = function () {
+      var other = before();
+      return isDirty() || other;
     };
+    unsaved.settingsBefore = before;
+    MM.api.hasUnsavedChanges = unsaved;
     var saveBtn   = document.getElementById('btn-save');
     var discardBtn = document.getElementById('btn-discard');
     var statusEl  = document.getElementById('save-status');
@@ -828,6 +837,7 @@
     markDirty: markDirty,
     markClean: markClean,
     isEdited: isEdited,
+    isDirty: isDirty,
     discardNow: function () { discardNow(); },
   };
 })();

@@ -58,6 +58,16 @@ def test_the_pages_room_for_the_bar_follows_the_bars_height() -> None:
     assert _run("saveBarHeight") == [{"--save-bar": "61px"}, {"--save-bar": "258px"}]
 
 
+def test_unsaved_edits_anywhere_on_the_page_still_hold_a_redirect_once_settings_loads() -> None:
+    assert _run("unsavedTogether") == {
+        "elsewhereOnly": True,
+        "neither": False,
+        "askedOnce": True,
+        "settingsOnly": True,
+        "ownOnly": True,
+    }
+
+
 def test_an_edit_made_during_a_save_stays_unsaved() -> None:
     out = _run("editDuringSave")
     unsaved = {"on": True, "button": "Save Settings", "disabled": False}

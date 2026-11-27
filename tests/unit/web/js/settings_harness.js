@@ -395,6 +395,35 @@ const scenarios = {
     return told;
   },
 
+  // Edits held elsewhere on the Watch page still count once Settings has loaded, in either order.
+  async unsavedTogether() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const input = h.add('input', { id: 'plex_url', value: 'http://a', type: 'text' }, page);
+    h.add('div', { id: 'setg-savebar' });
+    let elsewhere = false;
+    let asked = 0;
+    h.ctx.MM.api = { hasUnsavedChanges: () => { asked += 1; return elsewhere; } };
+    const start = () => { h.load('settings/savebar.js'); h.ctx.MM.settings.savebar.init({}); };
+    const check = () => h.ctx.MM.api.hasUnsavedChanges();
+    start();
+    elsewhere = true;
+    const elsewhereOnly = check();
+    elsewhere = false;
+    const neither = check();
+    // Settings loaded a second time asks what was there before once, not twice.
+    start();
+    asked = 0;
+    check();
+    const askedOnce = asked === 1;
+    // A part of the page that loads after Settings and wraps the check keeps Settings' edits.
+    const settingsCheck = h.ctx.MM.api.hasUnsavedChanges;
+    h.ctx.MM.api.hasUnsavedChanges = () => settingsCheck();
+    input.value = 'http://b';
+    input.fire('input');
+    return { elsewhereOnly, neither, askedOnce, settingsOnly: check(), ownOnly: h.ctx.MM.settings.savebar.isDirty() };
+  },
+
   // A refused save shows the field it refused, out from under the bar, and leaves the focus where it was.
   async refusedInView() {
     const h = build();
