@@ -199,6 +199,10 @@ def test_single_shadow_token():
     assert "--shadow-card:" in css
     rules = re.findall(r"([^{}]+)\{([^{}]*)\}", re.sub(r"/\*.*?\*/", "", css, flags=re.S))
     tokens = dict(re.findall(r"(--[\w-]+):\s*([^;]+);", css))
+    # Every value a token takes, in every condition it is set in.
+    every: dict[str, list[str]] = {}
+    for name, value in re.findall(r"(--[\w-]+):\s*([^;]+);", css):
+        every.setdefault(name, []).append(value)
     for selector, value in (
         (sel, v) for sel, body in rules for v in re.findall(r"box-shadow:\s*([^;]+);", body)
     ):
@@ -220,7 +224,17 @@ def test_single_shadow_token():
                         f"{token.group(1)} layer is not a small glow: {layer!r}"
                     )
             continue
-        for layer in _shadow_layers(v):
+        layers = _shadow_layers(v)
+        if "var(--g-inset)" in layers:
+            # Glass's lit top edge: a line of light along the edge, with no blur, lifts nothing.
+            for each in every["--g-inset"]:
+                assert re.fullmatch(
+                    r"inset 0 1px 0 \S.*|0 0 0 transparent", " ".join(each.split())
+                ), f"--g-inset is more than a line of light: {each!r}"
+            v = ", ".join(layer for layer in layers if layer != "var(--g-inset)")
+            if not v:
+                continue
+        for layer in _resolved_layers(v, every):
             if layer == "var(--shadow-card)":
                 continue
             # Status-dot / focus-ring style glows and hairline rings: zero offset. These are
@@ -237,6 +251,20 @@ def test_single_shadow_token():
             assert is_glow or is_hero_poster or is_autofill_paint, (
                 f"unexpected box-shadow layer: {layer!r} in {v!r}"
             )
+
+
+def _resolved_layers(value: str, every: dict[str, list[str]]) -> list[str]:
+    """A box-shadow's layers, with a layer that is a token (other than the card's own shadow)
+    replaced by the layers of every value the token takes."""
+    out = []
+    for layer in _shadow_layers(value):
+        token = re.fullmatch(r"var\((--[\w-]+)\)", layer)
+        if token and token.group(1) != "--shadow-card" and token.group(1) in every:
+            for each in every[token.group(1)]:
+                out += _resolved_layers(each, every)
+        else:
+            out.append(layer)
+    return out
 
 
 def _shadow_layers(value: str) -> list[str]:

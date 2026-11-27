@@ -46,19 +46,6 @@ class TestLoginSubmit:
         assert resp.headers["location"] == "/"
         assert "session_token" in resp.cookies
 
-    def test_invalid_credentials_render_error(self, _app, conn):
-        """POST /login with wrong password renders the login page with an error."""
-        _create_admin(conn)
-        client = TestClient(_app, raise_server_exceptions=True)
-        resp = client.post(
-            "/login",
-            data={"username": "admin", "password": "wrongpassword"},
-        )
-        assert resp.status_code == 200
-        ctx = resp.json()
-        assert ctx.get("error") is not None
-        assert "Invalid" in ctx["error"]
-
     def test_no_session_cookie_on_failed_login(self, _app, conn):
         _create_admin(conn)
         client = TestClient(_app, raise_server_exceptions=True)

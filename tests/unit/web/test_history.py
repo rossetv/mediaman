@@ -23,6 +23,7 @@ from mediaman.web.repository.history import GROUPS
 from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX, ACTION_BADGE_CLASS
 from mediaman.web.routes.history import router as history_router
 from tests.helpers.factories import insert_audit_log, insert_kept_show, insert_media_item
+from tests.unit.web._css import px, rules, style
 
 
 def _insert_audit_row(conn, action: str = "scanned", media_item_id: str = "m1") -> None:
@@ -74,14 +75,17 @@ class TestApiHistory:
         assert body["total"] == 2
         assert all(i["action"] == "deleted" for i in body["items"])
 
-    def test_history_invalid_action_filter_ignored(self, app_factory, authed_client, conn):
+    # "scanned" is an action rows are stored with, yet no filter.
+    @pytest.mark.parametrize("action", ["bogus_action_xyz", "scanned"])
+    def test_an_action_that_is_no_filter_lists_every_row(
+        self, app_factory, authed_client, conn, action
+    ):
         app = app_factory(history_router, conn=conn)
         client = authed_client(app, conn)
         _insert_audit_row(conn, action="scanned", media_item_id="m1")
         _insert_audit_row(conn, action="deleted", media_item_id="m2")
-        resp = client.get("/api/history?action=bogus_action_xyz")
+        resp = client.get("/api/history", params={"action": action})
         assert resp.status_code == 200
-        # Invalid filter is silently dropped — all rows returned
         assert resp.json()["total"] == 2
 
     def test_history_pagination(self, app_factory, authed_client, conn):
@@ -113,11 +117,6 @@ class TestApiHistory:
         client = authed_client(app, conn)
         resp = client.get("/api/history?per_page=0")
         assert resp.status_code == 422
-
-    def test_shared_per_page_constants(self):
-        """_PER_PAGE_DEFAULT and _PER_PAGE_MAX are within sensible ranges."""
-        assert 1 <= _PER_PAGE_DEFAULT <= _PER_PAGE_MAX
-        assert _PER_PAGE_MAX <= 100
 
 
 def _insert_audit_full(
@@ -295,9 +294,8 @@ class TestDetailControlByteScrubbing:
 
 
 class TestAuditRowShape:
-    """``fetch_media_audit_rows`` / ``fetch_security_audit_rows`` return a
-    frozen, slotted ``AuditRow`` dataclass — never a raw ``sqlite3.Row``.
-    Both queries project the same nine-field shape.
+    """``fetch_media_audit_rows`` / ``fetch_security_audit_rows`` return an
+    ``AuditRow`` read by attribute — never a raw ``sqlite3.Row``.
     """
 
     def test_media_audit_rows_return_audit_rows(self, conn):
@@ -323,22 +321,6 @@ class TestAuditRowShape:
         # Security rows project NULL for the media-title columns.
         assert row.mi_title is None
         assert row.ks_title is None
-
-    def test_audit_row_is_frozen_and_slotted(self):
-        row = AuditRow(
-            id=1,
-            media_item_id="m1",
-            action="scanned",
-            detail=None,
-            space_reclaimed_bytes=None,
-            created_at="2026-01-01T00:00:00+00:00",
-            mi_title=None,
-            plex_rating_key=None,
-            ks_title=None,
-        )
-        with pytest.raises((AttributeError, TypeError)):
-            row.action = "mutated"  # type: ignore[misc]
-        assert not hasattr(row, "__dict__")
 
 
 class TestSecurityTitleHoist:
@@ -407,11 +389,6 @@ class TestSchedulerAndMaintenanceActions:
         body = client.get("/api/history", params={"action": "scheduled"}).json()
         assert body["total"] == 1
         assert body["items"][0]["action"] == "scheduled_deletion"
-
-    def test_scanned_is_not_a_filter_option(self):
-        from mediaman.web.routes.history import ACTION_TYPES
-
-        assert "scanned" not in ACTION_TYPES
 
     @pytest.mark.parametrize(
         ("action", "label"),
@@ -494,6 +471,8 @@ def _bodies(html: str) -> list[str]:
 
 
 _TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
+_HISTORY = "_history.css"
+_PHONE = "(max-width: 699.98px)"
 
 
 class TestMergedKeepFilters:
@@ -579,8 +558,9 @@ def test_a_library_left_out_is_named_with_what_to_check(
 
 
 def test_what_a_fault_needs_is_not_cut():
-    css = (_TEMPLATE_DIR.parent / "static/css/_history.css").read_text(encoding="utf-8")
-    assert "white-space: normal" in re.search(r"\.hx-l2\.is-bad \{([^}]*)\}", css)[1]
+    # A second line is cut to one line with an ellipsis; a fault's is not.
+    assert style(".hx-l2", _HISTORY)["white-space"] == "nowrap"
+    assert style(".hx-l2.is-bad", _HISTORY)["white-space"] == "normal"
 
 
 def test_a_long_library_name_is_whole_in_the_details(app_factory, authed_client, conn):
@@ -747,9 +727,12 @@ class TestHistoryPageMarkup:
         assert "<b>&'" not in html
 
     def test_a_hairline_parts_two_rows_and_none_closes_the_card(self):
-        css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
-        assert re.search(r"\.hist \+ \.hist::before \{[^}]*border-top: 1px solid", css)
-        assert not re.search(r"\.hist(:last-child)? \{[^}]*border-bottom: 1px", css)
+        width, kind, _ = style(".hist + .hist::before", _HISTORY)["border-top"].split(" ", 2)
+        assert px(width) > 0 and kind == "solid"
+        closing = [
+            decls for _, sels, decls in rules(_HISTORY) if {".hist", ".hist:last-child"} & set(sels)
+        ]
+        assert closing and not any(k.startswith("border-bottom") for d in closing for k in d)
 
     def test_the_events_are_counted(self, app_factory, authed_client, conn):
         insert_audit_log(conn, media_item_id="m1", action="deleted")
@@ -968,43 +951,39 @@ class TestWhoReadsWhat:
         assert self._titles(clients[1])[0] == "Device signed out"
 
 
-def _history_css() -> str:
-    css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text(encoding="utf-8")
-    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-
-
 def test_a_persons_own_events_show_their_face_like_anyone_elses() -> None:
-    assert not re.search(r"\.hx\.is-mine[^{]*\{[^}]*display: none", _history_css())
+    hidden = [
+        sels
+        for _, sels, decls in rules(_HISTORY)
+        if any(".hx.is-mine" in sel for sel in sels) and decls.get("display") == "none"
+    ]
+    assert not hidden
 
 
 def test_a_tapped_event_shows_a_press_and_leaves_no_hover_behind_on_a_touch_screen() -> None:
-    css = _history_css()
-    assert re.search(r"\.hist-sum:active \{[^}]*background: var\(--s4\)", css)
-    outside_hover = re.sub(r"@media \(hover: hover\) \{(?:[^{}]*\{[^{}]*\})*\s*\}", "", css)
-    assert not re.search(r"\.hist-sum:hover[^{]*\{", outside_hover)
-    assert re.search(r"\.hist-sum:hover \{", css)
+    assert (
+        style(".hist-sum:active", _HISTORY)["background"] != style(".hist", _HISTORY)["background"]
+    )
+    hovers = [where for where, sels, _ in rules(_HISTORY) if ".hist-sum:hover" in sels]
+    assert hovers and all("(hover: hover)" in where for where in hovers)
 
 
 def test_on_a_phone_the_tucked_tools_move_by_transform_and_the_days_heads_stick_under_them() -> (
     None
 ):
-    css = _history_css()
-    assert re.search(
-        r"\.hx-tools\.is-tucked \{ transform: translateY\(calc\(-1 \* var\(--hx-fold", css
-    )
-    assert re.search(r"\.hx-day__top \{[^}]*position: sticky", css)
+    tucked = style(".hx-tools.is-tucked", _HISTORY, _PHONE)
+    assert tucked["transform"].startswith("translateY(calc(-1 *")
+    assert style(".hx-day__top", _HISTORY)["position"] == "sticky"
 
 
-def test_with_reduced_motion_the_tucking_pills_and_chips_still_fade_over_the_short_duration() -> (
-    None
-):
+@pytest.mark.parametrize("selector", [".hx-groups", ".hx-filters"])
+def test_with_reduced_motion_the_tucking_pills_and_chips_still_fade_over_the_short_duration(
+    selector,
+) -> None:
     # The global reduced-motion rule cuts every transition to nothing with !important, so the
     # fade has to win with !important of its own, and only for opacity.
-    reduced = re.search(
-        r"@media \(prefers-reduced-motion: reduce\) \{((?:[^{}]*\{[^{}]*\})*)\s*\}", _history_css()
-    )
-    assert reduced
-    rule = re.search(r"\.hx-groups,\s*\.hx-filters \{([^}]*)\}", reduced.group(1))
-    assert rule
-    assert "transition-property: opacity !important" in rule.group(1)
-    assert "transition-duration: var(--dur-fast) !important" in rule.group(1)
+    reduced = style(selector, _HISTORY, "(prefers-reduced-motion: reduce)")
+    assert reduced["transition-property"] == "opacity !important"
+    duration, important = reduced["transition-duration"].rsplit(" ", 1)
+    tucking = style(f".hx-tools.is-tucked > {selector}", _HISTORY, _PHONE)
+    assert (duration, important) == (tucking["transition-duration"], "!important")

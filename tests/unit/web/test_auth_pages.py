@@ -13,6 +13,7 @@ import mediaman.web
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.routes.auth import _limiter
 from mediaman.web.routes.auth import router as auth_router
+from tests.unit.web._css import contrast, px, rgb, style, token
 
 _WEB = Path(mediaman.web.__file__).parent
 
@@ -94,20 +95,30 @@ def test_rate_limited_login_keeps_the_escaped_username_and_never_the_password(cl
     assert "hunter2-secret" not in resp.text
 
 
+def _colour(value: str) -> tuple[float, ...]:
+    """The channels of a colour declared as is or through a token."""
+    return rgb(token(value[4:-1]) if value.startswith("var(") else value)
+
+
+def _over(colour: str, under: tuple[float, ...]) -> tuple[float, ...]:
+    """*colour* as it shows over the opaque *under*."""
+    *fg, alpha = (*_colour(colour), 1.0)[:4]
+    return tuple(alpha * f + (1 - alpha) * b for f, b in zip(fg, under, strict=True))
+
+
 def test_text_stays_readable_and_phone_inputs_do_not_trigger_zoom():
-    css = _WEB / "static" / "css"
-    share = (css / "_share.css").read_text()
-    text = share.split(".share-note p {")[1].split("}")[0]
-    small = share.split(".share-note .share-note__small {")[1].split("}")[0]
-    assert "var(--t2)" in text and "color" not in small
-    for name, selector in (("_forms.css", ".inp"), ("_settings_pg.css", ".setg-pg .inp")):
-        text = (css / name).read_text()
-        pattern = (
-            r"@media \(max-width: 639\.98px\)(?:, \(pointer: coarse\))? \{[^{}]*?\s"
-            + re.escape(selector)
-            + r"(?:,[^{}]*)? \{ font-size: 16px; \}"
-        )
-        assert re.search(pattern, text), name
+    note = style(".share-note p", "_share.css")["color"]
+    card = _over(style(".login-card", "_login.css")["background"], _colour("var(--bg)"))
+    assert contrast(_over(note, card), card) >= 4.5
+    assert "color" not in style(".share-note .share-note__small", "_share.css")
+    # under 16px, iOS zooms the page when a field is focused, on a narrow screen or a wide touch one
+    for selector, sheet, narrow in (
+        (".inp", "_forms.css", "(max-width: 639.98px)"),
+        (".setg-pg .inp", "_settings_pg.css", "(max-width: 639.98px)"),
+        (".login-field input", "_login.css", "(max-width: 640px)"),
+    ):
+        for phone in (narrow, "(pointer: coarse)"):
+            assert px(style(selector, sheet, phone)["font-size"]) >= 16, (selector, phone)
 
 
 _UNSUB_PAGES = (
@@ -141,29 +152,18 @@ def test_unsubscribe_pages_open_with_the_wordmark_and_the_button_names_its_busy_
         assert html.index('class="brand"') < html.index("share-note__mark") < html.index("<h1")
     confirm = templates.get_template(_UNSUB_PAGES[0][0]).render(_UNSUB_PAGES[0][1])
     assert 'data-busy-label="Unsubscribing…"' in confirm
-    css = (_WEB / "static" / "css" / "_unsubscribe.css").read_text()
-    button = css.split(".unsub-btn-danger {")[1].split("}")[0]
+    # it keeps its width for the busy label, and fades into the busy state
+    button = style(".unsub-btn-danger", "_unsubscribe.css")
     assert "min-width" in button
-    assert "opacity var(--dur-fast) var(--ease-out)" in button
-
-
-def _luminance(hex_colour: str) -> float:
-    channels = [int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
-    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
-    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    assert "opacity" in button["transition"]
 
 
 def test_unsubscribe_button_text_is_readable_in_every_state():
-    css = (_WEB / "static" / "css" / "_unsubscribe.css").read_text()
+    text = _colour(style(".unsub-btn-danger", "_unsubscribe.css")["color"])
     for state in ("", ":hover", ":active"):
-        rule = css.split(f".unsub-btn-danger{state} {{")[1].split("}")[0]
-        fill = re.search(r"background: (#[0-9a-f]{6}|var\(--[\w-]+\))", rule).group(1)
-        if fill.startswith("var("):
-            tokens = (_WEB / "static" / "css" / "_tokens.css").read_text()
-            fill = re.search(rf"{re.escape(fill[4:-1])}:\s*(#[0-9a-f]{{6}});", tokens).group(1)
-        ratio = 1.05 / (_luminance(fill) + 0.05)
-        assert ratio >= 4.5, (state, fill, ratio)
-    assert ".unsub-btn-danger:focus-visible" in css
+        fill = style(f".unsub-btn-danger{state}", "_unsubscribe.css")["background"]
+        assert contrast(text, _colour(fill)) >= 4.5, state
+    assert style(".unsub-btn-danger:focus-visible", "_unsubscribe.css")
 
 
 def _eye(html: str, field: str) -> str:

@@ -107,7 +107,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     ['a', { class: 'brand', id: 'brand', href: '/' }],
     ['div', { class: 'watch-search' },
       ['span', { id: 'watch-search-token', hidden: '' }],
-      ['span', { class: 'watch-search__field' }, ['span', { id: 'watch-search-hint' }, 'Search films and shows'],
+      ['span', { class: 'watch-search__field' }, ['span', { id: 'watch-search-hint', class: 'watch-search__ph' }, 'Search films and shows'],
         ['input', { id: 'watch-search', class: 'watch-search__input', value: opened, role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': 'watch-sheet' }]],
       ['button', { id: 'watch-search-ai', class: 'watch-search__ai', type: 'button', tabindex: '-1', 'aria-hidden': 'true' }, ['span', {}, 'Ask AI']],
       ['span', { id: 'watch-search-ai-hint', class: 'sr-only' }, 'AI search: Return asks AI for titles that fit'],
@@ -2185,6 +2185,50 @@ const scenarios = {
     click(p.doc, cross);
     await settle();
     out.push(state());
+    return out;
+  },
+
+  // The field's words change by fading the old ones out, then the new ones in; words changed again
+  // before they were seen are never faded out as if they had been.
+  async hintSwap() {
+    const moving = [];
+    Node.prototype.animate = function (frames, opts) {
+      const a = { node: this, from: frames[0].opacity, opts, playState: 'running', currentTime: 0, cancel() { this.playState = 'idle'; } };
+      moving.push(a);
+      return a;
+    };
+    const out = {};
+    try {
+      let tick = null;
+      const p = load(ADMIN, '', null, undefined, { still: false, every: (fn) => { tick = fn; return 1; } });
+      await settle();
+      const hint = () => p.$('watch-search-hint').textContent;
+      const old = () => p.doc.querySelectorAll('.watch-search__ph.is-old').map((n) => n.textContent);
+      const coming = () => moving.filter((a) => a.node === p.$('watch-search-hint') && a.playState === 'running');
+      tick();
+      out.first = { hint: hint(), old: old(), coming: coming().length };
+      tick();
+      out.again = { hint: hint(), old: old(), coming: coming().length };
+      // Under way: the old words have gone and the new ones are half in.
+      moving.forEach((a) => { if (a.node.classList.contains('is-old') && a.onfinish) a.onfinish(); });
+      coming().forEach((a) => { a.currentTime = 200; });
+      tick();
+      out.later = { hint: hint(), old: old(), coming: coming().length };
+    } finally {
+      delete Node.prototype.animate;
+    }
+    Node.prototype.animate = function () { moving.push(this); return { playState: 'running', cancel() {} }; };
+    try {
+      moving.length = 0;
+      const still = load(ADMIN);
+      await settle();
+      still.press();
+      still.input.focus();
+      await settle();
+      out.reduced = { hint: still.$('watch-search-hint').textContent, old: still.doc.querySelectorAll('.is-old').length, moved: moving.length };
+    } finally {
+      delete Node.prototype.animate;
+    }
     return out;
   },
 

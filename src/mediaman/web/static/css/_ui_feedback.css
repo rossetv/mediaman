@@ -24,15 +24,29 @@
   max-height: calc(100dvh - var(--toast-top) - var(--toast-reserve));
 }
 
-/* Toast — opaque card with semantic left-border accent.
+/* Toast — a card of thin glass with a semantic left-border accent.
    Defaults to opacity 0 / slight off-screen translate so the
    `.is-visible` toggle (added in requestAnimationFrame by the
    JS) animates the toast in. Honours prefers-reduced-motion via
    the global rule in _base.css. */
 .ui-toast {
+  /* Inside the glass: veils for fills, quiet words and blue and red ones lifted. */
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   pointer-events: auto;
-  background: var(--s2);
-  border: 1px solid var(--hair-strong);
+  background-color: var(--g-thin);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-left: 3px solid var(--t3);
   border-radius: var(--r-md);
   padding: 12px 16px;
@@ -40,7 +54,7 @@
   font-size: 14px;
   line-height: 1.45;
   letter-spacing: -.01em;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
   opacity: 0;
   transform: translateX(12px);
   transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
@@ -66,13 +80,15 @@
   padding: 4px 8px;
   margin: -4px -8px -4px 0;
   border-radius: var(--r-sm);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -.01em;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.ui-toast__action:hover { background: var(--hair-strong); }
+/* White on the lit veil: the blue word would drop below 4.5:1 on it over a white page. */
+.ui-toast__action:hover,
+.ui-toast__action:active { background: var(--s4); color: var(--t1); }
 /* Touch and phones: a 44 px target without a taller toast (negative margin
    absorbs the extra height). */
 @media (pointer: coarse), (max-width: 600px) {
@@ -85,21 +101,19 @@
   }
 }
 
-/* Variant accents — coloured left-border + tinted background hint,
-   reusing the semantic palette. The gradient sits on a solid --s2 so page
-   text never shows through the tinted end. */
+/* Variant accents — coloured left-border + a tinted wash at its start, over the glass. */
 .ui-toast--success {
   border-left-color: var(--success);
-  background: linear-gradient(90deg, rgba(48,209,88,.08), var(--s2) 40%), var(--s2);
+  background-image: linear-gradient(90deg, rgba(48,209,88,.08), transparent 40%);
 }
 .ui-toast--error {
   border-left-color: var(--danger);
-  background: linear-gradient(90deg, var(--rgba-danger-bg-soft), var(--s2) 40%), var(--s2);
+  background-image: linear-gradient(90deg, var(--rgba-danger-bg-soft), transparent 40%);
   color: var(--t1);
 }
 .ui-toast--info {
   border-left-color: var(--accent);
-  background: linear-gradient(90deg, rgba(41,151,255,.08), var(--s2) 40%), var(--s2);
+  background-image: linear-gradient(90deg, rgba(41,151,255,.08), transparent 40%);
 }
 
 /* Confirm dialog — overlay + card. Sits above existing modals
