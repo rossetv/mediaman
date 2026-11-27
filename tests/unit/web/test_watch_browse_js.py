@@ -593,3 +593,26 @@ def test_the_discover_rows_keep_their_scroll_when_they_take_the_skeletons_place(
 
 def test_the_page_is_held_before_the_discover_rows_fade_in_and_before_they_settle() -> None:
     assert _run("heldAroundTheSwaps") == [[True, False, True], [True, True, True]]
+
+
+def test_a_card_shows_what_critics_scored_it_and_nothing_where_none_is_known() -> None:
+    out = _run("scores")
+    rt = "watch-score watch-score--rt"
+    assert out == [
+        {
+            "before": "watch-card__title",
+            "each": [
+                [rt + " is-fresh", "#i-tomato", "Rotten Tomatoes 85%"],
+                ["watch-score", "#i-star", "IMDb 7.8"],
+            ],
+        },
+        {
+            "before": "watch-card__title",
+            "each": [
+                [rt + " is-rotten", "#i-splat", "Rotten Tomatoes 59%"],
+                ["watch-score", "#i-star", "TMDB 6.4"],
+            ],
+        },
+        None,
+        None,
+    ]

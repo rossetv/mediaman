@@ -36,6 +36,10 @@ def test_resting_on_a_card_opens_its_preview_out_of_the_tab_order_and_of_screen_
     }
 
 
+def test_the_narrowest_preview_still_says_the_rotten_tomatoes_score() -> None:
+    assert _run("opensNarrow") == {"w": "360px", "meta": "20241 h 56 min15IMDb 7.4RT 88%"}
+
+
 def test_a_card_left_before_its_reply_drops_the_request_and_the_late_answer() -> None:
     assert _run("leftBeforeReply") == {
         "asked": ["movie-1"],

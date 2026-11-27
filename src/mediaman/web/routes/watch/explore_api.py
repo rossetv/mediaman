@@ -21,7 +21,7 @@ from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.seen_titles import person_marks
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes.watch.card_marks import card_marks, marked
+from mediaman.web.routes.watch.card_marks import card_marks, marked, scored
 from mediaman.web.routes.watch.catalog_api import _arr, _discover_cards, _tmdb_client, held_fields
 
 router = APIRouter()
@@ -118,7 +118,7 @@ def api_watch_explore(
     out["next_after" if isinstance(following, str) else "next_page"] = following
     [cards] = _discover_cards(request, conn, client, username, [found])
     marks = card_marks(person_marks(conn, username), client)
-    out["items"] = [marked(card, marks) for card in cards]
+    out["items"] = scored(conn, [marked(card, marks) for card in cards])
     return respond_ok(out)
 
 
@@ -145,7 +145,7 @@ def _held_cards(
             ref = item["library_ref"]
             held = {"in_library": True, "library_ref": ref, "href": catalog.library_href(ref)}
             cards.append(marked({**card, **held, **fields(ref)}, marks))
-    return cards
+    return scored(conn, cards)
 
 
 def _genres(conn: sqlite3.Connection, client: TmdbClient | None) -> JSONResponse:
@@ -254,13 +254,10 @@ def _credit_cards(
     [cards] = _discover_cards(request, conn, client, username, [credits])
     marks = card_marks(person_marks(conn, username), client)
     by_ref = {f"tmdb-{c['media_type']}-{c['id']}": c for c in credits}
-    return [
-        (
-            {**marked(card, marks), "role": by_ref[str(card["ref"])]["role"]},
-            by_ref[str(card["ref"])]["minor"],
-        )
-        for card in cards
-    ]
+    roles = scored(
+        conn, [{**marked(card, marks), "role": by_ref[str(card["ref"])]["role"]} for card in cards]
+    )
+    return [(card, by_ref[str(card["ref"])]["minor"]) for card in roles]
 
 
 __all__ = ["router"]

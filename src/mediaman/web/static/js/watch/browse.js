@@ -109,6 +109,8 @@
       img.setAttribute('data-broken-on-error', '');
       poster.appendChild(img);
     }
+    var scores = core.scores(item);
+    if (scores) poster.appendChild(scores);
     poster.appendChild(el('span', 'watch-card__title', String(item.title || '')));
     [watch.search.leavingBadge(item), badge(item.download_state, item.download_pct, item.in_library)].forEach(function (b) {
       if (b) poster.appendChild(b);

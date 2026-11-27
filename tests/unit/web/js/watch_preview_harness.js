@@ -462,6 +462,13 @@ const scenarios = {
       play: h.pv().querySelector('.pv__first').getAttribute('href'), hiddenFromReaders: h.pv().getAttribute('aria-hidden'), stops,
     };
   },
+  // On a window under 1000px wide the preview is at its narrowest, and still says the RT score.
+  async opensNarrow() {
+    const h = load();
+    h.ctx.innerWidth = 900;
+    await h.rest('film');
+    return { w: h.pv().style.width, meta: h.pv().querySelector('.pv__meta').textContent };
+  },
   async leftBeforeReply() {
     const h = load({ api: { 'movie-1': undefined }, deaf: true });
     await h.rest('film', 450);

@@ -65,7 +65,7 @@ from mediaman.web.routes import older_play
 from mediaman.web.routes.downloads_strip import payload_for
 from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch import all_titles, list_page
-from mediaman.web.routes.watch.card_marks import title_key, tmdb_ref
+from mediaman.web.routes.watch.card_marks import scored, title_key, tmdb_ref
 from mediaman.web.routes.watch.library_order import library_page
 
 router = APIRouter()
@@ -446,6 +446,7 @@ def title_cards(
     if shows:
         held = show_cards(conn, username, libraries, shows, pending, now, marks)
         cards.update(zip(shows, held, strict=True))
+    scored(conn, list(cards.values()))
     return [cards[title] for title in titles]
 
 
@@ -923,6 +924,7 @@ def watch_page(
     leaving_row = [
         _leaving_card(p, now, films, by_key, seen_films, seen_shows, marks) for p in pending
     ]
+    scored(conn, [*movie_row, *show_row, *continue_row, *leaving_row])
 
     card_of = {
         **{("movie", m.key): c for m, c in zip(movies, movie_row, strict=True)},

@@ -614,7 +614,7 @@
     var r = d.ratings || {};
     if (r.imdb) addPart(line, '', 'IMDb ', r.imdb);
     else if (typeof r.tmdb === 'number' && r.tmdb > 0) addPart(line, '', 'TMDB ', r.tmdb.toFixed(1));
-    if (r.rt && p.w > 365) addPart(line, '', 'RT ', r.rt);
+    if (r.rt) addPart(line, '', 'RT ', r.rt);
     return line;
   }
 
