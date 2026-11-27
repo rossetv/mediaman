@@ -9,7 +9,7 @@ const { Node, makeDocument, build, click, settle } = require('./fake_dom');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 const SOURCES = ['core/dom.js', 'core/api.js', 'core/modal.js', 'modal-a11y.js', 'downloading.js', 'watch/core.js', 'watch/address.js',
-  'watch/downloading.js', 'watch/dlgrid.js'].map((name) => [name, new vm.Script(fs.readFileSync(path.join(JS, name), 'utf8'), { filename: name })]);
+  'watch/downloading.js', 'watch/keep.js', 'watch/dlgrid.js'].map((name) => [name, new vm.Script(fs.readFileSync(path.join(JS, name), 'utf8'), { filename: name })]);
 const ABANDON = new vm.Script(fs.readFileSync(path.join(JS, 'dl-abandon.js'), 'utf8'), { filename: 'dl-abandon.js' });
 
 Object.defineProperty(Node.prototype, 'hidden', {
@@ -55,6 +55,8 @@ Object.defineProperty(Node.prototype, 'scrollLeft', {
 });
 Object.defineProperty(Node.prototype, 'lastElementChild', { get() { return this.children[this.children.length - 1] || null; } });
 Node.prototype.replaceChildren = function () { [...this.childNodes].forEach((c) => c.remove()); };
+Node.prototype.click = function () { click(this.ownerDocument, this); };
+process.env.TZ = 'UTC';
 
 const TOKENS = { '--dur-fast': '.15s', '--dur': '.2s', '--dur-slow': '.25s', '--ease-out': 'cubic-bezier(.2,.8,.2,1)' };
 
@@ -78,15 +80,18 @@ const all = (queue, over) => ({
 });
 
 const MODAL = ['div', { class: 'modal-backdrop', id: 'abandon-modal', hidden: '', role: 'dialog', 'aria-modal': 'true', 'aria-hidden': 'true', tabindex: '-1' },
-  ['div', { class: 'modal-sheet' }, ['div', { class: 'abandon-modal-body' }, ['h2', { id: 'abandon-modal-title' }, 'Abandon search?'],
+  ['div', { class: 'modal-sheet' }, ['div', { class: 'abandon-modal-body' },
+    ['div', { class: 'abandon-who', id: 'abandon-modal-who', hidden: '' }, ['span', { class: 'abandon-who__pic' }],
+      ['span', { class: 'abandon-who__words' }, ['b', { class: 'abandon-who__name' }], ['span', { class: 'abandon-who__fact' }]]],
+    ['h2', { id: 'abandon-modal-title' }, 'Abandon search?'],
     ['p', { id: 'abandon-modal-copy' }], ['div', { id: 'abandon-season-list', hidden: '' }],
     ['div', { class: 'modal-actions' }, ['button', { type: 'button', class: 'btn', 'data-abandon-cancel': '' }, 'Cancel'],
-      ['button', { type: 'button', class: 'btn', 'data-abandon-confirm': '' }, ['span', { 'data-confirm-label': '' }, 'Abandon']]]]]];
+      ['button', { type: 'button', class: 'btn', 'data-abandon-confirm': '' }, ['span', { 'data-confirm-spin': '', hidden: '' }], ['span', { 'data-confirm-label': '' }, 'Abandon search']]]]]];
 
 /* A Watch page at *url*. opts: admin, strip (the row's answers), all (/api/downloads' answers: a
    number is that status, 'hang' one that has not come until p.answer(), or until given up),
    canDownload, reduced, grid (a stand-in for the grid of a row, at ?all=), title (one for a
-   title's page over it, at ?t=). */
+   title's page over it, at ?t=), preview (by title ref: what /api/watch/preview answers, else 404). */
 function load(opts) {
   const o = { admin: true, url: '/', strip: [strip([])], all: [all([])], canDownload: { movie: true, show: true }, ...opts };
   const doc = makeDocument();
@@ -102,7 +107,7 @@ function load(opts) {
   doc.body.appendChild(build(doc, ['a', { id: 'elsewhere', href: '/?dl=1', 'data-dl-open': '' }, 'Your library → Downloading']));
   if (o.admin) doc.body.appendChild(build(doc, MODAL));
 
-  const p = { doc, time: 1000000, anims: [], asks: { strip: 0, all: 0 }, log: [], hanging: [], aborted: 0, askedAt: [] };
+  const p = { doc, time: 1000000, anims: [], asks: { strip: 0, all: 0, preview: 0 }, log: [], hanging: [], aborted: 0, askedAt: [] };
   let timers = [];
   let ids = 0;
   const clock = {
@@ -139,7 +144,7 @@ function load(opts) {
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, WeakSet, Set, Map, Error, Infinity, parseFloat,
     URL, URLSearchParams, AbortController,
-    Date: { now: () => p.time },
+    Date: class extends Date { static now() { return p.time; } },
     setTimeout: clock.set, clearTimeout: clock.clear,
     requestAnimationFrame: (fn) => clock.set(fn, 16),
     getComputedStyle: () => ({ getPropertyValue: (n) => TOKENS[n] || '', fontSize: '19px', display: 'block', columnGap: '14' }),
@@ -168,6 +173,13 @@ function load(opts) {
       href: '',
     },
     fetch: (url, opts) => {
+      const ref = /^\/api\/watch\/preview\/(.+)$/.exec(url);
+      if (ref) {
+        p.asks.preview += 1;
+        const found = (o.preview || {})[decodeURIComponent(ref[1])];
+        return Promise.resolve(found ? { ok: true, status: 200, redirected: false, json: () => Promise.resolve(JSON.parse(JSON.stringify(found))) }
+          : { ok: false, status: 404, redirected: false, json: () => Promise.resolve({}) });
+      }
       const name = url === '/api/downloads' ? 'all' : 'strip';
       p.asks[name] += 1;
       if (name === 'all') p.askedAt.push(p.time);
@@ -222,6 +234,17 @@ function load(opts) {
   p.open = () => !!p.section() && !p.section().hidden;
   p.rowsAway = () => doc.getElementById('watch-browse').classList.contains('has-dl');
   p.on = () => { const a = doc.activeElement; return a.id || a.getAttribute('class') || a.tagName; };
+  /* What the menu of the card of *title* holds, opened and shut again; null where it has none. */
+  p.menuOf = (title) => {
+    const more = p.card(title).querySelector('[data-dl-more]');
+    if (!more) return null;
+    p.click(more);
+    const items = p.q('#watch-dl-menu').children.map((n) => (n.getAttribute('role') === 'separator' ? '---'
+      : [p.text(n), n.getAttribute('href'), n.getAttribute('target'), n.getAttribute('rel'), n.getAttribute('aria-disabled'), n.classList.contains('is-danger')]));
+    const label = p.q('#watch-dl-menu').getAttribute('aria-label');
+    p.key('Escape');
+    return { label, items, back: p.doc.activeElement === more, shut: more.getAttribute('aria-expanded') };
+  };
   p.card = (title) => p.qa('#watch-dl [data-dl-card]').find((n) => n.querySelector('.dw__title').textContent === title);
   p.shown = (n) => !!n && n.getClientRects().length > 0;
   p.text = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : null);
@@ -364,26 +387,26 @@ const scenarios = {
     const grid = p.q('#watch-dl .dlg__grid');
     const order = [];
     grid.children.forEach((n) => (n.classList.contains('grid-group') ? order.push([p.text(n)]) : order[order.length - 1].push(p.text(n.querySelector('.dw__title')))));
-    const band = (t) => {
+    const card = (t) => {
       const c = p.card(t);
-      const part = (s) => { const n = c.querySelector(s); return n && !n.hidden ? p.text(n) : null; };
-      return { line: p.text(c.querySelector('.dw__line')), facts: part('.dwx__facts'), why: part('.dwx__why'), fix: part('.dwx__fix'),
-        fixKind: c.querySelector('.dwx__fix') ? ['is-ok', 'is-act'].filter((k) => c.querySelector('.dwx__fix').classList.contains(k)) : [],
-        seen: part('.dwx__seen'),
-        pills: c.querySelectorAll('.dwx__act').map((b) => [p.text(b), b.getAttribute('aria-label'), b.getAttribute('href'), b.getAttribute('target'), b.getAttribute('rel')]) };
+      return { line: p.text(c.querySelector('.dw__line')), say: p.text(c.querySelector('.dwx__say')), kept: p.text(c.querySelector('.dwx__keep')),
+        controls: c.querySelectorAll('button').map((n) => [n.getAttribute('data-act'), n.getAttribute('aria-label')]) };
     };
     const out = {};
-    ['Ember Coast', 'Honest Forger', 'Sundial', 'Windward', 'Tallow Hill', 'Quiet Engines', 'Cobblestone', 'Finchley', 'Lanterns'].forEach((t) => { out[t] = band(t); });
-    const trigger = p.card('Quiet Engines').querySelector('[data-abandon-trigger]');
+    ['Ember Coast', 'Honest Forger', 'Sundial', 'Windward', 'Tallow Hill', 'Quiet Engines', 'Cobblestone', 'Finchley', 'Lanterns'].forEach((t) => { out[t] = card(t); });
+    const menus = {};
+    ['Windward', 'Tallow Hill', 'Quiet Engines', 'Cobblestone', 'Finchley'].forEach((t) => { menus[t] = p.menuOf(t); });
     const states = {};
     ['Windward', 'Honest Forger', 'Quiet Engines', 'Ember Coast'].forEach((t) => {
       states[t] = ['is-stuck', 'is-looking', 'is-queued'].filter((k) => p.card(t).classList.contains(k));
     });
+    const more = p.card('Quiet Engines').querySelector('[data-dl-more]');
+    const stop = p.card('Lanterns').querySelector('[data-abandon-trigger]');
     const lanterns = p.card('Lanterns');
-    return { order, count: p.text(p.q('.dlg__count')), title: p.text(p.q('.dlg__title')), cards: out, states,
-      stopLast: lanterns.lastElementChild === lanterns.querySelector('[data-abandon-trigger]'),
-      trigger: ['data-dl-id', 'data-arr-id', 'data-kind', 'data-title', 'data-stuck-seasons'].map((k) => trigger.getAttribute(k)),
-      stop: p.card('Lanterns').querySelector('[data-abandon-trigger]').getAttribute('data-abandon-upcoming') };
+    return { order, count: p.text(p.q('.dlg__count')), title: p.text(p.q('.dlg__title')), cards: out, states, menus,
+      stopLast: lanterns.lastElementChild === stop,
+      trigger: ['data-dl-id', 'data-arr-id', 'data-kind', 'data-title', 'data-stuck-seasons', 'data-abandon-trigger'].map((k) => more.getAttribute(k)),
+      stop: [stop.getAttribute('data-abandon-upcoming'), stop.getAttribute('title')] };
   },
   async viewer() {
     const p = load({
@@ -396,9 +419,9 @@ const scenarios = {
       ], { upcoming: [dl('Lanterns', { release_label: 'Not yet released' })] })],
     });
     await p.step(100);
-    const shown = (s) => p.qa('#watch-dl ' + s).filter((n) => !n.hidden).map((n) => p.text(n));
-    return { triggers: p.qa('[data-abandon-trigger]').length, links: p.qa('#watch-dl a.dwx__act').length, why: shown('.dwx__why'),
-      fix: shown('.dwx__fix'), seen: shown('.dwx__seen'), modal: !!p.q('#abandon-modal'), stops: p.qa('#watch-dl .dwx--small .dwx__act').length };
+    return { triggers: p.qa('[data-abandon-trigger]').length, menus: p.qa('#watch-dl [data-dl-more]').length, buttons: p.qa('#watch-dl .dwx--small button').length,
+      say: p.qa('#watch-dl .dwx__say').map((n) => p.text(n)), modal: !!p.q('#abandon-modal'), menu: !!p.q('#watch-dl-menu'),
+      links: p.qa('#watch-dl a').filter((n) => /^http/.test(n.getAttribute('href') || '')).length };
   },
   async patched() {
     const ep = (label, state, progress) => ({ label, title: 'Ep ' + label, state, progress, is_pack_episode: false });
@@ -417,11 +440,11 @@ const scenarios = {
     p.click(pill);
     pill.focus();
     await p.step(2000);
-    const after = { same: p.card('Brightwater') === card, expanded: pill.getAttribute('aria-expanded'), listShown: !card.querySelector('.dwx__eps-wrap').hidden,
+    const after = { same: p.card('Brightwater') === card, expanded: pill.getAttribute('aria-expanded'), listShown: card.classList.contains('is-open'),
       rows: card.querySelectorAll('.dwx__ep').map((r) => p.text(r.querySelector('.dwx__ep-s'))), on: p.doc.activeElement === pill,
       line: p.text(card.querySelector('.dw__line')), pill: p.text(pill) };
-    p.card('Quiet Engines').querySelector('[data-abandon-trigger]').focus();
-    await p.step(2000);
+    p.card('Quiet Engines').querySelector('[data-dl-more]').focus();
+    await p.step(2300);
     const a = p.doc.activeElement;
     return { after, gone: !p.card('Quiet Engines'), focusTo: a.getAttribute('data-dl-id') || a.id };
   },
@@ -601,17 +624,20 @@ const scenarios = {
     const stuck = (over) => dl('Quiet Engines', { state: 'searching', abandon_visible: true, ...over });
     const p = load({ url: '/?dl=1', strip: [strip([row('Ember Coast')])], all: [all([stuck(), dl('Ember Coast')]), all([stuck(), dl('Ember Coast')]), all([dl('Ember Coast')])] });
     await p.step(100);
-    const trigger = () => p.card('Quiet Engines').querySelector('[data-abandon-trigger]');
+    const trigger = () => p.card('Quiet Engines').querySelector('[data-dl-more]');
+    const abandon = async () => {
+      trigger().focus();
+      p.click(trigger());
+      p.click(p.q('#watch-dl-menu [data-dl-abandon]'));
+      await p.step(10);
+    };
     const t = trigger();
-    t.focus();
-    p.click(t);
-    await p.step(10);
+    await abandon();
     const modalOpen = !p.q('#abandon-modal').hidden;
     p.click(p.q('[data-abandon-cancel]'));
     await p.step(300);
     const back = p.doc.activeElement === t;
-    trigger().focus();
-    p.click(trigger());
+    await abandon();
     // the answer that drops the card comes while the dialog is open
     await p.step(4100);
     p.click(p.q('[data-abandon-cancel]'));
@@ -765,7 +791,7 @@ const scenarios = {
     await mixed.step(1100);
     mixed.click(mixed.q('#watch-downloading .row-open'));
     await mixed.step(500);
-    const grouped = mixed.q('#watch-dl .dlg__grid').children.map((n) => (n.classList.contains('grid-group') ? 'head' : n.querySelector('.dlg-skel__pill') ? 'card+buttons' : 'card'));
+    const grouped = mixed.q('#watch-dl .dlg__grid').children.map((n) => (n.classList.contains('grid-group') ? 'head' : n.querySelector('.dlg-skel__pill, .dlg-skel__tool') ? 'card+buttons' : 'card'));
     return { waiting, filling, gone: p.qa('#watch-dl .is-going').length, kids: kids(), grouped };
   },
   // Each placeholder's band holds what the card's own will: its lines, and its row of buttons
@@ -777,22 +803,16 @@ const scenarios = {
       await p.step(1100);
       p.click(p.q('#watch-downloading .row-open'));
       await p.step(500);
-      return p.qa('#watch-dl .dlg__grid .dlg-skel').map((card) => card.querySelector('.dlg-skel__more').children
-        .map((n) => (n.classList.contains('dlg-skel__why') ? 'why' : n.classList.contains('dlg-skel__acts') ? 'acts' : 'line')).join(' '));
+      return p.qa('#watch-dl .dlg__grid .dlg-skel').map((card) => card.querySelector('.dlg-skel__foot').children
+        .map((n) => (n.classList.contains('dlg-skel__pill') ? 'eps' : n.classList.contains('dlg-skel__tool') ? 'more' : 'line')).join(' '));
     };
-    // What a stuck one's reason and its outcome will say is laid out, unseen, to wrap as they will.
-    const said = load({ strip: [strip([row('Salt Road', { state: 'needs_attention', attention: 'Not enough articles', retrying: true })])], all: ['hang'] });
-    await said.step(1100);
-    said.click(said.q('#watch-downloading .row-open'));
-    await said.step(500);
-    const words = said.qa('#watch-dl .dlg__grid .dlg-skel-said').map((n) => n.textContent);
     const down = load({ strip: [{ ...strip(USUAL()), outage: 'Can\'t sign in to Sonarr' }], all: ['hang'] });
     await down.step(1100);
     const rowNote = down.text(down.q('#watch-downloading .dlx__note'));
     down.click(down.q('#watch-downloading .row-open'));
     await down.step(500);
     const gridNote = down.q('#watch-dl .dlg__note').hidden ? null : down.text(down.q('#watch-dl .dlg__note'));
-    return { admin: await of(true), viewer: await of(false), rowNote, gridNote, words };
+    return { admin: await of(true), viewer: await of(false), rowNote, gridNote };
   },
   // An answer while the placeholders still fly waits for them to land.
   async answerMidGrow() {
@@ -846,6 +866,132 @@ const scenarios = {
     const of = (n) => [n.querySelector('.dw__link').getAttribute('href'), n.querySelector('.dw__art').getAttribute('src')];
     return { ember: of(p.card('Ember Coast')), twins: p.qa('#watch-dl .dwx').filter((n) => p.text(n.querySelector('.dw__title')) === 'Twin').map(of) };
   },
+  // A press anywhere on a card but its controls opens its title; the server's title wins over
+  // a row's of the same name, and one the server gives none opens nothing.
+  async opensTheTitle() {
+    const ep = { label: 'S01E01', title: 'Weir', state: 'ready', progress: 100, is_pack_episode: false };
+    const p = load({
+      url: '/?dl=1', strip: [strip([row('Ember Coast'), row('Nameless')])],
+      all: [all([
+        dl('Ember Coast', { title_ref: 'movie-501', scores: { rt: 93, imdb: '7.1' } }),
+        dl('Nameless', { title_ref: null }),
+        dl('Brightwater', { media_type: 'series', episodes: [ep], state: 'searching', abandon_visible: true, title_ref: 'tmdb-tv-9' }),
+      ], { upcoming: [dl('Lanterns', { release_label: 'Not yet released', title_ref: 'tmdb-movie-77' })] })],
+    });
+    // until the row has answered too, and the grid has been drawn again with it
+    await p.step(2100);
+    const opened = [];
+    p.doc.addEventListener('click', (e) => { const t = e.target.closest('[data-title-ref]'); if (t) opened.push(t.getAttribute('data-title-ref')); });
+    const press = (n) => { opened.length = 0; p.click(n); return opened.slice(); };
+    const ember = p.card('Ember Coast');
+    const bright = p.card('Brightwater');
+    const out = {
+      foot: press(ember.querySelector('.dwx__say')),
+      episodes: press(bright.querySelector('.dwx__ep-t')),
+      pill: press(bright.querySelector('[data-dl-eps]')),
+      more: press(bright.querySelector('[data-dl-more]')),
+    };
+    // with its menu open, a press on the card only shuts the menu
+    out.withMenu = press(bright.querySelector('.dwx__say'));
+    out.menuShut = bright.querySelector('[data-dl-more]').getAttribute('aria-expanded');
+    out.nameless = press(p.card('Nameless').querySelector('.dwx__say'));
+    out.namelessLink = p.card('Nameless').querySelector('.dw__link').getAttribute('href');
+    out.ember = [ember.querySelector('.dw__link').getAttribute('href'), p.text(ember.querySelector('.watch-card__scores'))];
+    const soon = p.card('Lanterns').querySelector('.dwx__open');
+    out.soon = [soon.getAttribute('href'), soon.getAttribute('data-kind'), press(p.card('Lanterns').querySelector('.dwx__small-line'))];
+    return out;
+  },
+  // Escape shuts the dialog first, then the menu, then the episodes, and only then the grid.
+  async escapeOrder() {
+    const ep = { label: 'S01E01', title: 'Weir', state: 'ready', progress: 100, is_pack_episode: false };
+    const p = load({ url: '/?dl=1', all: [all([dl('Brightwater', { media_type: 'series', episodes: [ep], state: 'searching', abandon_visible: true })])] });
+    await p.step(100);
+    const card = p.card('Brightwater');
+    const eps = card.querySelector('[data-dl-eps]');
+    const more = card.querySelector('[data-dl-more]');
+    p.click(eps);
+    more.focus();
+    p.click(more);
+    p.click(p.q('#watch-dl-menu [data-dl-abandon]'));
+    await p.step(10);
+    const look = () => ({ dialog: !p.q('#abandon-modal').hidden, menu: more.getAttribute('aria-expanded'), eps: card.classList.contains('is-open'), grid: p.open() });
+    const out = { all: look() };
+    p.key('Escape');
+    await p.step(300);
+    out.dialog = look();
+    p.click(more);
+    out.menuOpen = more.getAttribute('aria-expanded');
+    p.key('Escape');
+    await p.step(10);
+    out.menu = look();
+    out.menuFocus = p.doc.activeElement === more;
+    p.key('Escape');
+    await p.step(10);
+    out.eps = look();
+    p.key('Escape');
+    await p.step(400);
+    out.grid = look();
+    return out;
+  },
+  // The confirm names what it is of: its poster, its name and how long it has been looked for.
+  async confirmSays() {
+    const p = load({
+      url: '/?dl=1',
+      all: [all([dl('Quiet Engines', { state: 'searching', abandon_visible: true, search_count: 10, searching_since: 1795176000, arr_source: 'Radarr' }),
+        dl('Cobblestone', { state: 'searching', abandon_visible: true, search_count: 3, searching_since: 0 })],
+      { upcoming: [dl('Lanterns', { release_label: 'Releases 8 Dec 2026' })] })],
+    });
+    await p.step(100);
+    const said = () => {
+      const who = p.q('#abandon-modal-who');
+      return { who: who.hidden ? null : [p.text(who.querySelector('.abandon-who__name')), p.text(who.querySelector('.abandon-who__fact')), who.querySelector('img') && who.querySelector('img').getAttribute('src')],
+        title: p.text(p.q('#abandon-modal-title')), copy: p.text(p.q('#abandon-modal-copy')), label: p.text(p.q('[data-confirm-label]')),
+        spin: !p.q('[data-confirm-spin]').hidden };
+    };
+    const viaMenu = async (t) => {
+      p.click(p.card(t).querySelector('[data-dl-more]'));
+      p.click(p.q('#watch-dl-menu [data-dl-abandon]'));
+      await p.step(10);
+      const out = said();
+      p.click(p.q('[data-abandon-cancel]'));
+      await p.step(300);
+      return out;
+    };
+    const out = { abandon: await viaMenu('Quiet Engines'), noSince: (await viaMenu('Cobblestone')).who };
+    p.click(p.card('Lanterns').querySelector('[data-abandon-trigger]'));
+    await p.step(10);
+    out.stop = said();
+    p.click(p.q('[data-abandon-cancel]'));
+    await p.step(300);
+    // while the call runs
+    let answer;
+    p.ctx.MM.api.post = () => new Promise((resolve) => { answer = resolve; });
+    p.click(p.card('Quiet Engines').querySelector('[data-dl-more]'));
+    p.click(p.q('#watch-dl-menu [data-dl-abandon]'));
+    await p.step(10);
+    p.click(p.q('[data-abandon-confirm]'));
+    await p.step(10);
+    out.busy = said();
+    answer({});
+    await p.step(300);
+    out.closed = p.q('#abandon-modal').hidden;
+    return out;
+  },
+  // A card that goes fades and shrinks where it stands, then is gone; with reduced motion it only fades.
+  async leaving() {
+    const of = async (reduced) => {
+      const p = load({ url: '/?dl=1', reduced, all: [all([dl('Quiet Engines', { state: 'searching' }), dl('Finchley', { state: 'finding_copy' })]), all([dl('Finchley', { state: 'finding_copy' })])] });
+      await p.step(100);
+      const card = p.card('Quiet Engines');
+      const from = p.anims.length;
+      await p.step(2000);
+      const anim = p.anims.slice(from).find((a) => a.node === card);
+      const during = { there: !!card.parentNode, going: card.classList.contains('is-going'), cards: p.qa('#watch-dl [data-dl-card]:not(.is-going)').length };
+      await p.step(400);
+      return { frames: anim && anim.frames, ms: anim && anim.opts.duration, easing: anim && anim.opts.easing, during, gone: !card.parentNode };
+    };
+    return { moving: await of(false), reduced: await of(true) };
+  },
   // A title that is done leads the grid, under a heading of its own, and the grid says it showed it.
   async readyLeads() {
     const done = row('Harbour', { state: 'ready', percent: 100, ready_seconds: 40, playable: true });
@@ -858,6 +1004,162 @@ const scenarios = {
     await p.step(400);
     const order = p.qa('#watch-dl .grid-group, #watch-dl [data-dl-card]').map((n) => (n.classList.contains('grid-group') ? '# ' : '') + p.text(n.querySelector(n.classList.contains('grid-group') ? 'span' : '.dw__title')));
     return { closed, order, told: told[told.length - 1], href: p.card('Harbour').querySelector('.dw__link').getAttribute('href'), count: p.text(p.q('#watch-dl .dlg__count')) };
+  },
+  // A ready card's Play is a control of its own that plays, and its line says when it finished and how big it is.
+  async readyPlay() {
+    const GB = 1024 * 1024 * 1024;
+    const now = 1000; // the clock's epoch seconds at the start
+    const p = load({
+      strip: [strip([
+        row('Harbour', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-12', finished_at: now - 180, size_bytes: Math.round(14.2 * GB) }),
+        row('Cinder', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-13', finished_at: null, size_bytes: Math.round(2.5 * GB) }),
+        row('Lowland', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-14', finished_at: now - 30, size_bytes: null }),
+        row('Pell', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-15', finished_at: null, size_bytes: null }),
+      ])],
+      all: [all([])],
+      preview: {
+        'movie-12': { in_library: true, play: { href: '/watch/play/12', label: 'Resume from 41:02' } },
+        'movie-13': { in_library: true, play: { href: 'javascript:alert(1)', label: 'Play' } },
+        'movie-14': { in_library: true, play: null },
+      },
+    });
+    await p.step(1100);
+    p.click(p.q('#elsewhere'));
+    await p.step(400);
+    const opened = [];
+    p.doc.addEventListener('click', (e) => { const t = e.target.closest('[data-title-ref]'); if (t) opened.push(t.getAttribute('data-title-ref')); });
+    const play = (t) => p.card(t).querySelector('[data-act="play"]');
+    const harbour = play('Harbour');
+    const out = {
+      play: harbour && { tag: harbour.tagName, href: harbour.getAttribute('href'), label: harbour.getAttribute('aria-label'),
+        inLink: !!harbour.closest('.dw__link'), hidden: harbour.getAttribute('aria-hidden') },
+      noPlay: ['Cinder', 'Lowland', 'Pell'].map((t) => !!play(t)),
+      spans: p.qa('#watch-dl .dw__link .dw__go').length,
+      say: ['Harbour', 'Cinder', 'Lowland', 'Pell'].map((t) => p.text(p.card(t).querySelector('.dwx__say'))),
+    };
+    if (!harbour) return out;
+    const e = { defaultPrevented: false };
+    p.click(harbour, { preventDefault() { e.defaultPrevented = true; } });
+    out.pressed = { opened: opened.slice(), followed: !e.defaultPrevented };
+    const asked = p.asks.preview;
+    await p.step(2000);
+    out.askedOnce = p.asks.preview === asked;
+    return out;
+  },
+  // A card turns ready before the library has the title: its Play comes once the library does,
+  // asked again at most every 10 s, and no more once it has one or the card has gone.
+  async readyPlayLate() {
+    const preview = {};
+    const harbour = row('Harbour', { state: 'ready', percent: 100, ready_seconds: 600, playable: true, ref: 'movie-12' });
+    const p = load({ strip: [strip([harbour])], all: [all([])], preview });
+    await p.step(1100);
+    p.click(p.q('#elsewhere'));
+    await p.step(400);
+    const play = () => !!p.card('Harbour') && !!p.card('Harbour').querySelector('[data-act="play"]');
+    const first = p.asks.preview;
+    await p.step(6000);
+    const notYet = { play: play(), asks: p.asks.preview - first };
+    preview['movie-12'] = { in_library: true, play: { href: '/watch/play/12', label: 'Play' } };
+    await p.step(12000);
+    const late = { play: play(), asks: p.asks.preview - first };
+    await p.step(30000);
+    return { first, notYet, late, after: p.asks.preview - first };
+  },
+  // A menu left open over a card a poll has changed can never abandon what has started downloading.
+  async staleMenu() {
+    const of = async (before, after) => {
+      const p = load({ url: '/?dl=1', all: [all([before, dl('Finchley', { state: 'finding_copy' })]), all([after, dl('Finchley', { state: 'finding_copy' })])] });
+      await p.step(100);
+      const more = p.card('Quiet Engines').querySelector('[data-dl-more]');
+      p.click(more);
+      const opened = p.q('#watch-dl-menu').classList.contains('is-open');
+      await p.step(2000);
+      const open = p.q('#watch-dl-menu').classList.contains('is-open');
+      const item = p.q('#watch-dl-menu [data-dl-abandon]');
+      if (item) p.click(item);
+      await p.step(10);
+      return { opened, open, dialog: !p.q('#abandon-modal').hidden };
+    };
+    const searching = dl('Quiet Engines', { state: 'searching', abandon_visible: true, arr_source: 'Radarr', arr_link: 'https://radarr.local/movie/2' });
+    return {
+      started: await of(searching, dl('Quiet Engines', { state: 'downloading', abandon_visible: false, arr_link: 'https://radarr.local/movie/2' })),
+      stillLinked: await of(searching, dl('Quiet Engines', { state: 'searching', abandon_visible: false, arr_source: 'Radarr', arr_link: 'https://radarr.local/movie/2' })),
+      startedStillOffered: await of(searching, dl('Quiet Engines', { state: 'downloading', abandon_visible: true })),
+      gone: await of(searching, dl('Other', { state: 'searching' })),
+    };
+  },
+  // The menu of a card lines its right edge up with its button's.
+  async menuPlace() {
+    const p = load({ url: '/?dl=1', all: [all([dl('Quiet Engines', { state: 'searching', abandon_visible: true })])] });
+    await p.step(100);
+    const more = p.card('Quiet Engines').querySelector('[data-dl-more]');
+    more.getBoundingClientRect = () => ({ left: 900, right: 932, top: 300, bottom: 332, width: 32, height: 32 });
+    Object.defineProperty(p.q('#watch-dl-menu'), 'offsetWidth', { get: () => 240 });
+    p.click(more);
+    return { left: p.q('#watch-dl-menu').style.left };
+  },
+  // Safari focuses no button it is clicked on: the episodes opened by a click still shut on Escape before the grid.
+  async escapeUnfocused() {
+    const ep = { label: 'S01E01', title: 'Weir', state: 'ready', progress: 100, is_pack_episode: false };
+    const p = load({ url: '/?dl=1', all: [all([dl('Brightwater', { media_type: 'series', episodes: [ep] })])] });
+    await p.step(100);
+    const pill = p.card('Brightwater').querySelector('[data-dl-eps]');
+    p.click(pill);
+    const focused = p.doc.activeElement === pill;
+    p.doc.activeElement = p.doc.body;
+    p.key('Escape');
+    await p.step(10);
+    const first = { expanded: pill.getAttribute('aria-expanded'), open: p.open(), on: p.doc.activeElement === pill };
+    p.key('Escape');
+    await p.step(400);
+    return { focused, first, then: p.open() };
+  },
+  // With the title's sheet over the grid: the confirm, then the sheet, then the menu, then the episodes, then the grid.
+  async escapeOrderWithSheet() {
+    const ep = { label: 'S01E01', title: 'Weir', state: 'ready', progress: 100, is_pack_episode: false };
+    const p = load({ url: '/?dl=1', title: true, all: [all([dl('Brightwater', { media_type: 'series', episodes: [ep], state: 'searching', abandon_visible: true })])] });
+    await p.step(100);
+    const address = p.ctx.MMWatch.address;
+    // as watch/detail.js shuts its sheet
+    p.doc.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || address.top() !== 'title') return;
+      e.preventDefault();
+      address.back('title');
+    });
+    const card = p.card('Brightwater');
+    const eps = card.querySelector('[data-dl-eps]');
+    const more = card.querySelector('[data-dl-more]');
+    p.click(eps);
+    address.push('title', '/?dl=1&t=x');
+    await p.step(10);
+    p.ctx.MM.dlAbandon.open(more);
+    await p.step(10);
+    const look = () => ({ dialog: !p.q('#abandon-modal').hidden, sheet: address.top() === 'title', menu: more.getAttribute('aria-expanded'), eps: card.classList.contains('is-open'), grid: p.open() });
+    const out = { all: look() };
+    p.key('Escape');
+    await p.step(300);
+    out.dialog = look();
+    p.key('Escape');
+    await p.step(400);
+    out.sheet = look();
+    p.click(more);
+    out.menuOpen = more.getAttribute('aria-expanded');
+    p.key('Escape');
+    await p.step(10);
+    out.menu = look();
+    p.key('Escape');
+    await p.step(10);
+    out.eps = look();
+    p.key('Escape');
+    await p.step(400);
+    out.grid = look();
+    return out;
+  },
+  // Coming soon draws what critics scored it, where the server says.
+  async soonScores() {
+    const p = load({ url: '/?dl=1', all: [all([], { upcoming: [dl('Lanterns', { release_label: 'Not yet released', scores: { rt: 88, imdb: '7.4' } }), dl('Orchard', { release_label: 'Not yet aired' })] })] });
+    await p.step(100);
+    return ['Lanterns', 'Orchard'].map((t) => p.text(p.card(t).querySelector('.watch-card__scores')));
   },
 };
 

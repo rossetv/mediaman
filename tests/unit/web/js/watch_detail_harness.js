@@ -1480,6 +1480,68 @@ const scenarios = {
     return out;
   },
 
+  // Opened from a card of Downloading, its sheet does not send you to Downloading, but still says
+  // what else there is to say of the download.
+  async fromGrid() {
+    const downloading = { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'downloading', pct: 42, answered: true }) }) };
+    const p = load({ routes: downloading });
+    let tell;
+    let state = { items: [] };
+    p.ctx.MM.downloading = { last: () => state, subscribe(fn) { tell = fn; } };
+    p.run();
+    tell();
+    const card = p.doc.body.appendChild(build(p.doc, ['article', { 'data-dl-card': '' },
+      ['a', { href: '/#title=tmdb-movie-77', 'data-title-ref': 'tmdb-movie-77', 'data-kind': 'movie' }, 'Film']]));
+    click(p.doc, card.querySelector('a'));
+    await settle();
+    const look = () => ({ note: p.text('.ttl__note'), link: !!p.q('.ttl__note a') });
+    const out = { downloading: look() };
+    state = { items: [{ ref: 'tmdb-movie-77', state: 'needs_attention', attention: 'No files found', attention_hint: 'Fix it in Radarr' }] };
+    tell();
+    out.stuck = look();
+    // The card leaves the grid while its sheet is open, and the sheet is come back to.
+    state = { items: [] };
+    card.remove();
+    p.routes['/api/watch/title/tmdb-movie-78'] = Object.assign({}, MOVIE_DL, { ref: 'tmdb-movie-78' });
+    p.ctx.MMWatch.detail.open('tmdb-movie-78', {});
+    await settle();
+    p.ctx.history.back();
+    await settle();
+    out.cardGone = look();
+    return out;
+  },
+
+  // A film or show Radarr or Sonarr waits for to come out, opened from wherever, and one Downloading
+  // does not list as coming soon.
+  async notOut() {
+    const queued = (data, ref) => Object.assign({}, data, { ref, download: Object.assign({}, data.download, { state: 'queued', answered: true }) });
+    const p = load({ routes: {
+      '/api/watch/title/tmdb-movie-77': queued(MOVIE_DL, 'tmdb-movie-77'),
+      '/api/watch/title/tmdb-tv-90': queued(TV_DL, 'tmdb-tv-90'),
+      '/api/watch/title/tmdb-movie-78': queued(MOVIE_DL, 'tmdb-movie-78'),
+      '/api/downloads': { upcoming: [{ title_ref: 'tmdb-movie-77' }, { title_ref: 'tmdb-tv-90' }] },
+    } });
+    p.ctx.MM.downloading = { last: () => ({ items: [] }), subscribe() {} };
+    p.run();
+    const look = () => ({ pill: primary(p) && primary(p).text, status: p.text('[data-ttl-part="under"] .ttl__status'), note: p.text('.ttl__note') });
+    const out = {};
+    for (const ref of ['tmdb-movie-77', 'tmdb-tv-90', 'tmdb-movie-78']) {
+      p.ctx.MMWatch.detail.open(ref, {});
+      await settle();
+      out[ref] = look();
+    }
+    // The grid's own Coming soon card: its sheet asks nothing more, and sends nowhere.
+    p.gets.length = 0;
+    p.routes['/api/downloads'] = { upcoming: [] };
+    const card = p.doc.body.appendChild(build(p.doc, ['article', { 'data-dl-card': '', class: 'dwx dwx--small' },
+      ['a', { href: '/#title=tmdb-movie-79', 'data-title-ref': 'tmdb-movie-79', 'data-kind': 'movie' }, 'Film']]));
+    p.routes['/api/watch/title/tmdb-movie-79'] = queued(MOVIE_DL, 'tmdb-movie-79');
+    click(p.doc, card.querySelector('a'));
+    await settle();
+    out.soonCard = Object.assign(look(), { asked: p.gets.includes('/api/downloads') });
+    return out;
+  },
+
   // The seasons of a show, two of them held back.
   async seasonsTroubled() {
     const data = asked('tmdb-tv-90', {});

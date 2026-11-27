@@ -179,7 +179,8 @@
     /* Open below the trigger, or above it when that is where the room is,
        and stay clear of the sticky top bar and the phone's bottom tab bar.
        A menu taller than the room scrolls inside it. Right-aligned to a
-       trigger at the right of the screen. */
+       trigger at the right of the screen, and to one at a pane's or a
+       Downloading card's end, so it stays on its side. */
     function place(trigger) {
       var gap = 6;
       var edge = 8;
@@ -199,7 +200,7 @@
         node.scrollTop = scrolled;
       }
       var top = above ? rect.top - gap - h : rect.bottom + gap;
-      var at = trigger.closest('.space-pane') ? rect.right - w : rect.left;
+      var at = trigger.closest('.space-pane, .dwx') ? rect.right - w : rect.left;
       var left = Math.max(edge, Math.min(at, window.innerWidth - w - edge));
       node.classList.toggle('is-above', above);
       node.style.top = top + 'px';
@@ -315,7 +316,9 @@
       node: node,
       open: open,
       close: close,
-      trigger: function () { return openTrigger; }
+      trigger: function () { return openTrigger; },
+      // Again where its trigger now stands, as one that moves of itself tells.
+      place: function () { if (openTrigger) place(openTrigger); }
     };
   }
 

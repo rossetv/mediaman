@@ -170,7 +170,13 @@ def test_a_failed_stop_tracking_answers_its_words_as_the_message(services, clien
 
 
 def test_stop_tracking_that_radarr_refuses_says_so_and_rebuilds_no_queue(services, client):
-    item = {"id": "radarr:Dune", "arr_id": 4, "kind": "movie", "state": "searching"}
+    item = {
+        "id": "radarr:Dune",
+        "arr_id": 4,
+        "kind": "movie",
+        "state": "searching",
+        "abandon_visible": True,
+    }
     with (
         patch("mediaman.web.routes.downloads._lookup_dl_item", return_value=item),
         patch(
@@ -196,7 +202,13 @@ def test_stop_tracking_that_radarr_refuses_says_so_and_rebuilds_no_queue(service
 def test_a_failed_abandon_says_abandon_and_only_one_coming_soon_says_stop_tracking(
     services, client, state, said
 ):
-    item = {"id": "radarr:Dune", "arr_id": 4, "kind": "movie", "state": state}
+    item = {
+        "id": "radarr:Dune",
+        "arr_id": 4,
+        "kind": "movie",
+        "state": state,
+        "abandon_visible": state == "searching",
+    }
     with (
         patch("mediaman.web.routes.downloads._lookup_dl_item", return_value=item),
         patch(
