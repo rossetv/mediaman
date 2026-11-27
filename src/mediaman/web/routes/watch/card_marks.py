@@ -16,6 +16,7 @@ from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.web.repository.search import held_scores
 from mediaman.web.repository.seen_titles import PersonMarks, TitleKey
+from mediaman.web.routes.watch import ratings_warm
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,8 @@ def marked(card: Mapping[str, Any], marks: CardMarks) -> dict[str, object]:
 
 def scored(conn: sqlite3.Connection, cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """*cards*, each of a TMDB title given in place, and in one read, the Rotten Tomatoes score
-    and IMDb rating the ratings cache holds of it. OMDb is never asked."""
+    and IMDb rating the ratings cache holds of it. OMDb is never asked here: each title is
+    noted for the background job, which asks of those the cache holds no fresh row of."""
     by_key: dict[TitleKey, list[dict[str, Any]]] = {}
     for card in cards:
         ref = card.get("tmdb_ref")
@@ -94,6 +96,7 @@ def scored(conn: sqlite3.Connection, cards: list[dict[str, Any]]) -> list[dict[s
     for key, scores in held_scores(conn, list(by_key)).items():
         for card in by_key[key]:
             card.update(scores)
+    ratings_warm.want(group[0] for group in by_key.values())
     return cards
 
 

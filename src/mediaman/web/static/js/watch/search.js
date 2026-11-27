@@ -125,6 +125,8 @@
       img.setAttribute('data-broken-on-error', '');
       poster.appendChild(img);
     }
+    var scores = core.scores(item);
+    if (scores) poster.appendChild(scores);
     poster.appendChild(el('span', 'watch-card__title', item.title));
     var badge = leavingBadge(item);
     if (badge) poster.appendChild(badge);
@@ -208,6 +210,8 @@
       img.setAttribute('data-broken-on-error', '');
       poster.appendChild(img);
     }
+    var scores = core.scores(item);
+    if (scores) poster.appendChild(scores);
     poster.appendChild(el('span', 'watch-card__title', item.title));
     [leavingBadge(item), plain ? null : stateBadge(item)].forEach(function (badge) {
       if (badge) poster.appendChild(badge);

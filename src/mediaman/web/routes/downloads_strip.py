@@ -26,7 +26,7 @@ from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.seen_titles import person_marks
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.poster.title_art import title_art
-from mediaman.web.routes.watch.card_marks import card_marks, marked
+from mediaman.web.routes.watch.card_marks import card_marks, marked, scored
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +59,9 @@ def payload_for(
     conn: sqlite3.Connection, secret_key: str, username: str, answer: Answer
 ) -> dict[str, Any]:
     """What a page is told, with *username*'s own marks of what is ready, for its card in
-    Recently added."""
+    Recently added, and what critics scored each title as the ratings cache holds it."""
     shown = strip.payload(answer, admin=get_user_role(conn, username) == "admin")
+    scored(conn, shown["items"])
     ready = [i for i in shown["items"] if i["state"] == "ready" and i["tmdb_ref"]]
     if ready:
         marks = card_marks(person_marks(conn, username), TmdbClient.from_db(conn, secret_key))

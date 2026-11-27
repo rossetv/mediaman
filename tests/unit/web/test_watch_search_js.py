@@ -1639,3 +1639,11 @@ def test_where_no_title_has_a_request_s_words_it_says_how_to_ask_the_ai() -> Non
     none = "No title has these words in its name."
     assert out["desk"] == [none, "Press Return to ask AI for titles that fit."]
     assert out["phone"] == [none, "Tap Ask AI, or Search, for titles that fit."]
+
+
+def test_a_found_title_shows_what_critics_scored_it_and_nothing_where_none_is_known() -> None:
+    assert _run("scores") == [
+        ["watch-card__title", ["Rotten Tomatoes 91%", "IMDb 8.1"]],
+        None,
+        ["watch-card__title", ["Rotten Tomatoes 40%", "TMDB 6.3"]],
+    ]

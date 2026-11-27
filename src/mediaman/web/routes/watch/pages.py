@@ -64,7 +64,7 @@ from mediaman.web.repository.watch_progress import (
 from mediaman.web.routes import older_play
 from mediaman.web.routes.downloads_strip import payload_for
 from mediaman.web.routes.poster.title_art import title_art
-from mediaman.web.routes.watch import all_titles, list_page
+from mediaman.web.routes.watch import all_titles, list_page, ratings_warm
 from mediaman.web.routes.watch.card_marks import scored, title_key, tmdb_ref
 from mediaman.web.routes.watch.library_order import library_page
 
@@ -325,7 +325,11 @@ def _title_fields(
     key = title_key(
         "movie" if isinstance(title, lib.LibraryMovie) else "tv", title.tmdb_id if title else None
     )
-    return {"tmdb_ref": tmdb_ref(key), "level": marks.levels.get(key) if key else None}
+    ref = tmdb_ref(key)
+    if title is not None:
+        # The card names no year, which tells OMDb's titles of one name apart.
+        ratings_warm.want([{"tmdb_ref": ref, "title": title.title, "year": title.year}])
+    return {"tmdb_ref": ref, "level": marks.levels.get(key) if key else None}
 
 
 def movie_subtitle(movie: lib.LibraryMovie) -> str:

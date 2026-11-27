@@ -268,6 +268,10 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
         secret_key = config.secret_key
         db_path = getattr(app.state, "db_path", None)
         scan_callback, sync_callback = _build_scheduler_callbacks(db_path, secret_key)
+        from mediaman.web.routes.watch.ratings_warm import warm
+
+        def warm_ratings(conn: sqlite3.Connection, stopped: Callable[[], bool]) -> None:
+            warm(conn, secret_key, stopped=stopped)
 
         start_scheduler(
             scan_fn=scan_callback,
@@ -278,6 +282,7 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
             sync_fn=sync_callback,
             sync_interval_minutes=sched_config.sync_interval,
             secret_key=secret_key,
+            ratings_fn=warm_ratings,
         )
         app.state.scheduler_healthy = True
         logger.info(

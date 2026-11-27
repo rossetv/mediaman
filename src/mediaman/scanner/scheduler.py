@@ -22,6 +22,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# A job given a DB connection and whether the scheduler has stopped since it started.
+RatingsFn = Callable[[sqlite3.Connection, Callable[[], bool]], None]
+
 # Module-level scheduler reference. Mutation is guarded by ``_scheduler_lock``;
 # in practice ``start_scheduler`` and ``stop_scheduler`` are only ever called
 # from the FastAPI lifespan (single-threaded startup / shutdown), but the
@@ -205,6 +208,7 @@ def _register_maintenance_jobs(
     scheduler: BackgroundScheduler,
     *,
     secret_key: str,
+    ratings_fn: RatingsFn | None = None,
 ) -> None:
     """Register the fixed-cadence background maintenance jobs.
 
@@ -248,6 +252,16 @@ def _register_maintenance_jobs(
         coalesce=True,
         misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
     )
+    if ratings_fn is not None:
+        scheduler.add_job(
+            lambda: ratings_fn(_open_db_for_job(), lambda: _scheduler is not scheduler),
+            IntervalTrigger(minutes=10),
+            id="warm_ratings",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        )
     # Daily reaper for arr_search_throttle rows whose item has been
     # deleted. arr_search_throttle rows are keyed by media_item_id; when
     # the item is deleted the throttle row becomes a ghost — periodic
@@ -274,6 +288,7 @@ def start_scheduler(
     sync_fn: Callable[[], None] | None = None,
     sync_interval_minutes: int = 30,
     secret_key: str,
+    ratings_fn: RatingsFn | None = None,
 ) -> BackgroundScheduler:
     """Start a background scheduler with weekly scan and optional library sync.
 
@@ -287,6 +302,8 @@ def start_scheduler(
         sync_interval_minutes: Minutes between library syncs (default ``30``).
         secret_key: Application secret used to decrypt stored Radarr/Sonarr
             API keys; forwarded to trigger_pending_searches.
+        ratings_fn: Optional job run every 10 minutes with a job DB connection and
+            whether the scheduler has stopped; it fills the ratings cache.
 
     Returns:
         The running BackgroundScheduler instance.
@@ -322,7 +339,7 @@ def start_scheduler(
             sync_fn=sync_fn,
             sync_interval_minutes=sync_interval_minutes,
         )
-        _register_maintenance_jobs(_scheduler, secret_key=secret_key)
+        _register_maintenance_jobs(_scheduler, secret_key=secret_key, ratings_fn=ratings_fn)
         _scheduler.start()
         return _scheduler
 
