@@ -50,6 +50,9 @@
 .stx-link:hover { background: var(--s3); }
 /* Inside the row, as the list's rounded clip would cut a ring drawn outside it. */
 .stx-link:focus-visible { outline-offset: -2px; }
+.stx-list > li:first-child > .stx-link { border-radius: 14px 14px 0 0; }
+.stx-list > li:last-child > .stx-link { border-radius: 0 0 14px 14px; }
+.stx-list > li:only-child > .stx-link { border-radius: 14px; }
 .stx-link__ico {
   flex: none; display: grid; place-items: center;
   width: 30px; height: 30px; border-radius: 8px;
@@ -145,8 +148,10 @@
 /* A field that wants the width, such as an address, goes under its words. */
 .setg-pg .setg-row:has(> div > .inp--fluid) { flex-direction: column; align-items: stretch; gap: 8px; }
 .setg-pg .setg-row:has(> div > .inp--fluid) > * { flex: none; }
-/* What the switch lacks, and the fold of what OpenAI gets, run under the words and the switch. */
-.setg-pg .setg-row > .ai-need, .setg-pg .setg-row > .fold-more { flex: 1 1 100%; }
+/* What the switch lacks, and the fold of what OpenAI gets, run under the words and the switch: the
+   whole row wide, so they never fit beside them, with their words held to the help's measure. */
+.setg-pg .setg-row > .ai-need, .setg-pg .setg-row > .fold-more { flex: 1 1 100%; max-width: none; }
+.setg-pg .setg-row > .ai-need p, .setg-pg .setg-row > .fold-more > div { max-width: 60ch; }
 .setg-pg .setg-row-lbl { font-size: 15px; }
 .setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 2px; line-height: 1.4; max-width: 60ch; }
 .setg-pg .setg-row-sub a { color: var(--accent); }
@@ -285,7 +290,10 @@
   .stx-save { animation-name: fade-in-stx-save; animation-duration: var(--dur-fast) !important; }
   @keyframes fade-in-stx-save { from { opacity: 0; } }
 }
-/* Its dot in line with the list and the sections above it. */
+/* Its dot in line with the list and its button with the sections' cards above it. */
+@media (min-width: 1000px) {
+  .stx-save { padding-right: 28px; }
+}
 @media (max-width: 699.98px) {
   .stx-save { padding-inline: 16px; }
 }
