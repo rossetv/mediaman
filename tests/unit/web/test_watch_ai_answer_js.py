@@ -96,7 +96,9 @@ def test_the_ai_s_outlines_stand_under_its_own_heading_and_its_picks_land_there(
     assert out["sameHead"] is True
 
 
-def test_late_library_picks_are_library_cards_and_the_group_says_how_many_are_ready_to_watch() -> None:
+def test_late_library_picks_are_library_cards_and_the_group_says_how_many_are_ready_to_watch() -> (
+    None
+):
     out = _run("lateGroup")
     leaving, held = out["cards"]
     assert leaving["keep"] == 1 and "watch-badge--leaving" in leaving["badges"]
