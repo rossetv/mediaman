@@ -277,6 +277,9 @@ const scenarios = {
     set('wed', '10:00', 'Europe/London');
     edited.push('scan_day');
     out.during = await save({ scan_day: 'sat', scan_time: '10:00', scan_timezone: 'Europe/London' }, {});
+    edited.length = 0;
+    set('', '10:00', 'Europe/London');
+    out.unscheduled = await save({ scan_day: '', scan_time: '10:00', scan_timezone: 'Europe/London' }, {});
     return out;
   },
 

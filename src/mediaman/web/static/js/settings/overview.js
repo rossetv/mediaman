@@ -24,18 +24,25 @@
 
   var DAYS = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
 
-  // The schedule as the server has it.
-  var SCHEDULE = { scan_day: 'mon', scan_time: '09:00', scan_timezone: 'UTC' };
+  // The schedule as the server has it; a blank day means no scan is scheduled.
+  var SCHEDULE = { scan_day: '', scan_time: '', scan_timezone: '' };
 
-  // A blank value is one the server was not sent or does not keep.
+  // A value that is absent was not sent; a blank one is the server's answer.
   function setSchedule(values) {
-    Object.keys(SCHEDULE).forEach(function (key) { if (values[key]) SCHEDULE[key] = values[key]; });
+    Object.keys(SCHEDULE).forEach(function (key) {
+      if (values[key] !== undefined && values[key] !== null) SCHEDULE[key] = values[key];
+    });
   }
 
   function paintSchedule() {
     var big = document.getElementById('ov-scan-big');
     var when = document.getElementById('ov-scan-when');
     if (!big || !when) return;
+    if (!String(SCHEDULE.scan_day).trim()) {
+      big.textContent = 'Not scheduled';
+      when.replaceChildren();
+      return;
+    }
     var days = String(SCHEDULE.scan_day).split(',').map(function (token) {
       return DAYS[token.trim().toLowerCase()] || token.trim();
     });
