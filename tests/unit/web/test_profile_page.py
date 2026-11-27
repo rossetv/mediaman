@@ -385,3 +385,25 @@ def test_the_email_row_says_when_mail_is_not_set_up(
     assert says in sub
     assert ("Where download alerts go" in sub) == ready
     assert ("Settings" in sub) == (not ready and role == "admin")
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_a_viewer_s_lone_history_is_a_row_and_an_admin_s_sits_beside_settings_as_tiles(
+    app_factory, authed_client, conn, role
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+
+    @app.middleware("http")
+    async def as_role(request, call_next):
+        request.state.user_role = role
+        return await call_next(request)
+
+    html = authed_client(app, conn).get("/account?pane=1").text
+    history = re.search(r'<(?:button|a)[^>]*data-you-go="history"[^>]*>', html)
+    assert history
+    assert ('class="yo-row"' in history.group(0)) == (role == "viewer")
+    assert ('class="yo-tile"' in history.group(0)) == (role == "admin")
+    # the line with the last event is filled in either way
+    assert 'id="account-tile-history"' in html
+    # the whole name is in reach when it is cut to two lines
+    assert re.search(r'<h1 class="yo-name" title="[^"]+"', html)

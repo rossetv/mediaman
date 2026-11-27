@@ -109,3 +109,65 @@ def test_a_question_over_the_pane_puts_its_answers_side_by_side_with_discard_in_
     assert "width: auto" in rules[".you.is-open ~ .ui-confirm-overlay .ui-confirm-actions .btn"]
     red = rules[".you.is-open ~ .ui-confirm-overlay .btn--danger"]
     assert "var(--danger-solid)" in red
+
+
+def _at(value: str, d: int) -> float:
+    """A calc() of --dir worked out for a view whose --dir is *d*, its units dropped."""
+    expr = re.sub(r"var\(--dir(?:, 1)?\)", str(d), value).replace("calc", "").replace("%", "")
+    assert re.fullmatch(r"[\d\s.+\-*/()]+", expr), value
+    return float(eval(expr))
+
+
+def test_a_step_pushes_the_new_view_over_the_old_which_slips_a_little_way_under_and_fades() -> None:
+    view = _rules(TOP)[".you-view"]
+    # opaque, so the two views never show through each other
+    assert "background: var(--s1)" in view
+    shift = re.search(r"transform: translateX\((.*)\);", view).group(1)
+    z = re.search(r"z-index: (.*);", view).group(1)
+    fade = re.search(r"opacity: (.*);", view).group(1)
+    # the deeper view, on the right (--dir 1), comes or goes the full width, on top and opaque
+    assert _at(shift, 1) == 100
+    assert _at(fade, 1) == 1
+    # the shallower, on the left (--dir -1), slips a short way under it and fades out
+    assert -40 <= _at(shift, -1) <= -20
+    assert _at(fade, -1) == 0
+    assert _at(z, 1) > _at(z, -1)
+
+
+def _curve(name: str) -> tuple[float, ...]:
+    value = re.search(name + r": cubic-bezier\(([^)]*)\);", CSS).group(1)
+    return tuple(float(n) for n in value.split(","))
+
+
+def test_the_pane_comes_in_on_a_quick_settling_curve_and_leaves_on_one_that_speeds_up() -> None:
+    rules = _rules(TOP)
+    opening = rules[".you.is-open .you__panel"]
+    closing = rules[".you__panel"]
+    assert "var(--you-push)" in opening and "var(--you-out)" in closing
+    push, out = _curve("--you-push"), _curve("--you-out")
+    assert push[1] > push[0], "the push starts fast"
+    assert out[1] < out[0] and out[2:] == (1.0, 1.0), "the exit starts slow and leaves at speed"
+    # the panel fades only once it is under way, so it does not hang over Watch half seen
+    assert re.search(
+        r"opacity calc\(var\(--dur[^)]*\) \* [.\d]+\) var\(--you-out\) calc\(", closing
+    )
+
+
+def test_the_pane_moves_only_by_transform_and_opacity_never_by_its_width() -> None:
+    for value in re.findall(r"transition:([^;]*);", CSS):
+        for part in value.split(","):
+            prop = part.split()[0]
+            assert prop in {
+                "opacity",
+                "transform",
+                "visibility",
+                "background-color",
+                "color",
+                "none",
+            }, part
+
+
+def test_while_profile_loads_the_wait_is_drawn_as_the_hub() -> None:
+    rules = _rules(TOP)
+    head = rules['.you[data-wait="profile"] .you__wait > .skel:first-child']
+    assert "height: 76px" in head and "radial-gradient" in head

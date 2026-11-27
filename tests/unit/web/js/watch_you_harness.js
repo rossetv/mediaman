@@ -21,6 +21,13 @@ Object.defineProperty(Node.prototype, 'hidden', {
   get() { return this.hasAttribute('hidden'); },
   set(on) { this.toggleAttribute('hidden', !!on); },
 });
+// Each animation asked for, kept running until the scenario finishes it.
+const animations = [];
+Node.prototype.animate = function (frames, opts) {
+  const a = { el: this, frames, opts, onfinish: null, finish() { if (this.onfinish) this.onfinish(); } };
+  animations.push(a);
+  return a;
+};
 
 const view = (name, title, kids, wide) => ['div', Object.assign({ class: 'you-view', 'data-view': name, 'data-title': title }, wide ? { 'data-wide': '' } : {}), ...kids];
 const FRAGMENTS = {
@@ -39,6 +46,7 @@ function open(url, opts = {}) {
   doc.head = doc.documentElement.insertBefore(doc.createElement('head'), doc.body);
   doc.dispatchEvent = (e) => (doc.listeners[e.type] || []).slice().forEach((fn) => fn(e));
   const timers = [];
+  const idles = [];
   const winListeners = {};
   const clock = { now: 1000 };
   const fetched = [];
@@ -85,6 +93,8 @@ function open(url, opts = {}) {
     navigator: { platform: 'Linux' },
     performance: { now: () => clock.now },
     requestAnimationFrame: (fn) => timers.push({ fn, ms: 0, on: true }),
+    // The page is idle only when a scenario says so.
+    requestIdleCallback: (fn) => { idles.push(fn); },
     setTimeout: (fn, ms) => { timers.push({ fn, ms, on: true }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].on = false; },
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
@@ -153,7 +163,8 @@ function open(url, opts = {}) {
   };
   const late = () => { for (let n = 0; n < 5; n++) timers.filter((t) => t.on).forEach((t) => { t.on = false; t.fn(); }); };
   const api = {
-    doc, tab, $, ctx, fetched, assets, loaded, toasts, told, assigned, timers, clock, winListeners, resize, release,
+    doc, tab, $, ctx, fetched, assets, loaded, toasts, told, assigned, timers, clock, winListeners, resize, release, animations,
+    idle: async () => { idles.splice(0).forEach((fn) => fn({ didTimeout: false, timeRemaining: () => 50 })); await api.settle(); },
     you: ctx.MM.you,
     at: () => tab.entries[tab.index].url,
     settle: async () => { for (let i = 0; i < 4; i++) { await settle(); late(); } },
@@ -459,6 +470,123 @@ const scenarios = {
     const p = open('/?you=history&h=action%3Dplays%26pane%3D0%26evil%3D1');
     await p.settle();
     return p.fetched;
+  },
+
+  // Profile is fetched once the page is idle, and History and Settings once the hub is on show; each
+  // fetched ahead is used, not fetched again, unless History's filters changed meanwhile.
+  async prefetch() {
+    const run = async (viewer) => {
+      const p = open('/', { viewer });
+      await p.settle();
+      const before = p.fetched.slice();
+      await p.idle();
+      const idle = p.fetched.slice();
+      p.you.go('profile');
+      await p.settle();
+      const opened = [p.title(), p.fetched.length];
+      await p.idle();
+      const hub = p.fetched.slice();
+      await p.click('to-history');
+      return { before, idle, opened, hub, filtered: p.fetched.slice(hub.length), title: p.title(), toasts: p.toasts };
+    };
+    return { admin: await run(false), viewer: await run(true) };
+  },
+
+  // What was fetched ahead and did not come says nothing, and is asked for again when it is opened.
+  async prefetchFails() {
+    let down = true;
+    const p = open('/', { server: (page) => (down && page === '/account' ? { status: 500 } : null) });
+    await p.idle();
+    const quiet = [p.toasts.slice(), p.you.shown('profile'), p.at()];
+    down = false;
+    p.you.go('profile');
+    await p.settle();
+    return { quiet, opened: [p.title(), p.fetched, p.toasts] };
+  },
+
+  // The pointer on the profile button, or a press on it, fetches Profile ahead.
+  async prefetchOnButton() {
+    const p = open('/');
+    p.event('pointerenter', p.$('btn'));
+    await p.settle();
+    const hovered = p.fetched.slice();
+    p.event('pointerdown', p.$('btn'));
+    await p.settle();
+    return { hovered, pressed: p.fetched };
+  },
+
+  // A step to a group still on its way slides the view on show out at once, so the wait shows in its place.
+  async stepWhileLoading() {
+    const p = open('/', { hold: true });
+    p.you.go('profile');
+    await p.settle();
+    p.release();
+    await p.settle();
+    p.$('to-email').focus();
+    p.you.go('history');
+    await p.settle();
+    const on = p.doc.querySelectorAll('.you-view.is-on').map((v) => v.getAttribute('data-view'));
+    const hub = p.doc.querySelector('.you-view[data-view="profile"]');
+    const waiting = { on, loading: p.$('you').classList.contains('is-loading'), focus: p.focused(), hubDir: hub.style['--dir'], hubInert: hub.inert };
+    p.release();
+    await p.settle();
+    const came = p.doc.querySelectorAll('.you-view.is-on').map((v) => v.getAttribute('data-view'));
+    return { waiting, came, title: p.title() };
+  },
+
+  // On a phone a pull down on the content, scrolled to its top, takes the sheet with it and closes it.
+  async pullFromContent() {
+    const touch = (p, type, target, y, x = 50) => p.event(type, target, { touches: type === 'touchend' ? [] : [{ clientX: x, clientY: y }], timeStamp: y });
+    const run = async (scrolled, way) => {
+      const p = open('/', { phone: true });
+      p.you.go('profile');
+      await p.settle();
+      const view = p.doc.querySelector('.you-view[data-view="profile"]');
+      view.scrollTop = scrolled;
+      touch(p, 'touchstart', p.$('last'), 100);
+      const moves = way === 'up' ? [80, 60] : way === 'side' ? [[110, 200], [120, 300]] : [140, 260, 400];
+      const kept = moves.map((m) => (Array.isArray(m) ? touch(p, 'touchmove', p.$('last'), m[0], m[1]) : touch(p, 'touchmove', p.$('last'), m)).defaultPrevented);
+      const moved = p.$('panel').style.transform || '';
+      touch(p, 'touchend', p.$('last'), 400);
+      await p.settle();
+      return { kept, moved, at: p.at() };
+    };
+    return { top: await run(0, 'down'), scrolled: await run(40, 'down'), up: await run(0, 'up'), side: await run(0, 'side') };
+  },
+
+  // Pulled up by its handle, the sheet gives a little and comes back.
+  async rubberBand() {
+    const p = open('/', { phone: true });
+    p.you.go('profile');
+    await p.settle();
+    const send = (type, y) => (p.$('grab').listeners[type] || []).forEach((fn) => fn({ type, pointerId: 1, button: 0, clientY: y, timeStamp: 0, target: p.$('grab'), currentTarget: p.$('grab') }));
+    send('pointerdown', 300);
+    send('pointermove', 200);
+    const up = p.$('panel').style.transform;
+    send('pointerup', 200);
+    await p.settle();
+    return { up, after: [p.$('panel').style.transform, p.at()] };
+  },
+
+  // A step moves the bar's title with the view: the old one leaves as the new one comes, both ways.
+  async titleMoves() {
+    const run = async (calm) => {
+      const p = open('/', { calm });
+      p.you.go('profile');
+      await p.settle();
+      p.animations.length = 0;
+      await p.click('to-email');
+      const ghost = p.$('bar').querySelector('.you__title.is-old');
+      const of = (el) => p.animations.filter((a) => a.el === el).map((a) => a.frames.map((f) => [f.opacity, f.transform || 'none']));
+      const step = { title: p.title(), ghost: ghost && [ghost.textContent, ghost.getAttribute('aria-hidden')], out: ghost && of(ghost), in: of(p.$('title')), label: of(p.$('up-label')) };
+      p.animations.forEach((a) => a.finish());
+      const left = p.$('bar').querySelectorAll('.is-old').length;
+      p.animations.length = 0;
+      await p.click('up');
+      const back = p.$('bar').querySelector('.you__title.is-old');
+      return { step, left, back: [p.title(), back && of(back), of(p.$('title'))] };
+    };
+    return { full: await run(false), calm: await run(true) };
   },
 };
 

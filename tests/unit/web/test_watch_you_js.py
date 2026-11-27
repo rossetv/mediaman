@@ -196,3 +196,78 @@ def test_a_fragment_s_styles_and_scripts_load_only_from_the_app_s_own_static_fil
 
 def test_history_is_fetched_with_only_its_own_keys_from_the_address() -> None:
     assert _run("historyKeys") == ["/history?pane=1&action=plays"]
+
+
+def test_profile_is_fetched_once_idle_and_history_and_settings_once_the_hub_shows() -> None:
+    out = _run("prefetch")
+    admin, viewer = out["admin"], out["viewer"]
+    assert admin["before"] == []
+    assert admin["idle"] == ["/account?pane=1"]
+    # opened, it is shown from what came ahead, with nothing fetched again
+    assert admin["opened"] == ["Profile", 1]
+    assert admin["hub"] == ["/account?pane=1", "/history?pane=1", "/settings?pane=1"]
+    # History asked for with other filters than it was fetched ahead with is fetched afresh
+    assert (admin["filtered"], admin["title"]) == (["/history?pane=1&action=plays"], "History")
+    assert viewer["hub"] == ["/account?pane=1", "/history?pane=1"]
+    assert admin["toasts"] == viewer["toasts"] == []
+
+
+def test_a_fetch_ahead_that_fails_says_nothing_and_is_asked_for_again_on_opening() -> None:
+    out = _run("prefetchFails")
+    assert out["quiet"] == [[], False, "/"]
+    assert out["opened"] == ["Profile", ["/account?pane=1", "/account?pane=1"], []]
+
+
+def test_the_pointer_on_the_profile_button_fetches_profile_ahead_once() -> None:
+    out = _run("prefetchOnButton")
+    assert out["hovered"] == ["/account?pane=1"]
+    assert out["pressed"] == ["/account?pane=1"]
+
+
+def test_a_step_to_a_group_on_its_way_slides_the_old_view_out_and_puts_the_focus_on_the_title() -> (
+    None
+):
+    out = _run("stepWhileLoading")
+    assert out["waiting"] == {
+        "on": [],
+        "loading": True,
+        "focus": "title",
+        "hubDir": -1,
+        "hubInert": True,
+    }
+    assert (out["came"], out["title"]) == (["history"], "History")
+
+
+def test_a_pull_down_on_the_content_at_its_top_closes_the_sheet_and_a_scroll_does_not() -> None:
+    out = _run("pullFromContent")
+    assert out["top"]["kept"] == [True, True, True]
+    assert out["top"]["moved"].startswith("translateY(")
+    assert out["top"]["at"] == "/"
+    for way in ("scrolled", "up", "side"):
+        assert out[way]["kept"] == [False] * len(out[way]["kept"]), way
+        assert out[way]["at"] == "/?you=profile", way
+
+
+def test_a_sheet_pulled_up_gives_a_third_of_the_way_and_comes_back() -> None:
+    out = _run("rubberBand")
+    assert out["up"] == "translateY(-35px)"
+    assert out["after"] == ["", "/?you=profile"]
+
+
+def test_a_step_moves_the_old_title_out_and_the_new_in_and_with_reduced_motion_only_fades() -> None:
+    out = _run("titleMoves")
+    full = out["full"]["step"]
+    assert full["title"] == "Email"
+    assert full["ghost"] == ["Profile", "true"]
+    assert full["out"] == [[[1, "none"], [0, "translateX(-12px)"]]]
+    assert full["in"] == [[[0, "translateX(12px)"], [1, "none"]]]
+    assert full["label"] == [[[0, "translateX(12px)"], [1, "none"]]]
+    assert out["full"]["left"] == 0
+    # back up, both move the other way
+    title, gone, came = out["full"]["back"]
+    assert title == "Profile"
+    assert gone == [[[1, "none"], [0, "translateX(12px)"]]]
+    assert came == [[[0, "translateX(-12px)"], [1, "none"]]]
+    calm = out["calm"]["step"]
+    assert calm["out"] == [[[1, "none"], [0, "none"]]]
+    assert calm["in"] == [[[0, "none"], [1, "none"]]]

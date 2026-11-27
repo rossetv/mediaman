@@ -12,7 +12,7 @@
         <span class="yo-pic__badge">{{ c.icon("i-camera") }}</span>
       </button>
       <div class="yo-head__text">
-        <h1 class="yo-name">{{ username }}</h1>
+        <h1 class="yo-name" title="{{ username }}">{{ username }}</h1>
         <p class="yo-role"><span class="yo-role__pill{% if role == 'admin' %} is-admin{% endif %}">{{ "Admin" if role == "admin" else "Viewer" }}</span><span class="yo-mail" id="account-head-email"{% if not email %} hidden{% endif %}>{{ email or '' }}</span></p>
       </div>
     </div>
@@ -22,12 +22,17 @@
       <a class="yo-row" href="/?dl=1"><span class="yo-row__ico yo-ico--blue">{{ c.icon("i-download") }}</span><span class="yo-row__label">Downloading</span><span class="yo-row__value" data-row-value></span>{{ c.icon("i-chevron-right", "yo-row__chev") }}</a>
     </div>
 
-    <div class="yo-tiles{% if role != 'admin' %} is-one{% endif %}">
+    {% if role == "admin" %}
+    <div class="yo-tiles">
       <button type="button" class="yo-tile" data-you-go="history"><span class="yo-tile__ico yo-ico--blue">{{ c.icon("i-clock-rotate-left") }}</span><span class="yo-tile__name">History</span><span class="yo-tile__sub" id="account-tile-history" data-me="{{ username }}">What was played, downloaded and kept</span></button>
-      {% if role == "admin" %}
       <button type="button" class="yo-tile" data-you-go="settings"><span class="yo-tile__ico yo-ico--grey">{{ c.icon("i-gear") }}</span><span class="yo-tile__name">Settings</span><span class="yo-tile__sub" id="account-tile-settings">Libraries, services, clean-up and people</span></button>
-      {% endif %}
     </div>
+    {% else %}
+    {# Alone, a tile would stand as a block of its own; History is a row like the rest. #}
+    <div class="yo-group yo-hist">
+      <button type="button" class="yo-row" data-you-go="history"><span class="yo-row__ico yo-ico--blue">{{ c.icon("i-clock-rotate-left") }}</span><span class="yo-row__label">History<span class="yo-row__sub yo-row__sub--one" id="account-tile-history" data-me="{{ username }}">What was played, downloaded and kept</span></span>{{ c.icon("i-chevron-right", "yo-row__chev") }}</button>
+    </div>
+    {% endif %}
 
     <h2 class="yo-group__head">Account</h2>
     <div class="yo-group">

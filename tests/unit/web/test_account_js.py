@@ -559,3 +559,7 @@ def test_the_hub_leads_to_downloading_while_something_downloads() -> None:
     assert out["before"] == {"went": ["close"], "ringClicks": 0, "prevented": True}
     assert (out["after"], out["again"]) == (1, 1), "Downloading opens once the pane has closed"
     assert out["none"] is True
+
+
+def test_the_hub_s_downloads_row_says_how_many_are_ready_to_watch_before_any_progress() -> None:
+    assert _run("hubReady") == {"one": "1 ready to watch", "busy": "2 ready to watch"}

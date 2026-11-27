@@ -147,6 +147,19 @@ const buttonOf = (row, words) => row.querySelectorAll('button').find((b) => b.te
 const push = (button) => button.listeners.click.forEach((fn) => fn({}));
 
 const scenarios = {
+  // Downloads ready to watch are what the hub's row says, even while another still downloads.
+  async hubReady() {
+    const downloading = { readers: [] };
+    const p = page({ get: () => Promise.resolve({ sessions: [] }) }, { downloading });
+    const says = (summary) => {
+      downloading.readers.forEach((fn) => fn({ summary, items: [], lost: false }));
+      return p.$('account-dl').querySelector('[data-row-value]').textContent;
+    };
+    return {
+      one: says({ total: 1, active: 0, ready: 1, waiting: 0, percent: 100 }),
+      busy: says({ total: 3, active: 1, ready: 2, waiting: 0, percent: 40 }),
+    };
+  },
   // While something downloads the hub has a row that leads to it: the pane closes, then Downloading opens.
   async hubDownloading() {
     const downloading = { readers: [] };
