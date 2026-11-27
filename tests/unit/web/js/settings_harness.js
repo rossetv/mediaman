@@ -454,8 +454,8 @@ const scenarios = {
     h.add('button', { id: 'btn-discard' }, bar);
     h.add('span', { id: 'save-status' }, bar);
     const row = h.add('div', { className: 'setg-row' }, page);
-    const input = h.add('input', { id: 'tv_address', value: '', type: 'text' }, row);
-    const detail = [{ loc: ['body', 'tv_address'], msg: 'Value error, must be a home address and not localhost' }];
+    const input = h.add('input', { id: 'base_url', value: '', type: 'text' }, row);
+    const detail = [{ loc: ['body', 'base_url'], msg: 'Value error, URL must include a host' }];
     h.ctx.MM.api = { put: () => Promise.reject({ status: 422, data: { detail } }), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
     h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
@@ -471,7 +471,7 @@ const scenarios = {
     const frame = (to) => { height = to; h.timers.splice(0).filter((t) => t.ms === 16).forEach((t) => t.fn()); resized.forEach((fn) => fn()); };
     h.load('settings/savebar.js');
     h.ctx.MM.settings.savebar.init({});
-    input.value = 'http://localhost'; input.fire('input');
+    input.value = 'http://'; input.fire('input');
     save.focus();
     save.fire('click');
     await h.flush();
@@ -1086,29 +1086,6 @@ const scenarios = {
     save.fire('click');
     await h.flush();
     return { text: status.textContent };
-  },
-
-  // What the save bar says for each answer about the address TVs use.
-  async tvAddressError() {
-    const out = [];
-    for (const said of JSON.parse(process.argv[3])) {
-      const h = build();
-      h.add('div', { className: 'setg-pg' });
-      const bar = h.add('div', { id: 'setg-savebar' });
-      const save = h.add('button', { id: 'btn-save' }, bar);
-      const status = h.add('span', { id: 'save-status' }, bar);
-      h.ctx.MM.api = {
-        put: () => Promise.reject({ status: 422, data: { detail: [{ loc: ['body', 'tv_address'], msg: said }] } }),
-        messageOf: () => 'x',
-      };
-      h.ctx.MM.reauth = { run: (f) => f() };
-      h.load('settings/savebar.js');
-      h.ctx.MM.settings.savebar.init({});
-      save.fire('click');
-      await h.flush();
-      out.push(status.textContent);
-    }
-    return out;
   },
 
   // A role change updates its row where it stands.

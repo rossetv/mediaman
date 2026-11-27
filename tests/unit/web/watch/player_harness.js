@@ -5656,28 +5656,6 @@ const scenarios = {
     return awayState(p);
   },
 
-  /* An older TV says only as it begins whether it can play it. */
-  async away_older(p) {
-    const how = p.win.serverPlays;
-    await streamPlays(p, 30);
-    p.elsewhere.tvs = [Object.assign({}, LIVING, { id: 7, kind: 'older', name: 'Kitchen TV' })];
-    p.tick(1); await openSheet(p);
-    const said7 = (state, error) => ({ tv: Object.assign({}, LIVING, { id: 7, kind: 'older', name: 'Kitchen TV', play: { play_id: 'p7', rating_key: '501', state: state, error: error || null } }) });
-    p.elsewhere.plays.push(() => Promise.resolve(said7('starting')));
-    let next = said7('loading');
-    p.elsewhere.tv = () => Promise.resolve(next);
-    await pickRow(p, 'tv-7');
-    p.tick(1000); await settle();
-    const out = { waits: rowOf('tv-7').getAttribute('aria-busy') };
-    next = how === 'plays' ? said7('playing') : said7('failed', how);
-    p.tick(1000); await settle();
-    out.open = sheet().open;
-    out.says = said();
-    out.state = awayState(p);
-    out.stops = p.elsewhere.sent.filter((c) => /\/commands$/.test(c.post || '')).map((c) => c.body.play_id);
-    return out;
-  },
-
   /* Played on at once, a TV that was just paired has not been heard of yet. */
   async away_fresh(p) {
     const how = p.win.serverPlays;

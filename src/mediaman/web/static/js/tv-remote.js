@@ -76,11 +76,6 @@
     not_found: 'It is no longer in the library.',
     not_set_up: 'Plex isn’t set up.',
   };
-  // Said of an older TV, which shows no page of mediaman.
-  var REFUSED_OLDER = {
-    tv_off: 'The TV isn’t answering. Check it’s on.',
-    unreachable: 'The TV or Plex didn’t answer. Try again in a moment.',
-  };
   var STILL_S = 600; // that a question waits
   // Why a TV is no longer the person's, as a 410 says.
   var UNPAIRED = ['removed', 'left', 'account'];
@@ -146,7 +141,6 @@
   function about() { return play() || (gone && gone.last) || seen; }
   var sender = null; // of the Chromecast
   function kind() { var t = tv || (gone && gone.tv); return t ? t.kind : ''; }
-  function isOlder() { return kind() === 'older'; }
   function isCast() { return kind() === CAST; }
   // A Chromecast is steered without mediaman.
   function isOff() { return offline && !isCast(); }
@@ -458,7 +452,7 @@
       all = withCast(all);
       others = all.filter(function (t) { return t.play; });
       var mine = tv && all.filter(function (t) { return t.id === tv.id; })[0];
-      // Of an older TV, which everyone keeps, the list does not say why it ended.
+      // The list does not say why a play it no longer holds ended: the TV is asked.
       if (play() && !(mine && (mine.play || mine.last))) return askOne();
       if (play() || (mine && mine.play)) hear(mine, at);
       if (handing || gone || play() && !(putAway() && others.some(function (t) { return t.on && t.id !== tv.id; }))) return;
@@ -527,7 +521,7 @@
     if (isGone(err)) { lostTv(err); render(); return; }
     if (SILENT.indexOf(err.error) === -1) {
       var text = err.name === 'AbortError' ? 'mediaman didn’t answer. Try again.'
-        : isOlder() && REFUSED_OLDER[err.error] || REFUSED[err.error] || MM.api.messageOf(err, 'That didn’t work. Try again.');
+        : REFUSED[err.error] || MM.api.messageOf(err, 'That didn’t work. Try again.');
       global.UIFeedback.error(text);
     }
     tick();
@@ -1049,15 +1043,8 @@
         signed_out: [n + ' stopped', 'You signed out everywhere, which ends what plays on a TV.'],
         restarted: ['mediaman restarted', keptIn(last || {})],
       }[gone.reason] || [n + ' stopped', 'Yours stopped' + after + '.'];
-      var older = isOlder() && {
-        lost: 'It didn’t answer for 2 minutes, so it stopped' + after + '.',
-        taken: 'They started something on it, and yours stopped' + after + '.',
-        unpaired: 'An admin removed it or turned older TVs off. Yours stopped' + after + '.',
-        signed_out: 'The sign-in that started it has ended, so it stopped' + after + '.',
-      }[gone.reason];
       if (isCast() && gone.reason === 'lost') card[1] = 'It was off or away from the network for 2 minutes, so it stopped' + after + '.';
       if (isCast() && gone.reason === 'taken') card = [n + ' plays something else', 'Yours stopped' + after + '.'];
-      if (older) card = [gone.reason === 'unpaired' ? n + ' can’t be used now' : card[0], older];
       var mine = ['lost', 'still', 'restarted'].indexOf(gone.reason) !== -1;
       var on = onward(last);
       var acts = mine ? [[gone.reason === 'lost' ? (on && on.next ? 'Play next episode' : 'Try again') : 'Continue watching', playAgain], here, ['Close', dismiss]]
@@ -1074,9 +1061,8 @@
     if (!p || leaving) return null;
     if (isLost()) {
       return { key: 'lost', title: n + ' stopped answering',
-        line: isOlder() ? 'It may be off or away from the network. If it answers within 2 minutes, you can go on from here.'
-          : isCast() ? 'It may be off or away from the network. If it comes back within 2 minutes, it carries on by itself.'
-            : 'It may be off, asleep or away from its browser. If it comes back within 2 minutes, it carries on by itself.',
+        line: isCast() ? 'It may be off or away from the network. If it comes back within 2 minutes, it carries on by itself.'
+          : 'It may be off, asleep or away from its browser. If it comes back within 2 minutes, it carries on by itself.',
         // Chrome looks for a Chromecast by itself.
         acts: (isCast() ? [] : [['Try again', tryTv]]).concat(onward(p) ? [here] : [], [['Stop', function () { stop(); }]]) };
     }

@@ -171,11 +171,11 @@ class TestSensitiveSettingsRequireReauth:
         resp = client.put("/api/settings", json={"plex_token": "****"})
         assert resp.status_code == 200
 
-    def test_the_older_tv_keys_a_page_left_open_still_sends_are_ignored(
+    def test_the_tv_keys_a_page_left_open_still_sends_are_ignored(
         self, app_factory, authed_client, conn
     ):
         client = _client(app_factory, authed_client, conn, with_reauth=False)
-        old = {"older_tvs_enabled": True, "older_tvs_http": True}
+        old = {"older_tvs_enabled": True, "older_tvs_http": True, "tv_address": "http://localhost"}
 
         resp = client.put("/api/settings", json={"scan_day": "mon", **old})
         assert resp.status_code == 200
