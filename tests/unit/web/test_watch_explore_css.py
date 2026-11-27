@@ -49,3 +49,26 @@ def test_where_it_fits_known_for_stands_beside_who_they_are_and_under_them_where
     assert beside and "grid-column: 3" in beside.group(1) and "grid-row: 1 / 3" in beside.group(1)
     under = re.search(r"\n\.explore--person \.explore-head > \.explore-known \{([^}]*)\}", css)
     assert under and "grid-column: 1 / -1" in under.group(1)
+
+
+def test_a_persons_dates_placeholder_keeps_its_margins_inside_so_it_is_as_tall_as_the_dates() -> None:
+    css = (CSS / "_watch_explore.css").read_text()
+    assert re.search(r"\.explore-born:has\(> \.skel\) \{[^}]*display: flow-root", css)
+    line = re.search(r"\.explore-born > \.skel--line \{([^}]*)\}", css)
+    assert line
+    height = int(re.search(r"height: (\d+)px", line[1])[1])
+    margin = int(re.search(r"margin: (\d+)px 0", line[1])[1])
+    born = re.search(r"\.explore-born \{[^}]*min-height: ([\d.]+)em[^}]*font-size: (\d+)px", css)
+    assert born
+    assert height + 2 * margin <= float(born[1]) * int(born[2])
+
+
+def test_on_a_phone_a_state_badge_is_tight_enough_for_ready_to_watch_to_fit_a_poster() -> None:
+    css = (CSS / "_watch_browse.css").read_text()
+    rule = re.search(
+        r"@media \(max-width: 599\.98px\) \{ \.watch-badge\.watch-badge--state \{([^}]*)\} \}", css
+    )
+    assert rule
+    pad = int(re.search(r"padding-inline: (\d+)px", rule[1])[1])
+    gap = int(re.search(r"gap: (\d+)px", rule[1])[1])
+    assert 2 * pad + gap <= 12
