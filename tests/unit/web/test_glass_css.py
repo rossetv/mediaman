@@ -1,5 +1,6 @@
-"""Glass: one material named once in the tokens, drawn by the top bar's islands, the profile menu
-and toasts, legible over a white page, and solid wherever glass cannot or should not be drawn."""
+"""Glass: one material named once in the tokens, drawn by the top bar's islands, the profile menu,
+toasts, the sign-in card and the pages that stand in it, and a download page's bar and episodes,
+legible over a white page, and solid wherever glass cannot or should not be drawn."""
 
 from __future__ import annotations
 
@@ -11,6 +12,10 @@ from tests.unit.web._css import CSS_DIR, contrast, rgb, rules, style, token
 
 NAV = "_nav.css"
 TOASTS = "_ui_feedback.css"
+LOGIN = "_login.css"
+SHARE = "_share.css"
+DL_PAGE = "_download_page.css"
+EPISODES = ".share-eps .dl-hero-episodes"
 NO_BLUR = "@supports not"
 WHITE = (255.0, 255.0, 255.0)
 
@@ -18,6 +23,9 @@ WHITE = (255.0, 255.0, 255.0)
 SURFACES = [
     (".profile-panel", NAV, "background"),
     (".ui-toast", TOASTS, "background-color"),
+    (".login-card", LOGIN, "background"),
+    (".share-bar .btn", SHARE, "background"),
+    (EPISODES, DL_PAGE, "background"),
 ]
 # What sits on the glass of each surface: what its words, fills and blue and red words resolve to.
 ON_GLASS = [
@@ -26,6 +34,8 @@ ON_GLASS = [
     (".nav-glass .watch-search", NAV),
     (".profile-panel", NAV),
     (".ui-toast", TOASTS),
+    (".login-card", LOGIN),
+    (EPISODES, DL_PAGE),
 ]
 WORDS = ("--t2", "--t3", "--t4", "--accent-text", "--danger-text")
 
@@ -178,3 +188,42 @@ def test_the_search_s_new_hint_comes_in_only_once_the_old_one_has_gone() -> None
 def test_a_pointer_over_the_way_back_lights_its_glass_and_keeps_the_tint_under_its_word() -> None:
     lit = style(".nav-back:hover", NAV, "(hover: hover)")
     assert lit["background-color"].startswith("color-mix(in srgb, var(--isle),"), lit
+
+
+def _on_tint_over_white_glass(tint: str) -> tuple[float, ...]:
+    return _on(_resolve(tint), _glass_over(WHITE, float(token("--g-a")), filtered=True))
+
+
+@pytest.mark.parametrize(
+    ("message", "tint"),
+    [(".login-msg", "var(--rgba-danger-bg-soft)"), (".login-msg.is-wait", "rgba(255,159,10,.1)")],
+)
+def test_the_sign_in_card_s_red_and_amber_lines_hold_on_their_tints_over_a_white_page(
+    message: str, tint: str
+) -> None:
+    drawn = style(message, LOGIN)
+    assert drawn["background"] == tint
+    word = re.fullmatch(r"var\((--[\w-]+)\)", drawn["color"])[1]
+    lifted = _resolve(style(".login-card", LOGIN)[word])
+    under = _on_tint_over_white_glass(tint)
+    assert contrast(_on(lifted, under), under) >= 4.5, (message, lifted)
+
+
+def test_the_sign_in_card_s_link_is_a_word_lifted_for_glass() -> None:
+    assert style(".security-note a", LOGIN)["color"] == "var(--accent-text)"
+
+
+def test_a_state_chip_on_the_episodes_glass_has_a_dark_floor_under_its_tint() -> None:
+    assert style(".share-eps .dl-ep-status-pill", DL_PAGE)["box-shadow"] == "var(--g-chip-floor)"
+
+
+def test_a_pointer_over_the_download_page_s_button_lightens_its_glass_and_keeps_the_tint() -> None:
+    lit = style(".share-bar .btn:hover", SHARE)["background"]
+    assert lit.endswith(", var(--g-thin)"), lit
+
+
+def test_the_trailer_fades_the_bar_s_parts_and_not_the_bar_that_holds_their_glass() -> None:
+    playing = ".share-bar:has(~ main .is-trailer)"
+    assert "opacity" not in style(playing, DL_PAGE)
+    assert style(f"{playing} > *", DL_PAGE)["opacity"] == "0"
+    assert "opacity" in style(".share-bar > .btn", DL_PAGE)["transition"]

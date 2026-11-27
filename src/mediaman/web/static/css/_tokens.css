@@ -216,6 +216,7 @@
   --g-accent-text: #a6d2ff;
   --g-accent:    color-mix(in srgb, var(--g-accent-text) 70%, var(--accent));
   --g-danger-text: #ffc2bc;
+  --g-warning-text: #ffc46a;     /* amber words: what waits, which is nobody's fault */
   /* What the page goes under: plain dims, never blurred, so the glass over them has a page to show. */
   --g-dim:       rgb(0 0 0 / .42);           /* behind a dialog, and behind a title */
   --g-dim-blur:  blur(2px);                  /* the title's dim alone */

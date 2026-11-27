@@ -30,13 +30,28 @@
   max-width: 420px;
   /* A grid item: else as wide as the name, which then cannot narrow with the screen. */
   min-width: 0;
-  background: rgba(29,29,31,.7);
-  -webkit-backdrop-filter: saturate(180%) blur(40px);
-  backdrop-filter: saturate(180%) blur(40px);
-  border: 1px solid var(--hair-strong);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: var(--r-lg);
   padding: 44px 36px;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
+  /* What sits on its glass: veils for its fills, quiet words and coloured ones lifted. --accent
+     stays: it marks rings and the button, never words. */
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
+  --orange: var(--g-warning-text);
 }
 .login-brand { display: flex; min-height: 1.47em; margin-bottom: 4px; font-size: 32px; }
 /* A flex item is no narrower than its content unless told: so the name can narrow with the card. */
@@ -127,7 +142,7 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 }
 
 .security-note { color: var(--t3); font-size: 12px; margin-top: 18px; text-align: center; line-height: 1.5; }
-.security-note a { position: relative; color: var(--accent); }
+.security-note a { position: relative; color: var(--accent-text); }
 /* One 15px line of text: the press reaches 45px without moving the lines around it. */
 .security-note a::after { content: ""; position: absolute; inset: -15px -8px; }
 
@@ -192,7 +207,6 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 @supports (animation-timing-function: linear(0, 1)) {
   .login-page--signin { --ease-spring: linear(0, .06 5%, .2 11%, .42 19%, .65 28%, .84 38%, .96 48%, 1.006 56%, 1.016 64%, 1.01 76%, 1.003 88%, 1); }
 }
-.login-page--signin .login-card { border-top-color: rgba(255,255,255,.2); }
 
 /* After log-out the signed-out line sits where the subtitle is, and gives it back. */
 .login-page--signin .login-sub { display: grid; min-height: 20px; }
