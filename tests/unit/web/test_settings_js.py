@@ -68,6 +68,10 @@ def test_unsaved_edits_anywhere_on_the_page_still_hold_a_redirect_once_settings_
     }
 
 
+def test_a_settings_copy_replaced_by_a_fresh_load_no_longer_counts_as_unsaved() -> None:
+    assert _run("unsavedAfterReload") == {"dirtyFirst": True, "afterReload": False}
+
+
 def test_an_edit_made_during_a_save_stays_unsaved() -> None:
     out = _run("editDuringSave")
     unsaved = {"on": True, "button": "Save Settings", "disabled": False}

@@ -424,6 +424,27 @@ const scenarios = {
     return { elsewhereOnly, neither, askedOnce, settingsOnly: check(), ownOnly: h.ctx.MM.settings.savebar.isDirty() };
   },
 
+  // Settings loaded again in place of a copy left with edits: the copy that is gone holds nothing back.
+  async unsavedAfterReload() {
+    const h = build();
+    let page = h.add('div', { className: 'setg-pg' });
+    let input = h.add('input', { id: 'plex_url', value: 'http://a', type: 'text' }, page);
+    let bar = h.add('div', { id: 'setg-savebar' });
+    h.ctx.MM.api = { hasUnsavedChanges: () => false };
+    const start = () => { h.load('settings/savebar.js'); h.ctx.MM.settings.savebar.init({}); };
+    start();
+    input.value = 'http://b';
+    input.fire('input');
+    const dirtyFirst = h.ctx.MM.api.hasUnsavedChanges();
+    page.remove();
+    bar.remove();
+    page = h.add('div', { className: 'setg-pg' });
+    input = h.add('input', { id: 'plex_url', value: 'http://a', type: 'text' }, page);
+    bar = h.add('div', { id: 'setg-savebar' });
+    start();
+    return { dirtyFirst, afterReload: h.ctx.MM.api.hasUnsavedChanges() };
+  },
+
   // A refused save shows the field it refused, out from under the bar, and leaves the focus where it was.
   async refusedInView() {
     const h = build();
