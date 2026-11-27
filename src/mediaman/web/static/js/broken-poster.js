@@ -34,10 +34,22 @@
       delete img.dataset.nextSrc;
       img.dataset.retrying = '';
       img.src = next;
+      if (img.hasAttribute('data-wide-art') && img.parentNode) follow(img.parentNode, next);
       return;
     }
     delete img.dataset.retrying;
     img.dataset.broken = '';
+  }
+
+  // A banner's blurred copy of its picture goes on to the next picture with it: a first
+  // picture too narrow to show still loads, so the copy alone would keep it.
+  function follow(banner, src) {
+    [].slice.call(banner.querySelectorAll('.mm-bg-blur')).forEach(function (copy) {
+      if (copy.getAttribute('src') === src) return;
+      delete copy.dataset.nextSrc;
+      delete copy.dataset.broken;
+      copy.src = src;
+    });
   }
 
   // This route fails where it is asked too much at once or its source is slow,
