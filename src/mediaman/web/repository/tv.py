@@ -55,13 +55,38 @@ def find_by_token(conn: sqlite3.Connection, token_hash: str) -> Tv | None:
 
 
 def is_paired(conn: sqlite3.Connection, token_hash: str, username: str) -> bool:
-    """Whether the token is that of a TV paired with *username*."""
+    """Whether the token is that of a TV paired with *username*, among others or alone."""
     tv = find_by_token(conn, token_hash)
-    return tv is not None and tv.owner == username
+    return tv is not None and is_member(conn, tv.id, username)
+
+
+def is_member(conn: sqlite3.Connection, tv_id: int, username: str) -> bool:
+    """Whether *username* is one of the people the TV is paired with."""
+    row = conn.execute(
+        "SELECT 1 FROM tv_people p JOIN admin_users u ON u.id = p.user_id"
+        " WHERE p.tv_id = ? AND u.username = ?",
+        (tv_id, username),
+    ).fetchone()
+    return row is not None
+
+
+def people(conn: sqlite3.Connection, tv_id: int) -> list[str]:
+    """Everyone the TV is paired with, the first to pair it first."""
+    rows = conn.execute(
+        "SELECT u.username FROM tv_people p JOIN admin_users u ON u.id = p.user_id"
+        " WHERE p.tv_id = ? ORDER BY p.paired_at, p.user_id",
+        (tv_id,),
+    )
+    return [row[0] for row in rows]
 
 
 def owned(conn: sqlite3.Connection, username: str) -> list[Tv]:
-    rows = conn.execute(f"{_SELECT} WHERE u.username = ? ORDER BY tvs.id", (username,))
+    """The TVs paired with *username*, each as theirs."""
+    rows = conn.execute(
+        f"{_SELECT} JOIN tv_people p ON p.tv_id = tvs.id"
+        " JOIN admin_users me ON me.id = p.user_id WHERE me.username = ? ORDER BY tvs.id",
+        (username,),
+    )
     return [Tv(**dict(row)) for row in rows]
 
 
@@ -93,11 +118,13 @@ def pair(
     ip: str,
     now: datetime,
 ) -> Tv | None:
-    """Pair the TV that holds the token with *username*.
+    """Pair the TV with *username*: a new one under the token, or *again*, the TV's row where it was
+    paired before.
 
-    *again* is the TV's row where it was paired before; None is returned, and nothing changed,
-    where that is no longer whose it was. Raises ``SessionEnded`` unless the session is still the
-    person's when it is stored.
+    A TV paired with this person alone is paired anew under the token, so that nothing begun before
+    reaches it. One that others are paired with keeps its token and what plays on it, and the person
+    joins them. None is returned, and nothing changed, where *again* is no longer the TV's row as it
+    stands. Raises ``SessionEnded`` unless the session is still the person's when it is stored.
     """
     at = now.isoformat()
     with conn:
@@ -110,38 +137,42 @@ def pair(
         ).fetchone()
         if user is None:
             return None
-        if again is None or again.owner != username:
+        before = people(conn, again.id) if again is not None else []
+        joined = bool(before) and username not in before
+        if username not in before:
             (held,) = conn.execute(
-                "SELECT COUNT(*) FROM tvs WHERE owner_id = ?", (user["id"],)
+                "SELECT COUNT(*) FROM tv_people WHERE user_id = ?", (user["id"],)
             ).fetchone()
             if held >= MAX_TVS_PER_PERSON:
                 raise TooManyTvs("the person has too many TVs")
-        # Someone else's name for it stays theirs.
-        kept = again.name if again is not None and again.owner == username else _DEFAULT_NAME
-        called = name or kept
         if again is None:
+            called = name or _DEFAULT_NAME
             tv_id = conn.execute(
                 "INSERT INTO tvs (owner_id, kind, name, token_hash, created_at, last_seen_at)"
                 " VALUES (?, 'page', ?, ?, ?, ?)",
                 (user["id"], called, token_hash, at, at),
             ).lastrowid
         else:
-            tv_id = again.id
+            # The others' name for it stays.
+            called, tv_id = again.name if joined else name or again.name, again.id
+            kept = again.token_hash if before != [username] else token_hash
             changed = conn.execute(
-                "UPDATE tvs SET owner_id = ?, name = ?, token_hash = ?, created_at = ?,"
-                " last_seen_at = ? WHERE id = ? AND token_hash = ?",
-                (user["id"], called, token_hash, at, at, tv_id, again.token_hash),
+                "UPDATE tvs SET name = ?, token_hash = ?, last_seen_at = ?"
+                " WHERE id = ? AND token_hash = ?",
+                (called, kept, at, tv_id, again.token_hash),
             )
             if changed.rowcount == 0:
                 return None
-        taken = again is not None and again.owner != username
-        was = (again.name, again.owner) if again is not None and taken else (called, username)
+        conn.execute(
+            "INSERT OR IGNORE INTO tv_people (tv_id, user_id, paired_at) VALUES (?, ?, ?)",
+            (tv_id, user["id"], at),
+        )
         security_event_or_raise(
             conn,
-            event="tv.taken_over" if taken else "tv.paired",
+            event="tv.joined" if joined else "tv.paired",
             actor=username,
             ip=ip,
-            detail=_which(*was),
+            detail=_which(called, username),
         )
         # Where this fails, nothing is stored.
         return find(conn, tv_id or 0)
@@ -153,7 +184,8 @@ def rename(conn: sqlite3.Connection, tv: Tv, name: str, *, username: str) -> boo
         named = conn.execute(
             "UPDATE tvs SET name = ?1 WHERE id = ?2 AND owner_id IS ?3 AND EXISTS ("
             "SELECT 1 FROM admin_users u WHERE u.username = ?4"
-            " AND (u.role = 'admin' OR u.id = tvs.owner_id))",
+            " AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM tv_people p"
+            " WHERE p.tv_id = tvs.id AND p.user_id = u.id)))",
             (name, tv.id, tv.owner_id, username),
         )
     return named.rowcount > 0
@@ -171,6 +203,33 @@ def remove(conn: sqlite3.Connection, tv: Tv, *, actor: str, ip: str) -> bool:
                 conn, event="tv.unpaired", actor=actor, ip=ip, detail=_which(tv.name, tv.owner)
             )
     return gone.rowcount > 0
+
+
+def leave(conn: sqlite3.Connection, tv: Tv, username: str, *, actor: str, ip: str) -> bool:
+    """Unpair *tv* from *username* alone, where others are paired with it too; False where they are
+    not, or it is no longer the TV it was."""
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        user = conn.execute(
+            "SELECT p.user_id FROM tv_people p JOIN admin_users u ON u.id = p.user_id"
+            " JOIN tvs ON tvs.id = p.tv_id WHERE p.tv_id = ? AND u.username = ?"
+            " AND tvs.token_hash IS ?",
+            (tv.id, username, tv.token_hash),
+        ).fetchone()
+        if user is None or len(people(conn, tv.id)) < 2:
+            return False
+        conn.execute(
+            "DELETE FROM tv_people WHERE tv_id = ? AND user_id = ?", (tv.id, user["user_id"])
+        )
+        conn.execute(
+            "UPDATE tvs SET owner_id = (SELECT p.user_id FROM tv_people p WHERE p.tv_id = tvs.id"
+            " ORDER BY p.paired_at, p.user_id LIMIT 1) WHERE id = ? AND owner_id = ?",
+            (tv.id, user["user_id"]),
+        )
+        security_event_or_raise(
+            conn, event="tv.left", actor=actor, ip=ip, detail=_which(tv.name, username)
+        )
+    return True
 
 
 def mark_seen(conn: sqlite3.Connection, tv_id: int, now: datetime) -> None:

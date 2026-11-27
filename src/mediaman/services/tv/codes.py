@@ -53,6 +53,8 @@ class PairingCodes:
         self._open: dict[str, Asked] = {}
         # Those of them being paired right now; they neither run out nor give way.
         self._claimed: set[str] = set()
+        # Tokens a TV asked for with a code that joined a person to it, which it goes on without.
+        self._joined: dict[str, float] = {}
 
     def _hash(self, code: str) -> str:
         return hmac.new(self._key, code.encode(), hashlib.sha256).hexdigest()
@@ -123,6 +125,18 @@ class PairingCodes:
     def release(self, code: str) -> None:
         with self._lock:
             self._claimed.discard(self._hash(code))
+
+    def joined(self, token_hash: str) -> None:
+        """Tell the TV that asked for the token that its code was used and its own token stands."""
+        with self._lock:
+            now = self._clock()
+            self._joined = {k: t for k, t in self._joined.items() if t > now}
+            if len(self._joined) < MAX_OPEN:
+                self._joined[token_hash] = now + CODE_SECONDS
+
+    def was_joined(self, token_hash: str) -> bool:
+        with self._lock:
+            return self._joined.get(token_hash, 0.0) > self._clock()
 
     def seconds_left(self, token_hash: str) -> int | None:
         """How long the code of the TV that holds the token still works; None once it does not."""

@@ -163,6 +163,38 @@ const scenarios = {
     await settle();
     return { drawn, empty, failed, sent: sent[1], name: row.querySelector('.me-lbl').textContent, label: buttonOf(row, 'Rename').getAttribute('aria-label'), toasts: p.toasts };
   },
+  async tvLeave() {
+    const sent = [];
+    const p = page(tvApi([tvOf(1, 'Den', { people: ['amy', 'bob'] })], [], { delete: (url) => { sent.push(url); return Promise.resolve({ ok: true }); } }), { tvs: 'viewer' });
+    await settle();
+    const row = tvRows(p)[0];
+    const words = row.querySelectorAll('button').map((b) => [b.textContent, b.getAttribute('aria-label')]);
+    push(row.querySelectorAll('button')[1]);
+    await settle();
+    p.wait();
+    return { words, sent, toasts: p.toasts, asked: p.asked.length };
+  },
+  // Left as one's own film plays on it, and as another's does.
+  async tvLeavePlaying() {
+    const out = {};
+    for (const mine of [true, false]) {
+      const order = [];
+      const api = tvApi([tvOf(1, 'Den', { people: ['amy', 'bob'] })], [], { delete: (url) => { order.push('DELETE ' + url); return Promise.resolve({ ok: true }); } });
+      const list = api.get;
+      api.get = (url) => {
+        if (url !== '/api/tvs/1') return list(url);
+        order.push('GET ' + url);
+        return Promise.resolve({ tv: { id: 1, play: { title: 'Dune', state: 'playing', mine } } });
+      };
+      const p = page(api, { tvs: 'viewer' });
+      await settle();
+      push(buttonOf(tvRows(p)[0], 'Leave'));
+      await settle();
+      p.wait();
+      out[mine ? 'mine' : 'theirs'] = { order, toasts: p.toasts };
+    }
+    return out;
+  },
   async tvUnpair() {
     const sent = [];
     let answer = () => Promise.reject({ status: 500 });

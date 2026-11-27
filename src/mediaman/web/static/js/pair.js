@@ -33,6 +33,13 @@
   var others = [];
   var touched = false;
 
+  // Refused for a password the person must change first: the answer names that page.
+  function sentAway(err) {
+    if (!err || !err.data || err.data.redirect !== '/force-password-change') return false;
+    location.href = err.data.redirect;
+    return true;
+  }
+
   function paint() {
     [].forEach.call(boxes.querySelectorAll('i'), function (box, n) {
       box.textContent = code.value.charAt(n);
@@ -82,28 +89,18 @@
     paint();
   }
 
-  function pair(confirmed) {
+  function pair() {
     if (busy) return;
     var typed = code.value;
     setBusy(true);
-    MM.api.post('/api/tvs/pair', { code: typed, confirm: Boolean(confirmed) }).then(function (data) {
+    MM.api.post('/api/tvs/pair', { code: typed }).then(function (data) {
       setBusy(false);
       paired(data.tv);
     }, function (err) {
+      if (sentAway(err)) return;
       setBusy(false);
       var kind = err && err.error;
-      if (kind === 'in_use') {
-        say(why, hint);
-        UIFeedback.confirm({
-          title: 'Someone else has this TV',
-          body: 'A TV is one person’s at a time. Pairing it with you unpairs them' +
-            (err.data && err.data.playing ? ', and stops what they’re watching.' : '.'),
-          confirmLabel: 'Pair it with me',
-        }).then(function (yes) {
-          if (yes) pair(true);
-          else show('');
-        });
-      } else if (kind === 'wrong_code' || kind === 'too_many_tries' || kind === 'too_many_tvs') {
+      if (kind === 'wrong_code' || kind === 'too_many_tries' || kind === 'too_many_tvs') {
         refuse(WHY[kind]);
       } else {
         // The code may still be good: one press sends it again.
@@ -141,7 +138,40 @@
     return pick;
   }
 
+  function initial(name) { return name.charAt(0).toUpperCase(); }
+
+  function sayPeople(got) {
+    var list = document.getElementById('pair-people');
+    var people = Array.isArray(got.people) ? got.people : [];
+    list.textContent = '';
+    people.forEach(function (who) {
+      var li = document.createElement('li');
+      var face = document.createElement('span');
+      face.className = 'pair__face';
+      face.textContent = initial(who);
+      var words = document.createElement('span');
+      words.textContent = who;
+      li.appendChild(face);
+      li.appendChild(words);
+      list.appendChild(li);
+    });
+    list.hidden = people.length < 2;
+    var line = document.getElementById('pair-people-say');
+    line.hidden = people.length < 2;
+    line.textContent = 'Each of you can play here, and pause or stop whatever plays.';
+  }
+
+  function ready(got) {
+    form.hidden = naming.hidden = true;
+    done.hidden = false;
+    sayPeople(got);
+    document.getElementById('pair-ready-name').textContent = got.name + ' is ready';
+    document.getElementById('pair-ready').focus({ preventScroll: true });
+  }
+
   function paired(got) {
+    // A TV others are paired with keeps the name they gave it: nothing to ask.
+    if (Array.isArray(got.people) && got.people.length > 1) { tv = got; ready(got); return; }
     tv = got;
     others = [];
     touched = false;
@@ -206,12 +236,9 @@
     save.setAttribute('aria-disabled', 'true');
     MM.api.patch('/api/tvs/' + tv.id, { name: wanted }).then(function (data) {
       clearTimeout(nameWhy.pending);
-      naming.hidden = true;
-      done.hidden = false;
-      document.getElementById('pair-ready-name').textContent = data.tv.name + ' is ready';
-      document.getElementById('pair-ready').focus({ preventScroll: true });
+      ready({ name: data.tv.name, people: tv.people });
     }, function (err) {
-      say(nameWhy, MM.api.messageOf(err, LATER), true, true);
+      if (!sentAway(err)) say(nameWhy, MM.api.messageOf(err, LATER), true, true);
     }).then(function () {
       busy = false;
       save.removeAttribute('aria-disabled');

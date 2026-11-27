@@ -436,6 +436,8 @@
 }
 .setg-pg .sub-row.is-leaving,
 .setg-pg .tv-li.is-leaving,
+.setg-pg .tv-ppl.is-leaving,
+.setg-pg .tv-ppl li.is-leaving,
 .setg-pg .usr-row.is-leaving {
   overflow: hidden; opacity: 0;
   padding-top: 0; padding-bottom: 0; border-bottom-width: 0;
@@ -446,6 +448,7 @@
 }
 /* The list's 6px gap folds away with the row. */
 .setg-pg .sub-row.is-leaving { margin-top: -6px; }
+.setg-pg .tv-ppl.is-leaving { margin-top: 0; }
 
 @media (max-width: 699.98px) {
   /* Name and email take the first line; the role and actions wrap under them. */
@@ -583,4 +586,22 @@
   .setg-pg .tv-sure, .setg-pg .tv-chk li, .setg-pg .tv-add,
   .setg-pg .tv-sure.is-leaving, .setg-pg .tv-add.is-leaving { animation: none; }
   .setg-pg .tv-ring { animation: loading-pulse 1.6s ease-in-out infinite; }
+}
+.setg-pg .tv-ppl { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; list-style: none; padding: 0; }
+.setg-pg .tv-ppl li {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 3px;
+  border-radius: 999px; background: var(--s3); color: var(--t1); font-size: 13px;
+}
+.setg-pg .tv-face {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent-cta); color: #fff; font-size: 11px; font-weight: 600;
+}
+.setg-pg .tv-ppl__x {
+  display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 50%;
+  background: transparent; color: var(--t3); cursor: pointer;
+}
+.setg-pg .tv-ppl__x:hover { background: var(--s4); color: var(--t1); }
+.setg-pg .tv-ppl__x .ico { width: 12px; height: 12px; }
+@media (pointer: coarse) {
+  .setg-pg .tv-ppl__x { width: 44px; height: 44px; margin: -10px -10px -10px -8px; }
 }

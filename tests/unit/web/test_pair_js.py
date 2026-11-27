@@ -29,7 +29,7 @@ def test_a_code_from_a_qr_code_pairs_nothing_until_the_person_agrees() -> None:
         # the code stays in no address
         "replaced": ["/pair"],
     }
-    assert out["sent"][0] == ["/api/tvs/pair", {"code": "482916", "confirm": False}]
+    assert out["sent"][0] == ["/api/tvs/pair", {"code": "482916"}]
 
 
 def test_the_tv_is_named_after_it_is_paired() -> None:
@@ -58,13 +58,11 @@ def test_six_numbers_are_sent_as_they_are_typed_and_a_refusal_says_why() -> None
     assert out["last"][1]["code"] == "333333" and out["shown"] == ["pair-name-form"]
 
 
-def test_a_tv_of_someone_else_is_taken_over_only_after_a_yes() -> None:
-    out = _run("inUse")
-    assert "unpairs them" in out["asked"][0] and "stops what they’re watching" in out["asked"][0]
-    assert [s["confirm"] for s in out["sent"]] == [False, True]
-    assert out["shown"] == ["pair-name-form"]
-    assert "stops" not in out["no"]["asked"][0]
-    assert (out["no"]["sent"], out["no"]["code"], out["no"]["agree"]) == (1, "", False)
+def test_a_tv_others_are_paired_with_is_joined_under_their_name_without_a_question() -> None:
+    out = _run("joined")
+    assert (out["asked"], out["sent"]) == ([], [{"code": "482916"}])
+    assert (out["shown"], out["says"]) == (["pair-done"], "Living room is ready")
+    assert (out["people"], out["listed"]) == (["Aamy", "Bbob"], True)
 
 
 def test_a_tv_paired_again_keeps_its_name_and_another_code_can_be_scanned() -> None:
@@ -149,3 +147,7 @@ def test_each_step_of_pairing_comes_in_and_at_once_under_reduced_motion() -> Non
     moves = re.findall(step, css)
     assert "var(--dur)" in moves[0] and moves[1] == "none"
     assert "prefers-reduced-motion" in css[: css.rindex("animation: none")]
+
+
+def test_a_password_to_change_first_sends_the_person_to_change_it() -> None:
+    assert _run("sentAway") == {"code": "/force-password-change", "name": "/force-password-change"}

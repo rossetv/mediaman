@@ -545,10 +545,27 @@
     var asked = 0;
     var gone = {};
 
+    function namesOf(people) {
+      return people.length > 1 ? people.slice(0, -1).join(', ') + ' and ' + people[people.length - 1] : people[0];
+    }
+
+    // Everyone else it is paired with, as the list gives them.
+    function othersOn(tv) {
+      return (tv.people || []).filter(function (who) { return who !== me; });
+    }
+
+    // One's own TV that others are paired with too goes on for them: one only leaves it.
+    function leaves(tv) {
+      return !(others && others.contains(tv.row)) && othersOn(tv).length > 0;
+    }
+
     function stateOf(tv) {
       var seen = tv.on ? 'On now' : tv.last_seen_at ? 'Last seen ' + seenWhen(tv.last_seen_at) : 'Not seen yet';
-      var by = others && others.contains(tv.row) ? ' by ' + tv.owner : '';
-      return seen + '. Paired' + by + ' ' + dayOf(tv.paired_at) + '.';
+      var theirs = others && others.contains(tv.row);
+      var withThem = othersOn(tv);
+      if (theirs && withThem.length) return seen + '. Paired with ' + namesOf(withThem) + '.';
+      if (withThem.length) return seen + '. Shared with ' + namesOf(withThem) + '.';
+      return seen + '. Paired' + (theirs ? ' by ' + tv.owner : '') + ' ' + dayOf(tv.paired_at) + '.';
     }
 
     function action(words, kind, tv, run) {
@@ -572,7 +589,7 @@
       var acts = el('div', 'dev-acts');
       var rename = action('Rename', 'ghost', tv, function () { edit(tv); });
       acts.appendChild(rename);
-      acts.appendChild(action('Unpair', 'danger', tv, function (button) { unpair(tv, button); }));
+      acts.appendChild(action(leaves(tv) ? 'Leave' : 'Unpair', 'danger', tv, function (button) { unpair(tv, button); }));
       row.appendChild(acts);
       return rename;
     }
@@ -646,23 +663,31 @@
       var theirs = others && others.contains(tv.row);
       var sure = theirs ? UIFeedback.confirm({
         title: 'Unpair ' + tv.name + '?',
-        body: tv.owner + ' won’t be able to play on it until they pair it again.',
+        body: (othersOn(tv).length ? namesOf(othersOn(tv)) : tv.owner) + ' won’t be able to play on it until it is paired again.',
         confirmLabel: 'Unpair',
         confirmVariant: 'danger',
       }) : Promise.resolve(true);
       sure.then(function (yes) {
         if (!yes || isBusy(button)) return;
-        setBusy(button, 'Unpairing…', true);
-        MM.api.delete('/api/tvs/' + tv.id).then(function () { return true; }, function (err) {
+        setBusy(button, leaves(tv) ? 'Leaving…' : 'Unpairing…', true);
+        var stopped = '';
+        // Asked now, not from the list: one's own film may have begun on it since.
+        (leaves(tv) ? MM.api.get('/api/tvs/' + tv.id).then(function (data) {
+          var p = data && data.tv && data.tv.play;
+          if (p && p.mine && ['ended', 'failed'].indexOf(p.state) === -1) stopped = p.title;
+        }, function () { /* Left all the same. */ }) : Promise.resolve()).then(function () {
+          return MM.api.delete('/api/tvs/' + tv.id);
+        }).then(function () { return true; }, function (err) {
           if (err && err.status === 404) return true;
           setBusy(button, '');
-          UIFeedback.error(MM.api.messageOf(err, 'Could not unpair it. Try again.'));
+          UIFeedback.error(MM.api.messageOf(err, leaves(tv) ? 'Could not leave it. Try again.' : 'Could not unpair it. Try again.'));
           return false;
         }).then(function (ok) {
           if (!ok) return;
           if (MM.tvRemote) MM.tvRemote.drop(tv.id);
           drop(tv);
-          done('Unpaired. That TV now says it was signed out.');
+          done(leaves(tv) ? 'You left ' + tv.name + '. ' + (stopped ? stopped + ' stopped; your place is saved. ' : '') + namesOf(othersOn(tv)) + ' can still play on it.'
+            : 'Unpaired. That TV now says it was signed out.');
         });
       });
     }
@@ -697,7 +722,7 @@
     function load() {
       asked += 1;
       ask('/api/tvs', mine, function (tv) { return tv.kind !== 'older'; });
-      if (others) ask('/api/tvs/all', others, function (tv) { return tv.kind === 'page' && tv.owner && tv.owner !== me; });
+      if (others) ask('/api/tvs/all', others, function (tv) { return tv.kind === 'page' && tv.owner && (tv.people || [tv.owner]).indexOf(me) < 0; });
     }
 
     var me = mine.getAttribute('data-me');

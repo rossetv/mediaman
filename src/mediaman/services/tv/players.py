@@ -126,6 +126,10 @@ class Play:
     next_item: Mapping[str, Any] | None = None
     upnext_at: float | None = None
     still_at: float | None = None
+    #: Who paused it from their phone or computer, while it stays paused.
+    paused_by: str | None = None
+    #: Whose film, and which, someone else started this over.
+    replaced: Mapping[str, Any] | None = None
 
 
 @dataclass
@@ -150,8 +154,8 @@ class Players:
         #: Another after a restart, which ends all that plays.
         self.boot = secrets.token_urlsafe(6)
         self._lock = threading.Lock()
-        # By the hash of the TV's token, which changes when the TV changes hands, so that nothing
-        # begun for one owner reaches the next.
+        # By the hash of the TV's token, which changes when the TV is paired anew, so that nothing
+        # begun before reaches it.
         self._tvs: dict[str, _Tv] = {}
         self._left: list[Left] = []
         # (person's id, TV) that was theirs -> (since when not, why, what had played).
@@ -199,11 +203,11 @@ class Players:
         if end:
             play.stream_id = play.url = None
 
-    def _close(self, tv: _Tv, reason: str) -> None:
+    def _close(self, tv: _Tv, reason: str, by: str | None = None) -> None:
         if tv.play is None:
             return
         self._put_aside(tv.play, end=True)
-        tv.last = {"reason": reason, **_summary(tv.play)}
+        tv.last = {"reason": reason, **_summary(tv.play), "by": tv.play.user, "stopped_by": by}
         tv.play = None
         tv.commands = []
 
@@ -271,6 +275,8 @@ class Players:
             self._at_end(tv, play)
             return
         play.state = report.state
+        if was == "paused" and play.state == "playing":
+            play.paused_by = None
         if play.state == "playing":
             play.paused = play.renewed = False
         paused = report.state == "paused" and was != "paused"
@@ -362,9 +368,14 @@ class Players:
             if over is not None and (tv.play is None or tv.play.id != over):
                 raise Stale("something else plays")
             if tv.play is not None:
-                if tv.play.rating_key == play.rating_key:
-                    play.played_s = max(play.played_s, tv.play.played_s)
-                self._put_aside(tv.play, end=True)
+                was = tv.play
+                if was.rating_key == play.rating_key:
+                    play.played_s = max(play.played_s, was.played_s)
+                if was.user == play.user:
+                    play.replaced = was.replaced
+                elif was.state not in ("ended", "failed", "still"):
+                    play.replaced = {"by": was.user, "title": was.about.get("title")}
+                self._put_aside(was, end=True)
             if by_itself:
                 tv.sitting += 1
             elif pressed:
@@ -423,23 +434,28 @@ class Players:
                 play.state, play.upnext_at = "ended", None
             tv.sitting, tv.active_at = 0, self._clock()
 
-    def send(self, token_hash: str, kind: Kind, play_id: str | None, **args: Any) -> int:
+    def send(
+        self, token_hash: str, kind: Kind, play_id: str | None, by: str | None = None, **args: Any
+    ) -> int:
         """Put a command in the TV's queue and return its id."""
         with self._lock:
             tv = self._tv(token_hash)
-            if self._current(tv, play_id).url is None:
+            play = self._current(tv, play_id)
+            if play.url is None:
                 raise NotPlaying("no stream plays")
             if not self._answers(tv):
                 raise TvOff("the TV does not answer")
+            if kind in ("play", "pause"):
+                play.paused_by = by if kind == "pause" else None
             tv.sitting, tv.active_at = 0, self._clock()
             return self._command(tv, kind, **args)
 
-    def stop(self, token_hash: str, play_id: str | None = None) -> int:
+    def stop(self, token_hash: str, play_id: str | None = None, by: str | None = None) -> int:
         with self._lock:
             tv = self._tv(token_hash)
             if play_id is not None:
                 self._current(tv, play_id)
-            self._close(tv, "stopped")
+            self._close(tv, "stopped", by)
             return self._command(tv, "stop")
 
     def leave_places(self) -> None:
@@ -449,11 +465,15 @@ class Players:
                 if tv.play is not None:
                     self._put_aside(tv.play, end=False)
 
-    def end_plays_of(self, user: str) -> None:
+    def end_plays_of(self, user: str, by: str | None = None) -> dict[str, Any]:
+        """End what *user* plays, as stopped by *by*; the title that ended, by TV."""
+        ended: dict[str, Any] = {}
         with self._lock:
-            for tv in self._tvs.values():
+            for key, tv in self._tvs.items():
                 if tv.play is not None and tv.play.user == user:
-                    self._close(tv, "signed_out")
+                    ended[key] = tv.play.about.get("title")
+                    self._close(tv, "signed_out", by)
+        return ended
 
     def forget(self, token_hash: str, reason: str, tv_id: int | None = None) -> None:
         """End what plays on a TV whose token is no longer good; with *tv_id*, its person is told."""
@@ -461,11 +481,20 @@ class Players:
             tv = self._tvs.pop(token_hash, None)
             if tv is None or tv.play is None:
                 return
-            now, user_id = self._clock(), tv.play.user_id
+            user_id = tv.play.user_id
             self._close(tv, reason)
-            self._gone = {k: g for k, g in self._gone.items() if now - g[0] <= GONE_KEEP_SECONDS}
             if tv.last is not None and tv_id is not None:
-                self._gone[(user_id, tv_id)] = (now, reason, tv.last)
+                self._mark_gone(user_id, tv_id, reason, tv.last)
+
+    def mark_gone(self, user_id: int, tv_id: int, reason: str, about: dict[str, Any]) -> None:
+        """Have the person told, for a while, why the TV is no longer theirs."""
+        with self._lock:
+            self._mark_gone(user_id, tv_id, reason, about)
+
+    def _mark_gone(self, user_id: int, tv_id: int, reason: str, about: dict[str, Any]) -> None:
+        now = self._clock()
+        self._gone = {k: g for k, g in self._gone.items() if now - g[0] <= GONE_KEEP_SECONDS}
+        self._gone[(user_id, tv_id)] = (now, reason, about)
 
     # ── the person ──
 
@@ -504,6 +533,7 @@ class Players:
                     "position_s": self._position(play),
                     "quality": play.choice.quality,
                     "still_since_s": None if still is None else now - still,
+                    "replaced": play.replaced,
                     **play.tracks,
                 }
             return {
@@ -533,6 +563,8 @@ class Players:
         return {
             **play.about,
             "play_id": play.id,
+            "by": play.user,
+            "paused_by": play.paused_by,
             "state": play.state,
             "played_s": play.played_s,
             "next": play.next_item

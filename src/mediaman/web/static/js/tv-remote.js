@@ -82,6 +82,8 @@
     unreachable: 'The TV or Plex didn’t answer. Try again in a moment.',
   };
   var STILL_S = 600; // that a question waits
+  // Why a TV is no longer the person's, as a 410 says.
+  var UNPAIRED = ['removed', 'left', 'account'];
   // A later press won: what the person sees is already that.
   var SILENT = ['superseded', 'replaced'];
 
@@ -125,6 +127,7 @@
   var timer = null;
   var asking = false; // a poll under way
   var ended = false; // signed out, or not let in: nothing more is asked
+  var me = mini.getAttribute('data-me') || '';
   var dismissed = '';
   try { dismissed = global.sessionStorage.getItem(DISMISSED) || ''; } catch (e) { /* no storage */ }
 
@@ -173,6 +176,19 @@
   }
   function attr(el, key, value) { if (el.getAttribute(key) !== value) el.setAttribute(key, value); }
   function say(text) { global.UIFeedback.toast(text); }
+  /* Over the remote a toast stands under its title (_tv_remote.css): one said as it closes is
+     shown once it has gone, where it stays. */
+  var afterClose = [];
+  function sayClosing(text) {
+    if (!isOpen) { sayGone(text); return; }
+    afterClose.push(text);
+    close();
+  }
+  function sayGone(text) {
+    if (exit) afterClose.push(text);
+    else say(text);
+  }
+  function sayHeld() { afterClose.splice(0).forEach(say); }
 
   /* ── what the person set, until the TV has ── */
 
@@ -219,6 +235,7 @@
       closeMenu();
     }
     if (p) {
+      if (p.replaced && before && before.play_id !== p.play_id) say(tookOver(p) + ' on ' + name() + '. ' + keptIn(p.replaced));
       gone = null;
       seen = p;
       place = { s: p.position_s || 0, at: now() };
@@ -243,21 +260,34 @@
       say('mediaman restarted. ' + keptIn(last));
       return;
     }
-    if (reason === 'stopped' && isOpen) {
-      say(place_kept('Stopped.', last));
-      close();
+    // Someone else's stop is said even with only the bar shown; one's own only where the remote is open.
+    var what = was.last || {};
+    var stopper = reason === 'stopped' && last && last.stopped_by !== me && last.stopped_by;
+    var theirs = what.mine === false;
+    if (reason === 'stopped' && (isOpen || stopper)) {
+      if (!stopper) sayClosing(place_kept('Stopped.', last, theirs ? what.by : null));
+      else if (theirs) sayClosing(stopper + ' stopped ' + (what.title || 'it') + '. ' + (what.by && what.by !== stopper ? what.by + '’s' : 'Their') + ' place is kept.');
+      else sayClosing(place_kept(stopper + ' stopped ' + (what.title || 'it') + ' on ' + name() + '.', last));
     } else if (reason && reason !== 'stopped' && (isOpen || reason !== 'moved' && !(seen && seen.play_id === dismissed))) {
       gone = was;
     } else if (isOpen) {
-      say('Nothing is playing on ' + name() + ' now.');
-      close();
+      sayClosing('Nothing is playing on ' + name() + ' now.');
     }
   }
 
   function keptIn(what) { return 'Your place in ' + what.title + ' is kept.'; }
-  function place_kept(before, last) {
-    if (last && last.saved === false) return before + ' Your place couldn’t be saved.';
-    return last && last.position_s ? before + ' Your place is saved at ' + fmt(last.position_s) + '.' : before;
+  function tookOver(p) { return (p.started_by || p.by) + ' started ' + p.title; }
+  function unpaired(d) {
+    var at = d.tv || name();
+    var first = d.reason === 'removed' ? (d.by ? d.by + ' unpaired you from ' : 'You were unpaired from ') + at + '.'
+      : d.reason === 'left' ? 'You left ' + at + '.' : 'You’re no longer paired with ' + at + '.';
+    return d.stopped ? first + ' ' + d.stopped + ' stopped; your place is saved.' : first;
+  }
+  // `whose` names the person a film of someone else's was started by.
+  function place_kept(before, last, whose) {
+    var place = whose ? ' ' + whose + '’s place' : ' Your place';
+    if (last && last.saved === false) return before + place + ' couldn’t be saved.';
+    return last && last.position_s ? before + place + ' is saved at ' + fmt(last.position_s) + '.' : before;
   }
 
   /* The TV is no longer the person's: 410 says why while it is fresh, 404 says nothing. */
@@ -268,6 +298,17 @@
     endDrag(false);
     closeMenu();
     if (!before && !isOpen) { tv = null; return; }
+    var d = err.data || {};
+    if (err.status === 410 && UNPAIRED.indexOf(d.reason || err.error) !== -1) {
+      var id = tv.id;
+      var told = unpaired(Object.assign({ reason: err.error }, d));
+      leaving = null;
+      gone = null;
+      tv = null;
+      others = others.filter(function (t) { return t.id !== id; });
+      sayClosing(told);
+      return;
+    }
     if (err.status === 410) over(err.error, err.data && err.data.last);
     else over('', null);
     if (!gone) tv = null;
@@ -275,16 +316,45 @@
 
   function isGone(err) { return err.status === 404 && err.error === 'not_found' || err.status === 410 && err.error !== 'replaced'; }
 
+  /* A page the server sends the person on to, which api.js cannot tell of a read: the remote goes
+     first. The sign-in leads back here. */
+  var SENT_TO = ['/login', '/force-password-change'];
+  function away(to) {
+    var was = isOpen;
+    ended = true;
+    clearTimeout(timer);
+    // The page holds edits that leaving would lose: the remote stops asking and the page stays.
+    if (MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()) return new Promise(function () {});
+    close();
+    if (to === '/login') {
+      var here = global.location.pathname + (global.location.search || '');
+      to += (here === '/' ? '' : '?next=' + encodeURIComponent(here)) + (global.location.hash || '');
+    }
+    settled(function () { setTimeout(function () { global.location.href = to; }, was ? EXIT_MS : 0); });
+    return new Promise(function () {});
+  }
+  function sentTo(err) { return err && err.data && SENT_TO.indexOf(err.data.redirect) !== -1 ? err.data.redirect : ''; }
+
   /* An answer cut off in its body comes as an empty one. */
   function get(path, key) {
     var stopper = new AbortController();
     var late = setTimeout(function () { stopper.abort(); }, ANSWER_MS);
-    return MM.api.get(LIST + path, { signal: stopper.signal }).then(function (data) {
+    return fetch(LIST + path, { credentials: 'same-origin', signal: stopper.signal }).then(function (resp) {
+      var to = resp.redirected ? new URL(resp.url).pathname : '';
+      if (SENT_TO.indexOf(to) !== -1) return away(to);
+      if (resp.status === 401) return away('/login');
+      return resp.json().catch(function () { return {}; }).then(function (data) {
+        if (!resp.ok) throw new MM.api.APIError(data.error || 'http_' + resp.status, data.message || data.error, resp.status, data.issues, data);
+        if (!data[key]) throw new Error('no answer');
+        return data[key];
+      });
+    }).then(function (got) {
       clearTimeout(late);
-      if (!data[key]) throw new Error('no answer');
-      return data[key];
+      return got;
     }, function (err) {
       clearTimeout(late);
+      // As api.js words a request that never reached the server; an abort keeps its own name.
+      if (err && err.name === 'TypeError') throw new MM.api.APIError('network_error', 'Could not reach mediaman. Check your connection and try again.', 0);
       throw err;
     });
   }
@@ -464,6 +534,7 @@
   }
 
   function refuse(err) {
+    if (sentTo(err)) { away(sentTo(err)); return; }
     if (isGone(err)) { lostTv(err); render(); return; }
     if (SILENT.indexOf(err.error) === -1) {
       var text = err.name === 'AbortError' ? 'mediaman didn’t answer. Try again.'
@@ -550,8 +621,7 @@
     function done(last) {
       leaving = null;
       if (then) { then(last || p); return; }
-      say(was.ended ? 'Disconnected from ' + was.name + '.' : place_kept('Stopped.', last));
-      close();
+      sayClosing(was.ended ? 'Disconnected from ' + was.name + '.' : place_kept('Stopped.', last, p.mine === false ? p.by : null));
       render();
       tick();
     }
@@ -613,7 +683,7 @@
       },
       failed: function () {
         handing = false;
-        if (isOpen && !play() && !gone) { say('Nothing is playing on ' + name() + ' now.'); close(); tick(); }
+        if (isOpen && !play() && !gone) { sayClosing('Nothing is playing on ' + name() + ' now.'); tick(); }
       },
       started: function (t) {
         handing = false;
@@ -772,7 +842,9 @@
           : p.state === 'still' ? 'Still watching on ' + name() + '?'
             : p.state === 'ended' || p.state === 'upnext' ? 'Finished on ' + name()
               : isLoading(p) ? 'Starting on ' + name()
-                : (isPaused() ? 'Paused on ' : 'Playing on ') + name();
+                : isPaused() && p.paused_by ? 'Paused by ' + p.paused_by
+                  : p.mine === false ? p.by + '’s · on ' + name()
+                    : (isPaused() ? 'Paused on ' : 'Playing on ') + name();
     mini.classList.toggle('is-bad', bad || away || !!p && p.state === 'failed');
     MM.dom.setText(m('[data-mini-title]'), title);
     MM.dom.setText(m('[data-mini-say]'), line1);
@@ -803,7 +875,8 @@
     if (p.state === 'still') return 'Waiting for an answer';
     if (p.state === 'upnext' && p.upnext_in_s == null) return name() + ' waits for you to choose.';
     if (p.state === 'ended') return name() + ' is ready for something else.';
-    if (isLoading(p)) return 'Starting. This can take a few seconds.';
+    if (isLoading(p)) return p.replaced ? tookOver(p) + '. ' + keptIn(p.replaced) : 'Starting. This can take a few seconds.';
+    if (p.mine === false) return p.by + ' started this. You can pause, skip or stop it. It counts towards ' + p.by + '’s Continue watching.';
     if (isCast()) return 'You can leave this page. ' + (p.next ? 'Keep mediaman open for the next episode.' : 'The TV carries on.');
     return 'You can lock or close this device. The TV carries on.';
   }
@@ -828,7 +901,8 @@
     MM.dom.setText(els.on, coming ? 'Bringing it here' : (loading ? 'Starting on ' : gone || isLost() ? 'Was playing on '
       : isEnd ? 'Finished on ' : isOff() ? 'Playing on '
         : p.state === 'failed' ? 'Couldn’t play on ' : p.state === 'upnext' ? 'Finished on '
-          : isPaused() || p.state === 'still' ? 'Paused on ' : 'Playing on ') + name());
+          : isPaused() && p.paused_by ? 'Paused by ' + p.paused_by + ' on '
+            : isPaused() || p.state === 'still' ? 'Paused on ' : 'Playing on ') + name());
     MM.dom.setText(els.hint, hintFor(p));
 
     var steers = canSteer();
@@ -872,7 +946,8 @@
     }
 
     setHidden(els.again, !isEnd);
-    setHidden(els.bring, isEnd);
+    // Another person's title goes on as theirs: it is not brought to this device.
+    setHidden(els.bring, isEnd || !!p && p.mine === false);
     els.bring.disabled = els.stop.disabled = !!leaving || coming;
     setHidden(els.playOn, !MM.playOn);
     els.playOn.classList.toggle('is-on', !!p && !bad);
@@ -1437,13 +1512,14 @@
       getOne(id).then(open, refuseOpen);
       return;
     }
-    if (!play() && !gone) { say('Nothing is playing on ' + name() + ' now.'); return; }
+    if (!play() && !gone) { sayGone('Nothing is playing on ' + name() + ' now.'); return; }
     ended = false;
     if (!isOpen) {
       isOpen = true;
       follow();
       if (exit) clearTimeout(exit);
       exit = null;
+      sayHeld();
       root.classList.remove('is-leaving');
       root.inert = false;
       showRemote(true);
@@ -1477,7 +1553,7 @@
     root.inert = true;
     // A button clicked in Safari takes no focus, so there was none to give back.
     if ((document.activeElement === document.body || root.contains(document.activeElement)) && !mini.hidden && !miniLeaving) m('[data-open]').focus({ preventScroll: true });
-    exit = setTimeout(function () { exit = null; showRemote(false); }, EXIT_MS);
+    exit = setTimeout(function () { exit = null; showRemote(false); sayHeld(); }, EXIT_MS);
     schedule();
   }
   global.ModalA11y.register('tv-remote', close);

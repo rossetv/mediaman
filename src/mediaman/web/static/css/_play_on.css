@@ -20,6 +20,12 @@
   overscroll-behavior: contain;
   outline: 0;
 }
+/* Too tall for the room by its button: the screen's height, inside its safe areas. */
+.play-on.is-full {
+  top: max(12px, env(safe-area-inset-top));
+  bottom: auto;
+  max-height: min(620px, calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))));
+}
 .play-on::backdrop { background: none; }
 .play-on[open] { animation: play-on-in var(--dur) var(--ease-out); }
 .play-on:not([open]) { display: none; }
@@ -111,6 +117,13 @@
   .play-on::before { content: ''; display: block; width: 36px; height: 4px; margin: 4px auto; border-radius: var(--r-pill); background: var(--hair-strong); }
   .play-on::backdrop { background: color-mix(in srgb, var(--scrim) 55%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: play-on-dim var(--dur) var(--ease-out); }
   .play-on__row { min-height: 60px; }
+}
+/* A phone held sideways: tighter, so that a question under a row fits without scrolling. */
+@media (min-width: 700px) and (max-height: 500px) {
+  .play-on__row { min-height: 44px; padding-block: 2px; }
+  .play-on__rule { margin-block: 4px; }
+  .play-on__say { margin-bottom: 6px; padding: 8px 12px; line-height: 1.35; }
+  .play-on__say .btn { margin-top: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .play-on,

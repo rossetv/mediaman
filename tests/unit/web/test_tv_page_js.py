@@ -93,6 +93,30 @@ def test_a_refused_tv_is_signed_out_only_where_its_code_is_gone_too() -> None:
     assert "Signed out" in out["gone"] and out["store"] == {}
 
 
+def test_a_tv_someone_joins_keeps_its_token_and_its_film_and_says_who_can_play() -> None:
+    out = _run("joined")
+    assert out["src"] and out["kept"] == out["src"]
+    assert (out["store"]["mm-tv"], out["more"]) == ("old", 0)
+    assert "maren and tobias can play here" in out["idle"] and "482 916" not in out["idle"]
+    assert out["polled"] == "old"
+
+
+def test_the_code_fades_into_who_can_play_here_and_back_again() -> None:
+    out = _run("joinFades")
+    assert out["code"] is True
+    assert out["join"] == {"says": True, "entering": "in", "left": True}
+    assert out["back"] == {"entering": "in", "left": True}
+    assert out["again"] == {"code": True, "entering": "in", "left": True}
+
+
+def test_a_paired_tvs_code_is_for_another_person_and_a_pause_is_named_only_when_shared() -> None:
+    out = _run("shared")
+    assert "Pair another person" in out["code"] and "482 916" in out["code"]
+    assert "Watch on this TV" not in out["code"]
+    assert "Paused" in out["alone"] and "Paused by" not in out["alone"]
+    assert "Paused by maren" in out["both"]
+
+
 def test_a_film_gives_way_to_the_person_who_takes_the_tv_over() -> None:
     out = _run("takenOver")
     # what its owner starts shows over the code, which still works

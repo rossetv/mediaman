@@ -78,12 +78,58 @@ CREATE TABLE IF NOT EXISTS tvs (
 );
 CREATE INDEX IF NOT EXISTS idx_tvs_owner ON tvs(owner_id);
 
+-- Everyone a page TV is paired with; tvs.owner_id is whoever of them paired it first.
+CREATE TABLE IF NOT EXISTS tv_people (
+    tv_id INTEGER NOT NULL REFERENCES tvs(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    paired_at TEXT NOT NULL,
+    PRIMARY KEY (tv_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tv_people_user ON tv_people(user_id);
+INSERT OR IGNORE INTO tv_people (tv_id, user_id, paired_at)
+    SELECT id, owner_id, created_at FROM tvs WHERE kind = 'page'
+    AND NOT EXISTS (SELECT 1 FROM tv_people p WHERE p.tv_id = tvs.id);
+CREATE TRIGGER IF NOT EXISTS tv_people_first
+AFTER INSERT ON tvs WHEN NEW.kind = 'page'
+BEGIN
+    INSERT OR IGNORE INTO tv_people (tv_id, user_id, paired_at)
+        VALUES (NEW.id, NEW.owner_id, NEW.created_at);
+END;
+-- An image from before several people could share a TV hands it over by changing both at once.
+CREATE TRIGGER IF NOT EXISTS tv_people_handed_over
+AFTER UPDATE OF token_hash, owner_id ON tvs
+WHEN NEW.kind = 'page' AND NEW.token_hash IS NOT OLD.token_hash
+    AND NEW.owner_id IS NOT OLD.owner_id
+BEGIN
+    DELETE FROM tv_people WHERE tv_id = NEW.id;
+    INSERT INTO tv_people (tv_id, user_id, paired_at)
+        VALUES (NEW.id, NEW.owner_id, COALESCE(NEW.last_seen_at, NEW.created_at));
+END;
+
 -- Here and not where passwords change, so that none of the ways to change one leaves a TV paired.
 CREATE TRIGGER IF NOT EXISTS tvs_end_with_password
 AFTER UPDATE OF password_hash, must_change_password ON admin_users
 WHEN NEW.password_hash <> OLD.password_hash OR NEW.must_change_password = 1
 BEGIN
     DELETE FROM tvs WHERE owner_id = NEW.id;
+END;
+-- Before it, so that a TV paired with others too passes to them and only this person is unpaired.
+CREATE TRIGGER IF NOT EXISTS tv_people_end_with_password
+BEFORE UPDATE OF password_hash, must_change_password ON admin_users
+WHEN NEW.password_hash <> OLD.password_hash OR NEW.must_change_password = 1
+BEGIN
+    DELETE FROM tv_people WHERE user_id = NEW.id;
+    UPDATE tvs SET owner_id = (
+        SELECT p.user_id FROM tv_people p WHERE p.tv_id = tvs.id ORDER BY p.paired_at, p.user_id LIMIT 1)
+    WHERE owner_id = NEW.id AND EXISTS (SELECT 1 FROM tv_people p WHERE p.tv_id = tvs.id);
+END;
+CREATE TRIGGER IF NOT EXISTS tv_people_outlive_owner
+BEFORE DELETE ON admin_users
+BEGIN
+    DELETE FROM tv_people WHERE user_id = OLD.id;
+    UPDATE tvs SET owner_id = (
+        SELECT p.user_id FROM tv_people p WHERE p.tv_id = tvs.id ORDER BY p.paired_at, p.user_id LIMIT 1)
+    WHERE owner_id = OLD.id AND EXISTS (SELECT 1 FROM tv_people p WHERE p.tv_id = tvs.id);
 END;
 
 -- Per-person playback position for the Watch player. rating_key is the movie

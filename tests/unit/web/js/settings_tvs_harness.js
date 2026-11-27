@@ -40,6 +40,7 @@ async function page(answers, all = [PAIRED, OLDER], reduced = true) {
   answers['GET /api/settings/older-tvs'] = { tvs: [{ id: 2, name: 'Kitchen TV', address: '192.168.1.44' }] };
   const said = [];
   const dropped = [];
+  const went = [];
   const ctx = {
     document: doc, console, Promise, Date, setTimeout: (f, ms) => { if (!ms) f(); },
     matchMedia: () => ({ matches: reduced }),
@@ -48,7 +49,7 @@ async function page(answers, all = [PAIRED, OLDER], reduced = true) {
         messageOf: (e, words) => e.message || words },
       tvRemote: { drop: (id) => dropped.push(id) },
       dom: { focusStillIn: () => true, icon: (name) => build(doc, ['svg', { class: name }]) },
-      settings: { rows: { enter() {}, bringIntoView() {}, leave: (row, o) => { row.remove(); if (o.done) o.done(); } } },
+      settings: { rows: { enter() {}, bringIntoView() {}, leave: (row, o) => { went.push(row.className); row.remove(); if (o && o.done) o.done(); } } },
     },
     UIFeedback: { success: (m) => said.push(m) },
   };
@@ -61,6 +62,7 @@ async function page(answers, all = [PAIRED, OLDER], reduced = true) {
   const row = (n) => doc.querySelectorAll('.tv-li')[n];
   return {
     dropped,
+    went,
     doc, calls, said, row,
     press: async (root, words) => { click(doc, within(root, words)); await settle(); },
     button: within,
@@ -226,6 +228,17 @@ const scenarios = {
     await p.press(p.row(0), 'Unpair');
     await p.press(p.row(0), 'Unpair this TV');
     return { asked, kept, deleted: p.calls.filter((c) => c[0] === 'DELETE').map((c) => c[1]), left: p.list.textContent, dropped: p.dropped };
+  },
+  // A TV paired with two people: each can be unpaired alone, or the TV for both.
+  async people() {
+    const p = await page({ 'DELETE /api/tvs/1/people/tobias': {}, 'DELETE /api/tvs/1?everyone=1': {} },
+      [{ ...PAIRED, people: ['maren', 'tobias'] }]);
+    const before = p.row(0).querySelector('.tv-sub').textContent;
+    const x = p.row(0).querySelectorAll('button').find((b) => b.getAttribute('aria-label') === 'Unpair tobias from Living room');
+    click(p.doc, x);
+    await settle();
+    const after = p.row(0).querySelector('.tv-sub').textContent;
+    return { before, after, chips: p.row(0).querySelectorAll('.tv-ppl li').length, deleted: p.calls.filter((c) => c[0] === 'DELETE').map((c) => c[1]), went: p.went };
   },
   // The buttons of each panel in the order they are drawn, and every word a person reads there.
   async order() {

@@ -84,6 +84,19 @@ def test_a_pause_shows_at_once_and_another_phones_play_is_followed() -> None:
     assert out["other"] == "Playing on Living room"
 
 
+def test_anothers_film_is_named_as_theirs_and_their_pause_as_by_them() -> None:
+    out = _run("anothers")
+    assert out["says"] == "maren’s · on Living room"
+    assert out["bring"] is True and "maren’s Continue watching" in out["hint"]
+    assert out["paused"] == "Paused by maren"
+
+
+def test_the_remote_says_who_paused_anothers_film_and_whose_place_its_stop_kept() -> None:
+    out = _run("anothers")
+    assert out["on"] == "Paused by maren on Living room"
+    assert out["toasts"] == ["Stopped. maren’s place is saved at 20:00."]
+
+
 def test_a_refused_pause_is_taken_back_and_said() -> None:
     assert _run("refused") == {"says": "Playing on Living room", "toast": 1}
 
@@ -126,6 +139,54 @@ def test_a_stop_on_another_device_closes_the_remote_and_says_where_it_stopped() 
     assert "21:08" in out["toasts"][0]
 
 
+def test_the_bar_says_once_who_else_stopped_your_film_and_that_your_place_is_saved() -> None:
+    out = _run("stoppedByAnother")
+    assert out["maren"] == {
+        "bar": False,
+        "toasts": ["maren stopped Glass Orchard on Living room. Your place is saved at 21:08."],
+    }
+    assert out["nobody"] == {"bar": False, "toasts": []}
+
+
+def test_another_stopping_their_own_film_is_said_as_theirs_on_bar_and_remote() -> None:
+    out = _run("stopsTheirOwn")
+    said = ["maren stopped Glass Orchard. Their place is kept."]
+    assert out["bar"] == {"open": False, "bar": False, "toasts": said}
+    assert out["remote"] == {"open": False, "bar": False, "toasts": said}
+
+
+def test_an_unpaired_person_is_told_who_unpaired_them_and_what_stopped_and_both_go_with_motion() -> (
+    None
+):
+    out = _run("unpaired")
+    removed = ["maren unpaired you from Living room. Glass Orchard stopped; your place is saved."]
+    bar = {"leaving": True, "hidden": True, "toasts": removed, "over": [False], "asksOn": 0}
+    assert out["removed"] == bar
+    # Said once the remote has gone, so that it does not move from under its title to the foot.
+    assert out["removedOpen"] == bar
+    assert out["left"]["toasts"] == ["You left Living room."]
+
+
+def test_a_film_started_over_yours_names_who_started_it_and_keeps_your_place() -> None:
+    out = _run("takenOver")
+    said = ["maren started Dune on Living room. Your place in Glass Orchard is kept."]
+    assert out["bar"]["toasts"] == said
+    # The hint shows only while it loads: the toast stays long enough to be read.
+    assert out["remote"] == {
+        "toasts": said,
+        "over": [True],
+        "hint": "maren started Dune. Your place in Glass Orchard is kept.",
+    }
+    assert out["loaded"] == []
+
+
+def test_play_on_too_tall_for_the_room_by_its_button_takes_the_screens_height_instead() -> None:
+    out = _run("sheetHeight")
+    # The sheet's own rule then sizes it to the screen, inside its safe areas.
+    assert out["360"] == {"full": True, "bottom": "", "maxHeight": ""}
+    assert out["200"] == {"full": False, "bottom": "68px", "maxHeight": "318px"}
+
+
 def test_stop_takes_the_bar_away_and_says_so_once() -> None:
     out = _run("stop")
     assert out["bar"] is False
@@ -142,6 +203,19 @@ def test_bringing_it_here_stops_the_tv_first_and_then_opens_the_player() -> None
 
 def test_one_failed_request_says_nothing_and_a_lasting_one_does_until_it_is_back() -> None:
     assert _run("offline") == {"once": None, "twice": "This device is offline", "back": None}
+
+
+def test_a_poll_that_finds_the_session_gone_leaves_a_page_with_unsaved_edits_where_it_is() -> None:
+    out = _run("unsavedEdits")
+    assert out["redirect"] == {"href": "", "asksOn": 0}
+    assert out["signedOut"] == {"href": "", "asksOn": 0}
+    assert out["signedOutSaved"]["href"].startswith("/login")
+
+
+def test_opening_a_tv_while_the_phone_is_offline_blames_the_connection_not_the_tv() -> None:
+    (toast,) = _run("phoneOffline")["toasts"]
+    assert "TV" not in toast
+    assert "connection" in toast
 
 
 def test_nothing_is_asked_for_after_signing_out() -> None:
@@ -607,3 +681,32 @@ def test_the_page_says_while_the_bar_and_the_remote_show_and_while_the_bar_goes(
         "stopping": ["has-tv-mini", "is-tv-mini-leaving"],
         "stopped": [],
     }
+
+
+def test_playing_over_a_film_of_someone_the_tv_is_shared_with_asks_by_name() -> None:
+    out = _run("takeNamed")
+    assert "maren is watching Dune" in out["said"] and "Their place is kept" in out["said"]
+    assert (out["take"], out["primary"]) == ("Play mine instead", True)
+
+
+def test_a_phone_sent_on_to_a_page_closes_the_remote_with_motion_and_goes_there() -> None:
+    out = _run("sentAway")
+    away = {
+        "leaving": True,
+        "before": "",
+        "href": "/force-password-change",
+        "hidden": True,
+        "toasts": [],
+        "asksOn": 0,
+    }
+    assert out["redirect"] == away
+    assert out["redirectStill"] == away
+    assert out["refused"] == away
+    assert out["signedOut"] == {**away, "href": "/login?next=%2Fwatch%3Fq%3D1"}
+
+
+def test_nothing_playing_said_while_the_remote_closes_waits_until_it_has_gone() -> None:
+    out = _run("reopenedClosing")
+    said = ["Nothing is playing on Living room now."]
+    assert out["moves"] == {"early": 0, "toasts": said, "over": [False]}
+    assert out["still"] == {"early": 0, "toasts": said, "over": [False]}

@@ -65,7 +65,26 @@ async function page(opts = {}) {
   class APIError extends Error {
     constructor(error, status, data) { super(error); this.error = error; this.status = status; this.data = data || {}; }
   }
+  // As api.js builds one: code, message, status, issues, body.
+  class RealAPIError extends Error {
+    constructor(error, message, status, issues, data) { super(message); this.error = error; this.status = status; this.data = data || {}; }
+  }
   const copy = (x) => JSON.parse(JSON.stringify(x));
+  // The server's answer to a read, as fetch gives it; `api.away` is the page a read is sent on to.
+  async function answer(url, o) {
+    if (api.away) {
+      api.calls.push({ method: 'GET', url, at: clock });
+      return { ok: true, status: 200, redirected: true, url: 'http://testserver' + api.away, json: async () => { throw new SyntaxError('html'); } };
+    }
+    if (api.reject) throw api.reject;
+    try {
+      const data = await call('GET', url, null, o);
+      return { ok: true, status: 200, redirected: false, url: 'http://testserver' + url, json: async () => data };
+    } catch (err) {
+      if (!(err instanceof APIError)) throw err;
+      return { ok: false, status: err.status, redirected: false, url: 'http://testserver' + url, json: async () => ({ error: err.error, ...err.data }) };
+    }
+  }
   async function call(method, url, body, o) {
     api.calls.push({ method, url, body: body && copy(body), at: clock });
     if (api.hang) {
@@ -80,9 +99,9 @@ async function page(opts = {}) {
     if (url === '/api/tvs') return { tvs: copy(api.tvs) };
     if (/^\/api\/(cast|watch)\//.test(url)) return { stream_id: 'c1', url: '/c1' };
     const tv = api.tvs.find((t) => url.startsWith('/api/tvs/' + t.id) && !(api.goneIds || []).includes(t.id));
-    if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, { last: api.gone && api.gone.last });
+    if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, (api.gone && api.gone.data) || { last: api.gone && api.gone.last });
     if (method === 'GET') return { tv: copy(tv) };
-    if (api.refuse) throw new APIError(api.refuse, 409);
+    if (api.refuse) throw new APIError(api.refuse, 409, api.refusal);
     if (opts.sheet && /\/play$/.test(url)) {
       // As it begins there, it ends on the TV it was on.
       if (api.gives) Object.assign(api.tvs[0], { play: null, last: { ...aPlay(), reason: 'moved' } });
@@ -98,6 +117,8 @@ async function page(opts = {}) {
     return { id, tv: copy(tv) };
   }
   const toasts = [];
+  // Whether each toast was said over the remote, which places it under the remote's title.
+  const overRemote = [];
   // A step is made later, as a browser makes it.
   const history = {
     entries: [opts.state ? { ...opts.state } : { mm: { id: 'a' } }], index: 0,
@@ -119,13 +140,13 @@ async function page(opts = {}) {
   const session = {};
   const win = {
     listeners: {}, history,
-    location: { href: '', replace(to) { history.entries[history.index] = null; win.location.href = to; } }, innerWidth: 1000, innerHeight: 800, navigator: { onLine: true },
+    location: { href: '', pathname: '/watch', search: '?q=1', hash: '', replace(to) { history.entries[history.index] = null; win.location.href = to; } }, innerWidth: 1000, innerHeight: 800, navigator: { onLine: true },
     sessionStorage: { getItem: (k) => session[k] || null, setItem: (k, v) => { session[k] = v; } },
     matchMedia: (q) => ({ matches: !!opts.still && /reduced-motion/.test(q) }),
     addEventListener(t, fn) { win.listeners[t] = fn; },
-    UIFeedback: { toast: (t) => toasts.push(t), error: (t) => toasts.push('! ' + t) },
+    UIFeedback: { toast: (t) => { toasts.push(t); overRemote.push(doc.documentElement.classList.contains('has-tv-rem')); }, error: (t) => toasts.push('! ' + t) },
     ModalA11y: { register() {}, onOpened() {}, onClosed() {} },
-    MM: { api: { get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
+    MM: { api: { APIError: RealAPIError, get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
   };
   // What cast-sender.js tells and does; the tab that follows the play is another with `away`.
   const cast = { now: null, over: null, did: [], away: false, saved: true, hold: null, refuse: null, change() {}, ...opts.cast };
@@ -180,7 +201,8 @@ async function page(opts = {}) {
     win.crypto = { getRandomValues: (a) => a };
   }
   const ctx = vm.createContext({
-    fetch: () => new Promise((yes) => pages.push(() => yes({ text: async () => '' }))),
+    fetch: (url, o) => (/^\/api\/tvs/.test(url) ? answer(url, o) : new Promise((yes) => pages.push(() => yes({ text: async () => '' })))),
+    URL,
     DOMParser: class { parseFromString() { return { getElementById: () => ({ getAttribute: (k) => ({ 'data-item': '{"title":"Glass Orchard"}' }[k] || null) }) }; } },
     window: win, document: doc, AbortController,
     Date: class extends Date { constructor(...a) { super(...(a.length ? a : [clock])); } static now() { return clock; } },
@@ -197,7 +219,7 @@ async function page(opts = {}) {
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
-    $, doc, win, api, pages, toasts, history, heardByPage, cast,
+    $, doc, win, api, pages, toasts, overRemote, history, heardByPage, cast,
     async step(by) { history.go(by); await p.pass(20); },
     trail: () => ({ at: history.index, entries: history.entries.length, open: p.isOpen(), menu: p.seen('[data-po]') }),
     seen: (sel) => !p.$(sel).hidden && !p.$(sel).classList.contains('is-leaving'),
@@ -332,6 +354,22 @@ const scenarios = {
     out.other = p.bar().says;
     return out;
   },
+  async anothers() {
+    const p = await page();
+    Object.assign(p.api.tvs[0].play, { by: 'maren', mine: false, paused_by: null });
+    await p.pass(5000);
+    const says = p.bar().says;
+    await p.open();
+    const out = { says, bring: p.$('[data-bring]').hidden, hint: p.$('[data-hint]').textContent };
+    Object.assign(p.api.tvs[0].play, { state: 'paused', paused_by: 'maren' });
+    await p.pass(5000);
+    out.paused = p.bar().says;
+    out.on = p.$('[data-on]').textContent;
+    await p.press('#tv-remote [data-stop]');
+    await p.pass(1000);
+    out.toasts = p.toasts;
+    return out;
+  },
   async refused() {
     const p = await page();
     p.api.refuse = 'tv_off';
@@ -396,7 +434,99 @@ const scenarios = {
     await p.open();
     Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay({ position_s: 1268 }), reason: 'stopped' } });
     await p.pass(1100);
+    // Said once the remote has gone.
+    await p.pass(300);
     return { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts };
+  },
+  // The real sheet opened from a button low on a phone held sideways (874 by 402), as tall as it is.
+  async sheetHeight() {
+    const out = {};
+    for (const tall of [360, 200]) {
+      const p = await page({ sheet: true });
+      Object.assign(p.win, { innerWidth: 874, innerHeight: 402 });
+      const create = p.doc.createElement;
+      p.doc.createElement = (tag) => {
+        const el = create(tag);
+        if (tag === 'dialog') Object.defineProperties(el, { scrollHeight: { get: () => tall }, offsetWidth: { get: () => 372 } });
+        return el;
+      };
+      await p.open();
+      const btn = p.$('#tv-remote [data-play-on]');
+      btn.getBoundingClientRect = () => ({ left: 740, right: 788, top: 340, bottom: 384 });
+      btn.getClientRects = () => [1];
+      await p.press('#tv-remote [data-play-on]');
+      const s = p.$('.play-on').style;
+      out[tall] = { full: p.$('.play-on').classList.contains('is-full'), bottom: s.bottom || '', maxHeight: s.maxHeight || '' };
+    }
+    return out;
+  },
+  // The bar alone is shown as someone else, then nobody, stops the film.
+  async stoppedByAnother() {
+    const out = {};
+    for (const by of ['maren', null]) {
+      const p = await page();
+      Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay({ position_s: 1268 }), reason: 'stopped', stopped_by: by } });
+      await p.pass(5100);
+      await p.pass(15000);
+      out[by || 'nobody'] = { bar: p.bar().shown, toasts: p.toasts };
+    }
+    return out;
+  },
+  // The other person stops their own film, with the bar alone and with the remote open.
+  async stopsTheirOwn() {
+    const out = {};
+    for (const open of [false, true]) {
+      const p = await page();
+      Object.assign(p.api.tvs[0].play, { by: 'maren', mine: false });
+      await p.pass(5100);
+      if (open) await p.open();
+      Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay({ position_s: 1268 }), reason: 'stopped', stopped_by: 'maren', mine: false } });
+      await p.pass(5100);
+      out[open ? 'remote' : 'bar'] = { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts };
+    }
+    return out;
+  },
+  // The person is unpaired from the TV as something plays on it, with the bar alone and with the remote open.
+  async unpaired() {
+    const out = {};
+    const told = {
+      removed: { reason: 'removed', by: 'maren', tv: 'Living room', stopped: 'Glass Orchard' },
+      left: { reason: 'left', by: null, tv: 'Living room', stopped: null },
+    };
+    for (const [why, open] of [['removed', false], ['removed', true], ['left', false]]) {
+      const p = await page();
+      await p.pass(5100);
+      if (open) await p.open();
+      p.api.tvs = [];
+      p.api.gone = { reason: why, data: told[why] };
+      await p.pass(open ? 1100 : 5100);
+      const leaving = open ? p.$('#tv-remote').classList.contains('is-leaving') : p.$('#tv-mini').classList.contains('is-leaving');
+      await p.pass(300);
+      const hidden = open ? p.$('#tv-remote').hidden : p.$('#tv-mini').hidden;
+      const reads = p.reads().length;
+      await p.pass(30000);
+      out[why + (open ? 'Open' : '')] = { leaving, hidden, toasts: p.toasts, over: p.overRemote, asksOn: p.reads().length - reads };
+    }
+    return out;
+  },
+  // Someone else starts their film over the person's own.
+  async takenOver() {
+    const out = {};
+    for (const open of [false, true]) {
+      const p = await page();
+      await p.pass(5100);
+      if (open) await p.open();
+      p.api.tvs[0].play = aPlay({
+        play_id: 'p2', state: 'starting', title: 'Dune', season: null, episode: null, mine: false, by: 'maren',
+        started_by: 'maren', replaced: { title: 'Glass Orchard', place_kept: true },
+      });
+      await p.pass(5100);
+      out[open ? 'remote' : 'bar'] = { toasts: p.toasts, over: p.overRemote, hint: p.$('[data-hint]').textContent };
+    }
+    const q = await page({ tvs: [aTv({ play: aPlay({ mine: false, by: 'maren', started_by: 'maren', replaced: { title: 'Glass Orchard' } }) })] });
+    await q.pass(5100);
+    out.loaded = q.toasts;
+    return out;
   },
   // What the page says of the bar and the remote, for what makes room for them.
   async pageMarks() {
@@ -449,6 +579,32 @@ const scenarios = {
     const n = p.reads().length;
     await p.pass(60000);
     return p.reads().length - n;
+  },
+  // A read sent away while the page holds unsaved edits leaves the page as it is and asks no more.
+  async unsavedEdits() {
+    const out = {};
+    for (const [why, unsaved] of [['redirect', true], ['signedOut', true], ['signedOutSaved', false]]) {
+      const p = await page();
+      await p.pass(5100);
+      p.win.MM.api.hasUnsavedChanges = () => unsaved;
+      if (why === 'redirect') p.api.away = '/force-password-change';
+      else p.api.fail = ['http_401', 401];
+      await p.pass(5100);
+      await p.pass(1000);
+      const reads = p.reads().length;
+      await p.pass(60000);
+      out[why] = { href: p.win.location.href, asksOn: p.reads().length - reads };
+    }
+    return out;
+  },
+  // A read that never reached the server says the connection is lost, not that the TV is.
+  async phoneOffline() {
+    const p = await page({ player: true });
+    p.win.MM.api.messageOf = (e, f) => (e.error === 'network_error' ? e.message : f);
+    p.api.reject = new TypeError('Failed to fetch');
+    p.win.MM.tvRemote.open(7);
+    await settle();
+    return { toasts: p.toasts };
   },
   async upnext() {
     const p = await page();
@@ -1025,6 +1181,7 @@ const scenarios = {
     await p.press('[data-stop]');
     go();
     await p.pass(600);
+    await p.pass(300);
     return { ...out, after: [p.isOpen(), p.bar().says], sent: p.sent(), did: p.cast.did, toasts: p.toasts };
   },
   async castLost() {
@@ -1158,7 +1315,7 @@ const scenarios = {
     g.host.before({ id: 8 });
     g.host.failed();
     Object.assign(g.p.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'stopped' } });
-    await g.p.pass(1100);
+    await g.p.pass(1400);
     out.failedThenStopped = g.p.toasts.length;
     // Another that plays is not shown while one is moved.
     const m = await make({ cast: { now: aCast() } });
@@ -1205,7 +1362,7 @@ const scenarios = {
     s.p.win.MM.tvRemote.open(9);
     await settle();
     Object.assign(s.p.api.tvs[1], { play: null, last: { ...aPlay(), reason: 'stopped' } });
-    await s.p.pass(1100);
+    await s.p.pass(1400);
     out.said = s.p.toasts;
     const u = await make({ tvs: [aTv({ play: aPlay({ state: 'upnext', next: { rating_key: '9002', season: 1, episode: 5, title: 'x' } }) })] });
     u.host.before({ id: 8 });
@@ -1325,6 +1482,17 @@ const scenarios = {
     await settle();
     return { busy: keys(busy), pair: keys(pair), focus: pair.doc.activeElement.getAttribute('data-key') };
   },
+  // The sheet: what it asks before it plays over a film of someone the TV is paired with too.
+  async takeNamed() {
+    const p = await page({ sheet: true, tvs: [aTv(), aTv({ id: 8, kind: 'page', name: 'Bedroom', play: null })] });
+    await p.open();
+    await p.press('#tv-remote [data-play-on]');
+    p.api.refuse = 'in_use';
+    p.api.refusal = { error: 'in_use', playing: true, by: 'maren', title: 'Dune' };
+    await p.press('.play-on [data-key="tv-8"]');
+    const take = p.$('.play-on [data-key="take"]');
+    return { said: p.$('.play-on').textContent, take: take.textContent, primary: take.className.includes('btn--primary') };
+  },
   async paintsTitles() {
     const p = await page();
     const b = p.doc.createElement('button');
@@ -1357,6 +1525,45 @@ const scenarios = {
     q.win.MM.tvRemote.open(7);
     await settle();
     return { given, byId: q.isOpen() };
+  },
+  // A read sent on to a page, a command refused for a password to change, and a session that has gone.
+  async sentAway() {
+    const out = {};
+    for (const [why, still] of [['redirect', false], ['redirect', true], ['refused', false], ['signedOut', false]]) {
+      const p = await page({ still });
+      await p.pass(5100);
+      await p.open();
+      if (why === 'redirect') p.api.away = '/force-password-change';
+      if (why === 'signedOut') p.api.fail = ['http_401', 401];
+      if (why === 'refused') {
+        p.api.refuse = 'http_403';
+        p.api.refusal = { detail: 'password_change_required', message: 'You must change your password before continuing.', redirect: '/force-password-change' };
+        await p.press('[data-play]');
+      } else await p.pass(1100);
+      const leaving = p.$('#tv-remote').classList.contains('is-leaving');
+      const before = p.win.location.href;
+      await p.pass(300);
+      const reads = p.reads().length;
+      await p.pass(30000);
+      out[why + (still ? 'Still' : '')] = { leaving, before, href: p.win.location.href, hidden: p.$('#tv-remote').hidden, toasts: p.toasts, asksOn: p.reads().length - reads };
+    }
+    return out;
+  },
+  // Opened again while it closes, onto a TV where nothing plays.
+  async reopenedClosing() {
+    const out = {};
+    for (const still of [false, true]) {
+      const p = await page({ still });
+      await p.pass(5100);
+      await p.open();
+      await p.press('[data-close]');
+      p.win.MM.tvRemote.open(aTv({ play: null }));
+      await settle();
+      const early = p.toasts.length;
+      await p.pass(300);
+      out[still ? 'still' : 'moves'] = { early, toasts: p.toasts, over: p.overRemote };
+    }
+    return out;
   },
 };
 

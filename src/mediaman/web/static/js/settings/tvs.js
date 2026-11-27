@@ -72,7 +72,9 @@
   }
 
   function says(tv) {
-    return (tv.kind === 'older' ? 'Older TV at ' + tv.address : 'Paired by ' + tv.owner) + '. ' + seen(tv);
+    var who = tv.people && tv.people.length ? tv.people : [tv.owner];
+    var paired = who.length > 1 ? who.slice(0, -1).join(', ') + ' and ' + who[who.length - 1] : who[0];
+    return (tv.kind === 'older' ? 'Older TV at ' + tv.address : (who.length > 1 ? 'Paired with ' : 'Paired by ') + paired) + '. ' + seen(tv);
   }
 
   function urlOf(tv) { return (tv.kind === 'older' ? OLDER : '/api/tvs') + '/' + tv.id; }
@@ -257,6 +259,44 @@
     var sub = el('div', 'tv-sub', says(tv));
     txt.appendChild(label);
     txt.appendChild(sub);
+    if (tv.kind !== 'older' && tv.people && tv.people.length > 1) txt.appendChild(people());
+
+    // Each person it is paired with, any of whom can be unpaired alone.
+    function people() {
+      var ul = el('ul', 'tv-ppl');
+      tv.people.forEach(function (who) {
+        var chip = el('li');
+        chip.appendChild(el('span', 'tv-face', who.charAt(0).toUpperCase()));
+        chip.appendChild(el('span', '', who));
+        var x = el('button', 'tv-ppl__x');
+        x.type = 'button';
+        x.appendChild(MM.dom.icon('i-xmark'));
+        x.setAttribute('aria-label', 'Unpair ' + who + ' from ' + tv.name);
+        x.addEventListener('click', function () {
+          if (x.disabled) return;
+          x.disabled = true;
+          MM.api.delete('/api/tvs/' + tv.id + '/people/' + encodeURIComponent(who)).catch(function (err) {
+            // Unpaired already is what was asked for.
+            if (err.error !== 'not_found') throw err;
+          }).then(function () {
+            var held = MM.dom.focusStillIn(ul);
+            tv.people = tv.people.filter(function (p) { return p !== who; });
+            sub.textContent = says(tv);
+            // One person left needs no list of people: it folds away, as a row does.
+            if (tv.people.length < 2) MM.settings.rows.leave(ul);
+            else MM.settings.rows.leave(chip);
+            if (held) li.querySelector('.tv-acts .btn--danger').focus({ preventScroll: true });
+            window.UIFeedback.success(who + ' is unpaired from ' + tv.name + '.');
+          }, function (err) {
+            x.disabled = false;
+            window.UIFeedback.error(MM.api.messageOf(err, 'Couldn’t unpair ' + who + '. Try again.'));
+          });
+        });
+        chip.appendChild(x);
+        ul.appendChild(chip);
+      });
+      return ul;
+    }
 
     var acts = el('div', 'tv-acts');
     var check = null;
@@ -351,7 +391,8 @@
       var sure = el('div', 'tv-sure');
       sure.setAttribute('role', 'alertdialog');
       sure.setAttribute('aria-label', 'Unpair ' + tv.name + '?');
-      var words = el('p', '', 'Unpair ' + tv.name + '? It stops playing at once and is gone from everyone’s list. ' +
+      var words = el('p', '', 'Unpair ' + tv.name + '? It stops playing at once and is ' +
+        (tv.people && tv.people.length > 1 ? 'unpaired for everyone: ' + tv.people.join(' and ') + '. ' : 'gone from everyone’s list. ') +
         (tv.kind === 'older' ? 'You can add it again by its address.' : 'To use it again, pair it with a new code.'));
       var yes = button('Unpair this TV', 'danger', remove);
       var no = button('Cancel', 'ghost', cancel);
@@ -371,7 +412,8 @@
       function remove() {
         if (isBusy(yes)) return;
         setBusy(yes, 'Unpairing…');
-        MM.api.delete(urlOf(tv)).catch(function (err) {
+        // An admin among those it is paired with unpairs it for all of them, not just themself.
+        MM.api.delete(urlOf(tv) + (tv.people && tv.people.length > 1 ? '?everyone=1' : '')).catch(function (err) {
           // Gone already is what was asked for.
           if (err.error !== 'not_found') throw err;
         }).then(function () {
