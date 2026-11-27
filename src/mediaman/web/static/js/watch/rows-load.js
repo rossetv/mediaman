@@ -7,8 +7,9 @@
  *
  * *viewport* is a .watch-row__viewport whose cards are already in it, *next*
  * where to go on from (null: the row is complete) and fetchPage(next) a promise
- * of { cards, next }: card nodes, each with its data-title-ref link, and where
- * to go on from after them. Returns { stop }, for a row that is taken away,
+ * of { cards, next, part }: card nodes, each with its data-title-ref link, where
+ * to go on from after them, and part: true when they are one part of a page
+ * whose rest comes next, to be said with it. Returns { stop }, for a row that is taken away,
  * with next(), where it is to go on from, more(), which loads it now and says
  * whether a page is on its way, and check(), for a view the loader cannot see
  * moving. opts.took() is called after each page, opts.lost(told) when one could
@@ -23,7 +24,8 @@
  *   placeholders()  how many to show while a page loads
  *   range(cards)    the cards, [from, to), whose posters stay loaded
  *   failed(button)  show Try again; the placeholders stay
- *   took(fresh, done)  the cards just added, and whether they were the last
+ *   took(fresh, done, part)  the cards just added, whether they were the last,
+ *                   and whether the rest of their page is still to come
  */
 (function () {
   'use strict';
@@ -234,7 +236,7 @@
       var refocus = tile && document.activeElement === tile;
       retryButton = null;
       place(fresh, !!tile && !view);
-      if (view) view.took(fresh, next === null);
+      if (view) view.took(fresh, next === null, !!page.part);
       if (refocus) {
         var links = fresh.map(function (c) { return c.querySelector('.watch-card__link'); }).filter(Boolean);
         (links[0] || scroller).focus({ preventScroll: true });

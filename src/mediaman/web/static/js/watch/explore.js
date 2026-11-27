@@ -868,7 +868,7 @@
 
     /* One page, or the next that has something new. What the library holds comes
        first; a title of it found later stands where it comes, with its badge. A page
-       is given BATCH cards at a time, the rest a frame later as if a page of their own. */
+       is given BATCH cards at a time, the rest a frame later, and said once all of it is in. */
     function fetchPage(page) {
       if (page && page.rest) {
         return new Promise(function (go) { window.requestAnimationFrame(go); }).then(function () { return batch(page.rest, page.next); });
@@ -904,7 +904,7 @@
     /* *made*: heads, and cards still to be made. */
     function batch(made, next) {
       var now = made.slice(0, BATCH).map(function (c) { return typeof c === 'function' ? c() : c; });
-      return made.length > BATCH ? { cards: now, next: { rest: made.slice(BATCH), next: next } } : { cards: now, next: next };
+      return made.length > BATCH ? { cards: now, next: { rest: made.slice(BATCH), next: next }, part: true } : { cards: now, next: next };
     }
 
     /* The first page could not be had: nothing more is said of them. */

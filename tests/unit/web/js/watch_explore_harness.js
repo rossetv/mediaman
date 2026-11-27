@@ -88,7 +88,7 @@ const scenarios = {
 };
 
 Object.assign(scenarios, {
-  // Thirty titles come a frame apart, twelve at a time, not all in the frame the photo lands in.
+  // Thirty titles come a frame apart, twelve at a time, not all in the frame the photo lands in; each part but the last waits to be said with the rest.
   async batches() {
     const frames = [];
     const p = load({ can_download: { movie: true, show: true } }, frames);
@@ -104,7 +104,7 @@ Object.assign(scenarios, {
       const early = page !== null;
       frames.splice(0).forEach((fn) => fn(0));
       await settle();
-      sizes.push([page.cards.length, early]);
+      sizes.push([page.cards.length, early, !!page.part]);
       next = page.next;
     }
     return sizes;

@@ -111,6 +111,7 @@
     var width = window.innerWidth;
     var loader = null;
     var status = null;
+    var heard = 0; // cards of a page given in parts not yet said
     var waiting = !!opts.waiting; // what stands is not yet known to be all there is
     var marks = new Map(); // where each card and dated line taken out stood: a mark in its place, by it
 
@@ -193,14 +194,18 @@
         line.appendChild(button);
         tail.replaceChildren(line);
       },
-      took: function (fresh, done) {
+      took: function (fresh, done, part) {
         grid.classList.remove('is-static');
         tail.replaceChildren();
         if (done) ending();
         var added = fresh.filter(isCard);
         arrive(added);
-        var more = added.length < cards().length ? ' more loaded.' : ' loaded.';
-        if (added.length || done) say(added.length + more + (done ? ' That is everything.' : ''));
+        heard += added.length;
+        if (!part || done) {
+          var more = heard < cards().length ? ' more loaded.' : ' loaded.';
+          if (heard || done) say(heard + more + (done ? ' That is everything.' : ''));
+          heard = 0;
+        }
         if (opts.took) opts.took();
         if (Date.now() - wantedAt > JUMP_MS) wanted = null;
         // The loader settles after this; a jump goes on from there.
@@ -262,6 +267,7 @@
 
     function begin(next) {
       if (next === undefined) next = null;
+      heard = 0;
       loader = watch.rowsLoad.start(host, { title: title, next: next, fetchPage: askPage, view: view });
       if (next === null && !waiting) ending();
       waiting = false;
