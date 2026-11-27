@@ -106,5 +106,10 @@ def test_the_veil_behind_the_open_sheet_can_still_be_pressed() -> None:
 
 def test_no_step_or_line_a_viewer_reads_names_tmdb() -> None:
     out = _run("similar")
-    said = [out["choosing"], out["checking"], out["foot"], _run("similarErrors")["keyViewer"]["head"]]
+    said = [
+        out["choosing"],
+        out["checking"],
+        out["foot"],
+        _run("similarErrors")["keyViewer"]["head"],
+    ]
     assert not [line for line in said if "TMDB" in line]

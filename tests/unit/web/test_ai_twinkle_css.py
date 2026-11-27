@@ -6,7 +6,9 @@ import re
 from pathlib import Path
 
 CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css"
-SHEET = re.sub(r"/\*.*?\*/", "", (CSS / "_watch_making.css").read_text(encoding="utf-8"), flags=re.S)
+SHEET = re.sub(
+    r"/\*.*?\*/", "", (CSS / "_watch_making.css").read_text(encoding="utf-8"), flags=re.S
+)
 
 
 def _keyframes(name: str) -> str:
@@ -20,7 +22,9 @@ def _names_on_sparkle() -> set[str]:
     names: set[str] = set()
     for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", SHEET):
         if "ai-label" in head or "--ai-twinkle" in body:
-            names.update(re.findall(r"(?:animation(?:-name)?|--ai-twinkle[\w-]*):\s*([a-z][\w-]*)", body))
+            names.update(
+                re.findall(r"(?:animation(?:-name)?|--ai-twinkle[\w-]*):\s*([a-z][\w-]*)", body)
+            )
     return names - {"none", "var"}
 
 
@@ -45,7 +49,9 @@ def test_reduced_motion_pulses_opacity_slowly_and_keeps_the_stars_still() -> Non
 def test_no_ai_motion_in_search_turns_its_sparkle() -> None:
     for name in ("_watch_ask.css", "_watch_search.css"):
         sheet = re.sub(r"/\*.*?\*/", "", (CSS / name).read_text(encoding="utf-8"), flags=re.S)
-        frames = re.findall(r"@keyframes (watch-a[is]\w*-[\w-]+)\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}", sheet)
+        frames = re.findall(
+            r"@keyframes (watch-a[is]\w*-[\w-]+)\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}", sheet
+        )
         assert frames, name
         assert [n for n, body in frames if "rotate" in body] == [], name
         # Thinking, the sparkle twinkles with the shared stars.

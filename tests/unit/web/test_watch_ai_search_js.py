@@ -32,7 +32,10 @@ def test_similar_to_finds_the_title_it_names_and_holds_the_answers_place_under_i
 
 def test_similar_to_is_asked_as_any_question_with_the_title_it_names() -> None:
     assert _run("similar")["sent"] == [
-        {"q": "similar to 90 days fiance", "like": {"tmdb_id": 70, "kind": "tv", "title": "90 Day Fiancé"}}
+        {
+            "q": "similar to 90 days fiance",
+            "like": {"tmdb_id": 70, "kind": "tv", "title": "90 Day Fiancé"},
+        }
     ]
 
 
@@ -60,7 +63,10 @@ def test_while_the_ai_looks_its_outlines_hold_the_place_and_each_step_is_said() 
 def test_the_answer_is_one_grid_of_picks_ready_ones_first_never_the_title_named() -> None:
     answered = _run("similar")["answered"]
     assert answered["kicker"] == "AI picks"
-    assert answered["head"] == "Reality romance worth your time | 3 titles · 1 ready to watch, 2 to download"
+    assert (
+        answered["head"]
+        == "Reality romance worth your time | 3 titles · 1 ready to watch, 2 to download"
+    )
     assert answered["because"] == "90 Day Fiancé"
     assert answered["cards"] == [
         "*Nine Locks (The vault opens first time.)",

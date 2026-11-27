@@ -51,7 +51,9 @@ def test_where_it_fits_known_for_stands_beside_who_they_are_and_under_them_where
     assert under and "grid-column: 1 / -1" in under.group(1)
 
 
-def test_a_persons_dates_placeholder_keeps_its_margins_inside_so_it_is_as_tall_as_the_dates() -> None:
+def test_a_persons_dates_placeholder_keeps_its_margins_inside_so_it_is_as_tall_as_the_dates() -> (
+    None
+):
     css = (CSS / "_watch_explore.css").read_text()
     assert re.search(r"\.explore-born:has\(> \.skel\) \{[^}]*display: flow-root", css)
     line = re.search(r"\.explore-born > \.skel--line \{([^}]*)\}", css)
