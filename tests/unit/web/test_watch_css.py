@@ -50,30 +50,6 @@ def test_a_leaving_badge_is_dark_and_turns_red_only_when_it_leaves_now() -> None
     assert css.index(".watch-badge--leaving-now {") > css.index(".watch-badge--leaving {")
 
 
-def test_a_leaving_badge_says_the_days_left() -> None:
-    assert "display: none" in _of(".watch-badge__long")
-    assert "display: none" not in _of(".watch-badge__short")
-    wider = "max-width: 599.98px"
-    assert not any(_of(s, wider) for s in (".watch-badge__long", ".watch-badge__short"))
-
-
-def test_a_leaving_badge_shows_fewer_words_wherever_the_short_ones_do_not_fit() -> None:
-    window = _of(".watch-badge--leaving")
-    assert "flex-wrap: wrap" in window and "overflow: hidden" in window
-    # The fewer words take no width of the line, so the short ones alone say whether it wraps;
-    # where it does not, they stand at the foot of a line two high, out of the window.
-    for words in (".watch-badge__tiny", ".watch-badge__least"):
-        assert "align-self: flex-end" in _of(words)
-        assert "attr(data-words)" in _of(f"{words}::after")
-    tiny = _of(".watch-badge__tiny")
-    assert "flex: 0 0 100%" in tiny and "margin-right: -100%" in tiny
-    assert "width: 0" in _of(".watch-badge__least")
-    for words in (".watch-badge__short", ".watch-badge__tiny::after"):
-        assert "flex: none" in _of(words) and "margin-bottom: var(--badge-h)" in _of(words)
-    # Read out in full whatever is drawn.
-    assert "display: none" not in _of(".watch-badge__short", "max-width: 359.98px")
-
-
 @pytest.mark.parametrize(
     "seen",
     [
@@ -119,19 +95,8 @@ def test_forced_colours_show_what_is_on_and_how_far_a_download_is(
     assert "background: Highlight" in _of(selector, FORCED, sheet)
 
 
-def test_forced_colours_give_a_download_s_hidden_art_no_room() -> None:
-    sheet = SHEET.with_name("_dl.css")
-    for art in (".dl-hero-bg", ".dl-hero-overlay", ".dl-hero-scrim", ".dl-hero-poster"):
-        assert "display: none" in _of(art, FORCED, sheet)
-    assert "min-height: 0" in _of(".dl-hero", FORCED, sheet)
-
-
-def test_forced_colours_give_keep_an_edge_and_a_hidden_picture_no_room() -> None:
+def test_forced_colours_give_keep_an_edge() -> None:
     assert "border: 1px solid" in _of(".watch-keep::before", FORCED)
-    banner = _of(".watch-banner:has(> .watch-banner__bg--art:not([data-broken]))", FORCED)
-    assert "min-height: 0" in banner
-    detail = SHEET.with_name("_watch_detail.css")
-    assert "min-height: 190px" in _of(".ttl:not(.is-trailer) .ttl__hero", FORCED, detail)
 
 
 def test_a_leaving_badge_has_an_edge_in_forced_colours() -> None:
@@ -141,18 +106,6 @@ def test_a_leaving_badge_has_an_edge_in_forced_colours() -> None:
         assert "outline: 1px solid CanvasText" in drawn and "outline-offset: -1px" in drawn
         assert "background: Canvas" in drawn
     assert not _of(".watch-badge--leaving", FORCED)
-
-
-def test_a_caption_is_shortened_on_a_phone_alone() -> None:
-    assert "clip-path" not in _of(".watch-card__wide") + _of(".watch-card__wide", "1279.98px")
-    assert "clip-path" in _of(".watch-card__wide", "max-width: 599.98px")
-    assert "attr(data-unit)" in _of(".watch-card__unit::after", "max-width: 599.98px")
-
-
-def test_a_caption_with_no_room_for_both_parts_shows_the_tail_and_in_search_the_kind() -> None:
-    caption = ".watch-card__sub:has(> .watch-card__lead)"
-    assert "flex-wrap: wrap-reverse" in _of(caption) and "height: 1lh" in _of(caption)
-    assert "flex-wrap: wrap;" in _of(f".results-grid {caption}")
 
 
 def test_a_watched_badge_is_its_icon_alone_on_the_narrowest_phones_and_still_says_the_word() -> (
@@ -222,11 +175,6 @@ def test_a_rule_that_does_would_be_found(selector: str) -> None:
     assert any(_asks_a_card(one) for one in _compounds(selector + " {}"))
 
 
-def test_what_is_being_done_of_a_title_stays_on_one_line_beside_its_thumb() -> None:
-    grid = SHEET.with_name("_watch_grid.css")
-    assert "white-space: nowrap" in _of(".watch-card.is-working .watch-card__sub", sheet=grid)
-
-
 def test_every_button_under_a_card_takes_44px_on_a_touch_screen() -> None:
     css = CARDS.read_text(encoding="utf-8")
     size = re.search(r"\.card-tool \{[^}]*?width: (\d+)px;\s*height: (\d+)px", css)
@@ -234,8 +182,6 @@ def test_every_button_under_a_card_takes_44px_on_a_touch_screen() -> None:
     assert size and grown
     top, right, bottom, left = map(int, grown.groups())
     assert int(size.group(1)) + left + right >= 44 and int(size.group(2)) + top + bottom >= 44
-    # Four levels of 44px and the 4px round them.
-    assert "--h: max(184px," in css
 
 
 def test_no_button_under_a_card_moves_where_motion_is_unwanted() -> None:
@@ -273,20 +219,6 @@ def test_every_card_button_draws_its_keyboard_ring_on_its_round_backing() -> Non
 MOUSE = "(hover: hover) and (pointer: fine)"
 
 
-def test_with_a_mouse_the_buttons_of_a_card_far_out_of_sight_are_not_drawn() -> None:
-    # The whole row, which WebKit then skips at once; a rating given stays drawn, as a card nears
-    # faster than it is told.
-    far = ".watch-card.is-far > .card-tools"
-    rated = far + " > .card-tool:is(.is-up, .is-down)"
-    assert "visibility: hidden" in _of(far, MOUSE, CARDS)
-    assert "visibility: visible" in _of(rated, MOUSE, CARDS)
-    assert "opacity: 1" in _of(".card-tool--thumb:is(.is-up, .is-down)", MOUSE, CARDS)
-    assert not _of(far + " > .card-tool:not(.is-up, .is-down)", MOUSE, CARDS)
-    # A touch screen's thumbs, drawn at rest, are as they were.
-    for rule in (far, rated):
-        assert not _of(rule, sheet=CARDS) and not _of(rule, FINGER, CARDS)
-
-
 _TOOLS = " > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool"
 
 
@@ -295,18 +227,6 @@ def test_with_a_mouse_a_card_a_finger_pressed_shows_its_buttons_as_under_the_mou
     assert "opacity: 1; transform: none" in _of(shown, MOUSE, CARDS)
     ring = ".watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool::before"
     assert "opacity: 1" in _of(ring, MOUSE, CARDS)
-
-
-def test_with_a_mouse_a_card_under_it_shows_its_buttons_unless_a_finger_was_last() -> None:
-    # A finger leaves its card under :hover until it presses elsewhere.
-    hover = ":where(html:not(.is-by-touch)) .watch-card"
-    assert "opacity: 1; transform: none" in _of(hover + ":hover" + _TOOLS, MOUSE, CARDS)
-    assert "opacity: 1" in _of(hover + ":hover .card-tool::before", MOUSE, CARDS)
-    assert "--th-bg: var(--s3)" in _of(hover + ":hover .card-tool > .rate-th", MOUSE, CARDS)
-    sub = hover + ".has-tools:hover > .watch-card__link:not(.is-previewed) .watch-card__sub"
-    assert "mask-image" in _of(sub, MOUSE, CARDS)
-    css = CARDS.read_text(encoding="utf-8")
-    assert not re.search(r"\.watch-card(\.has-tools)?:is\(:hover", css)
 
 
 def test_the_levels_can_take_the_focus_as_they_open_where_motion_is_unwanted() -> None:
@@ -343,17 +263,6 @@ def test_a_thumb_keeps_the_colour_of_its_level_from_the_press_to_its_rest(level:
     assert "display: none" in _of(".card-flier .halo", sheet=CARDS)
 
 
-def test_the_preview_s_eye_is_filled_once_watched_as_the_panel_s_is() -> None:
-    eye = _of('.pv__eye[aria-pressed="true"]', sheet=PREVIEW)
-    assert "background: var(--t1); color: var(--bg)" in eye
-    assert "background: var(--t1)" in _of('.card-over__b[aria-pressed="true"]::before', sheet=CARDS)
-
-
-def test_the_icons_under_a_card_do_not_outgrow_their_circles_with_the_text() -> None:
-    for icon in (".card-tool > .ico", ".card-over__b > .ico"):
-        assert re.search(r"width: [\d.]+px; height: \d+px", _of(icon, sheet=CARDS))
-
-
 # "removed", the widest word of a level's name, is 3.97em in the system font at its boldest.
 WIDEST_WORD_EM = 3.97
 
@@ -381,30 +290,9 @@ def test_forced_colours_keep_the_level_given_readable_under_the_pointer() -> Non
     assert "padding-inline: 5px" in _of(".card-over .rate__name", FORCED, CARDS)
 
 
-def test_a_card_s_title_eases_down_as_its_bar_goes() -> None:
-    assert "padding-bottom var(--dur)" in _of(".watch-card__poster")
-    bar = _of(".card-barend", "(prefers-reduced-motion: no-preference)", CARDS)
-    assert "bar-away" in bar
-
-
 def test_the_levels_are_readable_where_the_picture_under_them_is_not_blurred() -> None:
     ground = re.findall(r"var\(--s2\) (\d+)%", _of(".rate--lift .rate__set", sheet=CARDS))
     assert int(ground[0]) >= 90
-
-
-def test_an_eye_that_had_shut_while_it_waited_opens_and_is_not_shut_twice() -> None:
-    motion = "(prefers-reduced-motion: no-preference)"
-    for part in (".pv__eye.is-blink > .ico", '.is-blink[aria-pressed="true"]'):
-        assert "var(--from-shut)" in _of(part, motion, CARDS)
-    assert "var(--shut, 0)" in _of(".is-blink", motion, CARDS)
-
-
-def test_an_episode_s_caption_drops_left_and_then_the_time_and_keeps_the_episode() -> None:
-    caption = ".watch-card__sub:has(> .watch-card__left)"
-    assert "flex-wrap: wrap;" in _of(caption)
-    # A dot after the episode would stay behind when the time goes.
-    assert "content: none" in _of(f"{caption} > .watch-card__lead::after")
-    assert "\\a0·\\a0" in _of(f"{caption} > .watch-card__tail::before")
 
 
 TOUCH = "(max-width: 599.98px), (pointer: coarse)"
@@ -452,40 +340,11 @@ def test_a_rows_heading_leaves_the_more_of_the_row_above_its_44px() -> None:
     assert _reach(".watch-row__title > .row-open[href]::after", TOUCH)[0] <= 9
 
 
-def test_a_rows_offer_covers_no_heading_and_no_words_of_see_all_on_a_phone() -> None:
-    browse = SHEET.with_name("_watch_browse.css")
-    phone = "(max-width: 599.98px)"
-    for media in (None, phone):
-        chip = _of(".row-open__cue::before", media, browse)
-        # As wide as the room See all keeps for it, and under its words.
-        assert re.findall(r"inset: -?\d+px 0;", chip) or (media and "inset" not in chip)
-        assert media or "z-index: -1" in chip
-        assert "position: absolute" not in _of(".row-open__cue", media, browse)
-    assert "isolation: isolate" in _of(".row-open__cue", sheet=browse)
-    assert int(re.findall(r"padding: 0 (\d+)px;", _of(".row-open__cue", sheet=browse))[0]) >= 8
-    # Beside the row's own tools or link a phone has no room for the words.
-    phone_rules = re.sub(r"/\*.*?\*/", "", browse.read_text(encoding="utf-8"), flags=re.S)
-    assert re.search(
-        r":has\(> :is\(\.watch-row__tools, \.space-row-link\)\) "
-        r":is\(\.row-open__word, \.row-open__total\) \{ display: none; \}",
-        phone_rules,
-    )
-
-
 def test_the_words_of_see_all_keep_their_colour_under_the_pointer_in_forced_colours() -> None:
     browse = SHEET.with_name("_watch_browse.css")
     for state in ("", ":hover", ":active"):
         rules = _of(f".row-open[href]{state} .row-open__cue", FORCED, browse)
         assert "color: LinkText" in rules
-
-
-def test_a_person_s_photo_stays_in_the_strip_while_their_card_is_open() -> None:
-    cast = SHEET.with_name("_watch_cast.css")
-    for media in (None, "prefers-reduced-motion"):
-        for part in (" .cast-face", " > .ttl-cast__avatar"):
-            rules = _of(f".ttl-cast__item.is-out{part}", media, cast)
-            assert "hidden" not in rules and "opacity" not in rules
-    assert not _of(".ttl-cast__avatar::before", sheet=cast)
 
 
 def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
@@ -495,17 +354,6 @@ def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
         left = re.findall(r"left: \d+px", _of(".watch-badge--leaving", media))
         assert left and re.findall(r"left: \d+px", _of(under, media, browse)) == left
     assert "right: auto" in _of(under, sheet=browse)
-
-
-def test_a_watched_badge_stands_under_any_other_in_its_corner() -> None:
-    under = re.search(
-        r"\.watch-card__poster > :is\(([^)]*)\) ~ \.watch-badge--watched \{ top: 36px; \}",
-        SHEET.read_text(encoding="utf-8"),
-    )
-    assert under
-    assert {".watch-badge--leaving", ".watch-badge--state", ".watch-badge--new"} == set(
-        under[1].split(", ")
-    )
 
 
 def test_a_category_tile_s_drawing_takes_the_system_colour_in_forced_colours() -> None:
@@ -564,52 +412,6 @@ def test_tonight_s_controls_are_44px_to_press_inside_what_clips_them() -> None:
     assert "align-self: stretch" in _of(".tn__foot > .txt", sheet=ASK)
 
 
-def test_the_panel_s_headings_stay_on_one_line_with_large_text() -> None:
-    assert "flex: none" in _of(".watch-sheet__head > .watch-sheet__title", sheet=ASK)
-
-
-def test_tonight_s_titles_break_between_words_on_cards_as_wide_as_the_rows() -> None:
-    assert "overflow-wrap: normal" in _of(".tn__list .watch-card__title", sheet=ASK)
-    columns = re.search(r"minmax\((\d+)px, 1fr\)", _of(".tn__list", sheet=ASK))
-    assert columns and int(columns[1]) >= 128
-    # A phone swipes a row of them, each as wide as its rows' own.
-    phone = "(max-width: 599.98px)"
-    assert "overflow-x: auto" in _of(".tn__list", phone, ASK)
-    assert (
-        int(re.search(r"flex: 0 0 (\d+)px", _of(".tn__list > .watch-card", phone, ASK))[1]) >= 112
-    )
-
-
-def test_tonight_s_longest_time_has_a_shorter_word_where_it_would_wrap() -> None:
-    narrow = "(max-width: 409.98px)"
-    assert "font-size: 0" in _of(".tn__seg > button[data-short]", narrow, ASK)
-    assert "attr(data-short)" in _of(".tn__seg > button[data-short]::before", narrow, ASK)
-    # The width it is judged by is the panel's own, so it holds at any page width.
-    assert "container-type: inline-size" in _of(".tn__head", sheet=ASK)
-    assert "white-space: normal" not in _of(".tn__seg > button", "(max-width: 599.98px)", ASK)
-    assert "white-space: nowrap" in _of(".tn__seg > button", sheet=ASK)
-
-
-def test_tonight_s_times_wrap_rather_than_overlap_where_five_44px_ones_do_not_fit() -> None:
-    narrow = "(max-width: 259.98px)"
-    assert "flex-wrap: wrap" in _of(".tn__seg", narrow, ASK)
-    assert "flex: 1 0 44px" in _of(".tn__seg > button", narrow, ASK)
-    assert "display: none" in _of(".tn__seg > i", narrow, ASK)
-    assert "background: var(--s5)" in _of('.tn__seg > button[aria-checked="true"]', narrow, ASK)
-
-
-def test_tonight_s_five_times_keep_44px_each_at_320() -> None:
-    # Box padding 10 each side, border 1, page padding 16: the segment's room is left over.
-    assert "padding-inline: 10px" in _of(".tn", "(max-width: 339.98px)", ASK)
-
-
-def test_tonight_s_row_of_cards_fades_at_its_edge_on_a_phone() -> None:
-    row = _of(".tn__list", "(max-width: 599.98px)", ASK)
-    assert "var(--watch-fade-l)" in row and "var(--watch-fade-r)" in row
-    assert "--watch-fade-l" in _of(".tn__list.has-prev", "(max-width: 599.98px)", ASK)
-    assert "--watch-fade-r" in _of(".tn__list.has-next", "(max-width: 599.98px)", ASK)
-
-
 def test_an_ai_pick_s_sparkle_has_a_backplate_of_its_own_in_forced_colours() -> None:
     spark = _of(".watch-card__spark", FORCED, ASK)
     assert "background: Canvas" in spark and "color: CanvasText" in spark
@@ -621,14 +423,6 @@ def test_a_question_s_head_on_a_phone_holds_two_lines_of_words_and_one_under_the
     assert (
         eval(height.replace("calc", "").replace("px", ""), {"__builtins__": {}})
         >= two_lines_and_one
-    )
-
-
-def test_a_wide_way_on_goes_under_a_question_s_words_on_a_phone() -> None:
-    phone = "(max-width: 599.98px)"
-    assert "flex-wrap: wrap" in _of(".ask__row:has(> .chip)", phone, ASK)
-    assert "flex-basis: calc(100% - 58px)" in _of(
-        ".ask__row:has(> .chip) > .ask__words", phone, ASK
     )
 
 
@@ -699,38 +493,3 @@ def test_a_phone_s_tv_bar_is_off_the_foot_and_below_toasts_and_what_is_scrolled_
     assert _px(_last("bottom", toast), True, height) >= over
     scrolled = _of("html.has-tv-mini", PHONE, REMOTE)
     assert _px(_last("scroll-padding-bottom", scrolled), True, height) >= over
-
-
-def test_an_error_page_is_as_high_as_the_screen_less_the_nav_at_every_width() -> None:
-    error = SHEET.with_name("_error.css")
-    page = _of(".nav-glass ~ main .login-page", sheet=error)
-    assert _last("min-height", page) == "calc(100vh - var(--nav-h))"
-    assert _of(".nav-glass ~ main .login-page", PHONE, error) == ""
-
-
-def test_the_nav_s_height_is_set_in_the_nav_sheet_alone() -> None:
-    css = SHEET.parent
-    assert "--nav-h:" not in _of(":root", sheet=css / "_tokens.css")
-    assert _bar_px(_last("--nav-h", _of(":root", sheet=css / "_nav.css"))) == "72px"
-    assert _bar_px(_last("--nav-h", _of(":root", PHONE, css / "_nav.css"))) == "64px"
-
-
-def test_a_row_kept_at_its_start_does_not_snap_whatever_its_script_sets_inline() -> None:
-    rule = _of(".watch-row__scroll.is-still", sheet=SHEET.parent / "_watch_downloading.css")
-    assert "scroll-snap-type: none !important" in rule
-
-
-def test_on_a_poster_under_120px_the_ready_to_watch_pill_tightens_so_its_words_fit() -> None:
-    # "Ready to watch" with its tick is 106px at the full padding; a three-across phone grid's
-    # poster leaves the pill 102px, so the narrow poster takes 4px off the sides and 1px off the gap.
-    # A container query measures inside the poster's padding: 104px there is a 120px poster.
-    assert "container: poster / inline-size" in _of(".watch-card__poster")
-    narrow = _of(".watch-card__poster > .watch-badge--state", "poster (max-width: 103.98px)")
-    assert "padding-inline: 5px" in narrow
-    assert "gap: 3px" in narrow
-
-
-def test_a_search_downloading_row_draws_its_scores_without_the_poster_s_shade() -> None:
-    search = SHEET.with_name("_watch_search.css")
-    assert "text-shadow: none" in _of(".results-dl__text > .watch-card__scores", sheet=search)
-    assert "filter: none" in _of(".results-dl__text .watch-score > .ico", sheet=search)

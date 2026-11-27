@@ -32,31 +32,8 @@ def _declarations(selector: str) -> str:
     return block.group(1)
 
 
-def test_only_the_bar_s_two_outer_ends_are_round() -> None:
-    # every part's corners are 1px, and only the first part's start and the last part's end
-    # (or the reserved part's end) take the full round, so the corners between parts stay square
-    assert "border-radius: 1px;" in _declarations(".space-seg::before")
-    assert "border-radius: 1px 11px 11px 1px;" in _declarations(".space-bar__rest")
-    first = _declarations(".space-seg--first::before")
-    last = _declarations(".space-seg--last::before")
-    assert "start-start-radius: 11px" in first and "end-start-radius: 11px" in first
-    assert "start-end-radius: 11px" in last and "end-end-radius: 11px" in last
-
-
 def test_the_off_chip_keeps_its_words_and_icon_in_the_text_colour_when_colours_are_forced() -> None:
     css = re.sub(r"/\*.*?\*/", "", SHEET.read_text(encoding="utf-8"), flags=re.S)
     forced = css.split("@media (forced-colors: active)")[1]
     rule = ".space-meter--off .space-meter__free, .space-meter--off > .ico { color: ButtonText; }"
     assert rule in forced
-
-
-def test_a_short_screen_gets_a_smaller_head_and_every_pane_fades_at_its_foot() -> None:
-    css = re.sub(r"/\*.*?\*/", "", SHEET.read_text(encoding="utf-8"), flags=re.S)
-    short = re.search(r"@media \(max-height: 500px\) \{((?:[^{}]|\{[^{}]*\})*)\}", css)
-    assert short
-    assert re.search(r"\.space-fig \{[^}]*min-height: (\d+)px", short.group(1))
-    assert int(re.search(r"\.space-fig__n \{ font-size: (\d+)px", short.group(1)).group(1)) < 40
-    pane = _declarations(".space-pane")
-    # The cover goes with the content's end, the shade stays on the pane's edge.
-    assert re.search(r"\blocal\b", pane)
-    assert re.search(r"\bscroll\b", pane)

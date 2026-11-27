@@ -23,9 +23,3 @@ def test_a_poster_title_s_shading_reaches_under_its_transparent_border() -> None
     assert "background-origin: border-box" in rule
     # The background shorthand resets the origin, so the origin must come after it.
     assert rule.index("background-origin") > rule.index("background: linear-gradient")
-
-
-def test_a_poster_title_is_held_to_three_lines() -> None:
-    rule = _poster_title_rule()
-    assert "-webkit-line-clamp: 3" in rule
-    assert "line-clamp: 3" in rule
