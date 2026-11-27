@@ -26,10 +26,24 @@
     if (window.UIFeedback) window.UIFeedback.toast(message, opts);
   }
 
+  /* The sparkle with its stars as paths of its own, so they can twinkle: WebKit runs no
+     animation inside what a <use> copies. */
+  function sparkle() {
+    var icon = window.MM.dom.icon('i-sparkles');
+    var symbol = byId('i-sparkles');
+    var use = icon.querySelector('use');
+    if (!symbol || !use) return icon;
+    icon.setAttribute('viewBox', symbol.getAttribute('viewBox'));
+    icon.setAttribute('overflow', 'visible');
+    toArray(symbol.childNodes).forEach(function (n) { icon.insertBefore(n.cloneNode(true), use); });
+    use.remove();
+    return icon;
+  }
+
   /* The mark of something an AI chose: the icon and the words. */
   function aiLabel(text) {
     var label = el('span', 'ai-label');
-    label.appendChild(window.MM.dom.icon('i-sparkles'));
+    label.appendChild(sparkle());
     label.appendChild(document.createTextNode(text));
     return label;
   }
@@ -429,6 +443,7 @@
     byId: byId,
     el: el,
     aiLabel: aiLabel,
+    sparkle: sparkle,
     toArray: toArray,
     safePath: safePath,
     toast: toast,

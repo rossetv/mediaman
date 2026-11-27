@@ -123,3 +123,9 @@ def test_the_words_move_only_where_motion_is_wanted() -> None:
     rest = css.replace(moving[0], "")
     assert "animation:" in moving[1]
     assert re.findall(r"animation: (?!loading-pulse)[^;]+", rest) == []
+
+
+def test_the_ai_labels_stars_are_drawn_in_its_own_icon_so_webkit_twinkles_them(
+    out: dict[str, Any],
+) -> None:
+    assert out["sparkle"] == {"uses": 0, "viewBox": "0 0 640 512", "stars": ["ai-star-lg", "ai-star-sm"]}
