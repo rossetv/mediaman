@@ -91,7 +91,7 @@
     var form = document.getElementById('account-password-form');
     var sub = document.getElementById('account-password-sub');
     var live = document.getElementById('account-password-live');
-    var none = { typed: function () { return false; }, clear: function () {}, sayDevices: function () {} };
+    var none = { typed: function () { return false; }, clear: function () {}, sayDevices: function () {}, opened: function () {} };
     if (!form || !sub || !live) return none;
     var submit = form.querySelector('[type="submit"]');
     var row = document.getElementById('account-open-password');
@@ -109,7 +109,7 @@
     var unknown = effect.textContent;
     var fresh = false;
 
-    var pw = MM.password.form(form, { send: send });
+    var pw = MM.password.form(form, { send: send, hold: true });
 
     function sayDevices() {
       if (fresh) return;
@@ -189,6 +189,7 @@
       typed: function () { return Boolean(pw.old.value || pw.fresh.value); },
       clear: function () { if (!pw.isBusy()) pw.reset(); },
       sayDevices: sayDevices,
+      opened: function () { if (!pw.isBusy() && form.isConnected) pw.old.focus({ preventScroll: true }); },
     };
   }
 
@@ -785,6 +786,86 @@
     });
   }
 
+  /* The tiles of the hub: History's latest event and, for an admin, whether the services set up answer.
+     Each is asked again as the hub shows; the newest answer wins. */
+  // The fields each service's check needs, as Settings checks them by itself.
+  var SERVICES = [
+    ['plex', ['plex_url', 'plex_token']], ['sonarr', ['sonarr_url', 'sonarr_api_key']],
+    ['radarr', ['radarr_url', 'radarr_api_key']], ['nzbget', ['nzbget_url']],
+    ['mailgun', ['mailgun_domain', 'mailgun_api_key']], ['openai', ['openai_api_key']],
+    ['tmdb', ['tmdb_read_token']], ['omdb', ['omdb_api_key']]
+  ];
+
+  function lastWhen(iso) {
+    var at = new Date(iso);
+    if (isNaN(at)) return '';
+    var today = new Date(Date.now());
+    if (at.toDateString() === today.toDateString()) return at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  }
+
+  // The server's labels that read as a verb before a title; the others follow the title.
+  var VERBS = ['downloaded', 're-downloaded', 'deleted', 'kept', 'scheduled'];
+
+  // "marlowe finished Interstellar · 21:04". A security event is named by its title, and an event whose
+  // label is no verb as "Title: label".
+  function eventLine(item, me) {
+    var name = item.who && item.who.name;
+    var mine = name === me;
+    var verb = item.action === 'play' ? (item.finished ? 'finished' : 'started') : item.action_label;
+    var words;
+    if (item.is_security) words = mine ? item.line_title : item.line_title + ' by ' + (name || 'a former user');
+    else if (item.action === 'play' || VERBS.indexOf(verb) >= 0) words = (mine ? 'You' : name || 'A former user') + ' ' + verb + ' ' + item.line_title;
+    else words = item.line_title + ': ' + verb;
+    var at = (item.fields || []).filter(function (f) { return f.at; })[0];
+    var time = at ? lastWhen(at.at) : '';
+    return time ? words + ' · ' + time : words;
+  }
+
+  function initTiles() {
+    var history = document.getElementById('account-tile-history');
+    var settings = document.getElementById('account-tile-settings');
+    if (!history) return function () {};
+    var asked = 0;
+
+    function sayHistory(me) {
+      MM.api.get('/api/history?per_page=20').then(function (data) {
+        if (me !== asked) return;
+        var items = data.items || [];
+        var shown = items.filter(function (i) { return !i.is_security; })[0] || items[0];
+        history.textContent = shown ? eventLine(shown, history.getAttribute('data-me')) : 'Nothing yet';
+      }, function () { /* It keeps what it says. */ });
+    }
+
+    function saySettings(me) {
+      function say(text, bad) {
+        if (me !== asked) return;
+        settings.textContent = text;
+        settings.classList.toggle('is-bad', bad);
+      }
+      MM.api.get('/api/settings').then(function (values) {
+        var set = SERVICES.filter(function (s) { return s[1].every(function (key) { return values[key]; }); });
+        if (!set.length) { say('No services are set up yet', false); return; }
+        // Staggered as Settings staggers its own, under the rate limit. A throttled check is not a service down.
+        return Promise.all(set.map(function (s, i) {
+          return new Promise(function (go) { setTimeout(go, i * 200); }).then(function () {
+            return MM.api.post('/api/settings/test/' + s[0] + '?auto=1');
+          }).then(function () { return false; }, function (err) { return !(err && err.status === 429); });
+        })).then(function (downs) {
+          var bad = downs.filter(Boolean).length;
+          if (!bad) say('Everything is connected', false);
+          else say(bad === 1 ? '1 service is not answering' : bad + ' services are not answering', true);
+        });
+      }, function () { /* It keeps what it says. */ });
+    }
+
+    return function () {
+      var me = ++asked;
+      sayHistory(me);
+      if (settings) saySettings(me);
+    };
+  }
+
   // Marks the pane's root as wired by `name`; false where it already was.
   function mount(root, name) {
     var on = (root.getAttribute('data-mounted') || '').split(' ').filter(Boolean);
@@ -812,8 +893,15 @@
       },
     });
     var email = initEmail();
+    var tiles = initTiles();
     initAi();
     initLogout();
+
+    document.addEventListener('mm:you-shown', function (e) {
+      if (!e.detail || e.detail.group !== 'profile') return;
+      if (e.detail.view === 'profile') tiles();
+      else if (e.detail.view === 'profile/password') password.opened();
+    });
 
     MM.you.guard('profile', {
       dirty: function (from, to) {

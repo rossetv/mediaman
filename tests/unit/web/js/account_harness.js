@@ -35,7 +35,8 @@ Node.prototype.scrollIntoView = function (how) { revealed.push([this.id, how && 
 Node.prototype.getBoundingClientRect = () => ({ top: 300, bottom: 320 });
 
 // `ai` adds the AI section, `tvs` the lists of TVs of a role, and `yes` answers a question.
-function page(api, { ai = false, yes = true, tvs = '', changed = '', scripts = ['password-form.js'] } = {}) {
+// `tiles` puts the hub's tiles of a role: History's for everyone, Settings' for an admin.
+function page(api, { ai = false, yes = true, tvs = '', changed = '', tiles = '', scripts = ['password-form.js'] } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.documentElement.clientHeight = 600;
@@ -60,6 +61,10 @@ function page(api, { ai = false, yes = true, tvs = '', changed = '', scripts = [
   if (ai) {
     root.appendChild(build(doc, ['section', { id: 'account-ai' }, ['button', { id: 'account-history', class: 'tog' }], ['button', { id: 'account-clear-searches' }, 'Clear']]));
     doc.getElementById('account-ai').hidden = true;
+  }
+  if (tiles) {
+    root.appendChild(build(doc, ['span', { id: 'account-tile-history', class: 'yo-tile__sub', 'data-me': 'amy' }, 'What was played']));
+    if (tiles === 'admin') root.appendChild(build(doc, ['span', { id: 'account-tile-settings', class: 'yo-tile__sub' }, 'Libraries and more']));
   }
   if (tvs) {
     root.appendChild(build(doc, ['section', { id: 'account-tvs', 'data-me': 'amy' }, ['ul', { class: 'dev-list' }]]));
@@ -110,6 +115,7 @@ function page(api, { ai = false, yes = true, tvs = '', changed = '', scripts = [
     says: () => ['account-old-password-why', 'account-new-password-why', 'account-password-result'].filter((id) => $(id).textContent),
     line: () => $('account-password-sub').lastElementChild.textContent,
     sub: () => $('account-password-sub').children.filter((n) => !n.hidden).map((n) => n.textContent).join(' '),
+    shown: (view) => (doc.listeners['mm:you-shown'] || []).forEach((fn) => fn({ detail: { group: view.split('/')[0], view } })),
     focused: () => doc.activeElement.id || 'body',
     active: () => doc.activeElement,
     press: (id) => {
@@ -335,6 +341,74 @@ const scenarios = {
     how.discard();
     out.passwordDiscarded = [p.$('account-old-password').value, p.$('account-new-password').value, dirty()];
     return out;
+  },
+  // the hub's tiles: the latest event, and for an admin whether every service set up answers
+  async tiles() {
+    const clock = (iso) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const event = (who, hours, more) => ({ who: { name: who }, fields: [{ key: 'when' }, { key: 'when', at: at(hours) }], line_title: 'Interstellar', ...more });
+    const signIn = (who, hours) => event(who, hours, { action: 'sec:login.success', is_security: true, line_title: 'Signed in', action_label: 'security' });
+    const SETTINGS = { plex_url: 'http://plex', plex_token: '****', sonarr_url: 'http://sonarr', sonarr_api_key: '****', radarr_url: '', radarr_api_key: '',
+      nzbget_url: '', mailgun_domain: 'mg', mailgun_api_key: '', openai_api_key: '****', tmdb_read_token: '', omdb_api_key: '' };
+    async function hub(items, settings, refuse) {
+      const asked = [];
+      const p = page({
+        get: (url) => { asked.push(url); return Promise.resolve(url.indexOf('/api/history') === 0 ? { items } : url === '/api/settings' ? settings : { sessions: [] }); },
+        post: (url) => { asked.push(url); const no = refuse[url.split('/')[4].split('?')[0]]; return no ? Promise.reject(no) : Promise.resolve({ ok: true }); },
+      }, { tiles: settings ? 'admin' : 'viewer' });
+      await p.rest();
+      p.shown('profile');
+      await p.rest();
+      const first = asked.filter((u) => u !== '/api/users/sessions');
+      p.shown('profile');
+      await p.rest();
+      const tile = (id) => p.$(id) && [p.$(id).textContent, p.$(id).classList.contains('is-bad')];
+      return { history: tile('account-tile-history'), settings: tile('account-tile-settings'), asked: first, again: asked.length > first.length + 1 };
+    }
+    const down = { status: 502 };
+    return {
+      play: [await hub([signIn('amy', -1), event('marlowe', -2, { action: 'play', finished: true, action_label: 'finished' })], SETTINGS, { plex: down, openai: down, sonarr: { status: 429 } }),
+        'marlowe finished Interstellar · ' + clock(at(-2))],
+      none: await hub([], { ...SETTINGS, plex_url: '', sonarr_url: '', openai_api_key: '' }, {}),
+      fine: await hub([event('amy', -30, { action: 'downloaded', action_label: 'downloaded', line_title: 'Weapons' })], SETTINGS, {}),
+      oneDown: await hub([signIn('amy', -1)], SETTINGS, { sonarr: down }),
+      noVerb: await hub([event('mediaman', -2, { action: 'delete_failed', action_label: 'delete failed', line_title: 'Big Hero 6' })], null, {}),
+      own: [await hub([signIn('amy', -1), signIn('rosa', -3)], null, {}), clock(at(-1))],
+      someone: await hub([signIn('rosa', -3)], null, {}),
+      day: new Date(at(-30)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+    };
+  },
+  // Save waits for what the rules ask; pressed before, it says what is missing
+  async passwordHold() {
+    const p = page({ get: () => Promise.resolve({ sessions: [] }), post: () => new Promise(() => {}) });
+    await settle();
+    const held = () => p.$('account-submit-password').getAttribute('aria-disabled') === 'true';
+    const out = { empty: held() };
+    p.fire('account-password-form', 'submit');
+    out.pressed = p.says().map((id) => p.$(id).textContent);
+    p.type('account-old-password', OLD);
+    p.type('account-new-password', 'short');
+    out.weak = held();
+    p.type('account-new-password', OLD);
+    out.same = held();
+    p.type('account-new-password', NEW);
+    out.ready = held();
+    p.type('account-old-password', '');
+    out.noOld = held();
+    p.type('account-old-password', OLD);
+    p.fire('account-password-form', 'submit');
+    await settle();
+    out.sending = held();
+    return out;
+  },
+  // opening the view puts the cursor in its first field; the hub takes nothing
+  async passwordFocus() {
+    const p = page({ get: () => Promise.resolve({ sessions: [] }) });
+    await settle();
+    p.$('account-open-password').focus();
+    p.shown('profile');
+    const hub = p.focused();
+    p.shown('profile/password');
+    return [hub, p.focused()];
   },
   async passwordRule() {
     const p = page({ get: () => Promise.resolve({ sessions: [] }) });

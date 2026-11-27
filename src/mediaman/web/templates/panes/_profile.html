@@ -18,9 +18,9 @@
     </div>
 
     <div class="yo-tiles{% if role != 'admin' %} is-one{% endif %}">
-      <button type="button" class="yo-tile" data-you-go="history"><span class="yo-tile__ico yo-ico--blue">{{ c.icon("i-clock-rotate-left") }}</span><span class="yo-tile__name">History</span><span class="yo-tile__sub">What was played, downloaded and kept</span></button>
+      <button type="button" class="yo-tile" data-you-go="history"><span class="yo-tile__ico yo-ico--blue">{{ c.icon("i-clock-rotate-left") }}</span><span class="yo-tile__name">History</span><span class="yo-tile__sub" id="account-tile-history" data-me="{{ username }}">What was played, downloaded and kept</span></button>
       {% if role == "admin" %}
-      <button type="button" class="yo-tile" data-you-go="settings"><span class="yo-tile__ico yo-ico--grey">{{ c.icon("i-gear") }}</span><span class="yo-tile__name">Settings</span><span class="yo-tile__sub">Libraries, services, clean-up and people</span></button>
+      <button type="button" class="yo-tile" data-you-go="settings"><span class="yo-tile__ico yo-ico--grey">{{ c.icon("i-gear") }}</span><span class="yo-tile__name">Settings</span><span class="yo-tile__sub" id="account-tile-settings">Libraries, services, clean-up and people</span></button>
       {% endif %}
     </div>
 
