@@ -6,6 +6,7 @@ The /downloads address leads to Downloading on Watch.
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -35,9 +36,11 @@ from mediaman.web.routes.downloads_strip import (
     library_of,
     library_title,
     mark_playable,
+    title_ref,
     with_retrying,
 )
 from mediaman.web.routes.poster.title_art import title_art
+from mediaman.web.routes.watch.card_marks import scored
 
 router = APIRouter()
 
@@ -101,6 +104,24 @@ def _poster(item: dict[str, object], index: catalog.LibraryIndex) -> str:
     return known or (title_art(ref.partition("-")[2])["poster_url"] if ref else "")
 
 
+def _scores(
+    conn: sqlite3.Connection, items: list[dict[str, object]]
+) -> dict[tuple[str, int], dict[str, object]]:
+    """What critics scored each of *items* that has a TMDB id, by its kind and id, as the ratings
+    cache holds it: {"rt", "imdb"}, either None where only the other is held."""
+    cards: list[dict[str, Any]] = [
+        {"tmdb_ref": f"tmdb-{_kind_of(item)}-{tmdb_id}", "key": (_kind_of(item), tmdb_id)}
+        for item in items
+        if (tmdb_id := _tmdb_id_of(item))
+    ]
+    scored(conn, cards)
+    return {
+        card["key"]: {"rt": card.get("rt"), "imdb": card.get("imdb")}
+        for card in cards
+        if "rt" in card or "imdb" in card
+    }
+
+
 def _page_payload(
     conn: sqlite3.Connection, secret_key: str, *, admin: bool
 ) -> tuple[DownloadsResponse, dict[str, object] | None]:
@@ -114,10 +135,22 @@ def _page_payload(
     asked_at = strip.on_page.now()
     data = with_retrying(conn, build_downloads_response(conn, secret_key))
     index = library_of(conn, secret_key)
+    every = [*([data["hero"]] if data["hero"] else []), *data["queue"], *data["upcoming"]]
+    every += data["recent"]
+    # The row's own view, as it was last read: the page's poll asks Radarr and Sonarr no more.
+    held = catalog.held_arr_view()
+    scores = _scores(conn, every)
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         title = item.get("label") or item["title"]
-        page_item = {**item, "title": title, "poster_url": _poster(item, index)}
+        tmdb_id = _tmdb_id_of(item)
+        page_item = {
+            **item,
+            "title": title,
+            "poster_url": _poster(item, index),
+            "title_ref": title_ref(index, held, _kind_of(item), tmdb_id, str(item["title"])),
+            "scores": scores.get((_kind_of(item), tmdb_id)) if tmdb_id else None,
+        }
         page_item.pop("retry_key", None)
         page_item.pop("attention_reasons", None)
         return page_item

@@ -387,3 +387,121 @@ def test_a_download_is_noted_by_its_year_for_its_scores_to_be_asked(services, vi
 
     assert ember["year"] == 2019
     assert ratings_warm._wanted == {("movie", 11): ("Ember Coast", 2019)}
+
+
+def _every_state(services, conn):
+    """Radarr's films in each state the grid shows; Dry Harbour is held by the library."""
+    radarr = services[0]
+    stuck = _movie(15, "Grey Pier")
+    radarr.get_movies.return_value = [
+        *radarr.get_movies.return_value,
+        _movie(13, "Lanterns", isAvailable=False),
+        _movie(14, "Quiet Field"),
+        stuck,
+    ]
+    radarr.get_queue.return_value = [
+        *radarr.get_queue.return_value,
+        {
+            "movie": stuck,
+            "title": "Grey Pier",
+            "status": "completed",
+            "trackedDownloadStatus": "warning",
+            "trackedDownloadState": "importPending",
+            "statusMessages": [{"title": "x", "messages": ["No files found"]}],
+            "size": 1,
+            "sizeleft": 0,
+            "downloadId": "15",
+        },
+    ]
+    insert_media_item(conn, id="900", title="Dry Harbour", media_type="movie")
+    conn.execute("UPDATE media_items SET tmdb_id = 12")
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES ('plex_libraries', '[1]', '2026-01-01')"
+    )
+    conn.commit()
+
+
+def _page_items(body):
+    return [*([body["hero"]] if body["hero"] else []), *body["queue"], *body["upcoming"]]
+
+
+def test_every_download_on_the_page_opens_the_title_the_row_s_card_opens(services, viewer, conn):
+    _every_state(services, conn)
+
+    items = _get(viewer).json()["items"]
+    row = {i["title"]: i["title_ref"] for i in items}
+    page = {
+        i["title"]: (i["state"], i["title_ref"])
+        for i in _page_items(viewer.get("/api/downloads").json())
+    }
+
+    assert page == {
+        "Ember Coast": ("downloading", "tmdb-movie-11"),
+        "Dry Harbour": ("downloading", "movie-900"),
+        "Lanterns": ("upcoming", "tmdb-movie-13"),
+        "Quiet Field": ("searching", "tmdb-movie-14"),
+        "Grey Pier": ("needs_attention", "tmdb-movie-15"),
+    }
+    assert row == {i["title"]: i["ref"] for i in items}
+    assert {t: ref for t, (_, ref) in page.items() if t in row} == row
+
+
+def test_a_download_with_no_tmdb_id_opens_no_title(services, viewer):
+    _queue(services, [])
+    services[2].get_queue.return_value = [
+        {"NZBName": "Some.Film.2024.1080p.nzb", "Status": "DOWNLOADING"}
+    ]
+
+    hero = viewer.get("/api/downloads").json()["hero"]
+
+    assert (hero["title_ref"], hero["scores"]) == (None, None)
+
+
+def test_the_page_and_the_row_carry_what_critics_scored_each_download_as_the_cache_holds(
+    services, viewer, conn, monkeypatch
+):
+    monkeypatch.setattr(ratings_warm, "_wanted", {})
+    conn.execute(
+        "INSERT INTO ratings_cache (tmdb_id, media_type, imdb_rating, rt_rating, metascore,"
+        " fetched_at) VALUES (11, 'movie', '7.1', '93%', NULL, '2026-01-01T00:00:00+00:00'),"
+        " (12, 'movie', '6.4', NULL, NULL, '2026-01-01T00:00:00+00:00')"
+    )
+    conn.commit()
+
+    page = {i["title"]: i["scores"] for i in _page_items(viewer.get("/api/downloads").json())}
+    row = {i["title"]: i["scores"] for i in _get(viewer).json()["items"]}
+
+    assert (
+        page
+        == row
+        == {
+            "Ember Coast": {"rt": 93, "imdb": "7.1"},
+            "Dry Harbour": {"rt": None, "imdb": "6.4"},
+        }
+    )
+    # The scores are read from the cache; OMDb is left to the background job.
+    assert set(ratings_warm._wanted) == {("movie", 11), ("movie", 12)}
+
+
+def test_a_title_coming_soon_has_no_scores_where_the_cache_holds_none(services, viewer):
+    radarr = services[0]
+    radarr.get_movies.return_value = [_movie(13, "Lanterns", isAvailable=False)]
+    radarr.get_queue.return_value = []
+
+    (soon,) = viewer.get("/api/downloads").json()["upcoming"]
+
+    assert (soon["title_ref"], soon["scores"]) == ("tmdb-movie-13", None)
+
+
+def test_a_title_looking_for_a_copy_says_since_when_it_has_been_searched(services, viewer, conn):
+    _every_state(services, conn)
+    viewer.get("/api/downloads")
+    conn.execute("UPDATE arr_searching_since SET since = '2026-11-20T09:00:00+00:00'")
+    conn.commit()
+    _reset_previous_queue()
+
+    items = {i["title"]: i for i in _page_items(viewer.get("/api/downloads").json())}
+
+    assert items["Quiet Field"]["searching_since"] == 1_795_165_200.0
+    assert "search_count" in items["Quiet Field"]
+    assert items["Ember Coast"]["searching_since"] == 0.0

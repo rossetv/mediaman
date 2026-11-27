@@ -58,6 +58,7 @@ class DownloadItem(TypedDict):
     search_count: int
     last_search_ts: float
     added_at: float
+    searching_since: float
     search_hint: str
     arr_link: str
     arr_source: str

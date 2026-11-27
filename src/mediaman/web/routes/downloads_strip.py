@@ -59,9 +59,16 @@ def payload_for(
     conn: sqlite3.Connection, secret_key: str, username: str, answer: Answer
 ) -> dict[str, Any]:
     """What a page is told, with *username*'s own marks of what is ready, for its card in
-    Recently added, and what critics scored each title as the ratings cache holds it."""
+    Recently added, and what critics scored each title as the ratings cache holds it: as the
+    row's cards have them, and as /api/downloads gives them, as title_ref and scores."""
     shown = strip.payload(answer, admin=get_user_role(conn, username) == "admin")
     scored(conn, shown["items"])
+    for item in shown["items"]:
+        rated = "rt" in item or "imdb" in item
+        item.update(
+            title_ref=item["ref"],
+            scores={"rt": item.get("rt"), "imdb": item.get("imdb")} if rated else None,
+        )
     ready = [i for i in shown["items"] if i["state"] == "ready" and i["tmdb_ref"]]
     if ready:
         marks = card_marks(person_marks(conn, username), TmdbClient.from_db(conn, secret_key))
@@ -187,12 +194,7 @@ def _with_title(
     if item.tmdb_id is None or item.tmdb_id > _MAX_TMDB_ID:
         poster = poster or _library_poster(index, kind, None, item.title)
         return replace(item, poster_url=poster)
-    held = index.library_ref(
-        kind, item.tmdb_id, item.title, arr, year=_radarr_year(kind, item.tmdb_id, arr)
-    )
-    if kind == "movie" and index.tmdb_of.get(held or "", item.tmdb_id) != item.tmdb_id:
-        held = None  # a film is held under its own TMDB id; library_ref checks a show's
-    held = held or library_title(index, kind, item.tmdb_id, item.title, arr=arr)
+    held = held_ref(index, arr, kind, item.tmdb_id, item.title)
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
     art = _fanart(item, arr)
     year = _arr_year(kind, item.tmdb_id, arr)
@@ -216,6 +218,27 @@ def _with_title(
         art_url=art,
         year=year,
     )
+
+
+def held_ref(
+    index: catalog.LibraryIndex, arr: catalog.ArrView, kind: str, tmdb_id: int, title: str
+) -> str | None:
+    """The library title ("movie" or a show's) a download of TMDB's *tmdb_id* ("movie" or
+    "tv") opens; None when the library does not hold it."""
+    held = index.library_ref(kind, tmdb_id, title, arr, year=_radarr_year(kind, tmdb_id, arr))
+    if kind == "movie" and index.tmdb_of.get(held or "", tmdb_id) != tmdb_id:
+        held = None  # a film is held under its own TMDB id; library_ref checks a show's
+    return held or library_title(index, kind, tmdb_id, title, arr=arr)
+
+
+def title_ref(
+    index: catalog.LibraryIndex, arr: catalog.ArrView, kind: str, tmdb_id: int | None, title: str
+) -> str | None:
+    """The ref a download's title sheet opens at, as the row's cards have it: the library's
+    title where it is held, else TMDB's; None without a TMDB id."""
+    if tmdb_id is None or tmdb_id > _MAX_TMDB_ID:
+        return None
+    return held_ref(index, arr, kind, tmdb_id, title) or f"tmdb-{kind}-{tmdb_id}"
 
 
 def library_title(

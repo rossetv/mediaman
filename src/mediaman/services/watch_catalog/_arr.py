@@ -271,6 +271,13 @@ def arr_view(
         return late
 
 
+def held_arr_view() -> ArrView:
+    """The view last built, however old, or an empty one when there is none: nobody is asked."""
+    with _lock:
+        held = _memo.get("arr")
+    return held.view if held else ArrView({**build_radarr_cache(None), **build_sonarr_cache(None)})
+
+
 def _build(
     future: Future[ArrView],
     generation: int,
