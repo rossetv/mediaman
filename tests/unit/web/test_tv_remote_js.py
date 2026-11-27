@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from functools import cache
 from pathlib import Path
 
 import jinja2
 import pytest
+
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "tv_remote_harness.js"
 TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
@@ -21,14 +22,7 @@ def _template() -> str:
 
 
 def _run(scenario: str):
-    result = subprocess.run(
-        ["node", str(HARNESS), scenario],
-        input=_template(),
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
+    result = run_node(HARNESS, scenario, input=_template())
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 

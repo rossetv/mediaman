@@ -7,9 +7,7 @@ Each test renders the real player markup, runs player.js on it through
 from __future__ import annotations
 
 import json
-import os
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +16,7 @@ import pytest
 
 from mediaman.services.media_meta.plex_quality import quality_rows
 from mediaman.services.media_meta.plex_watch import PlexItem
+from tests.helpers.node_batch import run_node
 
 REPO = Path(__file__).resolve().parents[4]
 HARNESS = Path(__file__).with_name("player_harness.js")
@@ -81,12 +80,11 @@ def run(
     plays: str | None = None,
     pages: dict[str, Path] | None = None,
 ) -> Any:
-    args = ["node", str(HARNESS), str(markup), scenario] + (["reduced"] if reduced else [])
+    args = [str(markup), scenario] + (["reduced"] if reduced else [])
     args += [json.dumps(saved)] if saved or plays else []
     args += [plays] if plays else []
     others = json.dumps({href: str(path) for href, path in (pages or {}).items()})
-    env = {**os.environ, "PLAYER_PAGES": others}
-    done = subprocess.run(args, capture_output=True, text=True, timeout=30, env=env)
+    done = run_node(HARNESS, *args, env={"PLAYER_PAGES": others})
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
 
