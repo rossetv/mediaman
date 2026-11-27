@@ -12,6 +12,7 @@ Covers mediaman.web.routes.downloads:
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 from fastapi import FastAPI
@@ -23,6 +24,8 @@ from mediaman.services.arr.fetcher import FetchResult
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
+
+DAY = 24 * 3600.0
 
 
 def _make_downloads_app(conn, secret_key: str) -> FastAPI:
@@ -64,7 +67,13 @@ class TestAbandonEndpoint:
         )
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id, arr_id=None: {"kind": "movie", "arr_id": 42, "dl_id": dl_id},
+            lambda c, sk, dl_id, arr_id=None: {
+                "kind": "movie",
+                "arr_id": 42,
+                "dl_id": dl_id,
+                "state": "searching",
+                "abandon_visible": True,
+            },
         )
 
         client = self._make_client(db_path, secret_key)
@@ -97,7 +106,13 @@ class TestAbandonEndpoint:
         )
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id, arr_id=None: {"kind": "movie", "arr_id": 42, "dl_id": dl_id},
+            lambda c, sk, dl_id, arr_id=None: {
+                "kind": "movie",
+                "arr_id": 42,
+                "dl_id": dl_id,
+                "state": "searching",
+                "abandon_visible": True,
+            },
         )
 
         resp = self._make_client(db_path, secret_key).post(
@@ -126,7 +141,13 @@ class TestAbandonEndpoint:
         )
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id, arr_id=None: {"kind": "series", "arr_id": 7, "dl_id": dl_id},
+            lambda c, sk, dl_id, arr_id=None: {
+                "kind": "series",
+                "arr_id": 7,
+                "dl_id": dl_id,
+                "state": "searching",
+                "abandon_visible": True,
+            },
         )
 
         client = self._make_client(db_path, secret_key)
@@ -196,7 +217,13 @@ class TestAbandonEndpoint:
         """POST with empty seasons list on a series item → 400."""
         monkeypatch.setattr(
             "mediaman.web.routes.downloads._lookup_dl_item",
-            lambda c, sk, dl_id, arr_id=None: {"kind": "series", "arr_id": 7, "dl_id": dl_id},
+            lambda c, sk, dl_id, arr_id=None: {
+                "kind": "series",
+                "arr_id": 7,
+                "dl_id": dl_id,
+                "state": "searching",
+                "abandon_visible": True,
+            },
         )
 
         client = self._make_client(db_path, secret_key)
@@ -253,6 +280,7 @@ class TestAbandonEndpoint:
             "status": "searching",
             "arr_id": 42,
             "added_at": 0.0,
+            "searching_since": time.time() - DAY,
             "is_upcoming": False,
             "release_label": "",
         }
@@ -282,6 +310,102 @@ class TestAbandonEndpoint:
         )
         assert called.get("arr_id") == 42
         assert called.get("dl_id") == "radarr:Tenet"
+
+    def _queue_holds_tenet(self, monkeypatch, *, status: str, searching_for: float) -> list[int]:
+        """Radarr's queue holds one film, Tenet, as *status*, searching for *searching_for*
+        seconds; returns the arr ids abandon_movie is asked to unmonitor."""
+        from mediaman.services.downloads.abandon import AbandonResult
+
+        unmonitored: list[int] = []
+
+        def fake_abandon_movie(conn, sk, *, arr_id, dl_id):
+            unmonitored.append(arr_id)
+            return AbandonResult(kind="movie", succeeded=[arr_id], dl_id=dl_id)
+
+        card = {
+            "kind": "movie",
+            "dl_id": "radarr:Tenet",
+            "title": "Tenet",
+            "source": "Radarr",
+            "poster_url": "",
+            "progress": 0,
+            "size": 0,
+            "sizeleft": 0,
+            "size_str": "0 B",
+            "done_str": "0 B",
+            "timeleft": "",
+            "status": status,
+            "arr_id": 42,
+            "added_at": 0.0,
+            "searching_since": time.time() - searching_for,
+            "is_upcoming": False,
+            "release_label": "",
+        }
+        monkeypatch.setattr("mediaman.web.routes.downloads.abandon_movie", fake_abandon_movie)
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk, **_: FetchResult(cards=[card]),
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue.build_nzbget_from_db",
+            lambda c, _sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue.maybe_trigger_search",
+            lambda *a, **kw: None,
+        )
+        return unmonitored
+
+    def test_a_title_that_started_downloading_is_not_abandoned(
+        self, db_path, secret_key, monkeypatch
+    ):
+        unmonitored = self._queue_holds_tenet(monkeypatch, status="downloading", searching_for=DAY)
+
+        resp = self._make_client(db_path, secret_key).post(
+            "/api/downloads/radarr%3ATenet/abandon", json={"arr_id": 42}
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["error"]
+        assert unmonitored == []
+
+    def test_a_title_searching_too_briefly_to_offer_abandon_is_not_abandoned(
+        self, db_path, secret_key, monkeypatch
+    ):
+        unmonitored = self._queue_holds_tenet(monkeypatch, status="searching", searching_for=60)
+
+        resp = self._make_client(db_path, secret_key).post(
+            "/api/downloads/radarr%3ATenet/abandon", json={"arr_id": 42}
+        )
+
+        assert resp.status_code == 409
+        assert unmonitored == []
+
+    def test_a_title_searching_past_the_threshold_is_abandoned(
+        self, db_path, secret_key, monkeypatch
+    ):
+        unmonitored = self._queue_holds_tenet(monkeypatch, status="searching", searching_for=DAY)
+
+        resp = self._make_client(db_path, secret_key).post(
+            "/api/downloads/radarr%3ATenet/abandon", json={"arr_id": 42}
+        )
+
+        assert resp.status_code == 200
+        assert unmonitored == [42]
+
+    def test_a_viewer_cannot_abandon(self, db_path, secret_key, monkeypatch):
+        unmonitored = self._queue_holds_tenet(monkeypatch, status="searching", searching_for=DAY)
+        client = self._make_client(db_path, secret_key)
+        conn = client.app.state.db
+        create_user(conn, "vera", "password1234", enforce_policy=False)
+        conn.execute("UPDATE admin_users SET role = 'viewer' WHERE username = 'vera'")
+        conn.commit()
+        client.cookies.set("session_token", create_session(conn, "vera"))
+
+        resp = client.post("/api/downloads/radarr%3ATenet/abandon", json={"arr_id": 42})
+
+        assert resp.status_code == 403
+        assert unmonitored == []
 
     def test_searching_show_is_abandoned_with_the_seasons_its_card_offers(
         self, db_path, secret_key, monkeypatch
@@ -315,7 +439,13 @@ class TestAbandonEndpoint:
             )
 
         client = self._make_client(db_path, secret_key)
+        client.get("/api/downloads")
+        # Its seasons have searched for two days, so its card offers Abandon.
+        conn = client.app.state.db
+        conn.execute("UPDATE arr_searching_since SET since = datetime('now', '-2 days')")
+        conn.commit()
         hero = client.get("/api/downloads").json()["hero"]
+        assert hero["abandon_visible"]
         resp = client.post(
             "/api/downloads/sonarr%3AShow/abandon",
             json={"seasons": [s["number"] for s in hero["stuck_seasons"]]},

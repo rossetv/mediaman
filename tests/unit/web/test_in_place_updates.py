@@ -43,10 +43,10 @@ class TestScanStatusAndToastPlacement:
 
 
 class TestAbandonDialogCss:
-    def test_abandon_dialog_stacks_like_the_confirm_dialog_on_phones(self):
+    def test_abandon_dialog_stacks_its_buttons_full_width_on_phones_the_danger_on_top(self):
         css = re.sub(r"/\*.*?\*/", "", (_CSS / "_dl.css").read_text(encoding="utf-8"), flags=re.S)
         phone = css[css.index("@media (max-width: 699.98px)") :]
-        assert re.search(r"\.abandon-modal-actions \{ flex-direction: column; \}", phone)
+        assert re.search(r"\.abandon-modal-actions \{ flex-direction: column-reverse; \}", phone)
         assert re.search(
             r"\.abandon-modal-actions \.btn \{[^}]*width: 100%[^}]*min-height: 44px", phone
         )

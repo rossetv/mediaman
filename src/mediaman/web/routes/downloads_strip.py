@@ -36,6 +36,11 @@ router = APIRouter()
 _MAX_TMDB_ID = 9_999_999_999
 
 
+def is_tmdb_id(tmdb_id: int | None) -> bool:
+    """Whether *tmdb_id* can be a TMDB id a title's ref is made of."""
+    return tmdb_id is not None and 0 < tmdb_id <= _MAX_TMDB_ID
+
+
 @router.get("/api/downloads/strip")
 def api_downloads_strip(
     request: Request, username: str = Depends(get_current_user)
@@ -59,9 +64,16 @@ def payload_for(
     conn: sqlite3.Connection, secret_key: str, username: str, answer: Answer
 ) -> dict[str, Any]:
     """What a page is told, with *username*'s own marks of what is ready, for its card in
-    Recently added, and what critics scored each title as the ratings cache holds it."""
+    Recently added, and what critics scored each title as the ratings cache holds it: as the
+    row's cards have them, and as /api/downloads gives them, as title_ref and scores."""
     shown = strip.payload(answer, admin=get_user_role(conn, username) == "admin")
     scored(conn, shown["items"])
+    for item in shown["items"]:
+        rated = "rt" in item or "imdb" in item
+        item.update(
+            title_ref=item["ref"],
+            scores={"rt": item.get("rt"), "imdb": item.get("imdb")} if rated else None,
+        )
     ready = [i for i in shown["items"] if i["state"] == "ready" and i["tmdb_ref"]]
     if ready:
         marks = card_marks(person_marks(conn, username), TmdbClient.from_db(conn, secret_key))
@@ -184,15 +196,10 @@ def _with_title(
 ) -> StripItem:
     poster = catalog.tmdb_image_url(item.poster_url, "w342") or ""
     kind = "movie" if item.kind == "movie" else "tv"
-    if item.tmdb_id is None or item.tmdb_id > _MAX_TMDB_ID:
+    if item.tmdb_id is None or not is_tmdb_id(item.tmdb_id):
         poster = poster or _library_poster(index, kind, None, item.title)
         return replace(item, poster_url=poster)
-    held = index.library_ref(
-        kind, item.tmdb_id, item.title, arr, year=_radarr_year(kind, item.tmdb_id, arr)
-    )
-    if kind == "movie" and index.tmdb_of.get(held or "", item.tmdb_id) != item.tmdb_id:
-        held = None  # a film is held under its own TMDB id; library_ref checks a show's
-    held = held or library_title(index, kind, item.tmdb_id, item.title, arr=arr)
+    held = held_ref(index, arr, kind, item.tmdb_id, item.title)
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
     art = _fanart(item, arr)
     year = _arr_year(kind, item.tmdb_id, arr)
@@ -215,7 +222,29 @@ def _with_title(
         poster_url=poster,
         art_url=art,
         year=year,
+        size_bytes=_file_size(item, arr) if item.state == "ready" else None,
     )
+
+
+def held_ref(
+    index: catalog.LibraryIndex, arr: catalog.ArrView, kind: str, tmdb_id: int, title: str
+) -> str | None:
+    """The library title ("movie" or a show's) a download of TMDB's *tmdb_id* ("movie" or
+    "tv") opens; None when the library does not hold it."""
+    held = index.library_ref(kind, tmdb_id, title, arr, year=_radarr_year(kind, tmdb_id, arr))
+    if kind == "movie" and index.tmdb_of.get(held or "", tmdb_id) != tmdb_id:
+        held = None  # a film is held under its own TMDB id; library_ref checks a show's
+    return held or library_title(index, kind, tmdb_id, title, arr=arr)
+
+
+def title_ref(
+    index: catalog.LibraryIndex, arr: catalog.ArrView, kind: str, tmdb_id: int | None, title: str
+) -> str | None:
+    """The ref a download's title sheet opens at, as the row's cards have it: the library's
+    title where it is held, else TMDB's; None without a TMDB id."""
+    if tmdb_id is None or not is_tmdb_id(tmdb_id):
+        return None
+    return held_ref(index, arr, kind, tmdb_id, title) or f"tmdb-{kind}-{tmdb_id}"
 
 
 def library_title(
@@ -260,6 +289,15 @@ def _radarr_year(kind: str, tmdb_id: int, arr: catalog.ArrView | None) -> int | 
     return year if isinstance(year, int) else None
 
 
+def known_year(kind: str, tmdb_id: int, arr: catalog.ArrView) -> int | None:
+    """The year Radarr gives of a film ("movie"), Sonarr of a show ("tv"), else the one TMDB
+    told before; None when neither is known. Nobody is asked."""
+    if year := _arr_year(kind, tmdb_id, arr):
+        return year
+    told = _held(kind, tmdb_id).get("year")
+    return told if isinstance(told, int) and told > 0 else None
+
+
 def _arr_year(kind: str, tmdb_id: int, arr: catalog.ArrView) -> int | None:
     """The year Radarr gives of a film, Sonarr of a show."""
     found = arr.caches["radarr_movies" if kind == "movie" else "sonarr_series"].get(tmdb_id)
@@ -294,3 +332,13 @@ def _fanart(item: StripItem, arr: catalog.ArrView) -> str:
         if image.get("coverType") == "fanart":
             return catalog.tmdb_image_url(image.get("remoteUrl"), "w1280") or ""
     return ""
+
+
+def _file_size(item: StripItem, arr: catalog.ArrView) -> int | None:
+    """How many bytes the file Radarr imported of a film holds; None of a show, as Sonarr tells
+    only the whole show's."""
+    if item.kind != "movie" or item.tmdb_id is None:
+        return None
+    file = arr.caches["radarr_movies"].get(item.tmdb_id, {}).get("movieFile") or {}
+    size = file.get("size")
+    return size if isinstance(size, int) and size > 0 else None

@@ -105,6 +105,10 @@ class StripItem:
     attention_hint: str = ""
     #: Of one that needs attention: whether mediaman will look for another copy unasked.
     retrying: bool = False
+    #: Of one that is done: when, in epoch seconds, and how many bytes its file holds; None
+    #: when not known.
+    finished_at: float | None = None
+    size_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +247,7 @@ def _ready(item: Mapping[str, object], before: StripItem | None, now: datetime) 
         poster_url=_text(item.get("poster_url")) or (before.poster_url if before else ""),
         art_url=before.art_url if before else "",
         tmdb_id=tmdb_id,
+        finished_at=done.timestamp(),
     )
 
 
@@ -320,6 +325,8 @@ def _shown(item: StripItem, *, admin: bool) -> dict[str, Any]:
         "attention": item.attention if told else "",
         "attention_hint": item.attention_hint if told else "",
         "retrying": item.retrying,
+        "finished_at": item.finished_at,
+        "size_bytes": item.size_bytes,
     }
 
 
