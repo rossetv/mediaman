@@ -131,14 +131,23 @@ def test_an_admin_is_told_what_is_wrong_and_what_comes_of_it(out) -> None:
     windward = cards["Windward"]
     assert windward["line"] == "Needs attention"
     assert windward["why"] == "Radarr saysImport failed, path does not exist"
-    assert (windward["fix"], windward["fixKind"]) == ("Fix it in Radarr: Activity → Queue", ["is-act"])
+    assert (windward["fix"], windward["fixKind"]) == (
+        "Fix it in Radarr: Activity → Queue",
+        ["is-act"],
+    )
     tallow = cards["Tallow Hill"]
     assert (tallow["fix"], tallow["fixKind"]) == ("mediaman will look for another copy", ["is-ok"])
 
 
 def test_an_admin_is_given_the_link_into_radarr_only_to_a_web_address(out) -> None:
     cards = out["groups"]["cards"]
-    link = ["View in Radarr ↗", None, "http://radarr.local/movie/1", "_blank", "noopener noreferrer"]
+    link = [
+        "View in Radarr ↗",
+        None,
+        "http://radarr.local/movie/1",
+        "_blank",
+        "noopener noreferrer",
+    ]
     assert cards["Windward"]["pills"] == [link]
     assert cards["Cobblestone"]["pills"] == [], "javascript: is no link"
     assert cards["Ember Coast"]["pills"] == [], "nor while it downloads"
@@ -160,7 +169,9 @@ def test_every_abandon_and_stop_tracking_button_is_named_by_its_title(out) -> No
 
 def test_only_a_download_the_server_lets_go_of_has_an_abandon_button(out) -> None:
     cards = out["groups"]["cards"]
-    with_abandon = [t for t, c in cards.items() if any(p[0] == "Abandon search" for p in c["pills"])]
+    with_abandon = [
+        t for t, c in cards.items() if any(p[0] == "Abandon search" for p in c["pills"])
+    ]
     assert with_abandon == ["Quiet Engines"]
 
 
