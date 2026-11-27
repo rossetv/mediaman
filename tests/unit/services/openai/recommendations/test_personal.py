@@ -554,7 +554,7 @@ class TestTaste:
         assert _titles(conn, "amy") == ["Fine", "Meh"]
 
     @pytest.mark.parametrize("ai_history", [0, 1])
-    def test_a_title_marked_watched_is_not_picked_and_the_model_is_not_told_of_it(
+    def test_a_title_marked_watched_is_not_picked_and_only_its_marker_is_told_it_was_not_played(
         self, conn, openai, ai_history
     ):
         conn.execute("UPDATE admin_users SET ai_history = ?", (ai_history,))
@@ -571,8 +571,35 @@ class TestTaste:
         _make(conn, "amy")
 
         assert set(_titles(conn, "amy")) == {"Bobs Marked", "Fine"}
-        # Only what the model itself named is put to it again.
-        assert "Marked" not in openai.prompts[0]
+        sent = openai.prompts[0]
+        assert "Marked as watched, not played:\n- Marked (movie)" in sent
+        assert "Bobs Marked" not in sent
+        history = sent.split("History:\n", 1)[1].split("\n\n", 1)[0]
+        assert "Alpha (movie)" in history
+
+    def test_a_film_marked_in_the_library_is_told_as_marked_and_a_played_one_stays_history(
+        self, conn, openai
+    ):
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
+        _play(conn, "amy", "Shelf", "1970-01-01T00:00:00+00:00", seen_at=_ago(days=1))
+        _play(conn, "bob", "Bobs Shelf", "1970-01-01T00:00:00+00:00", seen_at=_ago(days=1))
+        # Marked as a title too, after playing it: it stays a play.
+        conn.execute("UPDATE media_items SET tmdb_id = 81 WHERE title = 'Alpha'")
+        conn.execute(
+            "INSERT INTO user_seen_titles (user_id, media_type, tmdb_id, title, seen_at)"
+            " VALUES (?, 'movie', 81, 'Alpha', '2026')",
+            (self._id(conn),),
+        )
+        conn.commit()
+
+        _make(conn, "amy")
+
+        sent = openai.prompts[0]
+        marked = sent.split("Marked as watched, not played:\n", 1)[1].split("\n\n", 1)[0]
+        assert marked.split("\n<", 1)[0].splitlines() == ["- Shelf (movie)"]
+        assert "Bobs Shelf" not in sent
+        history = sent.split("History:\n", 1)[1].split("\n\n", 1)[0]
+        assert "Alpha (movie)" in history
 
     def test_a_title_rated_while_the_model_thinks_is_left_out(self, conn, openai, monkeypatch):
         _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
