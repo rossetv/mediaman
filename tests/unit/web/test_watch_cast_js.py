@@ -212,5 +212,11 @@ def test_the_hand_off_sets_out_from_the_next_frame_and_stands_still_through_a_sl
     assert out["then"] == [0, 0]
 
 
+def test_the_hand_off_runs_on_through_a_steady_30_fps_frame_but_not_a_longer_stall() -> None:
+    out = _run("handOffGaps")
+    assert out["thirty"] == [0, 0]
+    assert all(abs(ms - (50 - 1000 / 60)) < 0.01 for ms in out["stall"])
+
+
 def test_the_person_page_is_told_when_the_photo_lands_and_at_once_where_none_flies() -> None:
     assert _run("landing") == {"flies": [False, True], "still": [True, True]}

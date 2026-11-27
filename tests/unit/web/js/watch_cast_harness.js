@@ -427,7 +427,8 @@ const scenarios = {
   },
 
   // The same hand-off once what is known of them has come in late: the copy left behind, the photo in the air, and their clocks.
-  async carriedHandOffSettled() {
+  // *gap*: how long the frame after the first one takes.
+  async carriedHandOffSettled(gap = 150) {
     const p = load(CAST, true);
     let queued = [];
     p.ctx.requestAnimationFrame = (fn) => { queued.push(fn); return queued.length; };
@@ -477,7 +478,7 @@ const scenarios = {
       const held = clocks();
       await frame(16);
       const first = { at: p.ctx.performance.now(), starts: clocks() };
-      await frame(150);
+      await frame(gap);
       const slow = clocks();
       await frame(16);
       return {
@@ -611,6 +612,12 @@ const scenarios = {
     };
     return { flies: await told(true), still: await told(false) };
   },
+};
+
+// How long each of a steady 30 fps frame and a stall a little longer held the hand-off back.
+scenarios.handOffGaps = async () => {
+  const held = async (gap) => (await scenarios.carriedHandOffSettled(gap)).heldBy;
+  return { thirty: await held(1000 / 30), stall: await held(50) };
 };
 
 scenarios[process.argv[2]]().then((out) => {
