@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.web._css import px, rules, style, token
+
 SHEET = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch.css"
 FORCED = "(forced-colors: active)"
 
@@ -97,6 +99,32 @@ def test_forced_colours_show_what_is_on_and_how_far_a_download_is(
 
 def test_forced_colours_give_keep_an_edge() -> None:
     assert "border: 1px solid" in _of(".watch-keep::before", FORCED)
+
+
+def test_forced_colours_give_a_hero_whose_art_they_hide_no_room_kept_for_the_art() -> None:
+    heroes = [
+        ("_dl.css", (".dl-hero-bg", ".dl-hero-poster"), {".dl-hero": "0", ".dl-hero-content": "0"}),
+        (
+            "_watch.css",
+            (".watch-banner__bg",),
+            {".watch-banner:has(> .watch-banner__bg--art:not([data-broken]))": "0"},
+        ),
+        (
+            "_watch_detail.css",
+            (".ttl__art", ".ttl__fill"),
+            # As tall as the hero of a title with no art to show.
+            {
+                ".ttl:not(.is-trailer) .ttl__hero": style(
+                    ".ttl.is-short:not(.is-trailer) .ttl__hero", "_watch_detail.css"
+                )["min-height"]
+            },
+        ),
+    ]
+    for sheet, art, rooms in heroes:
+        for hidden in art:
+            assert style(hidden, sheet, FORCED)["display"] == "none", hidden
+        for hero, room in rooms.items():
+            assert style(hero, sheet, FORCED)["min-height"] == room, hero
 
 
 def test_a_leaving_badge_has_an_edge_in_forced_colours() -> None:
@@ -227,6 +255,26 @@ def test_with_a_mouse_a_card_a_finger_pressed_shows_its_buttons_as_under_the_mou
     assert "opacity: 1; transform: none" in _of(shown, MOUSE, CARDS)
     ring = ".watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool::before"
     assert "opacity: 1" in _of(ring, MOUSE, CARDS)
+
+
+def test_with_a_mouse_a_card_under_it_shows_its_buttons_unless_a_finger_was_last() -> None:
+    # A finger leaves its card under :hover until it presses elsewhere, so no hover of a card
+    # may light its buttons where a finger can be what hovers.
+    card_hover = re.compile(r"\.watch-card[\w.-]*(?::is\([^)]*)?:hover")
+    hovered = [
+        (where, sel, decls)
+        for where, sels, decls in rules("_watch_cards.css")
+        for sel in sels
+        if card_hover.search(sel)
+    ]
+    assert {where for where, _, _ in hovered} == {(MOUSE,)}
+    shown = [
+        sel
+        for _, sel, decls in hovered
+        if sel.endswith(".card-tool") and decls.get("opacity") == "1"
+    ]
+    assert shown
+    assert all(sel.startswith(":where(html:not(.is-by-touch))") for sel in shown), shown
 
 
 def test_the_levels_can_take_the_focus_as_they_open_where_motion_is_unwanted() -> None:
@@ -412,6 +460,38 @@ def test_tonight_s_controls_are_44px_to_press_inside_what_clips_them() -> None:
     assert "align-self: stretch" in _of(".tn__foot > .txt", sheet=ASK)
 
 
+TONIGHT = "_watch_ask.css"
+TIMES = 5
+
+
+def _seg_room(seg: dict[str, str]) -> float:
+    """What the time picker's own padding takes of its width."""
+    return 2 * px(seg["padding"])
+
+
+def test_tonight_s_five_times_keep_44px_each_at_320() -> None:
+    page = int(re.search(r"max\(clamp\((\d+)px,\s*4vw", token("--pad"))[1])
+    assert page > 0.04 * 320  # the clamp's floor is the side padding at 320
+    box = style(".tn", TONIGHT, "(max-width: 339.98px)")["padding-inline"]
+    border = style(".tn", TONIGHT)["border"].split()[0]
+    seg = style(".tn__seg", TONIGHT)
+    left = 320 - 2 * page - 2 * px(box) - 2 * px(border) - _seg_room(seg)
+    assert left >= TIMES * 44
+
+
+def test_tonight_s_times_wrap_rather_than_overlap_where_five_44px_ones_do_not_fit() -> None:
+    (query,) = {
+        where[-1]
+        for where, sels, decls in rules(TONIGHT)
+        if ".tn__seg" in sels and decls.get("flex-wrap") == "wrap"
+    }
+    width = float(re.fullmatch(r"@container \(max-width: ([\d.]+)px\)", query)[1]) + 0.02
+    assert width >= TIMES * 44 + _seg_room(style(".tn__seg", TONIGHT))
+    assert style(".tn__seg", TONIGHT, query)["display"] == "flex"
+    _, shrink, basis = style(".tn__seg > button", TONIGHT, query)["flex"].split()
+    assert px(basis) >= 44 and shrink == "0"
+
+
 def test_an_ai_pick_s_sparkle_has_a_backplate_of_its_own_in_forced_colours() -> None:
     spark = _of(".watch-card__spark", FORCED, ASK)
     assert "background: Canvas" in spark and "color: CanvasText" in spark
@@ -449,8 +529,8 @@ def _px(value: str, narrow: bool, height: int) -> float:
     )
     value = re.sub(r"env\([^()]*\)", "0px", value)
     # No phone has a bar at its foot.
-    for name, px in (("--nav-h", nav_h), ("--seen", "100dvh")):
-        value = re.sub(rf"var\({name}(?:, [^()]+)?\)", px, value)
+    for name, length in (("--nav-h", nav_h), ("--seen", "100dvh")):
+        value = re.sub(rf"var\({name}(?:, [^()]+)?\)", length, value)
     value = value.replace("var(--seen-top, 0px)", "0px").replace("calc", "")
     value = re.sub(r"([\d.]+)dvh", lambda m: str(float(m[1]) / 100 * height), value)
     return float(eval(value.replace("px", ""), {"__builtins__": {}, "min": min, "max": max}))

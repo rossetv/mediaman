@@ -51,6 +51,19 @@ def test_on_a_short_screen_the_dialog_scrolls_as_a_whole_and_not_a_list_squeezed
     )
 
 
+def test_on_a_short_screen_a_control_tab_scrolls_to_shows_its_whole_focus_ring() -> None:
+    ring = style(":focus-visible", "_base.css")
+    reach = px(ring["outline-offset"]) + px(ring["outline"].split()[0])
+    padding = style(".keep-dialog", "_modal.css", "(max-height: 400px)")["scroll-padding-block"]
+    assert px(padding) >= reach
+
+
+def test_two_seasons_to_delete_keep_their_44px_targets_apart_by_touch() -> None:
+    row = style("#season-delete-list > .keep-season-item", "_modal.css", TOUCH)
+    gap = style(".keep-season-list", "_modal.css", TOUCH)["gap"]
+    assert px(gap) + 2 * px(row["padding-block"]) >= 8
+
+
 def test_the_filters_of_all_titles_are_44px_on_a_phone_and_reached_from_44px_elsewhere() -> None:
     pill = style(".watch-all__filters > .fpill", "_watch_grid.css")
     phone = style(".watch-all__filters > .fpill", "_watch_grid.css", "(max-width: 699.98px)")

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 
+from tests.unit.web._css import contrast, rgb, style, token
 from tests.unit.web.test_css_system import (
     COLOUR_FILES,
     CSS_DIR,
@@ -189,3 +190,12 @@ def test_where_motion_is_unwanted_the_ai_ring_and_glow_only_fade_quickly() -> No
         body = _body(still, selector)
         assert _decl(body, "transition-property") == "opacity !important", selector
         assert _decl(body, "transition-duration") == "var(--dur-fast) !important", selector
+
+
+def test_the_words_that_say_how_to_ask_keep_aa_on_every_surface_up_to_a_raised_card() -> None:
+    colour = re.fullmatch(
+        r"var\((--[\w-]+)\)", style(".results-none--ai", "_watch_search.css")["color"]
+    )
+    assert colour
+    for surface in ("--bg", "--s1", "--s2", "--s3", "--s4"):
+        assert contrast(rgb(token(colour[1])), rgb(token(surface))) >= 4.5, surface

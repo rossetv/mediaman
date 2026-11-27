@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from tests.unit.web._css import contrast, rgb, style, token
+from tests.unit.web._css import contrast, rgb, rules, style, token
 
 WHITE = (255.0, 255.0, 255.0)
 
@@ -51,6 +51,11 @@ def test_a_button_is_reached_from_44px_on_tablets_and_touch_screens_without_grow
 
 def test_each_pane_view_ends_with_room_under_its_last_card_and_the_home_indicator() -> None:
     padding = style(".you-view", "_you.css")["padding"]
-    assert re.search(r"calc\(\d+px \+ env\(safe-area-inset-bottom, 0px\)\)$", padding), padding
+    room = re.search(r"calc\((\d+)px \+ env\(safe-area-inset-bottom, 0px\)\)$", padding)
+    assert room and int(room[1]) >= 24, padding
     # The hub keeps it: Profile takes none of it back.
-    assert "padding" not in style('.you-view[data-view="profile"]', "_profile.css")
+    views = [
+        d for _, sels, d in rules("_profile.css") if any(s.startswith(".you-view") for s in sels)
+    ]
+    assert views
+    assert not [d for d in views if any(k.startswith("padding") for k in d)]

@@ -7,9 +7,11 @@ from tests.unit.web._css import rules, style
 
 def test_a_hover_lights_a_row_only_where_there_is_a_pointer_to_hover_with() -> None:
     # A tap on a phone leaves :hover on, so a hover rule outside the media query would stay lit.
-    outside = [s for media, sels, _ in rules("_profile.css") if media is None for s in sels]
+    outside = [s for media, sels, _ in rules("_profile.css") if media == () for s in sels]
     assert not [s for s in outside if ":hover" in s]
-    lit = [s for media, sels, _ in rules("_profile.css") if media == "(hover: hover)" for s in sels]
+    lit = [
+        s for media, sels, _ in rules("_profile.css") if media == ("(hover: hover)",) for s in sels
+    ]
     assert any(".yo-row:hover" in s for s in lit) and any(".yo-tile:hover" in s for s in lit)
 
 

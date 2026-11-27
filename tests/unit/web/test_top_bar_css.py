@@ -33,4 +33,4 @@ def test_the_logo_back_and_profile_buttons_dim_under_a_pointer_only() -> None:
             (media, s) for media, sels, _ in nav for s in sels if s.endswith(selector + ":hover")
         ]
         assert hovers, selector
-        assert all(media == "(hover: hover)" for media, _ in hovers), selector
+        assert all(media == ("(hover: hover)",) for media, _ in hovers), selector

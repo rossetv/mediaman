@@ -12,7 +12,7 @@ REDUCED = "(prefers-reduced-motion: reduce)"
 PHONE = "(max-width: 699.98px)"
 
 
-def _transitions() -> list[tuple[str | None, str, str]]:
+def _transitions() -> list[tuple[tuple[str, ...], str, str]]:
     return [
         (media, ", ".join(selectors), decls["transition"])
         for media, selectors, decls in rules("_you.css")
@@ -21,7 +21,9 @@ def _transitions() -> list[tuple[str | None, str, str]]:
 
 
 def test_with_reduced_motion_the_pane_and_its_views_only_fade_on_the_fast_duration() -> None:
-    calm = {sel: {"transition": value} for media, sel, value in _transitions() if media == REDUCED}
+    calm = {
+        sel: {"transition": value} for media, sel, value in _transitions() if media == (REDUCED,)
+    }
     assert {".you-view", ".you-view.is-on"} <= set(calm)
     assert any(".you__panel" in sel and ".you__veil" in sel for sel in calm)
     for sel, decls in calm.items():
@@ -32,7 +34,8 @@ def test_with_reduced_motion_the_pane_and_its_views_only_fade_on_the_fast_durati
         # The page's own reduced motion cuts every transition to nothing; the pane's fade must win.
         assert "!important" in decls["transition"], sel
     # What slides in full motion stands still.
-    assert style(".you-view", "_you.css", REDUCED)["transform"] == "none"
+    for still in (".you-view", ".you__panel"):
+        assert style(still, "_you.css", REDUCED)["transform"] == "none", still
 
 
 def test_the_pane_moves_only_by_transform_and_opacity_on_the_app_s_duration_tokens() -> None:
@@ -57,12 +60,18 @@ def test_on_a_phone_the_sheet_is_dragged_by_the_finger_with_no_easing_in_the_way
 
 
 def test_the_pane_stands_over_the_page_and_under_a_question_or_a_toast() -> None:
-    def z(name: str) -> int:
-        return int(token(name))
+    def z(selector: str, sheet: str) -> int:
+        value = style(selector, sheet)["z-index"]
+        named = re.fullmatch(r"var\((--[\w-]+)\)", value)
+        return int(token(named[1]) if named else value)
 
-    pane = style(".you", "_you.css")["z-index"]
-    assert pane == "var(--z-modal)"
-    assert z("--z-nav") < z("--z-modal") < z("--z-confirm") < z("--z-toast")
+    pane = z(".you", "_you.css")
+    assert int(token("--z-nav")) < pane
+    assert (
+        pane
+        < z(".ui-confirm-overlay", "_ui_feedback.css")
+        < z(".ui-toast-host", "_ui_feedback.css")
+    )
 
 
 def test_watch_loads_the_pane_s_script_before_the_one_that_starts_the_address() -> None:
@@ -127,5 +136,18 @@ def _press_after_hover(sheet: str) -> list[str]:
 
 
 def test_a_press_lights_on_a_desktop_too_as_it_comes_after_the_hover_rule() -> None:
+    for sheet, pressed in (
+        ("_you.css", (".you__back", ".you__close")),
+        ("_profile.css", (".yo-row", ".yo-tile")),
+    ):
+        lit = [
+            s
+            for _, sels, d in rules(sheet)
+            if "background" in d
+            for s in sels
+            if s.endswith(":active")
+        ]
+        for name in pressed:
+            assert any(s.endswith(name + ":active") for s in lit), name
     assert _press_after_hover("_profile.css") == []
     assert _press_after_hover("_you.css") == []

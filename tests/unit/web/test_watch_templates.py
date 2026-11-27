@@ -681,6 +681,20 @@ def test_a_search_in_the_address_opens_the_page_on_its_results() -> None:
         assert open_panels(_watch(request=asked)) == (True, False)
 
 
+def test_the_watch_page_links_every_script_and_sheet_it_names_and_the_ones_it_needs() -> None:
+    html = _watch()
+    static = TEMPLATES.parent / "static"
+    scripts = {
+        m[1]: m[0] for m in re.finditer(r'<script src="/static/(js/[^"?]+)[^"]*"[^>]*>', html)
+    }
+    sheets = re.findall(r'<link rel="stylesheet" href="/static/(css/[^"?]+)', html)
+    for path in [*scripts, *sheets]:
+        assert (static / path).is_file(), path
+    # Rows load their next page through watch-rows.js; Watch's styles and the player's come from the base.
+    assert " defer" in scripts["js/watch-rows.js"]
+    assert {"css/_watch.css", "css/_player.css"} <= set(sheets)
+
+
 def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
     scripts = re.findall(r'src="/static/js/(watch[^"?]*)\.js', _watch())
     scripts.remove("watch/play-on")  # every page's own, before them

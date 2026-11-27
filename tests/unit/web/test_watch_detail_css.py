@@ -6,6 +6,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.unit.web._css import rgb, style, token
+
 STYLES = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css"
 SHEETS = ("_watch_detail.css", "_watch_cast.css")
 PHONE = "(max-width: 699.98px)"
@@ -160,3 +162,13 @@ def test_the_dim_behind_a_title_sent_aside_holds_then_fades_before_the_sheet_goe
     delay = int(rule.group(2))
     assert delay >= 80
     assert delay + tokens[rule.group(1)] <= tokens["--dur-slow"]
+
+
+def test_a_trailers_loading_mark_hides_the_frame_s_own_page_and_takes_no_clicks() -> None:
+    mark = style(".ttl__wait", "_watch_detail.css")
+    assert mark["pointer-events"] == "none"
+    # Opaque, so an error page the frame shows before the trailer never shows through.
+    fill = re.fullmatch(r"var\((--[\w-]+)\)", mark["background"])
+    assert fill
+    colour = rgb(token(fill[1]))
+    assert len(colour) == 3 or colour[3] == 1, colour

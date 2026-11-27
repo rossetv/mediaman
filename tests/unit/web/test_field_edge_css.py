@@ -29,6 +29,20 @@ def test_every_text_field_draws_its_hairline_as_the_edge_unless_it_is_disabled()
     assert "var(--hair)" in style(".inp", "_forms.css")["border"]
 
 
+def test_fields_that_draw_their_own_border_draw_it_in_the_field_s_edge() -> None:
+    # On an input --hair is the edge (the rule above); on any other box only the token itself is.
+    own = {
+        (".hx-search input", "_history.css"): {"var(--hair)", "var(--field-edge)"},
+        (".hx-menu__f input", "_history.css"): {"var(--hair)", "var(--field-edge)"},
+        (".hx-dates input", "_history.css"): {"var(--hair)", "var(--field-edge)"},
+        (".pair__code i", "_pair.css"): {"var(--field-edge)"},
+        (".play-on__code i", "_play_on.css"): {"var(--field-edge)"},
+    }
+    for (selector, sheet), edges in own.items():
+        width, line, colour = style(selector, sheet)["border"].split()
+        assert px(width) >= 1 and line == "solid" and colour in edges, selector
+
+
 def test_an_off_switch_shows_its_track_and_an_on_one_its_colour_alone() -> None:
     off = style(".tog:not(.on, :focus-visible)", "_forms.css")
     assert "var(--field-edge)" in off["outline"] and off["outline-offset"] == "-1px"
@@ -59,13 +73,15 @@ def test_historys_kinds_keep_one_line_that_scrolls_sideways_at_every_pane_height
 
 def test_under_a_short_window_history_panes_tools_and_all_titles_head_go_with_the_list() -> None:
     short = "(max-height: 500px)"
-    assert style(".hx-tools", "_history.css", short)["position"] == "relative"
-    assert style(HISTORY, "_history.css", short)["scroll-padding-top"] == "0"
+    # The pane is a sheet over the whole width below 700px, which has no room to keep the tools.
+    short_and_wide = f"{short} and (min-width: 700px)"
+    assert style(".hx-tools", "_history.css", short_and_wide)["position"] == "relative"
+    assert style(HISTORY, "_history.css", short_and_wide)["scroll-padding-top"] == "0"
     assert style(".watch-all__head", "_watch_grid.css", short)["position"] == "relative"
 
 
 def test_all_titles_goes_two_across_only_where_a_poster_would_be_tiny() -> None:
-    (query,) = medias(
+    ((query,),) = medias(
         ".watch-grid-host > .watch-grid", "_watch_grid.css", "grid-template-columns", "repeat(2,"
     )
     first_three = float(re.search(r"max-width: ([\d.]+)px", query)[1]) + 0.02

@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.web._css import rgb, rules, style, token
+
 CSS_DIR = Path(__file__).resolve().parents[3] / "src" / "mediaman" / "web" / "static" / "css"
 
 
@@ -300,3 +302,56 @@ def test_the_chooser_of_a_tvs_remote_leaves_moving_and_out_of_reach_on_a_wide_sc
     body = _rule(_text("_player.css"), ".tv-rem .player-av.is-leaving")
     assert "animation: player-drop" in body
     assert "pointer-events: none" in body
+
+
+def test_under_reduced_motion_the_spinner_over_a_held_frame_comes_at_once() -> None:
+    # Waiting before the spinner reads as a frozen picture to someone who sees no motion.
+    waits = [
+        where
+        for where, sels, decls in rules("_player.css")
+        if "transition-delay" in decls
+        and any(".is-held" in s and "player-spinner" in s for s in sels)
+    ]
+    assert waits
+    assert set(waits) == {("(prefers-reduced-motion: no-preference)",)}
+
+
+def test_the_dim_of_the_phones_sheet_leaves_as_the_sheet_does() -> None:
+    closing = style(".play-on:popover-open", "_play_on.css")
+    # It takes no press meant for the page under it while it sinks away.
+    assert closing["pointer-events"] == "none"
+    dim = style(".play-on:popover-open::backdrop", "_play_on.css")
+    assert closing["animation"].split()[1:] == dim["animation"].split()[1:]
+    # Where less is to move, it goes at once.
+    still = style(".play-on:popover-open", "_play_on.css", "(prefers-reduced-motion: reduce)")
+    assert still["display"] == "none"
+
+
+def test_nothing_shows_through_a_menu() -> None:
+    surface = re.fullmatch(r"var\((--s\d)\)", style(".player-menu", "_player.css")["background"])
+    assert surface
+    colour = rgb(token(surface[1]))
+    assert len(colour) == 3 or colour[3] == 1, colour
+
+
+def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
+    away = ".player.is-away :is(.player-upnext, .player-rate)"
+    cards = style(away, "_player.css")
+    # Raised by the bar's height, and no taller than what is left under the words at the top.
+    foot = re.fullmatch(r"var\(--away-foot, \d+px\)", cards["bottom"])
+    assert foot
+    assert re.fullmatch(
+        rf"calc\(100vh - {re.escape(foot[0])} - var\(--away-head, \d+px\)\)", cards["max-height"]
+    ), cards["max-height"]
+    # At no size is one, or the skip button, let down over the controls.
+    lowered = [
+        (where, sel, decls["bottom"])
+        for where, sels, decls in rules("_player.css")
+        for sel in sels
+        if sel.startswith(".player.is-away")
+        and re.search(r"player-(skip|upnext)\)?$", sel)
+        and "bottom" in decls
+    ]
+    assert lowered
+    for where, sel, bottom in lowered:
+        assert bottom == "auto" or re.search(r"var\(--(away|player)-foot", bottom), (where, sel)
