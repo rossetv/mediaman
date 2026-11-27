@@ -43,10 +43,16 @@ def api_downloads_strip(
     conn = get_db()
     secret_key = request.app.state.config.secret_key
     try:
-        answer = strip.shared.get(lambda before: _make(conn, secret_key, before))
+        answer = current(conn, secret_key)
     except strip.Unavailable:
         return respond_err("busy", status=503)
     return respond_ok(payload_for(conn, secret_key, username, answer))
+
+
+def current(conn: sqlite3.Connection, secret_key: str) -> Answer:
+    """The shared answer, asked of the services only when the last is past its time. Raises
+    strip.Unavailable when there is none and none can be made."""
+    return strip.shared.get(lambda before: _make(conn, secret_key, before))
 
 
 def payload_for(
@@ -96,7 +102,8 @@ def with_retrying(conn: sqlite3.Connection, data: DownloadsResponse) -> Download
 def _make(conn: sqlite3.Connection, secret_key: str, before: Strip) -> Strip:
     data = with_retrying(conn, build_downloads_response(conn, secret_key))
     items = strip.collect(data, before.items, now_utc())
-    return Strip(tuple(_with_titles(conn, secret_key, items)), data["outage"])
+    titled = tuple(_with_titles(conn, secret_key, items))
+    return Strip(titled, data["outage"], len(data["upcoming"]))
 
 
 def _with_titles(

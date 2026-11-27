@@ -143,6 +143,13 @@ def test_a_viewer_is_told_nothing_the_downloads_page_keeps_from_one(services, vi
     assert "image.tmdb.org" not in body.text
 
 
+def test_the_strip_says_how_many_titles_are_coming_soon(services, viewer):
+    radarr = services[0]
+    soon = _movie(13, "Lanterns", isAvailable=False)
+    radarr.get_movies.return_value = [*radarr.get_movies.return_value, soon]
+    assert _get(viewer).json()["soon"] == 1
+
+
 def test_the_downloads_page_gives_a_viewer_no_release_name(services, viewer, conn):
     _queue(services, [])
     named, obfuscated = "Some.Film.2024.1080p.WEB-GRP.nzb", "aB3xK9qLm2Zt"

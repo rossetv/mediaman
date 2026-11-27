@@ -60,7 +60,7 @@ def _ring(
 
     def make(before: strip.Strip) -> strip.Strip:
         items = mark_playable(conn, strip.collect(data, before.items, now_utc()), index)
-        return strip.Strip(tuple(items), data["outage"])
+        return strip.Strip(tuple(items), data["outage"], len(data["upcoming"]))
 
     answer = strip.on_page.offer(make, asked_at)
     return {**strip.payload(answer, admin=admin), "items": []} if answer else None
