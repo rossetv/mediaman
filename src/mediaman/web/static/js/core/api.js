@@ -51,10 +51,13 @@
  *
  * A page holding edits that a redirect would throw away sets
  * ``MM.api.hasUnsavedChanges = () => boolean``. While it returns true a 401
- * or such a redirect first asks whether to leave and lose the edits. A yes
- * leaves as above; a no (asked once per page, then taken as given) shows an
- * error and rejects as an APIError, so the caller's error path runs and the
- * form keeps its values.
+ * on a read, or such a redirect, first asks whether to leave and lose the
+ * edits. A yes leaves as above, and the page's own leave guards do not ask
+ * again; a no (asked once per page, then taken as given) shows an error and
+ * rejects as an APIError, so the caller's error path runs and the form keeps
+ * its values. A page still there a few seconds after a yes is taken as a no.
+ * A write answered 401 while edits are held never leaves: it shows the error
+ * and rejects, as the edits it was sending would be lost.
  * A redirected read rejects with status 401 (to /login) or 403 (to
  * /force-password-change) and ``.data.redirect`` naming the page.
  *
@@ -172,6 +175,11 @@
           window.location.href = away === '/login' ? loginUrl() : away;
           return new Promise(function () {});
         }
+        /* Leaving would throw away the very edits a write was sending. */
+        if (isWrite) {
+          if (window.UIFeedback) window.UIFeedback.error(SENT_TO[away].held);
+          return settle(resp, to);
+        }
         return askToLeave(away).then(function (left) {
           if (left) return new Promise(function () {});
           return settle(resp, to);
@@ -182,26 +190,58 @@
   }
 
   /* One question per page each place a redirect leads to, however many reads hit it:
-   * a yes leaves, a no keeps the page, says how to go on, and stands for later reads. */
+   * a yes leaves, a no keeps the page, says how to go on, and stands for later reads.
+   * Without the dialog, each read says how to go on, as no question is asked. */
   var asked = {};
   function askToLeave(away) {
     if (asked[away]) return asked[away];
     var sent = SENT_TO[away];
     var ui = window.UIFeedback;
-    var answer = (ui && ui.confirm) ? ui.confirm({
+    if (!ui || !ui.confirm) {
+      if (ui) ui.error(sent.held);
+      return Promise.resolve(false);
+    }
+    asked[away] = ui.confirm({
       title: sent.message,
       body: 'Leaving now loses the changes you have not saved.',
       confirmLabel: away === '/login' ? 'Sign in' : 'Change password',
       confirmVariant: 'danger',
       cancelLabel: 'Stay',
       leave: true,
-    }) : Promise.resolve(false);
-    asked[away] = answer.then(function (ok) {
-      if (ok) window.location.href = away === '/login' ? loginUrl() : away;
-      else if (ui) ui.error(sent.held);
-      return ok;
+    }).then(function (ok) {
+      return ok ? leave(away === '/login' ? loginUrl() : away) : false;
+    }).then(function (left) {
+      if (!left) ui.error(sent.held);
+      return left;
     });
     return asked[away];
+  }
+
+  /* A page still here this long after being sent away was kept, and its reads must not wait on. */
+  var LEAVE_WAIT_MS = 5000;
+
+  /* Goes to ``url`` and settles only if the page stays: false then. The person has agreed to
+   * lose the edits, so the page's own "leave site?" guards are kept from asking again. */
+  function leave(url) {
+    return new Promise(function (resolve) {
+      function agreed(e) { e.stopImmediatePropagation(); }
+      function gone() { clearTimeout(timer); }
+      // Back from the browser's page cache: the page was left, then come back to.
+      function back(e) { if (e.persisted) stayed(); }
+      function stayed() {
+        clearTimeout(timer);
+        window.removeEventListener('beforeunload', agreed, true);
+        window.removeEventListener('pagehide', gone);
+        window.removeEventListener('pageshow', back);
+        resolve(false);
+      }
+      // Capture on window runs before every page guard, all added after this script.
+      window.addEventListener('beforeunload', agreed, true);
+      window.addEventListener('pagehide', gone);
+      window.addEventListener('pageshow', back);
+      var timer = setTimeout(stayed, LEAVE_WAIT_MS);
+      window.location.href = url;
+    });
   }
 
   function settle(resp, to) {
