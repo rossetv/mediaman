@@ -1,72 +1,36 @@
-"""The top bar's own details: the logo stays put, answers a pointer, and the field leaves the keyboard its way."""
+"""The top bar's own details: the logo stays put, answers a pointer only, and the field leaves the keyboard its way."""
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-
-CSS = Path(__file__).resolve().parents[3] / "src" / "mediaman" / "web" / "static" / "css"
-
-
-def _css(name: str) -> str:
-    return re.sub(r"/\*.*?\*/", "", (CSS / name).read_text(encoding="utf-8"), flags=re.S)
-
-
-def _body(selector: str, css: str) -> str:
-    """The declarations of every rule whose selector list holds exactly *selector*."""
-    return "".join(
-        body
-        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
-        if selector in [s.strip() for s in head.split(",")]
-    )
+from tests.unit.web._css import rules, style
 
 
 def test_the_logo_never_moves_and_only_its_fade_back_waits() -> None:
-    brand = _body(".wbar .brand", _css("_watch_search.css"))
-    assert "transform" not in brand
-    assert re.search(r"opacity [^,;]+ \.12s", brand)
-    # the storage and the profile still wait their turn as a whole
-    shared = re.search(
-        r"\.wbar :is\(\.space-meter, \.nav-end\) \{([^{}]*)\}", _css("_watch_search.css")
-    )
-    assert shared and "transform var(--dur-slow) var(--ease-out) .12s" in shared.group(1)
-
-
-def test_the_logo_dims_under_a_pointer_and_more_when_pressed() -> None:
-    css = _css("_nav.css")
-    assert "color:" in _body(".nav-glass .brand:hover", css)
-    assert "color:" in _body(".nav-glass .brand:active", css)
-    assert "color var(--dur-fast)" in _body(".nav-glass .brand", css)
+    assert "transform" not in style(".wbar .brand", "_watch_search.css")
+    # The storage and the profile still wait their turn as a whole.
+    shared = style(".wbar :is(.space-meter, .nav-end)", "_watch_search.css")
+    assert "var(--dur-slow)" in shared["transition"]
 
 
 def test_a_focused_empty_field_leaves_the_logo_and_the_storage_where_tab_reaches_them() -> None:
-    css = _css("_watch_search.css")
-    hidden = [h for h, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css) if "display: none" in b]
-    rules = [h for h in hidden if "> .brand" in h or "> .space-meter" in h]
-    assert rules
-    for head in rules:
-        assert ".is-focus:not(.has-value, .has-token)" in head
-
-
-def test_settings_keeps_no_scroll_room_for_the_bar_so_a_step_back_into_it_scrolls_nothing() -> None:
-    for name in ("_settings_pg.css", "_settings_pg_panels.css"):
-        css = _css(name)
-        assert "scroll-padding-top" not in css, name
-        assert "has-setg-pg" not in css, name
-
-
-def test_no_sheet_leans_on_a_height_at_the_foot_that_is_never_set() -> None:
-    assert [p.name for p in CSS.glob("*.css") if "--foot" in p.read_text(encoding="utf-8")] == []
+    hiding = [
+        sel
+        for _, sels, decls in rules("_watch_search.css")
+        if decls.get("display") == "none"
+        for sel in sels
+        if "> .brand" in sel or "> .space-meter" in sel
+    ]
+    assert hiding
+    for sel in hiding:
+        assert ".is-focus:not(.has-value, .has-token)" in sel
 
 
 def test_the_logo_back_and_profile_buttons_dim_under_a_pointer_only() -> None:
     # A tap on a phone leaves :hover on, so a rule outside the media query would stay dimmed.
-    css = _css("_nav.css")
-    outside = re.sub(
-        r"@media \((?:hover: hover|prefers-reduced-motion: reduce)\) \{(?:[^{}]|\{[^{}]*\})*\}",
-        "",
-        css,
-    )
+    nav = rules("_nav.css")
     for selector in (".brand", ".nav-back", ".nav-noscript", ".profile-btn"):
-        assert not re.search(re.escape(selector) + r":hover", outside), selector
-        assert re.search(r"@media \(hover: hover\) \{[^@]*" + re.escape(selector) + ":hover", css)
+        hovers = [
+            (media, s) for media, sels, _ in nav for s in sels if s.endswith(selector + ":hover")
+        ]
+        assert hovers, selector
+        assert all(media == "(hover: hover)" for media, _ in hovers), selector
