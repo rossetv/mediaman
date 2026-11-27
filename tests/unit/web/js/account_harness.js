@@ -342,19 +342,21 @@ const scenarios = {
     out.passwordDiscarded = [p.$('account-old-password').value, p.$('account-new-password').value, dirty()];
     return out;
   },
-  // the hub's tiles: the latest event, and for an admin whether every service set up answers
+  // the hub's tiles: the latest event, and for an admin how the services stood when Settings last checked them
   async tiles() {
     const clock = (iso) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     const event = (who, hours, more) => ({ who: { name: who }, fields: [{ key: 'when' }, { key: 'when', at: at(hours) }], line_title: 'Interstellar', ...more });
     const signIn = (who, hours) => event(who, hours, { action: 'sec:login.success', is_security: true, line_title: 'Signed in', action_label: 'security' });
-    const SETTINGS = { plex_url: 'http://plex', plex_token: '****', sonarr_url: 'http://sonarr', sonarr_api_key: '****', radarr_url: '', radarr_api_key: '',
-      nzbget_url: '', mailgun_domain: 'mg', mailgun_api_key: '', openai_api_key: '****', tmdb_read_token: '', omdb_api_key: '' };
-    async function hub(items, settings, refuse) {
+    // `conn` is Settings' pills as its own checks left them ([service, tone]), or null where Settings never loaded.
+    async function hub(items, conn, role = 'admin') {
       const asked = [];
       const p = page({
-        get: (url) => { asked.push(url); return Promise.resolve(url.indexOf('/api/history') === 0 ? { items } : url === '/api/settings' ? settings : { sessions: [] }); },
-        post: (url) => { asked.push(url); const no = refuse[url.split('/')[4].split('?')[0]]; return no ? Promise.reject(no) : Promise.resolve({ ok: true }); },
-      }, { tiles: settings ? 'admin' : 'viewer' });
+        get: (url) => { asked.push(url); return Promise.resolve(url.indexOf('/api/history') === 0 ? { items } : { sessions: [] }); },
+        post: (url) => { asked.push(url); return Promise.resolve({ ok: true }); },
+      }, { tiles: role });
+      (conn || []).forEach(([service, tone]) => {
+        p.doc.body.appendChild(build(p.doc, ['span', { class: 'conn ' + tone, 'data-conn': service }, ['span', { 'data-conn-label': '' }, tone]]));
+      });
       await p.rest();
       p.shown('profile');
       await p.rest();
@@ -364,16 +366,18 @@ const scenarios = {
       const tile = (id) => p.$(id) && [p.$(id).textContent, p.$(id).classList.contains('is-bad')];
       return { history: tile('account-tile-history'), settings: tile('account-tile-settings'), asked: first, again: asked.length > first.length + 1 };
     }
-    const down = { status: 502 };
     return {
-      play: [await hub([signIn('amy', -1), event('marlowe', -2, { action: 'play', finished: true, action_label: 'finished' })], SETTINGS, { plex: down, openai: down, sonarr: { status: 429 } }),
+      play: [await hub([signIn('amy', -1), event('marlowe', -2, { action: 'play', finished: true, action_label: 'finished' })], null),
         'marlowe finished Interstellar · ' + clock(at(-2))],
-      none: await hub([], { ...SETTINGS, plex_url: '', sonarr_url: '', openai_api_key: '' }, {}),
-      fine: await hub([event('amy', -30, { action: 'downloaded', action_label: 'downloaded', line_title: 'Weapons' })], SETTINGS, {}),
-      oneDown: await hub([signIn('amy', -1)], SETTINGS, { sonarr: down }),
-      noVerb: await hub([event('mediaman', -2, { action: 'delete_failed', action_label: 'delete failed', line_title: 'Big Hero 6' })], null, {}),
-      own: [await hub([signIn('amy', -1), signIn('rosa', -3)], null, {}), clock(at(-1))],
-      someone: await hub([signIn('rosa', -3)], null, {}),
+      down: await hub([], [['plex', 'err'], ['openai', 'err'], ['sonarr', 'warn'], ['radarr', 'off']]),
+      oneDown: await hub([signIn('amy', -1)], [['plex', 'ok'], ['sonarr', 'err'], ['sonarr', 'err']]),
+      fine: await hub([event('amy', -30, { action: 'downloaded', action_label: 'downloaded', line_title: 'Weapons' })], [['plex', 'ok'], ['sonarr', 'ok'], ['radarr', 'off']]),
+      limited: await hub([], [['plex', 'ok'], ['sonarr', 'warn']]),
+      testing: await hub([], [['plex', 'ok'], ['sonarr', 'untested']]),
+      none: await hub([], [['plex', 'off'], ['sonarr', 'off']]),
+      noVerb: await hub([event('mediaman', -2, { action: 'delete_failed', action_label: 'delete failed', line_title: 'Big Hero 6' })], null, 'viewer'),
+      own: [await hub([signIn('amy', -1), signIn('rosa', -3)], null, 'viewer'), clock(at(-1))],
+      someone: await hub([signIn('rosa', -3)], null, 'viewer'),
       day: new Date(at(-30)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
     };
   },

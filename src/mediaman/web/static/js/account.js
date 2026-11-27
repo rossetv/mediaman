@@ -786,15 +786,9 @@
     });
   }
 
-  /* The tiles of the hub: History's latest event and, for an admin, whether the services set up answer.
-     Each is asked again as the hub shows; the newest answer wins. */
-  // The fields each service's check needs, as Settings checks them by itself.
-  var SERVICES = [
-    ['plex', ['plex_url', 'plex_token']], ['sonarr', ['sonarr_url', 'sonarr_api_key']],
-    ['radarr', ['radarr_url', 'radarr_api_key']], ['nzbget', ['nzbget_url']],
-    ['mailgun', ['mailgun_domain', 'mailgun_api_key']], ['openai', ['openai_api_key']],
-    ['tmdb', ['tmdb_read_token']], ['omdb', ['omdb_api_key']]
-  ];
+  /* The tiles of the hub: History's latest event and, for an admin, how the services stood when Settings
+     last checked them. The hub never checks a service itself: the checks share one rate limit with Settings.
+     Each tile is said again as the hub shows; the newest answer wins. */
 
   function lastWhen(iso) {
     var at = new Date(iso);
@@ -825,6 +819,7 @@
   function initTiles() {
     var history = document.getElementById('account-tile-history');
     var settings = document.getElementById('account-tile-settings');
+    var neutral = settings ? settings.textContent : '';
     if (!history) return function () {};
     var asked = 0;
 
@@ -837,32 +832,28 @@
       }, function () { /* It keeps what it says. */ });
     }
 
-    function saySettings(me) {
-      function say(text, bad) {
-        if (me !== asked) return;
-        settings.textContent = text;
-        settings.classList.toggle('is-bad', bad);
-      }
-      MM.api.get('/api/settings').then(function (values) {
-        var set = SERVICES.filter(function (s) { return s[1].every(function (key) { return values[key]; }); });
-        if (!set.length) { say('No services are set up yet', false); return; }
-        // Staggered as Settings staggers its own, under the rate limit. A throttled check is not a service down.
-        return Promise.all(set.map(function (s, i) {
-          return new Promise(function (go) { setTimeout(go, i * 200); }).then(function () {
-            return MM.api.post('/api/settings/test/' + s[0] + '?auto=1');
-          }).then(function () { return false; }, function (err) { return !(err && err.status === 429); });
-        })).then(function (downs) {
-          var bad = downs.filter(Boolean).length;
-          if (!bad) say('Everything is connected', false);
-          else say(bad === 1 ? '1 service is not answering' : bad + ' services are not answering', true);
-        });
-      }, function () { /* It keeps what it says. */ });
+    // From the pills Settings' own checks left in the page. A check refused for the rate limit, or not yet
+    // answered, says nothing either way; with any such, or Settings not yet loaded, the tile keeps its line.
+    function saySettings() {
+      var tones = {};
+      Array.prototype.forEach.call(document.querySelectorAll('[data-conn]'), function (pill) {
+        var tone = ['ok', 'err', 'off'].filter(function (t) { return pill.classList.contains(t); })[0] || 'unknown';
+        tones[pill.getAttribute('data-conn')] = tone;
+      });
+      var known = Object.keys(tones).map(function (k) { return tones[k]; });
+      var bad = known.filter(function (t) { return t === 'err'; }).length;
+      var text = bad ? (bad === 1 ? '1 service is not answering' : bad + ' services are not answering')
+        : !known.length || known.indexOf('unknown') !== -1 ? neutral
+        : known.indexOf('ok') === -1 ? 'No services are set up yet'
+        : 'Everything is connected';
+      settings.textContent = text;
+      settings.classList.toggle('is-bad', !!bad);
     }
 
     return function () {
       var me = ++asked;
       sayHistory(me);
-      if (settings) saySettings(me);
+      if (settings) saySettings();
     };
   }
 

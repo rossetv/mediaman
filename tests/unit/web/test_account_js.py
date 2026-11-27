@@ -511,26 +511,32 @@ def test_the_history_tile_says_the_latest_event_before_a_sign_in_or_nothing_yet(
     assert out["noVerb"]["history"][0].startswith("Big Hero 6: delete failed · ")
 
 
-def test_the_settings_tile_counts_the_services_set_up_that_do_not_answer() -> None:
+def test_the_settings_tile_says_how_settings_last_found_the_services_set_up() -> None:
     out = _run("tiles")
-    play = out["play"][0]
-    # a throttled check is not counted as a service down
-    assert play["settings"] == ["2 services are not answering", True]
+    # a rate-limited check is neither working nor down
+    assert out["down"]["settings"] == ["2 services are not answering", True]
+    # a service shown twice is counted once
     assert out["oneDown"]["settings"] == ["1 service is not answering", True]
     assert out["fine"]["settings"] == ["Everything is connected", False]
     assert out["none"]["settings"] == ["No services are set up yet", False]
     assert out["own"][0]["settings"] is None
 
 
-def test_the_tiles_check_only_the_services_set_up_and_again_each_time_the_hub_shows() -> None:
+def test_a_service_not_known_to_answer_never_reads_as_everything_connected() -> None:
     out = _run("tiles")
-    play, none = out["play"][0], out["none"]
-    tests = sorted(u for u in play["asked"] if u.startswith("/api/settings/test/"))
-    assert tests == [f"/api/settings/test/{s}?auto=1" for s in ("openai", "plex", "sonarr")]
-    assert not [u for u in none["asked"] if u.startswith("/api/settings/test/")]
-    assert play["again"] is True
-    # a viewer's profile asks nothing of Settings
-    assert "/api/settings" not in out["own"][0]["asked"]
+    neutral = ["Libraries and more", False]
+    # Settings never opened, a check rate limited, a check still on its way
+    assert out["play"][0]["settings"] == neutral
+    assert out["limited"]["settings"] == neutral
+    assert out["testing"]["settings"] == neutral
+
+
+def test_opening_the_hub_checks_no_service_and_asks_history_again_each_time() -> None:
+    out = _run("tiles")
+    for case in ("play", "down", "fine", "none"):
+        asked = (out[case][0] if case == "play" else out[case])["asked"]
+        assert not [u for u in asked if u.startswith("/api/settings")], (case, asked)
+    assert out["play"][0]["again"] is True
 
 
 def test_save_waits_for_the_rules_and_a_press_before_says_what_is_missing() -> None:
