@@ -224,11 +224,18 @@ def test_single_shadow_token():
                         f"{token.group(1)} layer is not a small glow: {layer!r}"
                     )
             continue
+        layers = _shadow_layers(v)
+        if "var(--g-inset)" in layers:
+            # Glass's lit top edge: a line of light along the edge, with no blur, lifts nothing.
+            for each in every["--g-inset"]:
+                assert re.fullmatch(
+                    r"inset 0 1px 0 \S.*|0 0 0 transparent", " ".join(each.split())
+                ), f"--g-inset is more than a line of light: {each!r}"
+            v = ", ".join(layer for layer in layers if layer != "var(--g-inset)")
+            if not v:
+                continue
         for layer in _resolved_layers(v, every):
             if layer == "var(--shadow-card)":
-                continue
-            # Glass's lit top edge: a line of light along the edge, with no blur, lifts nothing.
-            if re.match(r"inset 0 1px 0 ", layer):
                 continue
             # Status-dot / focus-ring style glows and hairline rings: zero offset. These are
             # light effects, not elevation.

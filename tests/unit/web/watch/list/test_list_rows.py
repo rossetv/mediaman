@@ -77,6 +77,8 @@ def test_a_show_with_one_stale_season_of_three_still_carries_no_season_id(cards,
     """The filter is of the show: the one stale season must not stand for all of it."""
     _insert_show(conn, "show-rk")
     conn.execute("UPDATE media_items SET added_at = '2020-01-01T00:00:00+00:00' WHERE id = 's2'")
+    # Left open, the write holds the database the request's own connection writes to.
+    conn.commit()
 
     (card,) = cards(f"type={type_}")
 

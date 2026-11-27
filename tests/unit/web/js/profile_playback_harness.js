@@ -35,6 +35,7 @@ function page(held, { put = null, fails = false, more = {} } = {}) {
   const doc = makeDocument();
   doc.body.appendChild(build(doc, ['div', { id: 'you' }, ['button', { 'data-you-back': '' }], ['div', { 'data-you-group': 'profile' },
     row('account-row-audio', 'profile/audio'), row('account-row-subs', 'profile/subtitles'),
+    ['button', { id: 'account-skip', class: 'tog on', role: 'switch', 'aria-checked': 'true' }],
     ['div', { class: 'you-view', 'data-view': 'profile/audio' }, ...languages()],
     ['div', { class: 'you-view', 'data-view': 'profile/subtitles' },
       ['div', { role: 'radiogroup' }, pick('needed', 'Only when needed'),
@@ -67,8 +68,12 @@ function page(held, { put = null, fails = false, more = {} } = {}) {
   ['core/dom.js', 'profile-playback.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   const $ = (s) => doc.querySelector(s);
   const view = (v) => $('[data-view="' + v + '"]');
+  const skip = $('#account-skip');
   return {
     doc, puts, toasts, $, view,
+    skipState: () => ({ checked: skip.getAttribute('aria-checked'), on: skip.classList.contains('on') }),
+    async pressSkip() { click(doc, skip); await settle(); timers.splice(0).forEach((fn) => fn()); },
+    pressSkipNow() { click(doc, skip); },
     wait: () => timers.splice(0).forEach((fn) => fn()),
     value: (id) => $('#' + id + ' [data-row-value]').textContent,
     checked: (v) => view(v).querySelectorAll('[aria-checked="true"]').map((r) => r.getAttribute('data-audio-lang') ?? r.getAttribute('data-sub-lang') ?? r.getAttribute('data-subs')),
@@ -84,7 +89,44 @@ function page(held, { put = null, fails = false, more = {} } = {}) {
   };
 }
 
+// The switch "Skip intros and credits on the TV".
+const skipPage = ({ fails = false, saved = true } = {}) => page({ audio_lang: null, subtitle_lang: null, auto_skip: saved }, { fails });
+const SKIPS = {
+  async off() {
+    const p = skipPage();
+    await settle();
+    await p.pressSkip();
+    const off = { state: p.skipState(), puts: p.puts.slice(), toasts: p.toasts.slice() };
+    await p.pressSkip();
+    return { off, on: p.skipState(), puts: p.puts };
+  },
+  async fails() {
+    const p = skipPage({ fails: true });
+    await settle();
+    p.pressSkipNow();
+    const moved = p.skipState();
+    await settle();
+    return { moved, back: p.skipState(), toasts: p.toasts };
+  },
+  // Turned off elsewhere since the page was drawn on, it shows off.
+  async fresh() {
+    const p = skipPage({ saved: false });
+    await settle();
+    return p.skipState();
+  },
+  // A second press before the answer is not sent.
+  async twice() {
+    const p = skipPage();
+    await settle();
+    p.pressSkipNow();
+    p.pressSkipNow();
+    await settle();
+    return p.puts.length;
+  },
+};
+
 const scenarios = {
+  async skip(name) { return SKIPS[name](); },
   async hub() {
     const p = page({ audio_lang: 'de', subtitle_lang: 'fr' });
     await settle();
@@ -161,4 +203,4 @@ const scenarios = {
   },
 };
 
-scenarios[process.argv[2]]().then((out) => process.stdout.write(JSON.stringify(out)));
+scenarios[process.argv[2]](...process.argv.slice(3)).then((out) => process.stdout.write(JSON.stringify(out)));
