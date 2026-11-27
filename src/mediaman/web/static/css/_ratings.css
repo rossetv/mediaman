@@ -207,7 +207,7 @@
 }
 .rate__b:focus-visible .rate__tip { opacity: 1; transform: none; }
 
-.rate__line { min-height: 20px; margin: 0; padding-left: 4px; font-size: 13px; line-height: 20px; color: var(--t3); }
+.rate__line { min-height: 20px; margin: 0; padding-left: 4px; font-size: 13px; line-height: 20px; color: color-mix(in srgb, var(--t1) 74%, transparent); }
 .rate__line > span { display: inline-block; }
 .rate__line > .is-new { animation: rate-rise var(--dur) var(--ease-out); }
 .rate__line b { color: var(--t1); font-weight: 600; }

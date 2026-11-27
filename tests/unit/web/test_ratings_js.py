@@ -78,6 +78,20 @@ def test_the_highlight_slides_between_levels_and_comes_and_goes_where_there_was_
     assert _run("slides") == [None, "1", "3", None, None, "2", "3"]
 
 
+def _reach(at: str) -> tuple[float, float, float, float]:
+    """Where a hand drawn in a 24-unit square, placed *at*, can be, as it springs and tilts."""
+    x, y, scale = map(
+        float, re.fullmatch(r"translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)", at).groups()
+    )
+    swing = 8  # the furthest a pop or a tilt takes a hand off its place
+    return x - swing, y - swing, x + 24 * scale + swing, y + 24 * scale + swing
+
+
+def _holds(box: list[float], reach: tuple[float, float, float, float]) -> bool:
+    x, y, width, height = box
+    return x <= reach[0] and y <= reach[1] and x + width >= reach[2] and y + height >= reach[3]
+
+
 def test_a_double_thumb_cuts_its_back_hand_away_with_a_mask_of_its_own() -> None:
     doubles = _run("doubles")
     assert len(doubles) == 4
@@ -85,6 +99,18 @@ def test_a_double_thumb_cuts_its_back_hand_away_with_a_mask_of_its_own() -> None
         assert d["id"] and d["backMaskedBy"] == f"url(#{d['id']})"
         assert d["cut"] == [True, "#000", "#000", "5"] and not d["frontMasked"]
     assert len({d["id"] for d in doubles}) == len(doubles)
+
+
+def test_a_double_thumb_s_mask_shows_all_of_the_back_hand_but_the_front_one_s_shape() -> None:
+    for d in _run("doubles"):
+        reach = _reach(d["backAt"])
+        assert d["rect"][4] == "#fff"
+        assert _holds(d["region"], reach) and _holds(d["rect"][:4], reach), d
+
+
+def test_a_double_thumb_s_back_hand_has_no_cuff_to_show_between_the_hands() -> None:
+    for d in _run("doubles"):
+        assert d["backHand"].count("M") == 1 and d["frontHand"].endswith(d["backHand"])
 
 
 def _luminance(hex_colour: str) -> float:
@@ -103,6 +129,14 @@ def test_a_thumb_s_name_is_written_on_a_solid_fill_whatever_lies_behind_it() -> 
     )
     assert (light + 0.05) / (dark + 0.05) >= 4.5
     assert "box-shadow: 0 0 0 1px" in body  # an edge, so it reads over a dark bar too
+
+
+def test_the_words_under_the_thumbs_are_at_least_three_quarters_white() -> None:
+    [body] = [b for m, h, b in _rules() if h == ".rate__line" and not m]
+    white = re.search(
+        r"(?<![-\w])color: color-mix\(in srgb, var\(--t1\) (\d+)%, transparent\);", body
+    )
+    assert white and int(white[1]) >= 74, body
 
 
 def test_a_thumb_answers_a_hover_only_where_a_pointer_hovers() -> None:

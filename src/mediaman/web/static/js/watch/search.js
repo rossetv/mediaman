@@ -289,10 +289,11 @@
 
   var KNOWN_BY = ['id', 'data-title-ref', 'data-watch-keep', 'data-keep-id', 'data-mark', 'data-mark-toggle'];
 
-  /* *node*, off the page or a copy, set over *around* at *rect* to fade: a
-     picture of what was there, in which nothing can be found or used. */
+  /* *node*, off the page or a copy of its own, set over *around* at *rect* to fade: a
+     picture of what was there, in which nothing can be found or used. Its masks keep their ids,
+     which the picture draws with. */
   function ghost(node, rect, around) {
-    [node].concat(core.toArray(node.querySelectorAll('[id], [data-title-ref], [data-watch-keep], [data-keep-id], [data-mark], [data-mark-toggle]')))
+    [node].concat(core.toArray(node.querySelectorAll('[id]:not(mask), [data-title-ref], [data-watch-keep], [data-keep-id], [data-mark], [data-mark-toggle]')))
       .forEach(function (n) { KNOWN_BY.forEach(function (name) { n.removeAttribute(name); }); });
     (node.getAnimations ? node.getAnimations() : []).forEach(function (a) { a.cancel(); });
     node.inert = true;
@@ -415,7 +416,7 @@
     if (!near(from) && !near(to)) return;
     // A long trip would cross other posters: it leaves where it was and arrives in place.
     if (Math.abs(dx) > to.width * 2.1 || (Math.abs(dy) > 40 && Math.abs(dx) > to.width * 0.6) || Math.abs(dy) > 900) {
-      var left = ghosts.appendChild(ghost(held.node.cloneNode(true), from, around));
+      var left = ghosts.appendChild(ghost(core.copy(held.node), from, around));
       fadeAway(left, opacity, 160, false);
       opacity = 0;
       dx = Math.max(-20, Math.min(20, dx));

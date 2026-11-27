@@ -4,6 +4,8 @@
 {% import "_watch_all.html" as g %}
 {% import "_watch_hero.html" as hero %}
 {% import "_watch_space.html" as space %}
+{# Numbers the masks of the double thumbs on this page, in the rows and the grid alike. #}
+{% set cuts = namespace(n=0) %}
 
 {% block title %}Watch · Mediaman{% endblock %}
 {% block html_class %} class="has-watch-search"{% endblock %}
@@ -41,7 +43,7 @@
   {{ g.row_head(row) }}
   <div class="watch-row__viewport"{% if row.next %} data-row-kind="{{ row.kind }}" data-row-next="{{ row.next }}"{% endif %}>
     <div class="watch-row__scroll" tabindex="0" role="region" aria-label="{{ row.title }}">
-      {% for item in (row['items'][:row.page_size] if row.next else row['items']) %}{{ w.card(item, keep=(row.title == "Leaving soon")) }}{% endfor %}
+      {% for item in (row['items'][:row.page_size] if row.next else row['items']) %}{{ w.card(item, keep=(row.title == "Leaving soon"), cuts=cuts) }}{% endfor %}
     </div>
   </div>
 </section>
@@ -200,7 +202,7 @@
     </div>
     {% if not watch_error and (tmdb_configured or picks_on) %}{% include "_watch_next.html" %}{% endif %}
   </div>
-  {% if grid %}{{ g.section(grid, library_types) }}{% endif %}
+  {% if grid %}{{ g.section(grid, library_types, cuts) }}{% endif %}
 
   <section class="watch-results" id="watch-results" aria-label="Search results"{% if not on_results %} hidden{% endif %}></section>
 

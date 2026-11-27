@@ -271,6 +271,9 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-over > .rate--lift.is-open > .rate__set { pointer-events: auto; }
   .card-over__col { display: none; }
   .card-over__scrim { background: linear-gradient(to left, color-mix(in srgb, var(--scrim) 72%, transparent), color-mix(in srgb, var(--scrim) 45%, transparent) 45%, color-mix(in srgb, var(--scrim) 10%, transparent)); }
+  /* The levels and their names lie over the poster's words, which give way rather than peek out round them. */
+  .watch-card__poster > :is(.watch-card__title, .watch-card__scores, .watch-badge) { transition: opacity var(--dur-fast) var(--ease-out); }
+  .is-lifted > .watch-card__link .watch-card__poster > :is(.watch-card__title, .watch-card__scores, .watch-badge) { opacity: 0; }
 }
 @media (hover: none), (pointer: coarse) {
   /* Over the buttons of the cards above it, and the closing levels of another. */
@@ -285,8 +288,9 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-over .rate__b.pop.is-up.is-double::after { inset: auto; }
   .card-over .rate__name { right: calc(100% + 4px); top: calc(7px - min(0px, var(--top))); width: max(min(50px, 100cqi - 57px), 100cqi - 62px); padding-inline: 0; font-size: clamp(11px, 10.2cqi, 13px); }
   .card-over .rate__name > span { position: static; display: block; translate: none; width: auto; max-width: none; padding-block: 0; background: none; box-shadow: none; text-align: left; font-weight: 700; line-height: 1.2; }
-  .watch-card__poster > .watch-badge { transition: opacity var(--dur-fast) var(--ease-out); }
-  .is-lifted > .watch-card__link .watch-badge { opacity: 0; }
+  /* Back only once the level's name over it has gone. */
+  .watch-card__poster > .watch-badge { transition: opacity var(--dur-fast) var(--ease-out) var(--dur-fast); }
+  .is-lifted > .watch-card__link .watch-badge { opacity: 0; transition-delay: 0s; }
 }
 
 /* The thumb just given, on its way to the caption. */

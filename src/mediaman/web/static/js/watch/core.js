@@ -17,9 +17,9 @@
 
   var copies = 0;
 
-  /* A deep copy whose masks are its own: of an id met twice the first is drawn, and in
-     Chromium nothing at all where that one is hidden. The server numbers its masks from 1 on
-     each page, so a node from a page it sent is copied here too, into this one. */
+  /* A deep copy whose masks are its own: a reference to an id met twice finds the first, and
+     where that one is hidden, Chromium draws without the mask. Each page the server sends
+     numbers its masks from 1, so a node from a page fetched later is copied here too. */
   function copy(node) {
     var twin = document.importNode(node, true);
     var n = ++copies;

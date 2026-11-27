@@ -600,3 +600,29 @@ def test_a_phone_s_tv_bar_is_off_the_foot_and_below_toasts_and_what_is_scrolled_
     assert _px(_last("bottom", toast), True, height) >= over
     scrolled = _of("html.has-tv-mini", PHONE, REMOTE)
     assert _px(_last("scroll-padding-bottom", scrolled), True, height) >= over
+
+
+def _seconds(value: str) -> float:
+    found = re.fullmatch(r"var\((--[\w-]+)\)", value)
+    value = token(found[1]) if found else value
+    return float(value.removesuffix("ms")) / 1000 if value.endswith("ms") else float(value[:-1])
+
+
+def test_a_phone_card_s_badges_come_back_only_once_the_level_s_name_over_them_has_gone() -> None:
+    back = style(".watch-card__poster > .watch-badge", "_watch_cards.css", "(hover: none)")
+    gone = style(".rate__name > span", "_watch_cards.css")
+    delay = re.search(r"opacity (\S+) \S+ (\S+)", back["transition"])
+    fade = re.search(r"opacity (\S+)", gone["transition"])
+    assert delay and fade and _seconds(delay[2]) >= _seconds(fade[1])
+
+
+def test_a_lifted_card_s_poster_words_give_way_to_the_levels_and_their_names() -> None:
+    lifted = ".is-lifted > .watch-card__link .watch-card__poster > "
+    words = ":is(.watch-card__title, .watch-card__scores, .watch-badge)"
+    pointer = "(hover: hover) and (pointer: fine)"
+    assert style(lifted + words, "_watch_cards.css", pointer)["opacity"] == "0"
+
+
+def test_a_preview_s_title_words_give_way_while_a_level_s_name_shows_over_them() -> None:
+    named = ".pv:has(> .pv__lift > .rate--lift.is-open > .rate__name.is-on) .pv__head"
+    assert style(named, "_watch_preview.css")["opacity"] == "0"

@@ -416,7 +416,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
    and as wide as they are, or without them in a corner of their own. */
 @media (min-width: 820px) {
   .ttl__main { position: relative; }
-  .ttl__main > :is(.rate, .ttl__rate-skel) { position: absolute; top: -4px; right: 0; width: 222px; }
+  /* Over the hero's shade, which a level's tip reaches up into. */
+  .ttl__main > :is(.rate, .ttl__rate-skel) { position: absolute; z-index: 2; top: -4px; right: 0; width: 222px; }
   /* Its words may be wider than it is. */
   .ttl__main > .rate > .rate__line { margin-inline: -14px; padding: 0; text-align: center; }
   .ttl__main:has(> :is(.rate, .ttl__rate-skel)) > :is(.ttl__actions, .ttl__under, .ttl__ratings) { margin-right: 236px; }

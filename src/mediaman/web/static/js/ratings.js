@@ -44,9 +44,10 @@
     lift: 'Only you see your rating.',
   };
   var NOT_SAVED = 'Your rating wasn’t saved. Try again.';
-  var HAND = 'M3 11.6c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4v7.2c0 .8-.6 1.4-1.4 1.4S3 19.6 3 18.8Z' +
-    'M8.4 11.2l3.2-6.8C12 3.5 12.6 3 13.4 3c1.3 0 2.2 1 2.2 2.4 0 1.4-.5 2.7-.9 3.8h3.9c1.6 0 2.7 1.4 2.4 2.9' +
+  var CUFF = 'M3 11.6c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4v7.2c0 .8-.6 1.4-1.4 1.4S3 19.6 3 18.8Z';
+  var PALM = 'M8.4 11.2l3.2-6.8C12 3.5 12.6 3 13.4 3c1.3 0 2.2 1 2.2 2.4 0 1.4-.5 2.7-.9 3.8h3.9c1.6 0 2.7 1.4 2.4 2.9' +
     'l-1.1 5.6c-.3 1.5-1.5 2.5-3 2.5h-5.7c-1 0-1.9-.3-2.8-.8Z';
+  var HAND = CUFF + PALM;
 
   function el(tag, className, text) {
     var n = document.createElement(tag);
@@ -63,7 +64,7 @@
   }
 
   /* Its outline, and the fill drawn into it while it is on. */
-  function hand() { return [svg('path', { d: HAND }), svg('path', { 'class': 'ink', d: HAND })]; }
+  function hand(d) { return [svg('path', { d: d }), svg('path', { 'class': 'ink', d: d })]; }
 
   var cuts = 0; // ids of the masks of double thumbs, one each
 
@@ -77,7 +78,8 @@
       focusable: 'false',
     }, two ? [
       // The back hand is cut away round the front one, whatever lies behind; the mask's hand
-      // is a .f too, so it moves with the front one.
+      // is a .f too, so it moves with the front one. The back hand has no cuff: tilted apart,
+      // the two hands would show it as a sliver between them.
       svg('mask', { id: cut, maskUnits: 'userSpaceOnUse', x: '-16', y: '-16', width: '64', height: '56' }, [
         svg('rect', { x: '-16', y: '-16', width: '64', height: '56', fill: '#fff' }),
         svg('g', { transform: 'translate(0 2)' }, [
@@ -85,10 +87,10 @@
         ]),
       ]),
       svg('g', { mask: 'url(#' + cut + ')' }, [
-        svg('g', { transform: 'translate(10.5 -2.8) scale(.92)' }, [svg('g', { 'class': 'b' }, hand())]),
+        svg('g', { transform: 'translate(10.5 -2.8) scale(.92)' }, [svg('g', { 'class': 'b' }, hand(PALM))]),
       ]),
-      svg('g', { transform: 'translate(0 2)' }, [svg('g', { 'class': 'f' }, hand())]),
-    ] : [svg('g', { 'class': 'f' }, hand())]);
+      svg('g', { transform: 'translate(0 2)' }, [svg('g', { 'class': 'f' }, hand(HAND))]),
+    ] : [svg('g', { 'class': 'f' }, hand(HAND))]);
   }
 
   /* ── The levels ──

@@ -107,6 +107,13 @@ def test_the_thumbs_stand_out_of_the_flow_so_their_words_move_nothing() -> None:
     assert kept > held
 
 
+def test_a_level_s_tip_is_drawn_over_the_hero_s_shade_it_reaches_up_into() -> None:
+    wide = {", ".join(heads): body for heads, body in _rules("(min-width: 820px)")}
+    thumbs = re.search(r"z-index: (\d+)", wide[".ttl__main > :is(.rate, .ttl__rate-skel)"])
+    [shade] = [b for heads, b in _rules() if ".ttl__head" in heads and "z-index" in b]
+    assert thumbs and int(thumbs[1]) > int(re.findall(r"z-index: (\d+)", shade)[0])
+
+
 def test_a_title_on_its_way_out_takes_no_second_press_of_close() -> None:
     assert "pointer-events: none" in _of(".ttl.is-leaving > *")
 
