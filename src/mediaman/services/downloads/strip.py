@@ -96,7 +96,7 @@ class StripItem:
     dl_id: str = ""
     #: The title it opens, None when not known.
     ref: str | None = None
-    href: str = "/downloads"
+    href: str = "/?dl=1"
     #: Of one that needs attention: what Radarr or Sonarr says is wrong, and where to deal with
     #: it, which only an admin is told.
     attention: str = ""

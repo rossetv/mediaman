@@ -214,10 +214,11 @@
 {% if is_admin %}
 <script src="/static/js/watch/admin.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/space.js?v={{ static_v }}" defer></script>
+<script src="/static/js/dl-abandon.js?v={{ static_v }}" defer></script>
 {% endif %}
 <script src="/static/js/watch/explore.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch-rows.js?v={{ static_v }}" defer></script>
 {% endblock %}
 
-{% block overlays %}{% if is_admin %}{{ space.panel() }}{% endif %}{% include "_you.html" %}{% endblock %}
+{% block overlays %}{% if is_admin %}{{ space.panel() }}{% endif %}{% include "_you.html" %}{% if is_admin %}{% include "_dl_abandon_modal.html" %}{% endif %}{% endblock %}

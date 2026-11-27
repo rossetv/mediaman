@@ -238,16 +238,17 @@ def test_nav_template_emits_all_surfaces():
     # Every primary destination still routes from the nav.
     for href in (
         'href="/"',
-        'href="/downloads"',
+        'href="/?dl=1"',
         'href="/history"',
         'href="/settings"',
     ):
         assert href in nav, f"missing nav link: {href}"
     assert "}}Watch<" in nav, "missing nav label: Watch"
-    # Downloads left the profile menu; without scripts it is still a link of the bar
-    assert 'href="/downloads">Downloads<' in nav
+    # Downloads left the profile menu; without scripts Downloading on Watch is still a link of
+    # the bar
+    assert 'href="/?dl=1">Downloads<' in nav
     menu = nav.split('id="profile-menu-items"')[1].split("</div>")[0]
-    assert "/downloads" not in menu and "Downloads" not in menu
+    assert "dl=1" not in menu and "/downloads" not in menu and "Downloads" not in menu
 
 
 def test_base_html_sets_data_page():

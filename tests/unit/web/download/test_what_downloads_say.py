@@ -151,13 +151,12 @@ def test_a_viewer_is_told_only_that_downloads_are_not_available_while_a_key_is_r
     assert "Sonarr" not in data["subtitle"]
 
 
-def test_the_page_says_which_of_radarr_and_sonarr_are_set_up(services, client):
+def test_the_downloads_api_says_which_of_radarr_and_sonarr_are_set_up(services, client):
     services[3]["radarr"] = None
 
-    page = client.get("/downloads").json()
     data = client.get("/api/downloads").json()
 
-    assert page["downloads_set_up"] == data["downloads_set_up"] == {"movies": False, "shows": True}
+    assert data["downloads_set_up"] == {"movies": False, "shows": True}
 
 
 def test_a_failed_stop_tracking_answers_its_words_as_the_message(services, client):

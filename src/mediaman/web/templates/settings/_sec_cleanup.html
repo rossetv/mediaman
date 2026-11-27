@@ -28,7 +28,7 @@
   {% endcall %}
 
   {% call c.setg_card(title="Stuck downloads",
-                         sub="When a download has been searching for ages with no result, or won't import, mediaman can deal with it automatically. The Abandon button on the Downloads page is always available after 10 hours of searching for manual control.") %}
+                         sub="When a download has been searching for ages with no result, or won't import, mediaman can deal with it automatically. The Abandon button under Downloading on Watch is always available after 10 hours of searching for manual control.") %}
     {% set auto_abandon = settings.get('auto_abandon_enabled', False) not in (False, 'false', 'False', 0, '0') %}
     {% call c.setg_row("Auto-abandon",
                           "When on, mediaman unmonitors stuck items after 14 days of fruitless searching. For movies, the whole movie. For series, only the seasons currently missing episodes.") %}

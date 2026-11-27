@@ -97,7 +97,7 @@ def get_page(conn, secret_key, authed_client):
     ("path", "signed_in"),
     [
         ("/", True),
-        ("/downloads", True),
+        ("/?dl=1", True),
         ("/history?pane=1", True),
         ("/settings?pane=1", True),
         ("/account?pane=1", True),
@@ -113,8 +113,8 @@ def test_a_rendered_page_loads_its_css_and_js_with_the_version(get_page, path, s
     assert [u for u in loaded if not u.endswith(f"?v={version}")] == []
 
 
-def test_the_downloads_page_loads_no_script_twice(get_page):
-    loaded, _ = get_page("/downloads", True)
+def test_watch_with_downloading_open_loads_no_script_twice_for_an_admin(get_page):
+    loaded, _ = get_page("/?dl=1", True)
     files = [urlsplit(u).path for u in loaded]
     assert sorted(files) == sorted(set(files))
 
