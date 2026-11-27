@@ -20,7 +20,7 @@ from starlette.responses import Response
 
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import TICKET_SECONDS, Ticket, get_ticket_store
-from mediaman.services.cast.tracks import Track, read_tracks
+from mediaman.services.cast.tracks import read_tracks
 from mediaman.services.media_meta.plex_quality import TvQuality
 from mediaman.services.media_meta.plex_stream import (
     StreamGone,
@@ -48,6 +48,7 @@ from mediaman.web.routes.watch.stream_api import (
     _scanned_library_ids,
     _StartRequest,
     _StreamRoute,
+    pick_tracks,
     plex_failure,
     session_lasts,
     stream_lives,
@@ -73,7 +74,8 @@ _CORS = {
 
 class _CastRequest(_StartRequest):
     quality: TvQuality = "auto"
-    #: Track ids as an earlier answer gave them; without one, what is selected in Plex.
+    #: Track ids as an earlier answer gave them; without one, the person's choice for the title,
+    #: else their defaults.
     audio: str | None = Field(default=None, pattern=r"^[0-9]{1,18}$")
     subtitle: str | None = Field(default=None, pattern=r"^(off|[0-9]{1,18})$")
 
@@ -97,10 +99,6 @@ def start_cast(
             request, body, username, session_hash, manager, began, check=True
         ),
     )
-
-
-def _selected(tracks: list[Track]) -> str | None:
-    return next((t["id"] for t in tracks if t["selected"]), None)
 
 
 def _start(
@@ -130,17 +128,19 @@ def _start(
             subtitle is not None and subtitle not in {t["id"] for t in subtitles}
         ):
             return respond_err("track_unavailable", status=409)
-        burn = subtitle is not None or (body.subtitle is None and item.subtitle_selected)
+        pick = pick_tracks(
+            conn, username, item, audio, subtitles, audio_id=body.audio, subtitle=body.subtitle
+        )
         quality = "best" if body.quality == "auto" else body.quality
         stream_id = manager.start(
             username,
             body.rating_key,
             quality,
-            burn,
+            pick.burn,
             _progress_info(item),
             page=body.page,
             asked_ago=body.asked_s + manager.now() - began,
-            tv=TvTracks(audio=body.audio, subtitle=subtitle),
+            tv=TvTracks(audio=pick.audio, subtitle=pick.subtitle),
         )
     except TooManyStreams:
         return respond_err("too_many_streams", status=429)
@@ -173,8 +173,8 @@ def _start(
             "expires_in_s": int(TICKET_SECONDS),
             "duration_s": item.duration_s,
             "quality": body.quality,
-            "audio": body.audio or _selected(audio),
-            "subtitle": (subtitle or _selected(subtitles)) if burn else None,
+            "audio": pick.audio,
+            "subtitle": pick.subtitle,
             "audio_tracks": audio,
             "subtitle_tracks": subtitles,
             "markers": [asdict(m) for m in item.markers],

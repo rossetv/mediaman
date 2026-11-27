@@ -218,11 +218,16 @@ class StreamInfo:
 
 
 @dataclass(frozen=True)
-class TvTracks:
-    """Marks a stream as one for a TV, with the tracks asked for; None leaves Plex's own choice."""
+class Tracks:
+    """The tracks asked for; None leaves Plex's own choice."""
 
     audio: str | None = None
     subtitle: str | None = None
+
+
+@dataclass(frozen=True)
+class TvTracks(Tracks):
+    """Marks a stream as one for a TV, with the tracks asked for."""
 
 
 class SegmentRead:
@@ -497,6 +502,7 @@ class StreamManager:
         page: str | None = None,
         asked_ago: float = 0.0,
         tv: TvTracks | None = None,
+        tracks: Tracks | None = None,
     ) -> str:
         """Open a Plex transcode session at offset 0 and return the new stream id.
 
@@ -513,8 +519,8 @@ class StreamManager:
         restart; they count as replaced unless nothing could be started in their place. Of two
         starts of one item at the same time the later wins, and the other's id is returned as
         one already replaced.
-        With *tv* the video and audio are converted to what any TV plays, and a track it names
-        that Plex would not play raises ``TrackUnavailable``.
+        With *tv* the video and audio are converted to what any TV plays. A track *tv* or
+        *tracks* names that Plex would not play raises ``TrackUnavailable``.
         Raises ``ValueError`` for an unknown quality or a malformed rating key, and
         ``TooManyStreams`` when the user, or mediaman as a whole, is at the limit.
         """
@@ -539,7 +545,7 @@ class StreamManager:
             for session_id in dropped.values():
                 self._call_quietly("stop", session_id)
             return self._start_new(
-                creds, user, rating_key, quality, burn_subtitles, info, fallback, order, tv
+                creds, user, rating_key, quality, burn_subtitles, info, fallback, order, tv, tracks
             )
         finally:
             with self._lock:
@@ -573,6 +579,7 @@ class StreamManager:
         fallback: str | None,
         order: int,
         tv: TvTracks | None,
+        tracks: Tracks | None,
     ) -> str:
         asked = quality
         base, token = creds
@@ -588,7 +595,15 @@ class StreamManager:
                 self._issued.add(session_id)
             try:
                 child_path = self._open_session(
-                    base, token, session_id, rating_key, quality, burn_subtitles, deadline, tv
+                    base,
+                    token,
+                    session_id,
+                    rating_key,
+                    quality,
+                    burn_subtitles,
+                    deadline,
+                    tv,
+                    tracks,
                 )
                 break
             except PlexUnavailable as exc:
@@ -1053,8 +1068,10 @@ class StreamManager:
         burn_subtitles: bool,
         deadline: float,
         tv: TvTracks | None,
+        tracks: Tracks | None = None,
     ) -> str:
-        params = _session_params(session_id, rating_key, quality, burn_subtitles, tv)
+        chosen = tv or tracks
+        params = _session_params(session_id, rating_key, quality, burn_subtitles, tv, chosen)
         session_header = {"X-Plex-Session-Identifier": session_id}
         # start.m3u8 answers 400 unless a decision for the same session came first.
         for action in ("decision", "start.m3u8"):
@@ -1070,8 +1087,8 @@ class StreamManager:
             )
             if action == "decision" and quality == ORIGINAL and not _video_copied(body):
                 raise _Unservable("Plex would not copy the video")
-            if action == "decision" and tv is not None:
-                _check_tracks(body, tv)
+            if action == "decision" and chosen is not None:
+                _check_tracks(body, chosen)
         variant = next(
             (
                 line.strip()
@@ -1218,6 +1235,7 @@ def _session_params(
     quality: str,
     burn_subtitles: bool,
     tv: TvTracks | None = None,
+    tracks: Tracks | None = None,
 ) -> dict[str, str]:
     params = {
         "path": f"/library/metadata/{rating_key}",
@@ -1241,10 +1259,10 @@ def _session_params(
             "audioChannelCount": "2",
             "X-Plex-Client-Profile-Extra": _TV_PROFILE,
         }
-        if tv.audio is not None:
-            params["audioStreamID"] = tv.audio
-        if tv.subtitle is not None:
-            params["subtitleStreamID"] = tv.subtitle
+    if tracks is not None and tracks.audio is not None:
+        params["audioStreamID"] = tracks.audio
+    if tracks is not None and tracks.subtitle is not None:
+        params["subtitleStreamID"] = tracks.subtitle
     return params
 
 
@@ -1259,7 +1277,7 @@ def _decided_streams(body: bytes) -> list[Element]:
     return [s for m in chosen for s in m.iter("Stream")]
 
 
-def _check_tracks(body: bytes, tv: TvTracks) -> None:
+def _check_tracks(body: bytes, tv: Tracks) -> None:
     """Raise ``TrackUnavailable`` unless Plex decided on each track *tv* names.
 
     Plex ignores what it does not know, and would play the wrong language without a word.

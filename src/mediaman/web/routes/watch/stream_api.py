@@ -28,6 +28,7 @@ from mediaman.core.scrub_filter import register_secret
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import Ticket, get_ticket_store
+from mediaman.services.cast.tracks import Pick, Track, read_tracks, resolve
 from mediaman.services.infra import SafeHTTPClient, allowed_outbound_hosts
 from mediaman.services.infra.settings_reader import get_setting, get_string_setting
 from mediaman.services.media_meta.plex_quality import (
@@ -47,6 +48,8 @@ from mediaman.services.media_meta.plex_stream import (
     TooManyReads,
     TooManyStarts,
     TooManyStreams,
+    Tracks,
+    TrackUnavailable,
     get_stream_manager,
 )
 from mediaman.services.media_meta.plex_watch import (
@@ -61,6 +64,7 @@ from mediaman.services.media_meta.plex_watch import (
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import get_current_user
+from mediaman.web.repository import track_choices
 from mediaman.web.repository.watch_progress import get_progress, save_progress
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -282,6 +286,39 @@ def _progress_info(item: PlexItem) -> dict[str, Any]:
     }
 
 
+def title_key(item: PlexItem) -> str:
+    """The show of an episode, or the movie: what a person's choice of tracks is kept for."""
+    return item.grandparent_rating_key or item.rating_key
+
+
+def pick_tracks(
+    conn: sqlite3.Connection,
+    username: str,
+    item: PlexItem,
+    audio: list[Track],
+    subtitles: list[Track],
+    *,
+    audio_id: str | None = None,
+    subtitle: str | None = None,
+) -> Pick:
+    """The tracks of *item* to play for *username*; *audio_id* and *subtitle* as ``resolve``'s."""
+    defaults = track_choices.get_defaults(conn, username)
+    return resolve(
+        audio,
+        subtitles,
+        item.rating_key,
+        audio_lang=defaults.audio_lang,
+        subtitle_lang=defaults.subtitle_lang,
+        remembered=track_choices.get_choice(conn, username, title_key(item)),
+        audio_id=audio_id,
+        subtitle=subtitle,
+    )
+
+
+def selected(tracks: list[Track]) -> str | None:
+    return next((t["id"] for t in tracks if t["selected"]), None)
+
+
 def _start(
     request: Request,
     body: _WatchStartRequest,
@@ -292,11 +329,14 @@ def _start(
 ) -> Response:
     conn = get_db()
     try:
-        item = _open_plex(request, conn).get_item(body.rating_key, marks=True)
+        plex = _open_plex(request, conn)
+        item = plex.get_item(body.rating_key, marks=True)
         if item.type not in ("movie", "episode") or not is_in_libraries(
             item, _scanned_library_ids(conn)
         ):
             return respond_err("not_found", status=404)
+        audio, subtitles = read_tracks(plex, body.rating_key)
+        pick = pick_tracks(conn, username, item, audio, subtitles)
         info = _progress_info(item)
         if item.media is not None and item.preview_count:
             # Kept on the server for the preview route; none of it is in the answer.
@@ -305,19 +345,32 @@ def _start(
                 "part_size": item.media.part_size,
                 "count": item.preview_count,
             }
-        rows = quality_rows(item, original=_may_play_original(manager, item, username))
+        # A burned subtitle is drawn into a new picture, so the video is never copied.
+        original = not pick.burn and _may_play_original(manager, item, username)
+        rows = quality_rows(item, original=original)
         quality = resolve_quality(rows, body.quality)
-        stream_id = manager.start(
-            username,
-            body.rating_key,
-            quality,
-            item.subtitle_selected,
-            info,
-            fallback=resolve_quality(without_original(rows), ORIGINAL),
-            page=body.page,
-            # Plex was asked about the title first, and that may have taken long.
-            asked_ago=body.asked_s + manager.now() - began,
-        )
+
+        def start(chosen: Pick) -> str:
+            return manager.start(
+                username,
+                body.rating_key,
+                quality,
+                chosen.burn,
+                info,
+                fallback=resolve_quality(without_original(rows), ORIGINAL),
+                page=body.page,
+                # Plex was asked about the title first, and that may have taken long.
+                asked_ago=body.asked_s + manager.now() - began,
+                tracks=Tracks(chosen.audio, chosen.subtitle),
+            )
+
+        try:
+            stream_id = start(pick)
+        except TrackUnavailable:
+            # What Plex selects plays rather than nothing.
+            logger.warning("watch.stream: Plex would not play the tracks picked")
+            pick = Pick(selected(audio), None)
+            stream_id = start(Pick(None, None))
     except TooManyStreams:
         return respond_err("too_many_streams", status=429)
     except StreamReplaced as exc:
@@ -348,6 +401,10 @@ def _start(
             "airplay": airplay,
             "quality": quality,
             "qualities": rows,
+            "audio": pick.audio,
+            "subtitle": pick.subtitle,
+            "audio_tracks": audio,
+            "subtitle_tracks": subtitles,
             "markers": [asdict(m) for m in item.markers],
             "chapters": [asdict(c) for c in item.chapters],
             "previews": {"interval_s": PREVIEW_INTERVAL_S, "count": item.preview_count}

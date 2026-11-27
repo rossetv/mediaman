@@ -14,6 +14,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
+import defusedxml.ElementTree as ET
 import pytest
 import requests
 from fastapi.routing import iter_route_contexts
@@ -76,6 +77,10 @@ class FakePlex:
         self.calls: list[dict] = []
         self.unreachable = False
         self.video_decision = "copy"
+        #: The item's audio and subtitle streams, as Plex lists them in its metadata.
+        self.streams = ""
+        #: Whether the decision plays the audio track asked for.
+        self.knows_tracks = True
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
         self.calls.append({"path": urlsplit(url).path, "params": dict(params or {})})
@@ -87,6 +92,12 @@ class FakePlex:
             return FakeResponse(200, f"#EXTM3U\nsession/{session}/base/index.m3u8\n".encode())
         if path == f"{TRANSCODE}/decision":
             stream = f'<Stream streamType="1" decision="{self.video_decision}"/>'
+            if "audioStreamID" in (params or {}) and self.knows_tracks:
+                stream += f'<Stream id="{params["audioStreamID"]}" streamType="2" selected="1"/>'
+            if "subtitleStreamID" in (params or {}):
+                stream += (
+                    f'<Stream id="{params["subtitleStreamID"]}" streamType="3" decision="burn"/>'
+                )
             return FakeResponse(200, f"<MediaContainer>{MEDIA % stream}</MediaContainer>".encode())
         if path.endswith("/base/index.m3u8"):
             return FakeResponse(200, CHILD_PLAYLIST.encode())
@@ -167,6 +178,11 @@ def plex(monkeypatch, clock) -> FakePlex:
         StreamManager(lambda: (PLEX_URL, TOKEN), session=fake, clock=clock),
     )
     monkeypatch.setattr(PlexWatch, "get_item", lambda self, key, marks: _item(key))
+    monkeypatch.setattr(
+        PlexWatch,
+        "_metadata",
+        lambda self, key, query="": (None, ET.fromstring(MEDIA % fake.streams)),
+    )
     return fake
 
 
@@ -211,13 +227,55 @@ def _progress_rows(conn) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def test_a_subtitle_plex_selected_by_itself_is_not_burned_into_the_players_stream(alice, plex):
+    # Plex selects a forced signs track in another language than the audio; nobody picked it.
+    plex.streams = (
+        '<Stream id="21" streamType="2" languageCode="eng" selected="1"/>'
+        '<Stream id="31" streamType="3" languageCode="jpn" forced="1" selected="1"/>'
+    )
+    assert _start(alice).status_code == 200
+    asked = [c["params"] for c in plex.calls if "subtitles" in c["params"]]
+    assert asked and {p["subtitles"] for p in asked} == {"none"}
+    assert not any("subtitleStreamID" in p for p in asked)
+
+
+def test_the_players_stream_plays_the_persons_default_audio_and_subtitles(alice, conn, plex):
+    conn.execute("UPDATE admin_users SET audio_lang = 'de', subtitle_lang = 'en'")
+    conn.commit()
+    plex.streams = (
+        '<Stream id="21" streamType="2" languageCode="eng" selected="1"/>'
+        '<Stream id="22" streamType="2" languageCode="ger"/>'
+        '<Stream id="31" streamType="3" languageCode="eng"/>'
+    )
+    started = _start(alice).json()
+    asked = [c["params"] for c in plex.calls if "subtitles" in c["params"]]
+    assert {(p["audioStreamID"], p["subtitleStreamID"], p["subtitles"]) for p in asked} == {
+        ("22", "31", "burn")
+    }
+    assert (started["audio"], started["subtitle"]) == ("22", "31")
+    assert [t["id"] for t in started["audio_tracks"]] == ["21", "22"]
+
+
+def test_tracks_plex_will_not_play_give_way_to_its_own_rather_than_no_picture(alice, conn, plex):
+    conn.execute("UPDATE admin_users SET audio_lang = 'de'")
+    conn.commit()
+    plex.knows_tracks = False
+    plex.streams = (
+        '<Stream id="21" streamType="2" languageCode="eng" selected="1"/>'
+        '<Stream id="22" streamType="2" languageCode="ger"/>'
+    )
+    resp = _start(alice)
+    assert resp.status_code == 200
+    assert resp.json()["audio"] == "21"
+    decisions = [c["params"] for c in plex.calls if c["path"] == f"{TRANSCODE}/decision"]
+    assert [d.get("audioStreamID") for d in decisions] == ["22", None]
+
+
 def test_started_stream_plays_through_mediaman_with_no_store_headers(alice, plex):
     resp = _start(alice)
     assert resp.status_code == 200
     stream_id = resp.json()["stream_id"]
     assert resp.json()["playlist"] == f"/api/watch/stream/{stream_id}/index.m3u8"
-    # The item's selected subtitle is burned in.
-    assert {c["params"].get("subtitles") for c in plex.calls} >= {"burn"}
 
     playlist = alice.get(resp.json()["playlist"])
     assert playlist.status_code == 200

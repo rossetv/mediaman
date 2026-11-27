@@ -382,6 +382,32 @@ def test_subtitles_are_burned_only_when_asked(manager, plex, burn, expected):
     assert plex.calls_to("start.m3u8")[0]["params"]["subtitles"] == expected
 
 
+def test_a_player_s_stream_asks_for_its_tracks_without_the_tv_s_conversion(manager, plex):
+    plex.decision = (
+        b'<MediaContainer><Media><Stream id="7" streamType="2" selected="1"/>'
+        b'<Stream id="9" streamType="3" decision="burn"/></Media></MediaContainer>'
+    )
+    _start(manager, burn_subtitles=True, tracks=plex_stream.Tracks(audio="7", subtitle="9"))
+
+    for call in plex.calls_to("decision") + plex.calls_to("start.m3u8"):
+        params = call["params"]
+        assert (params["audioStreamID"], params["subtitleStreamID"]) == ("7", "9")
+        assert params["directStream"] == "1"
+        assert "X-Plex-Client-Profile-Extra" not in params
+
+
+def test_a_player_s_audio_track_plex_ignores_is_refused_and_its_session_stopped(manager, plex):
+    plex.decision = b'<MediaContainer><Media><Stream id="6" streamType="2" selected="1"/></Media></MediaContainer>'
+
+    with pytest.raises(plex_stream.TrackUnavailable):
+        _start(manager, tracks=plex_stream.Tracks(audio="7"))
+
+    assert plex.calls_to("start.m3u8") == []
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [
+        plex.calls_to("decision")[0]["params"]["session"]
+    ]
+
+
 @pytest.mark.parametrize(("quality", "rating_key"), [("ultra", "123"), ("best", "1&path=/x")])
 def test_start_refuses_unknown_quality_or_malformed_key(manager, plex, quality, rating_key):
     with pytest.raises(ValueError):
