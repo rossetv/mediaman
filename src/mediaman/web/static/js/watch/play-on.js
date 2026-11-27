@@ -168,7 +168,6 @@
   }
 
   function about(tv) {
-    if (tv.busy) return 'Playing for someone else';
     if (tv.on && tv.play && tv.play.title && tv.play.state !== 'ended') return 'Playing ' + tv.play.title + (tv.play.mine === false ? ' for ' + tv.play.by : '');
     return tv.on ? 'On and ready' : lastSeen(tv);
   }
@@ -560,15 +559,14 @@
     var id = idOf(tv);
     var here = on === id;
     row(list, {
-      id: id, icon: TV_ICON, name: tv.name, on: here, starting: wait === id, off: !tv.on && !tv.busy,
+      id: id, icon: TV_ICON, name: tv.name, on: here, starting: wait === id, off: !tv.on,
       sub: here ? 'Playing here now' : wait === id ? 'Starting…' : about(tv),
     }, function () {
       if (here) { close(); return; }
       if (wait) return;
       limit = false;
-      if (!tv.on && !tv.busy) say = notOpen(tv);
-      else if (tv.busy) say = busy(tv);
-      else { startTv(tv, false); return; }
+      if (tv.on) { startTv(tv, false); return; }
+      say = notOpen(tv);
       draw();
     });
   }
@@ -602,9 +600,9 @@
     found.forEach(function (way) { sheet.rows[way.id] = { way: way }; });
     Object.keys(sheet.rows).forEach(function (id) {
       var one = sheet.rows[id];
-      if (one.tv && known.indexOf(one.tv) === -1) one.tv = Object.assign({}, one.tv, { on: false, busy: false });
+      if (one.tv && known.indexOf(one.tv) === -1) one.tv = Object.assign({}, one.tv, { on: false });
     });
-    var off = function (tv) { return !tv.on && !tv.busy; };
+    var off = function (tv) { return !tv.on; };
     var now = known.filter(function (tv) { return !off(tv); }).map(idOf)
       .concat(found.map(function (way) { return way.id; }), known.filter(off).map(idOf));
     sheet.order = sheet.order.concat(now.filter(function (id) { return sheet.order.indexOf(id) === -1; }));

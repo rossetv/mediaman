@@ -2391,10 +2391,10 @@ def test_a_tv_is_paired_in_the_sheet_named_and_played_on(markup):
     assert out["plays"] == ["/api/tvs/9/play"]
 
 
-def test_a_tv_somebody_watches_on_is_taken_only_after_the_question(markup):
+def test_a_tv_somebody_watches_on_is_left_to_them_when_the_question_is_put_away(markup):
     out = elsewhere(markup, "away_tv_asks")
     assert "Someone is watching" in out["busy"]
-    assert (out["cancelled"], out["before"], out["after"]) == (None, [], [True])
+    assert (out["cancelled"], out["sent"], out["playing"]) == (None, [False], True)
 
 
 def test_a_tv_found_in_use_asks_first_and_is_then_taken(markup):

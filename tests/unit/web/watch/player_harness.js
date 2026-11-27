@@ -763,7 +763,7 @@ async function restedOnBar(p, move) {
 
 const LIVING = { id: 5, kind: 'page', name: 'Living room', on: true, last_seen_at: null, play: null, last: null };
 const BEDROOM = { id: 6, kind: 'page', name: 'Bedroom TV', on: false, last_seen_at: null, play: null, last: null };
-const KITCHEN = { id: 7, kind: 'page', name: 'Kitchen TV', on: true, busy: true, last_seen_at: null, play: null, last: null };
+const KITCHEN = { id: 7, kind: 'page', name: 'Kitchen TV', on: true, last_seen_at: null, play: null, last: null };
 const SUBS = [{ id: '31', label: 'English', selected: true }, { id: '32', label: 'Polski', selected: false }];
 
 /* The TVs, streams for TVs, AirPlay and a way such as Google Cast, as *mode* has them. */
@@ -4953,22 +4953,20 @@ const scenarios = {
     return out;
   },
 
-  /* A TV that is not open, or that somebody watches on. */
+  /* A TV that is not open, then one somebody watches on, whose question is put away. */
   async away_tv_asks(p) {
     await streamPlays(p, 30);
     await openSheet(p);
     const plays = () => p.elsewhere.sent.filter((c) => /\/play$/.test(c.post || '')).map((c) => c.body.confirm || false);
     await pickRow(p, 'tv-6');
     const out = { off: said(), untouched: plays().length === 0 && !p.q('[data-away-on]').textContent && !p.hlsList[0].destroyed };
+    p.elsewhere.plays.push(() => p.elsewhere.refuse(409, 'in_use'));
     await pickRow(p, 'tv-7');
     out.busy = said();
     await pickRow(p, 'unsay');
     out.cancelled = said();
-    out.before = plays();
-    await pickRow(p, 'tv-7');
-    await pickRow(p, 'take');
-    out.after = plays();
-    out.says = awayState(p).says;
+    out.sent = plays();
+    out.playing = !p.hlsList[p.hlsList.length - 1].destroyed;
     return out;
   },
 
