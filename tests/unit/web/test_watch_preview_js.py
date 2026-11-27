@@ -240,6 +240,14 @@ def test_an_own_pick_says_why_they_will_like_it() -> None:
     }
 
 
+def test_a_title_shown_for_another_reason_says_it_under_its_own_label() -> None:
+    assert _run("otherWhy") == {
+        "reason": "TrendingOne of the most watched titles on TMDB this week.",
+        "ai": False,
+        "icon": "#i-trend",
+    }
+
+
 def test_a_picks_reason_has_its_place_before_it_arrives() -> None:
     assert _run("pick") == {"held": True, "reason": "AI pickYou finished Fieldwork."}
 
