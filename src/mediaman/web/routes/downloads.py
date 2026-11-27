@@ -293,7 +293,8 @@ def downloads_abandon(
 
     Movies ignore seasons; a series needs at least one season number. Returns 404 if the
     item is no longer in the queue (another tab abandoned it, or Radarr just grabbed a
-    release), 409 if it names more than one title and 400 for a malformed request (empty
+    release), 409 if it names more than one title or no longer offers Abandon (it started
+    downloading, or has not searched long enough) and 400 for a malformed request (empty
     seasons on a series).
     """
     try:
@@ -317,6 +318,11 @@ def _abandon(request: Request, body: AbandonRequest, dl_id: str) -> JSONResponse
     arr_id: int = int(arr_id_raw) if isinstance(arr_id_raw, int) else 0
     if arr_id == 0:
         raise HTTPException(status_code=400, detail="Radarr and Sonarr don't track it.")
+    # A confirm left open while it started downloading must not unmonitor it.
+    if item.get("state") != "upcoming" and not item.get("abandon_visible"):
+        raise HTTPException(
+            status_code=409, detail="It's no longer stuck searching. Reload and try again."
+        )
 
     if item.get("kind") == "movie":
         result = abandon_movie(conn, secret_key, arr_id=arr_id, dl_id=dl_id)

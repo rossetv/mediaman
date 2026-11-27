@@ -92,6 +92,10 @@ def downloads(app_factory, conn, freezer, monkeypatch):
     freezer.move_to(_NOW)
     reset_search_triggers()
     _reset_previous_queue()
+    # Which title an abandon reaches is what is tested, so a searching card offers it at once.
+    monkeypatch.setattr(
+        "mediaman.services.arr.auto_abandon._ABANDON_BUTTON_VISIBLE_AFTER_SECONDS", 0
+    )
     radarr, sonarr = MagicMock(), MagicMock()
     for module in ("arr.build", "arr.search_trigger", "downloads.abandon"):
         for name, client in (("radarr", radarr), ("sonarr", sonarr)):
