@@ -1018,7 +1018,8 @@ def watch_page(
     # Downloading asked for by its address is listed in the page too, for a browser without
     # JavaScript, from the last answer only: a service that hangs must not hold the page.
     dl_open = asked.get("dl") == "1"
-    answer = strip.shared.last()
+    answer = strip.shared.newest()
+    downloading_as_of = _as_of(answer.age_s) if answer and answer.age_s > strip.STALE_S else ""
     downloading = (
         payload_for(conn, request.app.state.config.secret_key, username, answer) if answer else None
     )
@@ -1045,6 +1046,7 @@ def watch_page(
             "dl_open": dl_open,
             "downloads_on": downloads_on["movie"] or downloads_on["show"],
             "downloading": downloading,
+            "downloading_as_of": downloading_as_of,
             "grid": grid,
             "library_types": [t for t in all_titles.TYPES if is_admin or not t[2]],
             "library_total": library_total,
@@ -1064,6 +1066,18 @@ def watch_page(
             },
         },
     )
+
+
+def _as_of(age_s: float) -> str:
+    """How old an answer is, for a list that may be a while behind."""
+    minutes = int(age_s // 60)
+    if minutes < 1:
+        return f"As of {int(age_s)} s ago"
+    if minutes < 60:
+        return f"As of {minutes} min ago"
+    if minutes < 48 * 60:
+        return f"As of {minutes // 60} h ago"
+    return f"As of {minutes // 1440} days ago"
 
 
 def _search_taste(conn: sqlite3.Connection, username: str, now: datetime) -> dict[str, Any] | None:

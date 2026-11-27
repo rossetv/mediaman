@@ -274,6 +274,37 @@ def test_downloading_without_javascript_lists_the_last_answer_past_its_time_with
     assert "Salt Road" in shown
 
 
+def _held_answer(monkeypatch, age_s):
+    from mediaman.services.downloads import strip
+
+    clock = [1000.0]
+    held = strip.Shared(clock=lambda: clock[0])
+    film = StripItem(key="radarr:3", title="Salt Road", kind="movie", state="queued")
+    held.get(lambda _before: strip.Strip((film,)))
+    clock[0] += age_s
+    monkeypatch.setattr(strip, "shared", held)
+
+
+def test_downloading_without_javascript_lists_a_stale_answer_and_says_how_old_it_is(
+    signed_in, downloading, asked, monkeypatch
+):
+    _held_answer(monkeypatch, 12 * 60)
+
+    shown = _noscript_downloads(signed_in("viewer").get("/?dl=1").text)
+
+    assert asked == []
+    assert "Salt Road" in shown and "As of 12 min ago" in shown
+    assert "available right now" not in shown
+
+
+def test_downloading_without_javascript_says_no_age_for_a_fresh_answer(
+    signed_in, downloading, asked
+):
+    shown = _noscript_downloads(signed_in("viewer").get("/?dl=1").text)
+
+    assert "Ember Coast" in shown and "As of" not in shown
+
+
 def test_an_outage_with_nothing_listed_never_says_nothing_is_downloading(signed_in, downloading):
     from mediaman.services.downloads import strip
 
