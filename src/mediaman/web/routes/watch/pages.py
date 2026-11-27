@@ -1026,7 +1026,7 @@ def watch_page(
     # An old answer is said by its age in the list; nothing failed unless the answer says so.
     # The scripted row keeps the outage: it says so until its first poll.
     listed = downloading
-    if downloading and downloading_as_of and not answer.strip.outage:
+    if answer is not None and downloading and downloading_as_of and not answer.strip.outage:
         listed = downloading | {"outage": ""}
     library_total = sum(count_titles(conn).values()) if is_admin else len(titles)
     downloads_on = can_download(conn, request.app.state.config.secret_key)
