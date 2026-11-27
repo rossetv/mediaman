@@ -231,7 +231,8 @@ def test_once_saved_the_cards_save_goes_and_the_focus_moves_on_to_test() -> None
 
 def test_an_open_cards_fields_run_in_one_column_to_its_edges() -> None:
     tracks = style(".setg-pg .intg-card-bd .fld-row", PANELS)["grid-template-columns"]
-    assert len(re.findall(r"\w+\([^)]*\)|\S+", tracks)) == 1
+    # one flexible track: a fixed width would stop it at the card's edge
+    assert re.fullmatch(r"(minmax\(0(px)?,\s*)?\d*\.?\d+fr\)?", tracks.strip()), tracks
     # every width cap a field or its wrap carries elsewhere is lifted inside a card; a count
     # stays as short as its number
     shapes = {
@@ -263,8 +264,12 @@ def test_the_badge_the_fields_and_the_dividers_share_one_gutter() -> None:
     header = _inline(style(".setg-pg .intg-card-hd", PANELS)["padding"])
     body = _inline(style(".setg-pg .intg-card-bd > .setg-fold-inner", PANELS)["padding"])
     divider = style(".setg-pg .intg-card + .intg-card::before", PANELS)["left"]
-    assert header == body == divider
-    # a narrow screen gives the row more height and keeps the gutter
-    narrow = style(".setg-pg .intg-card-hd", PANELS, "(max-width: 520px)")
-    assert "padding-block" in narrow
-    assert not {"padding", "padding-inline", "padding-left", "padding-right"} & set(narrow)
+    assert header == body == divider == "var(--intg-gutter)"
+    # the token itself must be declared on the card, and be a real width
+    assert px(style(".setg-pg .intg-card", PANELS)["--intg-gutter"]) > 0
+    # a narrow screen gives the row more height and keeps the gutter, in any media block
+    assert "padding-block" in style(".setg-pg .intg-card-hd", PANELS, "(max-width: 520px)")
+    sides = {"padding", "padding-inline", "padding-left", "padding-right"}
+    for where, sels, decls in rules(PANELS):
+        if where and ".setg-pg .intg-card-hd" in sels:
+            assert not sides & set(decls), where
