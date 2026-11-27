@@ -35,7 +35,8 @@
   .space-meter:hover > .ico { transform: scale(1.12); }
 }
 .space-meter:active { transform: scale(.97); }
-.space-meter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-pill); }
+/* Its ring lies on the bar's island, inside its edge, so it takes the glass's ring colour. */
+.space-meter:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; border-radius: var(--r-pill); }
 .space-meter__skel { width: 128px; height: 8px; border-radius: var(--r-pill); background: var(--s3); }
 .space-meter__bar {
   flex: none;

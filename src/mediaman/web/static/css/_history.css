@@ -83,6 +83,8 @@
   backdrop-filter: blur(var(--g-blur));
 }
 .hx-tools.is-stuck { border-bottom-color: var(--hair); }
+/* A day's head is words alone, and a picture blurred under them can be near white: they sit on a floor. */
+.hx-day__top.is-stuck { box-shadow: var(--g-chip-floor); }
 /* What passes under is lighter than the glass, the blur being all the band adds: the field and the
    pills, whose words sit on a veil, take a floor under it there, so those words still hold. */
 .hx-tools.is-stuck :is(.hx-search input, .hx-group:not([aria-pressed="true"]), .hx-chip) { box-shadow: var(--g-chip-floor); }
@@ -165,9 +167,8 @@
     height: 32px;
     border: 1px solid var(--hair-strong);
     border-radius: 50%;
-    background: color-mix(in srgb, var(--s2) 72%, transparent);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
-    backdrop-filter: blur(12px) saturate(1.4);
+    /* Solid: over the stuck tools' blur and the pane's glass, a blur of its own would be a third layer. */
+    background: var(--g-tip);
     color: var(--t1);
     font-size: 12px;
     cursor: pointer;
@@ -180,7 +181,7 @@
   .hx-groups.has-prev ~ .hx-kinds-arrow--prev,
   .hx-groups.has-next ~ .hx-kinds-arrow--next { opacity: 1; visibility: visible; transition-delay: 0s; }
   .hx-tools.is-tucked > .hx-kinds-arrow { opacity: 0; visibility: hidden; pointer-events: none; transition-duration: var(--dur-fast); transition-delay: 0s, var(--dur-fast), 0s, 0s; }
-  .hx-kinds-arrow:hover { background: color-mix(in srgb, var(--s5) 90%, transparent); }
+  .hx-kinds-arrow:hover { background: color-mix(in srgb, var(--g-tip), #fff 10%); }
   .hx-kinds-arrow:active { transform: scale(.94); }
 }
 .hx-group {
@@ -267,7 +268,7 @@
   margin: 0 -20px;
   padding: 8px 24px 7px;
   border-bottom: 1px solid transparent;
-  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur) var(--ease-out), -webkit-backdrop-filter var(--dur) var(--ease-out), backdrop-filter var(--dur) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), -webkit-backdrop-filter var(--dur) var(--ease-out), backdrop-filter var(--dur) var(--ease-out);
 }
 .hx-day__top.is-stuck { border-bottom-color: var(--hair); }
 .hx-day__h { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; letter-spacing: -.01em; }
@@ -499,6 +500,8 @@
   /* The heads stick under the search alone; the pills coming back cover them. */
   .hx-day__top { top: calc(var(--hx-tools, 192px) - var(--hx-fold, 0px)); }
   .hx-tools.is-stuck.has-day:not(.is-tucked) { border-bottom-color: var(--hair); }
+  /* Under them a head's blur would stack a third layer on the pane's glass and theirs. */
+  .hx-tools.has-day:not(.is-tucked) ~ .hx-list .hx-day__top.is-stuck { -webkit-backdrop-filter: none; backdrop-filter: none; }
   .you-view[data-view="history"] { scroll-padding-top: calc(var(--hx-tools, 192px) + 48px); }
   .hist-body { padding-left: 14px; }
   .hist-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }

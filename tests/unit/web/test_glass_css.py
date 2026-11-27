@@ -5,6 +5,7 @@ and solid wherever glass cannot or should not be drawn."""
 from __future__ import annotations
 
 import colorsys
+import math
 import re
 
 import pytest
@@ -667,6 +668,7 @@ def test_a_stuck_history_head_only_blurs_the_pane_s_glass_and_eases_in(head: str
     # Where glass is not drawn, nothing blurs: the glass's own fill covers what passes under.
     for where in (NO_BLUR, "(prefers-reduced-transparency: reduce)", "(prefers-contrast: more)"):
         assert _root(where)["--g-stuck"] == "var(--g-regular)", where
+    assert _root("(forced-colors: active)")["--g-stuck"] == "Canvas"
     for media in (None, PHONE):
         try:
             rest = style(head, HISTORY, media)
@@ -684,12 +686,17 @@ def test_a_form_s_foot_blurs_what_scrolls_under_it_and_fades_in_before_its_butto
     assert foot["-webkit-mask-image"] == foot["mask-image"]
     fade = re.fullmatch(r"linear-gradient\(transparent, #000 (\S+)\)", foot["mask-image"])
     assert fade and px(fade[1]) <= px(foot["padding"].split()[0])
+    # A phone on its side: the foot follows the form, so it neither blurs nor fades what it covers.
+    flat = style(".yo-foot", PROFILE, "(max-height: 500px)")
+    for prop in ("backdrop-filter", "-webkit-backdrop-filter", "mask-image", "-webkit-mask-image"):
+        assert flat[prop] == "none", prop
 
 
 @pytest.mark.parametrize(("badge", "sheet"), [(".yo-pic__badge", PROFILE), (".hx-act", HISTORY)])
 def test_a_badge_on_a_picture_is_solid_and_edged_with_a_hairline(badge: str, sheet: str) -> None:
     drawn = style(badge, sheet)
-    assert _colour(drawn["background"], {})[3] == 1
+    # Read as the pane's glass reads it, where the fills are veils.
+    assert _colour(drawn["background"], style(".you__panel", YOU))[3] == 1
     # Its edge is the glass's own hairline, never a ring in the tint, which reads black there.
     assert drawn["box-shadow"] == "0 0 0 1px var(--g-edge)"
 
@@ -755,6 +762,7 @@ def test_a_pressed_keep_menu_item_keeps_its_red_word_over_a_white_page() -> None
         (".you__panel :focus-visible", YOU),
         (".space__panel :focus-visible", SPACE),
         (".profile-panel :focus-visible", NAV),
+        (".nav-end :focus-visible", NAV),
         (".ui-toast :focus-visible", TOASTS),
     ],
 )
@@ -803,3 +811,95 @@ def test_stuck_tools_hold_their_field_s_and_pills_words_over_the_cards_passing_u
     for control, words in ((".hx-search input", "--g-t3"), (".hx-group", "--g-t2")):
         veil = _on(_fill(style(control, HISTORY)["background"]), floor)
         assert contrast(_on(token(words), veil), veil) >= 4.5, control
+
+
+def test_the_bar_island_s_controls_draw_their_ring_on_its_glass_in_the_glass_s_ring_colour() -> (
+    None
+):
+    meter = style(".space-meter:focus-visible", SPACE)
+    width, _, colour = meter["outline"].split()
+    assert colour == "var(--g-focus)"
+    # The island ends at the controls' edges: a ring outside them would lie on the page.
+    for offset in (
+        meter["outline-offset"],
+        style(".profile-btn:focus-visible", NAV)["outline-offset"],
+    ):
+        assert px(offset) + px(width) <= 0, offset
+
+
+def test_a_stuck_day_head_holds_its_words_over_a_white_picture_blurred_under_it() -> None:
+    # The worst a row can pass under the head: a white picture filling an avatar's disc, as much of
+    # it as the head's blur gathers at the disc's middle, which is most where the blur is least.
+    radius = px(style(".hx-who .avatar", HISTORY)["width"]) / 2
+    sigma = min(px(_root()["--g-blur"]), px(_root(PHONE)["--g-blur"]))
+    share = 1 - math.exp(-(radius**2) / (2 * sigma**2))
+    card = _on(token("--g-s2"), _side_glass())
+    bright = tuple(share * w + (1 - share) * c for w, c in zip(WHITE, card, strict=True))
+    floor = re.fullmatch(
+        r"var\((--[\w-]+)\)", style(".hx-day__top.is-stuck", HISTORY)["box-shadow"]
+    )
+    under = _on(re.search(r"rgb\([^)]*\)", token(floor[1]))[0], bright)
+    for words in ("--t1", "--g-t3"):
+        assert contrast(_on(token(words), under), under) >= 4.5, words
+
+
+def test_a_phone_never_stacks_a_third_blur_in_history() -> None:
+    # Unfolded, the tools lie over a stuck day head: one of the two blurs, the other is under it.
+    covered = style(
+        ".hx-tools.has-day:not(.is-tucked) ~ .hx-list .hx-day__top.is-stuck", HISTORY, PHONE
+    )
+    assert covered["backdrop-filter"] == covered["-webkit-backdrop-filter"] == "none"
+    # The kinds' arrows sit on the stuck tools: solid, never a blur of their own.
+    for where, selectors, decls in rules(HISTORY):
+        if any(".hx-kinds-arrow" in s for s in selectors):
+            assert decls.get("backdrop-filter", "none") == "none", (where, selectors)
+            assert decls.get("-webkit-backdrop-filter", "none") == "none", (where, selectors)
+    arrow = style(".hx-kinds-arrow", HISTORY, "(hover: hover) and (pointer: fine)")
+    assert _colour(arrow["background"], {})[3] == 1
+
+
+def test_a_toast_stands_above_a_form_s_foot_clear_of_its_button_and_its_blur() -> None:
+    foot = style(".yo-foot", PROFILE)
+    top, _, bottom = _top_level(foot["padding"], " ")
+    button = px(style(".yo-foot .btn", PROFILE)["min-height"])
+    tall = px(top) + button + px(re.match(r"calc\((\S+)", bottom)[1])
+    lifted = "html.has-you-form body .ui-toast-host"
+    phone = re.match(r"calc\((\S+)", style(lifted, PROFILE, PHONE)["bottom"])[1]
+    assert px(phone) > tall
+    # Wider, the pane stands 12px off the foot of the screen, with the foot at its own foot.
+    assert px(style(lifted, PROFILE)["--toast-bottom"]) > tall + 12
+
+
+def test_the_pane_s_glass_reaches_to_its_edge_so_what_it_holds_sits_inside_it_evenly() -> None:
+    glass = style(".you__panel::before", YOU)
+    assert style(".you__panel", YOU)["padding"] == re.match(r"(\S+) solid", glass["border"])[1]
+    phone = style(".you__panel::before", YOU, PHONE)["border-width"]
+    assert style(".you__panel", YOU, PHONE)["padding"] == phone
+
+
+def test_while_the_pane_changes_width_its_glass_keeps_the_pane_s_rounded_corners() -> None:
+    radius = style(".you__panel", YOU)["border-radius"]
+    clip = style(".you__frame-glass", YOU)
+    # The fill slides under this clip, which rounds its right corners as the pane's.
+    assert clip["overflow"] == "hidden" and clip["border-radius"] == radius
+    assert style(".you__frame-fill", YOU)["border-radius"] == f"{radius} 0 0 {radius}"
+    assert style(".you__frame-shade", YOU)["border-radius"] == radius
+
+
+def test_an_open_row_s_button_lights_under_the_pointer() -> None:
+    rest = _colour(_fill(style(".hx-acts .btn", HISTORY)["background"]), {})
+    lit = _colour(_fill(style(".hx-acts .btn:hover", HISTORY)["background"]), {})
+    assert lit[3] > rest[3]
+
+
+def test_a_filter_menu_option_under_the_pointer_keeps_its_quiet_count_over_a_white_page() -> None:
+    assert style(".hx-menu", HISTORY)["backdrop-filter"] == "var(--g-filter)"
+    glass = _glass_over(WHITE, float(token("--g-a")), filtered=True)
+    lit = _on(_fill(style(".hx-opt:hover", HISTORY)["background"]), glass)
+    assert contrast(_on(token("--g-t3"), lit), lit) >= 4.5
+
+
+def test_no_view_s_fade_is_forced_over_the_step_s_own() -> None:
+    for where, selectors, decls in rules(YOU):
+        if any(".you-view" in s for s in selectors):
+            assert "!important" not in decls.get("opacity", ""), (where, selectors)

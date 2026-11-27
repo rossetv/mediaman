@@ -76,24 +76,27 @@
 .you.is-open .you__panel > * { opacity: 1; transition: opacity var(--dur-fast) var(--ease-out); }
 
 /* A step between views of two widths (watch/you.js): the panel's box is held at the widest width,
-   clear, and this frame is drawn where it was; its left edge moves and its fill grows or shrinks
-   from the right, so the panel is never seen to jump or stand half empty. The fill carries the
-   glass, rounded as the panel is; the two ends draw only the rounded edge over it, as glass laid
-   twice is darker. */
+   clear, and this frame is drawn where it was; its left edge and its fill move together, by
+   transform, so the panel is never seen to jump or stand half empty, even on a busy phone. The
+   fill carries the glass; the two ends draw only the rounded edge over it, as glass laid twice is
+   darker. */
 .you.is-sizing .you__panel { --you-w: var(--you-wider); }
 .you.is-sizing .you__panel::before { visibility: hidden; }
 .you__frame { position: absolute; display: none; pointer-events: none; }
 .you.is-sizing .you__frame.is-on { display: block; }
-.you__frame-fill, .you__frame-edge, .you__frame-end { position: absolute; top: 0; bottom: 0; border: 1px solid var(--g-edge); border-top-color: var(--g-lit); }
+.you__frame-shade, .you__frame-glass, .you__frame-fill, .you__frame-edge, .you__frame-end { position: absolute; top: 0; bottom: 0; }
+.you__frame-fill, .you__frame-edge, .you__frame-end { border: 1px solid var(--g-edge); border-top-color: var(--g-lit); }
+.you__frame-shade, .you__frame-glass, .you__frame-fill { left: 0; right: 0; }
+.you__frame-shade { border-radius: 20px; box-shadow: var(--g-shadow); transform-origin: 100% 0; }
+/* The glass's right corners are this clip's; its left ones are the fill's, sliding under it. */
+.you__frame-glass { overflow: hidden; border-radius: 20px; }
 .you__frame-fill {
-  left: 0;
-  right: 0;
   border-inline-width: 0;
-  border-radius: 20px;
+  border-radius: 20px 0 0 20px;
   background: var(--g-regular);
   -webkit-backdrop-filter: var(--g-filter);
   backdrop-filter: var(--g-filter);
-  box-shadow: var(--g-inset), var(--g-shadow);
+  box-shadow: var(--g-inset);
 }
 .you__frame-edge { left: 0; width: 20px; border-right-width: 0; border-radius: 20px 0 0 20px; }
 .you__frame-end { right: 0; width: 20px; border-left-width: 0; border-radius: 0 20px 20px 0; }

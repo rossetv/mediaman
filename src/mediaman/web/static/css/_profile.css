@@ -94,6 +94,12 @@
 .yo-foot--two .btn { flex: 1; }
 /* What is brought into view stops above the foot: its button of 48px and its padding of 28px. */
 .you-view:has(.yo-foot) { scroll-padding-bottom: 88px; }
+/* A toast stands clear of the foot: over it, it would hide the button a failed save is tried again
+   with, and on a phone lay a third blur over the foot's and the sheet's. */
+html.has-you-form body .ui-toast-host { --toast-bottom: 100px; }
+@media (max-width: 699.98px) {
+  html.has-you-form body .ui-toast-host { bottom: calc(88px + var(--sa-bottom, env(safe-area-inset-bottom, 0px))); }
+}
 /* A phone on its side: the foot follows the form, so it covers none of it. */
 @media (max-height: 500px) {
   .yo-foot { position: static; margin-top: 8px; margin-bottom: 0; padding-bottom: 0; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; -webkit-mask-image: none; mask-image: none; }
