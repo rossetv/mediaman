@@ -689,6 +689,10 @@ const scenarios = {
     p.api.plays = { subtitle: '11' };
     return tracksOn(p);
   },
+  /* German audio while English subtitles show, which the server says no longer show. */
+  async tracksDropSubtitle() {
+    return tracksOn(await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO, subtitle: '11' }) })] }));
+  },
   /* What is said of signs and songs, back to the defaults and picked. */
   async saidSigns() {
     const p = await page();

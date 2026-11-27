@@ -1088,7 +1088,8 @@ def _run(
             asker=asker,
         )
     if body.kind == "subtitles":
-        if body.subtitle is None:
+        # An explicit null clears the TV's own choice, so the person's stored one plays again.
+        if "subtitle" not in body.model_fields_set:
             return missing
         return _carry_on(
             request,

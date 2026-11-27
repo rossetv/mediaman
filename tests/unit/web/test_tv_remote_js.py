@@ -722,15 +722,19 @@ def test_audio_picked_on_the_remote_is_kept_and_the_tv_starts_again_with_it() ->
     assert out["label"] == "English"
     assert out["foot"].startswith("Changes play on Living room.")
     assert out["kept"] == [["PUT", "/api/watch/tracks/9001", {"audio": "62"}]]
-    # No subtitles showed and none are to: the TV starts again with its own choice, not with
-    # subtitles "off", which would go on to the next episodes and hide their signs and songs.
-    assert out["sent"] == [{"kind": "quality", "quality": "auto", "play_id": "p1"}]
+    # Not subtitles "off", which would go on to the next episodes and hide their signs and songs.
+    assert out["sent"] == [{"kind": "subtitles", "subtitle": None, "play_id": "p1"}]
     assert out["toasts"] == ["Deutsch audio on Living room."]
 
 
 def test_audio_picked_while_subtitles_show_names_the_subtitles_that_go_on() -> None:
     out = _run("tracksKeepSubtitle")
     assert out["sent"] == [{"kind": "subtitles", "subtitle": "11", "play_id": "p1"}]
+
+
+def test_audio_picked_while_subtitles_show_that_then_do_not_clears_the_tvs_own_choice() -> None:
+    out = _run("tracksDropSubtitle")
+    assert out["sent"] == [{"kind": "subtitles", "subtitle": None, "play_id": "p1"}]
 
 
 def test_audio_picked_for_a_chromecast_is_asked_of_its_next_stream() -> None:
@@ -757,7 +761,7 @@ def test_a_choice_kept_for_the_title_can_go_back_to_the_defaults_from_the_remote
         assert "Your default" in out[on]["tag"]
         assert out[on]["foot"].endswith("Use my defaults")
         assert out[on]["kept"] == [["DELETE", "/api/watch/tracks/9001"]]
-    assert out["tv"]["sent"] == [{"kind": "quality", "quality": "auto", "play_id": "p1"}]
+    assert out["tv"]["sent"] == [{"kind": "subtitles", "subtitle": None, "play_id": "p1"}]
     assert out["cast"]["did"] == [["start", {"subtitle": None, "audio": "61"}]]
     assert out["tv"]["toasts"][-1] == "Back to your defaults: English."
 

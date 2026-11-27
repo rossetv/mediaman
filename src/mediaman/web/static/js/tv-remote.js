@@ -1325,19 +1325,11 @@
 
   /* What starts the picture again with the tracks the server now picks for the person. "off" is
      sent only for Off picked: it is kept on to the next episodes, and hides their signs and songs.
-     Otherwise the subtitle that is to play is named, or none is, and the TV goes on with its own
-     choice: on a TV by a restart at its own quality. Only where subtitles show and none are to
-     is "off" the one way a TV has to take them away. */
+     Otherwise the subtitle that is to play is named, or null clears the TV's own choice, so the
+     server goes back to the person's. */
   function restartWith(p, what, after) {
-    var body = { kind: 'subtitles', play_id: p.play_id };
-    if (isCast()) {
-      body.subtitle = after.subtitle || (what === 'subtitle' ? 'off' : null);
-      if (after.audio) body.audio = after.audio;
-    } else if (after.subtitle || what === 'subtitle' || (p.subtitle && p.subtitle !== 'off')) {
-      body.subtitle = after.subtitle || 'off';
-    } else {
-      body = { kind: 'quality', quality: p.quality || 'auto', play_id: p.play_id };
-    }
+    var body = { kind: 'subtitles', subtitle: after.subtitle || (what === 'subtitle' ? 'off' : null), play_id: p.play_id };
+    if (isCast() && after.audio) body.audio = after.audio;
     return body;
   }
 

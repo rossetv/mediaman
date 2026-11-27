@@ -45,6 +45,7 @@ from mediaman.web.auth.session_store import (
     destroy_session,
 )
 from mediaman.web.repository import tv as repo
+from mediaman.web.repository.track_choices import Defaults, set_defaults
 from mediaman.web.repository.watch_progress import get_progress, save_progress
 from mediaman.web.routes import tv as tv_routes
 from mediaman.web.routes.watch import stream_api
@@ -1573,3 +1574,20 @@ def test_the_art_of_what_plays_is_there_while_it_plays(tv, home, amy, monkeypatc
     assert asked == [("101", "amy")]
     _command(amy, home, "stop")
     assert tv.client.get(art).status_code == 404
+
+
+def test_subtitles_cleared_on_a_tv_go_back_to_the_persons_own_choice(
+    tv, home, amy, plex, conn, monkeypatch
+):
+    polish = MEDIA.replace('id="31" streamType="3"', 'id="31" streamType="3" languageCode="pol"')
+    monkeypatch.setitem(globals(), "MEDIA", polish)
+    set_defaults(conn, "amy", Defaults(subtitle_lang="pl"))
+    _play(amy, home, "501")
+    assert plex.decision()["subtitleStreamID"] == "31"
+    _command(amy, home, "subtitles", subtitle="off")
+    assert plex.decision()["subtitles"] == "none"
+    assert _command(amy, home, "subtitles", subtitle=None).status_code == 200
+    assert plex.decision()["subtitleStreamID"] == "31"
+    # Nor is "off" carried on to the next episode once cleared.
+    _command(amy, home, "next")
+    assert plex.decision()["subtitles"] == "burn"
