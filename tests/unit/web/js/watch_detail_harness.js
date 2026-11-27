@@ -149,6 +149,7 @@ function load(opts = {}) {
   const posted = opts.posted || {};
   const loc = { origin: 'https://mediaman.test', pathname: '/', search: '', hash: opts.hash || '' };
   const explored = [];
+  const waited = []; // whether a title waited under each Explore page as it closed
   const winListeners = {};
   const entries = (opts.before || []).concat({ state: opts.state || null, search: '', hash: loc.hash });
   let at = entries.length - 1;
@@ -274,7 +275,7 @@ function load(opts = {}) {
       explored.push(params);
     };
     address.layer({ name: 'explore', depth: 20, params: ['person', 'genre'],
-      read: (here) => here.params.get('person') || here.params.get('genre'), open: () => {}, close: () => {} });
+      read: (here) => here.params.get('person') || here.params.get('genre'), open: () => {}, close: () => { waited.push(ctx.MMWatch.detail.waiting()); } });
     ctx.MMWatch.explore = { openPerson: (who) => open({ person: who.person_id }), openGenre: (id) => open({ genre: id }),
       person: () => new Promise(() => {}) };
   };
@@ -297,7 +298,7 @@ function load(opts = {}) {
   const fireWindow = (type) => (winListeners[type] || []).slice().forEach((fn) => fn({}));
   const popstate = () => (winListeners.popstate || []).forEach((fn) => fn({}));
   const message = (e) => (winListeners.message || []).forEach((fn) => fn(e));
-  return { answers, message, ctx, doc, toasts, timers, gets, aheads, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
+  return { answers, message, ctx, doc, toasts, timers, gets, aheads, posts, events, history, entries, explored, waited, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
 }
 
 function primary(p) {
@@ -705,6 +706,20 @@ const scenarios = {
     const second = { title: p.text('#ttl-title'), scroll: p.ttl().scrollTop };
     p.ctx.history.back();
     return { second, first: { title: p.text('#ttl-title'), scroll: p.ttl().scrollTop, hidden: p.ttl().hidden, play: p.text('.watch-btn--play') } };
+  },
+
+  // Back from a person opened from a title leads to the title; from one opened anywhere else, to nothing of it.
+  async waitingUnder() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, {
+      cast: [{ name: 'Mara Ellison', character: null, profile_url: null, person_id: 9001 }] }) } });
+    p.run();
+    p.ctx.MMWatch.explore.openPerson({ person_id: 9002 });
+    p.ctx.history.back();
+    await openCard(p, 'tmdb-movie-77');
+    click(p.doc, p.q('.ttl-cast__item'));
+    p.tick();
+    p.ctx.history.back();
+    return p.waited;
   },
 
   // Back before the sheet has finished stepping aside.

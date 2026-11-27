@@ -625,6 +625,12 @@
   /* ── The photo flies to the person's page, and home from it ── */
 
   var flight = null; // the photo in the air: { node, home, turn }
+  var homing = null; // its way home from their page, { promise, ok }, until it lands or is given up
+
+  function landed(way) {
+    way.ok();
+    if (homing === way) homing = null;
+  }
 
   function at(r) { return 'translate(' + r.left + 'px,' + r.top + 'px) scale(' + r.width / PHOTO + ')'; }
 
@@ -635,6 +641,7 @@
   function fly(face, from, to, home, done) {
     if (core.reduceMotion() || !inSight(to) || !(flight || inSight(from))) {
       if (flight) flight.node.remove();
+      if (flight && homing) landed(homing);
       flight = null;
       done();
       return;
@@ -757,12 +764,16 @@
     if (!photo && !flight) return;
     var from = photo && photo.getBoundingClientRect();
     p.item.classList.add('is-out', 'is-away');
+    if (homing) landed(homing);
+    var way = homing = {};
+    way.promise = new Promise(function (ok) { way.ok = ok; });
     fly(copyOf(p.face), from, homeOf(p), key, function () {
       people.forEach(function (one) {
         if (one.key !== key) return;
         one.item.classList.remove('is-away');
         if (one !== live) one.item.classList.remove('is-out');
       });
+      landed(way);
     });
     if (photo && flight) photo.style.visibility = 'hidden';
   }
@@ -782,5 +793,8 @@
     return r;
   }
 
-  watch.cast = { section: section, drop: drop, dismiss: dismiss, land: land };
+  /* Their photo's way home, as a promise that it has landed; null where none is on its way. */
+  function landing() { return homing && homing.promise; }
+
+  watch.cast = { section: section, drop: drop, dismiss: dismiss, land: land, landing: landing };
 })();

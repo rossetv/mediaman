@@ -218,5 +218,9 @@ def test_the_hand_off_runs_on_through_a_steady_30_fps_frame_but_not_a_longer_sta
     assert all(abs(ms - (50 - 1000 / 60)) < 0.01 for ms in out["stall"])
 
 
+def test_what_waits_for_the_photo_flying_home_is_told_once_it_lands() -> None:
+    assert _run("homeLanding") == {"before": None, "flying": False, "landed": True, "after": None}
+
+
 def test_the_person_page_is_told_when_the_photo_lands_and_at_once_where_none_flies() -> None:
     assert _run("landing") == {"flies": [False, True], "still": [True, True]}

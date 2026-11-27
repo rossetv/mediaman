@@ -975,9 +975,11 @@
       if (at.kind === 'genre') showGenre(at, null);
       else showPerson(persons.has(at.id) ? persons.get(at.id).person : { person_id: at.id }, null);
     },
-    close: function () {
+    close: function (how) {
       drop();
-      stage().close();
+      // Back to a title over them, the rows wait for the person's photo to fly home: drawn at once, they would cost its first frames.
+      var under = how === 'pop' && watch.detail && watch.detail.waiting();
+      stage().close(under ? Promise.resolve().then(function () { return watch.cast && watch.cast.landing(); }) : null);
     }
   });
 

@@ -15,6 +15,8 @@ function load(data, frames) {
   const doc = makeDocument();
   const replies = {};
   const lists = [];
+  const layers = [];
+  const closed = [];
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Number, Math, Promise, Set, Map, URLSearchParams,
     setTimeout: () => 0, clearTimeout: () => {}, requestAnimationFrame: (fn) => (frames ? frames.push(fn) : fn()),
@@ -23,7 +25,7 @@ function load(data, frames) {
     addEventListener: () => {},
     MM: { api: { get: (url) => Promise.resolve(replies[url]) } },
     MMWatch: {
-      address: { layer() {}, push() {}, replace() {}, back() {}, url: () => '/', top: () => 'explore' },
+      address: { layer(def) { layers.push(def); }, push() {}, replace() {}, back() {}, url: () => '/', top: () => 'explore' },
     },
   };
   ctx.window = ctx;
@@ -33,7 +35,7 @@ function load(data, frames) {
   const el = ctx.MMWatch.core.el;
   const opened = [];
   const stage = {
-    data, open(node, name, what, atOnce) { opened.push({ node, atOnce: !!atOnce }); }, close() {}, grow() {}, rise() {}, say() {}, token() {}, spring() {},
+    data, open(node, name, what, atOnce) { opened.push({ node, atOnce: !!atOnce }); }, close(until) { closed.push(until); }, grow() {}, rise() {}, say() {}, token() {}, spring() {},
     face: () => el('span', '', el('span')),
     head: (title) => el('h2', 'results-group__title', title),
   };
@@ -44,7 +46,7 @@ function load(data, frames) {
   };
   ctx.MMWatch.grid = { list: (host, opts) => { lists.push(opts); return { stop() {} }; } };
   run('watch/explore.js');
-  return { ctx, replies, lists, opened };
+  return { ctx, replies, lists, opened, layers, closed };
 }
 
 const TITLE = (n, held) => ({ ref: 'tmdb-movie-' + n, title: 'T' + n, kind: 'movie', in_library: held });
@@ -88,6 +90,27 @@ const scenarios = {
 };
 
 Object.assign(scenarios, {
+  // Back to a title kept as it was, the rows wait for the person's photo to land; other ways out wait for nothing.
+  async closedUnderATitle() {
+    const close = async (how, waiting) => {
+      const p = load({});
+      let land;
+      p.ctx.MMWatch.detail = { waiting: () => waiting };
+      p.ctx.MMWatch.cast = { landing: () => new Promise((ok) => { land = ok; }) };
+      p.layers.filter((l) => l.name === 'explore')[0].close(how);
+      const until = p.closed[0];
+      if (!until) return null;
+      let done = false;
+      until.then(() => { done = true; });
+      await settle();
+      const early = done;
+      land();
+      await settle();
+      return [early, done];
+    };
+    return { title: await close('pop', true), rows: await close('pop', false), pushed: await close('push', true) };
+  },
+
   // Thirty titles come a frame apart, twelve at a time, not all in the frame the photo lands in; each part but the last waits to be said with the rest.
   async batches() {
     const frames = [];

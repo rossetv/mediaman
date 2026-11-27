@@ -4252,6 +4252,8 @@
     ahead: askAhead,
     draw: draw,
     openDrawn: openDrawn,
-    undraw: undraw
+    undraw: undraw,
+    // Whether the address leads back to a title left earlier, which comes back as it was.
+    waiting: function () { var ref = hashRef(); return !!ref && !!kept[ref]; }
   };
 })();

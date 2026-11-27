@@ -597,6 +597,33 @@ const scenarios = {
     return out;
   },
 
+  // A page closed under a title coming back keeps the rows away until what they wait for is done; without motion they are back at once.
+  async rowsWaitToComeBack() {
+    const opened = async (motion) => {
+      const p = await ready(ADMIN);
+      const finish = motion ? withMotion(p) : null;
+      const stage = p.ctx.MMWatch.search.stage;
+      stage.open(p.doc.createElement('div'), 'Mara Ellison', { icon: p.doc.createElement('span'), name: 'Mara Ellison' }, true);
+      let done;
+      stage.close(new Promise((ok) => { done = ok; }));
+      return { p, finish, done };
+    };
+    const out = {};
+    const moving = await opened(true);
+    try {
+      await settle();
+      out.waiting = [moving.p.shown(), moving.p.browse.classList.contains('is-off')];
+      moving.done();
+      await settle();
+      out.landed = [moving.p.shown(), moving.p.browse.classList.contains('is-off')];
+    } finally {
+      delete Node.prototype.animate;
+    }
+    const still = await opened(false);
+    out.reduced = still.p.shown();
+    return out;
+  },
+
   // Whatever order the queries and replies come in, and however fast, the end is one clean view.
   async settledAfterFade() {
     const page = async () => {

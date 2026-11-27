@@ -232,6 +232,14 @@ def test_the_results_are_there_at_once_while_the_rows_leave_and_clearing_brings_
     assert out["reduced"] == ["results", False]
 
 
+def test_rows_coming_back_under_a_title_wait_for_what_flies_over_them() -> None:
+    assert _run("rowsWaitToComeBack") == {
+        "waiting": ["", False],
+        "landed": ["browse", False],
+        "reduced": "browse",
+    }
+
+
 def test_a_new_search_while_the_last_results_leave_ends_in_one_clean_view() -> None:
     out = _run("settledAfterFade")
     clean = {"skeleton": 0, "pages": 1, "leaving": 0}

@@ -44,3 +44,7 @@ def test_what_stands_below_a_person_waits_for_the_photo_to_land() -> None:
         "flying": {"known": True, "grid": True},
         "landed": {"known": False, "grid": False},
     }
+
+
+def test_rows_under_a_title_come_back_once_the_persons_photo_lands() -> None:
+    assert _run("closedUnderATitle") == {"title": [False, True], "rows": None, "pushed": None}
