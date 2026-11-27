@@ -280,7 +280,7 @@ def test_what_radarr_or_sonarr_has_is_never_under_available_to_download() -> Non
     assert out["heads"] == ["In your library", "Available to download"]
     assert out["titles"] == ["in_library", "partial", "null"]
     assert out["counts"] == ["2 titles", "1 title"]
-    assert out["badge"] == "In library"
+    assert out["badge"] == "Ready to watch"
 
 
 def test_a_download_badge_names_its_percentage_and_a_library_one_its_class() -> None:
@@ -633,7 +633,7 @@ def test_a_persons_title_is_listed_once_and_a_page_of_repeats_leads_on_to_the_ne
         "T2",
     ]
     # Held, but found after the rest had begun: no heading, and its badge says so.
-    assert [t.split("Movie")[0] for t in out["cards"]] == ["T3", "T4In library"]
+    assert [t.split("Movie")[0] for t in out["cards"]] == ["T3", "T4Ready to watch"]
     assert (out["next"], out["calls"]) == (4, 4)
     assert out["last"] == [0, None]
 

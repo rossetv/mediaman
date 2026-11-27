@@ -62,7 +62,7 @@
   {%- elif item.download_state == "queued" -%}
 <span class="watch-badge watch-badge--state watch-badge--queued">{{ icon("i-clock") }}Queued</span>
   {%- elif item.in_library or item.download_state in ("in_library", "partial") -%}
-<span class="watch-badge watch-badge--state watch-badge--in">{{ icon("i-check") }}In library</span>
+<span class="watch-badge watch-badge--state watch-badge--in">{{ icon("i-check") }}Ready to watch</span>
   {%- endif -%}
 {%- endmacro %}
 

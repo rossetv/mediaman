@@ -1377,19 +1377,19 @@ const scenarios = {
     const of = async (data, badged) => {
       const h = load({ api: { [data.ref]: data } });
       const id = data.kind === 'movie' ? 'outside' : 'show';
-      if (badged) h.doc.querySelector('#' + id + ' .watch-card__poster').appendChild(build(h.doc, ['span', { class: 'watch-badge watch-badge--in' }, 'In library']));
+      if (badged) h.doc.querySelector('#' + id + ' .watch-card__poster').appendChild(build(h.doc, ['span', { class: 'watch-badge watch-badge--in' }, 'Ready to watch']));
       await h.rest(id, 1000);
       return h.text('.pv__first');
     };
     const at = (data, state) => ({ ...data, download: { ...data.download, state } });
     return [await of(at(OUTSIDE, 'in_library')), await of(OUTSIDE, true), await of(OUTSIDE)];
   },
-  /* Sonarr has some seasons of it, and the card's own badge says In library: it offers what its title page does. */
+  /* Sonarr has some seasons of it, and the card's own badge says Ready to watch: it offers what its title page does. */
   async partlyHeld() {
     const of = async (seasons, tracked) => {
       const data = showOf(seasons);
       const h = load({ api: { [data.ref]: { ...data, sonarr_tracked: tracked, download: { ...data.download, state: 'partial' } } } });
-      h.doc.querySelector('#show .watch-card__poster').appendChild(build(h.doc, ['span', { class: 'watch-badge watch-badge--in' }, 'In library']));
+      h.doc.querySelector('#show .watch-card__poster').appendChild(build(h.doc, ['span', { class: 'watch-badge watch-badge--in' }, 'Ready to watch']));
       await h.rest('show', 1000);
       return h.text('.pv__first');
     };
