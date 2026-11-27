@@ -33,7 +33,7 @@ def test_the_answer_lands_where_its_outlines_stood_and_keeps_the_cards_already_d
 def test_a_title_downloaded_for_the_library_is_ready_to_watch_and_stands_with_it() -> None:
     out = _run("heldByDownload")
     assert out["cards"] == ["*Married at First Sight", "*Love Is Blind"]
-    assert out["badges"] == ["Ready to watch", "Download"]
+    assert out["badges"] == ["Ready", "Download"]
     assert out["line"] == "2 titles · 1 ready to watch, 1 to download"
 
 

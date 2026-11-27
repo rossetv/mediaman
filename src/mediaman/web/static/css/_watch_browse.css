@@ -283,8 +283,7 @@
 .watch-badge--in { background: color-mix(in srgb, var(--success) 90%, transparent); color: #00210b; }
 .watch-badge--queued { background: color-mix(in srgb, var(--warning) 90%, transparent); color: #2a2400; }
 .watch-badge--downloading { background: color-mix(in srgb, var(--accent) 92%, transparent); color: var(--color-on-accent); }
-/* A poster is 114px wide here: Ready to watch with its tick has to fit between the edges, not run on past them. */
-@media (max-width: 599.98px) { .watch-badge.watch-badge--state { right: 6px; gap: 2px; padding-inline: 5px; } }
+@media (max-width: 599.98px) { .watch-badge--state { right: 6px; } }
 /* A title that is leaving is in the library, so one badge says both; the others go under it, in line with it. */
 .watch-card__poster > .watch-badge--leaving ~ .watch-badge--in { display: none; }
 .watch-card__poster > .watch-badge--leaving ~ .watch-badge:not(.watch-badge--leaving) { right: auto; left: 8px; }

@@ -43,8 +43,8 @@
   var LIKE_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/;
   var STATE_BADGES = {
     queued: ['i-clock', 'Queued'],
-    in_library: ['i-check', 'Ready to watch'],
-    partial: ['i-check', 'Ready to watch']
+    in_library: ['i-check', 'Ready'],
+    partial: ['i-check', 'Ready']
   };
 
   function dur(minutes) {

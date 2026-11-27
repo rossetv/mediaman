@@ -280,7 +280,7 @@ def test_what_radarr_or_sonarr_has_is_never_under_available_to_download() -> Non
     assert out["heads"] == ["In your library", "Available to download"]
     assert out["titles"] == ["in_library", "partial", "null"]
     assert out["counts"] == ["2 titles", "1 title"]
-    assert out["badge"] == "Ready to watch"
+    assert out["badge"] == "Ready"
 
 
 def test_a_download_badge_names_its_percentage_and_a_library_one_its_class() -> None:
@@ -633,7 +633,7 @@ def test_a_persons_title_is_listed_once_and_a_page_of_repeats_leads_on_to_the_ne
         "T2",
     ]
     # Held, but found after the rest had begun: no heading, and its badge says so.
-    assert [t.split("Movie")[0] for t in out["cards"]] == ["T3", "T4Ready to watch"]
+    assert [t.split("Movie")[0] for t in out["cards"]] == ["T3", "T4Ready"]
     assert (out["next"], out["calls"]) == (4, 4)
     assert out["last"] == [0, None]
 
@@ -1282,8 +1282,8 @@ def test_a_chip_narrows_the_answer_and_pressed_again_gives_all_of_it_back() -> N
 
 def test_a_film_of_an_answer_queued_from_its_page_says_so_on_its_card() -> None:
     out = _run("askDownload")
-    assert out["before"] == [["Ready to watch"], ["Download"]]
-    assert out["queued"] == [["Ready to watch"], ["Queued"]]
+    assert out["before"] == [["Ready"], ["Download"]]
+    assert out["queued"] == [["Ready"], ["Queued"]]
     # the card follows the page's word alone: nothing is read or posted for it
     assert out["calls"] == []
 
@@ -1553,9 +1553,9 @@ def test_titles_that_cannot_be_downloaded_are_not_called_available_to_download()
 
 def test_an_answer_offers_no_download_of_a_kind_that_cannot_be_downloaded() -> None:
     out = _run("askNoDownload")
-    assert out["films"] == [["Ready to watch", ""], "2 titles · 1 ready to watch"]
+    assert out["films"] == [["Ready", ""], "2 titles · 1 ready to watch"]
     assert out["shows"] == [
-        ["Ready to watch", "", "Download"],
+        ["Ready", "", "Download"],
         "3 titles · 1 ready to watch, 1 to download",
     ]
 

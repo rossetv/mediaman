@@ -686,7 +686,7 @@
     title.after(el('span', 'sr-only', 'AI pick'));
   }
 
-  /* A poster card as every row has, marked Ready to watch or Download. */
+  /* A poster card as every row has, marked Ready or Download. */
   function card(t, can) {
     var search = window.MMWatch.search;
     var node = isHeld(t) ? search.heldCard(Object.assign({}, t, { ref: refOf(t) }), true) : search.tmdbCard(t);
