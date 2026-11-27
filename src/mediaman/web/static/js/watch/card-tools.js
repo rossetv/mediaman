@@ -8,6 +8,8 @@
  *   faceOf(button, ref)  draw on a thumb button how the title is rated
  *   moveStop(card)   bring its buttons' Tab stop to the first there is
  *   SHOW_MS          how long a level just given is looked at before it folds
+ *   cover(button, words, lines)  mark .is-covered those of *lines* a lift's name lies over, as
+ *                    its option onName is told (ratings.js)
  *
  * Needs watch/core.js and ratings.js; on window.MMWatch.cardTools.
  */
@@ -313,7 +315,11 @@
     over.appendChild(el('span', 'card-over__scrim'));
     var column = el('div', 'card-over__col');
     toArray(card.querySelectorAll('.card-tool:not([data-card-rate])')).reverse().forEach(function (b) { column.appendChild(copyTool(b)); });
-    var set = ratings.mount(refOf(card), { variant: 'lift', label: 'Your rating of ' + titleOf(card) });
+    var set = ratings.mount(refOf(card), {
+      variant: 'lift',
+      label: 'Your rating of ' + titleOf(card),
+      onName: function (b, words) { cover(b, words, posterWords(card)); },
+    });
     over.appendChild(set.node);
     over.appendChild(column);
     card.appendChild(over);
@@ -334,6 +340,42 @@
     var row = card.closest('.watch-row');
     card.classList.toggle('is-lifted', on);
     if (row) row.classList.toggle('has-lifted', on);
+    if (!on) cover(null, null, posterWords(card));
+  }
+
+  /* With a mouse, a level's name stands over these; a touch screen's stands at the top, and only
+     the badges give way to it. */
+  function posterWords(card) {
+    return toArray(card.querySelectorAll('.watch-card__poster > .watch-card__title, .watch-card__poster > .watch-card__scores'));
+  }
+
+  /* Those of *lines* the name of level *b* lies over give way to it (.is-covered), and the rest
+     stay, so that the title is seen whenever no name is on it. *words* is the name, which stands
+     level with its button at the right of its own box; it is measured where it comes to rest. */
+  function cover(b, words, lines) {
+    var shown = b && words.getClientRects().length && getComputedStyle(words).visibility !== 'hidden';
+    var at = shown && b.getBoundingClientRect();
+    var mid = shown && (at.top + at.bottom) / 2;
+    var half = shown && words.offsetHeight / 2;
+    var right = shown && words.parentNode.getBoundingClientRect().right;
+    var left = shown && right - words.offsetWidth;
+    var range = shown && document.createRange();
+    lines.forEach(function (line) {
+      // Its words' own boxes: a box round them may be as wide as the line.
+      line.classList.toggle('is-covered', !!shown && textsOf(line).some(function (t) {
+        range.selectNodeContents(t);
+        return toArray(range.getClientRects()).some(function (r) {
+          return r.top < mid + half && r.bottom > mid - half && r.left < right && r.right > left;
+        });
+      }));
+    });
+  }
+
+  /* The words seen of *n*: those for a screen reader alone take room nowhere. */
+  function textsOf(n) {
+    if (n.nodeType === 3) return [n];
+    if (n.classList.contains('sr-only')) return [];
+    return toArray(n.childNodes).reduce(function (all, c) { return all.concat(textsOf(c)); }, []);
   }
 
   function remove(o) {
@@ -595,6 +637,7 @@
     close: function (card) { if (open && (!card || open.card === card)) shut(); },
     faceOf: faceOf,
     moveStop: moveStop,
+    cover: cover,
     SHOW_MS: SHOW_MS
   };
 })();

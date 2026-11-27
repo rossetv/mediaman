@@ -787,7 +787,10 @@
      do over a card. */
 
   function rating(p) {
-    p.rating = window.MM.ratings.mount(p.card.ref, { variant: 'lift' });
+    p.rating = window.MM.ratings.mount(p.card.ref, {
+      variant: 'lift',
+      onName: function (b, words) { watch.cardTools.cover(b, words, core.toArray(p.n.querySelectorAll('.pv__head > *'))); },
+    });
     p.rating.line.classList.add('pv__said');
     p.lift = p.n.appendChild(el('div', 'pv__lift'));
     p.lift.appendChild(p.rating.node);

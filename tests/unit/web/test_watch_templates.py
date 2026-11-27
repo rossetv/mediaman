@@ -897,9 +897,19 @@ def test_a_card_s_double_thumb_has_a_back_hand_without_the_cuff_that_would_show_
     None
 ):
     for svg in _doubles(_watch(rows=[{"title": "Movies", "items": _loved_and_hated(6)}])):
-        back = svg.find(".//g[@class='b']/path").get("d")
+        # Its outline and the fill of the person's own level alike.
+        backs = [p.get("d") for p in svg.findall(".//g[@class='b']/path")]
         front = svg.find("g/g[@class='f']/path").get("d")
-        assert back.count("M") == 1 and front.endswith(back)
+        assert backs and all(b.count("M") == 1 and front.endswith(b) for b in backs)
+
+
+@pytest.mark.parametrize("cuts", [{}, {"cuts": None}])
+def test_a_card_drawn_without_its_page_s_mask_numbers_fails_whatever_its_rating(
+    cuts: dict,
+) -> None:
+    card = _ENV.get_template("_watch_card.html").module.card  # type: ignore[attr-defined]
+    with pytest.raises(jinja2.TemplateRuntimeError):
+        card(_card(tmdb_ref="tmdb-movie-6", level=1), **cuts)
 
 
 def _cuts(html: str) -> list[str]:

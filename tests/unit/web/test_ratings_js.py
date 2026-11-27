@@ -110,7 +110,8 @@ def test_a_double_thumb_s_mask_shows_all_of_the_back_hand_but_the_front_one_s_sh
 
 def test_a_double_thumb_s_back_hand_has_no_cuff_to_show_between_the_hands() -> None:
     for d in _run("doubles"):
-        assert d["backHand"].count("M") == 1 and d["frontHand"].endswith(d["backHand"])
+        hands = d["backHands"]  # its outline and the fill of the person's own level alike
+        assert hands and all(h.count("M") == 1 and d["frontHand"].endswith(h) for h in hands)
 
 
 def _luminance(hex_colour: str) -> float:

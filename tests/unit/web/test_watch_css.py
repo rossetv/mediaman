@@ -616,13 +616,47 @@ def test_a_phone_card_s_badges_come_back_only_once_the_level_s_name_over_them_ha
     assert delay and fade and _seconds(delay[2]) >= _seconds(fade[1])
 
 
-def test_a_lifted_card_s_poster_words_give_way_to_the_levels_and_their_names() -> None:
-    lifted = ".is-lifted > .watch-card__link .watch-card__poster > "
-    words = ":is(.watch-card__title, .watch-card__scores, .watch-badge)"
-    pointer = "(hover: hover) and (pointer: fine)"
-    assert style(lifted + words, "_watch_cards.css", pointer)["opacity"] == "0"
+def test_a_lifted_card_s_poster_words_give_way_only_where_a_level_s_name_lies_over_them() -> None:
+    covered = ".is-lifted > .watch-card__link .watch-card__poster > .is-covered"
+    assert style(covered, "_watch_cards.css", MOUSE)["opacity"] == "0"
+    # Nothing else of the poster goes: its badges, which no name reaches, say how long it stays.
+    gone = [
+        sel
+        for where, sels, decls in rules("_watch_cards.css")
+        if where == (MOUSE,) and decls.get("opacity") == "0"
+        for sel in sels
+        if ".watch-card__poster" in sel or ".watch-badge" in sel
+    ]
+    assert gone == [covered]
 
 
-def test_a_preview_s_title_words_give_way_while_a_level_s_name_shows_over_them() -> None:
-    named = ".pv:has(> .pv__lift > .rate--lift.is-open > .rate__name.is-on) .pv__head"
-    assert style(named, "_watch_preview.css")["opacity"] == "0"
+def test_a_lifted_card_s_title_and_scores_end_short_of_its_levels() -> None:
+    words = ".is-lifted > .watch-card__link .watch-card__poster > "
+    words += ":is(.watch-card__title, .watch-card__scores)"
+    room = re.fullmatch(
+        r"calc\((\d+)px - var\(--card-pad\)\)",
+        style(words, "_watch_cards.css", MOUSE)["padding-right"],
+    )
+    levels = style(".rate--lift", "_watch_cards.css")
+    assert room and int(room[1]) > px(levels["right"]) + px(levels["width"])
+
+
+def test_on_a_touch_screen_a_card_s_badges_go_at_once_when_its_levels_open() -> None:
+    lifted = style(".is-lifted > .watch-card__link .watch-badge", "_watch_cards.css", FINGER)
+    assert lifted["opacity"] == "0" and _seconds(lifted["transition-delay"]) == 0
+
+
+def test_where_motion_is_unwanted_a_card_s_badges_come_back_with_its_levels_gone() -> None:
+    still = style(".watch-card__poster > .watch-badge", "_watch_cards.css", STILL)
+    assert _seconds(still["transition-delay"]) == 0
+
+
+def test_a_preview_s_title_words_give_way_line_by_line_and_only_where_a_name_lies_over_them() -> (
+    None
+):
+    covered = ".pv .pv__head > .is-covered"
+    assert style(covered, "_watch_preview.css")["opacity"] == "0"
+    hidden = [
+        s for _, sels, d in rules("_watch_preview.css") if d.get("opacity") == "0" for s in sels
+    ]
+    assert [s for s in hidden if ".pv__head" in s] == [covered]

@@ -271,9 +271,11 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-over > .rate--lift.is-open > .rate__set { pointer-events: auto; }
   .card-over__col { display: none; }
   .card-over__scrim { background: linear-gradient(to left, color-mix(in srgb, var(--scrim) 72%, transparent), color-mix(in srgb, var(--scrim) 45%, transparent) 45%, color-mix(in srgb, var(--scrim) 10%, transparent)); }
-  /* The levels and their names lie over the poster's words, which give way rather than peek out round them. */
-  .watch-card__poster > :is(.watch-card__title, .watch-card__scores, .watch-badge) { transition: opacity var(--dur-fast) var(--ease-out); }
-  .is-lifted > .watch-card__link .watch-card__poster > :is(.watch-card__title, .watch-card__scores, .watch-badge) { opacity: 0; }
+  /* A level's name lies over the poster's words at its height, which give way while it shows rather than peek out round it (watch/card-tools.js). */
+  .watch-card__poster > :is(.watch-card__title, .watch-card__scores) { transition: opacity var(--dur-fast) var(--ease-out); }
+  .is-lifted > .watch-card__link .watch-card__poster > .is-covered { opacity: 0; }
+  /* The rest end short of the levels, 49px from the poster's edge, so that none of them is under it. */
+  .is-lifted > .watch-card__link .watch-card__poster > :is(.watch-card__title, .watch-card__scores) { padding-right: calc(55px - var(--card-pad)); }
 }
 @media (hover: none), (pointer: coarse) {
   /* Over the buttons of the cards above it, and the closing levels of another. */
@@ -330,6 +332,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .watch-card.is-lifted .watch-card__link[href] > .watch-card__poster,
   .watch-card.is-on-tools .watch-card__link[href] > .watch-card__poster,
   .card-tool > :is(.ico, .rate-th) { transform: none !important; }
+  /* A name over the badges goes at once, so they need not wait for it. */
+  .watch-card__poster > .watch-badge { transition-delay: 0s; }
 }
 @keyframes lift-grow { from { opacity: 0; transform: translateY(16px) scale(.5); } }
 @keyframes eye-blink {

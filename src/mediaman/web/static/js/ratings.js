@@ -5,7 +5,8 @@
  *     node for plain and grid, for the caller to place for lift. Both are hidden while the
  *     title cannot be rated. 'lift' stands on end, best at the top, is called by the option
  *     `label` and seen while its node has .is-open; it has also pointAt(button or null), what
- *     the person is on, and enter(), which takes the focus in.
+ *     the person is on, and enter(), which takes the focus in. The option `onName(button, words)`
+ *     is told each time the name shown changes, with null for the button once none shows.
  *     `again`: in a grid, the question may be put again, so the words do not say it is the last.
  *   MM.ratings.get(ref)          -2, -1, 1, 2, null for none, undefined while never known
  *   MM.ratings.canRate(ref)      false, true, or undefined while not known
@@ -373,7 +374,7 @@
       group.insertBefore(b, inLift ? group.firstChild : null);
       return b;
     });
-    var lift = inLift ? lifted(node, group) : null;
+    var lift = inLift ? lifted(node, group, opts && opts.onName) : null;
 
     function press(level) {
       var s = stateOf(ref);
@@ -449,7 +450,7 @@
 
   /* The set on end: a place that goes along with the mouse, the finger or the focus, and the name
      of the level it is on. */
-  function lifted(node, group) {
+  function lifted(node, group, onName) {
     var buttons = Array.prototype.slice.call(group.children); // best first
     var puck = group.insertBefore(el('span', 'rate__puck'), group.firstChild);
     var name = node.appendChild(el('span', 'rate__name'));
@@ -475,6 +476,7 @@
       place(b || buttons.filter(isOn)[0]);
       name.classList.toggle('is-on', !!b);
       if (b && b !== said) words.textContent = isOn(b) ? 'Take back' : b.getAttribute('aria-label');
+      if (onName) onName(b || null, words);
     }
 
     function focusOn(b) {
@@ -502,6 +504,7 @@
         pointAt(b);
         said = b;
         words.textContent = text;
+        if (onName) onName(b, words);
       },
       paint: function () {
         var at = buttons.filter(function (b) { return b.classList.contains('is-at'); })[0];

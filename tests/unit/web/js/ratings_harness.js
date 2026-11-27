@@ -586,7 +586,7 @@ const scenarios = {
         region: box(mask),
         rect: rect && box(rect).concat(rect.getAttribute('fill')),
         backAt: back.parentNode.getAttribute('transform'),
-        backHand: back.querySelector('path').getAttribute('d'),
+        backHands: back.querySelectorAll('path').map((n) => n.getAttribute('d')),
         frontHand: front.getAttribute('d'),
       };
     });
