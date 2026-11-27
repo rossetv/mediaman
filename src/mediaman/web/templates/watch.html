@@ -148,6 +148,26 @@
       {% else %}
       <div class="dlx" id="watch-downloading" hidden></div>
       {% endif %}
+      {% if dl_open %}<noscript><section class="dl-noscript" aria-labelledby="dl-noscript-title">
+        <h2 class="watch-row__title" id="dl-noscript-title">Downloading</h2>
+        {% set dl_says = {'ready': 'Ready to watch', 'almost_ready': 'Almost ready', 'needs_attention': 'Needs attention',
+          'finding_copy': 'Finding another copy', 'queued': 'Queued', 'stuck': 'Nothing found yet', 'searching': 'Looking for a copy'} %}
+        {% if not downloads_on %}
+        <p>Downloads aren’t set up.</p>
+        {% elif downloading %}
+        {% if downloading['items'] %}
+        <ul>
+          {% for item in downloading['items'] %}
+          <li><span>{{ item.title }}</span> · {{ dl_says.get(item.state) or (item.percent ~ '%') }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}<p>Nothing downloading.</p>{% endif %}
+        {% if downloading.soon %}<p>{{ downloading.soon }} coming soon</p>{% endif %}
+        {% if downloading.outage %}<p>{{ downloading.outage }}</p>{% endif %}
+        {% else %}
+        <p>Downloads aren’t available right now.</p>
+        {% endif %}
+      </section></noscript>{% endif %}
       {# What the person asked for loads after the page: watch/asked.js. #}
       {% if not watch_error %}
       <div id="watch-asked" hidden></div>

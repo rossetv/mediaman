@@ -4,6 +4,7 @@ once signed in, and what a viewer may not see stays out of the API and of Watch.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -192,3 +193,52 @@ def test_settings_sends_an_admin_to_abandon_under_downloading_on_watch():
 
     assert "Abandon button under Downloading on Watch" in cleanup
     assert "Downloads page" not in cleanup
+
+
+@pytest.fixture
+def downloading(monkeypatch):
+    """Radarr set up, and a shared strip answer, fresh, of one film downloading and two titles
+    coming soon."""
+    from mediaman.services.downloads import strip
+
+    monkeypatch.setattr(
+        "mediaman.web.routes.watch.pages.can_download",
+        lambda *_a: {"movie": True, "show": False},
+    )
+    strip.shared.clear()
+    film = StripItem(key="radarr:1", title="Ember Coast", kind="movie", state="downloading")
+    strip.shared.get(lambda _before: strip.Strip((replace(film, percent=40),), soon=2))
+    yield
+    strip.shared.clear()
+
+
+def _noscript_downloads(html: str) -> str:
+    found = re.search(r'<noscript><section class="dl-noscript".*?</noscript>', html, re.S)
+    return found.group(0) if found else ""
+
+
+def test_downloading_on_watch_lists_the_downloads_without_javascript(signed_in, downloading):
+    shown = _noscript_downloads(signed_in("viewer").get("/?dl=1").text)
+
+    assert "Ember Coast" in shown and "40%" in shown
+    assert "2 coming soon" in shown
+
+
+def test_watch_lists_the_downloads_without_javascript_only_when_downloading_is_asked_for(
+    signed_in, downloading
+):
+    assert _noscript_downloads(signed_in("viewer").get("/").text) == ""
+
+
+def test_downloading_without_javascript_asks_the_services_when_nothing_is_known(
+    signed_in, downloading, monkeypatch
+):
+    from mediaman.services.downloads import strip
+
+    strip.shared.clear()
+    film = StripItem(key="radarr:2", title="Dry Harbour", kind="movie", state="queued")
+    monkeypatch.setattr(
+        "mediaman.web.routes.downloads_strip._make", lambda *_a: strip.Strip((film,))
+    )
+
+    assert "Dry Harbour" in _noscript_downloads(signed_in("viewer").get("/?dl=1").text)

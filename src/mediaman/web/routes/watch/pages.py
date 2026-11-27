@@ -62,7 +62,7 @@ from mediaman.web.repository.watch_progress import (
     show_progress,
 )
 from mediaman.web.routes import older_play
-from mediaman.web.routes.downloads_strip import payload_for
+from mediaman.web.routes.downloads_strip import current, payload_for
 from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch import all_titles, list_page
 from mediaman.web.routes.watch.card_marks import title_key, tmdb_ref
@@ -1015,11 +1015,19 @@ def watch_page(
             grid = _row_grid(
                 conn, username, libraries, opened, entries.get(row_id), asked.get("sort")
             )
-    answer = strip.shared.last()
+    # Downloading asked for by its address is listed in the page too, for a browser without
+    # JavaScript: so the answer is made then, where the last is past its time.
+    dl_open = asked.get("dl") == "1"
+    try:
+        answer = current(conn, request.app.state.config.secret_key) if dl_open else None
+    except strip.Unavailable:
+        answer = None
+    answer = answer or strip.shared.last()
     downloading = (
         payload_for(conn, request.app.state.config.secret_key, username, answer) if answer else None
     )
     library_total = sum(count_titles(conn).values()) if is_admin else len(titles)
+    downloads_on = can_download(conn, request.app.state.config.secret_key)
     return _render(
         request,
         "watch.html",
@@ -1038,13 +1046,16 @@ def watch_page(
             "asked_waiting": set_up and asked_waiting,
             # How many cards the Downloading row opens with, so their room is kept from the start.
             "downloading_held": len(downloading["items"]) if downloading else 0,
+            "dl_open": dl_open,
+            "downloads_on": downloads_on["movie"] or downloads_on["show"],
+            "downloading": downloading,
             "grid": grid,
             "library_types": [t for t in all_titles.TYPES if is_admin or not t[2]],
             "library_total": library_total,
             "page_data": {
                 "is_admin": is_admin,
                 "tmdb_configured": tmdb_configured,
-                "can_download": can_download(conn, request.app.state.config.secret_key),
+                "can_download": downloads_on,
                 "q": q,
                 "grids": grid_titles,
                 "library_total": library_total,

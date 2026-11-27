@@ -204,3 +204,10 @@
   .dw__bar i { forced-color-adjust: none; }
   .dw__link::before { background: Canvas; }
 }
+
+/* Downloading for a browser without JavaScript: a plain list where the row would be. */
+.dl-noscript { padding: 0 var(--pad); color: var(--t2); }
+.dl-noscript > .watch-row__title { padding: 0; margin: 0 0 10px; }
+.dl-noscript ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.dl-noscript li > span { color: var(--t1); font-weight: 600; }
+.dl-noscript p { margin: 8px 0 0; }
