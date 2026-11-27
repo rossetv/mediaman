@@ -7,6 +7,8 @@ from pathlib import Path
 
 WEB = Path(__file__).resolve().parents[3] / "src/mediaman/web"
 CSS = re.sub(r"/\*.*?\*/", "", (WEB / "static/css/_you.css").read_text(), flags=re.S)
+# The rules outside any at-rule: those that hold at every size and in full motion.
+TOP = re.sub(r"@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", "", CSS)
 WATCH = (WEB / "templates/watch.html").read_text()
 
 
@@ -34,6 +36,9 @@ def test_with_reduced_motion_the_pane_and_its_views_only_fade_on_the_fast_durati
             prop, duration = part.split()[:2]
             assert prop in {"opacity", "visibility"}, (sel, part)
             assert duration in {"var(--dur-fast)", "0s"}, (sel, part)
+    # the page's own reduced motion cuts every transition to nothing; the pane's fade must win over it
+    for sel in moving:
+        assert "!important" in calm[sel], sel
     # what slides in full motion stands still
     assert "transform: none" in calm[".you-view"]
     assert all("transform: none" in calm[sel] for sel in moving if ".you__panel" in sel)
@@ -63,3 +68,44 @@ def test_watch_loads_the_pane_s_script_before_the_one_that_starts_the_address() 
     assert WATCH.index("watch/address.js") < WATCH.index("watch/you.js") < WATCH.index("/watch.js")
     assert "_you.css" in WATCH
     assert '{% include "_you.html" %}' in WATCH.split("{% block overlays %}")[1]
+
+
+def test_each_view_is_laid_out_at_the_width_it_ends_at_so_nothing_reflows_while_the_panel_grows() -> (
+    None
+):
+    rules = _rules(TOP)
+    assert "container-type: inline-size" in rules[".you"]
+    for sel, w in ((".you-view", "--you-narrow"), (".you-view[data-wide]", "--you-wide")):
+        assert re.search(r"--view-w: var\(" + w + r"\)", rules[sel]), sel
+    view = rules[".you-view"]
+    assert "100cqw" in view and "var(--view-w)" in view
+    # pinned to the panel's right edge, where it stays as the panel grows to the left
+    assert "right: 0" in view and "left: auto" in view
+    # a phone's sheet is the screen's width at every step
+    assert "left: 0" in _rules(_block("@media (max-width: 699.98px)"))[".you-view"]
+
+
+def test_back_fades_by_a_class_the_page_s_hidden_rule_cannot_cut() -> None:
+    rules = _rules(TOP)
+    off = rules[".you__back.is-off"]
+    assert "opacity: 0" in off and "visibility: hidden" in off
+    assert "opacity var(--dur-fast)" in rules[".you__back"]
+    template = (WEB / "templates/_you.html").read_text()
+    back = re.search(r"<button[^>]*data-you-back[^>]*>", template).group(0)
+    assert "is-off" in back and "hidden" not in back
+
+
+def test_dragging_the_sheet_by_its_bar_or_handle_selects_no_text() -> None:
+    rules = _rules(TOP)
+    for sel in (".you__bar", ".you__grab"):
+        assert "user-select: none" in rules[sel], sel
+        assert "-webkit-user-select: none" in rules[sel], sel
+
+
+def test_a_question_over_the_pane_puts_its_answers_side_by_side_with_discard_in_red() -> None:
+    rules = _rules(TOP)
+    acts = rules[".you.is-open ~ .ui-confirm-overlay .ui-confirm-actions"]
+    assert "flex-direction: row" in acts and "flex-wrap: wrap" in acts
+    assert "width: auto" in rules[".you.is-open ~ .ui-confirm-overlay .ui-confirm-actions .btn"]
+    red = rules[".you.is-open ~ .ui-confirm-overlay .btn--danger"]
+    assert "var(--danger-solid)" in red

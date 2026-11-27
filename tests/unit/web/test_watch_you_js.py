@@ -101,12 +101,16 @@ def test_each_group_and_each_asset_loads_once_styles_then_scripts_in_order() -> 
     out = _run("assetsOnce")
     assert out["fetched"] == ["/account?pane=1", "/history?pane=1&action=plays"]
     assert out["assets"] == [
-        "/s/password.css?v=1",
-        "/j/reauth.js?v=1",
-        "/j/account.js?v=1",
-        "/j/history.js?v=1",
+        "/static/css/password.css?v=1",
+        "/static/js/reauth.js?v=1",
+        "/static/js/account.js?v=1",
+        "/static/js/history.js?v=1",
     ]
-    assert out["loaded"] == ["/j/reauth.js?v=1", "/j/account.js?v=1", "/j/history.js?v=1"]
+    assert out["loaded"] == [
+        "/static/js/reauth.js?v=1",
+        "/static/js/account.js?v=1",
+        "/static/js/history.js?v=1",
+    ]
 
 
 def test_with_reduced_motion_the_pane_is_put_away_after_its_fast_fade() -> None:
@@ -148,3 +152,44 @@ def test_a_narrow_pane_titles_an_open_settings_section_by_its_own_name_and_follo
     assert out["widened"] == ["Settings", False, "Profile"]
     assert out["narrowed"] == ["Integrations", False, "Settings"]
     assert out["missing"] == ["Settings", False, "Settings"]
+
+
+def test_a_drag_from_the_panel_that_ends_on_the_veil_keeps_the_pane_and_a_press_on_it_closes() -> (
+    None
+):
+    out = _run("veilDrag")
+    assert out["dragged"] == [True, "/?you=profile"]
+    assert out["pressed"] == [False, "/"]
+
+
+def test_with_nothing_unsaved_up_and_the_close_button_still_work() -> None:
+    out = _run("stillCloses")
+    assert out["ups"] == [False, False]
+    assert out["upped"] == ["/?you=profile", "Profile", False]
+    assert out["closed"] == ["/", False, False, False]
+
+
+def test_forward_to_a_group_still_loading_shows_it_once_when_it_comes() -> None:
+    out = _run("forwardWhileLoading")
+    assert out["waiting"] == ["/?you=history", True, True]
+    assert out["came"] == ["History", False]
+    assert out["told"] == ["hidden history history", "shown history history"]
+    assert out["fetched"] == ["/history?pane=1"]
+
+
+def test_a_sheet_pulled_shut_while_its_group_loads_stays_shut_when_it_comes() -> None:
+    out = _run("pullWhileLoading")
+    assert out["pulled"] == ["/", False]
+    assert out["after"] == ["/", False, True, False]
+    assert out["told"] == ["hidden history history"]
+
+
+def test_a_fragment_s_styles_and_scripts_load_only_from_the_app_s_own_static_files() -> None:
+    out = _run("foreignAssets")
+    assert out["assets"] == ["/static/css/ok.css", "/static/js/ok.js"]
+    # a script it may not load leaves the group not loaded
+    assert out["toasts"] == ["That did not load. Try again."]
+
+
+def test_history_is_fetched_with_only_its_own_keys_from_the_address() -> None:
+    assert _run("historyKeys") == ["/history?pane=1&action=plays"]

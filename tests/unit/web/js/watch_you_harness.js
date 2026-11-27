@@ -24,12 +24,12 @@ Object.defineProperty(Node.prototype, 'hidden', {
 
 const view = (name, title, kids, wide) => ['div', Object.assign({ class: 'you-view', 'data-view': name, 'data-title': title }, wide ? { 'data-wide': '' } : {}), ...kids];
 const FRAGMENTS = {
-  '/account': ['div', { 'data-you-group': 'profile', 'data-styles': '/s/password.css?v=1', 'data-scripts': '/j/reauth.js?v=1 /j/account.js?v=1' },
+  '/account': ['div', { 'data-you-group': 'profile', 'data-styles': '/static/css/password.css?v=1', 'data-scripts': '/static/js/reauth.js?v=1 /static/js/account.js?v=1' },
     view('profile', 'Profile', [['button', { id: 'to-email', 'data-you-go': 'profile/email' }], ['a', { id: 'to-history', href: '/history?action=plays&bogus=1' }], ['button', { id: 'last' }]]),
     view('profile/email', 'Email', [['input', { id: 'email' }], ['a', { id: 'out', href: '/downloads' }],
       ['form', { id: 'loose', method: 'post' }], ['form', { id: 'logout', method: 'post', action: '/api/auth/logout' }]])],
-  '/history': ['div', { 'data-you-group': 'history', 'data-styles': '', 'data-scripts': '/j/reauth.js?v=1 /j/history.js?v=1' }, view('history', 'History', [], true)],
-  '/settings': ['div', { 'data-you-group': 'settings', 'data-styles': '/s/password.css?v=1', 'data-scripts': '/j/settings.js?v=1' }, view('settings', 'Settings', [['button', { id: 'field' }],
+  '/history': ['div', { 'data-you-group': 'history', 'data-styles': '', 'data-scripts': '/static/js/reauth.js?v=1 /static/js/history.js?v=1' }, view('history', 'History', [], true)],
+  '/settings': ['div', { 'data-you-group': 'settings', 'data-styles': '/static/css/password.css?v=1', 'data-scripts': '/static/js/settings.js?v=1' }, view('settings', 'Settings', [['button', { id: 'field' }],
     ['section', { class: 'stx-sec', 'data-sec': 'integrations', 'data-title': 'Integrations' }]], true)],
 };
 
@@ -56,7 +56,7 @@ function open(url, opts = {}) {
     ['section', { class: 'you__panel', id: 'panel', role: 'dialog', tabindex: '-1' },
       ['div', { class: 'you__grab', id: 'grab' }],
       ['header', { class: 'you__bar', id: 'bar' },
-        ['button', { class: 'you__back', id: 'up', 'data-you-back': '', hidden: '' }, ['span', { class: 'you__back-label', id: 'up-label' }]],
+        ['button', { class: 'you__back is-off', id: 'up', 'data-you-back': '' }, ['span', { class: 'you__back-label', id: 'up-label' }]],
         ['h2', { class: 'you__title', id: 'title', tabindex: '-1' }],
         ['button', { class: 'you__close', id: 'x', 'data-you-close': '' }]],
       ['div', { class: 'you__views', id: 'views' }]]]));
@@ -76,6 +76,10 @@ function open(url, opts = {}) {
     (winListeners.popstate || []).slice().forEach((fn) => fn({}));
   };
   const server = opts.server || (() => null);
+  const fragments = Object.assign({}, FRAGMENTS, opts.fragments);
+  // With opts.hold, every fragment waits until release() lets them all through.
+  const held = [];
+  const release = () => held.splice(0).forEach((fn) => fn());
   const ctx = {
     document: doc, console, JSON, URL, URLSearchParams, Object, Array, Math, Error, Infinity, Promise, WeakMap,
     navigator: { platform: 'Linux' },
@@ -95,7 +99,8 @@ function open(url, opts = {}) {
       fetched.push(u);
       const page = u.split('?')[0];
       const said = server(page) || { status: 200 };
-      return Promise.resolve({ status: said.status, redirected: !!said.to, url: 'http://mm' + (said.to || u), text: () => Promise.resolve(JSON.stringify(FRAGMENTS[page])) });
+      const res = { status: said.status, redirected: !!said.to, url: 'http://mm' + (said.to || u), text: () => Promise.resolve(JSON.stringify(fragments[page])) };
+      return opts.hold ? new Promise((r) => held.push(() => r(res))) : Promise.resolve(res);
     },
     history: {
       scrollRestoration: 'auto',
@@ -148,7 +153,7 @@ function open(url, opts = {}) {
   };
   const late = () => { for (let n = 0; n < 5; n++) timers.filter((t) => t.on).forEach((t) => { t.on = false; t.fn(); }); };
   const api = {
-    doc, tab, $, ctx, fetched, assets, loaded, toasts, told, assigned, timers, clock, winListeners, resize,
+    doc, tab, $, ctx, fetched, assets, loaded, toasts, told, assigned, timers, clock, winListeners, resize, release,
     you: ctx.MM.you,
     at: () => tab.entries[tab.index].url,
     settle: async () => { for (let i = 0; i < 4; i++) { await settle(); late(); } },
@@ -156,6 +161,13 @@ function open(url, opts = {}) {
     click: async (id, extra) => { click(doc, $(id), extra); await api.settle(); },
     key: async (key, extra) => { const e = event('keydown', doc.activeElement, { key, ...extra }); await api.settle(); return e; },
     event,
+    upHidden: () => $('up').classList.contains('is-off'),
+    // The sheet pulled down by its handle, far enough to close it.
+    pull: async () => {
+      const send = (type, y, t) => ($('grab').listeners[type] || []).forEach((fn) => fn({ type, pointerId: 1, button: 0, clientY: y, timeStamp: t, target: $('grab'), currentTarget: $('grab') }));
+      send('pointerdown', 100, 0); send('pointermove', 400, 500); send('pointerup', 400, 600);
+      await api.settle();
+    },
     focused: () => { const a = doc.activeElement; return a.id || a.textContent || a.tagName; },
     title: () => $('title').textContent,
     // The question on show, and its answer.
@@ -219,11 +231,7 @@ const scenarios = {
       up: () => p.click('up'),
       step: async () => { p.you.go('history'); await p.settle(); },
       link: () => p.click('out'),
-      pull: async () => {
-        const send = (type, y, t) => (p.$('grab').listeners[type] || []).forEach((fn) => fn({ type, pointerId: 1, button: 0, clientY: y, timeStamp: t, target: p.$('grab'), currentTarget: p.$('grab') }));
-        send('pointerdown', 100, 0); send('pointermove', 400, 500); send('pointerup', 400, 600);
-        await p.settle();
-      },
+      pull: () => p.pull(),
       back: () => p.step(-1),
     };
     const out = {};
@@ -352,13 +360,13 @@ const scenarios = {
       scroller: p.you.scroller('settings/integrations/openai').getAttribute('data-view'),
       told: p.told,
       wide: p.$('you').classList.contains('is-wide'),
-      up: [p.$('up').hasAttribute('hidden'), p.$('up-label').textContent],
+      up: [p.upHidden(), p.$('up-label').textContent],
     };
   },
 
   // A Settings section on a narrow pane, then on a wide one, and a section not in the fragment.
   async sectionTitle() {
-    const bar = (p) => [p.title(), p.$('up').hasAttribute('hidden'), p.$('up-label').textContent];
+    const bar = (p) => [p.title(), p.upHidden(), p.$('up-label').textContent];
     const p = open('/');
     p.you.go('settings/integrations/openai');
     await p.settle();
@@ -378,6 +386,76 @@ const scenarios = {
     p.you.go('profile');
     await p.settle();
     return p.at();
+  },
+  // A press that starts in the panel and ends on the veil is a drag, not a way out; one on the veil is.
+  async veilDrag() {
+    const p = open('/');
+    p.you.go('profile');
+    await p.settle();
+    p.event('pointerdown', p.$('title'));
+    await p.click('veil');
+    const dragged = [p.you.shown('profile'), p.at()];
+    p.event('pointerdown', p.$('veil'));
+    await p.click('veil');
+    return { dragged, pressed: [p.you.shown('profile'), p.at()] };
+  },
+
+  // With nothing unsaved, as while a picture is sent, Up and the close button still work.
+  async stillCloses() {
+    const p = open('/');
+    p.you.guard('profile', { dirty: () => false, discard() {} });
+    p.you.go('profile/email');
+    await p.settle();
+    const ups = [p.upHidden(), !!p.$('up').disabled];
+    await p.click('up');
+    const upped = [p.at(), p.title(), !!p.asked()];
+    p.you.go('profile/email');
+    await p.settle();
+    await p.click('x');
+    return { ups, upped, closed: [p.at(), p.you.shown('profile'), !!p.asked(), !!p.$('x').disabled] };
+  },
+
+  // Closed by Back and opened again by Forward before History came: it is shown once, when it comes.
+  async forwardWhileLoading() {
+    const p = open('/', { hold: true });
+    p.you.go('history');
+    await p.settle();
+    await p.step(-1);
+    await p.step(1);
+    const waiting = [p.at(), p.you.shown('history'), p.$('you').classList.contains('is-loading')];
+    p.release();
+    await p.settle();
+    return { waiting, came: [p.title(), p.$('you').classList.contains('is-loading')], told: p.told, fetched: p.fetched };
+  },
+
+  // The sheet pulled shut before History came stays shut when it comes.
+  async pullWhileLoading() {
+    const p = open('/', { hold: true, phone: true });
+    p.you.go('history');
+    await p.settle();
+    await p.pull();
+    const pulled = [p.at(), p.you.shown('history')];
+    p.release();
+    await p.settle();
+    const on = p.doc.querySelector('.you-view.is-on');
+    return { pulled, after: [p.at(), p.you.shown('history'), p.$('you').hasAttribute('hidden'), !!on], told: p.told };
+  },
+
+  // A fragment that names styles or scripts from anywhere but the app's own /static/ loads none of them.
+  async foreignAssets() {
+    const bad = ['//evil.test/x', 'https://evil.test/x', '/static//evil.test/x', '/staticky/x', 'javascript:x', '/static/\\evil.test'];
+    const p = open('/', { fragments: { '/account': ['div', { 'data-you-group': 'profile', 'data-styles': bad.map((u) => u + '.css').join(' ') + ' /static/css/ok.css',
+      'data-scripts': '/static/js/ok.js ' + bad.map((u) => u + '.js').join(' ') }, view('profile', 'Profile', [])] } });
+    p.you.go('profile');
+    await p.settle();
+    return { assets: p.assets, toasts: p.toasts };
+  },
+
+  // History is asked for with only its own keys from h.
+  async historyKeys() {
+    const p = open('/?you=history&h=action%3Dplays%26pane%3D0%26evil%3D1');
+    await p.settle();
+    return p.fetched;
   },
 };
 

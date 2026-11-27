@@ -60,6 +60,8 @@
   var guards = {};
   var cameFrom = {}; // the path each entry the pane pushed was stepped to from, by the entry's id
   var asking = null; // the question on show
+  var turn = 0; // counts each show, so a group that comes in is placed for the latest only
+  var pressedIn = false; // the press that ends in a click began in the panel
 
   /* ── Paths and addresses ── */
 
@@ -176,7 +178,11 @@
     return Array.prototype.some.call(document.querySelectorAll(tag), function (n) { return n.getAttribute(attr) === url; });
   }
 
+  /* Only the app's own files: a path under /static/, never another host's. */
+  function ours(url) { return /^\/static\/[^\\]*$/.test(url) && url.indexOf('//') === -1; }
+
   function style(href) {
+    if (!ours(href)) return Promise.resolve();
     if (!fetched[href]) {
       fetched[href] = had('link', 'href', href) ? Promise.resolve() : new Promise(function (resolve) {
         var link = document.createElement('link');
@@ -191,6 +197,7 @@
   }
 
   function script(src) {
+    if (!ours(src)) return Promise.reject(new Error(src));
     if (!fetched[src]) {
       fetched[src] = had('script', 'src', src) ? Promise.resolve() : new Promise(function (resolve, reject) {
         var el = document.createElement('script');
@@ -215,7 +222,7 @@
   }
 
   function fetchGroup(g) {
-    var h = g === 'history' ? new URLSearchParams(window.location.search).get('h') : '';
+    var h = g === 'history' ? hOf(new URLSearchParams(new URLSearchParams(window.location.search).get('h') || '')) : '';
     return window.fetch(PAGES[g] + '?pane=1' + (h ? '&' + h : ''), { credentials: 'same-origin' }).then(function (res) {
       if (res.redirected && new URL(res.url, window.location.href).pathname === '/login') {
         window.location.assign('/login?next=' + encodeURIComponent(window.location.pathname + window.location.search));
@@ -292,8 +299,10 @@
 
   function drawBar(p) {
     var up = parent(p);
-    backBtn.hidden = !up;
-    backLabel.textContent = up ? titleOf(up) : '';
+    // Faded by a class, as the page's [hidden] would cut it; its label stays while it fades.
+    backBtn.classList.toggle('is-off', !up);
+    backBtn.inert = !up;
+    if (up) backLabel.textContent = titleOf(up);
     title.textContent = titleOf(p);
   }
   // Up and the title of a Settings section depend on the width.
@@ -352,11 +361,12 @@
     var was = path;
     if (was && group(was) !== group(p)) tell('mm:you-hidden', group(was), was);
     path = p;
+    var mine = ++turn;
     drawBar(p);
     if (ready[group(p)]) { place(was, p, how); return; }
     root.classList.add('is-loading');
     load(group(p)).then(function (ok) {
-      if (path !== p) return;
+      if (path !== p || mine !== turn) return;
       root.classList.remove('is-loading');
       if (ok) place(was, p, how);
     });
@@ -449,8 +459,13 @@
     leave: function (to) { return ask(to); }
   });
 
+  root.addEventListener('pointerdown', function (e) { pressedIn = panel.contains(e.target); });
   root.addEventListener('click', function (e) {
     var t = e.target;
+    var dragged = pressedIn;
+    pressedIn = false;
+    // A drag that began in the panel and ended on the veil closes nothing.
+    if (t === veil && dragged) return;
     if (t.closest('[data-you-close]')) { close(); return; }
     if (t.closest('[data-you-back]')) { up(); return; }
     var step = t.closest('[data-you-go]');
