@@ -306,12 +306,13 @@
 
   function took(data) {
     asking = null;
-    if (switching) reset();
-    else if (data.restarted === true && items.length) {
-      // The titles to come are the head's again: the grid starts from it, at the section's top.
+    if (!switching && data.restarted === true && items.length) {
+      // The titles to come are the head's again: the grid starts from them, at the section's top.
+      // The page goes there while it is still long, and the new cards are in before it is laid
+      // out again, so that it never stands shorter than the scroll.
+      toSection(true);
       reset();
-      toSection();
-    }
+    } else if (switching) reset();
     var first = !items.length;
     var button = retryButton();
     var refocus = !!button && document.activeElement === button;
@@ -435,10 +436,10 @@
     more();
   }
 
-  /* The section's top, under the bar, when the person is further down. */
-  function toSection() {
+  /* The section's top, under the bar, when the person is further down, or *always*. */
+  function toSection(always) {
     var top = sec.getBoundingClientRect().top;
-    if (top < 0) window.scrollTo({ top: Math.max(0, top + window.scrollY - core.clearArea().top - 8), behavior: 'instant' });
+    if (always || top < 0) window.scrollTo({ top: Math.max(0, top + window.scrollY - core.clearArea().top - 8), behavior: 'instant' });
   }
 
   function showFilter() {
