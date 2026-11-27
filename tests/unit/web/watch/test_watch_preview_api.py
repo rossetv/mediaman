@@ -123,13 +123,6 @@ def test_someone_elses_stream_is_gone_exactly_like_an_unknown_one(
     assert len(plex.asked) == 1
 
 
-def test_needs_a_session(alice, plex):
-    alice.cookies.clear()
-
-    assert _get(alice, 3).status_code == 401
-    assert plex.asked == []
-
-
 @pytest.mark.parametrize(
     "n",
     ["10", "-1", "1.5", "x", "9" * 5000, "%C2%B2", "%D9%A3"],

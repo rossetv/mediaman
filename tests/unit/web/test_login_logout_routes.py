@@ -1,12 +1,7 @@
-"""Additional tests for `mediaman.web.routes.auth` HTTP endpoints.
+"""`POST /login` and `POST /api/auth/logout` over HTTP: sessions, cookies and audit rows.
 
-The existing test_auth_routes.py covers the pure helper functions
-(_sanitise_log_field, is_request_secure). This file tests the actual
-HTTP routes via TestClient:
-
-  - GET  /login               — renders login page
-  - POST /login               — happy path, bad creds, rate limit
-  - POST /api/auth/logout     — happy path, unauthenticated
+The page itself, the rate limit and the return address have their own files
+(`test_login_page.py`, `test_login_limit.py`, `test_login_return.py`).
 """
 
 from __future__ import annotations
@@ -31,26 +26,12 @@ def _create_admin(conn, username: str = "admin", password: str = "password1234")
     create_user(conn, username, password, enforce_policy=False)
 
 
-class TestLoginPage:
-    def test_get_login_returns_200(self, _app):
-        client = TestClient(_app, raise_server_exceptions=True)
-        resp = client.get("/login")
-        assert resp.status_code == 200
-
-    def test_login_page_error_context_is_none(self, _app):
-        client = TestClient(_app, raise_server_exceptions=True)
-        resp = client.get("/login")
-        ctx = resp.json()
-        assert ctx.get("error") is None
-
-
 class TestLoginSubmit:
     @pytest.fixture(autouse=True)
     def _clear_limiter(self):
         _limiter.reset()
 
-    def test_valid_credentials_redirect_to_root(self, _app, conn):
-        """POST /login with correct credentials redirects to /."""
+    def test_valid_login_redirects_to_root_with_a_session_cookie(self, _app, conn):
         _create_admin(conn)
         client = TestClient(_app, raise_server_exceptions=True)
 
@@ -63,18 +44,6 @@ class TestLoginSubmit:
 
         assert resp.status_code == 302
         assert resp.headers["location"] == "/"
-
-    def test_valid_login_sets_session_cookie(self, _app, conn):
-        _create_admin(conn)
-        client = TestClient(_app, raise_server_exceptions=True)
-
-        with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
-            resp = client.post(
-                "/login",
-                data={"username": "admin", "password": "password1234"},
-                follow_redirects=False,
-            )
-
         assert "session_token" in resp.cookies
 
     def test_invalid_credentials_render_error(self, _app, conn):
@@ -120,21 +89,6 @@ class TestLoginSubmit:
         assert resp.status_code == 302
         assert validate_session(conn, elsewhere) == "admin"
 
-    def test_rate_limit_blocks_after_5_attempts(self, _app, conn):
-        """POST /login is rate-limited; after 5 failures from one IP the page shows throttle message."""
-        _create_admin(conn)
-        client = TestClient(_app, raise_server_exceptions=True)
-
-        cap = _limiter._max_attempts
-        for _ in range(cap):
-            client.post("/login", data={"username": "admin", "password": "wrong"})
-
-        resp = client.post("/login", data={"username": "admin", "password": "wrong"})
-        assert resp.status_code == 429
-        ctx = resp.json()
-        assert ctx.get("error") is not None
-        assert "Too many" in ctx["error"]
-
     def test_wrong_passwords_from_one_client_do_not_lock_out_another(self, _app, conn):
         _create_admin(conn)
         guesser = TestClient(_app, client=("198.51.100.4", 50000))
@@ -151,39 +105,10 @@ class TestLoginSubmit:
 
         assert resp.status_code == 302
 
-    def test_audit_log_written_on_failed_login(self, _app, conn):
-        _create_admin(conn)
-        client = TestClient(_app, raise_server_exceptions=True)
-        client.post("/login", data={"username": "admin", "password": "wrong"})
-        row = conn.execute(
-            "SELECT action FROM audit_log WHERE action='sec:login.failed'"
-        ).fetchone()
-        assert row is not None
-
-    def test_audit_log_written_on_successful_login(self, _app, conn):
-        _create_admin(conn)
-        client = TestClient(_app, raise_server_exceptions=True)
-        with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
-            client.post(
-                "/login",
-                data={"username": "admin", "password": "password1234"},
-            )
-        row = conn.execute(
-            "SELECT action FROM audit_log WHERE action='sec:login.success'"
-        ).fetchone()
-        assert row is not None
-
 
 class TestLogout:
     def test_logout_without_session_returns_401(self, _app):
         client = TestClient(_app, raise_server_exceptions=True)
-        resp = client.post("/api/auth/logout")
-        assert resp.status_code == 401
-
-    def test_logout_with_invalid_token_returns_401(self, _app):
-        """POST /api/auth/logout with a fake session token returns 401."""
-        client = TestClient(_app, raise_server_exceptions=True)
-        client.cookies.set("session_token", "not-a-real-token")
         resp = client.post("/api/auth/logout")
         assert resp.status_code == 401
 
@@ -212,17 +137,6 @@ class TestLogout:
             (__import__("hashlib").sha256(token.encode()).hexdigest(),),
         ).fetchone()
         assert row is None
-
-    def test_logout_clears_cookie_header(self, _app, conn):
-        """The logout response includes a Set-Cookie header to clear session_token."""
-        _create_admin(conn)
-        token = create_session(conn, "admin")
-        client = TestClient(_app, raise_server_exceptions=True)
-        client.cookies.set("session_token", token)
-
-        resp = client.post("/api/auth/logout", follow_redirects=False)
-        set_cookie = resp.headers.get("set-cookie", "")
-        assert "session_token" in set_cookie
 
     def test_logout_clears_cookie_with_explicit_path_and_samesite(self, _app, conn):
         """Deletion ``Set-Cookie`` must carry explicit ``Path=/`` and ``SameSite=strict``.
@@ -255,31 +169,6 @@ class TestLogout:
         # a Set-Cookie that names session_token with an expired timestamp
         # — either way the header must mention the cookie.
         assert "session_token" in set_cookie
-
-
-class TestLoginRateLimitHeaders:
-    """The rate-limit response must give clients a Retry-After hint."""
-
-    @pytest.fixture(autouse=True)
-    def _clear_limiter(self):
-        _limiter.reset()
-
-    def test_rate_limit_returns_retry_after(self, _app, conn):
-        _create_admin(conn)
-        client = TestClient(_app, raise_server_exceptions=True)
-
-        for _ in range(_limiter._max_attempts):
-            client.post("/login", data={"username": "admin", "password": "wrong"})
-
-        resp = client.post("/login", data={"username": "admin", "password": "wrong"})
-        assert "retry-after" in {h.lower() for h in resp.headers}
-        assert int(resp.headers["retry-after"]) > 0
-
-    def test_rate_limit_window_is_300_seconds(self):
-        """The login limiter window is the long, CGNAT-aware value."""
-        # The exact value matters less than the order of magnitude — any
-        # window <60s is too small for /24 IP buckets behind CGNAT.
-        assert _limiter._window >= 60 * 5
 
 
 class TestAuditUsernameSanitisation:

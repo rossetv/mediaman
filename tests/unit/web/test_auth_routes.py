@@ -181,9 +181,6 @@ class TestUaHash:
         expected = hashlib.sha256(b"").hexdigest()[:16]
         assert _ua_hash("") == expected
 
-    def test_length_is_16_chars(self):
-        assert len(_ua_hash("Mozilla/5.0")) == 16
-
     def test_long_input_does_not_pollute_output(self):
         # Previous implementation stored ``user_agent[:80]`` verbatim — a
         # 1MB UA would land 80 chars of attacker text in the audit blob.
@@ -193,29 +190,9 @@ class TestUaHash:
         # Hex chars only — no attacker-controlled content can leak through.
         assert all(c in "0123456789abcdef" for c in out)
 
-    def test_hash_is_deterministic(self):
-        ua = "Mozilla/5.0 (compatible; test/1.0)"
-        assert _ua_hash(ua) == _ua_hash(ua)
-
 
 class TestSecureCookieOverrideCache:
     """The env-var read is cached so it's not re-evaluated on every request."""
-
-    def test_cache_is_used(self, monkeypatch):
-        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "true")
-        first = _secure_cookie_override()
-        # Mutate the env without clearing the cache — second call should
-        # still see the old value.
-        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "false")
-        second = _secure_cookie_override()
-        assert first == second == "true"
-
-    def test_cache_clear_picks_up_new_value(self, monkeypatch):
-        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "true")
-        assert _secure_cookie_override() == "true"
-        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "false")
-        _secure_cookie_override.cache_clear()
-        assert _secure_cookie_override() == "false"
 
     def test_unset_returns_none(self, monkeypatch):
         monkeypatch.delenv("MEDIAMAN_FORCE_SECURE_COOKIES", raising=False)

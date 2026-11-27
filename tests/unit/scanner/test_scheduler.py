@@ -261,21 +261,27 @@ class TestEnforceSingleWorker:
     """Refuse to start with WORKERS > 1 in any of the env vars
     that uvicorn (or our launchers) might respect."""
 
-    def test_no_env_var_is_a_noop(self, monkeypatch):
+    def test_no_env_var_is_a_noop(self, monkeypatch, caplog):
         from mediaman.bootstrap.validators import enforce_single_worker
 
         for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
             monkeypatch.delenv(var, raising=False)
-        # Must not raise.
-        enforce_single_worker()
 
-    def test_workers_equals_one_is_allowed(self, monkeypatch):
+        with caplog.at_level("WARNING", logger="mediaman.bootstrap.validators"):
+            enforce_single_worker()
+
+        assert caplog.records == []
+
+    def test_workers_equals_one_is_allowed(self, monkeypatch, caplog):
         from mediaman.bootstrap.validators import enforce_single_worker
 
         for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("MEDIAMAN_WORKERS", "1")
-        enforce_single_worker()
+            monkeypatch.setenv(var, "1")
+
+        with caplog.at_level("WARNING", logger="mediaman.bootstrap.validators"):
+            enforce_single_worker()
+
+        assert caplog.records == []
 
     def test_workers_greater_than_one_raises(self, monkeypatch):
         from mediaman.bootstrap.validators import enforce_single_worker
@@ -304,14 +310,30 @@ class TestEnforceSingleWorker:
         with pytest.raises(RuntimeError, match="single worker"):
             enforce_single_worker()
 
-    def test_invalid_workers_value_is_ignored(self, monkeypatch):
-        """A non-numeric value is treated as unset rather than crashing."""
+    def test_invalid_workers_value_is_ignored(self, monkeypatch, caplog):
+        """A non-numeric value is treated as unset rather than crashing, and is warned about."""
         from mediaman.bootstrap.validators import enforce_single_worker
 
         for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("MEDIAMAN_WORKERS", "not-a-number")
-        enforce_single_worker()  # must not raise
+
+        with caplog.at_level("WARNING", logger="mediaman.bootstrap.validators"):
+            enforce_single_worker()
+
+        assert [r.levelname for r in caplog.records] == ["WARNING"]
+        assert "MEDIAMAN_WORKERS" in caplog.text
+        assert "not-a-number" in caplog.text
+
+    def test_an_invalid_value_does_not_hide_a_later_variable_asking_for_more(self, monkeypatch):
+        from mediaman.bootstrap.validators import enforce_single_worker
+
+        monkeypatch.setenv("MEDIAMAN_WORKERS", "not-a-number")
+        monkeypatch.setenv("UVICORN_WORKERS", "1")
+        monkeypatch.setenv("WORKERS", "3")
+
+        with pytest.raises(RuntimeError, match="WORKERS=3"):
+            enforce_single_worker()
 
 
 class TestConfigBindHostUnsetMeansResolve:

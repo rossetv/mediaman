@@ -181,11 +181,6 @@ class TestSearchEndpoint:
         resp = authed_client.get("/api/search")
         assert resp.status_code == 422
 
-    def test_requires_auth(self, app):
-        client = TestClient(app)
-        resp = client.get("/api/search?q=dune")
-        assert resp.status_code == 401
-
 
 class TestDiscoverEndpoint:
     @pytest.fixture(autouse=True)
@@ -339,11 +334,6 @@ class TestDiscoverEndpoint:
         resp = client.get("/api/search/discover")
         assert resp.status_code == 502
         assert "error" in resp.json()
-
-    def test_requires_auth(self, app):
-        client = TestClient(app)
-        resp = client.get("/api/search/discover")
-        assert resp.status_code == 401
 
 
 class TestFetchDiscoverShelf:

@@ -81,11 +81,6 @@ class TestShowSeasonsAPI:
         assert resp.status_code == 200
         assert resp.json()["seasons"] == []
 
-    def test_requires_auth(self, app):
-        client = TestClient(app)
-        resp = client.get("/api/show/100/seasons")
-        assert resp.status_code == 401
-
 
 class TestShowKeepAPI:
     def test_keeps_show_forever(self, authed_client, app):

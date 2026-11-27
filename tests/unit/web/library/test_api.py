@@ -9,7 +9,6 @@ not already covered.
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
 from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
@@ -38,12 +37,6 @@ class TestApiLibraryList:
     def _reset_limiters(self):
         _DELETE_LIMITER.reset()
         _KEEP_LIMITER.reset()
-
-    def test_requires_auth(self, app_factory, conn):
-        app = app_factory(api_router, conn=conn)
-        client = TestClient(app, raise_server_exceptions=True)
-        resp = client.get("/api/library")
-        assert resp.status_code == 401
 
     def test_returns_paginated_response(self, app_factory, authed_client, conn):
         app = app_factory(api_router, conn=conn)

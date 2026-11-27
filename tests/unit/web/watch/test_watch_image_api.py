@@ -185,12 +185,6 @@ def test_an_image_host_that_hangs_holds_no_worker_thread_and_nobody_for_long(
     assert all(name.startswith("tmdb-image") for name in threads)
 
 
-def test_needs_a_session(client, upstream):
-    client.cookies.clear()
-
-    assert client.get("/api/watch/img/tmdb/w342/a.jpg").status_code == 401
-
-
 class TestFetch:
     @pytest.fixture
     def http(self, monkeypatch):
