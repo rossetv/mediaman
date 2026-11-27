@@ -707,12 +707,17 @@
     // What Back will find the focus on; Safari leaves a pressed button without it.
     quietUntil = now() + QUIET_MS;
     p.item.focus({ preventScroll: true, focusVisible: false });
-    watch.explore.openPerson({ person_id: p.id, name: p.name, job: (facts && facts.job) || null, profile_url: p.photo }, null);
+    var landed = null;
+    var landing = new Promise(function (ok) { landed = ok; });
+    watch.explore.openPerson({ person_id: p.id, name: p.name, job: (facts && facts.job) || null, profile_url: p.photo }, null, landing);
     var photo = document.querySelector('#watch-results .explore-photo');
-    if (!photo) return;
+    if (!photo) { landed(); return; }
     photo.style.visibility = 'hidden';
     // The card's own photo, already drawn, is the one that flies.
-    fly(held === p.face ? copyOf(held) : held, from, photo.getBoundingClientRect(), null, function () { photo.style.visibility = ''; });
+    fly(held === p.face ? copyOf(held) : held, from, photo.getBoundingClientRect(), null, function () {
+      photo.style.visibility = '';
+      landed();
+    });
     if (ghost) steady([ghost]);
   }
 

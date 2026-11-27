@@ -581,6 +581,36 @@ const scenarios = {
       delete Node.prototype.getAnimations;
     }
   },
+
+  // The page is told when the photo flying to it lands, and at once where nothing flies.
+  async landing() {
+    const told = async (motion) => {
+      const p = load(CAST, motion);
+      const trips = [];
+      p.item(0).querySelector('.ttl-cast__avatar').offsetLeft = p.item(0).querySelector('.ttl-cast__avatar').offsetTop = 0;
+      Node.prototype.getAnimations = function () {
+        if (!this.classList.contains('cast-fly')) return [];
+        return [{ finished: new Promise((resolve) => trips.push(resolve)) }];
+      };
+      let landed = false;
+      try {
+        p.ctx.MMWatch.explore.openPerson = (who, from, landing) => {
+          landing.then(() => { landed = true; });
+          p.doc.getElementById('watch-results').appendChild(build(p.doc, ['div', { class: 'results-page' },
+            ['h1', { class: 'explore-title' }, 'Mara Ellison'], ['span', { class: 'explore-photo' }]]));
+        };
+        click(p.doc, p.item(0));
+        await settle();
+        const flying = landed;
+        trips.forEach((go) => go());
+        await settle();
+        return [flying, landed];
+      } finally {
+        delete Node.prototype.getAnimations;
+      }
+    };
+    return { flies: await told(true), still: await told(false) };
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => {

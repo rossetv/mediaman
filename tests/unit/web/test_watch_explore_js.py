@@ -24,3 +24,10 @@ def test_titles_not_held_are_offered_for_download_only_where_both_kinds_can_be()
         "films": ["In your library", "Not in your library"],
         "none": ["In your library", "Not in your library"],
     }
+
+
+def test_a_person_opened_under_a_flying_photo_is_told_once_it_lands() -> None:
+    assert _run("heldUntilLanded") == {
+        "flying": {"facts": "", "cards": None, "atOnce": True},
+        "landed": {"facts": "Actor · 1 in your library, 0 more", "cards": 2},
+    }

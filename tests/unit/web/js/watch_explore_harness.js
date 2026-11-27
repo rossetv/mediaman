@@ -30,8 +30,9 @@ function load(data) {
   const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
   ['core/dom.js', 'watch/core.js'].forEach(run);
   const el = ctx.MMWatch.core.el;
+  const opened = [];
   const stage = {
-    data, open() {}, close() {}, grow() {}, rise() {}, say() {}, token() {}, spring() {},
+    data, open(node, name, what, atOnce) { opened.push({ node, atOnce: !!atOnce }); }, close() {}, grow() {}, rise() {}, say() {}, token() {}, spring() {},
     face: () => el('span', '', el('span')),
     head: (title) => el('h2', 'results-group__title', title),
   };
@@ -42,7 +43,7 @@ function load(data) {
   };
   ctx.MMWatch.grid = { list: (host, opts) => { lists.push(opts); return { stop() {} }; } };
   run('watch/explore.js');
-  return { ctx, replies, lists };
+  return { ctx, replies, lists, opened };
 }
 
 const TITLE = (n, held) => ({ ref: 'tmdb-movie-' + n, title: 'T' + n, kind: 'movie', in_library: held });
@@ -64,6 +65,24 @@ const scenarios = {
       films: await heads({ movie: true, show: false }),
       none: await heads({ movie: false, show: false }),
     };
+  },
+
+  // Opened under a photo in flight: the rows under the bar go at once, and what is said of the
+  // person and their titles waits for the photo to land, not to cost the flight its frames.
+  async heldUntilLanded() {
+    const p = load({ can_download: { movie: true, show: true } });
+    p.replies['/api/watch/person/9001'] = { tmdb_configured: true, person: { person_id: 9001, name: 'Mara Ellison', job: 'Actor' },
+      items: [TITLE(1, true)], total: 1, in_library: 1, next_page: null };
+    let land;
+    p.ctx.MMWatch.explore.openPerson({ person_id: 9001, name: 'Mara Ellison' }, null, new Promise((ok) => { land = ok; }));
+    const facts = () => p.opened[0].node.querySelector('.explore-facts').textContent;
+    let cards = null;
+    p.lists[0].fetchPage(1).then((page) => { cards = page.cards.length; });
+    await settle();
+    const flying = { facts: facts(), cards, atOnce: p.opened[0].atOnce };
+    land();
+    await settle();
+    return { flying, landed: { facts: facts(), cards } };
   },
 };
 

@@ -775,7 +775,9 @@
     };
   }
 
-  function showPerson(who, from) {
+  /* *landed*: a promise of the photo's flight to the page; until it lands, the rows under the bar
+     go without their fade and what is said of them waits, so as not to cost the flight its frames. */
+  function showPerson(who, from, landed) {
     drop();
     var f = frame();
     var id = String(who.person_id);
@@ -883,7 +885,7 @@
       }
     }
 
-    stage().open(f.node, who.name || 'Person', { face: who.profile_url || '', name: who.name || 'Person', person: who.name });
+    stage().open(f.node, who.name || 'Person', { face: who.profile_url || '', name: who.name || 'Person', person: who.name }, !!landed);
     if (persons.has(id)) about.draw(persons.get(id));
     stage().grow(photo, from);
     stage().rise(f.text, 60);
@@ -892,6 +894,7 @@
     var told = null;
     var earlyFailed = false;
     var early = personPage(id, 1);
+    if (landed) early = Promise.all([early, landed]).then(function (both) { return both[0]; });
     early.then(function (reply) {
       if (open !== mine) return;
       told = reply;
@@ -921,10 +924,10 @@
     showGenre(want, rect);
   }
 
-  function openPerson(who, from) {
+  function openPerson(who, from, landed) {
     var rect = from ? from.getBoundingClientRect() : null;
     address.push('explore', address.url(Object.assign({}, OWN, { person: who.person_id }), ''));
-    showPerson(who, rect);
+    showPerson(who, rect, landed);
   }
 
   address.layer({

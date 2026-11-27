@@ -210,3 +210,7 @@ def test_the_hand_off_sets_out_from_the_next_frame_and_stands_still_through_a_sl
     assert out["first"] == [0, 0]
     assert all(abs(ms - (150 - 1000 / 60)) < 0.01 for ms in out["heldBy"])
     assert out["then"] == [0, 0]
+
+
+def test_the_person_page_is_told_when_the_photo_lands_and_at_once_where_none_flies() -> None:
+    assert _run("landing") == {"flies": [False, True], "still": [True, True]}
