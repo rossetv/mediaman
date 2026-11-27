@@ -1520,6 +1520,12 @@ def test_what_is_downloading_leads_the_results_from_what_the_page_knows_already(
     assert out["gone"] == [[], True]
 
 
+def test_a_title_downloading_shows_what_critics_scored_it_over_its_name() -> None:
+    out = _run("downloadingScores")
+    assert out["typed"] == [["B", ["Rotten Tomatoes 88%", "IMDb 7.4"]], None]
+    assert out["later"][0] == ["B", ["Rotten Tomatoes 52%", "IMDb 7.4"]]
+
+
 def test_the_empty_search_leads_to_all_titles_and_to_downloading_with_its_live_number() -> None:
     out = _run("libraryBlock")
     assert out["look"] == [["All 36 titles", None, False], ["Downloading · 5", "/?dl=1", True]]

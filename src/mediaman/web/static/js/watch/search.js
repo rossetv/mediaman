@@ -1531,9 +1531,10 @@
       return [headRow('dl', 'Downloading', list.length)].concat(list.map(function (item) {
         var ref = downloads.ref(item);
         var poster = downloads.picture(item.poster_url);
+        var scores = core.scores(item);
         return {
           key: 'dl-' + item.key,
-          sig: JSON.stringify([item.title, ref, downloads.href(item), poster]),
+          sig: JSON.stringify([item.title, ref, downloads.href(item), poster, scores ? scores.textContent : '']),
           make: function () {
             var link = el('a', 'results-dl');
             link.setAttribute('href', downloads.href(item));
@@ -1544,6 +1545,7 @@
             }
             link.appendChild(small(poster));
             var text = link.appendChild(el('span', 'results-dl__text'));
+            if (scores) text.appendChild(scores);
             text.appendChild(el('b', null, item.title));
             text.appendChild(el('small'));
             return link;

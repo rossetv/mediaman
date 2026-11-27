@@ -72,6 +72,11 @@
   --glow-success: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent);
   --glow-warning: 0 0 8px color-mix(in srgb, var(--warning) 60%, transparent);
   --glow-danger:  0 0 8px color-mix(in srgb, var(--danger) 60%, transparent);
+  /* The AI search ring's light: wider, and spread sideways, purple left and pink right, but never dropped. */
+  --glow-ai:
+    0 0 16px color-mix(in srgb, var(--purple) 24%, transparent),
+    -12px 0 30px -6px color-mix(in srgb, var(--purple) 55%, transparent),
+    12px 0 30px -6px color-mix(in srgb, var(--pink) 45%, transparent);
 
   /* Dims the page behind a dialog. */
   --scrim-modal: rgba(0,0,0,.7);

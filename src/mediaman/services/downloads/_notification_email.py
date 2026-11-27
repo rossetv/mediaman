@@ -18,6 +18,7 @@ the template.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import threading
 from collections.abc import Sequence
@@ -36,6 +37,12 @@ if TYPE_CHECKING:
     from jinja2 import Template
 
 logger = logging.getLogger(__name__)
+
+# A picture Sonarr names, which is TheTVDB's: put in the mail as it is, as only TMDB's are
+# served from this site.
+_TVDB_IMAGE_RE = re.compile(
+    r"https://artworks\.thetvdb\.com/[A-Za-z0-9_./-]{1,256}\.(?:jpg|jpeg|png|webp)"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +255,14 @@ def _watch_url(row: ClaimedNotificationRow, base_url: str) -> str:
     return f"{site}/watch#title=tmdb-{kind}-{row.tmdb_id}"
 
 
+def _mail_picture(image: str, size: str, secret_key: str, base_url: str) -> str:
+    """The address a mail shows *image* at: TMDB's as mail_tmdb_image_url gives it, TheTVDB's
+    (the pictures Sonarr names) as it is; "" for any other."""
+    if _TVDB_IMAGE_RE.fullmatch(image):
+        return image
+    return mail_tmdb_image_url(image, size, secret_key, base_url) or ""
+
+
 def build_email_payload(
     row: ClaimedNotificationRow,
     movie: RadarrMovie | None,
@@ -258,6 +273,8 @@ def build_email_payload(
     conn: sqlite3.Connection | None = None,
     series: SonarrSeries | None = None,
 ) -> tuple[str, str]:
+    """The subject and HTML of *row*'s ready mail. Its pictures are TMDB's, else Sonarr's or
+    Radarr's; a show's mail is text only when there is neither a TMDB key nor Sonarr's entry."""
     title = row.title
     media_type = row.media_type
 
@@ -283,12 +300,12 @@ def build_email_payload(
     }
 
     # The wide backdrop heads the email; a title with none shows its poster as a poster.
-    # Upgrade small TMDB posters to w500 for better-looking emails. Only TMDB's pictures are
-    # shown, from this site where its address is known; Radarr's host never learns who reads.
-    backdrop = safe_backdrop(meta["backdrop_url"]) or ""
-    backdrop_src = mail_tmdb_image_url(backdrop, "w1280", secret_key, base_url) or ""
+    # Upgrade small TMDB posters to w500 for better-looking emails. TMDB's pictures are shown
+    # from this site where its address is known; Radarr's host never learns who reads.
+    backdrop = safe_backdrop(meta["backdrop_url"]) or meta["backdrop_url"]
+    backdrop_src = _mail_picture(backdrop, "w1280", secret_key, base_url)
     poster = meta["poster_url"].replace("/w300", "/w500").replace("/w200", "/w500")
-    poster_src = mail_tmdb_image_url(poster, "w500", secret_key, base_url) or ""
+    poster_src = _mail_picture(poster, "w500", secret_key, base_url)
 
     # A season row names its season so two seasons of one show do not send the same text.
     season_label = f"Season {row.season_number}" if row.season_number is not None else ""

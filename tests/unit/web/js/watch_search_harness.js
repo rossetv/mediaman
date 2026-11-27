@@ -1484,6 +1484,29 @@ const scenarios = {
     return out;
   },
 
+  // What critics scored a title downloading, over its name, as the page knows it; nothing where none is known.
+  async downloadingScores() {
+    const strip = { items: [
+      { key: 'r::1', title: 'The Órchard Gate', kind: 'movie', state: 'downloading', percent: 42, ref: TM.ref, href: '/#title=' + TM.ref, poster_url: '', rt: 88, imdb: '7.4' },
+      { key: 'r::2', title: 'Orchard Two', kind: 'movie', state: 'queued', percent: 0, ref: null, href: '/?dl=1', poster_url: '' },
+    ] };
+    let tell = null;
+    const p = load(ADMIN, '', null, undefined, { downloading: { last: () => strip, subscribe(fn) { tell = fn; } } });
+    const look = () => p.results.querySelectorAll('.results-dl').map((n) => {
+      const scores = n.querySelector('.watch-card__scores');
+      return scores && [scores.nextSibling.tagName, scores.querySelectorAll('.watch-score').map((s) => s.textContent)];
+    });
+    p.type('orchard');
+    const out = { typed: look() };
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    strip.items = [{ ...strip.items[0], rt: 52 }, strip.items[1]];
+    tell();
+    out.later = look();
+    return out;
+  },
+
   // Esc and the page's Back leave the way Back does.
   async leaveCategory() {
     const out = {};

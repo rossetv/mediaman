@@ -17,6 +17,7 @@ from mediaman.web.auth.session_store import create_session
 from mediaman.web.middleware.viewer_guard import ViewerGuardMiddleware
 from mediaman.web.routes.downloads import router as downloads_router
 from mediaman.web.routes.downloads_strip import router
+from mediaman.web.routes.watch import ratings_warm
 from tests.helpers.factories import insert_media_item
 
 _TMDB = "https://image.tmdb.org/t/p/original"
@@ -376,3 +377,13 @@ def test_a_download_carries_what_critics_scored_it_as_the_ratings_cache_holds(
     harbour, ember = _get(viewer).json()["items"]
     assert (ember.get("rt"), ember.get("imdb")) == (93, "7.1")
     assert "rt" not in harbour
+
+
+def test_a_download_is_noted_by_its_year_for_its_scores_to_be_asked(services, viewer, monkeypatch):
+    monkeypatch.setattr(ratings_warm, "_wanted", {})
+    _queue(services, [_movie(11, "Ember Coast", year=2019)])
+
+    (ember,) = _get(viewer).json()["items"]
+
+    assert ember["year"] == 2019
+    assert ratings_warm._wanted == {("movie", 11): ("Ember Coast", 2019)}

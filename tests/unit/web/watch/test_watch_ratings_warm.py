@@ -206,3 +206,15 @@ def test_a_title_no_card_named_a_year_of_is_not_asked(conn, asked):
     _warm(conn)
 
     assert titles == ["Title 2"]
+
+
+def test_a_title_omdb_gives_no_answer_of_is_asked_after_the_others(conn, asked, clock):
+    titles, answers = asked
+    answers["Title 3"] = None
+    scored(conn, [_card(n) for n in range(1, 4)])
+
+    _warm(conn)
+    clock.now += ratings_warm.PAUSE_S
+    _warm(conn)
+
+    assert titles == ["Title 3", "Title 2", "Title 1", "Title 3"]

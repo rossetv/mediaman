@@ -100,6 +100,16 @@ def test_an_image_tmdb_does_not_have_is_404(client, upstream):
     assert client.get("/api/watch/img/tmdb/w342/a.jpg").status_code == 404
 
 
+def test_an_image_tmdb_does_not_have_is_kept_by_the_browser(client, upstream):
+    upstream.answers.append(SafeHTTPError(404, "", "https://image.tmdb.org/t/p"))
+
+    resp = client.get("/api/watch/img/tmdb/w342/a.jpg")
+
+    assert resp.status_code == 404
+    assert resp.headers["cache-control"].startswith("private, max-age=")
+    assert int(resp.headers["cache-control"].partition("max-age=")[2]) >= 3600
+
+
 def test_cache_hits_are_not_rate_limited_but_fetches_are(client, upstream, monkeypatch):
     monkeypatch.setattr(image_api, "_IMG_LIMITER", ActionRateLimiter(1, 60))
 
@@ -132,6 +142,18 @@ def test_a_failed_fetch_is_kept_by_no_cache(client, upstream, monkeypatch):
 
     assert resp.status_code == 503
     assert resp.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize(
+    "failure", [SafeHTTPError(502, "bad gateway", "https://image.tmdb.org/t/p"), TimeoutError()]
+)
+def test_a_failed_fetch_says_when_to_ask_again(client, upstream, failure):
+    upstream.answers.append(failure)
+
+    resp = client.get("/api/watch/img/tmdb/w342/a.jpg")
+
+    assert resp.status_code == 503
+    assert 1 <= int(resp.headers["retry-after"]) <= 120
 
 
 def test_a_minute_of_fast_browsing_on_a_cold_cache_is_not_turned_away():

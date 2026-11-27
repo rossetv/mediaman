@@ -89,6 +89,8 @@ class StripItem:
     poster_url: str = ""
     art_url: str = ""
     tmdb_id: int | None = None
+    #: Its year, for its scores to be looked up by; None when not known.
+    year: int | None = None
     #: Of one that is done: whether the library holds it, to be played.
     playable: bool = True
     #: What the queue knows it by: for what only NZBGet holds, the release's own name, which
@@ -311,6 +313,7 @@ def _shown(item: StripItem, *, admin: bool) -> dict[str, Any]:
         "playable": item.playable,
         "ref": item.ref,
         "tmdb_ref": _tmdb_ref(item),
+        "year": item.year,
         "href": item.href,
         "poster_url": item.poster_url,
         "art_url": item.art_url,

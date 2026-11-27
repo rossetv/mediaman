@@ -59,7 +59,8 @@ def want(cards: Iterable[Mapping[str, Any]]) -> None:
 def warm(conn: sqlite3.Connection, secret_key: str, *, stopped: Callable[[], bool]) -> None:
     """One run of the job: ask OMDb of the titles noted last that the cache has no fresh row
     of, within the run's and the day's budget. Nothing without a key, or while OMDb is left
-    alone; a title OMDb gives no answer of ends the run and leaves OMDb alone for a while."""
+    alone; a title OMDb gives no answer of ends the run, leaves OMDb alone for a while and is
+    asked after the others."""
     global _resume_at
     omdb_key = get_omdb_key(conn, secret_key)
     if not omdb_key or is_key_refused(omdb_key) or _clock() < _resume_at:
@@ -74,6 +75,12 @@ def warm(conn: sqlite3.Connection, secret_key: str, *, stopped: Callable[[], boo
         data = lookup_ratings(title, year, media_type, omdb_key=omdb_key)
         if data is None:
             _resume_at = _clock() + PAUSE_S
+            with _lock:
+                if (media_type, tmdb_id) in _wanted:
+                    rest = dict(_wanted)
+                    _wanted.clear()
+                    _wanted[media_type, tmdb_id] = rest.pop((media_type, tmdb_id))
+                    _wanted.update(rest)
             break
         upsert_ratings_cache(
             conn,
