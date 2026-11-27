@@ -25,8 +25,28 @@
   .share-bar::before { background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 86%, transparent), color-mix(in srgb, var(--scrim) 66%, transparent) 55%, transparent); }
 }
 .share-bar .brand { min-height: 44px; }
-.share-bar .btn { min-height: 44px; background: color-mix(in srgb, var(--scrim) 45%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
-.share-bar .btn:hover { background: color-mix(in srgb, var(--s5) 70%, transparent); }
+/* An island of the bar's glass over the picture; under a pointer it lightens over its tint. */
+.share-bar .btn {
+  min-height: 44px;
+  background: var(--g-thin);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
+  box-shadow: var(--g-inset), var(--g-shadow);
+  transition: var(--btn-moves), opacity var(--dur) var(--ease-out);
+}
+@media (hover: hover) {
+  /* Lit over the glass's tint, not in place of it: the tint is what holds the word over a white page. */
+  .share-bar .btn:hover { background-color: color-mix(in srgb, var(--g-thin), var(--t1) 11%); }
+}
+
+/* The trailer takes the hero: the bar's parts fade, not the bar, as glass under a fading parent
+   sees none of the page. */
+.share-bar { transition: visibility 0s; }
+.share-bar::before, .share-bar > .brand { transition: opacity var(--dur) var(--ease-out); }
+.share-bar:has(~ main .is-trailer) { visibility: hidden; transition-delay: var(--dur); }
+.share-bar:has(~ main .is-trailer)::before, .share-bar:has(~ main .is-trailer) > * { opacity: 0; }
 
 /* ── The hero: the film page's banner, taller, with the bar over it ── */
 

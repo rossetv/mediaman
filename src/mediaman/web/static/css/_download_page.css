@@ -40,7 +40,32 @@
 .share-eps summary::-webkit-details-marker { display: none; }
 .share-eps summary .ico { font-size: 11px; transition: transform var(--dur) var(--ease-out); }
 .share-eps[open]:not(.is-shutting) summary .ico { transform: rotate(90deg); }
-.share-eps .dl-hero-episodes { margin-top: 2px; background: color-mix(in srgb, var(--scrim) 55%, transparent); }
+/* The episodes are a panel of glass over the picture: its rows' quiet words and fills lifted. */
+.share-eps .dl-hero-episodes {
+  margin-top: 2px;
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
+  box-shadow: var(--g-inset), var(--g-shadow);
+  /* The border's room comes out of the padding, so no row moves. */
+  padding: 7px;
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent: var(--g-accent);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
+}
+.share-eps .dl-ep-status-pill { box-shadow: var(--g-chip-floor); }
+/* Ready is the end of the wait: solid green, as the steps above are when all are done. */
+.share-eps .dl-ep-status-pill.ready { background: var(--success); color: #00210b; box-shadow: none; }
 
 /* ── Under the hero ── */
 
@@ -66,10 +91,9 @@
 .share-player .ttl__close { position: absolute; top: 12px; right: 12px; margin: 0; translate: none; z-index: 2; visibility: hidden; }
 .is-trailer > .share-player .ttl__close { visibility: visible; }
 .share-hero > .watch-banner__body { transition: opacity var(--dur) var(--ease-out); }
+/* The episodes' glass sees no picture while this fades: they are open only once the title is on
+   its way, which shows no trailer, so it takes a trailer started before, then a rotated phone. */
 .is-trailer > .watch-banner__body[inert] { opacity: 0; }
-.share-bar { transition: opacity var(--dur) var(--ease-out), visibility 0s; }
-/* The bar is over the hero, not in it. */
-.share-bar:has(~ main .is-trailer) { opacity: 0; visibility: hidden; transition-delay: 0s, var(--dur); }
 .share-trailer-off, .share-trailer-on { display: inline-flex; align-items: center; gap: 8px; }
 .share-hero:not(.is-trailer) .share-trailer-on, .is-trailer .share-trailer-off { display: none; }
 

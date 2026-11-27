@@ -221,6 +221,7 @@
   /* Under a layer that only blurs the glass it lies on (a stuck head): nothing, as long as glass is
      drawn; where it is not, the glass's own fill, so what passes under is still covered. */
   --g-stuck:     transparent;
+  --g-warning-text: #ffc46a;     /* amber words: what waits, which is nobody's fault */
   /* What the page goes under: plain dims, never blurred, so the glass over them has a page to show. */
   --g-dim:       rgb(0 0 0 / .42);           /* behind a dialog, and behind a title */
   --g-dim-blur:  blur(2px);                  /* the title's dim alone */

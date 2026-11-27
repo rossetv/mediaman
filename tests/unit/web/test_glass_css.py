@@ -1,6 +1,7 @@
 """Glass: one material named once in the tokens, drawn by the top bar's islands, the profile menu,
-toasts and the side panels (the pane over Watch, Space and the keep menu), legible over a white page,
-and solid wherever glass cannot or should not be drawn."""
+toasts, the side panels (the pane over Watch, Space and the keep menu), the sign-in card and the pages that
+stand in it, and a download page's bar and episodes, legible over a white page, and solid wherever glass
+cannot or should not be drawn."""
 
 from __future__ import annotations
 
@@ -33,6 +34,12 @@ PANELS = "_settings_pg_panels.css"
 SPACE = "_watch_space.css"
 KEEP = "_watch.css"
 PHONE = "(max-width: 699.98px)"
+LOGIN = "_login.css"
+SHARE = "_share.css"
+DL_PAGE = "_download_page.css"
+GRID = "_watch_grid.css"
+DL_GRID = "_watch_dlgrid.css"
+EPISODES = ".share-eps .dl-hero-episodes"
 NO_BLUR = "@supports not"
 WHITE = (255.0, 255.0, 255.0)
 BLACK = (0.0, 0.0, 0.0)
@@ -45,6 +52,9 @@ SURFACES = [
     (".space__panel", SPACE, "background"),
     (".watch-keep-menu", KEEP, "background"),
     (".hx-menu", HISTORY, "background"),
+    (".login-card", LOGIN, "background"),
+    (".share-bar .btn", SHARE, "background"),
+    (EPISODES, DL_PAGE, "background"),
 ]
 # What sits on the glass of each surface: what its words, fills and blue and red words resolve to.
 ON_GLASS = [
@@ -56,6 +66,8 @@ ON_GLASS = [
     (".you__panel", YOU),
     (".space__panel", SPACE),
     (".watch-keep-menu", KEEP),
+    (".login-card", LOGIN),
+    (EPISODES, DL_PAGE),
 ]
 WORDS = ("--t2", "--t3", "--t4", "--accent-text", "--danger-text")
 
@@ -903,3 +915,165 @@ def test_no_view_s_fade_is_forced_over_the_step_s_own() -> None:
     for where, selectors, decls in rules(YOU):
         if any(".you-view" in s for s in selectors):
             assert "!important" not in decls.get("opacity", ""), (where, selectors)
+
+
+def _on_tint_over_white_glass(tint: str) -> tuple[float, ...]:
+    return _on(_resolve(tint), _glass_over(WHITE, float(token("--g-a")), filtered=True))
+
+
+@pytest.mark.parametrize(
+    ("message", "need"), [(".login-msg", 4.5), (".login-msg.is-wait", 4.7), (".fpc-eyebrow", 4.7)]
+)
+def test_the_sign_in_card_s_red_and_amber_words_hold_on_their_tints_over_a_white_page(
+    message: str, need: float
+) -> None:
+    # Amber small words get a margin over 4.5: the browser's blur lands a little under the model.
+    drawn = style(message, LOGIN)
+    word = re.fullmatch(r"var\((--[\w-]+)\)", drawn["color"])[1]
+    lifted = _resolve(style(".login-card", LOGIN)[word])
+    under = _on_tint_over_white_glass(drawn["background"])
+    assert contrast(_on(lifted, under), under) >= need, (message, lifted)
+
+
+@pytest.mark.parametrize(
+    "surface",
+    [
+        (".login-card", LOGIN),
+        (EPISODES, DL_PAGE),
+        (".watch-all__head", GRID),
+        (".dlg__head", DL_GRID),
+    ],
+)
+def test_rings_on_glass_take_the_lifted_blue_and_keep_3_to_1_over_a_white_page(
+    surface: tuple[str, str],
+) -> None:
+    assert style(*surface)["--accent"] == "var(--g-accent)"
+    # --g-accent is worked out where the tokens declare it, from the page's own blue.
+    blue = _colour(token("--g-accent"), {"--accent": token("--accent")})
+    glass = _glass_over(WHITE, float(token("--g-a")), filtered=True)
+    assert contrast(_over(blue, glass), glass) >= 3
+
+
+def test_the_page_s_own_ring_takes_the_card_s_blue_on_the_card() -> None:
+    assert style(".login-card :focus-visible", LOGIN)["outline-color"] == "var(--accent)"
+
+
+@pytest.mark.parametrize(("state", "veil"), [("", "--g-s2"), (":focus", "--g-s3")])
+def test_a_field_the_browser_fills_in_on_the_card_is_masked_opaque_as_the_card_draws_it(
+    state: str, veil: str
+) -> None:
+    mask = style(f".login-card :is(.pwd-box > .inp, .login-field input):autofill{state}", LOGIN)
+    colour = mask["box-shadow"].split("99px ", 1)[1]
+    colour = colour.replace("calc(var(--g-a) * 100%)", f"{float(token('--g-a')) * 100}%")
+    drawn = _colour(colour, {})
+    assert drawn[3] == 1, "the browser's own fill shows through"
+    # The field, empty or focused: its veil over the card over a dark page.
+    field = _on(token(veil), _glass_over((0.0, 0.0, 0.0), float(token("--g-a")), True))
+    assert all(abs(a - b) < 1 for a, b in zip(drawn[:3], field, strict=True)), (drawn, field)
+
+
+def test_the_sign_in_card_s_link_is_a_word_lifted_for_glass() -> None:
+    assert style(".security-note a", LOGIN)["color"] == "var(--accent-text)"
+
+
+def test_a_state_chip_on_the_episodes_glass_has_a_dark_floor_under_its_tint() -> None:
+    assert style(".share-eps .dl-ep-status-pill", DL_PAGE)["box-shadow"] == "var(--g-chip-floor)"
+
+
+def test_the_ready_chip_on_the_episodes_glass_is_a_solid_green_with_words_that_hold() -> None:
+    chip = style(".share-eps .dl-ep-status-pill.ready", DL_PAGE)
+    fill = _colour(chip["background"], {})
+    assert fill[3] == 1, "a see-through green turns dull under the chip's floor"
+    assert chip["box-shadow"] == "none", "the floor every chip takes would dull the green"
+    assert contrast(_colour(chip["color"], {}), fill) >= 4.5
+
+
+def test_the_episodes_glass_takes_its_border_out_of_its_padding_so_no_row_moves() -> None:
+    panel = style(EPISODES, DL_PAGE)
+    border = px(panel["border"].split()[0])
+    assert px(panel["padding"]) + border == px(style(".dl-hero-episodes", "_dl.css")["padding"])
+
+
+def test_a_pointer_over_the_download_page_s_button_eases_light_over_the_tint() -> None:
+    # Only for a pointer that hovers: on touch, a tap would leave it lit.
+    assert ":hover" not in "".join(s for w, sels, _ in rules(SHARE) if not w for s in sels)
+    lit = style(".share-bar .btn:hover", SHARE, "(hover: hover)")
+    assert lit["background-color"].startswith("color-mix(in srgb, var(--g-thin),"), lit
+
+
+def test_the_trailer_fades_the_bar_s_parts_and_not_the_bar_that_holds_their_glass() -> None:
+    # All of the bar is drawn in one sheet, so no later rule of another can undo the fade.
+    assert not any(".share-bar" in s for _, sels, _ in rules(DL_PAGE) for s in sels)
+    playing = ".share-bar:has(~ main .is-trailer)"
+    assert "opacity" not in style(playing, SHARE)
+    assert style(f"{playing} > *", SHARE)["opacity"] == "0"
+    moves = style(".share-bar .btn", SHARE)["transition"]
+    # The button's own moves, and the fade.
+    assert moves.startswith("var(--btn-moves),") and "opacity" in moves, moves
+    assert style(".btn", "_buttons.css")["transition"] == "var(--btn-moves)"
+
+
+@pytest.mark.parametrize(
+    ("head", "sheet"),
+    [(".dlg__head", DL_GRID), (".watch-all__head", GRID)],
+)
+def test_a_grid_s_sticky_head_is_glass_with_its_words_lifted_for_it(head: str, sheet: str) -> None:
+    glass = style(head.replace("__head", "__glass"), sheet)
+    assert glass["background"] == "var(--g-thin)"
+    assert glass["backdrop-filter"] == glass["-webkit-backdrop-filter"] == "var(--g-filter)"
+    words = style(head, sheet)
+    under = _glass_over(WHITE, float(token("--g-a")), filtered=True)
+    for name in ("--t2", "--t3", "--t4"):
+        assert contrast(_on(_resolve(words[name]), under), under) >= 4.5, (head, name)
+
+
+# Each control on a grid's head: the sheet that draws it, at rest and then in each lit state.
+HEAD_CONTROLS = [
+    (
+        ".watch-all__head",
+        GRID,
+        "_watch_browse.css",
+        ".row-tool",
+        (":hover", '[aria-expanded="true"]', ':not([aria-disabled="true"]):active'),
+    ),
+    (".watch-all__head", GRID, GRID, ".watch-all__back", (":hover", ":active")),
+    (".dlg__head", DL_GRID, DL_GRID, ".dlg__back", (":hover", ":active")),
+]
+
+
+@pytest.mark.parametrize(("head", "head_sheet", "sheet", "control", "lit"), HEAD_CONTROLS)
+@pytest.mark.parametrize("page", [WHITE, (0.0, 0.0, 0.0)], ids=["white", "black"])
+def test_a_lit_control_on_a_grid_s_head_shows_lighter_than_at_rest_with_words_that_hold(
+    head: str,
+    head_sheet: str,
+    sheet: str,
+    control: str,
+    lit: tuple[str, ...],
+    page: tuple[float, ...],
+) -> None:
+    scope = style(head, head_sheet)
+    glass = _glass_over(page, float(token("--g-a")), filtered=True)
+    rest = style(control, sheet)
+    at_rest = _over(_colour(rest.get("background", "transparent"), scope), glass)
+    for state in lit:
+        drawn = {**rest, **style(control + state, sheet)}
+        under = _over(_colour(drawn["background"], scope), glass)
+        # A solid grey over glass on a bright page shows darker than the glass, not lighter.
+        assert sum(under) > sum(at_rest) and contrast(under, at_rest) >= 1.1, control + state
+        words = _over(_colour(drawn.get("color", "var(--t1)"), scope), under)
+        assert contrast(words, under) >= 4.5, (control + state, round(contrast(words, under), 2))
+
+
+@pytest.mark.parametrize(
+    ("glass", "sheet"), [(".watch-all__glass", GRID), (".dlg__glass", DL_GRID)]
+)
+def test_in_forced_colours_a_grid_s_head_is_always_a_boxed_surface(glass: str, sheet: str) -> None:
+    forced = style(glass, sheet, "(forced-colors: active)")
+    assert forced["opacity"] == "1" and forced["border-bottom-color"] == "CanvasText", forced
+
+
+def test_the_share_note_s_words_hold_on_its_card_over_a_white_page() -> None:
+    word = style(".share-note p", SHARE)["color"]
+    lifted = _colour(word, style(".login-card", LOGIN))
+    glass = _glass_over(WHITE, float(token("--g-a")), filtered=True)
+    assert contrast(_over(lifted, glass), glass) >= 4.5

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import xml.etree.ElementTree as ET
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -831,6 +832,99 @@ def test_an_admin_s_card_has_one_button_named_for_its_title_that_opens_a_menu() 
     [more] = tree.having("data-watch-more")
     said = (more["aria-label"], more["aria-haspopup"], more["aria-expanded"])
     assert said == ("More for Brightwater", "menu", "false")
+
+
+def _doubles(html: str) -> list[ET.Element]:
+    return [
+        ET.fromstring(svg) for svg in re.findall(r'<svg class="rate-th rate-th--2.*?</svg>', html)
+    ]
+
+
+def _loved_and_hated(first: int) -> list[dict]:
+    return [
+        _marked(tmdb_ref=f"tmdb-movie-{first}", level=2),
+        _marked(tmdb_ref=f"tmdb-movie-{first + 1}", level=-2),
+    ]
+
+
+def test_a_card_s_double_thumb_cuts_its_back_hand_away_with_a_mask_of_its_own() -> None:
+    doubles = _doubles(_watch(rows=[{"title": "Movies", "items": _loved_and_hated(6)}]))
+    assert len(doubles) == 2
+    ids = []
+    for svg in doubles:
+        [mask] = svg.iter("mask")
+        [held] = [
+            g for g in svg.iter("g") if g.get("mask") and g.find(".//g[@class='b']") is not None
+        ]
+        assert held.get("mask") == f"url(#{mask.get('id')})"
+        [cut] = mask.findall(".//g[@class='f']/path")
+        [front] = [p for p in svg.findall("g/g[@class='f']/path") if p.get("class") != "ink"]
+        assert (cut.get("d"), cut.get("fill"), cut.get("stroke"), cut.get("stroke-width")) == (
+            front.get("d"),
+            "#000",
+            "#000",
+            "5",
+        )
+        ids.append(mask.get("id"))
+    assert len(set(ids)) == len(ids)
+
+
+def _reach(at: str) -> tuple[float, float, float, float]:
+    """Where a hand drawn in a 24-unit square, placed *at*, can be, as it springs and tilts."""
+    found = re.fullmatch(r"translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)", at)
+    assert found, at
+    x, y, scale = map(float, found.groups())
+    swing = 8  # the furthest a pop or a tilt takes a hand off its place
+    return x - swing, y - swing, x + 24 * scale + swing, y + 24 * scale + swing
+
+
+def _holds(node: ET.Element, reach: tuple[float, float, float, float]) -> bool:
+    x, y, width, height = (float(node.get(k)) for k in ("x", "y", "width", "height"))
+    return x <= reach[0] and y <= reach[1] and x + width >= reach[2] and y + height >= reach[3]
+
+
+def test_a_card_s_double_thumb_mask_shows_all_of_the_back_hand_but_the_front_one_s_shape() -> None:
+    for svg in _doubles(_watch(rows=[{"title": "Movies", "items": _loved_and_hated(6)}])):
+        [mask] = svg.iter("mask")
+        [rect] = mask.findall("rect")
+        [placed] = [g for g in svg.iter("g") if g.find("g[@class='b']") is not None]
+        reach = _reach(placed.get("transform"))
+        assert rect.get("fill") == "#fff"
+        assert _holds(mask, reach) and _holds(rect, reach)
+
+
+def test_a_card_s_double_thumb_has_a_back_hand_without_the_cuff_that_would_show_between_them() -> (
+    None
+):
+    for svg in _doubles(_watch(rows=[{"title": "Movies", "items": _loved_and_hated(6)}])):
+        # Its outline and the fill of the person's own level alike.
+        backs = [p.get("d") for p in svg.findall(".//g[@class='b']/path")]
+        front = svg.find("g/g[@class='f']/path").get("d")
+        assert backs and all(b.count("M") == 1 and front.endswith(b) for b in backs)
+
+
+@pytest.mark.parametrize("cuts", [{}, {"cuts": None}])
+def test_a_card_drawn_without_its_page_s_mask_numbers_fails_whatever_its_rating(
+    cuts: dict,
+) -> None:
+    card = _ENV.get_template("_watch_card.html").module.card  # type: ignore[attr-defined]
+    with pytest.raises(jinja2.TemplateRuntimeError):
+        card(_card(tmdb_ref="tmdb-movie-6", level=1), **cuts)
+
+
+def _cuts(html: str) -> list[str]:
+    return [svg.find("mask").get("id") for svg in _doubles(html)]
+
+
+def test_each_page_numbers_its_thumb_masks_from_the_start_whatever_was_drawn_before() -> None:
+    rows = [{"title": "Movies", "items": _loved_and_hated(6)}]
+    assert _cuts(_watch(rows=rows)) == _cuts(_watch(rows=rows)) == ["th-cut-s1", "th-cut-s2"]
+
+
+def test_the_rows_and_the_grid_of_one_page_share_its_thumb_masks_numbers() -> None:
+    grid = {"id": "library", "title": "All titles", "items": _loved_and_hated(8), "total": 2}
+    ids = _cuts(_watch(rows=[{"title": "Movies", "items": _loved_and_hated(6)}], grid=grid))
+    assert len(ids) == 4 and len(set(ids)) == 4
 
 
 def test_a_card_is_drawn_with_the_person_s_rating_and_mark_and_one_tab_stop() -> None:

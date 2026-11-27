@@ -100,6 +100,11 @@ def test_a_card_is_copied_with_its_levels_folded_and_one_tab_stop_for_its_button
     assert _run("copiedTools") == {"closed": True, "stops": [None, "-1", "-1"]}
 
 
+def test_a_copied_card_s_thumb_has_a_mask_of_its_own() -> None:
+    out = _run("copiedMask")
+    assert len(out["ids"]) == 2 and len(set(out["ids"])) == 2 and out["resolve"]
+
+
 def test_a_jump_loads_until_its_line_is_there_and_gives_in_to_the_persons_scroll() -> None:
     out = _run("jumpLoadsUntilThere")
     assert (out["before"], out["asked"]) == (1, 2)

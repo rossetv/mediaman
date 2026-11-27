@@ -21,7 +21,7 @@
 {%- if grid.fact %}<p class="watch-all__fact">{{ grid.fact }}</p>{% endif %}
 {%- endmacro %}
 
-{% macro section(grid, types=()) -%}
+{% macro section(grid, types=(), cuts=none) -%}
 <section class="watch-all" id="watch-all" aria-labelledby="watch-all-title">
   <div class="watch-all__head">
     <div class="watch-all__glass"></div>
@@ -35,7 +35,7 @@
   <div class="watch-all__bar">{% if grid.counts %}{{ filters(grid, types) }}{% endif %}</div>
   <div class="watch-all__body watch-grid-host"{% if grid.id == "leaving" %} data-watch-leaving-row{% endif %}>
     <div class="watch-grid"{% if grid.loads_later %} aria-busy="true"{% endif %}>
-      {% for item in grid["items"] %}{{ w.card(item, keep=(grid.id == "leaving")) }}{% endfor %}
+      {% for item in grid["items"] %}{{ w.card(item, keep=(grid.id == "leaving"), cuts=cuts) }}{% endfor %}
       {% if grid.loads_later %}{% for _ in range(14) %}<div class="watch-card--skel" aria-hidden="true"><span class="skel skel--poster"></span><span class="skel skel--line"></span></div>{% endfor %}{% endif %}
     </div>
     <div class="grid-tail">

@@ -1726,6 +1726,16 @@ const scenarios = {
     }
     return out;
   },
+  // On the page a read is sent on to, the remote stays there and asks no more.
+  async onTheWayPage() {
+    const out = {};
+    for (const [here, more] of [['/force-password-change', { away: '/force-password-change' }], ['/login', { fail: ['http_401', 401] }]]) {
+      const p = await page({ pathname: here, ...more });
+      await p.pass(30000);
+      out[here] = { went: p.win.location.href, reads: p.reads().length };
+    }
+    return out;
+  },
   // Opened again while it closes, onto a TV where nothing plays.
   async reopenedClosing() {
     const out = {};

@@ -247,6 +247,19 @@ const scenarios = {
     return { closed: closed.includes(true), stops: p.all().querySelectorAll('.card-tool').map((b) => b.getAttribute('tabindex')) };
   },
 
+  // A card whose thumb has a mask, copied as the row opens as a grid: each mask an id of its
+  // own, and each thumb drawn through a mask that is there.
+  async copiedMask() {
+    const p = load();
+    const card = p.rows[0].querySelector('.watch-card');
+    card.appendChild(build(p.doc, ['div', { class: 'card-tools' }, ['button', { class: 'card-tool' }, ['svg', {},
+      ['mask', { id: 'th-cut-s1' }], ['g', { mask: 'url(#th-cut-s1)' }]]]]));
+    p.grid.open(p.opts());
+    const ids = p.doc.documentElement.querySelectorAll('mask').map((m) => m.getAttribute('id'));
+    const refs = p.doc.documentElement.querySelectorAll('[mask]').map((g) => g.getAttribute('mask'));
+    return { ids, resolve: refs.every((r, i) => r === 'url(#' + ids[i] + ')') };
+  },
+
   async jumpLoadsUntilThere() {
     const p = lone({ cards: ['a', 1, 2] }, [{ cards: ['b', 3], next: 'p1' }, { cards: ['c', 4], next: 'p2' }, { cards: ['d', 5], next: 'p3' }, { cards: ['e', 6], next: null }]);
     // The end is far off: only the jump asks for more.
