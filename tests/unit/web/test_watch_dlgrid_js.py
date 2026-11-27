@@ -506,3 +506,38 @@ def test_a_later_answer_flies_placeholders_out_of_the_row_and_fills_them(out) ->
     assert run["cards"] == 0
     assert run["placeholders"] == 2
     assert run["grown"] is True
+
+
+def test_placeholders_take_the_filled_grid_s_layout_heading_line_and_cards(out) -> None:
+    run = out["placeholderLayout"]
+    assert run["waiting"]["kids"] == [
+        "grid-group dlg-skel-head hidden",
+        "dlg-skel hidden",
+        "dlg-skel hidden",
+    ]
+    # the line under the title keeps its room, and says nothing
+    assert run["waiting"]["count"] == 1
+    assert run["waiting"]["countText"] == ""
+    assert run["kids"][0] == "grid-group"
+
+
+def test_placeholders_follow_the_row_s_groups_and_hold_a_show_s_episodes_button(out) -> None:
+    grouped = out["placeholderLayout"]["grouped"]
+    assert grouped == ["head", "card", "head", "card", "card+eps"]
+
+
+def test_the_answer_fades_the_placeholders_out_where_they_stood_and_then_drops_them(out) -> None:
+    run = out["placeholderLayout"]
+    assert run["filling"] == {
+        "going": 3,
+        "outs": 3,
+        "count": 0,
+        "countText": "2 in progress · 1 coming soon",
+    }
+    assert run["gone"] == 0
+
+
+def test_an_answer_while_the_placeholders_fly_waits_for_them_to_land(out) -> None:
+    run = out["answerMidGrow"]
+    assert run["mid"] == {"skels": 2, "cards": 0}
+    assert run["landed"] == {"skels": 0, "cards": 3}

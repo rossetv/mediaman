@@ -58,12 +58,12 @@
   var request = null; // the asking under way
   var cards = {}; // by key: the card node
   var heads = {}; // by group: its heading
-  var skels = null; // the cards that hold the grid's place until the first answer
+  var skels = null; // { nodes, cards }: what holds the grid's place until the first answer
+  var growing = false; // the grid is growing out of the row
   var timer = null;
   var asked = 0; // which asking is the current one
   var opener = null;
   var tapped = false; // opened by a tap or a click, not a key: its heading takes no ring
-  var opens = 0; // which opening is the current one
   var savedY = 0;
   var lefts = []; // how far each row was scrolled when the grid took the page
   var moving = null; // ends the motion under way
@@ -452,25 +452,62 @@
     }
   }
 
-  /* Shaped as the cards they stand for, as many as the row shows. */
+  function skeletonCard(item) {
+    var card = el('div', 'dlg-skel');
+    card.setAttribute('aria-hidden', 'true');
+    var top = card.appendChild(el('div', 'dlg-skel__top'));
+    top.appendChild(el('span', 'skel dlg-skel__poster'));
+    var words = top.appendChild(el('span', 'dlg-skel__words'));
+    words.appendChild(el('span', 'skel skel--line'));
+    words.appendChild(el('span', 'skel skel--line'));
+    var more = card.appendChild(el('div', 'dlg-skel__more'));
+    more.appendChild(el('span', 'skel skel--line'));
+    // A show's download has its episodes' button under its facts.
+    if (item.kind === 'show') more.appendChild(el('span', 'skel dlg-skel__pill'));
+    return card;
+  }
+
+  /* The grid as the row says it will be: its groups' headings, and a card for each of the row's
+     downloads with the room its band will take. Three cards where the row has said nothing. */
   function skeletons() {
     if (skels) return skels;
-    var n = Math.min(watch.downloading.items().length || 3, 6);
-    skels = [];
-    for (var i = 0; i < n; i++) {
-      var card = el('div', 'dlg-skel');
-      card.setAttribute('aria-hidden', 'true');
-      var top = card.appendChild(el('div', 'dlg-skel__top'));
-      top.appendChild(el('span', 'skel dlg-skel__poster'));
-      var words = top.appendChild(el('span', 'dlg-skel__words'));
-      words.appendChild(el('span', 'skel skel--line'));
-      words.appendChild(el('span', 'skel skel--line'));
-      var more = card.appendChild(el('div', 'dlg-skel__more'));
-      more.appendChild(el('span', 'skel skel--line'));
-      more.appendChild(el('span', 'skel skel--line'));
-      skels.push(card);
-    }
+    var items = watch.downloading.items().slice(0, 6);
+    if (!items.length) items = [{}, {}, {}];
+    var groups = { attention: [], coming: [], looking: [] };
+    items.forEach(function (item) { groups[groupOf(item)].push(item); });
+    skels = { nodes: [], cards: {} };
+    GROUPS.forEach(function (g) {
+      var list = groups[g[0]];
+      if (!list || !list.length) return;
+      var head = el('p', 'grid-group dlg-skel-head');
+      head.setAttribute('aria-hidden', 'true');
+      head.appendChild(el('span', 'skel dlg-skel__label'));
+      skels.nodes.push(head);
+      list.forEach(function (item) {
+        var card = skeletonCard(item);
+        skels.nodes.push(card);
+        if (item.title) skels.cards[nameOf(item.title)] = card;
+      });
+    });
     return skels;
+  }
+
+  function skeletonsHeld() { return !!skels && !!skels.nodes[0].parentNode; }
+
+  /* The placeholders fade where they stood, over the answer's cards fading in. */
+  function fadeAway(nodes, at) {
+    var fade = { duration: core.tokenMs('--dur', 200), easing: ease(), fill: 'forwards' };
+    nodes.forEach(function (n, i) {
+      n.classList.add('is-going');
+      n.style.left = at[i].left + 'px';
+      n.style.top = at[i].top + 'px';
+      n.style.width = at[i].width + 'px';
+      n.style.height = at[i].height + 'px';
+      dom.body.appendChild(n);
+      var a = animate(n, [{ opacity: 1 }, { opacity: 0 }], fade);
+      if (a) a.onfinish = function () { n.remove(); };
+      else n.remove();
+    });
   }
 
   function draw() {
@@ -479,9 +516,14 @@
     var items = data ? (data.hero ? [data.hero] : []).concat(data.queue || []) : [];
     var upcoming = data && setUpIn(data) ? data.upcoming || [] : [];
     var waiting = !data && !lost;
-    var held = !!skels && !!skels[0].parentNode;
+    var held = skeletonsHeld();
+    // Placeholders still growing out of the row land before the answer takes their place.
+    if (held && !waiting && growing) return;
     dom.body.setAttribute('aria-busy', waiting ? 'true' : 'false');
-    setText(dom.count, data ? wordsOf(data, items) : '');
+    var countHeld = dom.count.querySelector('.skel');
+    if (waiting && !countHeld) dom.count.appendChild(el('span', 'skel dlg-skel__count')).setAttribute('aria-hidden', 'true');
+    if (!waiting && countHeld) countHeld.remove();
+    if (!waiting) setText(dom.count, data ? wordsOf(data, items) : '');
     var note = noteOf(data, items);
     if (note) setText(dom.noteText, note);
     dom.note.hidden = !note;
@@ -489,18 +531,25 @@
     var groups = { attention: [], coming: [], looking: [], soon: [] };
     items.forEach(function (item) { groups[groupOf(item)].push(cardOf(item, items)); });
     upcoming.forEach(function (item) { groups.soon.push(soonCardOf(item)); });
-    var want = waiting ? skeletons() : [];
+    var want = waiting ? skeletons().nodes.slice() : [];
     GROUPS.forEach(function (g) {
       if (groups[g[0]].length) want.push(headOf(g[0], g[1], groups[g[0]].length));
       want = want.concat(groups[g[0]]);
     });
+    var swap = held && !waiting && !core.reduceMotion();
+    var leaving = swap ? skels.nodes.filter(function (n) { return n.parentNode; }) : [];
+    var from = dom.body.getBoundingClientRect();
+    var at = leaving.map(function (n) {
+      var r = n.getBoundingClientRect();
+      return { left: r.left - from.left, top: r.top - from.top, width: r.width, height: r.height };
+    });
     place(want);
-    if (held && !waiting && !core.reduceMotion()) {
-      var fade = { duration: core.tokenMs('--dur', 200), easing: ease() };
-      toArray(dom.grid.children).concat(dom.empty.hidden ? [] : [dom.empty]).forEach(function (n) {
-        animate(n, [{ opacity: 0 }, { opacity: 1 }], fade);
-      });
-    }
+    if (!swap) return;
+    var fade = { duration: core.tokenMs('--dur', 200), easing: ease() };
+    toArray(dom.grid.children).concat(dom.empty.hidden ? [] : [dom.empty]).forEach(function (n) {
+      animate(n, [{ opacity: 0 }, { opacity: 1 }], fade);
+    });
+    fadeAway(leaving, at);
   }
 
   /* The grid's nodes in the order of *want*, moving only those out of place; those gone pass
@@ -741,10 +790,11 @@
     sides.down.forEach(function (n) { anims.push(animate(n, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(' + FALL_DOWN + 'px)' }], fall)); });
     var to = gridCards();
     // Placeholders have no titles: each grows out of the row's card in its place.
-    if (skels && skels[0].parentNode) {
-      Object.keys(from).forEach(function (k, n) {
-        var r = skels[n] && skels[n].getBoundingClientRect();
-        if (r && onScreen(r)) to[k] = { node: skels[n], r: r };
+    if (skeletonsHeld()) {
+      Object.keys(from).forEach(function (k) {
+        var card = skels.cards[k];
+        var r = card && card.getBoundingClientRect();
+        if (r && onScreen(r)) to[k] = { node: card, r: r };
       });
     }
     var paired = {};
@@ -784,7 +834,9 @@
     });
     anims = anims.concat(barMoves(savedY, true, D, E));
     document.documentElement.classList.add('is-dl-moving');
+    growing = true;
     play(anims, D, function () {
+      growing = false;
       hidden.forEach(function (n) { n.style.opacity = ''; });
       toArray(dom.grid.querySelectorAll('.is-flyer')).forEach(function (n) { n.classList.remove('is-flyer'); });
       rowsAway(true);
@@ -792,6 +844,7 @@
       document.documentElement.classList.remove('is-dl-moving');
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
       focusTitle(tapped);
+      draw(); // an answer that came while it grew
     });
   }
 
@@ -907,11 +960,10 @@
       ask();
       return;
     }
-    var mine = ++opens;
     var grown = false;
     var go = function () {
-      // A fold and an open since: that open grows it, once.
-      if (grown || !isOpen || mine !== opens) return;
+      // A fold since aborted the asking, which ended this open's wait: a later open has its own.
+      if (grown || !isOpen) return;
       grown = true;
       draw();
       grow();
