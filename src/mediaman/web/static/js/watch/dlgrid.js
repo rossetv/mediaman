@@ -1,7 +1,7 @@
 /* Watch: Downloading, grown out of its row at /?dl=1. Every download gets the row's card, with
  * what the row has no room for under it: the size, what Radarr or Sonarr says is wrong and what
- * comes of it, the last search, its episodes and an admin's buttons. Groups: Needs attention,
- * Downloading, Looking for a copy, Coming soon. While open it reads /api/downloads every 2 s and
+ * comes of it, the last search, its episodes and an admin's buttons. Groups: Ready to watch (for
+ * the minute the row says so), Needs attention, Downloading, Looking for a copy, Coming soon. While open it reads /api/downloads every 2 s and
  * patches each card in place.
  *
  * Every link to it is <a href="/?dl=1" data-dl-open>, which works without JavaScript too. One in
@@ -34,7 +34,7 @@
   var RISE = 26; // px a grid card that was not in the row rises from
   // What the address of anything else that holds the page says; opening Downloading clears it.
   var OTHERS = { all: null, view: null, q: null, genre: null, type: null, where: null, decade: null, person: null, page: null, per_page: null, sort: null };
-  var GROUPS = [['attention', 'Needs attention'], ['coming', 'Downloading'], ['looking', 'Looking for a copy'], ['soon', 'Coming soon']];
+  var GROUPS = [['ready', 'Ready to watch'], ['attention', 'Needs attention'], ['coming', 'Downloading'], ['looking', 'Looking for a copy'], ['soon', 'Coming soon']];
   var ETA = /^~(?:(\d+) hr )?(\d+) (min|sec) remaining$/;
   var TOP_STATES = ['downloading', 'almost_ready', 'needs_attention', 'finding_copy', 'queued', 'searching'];
 
@@ -331,6 +331,19 @@
     return node;
   }
 
+  /* One that is done, as the row has it: the downloads no longer list it. */
+  function readyCardOf(item) {
+    var key = 'ready:' + item.key;
+    var node = cards[key];
+    if (!node) {
+      node = cards[key] = watch.downloading.card(item);
+      node.classList.remove('watch-card');
+      node.classList.add('dwx');
+      node.setAttribute('data-dl-card', '');
+    } else watch.downloading.paint(node, item, false);
+    return node;
+  }
+
   function soonCardOf(item) {
     var key = 'soon:' + item.id;
     var node = cards[key];
@@ -455,13 +468,14 @@
     var data = last;
     var items = data ? (data.hero ? [data.hero] : []).concat(data.queue || []) : [];
     var upcoming = data && setUpIn(data) ? data.upcoming || [] : [];
+    var ready = watch.downloading.items().filter(function (item) { return item.state === 'ready' && item.playable !== false; });
     dom.body.setAttribute('aria-busy', data || lost ? 'false' : 'true');
     setText(dom.count, data ? wordsOf(data, items) : '');
     var note = noteOf(data, items);
     if (note) setText(dom.noteText, note);
     dom.note.hidden = !note;
-    drawEmpty(emptyOf(data, items));
-    var groups = { attention: [], coming: [], looking: [], soon: [] };
+    drawEmpty(emptyOf(data, items.concat(ready)));
+    var groups = { ready: ready.map(readyCardOf), attention: [], coming: [], looking: [], soon: [] };
     items.forEach(function (item) { groups[groupOf(item)].push(cardOf(item, items)); });
     upcoming.forEach(function (item) { groups.soon.push(soonCardOf(item)); });
     var want = [];
@@ -470,6 +484,10 @@
       want = want.concat(groups[g[0]]);
     });
     place(want);
+    // The header's count of what is ready leaves out what has been on show here.
+    if (isOpen && ready.length) {
+      document.dispatchEvent(new CustomEvent('mm:ready-shown', { detail: { keys: ready.map(function (item) { return item.key; }) } }));
+    }
   }
 
   /* The grid's nodes in the order of *want*, moving only those out of place; those gone pass

@@ -315,3 +315,46 @@ def test_the_ring_link_covers_the_ring_and_a_thumb_s_width_but_leaves_the_face_t
     assert "width: 44px" in rule and "height: 44px" in rule
     # a ring-shaped area: the picture inside it is still the profile button's
     assert "clip-path: path(evenodd" in rule
+
+
+def test_the_number_counts_only_what_is_ready_and_not_yet_seen() -> None:
+    out = _run("unseen")
+    # two of three are new; one only added to the library and one downloading are not counted
+    assert out["first"]["count"] == "2"
+    assert out["first"]["badge"] == "2 ready to watch"
+    assert out["first"]["ring"] == "2 ready to watch"
+    assert out["first"]["name"].endswith(", 2 ready to watch")
+    assert out["first"]["menu"] == "2 ready to watch"
+    # what is no longer ready is forgotten
+    assert out["pruned"] == ["radarr::1"]
+
+
+def test_opening_a_title_or_seeing_it_in_downloading_takes_it_off_the_count() -> None:
+    out = _run("unseen")
+    assert out["opened"]["count"] == "1"
+    shown = out["shown"]
+    assert (shown["count"], shown["menu"]) == (None, None)
+    # with nothing new, the ring tells what still downloads
+    assert shown["ring"] == "Downloading, 50%"
+    assert out["kept"] == ["radarr::1", "radarr::2", "radarr::3"]
+    assert out["newTab"] is False
+
+
+def test_a_tap_on_the_number_follows_the_ring_s_link_and_opens_no_menu() -> None:
+    assert _run("badgeTap") == {"followed": ["/?dl=1"], "went": [], "open": False}
+
+
+def test_the_menu_line_of_what_is_ready_is_reached_only_while_it_shows() -> None:
+    assert _run("readyKeys") == {"hidden": "account", "shown": "profile-ready", "href": "/?dl=1"}
+
+
+def test_the_number_scales_out_on_the_spring_and_only_fades_with_reduced_motion() -> None:
+    css = NAV_CSS.read_text()
+    rest = re.search(r"\n\.profile-count\s*\{([^}]*)\}", css).group(1)
+    assert "scale(0)" in rest
+    assert "transform var(--dur) var(--ease-spring" in rest
+    calm = css[css.index("@media (prefers-reduced-motion: reduce)") :]
+    calm = calm[: calm.index("\n}\n")]
+    # the same whether it comes or goes
+    rule = re.search(r"\.profile-count,\s*\.profile-count\.is-on\s*\{([^}]*)\}", calm).group(1)
+    assert "transform: none" in rule and "opacity var(--dur)" in rule

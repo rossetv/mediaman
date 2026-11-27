@@ -4,7 +4,9 @@
  * outside, focus moving away and the sheet's Close button close it. Below 700 px it
  * is a bottom sheet: the rest of the page is inert and does not scroll under it. The
  * fade is CSS; the open state changes at once, and a closed menu is inert while it fades.
- * The button also says how what is downloading stands. */
+ * The button also says how what is downloading stands, and its number how many titles are ready
+ * that this person has not seen yet: in Downloading, or by opening the title. What was seen is
+ * kept in this browser, by the download's key, while the title is still ready. */
 (function () {
   'use strict';
 
@@ -52,7 +54,7 @@
   var FLICK_WINDOW_MS = 80;
 
   function items() {
-    return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
+    return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]')).filter(function (n) { return !n.hasAttribute('hidden'); });
   }
   function buttonOf(target) {
     return target && target.closest ? target.closest('.profile-btn') : null;
@@ -100,6 +102,12 @@
   }
 
   document.addEventListener('click', function (e) {
+    // The number leads where the ring does, not to the menu.
+    if (e.target.closest && e.target.closest('.profile-count.is-on')) {
+      e.preventDefault();
+      ringLink.click();
+      return;
+    }
     var button = buttonOf(e.target);
     if (button && pane) {
       window.MM.you.go('profile');
@@ -242,23 +250,100 @@
     node.classList.toggle('is-waiting', !state.lost && !sum.active && !sum.ready);
   }
 
+  var SEEN_KEY = 'mm:ready-seen';
+  // The menu's line of what is ready, there only while some is new: Downloading is not in the menu.
+  var readyLine = document.createElement('a');
+  readyLine.className = 'profile-item';
+  readyLine.id = 'profile-ready';
+  readyLine.setAttribute('role', 'menuitem');
+  readyLine.setAttribute('tabindex', '-1');
+  readyLine.setAttribute('href', '/?dl=1');
+  readyLine.setAttribute('data-dl-open', '');
+  readyLine.setAttribute('hidden', '');
+  if (window.MM && window.MM.dom) readyLine.appendChild(window.MM.dom.icon('i-play'));
+  var readyWords = readyLine.appendChild(document.createElement('span'));
+  var menuItems = document.getElementById('profile-menu-items');
+  menuItems.insertBefore(readyLine, menuItems.firstChild);
+  var shown = null; // the last state drawn
+  var seen = (function () {
+    try {
+      var kept = JSON.parse(window.localStorage.getItem(SEEN_KEY));
+      return Array.isArray(kept) ? kept : [];
+    } catch (e) { return []; }
+  })();
+
+  function keepSeen(keys) {
+    seen = keys;
+    try { window.localStorage.setItem(SEEN_KEY, JSON.stringify(keys)); } catch (e) { /* not kept */ }
+  }
+
+  function readyOf(state) {
+    return (state.items || []).filter(function (item) { return item.state === 'ready' && item.playable !== false; });
+  }
+
+  // The title open now, by the address the Watch page gives it, or its own page's.
+  function isOpenNow(item) {
+    var at = /^#title=([^&]+)/.exec(window.location.hash || '');
+    var ref = null;
+    try { ref = at && decodeURIComponent(at[1]); } catch (e) { /* not a title */ }
+    if (ref && (ref === item.ref || ref === item.tmdb_ref)) return true;
+    return !!item.href && item.href.indexOf('#') < 0 && item.href === window.location.pathname;
+  }
+
+  /* How many of what is ready have not been seen. Those the answer does not list are counted. */
+  function unseenOf(state) {
+    var ready = readyOf(state);
+    var keys = ready.map(function (item) { return item.key; });
+    var now = seen.concat(ready.filter(isOpenNow).map(function (item) { return item.key; }));
+    // An answer that lists nothing while some are there says nothing of what is no longer ready.
+    var listed = !state.lost && Array.isArray(state.items) && (state.items.length > 0 || !state.summary.total);
+    if (listed) now = now.filter(function (key) { return keys.indexOf(key) >= 0; });
+    now = now.filter(function (key, i) { return now.indexOf(key) === i; });
+    if (now.join('\n') !== seen.join('\n')) keepSeen(now);
+    var fresh = keys.filter(function (key) { return seen.indexOf(key) < 0; }).length;
+    return fresh + Math.max(0, state.summary.ready - ready.length);
+  }
+
+  function see(keys) {
+    var more = (keys || []).filter(function (key) { return seen.indexOf(key) < 0; });
+    if (!more.length) return;
+    keepSeen(seen.concat(more));
+    if (shown) drawDownloads(shown);
+  }
+  document.addEventListener('mm:ready-shown', function (e) { see(e.detail && e.detail.keys); });
+  function looked() { if (shown) drawDownloads(shown); }
+  window.addEventListener('hashchange', looked);
+  window.addEventListener('popstate', looked);
+  // A title opened on Watch changes the address with no event of its own.
+  document.addEventListener('click', function () { window.setTimeout(looked, 0); });
+
   function drawDownloads(state) {
+    shown = state;
     var sum = state.summary;
-    var words = sum.ready ? sum.ready + ' ready to watch'
+    var fresh = unseenOf(state);
+    var words = fresh ? fresh + ' ready to watch'
       : sum.active ? sum.total + (sum.active === sum.total ? ' downloading' : ' in progress')
-      : sum.waiting + ' waiting to download';
+      : sum.waiting ? sum.waiting + ' waiting to download'
+      : sum.ready + ' ready to watch';
+    var told = fresh > 0 && !state.lost;
     button.setAttribute('aria-label', name + (!sum.total ? '' : state.lost ? ', downloads not updating' : ', ' + words));
 
     ringLink.toggleAttribute('hidden', !sum.total);
     if (sum.total) {
       ringLink.setAttribute('aria-label', state.lost ? 'Downloads not updating'
-        : sum.active ? 'Downloading, ' + sum.percent + '%' : words);
+        : sum.active && !told ? 'Downloading, ' + sum.percent + '%' : words);
     }
+    if (told) {
+      count.textContent = fresh;
+      count.setAttribute('title', words);
+      ringLink.setAttribute('title', words);
+    } else ringLink.removeAttribute('title');
+    readyLine.toggleAttribute('hidden', !told);
+    if (told) readyWords.textContent = words;
 
     var was = ring.classList.contains('is-on');
     ring.classList.toggle('is-on', sum.total > 0);
-    count.classList.toggle('is-on', sum.ready > 0 && !state.lost);
-    if (sum.ready) count.textContent = sum.ready;
+    count.classList.toggle('is-on', told);
     if (!sum.total) return; // as it was, while it fades
 
     tone(ring, state);

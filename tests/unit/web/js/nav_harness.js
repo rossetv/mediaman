@@ -4,18 +4,21 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { makeDocument, build, click } = require('./fake_dom.js');
+const { Node, makeDocument, build, click } = require('./fake_dom.js');
+
+Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-function page(isPhone, downloading, reduced, pane) {
+function page(isPhone, downloading, reduced, pane, stored) {
   const doc = makeDocument();
   const button = ['button', { class: 'profile-btn', id: 'button', 'aria-expanded': 'false', 'aria-label': 'Profile menu, robin' },
     ['span', { class: 'avatar' }, 'R'], ['span', { class: 'profile-ring', id: 'ring' }], ['span', { class: 'profile-count', id: 'count' }]];
   const item = (id, tag) => [tag, { id, role: 'menuitem', href: '/' + id, tabindex: '-1' }, id];
   doc.body.appendChild(build(doc, ['header', { id: 'top', class: 'nav-glass' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
-    ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
+    ['div', { id: 'panel', class: 'profile-panel' }, ['div', { class: 'profile-handle', id: 'handle' }], ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]],
+    ['div', { id: 'profile-menu-items' }, item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]]));
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x'],
     ['div', { class: 'dlg__head' }, ['a', { id: 'dl-back', href: '/' }, 'Back']]]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
@@ -23,8 +26,11 @@ function page(isPhone, downloading, reduced, pane) {
   const $ = (id) => doc.getElementById(id);
   $('already-inert').inert = true;
   const media = { matches: isPhone, on: [], addEventListener(t, fn) { this.on.push(fn); } };
-  const win = { listeners: {}, scrollY: 0, location: { hash: '' }, matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
-  if (downloading) win.MM = { downloading };
+  const store = { ...stored };
+  const localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
+  const win = { listeners: {}, scrollY: 0, location: { hash: '', pathname: '/' }, localStorage, setTimeout: (fn) => fn(), matchMedia: (q) => (/reduced-motion/.test(q) ? { matches: !!reduced } : media), addEventListener(t, fn) { win.listeners[t] = fn; } };
+  win.MM = { dom: { icon: () => doc.createElement('svg') } };
+  if (downloading) win.MM.downloading = downloading;
   if (pane) win.MM = { ...win.MM, you: pane };
   win.visualViewport = { height: 800, scale: 1, addEventListener(t, fn) { win.listeners['seen ' + t] = fn; } };
   const images = [];
@@ -42,7 +48,7 @@ function page(isPhone, downloading, reduced, pane) {
     return e;
   };
   return {
-    $, win, media, fire, images, doc, clock,
+    $, win, media, fire, images, doc, clock, store,
     click: (id, extra) => click(doc, $(id), extra),
     key: (key) => fire('keydown', doc.activeElement, { key }),
     focused: () => doc.activeElement.id,
@@ -336,6 +342,62 @@ const scenarios = {
     p.$('button').focus();
     const arrow = p.key('ArrowDown');
     return { went, open: p.open(), arrowed: arrow.prevented, popup: p.$('button').getAttribute('aria-haspopup'), controls: p.$('button').getAttribute('aria-controls') };
+  },
+  // Only what is ready and not seen yet is counted: seen in Downloading, or with its title opened.
+  unseen() {
+    let tell;
+    const went = [];
+    const stored = { 'mm:ready-seen': JSON.stringify(['radarr::1', 'radarr::gone']) };
+    const p = page(false, { subscribe(fn) { tell = fn; } }, false, null, stored);
+    const ready = (n) => ({ key: 'radarr::' + n, state: 'ready', playable: true, ref: 'tmdb-movie-' + n, tmdb_ref: 'tmdb-movie-' + n, href: '/#title=tmdb-movie-' + n });
+    const items = [ready(1), ready(2), ready(3), { key: 'radarr::4', state: 'ready', playable: false }, { key: 'radarr::5', state: 'downloading' }];
+    const state = { summary: { total: 5, active: 1, waiting: 1, ready: 3, percent: 50 }, items };
+    const link = () => p.doc.querySelector('[data-dl-open]');
+    const look = () => ({
+      count: p.$('count').classList.contains('is-on') ? p.$('count').textContent : null,
+      badge: p.$('count').getAttribute('title'),
+      ring: link().getAttribute('aria-label'),
+      name: p.$('button').getAttribute('aria-label'),
+      menu: p.$('profile-ready').hasAttribute('hidden') ? null : p.$('profile-ready').textContent,
+    });
+    tell(state);
+    const out = { first: look(), pruned: JSON.parse(p.store['mm:ready-seen']) };
+    p.win.location.hash = '#title=tmdb-movie-2';
+    p.win.listeners.hashchange();
+    out.opened = look();
+    p.fire('mm:ready-shown', p.doc, { detail: { keys: ['radarr::3'] } });
+    out.shown = look();
+    out.kept = JSON.parse(p.store['mm:ready-seen']).sort();
+    // A new tab remembers it.
+    let again;
+    const q = page(false, { subscribe(fn) { again = fn; } }, false, null, p.store);
+    again(state);
+    out.newTab = q.$('count').classList.contains('is-on');
+    return out;
+  },
+  // A tap on the number goes where the ring leads, and opens neither the menu nor the pane.
+  badgeTap() {
+    let tell;
+    const went = [];
+    const p = page(false, { subscribe(fn) { tell = fn; } }, false, { go: (to) => went.push(to) });
+    tell({ summary: { total: 1, active: 0, waiting: 0, ready: 1, percent: 100 }, items: [{ key: 'radarr::1', state: 'ready', playable: true }] });
+    const followed = [];
+    p.doc.addEventListener('click', (e) => { if (e.target.hasAttribute && e.target.hasAttribute('data-dl-open')) followed.push(e.target.getAttribute('href')); });
+    p.click('count');
+    return { followed, went, open: p.open() };
+  },
+  // The menu's line of what is ready is passed over by the arrows while it is hidden.
+  readyKeys() {
+    let tell;
+    const p = page(false, { subscribe(fn) { tell = fn; } });
+    p.click('button');
+    const out = { hidden: p.focused() };
+    p.click('button');
+    tell({ summary: { total: 1, active: 0, waiting: 0, ready: 1, percent: 100 }, items: [{ key: 'radarr::1', state: 'ready', playable: true }] });
+    p.click('button');
+    out.shown = p.focused();
+    out.href = p.$('profile-ready').getAttribute('href');
+    return out;
   },
   // Nothing tells of downloads: the rest of the bar works.
   noDownloads() {

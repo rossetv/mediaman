@@ -182,7 +182,7 @@ function load(opts) {
       if (typeof a === 'number') return Promise.resolve({ ok: false, status: a, redirected: false, json: () => Promise.resolve({}) });
       return Promise.resolve({ ok: true, status: 200, redirected: false, json: () => Promise.resolve(JSON.parse(JSON.stringify(a))) });
     },
-    CustomEvent: class { constructor(t) { this.type = t; } },
+    CustomEvent: class { constructor(t, init) { this.type = t; this.detail = init && init.detail; } },
     UIFeedback: { toast() {}, error() {} },
     MM: {},
   };
@@ -679,6 +679,19 @@ const scenarios = {
     await p.step(400);
     const of = (n) => [n.querySelector('.dw__link').getAttribute('href'), n.querySelector('.dw__art').getAttribute('src')];
     return { ember: of(p.card('Ember Coast')), twins: p.qa('#watch-dl .dwx').filter((n) => p.text(n.querySelector('.dw__title')) === 'Twin').map(of) };
+  },
+  // A title that is done leads the grid, under a heading of its own, and the grid says it showed it.
+  async readyLeads() {
+    const done = row('Harbour', { state: 'ready', percent: 100, ready_seconds: 40, playable: true });
+    const p = load({ strip: [strip([done, row('Ember Coast')])], all: [all([dl('Ember Coast')])] });
+    const told = [];
+    p.doc.addEventListener('mm:ready-shown', (e) => told.push(e.detail.keys));
+    await p.step(1100);
+    const closed = told.length;
+    p.click(p.q('#elsewhere'));
+    await p.step(400);
+    const order = p.qa('#watch-dl .grid-group, #watch-dl [data-dl-card]').map((n) => (n.classList.contains('grid-group') ? '# ' : '') + p.text(n.querySelector(n.classList.contains('grid-group') ? 'span' : '.dw__title')));
+    return { closed, order, told: told[told.length - 1], href: p.card('Harbour').querySelector('.dw__link').getAttribute('href') };
   },
 };
 

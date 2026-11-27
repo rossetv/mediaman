@@ -403,3 +403,13 @@ def test_closed_and_opened_again_before_the_answer_it_grows_once_and_keeps_the_r
 def test_a_deep_link_focuses_the_heading_with_no_ring_and_a_press_with_one(out) -> None:
     assert out["deepLink"]["quiet"] is True
     assert out["opensFromTheRow"]["quiet"] is False
+
+
+def test_a_title_that_is_done_leads_the_grid_and_the_grid_says_it_showed_it(out) -> None:
+    got = out["readyLeads"]
+    assert got["order"][:3] == ["# Ready to watch", "Harbour", "# Downloading"]
+    # its card opens the title, not the grid again
+    assert got["href"] == "/watch#title=tmdb-movie-7"
+    # told only once it is on screen
+    assert got["closed"] == 0
+    assert got["told"] == ["radarr:Harbour"]
