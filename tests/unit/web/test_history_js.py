@@ -418,3 +418,14 @@ def test_each_kind_of_event_counts_what_it_holds_under_the_other_filters() -> No
         "pills": ["All", "Kept1,200", "Plays3"],
         "label": "Kept: 1,200",
     }
+
+
+def test_a_kind_of_event_with_none_shows_no_count_so_the_row_stays_short() -> None:
+    out = _run("kindZero")
+    assert out["first"] == [["All", None], ["Kept4", "Kept: 4"], ["Plays", None]]
+    # a count that falls to none takes its label with it
+    assert out["then"] == [["All", None], ["Kept", None], ["Plays2", "Plays: 2"]]
+
+
+def test_the_keyboard_clears_the_tools_by_their_own_height_as_it_changes() -> None:
+    assert _run("toolsHeight") == "196px"

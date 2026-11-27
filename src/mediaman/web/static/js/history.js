@@ -737,6 +737,12 @@
       if (cursor && more.getBoundingClientRect().top < bottom + 300) loadMore(false);
     }
 
+    // What the keyboard brings into view clears the tools, however many lines their pills take.
+    if (window.ResizeObserver) {
+      var view = root.closest('.you-view');
+      if (view) new window.ResizeObserver(function () { view.style.setProperty('--hx-tools', tools.offsetHeight + 'px'); }).observe(tools);
+    }
+
     function onScroll() {
       tools.classList.toggle('is-stuck', scrollEl.scrollTop > 0);
       near();
@@ -788,8 +794,10 @@
         var pill = MM.dom.findByAttr(groupsBox, 'data-group', o.value);
         var small = pill && pill.querySelector('small');
         if (!small) return;
-        small.textContent = o.count.toLocaleString('en-GB');
-        pill.setAttribute('aria-label', o.label + ': ' + small.textContent);
+        // A kind with none says no count, so the row stays short enough to fit.
+        small.textContent = o.count ? o.count.toLocaleString('en-GB') : '';
+        if (o.count) pill.setAttribute('aria-label', o.label + ': ' + small.textContent);
+        else pill.removeAttribute('aria-label');
       });
     }
 

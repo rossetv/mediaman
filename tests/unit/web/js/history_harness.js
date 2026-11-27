@@ -49,6 +49,7 @@ function open(opts) {
   const asked = [];
   const menus = [];
   const kinds = [];
+  const sizes = [];
   const listeners = {};
   const win = {
     location: { href: 'http://mm.test/?you=history' },
@@ -60,6 +61,7 @@ function open(opts) {
     getComputedStyle: (n) => ({ visibility: n.matches('.hx-x') && !n.parentNode.matches('.has-q') ? 'hidden' : 'visible', animationDuration: '0.2s', animationTimingFunction: 'ease', top: '52px' }),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     scrollTo() {}, AbortController,
+    ResizeObserver: class { constructor(fn) { sizes.push(fn); } observe(node) { this.node = node; } },
     UIFeedback: { toast: (m) => toasts.push(m), error: (m) => toasts.push('error: ' + m) },
   };
   /* The pane's place in the address is the shell's: the page writes none of its own. */
@@ -119,7 +121,7 @@ function open(opts) {
   const input = root.querySelector('input');
   const fire = (el, type, e) => (el.listeners[type] || []).forEach((fn) => fn({ target: el, preventDefault() {}, ...e }));
   return {
-    doc, win, root, more, toasts, copied, steps, own, asked, menus, kinds, timers, q, input, fire, scroller, listeners, url, run,
+    doc, win, root, view, sizes, more, toasts, copied, steps, own, asked, menus, kinds, timers, q, input, fire, scroller, listeners, url, run,
     show: (on) => { shown = on; fire(doc, on ? 'mm:you-shown' : 'mm:you-hidden', { detail: { group: 'history', view: 'history' } }); },
     rows: () => root.querySelectorAll('.hist'),
     ids: () => root.querySelectorAll('.hist').map((r) => r.getAttribute('data-event')),
@@ -737,6 +739,27 @@ const scenarios = {
     h.kinds[0].resolve(counted({ kept: 1, plays: 1 }));
     await settle();
     return { first, next, pills: pills(), label: h.q('[data-group="kept"]').getAttribute('aria-label') };
+  },
+  kindZero: async () => {
+    const h = open({});
+    const pills = () => h.root.querySelectorAll('[data-group]').map((b) => [b.textContent, b.getAttribute('aria-label')]);
+    const counted = (o) => ({ options: Object.keys(o).map((v) => ({ value: v, label: v === 'kept' ? 'Kept' : 'Plays', count: o[v] })) });
+    h.kinds[0].resolve(counted({ kept: 4, plays: 0 }));
+    await settle();
+    const first = pills();
+    h.pick('action', 'plays');
+    h.asked[h.asked.length - 1].resolve(page([8], null));
+    await settle();
+    h.kinds[1].resolve(counted({ kept: 0, plays: 2 }));
+    await settle();
+    return { first, then: pills() };
+  },
+  toolsHeight: () => {
+    const h = open({});
+    const tools = h.q('.hx-tools');
+    Object.defineProperty(tools, 'offsetHeight', { get: () => 196 });
+    h.sizes.forEach((fn) => fn());
+    return h.view.style['--hx-tools'] || null;
   },
   handTyped: () => ['?since=20261110', '?since=2026-11-12%2010:00', '?since=2026-02-30', '?until=2026-02-30T10:00', '?since=2026-11-01T24:00', '?since=2026-11-01'].map((search) => {
     const h = open({ search });

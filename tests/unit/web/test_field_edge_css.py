@@ -1,4 +1,5 @@
-"""A field's edge, the bars the keyboard must stay clear of, and All titles' grid on a phone, read as rules."""
+"""A field's edge and the room between fields, the bars the keyboard must stay clear of, History's row of
+kinds, and All titles' grid on a phone, read as rules."""
 
 from __future__ import annotations
 
@@ -89,9 +90,26 @@ def test_in_the_history_pane_the_keyboard_lands_clear_of_the_tools_but_their_own
     None
 ):
     view = '.you-view[data-view="history"]'
-    assert re.search(r"scroll-padding-top: [1-9]\d+px", _of(view, "_history.css"))
+    # The tools' own height, as history.js measures it; before that, no less than they stand: one
+    # line of pills under the search is 153px wide, and 178px on a phone, where the count wraps.
+    clear = r"scroll-padding-top: calc\(var\(--hx-tools, (\d+)px\) \+ [1-9]\d*px\)"
+    wide = re.search(clear, _of(view, "_history.css"))
+    phone = re.search(clear, _of(view, "_history.css", "(max-width: 699.98px)"))
+    assert wide and int(wide[1]) >= 153, _of(view, "_history.css")
+    assert phone and int(phone[1]) >= 178
     held = view + ":has(.hx-tools:focus-within)"
     assert "scroll-padding-top: 0" in _of(held, "_history.css")
+
+
+def test_on_a_wide_pane_historys_kinds_wrap_rather_than_run_past_its_edge() -> None:
+    assert "flex-wrap: wrap" in _of(".hx-groups", "_history.css", "(min-width: 700px)")
+
+
+def test_the_password_views_fields_keep_no_empty_room_for_a_reason_until_one_is_said() -> None:
+    why = _of(".pwd--pane .pwd-why", "_password.css")
+    assert "min-height: 0" in why and "padding: 0" in why
+    assert "content: none" in _of(".pwd--pane .pwd-why::before", "_password.css")
+    assert re.search(r"margin: 0[;\s]", _of(".pwd--pane .pwd-rules", "_password.css"))
 
 
 def test_under_a_short_window_history_panes_tools_and_all_titles_head_go_with_the_list() -> None:
