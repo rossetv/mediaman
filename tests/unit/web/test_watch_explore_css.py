@@ -65,12 +65,13 @@ def test_a_persons_dates_placeholder_keeps_its_margins_inside_so_it_is_as_tall_a
     assert height + 2 * margin <= float(born[1]) * int(born[2])
 
 
-def test_on_a_phone_a_state_badge_is_tight_enough_for_ready_to_watch_to_fit_a_poster() -> None:
-    css = (CSS / "_watch_browse.css").read_text()
+def test_on_a_narrow_poster_a_state_badge_is_tighter_than_its_phone_padding_and_gap() -> None:
+    css = (CSS / "_watch.css").read_text()
     rule = re.search(
-        r"@media \(max-width: 599\.98px\) \{ \.watch-badge\.watch-badge--state \{([^}]*)\} \}", css
+        r"@container poster \(max-width: [\d.]+px\) \{\s*\.watch-card__poster > \.watch-badge--state \{([^}]*)\}",
+        css,
     )
     assert rule
     pad = int(re.search(r"padding-inline: (\d+)px", rule[1])[1])
     gap = int(re.search(r"gap: (\d+)px", rule[1])[1])
-    assert 2 * pad + gap <= 12
+    assert pad < 7 and gap < 4
