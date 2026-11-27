@@ -1,178 +1,184 @@
-{# The Profile pane over Watch: one view for each place of it. account.js, profile-picture.js and profile-plex.js run it. #}
+{# The Profile pane over Watch: a hub, and one view for each place of it. account.js, profile-picture.js and profile-plex.js run it. #}
 {% import "_components.html" as c %}
 {% import "_password.html" as pw %}
+{% macro row(view, icon, tone, label, id, value="") -%}
+<button type="button" class="yo-row" data-you-go="{{ view }}" id="{{ id }}"><span class="yo-row__ico yo-ico--{{ tone }}">{{ c.icon(icon) }}</span><span class="yo-row__label">{{ label }}</span><span class="yo-row__value" data-row-value>{{ value }}</span>{{ c.icon("i-chevron-right", "yo-row__chev") }}</button>
+{%- endmacro %}
 <div data-you-group="profile" data-styles="/static/css/_password.css?v={{ static_v }}" data-scripts="/static/js/core/reauth.js?v={{ static_v }} /static/js/password-form.js?v={{ static_v }} /static/js/settings/rows.js?v={{ static_v }} /static/js/account.js?v={{ static_v }} /static/js/profile-picture.js?v={{ static_v }} /static/js/profile-plex.js?v={{ static_v }}">
-<div class="setg-pg profile-pg">
-  <div class="container">
-    <div class="you-view" data-view="profile" data-title="Profile">
-      <div class="me-head">
-        <button type="button" class="me-pic" id="pic-open" aria-label="Change your picture">
-          <span class="avatar avatar--pic" aria-hidden="true"><img src="{{ picture.url }}" alt=""></span>
-          <span class="me-pic-badge">{{ c.icon("i-camera") }}</span>
-        </button>
-        <div class="me-id">
-          <h1>{{ username }}</h1>
-          <p class="me-role">{{ "Admin" if role == "admin" else "Viewer" }}</p>
-        </div>
-      </div>
-
-      <section class="me-sec fade-in" id="account-ai" aria-labelledby="me-ai" hidden>
-        <h2 id="me-ai">AI suggestions</h2>
-        <div class="me-card">
-          <div class="me-row">
-            <div class="me-line me-line--switch">
-              <div class="me-txt">
-                <div class="me-lbl" id="account-history-lbl">Use my history</div>
-                <div class="me-sub">
-                  <p id="account-history-sub">OpenAI bases your picks on the titles you played, here and in Plex’s own apps once your Plex account is linked. With this on, it also gets your searches, ratings and requests. It never gets your account name.</p>
-                  <details class="fold-more" id="account-history-more">
-                    <summary id="account-history-more-toggle">What OpenAI gets {{ c.icon("i-chevron-down") }}</summary>
-                    <div>
-                      <p class="fold-more-head">Always:</p>
-                      <ul class="fold-more-list">
-                        <li>The titles you played, and your recent picks.</li>
-                        <li>The titles OpenAI suggested before, with their year, description and reason, for it to choose from.</li>
-                        <li>For your picks, which of the titles you played led to each one it suggested.</li>
-                        <li>Your stars in Plex, if your Plex account is linked and you own the Plex server.</li>
-                        <li>When you ask in search, your question, or the title and year you want more like.</li>
-                        <li>When you narrow an answer, your choice and the titles it already gave.</li>
-                      </ul>
-                      <p class="fold-more-head">Only with this on:</p>
-                      <ul class="fold-more-list">
-                        <li>For picks, your searches, ratings and requests, and how your plays went: finished, watched again or stopped part way.</li>
-                        <li>For questions in search, and the daily phrases to try there, your searches, plays, and the titles you liked and disliked.</li>
-                      </ul>
-                      <p class="fold-more-head">Never:</p>
-                      <ul class="fold-more-list">
-                        <li>Your account name.</li>
-                        <li>A title you marked as watched but did not play.</li>
-                      </ul>
-                    </div>
-                  </details>
-                </div>
-              </div>
-              <div class="me-end">
-                <button type="button" class="tog" id="account-history" role="switch" aria-checked="false" aria-labelledby="account-history-lbl" aria-describedby="account-history-sub"></button>
-              </div>
-            </div>
-          </div>
-          <div class="me-row">
-            <div class="me-line">
-              <div class="me-txt">
-                <div class="me-lbl">Recent searches</div>
-                <div class="me-sub" id="account-clear-sub">Shown in search, to you alone. Clearing them also clears the phrases and answers the AI made for you.</div>
-              </div>
-              <div class="me-end">
-                <button class="btn btn--ghost btn--sm" type="button" id="account-clear-searches" aria-label="Clear recent searches" aria-describedby="account-clear-sub">Clear</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-    <div class="you-view" data-view="profile/email" data-title="Email">
-      <section class="me-sec" aria-labelledby="me-account">
-        <h2 id="me-account">Account</h2>
-        <div class="me-card">
-          <form class="me-row" id="account-email-form" method="post" novalidate>
-            <div class="me-line me-line--stack">
-              <div class="me-txt">
-                <label class="me-lbl" for="account-email">Email</label>
-                <div class="me-sub" id="account-email-sub">{% if mail_ready %}Where download alerts go. Leave empty to turn them off.{% elif role == "admin" %}Email isn't set up, so no alerts are sent. Set it up under Email (Mailgun) in Settings.{% else %}Email isn't set up on this server, so no alerts are sent. Ask an admin.{% endif %}</div>
-              </div>
-              <div class="me-end">
-                <input class="inp" type="email" id="account-email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="{{ email or '' }}" aria-describedby="account-email-sub account-email-result">
-              </div>
-            </div>
-            <div class="setg-fold is-shut" id="account-email-fold" hidden>
-              <div class="setg-fold-inner">
-                <div class="me-acts me-acts--end">
-                  <span class="me-msg" id="account-email-result" role="status"></span>
-                  <button class="btn btn--ghost btn--sm" type="button" id="account-cancel-email">Cancel</button>
-                  <button class="btn btn--primary btn--sm" type="submit" id="account-submit-email">Save</button>
-                </div>
-              </div>
-            </div>
-          </form>
-        </div>
-      </section>
-    </div>
-    <div class="you-view" data-view="profile/password" data-title="Password">
-      <div class="me-card">
-        <div class="me-row">
-          <div class="me-line">
-            <div class="me-txt">
-              <div class="me-lbl">Password</div>
-              <div class="me-sub" id="account-password-sub">{% if password_changed %}Changed <time id="account-password-changed" datetime="{{ password_changed.at }}">{{ password_changed.text }}</time>. {% endif %}<span>A new one signs out your other devices and your TVs.</span></div>
-            </div>
-            <div class="me-end">
-              <button class="btn btn--ghost btn--sm" type="button" id="account-open-password" aria-expanded="false" aria-controls="account-password-fold">Change password</button>
-            </div>
-          </div>
-          <div class="setg-fold is-shut" id="account-password-fold" hidden>
-            <div class="setg-fold-inner">
-              <div class="me-pw-pad">
-                <div class="pwd-stage" id="account-password-stage">
-                  <form class="pwd pwd--row" id="account-password-form" method="post" novalidate>
-                    {{ pw.username_hint(username) }}
-                    <div class="pwd-in">
-                      {{ pw.field("account-old-password", "old_password", "old", "Current password", "current password", "current-password",
-                                  "Too many wrong tries. Try again in 15 minutes.") }}
-                      {{ pw.field("account-new-password", "new_password", "new", "New password", "new password", "new-password",
-                                  "This password is on the common-password list.") }}
-                      {{ pw.rules("account-new-password", same=true) }}
-                      {{ pw.aside("account-password-result", "Signs out your other devices and your TVs.", "i-laptop") }}
-                      <div class="pwd-btns">
-                        <button class="btn btn--ghost" type="button" id="account-cancel-password" data-cancel>Cancel</button>
-                        <button class="btn btn--primary" type="submit" id="account-submit-password">Save new password</button>
-                      </div>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </div>
-          </div>
-          <span class="sr-only" id="account-password-live" role="status"></span>
-        </div>
+  <div class="you-view" data-view="profile" data-title="Profile">
+    <div class="yo-head">
+      <button type="button" class="yo-pic" id="pic-open" aria-label="Change your picture">
+        <span class="avatar avatar--pic" aria-hidden="true"><img src="{{ picture.url }}" alt=""></span>
+        <span class="yo-pic__badge">{{ c.icon("i-camera") }}</span>
+      </button>
+      <div class="yo-head__text">
+        <h1 class="yo-name">{{ username }}</h1>
+        <p class="yo-role"><span class="yo-role__pill{% if role == 'admin' %} is-admin{% endif %}">{{ "Admin" if role == "admin" else "Viewer" }}</span><span class="yo-mail" id="account-head-email"{% if not email %} hidden{% endif %}>{{ email or '' }}</span></p>
       </div>
     </div>
-    <div class="you-view" data-view="profile/plex" data-title="Plex account">
-      <section class="me-sec" id="plex" aria-labelledby="me-plex" tabindex="-1">
-        <h2 id="me-plex">Plex account</h2>
-        <div class="me-card">
-          <div class="me-row">{% include "_profile_plex.html" %}</div>
-        </div>
-      </section>
-    </div>
-    <div class="you-view" data-view="profile/devices" data-title="Devices &amp; TVs">
-      <section class="me-sec fade-in" id="account-tvs" data-me="{{ username }}" aria-labelledby="me-tvs" hidden>
-        <h2 id="me-tvs">Your TVs</h2>
-        <div class="me-card"><ul class="dev-list" role="list" aria-labelledby="me-tvs" tabindex="-1"></ul></div>
-      </section>
-{% if role == "admin" %}
-      <section class="me-sec fade-in" id="account-tvs-all" aria-labelledby="me-tvs-all" hidden>
-        <h2 id="me-tvs-all">Other people’s TVs</h2>
-        <div class="me-card"><ul class="dev-list" role="list" aria-labelledby="me-tvs-all" tabindex="-1"></ul></div>
-      </section>
-{% endif %}
 
-      <section class="me-sec" aria-labelledby="me-devices">
-        <h2 id="me-devices">Where you’re signed in</h2>
-        <div class="me-card">
-          <ul class="dev-list" id="account-sessions" role="list" aria-label="Your sign-ins" tabindex="-1" aria-busy="true">
-            {% for _ in range(2) %}
-            <li class="dev"><span class="dev-ico"></span><div class="me-txt"><div class="dev-skel"></div><div class="dev-skel dev-skel--long"></div></div></li>
-            {% endfor %}
-          </ul>
-          <div class="dev-foot">
-            <button class="btn btn--secondary btn--sm" type="button" id="account-revoke-others" aria-describedby="account-revoke-why" disabled>Sign out other devices</button>
-            <span class="me-msg" id="account-revoke-why" hidden>This is your only sign-in.</span>
-            <span class="me-msg" id="account-revoke-result" role="status"></span>
-          </div>
-        </div>
-      </section>
+    <div class="yo-tiles{% if role != 'admin' %} is-one{% endif %}">
+      <button type="button" class="yo-tile" data-you-go="history"><span class="yo-tile__ico yo-ico--blue">{{ c.icon("i-clock-rotate-left") }}</span><span class="yo-tile__name">History</span><span class="yo-tile__sub">What was played, downloaded and kept</span></button>
+      {% if role == "admin" %}
+      <button type="button" class="yo-tile" data-you-go="settings"><span class="yo-tile__ico yo-ico--grey">{{ c.icon("i-gear") }}</span><span class="yo-tile__name">Settings</span><span class="yo-tile__sub">Libraries, services, clean-up and people</span></button>
+      {% endif %}
     </div>
+
+    <h2 class="yo-group__head">Account</h2>
+    <div class="yo-group">
+      {{ row("profile/email", "i-envelope", "blue", "Email", "account-row-email", email or "Not set") }}
+      {{ row("profile/password", "i-lock", "orange", "Password", "account-open-password") }}
+    </div>
+
+    <h2 class="yo-group__head">Connected</h2>
+    <div class="yo-group">
+      {{ row("profile/plex", "i-play", "yellow", "Plex account", "account-row-plex") }}
+      {{ row("profile/devices", "i-laptop", "green", "Devices & TVs", "account-row-devices") }}
+    </div>
+
+    <section class="fade-in" id="account-ai" aria-labelledby="me-ai" hidden>
+      <h2 class="yo-group__head" id="me-ai">AI suggestions</h2>
+      <div class="yo-group">
+        <div class="yo-row yo-row--top">
+          <span class="yo-row__ico yo-ico--purple">{{ c.icon("i-sparkles") }}</span>
+          <div class="yo-row__label">
+            <div id="account-history-lbl">Use my history</div>
+            <div class="yo-row__sub">
+              <p id="account-history-sub">OpenAI bases your picks on the titles you played, here and in Plex’s own apps once your Plex account is linked. With this on, it also gets your searches, ratings and requests. It never gets your account name.</p>
+              <details class="fold-more" id="account-history-more">
+                <summary id="account-history-more-toggle">What OpenAI gets {{ c.icon("i-chevron-down") }}</summary>
+                <div>
+                  <p class="fold-more-head">Always:</p>
+                  <ul class="fold-more-list">
+                    <li>The titles you played, and your recent picks.</li>
+                    <li>The titles OpenAI suggested before, with their year, description and reason, for it to choose from.</li>
+                    <li>For your picks, which of the titles you played led to each one it suggested.</li>
+                    <li>Your stars in Plex, if your Plex account is linked and you own the Plex server.</li>
+                    <li>When you ask in search, your question, or the title and year you want more like.</li>
+                    <li>When you narrow an answer, your choice and the titles it already gave.</li>
+                  </ul>
+                  <p class="fold-more-head">Only with this on:</p>
+                  <ul class="fold-more-list">
+                    <li>For picks, your searches, ratings and requests, and how your plays went: finished, watched again or stopped part way.</li>
+                    <li>For questions in search, and the daily phrases to try there, your searches, plays, and the titles you liked and disliked.</li>
+                  </ul>
+                  <p class="fold-more-head">Never:</p>
+                  <ul class="fold-more-list">
+                    <li>Your account name.</li>
+                    <li>A title you marked as watched but did not play.</li>
+                  </ul>
+                </div>
+              </details>
+            </div>
+          </div>
+          <button type="button" class="tog" id="account-history" role="switch" aria-checked="false" aria-labelledby="account-history-lbl" aria-describedby="account-history-sub"></button>
+        </div>
+        <div class="yo-row">
+          <span class="yo-row__ico">{{ c.icon("i-magnifying-glass") }}</span>
+          <div class="yo-row__label">Recent searches<small id="account-clear-sub">Shown in search, to you alone. Clearing them also clears the phrases and answers the AI made for you.</small></div>
+          <button class="yo-mini" type="button" id="account-clear-searches" aria-label="Clear recent searches" aria-describedby="account-clear-sub">Clear</button>
+        </div>
+      </div>
+    </section>
+
+    <form class="yo-out" id="account-logout" method="post" action="/api/auth/logout">
+      <button type="submit" class="yo-out__btn">{{ c.icon("i-right-from-bracket") }}Log out</button>
+    </form>
   </div>
-</div>
-{% include "_profile_picture.html" %}
+
+  <div class="you-view" data-view="profile/picture" data-title="Picture" id="pic-dialog"
+       data-choice="{{ picture.choice or '' }}" data-default="{{ picture.default }}"{% if picture.photo %} data-photo="{{ picture.url }}"{% endif %}>
+    <div class="pic-bd" id="pic-body">
+      <div class="pic-pane yo-pick" id="pic-pick">
+        <div class="pic-error" id="pic-error" role="alert"></div>
+        <div class="yo-pick__now"><span class="avatar avatar--pic" aria-hidden="true"><img src="{{ picture.url }}" alt="" id="pic-now"></span></div>
+        <p class="yo-note yo-note--center" id="pic-kind"></p>
+        <div class="yo-pick__acts">
+          <button type="button" class="btn btn--secondary" id="pic-upload">{{ c.icon("i-image") }}Upload a photo</button>
+          <button type="button" class="btn btn--ghost" id="pic-remove" hidden>Remove</button>
+        </div>
+        <fieldset class="yo-pick__grid">
+          <legend>Or pick one</legend>
+          {% for url, face in picture.drawn %}
+          <label class="yo-face"><input type="radio" name="picture" value="{{ loop.index }}" aria-label="{{ face }}"><img alt="" src="{{ url }}"></label>
+          {% endfor %}
+        </fieldset>
+        <div class="yo-foot"><button type="button" class="btn btn--primary" id="pic-save" disabled>Save picture</button></div>
+      </div>
+      <div class="pic-pane yo-pick" id="pic-place" hidden>
+        <h2 class="yo-group__head" id="pic-title">Place your photo</h2>
+        <div class="pic-crop" id="pic-crop" tabindex="0" role="application" aria-label="Your photo in its circle. Arrow keys move it, plus and minus zoom."><canvas width="640" height="640"></canvas></div>
+        <label class="pic-zoom"><span>Zoom</span><input type="range" min="100" max="400" value="100" id="pic-zoom"></label>
+        <p class="yo-note yo-note--center">Drag to move it.</p>
+        <div class="yo-foot yo-foot--two">
+          <button type="button" class="btn btn--ghost" id="pic-back">Back</button>
+          <button type="button" class="btn btn--primary" id="pic-use">Use photo</button>
+        </div>
+      </div>
+    </div>
+    <input type="file" hidden id="pic-file" accept="image/jpeg,image/png,image/webp">
+  </div>
+
+  <div class="you-view" data-view="profile/email" data-title="Email">
+    <form class="yo-form" id="account-email-form" method="post" novalidate>
+      <div class="yo-field">
+        <label class="yo-field__label" for="account-email">Email for alerts</label>
+        <input class="inp" type="email" id="account-email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="{{ email or '' }}" aria-describedby="account-email-sub account-email-result">
+        <span class="me-msg" id="account-email-result" role="status"></span>
+      </div>
+      <div class="yo-note" id="account-email-sub">{% if mail_ready %}Where download alerts go. Leave empty to turn them off.{% elif role == "admin" %}Email isn't set up, so no alerts are sent. Set it up under Email (Mailgun) in Settings.{% else %}Email isn't set up on this server, so no alerts are sent. Ask an admin.{% endif %}</div>
+      <div class="yo-foot"><button class="btn btn--primary" type="submit" id="account-submit-email" disabled>Save email</button></div>
+    </form>
+  </div>
+
+  <div class="you-view" data-view="profile/password" data-title="Password">
+    <div class="pwd-stage yo-form" id="account-password-stage">
+      <form class="pwd pwd--pane yo-form" id="account-password-form" method="post" novalidate>
+        {{ pw.username_hint(username) }}
+        <div class="pwd-in">
+          {{ pw.field("account-old-password", "old_password", "old", "Current password", "current password", "current-password",
+                      "Too many wrong tries. Try again in 15 minutes.") }}
+          {{ pw.field("account-new-password", "new_password", "new", "New password", "new password", "new-password",
+                      "This password is on the common-password list.") }}
+          {{ pw.rules("account-new-password", same=true) }}
+          <div class="yo-note" id="account-password-sub">{% if password_changed %}Changed <time id="account-password-changed" datetime="{{ password_changed.at }}">{{ password_changed.text }}</time>. {% endif %}<span>A new one signs out your other devices and your TVs.</span></div>
+          {{ pw.aside("account-password-result") }}
+        </div>
+        <div class="yo-foot"><button class="btn btn--primary" type="submit" id="account-submit-password">Save new password</button></div>
+      </form>
+    </div>
+    <span class="sr-only" id="account-password-live" role="status"></span>
+  </div>
+
+  <div class="you-view" data-view="profile/plex" data-title="Plex account">
+    <section class="yo-plex" id="plex" aria-label="Plex account" tabindex="-1">
+      {% include "_profile_plex.html" %}
+    </section>
+  </div>
+
+  <div class="you-view" data-view="profile/devices" data-title="Devices &amp; TVs">
+    <section aria-labelledby="me-devices">
+      <h2 class="yo-group__head" id="me-devices">Where you’re signed in</h2>
+      <ul class="yo-group dev-list" id="account-sessions" role="list" aria-label="Your sign-ins" tabindex="-1" aria-busy="true">
+        {% for _ in range(2) %}
+        <li class="dev"><span class="dev-ico"></span><div class="me-txt"><div class="dev-skel"></div><div class="dev-skel dev-skel--long"></div></div></li>
+        {% endfor %}
+      </ul>
+      <div class="dev-foot">
+        <button class="yo-wide-btn" type="button" id="account-revoke-others" aria-describedby="account-revoke-why" disabled>Sign out other devices</button>
+        <span class="me-msg" id="account-revoke-why" hidden>This is your only sign-in.</span>
+        <span class="me-msg" id="account-revoke-result" role="status"></span>
+      </div>
+    </section>
+    <section class="fade-in" id="account-tvs" data-me="{{ username }}" aria-labelledby="me-tvs" hidden>
+      <h2 class="yo-group__head" id="me-tvs">Your TVs</h2>
+      <ul class="yo-group dev-list" role="list" aria-labelledby="me-tvs" tabindex="-1"></ul>
+    </section>
+{% if role == "admin" %}
+    <section class="fade-in" id="account-tvs-all" aria-labelledby="me-tvs-all" hidden>
+      <h2 class="yo-group__head" id="me-tvs-all">Other people’s TVs</h2>
+      <ul class="yo-group dev-list" role="list" aria-labelledby="me-tvs-all" tabindex="-1"></ul>
+    </section>
+{% endif %}
+  </div>
 </div>
