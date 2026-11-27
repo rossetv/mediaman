@@ -225,7 +225,7 @@
     var h = g === 'history' ? hOf(new URLSearchParams(new URLSearchParams(window.location.search).get('h') || '')) : '';
     return window.fetch(PAGES[g] + '?pane=1' + (h ? '&' + h : ''), { credentials: 'same-origin' }).then(function (res) {
       if (res.redirected && new URL(res.url, window.location.href).pathname === '/login') {
-        window.location.assign('/login?next=' + encodeURIComponent(window.location.pathname + window.location.search));
+        window.location.assign(window.MM.api.loginUrl());
         return null;
       }
       if (res.redirected || res.status !== 200) {

@@ -83,8 +83,11 @@ def test_old_hashes_become_the_panes_places_and_unknown_places_are_profile() -> 
     }
 
 
-def test_a_redirect_to_login_is_followed_with_the_pane_as_next() -> None:
-    assert _run("loginRedirect") == ["/login?next=%2F%3Fyou%3Dsettings%2Flibraries"]
+def test_a_redirect_to_login_is_followed_with_the_pane_as_next_and_its_hash_kept() -> None:
+    assert _run("loginRedirect") == {
+        "plain": ["/login?next=%2F%3Fyou%3Dsettings%2Flibraries"],
+        "hash": ["/login?next=%2F%3Fyou%3Dsettings%2Flibraries%26h%3Dq%253Dx#title=movie-1"],
+    }
 
 
 def test_a_group_that_did_not_load_says_so_shows_profile_and_is_asked_for_again() -> None:

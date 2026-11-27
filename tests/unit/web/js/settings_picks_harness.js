@@ -33,7 +33,7 @@ async function load(opts = {}) {
   ctx.window = ctx;
   vm.createContext(ctx);
   if (opts.fetch) {
-    Object.assign(ctx, { location: { origin: 'http://testserver', pathname: '/settings', search: '', hash: '', href: '/settings' }, fetch: opts.fetch,
+    Object.assign(ctx, { location: Object.assign({ origin: 'http://testserver', pathname: '/settings', search: '', hash: '', href: '/settings' }, opts.where), fetch: opts.fetch,
       // The page's href is kept as a path here; the browser's is whole.
       URL: class extends URL { constructor(u, base) { super(u, String(base).replace(/^\//, 'http://testserver/')); } } });
     vm.runInContext(fs.readFileSync(path.resolve(path.dirname(FILE), '../core/api.js'), 'utf8'), ctx);
@@ -115,12 +115,12 @@ const scenarios = {
   },
   // The session ends, or is no admin's any more, while a refresh is followed or as it is asked for.
   async loggedOut() {
-    const at = async (status, edits, when) => {
+    const at = async (status, edits, when, where) => {
       let ended = false;
       let polls = 0;
       const answer = (code, data, to) => Promise.resolve({ ok: code < 400, status: code, statusText: '', redirected: !!to, url: to || '',
         json: () => (to ? Promise.reject(new SyntaxError('html')) : Promise.resolve(data)) });
-      const p = await load({ edits, fetch: (url, req) => {
+      const p = await load({ edits, where, fetch: (url, req) => {
         if (!/recommended/.test(url)) return answer(200, {});
         if (ended && !req.method.includes('POST')) polls += 1;
         // 'sent': the read is redirected to the password change page.
@@ -135,7 +135,9 @@ const scenarios = {
     };
     return { clean: await at(401, false, 'poll'), demoted: await at(403, false, 'poll'), edits: await at(401, true, 'poll'),
       demotedEdits: await at(403, true, 'poll'), press: await at(401, true, 'press'), pressClean: await at(401, false, 'press'),
-      sentEdits: await at('sent', true, 'poll') };
+      sentEdits: await at('sent', true, 'poll'),
+      // A pathname that would read as another host is not kept.
+      demotedOdd: await at(403, false, 'poll', { pathname: '//evil.example/x', href: '//evil.example/x' }) };
   },
   async running() {
     const p = await load({ status: { status: 'running' } });

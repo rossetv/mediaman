@@ -86,6 +86,7 @@ def test_a_session_that_ends_goes_to_sign_in_at_once_but_not_over_unsaved_edits(
     for clean in (out["clean"], out["demoted"], out["pressClean"]):
         assert (clean["href"], clean["said"]) == (login, [])
     assert (out["clean"]["polls"], out["demoted"]["polls"]) == (1, 1)
+    assert out["demotedOdd"]["href"] == "/login"
     for kept in (out["edits"], out["demotedEdits"], out["press"]):
         assert (kept["href"], len(kept["said"]), kept["text"]) == ("/settings", 1, NAME)
         assert kept["polls"] <= 1
