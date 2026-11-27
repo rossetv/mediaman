@@ -658,6 +658,7 @@
     else if (!d) p.body.appendChild(lines(p.card.pick ? ['96%', '70%'] : ['100%', '94%', '58%']));
     progress(p);
     if (d) showArt(p, d);
+    giveWay(p);
   }
 
   function lines(widths) {
@@ -789,7 +790,7 @@
   function rating(p) {
     p.rating = window.MM.ratings.mount(p.card.ref, {
       variant: 'lift',
-      onName: function (b, words) { watch.cardTools.cover(b, words, core.toArray(p.n.querySelectorAll('.pv__head > *'))); },
+      onName: function (b, words) { p.named = [b, words]; giveWay(p); },
     });
     p.rating.line.classList.add('pv__said');
     p.lift = p.n.appendChild(el('div', 'pv__lift'));
@@ -819,6 +820,12 @@
       });
     });
     faceRate(p);
+  }
+
+  /* The lines of the title's words the name of a level lies over give way to it, those of a head
+     drawn anew under it too. */
+  function giveWay(p) {
+    if (p.named) watch.cardTools.cover(p.named[0], p.named[1], core.toArray(p.n.querySelectorAll('.pv__head > *')));
   }
 
   function lifted(p) { return p.rating.node.classList.contains('is-open'); }

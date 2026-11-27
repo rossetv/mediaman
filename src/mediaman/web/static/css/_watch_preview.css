@@ -141,8 +141,8 @@
 .pv__lift > .rate--lift { right: 0; bottom: 0; height: 180px; }
 .pv__lift > .rate--lift.is-open { pointer-events: auto; }
 /* A level's name lies over the lines of the title's words, which give way while it shows rather than peek out round it, and those it misses stay (watch/card-tools.js). */
-.pv__head > * { transition: opacity var(--dur-fast) var(--ease-out); }
-.pv .pv__head > .is-covered { opacity: 0; }
+.pv__head > * { transition: opacity var(--dur-fast) var(--ease-out) var(--dur-fast); }
+.pv .pv__head > .is-covered { opacity: 0; transition-delay: 0s; }
 .pv__eye[aria-pressed="true"] { --eye-open: none; --eye-seen: inline; background: var(--t1); color: var(--bg); }
 .pv__eye[aria-busy="true"] { opacity: .55; cursor: progress; }
 .pv__said { padding: 0; color: var(--t2); }
@@ -195,6 +195,7 @@
   .pv .pv__body { opacity: 1; transform: none; }
   .pv > .pv__shadow { opacity: 1; }
   .watch-card__link.is-previewed .watch-card__poster { transform: none; }
+  .pv__head > * { transition-delay: 0s; }
 }
 @media (forced-colors: active) {
   .pv__shell { border: 1px solid CanvasText; }

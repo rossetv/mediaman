@@ -8,8 +8,8 @@
  *   faceOf(button, ref)  draw on a thumb button how the title is rated
  *   moveStop(card)   bring its buttons' Tab stop to the first there is
  *   SHOW_MS          how long a level just given is looked at before it folds
- *   cover(button, words, lines)  mark .is-covered those of *lines* a lift's name lies over, as
- *                    its option onName is told (ratings.js)
+ *   cover(button, words, lines, column)  mark .is-covered those of *lines* a lift's name lies
+ *                    over, as its option onName is told (ratings.js), or its column of levels
  *
  * Needs watch/core.js and ratings.js; on window.MMWatch.cardTools.
  */
@@ -292,6 +292,8 @@
   document.addEventListener('keydown', function (e) { if (e.key === 'Tab') say('is-touched', null); }, true);
 
   document.addEventListener('scroll', function () { say('is-touched', null); }, true);
+  // A title wrapped anew may have other words under the levels.
+  window.addEventListener('resize', function () { if (open) open.measure(); });
 
   /* ── The levels, over the poster ── */
 
@@ -315,18 +317,22 @@
     over.appendChild(el('span', 'card-over__scrim'));
     var column = el('div', 'card-over__col');
     toArray(card.querySelectorAll('.card-tool:not([data-card-rate])')).reverse().forEach(function (b) { column.appendChild(copyTool(b)); });
+    var named = [null, null];
+    // The levels stand over the poster's words while it is lifted, and the name of one beside them.
+    function measure() { cover(named[0], named[1], posterWords(card), card.classList.contains('is-lifted') && set.node); }
     var set = ratings.mount(refOf(card), {
       variant: 'lift',
       label: 'Your rating of ' + titleOf(card),
-      onName: function (b, words) { cover(b, words, posterWords(card)); },
+      onName: function (b, words) { named = [b, words]; measure(); },
     });
     over.appendChild(set.node);
     over.appendChild(column);
     card.appendChild(over);
-    open = { card: card, thumb: thumbOf(card), over: over, set: set, opened: performance.now(), timer: null };
+    open = { card: card, thumb: thumbOf(card), over: over, set: set, measure: measure, opened: performance.now(), timer: null };
     void over.offsetWidth; // so that it rises
     lifted(card, true);
     set.node.classList.add('is-open');
+    measure();
     open.thumb.setAttribute('aria-expanded', 'true');
     if (focus) set.enter();
     else if (!mouse()) {
@@ -340,7 +346,6 @@
     var row = card.closest('.watch-row');
     card.classList.toggle('is-lifted', on);
     if (row) row.classList.toggle('has-lifted', on);
-    if (!on) cover(null, null, posterWords(card));
   }
 
   /* With a mouse, a level's name stands over these; a touch screen's stands at the top, and only
@@ -349,23 +354,25 @@
     return toArray(card.querySelectorAll('.watch-card__poster > .watch-card__title, .watch-card__poster > .watch-card__scores'));
   }
 
-  /* Those of *lines* the name of level *b* lies over give way to it (.is-covered), and the rest
-     stay, so that the title is seen whenever no name is on it. *words* is the name, which stands
-     level with its button at the right of its own box; it is measured where it comes to rest. */
-  function cover(b, words, lines) {
-    var shown = b && words.getClientRects().length && getComputedStyle(words).visibility !== 'hidden';
-    var at = shown && b.getBoundingClientRect();
-    var mid = shown && (at.top + at.bottom) / 2;
-    var half = shown && words.offsetHeight / 2;
-    var right = shown && words.parentNode.getBoundingClientRect().right;
-    var left = shown && right - words.offsetWidth;
-    var range = shown && document.createRange();
+  /* Those of *lines* the name of level *b* lies over, or the *column* of levels when one is given,
+     give way to it (.is-covered), and the rest stay, so that the title is seen whenever nothing is
+     on it. *words* is the name, which stands level with its button at the right of its own box; it
+     is measured where it comes to rest. */
+  function cover(b, words, lines, column) {
+    var boxes = column ? [column.getBoundingClientRect()] : [];
+    if (b && words.getClientRects().length && getComputedStyle(words).visibility !== 'hidden') {
+      var at = b.getBoundingClientRect();
+      var mid = (at.top + at.bottom) / 2;
+      var right = words.parentNode.getBoundingClientRect().right;
+      boxes.push({ top: mid - words.offsetHeight / 2, bottom: mid + words.offsetHeight / 2, left: right - words.offsetWidth, right: right });
+    }
+    var range = document.createRange();
     lines.forEach(function (line) {
       // Its words' own boxes: a box round them may be as wide as the line.
-      line.classList.toggle('is-covered', !!shown && textsOf(line).some(function (t) {
+      line.classList.toggle('is-covered', textsOf(line).some(function (t) {
         range.selectNodeContents(t);
         return toArray(range.getClientRects()).some(function (r) {
-          return r.top < mid + half && r.bottom > mid - half && r.left < right && r.right > left;
+          return boxes.some(function (x) { return r.top < x.bottom && r.bottom > x.top && r.left < x.right && r.right > x.left; });
         });
       }));
     });

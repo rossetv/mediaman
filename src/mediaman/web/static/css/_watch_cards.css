@@ -265,17 +265,16 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-over .rate__name { display: none; }
 }
 
+/* They come back only once what lay over them has gone by: a level's name glides on, and the levels fold. */
+.watch-card__poster > :is(.watch-card__title, .watch-card__scores) { transition: opacity var(--dur-fast) var(--ease-out) var(--dur-fast); }
 @media (hover: hover) and (pointer: fine) {
   /* Off the levels a press is the card's. */
   .card-over { pointer-events: none; }
   .card-over > .rate--lift.is-open > .rate__set { pointer-events: auto; }
   .card-over__col { display: none; }
   .card-over__scrim { background: linear-gradient(to left, color-mix(in srgb, var(--scrim) 72%, transparent), color-mix(in srgb, var(--scrim) 45%, transparent) 45%, color-mix(in srgb, var(--scrim) 10%, transparent)); }
-  /* A level's name lies over the poster's words at its height, which give way while it shows rather than peek out round it (watch/card-tools.js). */
-  .watch-card__poster > :is(.watch-card__title, .watch-card__scores) { transition: opacity var(--dur-fast) var(--ease-out); }
-  .is-lifted > .watch-card__link .watch-card__poster > .is-covered { opacity: 0; }
-  /* The rest end short of the levels, 49px from the poster's edge, so that none of them is under it. */
-  .is-lifted > .watch-card__link .watch-card__poster > :is(.watch-card__title, .watch-card__scores) { padding-right: calc(55px - var(--card-pad)); }
+  /* The levels, and a level's name, lie over the poster's words where they reach, which give way rather than peek out round them, and keep their place (watch/card-tools.js). */
+  .is-lifted > .watch-card__link .watch-card__poster > .is-covered { opacity: 0; transition-delay: 0s; }
 }
 @media (hover: none), (pointer: coarse) {
   /* Over the buttons of the cards above it, and the closing levels of another. */
@@ -293,6 +292,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   /* Back only once the level's name over it has gone. */
   .watch-card__poster > .watch-badge { transition: opacity var(--dur-fast) var(--ease-out) var(--dur-fast); }
   .is-lifted > .watch-card__link .watch-badge { opacity: 0; transition-delay: 0s; }
+  /* Under the scrim they show only in pieces round the eye and the levels, too dim to read. */
+  .is-lifted > .watch-card__link .watch-card__poster > :is(.watch-card__title, .watch-card__scores) { opacity: 0; transition-delay: 0s; }
 }
 
 /* The thumb just given, on its way to the caption. */
@@ -332,8 +333,9 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .watch-card.is-lifted .watch-card__link[href] > .watch-card__poster,
   .watch-card.is-on-tools .watch-card__link[href] > .watch-card__poster,
   .card-tool > :is(.ico, .rate-th) { transform: none !important; }
-  /* A name over the badges goes at once, so they need not wait for it. */
-  .watch-card__poster > .watch-badge { transition-delay: 0s; }
+  /* A name over the poster's words goes at once, so they need not wait for it. */
+  .watch-card__poster > .watch-badge,
+  .watch-card__poster > :is(.watch-card__title, .watch-card__scores) { transition-delay: 0s; }
 }
 @keyframes lift-grow { from { opacity: 0; transform: translateY(16px) scale(.5); } }
 @keyframes eye-blink {

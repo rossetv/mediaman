@@ -630,15 +630,45 @@ def test_a_lifted_card_s_poster_words_give_way_only_where_a_level_s_name_lies_ov
     assert gone == [covered]
 
 
-def test_a_lifted_card_s_title_and_scores_end_short_of_its_levels() -> None:
+def test_lifting_a_card_never_rewraps_its_title_or_moves_its_scores() -> None:
+    # Words the levels reach fade where they are (watch/card-tools.js); none is laid out anew.
+    words = (".watch-card__title", ".watch-card__scores", ".is-covered")
+    changed = {
+        prop
+        for _, sels, decls in rules("_watch_cards.css")
+        for sel in sels
+        if ".is-lifted" in sel and any(w in sel.rsplit(">", 1)[-1] for w in words)
+        for prop in decls
+    }
+    assert changed and changed <= {"opacity", "transition-delay"}
+
+
+def test_covered_words_go_at_once_and_come_back_only_once_the_name_over_them_has_gone() -> None:
+    fade = re.search(
+        r"opacity (\S+)", style(".rate__name > span", "_watch_cards.css")["transition"]
+    )
+    assert fade
+    for sheet, words, covered, media in [
+        (
+            "_watch_cards.css",
+            ".watch-card__poster > :is(.watch-card__title, .watch-card__scores)",
+            ".is-lifted > .watch-card__link .watch-card__poster > .is-covered",
+            MOUSE,
+        ),
+        ("_watch_preview.css", ".pv__head > *", ".pv .pv__head > .is-covered", None),
+    ]:
+        back = re.search(r"opacity (\S+) \S+ (\S+)", style(words, sheet)["transition"])
+        assert back and _seconds(back[2]) >= _seconds(fade[1]), sheet
+        assert _seconds(style(covered, sheet, media)["transition-delay"]) == 0, sheet
+        # Where motion is unwanted the name goes at once, so they need not wait for it.
+        assert _seconds(style(words, sheet, STILL)["transition-delay"]) == 0, sheet
+
+
+def test_on_a_touch_screen_a_lifted_card_s_title_and_scores_give_way_as_its_badges_do() -> None:
     words = ".is-lifted > .watch-card__link .watch-card__poster > "
     words += ":is(.watch-card__title, .watch-card__scores)"
-    room = re.fullmatch(
-        r"calc\((\d+)px - var\(--card-pad\)\)",
-        style(words, "_watch_cards.css", MOUSE)["padding-right"],
-    )
-    levels = style(".rate--lift", "_watch_cards.css")
-    assert room and int(room[1]) > px(levels["right"]) + px(levels["width"])
+    lifted = style(words, "_watch_cards.css", FINGER)
+    assert lifted["opacity"] == "0" and _seconds(lifted["transition-delay"]) == 0
 
 
 def test_on_a_touch_screen_a_card_s_badges_go_at_once_when_its_levels_open() -> None:
