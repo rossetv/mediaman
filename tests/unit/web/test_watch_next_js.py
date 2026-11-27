@@ -59,6 +59,35 @@ def test_a_failure_holds_the_rest_of_the_row_and_tries_again_once_online() -> No
     assert (out["after"], out["cards"], out["static"]) == ("", 29, False)
 
 
+def test_an_answer_that_failed_shows_the_line_with_what_it_brought_and_never_ends() -> None:
+    out = _run("failedAnswer")
+    assert out["cards"] == 27
+    assert "Couldn’t load more titles." in out["line"] and "Try again" in out["line"]
+    # 27 cards in five columns: the rest of the row is held under the line.
+    assert out["held"] == 3
+    assert out["quiet"] == 2
+    assert out["asked"] == 6 and out["cursor"] == "c27"
+    assert out["toasts"] == 4
+    assert out["gone"] is False
+    assert "Try again" in out["still"] and out["busy"] == "false"
+
+
+def test_a_first_page_that_failed_says_no_titles_came_and_is_tried_again() -> None:
+    out = _run("failedFirstPage")
+    assert "Couldn’t load titles." in out["line"]
+    assert out["gone"] is False
+    assert out["asked"] == 2
+    assert (out["after"], out["cards"]) == ("", 6)
+
+
+def test_a_cursor_that_started_again_starts_the_grid_again_at_the_section() -> None:
+    out = _run("restarted")
+    assert out["deep"] > 5000
+    assert (out["cards"], out["first"]) == (24, "tmdb-movie-0")
+    assert out["top"]["top"] < out["deep"]
+    assert out["cursor"] == "r24"
+
+
 def test_too_many_requests_waits_and_asks_again_without_a_failure() -> None:
     out = _run("waitsAfterTooMany")
     assert out["waiting"] == {"line": "", "ms": [5000]}
@@ -108,6 +137,24 @@ def test_leaving_keeps_the_titles_for_this_entry_and_person() -> None:
         "items": 6,
         "opened": "tmdb-movie-2",
     }
+
+
+def test_only_the_latest_titles_are_kept_with_what_their_cards_need() -> None:
+    out = _run("keptAreCapped")
+    # 624 titles in rows of four: the first six rows go, and stand as their height.
+    assert (out["items"], out["first"], out["room"]) == (600, "tmdb-movie-24", 6 * 300)
+    assert out["fields"] == ["kind", "reason", "ref", "title", "year"]
+    assert out["reason"] == "Trending this week"
+    # The same where those rows were taken out of the grid far above.
+    deep = out["deep"]
+    assert (deep["items"], deep["first"], deep["room"]) == (600, "tmdb-movie-24", 6 * 300)
+    assert deep["shed"] > deep["room"]
+
+
+def test_coming_back_lays_out_the_kept_titles_under_the_room_of_those_not_kept() -> None:
+    out = _run("putBackUnderRoom")
+    assert out["room"] == "1800px"
+    assert out["top"] == 5100 + 1800
 
 
 def test_coming_back_lays_out_what_was_kept_with_nothing_asked() -> None:

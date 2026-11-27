@@ -9,8 +9,12 @@
  *
  * Far-off posters are let go, and past SHED_AFTER titles the rows far above are taken out and
  * stand as room, to be built again from the titles kept as they come near. On leaving the page
- * the titles, the filter and the cursor are kept for its entry in the history, so a page loaded
- * again by Back lays them out at once and watch/address.js puts the scroll back over them.
+ * the latest KEEP titles, the filter and the cursor are kept for its entry in the history, so a
+ * page loaded again by Back lays them out at once, under room as high as the rows not kept, and
+ * watch/address.js puts the scroll back over them.
+ *
+ * An answer that says it failed shows the failure line, whatever it brought; one that says its
+ * cursor started again from the head starts the grid again.
  *
  * Needs watch/core.js, watch/rows-load.js and watch/browse.js.
  */
@@ -34,6 +38,11 @@
   var AWAKE_VIEWS = 3;      // posters further off than this are let go
   var TOP_AFTER_VIEWS = 2;  // Back to top, this far into the section
   var SHED_AFTER = 600;     // titles given, past which rows far above are taken out
+  var KEEP = 600;           // titles kept for Back, the latest
+  // What a kept title holds: what its card and its line of why are made of.
+  var FIELDS = ['ref', 'href', 'kind', 'title', 'year', 'poster_url', 'in_library', 'tmdb_id', 'tmdb_ref',
+    'pick_ref', 'rt', 'imdb', 'rating', 'download_state', 'download_pct', 'keep_id', 'leaving_id',
+    'leaving_days', 'leaving_season', 'leaving_seasons', 'mark_key', 'mark_kind', 'watched', 'level'];
   var SHED_VIEWS = 10;      // rows wholly this far above
   var BACK_VIEWS = 3;       // they are built again once the first card left is this near
   var FAST_PX_MS = 3;       // a flick this fast: cards are simply there
@@ -64,9 +73,10 @@
 
   var filter = 'all';
   var items = [];        // every title given, in order; the grid holds those from shedCount on
-  var shed = [];         // the rows taken out, each { count, height }, the latest last
+  var shed = [];         // the rows taken out, each { count, height, cols }, the latest last
   var shedCount = 0;
   var shedWidth = 0;     // the grid's width when they were measured
+  var room = 0;          // the height of the rows Back did not lay out again, above them all
   var cursor = null;
   var state = 'idle';    // idle, loading, waiting (after a 429), failed, done
   var armed = false;     // the person has scrolled: only then is a first page asked for
@@ -204,7 +214,7 @@
   /* ── Rows far above ── */
 
   function setShed() {
-    var h = shed.reduce(function (sum, s) { return sum + s.height; }, 0);
+    var h = shed.reduce(function (sum, s) { return sum + s.height; }, room);
     grid.style.setProperty('--wn-shed', h + 'px');
   }
 
@@ -232,7 +242,7 @@
     // Measured before anything moves, so the room is what the rows took to the pixel.
     var height = all[count].getBoundingClientRect().top - all[0].getBoundingClientRect().top;
     all.slice(0, count).forEach(forget);
-    shed.push({ count: count, height: height });
+    shed.push({ count: count, height: height, cols: n });
     shedCount += count;
     shedWidth = grid.getBoundingClientRect().width;
     setShed();
@@ -280,13 +290,14 @@
     });
   }
 
-  /* The cards are of another filter: the grid starts again. */
+  /* The cards are of another filter, or the cursor started again: the grid starts again. */
   function reset() {
     cards().forEach(forget);
     removeSkels();
     items = [];
     shed = [];
     shedCount = 0;
+    room = 0;
     setShed();
     isNew = loader.onlyNew();
     switching = false;
@@ -296,10 +307,14 @@
   function took(data) {
     asking = null;
     if (switching) reset();
+    else if (data.restarted === true && items.length) {
+      // The titles to come are the head's again: the grid starts from it, at the section's top.
+      reset();
+      toSection();
+    }
     var first = !items.length;
     var button = retryButton();
     var refocus = !!button && document.activeElement === button;
-    tail.textContent = '';
     grid.classList.remove('is-static');
     removeSkels();
     tmdb = data.tmdb_configured !== false;
@@ -314,6 +329,14 @@
     });
     if (first) note.toggleAttribute('hidden', data.personal !== false || !fresh.length);
     place(fresh, false);
+    if (fresh.length) said.textContent = fresh.length + ' more titles loaded.';
+    if (data.failed === true) {
+      // TMDB failed: more may come, once asked again.
+      if (!button) showSkels();
+      failed(!fresh.length);
+      return;
+    }
+    tail.textContent = '';
     empties = fresh.length ? 0 : empties + 1;
     waits = 0;
     if (empties >= (tmdb ? EMPTY_LIMIT : 1)) {
@@ -323,7 +346,6 @@
       return;
     }
     state = 'idle';
-    if (fresh.length) said.textContent = fresh.length + ' more titles loaded.';
     if (refocus) (fresh.length ? fresh[0].querySelector('.watch-card__link') : grid).focus({ preventScroll: true });
     later();
   }
@@ -342,18 +364,27 @@
       }, BACKOFF_MS[waits++]);
       return;
     }
+    if (switching) reset();
+    failed(true);
+  }
+
+  /* The failure line under the cards; after Try again, the line that stands and a word that it
+     failed again. */
+  function failed(again) {
     waits = 0;
     state = 'failed';
-    if (switching) reset();
     var button = retryButton();
     if (button) {
       button.removeAttribute('aria-disabled');
       button.setAttribute('aria-busy', 'false');
-      core.toast('Still couldn’t load more. Try again in a moment.', { variant: 'error' });
+      button.parentNode.children[0].textContent = failedWords();
+      if (again) core.toast(items.length ? 'Still couldn’t load more. Try again in a moment.' : 'Still couldn’t load titles. Try again in a moment.', { variant: 'error' });
       return;
     }
     showFailed();
   }
+
+  function failedWords() { return items.length ? 'Couldn’t load more titles.' : 'Couldn’t load titles.'; }
 
   /* Only the rest of the last row stays held, so the line stands right under the cards. */
   function showFailed() {
@@ -363,7 +394,7 @@
     grid.classList.add('is-static');
     var line = el('div', 'grid-fail');
     line.setAttribute('role', 'alert');
-    line.appendChild(el('span', null, 'Couldn’t load more titles.'));
+    line.appendChild(el('span', null, failedWords()));
     var button = line.appendChild(el('button', 'grid-fail__retry'));
     button.type = 'button';
     button.setAttribute('data-wn-retry', '');
@@ -389,8 +420,7 @@
     showFilter();
     clearTimeout(timer);
     timer = null;
-    var top = sec.getBoundingClientRect().top;
-    if (top < 0) window.scrollTo({ top: Math.max(0, top + window.scrollY - core.clearArea().top - 8), behavior: 'instant' });
+    toSection();
     tail.textContent = '';
     grid.classList.remove('is-static');
     cursor = null;
@@ -403,6 +433,12 @@
       sec.classList.add('is-switching');
     }
     more();
+  }
+
+  /* The section's top, under the bar, when the person is further down. */
+  function toSection() {
+    var top = sec.getBoundingClientRect().top;
+    if (top < 0) window.scrollTo({ top: Math.max(0, top + window.scrollY - core.clearArea().top - 8), behavior: 'instant' });
   }
 
   function showFilter() {
@@ -506,15 +542,50 @@
     return s && s.mm && typeof s.mm.id === 'string' ? s.mm.id : null;
   }
 
+  /* A title as kept: only what its card is made of. */
+  function slim(item) {
+    var out = {};
+    FIELDS.forEach(function (f) {
+      if (item[f] !== undefined && item[f] !== null) out[f] = item[f];
+    });
+    var why = item.reason || {};
+    out.reason = { kind: why.kind, text: why.text, short: why.short, why: why.why };
+    return out;
+  }
+
+  /* Where the latest KEEP titles start, at the start of a row, and the height above it: [index, px]. */
+  function cutForKeep() {
+    var over = items.length - KEEP;
+    if (over <= 0) return [0, room];
+    var count = 0;
+    var height = room;
+    for (var i = 0; i < shed.length; i++) {
+      var chunk = shed[i];
+      if (count + chunk.count >= over) {
+        // Its rows are of one height: the cards of a row are drawn alike.
+        var rows = Math.ceil((over - count) / chunk.cols);
+        return [count + rows * chunk.cols, height + chunk.height * rows * chunk.cols / chunk.count];
+      }
+      count += chunk.count;
+      height += chunk.height;
+    }
+    var all = cards();
+    var n = columns();
+    var at = Math.ceil((over - shedCount) / n) * n;
+    if (at >= all.length) return [0, room];
+    return [shedCount + at, all[at].getBoundingClientRect().top - grid.getBoundingClientRect().top];
+  }
+
   function keep() {
     var active = document.activeElement;
     var link = active && grid.contains(active) && active.closest('.watch-card__link');
     if (link) opened = link.getAttribute('data-title-ref') || opened;
     try {
       if (!items.length || !entry()) { window.sessionStorage.removeItem(STORE); return; }
+      var cut = cutForKeep();
       window.sessionStorage.setItem(STORE, JSON.stringify({
-        id: entry(), who: who, filter: filter, cursor: cursor, items: items,
-        opened: opened, tmdb: tmdb, fresh: !note.hasAttribute('hidden')
+        id: entry(), who: who, filter: filter, cursor: cursor, items: items.slice(cut[0]).map(slim),
+        room: cut[1], opened: opened, tmdb: tmdb, fresh: !note.hasAttribute('hidden')
       }));
     } catch (e) {
       try { window.sessionStorage.removeItem(STORE); } catch (e2) { /* nothing kept */ }
@@ -533,6 +604,8 @@
     tmdb = kept.tmdb !== false;
     note.toggleAttribute('hidden', kept.fresh !== true);
     opened = text(kept.opened);
+    room = typeof kept.room === 'number' && isFinite(kept.room) && kept.room > 0 ? kept.room : 0;
+    setShed();
     var nodes = [];
     kept.items.forEach(function (item) {
       var node = item && card(item);

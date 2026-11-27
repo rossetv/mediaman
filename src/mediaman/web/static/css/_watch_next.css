@@ -1,7 +1,9 @@
 /* Watch next: the endless grid under the last row of Watch (watch/watchnext.js). Its cards are
    Watch's own; each says under its caption why it is there. */
 
-.wn { position: relative; padding-top: 30px; }
+/* Cards land under what is on screen, and rows go and come back far above: the section places
+   its scroll itself, or Chromium would follow what it holds down as each page lands. */
+.wn { position: relative; padding-top: 30px; overflow-anchor: none; }
 .wn[hidden] { display: none; }
 .wn__label { margin-bottom: 0; }
 .wn__label > h2 { margin: 0; font: inherit; letter-spacing: inherit; color: inherit; }
@@ -17,8 +19,8 @@
 .wn__body { padding: 18px var(--pad) 0; }
 /* What a switch of the filter replaces dims, once the wait is long enough to notice. */
 .wn.is-switching .watch-grid { opacity: .4; transition-delay: .1s; }
-/* Rows let go far above stand as this much room; the grid places its scroll itself. */
-.wn .watch-grid { padding-top: var(--wn-shed, 0px); overflow-anchor: none; }
+/* Rows let go far above stand as this much room. */
+.wn .watch-grid { padding-top: var(--wn-shed, 0px); }
 
 /* The card: Watch's own, with one line of why under its caption. */
 .wn .watch-card { gap: 6px; }
@@ -61,7 +63,8 @@
 @keyframes wn-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes wn-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .wn .watch-card.is-in { animation: wn-fade .24s linear both; }
+  /* A fade alone, held to its length against the page's rule that cuts animations short. */
+  .wn .watch-card.is-in { animation: wn-fade .24s linear both; animation-duration: .24s !important; }
 }
 
 /* What stands after the cards: the line a failure leaves. */

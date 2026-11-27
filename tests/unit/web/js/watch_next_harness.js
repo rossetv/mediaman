@@ -232,6 +232,57 @@ const scenarios = {
     return { loading, line, held, quiet, again, after: p.tail.textContent, cards: p.refs().length, static: p.grid.classList.contains('is-static') };
   },
 
+  // An answer that says TMDB failed shows the line with what it brought, asks nothing more by itself, and never ends the section.
+  async failedAnswer() {
+    const p = page({ cols: 5 });
+    near(p);
+    await p.answer(pageOf(0, 24));
+    near(p);
+    await p.answer(pageOf(24, 3, { failed: true }));
+    const line = p.tail.textContent;
+    const held = p.skels().filter((s) => !s.classList.contains('is-spare')).length;
+    const cards = p.refs().length;
+    p.scroll(p.ctx.scrollY + 10);
+    near(p);
+    const quiet = p.asked.length;
+    for (let i = 0; i < 4; i++) {
+      click(p.doc, p.tail.querySelector('button'));
+      await p.answer({ items: [], cursor: 'c27', personal: true, tmdb_configured: true, failed: true });
+    }
+    const button = p.tail.querySelector('button');
+    return {
+      line, held, cards, quiet, asked: p.asked.length, toasts: p.toasts.length, gone: p.sec.hasAttribute('hidden'),
+      still: p.tail.textContent, busy: button.getAttribute('aria-busy'), cursor: p.params(p.asked.length - 1).get('cursor'),
+    };
+  },
+
+  // A first page that failed says no titles came, and stays to be tried again.
+  async failedFirstPage() {
+    const p = page();
+    near(p);
+    await p.answer({ items: [], cursor: 'c0', personal: true, tmdb_configured: true, failed: true });
+    const line = p.tail.textContent;
+    p.fire('online');
+    const asked = p.asked.length;
+    await p.answer(pageOf(0, 6));
+    return { line, gone: p.sec.hasAttribute('hidden'), asked, after: p.tail.textContent, cards: p.refs().length };
+  },
+
+  // A cursor that started again from the head starts the grid again, at the section's top.
+  async restarted() {
+    const p = page();
+    near(p);
+    await p.answer(pageOf(0, 24));
+    near(p);
+    await p.answer(pageOf(24, 24));
+    near(p);
+    const deep = p.ctx.scrollY;
+    await p.answer(pageOf(0, 24, { cursor: 'r24', restarted: true }));
+    const refs = p.refs();
+    near(p);
+    return { deep, cards: refs.length, first: refs[0], top: p.scrolls[p.scrolls.length - 1], cursor: p.params(p.asked.length - 1).get('cursor') };
+  },
+
   // Too many requests: it waits, says nothing, and asks again.
   async waitsAfterTooMany() {
     const p = page();
@@ -315,6 +366,36 @@ const scenarios = {
     p.fire('pagehide');
     const kept = JSON.parse(p.store.get('mm:watch:next'));
     return { id: kept.id, who: kept.who, filter: kept.filter, cursor: kept.cursor, items: kept.items.length, opened: kept.opened };
+  },
+
+  // Past KEEP titles only the latest are kept, from the start of a row, each with only what its card is made of,
+  // and the rows before them are kept as their height.
+  async keptAreCapped() {
+    const p = page({ entry: 'e1', cols: 4 });
+    for (let i = 0; i < 26; i++) {
+      near(p);
+      await p.answer({ ...pageOf(i * 24, 24), items: titles(i * 24, 24, { overview: 'x'.repeat(400), cast: ['a', 'b'] }) });
+    }
+    // Every row in the grid, then deep in with the rows far above taken out.
+    p.scroll(GRID_TOP);
+    p.fire('pagehide');
+    const grid = JSON.parse(p.store.get('mm:watch:next'));
+    p.scroll(GRID_TOP + 150 * PITCH);
+    const shed = parseFloat(p.grid.style['--wn-shed']);
+    p.fire('pagehide');
+    const deep = JSON.parse(p.store.get('mm:watch:next'));
+    const fields = Object.keys(grid.items[0]).sort();
+    return {
+      items: grid.items.length, first: grid.items[0].ref, room: grid.room, fields, reason: grid.items[0].reason.text,
+      deep: { items: deep.items.length, first: deep.items[0].ref, room: deep.room, shed },
+    };
+  },
+
+  // Laid out again under the room of the rows not kept, their titles where they stood.
+  async putBackUnderRoom() {
+    const kept = { id: 'e1', who: 'ann', filter: 'all', cursor: 'c9', items: titles(600, 8), room: 1800, opened: '', tmdb: true, fresh: false };
+    const p = page({ entry: 'e1', who: 'ann', cols: 4, stored: { 'mm:watch:next': JSON.stringify(kept) } });
+    return { room: p.grid.style['--wn-shed'], top: p.grid.querySelector('.watch-card').getBoundingClientRect().top + p.ctx.scrollY };
   },
 
   // Loaded again at the same entry, the titles are laid out with nothing asked, and go on from the kept cursor.
