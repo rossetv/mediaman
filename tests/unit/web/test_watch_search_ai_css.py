@@ -1,5 +1,5 @@
 """The search field as the AI's: its pill reads clearly, its pink stays a token, it keeps still
-where motion is unwanted, and on a phone it folds once the field is left.
+where motion is unwanted, and on a phone it is its sparkle alone, so the words typed keep the room.
 
 These read the stylesheet rules, since no layout engine runs here."""
 
@@ -80,11 +80,27 @@ def test_the_ring_s_sheen_and_the_pill_s_twinkle_are_still_where_motion_is_unwan
         assert "animation: none" in _body(still, selector), selector
 
 
-def test_on_a_phone_the_pill_folds_once_the_field_is_left() -> None:
-    phone = " ".join(_media_blocks(CSS, PHONE))
-    body = _body(phone, ".watch-search.is-ai:not(.is-focus) .watch-search__ai")
-    for part in ("max-width: 0", "opacity: 0", "visibility: hidden", "pointer-events: none"):
-        assert part in body, part
+def _sparkle_alone(media: str) -> None:
+    block = " ".join(_media_blocks(CSS, media))
+
+    def ending(tail: str) -> str:
+        found = [b for heads, b in _rules(block) if any(h.endswith(tail) for h in heads)]
+        assert found, tail
+        return " ".join(found)
+
+    # Its words go; it is a round button of the sparkle, as wide as it is high.
+    assert _decl(ending(".watch-search__ai > span"), "display") == "none"
+    pill = ending(".watch-search__ai")
+    assert _decl(pill, "width") == _decl(pill, "height") == "30px"
+    assert _decl(pill, "border-radius") == "50%"
+    # Shown, it stays shown when the field is left: nothing folds it away again.
+    assert not any(
+        "is-focus" in h and "watch-search__ai" in h for heads, _ in _rules(block) for h in heads
+    )
+
+
+def test_on_a_phone_the_pill_is_its_sparkle_alone() -> None:
+    _sparkle_alone(PHONE)
 
 
 def test_the_pill_has_an_edge_and_the_system_s_colours_in_forced_colours() -> None:
@@ -121,11 +137,23 @@ def test_the_halo_s_colour_turns_with_the_ring_not_after_it() -> None:
     assert float(delay.rstrip("s")) == 0, delay
 
 
-def test_on_a_phone_held_sideways_the_pill_folds_once_the_field_is_left() -> None:
-    sideways = " ".join(_media_blocks(CSS, "(max-height: 500px) and (pointer: coarse)"))
-    body = _body(sideways, ".watch-search.is-ai:not(.is-focus) .watch-search__ai")
-    for part in ("max-width: 0", "opacity: 0", "visibility: hidden", "pointer-events: none"):
-        assert part in body, part
+def test_on_a_phone_held_sideways_the_pill_is_its_sparkle_alone() -> None:
+    _sparkle_alone("(max-height: 500px) and (pointer: coarse)")
+
+
+def test_where_motion_is_unwanted_what_thinks_pulses_over_the_page_s_stillness() -> None:
+    # The page stops every animation after one short run, with !important: a pulse must outrank it.
+    ask = " ".join(_media_blocks(_text(CSS_DIR / "_watch_ask.css"), REDUCE))
+    field = " ".join(_media_blocks(CSS, REDUCE))
+    for block, selector in (
+        (ask, ".is-thinking .ask__skel .skel--poster::after"),
+        (ask, ".is-thinking .ask__orb > .ico"),
+        (field, ".watch-search .watch-search__ai.is-thinking > .ico"),
+    ):
+        pulse = _decl(_body(block, selector), "animation")
+        assert pulse.startswith("ai-twinkle-pulse") and pulse.endswith("infinite !important"), (
+            selector
+        )
 
 
 def test_a_person_chip_s_initials_sit_in_the_middle_of_its_face() -> None:

@@ -59,7 +59,7 @@ function page(api, { ai = false, yes = true, tvs = '', changed = '', tiles = '',
         ['button', { id: 'account-revoke-others' }], ['span', { id: 'account-revoke-why', hidden: '' }], ['span', { id: 'account-revoke-result' }]]]]));
   const root = doc.getElementById('root');
   if (ai) {
-    root.appendChild(build(doc, ['section', { id: 'account-ai' }, ['button', { id: 'account-history', class: 'tog' }], ['button', { id: 'account-clear-searches' }, 'Clear']]));
+    root.appendChild(build(doc, ['section', { id: 'account-ai' }, ['button', { id: 'account-history', class: 'tog' }], ['button', { id: 'account-auto', class: 'tog', 'aria-checked': 'false' }], ['button', { id: 'account-clear-searches' }, 'Clear']]));
     doc.getElementById('account-ai').hidden = true;
   }
   if (tiles) {
@@ -785,6 +785,30 @@ const scenarios = {
     put = (body) => { good(body); return Promise.reject(new Error('lost')); };
     const lost = await push();
     return { first, off, refused, offline, lost, sent };
+  },
+  // Ask AI as I type: pressed and saved, then pressed and refused
+  async autoAsk() {
+    const sent = [];
+    let put = () => Promise.resolve({});
+    const p = page({
+      get: (url) => Promise.resolve(url === '/api/search/assist/history' ? { enabled: true, available: true } : { sessions: [] }),
+      put: (url, body) => { sent.push([url, body]); return put(); },
+    }, { ai: true });
+    let loads = 0;
+    page.window.MMWatch = { ask: { load: () => { loads += 1; } } };
+    await settle();
+    const state = () => [p.$('account-auto').getAttribute('aria-checked'), p.$('account-auto').classList.contains('on')];
+    const push = async () => {
+      p.press('account-auto');
+      p.press('account-auto');
+      const during = state();
+      await settle();
+      return { during, after: state(), loads, toasts: p.toasts.splice(0), busy: p.$('account-auto').getAttribute('aria-disabled') };
+    };
+    const on = await push();
+    put = () => Promise.reject(new Error('No luck'));
+    const refused = await push();
+    return { on, refused, sent };
   },
   async historyHidden() {
     const hidden = async (get) => {

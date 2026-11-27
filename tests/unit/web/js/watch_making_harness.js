@@ -28,7 +28,7 @@ function load(opts = {}) {
   ctx.window = ctx;
   vm.createContext(ctx);
   ['core/dom.js', 'watch/core.js', 'watch/making.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
-  const p = { doc, clock, making: ctx.MMWatch.making };
+  const p = { doc, clock, making: ctx.MMWatch.making, core: ctx.MMWatch.core };
   /* One change of the words, *ms* later. */
   p.beat = () => { const b = [...clock.beats.values()][0]; clock.now += b.ms; b.fn(); };
   p.show = (hidden) => { doc.hidden = hidden; (doc.listeners.visibilitychange || []).slice().forEach((fn) => fn()); };
@@ -124,6 +124,25 @@ const scenarios = {
     const run = begin(p);
     return [run.node.getAttribute('aria-hidden'), run.node.hasAttribute('aria-live') || run.node.hasAttribute('role'),
       p.making.reel().getAttribute('aria-hidden')];
+  },
+
+  // The AI label's sparkle, with the page's sprite holding its two stars.
+  sparkle() {
+    const p = load();
+    const symbol = p.doc.createElementNS('http://www.w3.org/2000/svg', 'symbol');
+    symbol.setAttribute('id', 'i-sparkles');
+    symbol.setAttribute('viewBox', '0 0 640 512');
+    ['ai-star-lg', 'ai-star-sm'].forEach((cls) => {
+      const star = p.doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+      star.setAttribute('class', cls);
+      symbol.appendChild(star);
+    });
+    p.doc.body.appendChild(symbol);
+    const ico = p.core.aiLabel('AI picks').children[0];
+    return {
+      uses: ico.querySelectorAll('use').length, viewBox: ico.getAttribute('viewBox'),
+      stars: ico.children.map((n) => n.getAttribute('class')),
+    };
   },
 };
 

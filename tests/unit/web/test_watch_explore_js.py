@@ -48,3 +48,19 @@ def test_what_stands_below_a_person_waits_for_the_photo_to_land() -> None:
 
 def test_rows_under_a_title_come_back_once_the_persons_photo_lands() -> None:
     assert _run("closedUnderATitle") == {"title": [False, True], "rows": None, "pushed": None}
+
+
+def test_a_persons_empty_biography_folds_its_placeholder_shut_and_cuts_under_reduced_motion() -> (
+    None
+):
+    out = _run("noStory")
+    # The lines stay while their room folds from its height to none, then go with it.
+    assert out["moving"] == {
+        "now": {"hidden": False, "lines": 3},
+        "fold": {
+            "frames": [{"height": "20px", "opacity": 1}, {"height": "0px", "opacity": 0}],
+            "ms": 200,
+        },
+        "after": {"hidden": True, "lines": 0},
+    }
+    assert out["still"] == {"now": {"hidden": True, "lines": 0}, "fold": None}

@@ -79,7 +79,7 @@
     } else if (inLibrary || state === 'in_library' || state === 'partial') {
       node = el('span', 'watch-badge watch-badge--state watch-badge--in');
       node.appendChild(icon('i-check'));
-      node.appendChild(document.createTextNode('Ready to watch'));
+      node.appendChild(document.createTextNode('Ready'));
     }
     return node || null;
   }

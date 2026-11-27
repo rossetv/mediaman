@@ -57,87 +57,112 @@
 .txt.is-picked { outline-offset: 4px; }
 @keyframes watch-ask-rise { from { opacity: 0; transform: translateY(10px); } }
 
-/* ── A question ── */
+/* ── A question, over the titles that only have its words ── */
 
-.ask { margin-bottom: 26px; }
-.ask__row { position: relative; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 64px; padding: 8px 14px 8px 10px; border: 1px solid var(--hair); border-radius: var(--r-lg); background: var(--s2); color: inherit; text-align: left; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
-div.ask__row:focus { outline: none; }
-button.ask__row { animation: watch-ask-rise var(--dur) var(--ease-out) backwards; }
-button.ask__row:is(:hover, :focus-visible) { border-color: var(--hair-strong); background: var(--s3); }
-button.ask__row.is-picked { border-color: var(--accent); background: var(--s3); }
-button.ask__row:active { transform: scale(.99); }
-.ask__mark { position: relative; flex: none; display: grid; place-items: center; width: 44px; height: 44px; overflow: hidden; border-radius: var(--r-md); background: var(--rgba-purple-bg); color: color-mix(in srgb, var(--purple) 55%, var(--t1)); font-size: 17px; }
-/* The title the others are like, as a small poster; the sparkle shows where it has none. */
-.ask__mark--art { width: 36px; height: 54px; margin-inline: 4px; border: 1px solid var(--hair); border-radius: 6px; }
-.ask__mark--art > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.ask__mark--art > img[data-broken] { display: none; }
-.ask__words { display: flex; flex: 1; flex-direction: column; gap: 1px; min-width: 0; }
-.ask__words > b { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; font-size: 16px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
-.ask__words > small { font-size: 13px; line-height: 1.35; color: var(--t3); }
-.ask__swapin { animation: watch-ask-rise var(--dur) var(--ease-out) backwards; }
+.ask { --ai-a: var(--purple); --ai-b: var(--pink); margin-bottom: 34px; }
+.ask-top-wrap { margin-bottom: 28px; }
+
+/* The title all that is typed names, before what the AI makes of it. */
+.ask-top { display: flex; align-items: center; gap: 16px; max-width: 640px; padding: 10px 16px 10px 10px; border-radius: var(--r-lg); background: var(--s1); color: inherit; text-decoration: none; transition: background-color var(--dur-fast) var(--ease-out); animation: watch-ask-rise var(--dur-slow) var(--ease-out) backwards; }
+.ask-top:is(:hover, .is-picked) { background: var(--s3); }
+.ask-top.is-picked { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+.ask-top > .watch-mini { flex: none; width: 64px; height: 96px; border-radius: var(--r-sm); }
+.ask-top__words { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.ask-top__words > small { font-size: 12.5px; font-weight: 600; color: var(--t3); }
+.ask-top__words > b { overflow: hidden; font: 600 20px/1.25 var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+.ask-top__words > span { font-size: 13px; color: var(--t3); }
+.ask-top__go { flex: none; padding: 9px 18px; border-radius: var(--r-pill); background: var(--accent); color: var(--color-on-accent); font-size: 14px; font-weight: 600; }
+
+/* Its heading: what it is, the AI's words for it, how it stands, and the title it is like. */
+.ask__row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.ask__row:focus { outline: none; }
+.ask__orb { position: relative; flex: none; display: grid; place-items: center; width: 32px; height: 32px; margin-top: 1px; border-radius: 10px; background: linear-gradient(135deg, color-mix(in srgb, var(--ai-a) 38%, var(--s1)), color-mix(in srgb, var(--ai-b) 30%, var(--s1))); box-shadow: inset 0 0 0 1px var(--hair-strong); color: var(--ai-pill-text); font-size: 15px; }
+.ask__words { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.ask__kicker { margin-bottom: 1px; background: linear-gradient(90deg, var(--purple-text), color-mix(in srgb, var(--ai-b) 50%, var(--purple-text))); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 12.5px; font-weight: 600; }
+.ask__title { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; font: 600 20px/1.25 var(--font-display); letter-spacing: -.01em; overflow-wrap: anywhere; }
+.ask__asked,
+.ask__line { margin: 3px 0 0; font-size: 13px; line-height: 1.35; color: var(--t3); }
+.ask__asked { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; color: var(--t2); }
 /* The next step of the answer takes the place of the one before. */
 .ask__step { animation: watch-ask-step var(--dur) var(--ease-out) backwards; }
 @keyframes watch-ask-step { from { opacity: 0; transform: translateY(4px); } }
-.ask__key { flex: none; padding: 3px 9px; border: 1px solid var(--hair-strong); border-radius: 7px; font: 12px var(--font-text); color: var(--t3); }
-.ask__stop { margin-right: 8px; }
+.ask__because { display: inline-flex; align-self: flex-start; align-items: center; gap: 8px; max-width: 100%; margin-top: 10px; padding: 4px 14px 4px 5px; border-radius: var(--r-pill); background: var(--s2); color: var(--t2); font-size: 13px; }
+.ask__because > span { flex: none; white-space: nowrap; }
+.ask__because > b { overflow: hidden; font-weight: 600; color: var(--t1); text-overflow: ellipsis; white-space: nowrap; }
+.ask__because-pic { position: relative; flex: none; width: 22px; height: 33px; overflow: hidden; border-radius: 4px; background: var(--s4); }
+.ask__because-pic > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ask__because-pic > img[data-broken] { display: none; }
+.ask__row > .txt { margin-top: 4px; padding: 4px 2px; }
 .ask__row > .chip { flex: none; }
-.is-thinking .ask__mark:not(.ask__mark--art) > .ico { animation: watch-ask-think 1.5s ease-in-out infinite; }
-@keyframes watch-ask-think { 50% { opacity: .6; transform: scale(1.18) rotate(14deg); } }
-/* While it is answered, a light runs along the foot of the row. */
-.ask__row::after { content: ""; position: absolute; right: 18px; bottom: -1px; left: 18px; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--purple) 70%, var(--t1)), transparent); opacity: 0; transform: scaleX(.2); pointer-events: none; }
-.is-thinking .ask__row::after { animation: watch-ask-light 1.8s var(--ease-out) infinite; }
-@keyframes watch-ask-light { 0% { opacity: 0; transform: translateX(-40%) scaleX(.2); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateX(40%) scaleX(.5); } }
+
+/* Thinking: the stars twinkle in turn, never turn. */
+.is-thinking .ask__orb > .ico { --ai-twinkle-lg: ai-twinkle-big 1.2s ease-in-out infinite; --ai-twinkle-sm: ai-twinkle-small 1.2s ease-in-out infinite; }
 
 .ask__body { position: relative; }
-.ask__grid { margin-top: 22px; align-content: start; }
+.ask__grid { align-content: start; }
 .ask__grid:empty { display: none; }
-.ask__group { flex-wrap: wrap; row-gap: 2px; }
-.ask__group-note { font-size: 13px; color: var(--t3); }
-.ask__group-note::before { content: "·"; margin-right: 10px; }
-.ordinary__title { font-size: 17px; font-weight: 600; }
-/* The outlines a little after one another, as the cards will come. */
-.ask__skel:nth-child(8n + 2) .skel::after { animation-delay: .08s; }
-.ask__skel:nth-child(8n + 3) .skel::after { animation-delay: .16s; }
-.ask__skel:nth-child(8n + 4) .skel::after { animation-delay: .24s; }
-.ask__skel:nth-child(8n + 5) .skel::after { animation-delay: .32s; }
-.ask__skel:nth-child(8n + 6) .skel::after { animation-delay: .4s; }
-.ask__skel:nth-child(8n + 7) .skel::after { animation-delay: .48s; }
-.ask__skel:nth-child(8n) .skel::after { animation-delay: .56s; }
+/* Outlines hold the answer's place: still while it waits, a purple to pink light over them while it is found. */
+.ask__skel { gap: 0; }
+.ask__skel .skel { background: var(--s2); }
+.ask__skel .skel::after { display: none; }
+.ask__skel .skel--line { width: 78%; height: 10px; margin-top: 11px; }
+.ask__skel .skel--line + .skel--line { width: 52%; margin-top: 7px; }
+.is-waiting .ask__skel { opacity: .55; }
+/* Of outlines alone, one row stands, however many the width holds. */
+.ask__grid:not(:has(> :not(.ask__skel))) { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
+.is-thinking .ask__skel .skel--poster::after { content: ""; display: block; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--ai-a) 16%, transparent) 40%, color-mix(in srgb, var(--ai-b) 14%, transparent) 55%, transparent 75%); background-size: 250% 100%; transform: none; animation: watch-ask-shimmer 1.5s linear infinite; }
+.is-thinking .ask__skel:nth-child(2) .skel--poster::after { animation-delay: .09s; }
+.is-thinking .ask__skel:nth-child(3) .skel--poster::after { animation-delay: .18s; }
+.is-thinking .ask__skel:nth-child(4) .skel--poster::after { animation-delay: .27s; }
+.is-thinking .ask__skel:nth-child(5) .skel--poster::after { animation-delay: .36s; }
+.is-thinking .ask__skel:nth-child(6) .skel--poster::after { animation-delay: .45s; }
+.is-thinking .ask__skel:nth-child(7) .skel--poster::after { animation-delay: .54s; }
+.is-thinking .ask__skel:nth-child(n + 8) .skel--poster::after { animation-delay: .63s; }
+@keyframes watch-ask-shimmer { from { background-position: 150% 0; } to { background-position: -100% 0; } }
 .ask__none { grid-column: 1 / -1; font-size: 15px; color: var(--t2); }
-/* Over the foot of the screen while the titles that came last are below it. */
-.ask__below { position: fixed; z-index: 30; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); translate: -50% 0; gap: 7px; padding: 0 18px 0 16px; border-color: var(--hair-strong); background: var(--s4); color: var(--t1); font-weight: 500; white-space: nowrap; box-shadow: var(--shadow-card); animation: watch-ask-below var(--dur) var(--ease-spring, var(--ease-out)) backwards; }
-.ask__below:hover { background: var(--s5); }
-.ask__below > .ico:first-child { color: color-mix(in srgb, var(--purple) 45%, var(--t1)); }
-.ask__below > .ico:last-child { color: var(--t2); }
-html.has-tv-mini .ask__below { bottom: calc(80px + max(16px, env(safe-area-inset-bottom, 0px))); }
-@keyframes watch-ask-below { from { opacity: 0; transform: translateY(12px) scale(.96); } }
 /* An AI pick: a sparkle before its title, which wraps at its words as any card's. */
-.watch-card__spark { display: inline-block; margin-right: 5px; color: color-mix(in srgb, var(--purple) 35%, var(--t1)); font-size: .9em; vertical-align: -.05em; animation: watch-ask-spark var(--dur-slow) var(--ease-pop, var(--ease-out)) .12s backwards; }
-@keyframes watch-ask-spark { from { opacity: 0; transform: scale(.4) rotate(-30deg); } }
+.watch-card__spark { display: inline-block; margin-right: 5px; color: color-mix(in srgb, var(--purple) 35%, var(--t1)); font-size: .9em; vertical-align: -.05em; animation: watch-ask-spark var(--dur-slow) var(--ease-out) .12s backwards; }
+@keyframes watch-ask-spark { from { opacity: 0; transform: scale(.4); } }
+/* To download: dark glass, as the poster's other marks. */
+.watch-badge--get { background: color-mix(in srgb, var(--bg) 62%, transparent); color: var(--t1); font-weight: 600; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 
-.refine { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
+.refine { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -2px 0 18px; }
 .refine > small { margin-right: 4px; font-size: 13px; color: var(--t3); }
 /* As the panel's own ways to search. */
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 22px; background: var(--s3); color: var(--t2); font-size: 14px; text-align: left; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.refine .chip { min-height: 40px; padding: 0 15px; white-space: nowrap; }
 a.chip { text-decoration: none; }
 .chip:hover { background: var(--s4); color: var(--t1); }
 .chip:active { transform: scale(.97); }
+.chip.is-picked { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chip[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--rgba-accent-bg); color: var(--t1); }
 .chip > .ico { font-size: 12px; color: var(--t3); }
 .chip[aria-pressed="true"] > .ico { color: var(--accent-text); }
-.ask__ways { margin-top: 12px; }
+.chip--again > .ico { color: color-mix(in srgb, var(--purple) 45%, var(--t1)); }
+.ask__ways { margin: 12px 0 0; }
 .ask__grid .watch-card { transition: opacity var(--dur) var(--ease-out); }
-.is-refining .ask__grid .watch-card { opacity: .4; }
-.ask__note { max-width: 68ch; margin: 14px 2px 0; font-size: 14px; line-height: 1.5; color: var(--t2); overflow-wrap: anywhere; }
-.ask__note--quiet { max-width: none; margin-top: 18px; font-size: 13px; color: var(--t3); }
-.ask__note > a { color: var(--accent-text); }
-.ask__foot { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 12px; color: var(--t3); }
+.is-refining .ask__grid .watch-card { opacity: .45; }
+.ask__note { max-width: 68ch; margin: -6px 0 16px; padding: 10px 14px; border-radius: var(--r-md); background: var(--s1); font-size: 13px; line-height: 1.5; color: var(--t2); overflow-wrap: anywhere; }
+.ask__foot { display: flex; align-items: center; gap: 6px; margin: 16px 0 0; font-size: 12.5px; color: var(--t3); }
 .ask__foot > .ico { flex: none; font-size: 11px; color: color-mix(in srgb, var(--purple) 45%, var(--t2)); }
-.ordinary { margin-bottom: 8px; padding-top: 22px; border-top: 1px solid var(--hair); }
+
+/* No answer to give: one quiet line in its place. */
+.ask__off { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px dashed var(--hair-strong); border-radius: var(--r-lg); animation: watch-ask-rise var(--dur) var(--ease-out) backwards; }
+.ask__off > .ask__orb { background: var(--s3); box-shadow: none; color: var(--t3); }
+.ask__off-words { flex: 1; min-width: 0; }
+.ask__off-words > b { display: block; font-size: 15px; font-weight: 600; }
+.ask__off-words > span { display: block; margin-top: 1px; font-size: 13px; line-height: 1.35; color: var(--t3); }
+.ask__link { position: relative; flex: none; padding: 4px 2px; border-radius: var(--r-xxs); color: var(--accent-text); font-size: 13px; font-weight: 500; text-decoration: none; }
+.ask__link:hover { color: var(--accent-hi); }
+.ask__off > .chip { flex: none; }
+
+/* What parts the answer from the titles that only have the words. */
+.ordinary { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.ordinary__count { font-size: 13px; color: var(--t3); }
+.ordinary__title { margin: 0; font: 600 20px/1.25 var(--font-display); letter-spacing: -.01em; }
 .watch-face--art,
 .watch-search__token .watch-face--art { border-radius: 5px; }
 
-@media (hover: none) { .ask__key { display: none; } }
 @media (max-width: 599.98px) {
   .tn__head { flex-direction: column; align-items: stretch; }
   .tn__seg > button { min-width: 0; padding: 0 4px; }
@@ -149,22 +174,37 @@ a.chip { text-decoration: none; }
   .tn__list { -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--watch-fade-l), #000 calc(100% - var(--watch-fade-r)), transparent); mask-image: linear-gradient(90deg, transparent, #000 var(--watch-fade-l), #000 calc(100% - var(--watch-fade-r)), transparent); transition: --watch-fade-l var(--dur) var(--ease-out), --watch-fade-r var(--dur) var(--ease-out); }
   .tn__list.has-prev { --watch-fade-l: 24px; }
   .tn__list.has-next { --watch-fade-r: 24px; }
-  .ask__key { display: none; }
-  /* Two lines of its words and one of what it says under them: its height holds as Stop goes and they rewrap. */
-  .ask__row { min-height: calc(2 * 1.3 * 16px + 1px + 1.35 * 13px + 18px); }
+  /* Two lines of its words and one under them: its height holds as Stop goes and they rewrap. */
+  .ask__row { gap: 10px; min-height: calc(1.4 * 12.5px + 1px + 2 * 1.25 * 18px + 3px + 1.35 * 13px); }
+  .ask__title,
+  .ordinary__title { font-size: 18px; }
   /* A way on as wide as a phone's line goes under the words, which keep the width to be read. */
   .ask__row:has(> .chip) { flex-wrap: wrap; row-gap: 10px; }
   .ask__row:has(> .chip) > .ask__words { flex-basis: calc(100% - 58px); }
-  .ask__row > .chip { margin-left: 58px; }
+  .ask__row > .chip { margin-left: 42px; }
   .ask .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
-  .ask__skel:nth-child(n + 7) { display: none; }
-  .ask__group-note { flex-basis: 100%; }
-  .ask__group-note::before { content: none; }
+  .ask__off { flex-wrap: wrap; row-gap: 10px; }
+  .ask__off > .ask__off-words { flex-basis: calc(100% - 44px); }
+  .ask__off > :is(.chip, .ask__link) { margin-left: 44px; }
+  .ask-top > .ask-top__go { display: none; }
+  .ask-top__words > b { font-size: 17px; }
   .refine { flex-wrap: nowrap; margin-inline: calc(-1 * var(--pad)); padding-inline: var(--pad); overflow-x: auto; scrollbar-width: none; scroll-padding-inline: var(--pad); }
   .refine::-webkit-scrollbar { display: none; }
   .refine > * { flex: none; }
+  .refine > small { display: none; }
+  .refine .chip { min-height: 38px; padding: 0 13px; font-size: 13.5px; }
   .refine.is-wrap { flex-wrap: wrap; }
   .refine.is-wrap > * { flex: initial; }
+}
+/* A phone on its side: short and wide, one row of five outlines. */
+@media (max-height: 500px) and (min-width: 700px) {
+  .ask__row { margin-bottom: 12px; }
+  .ask__because { margin-top: 6px; }
+  .refine { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; }
+  .refine::-webkit-scrollbar { display: none; }
+  .refine > * { flex: none; }
+  .refine > small { display: none; }
+  .refine .chip { min-height: 36px; padding: 0 13px; font-size: 13.5px; }
 }
 @media (max-width: 419.98px) { .tn__seg > button { padding: 0; font-size: 12.5px; } }
 /* Too narrow for "All evening" on one line: "Evening" shows, and the whole is still read out. */
@@ -192,38 +232,35 @@ a.chip { text-decoration: none; }
 /* ── Still ── */
 
 @media (prefers-reduced-motion: reduce) {
-  .tn__card { animation: none; }
-  .is-thinking .ask__mark > .ico,
-  .is-thinking .ask__row::after,
-  .ask__step,
-  .watch-card__spark,
-  .ask__below { animation: none; }
-  /* The outlines stand still. */
-  .ask__skel .skel { animation: none; }
-  .chip:active,
-  button.ask__row:active { transform: none; }
+  .tn__card,
+  .ask-top,
+  .ask__off { animation: none; }
+  /* Fades alone: the step, the sparkle and the light over the outlines. */
+  .ask__step { animation: watch-ask-fade var(--dur-fast) ease-out backwards; }
+  .watch-card__spark { animation: watch-ask-fade var(--dur-fast) ease-out .12s backwards; }
+  /* !important: the page's own stillness cuts every animation to one short run. */
+  .is-thinking .ask__skel .skel--poster::after { background: color-mix(in srgb, var(--ai-a) 10%, transparent); animation: ai-twinkle-pulse 2.4s ease-in-out infinite !important; }
+  .is-thinking .ask__orb > .ico { --ai-twinkle-lg: none; --ai-twinkle-sm: none; animation: ai-twinkle-pulse 2.4s ease-in-out infinite !important; }
+  .chip:active { transform: none; }
 }
+@keyframes watch-ask-fade { from { opacity: 0; } }
 
 @media (forced-colors: active) {
-  .ask__key,
   .chip { border: 1px solid ButtonText; }
   .tn__seg { outline: 1px solid ButtonText; }
   .tn__seg > button[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; }
-  :is(.tn, .ask) .watch-card__link.is-picked > .watch-card__poster { outline-color: Highlight; }
+  :is(.tn, .ask) .watch-card__link.is-picked > .watch-card__poster,
+  .ask-top.is-picked { outline-color: Highlight; }
   .chip[aria-pressed="true"] { forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText; }
-  button.ask__row.is-picked { outline: 2px solid Highlight; outline-offset: -2px; }
-  .ask__mark > .ico,
+  .ask__orb > .ico,
   .watch-try--ai > .ico { color: CanvasText; }
+  .ask__kicker { background: none; color: CanvasText; }
+  .ask__off { border-color: CanvasText; }
   /* Outside the title's backplate it would stand on the poster: it has one of its own. */
   .watch-card__spark { forced-color-adjust: none; padding: 1px 2px; border-radius: 3px; background: Canvas; color: CanvasText; }
-  .ask__below { border-color: ButtonText; }
 }
-
-/* The answer's own heading: no box round it, the AI's colours on its mark. */
-div.ask__row { border-color: transparent; background: none; padding-inline: 0; }
-div.ask__row > .ask__mark:not(.ask__mark--art) { background: linear-gradient(135deg, color-mix(in srgb, var(--purple) 34%, var(--s2)), color-mix(in srgb, var(--pink) 26%, var(--s2))); color: var(--ai-pill-text); }
-div.ask__row .ask__words > b { font-size: 19px; letter-spacing: -.01em; }
 
 /* Why each title was picked, under its card. */
 .watch-card__why { display: -webkit-box; margin: 4px 0 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; font-size: 12px; line-height: 1.35; color: var(--t2); }
 .watch-card__why > b { font-weight: 600; color: var(--purple-text); }
+@media (max-width: 599.98px) { .watch-card__why { -webkit-line-clamp: 3; line-clamp: 3; font-size: 11.5px; } }

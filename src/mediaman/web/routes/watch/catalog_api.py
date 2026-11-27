@@ -300,7 +300,11 @@ def api_watch_similar(
     return respond_ok(
         {
             "tmdb_configured": True,
-            "title": {k: v for k, v in named.items() if not k.startswith("tmdb_")},
+            "title": {
+                **{k: v for k, v in named.items() if not k.startswith("tmdb_")},
+                # A library title's ref does not say it; a question names it by it.
+                "tmdb_id": named["tmdb_id"],
+            },
             "items": scored(conn, [marked(c, marks) for c in shown]),
         }
     )

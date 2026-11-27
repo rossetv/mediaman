@@ -43,8 +43,8 @@
   var LIKE_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/;
   var STATE_BADGES = {
     queued: ['i-clock', 'Queued'],
-    in_library: ['i-check', 'Ready to watch'],
-    partial: ['i-check', 'Ready to watch']
+    in_library: ['i-check', 'Ready'],
+    partial: ['i-check', 'Ready']
   };
 
   function dur(minutes) {
@@ -638,6 +638,7 @@
     var evening = null; // Tonight, once drawn
     var asking = null; // the place of a question over the results
     var ordinary = null; // what parts it from them
+    var top = null; // the title all that is typed names, over the AI's answer
     var recorded = ''; // the search kept last
     var ownWords = ''; // what was typed or pressed last on this page: other words came with the address
 
@@ -652,7 +653,7 @@
       box.classList.toggle('is-focus', on);
       box.classList.toggle('has-value', !!input.value);
       box.classList.toggle('has-token', tokened);
-      setAi(aiFits(input.value.trim()));
+      syncPill();
       box.classList.toggle('is-open', on || ((!!input.value || tokened) && !asked()));
       // Another script may have hidden it; whether it shows is the bar's to say.
       clear.hidden = false;
@@ -1192,6 +1193,7 @@
     /* What the results hold fades out behind what replaces it. */
     function leave() {
       if (!live) return;
+      unplaceAsk();
       var node = live.node;
       live = null;
       sayList();
@@ -1214,7 +1216,7 @@
 
     /* ── Ask AI ── */
 
-    function heldPage() { return [ordinary, live && live.node]; }
+    function heldPage() { return [top, ordinary, live && live.node]; }
 
     /* As core.flip, of those of *nodes* that show. */
     function flip(nodes) {
@@ -1230,86 +1232,264 @@
       move();
     }
 
-    /* While the AI looks, nothing is said of no title having the words: it may yet find some. */
+    function askShown() { return !!asking && !!asking.item && !asking.host.hidden; }
+
+    /* While the AI looks, nothing is said of no title having the words: it may yet find some. Under
+       an answer, the titles that only have the words are said to be that. */
     function quietWhileAsked() {
-      var looking = !!asking && !!asking.item && asking.item.state === 'thinking';
+      var shown = askShown();
+      var item = shown ? asking.item : null;
+      // Or about to: a wish waiting for the person to pause.
+      var looking = !!item && (item.state === 'thinking' || (item.state === 'new' && ai.autoOk() && !item.halted && !!asking.host.querySelector('.ask__grid')));
       var none = !!live && live.kind === 'none';
       if (none) live.node.hidden = looking;
-      if (ordinary) ordinary.hidden = !(asking && asking.item) || (looking && none);
+      if (ordinary) ordinary.hidden = !shown || !live || live.kind !== 'results';
+      foldHeads();
+    }
+
+    /* Under the line over the titles that only have the words, one group of them is named by that
+       line, with its count, and has no heading of its own. */
+    function foldHeads() {
+      if (!ordinary || !live || !live.grid) return;
+      var heads = core.toArray(live.grid.querySelectorAll('.results-group__head'));
+      var one = !ordinary.hidden && heads.length === 1;
+      heads.forEach(function (h) { h.hidden = one; });
+      ordinary.querySelector('.ordinary__count').textContent = one ? heads[0].querySelector('.results-group__count').textContent : '';
     }
 
     function askPlace() {
       var host = el('section', 'ask');
-      host.setAttribute('aria-label', 'Ask AI');
+      host.setAttribute('aria-label', 'AI answer');
+      top = el('div', 'ask-top-wrap');
+      top.hidden = true;
       ordinary = el('div', 'ordinary');
-      ordinary.appendChild(el('h2', 'ordinary__title', 'Search results'));
+      ordinary.appendChild(el('h2', 'ordinary__title', 'Matching your words'));
+      ordinary.appendChild(el('span', 'ordinary__count'));
       ordinary.hidden = true;
       results.insertBefore(ordinary, results.firstChild);
       results.insertBefore(host, ordinary);
-      asking = ai.view(host, { can: can, admin: data.is_admin === true, ask: fillAsk, plain: fill, stopped: function () { ai.keep({ q: null }); }, around: around });
+      results.insertBefore(top, host);
+      asking = ai.view(host, {
+        can: can,
+        admin: data.is_admin === true,
+        ask: fillAsk,
+        plain: fill,
+        stopped: function () { ai.keep({ q: null }); },
+        acted: function () { record(input.value.trim()); },
+        drawn: syncPill,
+        around: around
+      });
     }
 
-    function hideAsk() { if (asking && asking.item) asking.hide(); }
+    /* The top match, the AI's answer and the line over the titles that only have the words stand
+       in that order over those titles: in the results' own column, beside the suggestions, or
+       over what stands in the results' place. */
+    function placeAsk() {
+      if (!asking) return;
+      var main = live && live.kind === 'results' ? live.main : null;
+      var parent = main || results;
+      var at = main ? live.grid : (live && live.node.parentNode === results ? live.node : null);
+      [ordinary, asking.host, top].forEach(function (n) {
+        if (n.parentNode !== parent || n.nextSibling !== at) parent.insertBefore(n, at);
+        at = n;
+      });
+    }
 
-    /* The field itself says when Return asks the AI: what is typed reads as a request. Where
-       there is no AI it never does. */
+    /* Out of what the results hold, before it goes: a question goes on through it. */
+    function unplaceAsk() {
+      if (!asking || !live || !live.node.contains(asking.host)) return;
+      [top, asking.host, ordinary].forEach(function (n) { results.insertBefore(n, live.node); });
+    }
+
+    function hideAsk() {
+      if (asking && asking.item) asking.hide();
+      if (top) drawTop('');
+    }
+
+    /* The title whose name is all that is typed, among those the search found: { ref, title, ... }. */
+    function bare(text) { return folded(String(text || '').replace(/^\s*the\s+/i, '')); }
+
+    function topTitle(q) {
+      var typed = bare(q);
+      return (typed && titles(current).filter(function (t) { return t.ref && bare(t.title) === typed; })[0]) || null;
+    }
+
+    /* Whether *q* is a title the search found, whole, begun or with its year: no wish then, without a strong cue. */
+    function isTitle(q) {
+      return !!ai && ai.titled(q, titles(current).filter(function (t) { return t.ref; }).map(function (t) { return t.title; }));
+    }
+
+    /* Over a wish's answer, the title it names in full, which comes first. */
+    function drawTop(q) {
+      var t = q && askShown() ? topTitle(q) : null;
+      var key = t ? t.ref : '';
+      if ((top.getAttribute('data-top') || '') === key) return;
+      top.setAttribute('data-top', key);
+      top.textContent = '';
+      top.hidden = !t;
+      if (!t) return;
+      var link = top.appendChild(el('a', 'ask-top'));
+      link.href = safePath(t.href) || '#title=' + encodeURIComponent(t.ref);
+      link.setAttribute('data-title-ref', t.ref);
+      link.setAttribute('data-title', t.title);
+      if (t.kind === 'movie' || t.kind === 'show') link.setAttribute('data-kind', t.kind);
+      link.appendChild(small(t.poster_url));
+      var words = link.appendChild(el('span', 'ask-top__words'));
+      words.appendChild(el('small', '', 'Top match'));
+      words.appendChild(el('b', '', t.title));
+      // Of the library: the search's own titles, or one TMDB found that it holds.
+      var own = isHeld(t) || /^(movie|show)-[0-9]+$/.test(t.ref);
+      words.appendChild(el('span', '', [t.subtitle || kindLine(t)].concat(own ? ['In your library'] : []).join(' · ')));
+      var go = link.appendChild(el('span', 'ask-top__go', own ? 'Play' : 'Open'));
+      go.setAttribute('aria-hidden', 'true');
+      if (own) playTop(key, link, go);
+    }
+
+    /* Play goes where the title's own Play does, as its preview has it; one that cannot be played opens. */
+    function playTop(key, link, go) {
+      MM.api.get('/api/watch/preview/' + encodeURIComponent(key)).then(function (d) {
+        if (top.getAttribute('data-top') !== key || !top.contains(link)) return;
+        var href = d && d.in_library && d.play && safePath(d.play.href);
+        if (!href) { go.textContent = 'Open'; return; }
+        link.href = href;
+        // Without its ref the title sheet leaves the click to the link.
+        link.removeAttribute('data-title-ref');
+        go.textContent = String(d.play.label || 'Play').split(' ')[0];
+      }, function () {
+        if (top.getAttribute('data-top') === key) go.textContent = 'Open';
+      });
+    }
+
+    /* The field itself says what the AI does with what is typed: a wish is asked ("Ask AI ↵",
+       then "Thinking"), a title may be asked for ("Ask AI"), and an answer needs no pill. Where
+       there is no AI it never shows. */
     var aiMark = byId('watch-search-ai');
     var aiMode = byId('watch-search-mode');
-    var aiOn = false;
+    var aiWords = aiMark && aiMark.querySelector('span');
+    var aiStars = aiMark && ai && aiMark.querySelector('.ico');
+    if (aiStars) aiStars.replaceWith(core.sparkle());
+    var pillAs = ''; // wish, plain, thinking, done or ''
 
-    function aiFits(q) { return !!ai && !!aiMark && !tokened && ai.fits(q) && !ai.similarOf(q); }
-
-    function setAi(on) {
-      if (on === aiOn || !aiMark) return;
-      aiOn = on;
-      box.classList.toggle('is-ai', on);
-      aiMark.classList.toggle('is-twinkle', on);
-      aiMark.tabIndex = on ? 0 : -1;
-      aiMark.setAttribute('aria-hidden', on ? 'false' : 'true');
-      if (on) input.setAttribute('aria-describedby', 'watch-search-ai-hint');
-      else input.removeAttribute('aria-describedby');
-      if (aiMode) aiMode.textContent = on ? 'AI search: Return asks AI for titles that fit' : '';
+    function pillState() {
+      var q = input.value.trim();
+      if (!ai || !aiMark || tokened || !q || !ai.available()) return '';
+      var item = ai.question('ask', q);
+      if (item.state === 'thinking') return 'thinking';
+      if (item.state === 'answer' || item.state === 'nothing') return 'done';
+      // None left today: there is nothing to ask with.
+      if (ai.state().left === 0) return '';
+      if (ai.fits(q, isTitle(q))) return 'wish';
+      return ai.canAsk(q) ? 'plain' : '';
     }
 
-    function askTyped() {
+    function syncPill() {
+      var to = pillState();
+      if (to === pillAs || !aiMark) return;
+      pillAs = to;
+      var on = to === 'wish' || to === 'plain' || to === 'thinking';
+      box.classList.toggle('is-ai', on && to !== 'plain' || to === 'done');
+      box.classList.toggle('is-ai-plain', to === 'plain');
+      box.classList.toggle('is-thinking', to === 'thinking');
+      aiMark.classList.toggle('is-thinking', to === 'thinking');
+      aiMark.classList.toggle('is-twinkle', to === 'wish');
+      aiMark.tabIndex = on ? 0 : -1;
+      aiMark.setAttribute('aria-hidden', on ? 'false' : 'true');
+      if (aiWords) aiWords.textContent = to === 'thinking' ? 'Thinking' : 'Ask AI';
+      // A phone shows its sparkle alone.
+      aiMark.setAttribute('aria-label', to === 'thinking' ? 'AI is thinking' : 'Ask AI');
+      if (to === 'wish') input.setAttribute('aria-describedby', 'watch-search-ai-hint');
+      else input.removeAttribute('aria-describedby');
+      if (aiMode) aiMode.textContent = to === 'wish' || to === 'thinking' ? (ai.autoOk() ? 'AI search: AI answers once you pause, or press Return' : 'AI search: Return asks AI for titles that fit') : '';
+    }
+
+    /* Return, the pill or the row that asks. *any*: whatever is typed, wish or not. */
+    function askTyped(any) {
       clearTimeout(timer);
       run();
       var q = input.value.trim();
       record(q);
-      if (ai && ai.fits(q)) askNow(q);
+      if (ai && (any ? ai.canAsk(q) : ai.fits(q, isTitle(q)))) askNow(q);
       // The keyboard on a phone covers the results.
       if (core.coarsePointer()) input.blur();
     }
 
     if (aiMark) {
-      aiMark.addEventListener('click', function () { if (aiOn) askTyped(); });
+      aiMark.addEventListener('click', function () { if (pillAs === 'wish' || pillAs === 'plain') askTyped(true); });
       // The AI is known only once its state is in.
-      document.addEventListener('mm:search-assist', function () { setAi(aiFits(input.value.trim())); });
+      document.addEventListener('mm:search-assist', function () {
+        syncPill();
+        if (view === 'results' && input.value.trim()) offerAsk(input.value.trim());
+      });
     }
+    // A wish paused on before the AI was known.
+    if (ai) document.addEventListener('mm:search-assist', function () { autoAsk(); });
 
-    /* A sentence is offered to the AI, or shows what came of it, while the search answers below. */
+    /* A wish shows the place of its answer, or what came of asking, while the search answers below. */
     function offerAsk(q) {
       if (!ai) return;
-      setAi(aiFits(q));
-      // The field says what Return does: the row stands only for what came of asking.
-      if (unasked()) { hideAsk(); return; }
-      // Where the AI is set up and fails, what it would have been asked is told why.
-      if (!ai.fits(q) && !(canExplore() && ai.similarOf(q)) && !(ai.failing() && ai.shaped(q))) { hideAsk(); return; }
+      var exact = isTitle(q);
+      var item = questionOf(q);
+      syncPill();
+      if (tokened || (item.state === 'new' && !ai.shaped(q, exact))) { hideAsk(); return; }
       if (!asking) askPlace();
-      asking.row(q);
-      asking.pick(!picked);
+      asking.row(q, exact);
+      placeAsk();
+      drawTop(q);
+      quietWhileAsked();
+    }
+
+    /* The question of *q*. Not asked yet, it names the top match as the title the person likes. */
+    function questionOf(q) {
+      var item = ai.question('ask', q);
+      if (!item.like && /^(new|refused)$/.test(item.state)) item.top = topTitle(q);
+      return item;
     }
 
     function askNow(q) {
-      var item = ai.question('ask', q);
+      var item = questionOf(q);
       if (item.state !== 'new' && item.state !== 'refused') return;
-      ai.keep({ q: item.value });
+      ai.keep({ q: item.value, auto: false });
       ai.start(item);
       offerAsk(q);
     }
 
+    /* Asked by the page, not the person: the server refuses it where they switched it off or few answers are left. */
+    function askOnItsOwn(q, item) {
+      ai.keep({ q: item.value, auto: true });
+      ai.start(item, '', null, true);
+      offerAsk(q);
+    }
+
+    /* Asked on its own: a wish, once the person has paused on it and the search for it is in, so
+       a title it names in full is known. Once, and never again after they stopped it. */
+    var AUTO_MS = 700;
+    var autoTimer = null;
+    var paused = ''; // what the person paused on
+
+    function settledOn(q) {
+      var c = current && current.q === q ? current : null;
+      return !!c && [c.lib, c.tmdb, c.cat].every(function (part) { return !part || part.state !== 'loading'; });
+    }
+
+    function autoAsk() {
+      var q = input.value.trim();
+      if (!ai || tokened || !q || paused !== q || view !== 'results' || !settledOn(q) || !ai.autoOk()) return;
+      var it = ai.intent(q, isTitle(q));
+      var item = questionOf(q);
+      if (!it.wish || !it.ready || item.state !== 'new' || item.halted) return;
+      askOnItsOwn(q, item);
+    }
+
+    /* *now*: what is in the field was put there whole, as by a press, and is not typed on. */
+    function pauseOn(q, now) {
+      clearTimeout(autoTimer);
+      paused = now ? q : '';
+      // Before the AI is known too: it may be by the time the person has paused.
+      if (q && !now && ai) autoTimer = setTimeout(function () { paused = input.value.trim(); autoAsk(); }, AUTO_MS);
+    }
+
     function fillAsk(text) {
-      if (!ai.fits(text)) { fill(text); return; }
+      if (!ai.canAsk(text)) { fill(text); return; }
       input.value = text;
       input.focus({ preventScroll: true });
       typed(true);
@@ -1324,7 +1504,12 @@
       var q = input.value.trim();
       if (!q || tokened || !ai || view !== 'results') return;
       offerAsk(q);
-      if (ai.fits(q) && ai.kept().q === ai.question('ask', q).value) askNow(q);
+      var held = ai.kept();
+      var item = questionOf(q);
+      if (!ai.canAsk(q) || held.q !== item.value) return;
+      // Asked on its own, it is again only as it would be now.
+      if (!held.auto) askNow(q);
+      else if (ai.autoOk() && item.state === 'new' && !item.halted) askOnItsOwn(q, item);
     }
 
     /* A search the person meant: one pressed, entered or followed to a title. */
@@ -1371,7 +1556,8 @@
       ai.keepLike({ ref: ref, name: name, poster: poster, asked: asked });
       if (asked && (item.state === 'new' || item.state === 'refused')) ai.start(item);
       place.show(item);
-      host.querySelector('.ask__row').focus({ preventScroll: true });
+      var head = host.querySelector('.ask__row');
+      if (head) head.focus({ preventScroll: true });
     }
 
     function canLike(ref) { return !!ai && ai.available() && LIKE_RE.test(ref || ''); }
@@ -1405,6 +1591,7 @@
       live.list = list;
       live.bar = bar;
       live.grid = grid;
+      live.main = main;
       live.drawn = false; // whether the grid shows an answer
       live.rows = []; // what the grid shows
     }
@@ -1429,7 +1616,9 @@
           text.appendChild(el('b'));
           text.appendChild(el('small'));
           b.appendChild(text);
-          b.appendChild(MM.dom.icon('i-chevron-right', 'watch-suggestion__go'));
+          if (o.key) {
+            b.appendChild(el('kbd', 'watch-suggestion__key', o.key)).setAttribute('aria-hidden', 'true');
+          } else b.appendChild(MM.dom.icon('i-chevron-right', 'watch-suggestion__go'));
           if (o.act) b.addEventListener('click', function () { b.act(b); });
           return b;
         },
@@ -1507,7 +1696,30 @@
           pic: function () { return small(t.poster_url); }
         }));
       });
+      if (askable(q)) list.push(askSuggestion(q));
       return list;
+    }
+
+    /* What is typed is no wish, yet the AI may be asked for it: the last suggestion says so. */
+    function askable(q) {
+      return !!ai && !tokened && ai.canAsk(q) && !ai.fits(q, isTitle(q)) && ai.question('ask', q).state === 'new';
+    }
+
+    function askSuggestion(q) {
+      return suggestion('ask', 'ai', {
+        name: 'Ask AI about “' + q + '”', sub: 'Titles that fit, yours first', typed: '', key: 'return',
+        pic: function () {
+          var tag = el('span', 'watch-suggestion__tag');
+          tag.appendChild(MM.dom.icon('i-sparkles'));
+          return tag;
+        },
+        act: function () {
+          pick(null);
+          askTyped(true);
+          // It has been asked: the row goes.
+          if (live && live.kind === 'results') draw(q, current, live.rows, false);
+        }
+      });
     }
 
     /* The titles known while *c* runs: its own and those of the search before. */
@@ -1565,6 +1777,7 @@
        Their column goes only once it is known to stay empty. */
     function draw(q, c, rows, settled) {
       live.rows = rows;
+      offerAsk(q);
       rows = withDownloads(q, rows);
       glide(live.grid, rows, function () {
         // With no title to show, the people are what was found.
@@ -1579,6 +1792,7 @@
         if (c && !settled && !status.textContent) status.textContent = suggestionCount();
         pick(at ? stops().filter(function (n) { return n.id === at; })[0] || null : null);
       });
+      foldHeads();
     }
 
     /* Where people come to lead, or no longer do, *change* gives their photos and
@@ -1604,15 +1818,19 @@
       return root ? core.toArray(root.querySelectorAll('.watch-option')).filter(function (n) { return n.getClientRects().length; }) : [];
     }
 
-    /* What the arrow keys go through: the options, and over the results' suggestions the titles
-       an AI answer shows, as a card of the grid that they stand in. */
-    function stops() {
-      var all = options();
-      if (sheetOn || !asking || !asking.item) return all;
-      return core.toArray(asking.host.querySelectorAll('.ask__grid .watch-card__link')).filter(shows).concat(all);
+    /* What the arrow keys go through, in groups: the options; under an AI answer, the top match,
+       the AI's picks, the ways to narrow them and the titles that only have the words. */
+    function stopGroups() {
+      var groups = [options()];
+      if (!sheetOn && askShown()) {
+        [top.querySelectorAll('.ask-top'), asking.host.querySelectorAll('.ask__grid .watch-card__link'),
+          asking.host.querySelectorAll('.refine .chip'), live && live.kind === 'results' ? live.grid.querySelectorAll('.watch-card__link') : []]
+          .forEach(function (list) { groups.push(core.toArray(list).filter(shows)); });
+      }
+      return groups.filter(function (g) { return g.length; });
     }
 
-    function isCard(node) { return !!node && node.classList.contains('watch-card__link'); }
+    function stops() { return [].concat.apply([], stopGroups()); }
 
     /* The suggested title whose name is all that was typed, if there is one: Return opens it. */
     function exactTitle() {
@@ -1636,7 +1854,8 @@
       }
       var bar = live && live.kind === 'results' ? live.bar : null;
       if (bar) {
-        if (!sheetOn && node && !isCard(node)) {
+        var listed = !sheetOn && !!node && options().indexOf(node) > -1;
+        if (listed) {
           var at = 'translateY(' + node.offsetTop + 'px)';
           if (!bar.classList.contains('is-on')) {
             // It shows where it is wanted, and glides from there.
@@ -1647,10 +1866,9 @@
           }
           bar.style.transform = at;
         }
-        bar.classList.toggle('is-on', !sheetOn && !!node && !isCard(node));
+        bar.classList.toggle('is-on', listed);
       }
       picked = node;
-      if (asking) asking.pick(!node && !exactTitle());
       if (!node) { input.removeAttribute('aria-activedescendant'); return; }
       if (!node.id) node.id = 'watch-stop-' + (++stopIds);
       node.classList.add('is-picked');
@@ -1684,18 +1902,33 @@
 
     /* Whether the key moved the highlight. */
     function step(key) {
-      var all = stops();
+      var groups = stopGroups();
+      var all = [].concat.apply([], groups);
       if (!all.length) return false;
       if (picked && !shows(picked)) pick(null);
       var across = key === 'ArrowLeft' || key === 'ArrowRight';
+      var down = key === 'ArrowDown';
       if (!picked) {
         if (across) return false;
-        pick(key === 'ArrowDown' ? all[0] : all[all.length - 1]);
+        pick(down ? all[0] : all[all.length - 1]);
         return true;
       }
-      if (sheetOn || isCard(picked)) {
+      if (sheetOn) {
         var to = beside(all, picked, key);
         if (to || key === 'ArrowUp') pick(to);
+        return true;
+      }
+      var at = 0;
+      groups.forEach(function (g, i) { if (g.indexOf(picked) > -1) at = i; });
+      // Through a group as it is laid out, then on to the next: up from the first goes back.
+      if (at > 0) {
+        var near = beside(groups[at], picked, key);
+        if (near || across) {
+          if (near) pick(near);
+          return true;
+        }
+        var next = groups[at + (down ? 1 : -1)];
+        if (next) pick(down ? next[0] : next[next.length - 1]);
         return true;
       }
       var listed = options();
@@ -1746,7 +1979,7 @@
     function showNothing(c, notSetUp) {
       leave();
       hold('none', 'Search results');
-      var asked = !!asking && !!asking.item;
+      var asked = askShown();
       if (asked || unasked()) {
         live.node.appendChild(el('p', 'results-none', 'No title has these words in its name.'));
         if (!asked) {
@@ -1809,10 +2042,10 @@
       return n ? n + (n === 1 ? ' suggestion' : ' suggestions') : '';
     }
 
-    function askHint() { return ((asking && asking.item && asking.offered()) || unasked()) && !exactTitle() ? 'Press Return to ask AI' : ''; }
+    function askHint() { return unasked() && !exactTitle() ? 'Press Return to ask AI' : ''; }
 
     /* The field is the AI's and what it holds is not asked yet. */
-    function unasked() { return aiOn && ai.question('ask', input.value.trim()).state === 'new'; }
+    function unasked() { return pillAs === 'wish'; }
 
     function readOut(c, all, coming) {
       var parts = coming ? [coming + ' downloading'] : [];
@@ -1887,6 +2120,7 @@
         } else said = false;
         if (said) {
           afterLib(c);
+          autoAsk();
           return;
         }
       }
@@ -1943,6 +2177,7 @@
       if (settled) {
         last = c;
         readOut(c, all, coming.length);
+        autoAsk();
       }
     }
 
@@ -2165,6 +2400,7 @@
     function typed(now, inWord) {
       var q = ownWords = input.value.trim();
       clearTimeout(timer);
+      pauseOn(q, now);
       composed = inWord ? input.value : '';
       if (tokened) setToken(null);
       sync();
@@ -2238,8 +2474,12 @@
         return;
       }
       if (e.key === 'Escape') {
+        var going = askShown() && asking.item.state === 'thinking' ? asking.item : null;
         if (picked) pick(null);
-        else if (input.value) clearSearch();
+        else if (going) {
+          ai.stop(going);
+          ai.keep({ q: null });
+        } else if (input.value) clearSearch();
         else if (sheetOn) leaveSheet();
         else return;
         e.preventDefault();
@@ -2263,8 +2503,11 @@
         return;
       }
       if (tokened || !input.value) return;
+      // A wish is asked over a title of its words; a title is opened.
       var exact = exactTitle();
-      if (exact) {
+      var q = input.value.trim();
+      var wish = !!ai && ai.fits(q, isTitle(q)) && /^(new|refused)$/.test(ai.question('ask', q).state);
+      if (exact && !wish) {
         exact.click();
         return;
       }
@@ -2306,7 +2549,7 @@
     });
     results.addEventListener('click', function (e) {
       var q = input.value.trim();
-      if (view === 'results' && q === ownWords && e.target.closest('.watch-suggestion, [data-title-ref]')) record(q);
+      if (view === 'results' && q === ownWords && e.target.closest('.watch-suggestion, [data-title-ref], .ask-top')) record(q);
     });
     veil.addEventListener('click', leaveSheet);
     clear.addEventListener('click', function () {

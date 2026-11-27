@@ -11,7 +11,7 @@ const { Node, makeDocument, build, click, settle } = require('./fake_dom');
 
 Node.prototype.scrollIntoView = function () {};
 
-const ASSIST = { account: 'a1', available: true, tonight: false, history: true, records: true, recent: [], personal: true, phrases: [], min_words: 3 };
+const ASSIST = { account: 'a1', available: true, tonight: false, history: true, records: true, recent: [], personal: true, phrases: [], min_words: 2, left: 20, auto: true };
 const Q = 'comedy movies from 2026';
 const card = (n, owned, over) => ({
   ref: 'tmdb-movie-' + n, library_ref: owned ? 'movie-' + n : null, in_library: owned, kind: 'movie', title: 'Film ' + n,
@@ -117,7 +117,6 @@ function load() {
     await settle();
   };
   p.cards = () => doc.querySelectorAll('.ask .watch-card__link').map((n) => n.querySelector('.watch-card__title').textContent);
-  p.heads = () => doc.querySelectorAll('.ask .results-group__title').map((n) => n.textContent);
   p.whys = () => doc.querySelectorAll('.ask .watch-card__why').map((n) => ({ text: n.textContent, bold: n.children.map((c) => c.tagName + ':' + c.textContent), kids: n.children.length }));
   p.outlines = () => doc.querySelectorAll('.ask .ask__skel').length;
   p.start = async () => {
@@ -158,22 +157,22 @@ const scenarios = {
     const p = load();
     await p.start();
     await p.poll({ status: 'done', owned: [card(1, true)], others: [card(2, false)], chips: ['Funnier'], instead: [], lead: 'owned' });
-    return { heads: p.heads() };
+    return { cards: p.cards() };
   },
   async leadHolds() {
     const p = load();
     await p.start();
     await p.poll({ status: 'done', owned: [card(1, true)], others: [card(2, false)], chips: ['Funnier'], instead: [], lead: 'others' });
-    const out = { before: p.heads() };
+    const out = { before: p.cards() };
     const chip = p.doc.querySelectorAll('.ask .refine .chip')[0];
     click(p.doc, chip);
     await settle();
     out.sent = p.calls.filter((c) => c.method === 'POST' && !c.done).map((c) => c.body.refine || c.body.chip || c.body);
     await p.reply('POST', '/ask', { status: 'running', run_id: 8 });
     await p.poll({ status: 'running', run_id: 8, stage: 'checking', owned: [card(1, true)], others: [], lead: 'owned' });
-    out.during = [p.cards(), p.heads()];
+    out.during = p.cards();
     await p.poll({ status: 'done', owned: [card(1, true)], others: [card(2, false)], chips: ['Funnier'], instead: [], lead: 'owned' });
-    out.after = p.heads();
+    out.after = p.cards();
     return out;
   },
   // A running poll draws the titles checked so far with outlines after them.
@@ -182,11 +181,11 @@ const scenarios = {
     await p.start();
     const out = { none: [p.cards(), p.outlines()] };
     await p.poll({ status: 'running', run_id: 7, stage: 'checking', owned: [], others: [card(2, false)], lead: 'others' });
-    out.one = [p.cards(), p.outlines(), p.heads(), p.whys().map((w) => w.text)];
+    out.one = [p.cards(), p.outlines(), p.whys().map((w) => w.text)];
     await p.poll({ status: 'running', run_id: 7, stage: 'checking', owned: [card(1, true)], others: [card(2, false), card(3, false)], lead: 'others' });
-    out.three = [p.cards(), p.outlines(), p.heads()];
+    out.three = [p.cards(), p.outlines()];
     await p.poll({ status: 'done', owned: [card(1, true)], others: [card(2, false), card(3, false)], chips: [], instead: [], lead: 'others' });
-    out.done = [p.cards(), p.outlines(), p.heads()];
+    out.done = [p.cards(), p.outlines()];
     return out;
   },
 };

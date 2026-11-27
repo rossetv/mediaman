@@ -78,6 +78,17 @@ def _drop_made(conn: sqlite3.Connection, user_id: int) -> None:
     )
 
 
+def asks_on_its_own(conn: sqlite3.Connection, user_id: int) -> bool:
+    """Whether search asks the AI once the person pauses typing a request."""
+    row = conn.execute("SELECT ai_auto_ask FROM admin_users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row and row["ai_auto_ask"])
+
+
+def set_asks_on_its_own(conn: sqlite3.Connection, user_id: int, enabled: bool) -> None:
+    with conn:
+        conn.execute("UPDATE admin_users SET ai_auto_ask = ? WHERE id = ?", (enabled, user_id))
+
+
 # --- Recent searches -----------------------------------------------------------
 
 
@@ -209,6 +220,24 @@ def daily_limit(conn: sqlite3.Connection, key: str) -> int:
 
 def switched_off(conn: sqlite3.Connection) -> bool:
     return any(daily_limit(conn, key) == 0 for key in DAILY_LIMITS)
+
+
+def questions_left(conn: sqlite3.Connection, user_id: int, now: datetime) -> int:
+    """The questions the person may still ask today: the fewer of what their own limit and
+    everyone's leave. Counted as ``start_run`` counts them."""
+    today = _midnight(now).isoformat()
+    mine = conn.execute(
+        "SELECT COUNT(*) FROM user_ai_runs WHERE user_id = ? AND kind <> ? AND started_at >= ?",
+        (user_id, PHRASES, today),
+    ).fetchone()[0]
+    everyone = conn.execute(
+        "SELECT COUNT(*) FROM user_ai_runs WHERE started_at >= ?", (today,)
+    ).fetchone()[0]
+    left = min(
+        daily_limit(conn, "ai_questions_per_day") - mine,
+        daily_limit(conn, "ai_everyone_per_day") - everyone,
+    )
+    return max(0, int(left))
 
 
 # --- Runs ----------------------------------------------------------------------

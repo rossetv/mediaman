@@ -744,6 +744,28 @@
       }).then(function () { toggle.removeAttribute('aria-disabled'); });
     });
 
+    var auto = document.getElementById('account-auto');
+    var drawAuto = function (enabled) {
+      auto.classList.toggle('on', enabled);
+      auto.setAttribute('aria-checked', String(enabled));
+    };
+    if (auto) {
+      auto.addEventListener('click', function () {
+        if (isBusy(auto)) return;
+        var was = auto.getAttribute('aria-checked') === 'true';
+        auto.setAttribute('aria-disabled', 'true');
+        drawAuto(!was);
+        MM.api.put(HISTORY, { auto: !was }).then(function () {
+          // An open search asks, or waits for Return, as the new setting says.
+          var ask = window.MMWatch && window.MMWatch.ask;
+          if (ask && ask.load) ask.load();
+        }, function (err) {
+          drawAuto(was);
+          UIFeedback.error(MM.api.messageOf(err, 'Could not save. Try again.'));
+        }).then(function () { auto.removeAttribute('aria-disabled'); });
+      });
+    }
+
     clear.addEventListener('click', function () {
       if (isBusy(clear)) return;
       UIFeedback.confirm({

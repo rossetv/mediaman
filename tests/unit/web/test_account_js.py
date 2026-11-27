@@ -399,6 +399,24 @@ def test_a_history_switch_saved_with_its_answer_lost_stands_as_saved() -> None:
     assert len(lost["toasts"]) == 1 and not lost["toasts"][0].startswith("error")
 
 
+def test_the_ask_as_i_type_switch_saves_at_once_and_an_open_search_reloads() -> None:
+    out = _run("autoAsk")
+    # two presses at once send one request
+    assert out["sent"][0] == ["/api/search/assist/history", {"auto": True}]
+    assert out["on"]["during"] == out["on"]["after"] == ["true", True]
+    assert (out["on"]["loads"], out["on"]["toasts"], out["on"]["busy"]) == (1, [], None)
+
+
+def test_an_ask_as_i_type_switch_that_could_not_be_saved_goes_back_and_says_so() -> None:
+    out = _run("autoAsk")
+    refused = out["refused"]
+    assert out["sent"][1] == ["/api/search/assist/history", {"auto": False}]
+    assert refused["during"] == ["false", False]
+    assert refused["after"] == ["true", True]
+    assert (refused["loads"], refused["toasts"], refused["busy"]) == (1, ["error: No luck"], None)
+    assert len(out["sent"]) == 2
+
+
 def test_nothing_about_the_ai_is_shown_without_a_key() -> None:
     assert _run("historyHidden") == [True, True]
 

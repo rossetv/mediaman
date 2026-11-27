@@ -151,6 +151,7 @@ _ADDED_COLUMNS = (
     ("audit_log", "actor_id", "INTEGER"),
     ("arr_import_retries", "tried_at", "TEXT"),
     ("arr_import_retries", "tried_episodes", "TEXT"),
+    ("admin_users", "ai_auto_ask", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.

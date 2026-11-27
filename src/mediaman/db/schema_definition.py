@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS admin_users (
     -- 1 while this person lets their searches, ratings, requests and how their plays went go
     -- to the AI. The titles they played, their earlier picks and, of the server's owner, the
     -- stars in Plex go for their picks either way.
-    ai_history INTEGER NOT NULL DEFAULT 1
+    ai_history INTEGER NOT NULL DEFAULT 1,
+    -- 1 while search asks the AI on its own once this person pauses typing a request.
+    ai_auto_ask INTEGER NOT NULL DEFAULT 1
 );
 
 -- The avatar a person set; without a row they have a default one. kind is "drawn" (choice) or

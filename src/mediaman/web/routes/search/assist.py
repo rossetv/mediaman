@@ -18,11 +18,11 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from mediaman.core.time import now_utc
 from mediaman.db import get_db, open_thread_connection
@@ -55,7 +55,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-MIN_WORDS = 3
+# Of a question asked on its own; one the person presses may be a single word.
+MIN_WORDS = 2
 _ACCOUNT_HEADER = "X-Assist-Account"
 _OWNED_CHIP = "Only in your library"
 # Plays worth making phrases from, when nothing was searched for.
@@ -74,6 +75,8 @@ _WRITE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
 _ASK_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 _TONIGHT_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 _ELSEWHERE_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
+# The answers left today that are kept for questions the person presses.
+_AUTO_KEEPS = 3
 # The download states of a title Radarr or Sonarr has, as Watch's cards tell them.
 _HELD = frozenset({"in_library", "partial"})
 
@@ -107,21 +110,51 @@ class _SearchBody(BaseModel):
     q: Annotated[str, Field(max_length=1000)]
 
 
+class _NamedTitle(BaseModel):
+    """The title a question names, as the page found it."""
+
+    model_config = ConfigDict(extra="forbid")
+    tmdb_id: Annotated[int, Field(ge=1, le=9_999_999_999)]
+    kind: Literal["movie", "tv", "show"]
+    title: Annotated[str, Field(min_length=1, max_length=repo.PHRASE_MAX)]
+
+
 class _AskBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     q: Annotated[str, Field(max_length=repo.PHRASE_MAX)]
     refine: Annotated[str, Field(max_length=60)] = ""
+    like: _NamedTitle | None = None
+    #: Asked by the page on its own, as the person paused typing; not when they pressed.
+    auto: StrictBool = False
+    #: Other titles than those of the answer kept: asked afresh, only when the person presses.
+    fresh: StrictBool = False
+
+    @model_validator(mode="after")
+    def _pressed_when_fresh(self) -> _AskBody:
+        if self.fresh and self.auto:
+            raise ValueError("fresh is never asked on its own")
+        return self
 
 
 class _LikeBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ref: Annotated[str, Field(max_length=40)]
     refine: Annotated[str, Field(max_length=60)] = ""
+    fresh: StrictBool = False
 
 
 class _HistoryBody(BaseModel):
+    """Either switch of the person's, or both: *auto* is whether search asks on its own."""
+
     model_config = ConfigDict(extra="forbid")
-    enabled: StrictBool
+    enabled: StrictBool | None = None
+    auto: StrictBool | None = None
+
+    @model_validator(mode="after")
+    def _one_at_least(self) -> _HistoryBody:
+        if self.enabled is None and self.auto is None:
+            raise ValueError("enabled or auto is required")
+        return self
 
 
 def _secret(request: Request) -> str:
@@ -282,6 +315,8 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
             "personal": bool(phrases),
             "phrases": phrases or list(ai.FIXED_PHRASES),
             "min_words": MIN_WORDS,
+            "left": repo.questions_left(conn, user_id, now_utc()),
+            "auto": repo.asks_on_its_own(conn, user_id),
         }
     )
 
@@ -325,6 +360,7 @@ def api_history(request: Request, username: str = Depends(get_current_user)) -> 
     return respond_ok(
         {
             "enabled": repo.uses_history(conn, user_id),
+            "auto": repo.asks_on_its_own(conn, user_id),
             # Recommendations use it too, with neither TMDB nor the AI in search.
             "available": _has_openai_key(request, conn),
         }
@@ -336,10 +372,15 @@ def api_set_history(body: _HistoryBody, username: str = Depends(get_current_user
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
-    repo.set_uses_history(conn, user_id, body.enabled)
-    if not body.enabled:
-        _forget(user_id)
-    return respond_ok({"enabled": body.enabled})
+    if body.enabled is not None:
+        repo.set_uses_history(conn, user_id, body.enabled)
+        if not body.enabled:
+            _forget(user_id)
+    if body.auto is not None:
+        repo.set_asks_on_its_own(conn, user_id, body.auto)
+    return respond_ok(
+        {"enabled": repo.uses_history(conn, user_id), "auto": repo.asks_on_its_own(conn, user_id)}
+    )
 
 
 def _start_thread(
@@ -418,8 +459,9 @@ def _make_phrases_later(
 def api_ask(
     body: _AskBody, request: Request, username: str = Depends(get_current_user)
 ) -> JSONResponse:
-    """Titles for a question of three words or more, or for it narrowed to a chip of its
-    answer: at once when answered before, else a run to poll."""
+    """Titles for a question, of a word or more when pressed and two when asked on its own,
+    which may name a title to find more like, or for it narrowed to a chip of its answer: at
+    once when answered before, else a run to poll. Nothing is kept of it as a search: the page records one when the person acts on it."""
     text = repo.tidy(body.q)
     conn, user_id = _person(username)
     if user_id is None:
@@ -430,9 +472,23 @@ def api_ask(
     client = _client(request, conn)
     if client is None:
         return _unavailable(request, conn, username)
-    if ai.words(text) < MIN_WORDS:
+    if ai.words(text) < (MIN_WORDS if body.auto else 1):
         return respond_err("too_short", status=400)
+    if body.auto and not repo.asks_on_its_own(conn, user_id):
+        return respond_err("auto_off", status=409)
+    if body.auto and repo.questions_left(conn, user_id, now_utc()) <= _AUTO_KEEPS:
+        return respond_err("auto_low", status=409)
     key = _question_key(text)
+    named = ai.Question()
+    if body.like is not None:
+        try:
+            found = _named(conn, client, body.like, lambda: _ASK_LIMITER.check(username))
+        except disk_cache.Refused:
+            return _too_many()
+        if found is None:
+            return _not_found()
+        named = found
+        key += f"\nlike {named.like_key}"
     skip: frozenset[tuple[str, int]] = frozenset()
     skip_titles: frozenset[tuple[str, str]] = frozenset()
     if ai.is_personal(text) and repo.uses_history(conn, user_id):
@@ -448,8 +504,10 @@ def api_ask(
         )
     if _RELATIVE_RE.search(text):
         key += "\n" + now_utc().date().isoformat()
-    question = ai.Question(text=text, skip=skip, skip_titles=skip_titles)
-    return _answer(request, conn, client, user_id, username, "ask", key, question, body.refine)
+    question = replace(named, text=text, skip=skip, skip_titles=skip_titles)
+    return _answer(
+        request, conn, client, user_id, username, "ask", key, question, body.refine, body.fresh
+    )
 
 
 def _question_key(text: str) -> str:
@@ -481,8 +539,35 @@ def api_like(
     if question is None:
         return _not_found()
     return _answer(
-        request, conn, client, user_id, username, "like", body.ref, question, body.refine
+        request,
+        conn,
+        client,
+        user_id,
+        username,
+        "like",
+        body.ref,
+        question,
+        body.refine,
+        body.fresh,
     )
+
+
+def _named(
+    conn: sqlite3.Connection,
+    client: TmdbClient,
+    like: _NamedTitle,
+    allow_fetch: Callable[[], bool],
+) -> ai.Question | None:
+    """The title a question names, as TMDB knows it; as the page named it, without its year,
+    while TMDB cannot be reached. None when TMDB has no such title."""
+    kind = "movie" if like.kind == "movie" else "tv"
+    try:
+        return _like_question(conn, client, f"tmdb-{kind}-{like.tmdb_id}", allow_fetch)
+    except catalog.TmdbUnavailable:
+        title = repo.tidy(like.title)
+        if not ai.words(title):
+            return None
+        return ai.Question(like=title, like_key=(kind, like.tmdb_id))
 
 
 def _index(conn: sqlite3.Connection, client: TmdbClient) -> catalog.LibraryIndex:
@@ -535,7 +620,9 @@ def _answer(
     key: str,
     question: ai.Question,
     refine: str,
+    fresh: bool = False,
 ) -> JSONResponse:
+    """With *fresh*, the answer kept is not given: others are asked for, and take its place."""
     base = None
     asked_key = key
     key = base_key = _digest(request, kind, asked_key)
@@ -546,20 +633,34 @@ def _answer(
             return _not_found()
         if refine == _OWNED_CHIP:
             return _done(request, conn, client, user_id, username, base, base, owned_only=True)
-        key = _digest(request, kind, asked_key, refine.casefold())
+        # The titles narrowed are part of the key: after other picks, a chip narrows those.
+        picks = "|".join(f"{t['media_type']}-{t['tmdb_id']}" for t in base["titles"])
+        key = _digest(request, kind, asked_key, refine.casefold(), picks)
         question = replace(
             question, refine=refine, narrowing=tuple(t["title"] for t in base["titles"])
         )
     stored = _fetch(conn, user_id, kind, key)
-    if stored is not None:
+    if stored is not None and not fresh:
         return _done(request, conn, client, user_id, username, stored, base or stored)
-    if not _ASK_LIMITER.check(username):
+    if stored is not None:
+        before = stored["titles"]
+        question = replace(
+            question,
+            skip=question.skip | {(t["media_type"], t["tmdb_id"]) for t in before},
+            shown=tuple(t["title"] for t in before),
+        )
+    reserved = _ASK_LIMITER.reserve(username)
+    if reserved is None:
         return _too_many()
     run_id = repo.start_run(conn, user_id, kind, now_utc())
     if isinstance(run_id, repo.Refused):
-        going = _asked.get(run_id.run_id) if run_id.run_id is not None else None
-        if going is not None and (going.kind, going.key) == (kind, key):
-            return respond_ok({"status": "running", "run_id": run_id.run_id}, status=202)
+        going_id = run_id.run_id
+        going = _asked.get(going_id) if going_id is not None else None
+        if going_id is not None and going is not None and (going.kind, going.key) == (kind, key):
+            return _running(conn, user_id, going_id)
+        if run_id.reason == "stopping":
+            # The page asks again until the stopped run has ended: waiting spends nothing.
+            _ASK_LIMITER.release(username, reserved)
         return _refused(run_id)
     with _asked_lock:
         while len(_asked) >= _ASKED_MAX:
@@ -592,7 +693,16 @@ def _answer(
             asked.answer = None
 
     _start_thread(request, user_id, run_id, work)
-    return respond_ok({"status": "running", "run_id": run_id}, status=202)
+    return _running(conn, user_id, run_id)
+
+
+def _left(conn: sqlite3.Connection, user_id: int) -> dict[str, int]:
+    """The answers the person may still be given today, for the page to keep its count."""
+    return {"left": repo.questions_left(conn, user_id, now_utc())}
+
+
+def _running(conn: sqlite3.Connection, user_id: int, run_id: int) -> JSONResponse:
+    return respond_ok({"status": "running", "run_id": run_id, **_left(conn, user_id)}, status=202)
 
 
 @router.get("/api/search/assist/runs/{run_id}")
@@ -615,6 +725,7 @@ def api_run(
                 "status": status,
                 "run_id": run_id,
                 "error": "unavailable",
+                **_left(conn, user_id),
                 **({"why": "refused"} if get_user_role(conn, username) == "admin" else {}),
             }
         )
@@ -629,7 +740,7 @@ def api_run(
             some = {"titles": partial, "chips": [], "instead": []}
             shown = _shown(request, conn, client, username, some, some)
             stage |= {k: shown[k] for k in ("owned", "others", "lead")}
-        return respond_ok({"status": status, "run_id": run_id, **stage})
+        return respond_ok({"status": status, "run_id": run_id, **stage, **_left(conn, user_id)})
     stored = _fetch(conn, user_id, asked.kind, asked.key)
     if stored is None:
         return _not_found()
@@ -663,7 +774,8 @@ def _done(
 ) -> JSONResponse:
     """The stored answer as it stands now: what the library holds may have changed since, and
     so may the person's ratings. The chips are those of *base*, the answer before narrowing."""
-    return respond_ok(_shown(request, conn, client, username, stored, base, owned_only=owned_only))
+    shown = _shown(request, conn, client, username, stored, base, owned_only=owned_only)
+    return respond_ok({**shown, **_left(conn, user_id)})
 
 
 def _shown(
@@ -703,6 +815,7 @@ def _shown(
         "others": [c for c in shown if not (c["in_library"] or owned_only)],
         "chips": chips,
         "instead": stored["instead"],
+        "heading": stored.get("heading"),
         # The group of the best fit stands first.
         "lead": "others" if shown and not shown[0]["in_library"] and not owned_only else "owned",
     }

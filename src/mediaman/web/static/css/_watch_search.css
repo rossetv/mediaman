@@ -495,19 +495,11 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .results-hint a::after { content: ""; position: absolute; inset: -12px -6px; }
 .results-hint a:hover { color: var(--accent-hi); }
 
-/* Where a download is in its course, top right of a poster. */
-.watch-badge--state { right: 8px; display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
-.watch-badge--state > .ico { font-size: 9px; }
-.watch-badge--in { background: color-mix(in srgb, var(--success) 90%, transparent); color: #00210b; }
-.watch-badge--queued { background: color-mix(in srgb, var(--warning) 90%, transparent); color: #2a2400; }
-.watch-badge--downloading { background: color-mix(in srgb, var(--accent) 92%, transparent); color: var(--color-on-accent); }
-
 @media (max-width: 599.98px) {
   .results-group__title { font-size: 17px; }
   .is-people .watch-suggestion--person { gap: 14px; min-height: 92px; }
   .is-people .watch-suggestion--person :is(.watch-suggestion__pic, .watch-face) { width: 72px; height: 72px; font-size: 25px; }
   .is-people .watch-suggestion--person b { font-size: 19px; }
-  .watch-badge--state { right: 6px; }
   /* Three across on a phone. */
   .results-page .watch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
 }
@@ -582,7 +574,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   .watch-tile__text > b { font-size: 12.5px; }
 }
 
-/* ── The AI's field: what is typed reads as a request, and Return asks the AI ── */
+/* ── The AI's field: what is typed reads as a request, which the AI answers once the person pauses ── */
 
 .watch-search { --ai-a: var(--purple); --ai-b: var(--pink); }
 /* One sheen runs round the ring as it turns. As large as what is left of the pill, so the cut leaves it whole. */
@@ -621,6 +613,8 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .watch-search.is-ai::after { opacity: 1; }
 .watch-search.is-ai .watch-search__lens { color: var(--purple-text); }
 .watch-search.is-ai .watch-search__input { caret-color: var(--ai-b); }
+/* While it answers, the sheen goes on running round the ring. */
+.watch-search.is-thinking .watch-search__pill::after { animation: watch-ai-sheen 1.6s linear infinite; }
 @keyframes watch-ai-sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
 
 /* Hidden, it is out of the way of Tab as well as of the eye. */
@@ -653,15 +647,31 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .watch-search.is-ai .watch-search__ai { max-width: 120px; margin: 0; padding: 0 11px 0 10px; opacity: 1; visibility: visible; transform: none; pointer-events: auto; transition-delay: 0s; }
 .watch-search.is-ai .watch-search__ai:hover { filter: brightness(1.15); }
 .watch-search.is-ai .watch-search__ai:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.watch-search.is-ai .watch-search__ai.is-twinkle > .ico { animation: watch-ai-twinkle .6s var(--ease-out) 1; }
-@keyframes watch-ai-twinkle { 40% { transform: scale(1.3) rotate(12deg); } }
-/* On a phone, upright or on its side, the pill folds once the field is left: the words asked keep the room. */
+.watch-search.is-ai .watch-search__ai.is-twinkle > .ico { --ai-twinkle-lg: ai-twinkle-big .9s ease-in-out 1; --ai-twinkle-sm: ai-twinkle-small .9s ease-in-out 1; }
+/* Thinking: its stars twinkle in turn, and no key is to be pressed. */
+.watch-search .watch-search__ai.is-thinking { cursor: default; }
+.watch-search .watch-search__ai.is-thinking > kbd { display: none; }
+.watch-search .watch-search__ai.is-thinking > .ico { --ai-twinkle-lg: ai-twinkle-big 1.2s ease-in-out infinite; --ai-twinkle-sm: ai-twinkle-small 1.2s ease-in-out infinite; }
+/* Once answered the pill has nothing to do: it goes, and the ring stays. */
+.watch-search.is-ai .watch-search__ai[aria-hidden="true"] { max-width: 0; margin: 0 -8px 0 0; padding: 0; opacity: 0; visibility: hidden; transform: scale(.8); pointer-events: none; transition-delay: 0s, 0s, 0s, 0s, 0s, var(--dur-slow); }
+/* A title may be asked of the AI too: the pill shows, quiet, with no key to press. */
+.watch-search.is-ai-plain .watch-search__ai { max-width: 120px; margin: 0; padding: 0 11px 0 10px; background: var(--s3); color: var(--t2); opacity: 1; visibility: visible; transform: none; pointer-events: auto; transition-delay: 0s; }
+.watch-search.is-ai-plain .watch-search__ai > kbd { display: none; }
+.watch-search.is-ai-plain .watch-search__ai:hover { background: var(--s4); color: var(--t1); }
+.watch-search.is-ai-plain .watch-search__ai:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* On a phone, upright or on its side, the pill is its sparkle alone: the words typed keep the room.
+   Its name is read out from its aria-label. */
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
-  .watch-search.is-ai:not(.is-focus) .watch-search__ai { max-width: 0; margin: 0 -8px 0 0; padding: 0; opacity: 0; visibility: hidden; pointer-events: none; transition-delay: 0s, 0s, 0s, 0s, 0s, var(--dur-slow); }
+  .watch-search:is(.is-ai, .is-ai-plain) .watch-search__ai { justify-content: center; width: 30px; height: 30px; max-width: 30px; padding: 0; border-radius: 50%; }
+  .watch-search .watch-search__ai > span,
+  .watch-search .watch-search__ai > kbd { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .watch-search.is-ai .watch-search__pill::after,
   .watch-search.is-ai .watch-search__ai > .ico { animation: none; }
+  .watch-search .watch-search__ai > .ico { --ai-twinkle-lg: none; --ai-twinkle-sm: none; }
+  /* Thinking, the sparkle fades slowly in and out instead. */
+  .watch-search .watch-search__ai.is-thinking > .ico { animation: ai-twinkle-pulse 2.4s ease-in-out infinite !important; }
   .watch-search__pill::after,
   .wbar .watch-search::after { transition-property: opacity !important; transition-duration: var(--dur-fast) !important; }
 }
@@ -672,6 +682,14 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 }
 
 .watch-sheet > .tn:not(:first-child) { margin-top: 22px; }
+
+/* The last suggestion: ask the AI about what is typed. */
+.watch-suggestion--ai .watch-suggestion__tag { background: var(--rgba-purple-bg); color: color-mix(in srgb, var(--purple) 45%, var(--t1)); }
+.watch-suggestion--ai .watch-suggestion__text b { color: var(--t1); }
+.watch-suggestion__key { flex: none; padding: 2px 7px; border: 1px solid var(--hair-strong); border-radius: var(--r-xs); font: 500 12px var(--font-text); color: var(--t3); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.watch-suggestion.is-picked > .watch-suggestion__key { opacity: 1; }
+@media (hover: hover) { .watch-suggestion:hover > .watch-suggestion__key { opacity: 1; } }
+@media (max-width: 899.98px), (hover: none) { .watch-suggestion__key { display: none; } }
 
 /* What a request with no title of its words can do. */
 .results-none--ai { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: var(--purple-text); }

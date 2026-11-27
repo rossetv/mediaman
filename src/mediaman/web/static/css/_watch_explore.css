@@ -20,11 +20,12 @@
 .explore-facts[data-room]::after { content: attr(data-room); visibility: hidden; }
 .explore-photo.watch-face { width: 128px; height: 128px; font-size: 46px; transform-origin: 0 0; transition: none; }
 /* A person: what is said of them stands beside the photo where there is room, under it on a phone. */
-.explore--person .explore-head { display: grid; grid-template-columns: auto minmax(0, 640px); grid-template-rows: auto 1fr; gap: 10px 24px; justify-content: start; align-items: start; }
+.explore--person .explore-head { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto 1fr; gap: 10px 24px; align-items: start; }
+.explore--person .explore-head__text { max-width: 640px; }
 .explore--person .explore-photo { grid-row: 1 / 3; }
 .explore--person .explore-head:has(> .explore-story[hidden]) > .explore-head__text { grid-row: 1 / 3; align-self: center; }
 .explore-born { min-height: 1.47em; margin-top: 2px; font-size: 14px; color: var(--t3); }
-.explore-story { grid-area: 2 / 2; max-width: 68ch; }
+.explore-story { grid-area: 2 / 2; max-width: min(640px, 68ch); }
 .explore-bio { font-size: 15px; line-height: 23px; color: var(--t2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 .explore-bio:is(.is-whole, .is-closing) { white-space: pre-line; }
 .explore-bio.is-closing { height: 69px; overflow: visible; }
@@ -33,17 +34,21 @@
 .explore-bio > .skel--line { height: 11px; margin: 6px 0; }
 /* Their margins collapse: three lines of text are 69px. */
 .explore-bio > .skel--line + .skel--line { margin-top: 12px; }
+/* Its margins stay inside, so the line holds the room the date line will. */
+.explore-born:has(> .skel) { display: flow-root; }
 .explore-born > .skel--line { height: 10px; margin: 5px 0; }
 .explore-more { min-width: 44px; min-height: 44px; margin: -8px 0 -14px -8px; padding: 0 8px; border-radius: var(--r-pill); color: var(--accent); font-size: 14px; font-weight: 500; text-align: left; }
 .explore-more.is-unknown { visibility: hidden; }
 .explore-more:hover { color: var(--accent-hi); }
 .explore-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
 .explore-head.is-told > .explore-story,
-.explore-head.is-told ~ .explore-known,
+.explore-head.is-told > .explore-known,
 .explore-head.is-told .explore-born { animation: cast-in var(--dur) var(--ease-out); }
 /* What they are known for: a Watch row, its cards as large as the rows' and running to the screen's edges. */
 .explore-known { container-type: inline-size; margin: 0 calc(-1 * var(--pad)) 32px; }
 .explore-known > .results-group__head { margin: 0 0 12px; padding: 0 var(--pad); }
+/* Under who they are, as far from them and from the titles below as when it stood outside the heading. */
+.explore--person .explore-head > .explore-known { grid-row: 3; grid-column: 1 / -1; margin-top: 18px; margin-bottom: 4px; }
 @media (hover: none), (pointer: coarse) {
   .explore-known { --watch-peek: 4.4; --watch-card-w: clamp(112px, calc((100cqi - var(--pad)) / var(--watch-peek) - var(--watch-gap)), 170px); }
 }
@@ -55,7 +60,15 @@
   .explore--person .explore-head > :is(.explore-photo, .explore-head__text) { grid-row: 1 !important; }
   .explore--person .explore-head > .explore-head__text { align-self: center; }
   .explore-story { grid-area: 2 / 1 / 3 / 3; }
-  .explore-known { margin-bottom: 26px; }
+  .explore--person .explore-head > .explore-known { margin-top: 8px; }
+}
+/* Where there is room, it stands in the heading's top-right corner as a row of small posters, and
+   its column is held whether it is drawn yet or not, so that the words beside it never move. */
+@media (min-width: 1360px) {
+  .explore--person .explore-head { --watch-card-w: 132px; grid-template-columns: auto minmax(0, 640px) minmax(calc(4 * var(--watch-card-w) + 3 * var(--watch-gap) + 24px), 1fr); }
+  .explore--person .explore-head > .explore-known { --watch-card-w: inherit; --pad: 12px; container-type: normal; grid-column: 3; grid-row: 1 / 3; justify-self: end; margin-top: 0; margin-bottom: 0; }
+  /* Without a story the name stays level with the photo, however tall the posters make the heading. */
+  .explore--person .explore-head:has(> .explore-story[hidden]) > .explore-head__text { display: flex; flex-direction: column; justify-content: center; align-self: start; min-height: 128px; }
 }
 /* Who it is, until the answer is in. */
 .explore.is-unknown .explore-title { width: min(260px, 50vw); border-radius: var(--r-sm); background: var(--s2); }
