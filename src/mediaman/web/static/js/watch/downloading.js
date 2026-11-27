@@ -144,6 +144,16 @@
 
   function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
 
+  /* What critics scored the title, over its name; redrawn only when that changes, as a poll repaints. */
+  function setScores(node, item) {
+    var title = node.querySelector('.dw__title');
+    var had = title.parentNode.querySelector('.watch-card__scores');
+    var scores = core.scores(item);
+    if ((had ? had.textContent : '') === (scores ? scores.textContent : '')) return;
+    if (had) had.parentNode.removeChild(had);
+    if (scores) title.parentNode.insertBefore(scores, title);
+  }
+
   /* What *node* shows of *item*; the grid draws the tops of its cards with it too. */
   function paint(node, item, lost) {
     var link = node.querySelector('.dw__link');
@@ -162,6 +172,7 @@
       link.setAttribute('data-title', item.title);
       link.setAttribute('data-kind', item.kind === 'movie' ? 'movie' : 'show');
     } else ['data-title-ref', 'data-title', 'data-kind'].forEach(function (name) { link.removeAttribute(name); });
+    setScores(node, item);
     var line = node.querySelector('.dw__line');
     var text = says(item);
     setText(line.children[0], text[0]);

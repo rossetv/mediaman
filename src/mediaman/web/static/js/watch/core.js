@@ -298,6 +298,28 @@
     return badge;
   }
 
+  /* What critics scored a title, the markup of _watch_card.html's scores(): Rotten Tomatoes, fresh
+     from 60%, and IMDb, else TMDB. Null where it has neither. */
+  function scores(item) {
+    var rt = typeof item.rt === 'number' && item.rt >= 0 && item.rt <= 100 ? Math.round(item.rt) : null;
+    var imdb = typeof item.imdb === 'string' && /^(10\.0|[0-9]\.[0-9])$/.test(item.imdb) ? item.imdb : '';
+    var tmdb = typeof item.rating === 'number' && item.rating > 0 ? item.rating.toFixed(1) : '';
+    if (rt === null && !imdb && !tmdb) return null;
+    var box = el('span', 'watch-card__scores');
+    function score(cls, iconName, said, value) {
+      var node = box.appendChild(el('span', cls));
+      node.appendChild(window.MM.dom.icon(iconName));
+      node.appendChild(el('span', 'sr-only', said + ' '));
+      node.appendChild(document.createTextNode(value));
+    }
+    if (rt !== null) {
+      var fresh = rt >= 60;
+      score('watch-score watch-score--rt ' + (fresh ? 'is-fresh' : 'is-rotten'), fresh ? 'i-tomato' : 'i-splat', 'Rotten Tomatoes', rt + '%');
+    }
+    if (imdb || tmdb) score('watch-score', 'i-star', imdb ? 'IMDb' : 'TMDB', imdb || tmdb);
+    return box;
+  }
+
   /* Give a card its mark, its thumb and its eye, the markup of _watch_card.html's tools(). */
   function addMarks(card, poster, item) {
     var mark = markOf(item);
@@ -396,6 +418,7 @@
     markOf: markOf,
     caption: caption,
     watchedBadge: watchedBadge,
+    scores: scores,
     addMarks: addMarks,
     addMore: addMore,
     controlIn: controlIn,

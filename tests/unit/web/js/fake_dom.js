@@ -27,7 +27,8 @@ function matchesCompound(el, c) {
 
 function matchesSelector(el, sel) {
   return sel.split(',').some((one) => {
-    const parts = one.trim().split(/\s+/).map(parseCompound);
+    // A child combinator is taken as a descendant one.
+    const parts = one.trim().split(/\s+/).filter((p) => p !== '>').map(parseCompound);
     if (!matchesCompound(el, parts[parts.length - 1])) return false;
     let i = parts.length - 2;
     for (let a = el.parentNode; a && i >= 0; a = a.parentNode) {

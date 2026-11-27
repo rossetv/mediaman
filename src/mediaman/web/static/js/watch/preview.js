@@ -614,7 +614,7 @@
     var r = d.ratings || {};
     if (r.imdb) addPart(line, '', 'IMDb ', r.imdb);
     else if (typeof r.tmdb === 'number' && r.tmdb > 0) addPart(line, '', 'TMDB ', r.tmdb.toFixed(1));
-    if (r.rt && p.w > 365) addPart(line, '', 'RT ', r.rt);
+    if (r.rt) addPart(line, '', 'RT ', r.rt);
     return line;
   }
 
@@ -919,7 +919,7 @@
     if (state) return pill(state);
     if (d.sonarr_tracked) return pill('Already added');
     var seasons = wanted(d);
-    if (seasons && !seasons.length) return pill('In library');
+    if (seasons && !seasons.length) return pill('Ready to watch');
     if (!d.download.request) return null;
     // Which seasons of a longer show is chosen in its detail.
     var many = seasons && seasons.length > 1;
@@ -932,8 +932,8 @@
   function stateOf(p) {
     var dl = p.data.download;
     if (dl.state === 'downloading') return 'Downloading' + (typeof dl.pct === 'number' ? ' ' + dl.pct + '%' : '');
-    // Of a show partly there, whose card says In library too, the rest may be there to download.
-    if (dl.state === 'in_library' || (dl.state !== 'partial' && posterOf(p.link).querySelector('.watch-badge--in'))) return 'In library';
+    // Of a show partly there, whose card says Ready to watch too, the rest may be there to download.
+    if (dl.state === 'in_library' || (dl.state !== 'partial' && posterOf(p.link).querySelector('.watch-badge--in'))) return 'Ready to watch';
     if (dl.state === 'queued' || posterOf(p.link).querySelector('.watch-badge--queued')) return 'Queued';
     return '';
   }

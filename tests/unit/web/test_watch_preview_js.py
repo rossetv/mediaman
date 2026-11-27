@@ -36,6 +36,10 @@ def test_resting_on_a_card_opens_its_preview_out_of_the_tab_order_and_of_screen_
     }
 
 
+def test_the_narrowest_preview_still_says_the_rotten_tomatoes_score() -> None:
+    assert _run("opensNarrow") == {"w": "360px", "meta": "20241 h 56 min15IMDb 7.4RT 88%"}
+
+
 def test_a_card_left_before_its_reply_drops_the_request_and_the_late_answer() -> None:
     assert _run("leftBeforeReply") == {
         "asked": ["movie-1"],
@@ -525,11 +529,11 @@ def test_a_title_queued_while_its_reply_is_on_the_way_is_shown_queued() -> None:
 
 
 def test_a_title_radarr_or_sonarr_has_files_of_is_not_offered_for_download() -> None:
-    assert _run("heldByArr") == ["In library", "In library", "Download"]
+    assert _run("heldByArr") == ["Ready to watch", "Ready to watch", "Download"]
 
 
 def test_a_show_partly_there_offers_what_its_title_page_does() -> None:
-    assert _run("partlyHeld") == ["Pick seasons", "Already added", "In library"]
+    assert _run("partlyHeld") == ["Pick seasons", "Already added", "Ready to watch"]
 
 
 def test_what_is_held_of_the_titles_rested_on_is_bounded() -> None:

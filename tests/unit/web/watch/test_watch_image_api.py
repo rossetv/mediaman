@@ -111,6 +111,34 @@ def test_cache_hits_are_not_rate_limited_but_fetches_are(client, upstream, monke
     assert len(upstream.calls) == 1
 
 
+def test_a_refused_fetch_says_when_to_ask_again_and_is_kept_by_no_cache(
+    client, upstream, monkeypatch
+):
+    monkeypatch.setattr(image_api, "_IMG_LIMITER", ActionRateLimiter(1, 60))
+    client.get("/api/watch/img/tmdb/w342/a.jpg")
+
+    resp = client.get("/api/watch/img/tmdb/w342/b.jpg")
+
+    assert resp.status_code == 429
+    assert 1 <= int(resp.headers["retry-after"]) <= 60
+    assert resp.headers["cache-control"] == "no-store"
+
+
+def test_a_failed_fetch_is_kept_by_no_cache(client, upstream, monkeypatch):
+    monkeypatch.setattr(disk_cache, "BACKOFF_S", 0.0)
+    upstream.answers.append(SafeHTTPError(502, "bad gateway", "https://image.tmdb.org/t/p"))
+
+    resp = client.get("/api/watch/img/tmdb/w342/a.jpg")
+
+    assert resp.status_code == 503
+    assert resp.headers["cache-control"] == "no-store"
+
+
+def test_a_minute_of_fast_browsing_on_a_cold_cache_is_not_turned_away():
+    # Scrolling a genre grid quickly asks for some 360 posters never fetched before in a minute.
+    assert all(image_api._IMG_LIMITER.check("fast-browser") for _ in range(360))
+
+
 def test_an_image_host_that_hangs_holds_no_worker_thread_and_nobody_for_long(
     client, upstream, monkeypatch
 ):

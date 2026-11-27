@@ -280,6 +280,18 @@ const scenarios = {
     return out;
   },
 
+  // What critics scored each found title, over its poster before its name; nothing where none is known.
+  async scores() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [{ ...LIB, rt: 91, imdb: '8.1' }, { ...LIB, ref: 'movie-2', title: 'Orchard Two' }], total: 2 });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [{ ...TM, rt: 40, rating: 6.25 }] });
+    return p.doc.querySelectorAll('.watch-card__poster').map((poster) => {
+      const scores = poster.querySelector('.watch-card__scores');
+      return scores && [scores.nextSibling.className, scores.querySelectorAll('.watch-score').map((s) => s.textContent)];
+    });
+  },
+
   // A title Watch cannot open: what an admin can do of it, and how it stands after that.
   async unheld() {
     const card = (more) => ({

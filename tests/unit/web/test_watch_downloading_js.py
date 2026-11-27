@@ -338,3 +338,13 @@ def test_the_slim_row_says_what_is_coming_soon_from_the_strip_alone(out) -> None
         "after": "",
         "asked": ["/api/downloads/strip"],
     }
+
+
+def test_a_download_shows_what_critics_scored_it_over_its_name(out) -> None:
+    a = [1, "dw__title", "Rotten Tomatoes 88%IMDb 7.4"]
+    assert out["scores"] == {
+        "first": {"a": a, "b": None},
+        "a": a,
+        "b": [1, "dw__title", "Rotten Tomatoes 30%"],
+        "kept": True,
+    }

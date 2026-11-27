@@ -396,12 +396,14 @@ def make_portrait(
     user_ratings: Sequence[Mapping[str, object]] = (),
     previous_titles: list[str] | None = None,
     *,
+    marked: Sequence[tuple[str, str]] = (),
     asked_for: Sequence[tuple[str, str]] = (),
     searches: Sequence[str] = (),
 ) -> Portrait:
     """One person's plays, newest first, with a "note" of each where known and
     whether it was "disliked", the "stars" or
-    "level" they gave, the titles and the words they asked for. No other data about them.
+    "level" they gave, the (type, title) they *marked* watched without playing, the titles and
+    the words they asked for. No other data about them.
 
     Every value passes through sanitise_plex_string, which leaves no angle bracket to close the
     delimiters with. The block is held to its byte budget by leaving out whole lines, so no
@@ -432,6 +434,8 @@ def make_portrait(
     )
     rated = list(user_ratings)[:80]
     add("Ratings", (f"- {_line(str(r['title']), r['type'])}: {_said(r)}" for r in rated))
+    marked = list(marked)[:50]
+    add("Marked as watched, not played", (f"- {_line(title, kind)}" for kind, title in marked))
     add("Asked for", (f"- {_line(title, kind)}" for kind, title in asked_for))
     add("Searches", (f"- {sanitise_plex_string(s)}" for s in searches))
     if previous_block:
@@ -457,6 +461,7 @@ def make_portrait(
                 *originals,
                 *originals.values(),
                 *(str(r["title"]) for r in rated),
+                *(title for _, title in marked),
                 *(title for _, title in asked_for),
                 *previous,
                 *(previous_titles or [])[:100],
@@ -509,6 +514,8 @@ PORTRAIT_RULES = (
     '"Ratings", when present, are this person\'s own words, which count most, or stars: 4 or '
     'more is liked, 2 or less is disliked. Keep clear of titles much like a "strong no" or a '
     'disliked one, and suggest fewer like a "not for me".\n'
+    '"Marked as watched, not played", when present, lists titles this person says they have '
+    "seen without playing them here: weaker evidence of taste than History.\n"
     '"Asked for" and "Searches", when present, show what they went looking for, not what they '
     "liked. A search that is no taste, such as a name, may be ignored.\n"
     '"Previously recommended" lists titles already suggested to this person.\n'
@@ -531,7 +538,8 @@ def generate_personal(
         f"Suggest {_ASK_FOR} movies and TV shows for one person, based only on what is known of "
         "that person below.\n\n"
         f"{PORTRAIT_RULES}\n{portrait.block}\n\n"
-        "Do not suggest any title in History, Ratings or Previously recommended.\n"
+        'Do not suggest any title in History, "Marked as watched, not played", Ratings or '
+        "Previously recommended.\n"
         "First work out which genres, tones and kinds of story this person plays and likes most, "
         "and let the picks follow in about that proportion. Someone who plays mostly comedy gets "
         "mostly comedy. Do not add a genre only for balance.\n"

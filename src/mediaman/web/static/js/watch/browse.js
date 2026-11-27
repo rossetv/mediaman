@@ -79,7 +79,7 @@
     } else if (inLibrary || state === 'in_library' || state === 'partial') {
       node = el('span', 'watch-badge watch-badge--state watch-badge--in');
       node.appendChild(icon('i-check'));
-      node.appendChild(document.createTextNode('In library'));
+      node.appendChild(document.createTextNode('Ready to watch'));
     }
     return node || null;
   }
@@ -109,6 +109,8 @@
       img.setAttribute('data-broken-on-error', '');
       poster.appendChild(img);
     }
+    var scores = core.scores(item);
+    if (scores) poster.appendChild(scores);
     poster.appendChild(el('span', 'watch-card__title', String(item.title || '')));
     [watch.search.leavingBadge(item), badge(item.download_state, item.download_pct, item.in_library)].forEach(function (b) {
       if (b) poster.appendChild(b);

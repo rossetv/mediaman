@@ -42,9 +42,10 @@
 
   // This route fails where it is asked too much at once or its source is slow,
   // so the same address may well answer a little later. What it refuses it goes on
-  // refusing for a minute, so the last try comes after that.
+  // refusing for a minute, so the last try comes after that; one between comes while a
+  // person still waits on the page.
   var OWN_ROUTE = '/api/watch/img/';
-  var RETRY_MS = [3000, 65000];
+  var RETRY_MS = [3000, 20000, 65000];
   // Pictures that failed together are asked for again a few at a time.
   var ABREAST = 4;
   var APART_MS = 500;
@@ -165,6 +166,9 @@
       if (target.hasAttribute('data-wide-art')) {
         // A picture judged below can still have its load event to come.
         judge(target, target.dataset.fit || '');
+      } else if (target.dataset.broken === '' && target.naturalWidth) {
+        // Marked, then given another address that came: a larger photo for one refused.
+        target.dataset.broken = COMING;
       }
       if (target.dataset.broken === COMING) fadeIn(target);
     },
@@ -190,15 +194,23 @@
     true,
   );
 
-  // This script is deferred, so an image that failed or loaded before it ran
-  // fired its event unseen; mark those now.
-  var failed = document.querySelectorAll('img[data-broken-on-error]');
-  for (var i = 0; i < failed.length; i++) {
-    var img = failed[i];
-    if (img.complete && img.naturalWidth === 0 && img.getAttribute('src')) {
-      failedToLoad(img);
+  // An image that failed before this deferred script ran, or before its card was
+  // on the page, fired its event unseen; it is marked now, or as it arrives.
+  function markFailed(root) {
+    if (!root.querySelectorAll) return;
+    var found = [].slice.call(root.querySelectorAll('img[data-broken-on-error]'));
+    if (root.matches && root.matches('img[data-broken-on-error]')) found.push(root);
+    for (var i = 0; i < found.length; i++) {
+      var img = found[i];
+      if (img.complete && img.naturalWidth === 0 && img.getAttribute('src') && !('broken' in img.dataset)) {
+        failedToLoad(img);
+      }
     }
   }
+  markFailed(document);
+  new MutationObserver(function (changes) {
+    changes.forEach(function (change) { Array.prototype.forEach.call(change.addedNodes, markFailed); });
+  }).observe(document.documentElement, { childList: true, subtree: true });
   var wide = document.querySelectorAll('img[data-wide-art]');
   for (var j = 0; j < wide.length; j++) {
     if (wide[j].complete && wide[j].naturalWidth) judge(wide[j], 'at-once');

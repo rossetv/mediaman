@@ -64,8 +64,8 @@ from mediaman.web.repository.watch_progress import (
 from mediaman.web.routes import older_play
 from mediaman.web.routes.downloads_strip import payload_for
 from mediaman.web.routes.poster.title_art import title_art
-from mediaman.web.routes.watch import all_titles, list_page
-from mediaman.web.routes.watch.card_marks import title_key, tmdb_ref
+from mediaman.web.routes.watch import all_titles, list_page, ratings_warm
+from mediaman.web.routes.watch.card_marks import scored, title_key, tmdb_ref
 from mediaman.web.routes.watch.library_order import library_page
 
 router = APIRouter()
@@ -325,7 +325,11 @@ def _title_fields(
     key = title_key(
         "movie" if isinstance(title, lib.LibraryMovie) else "tv", title.tmdb_id if title else None
     )
-    return {"tmdb_ref": tmdb_ref(key), "level": marks.levels.get(key) if key else None}
+    ref = tmdb_ref(key)
+    if title is not None:
+        # The card names no year, which tells OMDb's titles of one name apart.
+        ratings_warm.want([{"tmdb_ref": ref, "title": title.title, "year": title.year}])
+    return {"tmdb_ref": ref, "level": marks.levels.get(key) if key else None}
 
 
 def movie_subtitle(movie: lib.LibraryMovie) -> str:
@@ -446,6 +450,7 @@ def title_cards(
     if shows:
         held = show_cards(conn, username, libraries, shows, pending, now, marks)
         cards.update(zip(shows, held, strict=True))
+    scored(conn, list(cards.values()))
     return [cards[title] for title in titles]
 
 
@@ -923,6 +928,7 @@ def watch_page(
     leaving_row = [
         _leaving_card(p, now, films, by_key, seen_films, seen_shows, marks) for p in pending
     ]
+    scored(conn, [*movie_row, *show_row, *continue_row, *leaving_row])
 
     card_of = {
         **{("movie", m.key): c for m, c in zip(movies, movie_row, strict=True)},
@@ -1018,10 +1024,16 @@ def watch_page(
     # Downloading asked for by its address is listed in the page too, for a browser without
     # JavaScript, from the last answer only: a service that hangs must not hold the page.
     dl_open = asked.get("dl") == "1"
-    answer = strip.shared.last()
+    answer = strip.shared.newest()
+    downloading_as_of = _as_of(answer.age_s) if answer and answer.age_s > strip.STALE_S else ""
     downloading = (
         payload_for(conn, request.app.state.config.secret_key, username, answer) if answer else None
     )
+    # An old answer is said by its age in the list; nothing failed unless the answer says so.
+    # The scripted row keeps the outage: it says so until its first poll.
+    listed = downloading
+    if answer is not None and downloading and downloading_as_of and not answer.strip.outage:
+        listed = downloading | {"outage": ""}
     library_total = sum(count_titles(conn).values()) if is_admin else len(titles)
     downloads_on = can_download(conn, request.app.state.config.secret_key)
     return _render(
@@ -1044,7 +1056,8 @@ def watch_page(
             "downloading_held": len(downloading["items"]) if downloading else 0,
             "dl_open": dl_open,
             "downloads_on": downloads_on["movie"] or downloads_on["show"],
-            "downloading": downloading,
+            "downloading": listed,
+            "downloading_as_of": downloading_as_of,
             "grid": grid,
             "library_types": [t for t in all_titles.TYPES if is_admin or not t[2]],
             "library_total": library_total,
@@ -1064,6 +1077,18 @@ def watch_page(
             },
         },
     )
+
+
+def _as_of(age_s: float) -> str:
+    """How old an answer is, for a list that may be a while behind."""
+    minutes = int(age_s // 60)
+    if minutes < 1:
+        return f"As of {int(age_s)} s ago"
+    if minutes < 60:
+        return f"As of {minutes} min ago"
+    if minutes < 48 * 60:
+        return f"As of {minutes // 60} h ago"
+    return f"As of {minutes // 1440} days ago"
 
 
 def _search_taste(conn: sqlite3.Connection, username: str, now: datetime) -> dict[str, Any] | None:

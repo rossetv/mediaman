@@ -1,4 +1,5 @@
-"""Make each person's own picks, from what that person played and nothing else."""
+"""Make each person's own picks, from what that person played or marked watched and nothing
+else."""
 
 from __future__ import annotations
 
@@ -29,7 +30,11 @@ from mediaman.services.openai.recommendations.persist import (
     row_titles,
     store_batch,
 )
-from mediaman.services.openai.recommendations.plays import PlayedTitle, person_plays
+from mediaman.services.openai.recommendations.plays import (
+    PlayedTitle,
+    marked_titles,
+    person_plays,
+)
 from mediaman.services.openai.recommendations.prompts import (
     Portrait,
     generate_personal,
@@ -165,6 +170,7 @@ def _make(
     plays = person_plays(conn, username)
     if len(plays) < MIN_TITLES:
         return 0
+    marked = marked_titles(conn, username, plays)
     ratings = _own_ratings(link, plex_client)
     own = recent_rows(conn, now, username=username)
     shared = conn.execute(  # nosec B608 - SHARED_ONLY is a fixed string
@@ -172,13 +178,13 @@ def _make(
         f" batch_id = (SELECT MAX(batch_id) FROM suggestions WHERE {SHARED_ONLY})"
     ).fetchall()
     previous = [r["title"] for r in own]
-    portrait = _portrait(plays, ratings, read_taste(conn, username), previous)
+    portrait = _portrait(plays, marked, ratings, read_taste(conn, username), previous)
     items = generate_personal(conn, portrait, secret_key=secret_key)
     suggested = len(items)
     # Read again: they may have rated or marked something while the model was thinking.
     taste = read_taste(conn, username)
     known = [
-        *((p.kind, p.tmdb_id, p.title, None) for p in plays),
+        *((p.kind, p.tmdb_id, p.title, None) for p in (*plays, *marked)),
         *((r["type"], None, r["title"], None) for r in ratings),
         *held_titles(conn),
         *row_titles(own),
@@ -197,7 +203,7 @@ def _make(
             found,
             BATCH_SIZE,
             conn,
-            portrait=_portrait(plays, ratings, told, previous),
+            portrait=_portrait(plays, marked, ratings, told, previous),
             levels=told.levels,
             may_ask=same_link
             # Not once the person is gone, nor for someone made anew under their name.
@@ -235,11 +241,16 @@ def _make(
 
 
 def _portrait(
-    plays: list[PlayedTitle], stars: list[PlexRatedItem], taste: Taste, previous: list[str]
+    plays: list[PlayedTitle],
+    marked: list[PlayedTitle],
+    stars: list[PlexRatedItem],
+    taste: Taste,
+    previous: list[str],
 ) -> Portrait:
     """What the model is told. Someone who keeps their history from the AI has the names of
-    what they played, their stars and earlier picks sent, and nothing more."""
+    what they played or marked watched, their stars and earlier picks sent, and nothing more."""
     levels = taste.levels
+    seen = [(m.kind, m.title) for m in marked if m.title]
     history: list[dict[str, object]] = [
         {
             "title": p.title,
@@ -250,7 +261,7 @@ def _portrait(
         for p in plays
     ]
     if not taste.may_send:
-        return make_portrait(history, stars, list(dict.fromkeys(previous)))
+        return make_portrait(history, stars, list(dict.fromkeys(previous)), marked=seen)
     ratings: list[dict[str, object]] = [
         {"title": r.title, "type": r.media_type, "level": r.level} for r in taste.ratings if r.title
     ]
@@ -260,6 +271,7 @@ def _portrait(
         # What they said here is newer than a star in Plex.
         [*ratings, *(dict(s) for s in stars if (s["type"], s["title"]) not in rated)],
         list(dict.fromkeys(previous)),
+        marked=seen,
         asked_for=taste.asked_for,
         searches=taste.searches,
     )

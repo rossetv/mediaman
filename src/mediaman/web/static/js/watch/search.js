@@ -43,8 +43,8 @@
   var LIKE_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/;
   var STATE_BADGES = {
     queued: ['i-clock', 'Queued'],
-    in_library: ['i-check', 'In library'],
-    partial: ['i-check', 'In library']
+    in_library: ['i-check', 'Ready to watch'],
+    partial: ['i-check', 'Ready to watch']
   };
 
   function dur(minutes) {
@@ -125,6 +125,8 @@
       img.setAttribute('data-broken-on-error', '');
       poster.appendChild(img);
     }
+    var scores = core.scores(item);
+    if (scores) poster.appendChild(scores);
     poster.appendChild(el('span', 'watch-card__title', item.title));
     var badge = leavingBadge(item);
     if (badge) poster.appendChild(badge);
@@ -208,6 +210,8 @@
       img.setAttribute('data-broken-on-error', '');
       poster.appendChild(img);
     }
+    var scores = core.scores(item);
+    if (scores) poster.appendChild(scores);
     poster.appendChild(el('span', 'watch-card__title', item.title));
     [leavingBadge(item), plain ? null : stateBadge(item)].forEach(function (badge) {
       if (badge) poster.appendChild(badge);

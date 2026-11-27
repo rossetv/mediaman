@@ -21,6 +21,7 @@ from tests.unit.web.test_search_assist import (  # noqa: F401  (fixtures)
     BASE,
     Q,
     _ask,
+    _mark_seen,
     _own,
     _play,
     _rate,
@@ -182,6 +183,25 @@ def test_a_question_about_the_asker_leaves_out_what_they_played(amy, model, conn
     assert [t["title"] for t in found["owned"] + found["others"]] == ["Orchard"]
     found = _ask(amy)
     assert [t["title"] for t in found["owned"] + found["others"]] == ["Alibi", "Orchard"]
+
+
+def test_a_question_about_the_asker_leaves_out_what_they_marked_watched_even_once_answered(
+    amy, model, conn
+):
+    _own(conn, 2, 6)
+    _play(conn, "101")
+    conn.execute(
+        "INSERT INTO watch_progress (username, rating_key, media_item_id, watched, updated_at,"
+        " seen_at) VALUES ('amy-secret', '106', '106', 1, '1970-01-01T00:00:00+00:00', '2026')"
+    )
+    conn.commit()
+    model.items = [_title("Alibi"), _title("Orchard"), _title("Kestrel")]
+
+    found = _ask(amy, q=PERSONAL)
+    assert "Orchard" not in [t["title"] for t in found["owned"] + found["others"]]
+    _mark_seen(conn, 2)
+    found = _ask(amy, q=PERSONAL)
+    assert "Alibi" not in [t["title"] for t in found["owned"] + found["others"]]
 
 
 def test_an_answer_about_one_person_is_never_anothers(people, model, conn):

@@ -363,3 +363,16 @@ def test_a_service_that_stops_answering_leaves_the_ring_on_downloads_what_it_sho
     after = viewer.get("/api/downloads").json()
     assert after["strip"]["summary"]["total"] == len(after["queue"]) + bool(after["hero"])
     assert after["strip"]["outage"] == "Downloads aren't available"
+
+
+def test_a_download_carries_what_critics_scored_it_as_the_ratings_cache_holds(
+    services, viewer, conn
+):
+    conn.execute(
+        "INSERT INTO ratings_cache (tmdb_id, media_type, imdb_rating, rt_rating, metascore,"
+        " fetched_at) VALUES (11, 'movie', '7.1', '93%', NULL, '2026-01-01T00:00:00+00:00')"
+    )
+    conn.commit()
+    harbour, ember = _get(viewer).json()["items"]
+    assert (ember.get("rt"), ember.get("imdb")) == (93, "7.1")
+    assert "rt" not in harbour

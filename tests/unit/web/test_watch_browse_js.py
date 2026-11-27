@@ -24,7 +24,7 @@ def test_the_skeleton_gives_way_to_the_discover_rows_with_their_badges() -> None
     out = _run("loaded")
     assert out["rows"] == ["recommended", "trending", "popular_movies", "popular_tv"]
     assert (out["skeleton"], out["busy"], out["label"]) == (False, None, "Discover")
-    assert out["badges"] == ["In library", "Queued", "Downloading 42%", None]
+    assert out["badges"] == ["Ready to watch", "Queued", "Downloading 42%", None]
 
 
 def test_cards_open_by_title_ref_keep_a_link_and_drop_a_bad_ref() -> None:
@@ -58,7 +58,11 @@ def test_a_card_of_a_held_title_that_is_leaving_says_when() -> None:
 
 def test_a_title_change_updates_the_badge_on_its_cards() -> None:
     out = _run("titleChanged")
-    assert out == {"queued": "Queued", "downloading": "Downloading 42%", "inLibrary": "In library"}
+    assert out == {
+        "queued": "Queued",
+        "downloading": "Downloading 42%",
+        "inLibrary": "Ready to watch",
+    }
 
 
 def test_a_title_change_reaches_the_pick_of_the_same_title_kind_and_year() -> None:
@@ -593,3 +597,26 @@ def test_the_discover_rows_keep_their_scroll_when_they_take_the_skeletons_place(
 
 def test_the_page_is_held_before_the_discover_rows_fade_in_and_before_they_settle() -> None:
     assert _run("heldAroundTheSwaps") == [[True, False, True], [True, True, True]]
+
+
+def test_a_card_shows_what_critics_scored_it_and_nothing_where_none_is_known() -> None:
+    out = _run("scores")
+    rt = "watch-score watch-score--rt"
+    assert out == [
+        {
+            "before": "watch-card__title",
+            "each": [
+                [rt + " is-fresh", "#i-tomato", "Rotten Tomatoes 85%"],
+                ["watch-score", "#i-star", "IMDb 7.8"],
+            ],
+        },
+        {
+            "before": "watch-card__title",
+            "each": [
+                [rt + " is-rotten", "#i-splat", "Rotten Tomatoes 59%"],
+                ["watch-score", "#i-star", "TMDB 6.4"],
+            ],
+        },
+        None,
+        None,
+    ]

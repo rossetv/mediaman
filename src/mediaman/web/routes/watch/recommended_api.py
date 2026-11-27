@@ -23,11 +23,12 @@ from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.recommended import fetch_recommendations, group_into_batches
+from mediaman.web.repository.search import card_scores
 from mediaman.web.repository.seen_titles import person_marks
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.recommended.own import my_refresh
 from mediaman.web.routes.recommended.refresh import _refresh_thread_alive
-from mediaman.web.routes.watch.card_marks import CardMarks, card_marks, title_key
+from mediaman.web.routes.watch.card_marks import CardMarks, card_marks, scored, title_key
 from mediaman.web.routes.watch.catalog_api import held_fields
 
 router = APIRouter()
@@ -99,6 +100,8 @@ def _card(
         **card,
         **fields,
         **marks(title_key(kind, tmdb_id), library_ref, bool(fields["watched"])),
+        # The pick's own scores, from when it was made; the ratings cache's, newer, win.
+        **card_scores(_text(row.get("rt_rating")), _text(row.get("imdb_rating"))),
         "tmdb_id": tmdb_id if isinstance(tmdb_id, int) and tmdb_id > 0 else None,
         "rec_id": None if own else row["id"],
         "pick_ref": pick_ref,
@@ -106,6 +109,10 @@ def _card(
         "ai_pick": True,
         "reason": row.get("reason") or None,
     }
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 def _unseen(
@@ -204,5 +211,7 @@ def api_watch_recommended(
     payload["batch"] = batches[chosen]["id"]
     held = held_fields(conn, username, libraries)
     marks = card_marks(own, client)
-    payload["items"] = [_card(row, index, arr, held, marks) for row in rows]
+    items = [_card(row, index, arr, held, marks) for row in rows]
+    scored(conn, items)
+    payload["items"] = items
     return respond_ok(payload)

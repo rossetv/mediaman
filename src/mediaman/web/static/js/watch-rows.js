@@ -23,11 +23,20 @@
     if (img && img.tagName === 'IMG' && img.matches(POSTER_SELECTOR)) img.classList.add('is-loaded');
   }
 
-  // Images that loaded (or failed) before this deferred script ran fire no
-  // further events, so they are marked first and never hidden.
-  Array.prototype.forEach.call(page.querySelectorAll(POSTER_SELECTOR), function (img) {
-    if (img.complete) img.classList.add('is-loaded');
-  });
+  // Images that loaded (or failed) before this deferred script ran, or while
+  // their card was not yet on the page (a browser takes a cached picture at
+  // once), fire no event the page hears, so they are marked as they arrive.
+  function markComplete(root) {
+    if (!root.querySelectorAll) return;
+    var found = root.matches && root.matches(POSTER_SELECTOR) ? [root] : [];
+    found.concat(Array.prototype.slice.call(root.querySelectorAll(POSTER_SELECTOR))).forEach(function (img) {
+      if (img.complete) img.classList.add('is-loaded');
+    });
+  }
+  markComplete(page);
+  new MutationObserver(function (changes) {
+    changes.forEach(function (change) { Array.prototype.forEach.call(change.addedNodes, markComplete); });
+  }).observe(page, { childList: true, subtree: true });
   document.addEventListener('load', markLoaded, true);
   document.addEventListener('error', markLoaded, true);
   page.classList.add('has-poster-fade');
