@@ -148,6 +148,11 @@ function build() {
         add: (c) => { htmlClasses.add(c); },
         toggle: (c, on) => { if (on) htmlClasses.add(c); else htmlClasses.delete(c); },
       },
+      attrs: {},
+      setAttribute(k, v) { this.attrs[k] = String(v); },
+      removeAttribute(k) { delete this.attrs[k]; },
+      hasAttribute(k) { return k in this.attrs; },
+      style: { setProperty() {} },
     },
     dispatchEvent: (e) => { (docListeners[e.type] || []).forEach((fn) => fn(e)); },
     addEventListener: (t, fn, capture) => {

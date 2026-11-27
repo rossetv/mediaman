@@ -94,3 +94,8 @@ def test_the_save_bar_alone_marks_unsaved_edits_and_the_pane_s_discard_takes_it_
     # the bar shows itself, and the page under the pane is not marked
     assert out["dirty"] == {"bar": True, "page": ""}
     assert out["discarded"] == {"bar": False, "page": ""}
+
+
+def test_the_page_is_told_only_while_the_save_bar_is_on_show() -> None:
+    out = _run("barLifts")
+    assert out == {"before": False, "dirty": True, "away": False, "back": True, "discarded": False}

@@ -58,6 +58,17 @@
   }
   function showBar(on) {
     savebar.classList.toggle('on', on);
+    tellPage();
+  }
+
+  // The page is told while the bar is on show, with its height, so the toasts stand clear of it. An
+  // attribute on html, as a :has() on the page restyles all of Watch at every change.
+  function tellPage() {
+    var root = document.documentElement;
+    if (savebar && savebar.classList.contains('on') && shown()) {
+      root.setAttribute('data-save-bar', '');
+      root.style.setProperty('--save-bar', savebar.offsetHeight + 'px');
+    } else root.removeAttribute('data-save-bar');
   }
   function markClean() { if (savebar) showBar(false); }
 
@@ -495,6 +506,10 @@
     var refreshOverviewHero = (opts && opts.refreshOverviewHero) || function () {};
 
     savebar = document.getElementById('setg-savebar');
+    document.addEventListener('mm:you-shown', tellPage);
+    document.addEventListener('mm:you-hidden', tellPage);
+    // A refusal wraps the bar to more lines.
+    if (savebar && window.ResizeObserver) new window.ResizeObserver(tellPage).observe(savebar);
     // An expired session must not redirect away from edits that are not saved.
     MM.api.hasUnsavedChanges = function () {
       return !!savebar && savebar.classList.contains('on');

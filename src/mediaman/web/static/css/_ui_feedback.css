@@ -187,7 +187,7 @@ html.page-bar { scrollbar-gutter: stable; }
     justify-content: flex-end;
     max-height: calc(100dvh - var(--nav-h) - var(--toast-bottom) - 16px);
   }
-  html:has(.you.is-open .you-view.is-on .stx-save.on) .ui-toast-host { --toast-bottom: 96px; }
+  html[data-save-bar] .ui-toast-host { --toast-bottom: calc(var(--save-bar) + 32px); }
 }
 
 /* Phones: full-width 44px buttons, stacked so Confirm lands nearest the thumb. */
@@ -249,14 +249,6 @@ html.has-player .ui-toast-host {
     max-height: calc(100dvh - var(--nav-h) - 24px);
     justify-content: flex-end;
   }
-  /* Over Settings' save bar, at the foot of its pane while edits wait. */
-  html:has(.you.is-open .you-view.is-on .stx-save.on) .ui-toast-host {
-    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
-  }
-}
-/* So narrow its buttons go under its words. */
-@media (max-width: 380px) {
-  html:has(.you.is-open .you-view.is-on .stx-save.on) .ui-toast-host {
-    bottom: calc(136px + env(safe-area-inset-bottom, 0px));
-  }
+  /* Over Settings' save bar, at the foot of its pane while edits wait; its height holds the safe area. */
+  html[data-save-bar] .ui-toast-host { bottom: calc(var(--save-bar) + 12px); }
 }

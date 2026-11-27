@@ -206,6 +206,24 @@ const scenarios = {
     await settle();
     return { before, dirty, discarded: marks() };
   },
+  // The page is told while the save bar is on show, so the toasts can stand clear of it.
+  async barLifts() {
+    const p = pane({ at: 'settings/general' });
+    const lifted = () => p.doc.documentElement.hasAttribute('data-save-bar');
+    const out = { before: lifted() };
+    p.type(p.$('base_url'), 'http://new');
+    out.dirty = lifted();
+    p.shown = 'history';
+    p.emit('mm:you-hidden', { group: 'settings', view: 'settings/general' });
+    out.away = lifted();
+    p.shown = 'settings';
+    p.emit('mm:you-shown', { group: 'settings', view: 'settings/general' });
+    out.back = lifted();
+    p.guards.settings.discard();
+    await settle();
+    out.discarded = lifted();
+    return out;
+  },
   // A request answered 401, with and without edits waiting.
   async expired() {
     const out = {};
