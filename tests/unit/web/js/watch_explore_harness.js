@@ -111,7 +111,7 @@ Object.assign(scenarios, {
     return { title: await close('pop', true), rows: await close('pop', false), pushed: await close('push', true) };
   },
 
-  // Thirty titles come a frame apart, twelve at a time, not all in the frame the photo lands in; each part but the last waits to be said with the rest.
+  // Thirty titles come a frame apart, twelve at a time, not all in the frame the photo lands in; the first part counts them all.
   async batches() {
     const frames = [];
     const p = load({ can_download: { movie: true, show: true } }, frames);
@@ -127,7 +127,7 @@ Object.assign(scenarios, {
       const early = page !== null;
       frames.splice(0).forEach((fn) => fn(0));
       await settle();
-      sizes.push([page.cards.length, early, !!page.part]);
+      sizes.push([page.cards.length, early, page.count]);
       next = page.next;
     }
     return sizes;

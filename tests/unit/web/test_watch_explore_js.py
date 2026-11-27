@@ -35,8 +35,8 @@ def test_a_person_opened_under_a_flying_photo_is_told_once_it_lands() -> None:
 
 def test_a_persons_titles_come_twelve_at_a_time_a_frame_apart() -> None:
     # 30 titles and 2 headings: the first page at once, each part after it a frame later,
-    # all of it said once the last part is in.
-    assert _run("batches") == [[12, True, True], [12, False, True], [8, False, False]]
+    # all thirty said with the first part.
+    assert _run("batches") == [[12, True, 30], [12, False, 0], [8, False, 0]]
 
 
 def test_what_stands_below_a_person_waits_for_the_photo_to_land() -> None:

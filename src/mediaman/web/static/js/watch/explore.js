@@ -868,10 +868,10 @@
 
     /* One page, or the next that has something new. What the library holds comes
        first; a title of it found later stands where it comes, with its badge. A page
-       is given BATCH cards at a time, the rest a frame later, and said once all of it is in. */
+       is given BATCH cards at a time, the rest a frame later, all of it said with the first part. */
     function fetchPage(page) {
       if (page && page.rest) {
-        return new Promise(function (go) { window.requestAnimationFrame(go); }).then(function () { return batch(page.rest, page.next); });
+        return new Promise(function (go) { window.requestAnimationFrame(go); }).then(function () { return batch(page.rest, page.next, 0); });
       }
       say.next();
       var asked = page === 1 && !!early; // the page asked for at once, whose answer is already told
@@ -884,6 +884,7 @@
           shown.clear();
         }
         var cards = [];
+        var titles = 0;
         (reply.items || []).forEach(function (item) {
           if (shown.has(item.ref)) return;
           shown.add(item.ref);
@@ -892,19 +893,21 @@
           if (held) cards = cards.concat(head('lib', 'In your library', reply.in_library));
           else if (!owned) cards = cards.concat(head('tmdb', notHeld(), reply.total - reply.in_library));
           cards.push(function () { return watch.search.tmdbCard(item, held); });
+          titles++;
         });
         var next = reply.next_page || null;
-        return cards.length || !next ? batch(cards, next) : fetchPage(next);
+        return cards.length || !next ? batch(cards, next, titles) : fetchPage(next);
       }, function (err) {
         if (open === mine && page === 1 && !(asked && earlyFailed)) failed(err);
         throw err;
       });
     }
 
-    /* *made*: heads, and cards still to be made. */
-    function batch(made, next) {
+    /* *made*: heads, and cards still to be made. *count*: the titles of the page they are of, 0 for a part after its first. */
+    function batch(made, next, count) {
       var now = made.slice(0, BATCH).map(function (c) { return typeof c === 'function' ? c() : c; });
-      return made.length > BATCH ? { cards: now, next: { rest: made.slice(BATCH), next: next }, part: true } : { cards: now, next: next };
+      if (made.length > BATCH) return { cards: now, next: { rest: made.slice(BATCH), next: next }, count: count };
+      return count === 0 ? { cards: now, next: next, count: 0 } : { cards: now, next: next };
     }
 
     /* The first page could not be had: nothing more is said of them. */
