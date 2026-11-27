@@ -396,7 +396,7 @@
     var flier = el('span', 'card-flier');
     ['is-up', 'is-down', 'is-double'].forEach(function (c) { flier.classList.toggle(c, o.thumb.classList.contains(c)); });
     flier.setAttribute('aria-hidden', 'true');
-    flier.appendChild(from.cloneNode(true)).classList.add('is-on');
+    flier.appendChild(core.copy(from)).classList.add('is-on');
     flier.style.left = a.left - c.left + 'px';
     flier.style.top = a.top - c.top + 'px';
     flier.style.width = a.width + 'px';

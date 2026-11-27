@@ -74,7 +74,7 @@
 .card-tool::after { content: ""; position: absolute; inset: -8px -6px -8px -10px; }
 .card-tools > .card-tool:first-child:not(.card-tool--thumb)::after,
 .card-tools > .card-tool:first-child:is([hidden], :not(.card-tool--thumb)) ~ .card-tool::after { inset-inline: -7px; }
-.card-tool > .rate-th { --th-bg: var(--card-rest, var(--bg)); width: 18px; height: 17px; }
+.card-tool > .rate-th { width: 18px; height: 17px; }
 .card-tool > .rate-th--2 { width: 21px; height: 16px; }
 .card-tool > .ico { width: 16.25px; height: 13px; }
 .card-tool > .ico,
@@ -85,7 +85,6 @@
 .is-down.is-double:is(.card-tool, .card-flier) { --rate-c: var(--rate-no); }
 .card-tool--thumb:is(.is-up, .is-down) { color: var(--rate-c); }
 .card-tool:is(:focus-visible, [aria-expanded="true"])::before { opacity: 1; transform: none; }
-.card-tool:is(:focus-visible, [aria-expanded="true"]) > .rate-th { --th-bg: var(--s3); }
 .card-tool:focus-visible { outline: none; }
 .card-tool:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 1px; }
 .card-tool:active > :is(.ico, .rate-th) { transform: scale(.8); transition-duration: var(--dur-fast); }
@@ -115,14 +114,11 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .watch-card.is-far > .card-tools > .card-tool:is(.is-up, .is-down) { visibility: visible; }
   .watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool::before,
   :where(html:not(.is-by-touch)) .watch-card:hover .card-tool::before { opacity: 1; transform: none; }
-  .watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool > .rate-th,
-  :where(html:not(.is-by-touch)) .watch-card:hover .card-tool > .rate-th { --th-bg: var(--s3); }
   .watch-card:hover .card-tool--eye { transition-delay: 30ms; }
   .watch-card:hover .card-tool:is(.card-tool--more, .card-tool--x) { transition-delay: 60ms; }
   .watch-card .card-tool:hover { color: var(--t1); transition-delay: 0s; }
   .watch-card .card-tool--thumb:is(.is-up, .is-down):hover { color: var(--rate-c); }
   .watch-card .card-tool:is(:hover, [aria-expanded="true"])::before { background: var(--s5); }
-  .watch-card .card-tool:is(:hover, [aria-expanded="true"]) > .rate-th { --th-bg: var(--s5); }
   .card-tool:hover > .rate-th { transform: scale(1.2) rotate(-7deg); }
   .card-tool.is-down:hover > .rate-th { transform: scale(1.2) rotate(7deg); }
   .card-tool:hover > .ico { transform: scale(1.18); }
@@ -241,8 +237,10 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   padding-block: 4px;
   padding-inline: inherit;
   border-radius: var(--r-sm);
-  background: var(--s5);
-  color: var(--t1);
+  /* Solid, as the thumbs' tips: a surface token turns into a white veil over glass. */
+  background: #2c2c30;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .12), var(--shadow-card);
+  color: #fff;
   font-weight: 500;
   line-height: 1.35;
   text-align: center;
@@ -286,7 +284,7 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-over .rate__b::after { content: ""; position: absolute; inset: 0 -5px; }
   .card-over .rate__b.pop.is-up.is-double::after { inset: auto; }
   .card-over .rate__name { right: calc(100% + 4px); top: calc(7px - min(0px, var(--top))); width: max(min(50px, 100cqi - 57px), 100cqi - 62px); padding-inline: 0; font-size: clamp(11px, 10.2cqi, 13px); }
-  .card-over .rate__name > span { position: static; display: block; translate: none; width: auto; max-width: none; padding-block: 0; background: none; text-align: left; font-weight: 700; line-height: 1.2; }
+  .card-over .rate__name > span { position: static; display: block; translate: none; width: auto; max-width: none; padding-block: 0; background: none; box-shadow: none; text-align: left; font-weight: 700; line-height: 1.2; }
   .watch-card__poster > .watch-badge { transition: opacity var(--dur-fast) var(--ease-out); }
   .is-lifted > .watch-card__link .watch-badge { opacity: 0; }
 }
@@ -294,7 +292,6 @@ html.is-grid-moving .card-tool { pointer-events: none; }
 /* The thumb just given, on its way to the caption. */
 .card-flier { position: absolute; z-index: 8; display: grid; pointer-events: none; color: var(--rate-c); }
 .card-flier > .rate-th { width: 100%; height: 100%; }
-.card-flier .halo { display: none; }
 
 /* ── Marked as watched ── */
 .watch-card__poster > .card-lights { position: absolute; z-index: 2; inset: 0; background: var(--scrim); opacity: 0; pointer-events: none; }
@@ -360,7 +357,7 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .watch-card__title { color: var(--t1); }
   .card-tool { color: ButtonText; }
   .card-tool::before { border: 1px solid ButtonBorder; background: ButtonFace; }
-  .card-tool > .rate-th { --th-bg: ButtonFace !important; forced-color-adjust: none; }
+  .card-tool > .rate-th { forced-color-adjust: none; }
   .card-tool--thumb:is(.is-up, .is-down),
   .watch-card .card-tool--thumb:is(.is-up, .is-down):hover,
   .card-tool[aria-pressed="true"] { color: Highlight; }

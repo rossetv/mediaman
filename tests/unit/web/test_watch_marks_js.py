@@ -938,3 +938,9 @@ def test_a_press_on_another_cards_thumb_with_levels_open_still_rates_or_opens_it
         "aShut": True,
         "bOpen": True,
     }
+
+
+def test_a_thumb_on_its_way_to_the_caption_has_a_mask_of_its_own() -> None:
+    [flying] = _run("flierMasks")
+    assert len(flying["ids"]) == len(set(flying["ids"])) > 1
+    assert sorted(flying["refs"]) == sorted(f"url(#{i})" for i in flying["ids"])

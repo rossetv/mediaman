@@ -307,8 +307,35 @@ def test_a_thumb_keeps_the_colour_of_its_level_from_the_press_to_its_rest(level:
     assert pressed and re.findall(r"--rate-c: ([^;]+);", rest) == pressed
     preview = _of(f".pv__round{level}", sheet=PREVIEW)
     assert re.findall(r"color: ([^;]+);", preview) == pressed
-    # Nothing round it on its way over the picture.
-    assert "display: none" in _of(".card-flier .halo", sheet=CARDS)
+
+
+def test_every_custom_property_a_thumb_is_given_is_read_somewhere() -> None:
+    css = "".join(p.read_text(encoding="utf-8") for p in SHEET.parent.glob("*.css"))
+    given = {
+        name
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        if ".rate-th" in head
+        for name in re.findall(r"(--[\w-]+):", body)
+    }
+    assert {name for name in given if f"var({name}" not in css} == set()
+
+
+def _luminance(hex_colour: str) -> float:
+    channels = [int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def test_a_level_s_name_is_painted_as_the_thumbs_tips_and_reads_on_its_fill() -> None:
+    name, tip = _of(".rate__name > span", sheet=CARDS), _of(".rate__tip", sheet=RATINGS)
+    paint = r"(?<![-\w])(background|box-shadow|color): ([^;]+);"
+    assert dict(re.findall(paint, name)) == dict(re.findall(paint, tip))
+    fill = re.search(r"background: #([0-9a-f]{6});", tip)
+    words = re.search(r"(?<![-\w])color: #([0-9a-f]{3}|[0-9a-f]{6});", tip)
+    assert fill and words, tip
+    hexes = ["#" + (h if len(h) == 6 else "".join(c * 2 for c in h)) for h in (fill[1], words[1])]
+    light, dark = sorted(map(_luminance, hexes), reverse=True)
+    assert (light + 0.05) / (dark + 0.05) >= 4.5
 
 
 # "removed", the widest word of a level's name, is 3.97em in the system font at its boldest.

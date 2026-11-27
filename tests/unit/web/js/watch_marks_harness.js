@@ -337,6 +337,24 @@ const scenarios = {
     return { moving: await go(true, 900), still: await go(false, 650) };
   },
 
+  // A love given comes down to the caption as a copy: the masks on the page as it flies.
+  async flierMasks() {
+    const seen = [];
+    Node.prototype.animate = function () {
+      if (this.classList.contains('card-flier')) {
+        const page = this.ownerDocument.body;
+        seen.push({ ids: page.querySelectorAll('mask').map((m) => m.getAttribute('id')), refs: page.querySelectorAll('[mask]').map((g) => g.getAttribute('mask')) });
+      }
+      const a = { cancel() {} };
+      Promise.resolve().then(() => a.onfinish && a.onfinish());
+      return a;
+    };
+    const p = load(watchPage([row('lib', [FILM({ tmdb: '10' })])]), { motion: true });
+    await thumb(p, p.cards()[0], 3);
+    delete Node.prototype.animate;
+    return seen;
+  },
+
   // A card that leaves its row and one that comes back are not cut at their edges; a row that goes is.
   async leavesWhole() {
     const styles = [];

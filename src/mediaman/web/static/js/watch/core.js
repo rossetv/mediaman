@@ -15,6 +15,24 @@
 
   function toArray(list) { return Array.prototype.slice.call(list); }
 
+  var copies = 0;
+
+  /* A deep copy whose masks are its own: of an id met twice the first is drawn, and in
+     Chromium nothing at all where that one is hidden. */
+  function copy(node) {
+    var twin = node.cloneNode(true);
+    var n = ++copies;
+    toArray(twin.querySelectorAll('mask[id]')).forEach(function (mask) {
+      var was = 'url(#' + mask.getAttribute('id') + ')';
+      var id = mask.getAttribute('id') + '-' + n;
+      mask.setAttribute('id', id);
+      toArray(twin.querySelectorAll('[mask]')).forEach(function (g) {
+        if (g.getAttribute('mask') === was) g.setAttribute('mask', 'url(#' + id + ')');
+      });
+    });
+    return twin;
+  }
+
   /* Only same-site paths may become a link or image address. Browsers drop
      tabs and newlines from a URL, so "/\t/host" would become "//host". */
   function safePath(value) {
@@ -445,6 +463,7 @@
     aiLabel: aiLabel,
     sparkle: sparkle,
     toArray: toArray,
+    copy: copy,
     safePath: safePath,
     toast: toast,
     reduceMotion: reduceMotion,

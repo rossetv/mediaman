@@ -132,7 +132,7 @@
 .pv__keep { position: absolute; right: 0; top: 0; width: 40px; height: 40px; opacity: 0; pointer-events: none; }
 
 /* Rating. What it opens lies over the buttons, and its line has its place from the start. */
-.pv__round > .rate-th { --th-bg: color-mix(in srgb, var(--t1) 14%, var(--s1)); width: 22px; height: 20px; }
+.pv__round > .rate-th { width: 22px; height: 20px; }
 .pv__round.is-up { color: var(--accent-hi); }
 .pv__round.is-down { color: var(--orange); }
 .pv__round.is-up.is-double { color: var(--rate-love); }
