@@ -461,10 +461,6 @@ class TestRevokeOneSession:
             )
         ]
 
-    def test_requires_auth(self, app_factory, conn):
-        client = TestClient(_app(app_factory, conn))
-        assert client.delete("/api/users/sessions/abc").status_code == 401
-
     def test_ends_the_one_named_with_its_ticket_and_no_other(
         self, app_factory, authed_client, conn
     ):

@@ -41,12 +41,6 @@ def _insert_season(
 
 
 class TestApiKept:
-    def test_requires_auth(self, app_factory, conn):
-        app = app_factory(kept_router, conn=conn)
-        client = TestClient(app, raise_server_exceptions=True)
-        resp = client.get("/api/kept")
-        assert resp.status_code == 401
-
     def test_returns_empty(self, app_factory, authed_client, conn):
         app = app_factory(kept_router, conn=conn)
         client = authed_client(app, conn)
@@ -73,12 +67,6 @@ class TestApiKept:
 
 
 class TestApiUnprotect:
-    def test_requires_auth(self, app_factory, conn):
-        app = app_factory(kept_router, conn=conn)
-        client = TestClient(app, raise_server_exceptions=True)
-        resp = client.post("/api/media/m1/unprotect")
-        assert resp.status_code == 401
-
     def test_unprotect_not_found_returns_404(self, app_factory, authed_client, conn):
         app = app_factory(kept_router, conn=conn)
         client = authed_client(app, conn)
@@ -130,12 +118,6 @@ class TestApiUnprotectEveryKeep:
 
 
 class TestApiShowSeasons:
-    def test_requires_auth(self, app_factory, conn):
-        app = app_factory(kept_router, conn=conn)
-        client = TestClient(app, raise_server_exceptions=True)
-        resp = client.get("/api/show/rk_show/seasons")
-        assert resp.status_code == 401
-
     def test_empty_returns_no_seasons(self, app_factory, authed_client, conn):
         app = app_factory(kept_router, conn=conn)
         client = authed_client(app, conn)

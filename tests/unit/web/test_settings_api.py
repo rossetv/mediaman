@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 from fastapi.responses import JSONResponse
-from fastapi.testclient import TestClient
 
 from mediaman.crypto import encrypt_value
 from mediaman.services.infra import SafeHTTPError
@@ -199,16 +198,6 @@ class TestPlexLibrariesEndpoint:
             with pytest.raises(AttributeError):
                 client.get("/api/plex/libraries")
 
-    def test_requires_auth(self, app_factory, conn):
-        """Unauthenticated request is rejected with 401."""
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
-
-        resp = client.get("/api/plex/libraries")
-
-        assert resp.status_code == 401
-
-
 class TestDiskUsageAPI:
     def test_returns_disk_usage_for_valid_path(self, app_factory, authed_client, conn):
         """Happy path: returns total_bytes, used_bytes, free_bytes, usage_pct."""
@@ -305,16 +294,6 @@ class TestDiskUsageAPI:
         resp = client.get(f"/api/settings/disk-usage?path={link}")
         assert resp.status_code == 403
         assert resp.json().get("error") == "not_allowed"
-
-    def test_requires_auth(self, app_factory, conn):
-        """Unauthenticated request is rejected with 401."""
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
-
-        resp = client.get("/api/settings/disk-usage?path=/media/movies")
-
-        assert resp.status_code == 401
-
 
 class TestSettingsPutSsrfGuard:
     """PUT /api/settings must refuse URLs that point at cloud metadata

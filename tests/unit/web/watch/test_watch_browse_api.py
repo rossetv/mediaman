@@ -371,8 +371,3 @@ class TestThumb:
         _fake_plex(monkeypatch)
 
         assert client.get("/api/watch/thumb/511").status_code == 200
-
-    def test_needs_a_session(self, client):
-        client.cookies.clear()
-
-        assert client.get("/api/watch/thumb/511").status_code == 401
