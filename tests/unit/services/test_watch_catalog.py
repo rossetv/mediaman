@@ -104,6 +104,20 @@ class TestArrMemo:
 
         assert catalog.arr_view(None, "k").state("movie", 7) == ("queued", 0)
 
+    def test_the_view_last_built_is_still_held_after_invalidate_until_one_replaces_it(
+        self, monkeypatch
+    ):
+        movies = [{"tmdbId": 7, "hasFile": False, "monitored": True}]
+        self._count_builds(monkeypatch, lambda: _radarr(movies))
+        catalog.arr_view(None, "k")
+
+        catalog.invalidate()
+        assert catalog.held_arr_view().state("movie", 7) == ("queued", 0)
+
+        movies.clear()
+        catalog.arr_view(None, "k")
+        assert catalog.held_arr_view().state("movie", 7) == (None, None)
+
     def test_a_build_overtaken_by_invalidate_is_not_held(self, monkeypatch):
         def radarr():
             if len(builds) == 1:

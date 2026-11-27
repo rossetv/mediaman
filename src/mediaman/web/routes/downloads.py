@@ -33,6 +33,8 @@ from mediaman.web.routes.download import drop_arr_cache
 from mediaman.web.routes.downloads_strip import (
     held_poster,
     in_library,
+    is_tmdb_id,
+    known_year,
     library_of,
     library_title,
     mark_playable,
@@ -105,15 +107,24 @@ def _poster(item: dict[str, object], index: catalog.LibraryIndex) -> str:
 
 
 def _scores(
-    conn: sqlite3.Connection, items: list[dict[str, object]]
+    conn: sqlite3.Connection, items: list[dict[str, object]], arr: catalog.ArrView
 ) -> dict[tuple[str, int], dict[str, object]]:
     """What critics scored each of *items* that has a TMDB id, by its kind and id, as the ratings
-    cache holds it: {"rt", "imdb"}, either None where only the other is held."""
-    cards: list[dict[str, Any]] = [
-        {"tmdb_ref": f"tmdb-{_kind_of(item)}-{tmdb_id}", "key": (_kind_of(item), tmdb_id)}
-        for item in items
-        if (tmdb_id := _tmdb_id_of(item))
-    ]
+    cache holds it: {"rt", "imdb"}, either None where only the other is held. Each is noted by
+    its title and year, where *arr* or TMDB told that, for the background job to ask OMDb of."""
+    cards: list[dict[str, Any]] = []
+    for item in items:
+        tmdb_id, kind = _tmdb_id_of(item), _kind_of(item)
+        if tmdb_id is None or not is_tmdb_id(tmdb_id):
+            continue
+        cards.append(
+            {
+                "tmdb_ref": f"tmdb-{kind}-{tmdb_id}",
+                "key": (kind, tmdb_id),
+                "title": str(item["title"]),
+                "year": known_year(kind, tmdb_id, arr),
+            }
+        )
     scored(conn, cards)
     return {
         card["key"]: {"rt": card.get("rt"), "imdb": card.get("imdb")}
@@ -139,7 +150,7 @@ def _page_payload(
     every += data["recent"]
     # The row's own view, as it was last read: the page's poll asks Radarr and Sonarr no more.
     held = catalog.held_arr_view()
-    scores = _scores(conn, every)
+    scores = _scores(conn, every, held)
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         title = item.get("label") or item["title"]
@@ -245,6 +256,7 @@ def _for_viewer(payload: DownloadsResponse) -> None:
         )
         item.pop("tmdb_id", None)
         item.pop("queued_since", None)
+        item.pop("searching_since", None)
     for item in [*items, *payload["recent"]]:
         item.update(strip.for_viewer(item))
 

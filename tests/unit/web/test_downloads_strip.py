@@ -493,8 +493,12 @@ def test_a_title_coming_soon_has_no_scores_where_the_cache_holds_none(services, 
     assert (soon["title_ref"], soon["scores"]) == ("tmdb-movie-13", None)
 
 
-def test_a_title_looking_for_a_copy_says_since_when_it_has_been_searched(services, viewer, conn):
+def test_a_title_looking_for_a_copy_tells_an_admin_alone_since_when_it_has_been_searched(
+    services, viewer, conn
+):
     _every_state(services, conn)
+    conn.execute("UPDATE admin_users SET role = 'admin'")
+    conn.commit()
     viewer.get("/api/downloads")
     conn.execute("UPDATE arr_searching_since SET since = '2026-11-20T09:00:00+00:00'")
     conn.commit()
@@ -505,3 +509,72 @@ def test_a_title_looking_for_a_copy_says_since_when_it_has_been_searched(service
     assert items["Quiet Field"]["searching_since"] == 1_795_165_200.0
     assert "search_count" in items["Quiet Field"]
     assert items["Ember Coast"]["searching_since"] == 0.0
+
+    conn.execute("UPDATE admin_users SET role = 'viewer'")
+    conn.commit()
+    items = {i["title"]: i for i in _page_items(viewer.get("/api/downloads").json())}
+    assert "searching_since" not in items["Quiet Field"]
+
+
+def test_a_download_with_a_tmdb_id_out_of_range_opens_no_title_and_has_no_scores(services, viewer):
+    _queue(services, [_movie(11, "Ember Coast", tmdbId=-5)])
+
+    page, row = viewer.get("/api/downloads"), _get(viewer)
+
+    assert (page.status_code, row.status_code) == (200, 200)
+    hero = page.json()["hero"]
+    assert (hero["title_ref"], hero["scores"]) == (None, None)
+    assert row.json()["items"][0]["title_ref"] is None
+
+
+def test_titles_the_row_does_not_show_are_noted_for_their_scores_by_the_page(
+    services, viewer, monkeypatch
+):
+    monkeypatch.setattr(strip, "MAX_ITEMS", 1)
+    radarr = services[0]
+    radarr.get_movies.return_value = [
+        *radarr.get_movies.return_value,
+        _movie(13, "Lanterns", year=2027, isAvailable=False),
+    ]
+    _get(viewer)
+    monkeypatch.setattr(ratings_warm, "_wanted", {})
+
+    viewer.get("/api/downloads")
+
+    assert ratings_warm._wanted == {
+        ("movie", 11): ("Ember Coast", 2024),
+        ("movie", 12): ("Dry Harbour", 2024),
+        ("movie", 13): ("Lanterns", 2027),
+    }
+
+
+def test_what_finished_says_when_it_did_and_how_big_its_file_is(services, viewer, conn):
+    radarr = services[0]
+    _queue(services, [_movie(12, "Dry Harbour")])
+    radarr.get_movies.return_value = [
+        _movie(11, "Ember Coast", hasFile=True, movieFile={"size": 14_200_000_000}),
+        _movie(12, "Dry Harbour"),
+    ]
+    completed = now_utc().replace(microsecond=0) - timedelta(seconds=5)
+    conn.execute(
+        "INSERT INTO recent_downloads (dl_id, title, media_type, completed_at) VALUES"
+        " ('radarr:Ember Coast#11', 'Ember Coast', 'movie', ?),"
+        " ('sonarr:Harrow Lane', 'Harrow Lane', 'series', ?)",
+        (f"{completed:%Y-%m-%d %H:%M:%S}",) * 2,
+    )
+    conn.commit()
+
+    items = {i["title"]: i for i in _get(viewer).json()["items"]}
+
+    film, show, coming = items["Ember Coast"], items["Harrow Lane"], items["Dry Harbour"]
+    assert (film["state"], film["finished_at"], film["size_bytes"]) == (
+        "ready",
+        completed.timestamp(),
+        14_200_000_000,
+    )
+    assert (show["state"], show["finished_at"], show["size_bytes"]) == (
+        "ready",
+        completed.timestamp(),
+        None,
+    )
+    assert (coming["finished_at"], coming["size_bytes"]) == (None, None)
