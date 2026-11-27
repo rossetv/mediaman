@@ -12,6 +12,15 @@ from mediaman.services.mail.mailgun import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_sleep(monkeypatch):
+    # Both the retry module's ``time.sleep`` and ``random.uniform``
+    # are exercised by every retry path; replace both with no-op /
+    # deterministic stubs so we test orchestration, not timing.
+    monkeypatch.setattr("mediaman.services.infra.http.retry.time.sleep", lambda _: None)
+    monkeypatch.setattr("mediaman.services.infra.http.retry.random.uniform", lambda _a, _b: 0.0)
+
+
 @pytest.fixture
 def client():
     return MailgunClient("example.com", "test-api-key", "notify@example.com")
@@ -112,14 +121,6 @@ class TestMailgunRetryPolicy:
     All tests stub out the sleep and jitter sources so the suite stays
     deterministic and fast.
     """
-
-    @pytest.fixture(autouse=True)
-    def _no_sleep(self, monkeypatch):
-        # Both the retry module's ``time.sleep`` and ``random.uniform``
-        # are exercised by every retry path; replace both with no-op /
-        # deterministic stubs so we test orchestration, not timing.
-        monkeypatch.setattr("mediaman.services.infra.http.retry.time.sleep", lambda _: None)
-        monkeypatch.setattr("mediaman.services.infra.http.retry.random.uniform", lambda _a, _b: 0.0)
 
     def _client(self) -> MailgunClient:
         return MailgunClient("example.com", "key-xxx", "noreply@example.com", region="eu")
