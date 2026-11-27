@@ -796,6 +796,8 @@ function elsewhereOf(mode) {
       if (/cast\/stream$/.test(url)) {
         if (e.castFails.length) return e.castFails.shift()(opts);
         e.casts++;
+        // With `languages`, a title in three of them whose subtitles show only when asked for.
+        if (e.languages) return Promise.resolve(Object.assign({ stream_id: 'c' + e.casts, url: '/api/cast/T' + e.casts + '/index.m3u8', duration_s: 3000, quality: body.quality }, TRACKS, { audio: body.audio || '61', subtitle: body.subtitle === 'off' ? null : body.subtitle || null }));
         return Promise.resolve({ stream_id: 'c' + e.casts, url: '/api/cast/T' + e.casts + '/index.m3u8', duration_s: 3000, quality: body.quality, subtitle: body.subtitle === 'off' ? null : body.subtitle || '31', subtitle_tracks: SUBS });
       }
       if (/\/play$/.test(url)) return e.plays.length ? e.plays.shift()(opts) : Promise.resolve({ tv: Object.assign({}, LIVING, { play: { rating_key: body.rating_key, state: 'starting' } }) });
@@ -933,6 +935,7 @@ function chooserState(p) {
     checked: box ? box.querySelectorAll('[aria-checked="true"]').map((r) => r.getAttribute('data-audio') || r.getAttribute('data-subtitle')) : null,
     foot: box ? box.querySelector('.player-av-foot').textContent : null,
     note: box ? box.querySelectorAll('.player-av-none').map((n) => n.textContent) : null,
+    link: box && box.querySelector('.player-av-link') ? [box.querySelector('.player-av-link').textContent, box.querySelector('.player-av-link').target || null] : null,
   };
 }
 
@@ -954,6 +957,7 @@ const scenarios = {
     const streams = p.hlsList.length;
     if (how === 'refused') p.replies.push(answer('best', TRACKS), answer('best', TRACKS));
     else if (how === 'start_fails') p.replies.push({ err: { status: 409, error: 'track_unavailable' } }, answer('best', TRACKS));
+    else if (how === 'too_many') p.replies.push({ err: { status: 429, error: 'too_many_streams' } });
     else p.replies.push(answer('best', Object.assign({}, TRACKS, { audio: '62' })));
     const before = chooserState(p);
     await pickTrack(p, '[data-audio="62"]');
@@ -963,6 +967,7 @@ const scenarios = {
       held: p.root.classList.contains('is-held'),
       restarts: p.hlsList.length - streams,
       from: p.hlsList.length > streams ? p.hlsList[p.hlsList.length - 1].config.startPosition : null,
+      message: p.q('[data-message]').hidden ? null : p.q('[data-message-text]').textContent,
     };
     if (p.hlsList.length > streams) await streamPlays(p, 1268);
     await settle();
@@ -977,6 +982,34 @@ const scenarios = {
       out.undo = p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).slice(-1).map((c) => (c.gone ? 'DELETE ' : 'PUT ') + c.url)[0];
     }
     return out;
+  },
+
+  /* A subtitle picked while the stream starts again for the audio just picked: it follows. Till
+     the start answers, the control says what played and the play button stays as it was. */
+  async tracks_queued(p) {
+    p.replies[0] = answer('best', TRACKS);
+    await streamPlays(p, 1268);
+    let answered;
+    // The start for the audio is answered only once the subtitle has been picked.
+    p.replies.push({ ok: new Promise((r) => { answered = r; }) }, answer('best', Object.assign({}, TRACKS, { audio: '62', subtitle: '71' })));
+    await pickTrack(p, '[data-audio="62"]');
+    const held = { label: chooserState(p).label, faded: p.q('[data-tracks]').querySelector('[data-av-btn]').classList.contains('is-changing'), play: playState(p), held: p.root.classList.contains('is-held') };
+    await pickTrack(p, '[data-subtitle="71"]');
+    const whileStarting = p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).length;
+    answered(answer('best', Object.assign({}, TRACKS, { audio: '62' })).ok);
+    await settle();
+    await streamPlays(p, 1268);
+    p.tick(800);
+    await settle();
+    await streamPlays(p, 1268);
+    p.tick(800);
+    await settle();
+    return {
+      held: held,
+      whileStarting: whileStarting,
+      kept: p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url) && c.body).map((c) => JSON.stringify(c.body)),
+      after: chooserState(p).label,
+    };
   },
 
   /* The keyboard in Audio & subtitles: radios by the arrows, Tab on to the next group, Escape out. */
@@ -5517,6 +5550,18 @@ const scenarios = {
     await settle();
     out.here = { qualities: menuState(p).ids, start: p.starts().pop(), tracks: p.q('[data-tracks]').hidden, stops: way.stops };
     return out;
+  },
+
+  /* Another audio for the TV: it is asked for with no subtitle named, so the server starts what is
+     kept for the person, not subtitles "off", which would go on to the next episodes. */
+  async away_audio(p) {
+    p.elsewhere.languages = true;
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    mediaPlays(way.media, 200);
+    await pickTrack(p, '[data-audio="62"]');
+    const asked = p.elsewhere.starts().slice(-1)[0];
+    return { audio: asked.audio, subtitle: 'subtitle' in asked ? asked.subtitle : 'none named' };
   },
 
   /* The next episode goes on where this one played. */

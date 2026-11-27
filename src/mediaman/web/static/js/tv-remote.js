@@ -1237,7 +1237,8 @@
     MM.dom.qa('.player-controls > *', root).forEach(function (el) { if (el !== avWrap) el.inert = !!open; });
     if (!open) render();
   }
-  /* Whether a choice was kept for the title before, by title: what a change that fails goes back to. */
+  /* By title, whether a choice is kept for it, what a change that fails goes back to, and the
+     person's defaults: {remembered, defaults}. */
   var keptFor = {};
   function openTracks() {
     closeMenu();
@@ -1246,14 +1247,22 @@
     var key = p && String(p.rating_key);
     if (!key || key in keptFor) return;
     MM.api.get(tracksUrl(key)).then(function (data) {
-      if (data && typeof data.remembered === 'boolean') keptFor[key] = data.remembered;
+      if (heardKept(key, data)) showTracks(play(), canSteer());
     }, function () { /* not known: what was is kept as a choice */ });
   }
 
+  function heardKept(key, data) {
+    if (!data || typeof data.remembered !== 'boolean') return false;
+    keptFor[key] = { remembered: data.remembered, defaults: data.defaults || (keptFor[key] || {}).defaults || null };
+    return true;
+  }
+
   function trackState(p, change) {
+    var kept = keptFor[String(p.rating_key)] || {};
     return Object.assign({
       audio: p.audio || null, subtitle: p.subtitle && p.subtitle !== 'off' ? p.subtitle : null,
       audio_tracks: p.audio_tracks || [], subtitle_tracks: p.subtitle_tracks || [],
+      remembered: !!kept.remembered, defaults: kept.defaults || null,
       title: p.title, series: episode(p), on: name(),
     }, change || {});
   }
@@ -1271,7 +1280,8 @@
   function tracksUrl(key) { return '/api/watch/tracks/' + encodeURIComponent(key); }
 
   /* Kept for the title, then the TV starts the picture again where it is, with what the server
-     says now plays for the person; where that fails the choice goes back to what it was. */
+     says now plays for the person. Only a change to tracks the TV cannot play goes back to what
+     was; on any other failure the choice stays, for the next start. */
   function pickTracks(change) {
     var p = play();
     if (!p || !canSteer()) return;
@@ -1282,23 +1292,23 @@
     chooser.changing(true);
     var kept = what === 'reset' ? MM.api.delete(tracksUrl(key)) : MM.api.put(tracksUrl(key), what === 'audio' ? { audio: change.audio } : { subtitle: change.subtitle });
     kept.then(function (data) {
+      var was = keptFor[key] && keptFor[key].remembered;
+      heardKept(key, data);
       var after = trackState(p, { audio: data.audio || null, subtitle: data.subtitle || null });
-      var was = keptFor[key];
-      if (typeof data.remembered === 'boolean') keptFor[key] = data.remembered;
       if (after.audio === before.audio && after.subtitle === before.subtitle) {
         say(MM.tracks.said(what, after, false));
         return null;
       }
-      var body = { kind: 'subtitles', subtitle: after.subtitle || 'off', play_id: p.play_id };
-      if (isCast() && after.audio) body.audio = after.audio;
+      var body = restartWith(p, what, after);
       starting[id] = true;
       render();
       return (isCast() ? postCast(body) : post(body)).then(function () {
         say(MM.tracks.said(what, after, false));
-      }, function () {
+      }, function (err) {
+        if (!err || err.error !== 'track_unavailable') { refuse(err || {}); return; }
         var back = was === false || what === 'reset' ? null : what === 'audio' ? { audio: before.audio } : { subtitle: before.subtitle || 'off' };
         (back ? MM.api.put(tracksUrl(key), back) : MM.api.delete(tracksUrl(key))).then(function (d) {
-          if (d && typeof d.remembered === 'boolean') keptFor[key] = d.remembered;
+          heardKept(key, d);
         }, function () { /* said below */ });
         global.UIFeedback.error(MM.tracks.said(what, before, true));
       }).then(function () {
@@ -1311,6 +1321,24 @@
     }).then(function () {
       chooser.changing(false);
     });
+  }
+
+  /* What starts the picture again with the tracks the server now picks for the person. "off" is
+     sent only for Off picked: it is kept on to the next episodes, and hides their signs and songs.
+     Otherwise the subtitle that is to play is named, or none is, and the TV goes on with its own
+     choice: on a TV by a restart at its own quality. Only where subtitles show and none are to
+     is "off" the one way a TV has to take them away. */
+  function restartWith(p, what, after) {
+    var body = { kind: 'subtitles', play_id: p.play_id };
+    if (isCast()) {
+      body.subtitle = after.subtitle || (what === 'subtitle' ? 'off' : null);
+      if (after.audio) body.audio = after.audio;
+    } else if (after.subtitle || what === 'subtitle' || (p.subtitle && p.subtitle !== 'off')) {
+      body.subtitle = after.subtitle || 'off';
+    } else {
+      body = { kind: 'quality', quality: p.quality || 'auto', play_id: p.play_id };
+    }
+    return body;
   }
 
   /* Over its button; a sheet on a phone, where the stylesheet places it. */

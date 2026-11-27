@@ -115,8 +115,8 @@ async function page(opts = {}) {
     if (url === '/api/tvs') return { tvs: copy(api.tvs) };
     // A choice of tracks, kept: what then plays for the person.
     if (/^\/api\/watch\/tracks\//.test(url)) {
-      if (method === 'GET') return { remembered: false };
-      return { audio: (body && body.audio) || null, subtitle: body && body.subtitle !== 'off' ? (body && body.subtitle) || null : null, remembered: method !== 'DELETE' };
+      if (method === 'GET') return { remembered: false, ...api.kept };
+      return { audio: (body && body.audio) || null, subtitle: body && body.subtitle !== 'off' ? (body && body.subtitle) || null : null, remembered: method !== 'DELETE', ...api.plays };
     }
     if (/^\/api\/(cast|watch)\//.test(url)) return { stream_id: 'c1', url: '/c1' };
     const tv = api.tvs.find((t) => url.startsWith('/api/tvs/' + t.id) && !(api.goneIds || []).includes(t.id));
@@ -675,17 +675,61 @@ const scenarios = {
   async tracksTv() { return tracksOn(await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO }) })] })); },
   async tracksCast() { return tracksOn(await page({ tvs: [], cast: { now: aCast({ audio_id: '61', audio_tracks: AUDIO }) } })); },
   async tracksRefused() {
-    const p = await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO }) })] });
-    p.api.refuse = 'tv_off';
+    const out = {};
+    for (const why of ['track_unavailable', 'tv_off']) {
+      const p = await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO }) })] });
+      p.api.refuse = why;
+      out[why] = await tracksOn(p);
+    }
+    return out;
+  },
+  /* German audio while English subtitles show, which the server says go on showing. */
+  async tracksKeepSubtitle() {
+    const p = await page({ tvs: [aTv({ play: aPlay({ audio: '61', audio_tracks: AUDIO, subtitle: '11' }) })] });
+    p.api.plays = { subtitle: '11' };
     return tracksOn(p);
+  },
+  /* What is said of signs and songs, back to the defaults and picked. */
+  async saidSigns() {
+    const p = await page();
+    const state = { audio: '61', subtitle: '12', audio_tracks: AUDIO, subtitle_tracks: [{ id: '12', label: 'English', language: 'en', forced: true }], title: 'Glass Orchard' };
+    return ['reset', 'subtitle'].map((what) => p.win.MM.tracks.said(what, state, false));
+  },
+  /* Use my defaults, from the remote of a title with a choice kept for it. */
+  async tracksDefaults() {
+    const out = {};
+    for (const cast of [false, true]) {
+      const p = cast ? await page({ tvs: [], cast: { now: aCast({ audio_id: '62', audio_tracks: AUDIO }) } })
+        : await page({ tvs: [aTv({ play: aPlay({ audio: '62', audio_tracks: AUDIO }) })] });
+      p.api.kept = { remembered: true, defaults: { audio_lang: 'en', subtitle_lang: null } };
+      p.api.plays = { audio: '61' };
+      await p.open();
+      await p.openTracks();
+      await p.pass(50);
+      const box = p.$('.player-av');
+      out[cast ? 'cast' : 'tv'] = { tag: box.querySelector('[data-audio="61"]').textContent, foot: box.querySelector('.player-av-foot').textContent };
+      await p.press('[data-av-reset]');
+      await p.pass(400);
+      Object.assign(out[cast ? 'cast' : 'tv'], {
+        kept: p.api.calls.filter((c) => c.method !== 'GET' && /\/api\/watch\/tracks\//.test(c.url)).map((c) => [c.method, c.url]),
+        sent: p.sent(), did: p.cast.did, toasts: p.toasts,
+      });
+    }
+    return out;
   },
   async subtitles() {
     const p = await page();
     await p.open();
     await p.openTracks();
-    const out = { focus: p.doc.activeElement.textContent, under: p.$('[data-seek-row]').inert && p.$('[data-mid]').inert };
+    // What the chooser stands over is out of reach, and stays so as the remote hears the TV again.
+    const reach = () => ['[data-seek-row]', '[data-mid]', '[data-play]', '[data-menu="quality"]', '[data-next]'].map((sel) => p.$(sel).inert);
+    const out = { focus: p.doc.activeElement.textContent, under: reach() };
+    const reads = p.reads().length;
+    await p.pass(1200);
+    out.polled = { reads: p.reads().length > reads, under: reach() };
     p.key('.player-av', 'Escape');
     out.escape = { menu: p.seen('.player-av'), open: p.isOpen(), focus: p.doc.activeElement.hasAttribute('data-av-btn') ? 'subtitles' : null };
+    out.after = reach();
     await p.pickTrack('English');
     out.sent = p.sent();
     return out;

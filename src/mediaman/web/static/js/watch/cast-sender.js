@@ -1057,7 +1057,8 @@
     if (p.lost !== null || (change.next ? !keep.next : !!p.wait)) return Promise.reject(refusal('failed', NOT_TAKEN));
     var asked = {
       quality: change.quality || keep.quality || 'auto',
-      subtitle: change.subtitle || keep.subtitle || null,
+      /* A subtitle of null asks for the person's own choice, kept on the server. */
+      subtitle: 'subtitle' in change ? change.subtitle || null : keep.subtitle || null,
       audio: change.audio || keep.audio || null,
     };
     /* A track is one film's own. */

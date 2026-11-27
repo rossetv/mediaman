@@ -392,6 +392,7 @@
   var tracks = null;         // the title's tracks and those that play, as the last start said (watch/tracks.js)
   var askedTracks = null;    // the title whose kept choice and defaults were asked for
   var trackSwitch = null;    // a change of tracks on its way: {what, before, want}
+  var trackHold = false;     // the picture is held for it: the play button stays as it was
   var trackNotice = null;    // what it says once the stream with the new tracks plays
   var pausedHere = false;    // the pause to come is the person's
   var pausedThereAt = -Infinity;
@@ -855,6 +856,7 @@
 
   function setLoading(on) {
     root.classList.toggle('is-loading', on);
+    if (!on) trackHold = false;
     if (!on) waitingSince = null;
     else if (waitingSince === null) waitingSince = Date.now();
     showIntro();
@@ -1328,6 +1330,7 @@
           takeQualities(data);
           takeTracks(data);
           switched(data);
+          pickQueued();
           if (away) {
             if (data.markers) takeMarks(data);
             loadAway(data);
@@ -1351,7 +1354,11 @@
           /* Asked for by itself, after the person asked another page. */
           if (status === 410 && code === 'replaced') { streamReplaced(); return; }
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
-          if (trackSwitch && trackSwitch.want) {
+          if (trackSwitch && trackSwitch.want && code !== 'track_unavailable') {
+            /* Not for the tracks: the choice stays, for the next start, and the failure is said
+               as any other. */
+            dropSwitch();
+          } else if (trackSwitch && trackSwitch.want) {
             /* The new tracks would not start: the old ones again, also as what is kept. */
             var failed = trackSwitch;
             trackSwitch = null;
@@ -1362,6 +1369,7 @@
               tracks.subtitle = failed.before.subtitle;
             }
             swapNotice = MM.tracks.said(failed.what, trackState(), true);
+            chooser.changing(false);
             return putBack(failed).then(function () { return attempt(tries); });
           }
           if (status === 422 && quality !== 'auto' && !hasPlayed) {
@@ -1378,6 +1386,7 @@
             return startStream(position());
           }
           starting = false;
+          queuedPick = null;
           showMessage(known ? known.text : MSG_FAILED, known && !known.retry ? null : retry);
         });
     }
@@ -1995,10 +2004,12 @@
   /* While a stream loads to play, the button shows it working, not a Pause
      that has nothing to pause yet; pressing it still means "don't play". */
   function showPlayState() {
-    var busy = wantPlaying && root.classList.contains('is-loading');
-    var paused = shown(els.message) || ((video.paused || video.ended) && !busy && countdownTimer === null);
+    var loading = wantPlaying && root.classList.contains('is-loading');
+    /* New tracks are a pause in the picture, not in the play: only the spinner over it says so. */
+    var busy = loading && !trackHold;
+    var paused = shown(els.message) || ((video.paused || video.ended) && !loading && countdownTimer === null);
     setName(els.play, paused ? 'Play' : 'Pause', 'Space');
-    if (busy) els.play.setAttribute('aria-busy', 'true');
+    if (loading) els.play.setAttribute('aria-busy', 'true');
     else els.play.removeAttribute('aria-busy');
     var icon = els.play.querySelector('.ico');
     MM.dom.setIcon(icon, paused ? 'i-play' : 'i-pause');
@@ -4476,8 +4487,13 @@
 
   /* A pick in the chooser: kept for the title, then the stream starts again where it is, with it. */
   function pickTracks(change) {
-    if (!tracks || trackSwitch || switching || !streamId) return;
+    if (!tracks) return;
     var key = tracks.key;
+    if (trackSwitch || switching || !streamId) {
+      /* Made while the stream starts again: it follows once that has started, for this title. */
+      queuedPick = { key: key, change: change };
+      return;
+    }
     var what = change.reset ? 'reset' : change.audio !== undefined ? 'audio' : 'subtitle';
     var mine = trackSwitch = {
       key: key,
@@ -4504,10 +4520,13 @@
         return;
       }
       if (away) {
+        /* "off" is kept on to the next episodes: sent only for Off picked. Otherwise none is
+           named, and the server starts what is kept for the person. */
         audio = mine.want.audio;
-        subtitle = mine.want.subtitle || 'off';
+        subtitle = mine.want.subtitle || (what === 'subtitle' ? 'off' : null);
       }
       pressedPlay();
+      trackHold = !away;
       restartStream(true);
     }, function () {
       if (trackSwitch !== mine) return;
@@ -4531,11 +4550,12 @@
       return;
     }
     var text = MM.tracks.said(mine.what, Object.assign(trackState(), mine.before), true);
+    queuedPick = null;
     putBack(mine).then(function () {
       if (sameTracks(plays, mine.before) || String(item.rating_key) !== mine.key) return;
       if (away) {
         audio = mine.before.audio;
-        subtitle = mine.before.subtitle || 'off';
+        subtitle = mine.before.subtitle || (mine.what === 'subtitle' ? 'off' : null);
       }
       restartStream(true);
     });
@@ -4571,8 +4591,17 @@
     else tell();
   }
 
+  var queuedPick = null;
+  function pickQueued() {
+    var q = queuedPick;
+    if (!q || trackSwitch) return;
+    queuedPick = null;
+    if (tracks && tracks.key === q.key && String(item.rating_key) === q.key) pickTracks(q.change);
+  }
+
   function dropSwitch() {
     trackSwitch = null;
+    trackHold = false;
     trackNotice = null;
     if (chooser) chooser.changing(false);
     showTracks();
@@ -4825,8 +4854,13 @@
   /* ---- leaving the page ----------------------------------------------- */
 
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden') beaconProgress();
-    else if (onReturn) askRating(onReturn);
+    if (document.visibilityState === 'hidden') { beaconProgress(); return; }
+    if (onReturn) askRating(onReturn);
+    /* The defaults may have been changed in the tab the chooser opened. */
+    if (tracks) {
+      askedTracks = null;
+      askTracks();
+    }
   });
 
   // A phone may not say so.

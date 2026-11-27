@@ -24,6 +24,7 @@
   var PICKED_MS = 170;       // the tick is seen to land before the chooser goes
   var CLOSED_MS = 120;       // and the chooser is on its way before the picture is held
   var LEAVE_MS = 260;
+  var FADE_MS = 150;         // the control's words, from what played to what plays
   var DEFAULTS_HREF = '/?you=profile/audio';
   var TV_ICON = 'play-on-tv'; // of _play_on.html
 
@@ -62,7 +63,7 @@
     var english = englishName(t.language);
     if (t.forced) {
       return { main: 'Signs & songs only', sub: [english || (t.language ? main : ''), 'Forced'].filter(Boolean).join(' · '),
-        short: 'Signs & songs', said: 'Signs & songs only' };
+        short: 'Signs & songs', said: 'signs & songs only' };
     }
     var parts = [english && english !== main ? english : ''];
     if (t.hearing_impaired) parts.push('SDH · sounds described too');
@@ -105,6 +106,7 @@
       return 'Back to your defaults: ' + (now.audio ? now.audio.main : 'as it comes') + (now.subtitle === OFF ? '.' : ', ' + now.subtitle.said + '.');
     }
     var text = what === 'audio' ? (now.audio ? now.audio.said : 'The audio') : now.subtitle.said;
+    text = text.charAt(0).toUpperCase() + text.slice(1);
     return state.on ? text + ' on ' + state.on + '.' : text + '. Kept for ' + state.title + '.';
   }
 
@@ -121,6 +123,7 @@
     var veil = null;
     var from = null;
     var busy = false;
+    var held = false;          // a change is under way: the control goes on saying what played
     var seen;
 
     var triggers = opts.wraps.map(function (wrap) {
@@ -150,10 +153,18 @@
       var known = !!state && ((state.audio_tracks || []).length > 0 || (state.subtitle_tracks || []).length > 0);
       opts.wraps.forEach(function (w) { w.hidden = !known; });
       if (!known) { close(false); return; }
+      if (!held) showLabel();
+    }
+
+    function spokenOf(now) {
+      return 'Audio and subtitles: ' + (now.audio ? now.audio.said : 'audio') + ', ' + (now.subtitle === OFF ? 'subtitles off' : now.subtitle.said);
+    }
+
+    function showLabel() {
       var now = describe(state);
       var audio = now.audio ? now.audio.short : 'Audio';
       var more = now.subtitle === OFF ? '' : ' · ' + (now.subtitle.short === 'Signs & songs' ? 'signs & songs' : now.subtitle.short + ' subtitles');
-      var spoken = 'Audio and subtitles: ' + (now.audio ? now.audio.said : 'audio') + ', ' + (now.subtitle === OFF ? 'subtitles off' : now.subtitle.said);
+      var spoken = spokenOf(now);
       triggers.forEach(function (b) {
         MM.dom.setText(b.querySelector('.player-av-audio'), audio);
         MM.dom.setText(b.querySelector('.player-av-more'), more);
@@ -222,16 +233,22 @@
         words.appendChild(document.createTextNode(state.series ? 'Kept for every episode of ' : 'Kept for '));
         words.appendChild(document.createElement('b')).textContent = state.title;
         words.appendChild(document.createTextNode('.'));
+      } else {
+        f.appendChild(MM.dom.icon('i-circle-info'));
+        words.textContent = defaultsLine(state.defaults);
+        /* In a tab of its own, so that what plays here goes on playing. */
+        link = document.createElement('a');
+        link.href = DEFAULTS_HREF;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.setAttribute('aria-label', 'Change your defaults, in a new tab');
+        link.textContent = 'Change';
+      }
+      if (state.remembered) {
         link = document.createElement('button');
         link.type = 'button';
         link.setAttribute('data-av-reset', '');
         link.textContent = 'Use my defaults';
-      } else {
-        f.appendChild(MM.dom.icon('i-circle-info'));
-        words.textContent = defaultsLine(state.defaults);
-        link = document.createElement('a');
-        link.href = DEFAULTS_HREF;
-        link.textContent = 'Change';
       }
       f.appendChild(words);
       if (link) {
@@ -319,6 +336,8 @@
         el.remove();
       };
       el.classList.add('is-leaving');
+      /* Out of reach at once, though it is still seen going. */
+      el.inert = true;
       el.addEventListener('animationend', end);
       setTimeout(end, ms(LEAVE_MS));
     }
@@ -429,8 +448,17 @@
         }
       },
       state: function () { return state; },
+      /* While it changes the control says what played; then it fades over to what plays. */
       changing: function (on) {
-        triggers.forEach(function (b) { b.classList.toggle('is-changing', on); });
+        if (on === held) return;
+        held = on;
+        if (on || !state || triggers[0].getAttribute('aria-label') === spokenOf(describe(state))) return;
+        triggers.forEach(function (b) { b.classList.add('is-changing'); });
+        setTimeout(function () {
+          if (held || !state) return;
+          showLabel();
+          triggers.forEach(function (b) { b.classList.remove('is-changing'); });
+        }, ms(FADE_MS));
       },
       isOpen: function () { return !!box; },
       close: close,

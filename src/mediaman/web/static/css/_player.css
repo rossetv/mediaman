@@ -1207,7 +1207,9 @@
   animation: player-pop var(--dur) var(--ease-out);
 }
 .player-av:focus { outline: 0; }
-.player-av.is-redrawn { animation: none; }
+.player-av.is-redrawn:not(.is-leaving) { animation: none; }
+/* The remote is not in .player: its chooser goes as the player's menus do. */
+.tv-rem .player-av.is-leaving { animation: player-drop var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
 .player-av-veil { display: none; }
 .player-av-head { display: none; }
 .player-av-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; min-height: 0; overflow: hidden; }
@@ -1232,7 +1234,11 @@
   text-align: left;
   transition: background-color var(--dur-fast) var(--ease-out);
 }
-.player-av-row:hover { background: var(--hair-strong); }
+@media (hover: hover) {
+  .player-av-row:hover { background: var(--hair-strong); }
+  .player-av-row:disabled:hover { background: none; }
+  .player-av-link:hover { background: var(--hair-strong); text-decoration: none; }
+}
 .player-av-row:focus-visible { background: var(--hair-strong); outline: 2px solid var(--accent); outline-offset: -2px; }
 .player-av-row:active { background: var(--hair-strong); }
 .player-av-text { flex: 1; min-width: 0; }
@@ -1245,7 +1251,6 @@
 @keyframes player-av-tick { from { opacity: 0; transform: scale(.4); } }
 .player-av-row.is-picked > .player-menu-tick { animation: player-av-tick var(--dur-fast) var(--ease-out); }
 .player-av-row:disabled { cursor: default; }
-.player-av-row:disabled:hover { background: none; }
 .player-av-none { padding: 4px 12px 10px; font-size: 13px; line-height: 1.45; color: var(--t3); }
 /* What is kept, and the way back to the defaults. */
 .player-av-foot {
@@ -1276,7 +1281,6 @@
   color: var(--accent);
   transition: background-color var(--dur-fast) var(--ease-out);
 }
-.player-av-link:hover { background: var(--hair-strong); text-decoration: none; }
 .player-av-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .player-av-titles { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; }
 .player-av-titles > .player-menu-title + .player-menu-title { padding-left: 18px; }
@@ -1327,7 +1331,7 @@
 @keyframes player-av-in { from { transform: translateX(100%); } }
 @keyframes player-av-out { to { transform: translateX(100%); } }
 @media (max-width: 699.98px) {
-  .player .player-av.is-leaving, .tv-rem .player-av.is-leaving { animation: player-av-down var(--dur) var(--ease-exit) forwards; }
+  .player .player-av.is-leaving, .tv-rem .player-av.is-leaving { animation: player-av-down var(--dur) var(--ease-exit) forwards; pointer-events: none; }
   .player-av-veil.is-leaving { animation: tv-fade-out var(--dur) var(--ease-exit) forwards; pointer-events: none; }
 }
 
@@ -1362,7 +1366,7 @@
   .player-av-col > .player-menu-title { display: block; padding: 8px 12px 2px; }
   .player-av-row { min-height: 48px; padding-block: 4px; }
   .player-av-foot { margin-top: 4px; }
-  .player .player-av.is-leaving, .tv-rem .player-av.is-leaving { animation: player-av-out var(--dur) var(--ease-exit) forwards; }
+  .player .player-av.is-leaving, .tv-rem .player-av.is-leaving { animation: player-av-out var(--dur) var(--ease-exit) forwards; pointer-events: none; }
   .player-av-veil.is-leaving { animation: tv-fade-out var(--dur) var(--ease-exit) forwards; pointer-events: none; }
 }
 
@@ -1371,6 +1375,8 @@
   .player-av, .player-av-veil { animation: tv-fade var(--dur-fast) var(--ease-out) !important; }
   .player .player-av.is-leaving, .tv-rem .player-av.is-leaving, .player-av-veil.is-leaving { animation: tv-fade-out var(--dur-fast) var(--ease-out) forwards !important; }
   .player-av-row.is-picked > .player-menu-tick { animation: none; }
+  /* Drawn again in place, it does not fade in again. */
+  .player-av.is-redrawn:not(.is-leaving) { animation: none !important; }
 }
 @media (forced-colors: active) {
   .player-av { border: 1px solid CanvasText; }

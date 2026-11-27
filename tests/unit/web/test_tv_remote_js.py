@@ -241,7 +241,10 @@ def test_still_watching_is_answered_from_the_remote() -> None:
 def test_the_subtitle_menu_takes_the_focus_gives_it_back_and_sends_the_track() -> None:
     out = _run("subtitles")
     assert out["focus"].startswith("Off")
-    assert out["under"] is True
+    # The seek row, the middle, play, quality and next: none is reached under the chooser.
+    assert out["under"] == [True] * 5
+    assert out["polled"] == {"reads": True, "under": [True] * 5}
+    assert out["after"] == [False] * 5
     assert out["escape"] == {"menu": False, "open": True, "focus": "subtitles"}
     assert out["sent"] == [{"kind": "subtitles", "subtitle": "11", "play_id": "p1"}]
 
@@ -719,17 +722,49 @@ def test_audio_picked_on_the_remote_is_kept_and_the_tv_starts_again_with_it() ->
     assert out["label"] == "English"
     assert out["foot"].startswith("Changes play on Living room.")
     assert out["kept"] == [["PUT", "/api/watch/tracks/9001", {"audio": "62"}]]
-    assert out["sent"] == [{"kind": "subtitles", "subtitle": "off", "play_id": "p1"}]
+    # No subtitles showed and none are to: the TV starts again with its own choice, not with
+    # subtitles "off", which would go on to the next episodes and hide their signs and songs.
+    assert out["sent"] == [{"kind": "quality", "quality": "auto", "play_id": "p1"}]
     assert out["toasts"] == ["Deutsch audio on Living room."]
+
+
+def test_audio_picked_while_subtitles_show_names_the_subtitles_that_go_on() -> None:
+    out = _run("tracksKeepSubtitle")
+    assert out["sent"] == [{"kind": "subtitles", "subtitle": "11", "play_id": "p1"}]
 
 
 def test_audio_picked_for_a_chromecast_is_asked_of_its_next_stream() -> None:
     out = _run("tracksCast")
-    assert out["did"] == [["start", {"subtitle": "off", "audio": "62"}]]
+    assert out["did"] == [["start", {"subtitle": None, "audio": "62"}]]
     assert out["toasts"] == ["Deutsch audio on Den."]
 
 
-def test_audio_the_tv_will_not_start_again_with_is_taken_back() -> None:
-    out = _run("tracksRefused")
+def test_audio_the_tv_cannot_play_is_taken_back() -> None:
+    out = _run("tracksRefused")["track_unavailable"]
     assert out["kept"][-1] == ["DELETE", "/api/watch/tracks/9001", None]
     assert "! Couldn’t change the audio. Staying on English." in out["toasts"]
+
+
+def test_audio_kept_when_the_tv_fails_for_another_reason_stays_kept() -> None:
+    out = _run("tracksRefused")["tv_off"]
+    assert out["kept"] == [["PUT", "/api/watch/tracks/9001", {"audio": "62"}]]
+    assert out["toasts"] == ["! The TV isn’t answering. Check it still shows mediaman."]
+
+
+def test_a_choice_kept_for_the_title_can_go_back_to_the_defaults_from_the_remote() -> None:
+    out = _run("tracksDefaults")
+    for on in ("tv", "cast"):
+        assert "Your default" in out[on]["tag"]
+        assert out[on]["foot"].endswith("Use my defaults")
+        assert out[on]["kept"] == [["DELETE", "/api/watch/tracks/9001"]]
+    assert out["tv"]["sent"] == [{"kind": "quality", "quality": "auto", "play_id": "p1"}]
+    assert out["cast"]["did"] == [["start", {"subtitle": None, "audio": "61"}]]
+    assert out["tv"]["toasts"][-1] == "Back to your defaults: English."
+
+
+
+def test_signs_and_songs_are_capitalised_only_where_a_sentence_begins() -> None:
+    assert _run("saidSigns") == [
+        "Back to your defaults: English, signs & songs only.",
+        "Signs & songs only. Kept for Glass Orchard.",
+    ]

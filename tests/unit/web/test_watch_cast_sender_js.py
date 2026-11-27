@@ -1034,3 +1034,9 @@ def test_audio_asked_for_the_tv_goes_with_its_next_stream() -> None:
     out = _run("other")["audio"]
     (body,) = out["opened"]
     assert (body["audio"], body["subtitle"]) == ("5", "off")
+
+
+def test_a_stream_asked_for_with_no_subtitle_names_none_though_off_was_asked_before() -> None:
+    (body,) = _run("other")["ownSubtitle"]["opened"]
+    assert body["audio"] == "5"
+    assert "subtitle" not in body

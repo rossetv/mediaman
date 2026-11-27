@@ -1223,6 +1223,8 @@ const scenarios = {
     await run('quality', null, { quality: 'low' });
     await run('paused', null, { subtitle: '9' }, { paused: true });
     await run('audio', null, { subtitle: 'off', audio: '5' });
+    // No subtitle named: the person's own, though "off" was asked for the stream before.
+    await run('ownSubtitle', null, { subtitle: null, audio: '5' });
     const n = await run('next', null, { next: true });
     n.page.posts.length = 0;
     await n.w.clock.advance(11000);
