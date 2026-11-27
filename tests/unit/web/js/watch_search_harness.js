@@ -1408,7 +1408,7 @@ const scenarios = {
     p.press();
     await settle();
     const block = () => p.sheet.querySelectorAll('[role=group]').filter((n) => n.getAttribute('aria-label') === 'Your library')[0];
-    const look = () => block().querySelectorAll('.watch-option').map((n) => [n.textContent, n.getAttribute('href')]);
+    const look = () => block().querySelectorAll('.watch-option').map((n) => [n.textContent, n.getAttribute('href'), n.hasAttribute('data-dl-open')]);
     const titles = p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent);
     const out = { look: look(), before: titles[titles.indexOf('Your library') - 1] };
     const calls = p.calls.length;

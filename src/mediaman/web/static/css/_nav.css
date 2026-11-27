@@ -227,6 +227,21 @@
 .profile-ring.is-ready { --ring-tone: var(--success); }
 .profile-ring.is-waiting { --ring-tone: var(--warning); }
 .profile-ring.is-lost { --ring-tone: var(--t3); }
+/* The ring's own link: 44px round, only the band round the picture, so the picture stays the
+   profile button's. It sits where the avatar does, at the button's start. */
+.profile-slot { position: relative; display: inline-flex; flex: none; }
+.profile-dl {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  margin-top: -22px;
+  border-radius: 50%;
+  clip-path: path(evenodd, "M22 0a22 22 0 1 0 0 44a22 22 0 1 0 0-44zM22 6a16 16 0 1 1 0 32a16 16 0 1 1 0-32z");
+}
+.profile-dl[hidden] { display: none; }
+.profile-dl:focus-visible { outline: 2px solid var(--t1); outline-offset: -2px; }
 .profile-count {
   position: absolute;
   right: -9px;

@@ -841,7 +841,7 @@
     function downloadsWords() {
       var state = downloads && window.MM.downloading.last();
       var n = state ? state.summary.total : 0;
-      return 'Downloads' + (n ? ' · ' + n : '');
+      return 'Downloading' + (n ? ' · ' + n : '');
     }
 
     function sayDownloads() {
@@ -866,7 +866,8 @@
         nodes.push(option(pill('watch-try', 'i-table-cells-large', allWords(n), openLibrary), 'library'));
       }
       var link = option(el('a', 'watch-try'), 'downloads');
-      link.setAttribute('href', '/downloads');
+      link.setAttribute('href', '/?dl=1');
+      link.setAttribute('data-dl-open', '');
       link.appendChild(MM.dom.icon('i-download'));
       link.appendChild(el('span', '', downloadsWords()));
       nodes.push(link);
