@@ -1843,9 +1843,9 @@
   }
 
   /* Esc is the preview's before the search box's, the grid's or the panel's under it, but not
-     before that of a menu or a dialog over it. */
+     before that of a menu or a dialog over it, nor one a layer over it has already taken. */
   document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape' || e.isComposing || !live) return;
+    if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || !live) return;
     if (carried) {
       e.preventDefault();
       e.stopPropagation();

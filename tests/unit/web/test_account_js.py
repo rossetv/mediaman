@@ -12,8 +12,9 @@ WEB = Path(__file__).parents[3] / "src" / "mediaman" / "web"
 HARNESS = Path(__file__).parent / "js" / "account_harness.js"
 
 
-def _run(scenario: str) -> dict:
-    result = run_node(HARNESS, scenario, timeout=60)
+def _run(scenario: str, zone: str = "UTC") -> dict:
+    # The page shows dates in the reader's zone, so the expected days hold in one zone only.
+    result = run_node(HARNESS, scenario, env={"TZ": zone}, timeout=60)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
@@ -125,6 +126,11 @@ def test_the_view_and_the_hubs_row_say_when_the_password_changed() -> None:
     assert never == [effect, ""]
     assert this_year == [f"14 March {effect}", "Changed 14 March"]
     assert earlier[1] == "Changed 14 March 2025"
+
+
+def test_the_day_the_password_changed_is_the_readers_own() -> None:
+    _never, this_year, _earlier = _run("passwordChanged", zone="Pacific/Honolulu")
+    assert this_year[1] == "Changed 13 March"
 
 
 def test_the_form_says_how_many_devices_and_tvs_a_new_password_signs_out() -> None:
