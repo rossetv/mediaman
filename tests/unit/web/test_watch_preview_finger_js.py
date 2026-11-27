@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "watch_preview_finger_harness.js"
 CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_cards.css"
@@ -17,7 +18,7 @@ PREVIEW_CSS = CSS.with_name("_watch_preview.css")
 
 @pytest.fixture(scope="module")
 def out() -> dict:
-    result = subprocess.run(["node", str(HARNESS)], capture_output=True, text=True, check=False)
+    result = run_node(HARNESS)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 

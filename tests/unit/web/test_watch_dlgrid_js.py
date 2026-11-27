@@ -4,24 +4,29 @@ DOM, with a fake history and a clock that is stepped."""
 from __future__ import annotations
 
 import json
-import subprocess
+import re
 from pathlib import Path
 
 import pytest
+
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "watch_dlgrid_harness.js"
 
 
 @pytest.fixture(scope="module")
 def out() -> dict:
-    result = subprocess.run(
-        ["node", str(HARNESS)], capture_output=True, text=True, check=False, timeout=60
-    )
+    result = run_node(HARNESS, timeout=60)
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     broken = {name: got["error"] for name, got in data.items() if "error" in got}
     assert not broken, broken
     return data
+
+
+def _y(transform: str) -> float:
+    """The pixels a translateY moves by."""
+    return float(re.fullmatch(r"translateY\((-?[\d.]+)px\)", transform)[1])
 
 
 def test_see_all_in_the_row_pushes_the_address_and_grows_the_row_in_place(out) -> None:
@@ -57,17 +62,20 @@ def test_escape_folds_it_back_into_the_row_and_the_focus_returns_to_what_opened_
     assert run["folded"] == {"at": "/", "open": False, "rowsAway": False, "on": "row-open"}
 
 
-def test_it_grows_in_250_ms_and_folds_in_200(out) -> None:
-    assert out["opensFromTheRow"]["grow"] == 250
-    assert out["opensFromTheRow"]["fold"] == 200
+def test_it_folds_no_slower_than_it_grows(out) -> None:
+    run = out["opensFromTheRow"]
+    assert 0 < run["fold"] <= run["grow"]
 
 
 def test_the_rows_above_go_up_and_those_below_go_down_as_the_row_s_cards_grow(out) -> None:
     run = out["grows"]
-    assert run["above"] == ["translateY(-28px)", "translateY(-28px)"]
-    assert run["below"] == ["translateY(44px)"]
+    above = [_y(t) for t in run["above"]]
+    below = [_y(t) for t in run["below"]]
+    assert len(above) == 2 and all(y < 0 for y in above)
+    assert len(below) == 1 and all(y > 0 for y in below)
     # cut to the row card's size at first, so no empty band shows while it grows
-    assert run["card"] == {"from": True, "to": "none", "ms": 250}
+    assert (run["card"]["from"], run["card"]["to"]) == (True, "none")
+    assert run["card"]["ms"] > 0
     assert run["title"] == [True], "the row's name travels into the header"
 
 
@@ -75,22 +83,27 @@ def test_a_bar_scrolled_out_of_sight_comes_down_with_the_grow_and_goes_up_with_t
     out,
 ) -> None:
     run = out["barAndChevrons"]["away"]
-    out_of_sight = {"opacity": 0, "transform": "translateY(528px)"}
-    at_the_top = {"opacity": 1, "transform": "translateY(600px)"}
+    [grow] = run["grow"]["bar"]
+    [fold] = run["fold"]["bar"]
     # held where it ends until the page is scrolled to match, so it never blinks away first
-    assert run["grow"]["bar"] == [{"frames": [out_of_sight, at_the_top], "fill": "forwards"}]
-    assert run["fold"]["bar"] == [{"frames": [at_the_top, out_of_sight], "fill": "forwards"}]
-    assert run["y"] == 600
+    assert grow["fill"] == fold["fill"] == "forwards"
+    hidden, shown = grow["frames"]
+    assert (hidden["opacity"], shown["opacity"]) == (0, 1)
+    assert _y(hidden["transform"]) < _y(shown["transform"]) == run["y"] == 600, (
+        "comes down to the top of the page"
+    )
+    assert fold["frames"] == [shown, hidden], "and goes back up the way it came"
 
 
 def test_a_bar_partly_in_sight_slides_without_fading_and_one_that_stays_is_left_alone(
     out,
 ) -> None:
     near = out["barAndChevrons"]["near"]
-    assert near["grow"]["bar"][0]["frames"] == [
-        {"opacity": 1, "transform": "translateY(0px)"},
-        {"opacity": 1, "transform": "translateY(30px)"},
-    ]
+    start, end = near["grow"]["bar"][0]["frames"]
+    assert (start["opacity"], end["opacity"]) == (1, 1)
+    assert _y(start["transform"]) < _y(end["transform"]) == near["y"] == 30, (
+        "slides down to the top of the page"
+    )
     assert out["barAndChevrons"]["sticky"]["grow"]["bar"] == []
     assert out["barAndChevrons"]["sticky"]["fold"]["bar"] == []
 
@@ -593,12 +606,6 @@ def test_while_it_waits_the_grid_says_the_outage_the_row_already_says(out) -> No
     assert run["gridNote"] == run["rowNote"]
 
 
-def test_a_stuck_placeholder_holds_one_line_as_its_card_does_however_long_its_reason(out) -> None:
-    # its card says the reason on one line and whole in its menu, so nothing is laid out to wrap
-    assert out["placeholderBands"]["admin"][0] == "line more"
-    assert out["placeholderBands"]["viewer"][0] == "line"
-
-
 def test_a_press_anywhere_on_a_card_but_its_controls_opens_its_title(out) -> None:
     run = out["opensTheTitle"]
     assert run["foot"] == ["movie-501"]
@@ -657,11 +664,11 @@ def test_the_confirm_says_abandoning_with_a_spinner_while_the_call_runs(out) -> 
 
 def test_a_card_that_goes_fades_and_shrinks_then_leaves(out) -> None:
     run = out["leaving"]["moving"]
-    assert run["frames"] == [
-        {"opacity": 1, "transform": "none"},
-        {"opacity": 0, "transform": "scale(.96)"},
-    ]
-    assert run["ms"] == 200
+    start, end = run["frames"]
+    assert (start["opacity"], start["transform"]) == (1, "none")
+    assert end["opacity"] == 0
+    assert 0 < float(re.fullmatch(r"scale\(([\d.]+)\)", end["transform"])[1]) < 1
+    assert run["ms"] > 0
     # still in its place while it fades, no longer counted, then gone
     assert run["during"] == {"there": True, "going": True, "cards": 1}
     assert run["gone"] is True

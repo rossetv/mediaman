@@ -4,17 +4,18 @@ node run gives every scenario's outcome."""
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "watch_preview_back_harness.js"
 
 
 @pytest.fixture(scope="module")
 def out() -> dict:
-    result = subprocess.run(["node", str(HARNESS)], capture_output=True, text=True, check=False)
+    result = run_node(HARNESS)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
