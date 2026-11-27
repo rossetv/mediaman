@@ -6,10 +6,12 @@ import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, cast
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.datastructures import QueryParams
 from starlette.responses import Response
 
 from mediaman.core.format import format_bytes, title_from_audit_detail
@@ -78,6 +80,8 @@ _GROUP_LABELS = {
 }
 
 _FILTER_NAMES = ("q", "user", "action", "title", "since", "until")
+#: What of the page's address the pane over Watch is given back, in its ``h``.
+_PANE_KEYS = (*_FILTER_NAMES, "date", "page", "event")
 
 # The group that lights for an old link's filter; "security" spans several.
 _GROUP_COVERING = {
@@ -415,6 +419,14 @@ def _items(
     return items
 
 
+def _pane_address(params: QueryParams) -> str:
+    """The History pane over Watch, given the filters of *params* and nothing else of it."""
+    kept = [(key, params[key]) for key in _PANE_KEYS if params.get(key)]
+    return "/?" + urlencode(
+        {"you": "history", "h": urlencode(kept)} if kept else {"you": "history"}
+    )
+
+
 @router.get("/history", response_class=HTMLResponse)
 def history_page(request: Request) -> Response:
     resolved = resolve_page_session(request)
@@ -426,6 +438,8 @@ def history_page(request: Request) -> Response:
         return RedirectResponse("/login", status_code=302)
 
     params = request.query_params
+    if params.get("pane") != "1" or request.headers.get("sec-fetch-mode") == "navigate":
+        return RedirectResponse(_pane_address(params), status_code=302)
     filters = _filters(viewer, **{k: params.get(k, "") for k in _FILTER_NAMES})
     try:
         page = min(max(1, int(params.get("page", 1))), _PAGE_MAX)
@@ -442,12 +456,11 @@ def history_page(request: Request) -> Response:
     avatars = _avatars(conn, viewer)
     action = filters.action
     templates = cast(Jinja2Templates, request.app.state.templates)
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
-        "history.html",
+        "panes/_history.html",
         {
             "username": username,
-            "nav_active": "history",
             "is_admin": viewer.is_admin,
             "items": _items(conn, viewer, listing.entries),
             "people": [_person(who, avatars) for who in repo.people(conn, viewer)],
@@ -471,6 +484,8 @@ def history_page(request: Request) -> Response:
             "next_cursor": listing.next_cursor,
         },
     )
+    response.headers["Cache-Control"] = "no-store, private"
+    return response
 
 
 @router.get("/api/history")

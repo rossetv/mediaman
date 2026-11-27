@@ -15,7 +15,7 @@ def test_every_settings_switch_has_an_accessible_name(app_factory, authed_client
     app = app_factory(
         router, conn=conn, state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))}
     )
-    html = authed_client(app, conn).get("/settings").text
+    html = authed_client(app, conn).get("/settings?pane=1").text
 
     switches = re.findall(r"<span\b[^>]*role=\"switch\"[^>]*>", html)
     assert len(switches) >= 2
@@ -27,7 +27,7 @@ def test_settings_number_and_time_inputs_have_an_accessible_name(app_factory, au
     app = app_factory(
         router, conn=conn, state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))}
     )
-    html = authed_client(app, conn).get("/settings").text
+    html = authed_client(app, conn).get("/settings?pane=1").text
 
     for input_id in (
         "min_age_days",
@@ -86,7 +86,7 @@ def test_every_settings_control_has_an_accessible_name(app_factory, authed_clien
         router, conn=conn, state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))}
     )
     parser = _ControlNames()
-    parser.feed(authed_client(app, conn).get("/settings").text)
+    parser.feed(authed_client(app, conn).get("/settings?pane=1").text)
 
     assert len(parser.controls) > 20
     assert parser.unnamed() == []

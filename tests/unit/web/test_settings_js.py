@@ -54,14 +54,8 @@ def test_discard_puts_back_the_last_saved_values() -> None:
     assert out["afterSaveDiscard"] == {"value": "http://c", "flag": True}
 
 
-def test_the_page_says_when_the_bar_is_up_and_when_it_is_gone() -> None:
-    out = _run("savebar")
-    assert out["pageWhileDirty"] is True
-    assert out["pageAfterDiscard"] is False
-
-
 def test_the_pages_room_for_the_bar_follows_the_bars_height() -> None:
-    assert _run("savebarRoom") == [{"--savebar-h": "61px"}, {"--savebar-h": "258px"}]
+    assert _run("saveBarHeight") == [{"--save-bar": "61px"}, {"--save-bar": "258px"}]
 
 
 def test_an_edit_made_during_a_save_stays_unsaved() -> None:
@@ -158,6 +152,12 @@ def test_rate_limited_service_is_not_counted_as_not_connected() -> None:
     out = _run("rail")
     assert "warn" in out["plex"].split()
     assert out["badge"] == "1"
+
+
+def test_the_list_says_how_many_services_are_not_answering_or_how_many_are_connected() -> None:
+    out = _run("listLine")
+    assert out["down"] == {"text": "1 service is not answering", "bad": True}
+    assert out["up"] == {"text": "2 of 3 connected", "bad": False}
 
 
 def test_pressed_test_that_is_rate_limited_warns_and_is_not_counted() -> None:
@@ -781,12 +781,13 @@ def test_a_late_check_of_the_old_settings_does_not_replace_the_new_ones() -> Non
     assert late == [2, ["ok", "Connected"], "Testing…"]
 
 
-def test_the_page_loads_each_script_once() -> None:
-    pages = [
-        (_TEMPLATE_DIR / name).read_text(encoding="utf-8")
-        for name in ("base.html", "settings.html")
-    ]
-    scripts = re.findall(r'<script src="([^"?]+)', "".join(pages))
+def test_the_settings_pane_and_the_page_under_it_load_each_script_once() -> None:
+    base = (_TEMPLATE_DIR / "base.html").read_text(encoding="utf-8")
+    pane = (_TEMPLATE_DIR / "panes" / "_settings.html").read_text(encoding="utf-8")
+    scripts = re.findall(r'<script src="([^"?]+)', base)
+    scripts += re.findall(
+        r"(/static/js/[^?\s\"]+)\?", re.search(r'data-scripts="([^"]+)"', pane)[1]
+    )
     assert "/static/js/settings/savebar.js" in scripts and "/static/js/core/dom.js" in scripts
     assert len(scripts) == len(set(scripts))
 
@@ -969,11 +970,3 @@ def test_a_failed_test_names_the_service_once_for_a_screen_reader() -> None:
 
 def test_a_finished_save_tells_the_newsletter_panel() -> None:
     assert _run("savedTellsNewsletter") == {"told": 1}
-
-
-def test_the_section_rail_is_marked_stuck_only_while_it_rests_under_the_bar() -> None:
-    assert _run("railStuck") == {"atRest": False, "stuck": True, "back": False}
-
-
-def test_the_section_rail_is_marked_stuck_again_after_a_resize_moves_it() -> None:
-    assert _run("railStuckResize") == {"before": False, "after": True}

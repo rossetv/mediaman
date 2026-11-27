@@ -31,11 +31,7 @@ async function load({ key = '', on = true, need = 'key', tested } = {}) {
   const card = add(['div', { id: 'intg-openai', class: 'intg-card is-collapsed' },
     ['div', { class: 'intg-card-hd', 'data-intg-toggle': '' }, ['h3', {}, ['button', { id: 'openai-fold', class: 'intg-fold' }, 'OpenAI']],
       ['button', { class: 'btn-test', 'data-test-service': 'openai' }, 'Test']]]);
-  const p = { doc, sw, input, card, opened: 0, scrolled: false };
-  const fold = card.querySelector('.intg-fold');
-  fold.click = () => click(doc, fold);
-  card.querySelector('.intg-card-hd').addEventListener('click', () => { card.classList.toggle('is-collapsed'); p.opened += 1; });
-  card.scrollIntoView = () => { p.scrolled = true; };
+  const p = { doc, sw, input, card };
   const ctx = {
     document: doc, console, Promise,
     setTimeout: () => 0, clearTimeout: () => {},
@@ -99,13 +95,6 @@ const scenarios = {
       return p.look();
     };
     return { passed: await at(true), failed: await at(false) };
-  },
-  async link() {
-    const p = await load();
-    const a = p.doc.querySelector('#setg-ai-need a');
-    let prevented = false;
-    click(p.doc, a, { preventDefault() { prevented = true; } });
-    return { prevented, opened: p.opened, focus: p.doc.activeElement.id, scrolled: p.scrolled };
   },
 };
 

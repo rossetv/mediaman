@@ -41,6 +41,8 @@ class _Page(HTMLParser):
             self.hints.setdefault(self._form, {})[a["autocomplete"]] = a.get("value")
         if tag == "script" and a.get("src"):
             self.scripts.add(a["src"].split("?")[0])
+        for src in (a.get("data-scripts") or "").split():
+            self.scripts.add(src.split("?")[0])
         if tag == "form":
             self._form = a.get("id")
             self.forms[self._form] = []
@@ -63,7 +65,7 @@ def _parse(html: str) -> _Page:
 @pytest.fixture
 def settings_html(app_factory, authed_client, conn) -> str:
     app = app_factory(settings_router, conn=conn, state_extras={"templates": _TEMPLATES})
-    return authed_client(app, conn).get("/settings").text
+    return authed_client(app, conn).get("/settings?pane=1").text
 
 
 def test_an_admin_manages_their_email_password_and_sign_ins_on_profile(
@@ -74,7 +76,7 @@ def test_an_admin_manages_their_email_password_and_sign_ins_on_profile(
     conn.execute("UPDATE admin_users SET email = 'admin@example.com'")
     conn.commit()
 
-    page = _parse(client.get("/account").text)
+    page = _parse(client.get("/account?pane=1").text)
 
     # each form is sent with Enter by its one submit button
     assert page.forms["account-email-form"] == ["account-submit-email"]
@@ -89,11 +91,16 @@ def test_an_admin_manages_their_email_password_and_sign_ins_on_profile(
     [
         (
             account_router,
-            "/account",
+            "/account?pane=1",
             "account-password-form",
             ["length", "mix", "guess", "same", "common"],
         ),
-        (settings_router, "/settings", "add-user-form", ["length", "mix", "guess", "common"]),
+        (
+            settings_router,
+            "/settings?pane=1",
+            "add-user-form",
+            ["length", "mix", "guess", "common"],
+        ),
     ],
 )
 def test_a_form_with_a_new_password_shows_the_rules_it_is_held_to(
@@ -111,7 +118,7 @@ def test_a_form_with_a_new_password_shows_the_rules_it_is_held_to(
 def test_a_password_manager_is_told_whose_password_is_changed(app_factory, authed_client, conn):
     app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
 
-    page = _parse(authed_client(app, conn).get("/account").text)
+    page = _parse(authed_client(app, conn).get("/account?pane=1").text)
 
     assert page.hints["account-password-form"]["username"] == "admin"
 
@@ -123,7 +130,7 @@ def test_the_row_says_when_the_password_was_changed_if_it_is_known(
     client = authed_client(app, conn)
 
     def row() -> str:
-        html = client.get("/account").text
+        html = client.get("/account?pane=1").text
         return html.split('id="account-password-sub">', 1)[1].split("</div>", 1)[0]
 
     assert row() == "<span>A new one signs out your other devices and your TVs.</span>"
@@ -137,8 +144,8 @@ def test_settings_keeps_the_team_and_no_second_account_form(settings_html):
     page = _parse(settings_html)
 
     assert page.forms["add-user-form"] == ["btn-submit-add-user"]
-    # the menu's Log out is the only other form
-    assert set(page.forms) == {"add-user-form", None}
+    # the pane carries no nav, so not even the menu's Log out form
+    assert set(page.forms) == {"add-user-form"}
 
 
 def test_a_new_username_can_be_no_longer_than_the_server_takes(settings_html):
@@ -155,7 +162,7 @@ def test_what_the_ai_service_and_admins_get_is_in_sight_before_linking(
     app_factory, authed_client, conn
 ):
     app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
-    html = authed_client(app, conn).get("/account").text
+    html = authed_client(app, conn).get("/account?pane=1").text
 
     panel = html.split('data-plex-panel="unlinked"')[1].split("data-plex-panel")[0]
     in_sight = re.sub(r"<details.*?</details>", "", panel, flags=re.S)
@@ -176,7 +183,7 @@ def test_the_page_knows_how_long_this_sessions_password_is_good_for(
     username = conn.execute("SELECT username FROM admin_users").fetchone()["username"]
 
     def good_for() -> int:
-        found = re.search(r'data-password-good-for="(\d+)"', client.get("/account").text)
+        found = re.search(r'data-password-good-for="(\d+)"', client.get("/account?pane=1").text)
         assert found
         return int(found[1])
 
@@ -194,7 +201,7 @@ def test_the_page_knows_how_long_this_sessions_password_is_good_for(
 
 def test_what_the_plex_card_waits_for_is_announced(app_factory, authed_client, conn):
     app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
-    html = authed_client(app, conn).get("/account").text
+    html = authed_client(app, conn).get("/account?pane=1").text
 
     assert re.search(r'<p [^>]*id="plex-wait"[^>]*aria-live="polite"', html)
 
@@ -207,7 +214,7 @@ def test_the_page_shows_the_person_s_own_picture_and_the_ten_to_pick_from(
     user_id = conn.execute("SELECT id FROM admin_users").fetchone()["id"]
 
     def shown() -> tuple[str, str, bool]:
-        html = client.get("/account").text
+        html = client.get("/account?pane=1").text
         head = re.search(r'id="pic-open".*?<img src="([^"]+)"', html, re.S)
         dialog = re.search(r'<div[^>]*id="pic-dialog"[^>]*>', html)
         choice = re.search(r'data-choice="(\d*)"', dialog[0])
@@ -225,7 +232,7 @@ def test_the_page_shows_the_person_s_own_picture_and_the_ten_to_pick_from(
 def test_other_peoples_plex_links_are_not_on_an_admins_profile(app_factory, authed_client, conn):
     app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
 
-    assert "Linked Plex accounts" not in authed_client(app, conn).get("/account").text
+    assert "Linked Plex accounts" not in authed_client(app, conn).get("/account?pane=1").text
 
 
 @pytest.mark.parametrize("role", ["admin", "viewer"])
@@ -237,7 +244,7 @@ def test_the_ai_part_is_there_for_everyone_and_hidden_until_the_ai_is_known_to_b
     conn.execute("UPDATE admin_users SET role = ?", (role,))
     conn.commit()
 
-    html = client.get("/account").text
+    html = client.get("/account?pane=1").text
 
     assert re.search(r'<section[^>]*id="account-ai"[^>]*\bhidden>', html)
     switch = re.search(r'<button[^>]*id="account-history"[^>]*>', html).group(0)
@@ -268,7 +275,7 @@ def _ai_text(
     html = settings_html
     if page == "profile":
         app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
-        html = authed_client(app, conn, username="second").get("/account").text
+        html = authed_client(app, conn, username="second").get("/account?pane=1").text
     fold = "account-history-more" if page == "profile" else "setg-ai-more"
     short = re.search(r'id="(?:account-history|setg-ai)-sub">(.*?)</p>', html, re.S).group(1)
     body = html.split(f'id="{fold}"')[1].split("</details>")[0]
@@ -338,7 +345,7 @@ def test_only_an_admins_profile_has_a_list_of_other_peoples_tvs(
         request.state.user_role = role
         return await call_next(request)
 
-    html = authed_client(app, conn).get("/account").text
+    html = authed_client(app, conn).get("/account?pane=1").text
 
     # hidden until there are TVs
     assert len(re.findall(r'<section[^>]*id="account-tvs[^>]*\bhidden>', html)) == lists
@@ -372,7 +379,7 @@ def test_the_email_row_says_when_mail_is_not_set_up(
             )
     conn.commit()
 
-    html = authed_client(app, conn).get("/account").text
+    html = authed_client(app, conn).get("/account?pane=1").text
     sub = re.search(r'id="account-email-sub">(.*?)</div>', html, re.S).group(1)
 
     assert says in sub

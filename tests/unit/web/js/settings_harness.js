@@ -148,6 +148,11 @@ function build() {
         add: (c) => { htmlClasses.add(c); },
         toggle: (c, on) => { if (on) htmlClasses.add(c); else htmlClasses.delete(c); },
       },
+      attrs: {},
+      setAttribute(k, v) { this.attrs[k] = String(v); },
+      removeAttribute(k) { delete this.attrs[k]; },
+      hasAttribute(k) { return k in this.attrs; },
+      style: { setProperty() {} },
     },
     dispatchEvent: (e) => { (docListeners[e.type] || []).forEach((fn) => fn(e)); },
     addEventListener: (t, fn, capture) => {
@@ -333,20 +338,6 @@ const scenarios = {
   },
 
   // Discard puts back what was on the page at load, and what was last saved after a save.
-  // The room the page is told to keep for the bar, as the bar changes height.
-  async savebarRoom() {
-    const h = build();
-    const bar = h.add('div', { id: 'setg-savebar' });
-    h.ctx.MM.api = {};
-    const room = {};
-    h.doc.documentElement.style = { setProperty: (k, v) => { room[k] = v; } };
-    let changed;
-    h.ctx.ResizeObserver = function (fn) { this.observe = (el) => { if (el === bar) changed = fn; }; };
-    h.load('settings/savebar.js');
-    h.ctx.MM.settings.savebar.init({});
-    return [61, 258].map((height) => { bar.offsetHeight = height; changed(); return { ...room }; });
-  },
-
   async savebar() {
     const h = build();
     const page = h.add('div', { className: 'setg-pg' });
@@ -364,10 +355,8 @@ const scenarios = {
     const edit = (v, c) => { input.value = v; box.checked = c; input.fire('input'); };
     edit('http://b', false);
     const dirty = bar.classList.contains('on');
-    const pageWhileDirty = h.doc.documentElement.classes.has('has-savebar');
     discard.fire('click');
     await h.flush();
-    const pageAfterDiscard = h.doc.documentElement.classes.has('has-savebar');
     const afterDiscard = { value: input.value, checked: box.checked, dirty: bar.classList.contains('on') };
     // save a new value, then edit again and discard: back to the saved value
     edit('http://c', true);
@@ -382,7 +371,28 @@ const scenarios = {
     edit('http://e', false);
     discard.fire('click');
     await h.flush();
-    return { dirty, pageWhileDirty, pageAfterDiscard, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
+    return { dirty, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
+  },
+
+  // The page is told the bar's height when it shows, and again each time the bar is resized.
+  async saveBarHeight() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const input = h.add('input', { id: 'plex_url', value: 'http://a', type: 'text' }, page);
+    h.ctx.MM.api = {};
+    const told = [];
+    h.doc.documentElement.style = { setProperty: (k, v) => told.push({ [k]: v }) };
+    const resized = [];
+    h.ctx.ResizeObserver = function (fn) { this.observe = (el) => { if (el === bar) resized.push(fn); }; this.disconnect = () => {}; };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    bar.offsetHeight = 61;
+    input.value = 'http://b'; input.fire('input');
+    // the caption wraps to more lines
+    bar.offsetHeight = 258;
+    resized.forEach((fn) => fn());
+    return told;
   },
 
   // A refused save shows the field it refused, out from under the bar, and leaves the focus where it was.
@@ -819,16 +829,18 @@ const scenarios = {
     return { shown, afterInput: msg.textContent, nlShown, afterChange: status.textContent };
   },
 
-  // The account page's message goes once any field is edited, but not while the form is sending.
+  // The Profile pane's password message goes once any field is edited, but not while the form is sending.
   async accountClearOnInput() {
     const h = build();
-    const form = plant(h, ['form', { id: 'account-password-form' }, ...parts({ old: 'account-old-password', fresh: 'account-new-password', submit: 'account-submit-password', cancel: 'account-cancel-password', result: 'account-password-result' })], h.add('div', { id: 'account-password-fold' }));
-    ['account-open-password', 'account-password-live'].forEach((id) => h.add('button', { id }));
-    h.add('span', {}, h.add('div', { id: 'account-password-sub' }));
+    const root = plant(h, ['div', { 'data-you-group': 'profile' }]);
+    const form = plant(h, ['form', { id: 'account-password-form' }, ...parts({ old: 'account-old-password', fresh: 'account-new-password', submit: 'account-submit-password', result: 'account-password-result' })], root);
+    h.add('button', { id: 'account-password-live' }, root);
+    h.add('span', {}, h.add('div', { id: 'account-password-sub' }, root));
     const $ = (id) => h.doc.getElementById(id);
     const submit = $('account-submit-password');
     h.ctx.MM.api = { post: () => new Promise(() => {}), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.MM.you = { shown: (group) => group === 'profile', guard: () => {} };
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('password-form.js'); h.load('account.js');
     form.fire('submit');
     const why = $('account-old-password-why');
@@ -2354,47 +2366,12 @@ const scenarios = {
     return out;
   },
 
-  // The section rail knows when it has come to rest under the bar, and when it has left it.
-  async railStuck() {
-    const h = build();
-    h.load('settings/rows.js'); h.load('settings/toggles.js');
-    const rail = h.add('nav', { className: 'setg-rail' });
-    h.add('div', { id: 'setg-a', className: 'setg-block' });
-    h.ctx.getComputedStyle = () => ({ top: '64px' });
-    h.ctx.innerHeight = 800; h.ctx.scrollY = 0;
-    rail.place = { top: 210, bottom: 274 };
-    h.ctx.MM.settings.toggles.init();
-    const scroll = (top) => {
-      rail.place = { top, bottom: top + 64 };
-      (h.docListeners['window:scroll'] || []).forEach((f) => f());
-      return rail.classList.contains('is-stuck');
-    };
-    const atRest = rail.classList.contains('is-stuck');
-    return { atRest, stuck: scroll(64), back: scroll(150) };
-  },
-
-  // A resize that moves the rail changes whether it is stuck, with no scroll.
-  async railStuckResize() {
-    const h = build();
-    h.load('settings/rows.js'); h.load('settings/toggles.js');
-    const rail = h.add('nav', { className: 'setg-rail' });
-    h.add('div', { id: 'setg-a', className: 'setg-block' });
-    h.ctx.getComputedStyle = () => ({ top: '64px' });
-    h.ctx.innerHeight = 800; h.ctx.scrollY = 0;
-    rail.place = { top: 210, bottom: 274 };
-    h.ctx.MM.settings.toggles.init();
-    const before = rail.classList.contains('is-stuck');
-    rail.place = { top: 64, bottom: 128 };
-    (h.docListeners['window:resize'] || []).forEach((f) => f());
-    return { before, after: rail.classList.contains('is-stuck') };
-  },
-
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();
     h.load('settings/integrations.js');
-    const item = h.add('a', { className: 'setg-rail-item' });
-    item.setAttribute('href', '#setg-integrations');
+    const item = h.add('a', { className: 'stx-link' });
+    item.setAttribute('data-sec', 'integrations');
     const pill = (svc) => { const p = h.add('span', { className: 'conn' }); p.setAttribute('data-conn', svc); return p; };
     pill('plex'); pill('sonarr');
     h.ctx.MM.api = { post: (u) => Promise.reject(u.includes('/plex') ? { status: 429 } : { status: 502, error: 'x' }), messageOf: () => 'Connection failed' };
@@ -2402,16 +2379,37 @@ const scenarios = {
     h.ctx.MM.settings.integrations.init();
     h.timers.forEach((t) => t.fn());
     await h.flush();
-    const badge = item.querySelector('.rail-count');
+    const badge = item.querySelector('.stx-badge');
     return { plex: h.doc.querySelector('[data-conn="plex"]').className, badge: badge ? badge.textContent : null };
+  },
+
+  // The list's Integrations line once the checks have answered: Plex down, or Plex up, and OMDb not set up.
+  async listLine() {
+    const out = {};
+    for (const plex of ['down', 'up']) {
+      const h = build();
+      h.load('settings/integrations.js');
+      const item = h.add('a', { className: 'stx-link' });
+      item.setAttribute('data-sec', 'integrations');
+      const line = h.add('span', { className: 'stx-link__sub', textContent: 'Plex, the *arrs, mail, AI' }, item);
+      ['plex', 'sonarr', 'omdb'].forEach((svc) => h.add('span', { className: 'conn untested' }).setAttribute('data-conn', svc));
+      h.ctx.MM.api = { post: (u) => (plex === 'down' && u.includes('/plex') ? Promise.reject({ status: 502 }) : Promise.resolve({})), messageOf: () => 'x' };
+      ['plex_url', 'plex_token', 'sonarr_url', 'sonarr_api_key'].forEach((id) => h.add('input', { id, value: 'v' }));
+      h.add('input', { id: 'omdb_api_key', value: '' });
+      h.ctx.MM.settings.integrations.init();
+      h.timers.forEach((t) => t.fn());
+      await h.flush();
+      out[plex] = { text: line.textContent, bad: line.classList.contains('is-bad') };
+    }
+    return out;
   },
 
   // A pressed Test that gets a 429 shows the warning tone and leaves the badge alone.
   async manualRateLimit() {
     const h = build();
     h.load('settings/integrations.js');
-    const item = h.add('a', { className: 'setg-rail-item' });
-    item.setAttribute('href', '#setg-integrations');
+    const item = h.add('a', { className: 'stx-link' });
+    item.setAttribute('data-sec', 'integrations');
     const pill = h.add('span', { className: 'conn' });
     pill.setAttribute('data-conn', 'plex');
     const lbl = h.add('span', {}, pill);
@@ -2423,7 +2421,7 @@ const scenarios = {
     h.ctx.MM.settings.integrations.init();
     btn.fire('click');
     await h.flush();
-    const badge = item.querySelector('.rail-count');
+    const badge = item.querySelector('.stx-badge');
     return { pill: pill.className, label: pill.textContent, badge: badge ? badge.textContent : null, button: btn.textContent };
   },
 

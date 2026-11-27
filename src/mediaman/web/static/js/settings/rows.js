@@ -121,13 +121,15 @@
   }
 
   // Three frames without a move, or about a second and a half at most.
-  function whenStill(then) {
+  function whenStill(within, then) {
     if (reducedMotion()) { then(); return; }
-    var last = window.scrollY, quiet = 0, frames = 0;
+    var box = within.closest('.stx__body');
+    function at() { return box ? box.scrollTop : window.scrollY; }
+    var last = at(), quiet = 0, frames = 0;
     (function look() {
       requestAnimationFrame(function () {
-        quiet = window.scrollY === last ? quiet + 1 : 0;
-        last = window.scrollY;
+        quiet = at() === last ? quiet + 1 : 0;
+        last = at();
         if (quiet >= 3 || ++frames >= 90) then(); else look();
       });
     })();
@@ -140,7 +142,7 @@
     unfold(panel, function () {
       var token = panel._foldToken;
       bringIntoView(panel);
-      whenStill(function () { if (panel._foldToken === token) rest(panel); });
+      whenStill(panel, function () { if (panel._foldToken === token) rest(panel); });
     });
   }
 

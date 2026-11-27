@@ -421,16 +421,16 @@ class TestPage:
         self, app_factory, authed_client, conn
     ):
         insert_audit_log(conn, media_item_id="m1", action="scanned")
-        html = self._client(app_factory, authed_client, conn).get("/history").text
+        html = self._client(app_factory, authed_client, conn).get("/history?pane=1").text
         assert html.count("<details") == html.count("<summary") == 1
-        assert re.search(r'<script src="/static/js/history\.js[^"]*" defer>', html)
+        assert re.search(r'data-scripts="/static/js/history\.js\?v=[^"]*"', html)
 
     @pytest.mark.parametrize("stored", ["2026-11-24T10:15:03+00:00", "2026-11-24T10:15:03"])
     def test_a_time_carries_its_utc_moment_and_names_its_zone(
         self, app_factory, authed_client, conn, stored
     ):
         self._event_at(conn, stored)
-        html = self._client(app_factory, authed_client, conn).get("/history").text
+        html = self._client(app_factory, authed_client, conn).get("/history?pane=1").text
         times = re.findall(r"<time ([^>]*)>([^<]*)</time>", html)
         assert [text for _, text in times] == ["2026-11-24 10:15 UTC", "2026-11-24 10:15:03 UTC"]
         assert all('datetime="2026-11-24T10:15:03Z"' in attrs for attrs, _ in times)
@@ -440,7 +440,7 @@ class TestPage:
         self, app_factory, authed_client, conn
     ):
         self._event_at(conn, "soon")
-        html = self._client(app_factory, authed_client, conn).get("/history").text
+        html = self._client(app_factory, authed_client, conn).get("/history?pane=1").text
         assert "<time" not in html
         assert '<span class="hist-date">soon</span>' in html
 
@@ -458,20 +458,20 @@ class TestPage:
             for i in range(30)
         ]
         client = self._client(app_factory, authed_client, conn)
-        html = client.get(f"/history?action=deleted&event={ids[0]}").text
+        html = client.get(f"/history?pane=1&action=deleted&event={ids[0]}").text
         assert re.findall(r"<details[^>]* open>", html) == [
             f'<details class="hist" id="event-{ids[0]}" data-event="{ids[0]}" open>'
         ]
         assert re.findall(r'data-event="(\d+)"', html)[-1] == str(ids[0])
         assert 'rel="next"' not in html
-        hidden = client.get(f"/history?action=kept&event={ids[0]}").text
+        hidden = client.get(f"/history?pane=1&action=kept&event={ids[0]}").text
         assert not re.findall(r"<details[^>]* open>", hidden)
 
     def test_a_bad_event_value_is_ignored(self, app_factory, authed_client, conn):
         insert_audit_log(conn, media_item_id="m1", action="scanned")
         client = self._client(app_factory, authed_client, conn)
         for bad in ("abc", "-1", "9" * 40, ""):
-            resp = client.get(f"/history?event={bad}")
+            resp = client.get(f"/history?pane=1&event={bad}")
             assert resp.status_code == 200
             assert 'data-event="1" open' not in resp.text
 
@@ -518,7 +518,7 @@ class TestMainLine:
         insert_audit_log(conn, **row)
         app = app_factory(history_router, conn=conn, state_extras={"templates": _TEMPLATES})
         client = authed_client(app, conn)
-        html = client.get("/history").text
+        html = client.get("/history?pane=1").text
         [line] = re.findall(r"<summary.*?</summary>", html, re.S)
         return line, client.get("/api/history").json()["items"][0]
 

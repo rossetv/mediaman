@@ -13,7 +13,13 @@ const doc = makeDocument();
 const at = (id) => doc.getElementById(id);
 const card = doc.createElement('div');
 card.setAttribute('id', 'plex-link');
-const section = doc.body.appendChild(doc.createElement('section'));
+const root = doc.body.appendChild(doc.createElement('div'));
+root.setAttribute('data-you-group', 'profile');
+// The hub's row of the Plex view.
+const row = root.appendChild(doc.createElement('button'));
+row.setAttribute('id', 'account-row-plex');
+row.appendChild(doc.createElement('span')).setAttribute('data-row-value', '');
+const section = root.appendChild(doc.createElement('section'));
 section.setAttribute('id', 'plex');
 section.appendChild(card);
 let panel = card;
@@ -105,6 +111,9 @@ ctx.MM.api = {
 };
 const asked = [];
 ctx.MM.reauth = { openModal: (opts) => { asked.push(opts); } };
+// The shell's pane, as watch/you.js gives it.
+let paneShown = true;
+ctx.MM.you = { shown: (group) => group === 'profile' && paneShown };
 const WHO = { error: 'reauth_required', name: 'APIError', status: 403, data: { reauth_required: true } };
 
 const said = [];
@@ -155,6 +164,29 @@ async function load(first) {
 }
 
 const scenarios = {
+  // what the hub's row says, a pane closed while Plex is waited for, and the script run again
+  async pane() {
+    await load({ configured: true, link: null, attempt: WAITING });
+    answers[CHECK] = [{ attempt: WAITING }];
+    vm.runInContext(fs.readFileSync(path.join(WEB, 'static/js/profile-plex.js'), 'utf8'), ctx);
+    await flush();
+    const loads = calls.filter((c) => c === GET).length;
+    paneShown = false;
+    const before = calls.length + hints;
+    doc.listeners.visibilitychange.forEach((f) => f());
+    listeners.focus();
+    await flush();
+    const hidden = calls.length + hints - before;
+    paneShown = true;
+    doc.listeners.visibilitychange.forEach((f) => f());
+    await flush();
+    const back = calls.filter((c) => c === CHECK).length;
+    return { loads, waiting: row.textContent, hidden, back, mounted: root.getAttribute('data-mounted') };
+  },
+  async linkedRow() {
+    await load({ configured: true, link: { ...LINK, reading: false }, attempt: null });
+    return row.textContent;
+  },
   // the password dialog of linking speaks of linking, not saving
   async asks() {
     answers[START] = [WHO];

@@ -1,0 +1,62 @@
+{# The Settings pane over Watch: the section list, and the section on show beside it on a wide
+   screen or in its place on a narrow one. Its scripts load in order: the core helpers, then the
+   savebar, overview, disk-thresholds and toggles modules that general.js orchestrates, then the
+   section list, then settings.js. #}
+{% import "_components.html" as c %}
+{% set sections = [
+  ("overview", "Overview", "Storage, next scan, services", "i-table-cells-large", "grey"),
+  ("general", "General & Schedule", "Base URL, scan schedule, AI", "i-gear", "grey"),
+  ("libraries", "Libraries & Paths", "Libraries, folders, limits", "i-folder-tree", "blue"),
+  ("cleanup", "Cleanup Rules", "When a title can leave", "i-trash-can", "red"),
+  ("integrations", "Integrations", "Plex, the *arrs, mail, AI", "i-plug", "green"),
+  ("tvs", "TVs & Casting", "Pairing, older TVs", "i-tv", "purple"),
+  ("newsletter", "Newsletter", "Who gets the weekly digest", "i-envelope", "orange"),
+  ("users", "Users & Access", "Who can sign in", "i-users", "yellow"),
+] %}
+<div data-you-group="settings" data-styles="/static/css/_password.css?v={{ static_v }}" data-scripts="/static/js/core/reauth.js?v={{ static_v }} /static/js/password-form.js?v={{ static_v }} /static/js/settings/savebar.js?v={{ static_v }} /static/js/settings/disk_thresholds.js?v={{ static_v }} /static/js/settings/overview.js?v={{ static_v }} /static/js/settings/toggles.js?v={{ static_v }} /static/js/settings/general.js?v={{ static_v }} /static/js/settings/integrations.js?v={{ static_v }} /static/js/settings/rows.js?v={{ static_v }} /static/js/settings/users.js?v={{ static_v }} /static/js/settings/tvs.js?v={{ static_v }} /static/js/settings/newsletter.js?v={{ static_v }} /static/js/settings/sections.js?v={{ static_v }} /static/js/settings.js?v={{ static_v }}">
+<div class="you-view" data-view="settings" data-title="Settings" data-wide>
+  <div class="setg-pg stx" data-stx>
+    <div class="stx__nav">
+      <ul class="stx-list">
+        {% for id, name, sub, ico, tone in sections %}
+        <li><a class="stx-link" href="/?you=settings/{{ id }}" data-sec="{{ id }}">
+          <span class="stx-link__ico stx-tone--{{ tone }}">{{ c.icon(ico) }}</span>
+          <span class="stx-link__text"><span class="stx-link__name">{{ name }}</span><span class="stx-link__sub">{{ sub }}</span></span>
+          {{ c.icon("i-chevron-right", "stx-link__chev") }}
+        </a></li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="stx__body">
+      {% for id, name, sub, ico, tone in sections %}
+      <section class="stx-sec" data-sec="{{ id }}" data-title="{{ name }}" aria-label="{{ name }}">
+        {% include "settings/_sec_" ~ id ~ ".html" %}
+      </section>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# The save bar, under every section: one Save for the edits of them all. #}
+  <div class="stx-save" id="setg-savebar">
+    <span class="stx-save__dot sb-dot"></span>
+    <span class="stx-save__text">
+      <b class="sb-msg">Unsaved changes</b>
+      <span id="save-status" role="status">Edits apply to every section at once.</span>
+    </span>
+    <button type="button" class="btn btn--ghost btn--sm" id="btn-discard">Discard</button>
+    <button type="button" class="btn btn--primary btn--sm" id="btn-save">Save Settings</button>
+  </div>
+
+  {# Server-rendered bootstrap payload consumed by settings.js. Keeping the
+     payload out of the JS file lets the script stay cacheable. #}
+  <script id="setg-bootstrap" type="application/json">{{ {
+    "username": username,
+    "selected_libraries": plex_libraries_selected,
+    "disk_thresholds": settings.get('disk_thresholds', {}),
+    "scan_day": settings.get('scan_day', 'mon'),
+    "scan_time": settings.get('scan_time', '09:00'),
+    "scan_timezone": settings.get('scan_timezone', 'UTC')
+  } | tojson | safe }}</script>
+</div>
+</div>

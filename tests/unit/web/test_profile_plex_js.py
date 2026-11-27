@@ -363,3 +363,18 @@ def test_coming_back_asks_for_one_hint_and_a_password_given_for_another() -> Non
 
 def test_a_start_that_another_one_replaced_shows_that_one() -> None:
     assert _run("displaced") == {"shown": "waiting", "closed": True}
+
+
+def test_the_hubs_row_says_whether_a_plex_account_is_linked() -> None:
+    assert _run("linkedRow") == "Linked to amy"
+    assert _run("pane")["waiting"] == "Not linked"
+
+
+def test_a_closed_pane_asks_plex_nothing_on_coming_back_and_an_open_one_does() -> None:
+    out = _run("pane")
+    assert (out["hidden"], out["back"]) == (0, 1)
+
+
+def test_the_script_run_again_once_its_fragment_is_in_loads_the_link_once() -> None:
+    out = _run("pane")
+    assert (out["loads"], out["mounted"]) == (1, "plex")

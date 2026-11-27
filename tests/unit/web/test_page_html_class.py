@@ -20,14 +20,19 @@ def env() -> Environment:
     [
         ("watch.html", "has-watch-search"),
         ("watch_player.html", "has-player"),
-        ("account.html", "has-setg-pg"),
-        ("settings.html", "has-setg-pg has-setg-rail"),
     ],
 )
 def test_a_page_marks_the_page_wide_classes_its_styles_need(env, page, classes) -> None:
     template = env.get_template(page)
     block = "".join(template.blocks["html_class"](template.new_context({})))
     assert block.strip() == f'class="{classes}"'
+
+
+@pytest.mark.parametrize("pane", ["_profile.html", "_history.html", "_settings.html"])
+def test_a_pane_over_watch_puts_no_class_on_html_and_leaves_watch_its_own(env, pane) -> None:
+    template = env.get_template(f"panes/{pane}")
+    assert "html_class" not in template.blocks
+    assert "extends" not in (TEMPLATES / "panes" / pane).read_text(encoding="utf-8")
 
 
 def test_the_base_page_puts_a_pages_classes_on_the_html_element(env) -> None:

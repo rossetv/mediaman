@@ -203,14 +203,11 @@ html.has-tv-remote { overflow: hidden; }
 .tv-mini__bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--hair-strong); pointer-events: none; }
 .tv-mini__bar i { display: block; height: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; }
 
-/* What the bar stands over can be scrolled clear of it, and the toasts and a save bar stay clear. */
+/* What the bar stands over can be scrolled clear of it, and the toasts stay clear. */
 html.has-tv-mini:not(.is-tv-mini-leaving) body { padding-bottom: calc(66px + max(16px, env(safe-area-inset-bottom, 0px))); }
 html.has-tv-mini { scroll-padding-bottom: calc(74px + max(16px, env(safe-area-inset-bottom, 0px))); }
-html.has-tv-mini.has-savebar .tv-mini { bottom: calc(var(--savebar-h, 73px) + 8px); }
-html.has-tv-mini.has-savebar { scroll-padding-bottom: calc(var(--savebar-h, 73px) + 90px); }
 @media (min-width: 700px) {
   html.has-tv-mini .ui-toast-host { --toast-bottom: 88px; }
-  html.has-tv-mini.has-setg-rail .ui-toast-host { --toast-bottom: 160px; }
   /* The search's sheet stands clear of it; a keyboard has it covered already. */
   html.has-tv-mini .watch-sheet { max-height: min(var(--seen, 100dvh) - 88px - env(safe-area-inset-top, 0px), 100dvh - 150px - max(16px, env(safe-area-inset-bottom, 0px)) - env(safe-area-inset-top, 0px)); }
 }
@@ -223,8 +220,6 @@ html.has-ttl.has-tv-mini .ttl { padding-bottom: calc(82px + max(16px, env(safe-a
   .tv-mini__pic { width: 60px; height: 36px; }
   html.has-tv-mini:not(.is-tv-mini-leaving) body { padding-bottom: calc(74px + max(8px, env(safe-area-inset-bottom, 0px))); }
   html.has-tv-mini { scroll-padding-bottom: calc(76px + max(8px, env(safe-area-inset-bottom, 0px))); }
-  html.has-tv-mini.has-savebar .tv-mini { bottom: calc(var(--savebar-h, 73px) + 8px); }
-  html.has-tv-mini.has-savebar { scroll-padding-bottom: calc(var(--savebar-h, 73px) + 84px); }
   html.has-tv-mini.has-watch-search .ui-toast-host { bottom: calc(68px + max(8px, env(safe-area-inset-bottom, 0px))); max-height: calc(100dvh - 100px); }
   html.has-tv-mini .watch-sheet { max-height: min(var(--seen, 100dvh) - 84px - env(safe-area-inset-top, 0px), 100dvh - 152px - max(8px, env(safe-area-inset-bottom, 0px)) - env(safe-area-inset-top, 0px)); }
   html.has-ttl .tv-mini { bottom: max(8px, env(safe-area-inset-bottom)); }

@@ -3,15 +3,14 @@
  *
  * Parses the server-rendered bootstrap payload, exposes `collectSettings`
  * (the JSON body for PUT /api/settings), and calls each sibling module's
- * `init()` in dependency order. The page bootstrap (`settings.js`)
- * invokes `MM.settings.general.init()` on DOMContentLoaded.
+ * `init()` in dependency order. The bootstrap (`settings.js`) invokes
+ * `MM.settings.general.init()` once the Settings markup is in the page.
  *
  * The heavy lifting lives in:
  *   - settings/savebar.js          — dirty tracking, save submit, reauth retry
  *   - settings/disk_thresholds.js  — Plex pills + per-library disk cards
  *   - settings/overview.js         — schedule summary + storage bar
- *   - settings/toggles.js          — toggle switches, collapse, reveal,
- *                                    rail scroll-spy
+ *   - settings/toggles.js          — toggle switches, collapse, reveal
  *
  * Cross-module dependencies:
  *   MM.api  (core/api.js)

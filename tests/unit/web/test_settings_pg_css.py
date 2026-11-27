@@ -36,17 +36,15 @@ def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
     assert margin and int(margin.group(1)) >= 13
 
 
-def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
-    css = (CSS / "_settings_pg.css").read_text()
-
-    bar = re.search(r"html\.has-savebar \{([^{}]*)\}", css)
-    assert bar and "--savebar-below: 0px" in bar.group(1)
-    assert "scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--savebar-below)" in bar.group(
-        1
-    )
-    # no other rule sets it to a size of its own
-    assert css.count("scroll-padding-bottom") == 1
-    assert "var(--foot)" not in css
+def test_the_save_bar_takes_its_own_room_under_the_sections_and_covers_none_of_them() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    pane = _declarations('.you-view[data-view="settings"]', css)
+    assert "display: flex" in pane and "flex-direction: column" in pane
+    assert "flex: 1" in _declarations(".setg-pg.stx", css)
+    bar = _declarations(".stx-save", css)
+    assert "flex: none" in bar and "position" not in bar
+    assert "overflow-y: auto" in _declarations(".stx__body", css)
+    assert "scroll-padding-bottom" not in css and "var(--foot)" not in css
 
 
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
@@ -88,12 +86,13 @@ def test_a_service_header_starts_its_answer_row_in_the_same_place_at_every_phone
     assert narrow and ".hd-actions" not in narrow.group(1)
 
 
-def test_a_service_header_drops_its_answer_under_a_description_of_at_least_180px() -> None:
+def test_a_service_row_keeps_its_answer_on_the_right_and_cuts_the_description_short() -> None:
     main = _declarations(".setg-pg .intg-card-hd .hd-main")
-    assert "flex-wrap: wrap" in main
-    # the row wraps by what fits in the card itself, so no screen width is named for it
-    assert re.search(r"flex:\s*\d+ 1 180px", _declarations(".setg-pg .intg-card-hd .h-info"))
-    assert "margin-left: auto" in _declarations(".setg-pg .intg-card-hd .hd-btns")
+    assert "flex-wrap" not in main
+    assert "text-overflow: ellipsis" in _declarations(".setg-pg .intg-card-hd .h-info .sub")
+    actions = _declarations(".setg-pg .intg-card-hd .hd-actions")
+    assert "flex: none" in actions and "max-width" in actions
+    # the row holds at every width, so no screen width is named for it
     header = PANELS[PANELS.index(".setg-pg .intg-card-hd .hd-main") :].split(
         "\n.setg-pg .intg-card-bd", 1
     )[0]
@@ -119,21 +118,37 @@ def _phone_block_with(selector: str) -> str:
     raise AssertionError(f"no phone block holds {selector}")
 
 
-def test_save_error_stays_visible_on_phones() -> None:
-    phone = _phone_block_with(".setg-pg .savebar.is-error .sb-sub")
-    assert ".setg-pg .savebar:not(.is-error) .sb-sub" in phone
-    assert ".setg-pg .savebar .btn { min-height: 44px; }" in phone
+def test_save_bar_buttons_are_a_finger_tall_on_phones() -> None:
+    phone = _phone_block_with(".stx-save .btn")
+    assert ".stx-save .btn { min-height: 44px; }" in phone
 
 
 def test_save_bar_caption_is_never_taken_out_of_reach_of_a_screen_reader_on_phones() -> None:
-    phone = _phone_block_with(".setg-pg .savebar.is-error .sb-sub")
-    assert "display: none" not in phone
-    partial = re.findall(r"([^{}]*\.savebar\.is-partial \.sb-sub[^{}]*)\{([^{}]*)\}", phone)
-    # the notice that newer edits are unsaved is shown, after and over the rule that folds captions away
-    assert any("position: static" in body and "clip-path: none" in body for _, body in partial)
-    assert phone.index("clip-path: inset(50%)") < phone.index("clip-path: none")
+    caption = (".stx-save__text", ".sb-msg", "#save-status")
+    for sheet in CSS.glob("*.css"):
+        css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
+        for m in re.finditer(r"@media [^{]*max-width[^{]*\{", css):
+            depth, i = 1, m.end()
+            while depth:
+                depth += {"{": 1, "}": -1}.get(css[i], 0)
+                i += 1
+            for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css[m.end() : i - 1]):
+                # the bar itself hides only while nothing is unsaved
+                whole_bar = ".stx-save" in head and ":not(.on)" not in head
+                if whole_bar or any(c in head for c in caption):
+                    assert not re.search(r"display:\s*none|visibility:\s*hidden", body), (
+                        sheet.name,
+                        head.strip(),
+                    )
+
+
+def test_a_save_error_or_what_a_save_left_out_wraps_whole_and_is_never_hidden() -> None:
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
-    assert not re.search(r"\.savebar \.sb-sub \{\s*display: none", css)
+    for state in ("is-error", "is-partial"):
+        assert "white-space: normal" in _declarations(f".stx-save.{state} #save-status", css)
+    for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        if "#save-status" in head and ":empty" not in head:
+            assert "display: none" not in body, head
 
 
 def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
@@ -143,12 +158,12 @@ def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
     for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block):
         for part in head.split(","):
             rules[part.strip()] = rules.get(part.strip(), "") + body
-    for dot in (".conn-dot", ".sb-dot", ".chip-dot"):
-        assert "forced-color-adjust: none" in rules[f".setg-pg {dot}"]
-        assert "solid CanvasText" in rules[f".setg-pg {dot}"]
+    for dot in (".setg-pg .conn-dot", ".stx-save__dot", ".setg-pg .chip-dot"):
+        assert "forced-color-adjust: none" in rules[dot]
+        assert "solid CanvasText" in rules[dot]
     for bar in (".ov-storage .bar span", ".lp-bar2 span"):
         assert "forced-color-adjust: none" in rules[f".setg-pg {bar}"]
-    assert "background: Highlight" in rules[".setg-pg .setg-rail-item.on"]
+    assert "background: Highlight" in rules[".stx-link[aria-current]"]
 
 
 def test_a_selected_library_shows_in_forced_colours() -> None:
@@ -173,7 +188,7 @@ def test_touch_screens_of_any_width_get_the_phone_targets() -> None:
         ("_settings_pg_panels.css", (".btn--sm", ".link-danger")),
         (
             "_settings_pg.css",
-            (".setg-rail-item", ".inp", ".lib-pill", ".fpill", ".reauth-actions .btn"),
+            (".inp", ".lib-pill", ".fpill", ".reauth-actions .btn"),
         ),
         ("_settings.css", (".btn-test",)),
     ):
@@ -217,13 +232,37 @@ def test_the_browsers_own_field_parts_are_drawn_for_a_dark_page() -> None:
     assert page and "color-scheme: dark" in page.group(1)
 
 
-def test_scrolled_into_view_controls_clear_the_sticky_bars() -> None:
+def test_no_rule_is_keyed_to_the_full_page_classes_nothing_sets_any_more() -> None:
+    for sheet in (
+        "_settings_pg.css",
+        "_settings_pg_panels.css",
+        "_ui_feedback.css",
+        "_tv_remote.css",
+    ):
+        css = (CSS / sheet).read_text()
+        for gone in ("has-setg-pg", "has-setg-rail", "has-savebar", "--savebar-h", ".setg-rail"):
+            assert gone not in css, (sheet, gone)
+
+
+def test_toasts_stand_above_the_save_bar_while_it_shows_in_the_open_pane() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_ui_feedback.css").read_text(), flags=re.S)
+    # savebar.js marks the page while the bar is on show in the open pane, with the bar's height
+    lifted = re.findall(r"html\[data-save-bar\] \.ui-toast-host \{([^{}]*)\}", css)
+    # on a wide screen the stack's foot moves up; on a phone, where it stands at the foot, too
+    assert any("--toast-bottom: calc(var(--save-bar) +" in body for body in lifted)
+    assert any(re.search(r"(?<!-)\bbottom: calc\(var\(--save-bar\) \+", body) for body in lifted)
+
+
+def test_reduced_motion_fades_the_list_and_section_at_the_short_duration_over_the_page_rule() -> (
+    None
+):
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
-    rules = re.findall(r"html\.has-setg-pg\s*\{([^{}]*)\}", css)
-    assert len(rules) == 2
-    assert all("scroll-padding-top" in body for body in rules)
-    # the phone rule reaches past the top bar and the chip strip (65 px)
-    assert "var(--nav-h) + 65px" in rules[1]
+    block = re.search(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", css, re.S)
+    assert block
+    rule = _declarations(".stx.is-in > .stx__body", block.group(1))
+    assert "transform: none !important" in rule
+    assert "transition-property: opacity, visibility !important" in rule
+    assert "transition-duration: var(--dur-fast), 0s !important" in rule
 
 
 def test_blocks_add_no_scroll_margin_on_top_of_the_page_scroll_padding() -> None:
@@ -280,12 +319,12 @@ def _sheet(name: str) -> str:
     return re.sub(r"/\*.*?\*/", "", (CSS / name).read_text(), flags=re.S)
 
 
-def test_a_fold_with_a_margin_of_its_own_gives_it_up_as_it_shuts() -> None:
-    # Kept while shut, it goes in one step when the fold is hidden at the end.
-    assert "margin-bottom: -6px" in _declarations("#account-email-fold", _sheet("_profile.css"))
-    assert "margin-bottom: 0" in _declarations(
-        "#account-email-fold.is-shut", _sheet("_profile.css")
-    )
+def test_the_email_form_is_a_view_of_its_own_with_no_fold_to_leave_a_margin_behind() -> None:
+    page = (CSS.parents[1] / "templates" / "panes" / "_profile.html").read_text()
+    view = page.split('data-view="profile/email"')[1].split('class="you-view"')[0]
+    assert 'id="account-email-form"' in view
+    assert "account-email-fold" not in page
+    assert "account-email-fold" not in _sheet("_profile.css")
 
 
 def test_a_card_that_holds_only_a_fold_folds_its_padding_and_edge_with_it() -> None:
@@ -334,13 +373,14 @@ def test_the_monospace_settings_field_is_16px_where_touch_would_zoom() -> None:
     assert rule.search(css, base.end())
 
 
-def test_the_history_search_field_is_16px_on_a_touch_screen_of_any_width() -> None:
+def test_the_history_search_field_is_16px_at_every_width() -> None:
     css = _strip("_history.css")
-    rule = re.search(
-        r"@media \(pointer: coarse\) and \(min-width: 700px\) \{(?:[^{}]*\{[^{}]*\})*?\s*\.hx-search input \{\s*font-size: 16px;",
-        css,
-    )
-    assert rule
+    base = re.search(r"\n\.hx-search input \{([^{}]*)\}", css)
+    assert base and "font-size: 16px;" in base.group(1)
+    # no rule, at any width or pointer, makes it smaller
+    for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        if ".hx-search input" in head and "font-size" in body:
+            assert "font-size: 16px" in body, head
 
 
 def test_no_stylesheet_styles_the_unused_form_input_select_and_threshold_classes() -> None:
@@ -362,3 +402,42 @@ def test_the_share_link_field_and_the_years_select_are_16px_where_touch_would_zo
             + r" \{[^{}]*font-size: 16px"
         )
         assert re.search(pattern, css), sheet
+
+
+def _phone_rule(selector: str) -> str:
+    start = PANELS.rindex("@media (max-width: 520px)")
+    return _declarations(selector, PANELS[start : PANELS.index("\n}\n", start)])
+
+
+def test_on_a_phone_a_subscriber_row_keeps_its_state_under_the_address_and_remove_beside_both() -> (
+    None
+):
+    row = _phone_rule(".setg-pg .sub-row")
+    assert "display: grid" in row
+    areas = re.search(r"grid-template-areas:\s*\"(.+?)\"\s*\"(.+?)\"", row)
+    assert areas, row
+    top, under = areas.group(1).split(), areas.group(2).split()
+    # the address over the state, and Remove one cell spanning both lines on the right
+    assert top[1] == "em" and under[1] == "st"
+    assert top[-1] == under[-1] == "rm"
+    assert "grid-area: rm" in _phone_rule(".setg-pg .sub-row .link-danger")
+    assert "grid-area: st" in _phone_rule(".setg-pg .sub-row .sub-stat")
+
+
+def test_a_closed_service_shows_its_short_state_and_an_open_one_the_whole_answer() -> None:
+    assert "display: none" in _declarations(
+        ".setg-pg .intg-card.is-collapsed .conn [data-conn-label]"
+    )
+    assert "display: none" in _declarations(
+        ".setg-pg .intg-card:not(.is-collapsed) .conn [data-conn-short]"
+    )
+
+
+def test_on_reduced_motion_a_section_arriving_beside_the_list_fades_in_150ms() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    calm = "".join(re.findall(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", css, re.S))
+    arriving = _declarations(".stx-sec.is-arriving", calm)
+    name = re.search(r"animation-name: ([\w-]+)", arriving)
+    assert name and "animation-duration: var(--dur-fast) !important" in arriving, arriving
+    frames = re.search(r"@keyframes " + name.group(1) + r" \{([^}]*)\}", css)
+    assert frames and re.fullmatch(r"\s*from \{ opacity: 0;?\s*", frames.group(1) + " "), frames

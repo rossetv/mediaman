@@ -1,9 +1,10 @@
-/* Profile menu. A press on the profile button, or an arrow
+/* Profile menu. On Watch the profile button opens the pane over it (watch/you.js) instead.
+ * Elsewhere, a press on the profile button, or an arrow
  * key on it, opens the menu; arrows, Home and End move in it; Escape, Tab, a press
  * outside, focus moving away and the sheet's Close button close it. Below 700 px it
  * is a bottom sheet: the rest of the page is inert and does not scroll under it. The
  * fade is CSS; the open state changes at once, and a closed menu is inert while it fades.
- * The button and the menu also say how what is downloading stands. */
+ * The button also says how what is downloading stands. */
 (function () {
   'use strict';
 
@@ -37,6 +38,7 @@
   if (!menu) return;
 
   var phone = window.matchMedia('(max-width: 699.98px)');
+  var pane = document.getElementById('you');
   var opener = null;
   var held = false;
   var openedAt = 0;
@@ -99,6 +101,10 @@
 
   document.addEventListener('click', function (e) {
     var button = buttonOf(e.target);
+    if (button && pane) {
+      window.MM.you.go('profile');
+      return;
+    }
     if (button) {
       if (isOpen()) close(true); else open(button, false);
       return;
@@ -130,7 +136,7 @@
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (!isOpen()) {
       var button = buttonOf(e.target);
-      if (!button || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+      if (!button || pane || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
       e.preventDefault();
       e.stopPropagation();
       open(button, e.key === 'ArrowUp');
@@ -211,7 +217,10 @@
   var name = button.getAttribute('aria-label');
   var ring = button.querySelector('.profile-ring');
   var count = button.querySelector('.profile-count');
-  var note = document.getElementById('profile-note');
+  if (pane) {
+    button.setAttribute('aria-haspopup', 'dialog');
+    button.setAttribute('aria-controls', 'you');
+  }
 
   function tone(node, state) {
     var sum = state.summary;
@@ -230,12 +239,10 @@
     var was = ring.classList.contains('is-on');
     ring.classList.toggle('is-on', sum.total > 0);
     count.classList.toggle('is-on', sum.ready > 0 && !state.lost);
-    note.hidden = !sum.total;
     if (sum.ready) count.textContent = sum.ready;
     if (!sum.total) return; // as it was, while it fades
 
     tone(ring, state);
-    tone(note, state);
     // A little at least, or the ring would be a plain circle.
     if (!was) ring.classList.add('is-set'); // not round from where it last stood
     ring.style.setProperty('--ring', Math.max(sum.percent, 6));
@@ -243,16 +250,6 @@
       void ring.offsetWidth;
       ring.classList.remove('is-set');
     }
-    note.style.setProperty('--ring', sum.percent);
-    note.textContent = '';
-    var pause = document.createElement('span');
-    pause.className = 'sr-only';
-    pause.textContent = ', ';
-    note.appendChild(pause);
-    if (sum.active && !state.lost) note.appendChild(document.createElement('i'));
-    note.appendChild(document.createTextNode(
-      state.lost ? 'Not updating' : sum.active ? sum.percent + '%' + (sum.total > 1 ? ' · ' + sum.total : '')
-        : sum.ready ? sum.ready + ' ready' : sum.waiting + ' waiting'));
   }
   if (window.MM && window.MM.downloading) window.MM.downloading.subscribe(drawDownloads);
 

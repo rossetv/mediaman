@@ -25,6 +25,7 @@
 <link rel="stylesheet" href="/static/css/_watch_cast.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_collection.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_preview.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_you.css?v={{ static_v }}">
 {% if is_admin %}
 <link rel="stylesheet" href="/static/css/_watch_list.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_space.css?v={{ static_v }}">
@@ -188,6 +189,7 @@
 <script type="application/json" id="watch-page-data">{{ page_data | tojson }}</script>
 <script src="/static/js/watch/core.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/address.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/you.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/keep.js?v={{ static_v }}" defer></script>
 <script src="/static/js/ratings.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/card-tools.js?v={{ static_v }}" defer></script>
@@ -218,4 +220,4 @@
 <script src="/static/js/watch-rows.js?v={{ static_v }}" defer></script>
 {% endblock %}
 
-{% block overlays %}{% if is_admin %}{{ space.panel() }}{% endif %}{% endblock %}
+{% block overlays %}{% if is_admin %}{{ space.panel() }}{% endif %}{% include "_you.html" %}{% endblock %}

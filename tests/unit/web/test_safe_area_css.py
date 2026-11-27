@@ -54,9 +54,14 @@ def test_a_phone_s_focused_search_field_and_its_sheet_sit_below_the_island() -> 
     assert below - field == 72 - 10
 
 
-@pytest.mark.parametrize(("media", "insets"), [(None, SIDEWAYS), (PHONE, UPRIGHT)])
-def test_the_settings_save_bar_keeps_its_buttons_off_the_home_indicator(media, insets) -> None:
-    padding = _last("padding", _of(".setg-pg .savebar", media, CSS / "_settings_pg.css"))
+@pytest.mark.parametrize("insets", [SIDEWAYS, UPRIGHT])
+def test_the_settings_save_bar_keeps_its_buttons_off_the_home_indicator(insets) -> None:
+    # one rule at every width: the bar sits at the foot of the pane, held up or on its side
+    sheet = CSS / "_settings_pg.css"
+    assert re.findall(r"\.stx-save \{[^}]*padding", sheet.read_text()) and not any(
+        "padding" in _of(".stx-save", media, sheet) for media in (PHONE, "(max-width: 380px)")
+    )
+    padding = _last("padding", _of(".stx-save", None, sheet))
     # Its lengths, a function counting as one: the third is the bottom, or with two, the first.
     lengths = re.findall(r"(?:[\w.-]+\((?:[^()]|\([^()]*\))*\)|\S)+", padding)
     bottom = lengths[2] if len(lengths) > 2 else lengths[0]

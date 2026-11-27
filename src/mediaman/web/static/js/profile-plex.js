@@ -1,5 +1,5 @@
-/** Plex account card of the Profile page. Requires: core/api.js (MM.api), core/dom.js (MM.dom),
- *  core/reauth.js (MM.reauth), ui-feedback.js (UIFeedback). */
+/** Plex account view of the Profile pane, and what the hub's row says of it. Requires: core/api.js (MM.api),
+ *  core/dom.js (MM.dom), core/reauth.js (MM.reauth), ui-feedback.js (UIFeedback), watch/you.js (MM.you). */
 (function () {
   'use strict';
 
@@ -97,9 +97,21 @@
     }
   }
 
+  // Marks the pane's root as wired by `name`; false where it already was.
+  function mount(root, name) {
+    var on = (root.getAttribute('data-mounted') || '').split(' ').filter(Boolean);
+    if (on.indexOf(name) >= 0) return false;
+    root.setAttribute('data-mounted', on.concat(name).join(' '));
+    return true;
+  }
+
+  function shown() { return MM.you.shown('profile'); }
+
   function initOwn() {
     var card = byId('plex-link');
-    if (!card) return;
+    var root = card && card.closest('[data-you-group="profile"]');
+    if (!root || !mount(root, 'plex')) return;
+    var row = byId('account-row-plex');
     var panels = MM.dom.qa('[data-plex-panel]', card);
     /* WebKit gives a clicked button's focus to the section around it, which can hold it. */
     var holder = byId('plex') || card;
@@ -250,6 +262,10 @@
       errorLine.textContent = '';
       byId('plex-note').textContent = '';
       panels.forEach(function (p) { p.hidden = p.getAttribute('data-plex-panel') !== name; });
+      if (row) {
+        row.querySelector('[data-row-value]').textContent = name === 'linked' ? 'Linked to ' + byId('plex-name').textContent
+          : name === 'unset' ? 'Not set up' : name === 'loading' ? '' : 'Not linked';
+      }
       if (!changed && name !== 'failed') return;
       if (!quiet) {
         announce(byId('plex-status'),
@@ -602,7 +618,7 @@
     });
 
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) return;
+      if (document.hidden || !shown()) return;
       glance();
       if (current !== 'waiting') return;
       waitWords = STILL_WAIT;
@@ -610,17 +626,18 @@
     });
     /* A Plex window beside this one hides nothing. */
     window.addEventListener('focus', function () {
+      if (!shown()) return;
       glance();
       if (current === 'waiting' && !checking) check();
     });
     document.addEventListener('mm:reauth', refreshHint);
-    /* An answer that never comes, as when signed out, must not leave a tab that waits for it. */
+    /* An answer that never comes, as when signed out, must not leave a tab that waits for it, pane shown or not. */
     window.addEventListener('pagehide', function () {
       if (tab) tab.close();
     });
     /* Restored from the back/forward cache, the card may be long out of date. */
     window.addEventListener('pageshow', function (e) {
-      if (!e.persisted) return;
+      if (!e.persisted || !shown()) return;
       glance();
       /* A password being asked for is still for the person to give. */
       if (underway && underway.asking) return;

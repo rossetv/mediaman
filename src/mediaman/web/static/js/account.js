@@ -1,9 +1,10 @@
 /**
- * Profile page — change-password and email forms, the lists of sign-ins and TVs, and the use of the
- * person's history by the AI.
+ * Profile pane — its hub, the change-password and email views, the lists of sign-ins and TVs, and the
+ * use of the person's history by the AI. Typing left in the email or password view is guarded.
  *
  * Requires: core/api.js (MM.api), core/dom.js (MM.dom), core/reauth.js (MM.reauth),
- * settings/rows.js (MM.settings.rows), password-form.js (MM.password), ui-feedback.js (UIFeedback).
+ * settings/rows.js (MM.settings.rows), password-form.js (MM.password), ui-feedback.js (UIFeedback),
+ * watch/you.js (MM.you).
  */
 (function () {
   'use strict';
@@ -48,7 +49,7 @@
   }
   function isBusy(button) { return button.getAttribute('aria-disabled') === 'true'; }
 
-  // On a narrow phone a status wraps under its button, where the bottom bar may cover it.
+  // Within the view, the one thing in the pane that scrolls; a status may wrap under the foot that stays.
   function reveal(result) { result.scrollIntoView({ block: 'nearest' }); }
 
   // Say an answer in a status, which the new words may make taller.
@@ -60,6 +61,9 @@
   }
 
   function done(text) { UIFeedback.toast(text, { variant: 'success' }); }
+
+  // What a row of the hub says of the view it opens.
+  function rowSays(row, text) { row.querySelector('[data-row-value]').textContent = text; }
 
   // Said to a screen reader; the button shows it to everyone else.
   function working(result, text) {
@@ -82,35 +86,35 @@
   }
 
   // `devices.others()` and `devices.tvs()` are what the lists below hold, null where they did not load.
-  // Returns the function that says afresh what a new password signs out.
+  // Returns whether anything is typed, what empties the form, and what says afresh what a new password signs out.
   function initPassword(devices) {
     var form = document.getElementById('account-password-form');
-    var opener = document.getElementById('account-open-password');
-    var panel = document.getElementById('account-password-fold');
     var sub = document.getElementById('account-password-sub');
     var live = document.getElementById('account-password-live');
-    if (!form || !opener || !panel || !sub || !live) return function () {};
-    // Its script did not load: the rest of the page works without it.
-    if (!MM.password) {
-      opener.disabled = true;
-      return function () {};
-    }
-    var line = opener.closest('.me-line');
-    var end = opener.parentNode;
-    var fold = MM.settings.rows;
+    var none = { typed: function () { return false; }, clear: function () {}, sayDevices: function () {}, opened: function () {} };
+    if (!form || !sub || !live) return none;
+    var submit = form.querySelector('[type="submit"]');
+    var row = document.getElementById('account-open-password');
     var changed = document.getElementById('account-password-changed');
+    if (changed) {
+      changed.textContent = dayOf(changed.getAttribute('datetime'));
+      if (row) rowSays(row, 'Changed ' + changed.textContent);
+    }
+    // Its script did not load: the rest of the pane works without it.
+    if (!MM.password) {
+      submit.disabled = true;
+      return none;
+    }
     var effect = sub.lastElementChild;
+    var unknown = effect.textContent;
     var fresh = false;
-    var openAt = 0;
-    if (changed) changed.textContent = dayOf(changed.getAttribute('datetime'));
 
-    var pw = MM.password.form(form, { send: send });
-    var says = pw.aside.querySelector('.pwd-line').lastElementChild;
-    var unknown = says.textContent;
+    var pw = MM.password.form(form, { send: send, hold: true });
 
     function sayDevices() {
+      if (fresh) return;
       var others = devices.others(), tvs = devices.tvs();
-      says.textContent = others && tvs !== null ? willSignOut(others.length, tvs) : unknown;
+      effect.textContent = others && tvs !== null ? willSignOut(others.length, tvs) : unknown;
     }
 
     // This device and those that go out with the change, as many as there is room for.
@@ -118,78 +122,18 @@
       var others = devices.others();
       var tvs = devices.tvs();
       if (!others || tvs === null || !(others.length + tvs)) return null;
-      var row = el('div', 'pwd-dev-row');
-      row.setAttribute('aria-hidden', 'true');
-      function add(icon, cls) { row.appendChild(el('span', 'pwd-dev-i' + cls)).appendChild(MM.dom.icon(icon)); }
+      var line = el('div', 'pwd-dev-row');
+      line.setAttribute('aria-hidden', 'true');
+      function add(icon, cls) { line.appendChild(el('span', 'pwd-dev-i' + cls)).appendChild(MM.dom.icon(icon)); }
       add(devices.here(), ' is-here');
       var total = others.length + tvs;
       var room = total > 5 ? 4 : total;
       var sets = Math.min(tvs, Math.max(room - others.length, total > 5 ? 1 : 0));
       others.slice(0, room - sets).forEach(function (label) { add(deviceIcon(label), ''); });
       for (var i = 0; i < sets; i++) add('i-tv', '');
-      if (total > room) row.appendChild(el('span', 'pwd-dev-n', '+' + (total - room)));
-      return row;
+      if (total > room) line.appendChild(el('span', 'pwd-dev-n', '+' + (total - room)));
+      return line;
     }
-
-    // The row takes its new height as the fold takes its own, with its words and button already in place.
-    function ease(change) {
-      var from = line.offsetHeight + (parseFloat(getComputedStyle(line).marginBottom) || 0);
-      change();
-      var gap = from - line.offsetHeight;
-      line.style.transition = 'none';
-      line.style.marginBottom = gap + 'px';
-      sub.classList.remove('is-new');
-      void line.offsetHeight;
-      sub.classList.toggle('is-new', gap !== 0);
-      line.style.transition = '';
-      line.style.marginBottom = '';
-    }
-
-    function show() {
-      if (pw.isBusy()) return;
-      opener.setAttribute('aria-expanded', 'true');
-      var width = sub.getBoundingClientRect().width;
-      openAt = window.innerWidth;
-      ease(function () {
-        // Where the button leaves its room to the words, it fades where it was.
-        end.style.top = end.offsetTop + 'px';
-        opener.classList.add('is-gone');
-        // The line by the buttons says it, with the numbers.
-        if (!changed || fresh) return;
-        // On the lines it had beside the button.
-        sub.style.maxWidth = width + 'px';
-        effect.hidden = true;
-      });
-      sayDevices();
-      fold.openInView(panel);
-      pw.old.focus({ preventScroll: true });
-    }
-    function shut(then, words) {
-      var held = MM.dom.focusStillIn(panel);
-      opener.setAttribute('aria-expanded', 'false');
-      ease(function () {
-        opener.classList.remove('is-gone');
-        sub.style.maxWidth = '';
-        if (!fresh) effect.hidden = false;
-        if (!words) return;
-        sub.appendChild(document.createTextNode(' '));
-        sub.appendChild(el('span', '', words));
-      });
-      fold.close(panel, then || pw.reset);
-      if (held) opener.focus({ preventScroll: true });
-    }
-
-    opener.addEventListener('click', show);
-    // A phone's keyboard resizes the window too, but leaves its width.
-    window.addEventListener('resize', function () {
-      if (window.innerWidth !== openAt) sub.style.maxWidth = '';
-    });
-    pw.cancel.addEventListener('click', function () {
-      if (!pw.isBusy()) shut();
-    });
-    panel.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && !pw.isBusy()) shut();
-    });
 
     function send(values) {
       reveal(pw.submit);
@@ -207,20 +151,24 @@
       pw.forget();
       fresh = true;
       live.textContent = 'Password changed. ' + words;
-      ease(function () {
-        sub.textContent = sub.style.maxWidth = '';
-        var now = sub.appendChild(el('span', 'is-fresh'));
-        now.appendChild(MM.dom.icon('i-check'));
-        now.appendChild(document.createTextNode('Changed just now.'));
-      });
+      sub.textContent = '';
+      var now = sub.appendChild(el('span', 'is-fresh'));
+      now.appendChild(MM.dom.icon('i-check'));
+      now.appendChild(document.createTextNode('Changed just now.'));
+      sub.appendChild(document.createTextNode(' '));
+      sub.appendChild(el('span', '', words));
+      sub.classList.remove('is-new');
+      void sub.offsetHeight;
+      sub.classList.add('is-new');
+      if (row) rowSays(row, 'Changed just now');
       MM.password.celebrate(form.parentNode, form, 'Password changed', words, deviceRow()).then(function (undo) {
-        // Long enough to be read before it folds.
+        // Long enough to be read before the form is back, empty.
         setTimeout(function () {
+          var held = MM.dom.focusStillIn(form.parentNode);
           devices.reload();
-          shut(function () {
-            undo();
-            pw.reset();
-          }, words);
+          undo();
+          pw.reset();
+          if (held) pw.old.focus({ preventScroll: true });
         }, 2000);
       });
     }
@@ -237,18 +185,23 @@
       } else pw.refuseWhole(text, !there);
     }
 
-    return sayDevices;
+    return {
+      typed: function () { return Boolean(pw.old.value || pw.fresh.value); },
+      clear: function () { if (!pw.isBusy()) pw.reset(); },
+      sayDevices: sayDevices,
+      opened: function () { if (!pw.isBusy() && form.isConnected) pw.old.focus({ preventScroll: true }); },
+    };
   }
 
+  // Returns whether the field differs from what is saved, and what puts it back.
   function initEmail() {
     var form = document.getElementById('account-email-form');
     var input = document.getElementById('account-email');
-    var panel = document.getElementById('account-email-fold');
-    var cancel = document.getElementById('account-cancel-email');
     var submit = document.getElementById('account-submit-email');
     var result = document.getElementById('account-email-result');
-    if (!form || !input || !panel || !cancel || !submit || !result) return;
-    var fold = MM.settings.rows;
+    if (!form || !input || !submit || !result) return { changed: function () { return false; }, undo: function () {} };
+    var row = document.getElementById('account-row-email');
+    var head = document.getElementById('account-head-email');
     var saved = input.defaultValue;
 
     function changed() { return input.value.trim() !== saved; }
@@ -259,22 +212,19 @@
       input.setAttribute('aria-invalid', String(tone === 'err'));
     }
 
-    // Folding takes away the button pressed.
+    // Save is there to press only for a change; a press it takes away leaves the focus in the field.
     function follow() {
-      if (changed()) {
-        if (!fold.isOpen(panel)) fold.openInView(panel);
-        return;
-      }
-      if (panel.contains(document.activeElement)) input.focus({ preventScroll: true });
-      fold.close(panel);
+      if (isBusy(submit)) return;
+      var off = !changed();
+      if (off && document.activeElement === submit) input.focus({ preventScroll: true });
+      submit.disabled = off;
     }
 
-    function undo() {
-      if (isBusy(submit)) return;
-      input.value = saved;
-      say('');
-      follow();
-      input.focus({ preventScroll: true });
+    function shown(email) {
+      if (row) rowSays(row, email || 'Not set');
+      if (!head) return;
+      head.textContent = email;
+      head.hidden = !email;
     }
 
     function refuse(text, there) {
@@ -287,16 +237,11 @@
       say('');
       follow();
     });
-    cancel.addEventListener('click', undo);
-    form.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && changed()) undo();
-    });
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var email = input.value.trim();
       if (isBusy(submit) || !changed()) return;
-      follow();
       if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
         refuse('That is not an email address.', true);
         return;
@@ -312,17 +257,28 @@
         saved = email;
         say('');
         follow();
+        shown(email);
         done(email ? 'Email saved.' : 'Email removed. Alerts are off.');
       }).catch(function (err) {
         setBusy(submit, '');
         say('');
+        follow();
         if (err && err.error === 'reauth_cancelled') return;
         refuse(MM.api.messageOf(err, 'Could not save. Try again.'), MM.dom.stillAt(submit, form));
       });
     });
 
     // A reload may keep what was typed.
-    if (changed()) follow();
+    follow();
+    return {
+      changed: changed,
+      undo: function () {
+        if (isBusy(submit)) return;
+        input.value = saved;
+        say('');
+        follow();
+      },
+    };
   }
 
   function when(iso) {
@@ -356,7 +312,7 @@
     var revoke = document.getElementById('account-revoke-others');
     var result = document.getElementById('account-revoke-result');
     var why = document.getElementById('account-revoke-why');
-    if (!list || !revoke || !result) return { load: function () {}, others: function () { return null; }, here: function () { return 'i-globe'; } };
+    if (!list || !revoke || !result) return { load: function () {}, count: function () { return null; }, others: function () { return null; }, here: function () { return 'i-globe'; } };
     /* The sign-ins on show by the same names as their rows. */
     var shown = {};
     /* The rows on show by the session each is of. */
@@ -505,6 +461,7 @@
     load();
     return {
       load: load,
+      count: function () { return loaded ? listed().length : null; },
       others: function () {
         if (!loaded) return null;
         return listed().filter(function (s) { return !s.current; }).map(function (s) { return s.device_label || ''; });
@@ -617,7 +574,12 @@
         if (held) opener.focus({ preventScroll: true });
       }
       cancel.addEventListener('click', shut);
-      form.addEventListener('keydown', function (e) { if (e.key === 'Escape') shut(); });
+      form.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        // The pane is left as it is.
+        e.preventDefault();
+        shut();
+      });
       input.addEventListener('input', function () { input.removeAttribute('aria-invalid'); });
       form.addEventListener('submit', function (e) {
         e.preventDefault();
@@ -803,20 +765,147 @@
     });
   }
 
+  // How many sign-ins and TVs there are, on the hub's row of them.
+  function devicesSay(sessions, tvs) {
+    var n = sessions.count(), t = tvs.count();
+    if (n === null) return '';
+    return n + (n === 1 ? ' sign-in' : ' sign-ins') + (t ? ' · ' + t + (t === 1 ? ' TV' : ' TVs') : '');
+  }
+
+  function initLogout() {
+    var form = document.getElementById('account-logout');
+    if (!form) return;
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      UIFeedback.confirm({
+        title: 'Log out?',
+        body: 'You will need your password to come back.',
+        confirmLabel: 'Log out',
+        confirmVariant: 'danger',
+      }).then(function (yes) { if (yes) form.submit(); });
+    });
+  }
+
+  /* The tiles of the hub: History's latest event and, for an admin, how the services stood when Settings
+     last checked them. The hub never checks a service itself: the checks share one rate limit with Settings.
+     Each tile is said again as the hub shows; the newest answer wins. */
+
+  function lastWhen(iso) {
+    var at = new Date(iso);
+    if (isNaN(at)) return '';
+    var today = new Date(Date.now());
+    if (at.toDateString() === today.toDateString()) return at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  }
+
+  // The server's labels that read as a verb before a title; the others follow the title.
+  var VERBS = ['downloaded', 're-downloaded', 'deleted', 'kept', 'scheduled'];
+
+  // "marlowe finished Interstellar · 21:04". A security event is named by its title, and an event whose
+  // label is no verb as "Title: label".
+  function eventLine(item, me) {
+    var name = item.who && item.who.name;
+    var mine = name === me;
+    var verb = item.action === 'play' ? (item.finished ? 'finished' : 'started') : item.action_label;
+    var words;
+    if (item.is_security) words = mine ? item.line_title : item.line_title + ' by ' + (name || 'a former user');
+    else if (item.action === 'play' || VERBS.indexOf(verb) >= 0) words = (mine ? 'You' : name || 'A former user') + ' ' + verb + ' ' + item.line_title;
+    else words = item.line_title + ': ' + verb;
+    var at = (item.fields || []).filter(function (f) { return f.at; })[0];
+    var time = at ? lastWhen(at.at) : '';
+    return time ? words + ' · ' + time : words;
+  }
+
+  function initTiles() {
+    var history = document.getElementById('account-tile-history');
+    var settings = document.getElementById('account-tile-settings');
+    var neutral = settings ? settings.textContent : '';
+    if (!history) return function () {};
+    var asked = 0;
+
+    function sayHistory(me) {
+      MM.api.get('/api/history?per_page=20').then(function (data) {
+        if (me !== asked) return;
+        var items = data.items || [];
+        var shown = items.filter(function (i) { return !i.is_security; })[0] || items[0];
+        history.textContent = shown ? eventLine(shown, history.getAttribute('data-me')) : 'Nothing yet';
+      }, function () { /* It keeps what it says. */ });
+    }
+
+    // From the pills Settings' own checks left in the page. A check refused for the rate limit, or not yet
+    // answered, says nothing either way; with any such, or Settings not yet loaded, the tile keeps its line.
+    function saySettings() {
+      var tones = {};
+      Array.prototype.forEach.call(document.querySelectorAll('[data-conn]'), function (pill) {
+        var tone = ['ok', 'err', 'off'].filter(function (t) { return pill.classList.contains(t); })[0] || 'unknown';
+        tones[pill.getAttribute('data-conn')] = tone;
+      });
+      var known = Object.keys(tones).map(function (k) { return tones[k]; });
+      var bad = known.filter(function (t) { return t === 'err'; }).length;
+      var text = bad ? (bad === 1 ? '1 service is not answering' : bad + ' services are not answering')
+        : !known.length || known.indexOf('unknown') !== -1 ? neutral
+        : known.indexOf('ok') === -1 ? 'No services are set up yet'
+        : 'Everything is connected';
+      settings.textContent = text;
+      settings.classList.toggle('is-bad', !!bad);
+    }
+
+    return function () {
+      var me = ++asked;
+      sayHistory(me);
+      if (settings) saySettings();
+    };
+  }
+
+  // Marks the pane's root as wired by `name`; false where it already was.
+  function mount(root, name) {
+    var on = (root.getAttribute('data-mounted') || '').split(' ').filter(Boolean);
+    if (on.indexOf(name) >= 0) return false;
+    root.setAttribute('data-mounted', on.concat(name).join(' '));
+    return true;
+  }
+
   function start() {
-    var sayDevices = function () {};
-    function told() { sayDevices(); }
+    var root = document.querySelector('[data-you-group="profile"]');
+    if (!root || !mount(root, 'account')) return;
+    var devicesRow = document.getElementById('account-row-devices');
+    var password = null;
+    function told() {
+      if (password) password.sayDevices();
+      if (devicesRow) rowSays(devicesRow, devicesSay(sessions, tvs));
+    }
     var sessions = initSessions(told);
     var tvs = initTvs(told);
-    sayDevices = initPassword({
+    password = initPassword({
       others: sessions.others, here: sessions.here, tvs: tvs.count,
       reload: function () {
         sessions.load();
         tvs.load();
       },
     });
-    initEmail();
+    var email = initEmail();
+    var tiles = initTiles();
     initAi();
+    initLogout();
+
+    document.addEventListener('mm:you-shown', function (e) {
+      if (!e.detail || e.detail.group !== 'profile') return;
+      if (e.detail.view === 'profile') tiles();
+      else if (e.detail.view === 'profile/password') password.opened();
+    });
+
+    MM.you.guard('profile', {
+      dirty: function (from, to) {
+        if (to === from) return false;
+        return (from === 'profile/email' && email.changed()) || (from === 'profile/password' && password.typed());
+      },
+      discard: function () {
+        email.undo();
+        password.clear();
+      },
+      title: 'Discard what you typed?',
+      body: 'Your email and password stay as they were.',
+    });
   }
 
   if (document.readyState === 'loading') {

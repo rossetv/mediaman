@@ -95,12 +95,24 @@ def test_a_list_asked_before_a_device_was_signed_out_does_not_bring_it_back() ->
     assert _run("listBeforeSignOut") == 1
 
 
-def test_the_password_form_opens_at_its_first_field_and_forgets_what_was_typed_when_shut() -> None:
-    out = _run("passwordFold")
-    assert out["shut"][:2] == [True, "false"]
-    assert out["open"] == [False, "true", "account-old-password"]
-    assert out["cancelled"] == [True, "false", "account-open-password", ""]
-    assert out["escaped"] == [True, "false", "account-open-password"]
+def test_the_pane_guards_a_changed_email_and_a_typed_password_on_the_way_out() -> None:
+    out = _run("guard")
+    assert (out["group"], out["guards"]) == ("profile", 1)
+    assert (out["title"], out["body"]) == (
+        "Discard what you typed?",
+        "Your email and password stay as they were.",
+    )
+    # from: email to hub, email to closed, email to itself, password to hub, hub to history
+    assert out["clean"] == [False, False, False, False, False]
+    assert out["sameEmail"] == [False, False, False, False, False]
+    assert out["email"] == [True, True, False, False, False]
+    assert out["old"] == out["fresh"] == [False, False, False, True, False]
+
+
+def test_discarding_puts_the_email_back_and_empties_the_password() -> None:
+    out = _run("guard")
+    assert out["emailDiscarded"] == ["was@example.com", True, [False] * 5]
+    assert out["passwordDiscarded"] == ["", "", [False] * 5]
 
 
 def test_the_rule_for_a_new_password_is_back_when_its_field_is_emptied() -> None:
@@ -108,12 +120,12 @@ def test_the_rule_for_a_new_password_is_back_when_its_field_is_emptied() -> None
     assert _run("passwordRule") == [rule, rule + ", 3 so far", rule, rule]
 
 
-def test_the_row_says_when_the_password_changed_and_once_open_leaves_the_rest_to_the_form() -> None:
+def test_the_view_and_the_hubs_row_say_when_the_password_changed() -> None:
     never, this_year, earlier = _run("passwordChanged")
     effect = "It signs out the others."
-    assert never == [effect, effect, True]
-    assert this_year == [f"14 March {effect}", "14 March", True]
-    assert earlier[1] == "14 March 2025"
+    assert never == [effect, ""]
+    assert this_year == [f"14 March {effect}", "Changed 14 March"]
+    assert earlier[1] == "Changed 14 March 2025"
 
 
 def test_the_form_says_how_many_devices_and_tvs_a_new_password_signs_out() -> None:
@@ -122,7 +134,8 @@ def test_the_form_says_how_many_devices_and_tvs_a_new_password_signs_out() -> No
     assert one == "Signs out your other device."
     assert both == "Signs out your 2 other devices and your TV."
     assert tvs == "Signs out your 3 TVs."
-    assert no_list == no_tvs == "Signs out your other devices and your TVs."
+    # what the view says without the numbers
+    assert no_list == no_tvs == "It signs out the others."
 
 
 def test_the_words_that_stay_are_apart_from_what_fades_beside_them() -> None:
@@ -133,16 +146,8 @@ def test_the_words_that_stay_are_apart_from_what_fades_beside_them() -> None:
         assert out["faded"] == [out["says"]]
 
 
-def test_when_it_was_changed_keeps_its_lines_while_the_form_is_open() -> None:
-    out = _run("passwordTurned")
-    assert (out["opened"], out["keyboard"], out["again"], out["shut"]) == (
-        "164.5px",
-        "164.5px",
-        "164.5px",
-        "",
-    )
-    # the window's own once that has another width
-    assert (out["turned"], out["back"]) == ("", "")
+def test_the_password_view_is_ready_to_type_in_and_listens_to_no_resize_of_the_window() -> None:
+    assert _run("passwordView") == {"ready": True, "resized": 0}
 
 
 def test_what_a_new_password_signed_out_is_drawn_said_and_kept_in_the_row() -> None:
@@ -150,6 +155,7 @@ def test_what_a_new_password_signed_out_is_drawn_said_and_kept_in_the_row() -> N
     for out in (some, none, many, unsaid):
         assert out["live"] == "Password changed. " + out["says"]
         assert out["sub"] == "Changed just now."
+        assert out["hub"] == "Changed just now"
         assert out["after"] == "Changed just now. " + out["says"]
         assert out["left"] is False
     assert some["says"] == "Your 2 other devices were signed out, and your TV was unpaired."
@@ -161,8 +167,8 @@ def test_what_a_new_password_signed_out_is_drawn_said_and_kept_in_the_row() -> N
     assert unsaid["says"] == "Your other device was signed out, and your 2 TVs were unpaired."
 
 
-def test_email_is_saved_only_when_it_differs_and_a_wrong_one_is_refused_unsent() -> None:
-    out = _run("emailFold")
+def test_email_save_is_pressable_only_once_it_differs_and_a_wrong_one_is_refused_unsent() -> None:
+    out = _run("emailSave")
     assert out["out"] == [False, True, False, True]
     (tone, words), invalid, focused = out["bad"]
     assert tone == "me-msg err" and words
@@ -198,10 +204,13 @@ def test_a_new_password_is_sent_once_keeps_the_focus_and_reloads_the_sign_ins() 
     out = _run("password")
     assert [sorted(body) for body in out["sent"]] == [["new_password", "old_password"]]
     assert out["whileSending"] == "account-submit-password"
-    # neither Cancel nor Escape shuts it while it is sent, or while it is drawn
-    assert (out["working"][2], out["drawn"]) == (False, False)
-    # the form is shut, emptied and as it was
-    assert (out["shut"], out["resets"], out["focused"]) == (True, 1, "account-open-password")
+    # the password is asked for in the pane, which stays where it is
+    assert [a["descText"] for a in out["asked"]] == ["Enter your Mediaman password to change it."]
+    assert out["went"] == []
+    # a discard empties nothing while it is sent, nor while it is drawn
+    assert (out["working"][2], out["drawn"]) == ("Copper lantern 41", True)
+    # the form is back, emptied and as it was
+    assert (out["back"], out["resets"], out["focused"]) == (True, 1, "account-old-password")
     assert (out["left"], out["says"]) == (["", ""], "Save new password")
     assert out["toasts"] == []
     assert out["rows"] == 1
@@ -210,27 +219,19 @@ def test_a_new_password_is_sent_once_keeps_the_focus_and_reloads_the_sign_ins() 
 def test_a_password_is_out_of_the_page_as_soon_as_it_is_saved() -> None:
     out = _run("passwordForgotten")
     assert out["left"] == ["", ""]
-    assert out["state"] == [True, False, "false"]
-    assert out["again"] is False
+    assert out["state"] == [False, False, "false"]
 
 
-def test_a_press_as_the_saved_form_folds_away_does_not_strand_it() -> None:
-    assert _run("passwordPressedAsItFolds") == [1, False, "false", "false"]
+def test_a_discard_as_the_saved_form_is_drawn_does_not_strand_it() -> None:
+    assert _run("passwordDiscardedAsItIsDrawn") == [1, False, "false", False]
 
 
-def test_the_row_takes_its_new_height_from_the_one_it_had_both_ways() -> None:
-    out = _run("passwordEased")
-    # its words and its button are at once where they end
-    assert out["open"] == [["34px", ""], True, "33px"]
-    assert out["shut"] == [["-34px", ""], True]
-
-
-def test_the_rest_of_the_page_works_where_the_form_s_script_did_not_load() -> None:
-    assert _run("passwordWithout") == {"opener": True, "rows": 1, "email": True}
+def test_the_rest_of_the_pane_works_where_the_form_s_script_did_not_load() -> None:
+    assert _run("passwordWithout") == {"submit": True, "rows": 1, "email": True, "dirty": False}
 
 
 def test_one_who_moved_on_while_the_tick_was_drawn_keeps_their_place() -> None:
-    assert _run("passwordLeft") == ["account-email", True]
+    assert _run("passwordLeft") == ["account-email", False]
 
 
 def test_a_new_password_on_its_way_is_said_and_typing_meanwhile_leaves_the_words() -> None:
@@ -301,10 +302,10 @@ def test_an_empty_status_takes_no_room_and_can_still_be_announced() -> None:
     assert not re.search(r"\.me-msg:empty[^}]*(display|visibility)", css)
 
 
-def test_a_fold_has_room_at_its_sides_for_the_focus_rings_it_clips() -> None:
+def test_the_foot_of_a_view_stays_at_the_bottom_over_what_scrolls() -> None:
     css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
-    rule = re.search(r"is-moving > \.setg-fold-inner \{([^}]*)\}", css)
-    assert rule and "padding-inline: 6px; margin-inline: -6px" in rule[1]
+    rule = re.search(r"\.yo-foot \{([^}]*)\}", css)
+    assert rule and "position: sticky" in rule[1] and "bottom:" in rule[1]
 
 
 def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_status() -> None:
@@ -319,7 +320,7 @@ def test_a_late_success_shuts_its_form_without_moving_a_reader_elsewhere() -> No
     out = _run("lateAnswer")
     for which, field, home in (
         ("email", "account-old-password", "account-email"),
-        ("password", "account-email", "account-open-password"),
+        ("password", "account-email", "account-old-password"),
     ):
         assert out[which]["elsewhere"] == [True, False, field, True]
         assert out[which]["there"] == [True, False, home, True]
@@ -468,3 +469,84 @@ def test_an_unpaired_tv_leaves_the_list_and_the_last_takes_the_section_with_it()
     assert out["last"] == [0, True] and out["asked"] == 0
     # the bar of what plays on a TV lets it go at once, and only once it is unpaired
     assert out["kept"] == 0 and out["dropped"] == [1, 2]
+
+
+def test_the_hubs_rows_say_what_their_views_hold() -> None:
+    out = _run("hub")
+    assert out["devices"] == "2 sign-ins · 1 TV"
+    assert out["saved"] == ["vic@example.com", "vic@example.com", False]
+    assert out["removed"] == ["Not set", "", True]
+
+
+def test_log_out_is_asked_first_and_sent_only_on_a_yes() -> None:
+    out = _run("logout")
+    assert out["no"] == {"stopped": True, "sent": 0, "asked": ["Log out?"]}
+    assert out["yes"]["sent"] == 1
+
+
+def test_the_script_run_again_once_its_fragment_is_in_wires_nothing_twice() -> None:
+    out = _run("again")
+    assert (out["asked"], out["guards"]) == (1, 1)
+    assert out["mounted"] == "account"
+
+
+def test_no_save_or_refusal_in_the_pane_scrolls_the_window() -> None:
+    out = _run("noWindowScroll")
+    assert (out["window"], out["opened"], out["outside"]) == ([], 0, [])
+    # what is brought into view is so within the pane's own view
+    assert out["revealed"] > 0
+
+
+def test_the_history_tile_says_the_latest_event_before_a_sign_in_or_nothing_yet() -> None:
+    out = _run("tiles")
+    play, line = out["play"]
+    assert play["history"] == [line, False]
+    assert out["none"]["history"] == ["Nothing yet", False]
+    assert out["fine"]["history"] == ["You downloaded Weapons · " + out["day"], False]
+    own, clock = out["own"]
+    # a sign-in is said only when nothing else happened
+    assert own["history"] == ["Signed in · " + clock, False]
+    assert out["someone"]["history"][0].startswith("Signed in by rosa · ")
+    # a label that is no verb follows the title
+    assert out["noVerb"]["history"][0].startswith("Big Hero 6: delete failed · ")
+
+
+def test_the_settings_tile_says_how_settings_last_found_the_services_set_up() -> None:
+    out = _run("tiles")
+    # a rate-limited check is neither working nor down
+    assert out["down"]["settings"] == ["2 services are not answering", True]
+    # a service shown twice is counted once
+    assert out["oneDown"]["settings"] == ["1 service is not answering", True]
+    assert out["fine"]["settings"] == ["Everything is connected", False]
+    assert out["none"]["settings"] == ["No services are set up yet", False]
+    assert out["own"][0]["settings"] is None
+
+
+def test_a_service_not_known_to_answer_never_reads_as_everything_connected() -> None:
+    out = _run("tiles")
+    neutral = ["Libraries and more", False]
+    # Settings never opened, a check rate limited, a check still on its way
+    assert out["play"][0]["settings"] == neutral
+    assert out["limited"]["settings"] == neutral
+    assert out["testing"]["settings"] == neutral
+
+
+def test_opening_the_hub_checks_no_service_and_asks_history_again_each_time() -> None:
+    out = _run("tiles")
+    for case in ("play", "down", "fine", "none", "own"):
+        asked = (out[case][0] if case in ("play", "own") else out[case])["asked"]
+        assert not [u for u in asked if u.startswith("/api/settings")], (case, asked)
+    assert out["play"][0]["again"] is True
+
+
+def test_save_waits_for_the_rules_and_a_press_before_says_what_is_missing() -> None:
+    out = _run("passwordHold")
+    assert out["empty"] is True
+    assert out["pressed"] == ["Enter your current password."]
+    assert (out["weak"], out["same"], out["noOld"]) == (True, True, True)
+    assert out["ready"] is False
+    assert out["sending"] is True
+
+
+def test_opening_the_password_view_puts_the_cursor_in_its_first_field() -> None:
+    assert _run("passwordFocus") == ["account-open-password", "account-old-password"]

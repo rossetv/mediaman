@@ -1,197 +1,126 @@
-/* SETTINGS v2 — page chrome and primitives scoped under `.setg-pg`.
-   Owns the cinematic shell, sticky rail, body/block layout, the
-   card/row/input/field/toggle/conn primitives, the sticky savebar
-   (with error state), the reauth modal sheet that gates sensitive
-   settings, the ghost test-button on card headers, and the
-   inline disk-usage badge. Page-specific panel components
-   (overview hero, integration cards, library path cards,
-   subscribers, recipients, users, inline forms) live in
-   _settings_pg_panels.css. */
+/* SETTINGS v2 — the pane's chrome and primitives, scoped under `.setg-pg`.
+   Owns the section list and the section on show, the card/row/input/field/toggle/conn
+   primitives, the save bar (with error state), the reauth modal sheet that gates sensitive
+   settings, the ghost test-button on card headers, and the inline disk-usage badge.
+   Page-specific panel components (overview hero, integration cards, library path cards,
+   subscribers, recipients, users, inline forms) live in _settings_pg_panels.css. */
 
-/* SETTINGS v2 — cinematic, rail + stacked cards + sticky savebar
-   Scoped under .setg-pg so the primitives do not leak elsewhere. */
 /* The scheme turns the browser's own parts (clock icon, time picker, spinners, list scrollbars) light on dark. */
-.setg-pg { --rail-w: 236px; color-scheme: dark; }
-.setg-pg .container { max-width: 1180px; }
+.setg-pg { color-scheme: dark; }
 
-.setg-pg .setg-shell {
-  display: grid;
-  grid-template-columns: var(--rail-w) 1fr;
-  gap: 56px;
-  align-items: start;
-  padding-bottom: max(140px, calc(var(--savebar-h, 0px) + 24px)); /* the bar's height, as savebar.js measures it */
+/* The pane: the section list, and the section on show. On a narrow screen the section slides in
+   over the list; from 1000px the list stays beside it (sections.js reads the same width). */
+.you-view[data-view="settings"] { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.setg-pg.stx { position: relative; flex: 1; min-height: 0; }
+.stx__nav, .stx__body {
+  position: absolute; inset: 0;
+  padding: 4px 20px 24px;
+  overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--s5) transparent;
 }
-@media (max-width: 960px) {
-  .setg-pg .setg-shell { grid-template-columns: 1fr; gap: 20px; }
+.stx__nav { transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s; }
+.stx__body {
+  display: flex; flex-direction: column;
+  opacity: 0; visibility: hidden; transform: translateX(36px);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow);
 }
+.stx.is-in > .stx__nav {
+  opacity: 0; visibility: hidden; transform: translateX(-36px);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.stx.is-in > .stx__body {
+  opacity: 1; visibility: visible; transform: none;
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s;
+}
+.stx__body > * { flex-shrink: 0; }
+.stx-sec { display: none; flex-direction: column; }
+.stx-sec.is-on { display: flex; }
+.stx-sec.is-arriving { animation: stx-sec-in var(--dur-slow) var(--ease-out); }
+@keyframes stx-sec-in { from { opacity: 0; transform: translateY(8px); } }
 
-.setg-pg .setg-rail {
-  position: sticky; top: calc(var(--nav-h) + 28px);
-  display: flex; flex-direction: column; gap: 1px;
-  padding: 8px 0;
+.stx-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; background: var(--s2); border-radius: 14px; overflow: hidden; }
+.stx-list > li { position: relative; }
+.stx-list > li + li::before { content: ""; position: absolute; top: 0; right: 0; left: 56px; border-top: 1px solid var(--hair); }
+.stx-link {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 60px; padding: 9px 14px;
+  color: var(--t1); text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
-@media (max-width: 960px) {
-  /* Mobile rail: a sticky chip strip pinned under the top bar, on a phone to the top.
-     Full-bleed (breaks out of .container padding) so the fade edges sit
-     at the viewport edges. ::before/::after paint the gradients; they are
-     positioned against the sticky element, not the scrolled content. */
-  .setg-pg .setg-rail {
-    position: sticky;
-    top: var(--nav-h);
-    z-index: 20;
-    flex-direction: row; gap: 4px; overflow-x: auto; overflow-y: hidden;
-    padding: 10px var(--pad);
-    margin: 0 calc(var(--pad) * -1) 12px;
-    background: rgba(10,10,12,.88);
-    -webkit-backdrop-filter: saturate(180%) blur(16px);
-    backdrop-filter: saturate(180%) blur(16px);
-    border-bottom: 1px solid var(--hair);
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-    scroll-padding-inline: 32px;
-  }
-  .setg-pg .setg-rail::-webkit-scrollbar { display: none; }
-  /* At rest under the bar, it runs up behind it, its chips where they were: the page shows
-     only under the islands. */
-  .setg-pg .setg-rail.is-stuck { top: 0; margin-top: calc(-1 * var(--nav-h)); padding-top: calc(var(--nav-h) + 10px); }
-  /* Fade edges cue the horizontal scroll. The rail is a flex overflow
-     container so `position: absolute` pulls the pseudos out of the flex
-     flow and pins them to the padding box — they sit on top of the
-     scrolled chips without moving as the user swipes. */
-  .setg-pg .setg-rail::before,
-  .setg-pg .setg-rail::after {
-    content: ""; position: absolute; top: 0; bottom: 0;
-    width: 32px; pointer-events: none; z-index: 2;
-  }
-  .setg-pg .setg-rail::before {
-    left: 0;
-    background: linear-gradient(to right, rgba(10,10,12,.95), rgba(10,10,12,0));
-  }
-  .setg-pg .setg-rail::after {
-    right: 0;
-    background: linear-gradient(to left, rgba(10,10,12,.95), rgba(10,10,12,0));
-  }
-  .setg-pg .setg-rail.is-stuck::before,
-  .setg-pg .setg-rail.is-stuck::after { top: var(--nav-h); }
-  .setg-pg .setg-rail-item {
-    flex: 0 0 auto;
-    padding: 8px 13px;
-    font-size: 13.5px;
-    scroll-snap-align: center;
-  }
-  .setg-pg .setg-rail-item > .ico { font-size: 13px; }
-  /* Active chip sits above the ::before/::after fade gradients so its edge
-     never picks up a darkened band when it lands inside the 32px fade zone.
-     Inactive chips stay below so the fades still cue horizontal scroll. */
-  .setg-pg .setg-rail-item.on {
-    position: relative;
-    z-index: 3;
-    background: var(--s3);
-  }
-  .setg-pg .setg-rail-eyebrow { display: none; }
+.stx-link:hover { background: var(--s3); }
+.stx-link__ico {
+  flex: none; display: grid; place-items: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  font-size: 14px; color: #fff; background: var(--tone, var(--t4));
 }
-.setg-pg .setg-rail-eyebrow {
-  font-size: 11px; font-weight: 600; color: var(--t3);
-  text-transform: uppercase; letter-spacing: .12em;
-  padding: 0 14px; margin-bottom: 12px;
-}
-.setg-pg .setg-rail-item {
-  display: flex; align-items: center; gap: 11px;
-  padding: 9px 14px; border-radius: var(--r-md);
-  color: var(--t2); font-size: 14px; font-weight: 500;
-  text-decoration: none; white-space: nowrap;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.setg-pg .setg-rail-item:hover { color: var(--t1); background: var(--rgba-overlay-xs); }
-.setg-pg .setg-rail-item:active { background: var(--s3); }
-.setg-pg .setg-rail-item.on    { color: var(--t1); background: var(--s3); }
-.setg-pg .setg-rail-item > .ico {
-  font-size: 14px;
-  flex-shrink: 0; opacity: .75;
-}
-.setg-pg .setg-rail-item.on > .ico { opacity: 1; color: var(--accent); }
-.setg-pg .setg-rail-item .rail-count {
-  margin-left: auto;
-  font-size: 10.5px; font-weight: 600; color: var(--t3);
-  padding: 1px 7px; border-radius: var(--r-pill);
-  background: var(--s2);
-}
-.setg-pg .setg-rail-item .rail-count.warn { background: rgba(255,214,10,.15); color: var(--warning); }
-.setg-pg .setg-rail-item .rail-count.err  { background: var(--rgba-danger-bg);  color: var(--danger-text);  }
-
-.setg-pg .setg-body { min-width: 0; }
-.setg-pg .setg-body .ph { padding: 28px 0 8px; }
-.setg-pg .setg-ph-small {
-  color: var(--t3); font-size: 12px; letter-spacing: .12em;
-  text-transform: uppercase; font-weight: 600; margin-bottom: 10px;
+.stx-tone--grey { --tone: #8e8e93; } .stx-tone--blue { --tone: var(--accent); } .stx-tone--green { --tone: var(--success); }
+.stx-tone--red { --tone: var(--danger); } .stx-tone--orange { --tone: var(--orange); }
+.stx-tone--yellow { --tone: var(--brand-plex); } .stx-tone--purple { --tone: var(--purple); }
+.stx-link__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.stx-link__name { font-size: 15px; }
+.stx-link__sub { font-size: 12.5px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stx-link__sub.is-bad { color: var(--danger-text); }
+.stx-link__chev { flex: none; font-size: 11px; color: var(--t4); }
+.stx-badge {
+  flex: none; display: grid; place-items: center;
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill);
+  font-size: 12px; font-weight: 600; color: #fff; background: var(--danger-solid);
 }
 
-.setg-pg .setg-block {
-  padding-top: 64px;
+/* A section's own heading names it beside the list; on a narrow screen the pane's bar does. */
+.setg-pg .setg-block-hd { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.setg-pg .setg-block-hd h2 { display: none; margin: 0; font: 700 24px var(--font-display); letter-spacing: -.02em; }
+.setg-pg .setg-block-hd .sub { color: var(--t3); font-size: 14px; line-height: 1.45; }
+
+@media (min-width: 1000px) {
+  .stx__nav { right: auto; width: 300px; padding: 4px 14px 24px 20px; border-right: 1px solid var(--hair); }
+  .stx__body, .stx.is-in > .stx__body { left: 300px; padding: 8px 28px 28px; opacity: 1; visibility: visible; transform: none; }
+  .stx.is-in > .stx__nav { opacity: 1; visibility: visible; transform: none; }
+  .stx-link[aria-current] { background: var(--s3); }
+  .stx-link[aria-current] .stx-link__chev { opacity: 0; }
+  .setg-pg .setg-block-hd h2 { display: block; }
 }
-.setg-pg .setg-block:first-child { padding-top: 24px; }
-/* A focused control the browser scrolls into view must clear the sticky bars. The
-   scroller is <html>, so the padding is scoped by the page it holds. Section jumps rely on it too, so
-   .setg-block carries no scroll-margin of its own. */
-html.has-setg-pg { scroll-padding-top: calc(var(--nav-h) + 16px); }
-/* None while the focus is in a bar, which is in sight already: it would scroll the page. */
-html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
-@media (max-width: 960px) {
-  /* top bar + chip strip (65, as laid out above) + a gap */
-  html.has-setg-pg { scroll-padding-top: calc(var(--nav-h) + 65px + 12px); }
+@media (max-width: 699.98px) {
+  .stx__nav, .stx__body { padding-right: 16px; padding-left: 16px; }
 }
-/* A phone held sideways has no room for three bars beside the save bar: the strip scrolls with the page. */
-@media (max-width: 960px) and (max-height: 500px) {
-  .setg-pg .setg-rail { position: relative; top: auto; }
-  html.has-setg-rail { scroll-padding-top: 60px; }
-}
-.setg-pg .setg-block-hd {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 16px; margin-bottom: 24px; flex-wrap: wrap;
-}
-.setg-pg .setg-block-hd h2 {
-  font-size: 24px; font-weight: 600; letter-spacing: -.02em;
-  white-space: nowrap;
-}
-.setg-pg .setg-block-hd .sub {
-  color: var(--t3); font-size: 13px; text-align: right; min-width: 0;
-}
-@media (max-width: 720px) {
-  .setg-pg .setg-block-hd .sub { text-align: left; width: 100%; }
-}
-@media (max-width: 639.98px) {
-  /* Tighten vertical rhythm so sections don't feel marooned on phones. */
-  .setg-pg .setg-body .ph { padding: 14px 0 4px; }
-  .setg-pg .setg-body .ph h1 { font-size: 30px; line-height: 1.12; }
-  .setg-pg .setg-block { padding-top: 40px; }
-  .setg-pg .setg-block:first-child { padding-top: 12px; }
-  .setg-pg .setg-block-hd { margin-bottom: 16px; }
-  .setg-pg .setg-block-hd h2 { font-size: 20px; }
+/* Reduced motion: the list and the section only fade, at the short duration. Important, as the
+   page-wide reduced-motion rule would otherwise cut the fade to nothing; the side going away
+   hides once its fade is done. */
+@media (prefers-reduced-motion: reduce) {
+  .stx__nav, .stx__body, .stx.is-in > .stx__nav, .stx.is-in > .stx__body {
+    transform: none !important;
+    transition-property: opacity, visibility !important;
+    transition-duration: var(--dur-fast), 0s !important;
+    transition-delay: 0s !important;
+  }
+  .stx__body, .stx.is-in > .stx__nav { transition-delay: 0s, var(--dur-fast) !important; }
+  .stx-sec.is-arriving { animation-name: stx-sec-fade; animation-duration: var(--dur-fast) !important; }
+  @keyframes stx-sec-fade { from { opacity: 0; } }
 }
 
+/* A card is a group of compact rows: its words on the left, its control on the right. */
 .setg-pg .setg-card {
-  background: var(--s1);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-lg);
-  overflow: hidden;
+  padding: 4px 16px;
+  background: var(--s2);
+  border-radius: 14px;
 }
-.setg-pg .setg-card + .setg-card { margin-top: 24px; }
+.setg-pg .setg-card + .setg-card { margin-top: 14px; }
 .setg-pg .setg-card-hd {
   /* A heading left with less than its 130px takes the line, and its button the next. */
-  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px;
-  padding: 20px 24px;
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px;
+  padding: 12px 0 8px;
   border-bottom: 1px solid var(--hair);
 }
 .setg-pg .setg-card-hd h3 {
   font-size: 15px; font-weight: 600; letter-spacing: -.01em;
   font-family: var(--font-text);
 }
-.setg-pg .setg-card-hd .sub { color: var(--t3); font-size: 12px; margin-top: 3px; }
+.setg-pg .setg-card-hd .sub { color: var(--t3); font-size: 13px; line-height: 1.45; margin-top: 2px; }
 .setg-pg .setg-card-hd .head-info { flex: 1 1 130px; min-width: 0; }
 .setg-pg .setg-card-hd .head-actions { display: flex; gap: 10px; align-items: center; }
 .setg-pg .setg-card-hd .btn { font-size: 12px; padding: 0 14px; }
-.setg-pg .setg-card-bd { padding: 6px 24px; }
-.setg-pg .setg-card-bd--pad { padding: 22px 24px; }
+.setg-pg .setg-card-bd { padding: 0; }
+.setg-pg .setg-card-bd--pad { padding: 12px 0 14px; }
 /* A card whose only content is a hidden panel shows just its header. */
 .setg-pg .setg-card-bd:has(> [hidden]:only-child) { display: none; }
 .setg-pg .setg-card-hd:has(+ .setg-card-bd > [hidden]:only-child) { border-bottom: 0; }
@@ -202,26 +131,30 @@ html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
 .setg-pg .setg-card-bd:has(> .setg-fold.is-shut:only-child) { padding-block: 0; }
 
 .setg-pg .setg-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 32px;
-  align-items: center;
-  padding: 18px 0;
-  border-bottom: 1px solid var(--hair);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px;
+  min-height: 56px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hair);
+  border-bottom: 0;
 }
-.setg-pg .setg-row:last-child { border-bottom: 0; }
-/* A fold under the words, below the switch's row. */
-.setg-pg .setg-row > .fold-more { grid-column: 1; }
-@media (min-width: 640px) {
-  .setg-pg .setg-row:has(> .fold-more) { row-gap: 0; }
-}
-.setg-pg .setg-row-lbl { font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
-.setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 4px; line-height: 1.5; max-width: 58ch; }
+.setg-pg .setg-card-bd > .setg-row:first-child { border-top: 0; }
+.setg-pg .setg-row > :first-child { flex: 1 1 0; min-width: 0; }
+.setg-pg .setg-row > :nth-child(2) { flex: none; display: flex; align-items: center; max-width: 100%; }
+/* A field that wants the width, such as an address, goes under its words. */
+.setg-pg .setg-row:has(> div > .inp--fluid) { flex-direction: column; align-items: stretch; gap: 8px; }
+.setg-pg .setg-row:has(> div > .inp--fluid) > * { flex: none; }
+/* What the switch lacks, and the fold of what OpenAI gets, run under the words and the switch. */
+.setg-pg .setg-row > .ai-need, .setg-pg .setg-row > .fold-more { flex: 1 1 100%; }
+.setg-pg .setg-row-lbl { font-size: 15px; }
+.setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 2px; line-height: 1.4; max-width: 58ch; }
 .setg-pg .setg-row-sub a { color: var(--accent); }
+.setg-pg .setg-row select.inp, .setg-pg .setg-row input[type="time"].inp { width: auto; max-width: 200px; min-height: 40px; font-size: 15px; }
+.setg-pg .thresh-field { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.setg-pg .thresh-field .inp--num { min-height: 40px; text-align: center; font-size: 15px; }
+.setg-pg .thresh-field .unit { font-size: 13px; color: var(--t3); }
 /* What the AI switch lacks: the line grows and shrinks its own height, so the rows below slide. */
 .setg-pg .ai-need {
   --ai-need-gap: 0px;
-  grid-column: 1;
   display: grid;
   grid-template-rows: 0fr;
   margin-top: calc(-1 * var(--ai-need-gap));
@@ -234,14 +167,6 @@ html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
 /* Room on every side for the link's focus ring, which the shut line would clip. */
 .setg-pg .ai-need > div { min-height: 0; overflow: hidden; margin-inline: -4px; }
 .setg-pg .ai-need p { padding: 6px 4px 4px; color: var(--t2); }
-@media (max-width: 639.98px) {
-  .setg-pg .ai-need { --ai-need-gap: 10px; }
-  .setg-pg .ai-need p { padding-top: 0; }
-}
-@media (max-width: 639.98px) {
-  .setg-pg .setg-row { grid-template-columns: 1fr; gap: 10px; }
-  .setg-pg .setg-row > :last-child { width: 100%; }
-}
 
 .setg-pg .inp {
   background-color: var(--s2);
@@ -284,10 +209,9 @@ html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
 }
 .setg-pg .inp-reveal:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
 .setg-pg .inp-reveal:active { color: var(--t1); background: var(--rgba-overlay-lg); }
-.setg-pg .fld { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.setg-pg .fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .setg-pg .fld-lbl {
-  font-size: 11px; font-weight: 600; color: var(--t2);
-  text-transform: uppercase; letter-spacing: .08em;
+  font-size: 13px; font-weight: 500; color: var(--t2);
   display: flex; align-items: center; gap: 8px;
 }
 .setg-pg .fld-lbl .opt {
@@ -296,9 +220,9 @@ html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
   padding: 1px 7px; border-radius: var(--r-pill);
   background: var(--s3);
 }
-.setg-pg .fld-sub { font-size: 11.5px; color: var(--t3); line-height: 1.5; }
+.setg-pg .fld-sub { font-size: 12px; color: var(--t3); line-height: 1.4; }
 .setg-pg .fld-sub a { color: var(--accent); }
-.setg-pg .fld-row { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
+.setg-pg .fld-row { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
 .setg-pg .fld-row--full { grid-template-columns: 1fr; }
 @media (max-width: 639.98px) { .setg-pg .fld-row { grid-template-columns: 1fr; } }
 
@@ -325,70 +249,40 @@ html.has-setg-pg.is-bar-focus { scroll-padding-top: 0; }
 .setg-pg .conn.off      .conn-dot { background: var(--t4); }
 .setg-pg .conn.untested .conn-dot { background: var(--t4); opacity: .6; }
 
-.setg-pg .savebar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  padding: 14px var(--pad) max(14px, env(safe-area-inset-bottom, 0px));
-  background: rgba(20,20,22,.92);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
+/* The save bar, under the sections while anything is not saved. */
+.stx-save {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--hair-strong);
-  transform: translateY(100%);
-  /* Off-screen is not hidden: without visibility the "Unsaved changes" text
-     and both buttons stay readable and tabbable while nothing is edited. */
-  visibility: hidden;
-  transition: transform var(--dur-slow) var(--ease-out), visibility 0s var(--dur-slow);
+  background: color-mix(in srgb, var(--s2) 92%, transparent);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  animation: stx-save-in var(--dur-slow) var(--ease-out);
 }
-.setg-pg .savebar.on { transform: translateY(0); visibility: visible; transition-delay: 0s; }
-.setg-pg .savebar .sb-inner {
-  max-width: 1180px; margin: 0 auto;
-  display: flex; align-items: center; gap: 14px;
-}
-.setg-pg .savebar .sb-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--warning); box-shadow: var(--glow-warning);
-  flex: none;
-}
-.setg-pg .savebar .sb-msg { font-size: 13px; color: var(--t1); font-weight: 500; }
-.setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
-.setg-pg .savebar #save-status:empty { display: none; }
+@keyframes stx-save-in { from { transform: translateY(100%); opacity: 0; } }
+.stx-save:not(.on) { display: none; }
+.stx-save__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warning); box-shadow: var(--glow-warning); }
+.stx-save__text { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; }
+.stx-save__text > b { font-weight: 600; color: var(--t1); }
+.stx-save #save-status { color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stx-save #save-status:empty { display: none; }
+.stx-save .btn { flex: none; min-height: 40px; }
 /* Wide enough for "Save Settings", so "Saving…", "Saved ✓" and "Try again" do not shift the bar. */
-.setg-pg .savebar #btn-save { min-width: 8.5em; }
-
-.setg-pg .savebar.is-saved .sb-dot { background: var(--success); box-shadow: var(--glow-success); }
-
-/* Error state — danger red on a tinted chip,
-   never as a saturated background. The dot turns red, the sub-text takes
-   the danger colour, and the message gains an "Save failed" label. */
-.setg-pg .savebar.is-error .sb-dot {
-  background: var(--danger);
-  box-shadow: var(--glow-danger);
-}
-.setg-pg .savebar.is-error .sb-msg { color: var(--danger-text); }
-.setg-pg .savebar.is-error .sb-sub {
-  color: var(--danger-text);
-  background: var(--rgba-danger-bg);
-  padding: 4px 10px;
-  border-radius: var(--r-pill);
-  font-weight: 500;
-  /* Keep the long validation message readable — wrap onto multiple lines
-     rather than truncating, since it's how the user finds out what to fix. */
-  white-space: normal;
-  max-width: 60ch;
-  line-height: 1.35;
-}
-/* What is scrolled into view stops above the bar while it is up. */
-html.has-savebar { --savebar-below: 0px; scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--savebar-below) + 11px); }
-@media (max-width: 699.98px) {
-  .setg-pg .savebar { padding: 10px var(--pad) max(10px, env(safe-area-inset-bottom, 0px)); }
-  .setg-pg .savebar .sb-inner { gap: 10px; flex-wrap: wrap; }
-  .setg-pg .savebar .sb-msg { flex: 1 1 auto; }
-  .setg-pg .savebar .btn { flex: 0 0 auto; }
+.stx-save #btn-save { min-width: 8.5em; }
+.stx-save.is-saved .stx-save__dot { background: var(--success); box-shadow: var(--glow-success); }
+.stx-save.is-error .stx-save__dot { background: var(--danger); box-shadow: var(--glow-danger); }
+.stx-save.is-error .sb-msg { color: var(--danger-text); }
+/* What a save refused or did not cover is how the person finds out what to fix: it wraps, never cut short. */
+.stx-save.is-error #save-status,
+.stx-save.is-partial #save-status { white-space: normal; line-height: 1.35; }
+.stx-save.is-error #save-status { color: var(--danger-text); }
+@media (prefers-reduced-motion: reduce) {
+  .stx-save { animation-name: fade-in-stx-save; animation-duration: var(--dur-fast) !important; }
+  @keyframes fade-in-stx-save { from { opacity: 0; } }
 }
 @media (max-width: 380px) {
-  /* On very narrow phones, stack the action buttons to their own row so
-     neither label ("Discard" / "Save Settings") truncates. */
-  .setg-pg .savebar .sb-msg { flex: 1 1 calc(100% - 18px); }
-  .setg-pg .savebar .btn { flex: 1 1 0; }
+  .stx-save { flex-wrap: wrap; }
+  .stx-save__text { flex-basis: calc(100% - 18px); }
+  .stx-save .btn { flex: 1 1 0; }
 }
 
 /* Reauth modal — narrow variant of .modal-sheet for the savebar
@@ -446,7 +340,6 @@ html.has-savebar { --savebar-below: 0px; scroll-padding-bottom: calc(var(--saveb
 /* Phone and touch targets: a 44px hit area on the settings controls, with the look
    unchanged where it is the pill or switch itself that stays small. */
 @media (max-width: 699.98px), (pointer: coarse) {
-  .setg-pg .setg-rail-item,
   .setg-pg .fpill { min-height: 44px; }
   .setg-pg .tog::before { content: ""; position: absolute; inset: -9px -4px; }
   .setg-pg .lib-pill { display: inline-flex; align-items: center; min-height: 44px; }
@@ -462,16 +355,15 @@ html.has-savebar { --savebar-below: 0px; scroll-padding-bottom: calc(var(--saveb
 
 /* Forced colours drop backgrounds, which is all that dots, bars and a current choice are. */
 @media (forced-colors: active) {
-  .setg-pg .conn-dot, .setg-pg .sb-dot, .setg-pg .chip-dot {
+  .setg-pg .conn-dot, .stx-save__dot, .setg-pg .chip-dot {
     forced-color-adjust: none; border: 1px solid CanvasText;
   }
   .setg-pg .ov-storage .bar, .setg-pg .lp-bar2 { border: 1px solid CanvasText; }
   .setg-pg .ov-storage .bar span, .setg-pg .lp-bar2 span { forced-color-adjust: none; }
-  .setg-pg .setg-rail-item.on {
+  .stx-link[aria-current] {
     forced-color-adjust: none; background: Highlight; color: HighlightText;
   }
-  .setg-pg .setg-rail-item.on > .ico { color: inherit; }
-  .setg-pg .setg-rail-item.on .rail-count { color: inherit; background: none; }
+  .stx-link[aria-current] .stx-link__sub { color: inherit; }
 }
 
 /* Too narrow for the Test button beside the mark: the mark and some padding go so every control stays whole. */

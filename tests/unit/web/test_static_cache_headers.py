@@ -71,6 +71,9 @@ _LOADED = re.compile(
     r"""<(?:link|script)\b[^>]*\b(?:href|src)=["']([^"']*\.(?:css|js)\b[^"']*)["']"""
 )
 
+#: A pane's fragment names the files the page over it loads.
+_PANE_ASSETS = re.compile(r'data-(?:styles|scripts)="([^"]*)"')
+
 
 @pytest.fixture
 def get_page(conn, secret_key, authed_client):
@@ -84,7 +87,8 @@ def get_page(conn, secret_key, authed_client):
         client = authed_client(app, conn) if signed_in else TestClient(app)
         page = client.get(path, follow_redirects=False)
         assert "text/html" in page.headers["content-type"]
-        return _LOADED.findall(page.text), app.state.templates.env.globals["static_v"]
+        panes = [u for a in _PANE_ASSETS.findall(page.text) for u in a.split()]
+        return _LOADED.findall(page.text) + panes, app.state.templates.env.globals["static_v"]
 
     return _get
 
@@ -94,9 +98,9 @@ def get_page(conn, secret_key, authed_client):
     [
         ("/", True),
         ("/downloads", True),
-        ("/history", True),
-        ("/settings", True),
-        ("/account", True),
+        ("/history?pane=1", True),
+        ("/settings?pane=1", True),
+        ("/account?pane=1", True),
         ("/login", False),
         ("/keep/x", False),
         ("/download/x", False),

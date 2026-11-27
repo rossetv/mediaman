@@ -10,13 +10,12 @@ const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 Node.prototype.scrollIntoView = () => {};
 
 const b = (id, text) => ['button', { id }, text || ''];
-const DIALOG = (attrs) => ['div', { id: 'pic-dialog', class: 'modal-backdrop', role: 'dialog', 'aria-hidden': 'true', ...attrs },
-  ['h2', { id: 'pic-title' }], b('pic-close'),
+const VIEW = (attrs) => ['div', { id: 'pic-dialog', class: 'you-view', 'data-view': 'profile/picture', ...attrs },
   ['div', { id: 'pic-body' }],
   ['div', { id: 'pic-pick' }, ['div', { id: 'pic-error' }], ['img', { id: 'pic-now' }], ['div', { id: 'pic-kind' }],
     b('pic-upload'), b('pic-remove'),
     ...[1, 2, 3, 4].map((n) => ['label', {}, ['input', { type: 'radio', value: n }], ['img', { src: '/d' + n }]]),
-    b('pic-cancel'), b('pic-save', 'Save')],
+    b('pic-save', 'Save picture')],
   ['div', { id: 'pic-place' }, ['div', { id: 'pic-crop' }, ['canvas', {}]], ['input', { id: 'pic-zoom' }], b('pic-back'), b('pic-use')],
   ['input', { id: 'pic-file' }]];
 
@@ -24,16 +23,16 @@ const DIALOG = (attrs) => ['div', { id: 'pic-dialog', class: 'modal-backdrop', r
 function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fetch, decode = [800, 600], calm = true, wraps = false, blob = { type: 'image/jpeg' } } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
-  doc.body.appendChild(build(doc, ['main', {}, ['button', { id: 'pic-open' }, ['img', { src: '/d2' }]]]));
-  doc.body.appendChild(build(doc, DIALOG(attrs)));
+  doc.body.appendChild(build(doc, ['div', { 'data-you-group': 'profile', id: 'root' },
+    ['div', { class: 'you-view', 'data-view': 'profile' }, ['button', { id: 'pic-open' }, ['img', { src: '/d2' }]]], VIEW(attrs)]));
   const $ = (id) => doc.getElementById(id);
   const vars = {};
   $('pic-zoom').style.setProperty = (k, v) => { vars[k] = v; };
   const runs = [];
   $('pic-body').animate = (frames) => { const run = { cancelled: false, cancel() { run.cancelled = true; } }; runs.push({ run, from: frames[0].height, to: frames[1].height }); return run; };
-  Object.defineProperty($('pic-body'), 'offsetHeight', { get: () => ($('pic-dialog').hidden ? 0 : ($('pic-place').hidden ? 417 : 562) + ($('pic-error').textContent ? 74 : 0)
+  Object.defineProperty($('pic-body'), 'offsetHeight', { get: () => (($('pic-place').hidden ? 417 : 562) + ($('pic-error').textContent ? 74 : 0)
     + (wraps && $('pic-place').hidden && !$('pic-remove').hidden ? 51 : 0)) });
-  $('pic-dialog').hidden = true;
+  $('pic-place').hidden = true;
   $('pic-dialog').querySelectorAll('input').forEach((r) => { r.value = r.getAttribute('value'); });
   const drawn = [];
   const outs = [];
@@ -71,24 +70,31 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
     setTimeout: () => 0, clearTimeout: () => {}, matchMedia: () => ({ matches: calm }), parseFloat,
     getComputedStyle: () => ({ getPropertyValue: (n) => (n === '--dur-slow' ? ' .25s' : ' ease-out') }),
   };
-  ctx.ModalA11y = { register() {}, onOpened() {}, onClosed() {} };
   ctx.window = ctx;
-  ctx.MM = { api: { APIError, messageOf: (e, d) => (e.error === 'network_error' ? e.message : e.data && e.data.message) || d,
+  // The shell's pane, as watch/you.js gives it, at the view it shows; null while it is closed.
+  const you = { at: null, went: [], shown: (group) => group === 'profile' && you.at !== null, go: (to) => { you.went.push(to); you.at = to; } };
+  const tell = (type) => (doc.listeners[type] || []).forEach((fn) => fn({ detail: { group: 'profile', view: you.at } }));
+  ctx.MM = { you, api: { APIError, messageOf: (e, d) => (e.error === 'network_error' ? e.message : e.data && e.data.message) || d,
     get: () => { redirects += 1; return new Promise(() => {}); }, ...api } };
   vm.createContext(ctx);
-  ['core/dom.js', 'core/modal.js', 'profile-picture.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
-  ctx.MM.dom.holdPage = () => () => {};
+  const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
+  ['core/dom.js', 'profile-picture.js'].forEach(run);
   const fire = (id, type, e) => ($(id).listeners[type] || []).forEach((fn) => fn({ preventDefault() {}, target: $(id), stopImmediatePropagation() {}, ...e }));
   const radios = $('pic-pick').querySelectorAll('input');
   return {
-    $, vars, runs, drawn, outs, toasts, told, fire,
+    $, vars, runs, drawn, outs, toasts, told, fire, you, run,
+    // up to the hub, and the pane closed
+    up: () => { you.at = 'profile'; },
+    close: () => { tell('mm:you-hidden'); you.at = null; },
+    // the pane opened at the picture by its address
+    arrive: () => { you.at = 'profile/picture'; tell('mm:you-shown'); },
     click: (id) => { if (!$(id).disabled) fire(id, 'click'); },
     pick: (n) => radios[n - 1].listeners.change.forEach((fn) => fn({})),
     file: (f) => { $('pic-file').files = [f]; fire('pic-file', 'change'); },
     error: () => $('pic-error').textContent,
     radiosFree: () => radios.every((r) => !r.disabled),
     checked: () => radios.filter((r) => r.checked).map((r) => r.value).join(),
-    open: () => $('pic-dialog').getAttribute('aria-hidden') === 'false',
+    open: () => you.at === 'profile/picture',
     placing: () => !$('pic-place').hidden,
     state: () => [$('pic-kind').textContent, $('pic-remove').hidden, $('pic-save').disabled],
     left: () => made - revoked,
@@ -128,7 +134,7 @@ const scenarios = {
     const p = page();
     p.click('pic-open');
     p.pick(4);
-    p.click('pic-cancel');
+    p.up();
     const open = p.open();
     p.click('pic-open');
     return { open, state: p.state(), checked: p.checked(), told: p.told };
@@ -203,7 +209,7 @@ const scenarios = {
       p.file(JPEG);
       p.click('pic-use');
       p.click('pic-save');
-      if (leave) p.click('pic-close');
+      if (leave) p.close();
       await settle();
       return { sent, error: p.error(), open: p.open(), told: p.told, toasts: p.toasts, label: p.$('pic-save').textContent, state: p.state(), left: p.left(), redirects: p.redirects() };
     };
@@ -231,7 +237,7 @@ const scenarios = {
     p.file(JPEG);
     p.click('pic-use');
     p.click('pic-save');
-    p.click('pic-close');
+    p.close();
     p.click('pic-open');
     give(await answer(200, { kind: 'photo', choice: null, url: '/new' })());
     await settle();
@@ -246,7 +252,7 @@ const scenarios = {
     let give;
     const decode = { later: [] };
     const p = page({ decode, api: { put: () => new Promise((r, no) => { give = no; }) } });
-    const free = () => ['pic-upload', 'pic-remove'].map((id) => !p.$(id).disabled).concat(p.radiosFree(), !p.$('pic-close').disabled);
+    const free = () => ['pic-upload', 'pic-remove'].map((id) => !p.$(id).disabled).concat(p.radiosFree());
     p.click('pic-open');
     p.pick(3);
     const before = free();
@@ -313,22 +319,26 @@ const scenarios = {
     p.fire('pic-zoom', 'input');
     return out.concat(p.vars['--at']);
   },
-  async backdrop() {
+  // the hub's picture opens the view in the pane, at the picture kept, as does the pane's address
+  async opens() {
     const p = page();
     p.click('pic-open');
-    const stopped = [];
-    const press = (from) => {
-      p.fire('pic-dialog', 'pointerdown', { target: p.$(from) });
-      let stop = false;
-      for (const fn of p.$('pic-dialog').listeners.click) {
-        if (stop) break;
-        fn({ target: p.$('pic-dialog'), stopImmediatePropagation() { stop = true; } });
-      }
-      stopped.push(p.open());
-    };
-    press('pic-crop');
-    press('pic-dialog');
-    return stopped;
+    const went = p.you.went.slice();
+    p.pick(4);
+    p.arrive();
+    const arrived = [p.state(), p.checked()];
+    p.run('profile-picture.js');
+    p.click('pic-open');
+    return { went, arrived, again: p.you.went.length, mounted: p.$('root').getAttribute('data-mounted') };
+  },
+  // Escape while the photo is placed goes back to picking, and keeps the pane where it is
+  async escape() {
+    const p = page();
+    p.click('pic-open');
+    p.file(JPEG);
+    let kept = false;
+    p.fire('pic-place', 'keydown', { key: 'Escape', preventDefault() { kept = true; } });
+    return { placing: p.placing(), kept, at: p.you.at };
   },
 };
 

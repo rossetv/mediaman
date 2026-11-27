@@ -26,8 +26,9 @@ def test_a_drawn_picture_is_saved_once_and_shown_at_once() -> None:
     assert out["first"] == {"state": ["Your default picture", True, True], "checked": "2"}
     assert out["picked"] == {"state": ["Your pick", False, False], "now": "/d3", "sentYet": 0}
     assert out["sent"][0] == ["PUT", "/api/account/avatar", {"choice": 3}]
+    # saved, the view stays with nothing more to save
     assert out["saved"] == {
-        "open": False,
+        "open": True,
         "told": [["mm:avatar", "/d3"]],
         "toasts": ["Picture saved."],
         "head": "/d3",
@@ -43,7 +44,7 @@ def test_a_removed_picture_goes_back_to_the_default() -> None:
     assert out["last"] == {"told": [["mm:avatar", "/d2"]], "toasts": ["Picture removed."]}
 
 
-def test_cancelling_keeps_the_picture() -> None:
+def test_leaving_the_view_unsaved_keeps_the_picture() -> None:
     out = _run("cancel")
     assert out == {
         "open": False,
@@ -111,7 +112,8 @@ def test_a_photo_is_sent_as_it_is_and_shown_at_once() -> None:
     out = _run("photo")["saved"]
     assert out["sent"] == [["PUT", "/api/account/avatar/photo", "image/jpeg", "image/jpeg"]]
     assert out["told"] == [["mm:avatar", "/api/avatars/1?v=x"]]
-    assert (out["open"], out["toasts"], out["left"]) == (False, ["Picture saved."], 0)
+    assert (out["open"], out["toasts"], out["left"]) == (True, ["Picture saved."], 0)
+    assert out["state"] == ["Your photo", False, True]
 
 
 @pytest.mark.parametrize(
@@ -126,10 +128,10 @@ def test_a_photo_is_sent_as_it_is_and_shown_at_once() -> None:
 def test_a_photo_that_was_not_saved_says_why_and_can_be_tried_again(case, words) -> None:
     out = _run("photo")[case]
     assert (out["error"], out["open"], out["told"]) == (words, True, [])
-    assert (out["label"], out["state"]) == ("Save", ["Your photo", False, False])
+    assert (out["label"], out["state"]) == ("Save picture", ["Your photo", False, False])
 
 
-def test_a_failure_after_the_dialog_was_closed_is_still_said() -> None:
+def test_a_failure_after_the_pane_was_closed_is_still_said() -> None:
     assert _run("photo")["left"]["toasts"] == ["error: Too small."]
 
 
@@ -143,11 +145,23 @@ def test_a_photo_the_browser_could_not_cut_is_said() -> None:
     assert out["error"] and out["sent"] == []
 
 
-def test_a_drag_that_ends_on_the_backdrop_does_not_close_the_dialog() -> None:
-    assert _run("backdrop") == [True, False]
+def test_the_picture_opens_as_a_view_of_the_pane_at_the_picture_kept() -> None:
+    out = _run("opens")
+    assert out["went"] == ["profile/picture"]
+    # a pick left unsaved is gone when the pane opens at the picture by its address
+    assert out["arrived"] == [["Your default picture", True, True], "2"]
 
 
-def test_a_dialog_opened_again_while_a_photo_is_saved_shows_that_one_and_removes_nothing() -> None:
+def test_the_script_run_again_once_its_fragment_is_in_wires_nothing_twice() -> None:
+    out = _run("opens")
+    assert (out["again"], out["mounted"]) == (2, "picture")
+
+
+def test_escape_while_placing_goes_back_to_picking_and_keeps_the_pane() -> None:
+    assert _run("escape") == {"placing": False, "kept": True, "at": "profile/picture"}
+
+
+def test_a_view_opened_again_while_a_photo_is_saved_shows_that_one_and_removes_nothing() -> None:
     out = _run("reopened")
     assert out["after"] == {"open": True, "state": ["Your photo", False, True], "now": "/new"}
     assert out["sent"] == ["PUT /api/account/avatar/photo"]
@@ -155,9 +169,8 @@ def test_a_dialog_opened_again_while_a_photo_is_saved_shows_that_one_and_removes
 
 def test_nothing_else_is_chosen_while_a_picture_is_saved() -> None:
     out = _run("locked")
-    assert out["before"] == out["after"] == [True, True, True, True]
-    # it can still be closed
-    assert out["during"] == [False, False, False, True]
+    assert out["before"] == out["after"] == [True, True, True]
+    assert out["during"] == [False, False, False]
 
 
 def test_a_photo_being_read_is_waited_for_before_anything_is_saved() -> None:
@@ -199,11 +212,11 @@ def test_a_reason_comes_and_goes_by_the_height_and_is_brought_into_view() -> Non
     }
 
 
-def test_what_is_brought_into_view_stops_under_the_header_that_stays() -> None:
+def test_what_is_brought_into_view_stops_above_the_foot_that_stays() -> None:
     css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile_picture.css").read_text()
-    room = re.search(r"\.pic \{[^}]*scroll-padding-top: (\d+)px", css)
-    # the header: its padding of 18px at most and a close button of 44px
-    assert room and int(room[1]) >= 18 + 44
+    room = re.search(r"#pic-dialog \{[^}]*scroll-padding-bottom: (\d+)px", css)
+    # the foot: a button of 48px and its padding of 14px above and below
+    assert room and int(room[1]) >= 48 + 28
 
 
 def test_the_height_goes_to_where_a_wrapped_remove_button_takes_it() -> None:

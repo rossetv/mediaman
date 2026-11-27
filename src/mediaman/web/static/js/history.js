@@ -1,14 +1,16 @@
 /**
- * History page — everyone's events and plays for an admin, else a person's own.
+ * The History pane over Watch — everyone's events and plays for an admin, else a person's own.
  *
- *  - The first page comes with the document (#history-data) and the rest by cursor as the reader
- *    nears the end, or by a button for the keyboard. An event is listed once, whatever arrives.
- *  - Search and filters are kept in the address: a new one is a step Back undoes, typing on is not.
+ *  - The first page comes with the pane (#history-data) and the rest by cursor as the reader
+ *    nears the end of the pane's scroller, or by a button for the keyboard. An event is listed
+ *    once, whatever arrives.
+ *  - Search and filters are kept in the pane's place in the address, MM.history.address, which the
+ *    shell owns: a new one is a step Back undoes, typing on is not.
  *    `date` is a name (today, yesterday, week, month) or two days, `2026-11-01..2026-11-25`, of the
  *    reader's own zone; the server is asked for the moments they begin and end at,
  *    and for `since` and `until` as an address names them.
  *  - Only the last question's answer is shown: a slower one before it is dropped.
- *  - Each row is a <details>. Opening one keeps `?event=<id>` in the address (replaceState, so
+ *  - Each row is a <details>. Opening one keeps `event=<id>` in the address (a replace, so
  *    Back does not step through every row). What lies below a row slides along with it, and the
  *    edge of its card moves with them; with reduced motion it opens and folds at once.
  *  - Times are shown in the reader's zone; the details copied hold the UTC time too.
@@ -25,6 +27,8 @@
   var MOMENT = /^[12]\d{3}-\d\d-\d\d(T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|[+-]\d\d:\d\d)?)?$/;
   var DATES = { today: 'Today', yesterday: 'Yesterday', week: 'Last 7 days', month: 'Last 30 days' };
   var NAMES = { user: 'User', action: 'Action', title: 'Title', date: 'Date' };
+  var ANY = { user: 'Everyone', title: 'Any title', date: 'Any day' };
+  var CHIP_ICONS = { user: 'i-users', title: 'i-film', date: 'i-clock' };
 
   /* What an action is said as, its kind and its icon. */
   var ACTIONS = {
@@ -168,11 +172,12 @@
     return dateLabel((since && momentDay(since)) + '..' + (until && momentDay(until, true)));
   }
 
-  function start(root, data) {
+  function start(root, data, group) {
     var MM = window.MM;
     var icon = MM.dom.icon;
     var q = MM.dom.q;
     var tools = q('.hx-tools', root);
+    var groupsBox = q('.hx-groups', root);
     var search = q('.hx-search', root);
     var input = q('.hx-search input', root);
     var chipsBox = q('.hx-chips', root);
@@ -182,8 +187,8 @@
     var list = q('.hx-list', root);
     var more = q('.hx-more', root);
     var said = q('[data-hist-said]', root);
-    var menu = q('.hx-menu');
-    var veil = q('.hx-veil');
+    var menu = q('.hx-menu', group);
+    var veil = q('.hx-veil', group);
 
     var people = Object.create(null); // by what stands for them in the address
     data.people.forEach(function (p) { people[p.value] = p; });
@@ -203,15 +208,29 @@
     var menuOf = null;     // the filter whose menu is open
     var titlesOf = null;   // the last titles to choose from, and the question they answer
     var menuAsked = 0;
-    var at = '';           // the address listed, without its hash
+    var kindCounts = null; // how many events each kind of event holds, and the question they answer
+    var kindsAsked = 0;
+    var pageAt = '';       // the page of the list the address names, past the first
+    var at = '';           // the address listed
+    var scrollEl = null;
 
-    function here() {
-      var url = new URL(window.location.href);
-      return url.pathname + url.search;
+    function shown() { return !!(MM.you && MM.you.shown('history')); }
+    function scroller() { return MM.you && MM.you.scroller('history'); }
+
+    /* The pane's own keys of the address, as a URLSearchParams. */
+    function params() {
+      var place = MM.history && MM.history.address;
+      var read = place ? place.read() : null;
+      if (!read || typeof read === 'string' || read instanceof URLSearchParams) return new URLSearchParams(read || '');
+      var p = new URLSearchParams();
+      Object.keys(read).forEach(function (k) { if (read[k] != null && read[k] !== '') p.set(k, read[k]); });
+      return p;
     }
 
-    function go(method) {
-      window.history[method](null, '', address());
+    function here() { return params().toString(); }
+
+    function go(how) {
+      if (MM.history && MM.history.address) MM.history.address.write(address(), how);
       at = here();
     }
 
@@ -222,7 +241,7 @@
     /* Whether the address's moments include one this page does not read, as the server may have. */
     function readAddress() {
       var unread = false;
-      var p = new URL(window.location.href).searchParams;
+      var p = params();
       KEYS.forEach(function (k) {
         var text = p.get(k) || '';
         /* A stored title may begin or end with a tab. */
@@ -237,15 +256,17 @@
         if (text && !F[k]) unread = true;
       });
       opened = p.get('event');
+      pageAt = /^[1-9]\d{0,8}$/.test(p.get('page') || '') && p.get('page') !== '1' ? p.get('page') : '';
       return unread;
     }
 
-    function address(withoutEvent) {
-      var p = new URLSearchParams();
-      KEYS.forEach(function (k) { if (F[k]) p.set(k, F[k]); });
-      if (opened && !withoutEvent) p.set('event', opened);
-      var text = p.toString();
-      return '/history' + (text ? '?' + text : '');
+    /* What the address holds, by key. */
+    function address() {
+      var p = {};
+      KEYS.forEach(function (k) { if (F[k]) p[k] = F[k]; });
+      if (pageAt) p.page = pageAt;
+      if (opened) p.event = opened;
+      return p;
     }
 
     function query(extra, path) {
@@ -570,9 +591,7 @@
       var link = q('.hx-newest', root);
       if (link) link.remove();
       if (!(page > 1)) return;
-      link = el('a', 'hx-newest', 'Show the newest');
-      link.setAttribute('href', address(true));
-      sum.appendChild(link);
+      sum.appendChild(button('hx-newest', 'Show the newest', { 'data-hist-newest': '' }));
     }
 
     function show(page) {
@@ -605,9 +624,10 @@
         if (row.scrollIntoView) row.scrollIntoView({ block: 'center', behavior: 'auto' });
       } else if (opened) {
         opened = null;
-        go('replaceState');
+        go('replace');
       }
       linkNewest(page.page);
+      if (!none || filtered()) askKinds();
       near();
     }
 
@@ -651,7 +671,7 @@
         list.classList.add('is-old');
         slow = window.setTimeout(function () { if (me.n === asked) skeleton(); }, SLOW_MS);
       }
-      var extra = opened ? { event: opened } : {};
+      var extra = opened ? { event: opened } : pageAt ? { page: pageAt } : {};
       return MM.api.get(query(extra), { signal: me.signal }).then(function (res) {
         window.clearTimeout(slow);
         if (me.n !== asked) return;
@@ -712,7 +732,29 @@
     }
 
     function near() {
-      if (cursor && more.getBoundingClientRect().top < window.innerHeight + 300) loadMore(false);
+      var sc = scroller();
+      var bottom = sc ? sc.getBoundingClientRect().bottom : window.innerHeight;
+      if (cursor && more.getBoundingClientRect().top < bottom + 300) loadMore(false);
+    }
+
+    // What the keyboard brings into view clears the tools, however many lines their pills take.
+    if (window.ResizeObserver) {
+      var view = root.closest('.you-view');
+      if (view) new window.ResizeObserver(function () { view.style.setProperty('--hx-tools', tools.offsetHeight + 'px'); }).observe(tools);
+    }
+
+    function onScroll() {
+      tools.classList.toggle('is-stuck', scrollEl.scrollTop > 0);
+      near();
+    }
+
+    /* The pane's scroller may come only once it is shown. */
+    function bindScroll() {
+      var sc = scroller();
+      if (!sc || sc === scrollEl) return;
+      if (scrollEl) scrollEl.removeEventListener('scroll', onScroll);
+      scrollEl = sc;
+      sc.addEventListener('scroll', onScroll, { passive: true });
     }
 
     /* --- search and filters --- */
@@ -730,17 +772,58 @@
       return k === 'action' ? actionLabel(F[k]) : k === 'date' ? dateLabel(F[k]) : F[k];
     }
 
+    /* The kinds of event as a row of pills, one pressed: All, or the kind chosen. */
+    function groupPills() {
+      var had = document.activeElement && groupsBox.contains(document.activeElement);
+      var kinds = [['', 'All']].concat(data.actions);
+      var known = kinds.some(function (a) { return a[0] === F.action; });
+      if (!known) kinds.splice(1, 0, [F.action, actionLabel(F.action)]);
+      empty(groupsBox);
+      kinds.forEach(function (a) {
+        var pill = button('hx-group', a[1], { 'data-group': a[0], 'aria-pressed': String(a[0] === F.action) });
+        if (a[0]) pill.appendChild(el('small'));
+        groupsBox.appendChild(pill);
+      });
+      fillKinds();
+      if (had) focusChip('action');
+    }
+
+    function fillKinds() {
+      if (!kindCounts || kindCounts.question !== query()) return;
+      kindCounts.options.forEach(function (o) {
+        var pill = MM.dom.findByAttr(groupsBox, 'data-group', o.value);
+        var small = pill && pill.querySelector('small');
+        if (!small) return;
+        // A kind with none says no count, so the row stays short enough to fit.
+        small.textContent = o.count ? o.count.toLocaleString('en-GB') : '';
+        if (o.count) pill.setAttribute('aria-label', o.label + ': ' + small.textContent);
+        else pill.removeAttribute('aria-label');
+      });
+    }
+
+    /* The count of each kind of event under the other filters, for its pill. */
+    function askKinds() {
+      var question = query();
+      var me = ++kindsAsked;
+      MM.api.get(query({ menu: 'action' }, '/menu')).then(function (res) {
+        if (me !== kindsAsked) return;
+        kindCounts = { question: question, options: res.options };
+        fillKinds();
+      }, function () {});
+    }
+
     function chips() {
       var had = document.activeElement && document.activeElement.getAttribute ? document.activeElement.getAttribute('data-menu') : null;
+      groupPills();
       empty(chipsBox);
-      ['user', 'action', 'title', 'date'].forEach(function (k) {
+      ['user', 'title', 'date'].forEach(function (k) {
         if (k === 'user' && !data.admin) return;
         var label = chipLabel(k);
         var open = button('hx-chip__open', [], {
           'data-menu': k, 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': NAMES[k] + (label ? ': ' + label : '')
         });
-        if (k === 'user' && F.user) open.appendChild(faceOf(person(F.user)));
-        open.appendChild(el('span', '', label || NAMES[k]));
+        open.appendChild(k === 'user' && F.user ? faceOf(person(F.user)) : icon(CHIP_ICONS[k]));
+        open.appendChild(el('span', '', label || ANY[k]));
         open.appendChild(icon('i-chevron-down'));
         var chip = el('span', 'hx-chip' + (label ? ' is-set' : ''), open);
         if (label) chip.appendChild(button('hx-chip__clear', icon('i-xmark'), { 'data-clear': k, 'aria-label': 'Clear ' + NAMES[k].toLowerCase() }));
@@ -752,16 +835,15 @@
     }
 
     function focusChip(k) {
-      var b = MM.dom.findByAttr(chipsBox, 'data-menu', k);
+      var b = k === 'action' ? MM.dom.findByAttr(groupsBox, 'aria-pressed', 'true') : MM.dom.findByAttr(chipsBox, 'data-menu', k);
       if (b) b.focus({ preventScroll: true });
     }
 
-    function barTop() { return parseFloat(window.getComputedStyle(tools).top) || 0; }
-
     /* The list's top, under the tools, when the reader is further down. */
     function toTop() {
-      var away = sum.getBoundingClientRect().top - tools.getBoundingClientRect().bottom;
-      if (away < 0) window.scrollTo({ top: window.scrollY + away });
+      var sc = scroller();
+      var away = list.getBoundingClientRect().top - tools.getBoundingClientRect().bottom;
+      if (sc && away < 0) sc.scrollTo({ top: sc.scrollTop + away });
     }
 
     /* A change of what is asked for: the address's next step, unless it goes on from the one there is. */
@@ -769,7 +851,8 @@
       window.clearTimeout(typed);
       typed = null;
       opened = null;
-      go(sameStep ? 'replaceState' : 'pushState');
+      pageAt = '';
+      go(sameStep ? 'replace' : 'push');
       chips();
       toTop();
       load(false);
@@ -1015,8 +1098,10 @@
       }
       var r = btn.getBoundingClientRect();
       var left = Math.max(12, Math.min(r.left, document.documentElement.clientWidth - 312));
-      menu.style.left = left + 'px';
-      menu.style.top = r.bottom + 6 + 'px';
+      /* The veil covers what the menu is placed in, which a pane drawn as glass makes its own. */
+      var origin = veil.getBoundingClientRect();
+      menu.style.left = left - origin.left + 'px';
+      menu.style.top = r.bottom + 6 - origin.top + 'px';
       menu.style.maxHeight = phone() ? '' : Math.min(440, window.innerHeight - r.bottom - 20) + 'px';
       if (menu.style.setProperty) menu.style.setProperty('--ox', r.left - left + 30 + 'px');
       btn.setAttribute('aria-expanded', 'true');
@@ -1075,7 +1160,7 @@
       if (row.open) opened = id;
       else if (opened === id) opened = null;
       else return;
-      go('replaceState');
+      go('replace');
     }
 
     /* Slide what follows the row, up to the page's end, along with its details. */
@@ -1155,25 +1240,37 @@
     /* --- wiring --- */
 
     root.addEventListener('click', function (e) {
+      /* Within the list alone: the pane's view holds a data-title of its own. */
+      function hit(sel) {
+        var n = e.target.closest(sel);
+        return n && root.contains(n) ? n : null;
+      }
       var b;
-      if ((b = e.target.closest('.hist-sum'))) onSummary(e, b.parentNode);
-      else if ((b = e.target.closest('[data-hist-copy]'))) onCopy(b);
-      else if ((b = e.target.closest('[data-menu]'))) openMenu(b.getAttribute('data-menu'), b);
-      else if ((b = e.target.closest('[data-clear]'))) {
+      if ((b = hit('.hist-sum'))) onSummary(e, b.parentNode);
+      else if ((b = hit('[data-hist-copy]'))) onCopy(b);
+      else if ((b = hit('[data-menu]'))) openMenu(b.getAttribute('data-menu'), b);
+      else if ((b = hit('[data-clear]'))) {
         var k = b.getAttribute('data-clear');
         choose(k, '');
-      } else if ((b = e.target.closest('[data-title]'))) choose('title', b.getAttribute('data-title'));
-      else if ((b = e.target.closest('[data-user]'))) choose('user', b.getAttribute('data-user'));
-      else if (e.target.closest('[data-hist-clear]')) clearAll();
-      else if (e.target.closest('[data-hist-retry]')) retry();
-      else if (e.target.closest('[data-hist-more]')) {
+      } else if ((b = hit('[data-title]'))) choose('title', b.getAttribute('data-title'));
+      else if ((b = hit('[data-user]'))) choose('user', b.getAttribute('data-user'));
+      else if ((b = hit('[data-group]'))) {
+        typing = false;
+        F.action = b.getAttribute('data-group');
+        closeMenu(false);
+        change(false);
+        focusChip('action');
+      } else if (hit('[data-hist-newest]')) change(false);
+      else if (hit('[data-hist-clear]')) clearAll();
+      else if (hit('[data-hist-retry]')) retry();
+      else if (hit('[data-hist-more]')) {
         var failing = q('.hx-fail', more);
         if (failing) {
           foot();
           q('[data-hist-more]', more).focus({ preventScroll: true });
         }
         loadMore(true);
-      } else if (e.target.closest('.hx-x')) {
+      } else if (hit('.hx-x')) {
         input.value = '';
         searchNow();
         search.classList.remove('has-q');
@@ -1215,22 +1312,21 @@
     });
 
     document.addEventListener('keydown', function (e) {
-      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || menuOf || tools.hidden) return;
+      if (!shown() || e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || menuOf || tools.hidden) return;
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || document.querySelector('.profile-menu[open]')) return;
       e.preventDefault();
       input.focus({ preventScroll: true });
     });
 
-    window.addEventListener('scroll', function () {
-      tools.classList.toggle('is-stuck', tools.getBoundingClientRect().top <= barTop());
-      near();
-    }, { passive: true });
     window.addEventListener('resize', function () {
+      if (!shown()) return;
       if (phone()) menu.style.maxHeight = '';
       else closeMenu(false);
       near();
     });
-    window.addEventListener('popstate', function () {
+
+    /* Back and Forward move the shell's address; the list follows it while it is shown. */
+    function follow() {
       if (here() === at) return;
       at = here();
       window.clearTimeout(typed);
@@ -1240,26 +1336,42 @@
       input.value = F.q;
       chips();
       load(false);
+    }
+    window.addEventListener('popstate', function () { if (shown()) follow(); });
+    document.addEventListener('mm:you-shown', function (e) {
+      if (!e.detail || e.detail.group !== 'history') return;
+      bindScroll();
+      follow();
+      near();
+    });
+    document.addEventListener('mm:you-hidden', function (e) {
+      if (e.detail && e.detail.group === 'history') closeMenu(false);
     });
 
     at = here();
     var unread = readAddress();
-    /* The server's words for what it filtered by, where the address has them. */
-    ['q', 'user', 'action', 'title'].forEach(function (k) { F[k] = data.filters[k] || ''; });
+    /* The pane is fetched once, so what it was sent may be for another address than this. */
+    var same = ['q', 'user', 'action', 'title'].every(function (k) { return F[k] === (data.filters[k] || ''); }) &&
+      (opened ? data.items.some(function (i) { return String(i.id) === opened; }) : String(data.page || 1) === (pageAt || '1'));
     input.value = F.q;
     chips();
-    if (unread) go('replaceState');
-    if (F.date || unread) load(true);
+    bindScroll();
+    if (unread) go('replace');
+    if (F.date || unread || !same) load(true);
     else {
       show({ items: data.items, cursor: data.cursor, total: data.total, page: data.page });
       tellEverything();
     }
   }
 
+  /* Once for each History pane, however often the script runs. */
   function init() {
-    var root = document.querySelector('[data-hist]');
-    var island = document.getElementById('history-data');
-    if (root && island) start(root, JSON.parse(island.textContent));
+    var root = document.querySelector('[data-hist]:not([data-mounted])');
+    var group = root && (root.closest('[data-you-group]') || document);
+    var island = group && group.querySelector('#history-data');
+    if (!root || !island) return;
+    root.setAttribute('data-mounted', '');
+    start(root, JSON.parse(island.textContent), group);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
