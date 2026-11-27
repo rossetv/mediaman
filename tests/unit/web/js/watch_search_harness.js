@@ -3095,6 +3095,14 @@ scenarios.tonight = async () => {
   return out;
 };
 
+/* The picture in the search field's token: its poster's address and the icon's symbol, null for none. */
+function tokenFace(p) {
+  const face = p.$('watch-search-token').querySelector('.watch-face');
+  const img = face.querySelector('img');
+  const use = face.querySelector('.ico use');
+  return [img ? img.getAttribute('src') || img.src : null, use ? use.getAttribute('href') : null];
+}
+
 scenarios.like = async () => {
   const p = await asking();
   const search = p.ctx.MMWatch.search;
@@ -3102,6 +3110,13 @@ scenarios.like = async () => {
   search.like('movie-1', 'Nine Locks', '/api/poster/1'); await settle();
   out.sent = p.sent('/like').map((c) => c[2]);
   out.page = [p.url(), p.$('watch-search-token').textContent, p.head(), p.shown()];
+  out.face = tokenFace(p);
+  // Marked broken as broken-poster.js does, the poster no longer matches the rule that hides the sparkle.
+  const img = p.$('watch-search-token').querySelector('.watch-face img');
+  const poster = () => img.matches('img:not([data-broken])');
+  out.posterHides = [poster()];
+  img.setAttribute('data-broken', '');
+  out.posterHides.push(poster());
   await p.reply('POST', '/like', ANSWER);
   out.answer = p.head();
   await p.back();
@@ -3111,12 +3126,14 @@ scenarios.like = async () => {
   out.linked = [linked.sent('/like').length, linked.url(), linked.shown()];
   const session = {};
   const before = await asking({}, { session });
-  before.ctx.MMWatch.search.like('movie-1', 'Nine Locks', ''); await settle();
+  before.ctx.MMWatch.search.like('movie-1', 'Nine Locks', '/api/poster/1'); await settle();
   before.ctx.MMWatch.search.like('tmdb-tv-5', 'Dockside', ''); await settle();
+  out.noPoster = tokenFace(before);
   await before.ask(Q);
   // A title's page, though others were asked since.
   const again = await asking({}, { session }, '', '/?like=movie-1');
   out.again = [again.sent('/like').map((c) => c[2].ref), again.head(), again.$('watch-search-token').textContent];
+  out.againFace = tokenFace(again);
   const none = await asking({ available: false });
   out.none = none.ctx.MMWatch.search.canLike('movie-1');
   return out;
@@ -3685,7 +3702,7 @@ const TASTE = {
     { kind: 'person', person_id: 77, name: 'Ines Varga', text: 'With Ines Varga', profile_url: '/api/watch/img/tmdb/w185/i.jpg' },
     { kind: 'genre', genre: 'comedy', type: 'all', sort: 'newest', text: 'New comedies' },
   ],
-  like: { ref: 'tmdb-tv-60625', name: 'Rick and Morty', text: 'More like Rick and Morty' },
+  like: { ref: 'tmdb-tv-60625', name: 'Rick and Morty', text: 'More like Rick and Morty', poster_url: '/api/poster/60625' },
 };
 const NEWBIE = { personal: false, order: TASTE.order.slice().reverse(), favourites: [], chips: [], like: null };
 
@@ -3724,7 +3741,7 @@ scenarios.forYou = async () => {
   const r = (await sheetFor(TASTE, {})).p;
   click(r.doc, r.sheet.querySelectorAll('.watch-try--for').find((n) => n.textContent.startsWith('More like'))); await settle();
   const strip = ({ p: _p, ...rest }) => rest;
-  return { withAi: strip(withAi), noKey: strip(noKey), opened, person: q.url(), like: [r.url(), r.calls.filter((c) => c.url.includes('/like')).map((c) => c.body)] };
+  return { withAi: strip(withAi), noKey: strip(noKey), opened, person: q.url(), like: [r.url(), r.calls.filter((c) => c.url.includes('/like')).map((c) => c.body)], likeFace: tokenFace(r) };
 };
 
 scenarios.forYouNewbie = async () => {
