@@ -133,30 +133,35 @@ def _specificity(selector: str) -> tuple[int, int, int]:
     return ids, classes, tags
 
 
-def _z_of(selector_matches) -> list[tuple[tuple[int, int, int], int]]:
-    """(specificity, z-index) of every rule outside @media, in any sheet, whose selector picks
-    an element as *selector_matches* says, its token resolved to a number."""
+_MEDIA = re.compile(r"@media([^{]*)\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}")
+
+
+def _z_of(selector_matches) -> list[tuple[tuple[int, int, int], int, str | None]]:
+    """(specificity, z-index, @media condition or None) of every rule, in any sheet, whose
+    selector picks an element as *selector_matches* says, its token resolved to a number."""
     tokens = dict(re.findall(r"--(z-[\w-]+):\s*(\d+);", (_CSS / "_tokens.css").read_text()))
     found = []
     for sheet in _CSS.glob("*.css"):
         css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
-        css = re.sub(r"@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", "", css)
-        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
-            z = re.search(r"z-index:\s*(?:var\(--(z-[\w-]+)\)|(\d+))\s*;", body)
-            if not z:
-                continue
-            value = int(tokens[z.group(1)] if z.group(1) else z.group(2))
-            found += [
-                (_specificity(sel.strip()), value)
-                for sel in head.split(",")
-                if selector_matches(sel.strip())
-            ]
+        blocks = [(None, _MEDIA.sub("", css))]
+        blocks += [(m.group(1).strip(), m.group(2)) for m in _MEDIA.finditer(css)]
+        for media, rules in blocks:
+            for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules):
+                z = re.search(r"z-index:\s*(?:var\(--(z-[\w-]+)\)|(\d+))\s*;", body)
+                if not z:
+                    continue
+                value = int(tokens[z.group(1)] if z.group(1) else z.group(2))
+                found += [
+                    (_specificity(sel.strip()), value, media)
+                    for sel in head.split(",")
+                    if selector_matches(sel.strip())
+                ]
     return found
 
 
 def test_the_dialog_stands_over_the_pane_over_watch_and_a_title_s_page() -> None:
     # The pane over Watch holds Settings; a save there asks for the password over it.
-    pane = max(_z_of(lambda sel: sel == ".you"))[1]
+    pane = max(z for _, z, _ in _z_of(lambda sel: sel == ".you"))
 
     def picks_the_backdrop(sel: str) -> bool:
         *above, last = sel.split()
@@ -169,11 +174,11 @@ def test_the_dialog_stands_over_the_pane_over_watch_and_a_title_s_page() -> None
         )
 
     rules = _z_of(picks_the_backdrop)
-    top = max(spec for spec, _ in rules)
-    winners = {z for spec, z in rules if spec == top}
-    # one rule wins outright, whatever order the sheets load in, and it is over the pane
-    assert len([1 for spec, _ in rules if spec == top]) == 1
-    assert winners.pop() > pane
+    top = max(spec for spec, _, media in rules if media is None)
+    # one rule wins outright at every width, whatever order the sheets load in, and it is
+    # over the pane; a narrower or wider screen's rule as strong may not bring it under
+    assert len([1 for spec, _, media in rules if spec == top and media is None]) == 1
+    assert {(media, z) for spec, z, media in rules if spec >= top and z <= pane} == set()
 
 
 def test_escape_closes_the_dialog_alone_and_not_the_pane_it_was_opened_over() -> None:
