@@ -39,13 +39,6 @@ class TestSessionLifecycle:
     def test_login_use_logout_cycle(self, app_factory, conn, monkeypatch):
         """Full session lifecycle: login, authenticated call, logout, then 401."""
         monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "false")
-        # The lru_cache on `_secure_cookie_override` would otherwise hold a
-        # stale value from earlier tests in the process. The unit-test suite
-        # does this via an autouse fixture; integration tests have no such
-        # hook, so we invalidate explicitly.
-        from mediaman.web.cookies import _secure_cookie_override
-
-        _secure_cookie_override.cache_clear()
 
         create_user(conn, "admin", "P@ssw0rd!Str0ng", enforce_policy=False)
 

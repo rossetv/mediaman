@@ -219,6 +219,20 @@ def _reset_notification_claims_ending():
 
 
 @pytest.fixture(autouse=True)
+def _reset_secure_cookie_override():
+    """A test's ``MEDIAMAN_FORCE_SECURE_COOKIES`` must not decide the next one's Secure flag.
+
+    The override is read once and cached, so a value set under one test's monkeypatch would
+    outlive it.
+    """
+    from mediaman.web.cookies import _secure_cookie_override
+
+    _secure_cookie_override.cache_clear()
+    yield
+    _secure_cookie_override.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_scrubbed_secrets():
     """A secret one test registers must not be masked in the log of the next."""
     from mediaman.core import scrub_filter
