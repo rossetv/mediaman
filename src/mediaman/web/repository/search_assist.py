@@ -122,6 +122,16 @@ def recent_searches(conn: sqlite3.Connection, user_id: int, limit: int) -> list[
     return [r["phrase"] for r in rows]
 
 
+def recent_searches_at(conn: sqlite3.Connection, user_id: int, limit: int) -> list[tuple[str, str]]:
+    """(phrase, when it was searched) of the person's latest searches, the latest first."""
+    rows = conn.execute(
+        "SELECT phrase, searched_at FROM user_searches WHERE user_id = ?"
+        " ORDER BY searched_at DESC, rowid DESC LIMIT ?",
+        (user_id, limit),
+    )
+    return [(r["phrase"], r["searched_at"]) for r in rows]
+
+
 def clear_searches(conn: sqlite3.Connection, user_id: int) -> None:
     """Forget the person's searches, and the phrases and answers made from them."""
     with conn:

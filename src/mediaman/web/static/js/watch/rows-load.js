@@ -380,5 +380,5 @@
     return !row || row.add(card);
   }
 
-  window.MMWatch.rowsLoad = { start: start, forward: forward, add: add, keyOf: keyOf };
+  window.MMWatch.rowsLoad = { start: start, forward: forward, add: add, keyOf: keyOf, onlyNew: onlyNew, unload: unload, reload: reload };
 })();

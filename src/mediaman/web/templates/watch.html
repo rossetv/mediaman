@@ -28,6 +28,7 @@
 <link rel="stylesheet" href="/static/css/_watch_cast.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_collection.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_preview.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_next.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_you.css?v={{ static_v }}">
 {% if is_admin %}
 <link rel="stylesheet" href="/static/css/_watch_list.css?v={{ static_v }}">
@@ -197,6 +198,7 @@
       {% for row in shelf if row['items'] and row['library'] %}{{ row_section(row) }}{% endfor %}
       {% endif %}
     </div>
+    {% if not watch_error and (tmdb_configured or picks_on) %}{% include "_watch_next.html" %}{% endif %}
   </div>
   {% if grid %}{{ g.section(grid, library_types) }}{% endif %}
 
@@ -242,6 +244,7 @@
 <script src="/static/js/dl-abandon.js?v={{ static_v }}" defer></script>
 {% endif %}
 <script src="/static/js/watch/explore.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/watchnext.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch-rows.js?v={{ static_v }}" defer></script>
 {% endblock %}

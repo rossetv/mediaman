@@ -141,7 +141,10 @@
       leaving: textOf(poster, '.watch-badge__long'),
       poster: img && !img.hasAttribute('data-broken') ? img.getAttribute('src') : '',
       pick: pickOf(link),
-      why: link.getAttribute('data-ai-why') || '' // what the AI said of it, where a search's AI picked it
+      why: link.getAttribute('data-ai-why') || link.getAttribute('data-why') || '', // what the AI said of it, where a search's AI picked it
+      // Why Watch next shows it, where that is not the AI: its words and icon.
+      said: link.getAttribute('data-ai-why') ? '' : link.getAttribute('data-why-label') || '',
+      saidIcon: /^i-[a-z-]{1,40}$/.test(link.getAttribute('data-why-icon') || '') ? link.getAttribute('data-why-icon') : ''
     };
   }
 
@@ -648,7 +651,7 @@
     if (p.rating) p.body.appendChild(p.rating.line);
     var why = (d && (d.why || d.reason)) || p.card.why;
     if (!d && p.card.pick && !why) p.body.appendChild(reason('', p.card.pick)).appendChild(lines(['92%', '60%']));
-    else if (why || (d && p.card.pick)) p.body.appendChild(reason(why || '', p.card.pick));
+    else if (why || (d && p.card.pick)) p.body.appendChild(reason(why || '', p.card.pick, p.card));
     p.n.classList.toggle('pv--reason', !!p.card.pick || !!why);
     var words = d && (d.overview || d.tagline);
     if (words) p.body.appendChild(el('p', 'pv__text', words));
@@ -663,11 +666,18 @@
     return box;
   }
 
-  /* The AI label and why it is a pick; a person's own (*pick* "pick-…") says why they will like it. */
-  function reason(text, pick) {
+  /* The AI label and why it is a pick; a person's own (*pick* "pick-…") says why they will like it.
+     A card that says why it is shown otherwise (*card*.said) has its own label. */
+  function reason(text, pick, card) {
     var box = el('div', 'pv__reason');
     var head = box.appendChild(el('p', 'pv__reason-head'));
-    head.appendChild(core.aiLabel('AI pick'));
+    if (!pick && card && card.said) {
+      var label = head.appendChild(el('span', 'pv__label'));
+      if (card.saidIcon) label.appendChild(icon(card.saidIcon));
+      label.appendChild(document.createTextNode(card.said));
+    } else {
+      head.appendChild(core.aiLabel('AI pick'));
+    }
     if (/^pick-/.test(pick || '')) head.appendChild(el('span', '', 'Why you’ll like it'));
     if (text) box.appendChild(el('p', '', text));
     return box;

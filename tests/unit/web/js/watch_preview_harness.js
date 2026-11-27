@@ -40,7 +40,7 @@ const showOf = (seasons) => ({
 
 function card(id, title, over = {}) {
   return ['article', { class: 'watch-card', id, ...(over.mark ? { 'data-mark': over.mark } : {}), ...(over.keep ? { 'data-keep-id': over.keep } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
-    ['a', { class: 'watch-card__link', href: over.href || '/watch#title=' + over.ref, ...(over.ref ? { 'data-title-ref': over.ref } : {}), ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie' } : {}), ...(over.why ? { 'data-ai-why': over.why } : {}) },
+    ['a', { class: 'watch-card__link', href: over.href || '/watch#title=' + over.ref, ...(over.ref ? { 'data-title-ref': over.ref } : {}), ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie' } : {}), ...(over.why ? { 'data-ai-why': over.why } : {}), ...(over.said ? { 'data-why': over.said[0], 'data-why-label': over.said[1], 'data-why-icon': over.said[2] } : {}) },
       ['span', { class: 'watch-card__poster' }, ['img', { src: '/api/poster/1' }], ['span', { class: 'watch-card__title' }, title],
         ...(over.leaving ? [['span', { class: 'watch-badge watch-badge--leaving' }, ['span', { class: 'watch-badge__long' }, over.leaving]]] : []),
         ...(over.pct ? [['progress', { class: 'watch-bar', value: String(over.pct) }]] : [])],
@@ -63,6 +63,7 @@ const CARDS = [
   card('held', 'Held', { ref: 'movie-3', pick: 'rec-6' }),
   card('going', 'The Long Coast', { href: '/watch/play/22?resume=1', dismiss: 'show-2', mark: 'episode/22', pct: 40, sub: 'S2 · E4 · 23 min left' }),
   card('aiPick', 'Dockside', { ref: 'tmdb-movie-9', why: 'Tense and kind, as you like them.' }),
+  card('trending', 'Harbourlight', { ref: 'tmdb-movie-11', said: ['One of the most watched titles on TMDB this week.', 'Trending', 'i-trend'] }),
   card('ownPick', 'Mine', { ref: 'pick-8' }),
 ];
 
@@ -826,6 +827,13 @@ const scenarios = {
     const h = load({ api: { 'pick-8': reply } });
     await h.rest('ownPick', 800);
     return { reason: h.text('.pv__reason') };
+  },
+  /* A card Watch next shows for another reason says it in its own words, under its own label, not the AI's. */
+  async otherWhy() {
+    const h = load({ api: { 'tmdb-movie-11': { ...OUTSIDE, ref: 'tmdb-movie-11' } } });
+    await h.rest('trending', 800);
+    const box = h.pv().querySelector('.pv__reason');
+    return { reason: h.text('.pv__reason'), ai: !!box.querySelector('.ai-label'), icon: box.querySelector('.pv__label use').getAttribute('href') };
   },
   /* A card the AI picked in a search: why, from the card, before the reply and after it, and on to its page. */
   async aiWhy() {
