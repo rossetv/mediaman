@@ -1264,7 +1264,7 @@ const scenarios = {
     return out;
   },
 
-  // What they are known for is a row of the Watch page's own cards, under who they are, and it comes though their titles below it wait.
+  // What they are known for is a row of the Watch page's own cards, in the heading of who they are, and it comes though their titles below it wait.
   async personKnownRow() {
     const p = await ready(ADMIN, '', '/?person=9001', undefined, { gridWaits: true });
     const known = [{ ...TM, library_ref: 'movie-1', title: 'Salt' }, { ...TM, title: 'Road' }];
@@ -1273,7 +1273,7 @@ const scenarios = {
     return {
       title: p.doc.querySelector('.explore-title').textContent,
       inHead: !!row.closest('.explore-head'),
-      beforeTitles: row.nextSibling === p.doc.querySelector('.explore-grid'),
+      beforeTitles: row.parentNode.nextSibling === p.doc.querySelector('.explore-grid'),
       cards: p.doc.querySelectorAll('.explore-known a').filter((a) => a.classList.contains('watch-card__link') && a.parentNode.classList.contains('watch-card') && a.parentNode.parentNode.classList.contains('watch-row__scroll')).map((a) => a.getAttribute('data-title-ref')),
       grid: p.grids[0].titles.length,
     };

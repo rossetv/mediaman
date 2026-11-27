@@ -687,7 +687,8 @@
     known.appendChild(viewport);
     f.text.appendChild(years);
     f.head.appendChild(story);
-    f.node.insertBefore(known, f.host);
+    // In the heading: beside who they are where there is room, under them where not.
+    f.head.appendChild(known);
     years.appendChild(line('130px'));
     ['100%', '96%', '64%'].forEach(function (w) { bio.appendChild(line(w)); });
     for (var i = 0; i < 4; i++) posters.appendChild(outlineCard());

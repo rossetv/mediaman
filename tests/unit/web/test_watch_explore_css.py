@@ -37,3 +37,15 @@ def test_the_known_for_row_runs_to_the_screens_edges_where_its_fades_are() -> No
     rule = re.search(r"\n\.explore-known \{([^}]*)\}", css)
     assert rule and "container-type: inline-size" in rule.group(1)
     assert "calc(-1 * var(--pad))" in rule.group(1)
+
+
+def test_where_it_fits_known_for_stands_beside_who_they_are_and_under_them_where_not() -> None:
+    css = (CSS / "_watch_explore.css").read_text()
+    wide = re.search(r"@media \(min-width: 1360px\) \{(.*?)\n\}", css, re.S)
+    assert wide, "a wide layout"
+    beside = re.search(
+        r"\.explore--person \.explore-head > \.explore-known \{([^}]*)\}", wide.group(1)
+    )
+    assert beside and "grid-column: 3" in beside.group(1) and "grid-row: 1 / 3" in beside.group(1)
+    under = re.search(r"\n\.explore--person \.explore-head > \.explore-known \{([^}]*)\}", css)
+    assert under and "grid-column: 1 / -1" in under.group(1)
