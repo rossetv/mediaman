@@ -42,17 +42,18 @@
   var FADE_MS = 220; // past --dur
   var SWAP_FALLBACK_MS = 400; // past the slowest motion token, for an animation that never runs
 
+  /* False, and the page stays, while it holds edits that leaving would lose. */
   function toLogin() {
+    if (MM.api.hasUnsavedChanges && MM.api.hasUnsavedChanges()) return false;
     var here = window.location;
     var place = here.pathname + here.search;
     here.href = '/login' + (place === '/' ? '' : '?next=' + encodeURIComponent(place)) + here.hash;
+    return true;
   }
 
   /* A 401: the session ran out, so the login page, not a "Couldn't load". */
   function loggedOut(err) {
-    if (!(err && err.status === 401)) return false;
-    toLogin();
-    return true;
+    return !!(err && err.status === 401) && toLogin();
   }
 
   /* What a load gives while the browser leaves for the login page: nothing,

@@ -1,6 +1,6 @@
 'use strict';
 /* Runs the downloads poll or the Watch rows against a refused call on the page at the given
-   location; prints where the browser goes. Usage: node login_jump_harness.js <poll|browse> <json> */
+   location; prints where the browser goes. Usage: node login_jump_harness.js <poll|browse> <json> [unsaved] */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -25,7 +25,7 @@ const ctx = {
   setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
   clearTimeout() {}, addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }),
   history: { state: null, replaceState() {} },
-  MM: { api: { get: refuse, post: refuse, messageOf: (_e, m) => m } },
+  MM: { api: { get: refuse, post: refuse, messageOf: (_e, m) => m, hasUnsavedChanges: () => process.argv[4] === 'unsaved' } },
 };
 ctx.window = ctx;
 vm.createContext(ctx);
