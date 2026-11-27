@@ -244,6 +244,16 @@ def _build_radarr_index(client: ArrClient) -> dict[int, RadarrMovie]:
     return index
 
 
+def _find_series(
+    series_index: list[SonarrSeries], *, tvdb_id: int | None, tmdb_id: int | None
+) -> SonarrSeries | None:
+    """The series of *series_index* with the TVDB id, or else the TMDB id; None for none."""
+    for s in series_index:
+        if (tvdb_id and s.get("tvdbId") == tvdb_id) or (tmdb_id and s.get("tmdbId") == tmdb_id):
+            return s
+    return None
+
+
 def _sonarr_ready(
     series_index: list[SonarrSeries],
     *,
@@ -254,10 +264,8 @@ def _sonarr_ready(
     """Return True if the series, or its *season_number* when given, is all there, matching
     by TVDB id first and then TMDB id. *series_index* is pre-fetched once per tick.
     """
-    for s in series_index:
-        if (tvdb_id and s.get("tvdbId") == tvdb_id) or (tmdb_id and s.get("tmdbId") == tmdb_id):
-            return series_ready(s, season_number)
-    return False
+    found = _find_series(series_index, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
+    return found is not None and series_ready(found, season_number)
 
 
 def _build_mailgun_client(
@@ -564,8 +572,20 @@ def _process_one_notification(
         # Sentinels are exhausted above; cast narrows the union for mypy
         # without touching runtime behaviour.
         movie_typed = cast("RadarrMovie | None", movie)
+        series = (
+            _find_series(sonarr_series_index, tvdb_id=row.tvdb_id, tmdb_id=row.tmdb_id)
+            if row.service == "sonarr" and sonarr_series_index
+            else None
+        )
         subject, html = _build_email_payload(
-            row, movie_typed, suggestions_by_tmdb, template, base_url, secret_key
+            row,
+            movie_typed,
+            suggestions_by_tmdb,
+            template,
+            base_url,
+            secret_key,
+            conn,
+            series,
         )
         # The claim may be old by now (a long batch, slow Arr lookups): refresh it so
         # reconcile does not free a row whose email is going out.
