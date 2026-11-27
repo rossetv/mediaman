@@ -71,7 +71,11 @@ def test_always_folds_out_its_language_in_the_one_heard_and_off_folds_it_away() 
     assert out["always"] == {"folded": True, "subs": "Always · Deutsch"}
     assert out["lang"] == {"subs": "Always · 日本語", "sub": "日本語"}
     assert out["after"] == {"folded": False, "subs": "Off"}
-    assert out["puts"] == [{"subtitle_lang": "de"}, {"subtitle_lang": "ja"}, {"subtitle_lang": "off"}]
+    assert out["puts"] == [
+        {"subtitle_lang": "de"},
+        {"subtitle_lang": "ja"},
+        {"subtitle_lang": "off"},
+    ]
 
 
 def test_the_watching_group_sits_between_connected_and_ai_for_every_role() -> None:
