@@ -182,5 +182,80 @@
   --brand-openai:    #10a37f;  --brand-openai-bg:  rgba(16,163,127,.14);
   --brand-tmdb:      #01b4e4;  --brand-tmdb-bg:    rgba(1,180,228,.14);
   --brand-omdb:      #f5c518;  --brand-omdb-bg:    rgba(245,197,24,.14);
+
+  /* Glass: one material, in three weights. The filter halves what is behind before the tint goes
+     over it, so white words keep 4.5:1 over a white poster: never drop brightness(.5), never take
+     a tint below .52, and never set words on glass dimmer than --g-t3. */
+  --g-tint:      28 28 32;
+  --g-blur:      30px;
+  --g-filter:    blur(var(--g-blur)) saturate(2) brightness(.5);
+  --g-a:         .52;           /* thin and regular: the bar's islands, toasts, menus, panels, dialogs */
+  --g-a-thick:   .71;           /* what fills the screen: the TV remote */
+  --g-a-player:  .47;           /* the player's controls, over a moving picture */
+  --g-a-player-hover: .57;
+  --g-thin:      rgb(var(--g-tint) / var(--g-a));
+  --g-regular:   rgb(var(--g-tint) / var(--g-a));
+  --g-thick:     rgb(var(--g-tint) / var(--g-a-thick));
+  --g-player:    rgb(var(--g-tint) / var(--g-a-player));
+  --g-player-hover: rgb(var(--g-tint) / var(--g-a-player-hover));
+  /* A menu that opens on glass: solid, so no more than two blurred layers stack. */
+  --g-solid:     rgb(var(--g-tint) / .96);
+  --g-edge:      rgb(255 255 255 / .14);    /* left, right and bottom */
+  --g-lit:       rgb(255 255 255 / .3);     /* the top edge, catching the light */
+  --g-inset:     inset 0 1px 0 rgb(255 255 255 / .08);
+  --g-shadow:    var(--shadow-card);
+  /* Inside glass, what is a step of solid grey elsewhere is a light veil, and the quiet words and
+     the blue and red ones are lifted to hold their contrast. */
+  --g-s1:        transparent;
+  --g-s2:        rgb(255 255 255 / .07);
+  --g-s3:        rgb(255 255 255 / .11);
+  --g-s4:        rgb(255 255 255 / .15);
+  --g-s5:        rgb(255 255 255 / .19);
+  --g-t2:        rgb(255 255 255 / .86);
+  --g-t3:        rgb(255 255 255 / .74);
+  --g-accent-text: #a6d2ff;
+  --g-accent:    color-mix(in srgb, var(--g-accent-text) 70%, var(--accent));
+  --g-danger-text: #ffc2bc;
+  /* What the page goes under: plain dims, never blurred, so the glass over them has a page to show. */
+  --g-dim:       rgb(0 0 0 / .42);           /* behind a dialog, and behind a title */
+  --g-dim-blur:  blur(2px);                  /* the title's dim alone */
+  --g-veil:      rgb(0 0 0 / .252);          /* behind a side panel */
+  /* A tooltip, label or chip that can sit over light content: solid, never a --s* veil. */
+  --g-tip:       #2c2c30;
+  --g-tip-shadow: 0 0 0 1px rgb(255 255 255 / .12), 0 6px 18px -6px rgb(0 0 0 / .6);
+  /* Under a chip tinted with a see-through colour, so its coloured words hold over a white picture. */
+  --g-chip-floor: inset 0 0 0 99px rgb(0 0 0 / .42);
+  /* Words on a picture. */
+  --g-hero-scrim:
+    linear-gradient(0deg, rgb(0 0 0 / .78) 0%, rgb(0 0 0 / .5) 38%, transparent 72%),
+    linear-gradient(90deg, rgb(0 0 0 / .55) 0%, transparent 62%);
+  --g-hero-text-shadow: 0 1px 10px rgb(0 0 0 / .45);
+}
+
+/* Glass's fallbacks, set once here, so no surface needs a rule of its own. */
+@media (max-width: 599.98px) {
+  :root { --g-blur: 20px; }
+}
+/* Where glass cannot be drawn: solid enough for 4.5:1 with nothing halving the page behind. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --g-a: .94; --g-a-thick: .94; --g-a-player: .94; --g-a-player-hover: .94; --g-filter: none; --g-dim-blur: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root { --g-a: 1; --g-a-thick: 1; --g-a-player: 1; --g-a-player-hover: 1; --g-filter: none; --g-dim-blur: none; }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --g-a: 1; --g-a-thick: 1; --g-a-player: 1; --g-a-player-hover: 1; --g-filter: none; --g-dim-blur: none;
+    --g-edge: rgb(255 255 255 / .4);
+    --g-lit: rgb(255 255 255 / .4);
+  }
+}
+@media (forced-colors: active) {
+  :root {
+    --g-thin: Canvas; --g-regular: Canvas; --g-thick: Canvas; --g-player: Canvas; --g-player-hover: Canvas; --g-solid: Canvas;
+    --g-filter: none; --g-dim-blur: none;
+    --g-edge: CanvasText; --g-lit: CanvasText;
+    --g-inset: 0 0 0 transparent; --g-shadow: 0 0 0 transparent;
+  }
 }
 
