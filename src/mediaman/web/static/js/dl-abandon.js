@@ -80,7 +80,7 @@
     if (who) {
       who.hidden = !named;
       var pic = who.querySelector('.abandon-who__pic');
-      var poster = /^\/(?!\/)\S*$/.test(trigger.dataset.poster || '') ? trigger.dataset.poster : ''; // only mediaman's own
+      var poster = /^\/(?![\/\\])\S*$/.test(trigger.dataset.poster || '') ? trigger.dataset.poster : ''; // only mediaman's own
       pic.replaceChildren();
       if (poster) {
         var img = document.createElement('img');

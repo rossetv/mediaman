@@ -1916,3 +1916,25 @@ def test_a_sheet_opened_from_downloading_does_not_send_you_back_to_it() -> None:
     assert out["downloading"] == {"note": None, "link": False}
     # what else there is to say of the download is still said
     assert out["stuck"] == {"note": "No files found · Fix it in Radarr.", "link": False}
+
+
+def test_a_sheet_opened_from_downloading_keeps_from_sending_you_there_once_its_card_is_gone() -> (
+    None
+):
+    assert _run("fromGrid")["cardGone"] == {"note": None, "link": False}
+
+
+def test_a_title_not_out_yet_says_so_and_who_downloads_it_instead_of_queued() -> None:
+    out = _run("notOut")
+    film = "Not yet released. Radarr downloads it when it comes out."
+    assert out["tmdb-movie-77"] == {
+        "pill": None,
+        "status": film,
+        "note": "Follow it in Downloading.",
+    }
+    assert out["tmdb-tv-90"]["status"] == (
+        "Not yet released. Sonarr downloads it when it comes out."
+    )
+    # one Downloading does not list as coming soon is queued
+    assert out["tmdb-movie-78"]["pill"] == "Queued"
+    assert out["soonCard"] == {"pill": None, "status": film, "note": None, "asked": False}

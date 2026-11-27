@@ -224,6 +224,16 @@ def test_confirm_says_it_is_working_and_recovers_on_failure() -> None:
     assert out["reenabled"] == "false"
 
 
+def test_the_confirm_shows_only_a_poster_of_mediamans_own() -> None:
+    assert _run("abandonPoster") == {
+        "/p/1.jpg": "/p/1.jpg",
+        "//host/x.jpg": None,
+        "/\\host/x.jpg": None,
+        "https://host/x.jpg": None,
+        "/a b.jpg": None,
+    }
+
+
 def test_rebuilt_hero_shows_the_same_stats_as_the_server_rendered_one() -> None:
     out = _run("hero")
     assert out["full"] == ["30% complete", "1 GB of 3 GB", "5 min"]

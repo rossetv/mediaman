@@ -313,6 +313,10 @@
     return {
       ref: ref,
       origin: opts.origin || origin,
+      // Of the card it was opened from, which may leave the page while it is open.
+      fromGrid: !!(opts.origin && opts.origin.closest && opts.origin.closest('[data-dl-card]')),
+      // Not out yet, so Radarr or Sonarr only waits for it: true, false, null while asked, undefined till then.
+      soon: opts.origin && opts.origin.closest && opts.origin.closest('.dwx--small') ? true : undefined,
       title: opts.title || '',
       kind: kindOf(ref, opts.kind),
       data: null,
@@ -2011,10 +2015,9 @@
   /* What else is said of a download, and where to follow it; opened from Downloading itself, only
      what else is said. */
   function followNote(under, text) {
-    var fromGrid = !!(cur.origin && cur.origin.closest && cur.origin.closest('[data-dl-card]'));
-    if (fromGrid && !text) return;
+    if (cur.fromGrid && !text) return;
     var p = under.appendChild(el('p', 'ttl__note'));
-    if (fromGrid) {
+    if (cur.fromGrid) {
       p.appendChild(el('span', '', text.trim()));
       return;
     }
@@ -2023,6 +2026,19 @@
     link.setAttribute('href', '/?dl=1');
     link.setAttribute('data-dl-open', '');
     words.appendChild(document.createTextNode('.'));
+  }
+
+  /* Whether the title *c* is among those Downloading lists as coming soon. */
+  function askSoon(c) {
+    c.soon = null;
+    var ref = c.ref;
+    get('/api/downloads').then(function (data) {
+      var refs = [c.ref, c.openedAs, c.data && c.data.library_ref];
+      c.soon = ((data && data.upcoming) || []).some(function (item) { return !!item.title_ref && refs.indexOf(item.title_ref) >= 0; });
+    }, function () { c.soon = false; }).then(function () {
+      // Drawn already as it is unless it is not out yet, or was left blank till now.
+      if (c === cur && (c.soon || root.querySelector('[data-ttl-asking]'))) redrawActions(ref);
+    });
   }
 
   function downloadPart(actions, under) {
@@ -2050,7 +2066,26 @@
       return;
     }
     if (k.state === 'queued') {
+      if (cur.soon === undefined) askSoon(cur);
       var looked = lookedFor(cur, ['searching', 'stuck']);
+      if (!looked && cur.soon) {
+        var soon = statusLine('Not yet released. ' + (d.kind === 'movie' ? 'Radarr' : 'Sonarr') + ' downloads it when it comes out.', 'i-clock');
+        soon.setAttribute('role', 'status');
+        soon.setAttribute('tabindex', '-1');
+        soon.setAttribute('data-ttl-act', 'primary');
+        under.appendChild(soon);
+        followNote(under, '');
+        if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
+        return;
+      }
+      if (!looked && cur.soon === null && !inGrace(k)) {
+        // Queued would be the wrong word for a title not out yet; this holds the focus till it is known.
+        var asking = actions.appendChild(el('span'));
+        asking.setAttribute('tabindex', '-1');
+        asking.setAttribute('data-ttl-act', 'primary');
+        asking.setAttribute('data-ttl-asking', '');
+        return;
+      }
       actions.appendChild(looked ? statePill('dl-state--queued', 'Looking for a copy', 'i-magnifying-glass')
         : statePill('dl-state--queued', 'Queued', 'i-clock'));
       followNote(under, !looked ? 'Waiting for a download slot. '
