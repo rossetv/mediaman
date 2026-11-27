@@ -55,7 +55,7 @@ function page(hash, answers, yes = true, owned = Promise.resolve({ tvs: [] })) {
   vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
   const fire = (id, type) => $(id).listeners[type].forEach((fn) => fn({ preventDefault() {} }));
   return {
-    $, sent, asked, replaced, fire,
+    $, sent, asked, replaced, fire, location,
     scan(h) { location.hash = h; listeners.hashchange(); },
     type: async (text) => { $('pair-code').value = text; fire('pair-code', 'input'); await settle(); },
     say: () => [$('pair-why').className, $('pair-why').textContent],
@@ -90,6 +90,19 @@ const scenarios = {
     p.fire('pair-form', 'submit');
     await settle();
     return { early, out, last: p.sent[p.sent.length - 1], shown: p.shown() };
+  },
+  // Refused, at the code and at the name, for a password the person must change first.
+  async sentAway() {
+    const refused = { error: 'http_403', status: 403, data: { detail: 'password_change_required', redirect: '/force-password-change' } };
+    const p = page('', [refused]);
+    await p.type('482916');
+    const q = page('#482916', [TV, refused]);
+    q.fire('pair-form', 'submit');
+    await settle();
+    q.$('pair-name').value = 'Den';
+    q.fire('pair-name-form', 'submit');
+    await settle();
+    return { code: p.location.href || null, name: q.location.href || null };
   },
   async joined() {
     const p = page('#482916', [{ tv: { id: 7, name: 'Living room', people: ['amy', 'bob'] } }]);

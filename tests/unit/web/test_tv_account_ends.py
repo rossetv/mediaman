@@ -5,6 +5,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.config import Config
+from mediaman.db import set_connection
+from mediaman.main import create_app
 from mediaman.services.rate_limit import reset_all_limiters
 from mediaman.services.tv import players
 from mediaman.services.tv.players import Choice, Play, Players
@@ -96,7 +99,7 @@ def _unpaired_with_the_film(client, conn, token):
     return gone.status_code, gone.json().get("reason"), gone.json().get("stopped")
 
 
-def test_a_weak_password_at_sign_in_ends_the_persons_film_and_unpairs_them(
+def test_a_weak_password_at_sign_in_ends_the_persons_film_and_the_tv_route_says_why(
     app_factory, admin, board, conn, templates_stub
 ):
     _limiter.reset()
@@ -115,10 +118,37 @@ def test_a_weak_password_at_sign_in_ends_the_persons_film_and_unpairs_them(
     assert _unpaired_with_the_film(client, conn, token) == (410, "account", "Film")
 
 
+def test_after_a_weak_password_at_sign_in_the_phone_is_sent_to_change_it(
+    admin, board, conn, secret_key, templates_stub
+):
+    # The whole app: its middlewares answer the phone before the TV route can.
+    _limiter.reset()
+    _plays(board, conn, "admin")
+    app = create_app()
+    app.state.config = Config(secret_key=secret_key)
+    app.state.db = conn
+    app.state.templates = templates_stub
+    set_connection(conn)
+    phone = TestClient(app, headers={"Origin": "http://testserver"})
+    signed_in = phone.post(
+        "/login",
+        data={"username": "admin", "password": "password1234"},
+        follow_redirects=False,
+    )
+    assert signed_in.status_code == 302, signed_in.text
+    assert (board.view(_KEY)["play"], board.view(_KEY)["last"]["stopped_by"]) == (None, "admin")
+    phone.cookies.set("session_token", signed_in.cookies["session_token"])
+    (tv_id,) = conn.execute("SELECT id FROM tvs").fetchone()
+    read = phone.get(f"/api/tvs/{tv_id}", follow_redirects=False)
+    assert (read.status_code, read.headers["location"]) == (302, "/force-password-change")
+    steered = phone.post(f"/api/tvs/{tv_id}/commands", json={"kind": "pause", "play_id": "x"})
+    assert (steered.status_code, steered.json()["redirect"]) == (403, "/force-password-change")
+
+
 def test_a_forced_password_change_ends_the_persons_film_and_unpairs_them(
     app_factory, admin, board, conn, templates_stub
 ):
-    # A flag set where no TV was told, as one from before TVs were shared.
+    # Guards the defensive read for a state the app prevents: a flagged person is never paired.
     conn.execute("UPDATE admin_users SET must_change_password = 1 WHERE username = 'admin'")
     conn.execute(
         "INSERT INTO tv_people (tv_id, user_id, paired_at)"

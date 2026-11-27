@@ -33,6 +33,13 @@
   var others = [];
   var touched = false;
 
+  // Refused for a password the person must change first: the answer names that page.
+  function sentAway(err) {
+    if (!err || !err.data || err.data.redirect !== '/force-password-change') return false;
+    location.href = err.data.redirect;
+    return true;
+  }
+
   function paint() {
     [].forEach.call(boxes.querySelectorAll('i'), function (box, n) {
       box.textContent = code.value.charAt(n);
@@ -90,6 +97,7 @@
       setBusy(false);
       paired(data.tv);
     }, function (err) {
+      if (sentAway(err)) return;
       setBusy(false);
       var kind = err && err.error;
       if (kind === 'wrong_code' || kind === 'too_many_tries' || kind === 'too_many_tvs') {
@@ -230,7 +238,7 @@
       clearTimeout(nameWhy.pending);
       ready({ name: data.tv.name, people: tv.people });
     }, function (err) {
-      say(nameWhy, MM.api.messageOf(err, LATER), true, true);
+      if (!sentAway(err)) say(nameWhy, MM.api.messageOf(err, LATER), true, true);
     }).then(function () {
       busy = false;
       save.removeAttribute('aria-disabled');
