@@ -9,7 +9,7 @@ const { makeDocument, build, click, settle } = require('./fake_dom.js');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 
-function page({ fails = false } = {}) {
+function page({ fails = false, saved = true } = {}) {
   const doc = makeDocument();
   const view = (name) => ['div', { class: 'you-view', 'data-view': name }, ['div', { 'data-lang-list': '' }], ['p', { 'data-lang-none': '' }]];
   const row = (id) => ['button', { id }, ['span', { 'data-row-value': '' }]];
@@ -21,7 +21,7 @@ function page({ fails = false } = {}) {
   const puts = [];
   const toasts = [];
   const timers = [];
-  const held = { audio_lang: null, subtitle_lang: null, auto_skip: true, languages: [] };
+  const held = { audio_lang: null, subtitle_lang: null, auto_skip: saved, languages: [] };
   const MM = {
     api: {
       get: () => Promise.resolve({ ...held }),
@@ -65,6 +65,12 @@ const scenarios = {
     const moved = p.state();
     await settle();
     return { moved, back: p.state(), toasts: p.toasts };
+  },
+  // Turned off elsewhere since the page was drawn on, it shows off.
+  async fresh() {
+    const p = page({ saved: false });
+    await settle();
+    return p.state();
   },
   // A second press before the answer is not sent.
   async twice() {

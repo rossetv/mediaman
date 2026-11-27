@@ -82,6 +82,38 @@ def test_credits_a_scene_follows_are_jumped_past_with_a_note() -> None:
     assert out["note"] == {"shown": True, "text": "Skipped credits"}
 
 
+def test_a_play_that_resumes_inside_an_intro_still_skips_it() -> None:
+    out = _tv()["resumedInIntro"]
+    assert 150 <= out["at"] <= 154
+    assert out["note"]["text"] == "Skipped intro"
+
+
+def test_a_seek_the_person_asks_for_into_an_intro_plays_the_intro() -> None:
+    assert 85 <= _tv()["seekedIn"]["at"] <= 90
+
+
+def test_the_next_title_played_skips_an_intro_at_the_same_place_again() -> None:
+    assert 150 <= _tv()["nextPlay"]["at"] <= 152
+
+
+def test_a_seek_the_browser_is_slow_to_carry_out_is_not_skipped_from_where_it_was() -> None:
+    assert 300 <= _tv()["slowToMove"]["at"] <= 310
+
+
+def test_within_an_intro_s_last_second_nothing_is_skipped() -> None:
+    assert _tv()["lastSecond"] == {"sets": [], "note": False}
+
+
+def test_the_credits_of_a_film_or_a_last_episode_play() -> None:
+    assert _tv()["filmCredits"] == {"at": 2705, "note": False}
+    assert _tv()["lastEpisode"] == {"at": 2705}
+
+
+def test_credits_that_run_to_the_end_count_as_the_last_ones() -> None:
+    # Skipped silently only where a next episode follows; otherwise they play.
+    assert _tv()["creditsToTheEnd"] == {"to": 2879, "note": False, "plays": 2705}
+
+
 def test_a_paused_tv_skips_nothing() -> None:
     assert _tv()["paused"] == {"at": 70}
 
@@ -110,6 +142,10 @@ def test_the_last_credits_of_an_episode_lead_on_to_the_next_from_the_remote() ->
     assert out["sent"] == [{"kind": "next", "play_id": "p1"}]
 
 
+def test_credits_a_scene_may_follow_are_skipped_not_led_on_from_on_the_remote() -> None:
+    assert _remote()["midCredits"] == "Skip credits"
+
+
 def test_a_film_s_credits_are_skipped_to_its_end_from_the_remote() -> None:
     out = _remote()["filmCredits"]
     assert out["shown"] == "Skip credits"
@@ -133,6 +169,10 @@ def test_the_switch_moves_at_once_and_back_where_it_was_not_saved() -> None:
     assert out["moved"] == {"checked": "false", "on": False}
     assert out["back"] == {"checked": "true", "on": True}
     assert out["toasts"] == ["error: No luck"]
+
+
+def test_the_switch_shows_what_is_saved_now_not_what_the_page_was_drawn_with() -> None:
+    assert _profile()["fresh"] == {"checked": "false", "on": False}
 
 
 def test_a_second_press_before_the_answer_sends_nothing_more() -> None:

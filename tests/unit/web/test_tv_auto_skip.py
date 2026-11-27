@@ -10,7 +10,8 @@ from fastapi.templating import Jinja2Templates
 
 from mediaman.app_factory import _TEMPLATE_DIR
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.web.repository.track_choices import set_skips_on_tv
+from mediaman.web.repository import track_choices
+from mediaman.web.repository.track_choices import Defaults, set_skips_on_tv
 from mediaman.web.routes.account import router as account_router
 from mediaman.web.routes.watch import tracks_api
 from tests.unit.web.test_tv import (  # noqa: F401 - the fixtures of a TV against a fake Plex
@@ -43,6 +44,15 @@ def test_the_setting_is_on_until_the_person_turns_it_off_and_keeps_their_languag
     # A change of language leaves it as it is.
     playback.put("/api/account/playback", json={"subtitle_lang": "off"})
     assert playback.get("/api/account/playback").json()["auto_skip"] is False
+
+
+def test_saving_the_setting_alone_writes_no_languages_back(playback, conn, monkeypatch):
+    track_choices.set_defaults(conn, "alice", Defaults("de", None))
+    # As read by a request that began before another one saved "de".
+    monkeypatch.setattr(track_choices, "get_defaults", lambda *_: Defaults("fr", None))
+    assert playback.put("/api/account/playback", json={"auto_skip": False}).status_code == 200
+    held = conn.execute("SELECT audio_lang FROM admin_users WHERE username = 'alice'").fetchone()
+    assert held["audio_lang"] == "de"
 
 
 @pytest.mark.parametrize("value", [None, "no", 0])

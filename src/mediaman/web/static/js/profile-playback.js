@@ -311,6 +311,8 @@
 
   MM.api.get(URL_).then(function (data) {
     take(data);
+    // Fresher than the page, unless a press is on its way.
+    if (skip && skip.getAttribute('aria-disabled') !== 'true') drawSkip(data.auto_skip !== false);
     langs = (data.languages || []).map(function (l) { return { code: l.code, name: l.name, own: l.native || ownName(l.code, l.name) }; });
     library = data.library_languages || [];
     byCode = {};

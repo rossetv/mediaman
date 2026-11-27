@@ -91,8 +91,8 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 /* These lie nearer the edge, and stay 5% clear of it. */
 .d1 .top > div, .d1 .bot > div { -webkit-transform: translate(14px, -14px); transform: translate(14px, -14px); }
 .d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-14px, -4px); transform: translate(-14px, -4px); }
-/* Over the right of the row of buttons, which is empty: it is there with the controls or without. */
-.sk { position: absolute; right: 110px; bottom: 70px; font-size: 34px; line-height: 40px; font-weight: 700; color: #fff; background: #2e2e33; background: rgba(46, 46, 51, .92); border-radius: 48px; padding: 24px 44px; opacity: 0; -webkit-transform: translateY(16px); transform: translateY(16px); transition: opacity .3s, -webkit-transform .3s; transition: opacity .3s, transform .3s; }
+/* Level with the title, where burned-in subtitles never are; a label, not one of the buttons. */
+.sk { position: absolute; right: 110px; top: 74px; font-size: 34px; line-height: 40px; color: #fff; background: #000; background: rgba(0, 0, 0, .6); border-radius: 12px; padding: 14px 24px; opacity: 0; -webkit-transform: translateY(-16px); transform: translateY(-16px); transition: opacity .3s, -webkit-transform .3s; transition: opacity .3s, transform .3s; }
 .sk.on { opacity: 1; -webkit-transform: none; transform: none; }
 .sk .i { fill: #2997ff; }
 @media (prefers-reduced-motion: reduce) {

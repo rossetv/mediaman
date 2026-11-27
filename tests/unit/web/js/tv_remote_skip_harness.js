@@ -139,6 +139,14 @@ const scenarios = {
     await r.pass(400);
     return { shown, sent: r.sent };
   },
+  // Credits a scene may follow are skipped, not led on from, though a next episode is there.
+  async midCredits() {
+    const r = await remote({
+      position_s: 1210, markers: [INTRO, { kind: 'credits', start_s: 1200, end_s: 1260, final: false }, CREDITS],
+      next: { rating_key: '9002', season: 1, episode: 5, title: 'Windfall' },
+    });
+    return r.skip();
+  },
   async filmCredits() {
     const r = await remote({ position_s: 2710, season: null, episode: null, episode_title: null });
     const shown = r.skip();

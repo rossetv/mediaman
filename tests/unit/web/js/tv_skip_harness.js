@@ -26,14 +26,19 @@ function tv(play) {
   const nodes = {};
   FIXED.forEach((id) => { nodes[id] = element(id); });
   const video = Object.assign(nodes.v, {
-    paused: true, ended: false, volume: 1, muted: false, seeking: false, duration: 2880, time: 0, sets: [],
+    paused: true, ended: false, volume: 1, muted: false, seeking: false, duration: 2880, time: 0, sets: [], refuse: 0,
     canPlayType: () => 'maybe',
     load() { this.paused = true; this.time = 0; },
     play() { this.paused = false; },
     pause() { this.paused = true; },
     fire(type) { (this.on[type] || []).forEach((fn) => fn({})); },
   });
-  Object.defineProperty(video, 'currentTime', { get() { return this.time; }, set(v) { this.sets.push(v); this.time = v; } });
+  Object.defineProperty(video, 'currentTime', { get() { return this.time; }, set(v) {
+    // A browser too early to move refuses, as some do before they can play.
+    if (this.refuse > 0) { this.refuse -= 1; throw new Error('too early'); }
+    this.sets.push(v);
+    this.time = v;
+  } });
   Object.defineProperty(video, 'src', { get() { return this.attrs.src; }, set(v) { this.attrs.src = v; } });
   const body = Object.assign(element('body'), { attrs: { 'data-base': 'https://mediaman.example', 'data-hls': '/hls.js' } });
   const stage = () => nodes.s.innerHTML;
@@ -61,7 +66,7 @@ function tv(play) {
       const call = { path: this.url.replace('/api/tv/device/', ''), body: JSON.parse(text) };
       if (call.path === 'ask') asked.push(call.body.what);
       const data = call.path === 'poll'
-        ? { ok: true, state: 'ready', id: 1, name: 'Living room', owner: 'maren', play: now.play, commands: [], poll_ms: 1000 }
+        ? { ok: true, state: 'ready', id: 1, name: 'Living room', owner: 'maren', play: now.play, commands: now.commands || [], poll_ms: 1000 }
         : { ok: true };
       later(() => {
         Object.assign(this, { readyState: 4, status: 200, responseText: JSON.stringify(data) });
@@ -148,6 +153,58 @@ const scenarios = {
     return { at: Math.round(t.video.time), note: t.note() };
   },
   // Paused before the intro, and moved into it while paused.
+  // Resumed inside the intro, the TV still skips it.
+  async resumedInIntro() {
+    const t = await played({ start_s: 70 }, 3000);
+    return { at: Math.round(t.video.time), note: t.note() };
+  },
+  // A person who seeks into an intro the TV has not skipped watches it.
+  async seekedIn() {
+    const t = await played({ start_s: 200 }, 3000);
+    t.now.commands = [{ id: 1, kind: 'seek', position_s: 80 }];
+    await t.step(8000);
+    return { at: Math.round(t.video.time), note: t.note().shown };
+  },
+  // The next play skips the same intro again.
+  async nextPlay() {
+    const t = await played({}, 11000);
+    t.now.play = film({ play_id: 'p2' });
+    await t.step(1500);
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(11000);
+    return { at: Math.round(t.video.time) };
+  },
+  // Sent on by the remote while a browser is slow to move there, it is not skipped from where it was.
+  async slowToMove() {
+    const t = await played({ markers: [{ kind: 'intro', start_s: 54.5, end_s: 150, final: false }] }, 3000);
+    t.video.refuse = 2;
+    t.now.commands = [{ id: 1, kind: 'seek', position_s: 300 }];
+    await t.step(8000);
+    return { at: Math.round(t.video.time) };
+  },
+  // Within an intro's last second, as on the remote, there is nothing to skip.
+  async lastSecond() {
+    const t = await played({ start_s: 149.4 }, 3000);
+    return { sets: t.video.sets.filter((s) => s === 150), note: t.note().shown };
+  },
+  // A film's credits, and a last episode's, play: there is nothing after them to go on to.
+  async filmCredits() {
+    const t = await played({ start_s: 2690 }, 15000);
+    return { at: Math.round(t.video.time), note: t.note().shown };
+  },
+  async lastEpisode() {
+    const t = await played({ start_s: 2690, next: { season: null, episode: null, title: null } }, 15000);
+    return { at: Math.round(t.video.time) };
+  },
+  // Credits Plex does not mark as the last, but that run to the end, are the last.
+  async creditsToTheEnd() {
+    const markers = [{ kind: 'credits', start_s: 2700, end_s: 2880, final: false }];
+    const next = { rating_key: '502', season: 1, episode: 5, title: 'Windfall' };
+    const on = await played({ start_s: 2690, markers, next }, 15000);
+    const off = await played({ start_s: 2690, markers }, 15000);
+    return { to: on.video.sets.pop(), note: on.note().shown, plays: Math.round(off.video.time) };
+  },
   async paused() {
     const t = await played({}, 3000);
     t.video.pause();

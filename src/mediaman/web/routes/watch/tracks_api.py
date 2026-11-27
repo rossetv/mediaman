@@ -249,7 +249,8 @@ def set_playback(body: _Defaults, username: str = Depends(get_current_user)) -> 
             if subtitle_lang is None:
                 return respond_err("unknown_language", status=422)
     defaults = Defaults(audio_lang, subtitle_lang)
-    track_choices.set_defaults(conn, username, defaults)
+    if {"audio_lang", "subtitle_lang"} & sent:
+        track_choices.set_defaults(conn, username, defaults)
     if "auto_skip" in sent:
         track_choices.set_skips_on_tv(conn, username, body.auto_skip)
     return _defaults_answer(conn, username, defaults)

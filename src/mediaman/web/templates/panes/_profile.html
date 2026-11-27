@@ -52,7 +52,7 @@
       {{ row("profile/subtitles", "i-captions", "blue", "Subtitles", "account-row-subs") }}
       <div class="yo-row">
         <span class="yo-row__ico yo-ico--green">{{ c.icon("i-forward-step") }}</span>
-        <div class="yo-row__label"><span id="account-skip-lbl">Skip intros and credits on the TV</span><small id="account-skip-sub">Only when playing on a paired TV.</small></div>
+        <div class="yo-row__label"><span id="account-skip-lbl">Skip intros and credits</span><small id="account-skip-sub">On a paired TV.</small></div>
         <button type="button" class="tog{% if auto_skip %} on{% endif %}" id="account-skip" role="switch" aria-checked="{{ 'true' if auto_skip else 'false' }}" aria-labelledby="account-skip-lbl" aria-describedby="account-skip-sub"></button>
       </div>
     </div>

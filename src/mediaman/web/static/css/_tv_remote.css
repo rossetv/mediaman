@@ -58,8 +58,15 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem .player-volume { min-width: 0; }
 .tv-rem .player-volume-slider { display: block; }
 .tv-rem .player-bubble { animation: none; }
-.tv-rem__skip { flex: none; gap: 8px; animation: tv-rise var(--dur) var(--ease-out); }
+.tv-rem__skip-slot { flex: none; display: flex; justify-content: center; min-height: 44px; }
+/* As large as the player's own Skip button. */
+.tv-rem__skip.player-pill { gap: 8px; font-size: 15px; padding: 0 18px; }
+.tv-rem__skip { animation: tv-rise var(--dur) var(--ease-out); }
 .tv-rem__skip.is-leaving { animation: tv-sink var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+@media (max-width: 699.98px) {
+  .tv-rem__skip-slot { min-height: 48px; }
+  .tv-rem__skip.player-pill { height: 48px; }
+}
 .tv-rem__vol-no { padding: 0 8px; font-size: 13px; line-height: 1.35; color: var(--t2); }
 .tv-rem__end { display: flex; gap: 8px; }
 .tv-rem__danger { color: var(--danger-soft); }
