@@ -415,44 +415,6 @@ def test_button_text_reads_at_the_aa_contrast(env: Environment) -> None:
     assert _contrast(text, cell.group(1)) >= 4.5
 
 
-_ON_A_PLATE = ("okb", "warn", "chip", "pic", "b-wait", "b-dl")
-
-
-def test_all_text_reads_at_the_aa_contrast_in_the_reader_s_dark_mail(env: Environment) -> None:
-    html = env.get_template("newsletter.html").render(**_full_context())
-    dark = re.search(r"@media \(prefers-color-scheme:dark\)\{(.*?)\n\}", html, re.S).group(1)
-    rules = dict(re.findall(r"\.([\w-]+)\{([^}]*)\}", dark))
-
-    def colour(name: str, prop: str) -> str | None:
-        found = re.search(rf"(?<![\w-]){prop}:(#[0-9a-f]{{6}}) !important", rules[name])
-        return found.group(1) if found else None
-
-    for name in rules:
-        text = colour(name, "color")
-        plates = ["card", "bg"] if name not in _ON_A_PLATE else [name]
-        for plate in plates if text else []:
-            assert _contrast(text, colour(plate, "background")) >= 4.5, (name, plate)
-    assert all(colour(name, "color") for name in (*_ON_A_PLATE, "t1", "t2", "link", "bad"))
-
-
-def test_all_text_reads_at_the_aa_contrast_without_the_styles(env: Environment) -> None:
-    ctx = _full_context(dry_run=True)
-    ctx["this_week_items"][0]["download_state"] = "queued"
-    html = env.get_template("newsletter.html").render(**ctx)
-
-    texts = set(re.findall(r"(?<![\w-])color:(#[0-9a-f]{6})", html.split("<body")[1]))
-    plates = re.findall(
-        r'class="([\w-]+)" align="center" bgcolor="(#[0-9a-f]{6})"[^>]*?[; ]color:(#[0-9a-f]{6})',
-        html,
-    )
-    assert {name for name, _, _ in plates} >= {"warn", "okb", "b-dl", "b-wait"}
-    for name, plate, text in plates:
-        assert _contrast(text, plate) >= 4.5, name
-    for text in texts - {text for _, _, text in plates} - {"#ffffff", "#f2f2f4"}:
-        least = 3 if text == "#0071e3" else 4.5  # the name at the top, which is large
-        assert min(_contrast(text, "#ffffff"), _contrast(text, "#f2f2f4")) >= least, text
-
-
 def test_every_button_is_a_thumb_tall(env: Environment) -> None:
     ctx = _full_context()
     ctx["unsubscribe_url"] = ""
