@@ -2,7 +2,8 @@
  * settings/integrations.js — Integrations settings module.
  *
  * Responsibilities:
- *   - Connection-status pills (shared updater for intg-card + ov-status)
+ *   - Connection-status pills (shared updater for intg-card + ov-status), and why a check failed
+ *   - A Save beside the Test of an open card that holds edits
  *   - Manual test buttons (<button data-test-service="…">), which test the saved settings
  *   - Auto-test configured services on page load, and those a save has changed
  *   - Plex library sync button (#btn-sync-library), with the server's reason on failure
@@ -41,8 +42,46 @@
     { service: 'omdb',    fields: ['omdb_api_key'] },
   ];
 
-  /* How a service stands, in a word, on the list; its open card says the whole answer. */
+  /* How a service stands, in a word, on its pill; an open card says a longer answer above its fields. */
   var SHORT = { ok: 'Connected', err: 'Not answering', warn: 'Rate limited', off: 'Not set up' };
+
+  /* The line at the top of a card's fields that says why a check failed; hidden while there is no more to say. */
+  function drawWhy(service, tone, label, short) {
+    var card = document.getElementById('intg-' + service);
+    var body = card && card.querySelector('.intg-card-bd');
+    if (!body) return;
+    var why = body.querySelector('.intg-why');
+    var say = (tone === 'err' || tone === 'warn') && label !== short;
+    if (!why) {
+      if (!say) return;
+      why = document.createElement('p');
+      why.className = 'intg-why';
+      (body.querySelector('.setg-fold-inner') || body).prepend(why);
+    }
+    why.classList.toggle('is-warn', tone === 'warn');
+    why.textContent = say ? label : '';
+    why.hidden = !say;
+  }
+
+  /* The Save beside a card's Test, for a card holding edits: the save bar's own Save, where the eye is. */
+  function drawSave(btn, edited) {
+    var save = btn.parentNode && btn.parentNode.querySelector('.intg-save');
+    if (!save) {
+      if (!edited) return;
+      save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'btn btn--primary intg-save';
+      save.textContent = 'Save';
+      save.addEventListener('click', function () {
+        var bar = document.getElementById('btn-save');
+        if (bar) bar.click();
+      });
+      btn.parentNode.insertBefore(save, btn);
+    }
+    // Saved, the button goes; the focus it held moves on to Test.
+    if (!edited && document.activeElement === save) btn.focus({ preventScroll: true });
+    save.hidden = !edited;
+  }
 
   /* The newest check of each service: an older one answers for settings since replaced. */
   var newest = {};
@@ -306,11 +345,10 @@
       document.querySelectorAll('[data-conn="' + service + '"]').forEach(function (el) {
         el.classList.remove('ok', 'warn', 'err', 'off', 'untested');
         el.classList.add(tone);
-        var lbl = el.querySelector('[data-conn-label]');
-        if (lbl) lbl.textContent = label;
-        var short = el.querySelector('[data-conn-short]');
-        if (short) short.textContent = SHORT[tone] || label;
+        var word = SHORT[tone] || label;
+        el.querySelectorAll('[data-conn-label], [data-conn-short]').forEach(function (span) { span.textContent = word; });
       });
+      drawWhy(service, tone, label, SHORT[tone] || label);
       document.querySelectorAll('[data-ov-service="' + service + '"]').forEach(function (el) {
         var dot = el.querySelector('.conn-dot');
         if (dot) {
@@ -367,6 +405,7 @@
         // Leaving a field for this button repaints it mid-press, and Safari drops the click if the text is replaced.
         if (btn.textContent !== label) btn.textContent = label;
         btn.setAttribute('aria-label', edited ? 'Test saved ' + serviceName(btn) + ' settings' : 'Test ' + serviceName(btn));
+        if (btn.closest('.intg-acts')) drawSave(btn, edited);
       });
     },
 

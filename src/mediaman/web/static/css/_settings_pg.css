@@ -353,6 +353,46 @@
   .setg-pg .setg-row-sub a::before { content: ""; position: absolute; inset: -6px -4px -21px; }
 }
 
+/* An integration card: the badge, the dividers, every field, Save and Test start on one gutter, and
+   the fields, the pill and the chevron end on the same one. The card's own rules come earlier in
+   the cascade, hence the extra class on each selector. */
+.setg-pg .intg-card { --intg-gutter: 16px; }
+.setg-pg .intg-card .intg-card-hd { padding-inline: var(--intg-gutter); }
+.setg-pg .setg-block .intg-card + .intg-card::before { left: var(--intg-gutter); }
+.setg-pg .intg-card .intg-card-bd > .setg-fold-inner { padding: 4px var(--intg-gutter) 16px; }
+.setg-pg .intg-card-bd .fld-row { grid-template-columns: 1fr; }
+.setg-pg .intg-card-bd .inp-wrap,
+.setg-pg .intg-card-bd .inp--lg { max-width: none; }
+.setg-pg .intg-card .intg-why {
+  margin-bottom: 14px; padding: 10px 12px; border-radius: 10px;
+  font-size: 13px; line-height: 1.4; overflow-wrap: anywhere;
+  color: var(--danger-text); background: var(--rgba-danger-bg);
+}
+.setg-pg .intg-card .intg-why.is-warn { color: var(--warning); background: var(--rgba-warning-bg); }
+.setg-pg .intg-card .intg-acts { align-items: center; }
+.setg-pg .intg-card .intg-acts .btn-test,
+.setg-pg .intg-card .intg-acts .intg-save {
+  position: relative; min-height: 34px; padding: 0 16px; font-size: 13px; font-weight: 500;
+}
+.setg-pg .intg-card .intg-acts .intg-save[hidden] { display: none; }
+/* A finger gets 44px though the pill draws 34. */
+@media (pointer: coarse) {
+  .setg-pg .intg-card .intg-acts .btn-test::after,
+  .setg-pg .intg-card .intg-acts .intg-save::after { content: ""; position: absolute; inset: -5px -4px; }
+}
+
+/* A section fades out under the bar once it scrolls, rather than being cut at the bar's edge. */
+@property --stx-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@supports (animation-timeline: scroll()) {
+  .stx__body {
+    mask-image: linear-gradient(to bottom, transparent, #000 var(--stx-fade));
+    animation: stx-fade linear both;
+    animation-timeline: scroll(self);
+    animation-range: 0 24px;
+  }
+  @keyframes stx-fade { to { --stx-fade: 20px; } }
+}
+
 /* Forced colours drop backgrounds, which is all that dots, bars and a current choice are. */
 @media (forced-colors: active) {
   .setg-pg .conn-dot, .stx-save__dot, .setg-pg .chip-dot {

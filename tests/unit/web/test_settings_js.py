@@ -757,7 +757,7 @@ def test_a_removed_secret_is_not_said_to_be_put_back() -> None:
 
 def test_a_save_checks_again_only_the_services_it_changed() -> None:
     out = _run("recheck")
-    failed = ["err", "Connection failed"]
+    failed = ["err", "Not answering"]
     assert out["written"] == [
         ["sonarr?auto=1", "nzbget?auto=1"],
         ["ok", "Connected"],
@@ -765,7 +765,7 @@ def test_a_save_checks_again_only_the_services_it_changed() -> None:
         failed,
     ]
     assert out["elsewhere"] == out["refused"] == []
-    assert out["emptied"] == [[], ["off", "Not configured"]]
+    assert out["emptied"] == [[], ["off", "Not set up"]]
 
 
 def test_only_checks_nobody_pressed_are_marked_automatic() -> None:

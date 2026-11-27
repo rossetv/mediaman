@@ -201,11 +201,53 @@ def test_remove_and_delete_keep_a_border_in_forced_colours() -> None:
     assert any(re.search(r"\.setg-pg \.link-danger \{[^}]*border: 1px solid", b) for b in blocks)
 
 
-def test_the_list_says_how_a_service_stands_in_a_word_and_its_card_says_all_of_it() -> None:
+def test_the_list_says_how_a_service_stands_in_a_word_while_it_is_tested() -> None:
+    out = _cards("answers")
+    assert out["testing"] == ["Testing…", "Testing…", None]
+
+
+def test_an_open_card_says_the_whole_answer_above_its_fields_and_the_pill_keeps_a_word() -> None:
     out = _cards("answers")
     long = "The service refused the request: check the API key and the address."
-    assert out["err"] == ["Not answering", long]
-    assert out["warn"] == ["Rate limited", "Rate limited"]
-    assert out["ok"] == ["Connected", "Connected"]
-    assert out["off"] == ["Not set up", "Not configured"]
-    assert out["testing"] == ["Testing…", "Testing…"]
+    assert out["err"] == ["Not answering", "Not answering", long]
+    assert out["warn"] == ["Rate limited", "Rate limited", None]
+    assert out["ok"] == ["Connected", "Connected", None]
+    assert out["off"] == ["Not set up", "Not set up", None]
+
+
+def test_a_card_with_edits_offers_save_beside_its_test_and_a_clean_one_does_not() -> None:
+    out = _cards("saveInCard")
+    assert out["sonarr"] is None
+    assert out["radarr"] == ["Save", "intg-acts", "radarr"]
+    assert out["saved"] == 1
+
+
+def test_once_saved_the_cards_save_goes_and_the_focus_moves_on_to_test() -> None:
+    out = _cards("saveInCard")
+    assert out["after"] is None
+    assert out["focus"] == "radarr"
+
+
+SETG = (WEB / "static/css/_settings_pg.css").read_text(encoding="utf-8")
+
+
+def _rule(selector: str) -> str:
+    found = re.search(re.escape(selector) + r" \{([^}]*)\}", SETG)
+    assert found, selector
+    return found.group(1)
+
+
+def test_an_open_cards_fields_run_in_one_column_to_its_edges() -> None:
+    assert "grid-template-columns: 1fr" in _rule(".setg-pg .intg-card-bd .fld-row")
+    caps = _rule(".setg-pg .intg-card-bd .inp-wrap,\n.setg-pg .intg-card-bd .inp--lg")
+    assert "max-width: none" in caps
+
+
+def test_the_badge_the_fields_and_the_dividers_share_one_gutter() -> None:
+    assert "padding-inline: var(--intg-gutter)" in _rule(".setg-pg .intg-card .intg-card-hd")
+    assert "padding: 4px var(--intg-gutter) 16px" in _rule(
+        ".setg-pg .intg-card .intg-card-bd > .setg-fold-inner"
+    )
+    assert "left: var(--intg-gutter)" in _rule(
+        ".setg-pg .setg-block .intg-card + .intg-card::before"
+    )
