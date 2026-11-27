@@ -611,9 +611,9 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   inset: 0 var(--dr) var(--db) var(--dl);
   border-radius: 28px;
   box-shadow:
+    0 0 16px color-mix(in srgb, var(--ai-a) 24%, transparent),
     -12px 0 30px -6px color-mix(in srgb, var(--ai-a) 55%, transparent),
-    12px 0 30px -6px color-mix(in srgb, var(--ai-b) 45%, transparent),
-    0 0 16px color-mix(in srgb, var(--ai-a) 24%, transparent);
+    12px 0 30px -6px color-mix(in srgb, var(--ai-b) 45%, transparent);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--dur-slow) var(--ease-out), inset var(--dur-open) var(--ease-spring);
