@@ -218,6 +218,8 @@ def _register_maintenance_jobs(
     """
     from apscheduler.triggers.interval import IntervalTrigger
 
+    from mediaman.services.activity import sample_and_store
+    from mediaman.services.activity.history import STEP as ACTIVITY_STEP
     from mediaman.services.arr._throttle_persistence import reconcile_stranded_throttle
     from mediaman.services.arr.completion import cleanup_recent_downloads
     from mediaman.services.arr.search_trigger import trigger_pending_searches
@@ -262,6 +264,17 @@ def _register_maintenance_jobs(
             coalesce=True,
             misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
         )
+    # Activity's history: one reading of the server a step, kept for the tab's periods.
+    scheduler.add_job(
+        lambda: sample_and_store(_open_db_for_job(), secret_key),
+        IntervalTrigger(seconds=ACTIVITY_STEP),
+        id="activity_sample",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        # A reading that comes late is of no use: the next one is due in seconds.
+        misfire_grace_time=ACTIVITY_STEP,
+    )
     # Daily reaper for arr_search_throttle rows whose item has been
     # deleted. arr_search_throttle rows are keyed by media_item_id; when
     # the item is deleted the throttle row becomes a ghost — periodic

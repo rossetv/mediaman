@@ -35,6 +35,7 @@
 {% if is_admin %}
 <link rel="stylesheet" href="/static/css/_watch_list.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_space.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_activity.css?v={{ static_v }}">
 {% endif %}
 {% endblock %}
 
@@ -243,6 +244,7 @@
 {% if is_admin %}
 <script src="/static/js/watch/admin.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/space.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/activity.js?v={{ static_v }}" defer></script>
 <script src="/static/js/dl-abandon.js?v={{ static_v }}" defer></script>
 {% endif %}
 <script src="/static/js/watch/explore.js?v={{ static_v }}" defer></script>

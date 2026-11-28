@@ -21,7 +21,7 @@
 {% macro panel() -%}
 <div class="space" id="space" hidden>
   <div class="space__veil" data-space-close></div>
-  <section class="space__panel" role="dialog" aria-label="Storage" tabindex="-1">
+  <section class="space__panel" role="dialog" aria-label="Storage and activity" tabindex="-1">
     <div class="space__grab" aria-hidden="true"></div>
     <div class="space__head">
       <div class="space__tabs" role="tablist" aria-label="Storage">
@@ -29,6 +29,7 @@
         {{ tab("storage", "Storage") }}
         {{ tab("scheduled", "Scheduled", "Scheduled for deletion") }}
         {{ tab("deleted", "Deleted", "Recently deleted") }}
+        {{ tab("activity", "Activity") }}
       </div>
       <button type="button" class="space__close" data-space-close aria-label="Close storage">{{ icon("i-xmark") }}</button>
     </div>
@@ -36,10 +37,15 @@
       {{ pane("storage") }}
       {{ pane("scheduled") }}
       {{ pane("deleted") }}
+      {{ pane("activity") }}
     </div>
     <footer class="space__foot">
       <p class="space__scan-status" id="space-scan-status">A scan looks for titles to clear</p>
       <button type="button" class="btn btn--ghost space__scan" id="space-scan">{{ icon("i-rotate-right") }}<span class="space__scan-label">Scan now</span></button>
+      <div class="act-foot" hidden>
+        <p class="act-foot__live"><span class="act-pulse" aria-hidden="true"></span><span class="act-foot__say">Updated live · every 2 s</span></p>
+        <p class="act-foot__who">{{ icon("i-lock") }}Only admins see this</p>
+      </div>
     </footer>
   </section>
   <p class="sr-only" id="space-live" role="status"></p>

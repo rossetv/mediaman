@@ -36,6 +36,7 @@
     { service: 'sonarr',  fields: ['sonarr_url', 'sonarr_api_key'] },
     { service: 'radarr',  fields: ['radarr_url', 'radarr_api_key'] },
     { service: 'nzbget',  fields: ['nzbget_url'], also: ['nzbget_username', 'nzbget_password'] },
+    { service: 'docker',  fields: ['docker_proxy_url'] },
     { service: 'mailgun', fields: ['mailgun_domain', 'mailgun_api_key'], also: ['mailgun_from_address'] },
     { service: 'openai',  fields: ['openai_api_key'] },
     { service: 'tmdb',    fields: ['tmdb_read_token'] },

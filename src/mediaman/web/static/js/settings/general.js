@@ -67,6 +67,7 @@
       nzbget_url:            v('nzbget_url'),
       nzbget_username:       v('nzbget_username'),
       nzbget_password:       v('nzbget_password'),
+      docker_proxy_url:      v('docker_proxy_url'),
       mailgun_domain:        v('mailgun_domain'),
       mailgun_from_address:  v('mailgun_from_address'),
       mailgun_api_key:       v('mailgun_api_key'),

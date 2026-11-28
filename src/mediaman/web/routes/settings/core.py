@@ -26,6 +26,7 @@ _URL_LABELS: dict[str, str] = {
     "radarr_public_url": "Radarr Public URL",
     "nzbget_url": "NZBGet URL",
     "nzbget_public_url": "NZBGet Public URL",
+    "docker_proxy_url": "Docker proxy URL",
 }
 
 _URL_FIELDS: frozenset[str] = frozenset(_URL_LABELS)

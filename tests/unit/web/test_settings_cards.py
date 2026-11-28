@@ -131,7 +131,7 @@ def test_no_card_header_is_a_button_holding_another_button() -> None:
 def test_each_cards_title_is_the_button_that_folds_it() -> None:
     tree = _tree()
     folds = tree.find(lambda el: _has_class(el, "intg-fold"))
-    assert len(folds) == 8
+    assert len(folds) == 9
     for fold, around in folds:
         assert fold["tag"] == "button" and fold.get("aria-expanded") == "false"
         assert fold["aria-controls"].startswith("intg-body-")
@@ -146,7 +146,7 @@ def test_each_test_button_is_named_for_its_service() -> None:
     }
     assert names["sonarr"] == "Test Sonarr"
     assert names["mailgun"] == "Test Email (Mailgun)"
-    assert len(names) == 8
+    assert len(names) == 9
 
 
 def test_a_test_buttons_name_follows_its_words() -> None:

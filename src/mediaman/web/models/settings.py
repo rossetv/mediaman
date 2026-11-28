@@ -132,6 +132,9 @@ class SettingsUpdate(BaseModel):
     nzbget_username: Annotated[str | None, Field(max_length=128)] = None
     nzbget_password: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
+    # A read-only Docker socket proxy, for each app's CPU and memory on Activity. Optional.
+    docker_proxy_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+
     mailgun_domain: Annotated[str | None, Field(max_length=_HOST_MAX)] = None
     mailgun_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
     mailgun_from_address: Annotated[str | None, Field(max_length=_MAX_EMAIL_LEN)] = None
@@ -194,6 +197,7 @@ class SettingsUpdate(BaseModel):
         "radarr_public_url",
         "nzbget_url",
         "nzbget_public_url",
+        "docker_proxy_url",
         "base_url",
         mode="before",
     )

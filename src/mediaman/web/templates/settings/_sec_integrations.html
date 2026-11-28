@@ -1,4 +1,4 @@
-{# Integrations — 8 external services, one card each, all via c.service_card.
+{# Integrations — 9 external services, one card each, all via c.service_card.
    `fields` is a list-of-lists describing the form rows; see _components.html
    for the schema. Secret fields use inp_secret (masked with "****" server-side).
    `sub` strings may contain inline HTML (e.g. links) — never feed user input. #}
@@ -71,6 +71,17 @@
            "placeholder": "nzbget"},
           {"kind": "secret", "id": "nzbget_password", "label": "Password",
            "placeholder": "NZBGet password"},
+        ],
+      ],
+      settings=settings) }}
+
+  {{ c.service_card("docker", "D", "nzbget", "Docker",
+      "Optional. Each app's CPU and memory on Activity, through a read-only socket proxy.",
+      fields=[
+        [
+          {"kind": "text", "id": "docker_proxy_url", "label": "Docker proxy URL",
+           "sub": "A socket proxy that allows only GET of the containers and their stats. Leave it empty to show the server as a whole.",
+           "placeholder": "http://docker-proxy:2375"},
         ],
       ],
       settings=settings) }}

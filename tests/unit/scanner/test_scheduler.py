@@ -60,6 +60,7 @@ def test_start_scheduler_registers_fixed_background_jobs(mock_cls):
     assert "cleanup_recent_downloads" in job_ids
     assert "trigger_pending_searches" in job_ids
     assert "fill_title_meta" in job_ids
+    assert "activity_sample" in job_ids
 
 
 @patch("apscheduler.schedulers.background.BackgroundScheduler")
