@@ -3771,6 +3771,7 @@ scenarios.veilPressed = async () => {
 
 const ALL_GENRES = ['action', 'comedy', 'thriller', 'science-fiction', 'drama', 'horror', 'family', 'crime', 'romance', 'fantasy', 'animation', 'documentary', 'anime', 'mystery', 'war']
   .map((id) => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1), aliases: [], types: ['movie', 'tv'], poster_urls: [] }));
+Object.assign(ALL_GENRES.find((g) => g.id === 'science-fiction'), { name: 'Science Fiction', short: 'Sci-fi' });
 const TASTE = {
   personal: true,
   order: ['comedy', 'anime', 'science-fiction', 'fantasy', 'animation', 'family', 'action', 'thriller', 'drama', 'crime', 'romance', 'documentary', 'mystery', 'war', 'horror'],
@@ -3802,6 +3803,7 @@ async function sheetFor(taste, more) {
     forYou: p.sheet.querySelectorAll('.watch-try--for, .watch-try--ai').map((n) => [n.textContent, n.classList.contains('watch-try--ai'), n.getAttribute('role')]),
     first: parts[0] ? parts[0].children.map((n) => n.id.replace('watch-option-genre-', '')) : [],
     more: parts[1] ? parts[1].children.map((n) => n.id.replace('watch-option-genre-', '')) : [],
+    tiles: Object.fromEntries(p.sheet.querySelectorAll('.watch-tile').map((n) => [n.id.replace('watch-option-genre-', ''), [n.querySelector('b').textContent, n.getAttribute('aria-label')]])),
     favs: p.sheet.querySelectorAll('.watch-tile--fav').map((n) => [n.id.replace('watch-option-genre-', ''), n.querySelector('small').textContent, n.getAttribute('aria-label')]),
     hint: (p.sheet.querySelector('.watch-sheet__hint') || {}).textContent || null,
     tries: p.sheet.querySelectorAll('.watch-try').filter((n) => n.parentNode.getAttribute('aria-label') === 'Try').map((n) => [n.textContent, n.classList.contains('watch-try--ai')]),
@@ -3821,6 +3823,12 @@ scenarios.forYou = async () => {
   click(r.doc, r.sheet.querySelectorAll('.watch-try--for').find((n) => n.textContent.startsWith('More like'))); await settle();
   const strip = ({ p: _p, ...rest }) => rest;
   return { withAi: strip(withAi), noKey: strip(noKey), opened, person: q.url(), like: [r.url(), r.calls.filter((c) => c.url.includes('/like')).map((c) => c.body)], likeFace: tokenFace(r) };
+};
+
+scenarios.shortFav = async () => {
+  const { p } = await sheetFor({ ...TASTE, favourites: ['science-fiction', 'comedy'] }, {});
+  const tile = (id) => p.sheet.querySelector('#watch-option-genre-' + id).getAttribute('aria-label');
+  return { fav: tile('science-fiction'), plainFav: tile('comedy') };
 };
 
 scenarios.forYouNewbie = async () => {

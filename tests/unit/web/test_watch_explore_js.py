@@ -64,3 +64,13 @@ def test_a_persons_empty_biography_folds_its_placeholder_shut_and_cuts_under_red
         "after": {"hidden": True, "lines": 0},
     }
     assert out["still"] == {"now": {"hidden": True, "lines": 0}, "fold": None}
+
+
+def test_a_category_page_s_chip_shows_its_short_name_and_its_heading_the_full_one() -> None:
+    out = _run("genreChip")
+    assert out["short"]["chip"] == "Sci-fi"
+    assert out["short"]["later"] == []
+    # A page opened by its link has the short name once the page answers.
+    assert out["linked"]["later"] == ["Sci-fi"]
+    assert out["short"]["title"] == "Science Fiction"
+    assert out["none"]["chip"] == "Drama"

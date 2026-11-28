@@ -389,6 +389,7 @@
     var gathering = null; // the line that says so
     var drawn = false; // whether what may move is on the page
     f.title.textContent = name;
+    var chip = (known && known.short) || name; // what the search bar's chip says
 
     function facts(total) {
       // The answer may say less than was made room for.
@@ -450,9 +451,10 @@
     function learn(reply) {
       if (!reply) return;
       if (reply.tmdb_configured === false) { mine.list.stop(); notSetUp(f); reveal(); return; }
-      if (reply.genre && reply.genre.name !== f.title.textContent) {
-        f.title.textContent = reply.genre.name;
-        stage().token({ icon: icon(want.id), name: reply.genre.name });
+      if (reply.genre) {
+        var shown = reply.genre.short || reply.genre.name;
+        if (reply.genre.name !== f.title.textContent) f.title.textContent = reply.genre.name;
+        if (shown !== chip) { chip = shown; stage().token({ icon: icon(want.id), name: shown }); }
       }
       if (reply.genre) settleTypes(reply.genre);
       settleWhere(reply.library);
@@ -548,7 +550,7 @@
     f.node.appendChild(f.host);
     heldOnly(filter);
     facts();
-    stage().open(f.node, name, { icon: icon(want.id), name: name });
+    stage().open(f.node, name, { icon: icon(want.id), name: chip });
     stage().grow(f.title, from);
     stage().rise(f.facts, 60);
     stage().rise(filters, 80);
