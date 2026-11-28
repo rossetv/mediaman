@@ -5,10 +5,12 @@ Only paired TVs count: a row of any other kind in the table is passed over every
 
 from __future__ import annotations
 
+import json
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from mediaman.core.audit import security_event_or_raise
 
@@ -254,11 +256,26 @@ def leave(conn: sqlite3.Connection, tv: Tv, username: str, *, actor: str, ip: st
     return True
 
 
-def set_resume_play(conn: sqlite3.Connection, token_hash: str, play_id: str) -> None:
-    """Note *play_id* as what the TV holding the token may go on with after a restart."""
+def set_resume_play(
+    conn: sqlite3.Connection, token_hash: str, play_id: str, state: Mapping[str, Any]
+) -> None:
+    """Note *play_id*, as *state* tells of it, as what the TV holding the token may go on with
+    after a restart."""
     with conn:
         conn.execute(
-            "UPDATE tvs SET resume_play_id = ? WHERE token_hash = ?", (play_id, token_hash)
+            "UPDATE tvs SET resume_play_id = ?, resume_state = ? WHERE token_hash = ?",
+            (play_id, json.dumps(state), token_hash),
+        )
+
+
+def note_resume(
+    conn: sqlite3.Connection, token_hash: str, play_id: str, state: Mapping[str, Any]
+) -> None:
+    """Keep *state* as where *play_id* got to, unless another play has been begun or it ended."""
+    with conn:
+        conn.execute(
+            "UPDATE tvs SET resume_state = ? WHERE token_hash = ? AND resume_play_id = ?",
+            (json.dumps(state), token_hash, play_id),
         )
 
 
@@ -268,9 +285,23 @@ def end_resume_plays(conn: sqlite3.Connection, play_ids: Sequence[str]) -> None:
         return
     with conn:
         conn.executemany(
-            "UPDATE tvs SET resume_play_id = NULL WHERE resume_play_id = ?",
+            "UPDATE tvs SET resume_play_id = NULL, resume_state = NULL WHERE resume_play_id = ?",
             [(play_id,) for play_id in play_ids],
         )
+
+
+def resume_state(conn: sqlite3.Connection, token_hash: str) -> dict[str, Any] | None:
+    """What the TV holding the token last told of the play it may go on with after a restart."""
+    row = conn.execute(
+        "SELECT resume_play_id, resume_state FROM tvs WHERE token_hash = ?", (token_hash,)
+    ).fetchone()
+    if row is None or row[0] is None or row[1] is None:
+        return None
+    try:
+        state = json.loads(row[1])
+    except ValueError:
+        return None
+    return state if isinstance(state, dict) and state.get("play_id") == row[0] else None
 
 
 def resume_play(conn: sqlite3.Connection, token_hash: str) -> str | None:

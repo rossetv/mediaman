@@ -209,6 +209,7 @@ def maybe_trigger_search(
     item: Mapping[str, object],
     matched_nzb: bool,
     secret_key: str = "",
+    searched: set[tuple[str, int]] | None = None,
 ) -> None:
     """Trigger a Radarr/Sonarr search for a stalled item, with throttling.
 
@@ -224,6 +225,8 @@ def maybe_trigger_search(
     - ANY search was triggered for the same arr instance within the last 15
       minutes (the per-arr-instance fan-out cap)
     - secret_key is empty
+    - the item's film or show is in *searched*, the ``(service, id)`` of those already
+      searched for in this pass; one searched for here is added to it
 
     Locking discipline:
 
@@ -254,6 +257,8 @@ def maybe_trigger_search(
     if inputs is None:
         return
     dl_id, arr_id, kind, now = inputs.dl_id, inputs.arr_id, inputs.kind, inputs.now
+    if searched is not None and (inputs.service, arr_id) in searched:
+        return
 
     # Phase 0: warm-up DB read — done OUTSIDE the lock so a slow SQLite
     # query for one dl_id can't serialise every other dl_id's throttle
@@ -323,6 +328,8 @@ def maybe_trigger_search(
         else:
             client.search_series(arr_id)
         triggered = True
+        if searched is not None:
+            searched.add((inputs.service, arr_id))
         # Late import: ``_deep_links`` lives in the ``download_queue`` package
         # whose ``__init__`` imports ``maybe_trigger_search`` from this module,
         # so a top-level import here would cycle.
@@ -397,9 +404,19 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
         fetched = None
     arr_items = fetched.cards if fetched is not None else []
 
+    # Each film or show is searched for once in a pass, whichever path comes to it first; the
+    # stuck imports go first, as removing a download that will not import comes before a search.
+    searched: set[tuple[str, int]] = set()
+    try:
+        retry_stuck_imports(conn, secret_key, arr_items, searched)
+    except Exception:  # rationale: scheduler must survive a failed retry pass
+        logger.warning("import retry: pass failed", exc_info=True)
+
     now = time.time()
     for item in arr_items:
-        maybe_trigger_search(conn, item, matched_nzb=False, secret_key=secret_key)
+        maybe_trigger_search(
+            conn, item, matched_nzb=False, secret_key=secret_key, searched=searched
+        )
         try:
             maybe_auto_abandon(conn, secret_key, item=item, now=now)
         except Exception:  # rationale: scheduler must survive a single bad row
@@ -407,14 +424,9 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
                 "auto-abandon: skipped %s due to error", item.get("dl_id"), exc_info=True
             )
 
-    try:
-        retry_stuck_imports(conn, secret_key, arr_items)
-    except Exception:  # rationale: scheduler must survive a failed retry pass
-        logger.warning("import retry: pass failed", exc_info=True)
-
     missing: set[str] | None = None
     try:
-        missing = _trigger_sonarr_partial_missing(conn, arr_items, secret_key)
+        missing = _trigger_sonarr_partial_missing(conn, arr_items, secret_key, searched)
     except (
         SafeHTTPError,
         requests.RequestException,
@@ -448,11 +460,12 @@ def _trigger_sonarr_partial_missing(
     conn: sqlite3.Connection,
     arr_items: list[ArrCard],
     secret_key: str,
+    searched: set[tuple[str, int]] | None = None,
 ) -> set[str] | None:
     """Fire SeriesSearch for Sonarr series with partial missing episodes.
 
     Dedupes against series already handled by the main pass via
-    ``arr_id``, and reuses the ``sonarr:{title}`` dl_id format so the
+    ``arr_id`` and against *searched*, and reuses the ``sonarr:{title}`` dl_id format so the
     per-item throttle recognises the same series across passes.
 
     Returns the dl_ids of every series with episodes missing, or None
@@ -495,5 +508,6 @@ def _trigger_sonarr_partial_missing(
                 },
                 matched_nzb=False,
                 secret_key=secret_key,
+                searched=searched,
             )
     return {f"sonarr:{title}" for title in missing.values()}

@@ -966,8 +966,13 @@
       list.push({ key: 'nzbdown', icon: 'i-triangle-exclamation', cls: 'act-work--warn', name: 'Downloads', sub: 'Can’t see them while NZBGet isn’t answering.' });
     }
     if (wk.fixing) {
-      list.push({ key: 'fix', icon: 'i-folder-tree', name: 'Fixing ' + plural(wk.fixing, 'download') + ' that wouldn’t import',
-        sub: 'mediaman tries again until Radarr or Sonarr takes ' + (wk.fixing === 1 ? 'it' : 'them'), state: 'Working', stateCls: 'is-busy' });
+      // The step the soonest one is due, then taken on the next hourly check.
+      var next = wk.fix_next || {};
+      var step = { rename: 'rename its files', 'import': 'import its files by hand' }[next.plan] || 'find another copy';
+      var later = next.at && next.at > d.at;
+      list.push({ key: 'fix', icon: 'i-folder-tree', name: plural(wk.fixing, 'download') + ' won’t import',
+        sub: 'Next: ' + step + (later ? ', after ' + clock(next.at, next.at - d.at > 20 * 3600) : ', on the next hourly check'),
+        state: later ? 'Waiting' : 'Due', stateCls: later ? 'is-quiet' : 'is-busy' });
     }
     var searching = Object.keys(wk.searching || {});
     var found = searching.reduce(function (s, k) { return s + wk.searching[k]; }, 0);

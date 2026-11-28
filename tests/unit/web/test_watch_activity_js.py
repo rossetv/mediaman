@@ -169,6 +169,16 @@ def test_a_finished_download_gives_no_time_left():
     assert subs[5].endswith("GB") and "left" not in subs[5]  # more done than its size
 
 
+def test_downloads_that_wont_import_say_the_next_step_and_when_never_just_working():
+    out = _run("fixing")
+    assert out["later"] == [
+        "2 downloads won’t import",
+        "Next: import its files by hand, after 12:30",
+        "Waiting",
+    ]
+    assert out["due"][1:] == ["Next: find another copy, on the next hourly check", "Due"]
+
+
 def test_last_asked_turns_to_hours_at_the_hour_and_never_says_60_min():
     assert _read("asked") == {
         "3560": "Last asked 59 min ago",

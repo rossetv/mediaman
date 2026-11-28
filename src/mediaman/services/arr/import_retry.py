@@ -368,6 +368,21 @@ class _Planner:
         return PLAN_REPLACE
 
 
+def _next_try(
+    plan: str, mode: str, since: datetime, tries: int, fixed: datetime | None
+) -> str | None:
+    """When the poller next acts on a unit stuck *since*, by its *plan*, after *tries* copies,
+    whose copy was last mended in place at *fixed*; None when it is left as it is."""
+    if not plan:
+        return None
+    due = since + _STUCK_FOR
+    if plan == PLAN_REPLACE:
+        due = max(due, since + stuck_modes.wait_for(tries, mode))
+        if fixed is not None:
+            due = max(due, fixed + _STUCK_FOR)
+    return due.isoformat()
+
+
 def note_stuck_imports(
     conn: sqlite3.Connection, service: str, cards: list[ArrCard], *, complete: bool
 ) -> None:
@@ -386,7 +401,8 @@ def note_stuck_imports(
             row[0]: row
             for row in conn.execute(
                 "SELECT key, stuck_since, retried_at, removed, shown, tries, search, first_stuck_at,"
-                " fix_plan, fixed_tries FROM arr_import_retries WHERE key LIKE ?",
+                " fix_plan, fixed_tries, fixed_at, next_try_at FROM arr_import_retries"
+                " WHERE key LIKE ?",
                 (f"{service}:%",),
             )
         }
@@ -407,11 +423,13 @@ def note_stuck_imports(
                 # A removal's search still to send goes, whatever was grabbed meanwhile.
                 continue
             if unit.stuck and row is None:
+                plan = planner.plan(unit, may_fix=True)
                 writes.append(
                     (
-                        "INSERT INTO arr_import_retries (key, stuck_since, first_stuck_at, fix_plan)"
-                        " VALUES (?, ?, ?, ?)",
-                        (unit.key, now, now, planner.plan(unit, may_fix=True)),
+                        "INSERT INTO arr_import_retries"
+                        " (key, stuck_since, first_stuck_at, fix_plan, next_try_at)"
+                        " VALUES (?, ?, ?, ?, ?)",
+                        (unit.key, now, now, plan, _next_try(plan, unit.mode, now_dt, 0, None)),
                     )
                 )
                 continue
@@ -420,6 +438,16 @@ def note_stuck_imports(
                 if plan != row[8]:
                     writes.append(
                         ("UPDATE arr_import_retries SET fix_plan=? WHERE key=?", (plan, unit.key))
+                    )
+                since = parse_iso_utc(row[1]) if row[1] else now_dt
+                fixed = parse_iso_utc(row[10]) if row[10] and row[9] == row[5] else None
+                next_try = _next_try(plan, unit.mode, since or now_dt, row[5], fixed)
+                if next_try != row[11]:
+                    writes.append(
+                        (
+                            "UPDATE arr_import_retries SET next_try_at=? WHERE key=?",
+                            (next_try, unit.key),
+                        )
                     )
             if row is not None and unit.stuck and row[7] is None:
                 # Since when it has gone without importing, of one noted before that was kept.
@@ -677,7 +705,9 @@ def _fix_in_place(
     conn: sqlite3.Connection, secret_key: str, card: Mapping[str, object], unit: _Unit, row: Any
 ) -> bool | None:
     """Mend *unit*'s download where it lies, when its mode allows; True when it was, None when
-    its service gave no answer, False when nothing was done."""
+    its service gave no answer, False when nothing was done. A mend the service refused, or an
+    import by hand of files in doubt, is this copy's one mend, so the next step is what is
+    planned and shown."""
     fixes = {stuck_modes.NO_FILES: _rename_in_place, stuck_modes.WRONG_MATCH: _import_by_hand}
     fix = fixes.get(unit.mode)
     if fix is None or not unit.places:
@@ -686,10 +716,23 @@ def _fix_in_place(
         client = _client(conn, secret_key, unit.key.partition(":")[0])
         if client is None:
             return False
-        return fix(conn, client, card, unit, row)
+        mended = fix(conn, client, card, unit, row)
     except _ERRORS as exc:
-        logger.warning("Could not mend %s where it lies", unit.key, exc_info=True)
-        return None if _no_answer(exc) else False
+        if _no_answer(exc):
+            logger.warning(
+                "Could not mend %s where it lies (%s); trying again on the next run", unit.key, exc
+            )
+            return None
+        logger.warning("Could not mend %s where it lies (%s); trying the next step", unit.key, exc)
+        mended = None
+    if not mended and (mended is None or fix is _import_by_hand):
+        with conn:
+            conn.execute(
+                "UPDATE arr_import_retries SET fixed_tries=tries, fix_plan=? WHERE key=?"
+                " AND stuck_since=? AND retried_at IS NULL",
+                (PLAN_REPLACE, unit.key, row[0]),
+            )
+    return bool(mended)
 
 
 # What came of a unit's turn in a run.
@@ -1004,12 +1047,23 @@ def _expire(conn: sqlite3.Connection, now: datetime, cards: Sequence[Mapping[str
 
 
 def retry_stuck_imports(
-    conn: sqlite3.Connection, secret_key: str, cards: Sequence[Mapping[str, object]]
+    conn: sqlite3.Connection,
+    secret_key: str,
+    cards: Sequence[Mapping[str, object]],
+    searched: set[tuple[str, int]] | None = None,
 ) -> None:
     """Forget the titles that have imported since they were tried, send each search a run
     before could not, and remove and search again for each download of *cards* that has not
     imported for an hour, this last not while the setting is off. A service that gives no
-    answer to a search or a removal is not sent another in this run."""
+    answer to a search or a removal is not sent another in this run.
+
+    *searched* holds the films and shows, as ``(service, id)``, already searched for in this
+    pass; each one this pass acts on is added, and one already there is left for the next run,
+    so no title is searched for twice at once."""
+    if searched is None:
+        searched = set()
+    # Seasons of one show are each this pass's own; another path's search holds them all back.
+    before = frozenset(searched)
     _expire(conn, now_utc(), cards)
     _forget_imported(conn, secret_key, now_utc())
     down: set[str] = set()
@@ -1018,8 +1072,10 @@ def retry_stuck_imports(
         " WHERE retried_at IS NOT NULL AND search IS NOT NULL"
     ).fetchall():
         service = key.partition(":")[0]
-        if service in down:
+        title = (service, _key_id(key))
+        if service in down or title in before:
             continue
+        searched.add(title)
         try:
             client = _client(conn, secret_key, service)
         except _ERRORS:
@@ -1035,6 +1091,11 @@ def retry_stuck_imports(
         # One held by the service's own setup, or by a hold that passes, is not acted on.
         if not unit.stuck or unit.mode not in stuck_modes.ACTIONABLE or service in down:
             continue
+        title = (service, _key_id(unit.key))
+        if title in before:
+            continue
+        # Whatever comes of its turn, nothing else searches for it in this pass.
+        searched.add(title)
         may_replace = replaced.get(service, 0) < _REPLACED_PER_RUN
         came = _retry(conn, secret_key, card, unit, now, may_replace=may_replace)
         if came == _SILENT:

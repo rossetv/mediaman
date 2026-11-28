@@ -44,6 +44,7 @@ def _mode(message: str, held: tuple[str, str, str] = _HELD) -> str:
             " Manual Import required.",
             m.WRONG_MATCH,
         ),
+        ("Release was matched by ID. Automatic import is not possible.", m.WRONG_MATCH),
         ("Episode wasn't in the release", m.OTHER),
         (
             "One or more episodes expected in this release were not imported or missing from the"

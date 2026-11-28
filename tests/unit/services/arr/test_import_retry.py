@@ -12,6 +12,8 @@ import pytest
 import requests
 
 from mediaman.db import init_db
+from mediaman.services.activity import _work
+from mediaman.services.arr import build
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.fetcher import _forget_answers, fetch_arr_queue
 from mediaman.services.arr.finding_copy import fixing_words, is_finding_copy
@@ -103,6 +105,10 @@ class Arrs:
         # What GET /api/v3/manualimport lists, and the queries it was asked with.
         self.manual: list[dict] = []
         self.manual_asked: list[dict] = []
+        # The status GET /api/v3/manualimport fails with, if it does.
+        self.manual_failing = 0
+        # The shows Sonarr's Wanted/Missing lists, by id.
+        self.missing: dict[int, str] = {}
         # The error each command, by name, is answered with.
         self.breaking: dict[str, Exception] = {}
         fake_http.handler(self._answer)
@@ -203,10 +209,23 @@ class Arrs:
                 json_data={"id": episode + 1000, "dateAdded": self.files[episode]}
             )
         if parts.path == "/api/v3/manualimport":
-            self.manual_asked.append(parse_qs(parts.query))
+            asked = parse_qs(parts.query)
+            self.manual_asked.append(asked)
+            if service == "sonarr" and "seriesId" in asked:
+                # Sonarr 4 then lists the series' own folder, which a show with no episode on
+                # disk does not have yet.
+                return _fake_response(
+                    status=500,
+                    json_data={"message": "System.IO.DirectoryNotFoundException: /tv/Alone"},
+                )
+            if self.manual_failing:
+                return _fake_response(status=self.manual_failing, json_data={})
             return _fake_response(json_data=self.manual)
         if parts.path == "/api/v3/wanted/missing":
-            return _fake_response(json_data={"page": 1, "totalRecords": 0, "records": []})
+            records = [{"series": {"id": i, "title": t}} for i, t in self.missing.items()]
+            return _fake_response(
+                json_data={"page": 1, "totalRecords": len(records), "records": records}
+            )
         if method == "POST" and parts.path == "/api/v3/command":
             if self.refusing:
                 return _fake_response(status=self.refusing, json_data={})
@@ -1502,9 +1521,7 @@ def test_a_release_matched_by_id_alone_is_imported_by_hand_when_each_file_is_bey
     assert made[:3] == ("POST", "sonarr", "/api/v3/command")
     assert made[3]["name"] == "ManualImport"
     assert [(f["seriesId"], f["episodeIds"]) for f in made[3]["files"]] == [(5, [501]), (5, [502])]
-    assert arrs.manual_asked == [
-        {"downloadId": ["pack-1"], "seriesId": ["5"], "filterExistingFiles": ["true"]}
-    ]
+    assert arrs.manual_asked == [{"downloadId": ["pack-1"], "filterExistingFiles": ["true"]}]
     assert _history_of(arrs, "import_imported")[0].endswith(
         "imported its 2 files by hand in Sonarr"
     )
@@ -1530,6 +1547,78 @@ def test_a_release_matched_by_id_whose_files_are_in_doubt_is_replaced(arrs):
 
     assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
     assert _history_of(arrs, "import_imported") == []
+
+
+def test_a_finished_season_blocked_as_matched_by_id_is_imported_from_its_download(arrs):
+    """A show with nothing on disk yet: its series folder does not exist."""
+    _season_stuck(arrs, 10, trackedDownloadState="importBlocked")
+    _says(arrs, _BY_ID, outputPath="/downloads/completed/comptv/Alone.S13")
+    arrs.manual = [_manual(1), _manual(2)]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    made = arrs.changes()
+    assert [c[3]["name"] for c in made] == ["ManualImport"]
+    assert [f["downloadId"] for f in made[0][3]["files"]] == ["pack-1", "pack-1"]
+
+
+def test_a_mend_sonarr_refuses_is_said_in_one_line_and_the_copy_is_replaced(arrs, caplog):
+    _season_stuck(arrs, 10, trackedDownloadState="importBlocked")
+    _says(arrs, _BY_ID, outputPath="/downloads/completed/comptv/Alone.S13")
+    arrs.manual_failing = 500
+    arrs.poll()
+    with caplog.at_level(logging.WARNING):
+        arrs.poll(timedelta(hours=1))
+
+    assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
+    (told,) = [r for r in caplog.records if "where it lies" in r.getMessage()]
+    assert told.exc_info is None
+    assert "500" in told.getMessage()
+
+
+def test_a_stuck_season_replaced_in_a_pass_is_searched_for_once(arrs, monkeypatch):
+    """Sonarr's Wanted/Missing lists the show too, and the queue's card of it has no arr_id."""
+    sonarr = build.build_sonarr_from_db(arrs.conn, _KEY)
+    monkeypatch.setattr(
+        "mediaman.services.arr.search_trigger.build_sonarr_from_db", lambda *a: sonarr
+    )
+    _season_stuck(arrs, 10, trackedDownloadState="importBlocked")
+    _says(arrs, _BY_ID, outputPath="/downloads/completed/comptv/Alone.S13")
+    arrs.poll()
+    arrs.missing = {5: "Alone"}
+    arrs.calls.clear()
+    arrs.poll(timedelta(hours=1))
+
+    searches = [c[3]["name"] for c in arrs.calls if c[2] == "/api/v3/command"]
+    assert searches == ["SeasonSearch"]
+
+
+def test_activity_says_the_next_step_of_a_stuck_season_and_when_it_comes(arrs):
+    _season_stuck(arrs, 10)
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))  # the first copy is replaced
+    arrs.queues["sonarr"] = [
+        _stuck_episode(20, 1, download="pack-2", trackedDownloadState="importBlocked"),
+        _stuck_episode(21, 2, download="pack-2", trackedDownloadState="importBlocked"),
+    ]
+    _says(arrs, _BY_ID, outputPath="/downloads/completed/comptv/Alone.S13")
+    arrs.poll(timedelta(minutes=5))
+    since = arrs.now
+
+    assert _work(arrs.conn)["fix_next"] == {
+        "plan": "import",
+        "at": (since + timedelta(hours=1)).timestamp(),
+    }
+
+    arrs.manual_failing = 500
+    arrs.poll(timedelta(hours=1))
+    arrs.states()
+
+    # The mend was refused, and the second copy is left three hours before it is replaced.
+    assert _work(arrs.conn)["fix_next"] == {
+        "plan": "replace",
+        "at": (since + timedelta(hours=3)).timestamp(),
+    }
 
 
 @pytest.mark.parametrize(
