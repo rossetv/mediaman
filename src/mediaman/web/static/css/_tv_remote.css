@@ -20,8 +20,9 @@
   /* Where the card stands: on the line the bar stands on. */
   --rem-foot: max(16px, env(safe-area-inset-bottom));
   --rem-r: 22px;
-  /* A spring that settles without a wobble; where linear() is not known the push curve stands in. */
-  --rem-spring: linear(0, .055, .182, .337, .491, .629, .745, .836, .904, .952, .984, 1.004, 1.015, 1.019, 1.02, 1.018, 1.015, 1.012, 1.009, 1.007, 1);
+  /* A spring from rest that runs a little past and settles, with no second wobble (damping .76);
+     where linear() is not known the push curve stands in. */
+  --rem-spring: linear(0, .021, .074, .149, .236, .329, .423, .513, .597, .674, .742, .801, .851, .894, .928, .956, .978, .994, 1.007, 1.015, 1.021, 1.024, 1.025, 1.025, 1.024, 1.023, 1.02, 1.018, 1.016, 1.013, 1.011, 1.009, 1.007, 1.006, 1.004, 1.003, 1.002, 1.001, 1.001, 1, 1);
   position: fixed;
   inset: 0;
   z-index: calc(var(--z-modal) + 10);
@@ -41,7 +42,8 @@
 /* Every control on the remote's glass and the bar's takes the glass's ring. */
 .tv-rem :focus-visible, .tv-mini :focus-visible { outline-color: var(--g-focus); }
 html.has-tv-remote { overflow: hidden; }
-.tv-rem__veil { position: fixed; inset: 0; background: var(--g-dim); }
+/* The page behind dims and softens as the card comes. */
+.tv-rem__veil { position: fixed; inset: 0; background: var(--g-dim); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 
 .tv-rem__card {
   /* Inside the glass: veils for fills. */
@@ -56,8 +58,8 @@ html.has-tv-remote { overflow: hidden; }
   margin: auto auto var(--rem-foot);
   padding: 8px 8px 18px;
 }
-/* The card's glass is a layer of its own, so that it alone is stretched as the card grows out of the
-   bar; what is on it moves without being stretched. */
+/* The card's glass is a layer of its own with nothing in it, so that its box alone grows out of the
+   bar's, its corners, edge and shadow true all the way; what is on it travels without being laid out. */
 .tv-rem__glass {
   position: absolute;
   inset: 0;
@@ -70,7 +72,7 @@ html.has-tv-remote { overflow: hidden; }
   box-shadow: var(--g-inset), var(--g-shadow);
 }
 /* What travels between the bar and the card is moved from its top left corner. */
-.tv-rem__glass, .tv-rem__art, .tv-rem .player-title, .tv-rem .player-seek-track { transform-origin: 0 0; }
+.tv-rem__art, .tv-rem .player-title, .tv-rem .player-seek-track, .tv-mini__t b { transform-origin: 0 0; }
 .tv-rem__card > :not(.tv-rem__glass) { position: relative; }
 
 /* The picture, with the title on it and the way out over it. */
@@ -125,7 +127,9 @@ html.has-tv-remote { overflow: hidden; }
   backdrop-filter: none;
 }
 .tv-rem .player-back:hover { background: rgb(0 0 0 / .6); }
-.tv-rem .player-title { font-size: 22px; font-weight: 700; letter-spacing: -.015em; line-height: 1.25; }
+/* A long title takes a second line before it is cut, at the end of that line; its whole text is its
+   tooltip (tv-remote.js). */
+.tv-rem .player-title { font-size: 22px; font-weight: 700; letter-spacing: -.015em; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; text-wrap: balance; overflow-wrap: anywhere; }
 .tv-rem .player-subtitle { margin-top: 2px; font-size: 14px; }
 .tv-rem__play-on .ico--tv { width: 1.35em; height: 1.35em; }
 .tv-rem__play-on.is-on { color: var(--accent-hi); }
@@ -241,7 +245,8 @@ html.has-tv-remote { overflow: hidden; }
   .tv-rem__art, .tv-rem__grab { display: none; }
   .tv-rem .player-top { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 0; }
   .tv-rem .player-titles { flex: 1 1 0; min-width: 0; padding: 0; text-shadow: none; }
-  .tv-rem .player-title { font-size: 17px; }
+  /* Beside the buttons, one line, so that the whole card stays on the screen. */
+  .tv-rem .player-title { font-size: 17px; display: block; white-space: nowrap; }
   .tv-rem .player-subtitle { margin-top: 0; font-size: 13px; }
   .tv-rem .player-back { background: var(--s3); }
   .tv-rem .player-back:hover { background: var(--s5); }
@@ -347,6 +352,10 @@ html.has-tv-remote { overflow: hidden; }
   .tv-mini:has(.tv-mini__open:active) { transform: scale(.98); transition-duration: var(--dur-fast); }
 }
 @keyframes tv-mini-out { to { opacity: 0; transform: translateY(24px); } }
+/* As the card grows out of it or back into it, the bar's title goes along with the card's, out of
+   the bar's box, and the card's seek line stands on the bar's. */
+.tv-mini.is-morphing { overflow: visible; }
+.tv-mini.is-morphing .tv-mini__bar { opacity: 0; }
 .tv-mini__open { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 12px; text-align: left; border-radius: 8px; }
 /* All of the bar that is no other button opens the remote; the others stand above it. */
 .tv-mini__open::before { content: ""; position: absolute; inset: 0; }
@@ -429,6 +438,7 @@ html.has-tv-remote .tv-mini { opacity: 0; }
   /* A title's sheet stays drawn under the remote: its dim gives up its blur, so the sheet and the
      remote are the two layers. */
   html.has-tv-rem { --g-dim-blur: none; }
+  html.has-ttl .tv-rem__veil { -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tv-rem__dim, .tv-rem__skip, .tv-rem__skip.is-leaving, .tv-po, .tv-po-veil, .tv-po.is-leaving, .tv-po-veil.is-leaving, .tv-rem__dim.is-leaving,
