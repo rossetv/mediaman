@@ -1724,12 +1724,29 @@
     var light = pressed() || litByDown || now() < litUntil;
     litByDown = false;
     litUntil = 0;
-    if (shown === 'play' && hidden) { wake(); return; }
-    if (light) return;
     var n = buttonAt(e.target);
+    var bare = n < 0 && !onControl(e.target);
+    if (shown === 'play' && hidden) { wake(); if (bare) tapped(); return; }
+    if (bare && tapped()) return;
+    if (light) return;
     if (n < 0) return;
     moveTo(n);
     act(buttons[n][1]);
+  }
+  /* Whether a click landed on something that answers it by itself. */
+  function onControl(node) {
+    while (node && node.nodeType !== 9) {
+      if (/^(A|BUTTON|INPUT|SELECT|TEXTAREA)$/.test(node.tagName || '') || node.id === 'sk') return true;
+      node = node.parentNode;
+    }
+    return false;
+  }
+  /* A click on the bare picture of a film that plays or is paused does what the play button does. */
+  function tapped() {
+    if (!play || !loaded || !ready || (shown !== 'play' && shown !== 'pause')) return false;
+    act('p');
+    wake();
+    return true;
   }
   var pointedAt = '';
   document.onmousemove = function (e) {
