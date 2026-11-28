@@ -142,43 +142,31 @@ def test_each_button_names_its_own_font(mail: Callable[..., str]) -> None:
     assert [b for b in buttons if "font-family:" not in b] == []
 
 
-def _name_pictures(html: str) -> dict[str, str]:
-    """Each picture of the name in the mail's head, by its class: its address."""
-    return dict(re.findall(r'<img class="(wm-[a-z])" src="([^"]+)" alt="mediaman"', html))
+def _name_picture(html: str) -> str | None:
+    """The tag of the picture of the name in the mail's head, if it has one."""
+    return _found(r'(<img [^>]*alt="mediaman"[^>]*>)', html)
 
 
 @every_mail
 def test_the_head_draws_the_apps_name_as_a_picture_from_the_site(mail: Callable[..., str]) -> None:
     html = mail()
-    pictures = _name_pictures(html)
+    tag = _name_picture(html) or ""
 
-    assert set(pictures) == {"wm-l", "wm-d"}
-    assert all(
-        re.fullmatch(r"https://[\w.]+/static/mail/[\w-]+\.png", p) for p in pictures.values()
+    assert re.fullmatch(
+        r"https://[\w.]+/static/mail/[\w-]+\.png", _found(r'src="([^"]+)"', tag) or ""
     )
     assert "media<span" not in html
     assert "data:" not in html and "<svg" not in html
 
 
 @every_mail
-def test_the_reader_s_dark_mail_shows_the_light_picture_of_the_name(
+def test_the_picture_of_the_name_is_there_at_twice_the_size_it_is_shown(
     mail: Callable[..., str],
 ) -> None:
-    rules = _dark_rules(mail())
+    tag = _name_picture(mail()) or ""
+    shown = [int(_found(rf'{side}="(\d+)"', tag) or 0) for side in ("width", "height")]
+    src = _found(r'src="[^"]*/static/([^"]+)"', tag) or "missing.png"
+    png = (_STATIC_DIR / src).read_bytes() if (_STATIC_DIR / src).is_file() else b""
 
-    assert "display:none" in rules["wm-l"] and "display:block" in rules["wm-d"]
-
-
-@every_mail
-def test_each_picture_of_the_name_is_there_at_twice_the_size_it_is_shown(
-    mail: Callable[..., str],
-) -> None:
-    html = mail()
-    assert _name_pictures(html)
-    for src in _name_pictures(html).values():
-        tag = re.search(rf'<img [^>]*src="{re.escape(src)}"[^>]*>', html).group(0)
-        shown = [int(_found(rf'{side}="(\d+)"', tag) or 0) for side in ("width", "height")]
-        png = (_STATIC_DIR / src.split("/static/", 1)[1]).read_bytes()
-
-        assert png[:8] == b"\x89PNG\r\n\x1a\n"
-        assert list(struct.unpack(">II", png[16:24])) == [2 * n for n in shown]
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    assert list(struct.unpack(">II", png[16:24])) == [2 * n for n in shown]

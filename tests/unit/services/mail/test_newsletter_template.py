@@ -632,7 +632,7 @@ def test_a_long_mail_shows_the_soonest_with_pictures_and_the_rest_in_short_rows(
     html = _fitted(env, ctx)
 
     rows = re.findall(r">(Leaving (?!soon)[^<]*)</(div|span)>", html.split("Picked for you")[0])
-    assert [tag for _, tag in rows] == ["div"] * 6 + ["span"] * 18
+    assert [tag for _, tag in rows] == ["div"] * 12 + ["span"] * 12
     assert [text for text, _ in rows[:3]] == [
         "Leaving today",
         "Leaving tomorrow",

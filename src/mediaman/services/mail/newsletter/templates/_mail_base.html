@@ -32,13 +32,13 @@
 :root{color-scheme:light dark;supported-color-schemes:light dark}
 @media (prefers-color-scheme:dark){
 .bg{background:#000000 !important}.card{background:#141416 !important}.t1{color:#ffffff !important}.t2{color:#b4b4b8 !important}.hair{border-color:#2a2a2d !important}
-.wm-l{display:none !important}.wm-d{display:block !important}.man{color:#2997ff !important}.link{color:#5eb0ff !important}.ok{color:#30d158 !important}.okb{background:#0c2413 !important;color:#30d158 !important}.bad{color:#ff7a72 !important}
+.man{color:#2997ff !important}.link{color:#5eb0ff !important}.ok{color:#30d158 !important}.okb{background:#0c2413 !important;color:#30d158 !important}.bad{color:#ff7a72 !important}
 .warn{background:#2a1d00 !important;color:#ffb340 !important}.chip{background:#26262a !important;color:#e4e4e7 !important}.pic{background:#26262a !important;color:#e4e4e7 !important}.ghost{border-color:#3f4650 !important}.track{background:#2a2a2d !important}
 .b-wait{background:#26200a !important;color:#ffd60a !important}.b-dl{background:#0b1f33 !important;color:#5eb0ff !important}
 }
 </style>
 <style>
-[data-ogsc] .wm-l{display:none !important}[data-ogsc] .wm-d{display:block !important}[data-ogsc] .t1{color:#ffffff !important}[data-ogsc] .t2{color:#b4b4b8 !important}[data-ogsc] .link{color:#5eb0ff !important}
+[data-ogsc] .t1{color:#ffffff !important}[data-ogsc] .t2{color:#b4b4b8 !important}[data-ogsc] .link{color:#5eb0ff !important}
 </style>
 </head>
 {%- endmacro -%}
@@ -52,9 +52,10 @@
 <table role="presentation" cellpadding="0" cellspacing="0"{% if full %} width="100%"{% endif %}><tr><td class="ghost" align="center" style="border:1px solid #c9ccd3;border-radius:23px;{{ ff }}"><a class="link" href="{{ url }}" style="display:block;padding:12px {{ 8 if full else 22 }}px;color:#0060c7;font-size:14px;font-weight:600;line-height:20px;text-decoration:none;white-space:nowrap">{{ label }}</a></td></tr></table>
 {%- endmacro -%}
 {#- The name as the app draws it, from the site's address, since mail clients block SVG and data:
-    pictures; the dark mail shows the second. With no site to fetch it from, the name in text. -#}
+    pictures. Its dark letters have a white edge, for the mail apps that darken the page and not
+    the picture. Kept short, as every byte counts against Gmail's cut. With no site, the name in text. -#}
 {%- macro brand(line="",site="") -%}
-<tr><td class="pad" style="padding:30px 32px 22px;{{ ff }}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td class="t1" style="font-size:22px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f;{{ ff }}">{% if site %}<img class="wm-l" src="{{ site }}/static/mail/wordmark.png" alt="mediaman" width="139" height="32" style="display:block"><!--[if !mso]><!--><img class="wm-d" src="{{ site }}/static/mail/wordmark-dark.png" alt="mediaman" width="139" height="32" style="display:none"><!--<![endif]-->{% else %}media<span class="man" style="color:#0071e3">man</span>{% endif %}</td><td class="t2" align="right" style="font-size:13px;color:#5f5f66;{{ ff }}">{{ line }}</td></tr></table></td></tr>
+<tr><td class="pad" style="padding:30px 32px 22px;{{ ff }}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{% if site %}<td class="t1" style="font-size:22px;color:#1d1d1f;{{ ff }}"><img src="{{ site }}/static/mail/wordmark.png" alt="mediaman" width="139" height="32" style="display:block">{% else %}<td class="t1" style="font-size:22px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f;{{ ff }}">media<span class="man" style="color:#0071e3">man</span>{% endif %}</td><td class="t2" align="right" style="font-size:13px;color:#5f5f66;{{ ff }}">{{ line }}</td></tr></table></td></tr>
 {%- endmacro -%}
 {%- macro pic(src,title,w,h) -%}
 {%- if src -%}<img class="pic" src="{{ src }}" alt="{{ title }}" width="{{ w }}" height="{{ h }}" style="display:block;width:100%;max-width:{{ w }}px;height:auto;border-radius:8px;background:#e3e3e8;color:#1d1d1f;font-size:14px;font-weight:600;line-height:18px;text-align:center">
