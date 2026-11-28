@@ -7,8 +7,11 @@ from datetime import UTC
 from unittest.mock import patch
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
+from plexapi.exceptions import Unauthorized
 
+from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 from mediaman.web.routes.scan import router as scan_router
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
@@ -173,6 +176,40 @@ class TestScanWorkerFailure:
         assert row["status"] == "error"
         assert row["finished_at"] is not None
         assert client.post("/api/scan/trigger").json() == {"status": "started"}
+
+
+class TestScanPlexFailure:
+    """A scan that could not use Plex says why, as the library sync does, not only "see the log"."""
+
+    @pytest.mark.parametrize(
+        ("raised", "says"),
+        [
+            (
+                lambda: requests.ConnectionError("refused http://plex:32400?X-Plex-Token=sekret"),
+                "reach Plex",
+            ),
+            (lambda: Unauthorized("(401) unauthorized"), "token"),
+            (lambda: SafeHTTPError(401, "", "http://plex:32400"), "token"),
+            (lambda: ConfigDecryptError("plex_token", ValueError("bad key")), "secret key"),
+        ],
+        ids=["unreachable", "plexapi refused", "http refused", "unreadable"],
+    )
+    def test_status_says_why_plex_could_not_be_used(
+        self, app_factory, authed_client, conn, db_path, raised, says
+    ):
+        import threading
+
+        client = authed_client(_app(app_factory, conn, db_path), conn)
+        with patch("mediaman.scanner.runner._build_plex_client", side_effect=raised()):
+            client.post("/api/scan/trigger")
+            for t in threading.enumerate():
+                if t.name == "manual-scan-worker":
+                    t.join(timeout=10)
+        body = client.get("/api/scan/status").json()
+        assert body["status"] == "error"
+        assert says in body["reason"]
+        assert "sekret" not in body["reason"]
+        assert "log" not in body["reason"]
 
 
 class TestScanSkippedNoPlex:
@@ -491,6 +528,37 @@ class TestScanTriggerRateLimit:
         assert client.post("/api/scan/clear-scheduled").status_code != 429
         with patch("mediaman.scanner.runner.run_library_sync", return_value={"synced": 0}):
             assert client.post("/api/library/sync").status_code != 429
+
+
+class TestClearAndSyncRateLimitWords:
+    """The refusal names what was refused and when to try again, with a full stop."""
+
+    def test_fourth_clear_in_a_minute_names_clears_and_when_to_try_again(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        client = authed_client(_app(app_factory, conn, db_path), conn)
+        for _ in range(3):
+            client.post("/api/scan/clear-scheduled")
+        resp = client.post("/api/scan/clear-scheduled")
+        assert resp.status_code == 429
+        message = resp.json()["message"]
+        assert "scan" not in message.lower()
+        assert "clear" in message.lower()
+        assert "Try again in" in message and message.endswith(".")
+        assert int(resp.headers["Retry-After"]) >= 1
+
+    def test_fourth_sync_in_a_minute_names_syncs_and_when_to_try_again(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        client = authed_client(_app(app_factory, conn, db_path), conn)
+        with patch("mediaman.scanner.runner.run_library_sync", return_value={"synced": 0}):
+            for _ in range(3):
+                client.post("/api/library/sync")
+            resp = client.post("/api/library/sync")
+        assert resp.status_code == 429
+        message = resp.json()["message"]
+        assert "trigger" not in message.lower()
+        assert "Try again in" in message and message.endswith(".")
 
 
 class TestScanTriggerAuditLog:

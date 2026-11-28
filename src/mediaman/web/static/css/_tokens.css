@@ -200,6 +200,8 @@
   --g-player-hover: rgb(var(--g-tint) / var(--g-a-player-hover));
   /* A menu that opens on glass: solid, so no more than two blurred layers stack. */
   --g-solid:     rgb(var(--g-tint) / .96);
+  /* A dialog on a phone, drawn with no blur over glass: nothing behind it may show through. */
+  --g-opaque:    rgb(var(--g-tint));
   --g-edge:      rgb(255 255 255 / .14);    /* left, right and bottom */
   --g-lit:       rgb(255 255 255 / .3);     /* the top edge, catching the light */
   /* A field's or a switch's edge on glass: the page's grey edge is near the glass's own tone over a
@@ -263,7 +265,7 @@
 }
 @media (forced-colors: active) {
   :root {
-    --g-thin: Canvas; --g-regular: Canvas; --g-thick: Canvas; --g-player: Canvas; --g-player-hover: Canvas; --g-solid: Canvas;
+    --g-thin: Canvas; --g-regular: Canvas; --g-thick: Canvas; --g-player: Canvas; --g-player-hover: Canvas; --g-solid: Canvas; --g-opaque: Canvas;
     --g-filter: none; --g-dim-blur: none; --g-stuck: Canvas;
     --g-edge: CanvasText; --g-lit: CanvasText; --g-field-edge: CanvasText;
     --g-inset: 0 0 0 transparent; --g-shadow: 0 0 0 transparent;

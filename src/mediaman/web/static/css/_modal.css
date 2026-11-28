@@ -45,7 +45,7 @@
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
   html:is(.has-ttl, .has-space) :is(.modal-sheet, .keep-dialog),
   .you.is-open ~ * :is(.modal-sheet, .keep-dialog) {
-    background: var(--g-solid);
+    background: var(--g-opaque);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

@@ -98,7 +98,8 @@ class TestSeriesWithSeveralDownloads:
     def test_the_time_left_covers_every_episode_still_to_come(self):
         item = _build(*_two_episodes("DOWNLOADING", 300))
         # 300 MB of the first and 1400 MB of the second at 1 MiB/s: 1700 s.
-        assert item["eta"] == "~28 min remaining"
+        assert item["eta"] == "28 min left"
+        assert item["minutes_left"] == 28
 
     def test_a_downloading_episode_beside_a_queued_season_pack_reads_downloading(self):
         card = _card_for(
@@ -151,4 +152,5 @@ class TestFilmWithOneDownload:
         item = _build(card, [_group(51, release, "DOWNLOADING", 8000, 6000, "Movies")])
         assert item["state"] == "downloading"
         assert item["progress"] == 25
-        assert item["eta"] == "~1 hr 40 min remaining"
+        assert item["eta"] == "1 h 40 min left"
+        assert item["minutes_left"] == 100

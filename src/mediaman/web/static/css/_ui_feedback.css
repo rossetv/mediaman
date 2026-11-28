@@ -200,7 +200,7 @@ html.page-bar { scrollbar-gutter: stable; }
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
   html:is(.has-ttl, .has-space) .ui-confirm-card,
   .you.is-open ~ .ui-confirm-overlay .ui-confirm-card {
-    background: var(--g-solid);
+    background: var(--g-opaque);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

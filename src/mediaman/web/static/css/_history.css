@@ -141,8 +141,9 @@
 .hx-groups {
   display: flex;
   gap: 6px;
-  margin: 0 -20px;
-  padding: 0 20px;
+  /* Room above and below for the keyboard's ring (2 px, 2 px out), which the sideways scroll would cut. */
+  margin: -4px -20px;
+  padding: 4px 20px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
@@ -160,7 +161,7 @@
   .hx-kinds-arrow {
     position: absolute;
     z-index: 1;
-    top: calc(var(--hx-kinds, 58px) + 2px);
+    top: calc(var(--hx-kinds, 54px) + 6px);
     display: grid;
     place-items: center;
     width: 32px;

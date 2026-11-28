@@ -418,6 +418,8 @@ const scenarios = {
         'marlowe finished Interstellar · ' + clock(at(-2))],
       down: await hub([], [['plex', 'err'], ['openai', 'err'], ['sonarr', 'warn'], ['radarr', 'off']]),
       oneDown: await hub([signIn('amy', -1)], [['plex', 'ok'], ['sonarr', 'err'], ['sonarr', 'err']]),
+      refused: await hub([], [['plex', 'err'], ['sonarr', 'err is-refused'], ['openai', 'err is-refused'], ['radarr', 'ok']]),
+      oneRefused: await hub([], [['plex', 'ok'], ['openai', 'err is-refused']]),
       fine: await hub([event('amy', -30, { action: 'downloaded', action_label: 'downloaded', line_title: 'Weapons' })], [['plex', 'ok'], ['sonarr', 'ok'], ['radarr', 'off']]),
       limited: await hub([], [['plex', 'ok'], ['sonarr', 'warn']]),
       testing: await hub([], [['plex', 'ok'], ['sonarr', 'untested']]),

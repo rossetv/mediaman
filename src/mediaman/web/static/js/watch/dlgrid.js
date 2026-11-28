@@ -37,7 +37,6 @@
   // What the address of anything else that holds the page says; opening Downloading clears it.
   var OTHERS = { all: null, view: null, q: null, genre: null, type: null, where: null, decade: null, person: null, page: null, per_page: null, sort: null };
   var GROUPS = [['ready', 'Ready to watch'], ['attention', 'Needs attention'], ['coming', 'Downloading'], ['looking', 'Looking for a copy'], ['soon', 'Coming soon']];
-  var ETA = /^~(?:(\d+) hr )?(\d+) (min|sec) remaining$/;
   var TOP_STATES = ['downloading', 'almost_ready', 'needs_attention', 'finding_copy', 'queued', 'searching'];
   var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/; // as watch/downloading.js checks a row's
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -132,10 +131,9 @@
     return found.length === 1 ? found[0] : null;
   }
 
-  function minutesLeft(eta) {
-    var found = ETA.exec(eta || '');
-    if (!found) return null;
-    return found[3] === 'sec' ? 1 : (Number(found[1]) || 0) * 60 + Number(found[2]);
+  /* The minutes left the server gives, 0 under a minute; null where it gives none. */
+  function minutesLeft(minutes) {
+    return typeof minutes === 'number' && isFinite(minutes) && minutes >= 0 ? Math.round(minutes) : null;
   }
 
   /* The title a download opens, as the server names it; where the server does not say, the row's
@@ -163,7 +161,7 @@
     return {
       key: String(item.id), title: String(item.title || ''), kind: item.media_type === 'movie' ? 'movie' : 'show', state: state,
       percent: active ? percent : 0,
-      minutes_left: state === 'downloading' ? minutesLeft(item.eta) : null,
+      minutes_left: state === 'downloading' ? minutesLeft(item.minutes_left) : null,
       line: state === 'almost_ready' && item.state_label === 'Waiting to import' ? item.state_label : '',
       held: false, ready_seconds: null, playable: false,
       ref: ref, href: row && row.ref === ref ? row.href : ref ? '/#title=' + ref : '',

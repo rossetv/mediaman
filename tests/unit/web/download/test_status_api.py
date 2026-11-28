@@ -240,8 +240,7 @@ class TestDownloadStatusAPI:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert "1 hr" in data["eta"]
-        assert "remaining" in data["eta"]
+        assert data["eta"] == "1 h 30 min left"
 
     def test_status_safehttperror_returns_unknown_not_500(self, db_path, secret_key):
         """A SafeHTTPError from an Arr 5xx must surface as the 'unknown' state,

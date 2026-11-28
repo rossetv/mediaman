@@ -257,7 +257,7 @@ function load(opts) {
 }
 
 const USUAL = () => [row('Ember Coast'), row('Sundial', { state: 'almost_ready', percent: 100, line: 'Waiting to import' })];
-const USUAL_ALL = () => all([dl('Ember Coast', { size_done: '4.1 GB', size_total: '9.6 GB', progress: 43, eta: '~5 min remaining' }),
+const USUAL_ALL = () => all([dl('Ember Coast', { size_done: '4.1 GB', size_total: '9.6 GB', progress: 43, eta: '5 min left', minutes_left: 5 }),
   dl('Sundial', { state: 'almost_ready', state_label: 'Waiting to import', progress: 100 })], { upcoming: [dl('Lanterns', { release_label: 'Not yet released' })] });
 
 async function race(late) {
@@ -375,7 +375,7 @@ const scenarios = {
     const p = load({
       url: '/?dl=1',
       all: [all([
-        dl('Ember Coast', { size_done: '4.1 GB', size_total: '9.6 GB', progress: 43, eta: '~5 min remaining' }),
+        dl('Ember Coast', { size_done: '4.1 GB', size_total: '9.6 GB', progress: 43, eta: '5 min left', minutes_left: 5 }),
         dl('Honest Forger', { state: 'queued', state_label: 'Queued', progress: 0, size_total: '3.2 GB' }),
         dl('Sundial', { state: 'almost_ready', state_label: 'Waiting to import', progress: 100, size_done: '2 GB', size_total: '2 GB' }),
         dl('Windward', { state: 'needs_attention', attention: why, attention_hint: 'Fix it in Radarr: Activity → Queue', arr_source: 'Radarr', arr_link: 'http://radarr.local/movie/1' }),

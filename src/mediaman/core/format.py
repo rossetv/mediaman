@@ -120,6 +120,22 @@ def format_bytes(n: int | None) -> str:
     return f"{n} B"
 
 
+def minutes_left(seconds: float) -> int:
+    """Whole minutes in *seconds* of a download's time left, as a clock counts them: 0 under a minute."""
+    return int(max(0, seconds) // 60)
+
+
+def time_left(minutes: int) -> str:
+    """*minutes* left as mediaman says it everywhere: "under a minute left", "20 min left",
+    "1 h left", "1 h 5 min left"."""
+    if minutes < 1:
+        return "under a minute left"
+    if minutes < 60:
+        return f"{minutes} min left"
+    hours, rest = divmod(minutes, 60)
+    return f"{hours} h {rest} min left" if rest else f"{hours} h left"
+
+
 #: English month names — used to keep formatted dates locale-stable
 #: even when the host's ``LC_TIME`` is set to something else. ``strftime``
 #: honours the system locale by default which would render the same

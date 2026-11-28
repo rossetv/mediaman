@@ -142,7 +142,7 @@
    each glass already, it is solid. */
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
   html:is(.has-ttl, .has-tv-rem) .play-on {
-    background: var(--g-solid);
+    background: var(--g-opaque);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
