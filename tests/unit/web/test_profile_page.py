@@ -226,7 +226,9 @@ def test_the_page_shows_the_person_s_own_picture_and_the_ten_to_pick_from(
     avatars.set_drawn(conn, user_id, 3)
     assert shown() == (drawn.url(3), "3", False)
     avatars.set_upload(conn, user_id, "0123456789abcdef.png")
-    assert shown() == (f"/api/avatars/{user_id}?v=0123456789ab", "", True)
+    version = avatars.get_avatar(conn, user_id).version
+    assert shown() == (f"/api/avatars/{user_id}?v={version}", "", True)
+    assert "0123456789ab" not in version
 
 
 def test_other_peoples_plex_links_are_not_on_an_admins_profile(app_factory, authed_client, conn):

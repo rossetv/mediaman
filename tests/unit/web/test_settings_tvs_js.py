@@ -95,3 +95,7 @@ def test_an_admin_unpairs_one_of_the_people_a_tv_is_paired_with() -> None:
 
 def test_the_people_of_a_tv_fold_away_when_only_one_is_left() -> None:
     assert _run("people")["went"] == ["tv-ppl"]
+
+
+def test_each_person_of_a_tv_is_shown_by_their_picture_over_their_letter() -> None:
+    assert _run("faces") == [["M", "/api/avatars/3?v=ab", True], ["T", None, None]]

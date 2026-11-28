@@ -18,6 +18,7 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import avatars
+from mediaman.web.repository.tv import shares_a_tv
 from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger(__name__)
@@ -144,10 +145,20 @@ def api_avatar(
     v: str = "",
     username: str = Depends(get_current_user),
 ) -> Response:
-    """Serve a photo to its owner and to admins, who see it in the lists of people."""
+    """Serve a photo to its owner, to admins, who see it in the lists of people, and to those
+    paired with a TV with them, who see it beside their name on it."""
     conn = get_db()
-    if user_id != _user_id(conn, username) and get_user_role(conn, username) != "admin":
+    if (
+        user_id != _user_id(conn, username)
+        and get_user_role(conn, username) != "admin"
+        and not shares_a_tv(conn, username, user_id)
+    ):
         raise HTTPException(status_code=404, detail="Not found")
+    return photo_answer(conn, user_id, v)
+
+
+def photo_answer(conn: sqlite3.Connection, user_id: int, v: str) -> Response:
+    """The person's photo, or a redirect to their drawing where they have none to read."""
     avatar = avatars.get_avatar(conn, user_id)
     data = files.read(files.folder(conn), avatar.file_name) if avatar.file_name else None
     kind = photo.content_type(data) if data else None

@@ -68,6 +68,13 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     Object.keys(nodes).forEach((id) => { if (!FIXED.includes(id)) delete nodes[id]; });
   };
   Object.defineProperty(nodes.s, 'innerHTML', { get: () => html, set: drawn });
+  // The pictures drawn on the stage, each with what the page set on it.
+  let pictures = [];
+  nodes.s.getElementsByTagName = (tag) => {
+    if (tag !== 'img') return [];
+    pictures = (html.match(/<img [^>]*>/g) || []).map((markup) => ({ src: markup.match(/src="([^"]*)"/)[1].replace(/&#38;/g, '&'), className: '' }));
+    return pictures;
+  };
   Object.defineProperty(nodes.s, 'firstChild', {
     get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !FIXED.includes(id)).map((id) => nodes[id]) } : null),
   });
@@ -184,6 +191,7 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     },
     look: () => body.className,
     html: () => nodes.s.innerHTML,
+    pictures: () => pictures,
     says: () => nodes.s.innerHTML.replace(/<svg[^>]* aria-label="([^"]*)"[^>]*>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     text: (id) => document.getElementById(id).innerHTML,
     paths: (p) => sent.filter((c) => c.path === p),
@@ -536,6 +544,91 @@ const scenarios = {
     await u.step(3000);
     return { src, kept: t.video.attrs.src, store: t.store, more: after - fresh, idle: u.says(), polled: u.last('poll').token };
   },
+  // The TV is maren's; tobias, paired with it too, starts a film on it.
+  async starter() {
+    const t = tv({ kept: 'old' });
+    const both = { owner: 'maren', people: ['maren', 'tobias'], avatars: { tobias: '/static/avatars/avatar-03.svg' } };
+    t.answers.poll = () => ready({ ...both, play: film({ by: 'tobias' }) });
+    t.run();
+    await t.step(300);
+    return { says: t.says(), pictures: t.pictures().map((p) => p.src) };
+  },
+  // tobias, paired with maren's TV too, starts a film on it and then pairs it anew: the TV is
+  // still his, whether it was told it lost its token first or not.
+  async reclaimed(how) {
+    const t = tv({ kept: 'old' });
+    const both = { people: ['maren', 'tobias'] };
+    t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'pairing', expires_in_s: 200, poll_ms: 2000 } : ready({ ...both, play: t.now }));
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(1500);
+    t.key(OK);
+    await t.step(500);
+    t.now = film({ by: 'tobias' });
+    let started = '';
+    for (let i = 0; i < 30 && !started; i += 1) {
+      await t.step(50);
+      if (t.says().includes('starting it')) started = t.says();
+    }
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(1000);
+    const his = ready({ owner: 'tobias', name: 'TV', people: ['tobias'] });
+    if (how === 'refused') {
+      t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'pairing', expires_in_s: 200, poll_ms: 2000 } : GONE);
+      await t.step(2500);
+    }
+    t.answers.poll = (c) => (c.token === 'fresh' ? his : how === 'refused' ? GONE : ready({ ...both, play: t.now }));
+    let said = '';
+    for (let i = 0; i < 40 && !said; i += 1) {
+      await t.step(100);
+      if (/Someone else|Connected to/.test(t.says())) said = t.says();
+    }
+    return { started, said };
+  },
+  // Many people paired with one TV, as it is ready and as it was just paired.
+  async crowd(n) {
+    const people = ['maren', 'tobias', 'juniper', 'oskar', 'ines', 'kofi', 'lena', 'mats', 'noor'].slice(0, Number(n));
+    const t = tv({ kept: 'old' });
+    t.answers.poll = (c) => (c.token === 'fresh' ? ready({ people }) : ready({ people, poll_ms: 2000 }));
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(1500);
+    const idle = t.html();
+    t.key(OK);
+    let conn = '';
+    for (let i = 0; i < 60 && !conn; i += 1) {
+      await t.step(100);
+      if (t.says().includes('so films can start with sound')) conn = t.html();
+    }
+    return { idle, conn };
+  },
+  // The stream fails once as it starts and plays at the next try.
+  async faltersAtStart() {
+    const t = tv({ kept: 'old' });
+    t.answers.poll = () => ready({ play: t.now });
+    t.now = film();
+    t.run();
+    await t.step(50);
+    const seen = [];
+    t.video.fire('error');
+    for (let i = 0; i < 12; i += 1) { await t.step(100); seen.push(t.says()); }
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(600);
+    return { seen, now: t.says() };
+  },
+  async faces() {
+    const t = tv({ kept: 'old' });
+    const photo = '/api/tv/device/avatar/1/2?v=ab&k=cd';
+    t.answers.poll = () => ready({ people: ['maren', 'tobias'], avatars: { maren: photo } });
+    t.run();
+    await t.step(1500);
+    const pictures = t.pictures();
+    const before = pictures.map((p) => [p.src, p.className]);
+    pictures[0].onerror.call(pictures[0]);
+    return { before, after: pictures[0].className, html: t.html(), says: t.says() };
+  },
   async shared() {
     const t = tv({ kept: 'old' });
     t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'pairing', expires_in_s: 290, poll_ms: 2000 } : ready({ people: ['maren'], poll_ms: 2000 }));
@@ -547,13 +640,15 @@ const scenarios = {
     const code = t.says();
     const paused = async (people) => {
       const p = await playing();
-      p.answers.poll = () => ready({ play: p.now, people });
+      p.answers.poll = () => ready({ play: p.now, people, avatars: { maren: '/static/avatars/avatar-05.svg' } });
       p.video.fire('pause');
       p.now = film({ state: 'paused', paused_by: 'maren' });
       await p.step(2500);
-      return p.says();
+      return { says: p.says(), pictures: p.pictures().map((x) => x.src) };
     };
-    return { code, alone: await paused(['maren']), both: await paused(['maren', 'tobias']) };
+    const alone = await paused(['maren']);
+    const both = await paused(['maren', 'tobias']);
+    return { code, alone: alone.says, both: both.says, pictured: both.pictures };
   },
   // The code for a second person, then that person joins, then OK goes on to the page it was on.
   async joinFades() {

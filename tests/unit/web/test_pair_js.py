@@ -62,7 +62,13 @@ def test_a_tv_others_are_paired_with_is_joined_under_their_name_without_a_questi
     out = _run("joined")
     assert (out["asked"], out["sent"]) == ([], [{"code": "482916"}])
     assert (out["shown"], out["says"]) == (["pair-done"], "Living room is ready")
-    assert (out["people"], out["listed"]) == (["Aamy", "Bbob"], True)
+    assert (out["people"], out["listed"]) == (["amy", "bob"], True)
+
+
+def test_each_person_paired_with_the_tv_is_shown_by_their_picture_over_their_letter() -> None:
+    out = _run("joined")
+    # The letter stays under the picture, for where it fails to load, and alone where there is none.
+    assert out["faces"] == [["A", "/api/avatars/2?v=ab", True], ["B", None, None]]
 
 
 def test_a_tv_paired_again_keeps_its_name_and_another_code_can_be_scanned() -> None:
