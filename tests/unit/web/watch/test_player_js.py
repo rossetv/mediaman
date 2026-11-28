@@ -740,6 +740,17 @@ def test_watch_credits_keeps_them_playing_with_the_next_episode_button_and_count
     assert out["end"] == {"card": True, "counts": True, "skip": None}
 
 
+def test_played_into_the_last_credits_the_count_waits_until_their_first_names_are_seen(
+    markup, season
+):
+    out = at_credits(markup, season, "land")
+    offered = {"card": False, "counts": False, "skip": "Next episode"}
+    counting = {"card": True, "counts": True, "skip": None}
+    assert out["seconds"] == [offered, offered, offered, counting, counting]
+    # Over the counting card S goes on at once.
+    assert out["sWent"] is True
+
+
 @pytest.mark.parametrize("how", ["pause", "back"])
 def test_a_pause_or_a_jump_out_of_the_credits_stops_the_count(markup, season, how):
     out = at_credits(markup, season, how)
@@ -1195,11 +1206,19 @@ def test_leaving_full_screen_cancels_the_countdown(markup, season):
 def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
     out = run(markup, "upnext_spoken")
     # In full screen the browser keeps Escape for itself.
-    said = "Next episode in 10 seconds: S2 · E5 — High Tide. Space or Escape cancels."
+    said = (
+        "Next episode in 10 seconds: S2 · E5 — High Tide. S plays it now; Space or Escape cancels."
+    )
     assert (out["polite"], out["before"], out["cancelled"]) == ("status", "", "")
     assert (out["counting"], out["later"], out["again"]) == (said, said, said)
     # Nothing begins by itself then, so there is nothing to cancel.
     assert out["still"] == "Next episode: S2 · E5 — High Tide"
+
+
+def test_on_a_touch_screen_the_card_names_no_keys_until_one_is_pressed(markup):
+    out = run(markup, "upnext_spoken_touch")
+    assert out["touch"] == "Next episode in 10 seconds: S2 · E5 — High Tide. Tap Cancel to stay."
+    assert out["keyed"].endswith("S plays it now; Space or Escape cancels.")
 
 
 def test_autoplay_off_shows_the_next_episode_and_waits(markup):

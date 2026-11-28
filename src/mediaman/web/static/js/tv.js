@@ -897,11 +897,18 @@
 
   var skipped = {};          // of the play, by where each starts: a marker is skipped once
   var noteTimer = null;
+  var noteText = '';
+  var entered = null;        // {play, m, last, at, land, count}: the marker the TV plays in, where in it the TV began it, and its timing
+  var LAND_S = { intro: 3, credits: 4 };
+  var COUNT_S = 5;
 
-  /* Where its person wants it, the TV plays on past an intro or credits as they start: a TV's
-     remote may have no key to skip with. Credits that end the title are skipped only where a next
-     episode follows, to the end, where the TV's own next episode and "still watching" take over. */
+  /* Where its person wants it, the TV plays on past an intro or credits: a TV's remote may have no
+     key to skip with. It lands a few seconds in, so nothing is cut off at its first frame, and an
+     intro or credits a scene follows count down on screen first, which Back or OK stops. Credits that end the title are skipped only where a next episode follows, to the end,
+     where the TV's own next episode, with its own countdown, and "still watching" take over. */
   function skipMarks() {
+    // A seek, a stop or another play ends a count.
+    if (entered && (!play || entered.play !== play.play_id || !there || video.seeking)) leaveMark();
     if (!play || !play.auto_skip || !loaded || !ready || !there || !wanted || video.seeking || overAt !== null || broken || reloadDue) return;
     var t = video.currentTime, list = play.markers || [];
     var end = video.duration || play.duration_s || 0;
@@ -911,21 +918,92 @@
       if (t < m.start_s || t >= m.end_s - 1 || skipped[m.start_s]) continue;
       var last = m.kind === 'credits' && (m.final || (end && m.end_s >= end - 1));
       if (last && !goesOn) continue;
-      skipped[m.start_s] = true;
-      seek(m.end_s);
-      tell();
-      if (!last) note(m.kind === 'intro' ? 'Skipped intro' : 'Skipped credits');
+      var name = m.kind === 'intro' ? 'intro' : 'credits';
+      if (!entered || entered.m.start_s !== m.start_s || t < entered.at) entered = timed(m, last, name, t);
+      var left = entered.land + entered.count - (t - entered.at);
+      if (left > 0) {
+        if (left <= entered.count) countNote(name, left);
+        return;
+      }
+      jumpPast(m, last, name);
       return;
     }
+    if (entered) leaveMark();
   }
 
-  function note(text) {
+  /* The jump comes before the marker's last second, where nothing is skipped: a short one counts
+     less, and one with no room for a count of 2 is jumped past without one. */
+  function timed(m, last, name, t) {
+    var room = m.end_s - 1.5 - t, land = LAND_S[name], count = last ? 0 : COUNT_S;
+    if (!last && land + count > room) {
+      count = Math.floor(room - land);
+      if (count < 2) { count = 0; land = Math.max(0, Math.min(land, room)); }
+    }
+    return { play: play.play_id, m: m, last: last, at: t, land: land, count: count };
+  }
+
+  function jumpPast(m, last, name) {
+    entered = null;
+    skipped[m.start_s] = true;
+    seek(m.end_s);
+    tell();
+    if (!last) note(name === 'intro' ? 'Skipped intro' : 'Skipped credits');
+  }
+
+  /* Its number ticks where a reader is not read; the seconds are said once, as the note comes.
+     "Press" is any key a remote has for it: Back, or OK with the controls hidden. */
+  function countNote(name, left) {
+    var n = Math.ceil(left);
+    var spoken = n + (n === 1 ? ' second' : ' seconds');
+    if (!note('Skipping ' + name + ' in <span aria-hidden="true"></span><span class="sr">' + spoken + '. Press to cancel.</span><span aria-hidden="true"> · Press to cancel</span><i class="dr"></i>', n, 'Skipping ' + name)) return;
+    var bar = document.getElementById('sk').getElementsByTagName('i')[0];
+    if (!bar) return;
+    bar.style.webkitAnimationDuration = bar.style.animationDuration = entered.count + 's';
+    bar.style.webkitAnimationDelay = bar.style.animationDelay = (left - entered.count) + 's';
+  }
+
+  function counting() {
     var node = document.getElementById('sk');
-    if (!node) return;
-    node.innerHTML = glyph('step') + text;
+    return !!(entered && play && entered.play === play.play_id && node && node.className === 'sk on' && noteText.indexOf('Skipping') === 0);
+  }
+
+  function hideNote() {
+    var node = document.getElementById('sk');
+    clearTimeout(noteTimer);
+    noteText = '';
+    if (node) node.className = 'sk';
+  }
+
+  /* Out of the marker before its jump, its count goes with it. */
+  function leaveMark() {
+    entered = null;
+    if (noteText.indexOf('Skipping') === 0) hideNote();
+  }
+
+  /* Back or OK during a countdown keeps the intro or credits playing. */
+  function keepMark() {
+    if (!counting()) return false;
+    skipped[entered.m.start_s] = true;
+    entered = null;
+    hideNote();
+    return true;
+  }
+
+  /* A note is written once, as it comes: a reader of the status hears it once. Its `key` says
+     which note it is where its text changes as it is shown; a count, `n`, ticks in its first span.
+     Whether it was written. */
+  function note(text, n, key) {
+    var node = document.getElementById('sk');
+    if (!node) return false;
+    key = key || text;
+    var wrote = noteText !== key || node.className !== 'sk on';
+    if (wrote) node.innerHTML = glyph('step') + text;
+    noteText = key;
+    if (n !== undefined) node.getElementsByTagName('span')[0].textContent = String(n);
     node.className = 'sk on';
     clearTimeout(noteTimer);
     noteTimer = setTimeout(function () { node.className = 'sk'; }, SKIPPED_MS);
+    return wrote;
   }
 
   function put(id, text) {
@@ -1314,6 +1392,7 @@
   }
 
   function back() {
+    if (shown === 'play' && keepMark()) return true;
     if (shown === 'play' && !hidden) { hidden = true; hush(); return true; }
     if (shown === 'play') { wake(); return true; }
     if (shown === 'unpair' || (token && (shown === 'code' || shown === 'press' || shown === 'slow'))) { act('i'); return true; }
@@ -1345,6 +1424,8 @@
     if (shown === 'restarted') act('i');
     else if (MEDIA[key]) media(MEDIA[key]);
     else if (isBack) used = back();
+    // With the controls up, OK is for the button it is on.
+    else if (key === 13 && shown === 'play' && hidden && keepMark()) used = true;
     else if (shown === 'play' && hidden && (key === 9 || (key >= 13 && key <= 40))) wake();
     else if (key === 37 || key === 39) {
       if (buttons.length) focus = Math.max(0, Math.min(buttons.length - 1, focus + (key === 39 ? 1 : -1)));
