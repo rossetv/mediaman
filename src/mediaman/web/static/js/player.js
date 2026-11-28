@@ -2859,7 +2859,10 @@
   /* ---- keyboard ------------------------------------------------------- */
 
   var heldOn;                // where the key now held down went down
+  var keysUsed = false;      // a phone has no keys to be told of, unless one was pressed
+  var finePointer = window.matchMedia('(pointer: fine)');
   document.addEventListener('keydown', function (e) {
+    keysUsed = true;
     if (!e.repeat) {
       heldOn = e.target;
     } else if (e.key === 'Enter' && (e.target !== heldOn || e.target === els.play)) {
@@ -3204,7 +3207,8 @@
     show(els.upnext);
     showSkip();
     els.upnextStatus.textContent = counts
-      ? 'Next episode in ' + COUNTDOWN_S + ' seconds: ' + next.label + '. S plays it now; Space or Escape cancels.'
+      ? 'Next episode in ' + COUNTDOWN_S + ' seconds: ' + next.label + '. ' +
+        (keysUsed || finePointer.matches ? 'S plays it now; Space or Escape cancels.' : creditsPlayOn() ? 'Tap Watch credits to keep watching.' : 'Tap Cancel to stay.')
       : 'Next episode: ' + next.label;
     paintAway();
     showControls();

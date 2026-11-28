@@ -1215,6 +1215,12 @@ def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
     assert out["still"] == "Next episode: S2 · E5 — High Tide"
 
 
+def test_on_a_touch_screen_the_card_names_no_keys_until_one_is_pressed(markup):
+    out = run(markup, "upnext_spoken_touch")
+    assert out["touch"] == "Next episode in 10 seconds: S2 · E5 — High Tide. Tap Cancel to stay."
+    assert out["keyed"].endswith("S plays it now; Space or Escape cancels.")
+
+
 def test_autoplay_off_shows_the_next_episode_and_waits(markup):
     out = run(markup, "autoplay_off")
     assert (out["start"], out["off"], out["saved"]) == ("true", "false", "false")
