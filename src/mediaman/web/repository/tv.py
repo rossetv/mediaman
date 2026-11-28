@@ -75,12 +75,29 @@ def is_member(conn: sqlite3.Connection, tv_id: int, username: str) -> bool:
 
 def people(conn: sqlite3.Connection, tv_id: int) -> list[str]:
     """Everyone the TV is paired with, the first to pair it first."""
+    return [name for _, name in members(conn, tv_id)]
+
+
+def members(conn: sqlite3.Connection, tv_id: int) -> list[tuple[int, str]]:
+    """The id and name of everyone the TV is paired with, the first to pair it first."""
     rows = conn.execute(
-        "SELECT u.username FROM tv_people p JOIN admin_users u ON u.id = p.user_id"
+        "SELECT u.id, u.username FROM tv_people p JOIN admin_users u ON u.id = p.user_id"
         " WHERE p.tv_id = ? ORDER BY p.paired_at, p.user_id",
         (tv_id,),
     )
-    return [row[0] for row in rows]
+    return [(row[0], row[1]) for row in rows]
+
+
+def shares_a_tv(conn: sqlite3.Connection, username: str, user_id: int) -> bool:
+    """Whether *username* and the person *user_id* are paired with one TV."""
+    row = conn.execute(
+        "SELECT 1 FROM tv_people mine JOIN admin_users u ON u.id = mine.user_id"
+        " JOIN tv_people theirs ON theirs.tv_id = mine.tv_id"
+        f" JOIN tvs ON tvs.id = mine.tv_id AND {_PAIRED}"
+        " WHERE u.username = ? AND theirs.user_id = ?",
+        (username, user_id),
+    ).fetchone()
+    return row is not None
 
 
 def owned(conn: sqlite3.Connection, username: str) -> list[Tv]:

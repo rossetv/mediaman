@@ -617,12 +617,10 @@
 .setg-pg .tv-ppl { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; list-style: none; padding: 0; }
 .setg-pg .tv-ppl li {
   display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 3px;
-  border-radius: 999px; background: var(--s3); color: var(--t1); font-size: 13px;
+  max-width: 100%; border-radius: 999px; background: var(--s3); color: var(--t1); font-size: 13px;
+  overflow-wrap: anywhere;
 }
-.setg-pg .tv-face {
-  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
-  background: var(--accent-cta); color: #fff; font-size: 11px; font-weight: 600;
-}
+.setg-pg .tv-ppl .avatar { width: 24px; height: 24px; font-size: 11px; }
 .setg-pg .tv-ppl__x {
   display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 50%;
   background: transparent; color: var(--t3); cursor: pointer;

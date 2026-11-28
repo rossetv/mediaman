@@ -68,6 +68,13 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     Object.keys(nodes).forEach((id) => { if (!FIXED.includes(id)) delete nodes[id]; });
   };
   Object.defineProperty(nodes.s, 'innerHTML', { get: () => html, set: drawn });
+  // The pictures drawn on the stage, each with what the page set on it.
+  let pictures = [];
+  nodes.s.getElementsByTagName = (tag) => {
+    if (tag !== 'img') return [];
+    pictures = (html.match(/<img [^>]*>/g) || []).map((markup) => ({ src: markup.match(/src="([^"]*)"/)[1].replace(/&#38;/g, '&'), className: '' }));
+    return pictures;
+  };
   Object.defineProperty(nodes.s, 'firstChild', {
     get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !FIXED.includes(id)).map((id) => nodes[id]) } : null),
   });
@@ -184,6 +191,7 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     },
     look: () => body.className,
     html: () => nodes.s.innerHTML,
+    pictures: () => pictures,
     says: () => nodes.s.innerHTML.replace(/<svg[^>]* aria-label="([^"]*)"[^>]*>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     text: (id) => document.getElementById(id).innerHTML,
     paths: (p) => sent.filter((c) => c.path === p),
@@ -535,6 +543,26 @@ const scenarios = {
     u.key(OK);
     await u.step(3000);
     return { src, kept: t.video.attrs.src, store: t.store, more: after - fresh, idle: u.says(), polled: u.last('poll').token };
+  },
+  // The TV is maren's; tobias, paired with it too, starts a film on it.
+  async starter() {
+    const t = tv({ kept: 'old' });
+    const both = { owner: 'maren', people: ['maren', 'tobias'], avatars: { tobias: '/static/avatars/avatar-03.svg' } };
+    t.answers.poll = () => ready({ ...both, play: film({ by: 'tobias' }) });
+    t.run();
+    await t.step(300);
+    return { says: t.says(), pictures: t.pictures().map((p) => p.src) };
+  },
+  async faces() {
+    const t = tv({ kept: 'old' });
+    const photo = '/api/tv/device/avatar/1/2?v=ab&k=cd';
+    t.answers.poll = () => ready({ people: ['maren', 'tobias'], avatars: { maren: photo } });
+    t.run();
+    await t.step(1500);
+    const pictures = t.pictures();
+    const before = pictures.map((p) => [p.src, p.className]);
+    pictures[0].onerror.call(pictures[0]);
+    return { before, after: pictures[0].className, html: t.html(), says: t.says() };
   },
   async shared() {
     const t = tv({ kept: 'old' });

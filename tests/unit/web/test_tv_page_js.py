@@ -112,6 +112,22 @@ def test_a_paired_tvs_code_is_for_another_person_and_a_pause_is_named_only_when_
     assert "Paused by maren" in out["both"]
 
 
+def test_the_tv_names_and_shows_who_started_the_film_not_whose_tv_it_is() -> None:
+    out = _run("starter")
+    assert "tobias is starting it" in out["says"] and "maren is starting it" not in out["says"]
+    assert out["pictures"] == ["/static/avatars/avatar-03.svg"]
+
+
+def test_each_person_is_shown_by_their_picture_over_their_letter_which_stays_if_it_fails() -> None:
+    out = _run("faces")
+    assert out["before"] == [["/api/tv/device/avatar/1/2?v=ab&k=cd", ""]]
+    # Each has a letter; tobias, with no picture, has the letter alone.
+    assert 'data-l="M"><img' in out["html"] and 'data-l="T"></span>' in out["html"]
+    assert out["after"] == "gone"
+    # The letters are drawn, not words of the page.
+    assert "maren tobias" in out["says"] and " M " not in out["says"]
+
+
 def test_a_film_gives_way_to_the_person_who_takes_the_tv_over() -> None:
     out = _run("takenOver")
     # what its owner starts shows over the code, which still works

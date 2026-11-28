@@ -50,17 +50,22 @@ def _avatar(user_id: int, row: sqlite3.Row) -> Avatar:
     return Avatar(user_id, choice, row["file_name"])
 
 
-def avatar_urls(conn: sqlite3.Connection, user_ids: Iterable[int]) -> dict[int, str]:
-    """The avatar URL of each of *user_ids*, for a list of people."""
+def avatars_of(conn: sqlite3.Connection, user_ids: Iterable[int]) -> dict[int, Avatar]:
+    """The avatar of each of *user_ids*, for a list of people."""
     wanted = set(user_ids)
     rows = {
         row["user_id"]: row
         for row in conn.execute("SELECT user_id, choice, file_name FROM user_avatars")
     }
     return {
-        user_id: (_avatar(user_id, rows[user_id]) if user_id in rows else Avatar(user_id)).url
+        user_id: _avatar(user_id, rows[user_id]) if user_id in rows else Avatar(user_id)
         for user_id in wanted
     }
+
+
+def avatar_urls(conn: sqlite3.Connection, user_ids: Iterable[int]) -> dict[int, str]:
+    """The avatar URL of each of *user_ids*, for a list of people."""
+    return {user_id: avatar.url for user_id, avatar in avatars_of(conn, user_ids).items()}
 
 
 def avatar_url(conn: sqlite3.Connection, username: str) -> str | None:

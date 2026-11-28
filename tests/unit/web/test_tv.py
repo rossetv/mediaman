@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.db import get_db
+from mediaman.services.avatars import drawn, files
 from mediaman.services.cast import tickets
 from mediaman.services.cast.tickets import TICKET_SECONDS, TicketStore
 from mediaman.services.media_meta import plex_stream
@@ -44,11 +45,13 @@ from mediaman.web.auth.session_store import (
     destroy_all_sessions_for,
     destroy_session,
 )
+from mediaman.web.repository import avatars
 from mediaman.web.repository import tv as repo
 from mediaman.web.repository.track_choices import Defaults, set_defaults
 from mediaman.web.repository.watch_progress import get_progress, save_progress
 from mediaman.web.routes import tv as tv_routes
 from mediaman.web.routes.watch import stream_api
+from tests.unit.services.avatars import photos
 from tests.unit.web.test_cast import PLEX_URL, TOKEN, Clock, FakePlex
 
 # Keys from 500 are episodes, from 300 in a library mediaman does not scan.
@@ -332,7 +335,8 @@ def test_a_second_person_who_pairs_joins_without_unpairing_or_stopping_the_first
     stream_id, _ = _stream_of(tv.token)
     code, token = tv.code()
     resp = bob.post("/api/tvs/pair", json={"code": code, "name": "Bob's"})
-    assert resp.json()["tv"] == {"id": home, "name": "TV", "people": ["amy", "bob"]}
+    shown = resp.json()["tv"]
+    assert (shown["id"], shown["name"], shown["people"]) == (home, "TV", ["amy", "bob"])
     assert tv.post("poll", token=token).json()["state"] == "joined"
     ready = tv.poll()
     assert (ready["owner"], ready["people"], ready["play"]["state"]) == (
@@ -1598,3 +1602,61 @@ def test_subtitles_cleared_on_a_tv_go_back_to_the_persons_own_choice(
     # Nor is "off" carried on to the next episode once cleared.
     _command(amy, home, "next")
     assert plex.decision()["subtitles"] == "burn"
+
+
+# ── the people's pictures ──
+
+
+def _photo(conn, name: str) -> bytes:
+    data = photos.png()
+    user_id = avatars.find_user_id(conn, name)
+    avatars.set_upload(conn, user_id, files.write(files.folder(conn), data))
+    return data
+
+
+def test_the_tv_shows_each_persons_picture_a_photo_under_a_name_only_it_was_told(
+    tv, home, amy, bob, conn
+):
+    tv.pair(bob)
+    data = _photo(conn, "amy")
+    shown = tv.poll()["avatars"]
+    bobs = drawn.url(drawn.default_choice(avatars.find_user_id(conn, "bob")))
+    assert set(shown) == {"amy", "bob"} and shown["bob"] == bobs
+    # The TV has no session: the photo comes to it by the name it was told alone.
+    assert shown["amy"].startswith(f"/api/tv/device/avatar/{home}/")
+    assert tv.client.get(shown["amy"]).content == data
+    assert tv.client.get(shown["amy"][:-1] + "x").status_code == 404
+    assert tv.client.get(shown["amy"].replace(f"/{home}/", f"/{home + 1}/")).status_code == 404
+
+
+def test_a_tvs_photo_name_ends_with_the_person_on_it(tv, home, amy, bob, person, conn):
+    tv.pair(bob)
+    _photo(conn, "bob")
+    url = tv.poll()["avatars"]["bob"]
+    assert tv.client.get(url).status_code == 200
+    assert person("root", "admin").delete(f"/api/tvs/{home}/people/bob").status_code == 200
+    assert tv.client.get(url).status_code == 404
+
+
+def test_a_tvs_photo_name_ends_as_it_is_unpaired(tv, home, amy, conn):
+    _photo(conn, "amy")
+    url = tv.poll()["avatars"]["amy"]
+    assert tv.post("unpair").status_code == 200
+    assert tv.client.get(url).status_code == 404
+
+
+def test_each_person_paired_with_a_tv_is_listed_with_their_picture(tv, home, amy, bob, conn):
+    code, _ = tv.code()
+    joined = bob.post("/api/tvs/pair", json={"code": code}).json()["tv"]
+    _photo(conn, "amy")
+    amys = avatars.avatar_url(conn, "amy")
+    assert joined["avatars"]["bob"] == avatars.avatar_url(conn, "bob")
+    assert _tv_of(bob, home)["avatars"] == {"amy": amys, "bob": avatars.avatar_url(conn, "bob")}
+    assert amys.startswith("/api/avatars/")
+
+
+def test_the_tv_is_told_who_started_what_plays_not_whose_tv_it_is(tv, home, amy, bob):
+    tv.pair(bob)
+    _play(bob, home)
+    ready = tv.poll()
+    assert (ready["owner"], ready["play"]["by"]) == ("amy", "bob")

@@ -22,8 +22,8 @@
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 .pair__code i:nth-of-type(4) { margin-left: 10px; }
-.pair__code i.at { border-color: var(--accent); }
-.pair__code:focus-within i.at { outline: 1px solid var(--accent); }
+.pair__code i.at { border-color: var(--g-focus); }
+.pair__code:focus-within i.at { outline: 2px solid var(--g-focus); outline-offset: 1px; }
 .pair__code.is-bad i { border-color: var(--danger-text); }
 .pair__code input { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: text; }
 .pair__code input[readonly] { cursor: default; }
@@ -55,10 +55,33 @@
 .pair .pair__people { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; list-style: none; }
 .pair .pair__people li {
   display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px;
-  border-radius: 999px; background: var(--s3); color: var(--t1); font-size: 14px; font-weight: 500;
+  max-width: 100%; border-radius: 999px; background: var(--s3); color: var(--t1); font-size: 14px; font-weight: 500;
+  overflow-wrap: anywhere;
 }
 .pair .pair__people li::before { content: none; }
-.pair__face {
-  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
-  background: var(--accent-cta); color: #fff; font-size: 13px; font-weight: 600;
+.pair .pair__people .avatar { width: 32px; height: 32px; font-size: 13px; }
+.pair #pair-ready { margin-bottom: 14px; font-size: 18px; }
+.pair #pair-ready .ico { font-size: 24px; }
+
+/* Wider than a phone, the page is one panel of glass. */
+@media (min-width: 700px) {
+  .pair-pg { padding-top: 72px; }
+  .pair {
+    max-width: 452px;
+    padding: 32px 36px 36px;
+    border-radius: 28px;
+    background: var(--g-regular);
+    -webkit-backdrop-filter: var(--g-filter);
+    backdrop-filter: var(--g-filter);
+    border: 1px solid var(--g-edge);
+    border-top-color: var(--g-lit);
+    box-shadow: var(--g-inset), var(--g-shadow);
+    --s1: var(--g-s1);
+    --s3: var(--g-s3);
+    --s4: var(--g-s4);
+    --t2: var(--g-t2);
+    --t3: var(--g-t3);
+    --field-edge: var(--g-field-edge);
+    --danger-text: var(--g-danger-text);
+  }
 }

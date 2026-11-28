@@ -283,6 +283,29 @@ def test_another_persons_photo_is_seen_by_admins_only(app, authed_client, viewer
     assert viewer.get("/api/avatars/999").status_code == 404
 
 
+def test_people_paired_with_one_tv_see_each_others_photo_and_nobody_elses(
+    app, viewer, viewer_client, conn
+):
+    other = viewer_client(app, conn, username="other")
+    stranger = viewer_client(app, conn, username="stranger")
+    theirs = viewer.put(_PHOTO, content=photos.png()).json()["url"]
+    tv_id = conn.execute(
+        "INSERT INTO tvs (owner_id, kind, name, token_hash, created_at)"
+        " VALUES (?, 'page', 'Den', 'x', '2026-01-01')",
+        (_id(conn),),
+    ).lastrowid
+    for name in ("viewer", "other"):
+        conn.execute(
+            "INSERT OR IGNORE INTO tv_people (tv_id, user_id, paired_at)"
+            " VALUES (?, ?, '2026-01-01')",
+            (tv_id, _id(conn, name)),
+        )
+    conn.commit()
+
+    assert other.get(theirs).content == photos.png()
+    assert stranger.get(theirs).status_code == 404
+
+
 def test_nothing_is_answered_without_a_session(viewer):
     url = viewer.put(_PHOTO, content=photos.png()).json()["url"]
     viewer.cookies.clear()
