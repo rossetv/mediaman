@@ -363,8 +363,8 @@ class TestServerLogs:
             ("GET", "/x?a=1&apikey=abc.DEF-123&b=2", "GET /x?a=1&apikey=***&b=2 HTTP/1.1"),
             (
                 "GET",
-                "/api/cast/abc.DEF-123/seg/0.ts",
-                "GET /api/cast/***/seg/0.ts HTTP/1.1",
+                "/api/cast/abc.DEF-123/master.m3u8",
+                "GET /api/cast/***/master.m3u8 HTTP/1.1",
             ),
             ("GET", "//API//cast//abc.DEF-123/x", "GET //API//cast//***/x HTTP/1.1"),
             (
@@ -394,6 +394,47 @@ class TestServerLogs:
         out = server_logs[0].getvalue()
         assert "abc.DEF-123" not in out
         assert f'{shape}" 200' in out
+
+    def test_a_refused_segment_is_logged_with_its_ticket_masked(self, server_logs) -> None:
+        logging.getLogger("uvicorn.access").info(
+            '%s - "%s %s HTTP/%s" %d',
+            "10.0.0.1:5000",
+            "GET",
+            "/api/cast/abc.DEF-123/seg/0.ts",
+            "1.1",
+            403,
+        )
+        out = server_logs[0].getvalue()
+        assert 'GET /api/cast/***/seg/0.ts HTTP/1.1" 403' in out
+        assert "abc.DEF-123" not in out
+
+    @pytest.mark.parametrize(
+        ("method", "target", "status", "kept"),
+        [
+            ("POST", "/api/tv/device/poll", 200, False),
+            ("GET", "/api/tvs/7", 200, False),
+            ("GET", "/healthz", 200, False),
+            ("HEAD", "/healthz", 200, False),
+            ("GET", "/api/cast/abc.DEF-123/seg/12.ts", 206, False),
+            ("GET", "/api/tvs/7?x=1", 200, False),
+            ("POST", "/api/tv/device/poll", 409, True),
+            ("GET", "/api/tvs/7", 404, True),
+            ("GET", "/healthz", 503, True),
+            ("GET", "/api/cast/abc.DEF-123/seg/12.ts", 403, True),
+            ("GET", "/api/tvs", 200, True),
+            ("POST", "/api/tvs/7/commands", 200, True),
+            ("DELETE", "/api/tvs/7", 200, True),
+            ("GET", "/api/cast/abc.DEF-123/master.m3u8", 200, True),
+            ("GET", "/downloads", 200, True),
+        ],
+    )
+    def test_only_routine_requests_that_succeeded_leave_the_access_log(
+        self, server_logs, method, target, status, kept
+    ) -> None:
+        logging.getLogger("uvicorn.access").info(
+            '%s - "%s %s HTTP/%s" %d', "10.0.0.1:5000", method, target, "1.1", status
+        )
+        assert (f'" {status}' in server_logs[0].getvalue()) is kept
 
     def test_access_log_keeps_tokenless_target(self, server_logs) -> None:
         logging.getLogger("uvicorn.access").info(

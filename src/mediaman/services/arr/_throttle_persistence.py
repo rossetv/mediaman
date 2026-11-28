@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
-from collections.abc import Sequence
+from collections.abc import Sequence, Set
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
+_STRANDED_THROTTLE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 # Rate-limit for the persist-failure WARNING: a wedged disk would
 # otherwise emit one WARNING per dl_id per tick, drowning the log. We log at
@@ -46,21 +46,18 @@ _persist_warn_last: float = 0.0
 _persist_warn_suppressed: int = 0
 
 
-def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float, int]:
-    """Return ``(last_triggered_epoch, search_count)`` for *dl_id*.
+def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float, int] | None:
+    """Return ``(last_triggered_epoch, search_count)`` for *dl_id*, or None where it can't be read.
 
     Reads from the ``arr_search_throttle`` table.  Returns ``(0.0, 0)``
-    when the table or row doesn't exist yet (pre-migration DBs during
-    startup, or items mediaman has never poked).
+    for an item mediaman has never poked.
 
-    Exception policy: only ``sqlite3.OperationalError`` and
-    ``sqlite3.DatabaseError`` are swallowed — those genuinely represent
-    transient or pre-migration states where ``(0.0, 0)`` is the correct
-    fallback.  A broader ``except Exception`` would mask
-    schema/migration faults too, silently disabling the throttle by
-    reporting "never triggered" for every dl_id.  Any other exception
-    (e.g. a coding bug in the parser) propagates so the caller sees
-    the real failure.
+    Exception policy: only ``sqlite3.DatabaseError`` (a locked or
+    missing table) is swallowed, as None: the caller must not take an
+    unread row for "never triggered", or a busy database just after a
+    restart would fire every stalled search again and restart its count.
+    Any other exception (e.g. a coding bug in the parser) propagates so
+    the caller sees the real failure.
     """
     try:
         row = conn.execute(
@@ -80,15 +77,8 @@ def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float,
     # NOT caught here because it indicates programmer error (e.g. wrong
     # binding type), which should propagate, not be swallowed.
     except sqlite3.DatabaseError as exc:
-        # Transient or pre-migration state — fall back to "never
-        # triggered" so the throttle warm-up doesn't fail loudly the
-        # first time a fresh DB is brought up.
-        logger.warning(
-            "arr_search_trigger: throttle load fell back to zeros for %s: %s",
-            dl_id,
-            exc,
-        )
-        return 0.0, 0
+        logger.warning("arr_search_trigger: could not read the throttle of %s: %s", dl_id, exc)
+        return None
 
 
 def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float, count: int) -> None:
@@ -222,7 +212,7 @@ def get_search_info(dl_id: str) -> tuple[int, float]:
     try:
         from mediaman.db import get_db
 
-        epoch, persisted_count = _load_throttle_from_db(get_db(), dl_id)
+        loaded = _load_throttle_from_db(get_db(), dl_id)
     # DatabaseError covers OperationalError; ``RuntimeError`` covers
     # ``get_db()`` raising because the FastAPI request-local connection
     # has gone away (e.g. background-thread call outside a request scope).
@@ -235,8 +225,9 @@ def get_search_info(dl_id: str) -> tuple[int, float]:
             exc_info=True,
         )
         return 0, 0.0
-    if epoch == 0.0 and persisted_count == 0:
+    if loaded is None or loaded == (0.0, 0):
         return 0, 0.0
+    epoch, persisted_count = loaded
 
     with _state_lock:
         # Warm the cache, but never let a DB read clobber a higher
@@ -266,14 +257,15 @@ def reconcile_stranded_throttle(
     so the table grows monotonically.
 
     The reconciliation rule is age-based: if a row hasn't been touched
-    in ``ttl_seconds`` (default 90 days), the item is either deleted
+    in ``ttl_seconds`` (default 30 days), the item is either deleted
     or so deeply forgotten that resetting its search-count is the
-    desired behaviour.  Active items are re-triggered well inside the
-    15-minute throttle window, so their ``last_triggered_at`` updates
-    constantly and they're never reaped.
+    desired behaviour.  An item still searched for is searched at least
+    once a day (the backoff's cap), so its row is never reaped.  The
+    in-memory counts of what is reaped go too, or the next search would
+    carry the old count back.
 
-    Designed to be called once on startup; a stalled DB returns 0
-    rather than raising so a slow disk doesn't break boot.
+    A stalled DB returns 0 rather than raising so a slow disk doesn't
+    break boot.
 
     Args:
         conn: Open SQLite connection.
@@ -284,7 +276,13 @@ def reconcile_stranded_throttle(
     Returns:
         Number of rows deleted.
     """
-    cutoff = (now_utc() - timedelta(seconds=ttl_seconds)).isoformat()
+    cutoff_dt = now_utc() - timedelta(seconds=ttl_seconds)
+    cutoff = cutoff_dt.isoformat()
+    with _state_lock:
+        for dl_id, last in list(_last_search_trigger.items()):
+            if last < cutoff_dt.timestamp():
+                _last_search_trigger.pop(dl_id, None)
+                _search_count.pop(dl_id, None)
     try:
         with conn:
             cur = conn.execute(
@@ -308,6 +306,40 @@ def reconcile_stranded_throttle(
             cutoff,
         )
     return deleted
+
+
+def forget_unwanted_throttle(conn: sqlite3.Connection, service: str, wanted: Set[str]) -> None:
+    """Forget the searches of each title of *service* that is not in *wanted*.
+
+    *wanted* is every dl_id *service* still searches for, from a whole answer: a title
+    that imported, was unmonitored or was deleted counts its searches from none if it is
+    wanted again. The title row an earlier version keeps for a film still wanted stays.
+    """
+
+    def unwanted(dl_id: str) -> bool:
+        return dl_id not in wanted and not any(w.startswith(f"{dl_id}#") for w in wanted)
+
+    prefix = f"{service}:"
+    with _state_lock:
+        for dl_id in _search_count.keys() | _last_search_trigger.keys():
+            if dl_id.startswith(prefix) and unwanted(dl_id):
+                _search_count.pop(dl_id, None)
+                _last_search_trigger.pop(dl_id, None)
+    try:
+        rows = conn.execute(
+            "SELECT key FROM arr_search_throttle WHERE substr(key, 1, ?) = ?",
+            (len(prefix), prefix),
+        ).fetchall()
+        gone = [(row[0],) for row in rows if unwanted(row[0])]
+        if gone:
+            with conn:
+                conn.executemany("DELETE FROM arr_search_throttle WHERE key=?", gone)
+    except sqlite3.DatabaseError:
+        logger.warning(
+            "arr_search_trigger: failed to forget what %s no longer searches for",
+            service,
+            exc_info=True,
+        )
 
 
 def clear_throttle(conn: sqlite3.Connection, dl_id: str, *, service: str | None = None) -> None:

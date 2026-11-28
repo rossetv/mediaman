@@ -289,6 +289,30 @@ class AccessLogFilter(logging.Filter):
         return True
 
 
+#: The requests a TV, the health check and a stream make every second or so, by method and path.
+_ROUTINE_REQUEST_RE = re.compile(
+    r"POST /api/tv/device/poll"
+    r"|(?:GET|HEAD) /(?:healthz|api/tvs/[^/]+|api/cast/[^/]+/seg/[^/]+)"
+)
+
+
+class RoutineAccessFilter(logging.Filter):
+    """Drop uvicorn's access line for a routine request that succeeded, so it does not bury the rest.
+
+    A routine request that fails is kept, as is every other request.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if not (isinstance(args, tuple) and len(args) == 5):
+            return True
+        _client, method, target, _version, status = args
+        if not (isinstance(status, int) and 200 <= status < 300):
+            return True
+        path = str(target).partition("?")[0]
+        return _ROUTINE_REQUEST_RE.fullmatch(f"{method} {path}") is None
+
+
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
@@ -321,7 +345,8 @@ def install_root_filter(secrets: Iterable[str] = ()) -> ScrubFilter:
     """Give the ``"mediaman"`` logger a scrubbing stderr handler at INFO.
 
     It also scrubs uvicorn's error log and APScheduler's error output, and
-    masks emailed tokens and searches in request targets in uvicorn's access log.
+    masks emailed tokens and searches in request targets in uvicorn's access log,
+    where it also drops the lines of routine requests that succeeded.
 
     The logger gets one stderr handler (added on the first call only) and,
     unless a level was already set on it, the INFO level; nothing else in
@@ -394,6 +419,8 @@ def _install_server_filters(scrub: ScrubFilter) -> None:
     access_logger = logging.getLogger("uvicorn.access")
     if not any(isinstance(f, AccessLogFilter) for f in access_logger.filters):
         access_logger.addFilter(AccessLogFilter())
+    if not any(isinstance(f, RoutineAccessFilter) for f in access_logger.filters):
+        access_logger.addFilter(RoutineAccessFilter())
 
     scheduler_logger = logging.getLogger("apscheduler")
     with _root_filter_lock:

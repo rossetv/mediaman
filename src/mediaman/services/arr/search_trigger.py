@@ -45,6 +45,7 @@ from mediaman.services.arr._throttle_persistence import (  # noqa: F401
     _STRANDED_THROTTLE_TTL_SECONDS,
     _load_throttle_from_db,
     _save_trigger_to_db,
+    forget_unwanted_throttle,
     reconcile_stranded_throttle,
     reset_search_triggers,
 )
@@ -71,7 +72,7 @@ from mediaman.services.arr._throttle_state import (
 )
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.arr.fetcher import fetch_arr_queue
+from mediaman.services.arr.fetcher import FetchResult, fetch_arr_queue_result
 from mediaman.services.arr.import_retry import retry_stuck_imports
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 
@@ -262,7 +263,11 @@ def maybe_trigger_search(
     # Phase 0: warm-up DB read — done OUTSIDE the lock so a slow SQLite
     # query for one dl_id can't serialise every other dl_id's throttle
     # check across all workers.
-    persisted_epoch, persisted_count = _load_throttle_from_db(conn, dl_id)
+    persisted = _load_throttle_from_db(conn, dl_id)
+    if persisted is None:
+        # Unread is not "never searched": after a restart nothing in memory says otherwise.
+        return
+    persisted_epoch, persisted_count = persisted
 
     # Phase 1: reserve the slot under the lock. Treat *now* as the
     # speculative trigger timestamp so concurrent siblings see the slot
@@ -376,7 +381,8 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
 
     Reuses the per-item throttle and ``arr_id == 0`` gate inside
     ``maybe_trigger_search``, so already-queued items and
-    recently-searched items are skipped automatically.
+    recently-searched items are skipped automatically. Last, the search
+    counts of what neither pass found are forgotten.
 
     Args:
         conn: Open SQLite connection with ``row_factory`` set to
@@ -384,8 +390,9 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
         secret_key: Application secret used to decrypt stored Radarr/Sonarr
             API keys.
     """
+    fetched: FetchResult | None
     try:
-        arr_items = fetch_arr_queue(conn, secret_key)
+        fetched = fetch_arr_queue_result(conn, secret_key, steady=False)
     except (
         SafeHTTPError,
         requests.RequestException,
@@ -394,7 +401,8 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
         ConfigDecryptError,
     ):
         logger.warning("trigger_pending_searches: failed to fetch arr queue", exc_info=True)
-        arr_items = []
+        fetched = None
+    arr_items = fetched.cards if fetched is not None else []
 
     # Each film or show is searched for once in a pass, whichever path comes to it first; the
     # stuck imports go first, as removing a download that will not import comes before a search.
@@ -416,8 +424,9 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
                 "auto-abandon: skipped %s due to error", item.get("dl_id"), exc_info=True
             )
 
+    missing: set[str] | None = None
     try:
-        _trigger_sonarr_partial_missing(conn, arr_items, secret_key, searched)
+        missing = _trigger_sonarr_partial_missing(conn, arr_items, secret_key, searched)
     except (
         SafeHTTPError,
         requests.RequestException,
@@ -430,57 +439,75 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
             exc_info=True,
         )
 
+    if fetched is not None:
+        _forget_unwanted(conn, fetched, missing)
+
+
+def _forget_unwanted(
+    conn: sqlite3.Connection, fetched: FetchResult, sonarr_missing: set[str] | None
+) -> None:
+    """Forget the searches of what Radarr and Sonarr no longer search for, from whole answers
+    alone: of Sonarr, its series with episodes missing too, *sonarr_missing*, None when unknown."""
+    for service, more in (("Radarr", set[str]()), ("Sonarr", sonarr_missing)):
+        if more is None or service in fetched.unreachable:
+            continue
+        prefix = f"{service.lower()}:"
+        wanted = {card["dl_id"] for card in fetched.cards if card["dl_id"].startswith(prefix)}
+        forget_unwanted_throttle(conn, service.lower(), wanted | more)
+
 
 def _trigger_sonarr_partial_missing(
     conn: sqlite3.Connection,
     arr_items: list[ArrCard],
     secret_key: str,
     searched: set[tuple[str, int]] | None = None,
-) -> None:
+) -> set[str] | None:
     """Fire SeriesSearch for Sonarr series with partial missing episodes.
 
     Dedupes against series already handled by the main pass via
     ``arr_id`` and against *searched*, and reuses the ``sonarr:{title}`` dl_id format so the
     per-item throttle recognises the same series across passes.
+
+    Returns the dl_ids of every series with episodes missing, or None
+    where Sonarr is not set up.
     """
     sonarr_client = build_sonarr_from_db(conn, secret_key)
     if sonarr_client is None:
-        return
+        return None
 
     already_poked = {
         item.get("arr_id")
         for item in arr_items
         if item.get("kind") == "series" and item.get("arr_id")
     }
+    missing = sonarr_client.get_missing_series()
 
     # Cheap pre-filter on the per-arr-instance fan-out cap: this pass only ever
     # builds *fresh* ``sonarr:{title}`` dl_ids (series the main pass didn't
     # cover), so if Sonarr fired any search within the window the inner
     # ``maybe_trigger_search`` would skip every one of them anyway (different
-    # dl_id within the window). Short-circuit the whole pass — including the
-    # missing-series fetch — rather than building synthetic items only to have
-    # them all gated. This also closes the title-rename bypass: a renamed series
-    # presents a fresh dl_id, but the instance-level window still gates it.
+    # dl_id within the window). Short-circuit the searches rather than building
+    # synthetic items only to have them all gated. This also closes the
+    # title-rename bypass: a renamed series presents a fresh dl_id, but the
+    # instance-level window still gates it.
     now = time.time()
     with _state_lock:
         arr_last_epoch, _ = _last_search_trigger_by_arr.get(_arr_throttle_key("sonarr"), (0.0, ""))
-    if now - arr_last_epoch < _PER_ARR_THROTTLE_SECONDS:
-        return
-
-    missing = sonarr_client.get_missing_series()
-    for series_id, title in missing.items():
-        if series_id in already_poked:
-            continue
-        maybe_trigger_search(
-            conn,
-            {
-                "kind": "series",
-                "dl_id": f"sonarr:{title}",
-                "arr_id": series_id,
-                "is_upcoming": False,
-                "added_at": 0.0,
-            },
-            matched_nzb=False,
-            secret_key=secret_key,
-            searched=searched,
-        )
+    if now - arr_last_epoch >= _PER_ARR_THROTTLE_SECONDS:
+        for series_id, title in missing.items():
+            if series_id in already_poked:
+                continue
+            maybe_trigger_search(
+                conn,
+                {
+                    "kind": "series",
+                    "dl_id": f"sonarr:{title}",
+                    "arr_id": series_id,
+                    "is_upcoming": False,
+                    "added_at": 0.0,
+                },
+                matched_nzb=False,
+                secret_key=secret_key,
+                searched=searched,
+            )
+    return {f"sonarr:{title}" for title in missing.values()}

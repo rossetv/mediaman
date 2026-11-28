@@ -253,7 +253,7 @@ html.has-tv-remote { overflow: hidden; }
   .tv-rem .player-back { background: var(--s3); }
   .tv-rem .player-back:hover { background: var(--s5); }
   .tv-rem__mid { padding-top: 2px; }
-  .tv-rem__hint { display: none; }
+  .tv-rem__hint:not(.is-refused) { display: none; }
   .tv-rem .player-bottom { padding: 0 6px; }
   /* The volume beside the play controls, on the left: the bar stood on the right. */
   .tv-rem .b1 { display: none; }

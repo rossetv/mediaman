@@ -69,18 +69,18 @@ class TestThrottleDbPersistence:
         assert abs(loaded_epoch - 2_000_000.0) < 1.0
         assert loaded_count == 7
 
-    def test_load_returns_zero_on_locked_db(self):
+    def test_load_returns_none_on_locked_db(self):
         """A transient ``sqlite3.OperationalError`` (e.g. locked DB) is
-        swallowed and we fall back to ``(0.0, 0)``."""
+        swallowed as None, never as "never triggered"."""
         bad_conn = MagicMock()
         bad_conn.execute.side_effect = sqlite3.OperationalError("database is locked")
-        assert _load_throttle_from_db(bad_conn, "radarr:X") == (0.0, 0)
+        assert _load_throttle_from_db(bad_conn, "radarr:X") is None
 
-    def test_load_returns_zero_on_pre_migration_db(self):
+    def test_load_returns_none_on_pre_migration_db(self):
         """A missing table raises ``sqlite3.DatabaseError`` — also swallowed."""
         bad_conn = MagicMock()
         bad_conn.execute.side_effect = sqlite3.DatabaseError("no such table: arr_search_throttle")
-        assert _load_throttle_from_db(bad_conn, "radarr:X") == (0.0, 0)
+        assert _load_throttle_from_db(bad_conn, "radarr:X") is None
 
     def test_load_propagates_unexpected_exception(self):
         """A non-DB exception must NOT be silently swallowed.
@@ -572,3 +572,128 @@ class TestReconcileStrandedThrottle:
         bad_conn = MagicMock()
         bad_conn.execute.side_effect = sqlite3.OperationalError("database is locked")
         assert reconcile_stranded_throttle(bad_conn) == 0
+
+
+class TestRestartNeverShortensTheBackoff:
+    def test_an_unread_throttle_after_a_restart_fires_no_search(self, monkeypatch):
+        """Nothing in memory and a locked database: no search, so no count restarted at 1."""
+        client = MagicMock()
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_radarr_from_db", lambda c, sk: client
+        )
+        locked = MagicMock()
+        locked.execute.side_effect = sqlite3.OperationalError("database is locked")
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:Searched Often",
+            "arr_id": 5,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,
+        }
+
+        maybe_trigger_search(locked, item, matched_nzb=False, secret_key="key")
+
+        client.search_movie.assert_not_called()
+
+
+class TestReapingAfterAMonth:
+    def test_a_row_untouched_for_over_a_month_is_reaped_by_default(self, db_conn):
+        _save_trigger_to_db(
+            db_conn, "sonarr:Last Searched In September", time.time() - 31 * 86400, 55
+        )
+        _save_trigger_to_db(db_conn, "sonarr:Searched Today", time.time() - 3600, 204)
+
+        assert reconcile_stranded_throttle(db_conn) == 1
+        assert _load_throttle_from_db(db_conn, "sonarr:Searched Today") is not None
+        assert _load_throttle_from_db(db_conn, "sonarr:Searched Today")[1] == 204
+
+    def test_a_reaped_count_does_not_come_back_from_memory(self, db_conn):
+        from mediaman.services.arr.search_trigger import _last_search_trigger, _search_count
+
+        old = time.time() - 31 * 86400
+        _save_trigger_to_db(db_conn, "radarr:Old", old, 44)
+        _last_search_trigger["radarr:Old"] = old
+        _search_count["radarr:Old"] = 44
+
+        reconcile_stranded_throttle(db_conn)
+
+        assert "radarr:Old" not in _search_count
+        assert "radarr:Old" not in _last_search_trigger
+
+
+def _card(dl_id: str, arr_id: int) -> dict:
+    kind = "movie" if dl_id.startswith("radarr:") else "series"
+    return {"kind": kind, "dl_id": dl_id, "arr_id": arr_id, "is_upcoming": False, "added_at": 0}
+
+
+class TestForgettingWhatIsNoLongerWanted:
+    """The hourly pass forgets the search count of a title neither Radarr nor Sonarr still wants."""
+
+    @pytest.fixture
+    def run_pass(self, db_conn, monkeypatch):
+        from mediaman.services.arr import search_trigger as _st
+        from mediaman.services.arr.fetcher import FetchResult
+
+        sonarr = MagicMock()
+        monkeypatch.setattr(_st, "build_sonarr_from_db", lambda c, sk: sonarr)
+        monkeypatch.setattr(_st, "maybe_trigger_search", lambda *a, **kw: None)
+        monkeypatch.setattr(_st, "maybe_auto_abandon", lambda *a, **kw: None)
+        monkeypatch.setattr(_st, "retry_stuck_imports", lambda *a, **kw: None)
+
+        def run(cards, *, missing, unreachable=()):
+            if isinstance(missing, Exception):
+                sonarr.get_missing_series.side_effect = missing
+            else:
+                sonarr.get_missing_series.return_value = missing
+            result = FetchResult(cards=cards, unreachable=list(unreachable))
+            monkeypatch.setattr(_st, "fetch_arr_queue_result", lambda c, sk, steady: result)
+            _st.trigger_pending_searches(db_conn, "key")
+
+        return run
+
+    def _counts(self, db_conn) -> dict[str, int]:
+        return dict(db_conn.execute("SELECT key, search_count FROM arr_search_throttle").fetchall())
+
+    def test_an_imported_film_and_a_finished_series_start_again_from_none(self, db_conn, run_pass):
+        from mediaman.services.arr.search_trigger import _search_count
+
+        now = time.time()
+        for key, count in [
+            ("radarr:Imported", 12),
+            ("radarr:Still Missing#7", 9),
+            ("radarr:Still Missing", 4),
+            ("sonarr:Finished", 178),
+            ("sonarr:Partly Missing", 204),
+            ("sonarr:No Files Yet", 3),
+        ]:
+            _save_trigger_to_db(db_conn, key, now - 3600, count)
+        _search_count["sonarr:Finished"] = 178
+
+        run_pass(
+            [_card("radarr:Still Missing#7", 1), _card("sonarr:No Files Yet", 2)],
+            missing={3: "Partly Missing"},
+        )
+
+        assert self._counts(db_conn) == {
+            "radarr:Still Missing#7": 9,
+            "radarr:Still Missing": 4,
+            "sonarr:Partly Missing": 204,
+            "sonarr:No Files Yet": 3,
+        }
+        assert "sonarr:Finished" not in _search_count
+
+    def test_nothing_is_forgotten_of_a_service_that_did_not_answer_whole(self, db_conn, run_pass):
+        now = time.time()
+        _save_trigger_to_db(db_conn, "radarr:Gone", now - 3600, 5)
+        _save_trigger_to_db(db_conn, "sonarr:Unseen", now - 3600, 6)
+
+        run_pass([], missing={}, unreachable=["Sonarr"])
+
+        assert self._counts(db_conn) == {"sonarr:Unseen": 6}
+
+    def test_nothing_of_sonarr_is_forgotten_when_its_missing_list_fails(self, db_conn, run_pass):
+        _save_trigger_to_db(db_conn, "sonarr:Partly Missing", time.time() - 3600, 204)
+
+        run_pass([], missing=requests.ConnectionError("sonarr down"))
+
+        assert self._counts(db_conn) == {"sonarr:Partly Missing": 204}

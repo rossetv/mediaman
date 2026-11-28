@@ -290,11 +290,7 @@ def _register_maintenance_jobs(
         # A reading that comes late is of no use: the next one is due in seconds.
         misfire_grace_time=ACTIVITY_STEP,
     )
-    # Daily reaper for arr_search_throttle rows whose item has been
-    # deleted. arr_search_throttle rows are keyed by media_item_id; when
-    # the item is deleted the throttle row becomes a ghost — periodic
-    # reaping prevents monotonic table growth because individual deletions
-    # don't propagate to the throttle DB.
+    # Daily reaper for arr_search_throttle rows nothing has searched for in a month.
     scheduler.add_job(
         lambda: reconcile_stranded_throttle(_open_db_for_job()),
         IntervalTrigger(hours=24),
@@ -303,6 +299,8 @@ def _register_maintenance_jobs(
         max_instances=1,
         coalesce=True,
         misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        # Soon after a start too: a server restarted more often than daily would never reap.
+        next_run_time=datetime.now(UTC) + _FIRST_SEARCHES_AFTER,
     )
 
 
