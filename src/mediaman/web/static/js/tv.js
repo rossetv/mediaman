@@ -1325,7 +1325,8 @@
     },
     taken: function () { return page(middle('Someone else has this TV now', 'The film stopped. Its place is kept.', [], SPIN)); },
     resuming: function () {
-      return page(middle(resumingFrom ? 'mediaman restarted' : 'Back online', 'Picking up ' + esc(endedWith.title) + ' where you were.', [], SPIN));
+      return page(resumingFrom ? middle('mediaman restarted', 'Picking up ' + esc(endedWith.title) + ' where you were.', [], SPIN)
+        : middle('Picking up ' + esc(endedWith.title) + ' where you were.', '', [], SPIN));
     },
     restarted: function () {
       var over = /^(ended|upnext|still)$/.test(endedWith.state);
@@ -1441,7 +1442,7 @@
      back, the pill fades away without a word. */
   var waitFrom = 0, waitLong = false, waitTimer = null, pillSaid = '';
   function waitWords() {
-    if (pickingUp && !away) return [resumingFrom ? 'mediaman restarted' : 'Back online', 'Picking up ' + esc(endedWith.title) + ' where you were.'];
+    if (pickingUp && !away) return resumingFrom ? ['mediaman restarted', 'Picking up ' + esc(endedWith.title) + ' where you were.'] : ['Picking up ' + esc(endedWith.title) + ' where you were.', ''];
     return ['Waiting for the network', away ? 'mediaman isn&rsquo;t answering yet. Trying again by itself.' : ''];
   }
   function waiting(name) {

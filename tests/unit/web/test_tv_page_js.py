@@ -675,6 +675,7 @@ def test_only_a_long_wait_darkens_the_film_and_it_clears_as_the_film_comes_back(
 def test_a_film_picked_up_again_waits_over_its_own_last_picture(how: str) -> None:
     out = _run("resumes", how)
     assert out["held"] == "on" and "Picking up" in out["said"]
+    assert "Back online" not in out["said"]
     assert out["freed"] == "" and out["pill"] == "nw" and "Picking up" not in out["now"]
 
 
