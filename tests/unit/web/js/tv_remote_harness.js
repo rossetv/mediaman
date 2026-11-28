@@ -186,6 +186,7 @@ async function page(opts = {}) {
       setVolume(v) { note('volume', v); cast.now.volume = v; },
       setMuted(m) { note('mute', m); cast.now.muted = m; },
       cancel() { note('cancel'); cast.now.upnext_in_s = null; cast.change(null); },
+      keepSkip() { note('keepSkip'); cast.now.skip_in_s = null; cast.change(null); },
       async start(what) {
         note('start', what);
         if (cast.hold) await cast.hold;
@@ -1611,6 +1612,25 @@ const scenarios = {
     await p.press('[data-menu="quality"]');
     await p.pressText('720p4 Mbps');
     return { toasts: p.toasts, on: p.$('[data-on]').textContent, quality: p.$('[data-quality]').textContent };
+  },
+  // A Chromecast in an intro: Skip is offered, and its count with no player open is cancelled.
+  async castSkip() {
+    const p = await page({ tvs: [], cast: { now: aCast({ markers: [INTRO, CREDITS], position_s: 70 }) } });
+    await p.open();
+    await p.pass(100);
+    const skip = () => (p.$('[data-skip]').hidden || p.$('[data-skip]').classList.contains('is-leaving') ? null : p.$('[data-skip-text]').textContent);
+    const out = { offered: skip() };
+    await p.press('[data-skip]');
+    await p.pass(400);
+    out.pressed = p.cast.did.slice();
+    Object.assign(p.cast.now, { position_s: 72, skip_in_s: 4 });
+    p.cast.change(null);
+    await p.pass(100);
+    out.counting = [skip(), p.$('[data-skip]').classList.contains('is-counting')];
+    await p.press('[data-skip]');
+    await p.pass(100);
+    out.kept = [skip(), p.cast.did.slice(out.pressed.length)];
+    return out;
   },
   async castUpnext() {
     const p = await page({ tvs: [], cast: { now: aCast() } });

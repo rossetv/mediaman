@@ -77,6 +77,11 @@ def test_the_sheet_knows_whether_there_is_a_tv_or_chrome_still_searches() -> Non
     assert out["found"] == {"there": True, "looking": False}
 
 
+def test_a_chromecast_not_found_is_looked_for_again_when_pressed() -> None:
+    out = _run("fails")
+    assert (out["again"], out["againOver"]) == (True, False)
+
+
 def test_a_script_that_throws_is_a_tv_that_is_not_there_and_breaks_nothing_else() -> None:
     out = _run("throws")
     assert out["way"] == {"there": False, "looking": True, "asks": False}
@@ -1039,3 +1044,21 @@ def test_a_stream_asked_for_with_no_subtitle_names_none_though_off_was_asked_bef
     (body,) = _run("other")["ownSubtitle"]["opened"]
     assert body["audio"] == "5"
     assert "subtitle" not in body
+
+
+def test_with_no_player_open_an_intro_counts_down_on_the_tvs_time_then_is_skipped() -> None:
+    out = _run("skips")
+    assert (out["intro"], out["later"]) == (5, 3)
+    assert out["paused"] == [3, []]
+    assert out["skipped"] == [["seek 200"], None]
+
+
+def test_a_press_during_the_count_keeps_the_credits_and_the_last_ones_are_not_counted() -> None:
+    out = _run("skips")
+    assert out["credits"] == 5
+    assert out["kept"] == [None, 1]
+    assert out["last"] is None
+
+
+def test_where_the_person_does_not_skip_by_themselves_nothing_counts_or_skips() -> None:
+    assert _run("skips")["off"] == [None, []]

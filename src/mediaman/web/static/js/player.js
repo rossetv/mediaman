@@ -4063,6 +4063,7 @@
     away.play.keep({
       quality: quality, subtitle: subtitle, played_s: Math.round(playedS),
       given: given, markers: markers, chapters: chapters, next: after ? { rating_key: after[1], label: next.label } : null,
+      auto_skip: autoSkip,
     });
   }
 
@@ -4642,6 +4643,8 @@
     tracks.defaults = data.defaults || null;
     takeLoud(tracks.defaults);
     autoSkip = !!tracks.defaults && tracks.defaults.auto_skip === true;
+    /* A Chromecast left playing skips them by itself once this page is closed. */
+    if (away && away.play) keepWith();
     showSkip();
     showTracks();
   }
