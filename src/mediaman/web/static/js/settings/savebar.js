@@ -3,7 +3,9 @@
  *
  * Responsibilities:
  *   - Dirty-tracking listeners that toggle `.setg-savebar.on`
- *   - 422 / 403 / 429 response shaping into a one-line summary
+ *   - 422 / 403 / 429 response shaping into a one-line summary, and each refused
+ *     field marked invalid with its reason beside it until it is edited
+ *   - Number fields outside their min / max refused before anything is sent
  *   - PUT /api/settings submit handler with reauth retry
  *   - A stored secret whose field is emptied is removed only once confirmed,
  *     and one whose mask was edited is kept
@@ -407,6 +409,8 @@
     [/start or end with \*{4}/, 'cannot start or end with ****.'],
     [/CR, LF, or NUL|ASCII printable/i, 'has characters that are not allowed.'],
     [/must be between (\d+) and (\d+)( \w+)?/i, 'must be between $1 and $2$3.'],
+    [/must be at least (\d+)( \w+)?/i, 'must be at least $1$2.'],
+    [/must be at most (\d+)( \w+)?/i, 'must be at most $1$2.'],
     [/integer/i, 'must be a whole number.'],
     [/timezone/i, 'is not a time zone mediaman knows.'],
     [/must be one of/i, 'is not one of the choices offered.'],
@@ -440,8 +444,14 @@
     return fieldLabel(key) + ' is not valid.';
   }
 
+  var NO_ADMIN = 'You no longer have admin access. Reload the page.';
+
   // Turn FastAPI 422 bodies into a one-line human summary.
   function summariseSaveError(data, statusCode) {
+    // A 403 left over once the password re-check has had its turn: this account is no admin now.
+    if (statusCode === 403 && !(data && data.reauth_required)) {
+      return (data && data.detail === 'password_change_required' && data.message) || NO_ADMIN;
+    }
     if (data && Array.isArray(data.detail) && data.detail.length) {
       return data.detail.map(function (d) {
         var loc = Array.isArray(d.loc) ? d.loc.filter(function (p) { return p !== 'body'; }) : [];
@@ -456,16 +466,88 @@
     return 'Save failed — try again.';
   }
 
+  // The fields a save was refused for, each with its reason beside it, as [field, reason].
+  var marked = [];
+
+  // A reason goes on a line of its own at the foot of the field's row, or else after the box the field sits in.
+  function placeReason(field, reason) {
+    var row = field.closest('.setg-row');
+    if (row) {
+      reason.style.flexBasis = '100%';
+      reason.style.marginTop = '6px';
+      row.appendChild(reason);
+      return;
+    }
+    var box = field.closest('.thresh-field, .inp-wrap') || field;
+    box.parentNode.insertBefore(reason, box.nextSibling);
+  }
+
+  function unmark(field) {
+    marked = marked.filter(function (pair) {
+      if (field && pair[0] !== field) return true;
+      pair[0].removeAttribute('aria-invalid');
+      pair[0].style.borderColor = '';
+      var described = (pair[0].getAttribute('aria-describedby') || '').split(' ').filter(function (id) {
+        return id && id !== pair[1].id;
+      });
+      if (described.length) pair[0].setAttribute('aria-describedby', described.join(' '));
+      else pair[0].removeAttribute('aria-describedby');
+      pair[1].remove();
+      return false;
+    });
+  }
+
+  // Each refused field the page shows, marked invalid with its reason beside it; returns them in order.
+  function markRefused(detail) {
+    unmark();
+    var fields = [];
+    (Array.isArray(detail) ? detail : []).forEach(function (d) {
+      var loc = Array.isArray(d.loc) ? d.loc.filter(function (p) { return p !== 'body'; }) : [];
+      var field = typeof loc[0] === 'string' && document.getElementById(loc[0]);
+      if (!field || fields.indexOf(field) !== -1) return;
+      fields.push(field);
+      var reason = document.createElement('div');
+      reason.className = 'fld-sub';
+      reason.id = field.id + '-refused';
+      reason.style.color = 'var(--danger-text)';
+      reason.textContent = d.text || fieldError(loc[0], String(d.msg || ''));
+      placeReason(field, reason);
+      field.setAttribute('aria-invalid', 'true');
+      field.style.borderColor = 'var(--danger-text)';
+      var described = field.getAttribute('aria-describedby');
+      field.setAttribute('aria-describedby', (described ? described + ' ' : '') + reason.id);
+      marked.push([field, reason]);
+    });
+    return fields;
+  }
+
+  // Number fields whose value is outside the min and max the page gives them, as a refusal's detail.
+  function outOfRange() {
+    return settingsControls().filter(function (el) { return el.type === 'number' && el.value !== ''; })
+      .map(function (el) {
+        var n = Number(el.value);
+        var min = el.getAttribute('min');
+        var max = el.getAttribute('max');
+        var low = min !== null && min !== '' && !(n >= Number(min));
+        var high = max !== null && max !== '' && !(n <= Number(max));
+        if (!low && !high) return null;
+        // "Minimum age in days" gives the unit the reason ends in.
+        var unit = /\sin (\w+)$/.exec(fieldLabel(el.id));
+        var range = min !== null && max !== null ? 'must be between ' + min + ' and ' + max
+          : low ? 'must be at least ' + min : 'must be at most ' + max;
+        return { loc: ['body', el.id], msg: range + (unit ? ' ' + unit[1] : '') };
+      }).filter(Boolean);
+  }
+
   var PERSON_MOVES = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
   var stopKeepingClear = function () {};
 
-  // The first field a save was refused for, brought out from under the bar; the focus stays where it is.
+  // Every field a save was refused for is marked; the first is brought out from under the bar and focused.
   function showRefused(data) {
     stopKeepingClear();
-    var first = data && Array.isArray(data.detail) && data.detail[0];
-    var loc = first && Array.isArray(first.loc) ? first.loc.filter(function (p) { return p !== 'body'; }) : [];
-    var field = typeof loc[0] === 'string' && document.getElementById(loc[0]);
+    var field = markRefused(data && data.detail)[0];
     if (!field) return;
+    field.focus({ preventScroll: true });
     var row = field.closest('.setg-row') || field;
     var scroller = row.closest('.stx__body') || window;
     if (!savebar || !window.ResizeObserver) { row.scrollIntoView({ block: 'nearest' }); return; }
@@ -532,7 +614,10 @@
     var UNSURE_TEXT = 'The last save may have been stored. Save again to be sure.';
 
     function edited(e) {
-      if (shown() && isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
+      if (!shown() || !isSettingsInput(e.target)) return;
+      lastEdited = e.target;
+      if (e.target.getAttribute('aria-invalid') === 'true') unmark(e.target);
+      markDirty();
     }
     document.addEventListener('input', edited, true);
     document.addEventListener('change', edited, true);
@@ -614,6 +699,7 @@
     // since disabling its buttons takes the focus away.
     function startAsking() {
       var hadFocus = savebar && savebar.contains(document.activeElement);
+      unmark();
       saving = true;
       leftOut = [];
       saveBtn.disabled = true;
@@ -645,7 +731,15 @@
       var emptied = emptiedRequired();
       if (emptied.length) {
         setSaveError(inWords(emptied.map(function (el) { return fieldLabel(el.id); })) + ' can’t be left empty.');
-        showRefused({ detail: [{ loc: ['body', emptied[0].id] }] });
+        showRefused({ detail: emptied.map(function (el) {
+          return { loc: ['body', el.id], text: fieldLabel(el.id) + ' can’t be left empty.' };
+        }) });
+        return;
+      }
+      var outside = outOfRange();
+      if (outside.length) {
+        setSaveError(summariseSaveError({ detail: outside }, 422));
+        showRefused({ detail: outside });
         return;
       }
       if (putBackMasks()) {
@@ -791,6 +885,7 @@
 
     function putBackSaved(fromKeyboard) {
       leftOut = [];
+      unmark();
       restoreSaved();
       clearSaveError();
       refreshOverviewHero();

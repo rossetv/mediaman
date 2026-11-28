@@ -8,6 +8,8 @@
  *   - Role change per user (PATCH /api/users/{id}/role + MM.reauth.run)
  *   - Email per user, in a form in their row (PATCH /api/users/{id}/email + MM.reauth.run)
  *   - Plex link state per user, with Unlink (DELETE /api/users/{id}/plex-link)
+ *   - Reset password per user (POST /api/users/{id}/reset-password + MM.reauth.run),
+ *     whose temporary password shows once in their row, with Copy
  *   - Delete user flow (UIFeedback.confirm + MM.reauth.run)
  *
  * Cross-module dependencies:
@@ -153,6 +155,14 @@
           });
           actions.appendChild(roleBtn);
 
+          var resetBtn = document.createElement('button');
+          resetBtn.type = 'button';
+          resetBtn.className = 'btn btn--ghost btn--sm';
+          resetBtn.dataset.userAction = 'reset';
+          resetBtn.textContent = 'Reset password';
+          resetBtn.setAttribute('aria-label', 'Reset password: ' + user.username);
+          actions.appendChild(resetBtn);
+
           var del = document.createElement('button');
           del.type = 'button';
           del.className = 'link-danger';
@@ -164,6 +174,9 @@
 
           row.appendChild(actions);
           row.appendChild(buildEmailForm(user, emailBtn, sub));
+          var temp = buildTempPassword(user, resetBtn);
+          row.appendChild(temp.panel);
+          resetBtn.addEventListener('click', function () { resetFlow(user, resetBtn, temp); });
         }
         paintRole(user, roleLabel, roleBtn);
         roleLabel.addEventListener('animationend', function () { roleLabel.classList.remove('is-changed'); });
@@ -332,6 +345,128 @@
           });
         });
         return form;
+      }
+
+      /* The clipboard API needs a secure page; a Mediaman reached over plain http on a
+         home network is not one, so fall back to a selected hidden textarea. */
+      function copyText(text) {
+        if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+        return new Promise(function (resolve, reject) {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.className = 'sr-only';
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = false;
+          try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+          ta.remove();
+          if (ok) resolve(); else reject(new Error('copy failed'));
+        });
+      }
+
+      // The temporary password, in the row of whose it is, until Done forgets it.
+      function buildTempPassword(user, opener) {
+        var panel = document.createElement('div');
+        // usr-email lays a fold out across the whole row.
+        panel.className = 'inline-form setg-fold usr-email usr-temp';
+        panel.id = 'user-temp-' + user.id;
+        panel.hidden = true;
+        var inner = document.createElement('div');
+        inner.className = 'setg-fold-inner';
+        var field = document.createElement('label');
+        field.className = 'fld';
+        var lbl = document.createElement('span');
+        lbl.className = 'fld-lbl';
+        lbl.textContent = 'Temporary password for ' + user.username;
+        field.appendChild(lbl);
+        var input = document.createElement('input');
+        input.className = 'inp';
+        input.type = 'text';
+        input.readOnly = true;
+        input.autocomplete = 'off';
+        input.setAttribute('spellcheck', 'false');
+        field.appendChild(input);
+        var note = document.createElement('span');
+        note.className = 'fld-sub';
+        note.textContent = 'Shown only now. Give it to ' + user.username +
+          ': they are signed out everywhere and choose their own at the next sign-in.';
+        field.appendChild(note);
+        inner.appendChild(field);
+        var actions = document.createElement('div');
+        actions.className = 'inline-form-actions';
+        var copy = document.createElement('button');
+        copy.type = 'button';
+        copy.className = 'btn btn--sm btn--primary';
+        copy.textContent = 'Copy';
+        var done = document.createElement('button');
+        done.type = 'button';
+        done.className = 'btn btn--sm btn--ghost';
+        done.textContent = 'Done';
+        actions.appendChild(copy);
+        actions.appendChild(done);
+        inner.appendChild(actions);
+        panel.appendChild(inner);
+
+        function shut() {
+          if (MM.dom.focusStillIn(panel)) opener.focus();
+          input.value = '';
+          rows.close(panel);
+        }
+        copy.addEventListener('click', function () {
+          copyText(input.value).then(function () {
+            window.UIFeedback.success('Copied the temporary password.');
+          }, function () {
+            input.focus();
+            input.select();
+            window.UIFeedback.error('Could not copy. Select it and copy it yourself.');
+          });
+        });
+        done.addEventListener('click', function () { holdFocus(done, panel); shut(); });
+        panel.addEventListener('keydown', function (e) { if (e.key === 'Escape') shut(); });
+        return {
+          panel: panel,
+          show: function (password) {
+            input.value = password;
+            rows.openInView(panel);
+            input.focus();
+            input.select();
+          },
+        };
+      }
+
+      function resetFlow(user, btn, temp) {
+        if (isBusy(btn)) return;
+        holdFocus(btn);
+        window.UIFeedback.confirm({
+          title: 'Reset ' + user.username + '’s password?',
+          body: 'mediaman makes a temporary password for you to give them, and signs them out everywhere. They choose their own at the next sign-in.',
+          confirmLabel: 'Reset password',
+          confirmVariant: 'danger',
+        }).then(function (ok) {
+          if (!ok) return;
+          setBusy(btn, true);
+          btn.textContent = 'Resetting…';
+          MM.reauth.run(function () {
+            return MM.api.post('/api/users/' + user.id + '/reset-password', {});
+          }, {
+            title: 'Re-authenticate to reset ' + user.username + '’s password',
+            descText: 'mediaman asks for your own password before it resets someone else’s.',
+            confirmLabel: 'Confirm & reset',
+            confirmVariant: 'danger',
+          }).then(function (res) {
+            setBusy(btn, false);
+            btn.textContent = 'Reset password';
+            temp.show(res.password);
+          }).catch(function (err) {
+            var there = rows.stillAt(btn, btn);
+            setBusy(btn, false);
+            btn.textContent = 'Reset password';
+            if (there) btn.focus({ preventScroll: true });
+            if (err && err.error === 'reauth_cancelled') return;
+            window.UIFeedback.error(MM.api.messageOf(err, 'Could not reset the password'));
+          });
+        });
       }
 
       // A role change updates the row where it is, so focus stays on its button.

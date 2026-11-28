@@ -1120,6 +1120,187 @@ const scenarios = {
     return { text: status.textContent };
   },
 
+  // Each field a save is refused for is marked with its reason beside it, until it is edited.
+  async refusedMarks() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    h.add('span', { id: 'save-status' }, bar);
+    const urlRow = h.add('div', { className: 'setg-row' }, page);
+    const url = h.add('input', { id: 'base_url', type: 'text' }, urlRow);
+    url.setAttribute('aria-label', 'Base URL');
+    const ageRow = h.add('div', { className: 'setg-row' }, page);
+    const box = h.add('div', { className: 'thresh-field' }, ageRow);
+    const age = h.add('input', { id: 'min_age_days', type: 'number', value: '30' }, box);
+    age.setAttribute('aria-label', 'Minimum age in days');
+    h.add('span', { className: 'unit', textContent: 'days' }, box);
+    const sent = [];
+    h.ctx.MM.api = {
+      put: (u, b) => { sent.push(b); return Promise.reject({ status: 422, data: { detail: [
+        { loc: ['body', 'base_url'], msg: 'Value error, URL must include a host' },
+        { loc: ['body', 'min_age_days'], msg: 'Value error, Minimum age must be between 1 and 365 days' },
+      ] } }); },
+      messageOf: () => 'x',
+    };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    const state = (el) => {
+      const reason = h.doc.getElementById(el.id + '-refused');
+      return {
+        invalid: el.getAttribute('aria-invalid'),
+        border: el.style.borderColor || '',
+        reason: reason ? reason.textContent : null,
+        describedBy: el.getAttribute('aria-describedby'),
+      };
+    };
+    url.value = 'http://'; url.fire('input');
+    age.value = '0'; age.fire('input');
+    save.focus();
+    save.fire('click');
+    await h.flush();
+    const out = {
+      url: state(url),
+      age: state(age),
+      // the reason goes on a line of its own at the foot of the row, not between the field and its unit
+      ageReasonEndsRow: ageRow.lastElementChild.id,
+      focus: h.doc.activeElement && h.doc.activeElement.id,
+    };
+    url.value = 'http://plex'; url.fire('input');
+    out.afterEdit = { url: state(url), age: state(age) };
+    // a fresh save starts with no field marked
+    h.ctx.MM.api.put = () => new Promise(() => {});
+    save.fire('click');
+    await h.flush();
+    out.afterNextSave = state(age);
+    return out;
+  },
+
+  // A number outside its min or max is refused before anything is sent.
+  async rangeChecked() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const status = h.add('span', { id: 'save-status' }, bar);
+    const grace = h.add('input', { id: 'grace_days', type: 'number', value: '14' }, page);
+    grace.setAttribute('aria-label', 'Grace period in days');
+    grace.setAttribute('min', '1'); grace.setAttribute('max', '90');
+    const sent = [];
+    h.ctx.MM.api = { put: (u, b) => { sent.push(b); return Promise.resolve({ status: 'saved' }); }, messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({ getPayload: () => ({ grace_days: Number(grace.value) }) });
+    grace.value = '200'; grace.fire('input');
+    save.fire('click');
+    await h.flush();
+    const out = {
+      sentHigh: sent.length,
+      status: status.textContent,
+      invalid: grace.getAttribute('aria-invalid'),
+      focus: h.doc.activeElement === grace,
+    };
+    grace.value = '0'; grace.fire('input');
+    save.fire('click');
+    await h.flush();
+    out.sentLow = sent.length;
+    grace.value = '90'; grace.fire('input');
+    save.fire('click');
+    await h.flush();
+    out.sentInRange = sent.map((b) => b.grace_days);
+    out.invalidAfter = grace.getAttribute('aria-invalid');
+    return out;
+  },
+
+  // A 403 that is no password re-check says this account is no admin now.
+  async noAdmin() {
+    const said = [];
+    for (const data of [{ error: 'forbidden' }, { detail: 'Forbidden' }, {
+      detail: 'password_change_required', message: 'You must change your password before continuing.',
+    }]) {
+      const h = build();
+      const page = h.add('div', { className: 'setg-pg' });
+      const bar = h.add('div', { id: 'setg-savebar' });
+      const save = h.add('button', { id: 'btn-save' }, bar);
+      const status = h.add('span', { id: 'save-status' }, bar);
+      const field = h.add('input', { id: 'base_url', type: 'text' }, page);
+      h.ctx.MM.api = { put: () => Promise.reject({ status: 403, data }), messageOf: () => 'x' };
+      h.ctx.MM.reauth = { run: (f) => f() };
+      h.load('settings/savebar.js');
+      h.ctx.MM.settings.savebar.init({});
+      field.value = 'http://x'; field.fire('input');
+      save.fire('click');
+      await h.flush();
+      said.push(status.textContent);
+    }
+    return { said };
+  },
+
+  // An admin resets another user's password and sees the temporary one once, in their row.
+  async userReset() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const sent = [];
+    const errors = [];
+    const copied = [];
+    const reauthWords = [];
+    let confirmed = true;
+    let answer = () => Promise.resolve({ ok: true, password: 'Abcd-Efgh-2345-Jkmn' });
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [
+        { id: 1, username: 'ann', role: 'admin' },
+        { id: 2, username: 'bob', role: 'viewer' },
+      ] }),
+      post: (u) => { sent.push(u); return answer(); },
+      messageOf: (e, words) => (e && e.message) || words,
+    };
+    h.ctx.MM.reauth = { run: (f, words) => { reauthWords.push(words && words.title); return f(); } };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(confirmed);
+    h.ctx.UIFeedback.success = () => {};
+    h.ctx.UIFeedback.error = (m) => errors.push(m);
+    h.ctx.navigator = { clipboard: { writeText: (t) => { copied.push(t); return Promise.resolve(); } } };
+    h.ctx.isSecureContext = true;
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const [own, row] = names(userList, 'usr-row');
+    const btn = row.querySelector('[data-user-action="reset"]');
+    const panel = row.querySelector('.usr-temp');
+    const input = panel.querySelector('input');
+    const open = () => h.ctx.MM.settings.rows.isOpen(panel);
+    const out = { ownHasButton: !!own.querySelector('[data-user-action="reset"]'), shutAtFirst: !open() };
+
+    confirmed = false;
+    btn.fire('click');
+    await h.flush();
+    out.notConfirmed = { sent: sent.length, open: open() };
+
+    confirmed = true;
+    btn.fire('click');
+    await h.flush();
+    out.shown = {
+      sent: sent.slice(),
+      open: open(),
+      value: input.value,
+      readOnly: input.readOnly,
+      focused: h.doc.activeElement === input,
+      asked: reauthWords[0],
+    };
+    panel.querySelector('.btn--primary').fire('click');
+    await h.flush();
+    out.copied = copied;
+    panel.querySelector('.btn--ghost').fire('click');
+    h.drain();
+    out.done = { open: open(), value: input.value, focused: h.doc.activeElement === btn };
+
+    answer = () => Promise.reject({ status: 429, message: 'Too many changes. Try again in 1 minute.' });
+    btn.fire('click');
+    await h.flush();
+    out.refused = { open: open(), errors: errors.slice(), label: btn.textContent, busy: btn.getAttribute('aria-disabled') };
+    return out;
+  },
+
   // A role change updates its row where it stands.
   async roleInPlace() {
     const h = build();

@@ -253,7 +253,7 @@ def test_an_address_for_tvs_from_a_page_left_open_is_not_refused() -> None:
 def test_a_refused_save_brings_the_refused_field_out_from_under_the_bar() -> None:
     assert _run("refusedInView") == {
         "revealed": ["setg-row"],
-        "focus": "btn-save",
+        "focus": "base_url",
         "roomAboveBar": 11,
     }
 
@@ -268,6 +268,70 @@ def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
     # a field the page does not show falls back to its key in words
     assert "Mystery key is not valid." in text
     assert "base_url" not in text and "got" not in text
+
+
+def test_each_refused_field_is_marked_with_its_reason_until_it_is_edited() -> None:
+    out = _run("refusedMarks")
+    red = "var(--danger-text)"
+    assert out["url"] == {
+        "invalid": "true",
+        "border": red,
+        "reason": "Base URL needs a server name after http:// or https://.",
+        "describedBy": "base_url-refused",
+    }
+    assert out["age"] == {
+        "invalid": "true",
+        "border": red,
+        "reason": "Minimum age must be between 1 and 365 days.",
+        "describedBy": "min_age_days-refused",
+    }
+    assert out["ageReasonEndsRow"] == "min_age_days-refused"
+    assert out["focus"] == "base_url"
+    unmarked = {"invalid": None, "border": "", "reason": None, "describedBy": None}
+    assert out["afterEdit"] == {"url": unmarked, "age": out["age"]}
+    assert out["afterNextSave"] == unmarked
+
+
+def test_a_number_outside_its_range_is_refused_before_it_is_sent() -> None:
+    out = _run("rangeChecked")
+    assert out["sentHigh"] == 0
+    assert out["status"] == "Grace period must be between 1 and 90 days."
+    assert (out["invalid"], out["focus"]) == ("true", True)
+    assert out["sentLow"] == 0
+    assert out["sentInRange"] == [90]
+    assert out["invalidAfter"] is None
+
+
+def test_a_save_refused_for_lost_admin_rights_says_so() -> None:
+    lost = "You no longer have admin access. Reload the page."
+    assert _run("noAdmin")["said"] == [
+        lost,
+        lost,
+        "You must change your password before continuing.",
+    ]
+
+
+def test_an_admin_resets_someone_elses_password_and_sees_it_once() -> None:
+    out = _run("userReset")
+    assert (out["ownHasButton"], out["shutAtFirst"]) == (False, True)
+    assert out["notConfirmed"] == {"sent": 0, "open": False}
+    assert out["shown"] == {
+        "sent": ["/api/users/2/reset-password"],
+        "open": True,
+        "value": "Abcd-Efgh-2345-Jkmn",
+        "readOnly": True,
+        "focused": True,
+        "asked": "Re-authenticate to reset bob’s password",
+    }
+    assert out["copied"] == ["Abcd-Efgh-2345-Jkmn"]
+    # Done forgets the password and gives the focus back to the button
+    assert out["done"] == {"open": False, "value": "", "focused": True}
+    assert out["refused"] == {
+        "open": False,
+        "errors": ["Too many changes. Try again in 1 minute."],
+        "label": "Reset password",
+        "busy": None,
+    }
 
 
 def test_role_change_updates_the_row_in_place_and_keeps_focus() -> None:
