@@ -2,33 +2,65 @@
    modal backdrop and sheet. Owns `.modal-backdrop`/`.modal-sheet`
    and `.keep-dialog*`. */
 
+/* The page under a dialog: a plain dim, so the sheet's glass has the page to show. */
 .modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal-backdrop);
-  background: var(--scrim-modal);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  background: var(--g-dim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: max(60px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
   overflow-y: auto;
 }
-.modal-sheet {
-  background: var(--s2);
+/* Glass. What lies on it takes veils for its fills, and its quiet, blue and red words and its rings
+   lifted, so each holds over a white page. */
+.modal-sheet,
+.keep-dialog {
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent: var(--g-accent);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: var(--r-lg);
+  box-shadow: var(--g-inset), var(--g-shadow);
+}
+:is(.modal-sheet, .keep-dialog) :focus-visible { outline-color: var(--g-focus); }
+/* A phone shows no third layer of glass: over a title's sheet, the storage sheet or the pane over
+   Watch, each with glass of its own on it, the sheet is solid. */
+@media (max-width: 699.98px) {
+  html:is(.has-ttl, .has-space) :is(.modal-sheet, .keep-dialog),
+  .you.is-open ~ * :is(.modal-sheet, .keep-dialog) {
+    background: var(--g-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+.modal-sheet {
   max-width: 880px;
   width: 100%;
   overflow: hidden;
-  box-shadow: var(--shadow-card);
   position: relative;
 }
-/* A dialog opens as the dim fades in and the sheet rises a few pixels into
+/* A dialog opens as the dim comes in and the sheet fades up a few pixels into
    place; `.is-closing` plays it back, faster, before core/modal.js hides it.
    Closing is already decided, so clicks pass through. The keep dialog keeps
    `.active` while it closes, so its exit names both classes to outrank the
-   list page's own entry animation. */
+   list page's own entry animation. The backdrop's dim comes and goes, never the backdrop itself:
+   under a fading parent the sheet's glass would see none of the page. */
 .modal-backdrop,
 .keep-dialog-overlay.active { animation: modal-in var(--dur) var(--ease-out); }
 .modal-backdrop > .modal-sheet,
@@ -40,10 +72,10 @@
 }
 .modal-backdrop.is-closing > .modal-sheet,
 .keep-dialog-overlay.active.is-closing > .keep-dialog { animation: modal-sheet-out var(--dur-fast) var(--ease-out) forwards; }
-@keyframes modal-in { from { opacity: 0; } }
-@keyframes modal-out { to { opacity: 0; } }
-@keyframes modal-sheet-in { from { transform: translateY(8px) scale(.98); } }
-@keyframes modal-sheet-out { to { transform: translateY(8px) scale(.98); } }
+@keyframes modal-in { from { background-color: transparent; } }
+@keyframes modal-out { to { background-color: transparent; } }
+@keyframes modal-sheet-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+@keyframes modal-sheet-out { to { opacity: 0; transform: translateY(8px) scale(.98); } }
 /* Under reduced motion the sheet does not move. */
 @media (prefers-reduced-motion: reduce) {
   .modal-backdrop > .modal-sheet,
@@ -60,9 +92,7 @@
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
-  background: var(--scrim-modal);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  background: var(--g-dim);
   display: none;
   align-items: center;
   justify-content: center;
@@ -70,20 +100,18 @@
 }
 .keep-dialog-overlay.active { display: flex; }
 .keep-dialog {
-  background: var(--s2);
-  border: 1px solid var(--hair-strong);
-  border-radius: var(--r-lg);
   padding: 24px;
   max-width: 480px;
   width: 100%;
-  box-shadow: var(--shadow-card);
 }
 .keep-dialog { max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow-y: auto; display: flex; flex-direction: column; }
 
 .keep-dialog { max-width: 540px; }
 .keep-dialog h3 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 14px; }
 .keep-dialog h3:focus { outline: none; }
-.keep-duration-bar { display: flex; gap: 6px; padding: 4px; background: var(--s1); border-radius: var(--r-pill); margin-bottom: 14px; flex-wrap: wrap; }
+/* On the dialog's glass --s1 is no fill at all: the durations' well and the seasons' rows take the
+   first veil. */
+.keep-duration-bar { display: flex; gap: 6px; padding: 4px; background: var(--s2); border-radius: var(--r-pill); margin-bottom: 14px; flex-wrap: wrap; }
 .keep-dur-btn { padding: 6px 12px; border-radius: var(--r-pill); font-size: 12px; color: var(--t2); transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .keep-dur-btn:hover { color: var(--t1); }
 .keep-dur-btn.active { background: var(--s3); color: var(--t1); font-weight: 500; }
@@ -94,7 +122,7 @@
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: var(--s1);
+  background: var(--s2);
   border-radius: var(--r-sm);
   font-size: 13px;
 }
