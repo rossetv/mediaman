@@ -1539,6 +1539,43 @@ const scenarios = {
     for (let i = 0; i < 7; i++) { h.wheel(1); await h.pass(100); }
     return { ...out, byItself: h.steps.includes('open') };
   },
+  /* The cards of what is downloading, in the row (watch/downloading.js) and in its grid
+     (watch/dlgrid.js, whose big cards are no .watch-card), open and scroll open as a poster does. */
+  async downloadingCards() {
+    const dw = (id, cls, ref) => ['article', { class: cls, id },
+      ['a', { class: 'dw__link', href: ref ? '/#title=' + ref : '/?dl=1', ...(ref ? { 'data-title-ref': ref, 'data-kind': 'movie' } : { 'data-dl-open': '' }) },
+        ['img', { class: 'dw__art', src: '/img/wide.jpg' }], ['span', { class: 'dw__poster' }, ['img', { class: 'dw__pic', src: '/img/p.jpg' }]],
+        ['span', { class: 'dw__text' }, ['span', { class: 'dw__title' }, 'Orbit'], ['span', { class: 'dw__line' }, ['strong'], ['span']]]],
+      ['div', { class: 'dwx__foot' }, ['p', { class: 'dwx__say' }, '40%']]];
+    const soon = ['article', { class: 'dwx dwx--small', id: 'soon' },
+      ['a', { class: 'dwx__open dwx__small-link', href: '/#title=movie-2', 'data-title-ref': 'movie-2', 'data-kind': 'movie' },
+        ['span', { class: 'dwx__pic' }, ['img', { src: '/img/p.jpg' }]], ['span', { class: 'dwx__small-text' }, ['span', { class: 'dw__title' }, 'Orbit']]]];
+    const out = {};
+    for (const [id, node] of [['row', dw('row', 'watch-card dw', 'movie-2')], ['grid', dw('grid', 'dw dwx', 'movie-2')], ['soon', soon], ['noTitle', dw('noTitle', 'watch-card dw', '')]]) {
+      const h = load();
+      h.doc.querySelector('.watch-row__scroll').appendChild(build(h.doc, node));
+      // A coming one's picture is beside its words, as a poster's is over its caption.
+      const on = h.doc.querySelector('#' + id + (id === 'soon' ? ' .dwx__pic' : ' .dw__title'));
+      h.over(on);
+      h.over(on, { clientX: h.x - 6 });
+      await h.pass(1100);
+      const title = h.title();
+      if (title) {
+        await h.scroll([70, 70]);
+        for (let i = 0; i < 7; i++) { h.wheel(1); await h.pass(100); }
+      }
+      out[id] = { title, gets: h.gets, opened: h.steps.filter((s) => /^draw|^open/.test(s)) };
+    }
+    // Off the card's link, on what the grid adds under it, nothing opens.
+    const h = load();
+    h.doc.querySelector('.watch-row__scroll').appendChild(build(h.doc, dw('grid', 'dw dwx', 'movie-2')));
+    const foot = h.doc.querySelector('#grid .dwx__say');
+    h.over(foot);
+    h.over(foot, { clientX: h.x - 6 });
+    await h.pass(1100);
+    out.foot = h.title();
+    return out;
+  },
   /* What says a scroll over it is not its own: each is let through, and draws nothing. */
   async pagesScroll() {
     const out = {};

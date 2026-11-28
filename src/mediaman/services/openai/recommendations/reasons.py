@@ -150,21 +150,19 @@ def pick_why(
     own: bool,
     disliked: Iterable[str] = (),
 ) -> str:
-    """Why a pick suits the person it is shown to, never what happens in it: its own (*own*)
-    pick's *reason* where that speaks to them and names a title of *because_of* that they have
-    not since rated down (*disliked*), else a line made of those titles, else a plain one.
-    A shared pick's reason was written for everyone, so its card says so instead."""
+    """Why a pick suits the person it is shown to, never what happens in it: the *reason* the
+    model wrote for it, checked as it was saved, else a line made of the titles of *because_of*
+    they have not since rated down (*disliked*), else a plain one. Their own (*own*) pick's
+    reason may not name a title they rated down; a shared one's, written for everyone, may not
+    speak to one person, and with none its card says it was made for everyone."""
+    reason = (reason or "").strip()
     if not own:
-        return SHARED_WHY
+        personal = _SECOND_PERSON.search(reason) or _PERSONAL_WORDS.search(reason)
+        return reason if reason and not personal else SHARED_WHY
+    if reason and not names_any(reason, disliked):
+        return reason
     down = {title.casefold() for title in disliked}
     led = [title for title in because_of if title.casefold() not in down]
-    if (
-        reason
-        and _SECOND_PERSON.search(reason)
-        and is_tied(reason, led)
-        and not names_any(reason, disliked)
-    ):
-        return reason
     if not led:
         return _NO_TITLES_WHY
     named = led[0] if len(led) == 1 else f"{', '.join(led[:-1])} and {led[-1]}"
