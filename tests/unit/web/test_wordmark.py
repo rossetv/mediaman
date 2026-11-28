@@ -169,7 +169,9 @@ def test_the_tv_s_icon_takes_the_ring_s_place_only_where_a_stroke_is_known_to_an
 def test_the_tv_s_icon_stands_still_and_whole_under_reduced_motion():
     css = (_WEB / "static" / "css" / "tv.css").read_text()
     assert css.index("@supports") < css.index("prefers-reduced-motion")
-    assert ".spin--mark, .mark path { animation: none; }" in _tv_css("@media (prefers-reduced")
+    rules = re.findall(r"^\s*([^{}\n]+)\{([^}]*)\}", _tv_css("@media (prefers-reduced"), flags=re.M)
+    still = [sel for sel, body in rules if "animation: none" in body for sel in sel.split(",")]
+    assert {".spin--mark", ".mark path"} <= {sel.strip() for sel in still}
 
 
 def test_the_tv_s_qr_code_stays_black_on_white_where_colours_are_forced():
