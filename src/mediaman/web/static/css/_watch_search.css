@@ -282,8 +282,9 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
 
 /* ── The sheet ── */
 
-/* Glass, which fades and moves itself. What sits on it takes veils for its fills, quiet words and
-   coloured ones lifted, and rings in the lifted blue. */
+/* Glass, which fades and moves itself; the thick weight, as it holds a page of words over any page.
+   What sits on it takes veils for its fills, quiet words and coloured ones lifted, and rings in the
+   lifted blue. */
 .watch-sheet {
   --s1: var(--g-s1);
   --s2: var(--g-s2);
@@ -311,7 +312,7 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
   border: 1px solid var(--g-edge);
   border-top-color: var(--g-lit);
   border-radius: 20px;
-  background: var(--g-regular);
+  background: var(--g-thick);
   -webkit-backdrop-filter: var(--g-filter);
   backdrop-filter: var(--g-filter);
   box-shadow: var(--g-inset), var(--g-shadow);
@@ -384,8 +385,10 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
 html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 #watch-browse { transform-origin: 50% 160px; transition: transform var(--dur-open) var(--ease-out), opacity var(--dur) var(--ease-out); }
 #watch-browse.is-off { position: absolute; left: 0; right: 0; opacity: 0; pointer-events: none; transform: scale(.97); transition-duration: var(--dur-fast); }
-.watch-veil { position: fixed; inset: 0; z-index: calc(var(--z-nav) - 1); background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out); }
-.watch-page.is-sheet-on .watch-veil { opacity: .62; pointer-events: auto; }
+/* Its dim is its fill, never its opacity: Chromium leaves a veil faded by opacity out of the blur of
+   the sheet over it, and the page's words show sharp through the glass. */
+.watch-veil { position: fixed; inset: 0; z-index: calc(var(--z-nav) - 1); background: transparent; pointer-events: none; transition: background-color var(--dur-slow) var(--ease-out); }
+.watch-page.is-sheet-on .watch-veil { background: color-mix(in srgb, var(--scrim) 62%, transparent); pointer-events: auto; }
 
 /* ── The results ── */
 
@@ -575,7 +578,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   .watch-tile:hover > .watch-line,
   .watch-tile.is-picked > .watch-line { forced-color-adjust: auto; color: CanvasText; }
   /* Unseen, but there to press: it closes the sheet, where a press would reach the page under it. */
-  .watch-veil { background: transparent; }
+  .watch-page.is-sheet-on .watch-veil { background: transparent; }
   .results-fail { border: 1px solid CanvasText; }
   .results-dl:focus-visible { outline-color: Highlight; }
 }

@@ -39,7 +39,9 @@ def test_each_surface_is_glass_with_the_same_filter_in_every_engine(
     surface: str, sheet: str
 ) -> None:
     drawn = style(surface, sheet)
-    assert drawn["background"] == "var(--g-regular)"
+    # The search sheet holds a page of words over any page: the thick weight.
+    weight = "var(--g-thick)" if surface == ".watch-sheet" else "var(--g-regular)"
+    assert drawn["background"] == weight
     # Safari reads only the prefixed one; a different value would be another material there.
     assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "var(--g-filter)"
 
@@ -67,6 +69,14 @@ def test_every_word_and_ring_on_a_surface_takes_a_colour_lifted_for_its_glass(
         assert declared[step] == f"var(--g{step[1:]})", (surface, step)
     ring = _colour(declared["--accent"], {"--accent": token("--accent")})
     assert contrast(_over(ring, glass), glass) >= 3, surface
+
+
+def test_search_dims_the_page_by_its_veil_s_fill_never_by_fading_the_veil() -> None:
+    # Chromium leaves a veil faded by opacity out of the sheet's blur: the page's words show sharp.
+    for selector in (".watch-veil", ".watch-page.is-sheet-on .watch-veil"):
+        assert "opacity" not in style(selector, SEARCH), selector
+    dim = _colour(style(".watch-page.is-sheet-on .watch-veil", SEARCH)["background"], {})
+    assert dim[3] >= 0.6
 
 
 def test_the_page_under_a_title_is_a_plain_dim_with_the_title_s_light_blur() -> None:
