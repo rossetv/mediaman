@@ -183,3 +183,18 @@ def test_a_trailers_loading_mark_hides_the_frame_s_own_page_and_takes_no_clicks(
     assert fill
     colour = rgb(token(fill[1]))
     assert len(colour) == 3 or colour[3] == 1, colour
+
+
+def test_on_a_phone_the_sheet_rises_and_falls_the_screen_s_height_not_its_own() -> None:
+    # A sheet many screens tall moved by its own height is off screen for most of the motion.
+    css = (STYLES / "_watch_detail.css").read_text(encoding="utf-8")
+    for name, edge in (("ttl-sheet-up", "from"), ("ttl-sheet-down", "to")):
+        frame = re.search(r"@keyframes " + name + r"\s*\{\s*" + edge + r"\s*\{([^}]*)\}", css)
+        assert frame and frame[1].strip() == "transform: translateY(100dvh);", name
+
+
+def test_the_sheet_s_handle_shows_on_a_phone_only_and_the_sheet_follows_the_finger_at_once() -> None:
+    assert style(".ttl__grab", "_watch_detail.css")["display"] == "none"
+    grab = style(".ttl__grab", "_watch_detail.css", PHONE)
+    assert (grab["display"], grab["touch-action"]) == ("block", "none")
+    assert style(".ttl__sheet.is-dragged", "_watch_detail.css", PHONE)["transition"] == "none"

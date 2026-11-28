@@ -1955,3 +1955,34 @@ def test_a_title_not_out_yet_says_so_and_who_downloads_it_instead_of_queued() ->
     # one Downloading does not list as coming soon is queued
     assert out["tmdb-movie-78"]["pill"] == "Queued"
     assert out["soonCard"] == {"pill": None, "status": film, "note": None, "asked": False}
+
+
+def test_on_a_phone_the_sheet_at_its_top_pulled_down_far_or_flicked_closes_from_where_it_was_let_go() -> (
+    None
+):
+    out = _run("pullToClose")
+    content = out["content"]
+    assert content["kept"] == [True, True, True]
+    assert (content["left"], content["open"], content["leaving"], content["after"]) == (
+        "translateY(300px)",
+        False,
+        True,
+        "",
+    )
+    for way in ("flick", "far"):
+        assert (out[way]["open"], out[way]["leaving"], out[way]["after"]) == (False, True, ""), way
+
+
+def test_a_sheet_scrolled_down_pulled_short_or_on_a_wide_screen_stays_open_and_goes_back() -> None:
+    out = _run("pullToClose")
+    assert out["scrolled"]["kept"] == [False, False, False]
+    assert out["short"]["moved"] == "translateY(60px)"
+    for way in ("scrolled", "short", "wide", "grabScrolled"):
+        assert (out[way]["left"], out[way]["open"], out[way]["leaving"]) == ("", True, False), way
+    assert out["wide"]["moved"] == ""
+
+
+def test_back_with_a_question_open_over_the_title_takes_only_the_question_away() -> None:
+    out = _run("backOnConfirm")
+    assert out["first"] == {"answer": False, "asking": False, "hash": "#title=show-300", "open": True}
+    assert out["second"] == {"hash": "", "leaving": True}

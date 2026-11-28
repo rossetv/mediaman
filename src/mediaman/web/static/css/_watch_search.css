@@ -241,6 +241,10 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
   .wbar:has(> .watch-search.is-open:not(.is-focus:not(.has-value, .has-token))) > .brand,
   .wbar:has(> .watch-search.is-open:not(.is-focus:not(.has-value, .has-token))) > .nav-end > .space-meter { display: none; }
   .wbar:has(> .watch-search.is-open) > .nav-end { min-width: 46px; }
+  /* A person's or a category's name takes the field's room till it is pressed, which it lies over. */
+  .wbar .watch-search.has-token:not(.is-focus, .has-value) .watch-search__ph { visibility: hidden; }
+  .wbar .watch-search.has-token:not(.is-focus, .has-value) .watch-search__token { max-width: 100%; pointer-events: none; }
+  .wbar .watch-search.has-token:not(.is-focus, .has-value) .watch-search__field { position: absolute; inset: 0; }
   .wbar .watch-search.is-focus {
     position: fixed;
     left: var(--pad);

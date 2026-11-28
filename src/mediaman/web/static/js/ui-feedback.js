@@ -10,7 +10,7 @@
  *                                         // behind its pressed button (data-leave)
  *   }) → Promise<boolean>
  *
- *   window.UIFeedback.dismissConfirm()   any that is open answers false
+ *   window.UIFeedback.dismissConfirm()   any that is open answers false; true where one was
  *
  *   window.UIFeedback.toast('Saved', { variant: 'success' })
  *                          ^ string text; variant: 'success' | 'error' | 'info' (default)
@@ -330,7 +330,11 @@
 
   global.UIFeedback = {
     confirm: confirmDialog,
-    dismissConfirm: function () { while (open.length) open[open.length - 1](); },
+    dismissConfirm: function () {
+      var was = open.length > 0;
+      while (open.length) open[open.length - 1]();
+      return was;
+    },
     toast: toast,
     dismiss: dismissToast,
     error: function (msg) { return toast(msg, { variant: 'error' }); },
