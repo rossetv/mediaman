@@ -117,6 +117,7 @@ RINGS = {
     "_tv_remote.css": 3,
     "_ui_feedback.css": 2,
     "_watch.css": 5,
+    "_watch_activity.css": 4,
     "_watch_ask.css": 4,
     "_watch_browse.css": 3,
     "_watch_cards.css": 3,

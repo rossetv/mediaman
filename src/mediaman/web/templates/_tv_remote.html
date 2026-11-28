@@ -1,5 +1,5 @@
-{# What plays on the person's TV: the small bar on every page and the remote it opens, both hidden
-   until tv-remote.js finds something playing. Both hold no words of a title: the script writes them. #}
+{# What plays on the person's TV: the small bar on every page and the remote card it opens out of, both
+   hidden until tv-remote.js finds something playing. Both hold no words of a title: the script writes them. #}
 {% from "_components.html" import icon %}
 
 <section class="tv-mini" id="tv-mini" aria-label="Playing on a TV" data-me="{{ request.state.username if request is defined else '' }}" hidden>
@@ -20,71 +20,77 @@
 </section>
 
 <div class="tv-rem" id="tv-remote" role="dialog" aria-modal="true" aria-labelledby="tv-rem-title" tabindex="-1" hidden>
-  <div class="tv-rem__bg" aria-hidden="true"><img data-art alt="" hidden></div>
-  <div class="player-top">
-    <button type="button" class="player-back" data-close aria-label="Back, the TV keeps playing">{{ icon("i-chevron-down") }}</button>
-    <div class="player-titles">
-      <h2 class="player-title" id="tv-rem-title" data-title></h2>
-      <p class="player-subtitle" data-subtitle hidden></p>
-    </div>
-    <button type="button" class="player-back tv-rem__play-on" data-play-on
-            aria-haspopup="dialog" aria-expanded="false" aria-label="Play on a TV" title="Play on a TV">
-      <svg class="ico ico--tv" aria-hidden="true" focusable="false"><use href="#play-on-tv"/></svg>
-    </button>
-  </div>
-
-  <div class="tv-rem__mid" data-mid>
-    <div class="tv-rem__art" aria-hidden="true">{{ icon("i-tv") }}<img data-art alt="" hidden><span class="tv-rem__ring" data-ring hidden></span></div>
-    <div class="tv-rem__say" role="status">
-      <p class="tv-rem__on">{{ icon("i-tv") }}<span data-on></span></p>
-      <p class="tv-rem__hint" data-hint></p>
-    </div>
-    {# While an intro or credits play on a TV that does not skip them by itself; its place stays,
-       so nothing around it moves as it comes and goes. #}
-    <div class="tv-rem__skip-slot"><button type="button" class="player-pill player-pill--primary tv-rem__skip" data-skip hidden><span data-skip-text></span>{{ icon("i-forward-step") }}</button></div>
-  </div>
-
-  <div class="player-bottom" data-bottom>
-    <div class="player-seek-row" data-seek-row>
-      <span class="player-time" data-elapsed>0:00</span>
-      <div class="player-seek" data-seek role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
-        <div class="player-seek-track">
-          <div class="player-seek-played" data-played></div>
-          <div class="player-marks" data-marks aria-hidden="true"></div>
-          <div class="player-seek-hover" data-seek-hover hidden></div>
-          <div class="player-seek-thumb" data-thumb></div>
+  {# A tap on the page beside the card closes it. #}
+  <div class="tv-rem__veil" data-veil aria-hidden="true"></div>
+  <div class="tv-rem__card" data-sheet>
+    <div class="tv-rem__glass" data-glass aria-hidden="true"></div>
+    <div class="tv-rem__hero" data-hero>
+      <div class="tv-rem__art" data-morph-art aria-hidden="true">{{ icon("i-tv") }}<img data-art alt="" hidden><span class="tv-rem__shade"></span><span class="tv-rem__ring" data-ring hidden></span></div>
+      <div class="tv-rem__grab" aria-hidden="true"></div>
+      <div class="player-top">
+        <button type="button" class="player-back" data-close aria-label="Back, the TV keeps playing">{{ icon("i-chevron-down") }}</button>
+        <div class="player-titles">
+          <h2 class="player-title" id="tv-rem-title" data-title></h2>
+          <p class="player-subtitle" data-subtitle hidden></p>
         </div>
-        <div class="player-bubble" data-bubble aria-hidden="true" hidden>
-          <div class="player-bubble-text">
-            <span class="player-bubble-title" data-bubble-title></span>
-            <span class="player-bubble-time" data-bubble-time></span>
+        <button type="button" class="player-back tv-rem__play-on" data-play-on
+                aria-haspopup="dialog" aria-expanded="false" aria-label="Play on a TV" title="Play on a TV">
+          <svg class="ico ico--tv" aria-hidden="true" focusable="false"><use href="#play-on-tv"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="tv-rem__mid" data-mid>
+      <div class="tv-rem__say" role="status">
+        <p class="tv-rem__on">{{ icon("i-tv") }}<span data-on></span></p>
+        <p class="tv-rem__hint" data-hint></p>
+      </div>
+      {# While an intro or credits play on a TV that does not skip them by itself; its place stays,
+         so nothing around it moves as it comes and goes. #}
+      <div class="tv-rem__skip-slot"><button type="button" class="player-pill player-pill--primary tv-rem__skip" data-skip hidden><span data-skip-text></span>{{ icon("i-forward-step") }}</button></div>
+    </div>
+
+    <div class="player-bottom" data-bottom>
+      <div class="player-seek-row" data-seek-row>
+        <span class="player-time" data-elapsed>0:00</span>
+        <div class="player-seek" data-seek role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+          <div class="player-seek-track">
+            <div class="player-seek-played" data-played></div>
+            <div class="player-marks" data-marks aria-hidden="true"></div>
+            <div class="player-seek-hover" data-seek-hover hidden></div>
+            <div class="player-seek-thumb" data-thumb></div>
+          </div>
+          <div class="player-bubble" data-bubble aria-hidden="true" hidden>
+            <div class="player-bubble-text">
+              <span class="player-bubble-title" data-bubble-title></span>
+              <span class="player-bubble-time" data-bubble-time></span>
+            </div>
           </div>
         </div>
+        <span class="player-time" data-remaining></span>
       </div>
-      <span class="player-time" data-remaining></span>
-    </div>
 
-    <div class="player-controls">
-      <button type="button" class="player-btn" data-play data-live aria-label="Pause" title="Pause (Space)">{{ icon("i-pause") }}<span class="player-btn-ring" aria-hidden="true" hidden></span></button>
-      <button type="button" class="player-btn player-btn--skip" data-back10 data-live aria-label="Back 10 seconds" title="Back 10 seconds (←)">{{ icon("i-back-10") }}</button>
-      <button type="button" class="player-btn player-btn--skip" data-fwd10 data-live aria-label="Forward 10 seconds" title="Forward 10 seconds (→)">{{ icon("i-forward-10") }}</button>
-      <span class="tv-rem__brk b1"></span>
-      <div class="player-volume" data-live>
-        <button type="button" class="player-btn" data-mute aria-label="Mute the TV">{{ icon("i-volume-high") }}</button>
-        <input type="range" class="player-volume-slider" data-volume min="0" max="100" step="1" value="100" aria-label="TV volume">
-        <span class="tv-rem__vol-no" data-no-volume hidden>Volume: use the TV’s own remote.</span>
-      </div>
-      <span class="tv-rem__brk b2"></span>
-      <span class="player-spacer"></span>
-      <button type="button" class="player-pill opt" data-menu="chapters" data-live aria-haspopup="dialog" aria-expanded="false">{{ icon("i-list") }}<span class="player-chapter-name" data-chapter></span><span class="only-s">Chapters</span></button>
-      <div class="player-menu-wrap player-av-wrap" data-av hidden></div>
-      <button type="button" class="player-pill opt" data-menu="quality" data-live aria-haspopup="dialog" aria-expanded="false"><span class="sr-only">Quality: </span><span data-quality></span></button>
-      <button type="button" class="player-pill opt" data-next data-live aria-label="Next episode">{{ icon("i-forward-step") }}Next</button>
-      <span class="tv-rem__brk b3"></span>
-      <div class="tv-rem__end">
-        <button type="button" class="player-pill player-pill--primary" data-again hidden>{{ icon("i-rotate-right") }}Play again</button>
-        <button type="button" class="player-pill player-pill--primary" data-bring>Stop and bring it here</button>
-        <button type="button" class="player-pill tv-rem__danger" data-stop>Stop</button>
+      <div class="player-controls">
+        <button type="button" class="player-btn" data-play data-live aria-label="Pause" title="Pause (Space)">{{ icon("i-pause") }}<span class="player-btn-ring" aria-hidden="true" hidden></span></button>
+        <button type="button" class="player-btn player-btn--skip" data-back10 data-live aria-label="Back 10 seconds" title="Back 10 seconds (←)">{{ icon("i-back-10") }}</button>
+        <button type="button" class="player-btn player-btn--skip" data-fwd10 data-live aria-label="Forward 10 seconds" title="Forward 10 seconds (→)">{{ icon("i-forward-10") }}</button>
+        <span class="tv-rem__brk b1"></span>
+        <div class="player-volume" data-live>
+          <button type="button" class="player-btn" data-mute aria-label="Mute the TV">{{ icon("i-volume-high") }}</button>
+          <input type="range" class="player-volume-slider" data-volume min="0" max="100" step="1" value="100" aria-label="TV volume">
+          <span class="tv-rem__vol-no" data-no-volume hidden>Volume: use the TV’s own remote.</span>
+        </div>
+        <span class="tv-rem__brk b2"></span>
+        <button type="button" class="player-pill opt" data-menu="chapters" data-live aria-haspopup="dialog" aria-expanded="false">{{ icon("i-list") }}<span class="player-chapter-name" data-chapter></span><span class="only-s">Chapters</span></button>
+        <div class="player-menu-wrap player-av-wrap" data-av hidden></div>
+        <button type="button" class="player-pill opt" data-menu="quality" data-live aria-haspopup="dialog" aria-expanded="false"><span class="sr-only">Quality: </span><span data-quality></span></button>
+        <button type="button" class="player-pill opt" data-next data-live aria-label="Next episode">{{ icon("i-forward-step") }}Next</button>
+        <span class="tv-rem__brk b3"></span>
+        <div class="tv-rem__end">
+          <button type="button" class="player-pill player-pill--primary" data-again hidden>{{ icon("i-rotate-right") }}Play again</button>
+          <button type="button" class="player-pill player-pill--primary" data-bring>Stop and bring it here</button>
+          <button type="button" class="player-pill tv-rem__danger" data-stop>Stop</button>
+        </div>
       </div>
     </div>
   </div>

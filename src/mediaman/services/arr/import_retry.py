@@ -545,11 +545,19 @@ def _rename_in_place(
         return bool(renamed)
     service = unit.key.partition(":")[0]
     plural = "file" if len(renamed) == 1 else "files"
+    title = _name(_shown_of(card, unit))
+    logger.info(
+        "import_retry.renamed title=%s files=%d mode=%s service=%s",
+        title,
+        len(renamed),
+        unit.mode,
+        service,
+    )
     log_audit(
         conn,
         unit.key,
         RENAMED_ACTION,
-        f"{_name(_shown_of(card, unit))} couldn't be imported ({unit.reason}); renamed"
+        f"{title} couldn't be imported ({unit.reason}); renamed"
         f" {len(renamed)} {plural} so {service.capitalize()} could import"
         f" {'it' if len(renamed) == 1 else 'them'}",
     )

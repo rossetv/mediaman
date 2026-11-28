@@ -131,6 +131,7 @@ _INTEGRATION_URL_SETTING_KEYS = (
     "radarr_url",
     "sonarr_url",
     "nzbget_url",
+    "docker_proxy_url",
 )
 
 

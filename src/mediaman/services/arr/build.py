@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from mediaman.services.infra import get_string_setting
 
 if TYPE_CHECKING:
+    import requests
+
     from mediaman.services.arr.base import ArrClient
     from mediaman.services.downloads.nzbget import NzbgetClient
     from mediaman.services.media_meta.plex import PlexClient
@@ -70,6 +72,9 @@ def build_plex_from_db(conn: sqlite3.Connection, secret_key: str) -> PlexClient 
 def build_nzbget_from_db(
     conn: sqlite3.Connection,
     secret_key: str,
+    *,
+    timeout: tuple[float, float] | None = None,
+    session: requests.Session | None = None,
 ) -> NzbgetClient | None:
     """Return an ``NzbgetClient`` or ``None`` if NZBGet isn't configured.
 
@@ -86,4 +91,4 @@ def build_nzbget_from_db(
     password = get_string_setting(conn, "nzbget_password", secret_key=secret_key)
     if not url or not user:
         return None
-    return NzbgetClient(url, user, password)
+    return NzbgetClient(url, user, password, timeout=timeout, session=session)

@@ -16,8 +16,10 @@
   var root = byId('space');
   if (!root) return;
   var panel = root.querySelector('.space__panel');
-  var panes = { storage: byId('space-storage'), scheduled: byId('space-scheduled'), deleted: byId('space-deleted') };
-  var TABS = ['storage', 'scheduled', 'deleted'];
+  // The tabs the page has, in their order: Activity (watch/activity.js) is one where it is drawn.
+  var TABS = toArray(root.querySelectorAll('[data-space-tab]')).map(function (t) { return t.getAttribute('data-space-tab'); });
+  var panes = {};
+  TABS.forEach(function (k) { panes[k] = byId('space-' + k); });
   var foot = root.querySelector('.space__foot');
   var ink = root.querySelector('.space__ink');
   var live = byId('space-live');
@@ -246,7 +248,7 @@
     renderRowLink();
     renderCount();
     if (!isOpen) return;
-    foot.hidden = !stats && !!failed.stats;
+    footFor();
     renderStorage();
     renderScheduled();
     renderDeleted();
@@ -470,6 +472,7 @@
     watch.keep.closeMenu(false);
     root.classList.remove('is-open');
     root.classList.toggle('is-under', !!under);
+    tellTab();
     panel.style.transform = '';
     releasePage();
     root.inert = true;
@@ -486,8 +489,8 @@
     depth: 40,
     hash: true,
     read: function (here) {
-      var m = /^storage(?:-(scheduled|deleted))?$/.exec(here.hash);
-      return m ? m[1] || 'storage' : null;
+      var m = /^storage(?:-(scheduled|deleted|activity))?$/.exec(here.hash);
+      return m && (!m[1] || panes[m[1]]) ? m[1] || 'storage' : null;
     },
     open: function (name, how) {
       if (isOpen) { setTab(name, true); return; }
@@ -783,6 +786,18 @@
     if (move) anim(ink, [{ transform: was }, { transform: to }], dur());
   }
 
+  /* The foot is Scan now's, or on Activity that tab's own: how fresh it is, and who sees it. */
+  function footFor() {
+    var own = tab === 'activity';
+    toArray(foot.children).forEach(function (n) { n.hidden = n.classList.contains('act-foot') ? !own : own; });
+    foot.hidden = !own && !stats && !!failed.stats;
+  }
+
+  /* Activity (watch/activity.js) draws itself while it is on show, and stops asking when it is not. */
+  function tellTab() {
+    if (watch.activity) watch.activity.shown(isOpen && tab === 'activity');
+  }
+
   function setTab(name, focus) {
     var ahead = TABS.indexOf(name) > TABS.indexOf(tab) ? 1 : -1;
     var moved = name !== tab;
@@ -799,8 +814,10 @@
       panes[k].inert = k !== name;
     });
     tab = name;
+    footFor();
     placeInk(moved);
     if (focus) tabButton(name).focus({ preventScroll: true });
+    tellTab();
   }
 
   function chooseTab(name, focus) {
