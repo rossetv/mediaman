@@ -368,8 +368,7 @@
       // The temporary password, in the row of whose it is, until Done forgets it.
       function buildTempPassword(user, opener) {
         var panel = document.createElement('div');
-        // usr-email lays a fold out across the whole row.
-        panel.className = 'inline-form setg-fold usr-email usr-temp';
+        panel.className = 'inline-form setg-fold usr-fold usr-temp';
         panel.id = 'user-temp-' + user.id;
         panel.hidden = true;
         var inner = document.createElement('div');

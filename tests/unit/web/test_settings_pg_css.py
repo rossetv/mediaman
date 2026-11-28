@@ -295,3 +295,29 @@ def test_a_long_library_name_wraps_in_its_card_rather_than_being_cut() -> None:
     name = _declarations(".setg-pg .dt-head .dt-name")
     assert "overflow-wrap: anywhere" in name
     assert "nowrap" not in name
+
+
+def test_a_refused_field_is_edged_red_with_its_reason_on_a_line_of_its_own() -> None:
+    from tests.unit.web._css import style
+
+    # focused too, as it is once the save has brought it out
+    for selector in (
+        '.setg-pg .inp[aria-invalid="true"]',
+        '.setg-pg .inp[aria-invalid="true"]:focus',
+    ):
+        assert style(selector, "_settings_pg.css") == {"border-color": "var(--danger-text)"}
+    assert style(".setg-pg .setg-row > .setg-refused", "_settings_pg.css")["flex"] == "1 1 100%"
+    # with forced colours, which drop the red, the edge is dashed instead
+    assert style(
+        '.setg-pg .inp[aria-invalid="true"]', "_settings_pg.css", "(forced-colors: active)"
+    ) == {"border-style": "dashed"}
+
+
+def test_a_users_temporary_password_folds_out_across_the_whole_row() -> None:
+    from tests.unit.web._css import style
+
+    assert style(".setg-pg .usr-row .usr-fold", "_settings_pg_panels.css")["flex"] == "0 0 100%"
+    wide = "(min-width: 700px)"
+    assert style(".setg-pg .usr-row .usr-fold", "_settings_pg_panels.css", wide) == {
+        "grid-column": "1 / -1"
+    }

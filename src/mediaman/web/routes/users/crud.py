@@ -5,20 +5,15 @@ import secrets
 import sqlite3
 from typing import Literal
 
-import bcrypt
 from fastapi import APIRouter, Cookie, Depends, Request
 from pydantic import BaseModel, ConfigDict
 from starlette.responses import Response
 
-from mediaman.core.audit import security_event, security_event_or_raise
+from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.plex_link import repository as plex_links
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
-from mediaman.web.auth._password_hash_helpers import (
-    BCRYPT_ROUNDS,
-    _prepare_bcrypt_input,
-    _sanitise_log_field,
-)
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import (
@@ -30,6 +25,7 @@ from mediaman.web.auth.password_hash import (
     existing_username,
     is_last_admin,
     list_users,
+    reset_password,
     set_user_email,
     set_user_role,
 )
@@ -497,35 +493,6 @@ def _temp_password(username: str) -> str:
             return password
 
 
-def _reset_password(
-    conn: sqlite3.Connection, username: str, password: str, *, actor: str, ip: str
-) -> bool:
-    """Set *password* for *username*, to be changed at the next sign-in, and end every session
-    and reauth ticket of theirs, with the audit row, in one transaction. False if they are gone.
-    """
-    new_hash = bcrypt.hashpw(
-        _prepare_bcrypt_input(password), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
-    ).decode()
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
-        cursor = conn.execute(
-            "UPDATE admin_users SET password_hash=?, must_change_password=1 WHERE username=?",
-            (new_hash, username),
-        )
-        if cursor.rowcount == 0:
-            return False
-        conn.execute("DELETE FROM admin_sessions WHERE username=?", (username,))
-        conn.execute("DELETE FROM reauth_tickets WHERE username=?", (username,))
-        security_event_or_raise(
-            conn,
-            event="user.password_reset",
-            actor=actor,
-            ip=ip,
-            detail={"target_username": username},
-        )
-    return True
-
-
 @router.post("/api/users/{user_id}/reset-password")
 def api_reset_password(
     user_id: RowId,
@@ -563,8 +530,8 @@ def api_reset_password(
         )
     password = _temp_password(target_username)
     try:
-        reset = _reset_password(
-            conn, target_username, password, actor=admin, ip=get_client_ip(request)
+        reset = reset_password(
+            conn, target_username, password, audit_actor=admin, audit_ip=get_client_ip(request)
         )
     except sqlite3.Error:
         logger.exception(

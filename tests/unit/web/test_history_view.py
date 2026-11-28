@@ -177,6 +177,13 @@ class TestDetailList:
         view = _describe(action="sec:user.email_updated", detail=f"actor=admin ip=1.2.3.4 {body}")
         assert view.summary == summary
 
+    def test_a_password_reset_names_whose_password_it_was(self):
+        view = _describe(
+            action="sec:user.password_reset",
+            detail='actor=admin ip=1.2.3.4 {"target_username":"amy"}',
+        )
+        assert view.summary == "amy"
+
     @pytest.mark.parametrize(
         "stored", ["0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00", "soon"]
     )

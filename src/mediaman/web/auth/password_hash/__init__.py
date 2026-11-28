@@ -15,7 +15,8 @@ The package holds three concepts, one private module each:
   (``authenticate``, the bare ``verify_password`` check, and their
   short-circuit / bcrypt-verify helpers).
 * `._change_password` — password rotation (``change_password`` and
-  its pre-/post-transaction guard helpers).
+  its pre-/post-transaction guard helpers), and ``reset_password``, an
+  admin's reset of another user's password.
 
 The bcrypt-input preparation pipeline, the cached dummy hash, the
 rollback sentinels, and the log-field sanitiser live in
@@ -54,7 +55,7 @@ from __future__ import annotations
 
 from mediaman.web.auth._password_hash_helpers import BCRYPT_ROUNDS
 from mediaman.web.auth.password_hash._authenticate import authenticate, verify_password
-from mediaman.web.auth.password_hash._change_password import change_password
+from mediaman.web.auth.password_hash._change_password import change_password, reset_password
 from mediaman.web.auth.password_hash._user_crud import (
     ROLES,
     EmailTakenError,
@@ -92,6 +93,7 @@ __all__ = [
     "get_user_role",
     "is_last_admin",
     "list_users",
+    "reset_password",
     "set_must_change_password",
     "set_user_email",
     "set_user_role",

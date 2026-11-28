@@ -148,6 +148,7 @@ def test_a_line_says_who_did_what_and_names_no_typed_name_or_address() -> None:
         "a subscriber · Label",
         "ana · Label",
         "ana added the user eve (viewer)",
+        "ana reset the password of eve",
         "ana finished Show",
         "ana started Film",
         "ana watched 2 episodes of Show",

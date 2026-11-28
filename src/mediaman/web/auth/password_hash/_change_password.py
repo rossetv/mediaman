@@ -11,6 +11,8 @@ one transaction" rationale is literally true of what remains:
   reauth-ticket purge + audit, plus TOCTOU handling.
 * `_clear_reauth_failure_counter` — the best-effort post-
   transaction failure-counter cleanup.
+* `reset_password` — an admin's rotation of another user's password,
+  with no old password, to be changed at their next sign-in.
 
 Beside them, what the screens tell of it: `is_same_password`,
 `change_lock` and `password_changed_at`.
@@ -310,4 +312,52 @@ def change_password(
     if namespace:
         _clear_reauth_failure_counter(conn, namespace, username)
     logger.info("password.changed user=%s sessions_revoked=all", _sanitise_log_field(username))
+    return True
+
+
+def reset_password(
+    conn: sqlite3.Connection,
+    username: str,
+    new_password: str,
+    *,
+    audit_actor: str,
+    audit_ip: str = "",
+) -> bool:
+    """Set *new_password* for *username* on an admin's word, with no old password asked.
+
+    The account is flagged to choose its own password at the next sign-in, and every session
+    and reauth ticket of *username* ends, with a ``sec:user.password_reset`` audit row, all in
+    one ``BEGIN IMMEDIATE``: a failed audit insert rolls the reset back. The policy is the
+    caller's to check. Returns False when *username* no longer exists.
+    """
+    new_hash = bcrypt.hashpw(
+        _prepare_bcrypt_input(new_password), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
+    ).decode()
+    from mediaman.core.audit import security_event_or_raise
+
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                "UPDATE admin_users SET password_hash=?, must_change_password=1 WHERE username=?",
+                (new_hash, username),
+            )
+            if cursor.rowcount == 0:
+                raise _UserVanished(username)
+            conn.execute("DELETE FROM admin_sessions WHERE username=?", (username,))
+            conn.execute("DELETE FROM reauth_tickets WHERE username=?", (username,))
+            security_event_or_raise(
+                conn,
+                event="user.password_reset",
+                actor=audit_actor,
+                ip=audit_ip,
+                detail={"target_username": username},
+            )
+    except _UserVanished:
+        return False
+    logger.info(
+        "password.reset user=%s by=%s sessions_revoked=all",
+        _sanitise_log_field(username),
+        _sanitise_log_field(audit_actor),
+    )
     return True

@@ -71,9 +71,10 @@
     'newsletter.sent': 'sent the newsletter', 'subscriber.added': 'added a subscriber',
     'subscriber.removed': 'removed a subscriber', 'plex.linked': 'linked Plex',
     'plex.unlinked': 'unlinked Plex', 'plex.link_started': 'began to link Plex',
-    'plex.link_failed': 'could not link Plex', 'session.destroy': 'ended a session'
+    'plex.link_failed': 'could not link Plex', 'session.destroy': 'ended a session',
+    'user.password_reset': 'reset the password of'
   };
-  var NAMED = ['user.created', 'user.deleted', 'user.role_changed', 'user.email_updated'];
+  var NAMED = ['user.created', 'user.deleted', 'user.role_changed', 'user.email_updated', 'user.password_reset'];
   /* Filters, by the server's names for them. */
   var FILTER_ICONS = {
     plays: 'i-play', downloads: 'i-download', keeps: 'i-lock', deletions: 'i-trash-can', sign_ins: 'i-user',

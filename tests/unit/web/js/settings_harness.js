@@ -1150,8 +1150,8 @@ const scenarios = {
       const reason = h.doc.getElementById(el.id + '-refused');
       return {
         invalid: el.getAttribute('aria-invalid'),
-        border: el.style.borderColor || '',
         reason: reason ? reason.textContent : null,
+        reasonClass: reason ? reason.className : null,
         describedBy: el.getAttribute('aria-describedby'),
       };
     };

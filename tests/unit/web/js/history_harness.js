@@ -295,6 +295,7 @@ const scenarios = {
       item(1), item(1, { action: 'deleted', actor: null, avatar: null }), item(1, { actor: 'old', avatar: null }),
       item(1, { actor: 'old@x.org', avatar: null }), sec('login.failed', 'hunter2', null), sec('login.failed', 'bob', null),
       sec('subscriber.opted_out', 'a@x.org', null), sec('odd.event', 'ana', '/a/1'), sec('user.created', 'ana', '/a/1', { summary: 'eve (viewer)' }),
+      sec('user.password_reset', 'ana', '/a/1', { summary: 'eve' }),
       play(), play({ finished: false, media_type: 'movie', episodes: [], line_title: 'Film' }),
       play({ episodes: [{ label: 'S1E2', finished: true }, { label: 'S1E3', finished: true }] }),
       item(1, { action: 'never_heard_of', action_label: 'never heard of' }),

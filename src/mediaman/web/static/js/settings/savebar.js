@@ -469,15 +469,10 @@
   // The fields a save was refused for, each with its reason beside it, as [field, reason].
   var marked = [];
 
-  // A reason goes on a line of its own at the foot of the field's row, or else after the box the field sits in.
+  // A reason goes at the foot of the field's row, or else after the box the field sits in.
   function placeReason(field, reason) {
     var row = field.closest('.setg-row');
-    if (row) {
-      reason.style.flexBasis = '100%';
-      reason.style.marginTop = '6px';
-      row.appendChild(reason);
-      return;
-    }
+    if (row) { row.appendChild(reason); return; }
     var box = field.closest('.thresh-field, .inp-wrap') || field;
     box.parentNode.insertBefore(reason, box.nextSibling);
   }
@@ -486,7 +481,6 @@
     marked = marked.filter(function (pair) {
       if (field && pair[0] !== field) return true;
       pair[0].removeAttribute('aria-invalid');
-      pair[0].style.borderColor = '';
       var described = (pair[0].getAttribute('aria-describedby') || '').split(' ').filter(function (id) {
         return id && id !== pair[1].id;
       });
@@ -507,13 +501,11 @@
       if (!field || fields.indexOf(field) !== -1) return;
       fields.push(field);
       var reason = document.createElement('div');
-      reason.className = 'fld-sub';
+      reason.className = 'fld-sub is-err setg-refused';
       reason.id = field.id + '-refused';
-      reason.style.color = 'var(--danger-text)';
       reason.textContent = d.text || fieldError(loc[0], String(d.msg || ''));
       placeReason(field, reason);
       field.setAttribute('aria-invalid', 'true');
-      field.style.borderColor = 'var(--danger-text)';
       var described = field.getAttribute('aria-describedby');
       field.setAttribute('aria-describedby', (described ? described + ' ' : '') + reason.id);
       marked.push([field, reason]);

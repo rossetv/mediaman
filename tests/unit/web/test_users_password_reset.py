@@ -4,6 +4,8 @@ themselves, and the user is signed out everywhere and must choose their own at t
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from mediaman.web.auth.password_hash import (
@@ -19,8 +21,7 @@ from mediaman.web.routes.users import router as users_router
 
 
 @pytest.fixture(autouse=True)
-def _clear_limiters(monkeypatch):
-    monkeypatch.setattr("mediaman.web.routes.users.crud.BCRYPT_ROUNDS", 4)
+def _clear_limiters():
     _USER_MGMT_LIMITER.reset()
     _UNTICKETED_LIMITER.reset()
     yield
@@ -67,6 +68,40 @@ def test_reset_gives_a_working_temporary_password_and_signs_the_user_out(
     assert temp not in row["detail"]
 
 
+def test_another_admins_password_can_be_reset_too(app_factory, authed_client, conn):
+    client = authed_client(app_factory(users_router, conn=conn), conn, with_reauth=True)
+    eve = _user(conn, "eve", role="admin")
+    create_session(conn, "eve")
+
+    resp = client.post(f"/api/users/{eve}/reset-password")
+
+    assert resp.status_code == 200
+    assert verify_password(conn, "eve", resp.json()["password"])
+    assert user_must_change_password(conn, "eve")
+    assert _sessions(conn, "eve") == 0
+
+
+def test_a_failed_audit_row_leaves_the_password_and_sessions_as_they_were(
+    app_factory, authed_client, conn, monkeypatch
+):
+    import mediaman.core.audit as audit_module
+
+    def boom(*_args, **_kwargs):
+        raise sqlite3.OperationalError("simulated audit failure")
+
+    client = authed_client(app_factory(users_router, conn=conn), conn, with_reauth=True)
+    bob = _user(conn, "bob")
+    create_session(conn, "bob")
+    monkeypatch.setattr(audit_module, "security_event_or_raise", boom)
+
+    resp = client.post(f"/api/users/{bob}/reset-password")
+
+    assert resp.status_code == 500
+    assert verify_password(conn, "bob", "OldPass!word99")
+    assert not user_must_change_password(conn, "bob")
+    assert _sessions(conn, "bob") == 1
+
+
 def test_reset_needs_a_recent_password_re_check(app_factory, authed_client, conn):
     client = authed_client(app_factory(users_router, conn=conn), conn)
     bob = _user(conn, "bob")
@@ -92,7 +127,7 @@ def test_an_admin_cannot_reset_their_own_password(app_factory, authed_client, co
     assert not user_must_change_password(conn, "admin")
 
 
-def test_a_viewer_cannot_reset_anyones_password(app_factory, authed_client, conn):
+def test_a_viewer_signed_in_cannot_reset_anyones_password(app_factory, authed_client, conn):
     client = authed_client(app_factory(users_router, conn=conn), conn, username="vic")
     conn.execute("UPDATE admin_users SET role='viewer' WHERE username='vic'")
     conn.commit()

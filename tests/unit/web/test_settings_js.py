@@ -272,22 +272,22 @@ def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
 
 def test_each_refused_field_is_marked_with_its_reason_until_it_is_edited() -> None:
     out = _run("refusedMarks")
-    red = "var(--danger-text)"
+    reason_class = "fld-sub is-err setg-refused"
     assert out["url"] == {
         "invalid": "true",
-        "border": red,
+        "reasonClass": reason_class,
         "reason": "Base URL needs a server name after http:// or https://.",
         "describedBy": "base_url-refused",
     }
     assert out["age"] == {
         "invalid": "true",
-        "border": red,
+        "reasonClass": reason_class,
         "reason": "Minimum age must be between 1 and 365 days.",
         "describedBy": "min_age_days-refused",
     }
     assert out["ageReasonEndsRow"] == "min_age_days-refused"
     assert out["focus"] == "base_url"
-    unmarked = {"invalid": None, "border": "", "reason": None, "describedBy": None}
+    unmarked = {"invalid": None, "reason": None, "reasonClass": None, "describedBy": None}
     assert out["afterEdit"] == {"url": unmarked, "age": out["age"]}
     assert out["afterNextSave"] == unmarked
 

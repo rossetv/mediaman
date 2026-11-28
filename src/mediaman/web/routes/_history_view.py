@@ -112,7 +112,7 @@ def _security_summary(event: str, body: dict[str, object] | None, actor: str | N
         return str(name)
     if event == "plex.unlinked" and body.get("user") and body["user"] != actor:
         return str(body["user"])
-    if event == "user.email_updated" and name:
+    if event in ("user.email_updated", "user.password_reset") and name:
         return str(name)
     if event == "user.role_changed" and name:
         return f"{name} is now {body.get('role')}"
