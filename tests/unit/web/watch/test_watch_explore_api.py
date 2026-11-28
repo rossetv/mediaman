@@ -158,7 +158,12 @@ class TestExplore:
             params={"genre": "horror", "type": "movie", "sort": "top_rated", "decade": "1990s"},
         ).json()
 
-        assert body["genre"] == {"id": "horror", "name": "Horror", "types": ["movie"]}
+        assert body["genre"] == {
+            "id": "horror",
+            "name": "Horror",
+            "short": "Horror",
+            "types": ["movie"],
+        }
         assert [body[k] for k in ("type", "sort", "decade", "total", "next_page")] == [
             "movie",
             "top_rated",
@@ -166,6 +171,13 @@ class TestExplore:
             1,
             2,
         ]
+
+    def test_a_long_category_names_its_short_form_on_its_own_page_too(self, viewer, tmdb):
+        tmdb["/discover/movie"] = _movies(2)
+
+        body = viewer.get(EXPLORE, params={"genre": "science-fiction", "type": "movie"}).json()
+
+        assert (body["genre"]["name"], body["genre"]["short"]) == ("Science Fiction", "Sci-fi")
 
     def test_films_and_tv_in_an_order_go_on_from_where_a_page_ended(self, viewer, tmdb):
         tmdb["/discover/movie"] = _movies(*range(1, 46))

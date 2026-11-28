@@ -18,6 +18,7 @@ function load(data, frames, still = true) {
   const lists = [];
   const layers = [];
   const closed = [];
+  const tokens = [];
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Number, Math, Promise, Set, Map, URLSearchParams,
     setTimeout: () => 0, clearTimeout: () => {}, requestAnimationFrame: (fn) => (frames ? frames.push(fn) : fn()),
@@ -36,7 +37,7 @@ function load(data, frames, still = true) {
   const el = ctx.MMWatch.core.el;
   const opened = [];
   const stage = {
-    data, open(node, name, what, atOnce) { opened.push({ node, atOnce: !!atOnce }); }, close(until) { closed.push(until); }, grow() {}, rise() {}, say() {}, token() {}, spring() {},
+    data, open(node, name, what, atOnce) { opened.push({ node, what, atOnce: !!atOnce }); }, close(until) { closed.push(until); }, grow() {}, rise() {}, say() {}, token(what) { tokens.push(what); }, spring() {},
     face: () => el('span', '', el('span')),
     head: (title) => el('h2', 'results-group__title', title),
   };
@@ -47,7 +48,7 @@ function load(data, frames, still = true) {
   };
   ctx.MMWatch.grid = { list: (host, opts) => { lists.push(opts); return { stop() {} }; } };
   run('watch/explore.js');
-  return { ctx, replies, lists, opened, layers, closed };
+  return { ctx, replies, lists, opened, layers, closed, tokens };
 }
 
 const TITLE = (n, held) => ({ ref: 'tmdb-movie-' + n, title: 'T' + n, kind: 'movie', in_library: held });
@@ -175,6 +176,26 @@ Object.assign(scenarios, {
       return out;
     };
     return { moving: await open(false), still: await open(true) };
+  },
+});
+
+Object.assign(scenarios, {
+  // The word in the search bar's chip once a category's page has answered, with and without a short name.
+  async genreChip() {
+    const chip = async (genre, listed) => {
+      const p = load({ can_download: { movie: true, show: true } });
+      p.ctx.MM.api.get = (url) => Promise.resolve(url === '/api/watch/explore' ? { tmdb_configured: true, genres: [genre], decades: [], library: {}, people: [] } : { tmdb_configured: true, genre, items: [], total: 0, in_library: 0, next_page: null });
+      if (listed) await p.ctx.MMWatch.explore.categories();
+      p.ctx.MMWatch.explore.openGenre(genre.id, {}, null);
+      await p.lists[0].fetchPage(1);
+      await settle();
+      return { chip: p.opened[0].what.name, later: p.tokens.map((t) => t.name), title: p.opened[0].node.querySelector('.explore-title').textContent };
+    };
+    return {
+      short: await chip({ id: 'science-fiction', name: 'Science Fiction', short: 'Sci-fi', types: ['movie', 'tv'] }, true),
+      linked: await chip({ id: 'science-fiction', name: 'Science Fiction', short: 'Sci-fi', types: ['movie', 'tv'] }, false),
+      none: await chip({ id: 'drama', name: 'Drama', types: ['movie', 'tv'] }, true),
+    };
   },
 });
 

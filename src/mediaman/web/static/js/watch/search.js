@@ -837,15 +837,18 @@
       var b = option(el('button', 'watch-tile' + (fav ? ' watch-tile--fav' : '')), 'genre-' + genre.id);
       b.type = 'button';
       b.appendChild(explore.icon(genre.id));
-      var name = el('b', '', genre.short || genre.name);
+      var shown = genre.short || genre.name;
+      var name = el('b', '', shown);
+      // The visible word leads the spoken name, so a voice command that says it finds the tile.
+      var called = shown === genre.name ? genre.name : shown + ', ' + genre.name;
       if (fav) {
         var text = b.appendChild(el('span', 'watch-tile__text'));
         text.appendChild(name);
         text.appendChild(el('small', '', 'You watch a lot'));
-        b.setAttribute('aria-label', genre.name + ', one of your favourites');
+        b.setAttribute('aria-label', called + ', one of your favourites');
       } else {
         b.appendChild(name);
-        b.setAttribute('aria-label', genre.name);
+        b.setAttribute('aria-label', called);
       }
       b.addEventListener('click', function () { explore.openGenre(genre.id, {}, name); });
       return staged(b, 40 + (i % 4 + Math.floor(i / 4)) * 24);

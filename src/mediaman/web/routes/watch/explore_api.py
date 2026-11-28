@@ -77,7 +77,12 @@ def api_watch_explore(
         return _genres(conn, client)
     out: dict[str, object] = {
         "tmdb_configured": client is not None,
-        "genre": {"id": chosen.id, "name": chosen.name, "types": chosen.types},
+        "genre": {
+            "id": chosen.id,
+            "name": chosen.name,
+            "short": chosen.short or chosen.name,
+            "types": chosen.types,
+        },
         "type": type,
         "sort": sort,
         "decade": decade,

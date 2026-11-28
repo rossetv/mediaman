@@ -3825,6 +3825,12 @@ scenarios.forYou = async () => {
   return { withAi: strip(withAi), noKey: strip(noKey), opened, person: q.url(), like: [r.url(), r.calls.filter((c) => c.url.includes('/like')).map((c) => c.body)], likeFace: tokenFace(r) };
 };
 
+scenarios.shortFav = async () => {
+  const { p } = await sheetFor({ ...TASTE, favourites: ['science-fiction', 'comedy'] }, {});
+  const tile = (id) => p.sheet.querySelector('#watch-option-genre-' + id).getAttribute('aria-label');
+  return { fav: tile('science-fiction'), plainFav: tile('comedy') };
+};
+
 scenarios.forYouNewbie = async () => {
   const strip = ({ p: _p, ...rest }) => rest;
   return { newbie: strip(await sheetFor(NEWBIE, {})), off: strip(await sheetFor(null, {})) };
