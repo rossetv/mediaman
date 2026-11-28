@@ -174,11 +174,15 @@ main:focus { outline: none; }
 
 /* Signing in and out keep a 150 ms fade under reduced motion, where the rule above would make
    them a cut: Watch fades in from the sign-in page's lights (watch/arrive.js), and fades out on
-   log-out (nav.js). Nothing moves. */
+   log-out (nav.js). Nothing moves. Nothing that holds glass fades either, as glass under a fading
+   parent has nothing to blur: the bar's islands fade each itself, or their glass and what is on it,
+   and log-out lays the page's black over everything. */
 @media (prefers-reduced-motion: reduce) {
-  html.is-arriving :is(#main-content, header.nav-glass) { animation: mm-fade-in var(--dur-fast) linear backwards !important; }
+  html.is-arriving :is(#main-content, .nav-glass > :not(.brand, .watch-search), .nav-glass :is(.brand, .watch-search) > *) { animation: mm-fade-in var(--dur-fast) linear backwards !important; }
+  /* A rule of its own: inside :is() a pseudo-element is dropped without a word. */
+  html.is-arriving .nav-glass :is(.brand, .watch-search)::before { animation: mm-fade-in var(--dur-fast) linear backwards !important; }
   html.is-arriving .mm-sky { animation: mm-sky-out var(--dur-fast) linear both !important; }
-  html.is-leaving body { animation: mm-out var(--dur-fast) linear both !important; }
+  html.is-leaving body::after { content: ""; position: fixed; inset: 0; z-index: 2147483647; background: var(--bg); pointer-events: none; animation: mm-in var(--dur-fast) linear both !important; }
 }
 
 .container {

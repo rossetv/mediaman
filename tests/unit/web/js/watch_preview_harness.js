@@ -782,6 +782,25 @@ const scenarios = {
     h.doc.querySelector('.pv-menu [data-act="like"]').click();
     return Object.assign(out, { asked, open: h.title() });
   },
+  /* The menu hangs on the page, outside the preview: it is marked while its preview is over the search sheet. */
+  async menuOverSearch() {
+    const h = load();
+    const grid = h.doc.querySelector('#watch-browse');
+    const opened = async (id) => {
+      await h.rest(id);
+      h.pv().querySelector('[data-preview-more]').click();
+      const menu = h.doc.querySelector('.pv-menu');
+      const seen = [h.title(), !menu.hidden, !!menu.closest('.pv'), menu.classList.contains('pv-menu--over')];
+      h.pv().querySelector('[data-preview-more]').click();
+      h.away();
+      await h.pass(1000);
+      return seen;
+    };
+    grid.classList.add('watch-sheet');
+    const over = await opened('film');
+    grid.classList.remove('watch-sheet');
+    return { over, page: await opened('other') };
+  },
   async details() {
     const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2' } } });
     await h.rest('going', 900);

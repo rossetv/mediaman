@@ -294,6 +294,13 @@ def test_a_previews_menu_finds_more_like_its_title_first_of_all() -> None:
     assert not out["open"]
 
 
+def test_a_previews_menu_is_marked_over_the_search_sheet_and_unmarked_on_the_page() -> None:
+    # The menu hangs outside the preview, so the preview's own class cannot reach it.
+    out = _run("menuOverSearch")
+    assert out["over"] == ["Fieldwork", True, False, True]
+    assert out["page"] == ["Orbit", True, False, False]
+
+
 def test_escape_closes_the_previews_menu_then_the_preview_then_goes_back() -> None:
     assert _run("escapeInGrid")["menu"] == [
         "Fieldwork",
