@@ -434,8 +434,11 @@ def test_a_picture_fades_in_with_its_shade_as_one_so_it_never_flashes() -> None:
 
 def test_the_new_page_s_first_words_rise_before_the_old_ones_are_a_quarter_gone() -> None:
     """Else the ground has covered the old words and the screen is empty a moment."""
+
     def timing(selector: str) -> list[float]:
-        (decls,) = [d for w, s, d in rules("tv.css") if not w and selector in s and "animation" in d]
+        (decls,) = [
+            d for w, s, d in rules("tv.css") if not w and selector in s and "animation" in d
+        ]
         return [float(n) for n, _ in re.findall(r"(?<![\w.])(\d*\.?\d+)(s)\b", decls["animation"])]
 
     old_words = timing("#o .mid")[0]
@@ -452,7 +455,11 @@ def test_what_moves_on_the_tv_moves_by_opacity_and_transform_alone() -> None:
         # The icon drawing itself along its stroke, a small picture of its own.
         if name in ("a1", "a2"):
             continue
-        assert set(re.findall(r"([\w-]+)\s*:", body)) <= {"opacity", "transform", "-webkit-transform"}, name
+        assert set(re.findall(r"([\w-]+)\s*:", body)) <= {
+            "opacity",
+            "transform",
+            "-webkit-transform",
+        }, name
 
 
 def test_a_code_shown_before_counts_for_as_long_as_it_is_good() -> None:
@@ -545,7 +552,9 @@ def test_the_countdown_to_the_next_episode_has_cancel_first_and_focused() -> Non
     assert out["asks"] == ["auto"]
 
 
-@pytest.mark.parametrize(("how", "asked"), [("ok", "cancel"), ("back", "cancel"), ("right", "next")])
+@pytest.mark.parametrize(
+    ("how", "asked"), [("ok", "cancel"), ("back", "cancel"), ("right", "next")]
+)
 def test_ok_and_back_cancel_the_countdown_and_play_now_is_a_move_away(how: str, asked: str) -> None:
     assert _run("upnextKeys", how)["asks"] == [asked]
 
