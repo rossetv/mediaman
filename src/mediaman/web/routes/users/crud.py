@@ -46,6 +46,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+#: RFC 5321's cap on a whole address, in octets, as core.email_validation counts it.
+_EMAIL_MAX_OCTETS = 320
+
+
+def _email_refused(address: str, exc: ValueError) -> Response:
+    """The answer to an address that cannot be stored, in words a person reads; the detail goes to the log."""
+    logger.info("user.email_refused reason=%s", _sanitise_log_field(str(exc))[:200])
+    if len(address.strip().encode("utf-8")) > _EMAIL_MAX_OCTETS:
+        message = "That address is too long. Use a shorter one."
+    else:
+        message = "That isn't an email address. Check it and try again."
+    return respond_err("invalid_email", status=400, message=message)
+
+
 _LAST_ADMIN_MESSAGE = "There must be at least one admin. Make someone else an admin first."
 
 
@@ -329,7 +343,7 @@ def api_set_my_email(
         set_user_email(conn, admin, body.email, audit_actor=admin, audit_ip=client_ip)
     except ValueError as exc:
         _USER_MGMT_LIMITER.release(admin, reserved)
-        return respond_err("invalid_email", status=400, message=str(exc))
+        return _email_refused(body.email, exc)
     except EmailTakenError:
         # Counts, unlike other refused input: it tells that someone else has the address.
         logger.warning("user.email_update_rejected actor=%s", _sanitise_log_field(admin))
@@ -393,7 +407,7 @@ def api_set_user_email(
         )
     except ValueError as exc:
         _USER_MGMT_LIMITER.release(admin, reserved)
-        return respond_err("invalid_email", status=400, message=str(exc))
+        return _email_refused(body.email, exc)
     except EmailTakenError:
         _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("email_taken", status=409, message="Another user has this address.")
