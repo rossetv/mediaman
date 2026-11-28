@@ -364,13 +364,16 @@ const SKIPS = {
     }
     return from;
   },
-  // OK during the count skips at once; outside one, it only brings up the controls.
-  async okSkips() {
+  // OK during the count, the controls hidden, keeps the intro playing as Back does; outside one, it only brings up the controls.
+  async okKeeps() {
     const before = await skipping({}, 8000);
     before.key(OK);
     const t = await skipping({}, 15000);
+    const counting = note(t).shown;
     t.key(OK);
-    return { before: jumped(before), at: at(t), note: note(t).text };
+    const hidden = !note(t).shown;
+    await t.step(10000);
+    return { before: jumped(before), counting, hidden, at: at(t), sets: jumped(t) };
   },
   // An intro too short for the whole count counts what fits; one with no room for a count is jumped past at once.
   async shortIntro() {

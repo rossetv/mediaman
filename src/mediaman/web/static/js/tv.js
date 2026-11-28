@@ -904,8 +904,7 @@
 
   /* Where its person wants it, the TV plays on past an intro or credits: a TV's remote may have no
      key to skip with. It lands a few seconds in, so nothing is cut off at its first frame, and an
-     intro or credits a scene follows count down on screen first, which Back stops and OK cuts
-     short. Credits that end the title are skipped only where a next episode follows, to the end,
+     intro or credits a scene follows count down on screen first, which Back or OK stops. Credits that end the title are skipped only where a next episode follows, to the end,
      where the TV's own next episode, with its own countdown, and "still watching" take over. */
   function skipMarks() {
     // A seek, a stop or another play ends a count.
@@ -951,11 +950,12 @@
     if (!last) note(name === 'intro' ? 'Skipped intro' : 'Skipped credits');
   }
 
-  /* Its number ticks where a reader is not read; the seconds are said once, as the note comes. */
+  /* Its number ticks where a reader is not read; the seconds are said once, as the note comes.
+     "Press" is any key a remote has for it: Back, or OK with the controls hidden. */
   function countNote(name, left) {
     var n = Math.ceil(left);
     var spoken = n + (n === 1 ? ' second' : ' seconds');
-    if (!note('Skipping ' + name + ' in <span aria-hidden="true"></span><span class="sr">' + spoken + '</span> · Back to watch<i class="dr"></i>', n, 'Skipping ' + name)) return;
+    if (!note('Skipping ' + name + ' in <span aria-hidden="true"></span><span class="sr">' + spoken + '. Press to cancel.</span><span aria-hidden="true"> · Press to cancel</span><i class="dr"></i>', n, 'Skipping ' + name)) return;
     var bar = document.getElementById('sk').getElementsByTagName('i')[0];
     if (!bar) return;
     bar.style.webkitAnimationDuration = bar.style.animationDuration = entered.count + 's';
@@ -980,19 +980,12 @@
     if (noteText.indexOf('Skipping') === 0) hideNote();
   }
 
-  /* Back during a countdown keeps the intro or credits playing. */
+  /* Back or OK during a countdown keeps the intro or credits playing. */
   function keepMark() {
     if (!counting()) return false;
     skipped[entered.m.start_s] = true;
     entered = null;
     hideNote();
-    return true;
-  }
-
-  /* OK during a countdown skips at once. */
-  function skipNow() {
-    if (!counting()) return false;
-    jumpPast(entered.m, entered.last, entered.m.kind === 'intro' ? 'intro' : 'credits');
     return true;
   }
 
@@ -1432,7 +1425,7 @@
     else if (MEDIA[key]) media(MEDIA[key]);
     else if (isBack) used = back();
     // With the controls up, OK is for the button it is on.
-    else if (key === 13 && shown === 'play' && hidden && skipNow()) used = true;
+    else if (key === 13 && shown === 'play' && hidden && keepMark()) used = true;
     else if (shown === 'play' && hidden && (key === 9 || (key >= 13 && key <= 40))) wake();
     else if (key === 37 || key === 39) {
       if (buttons.length) focus = Math.max(0, Math.min(buttons.length - 1, focus + (key === 39 ? 1 : -1)));

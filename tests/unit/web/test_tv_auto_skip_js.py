@@ -57,7 +57,7 @@ def test_an_intro_plays_a_beat_then_counts_down_on_screen_before_the_jump() -> N
     assert out["landed"] == {"sets": 0, "note": False}
     counting = out["counting"]
     assert (counting["sets"], counting["note"]["shown"]) == (0, True)
-    assert re.fullmatch(r"Skipping intro in [345] · Back to watch", counting["note"]["text"])
+    assert re.fullmatch(r"Skipping intro in [345] · Press to cancel", counting["note"]["text"])
 
 
 def test_back_during_the_count_keeps_the_intro_playing() -> None:
@@ -68,7 +68,7 @@ def test_back_during_the_count_keeps_the_intro_playing() -> None:
 
 def test_the_count_is_said_once_with_its_seconds_and_its_ticking_number_is_not_read_out() -> None:
     assert _tv("spoken") == {
-        "said": ["Skipping intro in 5 seconds · Back to watch"],
+        "said": ["Skipping intro in 5 seconds. Press to cancel."],
         "hidden": [True],
     }
 
@@ -79,13 +79,15 @@ def test_a_bar_under_the_note_drains_over_the_whole_count() -> None:
     assert -0.5 <= out["delay"] <= 0
 
 
-def test_ok_during_the_count_skips_at_once_and_outside_it_skips_nothing() -> None:
-    assert _tv("okSkips") == {"before": [], "at": 150, "note": "Skipped intro"}
+def test_ok_during_the_count_keeps_the_intro_playing_and_outside_it_skips_nothing() -> None:
+    out = _tv("okKeeps")
+    assert (out["before"], out["counting"], out["hidden"], out["sets"]) == ([], True, True, [])
+    assert out["at"] == 75
 
 
 def test_an_intro_too_short_for_the_whole_count_counts_what_fits_or_none() -> None:
     out = _tv("shortIntro")
-    assert (out["said"], out["jumped"]) == (["Skipping intro in 3 seconds · Back to watch"], [68])
+    assert (out["said"], out["jumped"]) == (["Skipping intro in 3 seconds. Press to cancel."], [68])
     assert (out["tiny"]["jumped"], out["tiny"]["counted"]) == ([63], 0)
 
 
