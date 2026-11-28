@@ -137,8 +137,14 @@ def test_on_a_phone_a_dialog_over_glass_is_solid_so_no_third_layer_blurs(
     over: str, card: str, sheet: str, phone: str
 ) -> None:
     drawn = style(over, sheet, phone)
-    assert drawn["background"] == "var(--g-solid)"
+    assert drawn["background"] == "var(--g-opaque)"
     assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none"
+
+
+def test_the_fill_of_a_dialog_with_no_blur_is_opaque_so_no_word_behind_it_shows() -> None:
+    # A see-through tint without its blur lets the bright words of a form under it be read.
+    fill = token("--g-opaque")
+    assert fill.startswith("rgb(") and "/" not in fill
 
 
 def test_the_download_mark_on_an_answer_s_poster_is_a_solid_chip_that_blurs_nothing() -> None:
