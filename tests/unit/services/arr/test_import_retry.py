@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
@@ -12,7 +13,8 @@ import requests
 from mediaman.db import init_db
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.fetcher import _forget_answers, fetch_arr_queue
-from mediaman.services.arr.finding_copy import is_finding_copy
+from mediaman.services.arr.finding_copy import fixing_words, is_finding_copy
+from mediaman.services.arr.import_retry import _mark_fixed
 from mediaman.services.arr.search_trigger import reset_search_triggers, trigger_pending_searches
 from mediaman.services.arr.seasons import queued_seasons
 from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
@@ -97,6 +99,11 @@ class Arrs:
         self.redownload = True
         self.own_searches: list[str] = []
         self.version_reads = 0
+        # What GET /api/v3/manualimport lists, and the queries it was asked with.
+        self.manual: list[dict] = []
+        self.manual_asked: list[dict] = []
+        # The error each command, by name, is answered with.
+        self.breaking: dict[str, Exception] = {}
         fake_http.handler(self._answer)
         clients = {
             "sonarr": ArrClient(SONARR_SPEC, "http://sonarr.test:8989", "k"),
@@ -107,7 +114,7 @@ class Arrs:
                 f"mediaman.services.arr.build.build_{name}_from_db",
                 lambda *a, client=client: client,
             )
-        for module in ("import_retry", "fetcher._searching_since"):
+        for module in ("import_retry", "finding_copy", "fetcher._searching_since"):
             monkeypatch.setattr(f"mediaman.services.arr.{module}.now_utc", lambda: self.now)
 
     def _answer(self, method, url, **kwargs):
@@ -194,11 +201,16 @@ class Arrs:
             return _fake_response(
                 json_data={"id": episode + 1000, "dateAdded": self.files[episode]}
             )
+        if parts.path == "/api/v3/manualimport":
+            self.manual_asked.append(parse_qs(parts.query))
+            return _fake_response(json_data=self.manual)
         if parts.path == "/api/v3/wanted/missing":
             return _fake_response(json_data={"page": 1, "totalRecords": 0, "records": []})
         if method == "POST" and parts.path == "/api/v3/command":
             if self.refusing:
                 return _fake_response(status=self.refusing, json_data={})
+            if (body or {}).get("name") in self.breaking:
+                raise self.breaking[body["name"]]
             return _fake_response(json_data={"id": 1, **(body or {})})
         raise AssertionError(f"unexpected {method} {url}")
 
@@ -287,8 +299,8 @@ def test_a_season_stuck_an_hour_is_removed_blocklisted_and_searched_again(arrs):
         ),
     ]
     assert arrs.history() == [
-        f"'Alone' S13 couldn't be imported ({_REASON}); removed and searching for another copy"
-        " (try 1 of 2)"
+        f"'Alone' S13 couldn't be imported ({_REASON}); blocklisted that copy and searching for another"
+        " (try 1)"
     ]
     # The show has episodes in the library, so Sonarr lists it nowhere while it searches.
     assert arrs.states() == {"Alone": "finding_copy"}
@@ -324,29 +336,28 @@ def test_a_new_grab_ends_finding_another_copy_and_a_stuck_one_is_tried_again(arr
     _season_stuck(arrs, 30, download="pack-2")
     arrs.poll(timedelta(minutes=5))
     arrs.changes()
-    arrs.poll(timedelta(hours=1))
+    arrs.poll(timedelta(hours=3))
 
     assert [c[2] for c in arrs.changes() if c[0] == "DELETE"] == [
         "/api/v3/queue/30",
         "/api/v3/queue/31",
     ]
-    assert arrs.history()[-1].endswith("(try 2 of 2)")
+    assert arrs.history()[-1].endswith("(try 2)")
 
 
-def test_a_third_stuck_copy_is_left_for_an_admin(arrs):
-    for first in (10, 30):
-        _season_stuck(arrs, first, download=f"pack-{first}")
+def test_each_next_copy_is_left_longer_and_the_tries_never_stop(arrs):
+    for n, hours in enumerate((1, 3, 12, 24, 24)):
+        _season_stuck(arrs, 10 + 20 * n, download=f"pack-{n}")
         arrs.poll(timedelta(minutes=5))
-        arrs.poll(timedelta(hours=1))
-    _season_stuck(arrs, 50, download="pack-50")
-    arrs.poll(timedelta(minutes=5))
-    arrs.changes()
-    arrs.poll(timedelta(hours=1))
-    arrs.poll(timedelta(hours=5))
+        arrs.changes()
+        arrs.poll(timedelta(hours=hours, minutes=-10))
+        assert [c for c in arrs.changes() if c[0] == "DELETE"] == [], hours
+        arrs.poll(timedelta(minutes=10))
+        assert len([c for c in arrs.changes() if c[0] == "DELETE"]) == 2, hours
 
-    assert arrs.changes() == []
-    assert len(arrs.history()) == 2
-    assert arrs.states() == {"Alone": "needs_attention"}
+    assert [line[line.rindex("(try ") :] for line in arrs.history()] == [
+        f"(try {n})" for n in range(1, 6)
+    ]
 
 
 def test_with_the_setting_off_nothing_is_removed(arrs):
@@ -371,9 +382,9 @@ def test_a_restart_keeps_the_clock_and_the_count(arrs, tmp_path):
     arrs.poll(timedelta(minutes=5))
     arrs.conn.close()
     arrs.conn = init_db(str(tmp_path / "mediaman.db"))
-    arrs.poll(timedelta(hours=1))
+    arrs.poll(timedelta(hours=3))
 
-    assert arrs.history()[-1].endswith("(try 2 of 2)")
+    assert arrs.history()[-1].endswith("(try 2)")
 
 
 def test_a_failed_removal_is_no_try_and_is_made_again_next_run(arrs):
@@ -389,7 +400,7 @@ def test_a_failed_removal_is_no_try_and_is_made_again_next_run(arrs):
     arrs.poll(timedelta(hours=1))
 
     assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
-    assert arrs.history()[-1].endswith("(try 1 of 2)")
+    assert arrs.history()[-1].endswith("(try 1)")
 
 
 def test_a_failed_search_is_sent_next_run_and_written_once(arrs):
@@ -412,7 +423,7 @@ def test_a_failed_search_is_sent_next_run_and_written_once(arrs):
         )
     ]
     assert arrs.history() == [arrs.history()[0]]
-    assert arrs.history()[0].endswith("(try 1 of 2)")
+    assert arrs.history()[0].endswith("(try 1)")
 
 
 def test_downloading_and_healthy_imports_are_never_touched(arrs):
@@ -500,26 +511,37 @@ def _hourly(arrs: Arrs, hours: int) -> None:
 
 
 @pytest.mark.parametrize("monitored", [True, False])
-def test_a_film_whose_download_stays_in_the_queue_is_tried_twice_in_all(arrs, monitored):
+def test_a_film_whose_download_stays_in_the_queue_is_tried_again_after_longer_waits(
+    arrs, monitored
+):
     arrs.queues["radarr"] = [_stuck_film(40)]
     arrs.movies = [_dune(monitored=monitored)]
     arrs.keeping = True
     arrs.poll()
     _hourly(arrs, 80)
 
-    assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 2 of 2)"]
-    assert arrs.states() == {"Dune": "needs_attention"}
+    # The first try, the second a day of looking and 3 hours later, the third a day and 12 later.
+    assert [line[line.rindex("(try ") :] for line in arrs.history()] == [
+        "(try 1)",
+        "(try 2)",
+        "(try 3)",
+    ]
+    assert arrs.states() == {"Dune": "finding_copy"}
 
 
 def test_a_retry_that_grabs_nothing_does_not_give_its_try_back(arrs):
-    for first in (10, 30, 50):
+    for first, hours in ((10, 1), (30, 3), (50, 12)):
         _season_stuck(arrs, first, download=f"pack-{first}")
         arrs.poll(timedelta(minutes=5))
-        arrs.poll(timedelta(hours=1))
+        arrs.poll(timedelta(hours=hours))
         arrs.queues["sonarr"] = []
         _hourly(arrs, 26)
 
-    assert len(arrs.history()) == 2
+    assert [line[line.rindex("(try ") :] for line in arrs.history()] == [
+        "(try 1)",
+        "(try 2)",
+        "(try 3)",
+    ]
 
 
 def test_a_stuck_copy_removed_by_someone_does_not_give_the_tries_back(arrs):
@@ -586,7 +608,7 @@ def test_a_removal_failing_after_one_record_went_still_searches_and_says_so(arrs
     assert [c[3] for c in arrs.changes() if c[0] == "POST"] == [
         {"name": "EpisodeSearch", "episodeIds": [501, 502]}
     ]
-    assert arrs.history()[-1].endswith("(try 1 of 2)")
+    assert arrs.history()[-1].endswith("(try 1)")
 
 
 def test_a_removal_that_timed_out_may_have_gone_through_so_the_search_is_sent(arrs):
@@ -596,7 +618,7 @@ def test_a_removal_that_timed_out_may_have_gone_through_so_the_search_is_sent(ar
     arrs.poll(timedelta(hours=1))
 
     assert [c[0] for c in arrs.changes()][-1] == "POST"
-    assert arrs.history()[-1].endswith("(try 1 of 2)")
+    assert arrs.history()[-1].endswith("(try 1)")
 
 
 @pytest.mark.parametrize(
@@ -606,7 +628,6 @@ def test_a_removal_that_timed_out_may_have_gone_through_so_the_search_is_sent(ar
         "Failed to import episode due to permission issues.",
         "Failed to import episode, Root folder missing.",
         "Not enough free space",
-        "Single episode file contains all episodes in seasons. Review file name or manually import",
     ],
 )
 def test_a_download_stuck_on_sonarrs_own_setup_is_left_for_an_admin(arrs, message):
@@ -712,7 +733,7 @@ def test_a_season_imported_between_two_runs_ends_finding_and_gets_its_tries_back
     _season_stuck(arrs, 30, download="pack-2")
     arrs.poll(timedelta(minutes=5))
     arrs.poll(timedelta(hours=1))
-    assert arrs.history()[-1].endswith("(try 1 of 2)")
+    assert arrs.history()[-1].endswith("(try 1)")
 
 
 def test_a_film_imported_between_two_runs_gets_its_tries_back(arrs):
@@ -728,14 +749,14 @@ def test_a_film_imported_between_two_runs_gets_its_tries_back(arrs):
     arrs.poll(timedelta(minutes=5))
     arrs.poll(timedelta(hours=1))
 
-    assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 1 of 2)"]
+    assert [line[line.rindex("(try ") :] for line in arrs.history()] == ["(try 1)", "(try 1)"]
 
 
 def test_a_copy_that_downloads_and_then_leaves_the_queue_unimported_gives_back_no_try(arrs):
-    for first in (10, 30, 50):
+    for first, hours in ((10, 1), (30, 3), (50, 1)):
         _season_stuck(arrs, first, download=f"pack-{first}")
         arrs.poll(timedelta(minutes=5))
-        arrs.poll(timedelta(hours=1))
+        arrs.poll(timedelta(hours=hours))
         arrs.queues["sonarr"] = [_downloading(_stuck_episode(first + 5, 1))]
         arrs.poll(timedelta(minutes=5))
         arrs.queues["sonarr"] = []
@@ -757,13 +778,13 @@ def test_a_removal_whose_search_waits_is_counted_whatever_radarr_grabs_meanwhile
     for queue_id in (43, 44):
         arrs.queues["radarr"] = [_stuck_film(queue_id)]
         arrs.poll(timedelta(minutes=5))
-        arrs.poll(timedelta(hours=1))
+        arrs.poll(timedelta(hours=3))
 
     assert [c[2] for c in arrs.changes() if c[0] == "DELETE"] == [
         "/api/v3/queue/40",
         "/api/v3/queue/43",
     ]
-    assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 2 of 2)"]
+    assert [line[line.rindex("(try ") :] for line in arrs.history()] == ["(try 1)", "(try 2)"]
 
 
 def test_an_unmonitored_film_whose_search_failed_is_still_searched_for(arrs):
@@ -779,18 +800,20 @@ def test_an_unmonitored_film_whose_search_failed_is_still_searched_for(arrs):
     assert [c[3] for c in arrs.changes() if c[0] == "POST"] == [
         {"name": "MoviesSearch", "movieIds": [9]}
     ]
-    assert arrs.history()[0].endswith("(try 1 of 2)")
+    assert arrs.history()[0].endswith("(try 1)")
 
 
-def test_a_removal_radarr_refuses_is_not_asked_for_every_hour(arrs, caplog):
+def test_a_removal_radarr_refuses_is_asked_again_only_after_a_longer_wait(arrs, caplog):
     arrs.queues["radarr"] = [_stuck_film(40)]
     arrs.movies = [_dune()]
     arrs.failing_ids = {40: 400}
     arrs.poll()
-    _hourly(arrs, 6)
+    _hourly(arrs, 3)
+    assert len([c for c in arrs.changes() if c[0] == "DELETE"]) == 1
+    _hourly(arrs, 1)
 
     assert len([c for c in arrs.changes() if c[0] == "DELETE"]) == 1
-    assert len([r for r in caplog.records if "radarr:9" in r.getMessage()]) == 1
+    assert len([r for r in caplog.records if "radarr:9" in r.getMessage()]) == 2
     assert arrs.history() == []
 
 
@@ -863,7 +886,7 @@ def _not_an_upgrade(queue_id: int) -> dict:
     return _stuck_film(queue_id, statusMessages=[{"title": "Dune", "messages": [message]}])
 
 
-def test_a_film_that_had_its_file_before_its_tries_is_tried_twice_in_all(arrs):
+def test_a_film_that_had_its_file_before_its_tries_keeps_them(arrs):
     arrs.movies = [_dune(hasFile=True, movieFile={"id": 1, "dateAdded": "2025-06-01T00:00:00Z"})]
     for queue_id in (40, 41, 42, 43):
         arrs.queues["radarr"] = [_not_an_upgrade(queue_id)]
@@ -877,14 +900,14 @@ def test_a_film_that_had_its_file_before_its_tries_is_tried_twice_in_all(arrs):
     ]
 
 
-def test_a_season_that_had_its_files_before_its_tries_is_tried_twice_in_all(arrs):
+def test_a_season_that_had_its_files_before_its_tries_keeps_them(arrs):
     arrs.files = {501: "2025-06-01T00:00:00Z", 502: "2025-06-01T00:00:00Z"}
     for first in (10, 30, 50, 70):
         _season_stuck(arrs, first, download=f"pack-{first}")
         arrs.poll(timedelta(minutes=5))
         arrs.poll(timedelta(hours=1))
-        arrs.queues["sonarr"] = []
         _hourly(arrs, 3)
+        arrs.queues["sonarr"] = []
 
     assert len(arrs.history()) == 2
 
@@ -901,7 +924,7 @@ def test_an_episode_imported_while_another_of_its_season_downloads_gives_the_tri
     arrs.poll(timedelta(minutes=5))
     arrs.poll(timedelta(hours=1))
 
-    assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 1 of 2)"]
+    assert [line[line.rindex("(try ") :] for line in arrs.history()] == ["(try 1)", "(try 1)"]
 
 
 def test_a_film_imported_while_its_search_waits_still_gets_the_search(arrs):
@@ -920,7 +943,7 @@ def test_a_film_imported_while_its_search_waits_still_gets_the_search(arrs):
     assert [c[3] for c in arrs.changes() if c[0] == "POST"] == [
         {"name": "MoviesSearch", "movieIds": [9]}
     ]
-    assert arrs.history()[0].endswith("(try 1 of 2)")
+    assert arrs.history()[0].endswith("(try 1)")
 
 
 def test_a_radarr_that_does_not_answer_is_asked_once_in_a_run(arrs):
@@ -1028,7 +1051,7 @@ def test_a_title_tried_a_month_ago_and_out_of_the_queue_is_forgotten(arrs):
     assert _rows(arrs) == {"radarr:10"}
 
 
-def test_a_copy_still_stuck_a_month_after_its_last_try_gets_no_third(arrs):
+def test_a_copy_stuck_for_a_month_keeps_its_count_of_tries(arrs):
     arrs.queues["radarr"] = [_stuck_film(40)]
     arrs.movies = [_dune()]
     arrs.keeping = True
@@ -1036,7 +1059,10 @@ def test_a_copy_still_stuck_a_month_after_its_last_try_gets_no_third(arrs):
     for _ in range(4 * 40):
         arrs.poll(timedelta(hours=6))
 
-    assert len(arrs.history()) == 2
+    tries = [int(re.search(r"\(try (\d+)\)", line)[1]) for line in arrs.history()]
+    assert len(tries) > 3
+    assert tries == list(range(1, len(tries) + 1))
+    assert "has not imported for" in arrs.history()[-1]
 
 
 def test_a_row_stored_before_its_try_time_was_kept_gets_its_tries_back_on_an_import(
@@ -1072,7 +1098,7 @@ def test_a_search_sonarr_will_not_take_the_key_for_is_kept_until_it_does(arrs):
     arrs.refusing = 0
     arrs.poll(timedelta(hours=1))
 
-    assert arrs.history()[-1].endswith("(try 1 of 2)")
+    assert arrs.history()[-1].endswith("(try 1)")
 
 
 def test_a_removal_radarr_will_not_take_the_key_for_spends_no_try(arrs):
@@ -1085,7 +1111,7 @@ def test_a_removal_radarr_will_not_take_the_key_for_spends_no_try(arrs):
     arrs.poll(timedelta(hours=1))
 
     assert arrs.history() == [arrs.history()[0]]
-    assert arrs.history()[0].endswith("(try 1 of 2)")
+    assert arrs.history()[0].endswith("(try 1)")
 
 
 def test_a_film_whose_read_fails_keeps_no_other_film_from_getting_its_tries_back(arrs):
@@ -1201,7 +1227,7 @@ def test_each_retry_is_searched_for_once_whichever_version_answers(
     searches = [c for c in arrs.changes() if c[0] == "POST"]
     assert len(searches) == (1 if ours else 0)
     assert len(searches) + len(arrs.own_searches) == 1
-    assert arrs.history()[-1].endswith("(try 1 of 2)")
+    assert arrs.history()[-1].endswith("(try 1)")
     assert arrs.states()[{"sonarr": "Alone", "radarr": "Dune"}[service]] == "finding_copy"
 
 
@@ -1212,7 +1238,7 @@ def test_an_older_sonarrs_version_is_read_once_by_the_one_client_that_makes_all_
     arrs.poll()
     _hourly(arrs, 80)
 
-    assert [line[-12:] for line in arrs.history()] == ["(try 1 of 2)", "(try 2 of 2)"]
+    assert [line[line.rindex("(try ") :] for line in arrs.history()][:2] == ["(try 1)", "(try 2)"]
     # One client is kept for the run here; the real builders make a new one per call, which
     # reads the version again each time.
     assert arrs.version_reads == 1
@@ -1248,7 +1274,7 @@ def test_an_older_service_is_sent_the_search_unless_it_plainly_removed_the_downl
 
     assert len([c for c in arrs.changes() if c[0] == "POST"]) == ours
     assert len(arrs.own_searches) + ours == 1
-    assert arrs.history()[-1].endswith("(try 1 of 2)")
+    assert arrs.history()[-1].endswith("(try 1)")
 
 
 def test_an_older_sonarr_that_finds_one_of_two_downloads_gone_is_sent_the_search(arrs):
@@ -1275,3 +1301,451 @@ def test_an_older_sonarr_that_finds_a_lower_id_gone_before_its_download_is_remov
 
     assert [c for c in arrs.changes() if c[0] == "POST"] == []
     assert len(arrs.own_searches) == 1
+
+
+# ── Mended where it lies, and every way a download sticks ──
+
+_RELEASE = "Adventure.Time.2010.S02E03.Loyalty.to.the.King.1080p.EN-GR.BluRay.x264-Smad"
+_MKV = b"\x1a\x45\xdf\xa3" + b"\0" * 60
+_BY_ID = (
+    "Found matching series via grab history, but release was matched to series by ID."
+    " Automatic import is not possible. See the FAQ for details."
+)
+
+
+def _history_of(arrs: Arrs, action: str) -> list[str]:
+    rows = arrs.conn.execute(
+        "SELECT detail FROM audit_log WHERE action=? ORDER BY id", (action,)
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def _says(arrs: Arrs, message: str, **more) -> None:
+    for record in arrs.queues["sonarr"]:
+        record["statusMessages"] = [{"title": record["title"], "messages": [message]}]
+        record.update(more)
+
+
+@pytest.fixture
+def obfuscated(arrs, tmp_path):
+    """Alone S13's stuck pack, whose one file came with no extension, in a downloads folder
+    mediaman is told of and can write to."""
+    root = tmp_path / "completed"
+    folder = root / "comptv" / _RELEASE
+    folder.mkdir(parents=True)
+    (folder / "a8f3c2e9b1").write_bytes(_MKV)
+    insert_settings(arrs.conn, import_fix_folder=str(root))
+    _season_stuck(arrs, 10)
+    _says(
+        arrs,
+        f"No files found are eligible for import in {folder}",
+        title=_RELEASE,
+        outputPath=str(folder),
+    )
+    return folder
+
+
+def test_an_obfuscated_download_is_renamed_and_imported_again_before_any_other_copy(
+    arrs, obfuscated
+):
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert sorted(p.name for p in obfuscated.iterdir()) == ["a8f3c2e9b1.mkv"]
+    scan = {
+        "name": "DownloadedEpisodesScan",
+        "path": str(obfuscated),
+        "importMode": "auto",
+        "downloadClientId": "pack-1",
+    }
+    assert arrs.changes() == [("POST", "sonarr", "/api/v3/command", scan)]
+    (line,) = _history_of(arrs, "import_renamed")
+    assert line.startswith("'Alone' S13 couldn't be imported (No files found are eligible")
+    assert line.endswith("; renamed 1 file so Sonarr could import it")
+    assert arrs.history() == []
+
+
+def test_each_episode_downloaded_on_its_own_is_renamed_in_its_own_folder(arrs, tmp_path):
+    root = tmp_path / "completed"
+    insert_settings(arrs.conn, import_fix_folder=str(root))
+    releases = ["Alone.S13E01.1080p-NTb", "Alone.S13E02.1080p-NTb"]
+    arrs.queues["sonarr"] = []
+    for n, release in enumerate(releases, start=1):
+        folder = root / "comptv" / release
+        folder.mkdir(parents=True)
+        (folder / f"obf{n}").write_bytes(_MKV)
+        arrs.queues["sonarr"].append(
+            _stuck_episode(
+                9 + n,
+                n,
+                download=f"nzb-{n}",
+                title=release,
+                outputPath=str(folder),
+                statusMessages=[{"title": release, "messages": ["No files found are eligible"]}],
+            )
+        )
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[3]["downloadClientId"] for c in arrs.changes()] == ["nzb-1", "nzb-2"]
+    assert sorted(p.name for p in root.glob("comptv/*/*")) == ["obf1.mkv", "obf2.mkv"]
+    assert _history_of(arrs, "import_renamed")[0].endswith(
+        "renamed 2 files so Sonarr could import them"
+    )
+
+
+def test_a_renamed_download_still_stuck_an_hour_on_is_blocklisted_and_searched_again(
+    arrs, obfuscated
+):
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    arrs.changes()
+    arrs.poll(timedelta(minutes=30))
+    assert arrs.changes() == []
+    arrs.poll(timedelta(minutes=30))
+
+    assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
+    assert arrs.history()[0].endswith("(try 1)")
+
+
+def test_with_no_downloads_folder_set_an_obfuscated_download_is_replaced_at_once(arrs, obfuscated):
+    arrs.conn.execute("UPDATE settings SET value='' WHERE key='import_fix_folder'")
+    arrs.conn.commit()
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
+    assert sorted(p.name for p in obfuscated.iterdir()) == ["a8f3c2e9b1"]
+
+
+def test_a_download_whose_folder_is_out_of_the_downloads_folder_is_never_renamed(
+    arrs, obfuscated, tmp_path
+):
+    elsewhere = tmp_path / "library" / _RELEASE
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "film").write_bytes(_MKV)
+    _says(arrs, "No files found are eligible for import", outputPath=str(elsewhere))
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert sorted(p.name for p in elsewhere.iterdir()) == ["film"]
+    assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
+
+
+def _manual(episode: int) -> dict:
+    return {
+        "path": f"/downloads/completed/comptv/Alone.S13/{episode}.mkv",
+        "folderName": "Alone.S13",
+        "series": {"id": 5},
+        "seasonNumber": 13,
+        "episodes": [{"id": 500 + episode}],
+        "quality": {"quality": {"id": 7, "name": "WEBDL-1080p"}},
+        "languages": [{"id": 1, "name": "English"}],
+        "releaseGroup": "NTb",
+        "downloadId": "pack-1",
+        "indexerFlags": 0,
+        "releaseType": "singleEpisode",
+        "rejections": [],
+    }
+
+
+def test_a_release_matched_by_id_alone_is_imported_by_hand_when_each_file_is_beyond_doubt(arrs):
+    _season_stuck(arrs, 10)
+    _says(arrs, _BY_ID, outputPath="/downloads/completed/comptv/Alone.S13")
+    arrs.manual = [_manual(1), _manual(2)]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    (made,) = arrs.changes()
+    assert made[:3] == ("POST", "sonarr", "/api/v3/command")
+    assert made[3]["name"] == "ManualImport"
+    assert [(f["seriesId"], f["episodeIds"]) for f in made[3]["files"]] == [(5, [501]), (5, [502])]
+    assert arrs.manual_asked == [
+        {"downloadId": ["pack-1"], "seriesId": ["5"], "filterExistingFiles": ["true"]}
+    ]
+    assert _history_of(arrs, "import_imported")[0].endswith(
+        "imported its 2 files by hand in Sonarr"
+    )
+
+
+def test_a_release_matched_by_id_whose_files_are_in_doubt_is_replaced(arrs):
+    _season_stuck(arrs, 10)
+    _says(arrs, _BY_ID, outputPath="/downloads/completed/comptv/Alone.S13")
+    arrs.manual = [{**_manual(1), "episodes": []}]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
+    assert _history_of(arrs, "import_imported") == []
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Sample",
+        "Single episode file contains all episodes in seasons. Review file name or manually import",
+        "Episode wasn't in the release",
+    ],
+)
+def test_a_release_no_copy_of_it_mends_is_blocklisted_and_searched_again(arrs, message):
+    _season_stuck(arrs, 10)
+    _says(arrs, message)
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
+    assert f"({message})" in arrs.history()[0]
+
+
+def test_a_season_given_up_on_after_two_tries_before_is_tried_again(arrs):
+    """What an older mediaman left: two tries spent, stuck since, never acted on again."""
+    _season_stuck(arrs, 10)
+    _says(arrs, "Single episode file contains all episodes in seasons.")
+    since = (arrs.now - timedelta(days=3)).isoformat()
+    arrs.conn.execute(
+        "INSERT INTO arr_import_retries (key, stuck_since, tries, tried_at)"
+        " VALUES ('sonarr:5:13', ?, 2, ?)",
+        (since, since),
+    )
+    arrs.conn.commit()
+    arrs.poll()
+
+    assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
+    assert arrs.history()[0].endswith("(try 3)")
+
+
+def test_a_title_stuck_for_a_week_says_so_in_history_on_each_daily_try(arrs):
+    arrs.queues["radarr"] = [_stuck_film(40)]
+    arrs.movies = [_dune()]
+    arrs.keeping = True
+    arrs.poll()
+    for _ in range(4 * 12):
+        arrs.poll(timedelta(hours=6))
+
+    lines = arrs.history()
+    assert "has not imported for" not in lines[0]
+    assert re.search(r"It has not imported for \d+ days; mediaman keeps trying", lines[-1])
+
+
+def _paused(arrs: Arrs) -> None:
+    arrs.queues["sonarr"] = [
+        _stuck_episode(
+            9 + n,
+            n,
+            status="paused",
+            trackedDownloadState="downloading",
+            trackedDownloadStatus="ok",
+            statusMessages=[],
+            sizeleft=600,
+        )
+        for n in (1, 2)
+    ]
+
+
+def test_a_paused_download_is_waited_for_as_someone_paused_it(arrs):
+    _paused(arrs)
+    arrs.poll()
+    arrs.poll(timedelta(hours=30))
+
+    assert arrs.changes() == []
+
+
+def test_a_held_download_whose_client_sonarr_cannot_reach_is_never_touched(arrs):
+    _season_stuck(arrs, 10)
+    for record in arrs.queues["sonarr"]:
+        record["status"] = "downloadClientUnavailable"
+    arrs.poll()
+    for _ in range(3):
+        arrs.poll(timedelta(days=1))
+
+    assert arrs.changes() == []
+    assert arrs.history() == []
+
+
+def test_a_stalled_download_is_replaced_once_it_has_gone_nowhere_for_hours(arrs):
+    arrs.queues["sonarr"] = [
+        _stuck_episode(
+            10,
+            1,
+            status="warning",
+            trackedDownloadState="downloading",
+            statusMessages=[
+                {
+                    "title": "Alone.S13.1080p",
+                    "messages": ["The download is stalled with no connections"],
+                }
+            ],
+            sizeleft=600,
+        )
+    ]
+    arrs.poll()
+    arrs.poll(timedelta(hours=5))
+    assert arrs.changes() == []
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[0] for c in arrs.changes()] == ["DELETE", "POST"]
+
+
+def test_each_kind_of_mend_is_listed_under_downloads_in_history_for_an_admin(arrs, obfuscated):
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    arrs.poll(timedelta(hours=1))
+    viewer = history.Viewer(1, "admin", "2020-01-01T00:00:00Z", True)
+    page = history.history_page(arrs.conn, viewer, history.Filters(action="downloads"))
+
+    assert {e.action for e in page.entries} == {"import_renamed", "import_retried"}
+
+
+def _old_films(arrs: Arrs, count: int) -> list[int]:
+    """*count* films stuck for days that an older mediaman gave up on, the first stuck longest."""
+    ids = list(range(20, 20 + count))
+    arrs.queues["radarr"] = [
+        _stuck_film(
+            100 + movie_id,
+            movieId=movie_id,
+            movie={"id": movie_id, "title": f"Film {movie_id}", "tmdbId": movie_id, "images": []},
+        )
+        for movie_id in ids
+    ]
+    arrs.movies = [
+        _dune(id=movie_id, title=f"Film {movie_id}", tmdbId=movie_id) for movie_id in ids
+    ]
+    for n, movie_id in enumerate(ids):
+        since = (arrs.now - timedelta(days=10 - n)).isoformat()
+        arrs.conn.execute(
+            "INSERT INTO arr_import_retries (key, stuck_since, tries, first_stuck_at)"
+            " VALUES (?, ?, 2, ?)",
+            (f"radarr:{movie_id}", since, since),
+        )
+    arrs.conn.commit()
+    return ids
+
+
+def test_no_more_than_two_downloads_of_a_service_are_replaced_in_a_run_oldest_first(arrs):
+    ids = _old_films(arrs, 6)
+    arrs.poll()
+    first = [c[2] for c in arrs.changes() if c[0] == "DELETE"]
+    arrs.poll(timedelta(hours=1))
+    second = [c[2] for c in arrs.changes() if c[0] == "DELETE"]
+
+    assert first == [f"/api/v3/queue/{100 + i}" for i in ids[:2]]
+    assert second == [f"/api/v3/queue/{100 + i}" for i in ids[2:4]]
+
+
+def _matched_by_id(arrs: Arrs, *, held: bool = True) -> None:
+    _season_stuck(arrs, 10)
+    _says(arrs, _BY_ID, outputPath="/downloads/completed/comptv/Alone.S13")
+    if not held:
+        for record in arrs.queues["sonarr"]:
+            record["trackedDownloadStatus"] = "ok"
+    arrs.manual = [_manual(1), _manual(2)]
+
+
+def _manual_imports(made: list) -> int:
+    return len([c for c in made if c[0] == "POST" and c[3].get("name") == "ManualImport"])
+
+
+def test_a_download_that_comes_and_goes_is_imported_by_hand_once_and_then_replaced(arrs):
+    made = []
+    for held in (True, True, False, True, True):
+        _matched_by_id(arrs, held=held)
+        arrs.poll(timedelta(hours=1))
+        made += arrs.changes()
+
+    assert _manual_imports(made) == 1
+    assert len(arrs.manual_asked) == 1, "the files are read once for the one import by hand"
+    assert [c[2] for c in made if c[0] == "DELETE"] == ["/api/v3/queue/10", "/api/v3/queue/11"]
+
+
+def test_an_import_by_hand_that_may_have_gone_through_ends_the_run_for_that_title(arrs):
+    _matched_by_id(arrs)
+    arrs.breaking["ManualImport"] = requests.ReadTimeout("no answer")
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    made = arrs.changes()
+    assert _manual_imports(made) == 1
+    assert [c for c in made if c[0] == "DELETE"] == []
+    arrs.breaking = {}
+    arrs.poll(timedelta(hours=1))
+
+    made = arrs.changes()
+    assert _manual_imports(made) == 0, "one that may have gone through is not sent twice"
+    assert len([c for c in made if c[0] == "DELETE"]) == 2
+
+
+def test_a_season_beside_a_download_whose_client_is_unreachable_is_left_as_it_is(arrs):
+    _season_stuck(arrs, 10)
+    _says(arrs, "Sample")
+    arrs.queues["sonarr"][0]["status"] = "downloadClientUnavailable"
+    arrs.poll()
+    arrs.poll(timedelta(hours=3))
+
+    assert arrs.changes() == []
+
+
+def test_an_import_by_hand_that_could_not_be_sent_is_sent_again_next_run(arrs):
+    _matched_by_id(arrs)
+    arrs.breaking["ManualImport"] = requests.ConnectionError("refused")
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    assert [c for c in arrs.changes() if c[0] == "DELETE"] == []
+    arrs.breaking = {}
+    arrs.poll(timedelta(hours=1))
+
+    made = arrs.changes()
+    assert _manual_imports(made) == 1
+    assert [c for c in made if c[0] == "DELETE"] == []
+
+
+def test_a_title_is_mended_in_place_by_one_run_alone(arrs):
+    _season_stuck(arrs, 10)
+    arrs.poll()
+    (since,) = arrs.conn.execute(
+        "SELECT stuck_since FROM arr_import_retries WHERE key='sonarr:5:13'"
+    ).fetchone()
+
+    assert _mark_fixed(arrs.conn, "sonarr:5:13", since, arrs.now)
+    assert not _mark_fixed(arrs.conn, "sonarr:5:13", since, arrs.now)
+
+
+def test_files_of_a_download_stuck_for_another_reason_are_never_renamed(arrs, obfuscated):
+    _says(arrs, "Sample", title=_RELEASE, outputPath=str(obfuscated))
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert sorted(p.name for p in obfuscated.iterdir()) == ["a8f3c2e9b1"]
+
+
+def _words(arrs: Arrs) -> str:
+    reasons = [r["statusMessages"][0]["messages"][0] for r in arrs.queues["sonarr"]]
+    return fixing_words(arrs.conn, "sonarr:5:", reasons)
+
+
+def test_the_card_says_files_are_renamed_only_of_a_download_in_the_downloads_folder(
+    arrs, obfuscated, tmp_path
+):
+    arrs.poll()
+    assert _words(arrs) == "Fixing — renaming files"
+
+    elsewhere = tmp_path / "elsewhere" / _RELEASE
+    elsewhere.mkdir(parents=True)
+    _says(arrs, "No files found are eligible for import", outputPath=str(elsewhere))
+    arrs.poll(timedelta(minutes=5))
+    assert _words(arrs) == "Fixing — finding another copy"
+
+
+def test_the_card_says_another_copy_is_looked_for_once_a_rename_did_not_take(arrs, obfuscated):
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert _words(arrs) == "Fixing — finding another copy"
+
+
+def test_the_card_of_a_download_whose_client_is_unreachable_claims_no_fix(arrs):
+    _season_stuck(arrs, 10)
+    for record in arrs.queues["sonarr"]:
+        record["status"] = "downloadClientUnavailable"
+    arrs.poll()
+
+    assert _words(arrs) == ""

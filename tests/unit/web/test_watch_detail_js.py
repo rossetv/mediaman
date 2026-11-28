@@ -1690,6 +1690,20 @@ def test_a_film_that_mediaman_will_try_again_says_so_instead_of_where_to_fix_it(
     assert out["retryingViewer"]["note"] == retry + ". Follow it in Downloading."
 
 
+def test_a_stuck_film_says_what_mediaman_is_doing_in_place_of_needs_attention() -> None:
+    out = _run("troubled")
+    assert out["fixingAdmin"] == {
+        "pill": None,
+        "status": "Fixing — renaming files",
+        "note": "No files found are eligible for import. Follow it in Downloading.",
+        "bar": False,
+    }
+    assert (out["fixingViewer"]["status"], out["fixingViewer"]["note"]) == (
+        "Fixing — renaming files",
+        "Follow it in Downloading.",
+    )
+
+
 def test_a_season_the_arr_holds_back_or_looks_again_for_is_not_called_downloading() -> None:
     out = _run("seasonsTroubled")
     assert [c[1] for c in out["chips"]] == [

@@ -169,7 +169,8 @@
       ref: ref, href: row && row.ref === ref ? row.href : ref ? '/#title=' + ref : '',
       poster_url: item.poster_url || (row && row.poster_url) || '', art_url: row ? row.art_url : '',
       rt: scores.rt, imdb: scores.imdb, rating: scores.rating,
-      attention: '', attention_hint: '', retrying: false
+      attention: '', attention_hint: '', retrying: false,
+      fixing: state === 'needs_attention' ? String(item.fixing || '') : ''
     };
   }
 
@@ -199,15 +200,16 @@
   function linksOut(state) { return admin && state !== 'downloading' && state !== 'almost_ready'; }
 
   function fixWords(item) {
-    return item.retrying ? 'mediaman will look for another copy'
-      : (admin && item.attention_hint) || 'Won’t finish until an admin sorts it out';
+    return item.fixing || (item.retrying ? 'mediaman will look for another copy'
+      : (admin && item.attention_hint) || 'Won’t finish until an admin sorts it out');
   }
 
   /* [what stands out, the rest, what is kept when the line is cut]: what the row's card has no
      room for, in one line. */
   function sayOf(item) {
     var state = item.state;
-    if (state === 'needs_attention') return ['', (admin && item.attention) || fixWords(item)];
+    /* Of one mediaman is mending, its line says so. */
+    if (state === 'needs_attention') return ['', (admin && item.attention) || (item.fixing ? 'Nothing for you to do' : fixWords(item))];
     if (state === 'finding_copy') return ['', 'Finding another copy'];
     if (state === 'searching') return ['', item.search_hint || 'Waiting for its first search'];
     if (state === 'queued') return ['', ['Waiting its turn', item.size_total].filter(Boolean).join(' · ')];

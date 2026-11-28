@@ -53,7 +53,10 @@ def test_an_admin_is_told_it_needs_attention_and_why(app, db_path):
     client = TestClient(app)
     client.cookies.set("session_token", create_session(app.state.db, "admin"))
     data = client.get("/api/download/status?service=sonarr&tmdb_id=63726").json()
-    assert (data["state"], data["state_label"]) == ("needs_attention", "Needs attention")
+    assert (data["state"], data["state_label"]) == (
+        "needs_attention",
+        "Fixing — finding another copy",
+    )
     assert data["attention"] == _WHY
     assert data["attention_hint"] == "Fix it in Sonarr: Activity → Queue"
     assert data["eta"] == ""

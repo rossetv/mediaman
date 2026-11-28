@@ -41,12 +41,13 @@ def test_a_viewer_is_told_it_will_be_tried_again_but_not_what_radarr_says(stuck,
     assert (item["attention"], item["attention_hint"]) == ("", "")
 
 
-def test_a_download_whose_tries_are_spent_is_not_said_to_be_tried_again(stuck, viewer, conn):  # noqa: F811
+def test_a_download_tried_many_times_is_still_said_to_be_fixed(stuck, viewer, conn):  # noqa: F811
     conn.execute(
         "INSERT INTO arr_import_retries (key, tries, stuck_since) VALUES ('radarr:11', 99, 1)"
     )
     conn.commit()
-    assert _item(viewer)["retrying"] is False
+    item = _item(viewer)
+    assert (item["retrying"], item["fixing"]) == (True, "Fixing — finding another copy")
 
 
 def test_a_stuck_copy_beside_another_still_downloading_is_not_said_to_be_tried_again(

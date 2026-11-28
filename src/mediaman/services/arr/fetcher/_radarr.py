@@ -64,6 +64,7 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
         card["queue_id"] = q.get("id") or 0
         card["movie_id"] = q.get("movieId") or movie.get("id") or 0
         card["download_id"] = q.get("downloadId") or ""
+        card["output_path"] = q.get("outputPath") or ""
         _identify(card, movie.get("tmdbId"))
         items.append(card)
     return items

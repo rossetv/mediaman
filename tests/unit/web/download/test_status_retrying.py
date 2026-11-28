@@ -92,9 +92,10 @@ def test_a_stuck_season_with_tries_left_will_get_another_copy(poll, conn):
     assert (data["state"], data["retrying"]) == ("needs_attention", True)
 
 
-def test_a_stuck_season_whose_tries_are_spent_is_left_for_a_person(poll, conn):
+def test_a_stuck_season_tried_many_times_before_is_still_tried_again(poll, conn):
     _tried(conn, "sonarr:7:12", 99)
-    assert poll("sonarr", [_stuck()])["retrying"] is False
+    data = poll("sonarr", [_stuck()])
+    assert (data["retrying"], data["state_label"]) == (True, "Fixing — finding another copy")
 
 
 def test_nothing_is_tried_again_while_the_setting_is_off(poll, conn):
@@ -107,16 +108,13 @@ def test_a_fault_of_the_setup_is_not_tried_again(poll):
     assert poll("sonarr", [stuck])["retrying"] is False
 
 
-def test_a_stuck_film_is_tried_again_only_while_it_has_tries_left(poll, conn):
+def test_a_stuck_film_tried_many_times_before_is_still_tried_again(poll, conn):
     _tried(conn, "radarr:3", 99)
     film = {
         **_stuck(),
         "movie": {"id": 3, "title": "Fight Club", "tmdbId": 550},
         "movieId": 3,
     }
-    assert poll("radarr", [film])["retrying"] is False
-    conn.execute("UPDATE arr_import_retries SET tries = 0")
-    conn.commit()
     assert poll("radarr", [film])["retrying"] is True
 
 

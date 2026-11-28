@@ -39,11 +39,17 @@
     {% endcall %}
     {% set import_retry = settings.get('import_retry_enabled', True) not in (False, 'false', 'False', 0, '0') %}
     {% call c.setg_row("Retry stuck downloads automatically",
-                          "When Radarr or Sonarr can't import a download for an hour, mediaman removes it, blocklists that release and searches again. Two tries per film or season, then it waits for you.") %}
+                          "When Radarr or Sonarr can't import a download for an hour, mediaman fixes it where it can, or else removes it, blocklists that release and searches again. Each next copy gets longer (3 hours, 12 hours, then a day) and it keeps trying daily until the title imports.") %}
       <span class="tog {% if import_retry %}on{% endif %}" role="switch" tabindex="0" aria-label="Retry stuck downloads automatically"
             data-toggle data-target="import_retry_enabled"
             aria-checked="{{ 'true' if import_retry else 'false' }}"></span>
       <input type="hidden" id="import_retry_enabled" value="{{ 'true' if import_retry else 'false' }}">
+    {% endcall %}
+    {% call c.setg_row("Downloads folder",
+                          "Where finished downloads are, as Radarr and Sonarr report them, mounted into mediaman read-write at the same path. When set, mediaman gives video files that came without an extension the right one so they import. Leave empty to only search again.") %}
+      <input class="inp inp--fluid" type="text" id="import_fix_folder" size="36" aria-label="Downloads folder"
+             value="{{ settings.get('import_fix_folder', '') or '' }}"
+             placeholder="/downloads/completed" autocomplete="off" spellcheck="false">
     {% endcall %}
   {% endcall %}
 
