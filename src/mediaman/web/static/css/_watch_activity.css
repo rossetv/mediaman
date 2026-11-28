@@ -235,7 +235,6 @@
 .act-sub__text small { display: block; font-size: 12px; line-height: 1.4; color: var(--t3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .act-sub__val { align-self: start; font-size: 13px; line-height: 1.35; color: var(--t2); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
 .act-sub__val.is-num { color: var(--t1); }
-.act-sub__val.is-busy { color: var(--g-accent-text); }
 .act-tag { flex: none; padding: 1px 7px; border-radius: var(--r-pill); background: var(--s3); font-size: 11px; font-weight: 500; line-height: 16px; color: var(--t2); }
 .act-tag--away { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--g-accent-text); box-shadow: var(--g-chip-floor); }
 .act-line { display: block; height: 4px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--t1) 14%, transparent); overflow: hidden; }

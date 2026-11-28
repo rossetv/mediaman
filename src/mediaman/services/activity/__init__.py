@@ -1,6 +1,6 @@
 """Activity: what the server is busy with, for admins: the line, CPU and memory, by app, now
-and over time. Every source is read with GET requests only; nothing is written anywhere but
-mediaman's own history table.
+and over time. Plex and Docker are read with GET requests, NZBGet with its read-only JSON-RPC
+methods; nothing is written anywhere but mediaman's own history table.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def live_payload(
             "left": nzb.left,
             "count": len(nzb.items),
             "items": [
-                {"title": i.title, "state": i.state, "done": i.done, "size": i.size}
+                {"title": i.title, "state": i.state, "done": i.done, "size": i.size, "by": i.by}
                 for i in busy[:_LISTED]
             ],
         }

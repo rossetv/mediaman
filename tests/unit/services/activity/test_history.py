@@ -67,3 +67,11 @@ def test_since_is_the_oldest_point_kept(conn):
     history.store(conn, point(1), NOON)
     history.store(conn, point(1), NOON + 30)
     assert history.since(conn) == NOON
+
+
+def test_since_is_when_the_first_reading_was_taken_after_its_hour_is_rolled_up(conn):
+    first = NOON + 37 * 60
+    for i in range(int(2 * 3600 / 15)):
+        history.store(conn, point(i), first + i * 15)
+    history.store(conn, point(1), first + 29 * 24 * 3600)  # the finer steps are gone
+    assert history.since(conn) == first

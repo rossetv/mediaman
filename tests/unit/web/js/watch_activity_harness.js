@@ -28,9 +28,10 @@ Object.defineProperty(Node.prototype, 'classList', {
   get() { return Object.assign(classes.call(this), { 0: this.className.split(/\s+/)[0] }); },
 });
 
+// Half the server's memory in use, Plex's share 6.25%: 1 GB of 16.
 function point(at, down, cpu) {
-  return { at, down, up: 2 * MB, dl: down, watch: 2 * MB, mm: 0.1 * MB, cpu, mem: 8 * 1024 * MB,
-    apps: { plex: [10, 1024 * MB], sonarr: [3, 600 * MB], mediaman: [0.5, 140 * MB] } };
+  return { at, down, up: 2 * MB, dl: down, watch: 2 * MB, mm: 0.1 * MB, cpu, mem_pct: 50, plex_mem_pct: 6.25,
+    apps: { plex: [10, null], sonarr: [3, 600 * MB], mediaman: [0.5, 140 * MB] } };
 }
 
 function live(over) {
@@ -39,7 +40,9 @@ function live(over) {
   return {
     at: NOW, every: 2, sources: { plex: 'ok', nzbget: 'ok', docker: 'ok' }, cores: 10, mem_total: 16 * 1024 * MB,
     point: pts[pts.length - 1], live: pts, since: NOW - 40 * 86400,
-    downloads: { rate: 100 * MB, left: 50 * 1024 * MB, count: 4, items: [{ title: 'Iron Petal Academy · Season 1', state: 'downloading', done: 10 * 1024 * MB, size: 40 * 1024 * MB }] },
+    downloads: { rate: 100 * MB, left: 50 * 1024 * MB, count: 4, items: [
+      { title: 'Iron Petal Academy · Season 1', state: 'downloading', done: 10 * 1024 * MB, size: 40 * 1024 * MB, by: 'sonarr' },
+      { title: 'The Long Coast · Season 3', state: 'unpacking', done: 2 * 1024 * MB, size: 2 * 1024 * MB, by: 'sonarr' }] },
     sessions: [{ user: 'rosa', device: 'Living room TV', kind: 'tv', title: 'Kestrel Point', transcode: false, local: true, rate: 1.5 * MB }],
     work: { searching: {}, fixing: 0, scanning: false, ai: null },
     ...over,
@@ -93,11 +96,14 @@ async function page(opts = {}) {
   let answer = live(opts.live);
   const timers = [];
   let frames = 0;
+  const clock = { now: 0 };
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise, Date, Number, isFinite, parseInt, parseFloat, Error, RegExp, encodeURIComponent,
-    performance: { now: () => 0 },
+    document: doc, console, JSON, Array, Object, String, Math, Promise, Number, isFinite, parseInt, parseFloat, Error, RegExp, encodeURIComponent,
+    performance: { now: () => clock.now },
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
+    // Today is the made-up server's day.
+    Date: class extends Date { constructor(...a) { super(...(a.length ? a : [NOW * 1000])); } static now() { return NOW * 1000; } },
     CustomEvent: class { constructor(type, init) { Object.assign(this, { type, ...init }); } },
     getComputedStyle: () => ({ getPropertyValue: () => '', transform: 'none' }),
     matchMedia: (q) => ({ matches: /reduce/.test(q) ? !opts.motion : false }),
@@ -130,6 +136,8 @@ async function page(opts = {}) {
   const p = {
     doc, ctx, $, one, asked,
     frames: () => frames,
+    clock,
+    timers,
     set(over) { answer = live(over); },
     async click(node) { click(doc, node); await settle(); },
     async open() { await p.click($('meter')); await p.click($('space-tab-activity')); },
@@ -246,6 +254,108 @@ const scenarios = {
     p.set({ point: point(NOW + 2, 300 * MB, 90) });
     await p.tick();
     return { arriving: p.one('.act-body').classList.contains('is-arriving'), frames: p.frames() - at, down: p.text('.act-tile__n') };
+  },
+
+  // An answer on its way when the tab is hidden does not ask again.
+  async hidden() {
+    const p = await page();
+    await p.open();
+    p.timers.filter((t) => t.fn && t.ms === 2000).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+    p.doc.hidden = true;
+    p.doc.dispatchEvent({ type: 'visibilitychange' });
+    await settle();
+    const at = p.asked.length;
+    await p.tick();
+    await p.tick();
+    return { asked: p.asked.length - at };
+  },
+
+  // The crosshair stands on the slot under the pointer, and its tip turns back at the right.
+  async slot() {
+    const p = await page();
+    await p.open();
+    await p.click(p.one('#space-activity [data-period="1h"]'));
+    const box = p.one('#space-activity .act-net .act-chart');
+    const tip = p.one('#space-activity .act-net .act-tip');
+    Object.defineProperty(tip, 'offsetWidth', { value: 80 });
+    // 160 slots over 300 px: x 149 is slot 79, part way up from 10 to 200 MB/s.
+    await p.pointer(box, 'pointermove', 149);
+    const mid = { text: p.text('#space-activity .act-net .act-tip'), hair: p.one('#space-activity .act-net .act-hair').style.transform };
+    await p.pointer(box, 'pointermove', 0);
+    const left = tip.style.transform;
+    await p.pointer(box, 'pointermove', 300);
+    return { mid, left, right: tip.style.transform };
+  },
+
+  // Away from today, a 24 h tooltip says the day as well as the time.
+  async day() {
+    process.env.TZ = 'UTC';
+    const p = await page();
+    await p.open();
+    await p.click(p.one('#space-activity [data-period="24h"]'));
+    const box = p.one('#space-activity .act-net .act-chart');
+    await p.pointer(box, 'pointermove', 10); // 23 hours before noon: the day before
+    const before = p.text('#space-activity .act-net .act-tip__when');
+    await p.pointer(box, 'pointermove', 300);
+    return { before, today: p.text('#space-activity .act-net .act-tip__when') };
+  },
+
+  // A frame that began before the count did shows where it counts from, not past it.
+  async early() {
+    const p = await page({ motion: true });
+    await p.open();
+    const seen = [];
+    const raf = p.ctx.requestAnimationFrame;
+    p.clock.now = 1000 * (p.frames() + 3);
+    // Frames run at once, one inside the next: what each shows is read as the next begins.
+    p.ctx.requestAnimationFrame = (fn) => raf((t) => { seen.push(p.text('.act-tile__n')); fn(t); });
+    p.set({ point: point(NOW + 2, 300 * MB, 90) });
+    await p.tick();
+    return seen;
+  },
+
+  // With the server's size set, memory is in GB and the heading names the server.
+  async sized() {
+    const p = await page();
+    await p.open();
+    const card = p.doc.querySelectorAll('#space-activity .act-res')[1];
+    const keys = card.querySelectorAll('.act-key').map((k) => [k.querySelector('.act-key__name').textContent, k.querySelector('.act-key__val').textContent]);
+    card.querySelector('.act-grow').focus();
+    await p.key('Enter');
+    const ticks = p.doc.querySelectorAll('.act-big__tick').map((t) => t.textContent);
+    return {
+      note: p.doc.querySelectorAll('#space-activity .act-h__note')[1].textContent,
+      tile: p.doc.querySelectorAll('#space-activity .act-tile__sub')[2].textContent,
+      fig: card.querySelector('.act-res__n').textContent,
+      keys, ticks,
+    };
+  },
+
+  // Without it, the host and Plex are shares of the server, and nothing is turned into GB.
+  async shares() {
+    const p = await page({ live: { mem_total: null, cores: null } });
+    await p.open();
+    const card = p.doc.querySelectorAll('#space-activity .act-res')[1];
+    return {
+      note: p.doc.querySelectorAll('#space-activity .act-h__note')[1].textContent,
+      tiles: p.doc.querySelectorAll('#space-activity .act-tile__sub').map((t) => t.textContent),
+      fig: card.querySelector('.act-res__n').textContent,
+      keys: card.querySelectorAll('.act-key').map((k) => [k.querySelector('.act-key__name').textContent, k.querySelector('.act-key__val').textContent]),
+    };
+  },
+
+  async unpacking() {
+    const p = await page();
+    await p.open();
+    const row = p.doc.querySelectorAll('.act-row.act-c--dl .act-sub')[1];
+    return { sub: row.querySelector('small').textContent, cls: row.querySelector('.act-sub__val').className };
+  },
+
+  async edge() {
+    const p = await page();
+    const s = p.ctx.MMWatch.activity.slots;
+    // The first point comes after the window starts, on a slope up from 10 to 100.
+    return s([{ at: 10, v: 10 }, { at: 20, v: 100 }], 0, 20, 3, (x) => x.v, 40);
   },
 
   async slots() {

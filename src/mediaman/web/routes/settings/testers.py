@@ -303,7 +303,8 @@ def test_docker(settings: dict[str, object]) -> JSONResponse:
             return _safe_http_error_to_response(cause)
         if isinstance(cause, _requests.Timeout):
             return _failure("timeout", _TIMED_OUT)
-        if isinstance(cause, _requests.RequestException):
+        # requests' JSONDecodeError is a RequestException too: a reply that is not JSON came.
+        if isinstance(cause, _requests.RequestException) and not isinstance(cause, ValueError):
             return _failure("connection_refused", _UNREACHABLE)
         return _failure("bad_reply", _BAD_REPLY)
     return JSONResponse({"ok": True})

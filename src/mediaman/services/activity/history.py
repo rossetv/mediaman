@@ -8,6 +8,7 @@ from __future__ import annotations
 import itertools
 import json
 import logging
+import math
 import sqlite3
 from collections.abc import Iterable, Sequence
 
@@ -32,7 +33,7 @@ PERIODS: dict[str, tuple[int, int]] = {
 }
 # Points a period is drawn with at most: about one for every two pixels of the widest graph.
 MAX_POINTS = 240
-_FIGURES = ("down", "up", "dl", "watch", "mm", "cpu", "mem")
+_FIGURES = ("down", "up", "dl", "watch", "mm", "cpu", "mem_pct", "plex_mem_pct")
 
 
 def _mean(values: Iterable[object]) -> float | None:
@@ -40,10 +41,18 @@ def _mean(values: Iterable[object]) -> float | None:
     return sum(known) / len(known) if known else None
 
 
+def _first(point: Point) -> float:
+    """When the first reading behind *point* was taken."""
+    first = point.get("first", point.get("at"))
+    return float(first) if isinstance(first, int | float) else math.inf
+
+
 def average(points: Sequence[Point]) -> Point:
     """One point standing for *points*: each figure the mean of those that know it."""
     out: Point = {k: _mean(p.get(k) for p in points) for k in _FIGURES}
     out["at"] = _mean(p.get("at") for p in points)
+    # When the first of them was taken: a coarser point is kept at the start of its step.
+    out["first"] = min(_first(p) for p in points)
     names: list[str] = []
     for p in points:
         apps = p.get("apps")
@@ -154,6 +163,13 @@ def period(conn: sqlite3.Connection, name: str, now: float) -> list[Point]:
 
 
 def since(conn: sqlite3.Connection) -> int | None:
-    """When the oldest point kept was taken."""
-    row = conn.execute("SELECT MIN(at) FROM activity_samples").fetchone()
-    return row[0] if row and row[0] is not None else None
+    """When the oldest reading kept was taken."""
+    first = math.inf
+    for tier, _, _ in TIERS:
+        row = conn.execute(
+            "SELECT at, data FROM activity_samples WHERE tier=? ORDER BY at LIMIT 1", (tier,)
+        ).fetchone()
+        point = _decode(row[0], row[1]) if row else None
+        if point is not None:
+            first = min(first, _first(point))
+    return int(first) if first != math.inf else None

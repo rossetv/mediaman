@@ -41,6 +41,7 @@
     { id: 'mediaman', name: 'mediaman' }
   ];
   var KIB = 1024;
+  var GIB = KIB * KIB * KIB;
 
   var on = false; // the tab is on show
   var data = null; // the newest answer
@@ -114,8 +115,9 @@
   }
 
   function whenLabel(at) {
-    var span = period.span;
-    return span <= 60 ? clockSec(at) : span <= 86400 ? clock(at) : clock(at, true);
+    if (period.span <= 60) return clockSec(at);
+    var today = new Date(at * 1000).toDateString() === new Date().toDateString();
+    return clock(at, period.span > 86400 || !today);
   }
 
   /* ── Numbers that count to their new value ── */
@@ -127,7 +129,8 @@
     if (!known(value) || !known(was) || was === value || reduce() || !on) { node.textContent = fmt(value); return; }
     var t0 = performance.now();
     function frame(t) {
-      var k = Math.min(1, (t - t0) / COUNT_MS);
+      // A frame's time can come before t0: it is when the frame began.
+      var k = Math.max(0, Math.min(1, (t - t0) / COUNT_MS));
       var e = 1 - Math.pow(1 - k, 3);
       node.textContent = fmt(was + (value - was) * e);
       node._raf = k < 1 ? requestAnimationFrame(frame) : 0;
@@ -140,13 +143,28 @@
 
   /* ── The figures of a point ── */
 
+  /* The server's memory in bytes, when it is set in Settings. Plex gives the memory in use,
+     its own too, only as a share: without the size memory is shown in percent, and an app
+     measured in bytes has no share of it. */
+  function memTotal() { return data && known(data.mem_total) && data.mem_total > 0 ? data.mem_total : null; }
+  function share(v) { var total = memTotal(); return !known(v) ? null : total ? v / 100 * total : v; }
+  function memFmt() { return memTotal() ? bytes : pct; }
+
   function appsOf(p) { return (p && p.apps) || {}; }
-  function app(p, id, i) { var a = appsOf(p)[id]; return a && known(a[i]) ? a[i] : null; }
+  /* An app's CPU (i 0) or memory (i 1). */
+  function app(p, id, i) {
+    if (i === 1 && id === 'plex' && known(p.plex_mem_pct)) return share(p.plex_mem_pct);
+    if (i === 1 && !memTotal()) return null;
+    var a = appsOf(p)[id];
+    return a && known(a[i]) ? a[i] : null;
+  }
+  /* The whole server's CPU in percent, or its memory. */
+  function whole(p, i) { return i === 0 ? (known(p.cpu) ? p.cpu : null) : share(p.mem_pct); }
   function knownSum(p, i) { return APPS.reduce(function (s, a) { return s + (app(p, a.id, i) || 0); }, 0); }
   /* What the host does that no app named here does. */
   function elseOf(p, i) {
-    var whole = i === 0 ? p.cpu : p.mem;
-    return known(whole) ? Math.max(0, whole - knownSum(p, i)) : null;
+    var all = whole(p, i);
+    return all !== null ? Math.max(0, all - knownSum(p, i)) : null;
   }
 
   /* ── Graphs ── */
@@ -166,7 +184,8 @@
       if (!b || b.at - a.at > gap) { out[i] = t - a.at <= gap ? va : null; continue; }
       var vb = get(b);
       if (!known(va) || !known(vb)) { out[i] = known(va) ? va : null; continue; }
-      out[i] = va + (vb - va) * (t - a.at) / (b.at - a.at);
+      // Before the first point its value is held: going on back along the slope can go below 0.
+      out[i] = Math.max(0, va + (vb - va) * Math.max(0, t - a.at) / (b.at - a.at));
     }
     return out;
   }
@@ -416,8 +435,8 @@
       return { id: a.id, cls: 'act-c--' + a.id, vals: slots(p, wnd.start, wnd.end, wnd.n, function (x) { return app(x, a.id, i); }, g) };
     });
     layers.push({ id: 'else', cls: 'act-c--other', vals: slots(p, wnd.start, wnd.end, wnd.n, function (x) { return elseOf(x, i); }, g) });
-    var total = slots(p, wnd.start, wnd.end, wnd.n, function (x) { return i === 0 ? x.cpu : x.mem; }, g);
-    var max = i === 0 ? 100 : (data && data.mem_total) || Math.max.apply(null, total.map(function (v) { return v || 0; }).concat([1]));
+    var total = slots(p, wnd.start, wnd.end, wnd.n, function (x) { return whole(x, i); }, g);
+    var max = i === 0 ? 100 : memTotal() || 100;
     return { at: times(wnd), layers: layers, total: total, max: max, i: i };
   }
 
@@ -436,7 +455,7 @@
     }
     var from = JSON.parse(JSON.stringify(was));
     function frame(t) {
-      var k = Math.min(1, (t - t0) / MORPH_MS);
+      var k = Math.max(0, Math.min(1, (t - t0) / MORPH_MS));
       var e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
       var m = JSON.parse(JSON.stringify(next));
       m.layers.forEach(function (layer, j) { layer.vals = k < 1 ? mix(from.layers[j].vals, next.layers[j].vals, e) : next.layers[j].vals; });
@@ -460,7 +479,7 @@
   }
 
   function stackTip(m, i) {
-    var fmt = m.i === 0 ? pct : bytes;
+    var fmt = m.i === 0 ? pct : memFmt();
     var rows = [{ cls: 'act-c--total', name: m.i === 0 ? 'All of the CPU' : 'All in use', value: fmt(m.total[i]) }];
     m.layers.forEach(function (layer) {
       var v = layer.vals[i];
@@ -704,6 +723,7 @@
   }
 
   var KIND_ICON = { tv: 'i-tv', phone: 'i-phone', tablet: 'i-tablet', web: 'i-laptop', computer: 'i-desktop' };
+  var IMPORTER = { sonarr: 'Sonarr', radarr: 'Radarr' };
   var STATE_WORD = { downloading: 'Downloading', queued: 'Queued', paused: 'Paused', repairing: 'Repairing', unpacking: 'Unpacking', finishing: 'Finishing' };
 
   function minutesLeft(left, speed) {
@@ -747,9 +767,8 @@
           o.sub = (it.state === 'paused' ? 'Paused' : 'Next in the queue') + ' · ' + bytes(it.size);
           o.val = STATE_WORD[it.state];
         } else {
-          o.sub = bytes(it.size) + ' · imported once it’s done';
+          o.sub = bytes(it.size) + ' · ' + (IMPORTER[it.by] ? IMPORTER[it.by] + ' imports it next' : 'imported once it’s done');
           o.val = STATE_WORD[it.state];
-          o.valCls = 'is-busy';
         }
         return o;
       }));
@@ -827,17 +846,25 @@
     });
   }
 
+  /* The server as set in Settings: "Server · 10 cores · 16 GB", or nothing. */
+  function serverNote(d) {
+    var parts = [];
+    if (known(d.cores)) parts.push(plural(d.cores, 'core'));
+    if (memTotal()) parts.push(Math.round(memTotal() / GIB) + ' GB');
+    return parts.length ? ['Server'].concat(parts).join(' · ') : '';
+  }
+
   function paintRes(d) {
     var p = d.point;
     var s = d.sources;
-    var cores = d.cores;
-    var total = d.mem_total;
-    setText(N.resNote, plural(cores, 'core') + (total ? ' · ' + Math.round(total / KIB / KIB / KIB) + ' GB' : ''));
+    var total = memTotal();
+    setText(N.resNote, serverNote(d));
     var quiet = [];
     if (s.plex === 'down') quiet.push({ warn: true, text: 'Plex isn’t answering, so the server’s CPU and memory aren’t known. The apps below are.' });
     else if (s.plex === 'off') quiet.push({ text: 'Set up Plex to see the server’s CPU and memory.' });
     if (s.docker === 'down') quiet.push({ warn: true, text: 'The Docker proxy isn’t answering, so apps in containers count as everything else.' });
     else if (s.docker === 'off') quiet.push({ text: 'Add a read-only Docker proxy in Settings to tell Sonarr, Radarr and others apart.' });
+    if (s.plex === 'ok' && !total) quiet.push({ text: 'Plex gives memory as a share. Set the server’s memory in Settings to see it, and each app’s, in GB.' });
     N.resSay.textContent = '';
     quiet.forEach(function (q) {
       var line = el('span', 'act-quiet__line' + (q.warn ? ' is-warn' : ''));
@@ -857,23 +884,25 @@
     var elseName = s.docker === 'ok' ? 'Everything else' : 'Other apps';
     [0, 1].forEach(function (i) {
       var card = i === 0 ? N.cpu : N.mem;
-      var fmt = i === 0 ? pct : bytes;
-      var whole = i === 0 ? p.cpu : p.mem;
-      count(card.fig, whole, i === 0 ? pct : gbOnly);
-      setText(card.of, i === 1 && known(whole) && total ? ' of ' + Math.round(total / KIB / KIB / KIB) + ' GB' : '');
-      var segs = listed.map(function (a) { return { cls: 'act-c--' + a.id, name: a.name, v: app(p, a.id, i) }; });
+      var fmt = i === 0 ? pct : memFmt();
+      var all = whole(p, i);
+      count(card.fig, all, i === 0 || !total ? pct : gbOnly);
+      setText(card.of, i === 1 && all !== null && total ? ' of ' + Math.round(total / GIB) + ' GB' : '');
+      // In percent, only Plex has a share of the memory to show.
+      var shown = i === 1 && !total ? listed.filter(function (a) { return app(p, a.id, 1) !== null; }) : listed;
+      var segs = shown.map(function (a) { return { cls: 'act-c--' + a.id, name: a.name, v: app(p, a.id, i) }; });
       var rest = elseOf(p, i);
-      var cap = i === 0 ? 100 : total;
-      if (known(whole)) {
+      var cap = i === 0 ? 100 : total || 100;
+      if (all !== null) {
         segs.push({ cls: 'act-c--other', name: elseName, v: rest });
-        segs.push({ cls: 'act-c--free', name: i === 0 ? 'Idle' : 'Free', v: cap ? Math.max(0, cap - whole) : 0 });
-      } else if (cap) {
+        segs.push({ cls: 'act-c--free', name: i === 0 ? 'Idle' : 'Free', v: Math.max(0, cap - all) });
+      } else {
         segs.push({ cls: 'act-c--free', name: 'Not known', v: Math.max(0, cap - knownSum(p, i)) });
       }
       bar(card.bar, segs);
-      var items = listed.map(function (a) { return { cls: 'act-c--' + a.id, name: a.name, v: app(p, a.id, i), fmt: fmt, note: i === 0 ? noteOf(a.id) : '' }; });
-      if (known(whole)) items.push({ cls: 'act-c--other', name: elseName, v: rest, fmt: fmt });
-      if (i === 1 && known(whole) && total) items.push({ cls: 'act-c--free', name: 'Free', v: Math.max(0, total - whole), fmt: fmt });
+      var items = shown.map(function (a) { return { cls: 'act-c--' + a.id, name: a.name, v: app(p, a.id, i), fmt: fmt, note: i === 0 ? noteOf(a.id) : '' }; });
+      if (all !== null) items.push({ cls: 'act-c--other', name: elseName, v: rest, fmt: fmt });
+      if (i === 1 && all !== null) items.push({ cls: 'act-c--free', name: 'Free', v: Math.max(0, cap - all), fmt: fmt });
       keys(card.keys, items);
     });
   }
@@ -944,11 +973,11 @@
     count(N.tDown.n, p.down, rate);
     setText(N.tDown.sub, 'Up ' + rate(p.up));
     count(N.tCpu.n, p.cpu, pct);
-    setText(N.tCpu.sub, 'of ' + plural(d.cores, 'core'));
-    count(N.tMem.n, p.mem, bytes);
-    setText(N.tMem.sub, d.mem_total ? 'of ' + Math.round(d.mem_total / KIB / KIB / KIB) + ' GB' : 'in use');
+    setText(N.tCpu.sub, known(d.cores) ? 'of ' + plural(d.cores, 'core') : 'of the server');
+    count(N.tMem.n, whole(p, 1), memFmt());
+    setText(N.tMem.sub, memTotal() ? 'of ' + Math.round(memTotal() / GIB) + ' GB' : 'of the server');
     N.tCpu.node.classList.toggle('is-unknown', !known(p.cpu));
-    N.tMem.node.classList.toggle('is-unknown', !known(p.mem));
+    N.tMem.node.classList.toggle('is-unknown', whole(p, 1) === null);
   }
 
   /* Whether the history has come as far back as the period goes. */
@@ -966,7 +995,7 @@
     var c = collecting();
     var tooSoon = period.id !== 'live' && !hist[period.id];
     setText(N.netNote, period.note);
-    setText(N.axisFrom, period.id === 'live' ? '1 min ago' : period.note.replace(/^the last /, '').replace(/^(\d+) (\w+)$/, '$1 $2') + ' ago');
+    setText(N.axisFrom, period.id === 'live' ? '1 min ago' : period.note.replace(/^the last /, '').replace(/^hour$/, '1 hour') + ' ago');
     Object.keys(charts).forEach(function (k) {
       var ch = charts[k];
       var m = k === 'net' ? netModel() : stackModel(k === 'cpu' ? 0 : 1);
@@ -1100,7 +1129,11 @@
 
   document.addEventListener('visibilitychange', function () {
     if (!on) return;
-    if (document.hidden) { clearTimeout(timer); clearTimeout(histTimer); } else { tick(); loadHistory(period); }
+    // A new generation, so an answer still on its way does not ask again while hidden.
+    gen++;
+    clearTimeout(timer);
+    clearTimeout(histTimer);
+    if (!document.hidden) { tick(); loadHistory(period); }
   });
 
   /* ── One graph, grown into the panel ── */
@@ -1121,6 +1154,9 @@
       big.live.textContent = lines.when + ': ' + lines.rows.map(function (r) { return r.name + ' ' + r.value; }).join(', ');
     }, 250);
   }
+
+  /* Memory up the side of a grown graph, all in GB so its foot reads 0 GB. */
+  function gbTick(b) { var g = b / GIB; return (g >= 10 || g === 0 ? Math.round(g) : g.toFixed(1)) + '\u00a0GB'; }
 
   function axisTicks(max, fmt, n) {
     var out = [];
@@ -1186,10 +1222,9 @@
         chart.empty.hidden = !c;
         chart.empty.textContent = c || '';
         chart.box.setAttribute('aria-label', spec.title + ', ' + period.note + '. Use the arrow keys to read it.');
-        var max = name === 'net' ? m.max : m.max;
-        var fmt = name === 'net' ? rate : name === 'cpu' ? pct : bytes;
-        var ticks = axisTicks(max, fmt, 4);
-        if (name === 'net') ticks = [rate(m.max), rate(m.max / 2), '0', rate(m.upMax)];
+        var fmt = name === 'net' ? rate : name === 'cpu' ? pct : memFmt();
+        var ticks = name === 'net' ? [rate(m.max), rate(m.max / 2), '0', rate(m.upMax)]
+          : axisTicks(m.max, name === 'mem' && memTotal() ? gbTick : fmt, 4);
         yAxis.replaceChildren.apply(yAxis, ticks.map(function (t, i) { var s = el('span', 'act-big__tick', t); s.style.setProperty('--at', name === 'net' ? [0, 0.345, 0.69, 1][i] : i / 4); return s; }));
         if (!grid.children.length) {
           (name === 'net' ? [0, 0.345, 0.69, 1] : [0, 0.25, 0.5, 0.75, 1]).forEach(function (f) { var l = el('span', 'act-big__line'); l.style.setProperty('--at', f); grid.append(l); });
@@ -1200,8 +1235,8 @@
         xAxis.replaceChildren.apply(xAxis, xs.map(function (t) { return el('span', '', t); }));
         var items = name === 'net'
           ? [['act-c--dl', 'Down', rate(data.point.down)], ['act-c--up', 'Up', rate(data.point.up)]]
-          : APPS.filter(function (a) { return appsOf(data.point)[a.id]; }).map(function (a) { return ['act-c--' + a.id, a.name, fmt(app(data.point, a.id, name === 'cpu' ? 0 : 1))]; })
-            .concat(known(name === 'cpu' ? data.point.cpu : data.point.mem) ? [['act-c--other', data.sources.docker === 'ok' ? 'Everything else' : 'Other apps', fmt(elseOf(data.point, name === 'cpu' ? 0 : 1))]] : []);
+          : APPS.filter(function (a) { return appsOf(data.point)[a.id] && (name === 'cpu' || memTotal() || app(data.point, a.id, 1) !== null); }).map(function (a) { return ['act-c--' + a.id, a.name, fmt(app(data.point, a.id, name === 'cpu' ? 0 : 1))]; })
+            .concat(whole(data.point, name === 'cpu' ? 0 : 1) !== null ? [['act-c--other', data.sources.docker === 'ok' ? 'Everything else' : 'Other apps', fmt(elseOf(data.point, name === 'cpu' ? 0 : 1))]] : []);
         legend.replaceChildren.apply(legend, items.map(function (it) {
           var li = el('li', 'act-key ' + it[0]);
           var dot = el('span', 'space-dot');
@@ -1219,7 +1254,6 @@
       if (reduce() || !layer.animate) return;
       var a = from.box.getBoundingClientRect();
       var b = chart.box.getBoundingClientRect();
-      var p = panel.getBoundingClientRect();
       var sx = a.width / Math.max(1, b.width);
       var sy = a.height / Math.max(1, b.height);
       var dx = a.left - b.left;
@@ -1233,7 +1267,6 @@
         if (n === plot) return;
         n.animate([{ opacity: 0, transform: 'translateY(' + (8 + i * 2) + 'px)' }, { opacity: 1, transform: 'none' }], { duration: 360, delay: 60 + i * 25, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' });
       });
-      void p;
     });
   }
 

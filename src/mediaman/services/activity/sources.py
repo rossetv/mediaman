@@ -1,4 +1,5 @@
-"""What each source says about the server right now, read with GET requests only.
+"""What each source says about the server right now. Plex and Docker are read with GET
+requests only, NZBGet with its read-only JSON-RPC methods (POSTs); none of them is changed.
 
 Plex gives the host's CPU and memory and who is watching, NZBGet the download speed and
 queue, a read-only Docker socket proxy each container's CPU and memory, and mediaman reads
@@ -15,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from xml.etree.ElementTree import Element
 
 import requests
@@ -29,8 +31,19 @@ TIMEOUT: tuple[float, float] = (1.5, 2.5)
 _DOCKER_MAX_BYTES = 1024 * 1024
 _MB = 1024 * 1024
 _TEXT_MAX = 120
-# The apps told apart by name. Anything else running counts as everything else.
+# The apps told apart. Anything else running counts as everything else.
 APPS = ("plex", "nzbget", "sonarr", "radarr", "mediaman")
+# A container is an app's when its image is named for it (the last part of the image's name,
+# without its tag), or failing that when the container is named after the app.
+_IMAGES = {
+    "plex": "plex",
+    "pms-docker": "plex",
+    "plex-media-server": "plex",
+    "nzbget": "nzbget",
+    "sonarr": "sonarr",
+    "radarr": "radarr",
+    "mediaman": "mediaman",
+}
 _CONTAINER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
 _MAX_CONTAINERS = 40
 
@@ -175,6 +188,7 @@ class NzbItem:
     state: str  # downloading, queued, paused, repairing, unpacking or finishing
     done: float  # bytes
     size: float
+    by: str = ""  # the app that imports it once it is done: sonarr, radarr or "" if not known
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +226,17 @@ def _nzb_title(name: str) -> str:
     return f"{title} · " + (f"S{season} E{int(episode)}" if episode else f"Season {season}")
 
 
+def _importer(category: str, name: str) -> str:
+    """Which app takes a download in: as its category says, else Sonarr for a season or an
+    episode."""
+    c = category.lower()
+    if any(w in c for w in ("sonarr", "tv", "series", "show")):
+        return "sonarr"
+    if any(w in c for w in ("radarr", "movie", "film")):
+        return "radarr"
+    return "sonarr" if _SEASON_RE.search(name) else ""
+
+
 def read_nzbget(client: NzbgetClient) -> NzbReading:
     """NZBGet's speed and queue; raises what the client raises when NZBGet does not answer."""
     status = client.get_status()
@@ -224,12 +249,14 @@ def read_nzbget(client: NzbgetClient) -> NzbReading:
         remain = max(0.0, (_num(group.get("RemainingSizeMB")) or 0) * _MB)
         left += remain
         name = group.get("NZBName")
+        name = name if isinstance(name, str) else ""
         items.append(
             NzbItem(
-                title=_nzb_title(name if isinstance(name, str) else ""),
+                title=_nzb_title(name),
                 state=_nzb_state(str(group.get("Status") or "")),
                 done=max(0.0, size - remain),
                 size=size,
+                by=_importer(str(group.get("Category") or ""), name),
             )
         )
     return NzbReading(rate=max(0.0, rate), left=left, items=items)
@@ -240,24 +267,46 @@ def read_nzbget(client: NzbgetClient) -> NzbReading:
 
 @dataclass(frozen=True, slots=True)
 class ContainerStats:
+    cid: str
     app: str  # one of APPS, or "" for any other container
     cpu_total: float  # nanoseconds of CPU, ever
     system_total: float  # nanoseconds of the host's CPUs, ever
     mem: float  # bytes in use, page cache left out
 
 
-def app_of(name: str) -> str:
-    low = name.lower()
-    return next((app for app in APPS if app in low), "")
+def app_of(image: str, names: list[str]) -> str:
+    """The app a container runs, from its image's name or its own; "" for any other."""
+    repo = image.lower().split("@")[0].rsplit("/", 1)[-1].split(":")[0]
+    if repo in _IMAGES:
+        return _IMAGES[repo]
+    return next((n.strip("/").lower() for n in names if n.strip("/").lower() in APPS), "")
+
+
+def _base(url: str) -> str:
+    """The proxy's address from its scheme, host, port and path alone, so nothing typed after
+    them can move a request off the paths asked for."""
+    parts = urlsplit(url.strip())
+    host = parts.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    port = f":{parts.port}" if parts.port is not None else ""
+    return f"{parts.scheme}://{host}{port}{parts.path.rstrip('/')}"
 
 
 class DockerProxy:
     """Reads the running containers and their figures through a socket proxy that allows only
     GET /containers/json and GET /containers/{id}/stats."""
 
-    def __init__(self, url: str, *, allowed_hosts: frozenset[str] | None = None) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        allowed_hosts: frozenset[str] | None = None,
+        session: requests.Session | None = None,
+    ) -> None:
         self._http = SafeHTTPClient(
-            url.rstrip("/"),
+            _base(url),
+            session=session,
             default_timeout=TIMEOUT,
             default_max_bytes=_DOCKER_MAX_BYTES,
             allowed_hosts=allowed_hosts,
@@ -270,7 +319,7 @@ class DockerProxy:
             raise DockerUnavailable("The Docker proxy could not be reached") from exc
         try:
             return resp.json()
-        except ValueError as exc:
+        except (ValueError, RecursionError) as exc:
             raise DockerUnavailable("The Docker proxy sent something unreadable") from exc
 
     def containers(self) -> list[tuple[str, str]]:
@@ -286,9 +335,8 @@ class DockerProxy:
             if not _CONTAINER_ID_RE.fullmatch(cid):
                 continue
             names = c.get("Names")
-            names = names if isinstance(names, list) else []
-            name = " ".join(str(n) for n in names) + " " + str(c.get("Image") or "")
-            out.append((cid, app_of(name)))
+            names = [str(n) for n in names] if isinstance(names, list) else []
+            out.append((cid, app_of(str(c.get("Image") or ""), names)))
         return out
 
     def stats(self, cid: str, app: str) -> ContainerStats:
@@ -301,9 +349,12 @@ class DockerProxy:
         usage = _obj(cpu.get("cpu_usage"))
         mem = _obj(data.get("memory_stats"))
         detail = _obj(mem.get("stats"))
-        cache = _num(detail.get("inactive_file", detail.get("cache"))) or 0
+        # The page cache the kernel can drop at once, as `docker stats` leaves it out: cgroup v2
+        # calls it inactive_file, v1 total_inactive_file.
+        cache = _num(detail.get("inactive_file", detail.get("total_inactive_file"))) or 0
         used = max(0.0, (_num(mem.get("usage")) or 0) - cache)
         return ContainerStats(
+            cid=cid,
             app=app,
             cpu_total=_num(usage.get("total_usage")) or 0,
             system_total=_num(cpu.get("system_cpu_usage")) or 0,
@@ -348,11 +399,27 @@ def _cgroup_cpu(root: Path) -> float | None:
     return int(v1) / 1e9 if v1 and v1.strip().isdigit() else None
 
 
+def _inactive_file(stat: str | None, key: str) -> float:
+    for line in (stat or "").splitlines():
+        name, _, value = line.partition(" ")
+        if name == key and value.strip().isdigit():
+            return float(value)
+    return 0.0
+
+
 def _cgroup_mem(root: Path) -> float | None:
-    for path in (root / "memory.current", root / "memory" / "memory.usage_in_bytes"):
-        raw = _read(path)
+    """Memory in use, less the page cache the kernel can drop at once, as for a container."""
+    for usage, stat, key in (
+        (root / "memory.current", root / "memory.stat", "inactive_file"),
+        (
+            root / "memory" / "memory.usage_in_bytes",
+            root / "memory" / "memory.stat",
+            "total_inactive_file",
+        ),
+    ):
+        raw = _read(usage)
         if raw and raw.strip().isdigit():
-            return float(raw)
+            return max(0.0, float(raw) - _inactive_file(_read(stat), key))
     return None
 
 
@@ -386,13 +453,9 @@ def read_self(root: Path = _CGROUP, net_dev: Path = _NET_DEV) -> SelfReading:
     return SelfReading(cpu_seconds=cpu, mem=mem, rx=rx, tx=tx)
 
 
-def host_size() -> tuple[int, float | None]:
-    """The host's cores and memory in bytes, as mediaman sees them."""
-    try:
-        mem = float(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"))
-    except (ValueError, OSError, AttributeError):
-        mem = None
-    return os.cpu_count() or 1, mem
+def own_cores() -> int:
+    """The cores of the machine mediaman and the containers run on: a VM's, on a Mac."""
+    return os.cpu_count() or 1
 
 
 __all__ = [
@@ -409,7 +472,7 @@ __all__ = [
     "PlexUnavailable",
     "SelfReading",
     "app_of",
-    "host_size",
+    "own_cores",
     "read_nzbget",
     "read_self",
 ]

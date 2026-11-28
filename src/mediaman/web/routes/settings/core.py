@@ -78,6 +78,13 @@ def validate_url_fields(body: dict[str, object]) -> JSONResponse | None:
                     status=400,
                     message=f"{label} must be an http:// or https:// address.",
                 )
+            # Its requests are built on this address: nothing may follow the path.
+            if url_key == "docker_proxy_url" and ("?" in candidate or "#" in candidate):
+                return respond_err(
+                    "invalid_url",
+                    status=400,
+                    message=f"{label} must not end in a query (?) or a fragment (#).",
+                )
             # URL is validated pre-save against admin-typed input; no conn-derived allowlist applies here.
             if not is_safe_outbound_url(candidate):
                 logger.warning(

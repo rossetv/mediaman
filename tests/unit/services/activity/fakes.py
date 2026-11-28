@@ -59,11 +59,17 @@ def nzb_reply(method: str) -> dict[str, object]:
 
 
 class Stack:
-    """Answers as the three services would; a name in *down* does not answer."""
+    """Answers as the three services would; a name in *down* does not answer, one in *hang*
+    waits until the test ends, and one in *odd* answers with what that maps it to."""
 
     def __init__(self, fake_response) -> None:
+        import threading
+
         self.fake_response = fake_response
         self.down: set[str] = set()
+        self.hang: set[str] = set()
+        self.odd: dict[str, object] = {}
+        self.released = threading.Event()
         self.calls: list[str] = []
         # Each container's CPU and the host's, in nanoseconds, as Docker counts them ever.
         self.cpu = {SONARR_ID: 1_000, RADARR_ID: 5_000, PLEX_ID: 0, OTHER_ID: 0}
@@ -80,7 +86,12 @@ class Stack:
         )
         if service in self.down:
             raise requests.ConnectionError("down")
+        if service in self.hang:
+            self.released.wait(10)
+            raise requests.ConnectionError("cut")
         r = self.fake_response
+        if service in self.odd:
+            return self.odd[service]
         if service == "plex":
             if "/statistics/resources" in url:
                 return r(content=RESOURCES.encode())

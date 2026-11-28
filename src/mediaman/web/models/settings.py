@@ -134,6 +134,10 @@ class SettingsUpdate(BaseModel):
 
     # A read-only Docker socket proxy, for each app's CPU and memory on Activity. Optional.
     docker_proxy_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    # The server's size, for Activity: Plex gives its memory only as a share. Optional; empty
+    # leaves it unset.
+    server_memory_gb: Annotated[str | None, Field(max_length=16)] = None
+    server_cores: Annotated[str | None, Field(max_length=16)] = None
 
     mailgun_domain: Annotated[str | None, Field(max_length=_HOST_MAX)] = None
     mailgun_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
@@ -206,6 +210,27 @@ class SettingsUpdate(BaseModel):
         if isinstance(v, str):
             return _validate_url(v)
         return v
+
+    @field_validator("server_memory_gb", "server_cores", mode="before")
+    @classmethod
+    def validate_server_size(cls, v: object, info: ValidationInfo) -> object:
+        """A whole number of cores from 1 to 1024, or GB of memory from 1 to 4096; empty
+        unsets it."""
+        if v is None:
+            return v
+        text = str(v).strip()
+        if not text:
+            return ""
+        cores = info.field_name == "server_cores"
+        try:
+            n = int(text) if cores else float(text)
+        except ValueError:
+            n = 0
+        high = 1024 if cores else 4096
+        if not (1 <= n <= high):
+            what = "Server cores must be a whole number" if cores else "Server memory must be GB"
+            raise ValueError(f"{what} from 1 to {high}")
+        return str(n if cores else round(n, 1)).removesuffix(".0")
 
     @field_validator(
         "plex_token",
