@@ -56,6 +56,7 @@
   var play = null;           // what plays on the TV, or is about to
   var loading = false;
   var arriving = false;      // the stream has yet to be seen on the TV
+  var aim = null;            // the place it is to start from, until it is seen there
   var goneTimer = null;
 
   el.className = 'player-video player-air';
@@ -122,14 +123,14 @@
       load: load,
       stop: function () {
         if (play !== mine) return Promise.resolve();
-        play = null;
+        play = aim = null;
         clearTimeout(goneTimer);
         rest();
         return Promise.resolve();
       },
       onGone: function (fn) { gone.push(fn); },
       gone: function () {
-        play = null;
+        play = aim = null;
         gone.forEach(function (fn) { fn('back'); });
         rest();
       },
@@ -152,7 +153,8 @@
     return new Promise(function (resolve, reject) {
       var timer = setTimeout(function () { done(coded('failed')); }, LOAD_MS);
       function there() {
-        el.currentTime = stream.position_s;
+        aim = stream.position_s >= 1 ? stream.position_s : null;
+        if (aim !== null) el.currentTime = aim;
         done(null);
       }
       function failed() { done(coded('failed')); }
@@ -186,6 +188,16 @@
     else if (onTv()) arriving = false;
     else if (play && !loading) lookFor(arriving ? ARRIVE_MS : GONE_MS);
   });
+
+  /* A TV that takes the stream may begin it from its start whatever the element was told, as the
+     player's video may after a load: it is sent to the place again until it plays there. */
+  function holdPlace() {
+    if (aim === null || !play || loading) return;
+    if (el.currentTime < 1) el.currentTime = aim;
+    else if (!el.paused && onTv() && el.currentTime >= aim - 1) aim = null;
+  }
+  el.addEventListener('playing', holdPlace);
+  el.addEventListener('timeupdate', holdPlace);
 
   el.addEventListener('playing', function () {
     if (!play || loading) return;
