@@ -844,6 +844,19 @@ const scenarios = {
     grid.classList.remove('watch-sheet');
     return { over, page: await opened() };
   },
+  /* The menu opened again after it was left scrolled down, as the ticked trailers item had it:
+     it starts at its top, where its first item is. */
+  async menuOpensAtTop() {
+    const h = load({ api: { 'movie-1': { ...FILM, keep_allowed: true, leaving: { keep_id: 5 } } } });
+    await h.rest('film');
+    const more = h.pv().querySelector('[data-preview-more]');
+    more.click();
+    const menu = h.doc.querySelector('.pv-menu');
+    menu.scrollTop = 15;
+    more.click();
+    more.click();
+    return [!menu.hidden, menu.scrollTop, h.doc.activeElement === menu.querySelector('.watch-keep-menu__item')];
+  },
   async details() {
     const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2' } } });
     await h.rest('going', 900);

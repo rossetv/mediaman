@@ -317,6 +317,10 @@ def test_the_keep_menu_from_a_preview_over_the_search_sheet_is_marked_to_stand_o
     assert out["page"] == [True, False]
 
 
+def test_a_previews_menu_opens_scrolled_to_its_first_item() -> None:
+    assert _run("menuOpensAtTop") == [True, 0, True]
+
+
 def test_escape_closes_the_previews_menu_then_the_preview_then_goes_back() -> None:
     assert _run("escapeInGrid")["menu"] == [
         "Fieldwork",

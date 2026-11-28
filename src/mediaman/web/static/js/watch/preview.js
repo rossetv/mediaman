@@ -1885,6 +1885,7 @@
     if (!trigger || !trigger.contains(e.target)) return;
     menuNode.style.left = trigger.getBoundingClientRect().right - menuNode.offsetWidth + 'px';
     menuNode.querySelector('.watch-keep-menu__item').focus({ preventScroll: true });
+    menuNode.scrollTop = 0;
   });
 
   /* A card pressed, with its preview open or not: the detail opened with it. */
