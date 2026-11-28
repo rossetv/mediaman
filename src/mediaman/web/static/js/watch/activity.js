@@ -1020,12 +1020,14 @@
   function paintCharts(slide) {
     var c = collecting();
     var tooSoon = period.id !== 'live' && !hist[period.id];
+    var nm = null;
     setText(N.netNote, period.note);
     setText(N.axisFrom, period.id === 'live' ? '1 min ago' : period.note.replace(/^the last /, '').replace(/^hour$/, '1 hour') + ' ago');
     Object.keys(charts).forEach(function (k) {
       var ch = charts[k];
       var m = k === 'net' ? netModel() : stackModel(k === 'cpu' ? 0 : 1);
       if (tooSoon) return;
+      if (k === 'net') nm = m;
       if (slide && period.id === 'live') { ch.draw(m); ch.slide(); } else morph(ch, m);
       ch.empty.hidden = !c;
       ch.empty.textContent = c || '';
@@ -1033,7 +1035,6 @@
       ch.collecting = c;
     });
     // The scale says where the graph is going, not a frame part way there.
-    var nm = !tooSoon && netModel();
     if (nm) { setText(N.netMax, scaleRate(nm.max)); setText(N.upMax, scaleRate(nm.upMax)); N.upMax.hidden = !nm.upKnown; }
     N.netGrow.setAttribute('aria-label', 'Network, ' + period.note + (c ? ', ' + lower(c) : '') + '. Show larger');
     [N.cpu, N.mem].forEach(function (card) { card.grow.setAttribute('aria-label', card.grow._label + ', ' + period.note + '. Show larger'); });
