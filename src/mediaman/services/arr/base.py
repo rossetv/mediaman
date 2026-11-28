@@ -62,6 +62,8 @@ logger = logging.getLogger(__name__)
 
 # The first version of each that honours ``skipRedownload``, by the client's kind.
 _SKIPS_REDOWNLOAD_FROM = {"series": (4,), "movie": (4, 7, 2)}
+#: An interactive search waits on the slowest indexer, which the service gives a minute.
+_RELEASE_SEARCH_TIMEOUT: tuple[float, float] = (5.0, 90.0)
 
 __all__ = [
     "_ARR_TIMEOUT_SECONDS",
@@ -191,3 +193,26 @@ class ArrClient(
     def send_command(self, command: Mapping[str, Any]) -> None:
         """Post a command, such as a search, for Radarr or Sonarr to run in the background."""
         self._post("/api/v3/command", command)
+
+    def find_releases(self, **ids: int) -> list[dict[str, Any]]:
+        """The releases the indexers have for an ``episodeId``, a ``seriesId`` with its
+        ``seasonNumber``, or a ``movieId``, as Sonarr or Radarr judge them.
+
+        The service asks every indexer while the call waits, so it is given longer than a
+        read; it is asked once.
+        """
+        path = "/api/v3/release?" + "&".join(f"{name}={int(value)}" for name, value in ids.items())
+        try:
+            resp = self._http.get(
+                path, headers=self._headers, retry=False, timeout=_RELEASE_SEARCH_TIMEOUT
+            )
+            self.last_error = None
+            data = resp.json()
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self.last_error = str(exc)
+            raise
+        return self._object_list(data, "/api/v3/release")
+
+    def grab_release(self, guid: str, indexer_id: int) -> None:
+        """Have the service download a release ``find_releases`` gave, by its guid."""
+        self._post("/api/v3/release", {"guid": guid, "indexerId": indexer_id})

@@ -55,6 +55,7 @@ from mediaman.services.media_meta.plex_quality import ORIGINAL, QUALITY_PRESETS
 from mediaman.services.media_meta.plex_watch import (
     _RATING_KEY_RE,
     PlexError,
+    PlexItemNotFound,
     PlexNotConfigured,
     PlexUnavailable,
 )
@@ -77,6 +78,9 @@ _QUIET_TIMEOUT: tuple[float, float] = (5.0, 5.0)
 # A start is several Plex calls in a row; the whole of it must end before a proxy in front of
 # mediaman (Cloudflare's origin limit is 100 s) gives up on the request.
 START_DEADLINE_SECONDS = 45.0
+#: How long an added subtitle has to show among the item's tracks, and how often it is looked for.
+ADD_SUBTITLE_SECONDS = 30.0
+_ADD_POLL_SECONDS = 1.0
 # One reaper round stops pinging once it has run this long, so idle streams are stopped on time.
 REAP_PING_BUDGET_SECONDS = 60.0
 SHUTDOWN_BUDGET_SECONDS = 5.0
@@ -1357,6 +1361,102 @@ class StreamManager:
         except PlexError as exc:
             logger.warning("plex_stream: could not put held selections back (%s)", exc)
         return put_back
+
+    def add_subtitle(self, rating_key: str, key: str) -> str | None:
+        """Have Plex add the subtitle its search found under *key* to the item; the id of the
+        new track, or None where Plex had not shown it by the deadline.
+
+        Plex selects what it adds for every client alike, which would make it everyone's
+        default: the part's selection is held while it adds and put back once the new track
+        shows. Where it does not show in time the selection stays held, and the item's next
+        start, or the next run, puts it back.
+        """
+        base, token = self._creds()
+        deadline = self._clock() + ADD_SUBTITLE_SECONDS
+        with self._taking_turns(rating_key, deadline):
+            found = self._part_subtitles(base, token, rating_key, deadline)
+            if found is None:
+                raise PlexItemNotFound("Item not found in Plex")
+            (part, audio, subtitle), had = found
+            with self._lock:
+                held = self._held.get(rating_key)
+            original = _ids(audio, subtitle) | (
+                held.ids if held is not None and held.part == part else {}
+            )
+            self._hold(rating_key, part, original, dict.fromkeys(original, ""))
+            try:
+                self._get(
+                    base,
+                    token,
+                    f"/library/metadata/{rating_key}/subtitles",
+                    method="PUT",
+                    op="add subtitle",
+                    params={"key": key},
+                    max_bytes=_PLAYLIST_MAX_BYTES,
+                    deadline=deadline,
+                )
+            except _Answered:
+                self._put_back(base, token, rating_key)
+                raise
+            while self._clock() < deadline:
+                time.sleep(_ADD_POLL_SECONDS)
+                now = self._part_subtitles(base, token, rating_key, deadline)
+                new = sorted(now[1] - had, key=int) if now is not None else []
+                if new:
+                    self._put_back(base, token, rating_key)
+                    self._settle(base, token, rating_key, part, original, deadline)
+                    return new[-1]
+            logger.info("plex_stream: item %s's new subtitle had not shown in time", rating_key)
+            return None
+
+    def _settle(
+        self,
+        base: str,
+        token: str,
+        rating_key: str,
+        part: str,
+        original: dict[str, str],
+        deadline: float,
+    ) -> None:
+        """Put Plex's own selection back once more where an add, which Plex finishes on its
+        own, selected its track after the first put-back."""
+        time.sleep(_ADD_POLL_SECONDS)
+        try:
+            now = self._part_subtitles(base, token, rating_key, deadline)
+        except PlexError:
+            return
+        if now is None or now[0][0] != part:
+            return
+        if any(_ids(*now[0][1:]).get(name) != id_ for name, id_ in original.items()):
+            self._hold(rating_key, part, original, dict.fromkeys(original, ""))
+            self._put_back(base, token, rating_key)
+
+    def _part_subtitles(
+        self, base: str, token: str, rating_key: str, deadline: float
+    ) -> tuple[tuple[str, str, str], set[str]] | None:
+        """The item's first part's selection, as ``_selection`` gives it, and the ids of its
+        subtitle tracks; None when Plex names no such part."""
+        body = self._get(
+            base,
+            token,
+            f"/library/metadata/{rating_key}",
+            op="metadata",
+            max_bytes=_PLAYLIST_MAX_BYTES,
+            deadline=deadline,
+        )
+        try:
+            part = ET.fromstring(body).find("./*/Media/Part")
+        except ParseError:
+            return None
+        selection = _part_selection(part)
+        if part is None or selection is None:
+            return None
+        ids = {
+            s.get("id", "")
+            for s in part.iter("Stream")
+            if s.get("streamType") == "3" and _ID_RE.fullmatch(s.get("id", ""))
+        }
+        return selection, ids
 
     def _select(
         self,

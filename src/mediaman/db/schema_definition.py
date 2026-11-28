@@ -67,6 +67,33 @@ CREATE TABLE IF NOT EXISTS track_languages (
     seen_at TEXT NOT NULL
 );
 
+-- A copy of a movie, an episode or a season asked for from Watch for another audio language, by
+-- the item it was asked from (rating_key; season_key its season's), until Plex has it. service
+-- is "radarr" or "sonarr", arr_id the movie or series there; part_id is the item's file in Plex
+-- when it was asked for, so a new one is known. state is "asked", then "ready" where the new file
+-- has the language, "lacks" where it does not, or "gone" where it never came.
+CREATE TABLE IF NOT EXISTS language_copies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    rating_key TEXT NOT NULL,
+    season_key TEXT,
+    scope TEXT NOT NULL CHECK (scope IN ('movie', 'episode', 'season')),
+    language TEXT NOT NULL,
+    service TEXT NOT NULL CHECK (service IN ('radarr', 'sonarr')),
+    arr_id INTEGER NOT NULL,
+    season_number INTEGER,
+    episode_id INTEGER,
+    part_id TEXT,
+    release_languages TEXT NOT NULL,
+    quality TEXT NOT NULL,
+    size_bytes INTEGER,
+    asked_at TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'asked' CHECK (state IN ('asked', 'ready', 'lacks', 'gone')),
+    done_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_language_copies_item ON language_copies(rating_key);
+CREATE INDEX IF NOT EXISTS idx_language_copies_season ON language_copies(season_key);
+
 -- Plex's own selection of an item's part, held while a start has other tracks selected on Plex,
 -- until it is put back. A NULL id was not changed.
 CREATE TABLE IF NOT EXISTS plex_held_selections (

@@ -150,3 +150,31 @@ def library_languages(conn: sqlite3.Connection, username: str) -> list[str]:
     ).fetchall()
     found = {row[0] for row in rows}
     return [code for code in LANGUAGES if code in found]
+
+
+def recent_subtitle_languages(conn: sqlite3.Connection, username: str, limit: int = 4) -> list[str]:
+    """The languages of the subtitles *username* chose last, the latest first."""
+    rows = conn.execute(
+        "SELECT c.subtitle_lang FROM user_track_choices c JOIN admin_users u ON u.id = c.user_id"
+        " WHERE u.username = ? AND c.subtitle = 'on' AND c.subtitle_lang IS NOT NULL"
+        " GROUP BY c.subtitle_lang ORDER BY MAX(c.updated_at) DESC LIMIT ?",
+        (username, limit),
+    ).fetchall()
+    return [row[0] for row in rows if row[0] in LANGUAGES]
+
+
+_HOUSEHOLD = {
+    "audio": "SELECT lang FROM (SELECT audio_lang AS lang FROM admin_users"
+    " UNION ALL SELECT audio_lang AS lang FROM user_track_choices)"
+    " WHERE lang IS NOT NULL GROUP BY lang ORDER BY COUNT(*) DESC, lang LIMIT ?",
+    "subtitle": "SELECT lang FROM (SELECT subtitle_lang AS lang FROM admin_users"
+    " UNION ALL SELECT subtitle_lang AS lang FROM user_track_choices WHERE subtitle = 'on')"
+    " WHERE lang IS NOT NULL AND lang != 'off' GROUP BY lang ORDER BY COUNT(*) DESC, lang LIMIT ?",
+}
+
+
+def household_languages(conn: sqlite3.Connection, kind: str, limit: int = 4) -> list[str]:
+    """The *kind* ("audio" or "subtitle") languages most often set or chosen by everyone here,
+    the commonest first."""
+    rows = conn.execute(_HOUSEHOLD[kind], (limit,)).fetchall()
+    return [row[0] for row in rows if row[0] in LANGUAGES]

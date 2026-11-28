@@ -2368,3 +2368,83 @@ def test_a_stream_back_from_a_tv_to_its_player_waits_as_a_players_again(manager,
         _segment(manager, stream_id, "alice", "00000.ts")
     clock.now += plex_stream.IDLE_TIMEOUT_SECONDS + 1
     assert manager.reap() == 1
+
+
+class AddingPlex(FakePlex):
+    """Plex's on-demand subtitles as observed: the PUT answers at once, and the new track shows
+    among the part's streams, selected for every client, a few reads of the item later. Late,
+    Plex selects it once more after the first selection written since."""
+
+    def __init__(self, shows_after: int | None, selects_late: bool = False) -> None:
+        super().__init__()
+        self.shows_after = shows_after
+        self.selects_late = selects_late
+        self.reads_since_add: int | None = None
+        self.added_with: dict | None = None
+
+    def _shown(self) -> bool:
+        return (
+            self.reads_since_add is not None
+            and self.shows_after is not None
+            and self.reads_since_add >= self.shows_after
+        )
+
+    def metadata(self) -> bytes:
+        if self.reads_since_add is not None:
+            self.reads_since_add += 1
+            if self.reads_since_add == self.shows_after:
+                self.selection = (self.selection[0], "11")
+        body = super().metadata()
+        if self._shown():
+            sel = ' selected="1"' if self.selection[1] == "11" else ""
+            body = body.replace(
+                b"</Part>", f'<Stream id="11" streamType="3"{sel}/></Part>'.encode()
+            )
+        return body
+
+    def request(self, method, url, *, params=None, headers=None, **kwargs):
+        path = urlsplit(url).path
+        if method == "PUT" and path == "/library/metadata/123/subtitles":
+            self.calls.append({"method": method, "url": url, "params": dict(params or {})})
+            self.added_with = dict(params or {})
+            self.reads_since_add = 0
+            return FakeResponse(200)
+        answer = super().request(method, url, params=params, headers=headers, **kwargs)
+        if method == "PUT" and path == "/library/parts/55" and self.selects_late and self._shown():
+            self.selects_late = False
+            self.selection = (self.selection[0], "11")
+        return answer
+
+
+@pytest.fixture
+def no_poll_wait(monkeypatch):
+    monkeypatch.setattr(plex_stream, "_ADD_POLL_SECONDS", 0)
+
+
+@pytest.mark.parametrize("selects_late", [False, True])
+def test_an_added_subtitle_is_given_back_and_plex_s_own_selection_put_back(
+    no_poll_wait, clock, selects_late
+):
+    plex = AddingPlex(shows_after=2, selects_late=selects_late)
+    plex.selection = ("7", "9")
+    manager = StreamManager(lambda: (PLEX_URL, TOKEN), session=plex, clock=clock)
+
+    assert manager.add_subtitle("123", "/sub/key/1") == "11"
+
+    assert plex.added_with == {"key": "/sub/key/1"}
+    # Nobody else's subtitles changed: Plex selects for every client.
+    assert plex.selection == ("7", "9")
+    assert manager._held == {}
+
+
+def test_a_subtitle_that_does_not_show_in_time_leaves_plex_s_own_selection_held(
+    no_poll_wait, clock, conn
+):
+    plex = AddingPlex(shows_after=None)
+    plex.on_call = lambda path: setattr(clock, "now", clock.now + 5)
+    manager = StreamManager(lambda: (PLEX_URL, TOKEN), session=plex, clock=clock, db=lambda: conn)
+
+    assert manager.add_subtitle("123", "/sub/key/1") is None
+
+    held = "SELECT rating_key, part_id, subtitle_stream_id FROM plex_held_selections"
+    assert [tuple(r) for r in conn.execute(held)] == [("123", "55", "0")]
