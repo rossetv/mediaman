@@ -66,6 +66,36 @@ def test_back_during_the_count_keeps_the_intro_playing() -> None:
     assert out["at"] == 75
 
 
+def test_the_count_is_said_once_with_its_seconds_and_its_ticking_number_is_not_read_out() -> None:
+    assert _tv("spoken") == {
+        "said": ["Skipping intro in 5 seconds · Back to watch"],
+        "hidden": [True],
+    }
+
+
+def test_a_bar_under_the_note_drains_over_the_whole_count() -> None:
+    out = _tv("drains")
+    assert out["duration"] == "5s"
+    assert -0.5 <= out["delay"] <= 0
+
+
+def test_ok_during_the_count_skips_at_once_and_outside_it_skips_nothing() -> None:
+    assert _tv("okSkips") == {"before": [], "at": 150, "note": "Skipped intro"}
+
+
+def test_an_intro_too_short_for_the_whole_count_counts_what_fits_or_none() -> None:
+    out = _tv("shortIntro")
+    assert (out["said"], out["jumped"]) == (["Skipping intro in 3 seconds · Back to watch"], [68])
+    assert (out["tiny"]["jumped"], out["tiny"]["counted"]) == ([63], 0)
+
+
+def test_a_count_goes_with_a_seek_out_a_step_within_or_another_play() -> None:
+    out = _tv("stale")
+    assert (out["seekOut"], out["stepped"], out["played"]) == (False, False, False)
+    # Back pressed as the count went is not taken as a Back for the next play's intro.
+    assert 150 <= out["nextSkips"] <= 152
+
+
 def test_an_intro_is_jumped_past_after_its_count_with_a_note_that_then_goes() -> None:
     out = _tv("intro")
     assert 150 <= out["at"] <= 152
@@ -85,6 +115,10 @@ def test_an_intro_skipped_once_plays_when_the_person_goes_back_into_it() -> None
 def test_the_last_credits_run_to_the_end_where_the_tv_s_own_next_episode_follows() -> None:
     # The end, not a start of the next: the countdown, autoplay off and "still watching" hold.
     assert _tv("credits") == {"to": 2879, "note": False, "asked": []}
+
+
+def test_the_last_credits_play_4_s_before_the_jump_to_the_end() -> None:
+    assert 2703.5 <= _tv("lastHeld") <= 2705
 
 
 def test_credits_a_scene_follows_are_jumped_past_with_a_note() -> None:

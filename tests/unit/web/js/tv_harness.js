@@ -220,16 +220,26 @@ async function skipping(more, ms) {
   const t = await playing({ start_s: 50, played_s: 0, auto_skip: true, markers: [INTRO, { kind: 'credits', start_s: 2700, end_s: 2880, final: true }], ...more }, 0);
   // The note's count goes in a span of its own, as the browser parses it.
   const span = { textContent: '' };
-  t.node('sk').getElementsByTagName = (tag) => (tag === 'span' && t.node('sk').innerHTML.includes('<span') ? [span] : []);
+  const sk = t.node('sk');
+  t.bar = { style: {} };
+  sk.getElementsByTagName = (tag) => (tag === 'span' && sk.innerHTML.includes('<span') ? [span] : tag === 'i' && sk.innerHTML.includes('<i') ? [t.bar] : []);
   t.count = span;
+  // Each text the note is given, as a reader of the status would hear it come.
+  t.written = [];
+  let shown = '';
+  Object.defineProperty(sk, 'innerHTML', { get: () => shown, set(v) { shown = v; t.written.push(v); } });
   await t.step(ms);
   return t;
 }
 const at = (t) => Math.round(t.video.time);
 const note = (t) => ({
   shown: t.node('sk').className === 'sk on',
-  text: t.node('sk').innerHTML.replace(/<span[^>]*><\/span>/, t.count.textContent).replace(/<[^>]+>/g, ''),
+  text: t.node('sk').innerHTML.replace(/<span class="sr">.*?<\/span>/, '').replace(/<span[^>]*><\/span>/, t.count.textContent).replace(/<[^>]+>/g, ''),
 });
+// What a screen reader is given of a note: none of what is aria-hidden.
+const spoken = (html) => html.replace(/<span aria-hidden="true">.*?<\/span>/g, '').replace(/<[^>]+>/g, '');
+const counts = (t) => t.written.filter((w) => w.includes('Skipping'));
+const jumped = (t) => t.video.sets.filter((s) => s > 100);
 // Commands the TV is given with each answer from now on.
 const told = (t, commands) => { t.answers.poll = () => ready({ play: t.now, commands }); };
 
@@ -324,6 +334,64 @@ const SKIPS = {
     const on = await skipping({ start_s: 2690, markers, next: NEXT }, 16000);
     const off = await skipping({ start_s: 2690, markers }, 15000);
     return { to: on.video.sets.pop(), note: note(on).shown, plays: at(off) };
+  },
+  // The count is said once, as it comes, and its ticking number is not read out.
+  async spoken() {
+    const t = await skipping({}, 21000);
+    return { said: counts(t).map(spoken), hidden: counts(t).map((w) => /in <span aria-hidden="true"><\/span>/.test(w)) };
+  },
+  // A bar drains under the count, over the whole of it.
+  async drains() {
+    const t = await skipping({}, 14000);
+    return { duration: t.bar.style.animationDuration, delay: parseFloat(t.bar.style.animationDelay) };
+  },
+  // The last credits play 4 s before the jump to the end: where it jumps from.
+  async lastHeld() {
+    const t = await skipping({ start_s: 2690, next: NEXT }, 8000);
+    let from = null;
+    for (let i = 0; i < 40 && from === null; i += 1) {
+      const was = t.video.time;
+      await t.step(250);
+      if (t.video.sets.some((s) => s > 2700)) from = was;
+    }
+    return from;
+  },
+  // OK during the count skips at once; outside one, it only brings up the controls.
+  async okSkips() {
+    const before = await skipping({}, 8000);
+    before.key(OK);
+    const t = await skipping({}, 15000);
+    t.key(OK);
+    return { before: jumped(before), at: at(t), note: note(t).text };
+  },
+  // An intro too short for the whole count counts what fits; one with no room for a count is jumped past at once.
+  async shortIntro() {
+    const t = await skipping({ markers: [{ kind: 'intro', start_s: 60, end_s: 68, final: false }] }, 20000);
+    const tiny = await skipping({ markers: [{ kind: 'intro', start_s: 60, end_s: 63, final: false }] }, 14000);
+    const past = (x) => x.video.sets.filter((s) => s > 50);
+    return { said: counts(t).map(spoken), jumped: past(t), tiny: { jumped: past(tiny), at: at(tiny), counted: counts(tiny).length } };
+  },
+  // A count ends with what takes the TV out of it: a seek out, a step of 10 s within, another play.
+  async stale() {
+    const out = {};
+    let t = await skipping({}, 15000);
+    told(t, [{ id: 1, kind: 'seek', position_s: 200 }]);
+    await t.step(1500);
+    out.seekOut = note(t).shown;
+    t = await skipping({}, 15000);
+    t.key(412); // the remote's own key back 10 s, still in the intro
+    out.stepped = note(t).shown;
+    t = await skipping({}, 15000);
+    t.now = { ...t.now, play_id: 'p2', start_s: 50 };
+    await t.step(1100);
+    out.played = note(t).shown;
+    // Back as the note goes is no Back to its count: the next play skips the same intro.
+    t.key(BACK);
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(19000);
+    out.nextSkips = at(t);
+    return out;
   },
   async paused() {
     const t = await skipping({}, 3000);
