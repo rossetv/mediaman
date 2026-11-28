@@ -209,6 +209,16 @@ def _reset_disk_reads():
 
 
 @pytest.fixture(autouse=True)
+def _reset_held_libraries():
+    """A library one test's poll held must not answer the next test's at the same address."""
+    from mediaman.services.arr import _library_hold
+
+    _library_hold.forget()
+    yield
+    _library_hold.forget()
+
+
+@pytest.fixture(autouse=True)
 def _reset_notification_claims_ending():
     """A test that ends the claims must not stop the next test's tick from claiming."""
     from mediaman.services.downloads import _notification_claims

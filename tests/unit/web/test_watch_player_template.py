@@ -108,7 +108,7 @@ def test_the_ways_to_a_tv_load_before_the_player_and_googles_only_where_allowed(
     def allowed(on):
         return {"request": SimpleNamespace(state=SimpleNamespace(google_cast=on))}
 
-    ours = ["play-on.js", "tracks.js", "languages.js", "airplay.js"]
+    ours = ["play-on.js", "tracks.js", "languages.js", "airplay.js", "loudness.js"]
     assert scripts() == [*ours, "player.js"]
     assert scripts(**allowed(False)) == [*ours, "player.js"]
     assert scripts(**allowed(True)) == [*ours, "cast-sender.js", "player.js"]

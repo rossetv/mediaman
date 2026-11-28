@@ -2437,7 +2437,8 @@ def test_a_tv_is_paired_in_the_sheet_named_and_played_on(markup):
     assert out["wrong"][1] == ""
     assert "stops what they’re watching" in out["others"][0]
     assert out["sent"] == [["123456", False], ["482916", False], ["482916", True]]
-    assert out["name"] == "Living room"
+    # The person has a Living room already.
+    assert out["name"] == "Living room 2"
     assert out["named"] == [["/api/tvs/9", "Den"]]
     assert out["plays"] == ["/api/tvs/9/play"]
 
@@ -3234,6 +3235,12 @@ def test_a_tv_just_paired_is_asked_until_it_is_heard_of(markup):
     assert "didn’t start" in out["says"]
 
 
+def test_a_tv_paired_from_the_sheet_is_offered_a_name_not_taken_and_told_of_a_repeat(markup):
+    out = elsewhere(markup, "away_pair_naming")
+    assert (out["offered"], out["first"]) == ("Living room 2", "")
+    assert "already have a TV with this name" in out["repeated"]
+
+
 def test_full_screen_is_left_as_it_begins_elsewhere(markup):
     assert elsewhere(markup, "away_fullscreen") == 1
 
@@ -3589,3 +3596,24 @@ def test_subtitles_added_at_the_end_of_a_long_list_are_scrolled_into_sight(marku
     # The row at 700 to 752 in a list 400 high, clear of its 28 px fade, after the player was told
     # of them and drew the menu anew.
     assert out == {"added": 380, "redrawn": 1, "later": 380}
+
+
+def test_reduce_loud_sounds_builds_its_sound_once_crossfades_and_is_kept(markup):
+    out = run(markup, "loud_switch")
+    assert out["before"] == {"checked": "false", "heard": "as it comes, untouched"}
+    assert out["on"] == {"checked": "true", "heard": {"dry": 0, "compressed": 1}, "open": True}
+    assert out["off"]["heard"] == {"dry": 1, "compressed": 0}
+    assert out["again"]["heard"] == {"dry": 0, "compressed": 1}
+    assert (out["contexts"], out["sources"]) == (1, 1)
+    assert out["kept"] == [{"reduce_loud": v} for v in (True, False, True)]
+
+
+@pytest.mark.parametrize("browser", ["none", "apple"])
+def test_reduce_loud_sounds_is_not_offered_where_its_sound_would_not_be_heard(markup, browser):
+    assert run(markup, "loud_switch", plays=browser) == {"shown": False}
+
+
+def test_reduce_loud_sounds_kept_on_leaves_the_video_as_it_comes_until_a_press(markup):
+    out = run(markup, "loud_saved")
+    assert (out["checked"], out["beforePress"]) == ("true", "as it comes, untouched")
+    assert out["afterPress"] == {"dry": 0, "compressed": 1}

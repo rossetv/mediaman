@@ -24,7 +24,8 @@ from typing import TYPE_CHECKING, cast
 import requests
 
 from mediaman.core.time import now_utc
-from mediaman.services.arr.base import ArrError
+from mediaman.services.arr import _library_hold
+from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.build import build_nzbget_from_db
 from mediaman.services.arr.completion import (
     _reset_unchecked,
@@ -143,6 +144,12 @@ def _remembered_cards(arr_result: FetchResult) -> list[ArrCard]:
     return remembered
 
 
+def _library[T](client: ArrClient, what: str, read: Callable[[], list[T]]) -> list[T]:
+    """*what* of *client*'s library as the poll just held it, or as read now."""
+    held = _library_hold.held_list(client._url, what)
+    return held if held is not None else read()
+
+
 def _enrich_with_tmdb_ids(
     conn: sqlite3.Connection,
     current_map: dict[str, dict[str, object]],
@@ -179,7 +186,7 @@ def _enrich_with_tmdb_ids(
         try:
             radarr_client = _build_radarr(conn, secret_key)
             if radarr_client:
-                for m in radarr_client.get_movies():
+                for m in _library(radarr_client, "movies", radarr_client.get_movies):
                     aid = m.get("id")
                     tid = m.get("tmdbId")
                     if isinstance(aid, int) and isinstance(tid, int):
@@ -191,7 +198,7 @@ def _enrich_with_tmdb_ids(
         try:
             sonarr_client = _build_sonarr(conn, secret_key)
             if sonarr_client:
-                for s in sonarr_client.get_series():
+                for s in _library(sonarr_client, "series", sonarr_client.get_series):
                     aid = s.get("id")
                     tid = s.get("tmdbId")
                     if isinstance(aid, int) and isinstance(tid, int):

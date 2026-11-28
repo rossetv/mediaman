@@ -398,10 +398,13 @@ def device_poll(request: Request, body: _PollBody, x_tv_token: _Token = "") -> R
         {
             "state": "ready",
             "boot": players.boot,
+            "v": _page_version(request),
             "resume": _resume_ticket(request, players, held),
             "id": held.id,
             "name": held.name,
-            "owner": held.owner,
+            # A TV page left open from an older mediaman, which cannot load itself anew, names
+            # this person as who is starting what plays.
+            "owner": play["by"] if play else held.owner,
             "people": repo.people(get_db(), held.id),
             "avatars": _avatars(held, device=True),
             "play": play,
@@ -409,6 +412,15 @@ def device_poll(request: Request, body: _PollBody, x_tv_token: _Token = "") -> R
             "poll_ms": _POLL_MS["idle" if play is None else "playing"],
         }
     )
+
+
+def _page_version(request: Request) -> str:
+    """The version of the TV page's scripts this server has; "" where it serves no pages.
+
+    A TV's page stays open for days, through every update: it loads itself anew once this changes.
+    """
+    templates = getattr(request.app.state, "templates", None)
+    return str(templates.env.globals.get("static_v", "")) if templates is not None else ""
 
 
 def _keep_alive(players: Players, key: str) -> None:

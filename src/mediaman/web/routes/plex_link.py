@@ -36,6 +36,7 @@ from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.reauth import has_recent_reauth, reauth_seconds_left
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes._ids import RowId
 
 logger = logging.getLogger(__name__)
 
@@ -424,7 +425,7 @@ def api_list_links(admin: str = Depends(get_current_admin)) -> JSONResponse:
 
 @router.delete("/api/users/{user_id}/plex-link")
 def api_admin_unlink(
-    user_id: int, request: Request, admin: str = Depends(get_current_admin)
+    user_id: RowId, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
     if not _CHANGE_LIMITER.check(admin):
         return _refuse("too_many_requests")

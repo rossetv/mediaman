@@ -889,6 +889,7 @@
     var isEnd = !bad && !coming && !!p && p.state === 'ended';
     var loading = coming || !bad && !!p && isLoading(p);
     MM.dom.setText(els.title, what.title);
+    attr(els.title, 'title', what.title || '');
     MM.dom.setText(els.subtitle, episode(what) ? code(what, ' · ') + (what.episode_title ? ' · ' + what.episode_title : '') : '');
     setHidden(els.subtitle, !episode(what));
     root.classList.toggle('is-gone', bad);
@@ -1204,9 +1205,10 @@
     if (asks) enter(els.dim);
     else leave(els.dim);
     reach();
-    // A card that waits for nobody does not take the focus: a press meant to pause would start it.
+    // A card that waits for nobody does not take the focus: a press meant to pause would start it,
+    // so it is said; one that asks is read out as it takes the focus, and the old word goes.
+    els.status.textContent = card.upnext ? card.title + ': ' + card.line : '';
     if (!card.upnext || refocus) els.cardActions.firstElementChild.focus({ preventScroll: true });
-    else els.status.textContent = card.title + ': ' + card.line;
   }
 
   /* What is under a card or a menu is out of reach; the way out only under a menu. */
@@ -1647,15 +1649,21 @@
 
   /* ── the card growing out of the bar, and back into it ── */
 
-  /* The card is laid out where it ends; what moves is drawn from where it starts, by transform and
-     opacity alone. Its glass is stretched from the bar's box to its own, the bar's picture, title and
-     line travel to theirs, and the rest comes in on the glass once it is most of the way. Each part
-     is moved over a stretch of the whole, as parts of it: opening (`span`), from how it looks at the
-     bar (`shut`) to how it is drawn; closing (`back`), the other way, where what came in last goes
-     first. A move turned round starts from where it is. */
-  var GROW_MS = 420;
-  var SHRINK_MS = 300;
+  /* The card is laid out where it ends, and drawn from where it starts. Its glass is one surface that
+     grows out of the bar's box into its own: a layer with nothing in it, so its place, size and
+     corners are what move, and its edge, blur and shadow stay true all the way, where a stretch would
+     squash them. The bar's picture, title and line travel to the card's by transform, the bar's title
+     beside the card's as one fades into the other; the rest comes in row after row once the glass is
+     most of the way. Each part moves over a stretch of the whole: opening (`span`), from how it looks
+     at the bar (`shut`) to how it is drawn; closing (`back`), the other way and quicker, where what
+     came in last goes first. A move turned round starts from where it is. */
+  var GROW_MS = 560;
+  var SHRINK_MS = 340;
   var FADE_MS = 150;
+  var ROW_AT = 0.3; // of the opening, when the first row of the rest comes in: the glass is 85% there
+  var ROW_STEP = 0.04;
+  var ROW_FOR = 0.28;
+  var HOME_AT = 0.75; // of the closing, when what travels is home: the bar comes back over the last of it
   var PULL_PX = 110; // a sheet pulled down this far closes as it is let go
   var FLICK_PX_MS = 0.5; // and so does one flicked down faster than this
   var SETTLE_MS = 600; // that a press on the card must begin after it opens to act
@@ -1704,13 +1712,15 @@
     var b = parseFloat(global.getComputedStyle(to).fontSize);
     return a && b ? a / b : box(from).height / box(to).height;
   }
+  function corners(el) { return global.getComputedStyle(el).borderRadius || ''; }
 
   function tracksFrom(bar, dropBy) {
     // With less motion it only fades, part by part: glass under a fading parent would blur nothing.
     if (calm()) {
       return [els.veil, els.glass, els.hero, els.mid, els.bottom].map(function (el) { return { el: el, k: 'opacity', shut: '0', open: '1', span: [0, 1] }; });
     }
-    var veil = { el: els.veil, k: 'opacity', shut: '0', open: '1', span: [0, 1] };
+    // Closing, the page clears as evenly as the card goes, not all in its first frames.
+    var veil = { el: els.veil, k: 'opacity', shut: '0', open: '1', span: [0, 0.5], back: [0, 0.9], backEase: 'cubic-bezier(.45, 0, .55, 1)' };
     var sheet = box(els.sheet);
     if (dropBy !== undefined && sheet) {
       // Let go of, the sheet goes on down from where the finger left it, and the bar comes back.
@@ -1724,20 +1734,22 @@
       return [veil, { el: els.sheet, k: 'transform', shut: 'translateY(48px)', open: 'none', span: [0, 1], spring: true }]
         .concat([els.glass, els.hero, els.mid, els.bottom].map(function (el) { return { el: el, k: 'opacity', shut: '0', open: '1', span: [0, 0.5] }; }));
     }
-    // The card's glass is drawn in full before the bar goes, and the bar is mostly back before the
-    // glass goes, so nothing between them dips. Opening, the bar's title hands over to the card's,
-    // one going before the other comes, as their letters are not quite the same.
-    var t = [veil,
-      { el: els.glass, k: 'transform', shut: fit(bar, sheet), open: 'none', span: [0, 1], spring: true },
-      { el: els.glass, k: 'opacity', shut: '0', open: '1', span: [0, 0.2], back: [0.6, 0.85] },
-      { el: mini, k: 'opacity', shut: '1', open: '0', span: [0.2, 0.45], back: [0.5, 0.72] },
-      { el: m('[data-mini-title]'), k: 'opacity', shut: '1', open: '0', span: [0, 0.05], back: [0.62, 0.76] }];
-    var barTitle = t[t.length - 1];
+    // The glass stands on the bar, as the bar, and takes its place before the bar goes. Closing, the
+    // bar is back under it before it goes, once all is within a few pixels of home: the card's
+    // picture and line are left on the bar's, which they are, until the card is hidden.
+    var t = [veil];
+    var onBar = { top: bar.top - sheet.top, left: bar.left - sheet.left, width: bar.width, height: bar.height };
+    var whole = { top: 0, left: 0, width: sheet.width, height: sheet.height };
+    Object.keys(onBar).forEach(function (k) {
+      t.push({ el: els.glass, k: k, shut: onBar[k] + 'px', open: whole[k] + 'px', span: [0, 1], spring: true });
+    });
+    if (corners(mini) && corners(els.glass)) t.push({ el: els.glass, k: 'borderRadius', shut: corners(mini), open: corners(els.glass), span: [0, 1], spring: true });
+    t.push({ el: els.glass, k: 'opacity', shut: '0', open: '1', span: [0, 0.1], back: [0.72, 0.92] });
+    t.push({ el: mini, k: 'opacity', shut: '1', open: '0', span: [0.1, 0.2], back: [0.6, 0.8] });
     function travel(from, to, even) {
       var a = box(from);
       var b = box(to);
-      // Closing, they are home before the bar's own words and picture come back over them.
-      if (a && b) t.push({ el: to, k: 'transform', shut: fit(a, b, even && wordsOf(from, to)), open: 'none', span: [0, 1], back: [0, 0.72], spring: true });
+      if (a && b) t.push({ el: to, k: 'transform', shut: fit(a, b, even && wordsOf(from, to)), open: 'none', span: [0, 1], spring: true });
       return a && b;
     }
     var shared = [];
@@ -1745,37 +1757,49 @@
     var pic = box(m('.tv-mini__pic'));
     if (travel(m('.tv-mini__pic'), els.art)) {
       shared.push(els.art);
-      t.push({ el: $('.tv-rem__shade'), k: 'opacity', shut: '0', open: '1', span: [0.2, 1], back: [0, 0.5] });
+      // Its corners stay the size they are drawn as it is stretched, from the bar's to its own.
+      var r = parseFloat(corners(m('.tv-mini__pic')));
+      if (r && corners(els.art)) {
+        t.push({ el: els.art, k: 'borderRadius', shut: r * art.width / pic.width + 'px / ' + r * art.height / pic.height + 'px', open: corners(els.art), span: [0, 1], spring: true });
+      }
+      t.push({ el: $('.tv-rem__shade'), k: 'opacity', shut: '0', open: '1', span: [0.15, 0.55], back: [0, 0.4] });
       // What stands on the picture rides on it, as if drawn on it, and comes in as it lands.
       [$('.tv-rem__grab'), $('[data-close]'), els.playOn, els.subtitle].forEach(function (el) {
-        var r = box(el);
-        if (!r) return;
-        t.push({ el: el, k: 'transform', shut: fit(pic, art), open: 'none', span: [0, 1], back: [0, 0.72], spring: true, origin: (art.left - r.left) + 'px ' + (art.top - r.top) + 'px' });
-        t.push({ el: el, k: 'opacity', shut: '0', open: '1', span: [0.45, 1], back: [0, 0.15] });
+        var at = box(el);
+        if (!at) return;
+        t.push({ el: el, k: 'transform', shut: fit(pic, art), open: 'none', span: [0, 1], spring: true, origin: (art.left - at.left) + 'px ' + (art.top - at.top) + 'px' });
+        t.push({ el: el, k: 'opacity', shut: '0', open: '1', span: [0.3, 0.6], back: [0, 0.08] });
         shared.push(el);
       });
     }
     // A title that would run past the bar's at the bar's size comes and goes on the card instead.
-    var words = box(m('[data-mini-title]'));
-    var fits = words && box(els.title) && shownWidth(els.title) * wordsOf(m('[data-mini-title]'), els.title) <= words.width + 8;
-    if (fits && travel(m('[data-mini-title]'), els.title, true)) {
+    var barTitle = m('[data-mini-title]');
+    var words = box(barTitle);
+    var fits = words && box(els.title) && shownWidth(els.title) * wordsOf(barTitle, els.title) <= words.width + 8;
+    if (fits && travel(barTitle, els.title, true)) {
       shared.push(els.title);
-      // Closing, the same words on the same line cross; others would show through each other, so
-      // the card's go first and the bar's come straight after, quickly.
-      var same = els.title.textContent === m('[data-mini-title]').textContent;
-      t.push({ el: els.title, k: 'opacity', shut: '0', open: '1', span: [0.05, 0.12], back: same ? [0.66, 0.8] : [0.6, 0.71], ease: same ? '' : 'ease-in' });
-      if (!same) barTitle.back = [0.71, 0.78];
+      // The bar's words go along with the card's, so that one fades into the other in one place.
+      t.push({ el: barTitle, k: 'transform', shut: 'none', open: fit(box(els.title), words, wordsOf(els.title, barTitle)), span: [0, 1], spring: true });
+      t.push({ el: els.title, k: 'opacity', shut: '0', open: '1', span: [0, 0.12], back: [0.7, 0.85] });
     }
     var track = els.seek.querySelector('.player-seek-track');
     if (travel(m('.tv-mini__bar'), track)) {
       shared.push(track);
-      t.push({ el: els.thumb, k: 'opacity', shut: '0', open: '1', span: [0.5, 1], back: [0, 0.2] });
+      t.push({ el: els.thumb, k: 'opacity', shut: '0', open: '1', span: [0.45, 0.75], back: [0, 0.08] });
     }
-    // The rest is not stretched: it comes in on the glass, rising a little.
-    [els.art, $('[data-close]'), els.playOn, els.subtitle, els.title, els.mid, els.elapsed, els.remaining, track, $('.player-controls')].forEach(function (el) {
-      if (!el || el.hidden || shared.indexOf(el) !== -1) return;
-      t.push({ el: el, k: 'opacity', shut: '0', open: '1', span: [0.3, 1], back: [0, 0.15] });
-      if (el !== track) t.push({ el: el, k: 'transform', shut: 'translateY(14px)', open: 'none', span: [0.2, 1], back: [0, 0.3], spring: true });
+    // The rest is not stretched: it comes in on the glass row by row, rising a little, and goes at once.
+    [[els.art, $('[data-close]'), els.playOn, els.subtitle, els.title], [els.mid], [els.elapsed, track, els.remaining],
+      [$('.player-volume')], MM.dom.qa('.player-controls > .opt, .player-av-btn', root), [$('.tv-rem__end')],
+      [$('[data-back10]'), els.play, $('[data-fwd10]')]].filter(function (row) {
+      return row.some(function (el) { return el && !el.hidden && shared.indexOf(el) === -1; });
+    }).forEach(function (row, i) {
+      var span = [ROW_AT + i * ROW_STEP, ROW_AT + i * ROW_STEP + ROW_FOR];
+      row.forEach(function (el) {
+        if (!el || el.hidden || shared.indexOf(el) !== -1) return;
+        // A control out of reach is drawn faint: it comes in to that, not to full and then back.
+        t.push({ el: el, k: 'opacity', shut: '0', open: global.getComputedStyle(el).opacity || '1', span: span, back: [0, 0.08] });
+        if (el !== track) t.push({ el: el, k: 'transform', shut: 'translateY(14px)', open: 'none', span: span, back: [0, 0.08], spring: true });
+      });
     });
     return t;
   }
@@ -1798,20 +1822,23 @@
     var now = moves.map(function (a) { return { el: a.track.el, k: a.track.k, at: global.getComputedStyle(a.track.el)[a.track.k] }; });
     stopMoves();
     var tracks = tracksFrom(opts.bar, opts.dropBy);
+    // The bar's title leaves its box as it goes with the card's; its line is drawn by the card's.
+    mini.classList.toggle('is-morphing', !!opts.bar && opts.dropBy === undefined && !calm());
     var whole = calm() ? FADE_MS : opening ? GROW_MS : SHRINK_MS;
+    var smooth = curve('--ease-out') || 'ease-out';
     var left = tracks.length;
     tracks.forEach(function (tr) {
-      var span = opening ? tr.span : tr.back || [1 - tr.span[1], 1 - tr.span[0]];
+      var span = opening ? tr.span : tr.back || (tr.spring ? [0, HOME_AT] : [1 - tr.span[1], 1 - tr.span[0]]);
       var a = {};
       var b = {};
       var was = now.filter(function (x) { return x.el === tr.el && x.k === tr.k; })[0];
-      a[tr.k] = was ? was.at : opening ? tr.shut : tr.open;
+      a[tr.k] = was && was.at ? was.at : opening ? tr.shut : tr.open;
       b[tr.k] = opening ? tr.open : tr.shut;
       if (tr.origin) tr.el.style.transformOrigin = tr.origin;
       var anim = tr.el.animate([a, b], {
         duration: whole * (span[1] - span[0]),
         delay: whole * span[0],
-        easing: tr.spring ? (opening ? springCurve() : curve('--ease-push') || 'ease-out') : !opening && tr.ease || 'ease-out',
+        easing: tr.spring ? (opening ? springCurve() : curve('--ease-push') || 'ease-out') : !opening && tr.backEase || smooth,
         fill: 'both',
       });
       anim.track = tr;
@@ -1819,6 +1846,7 @@
       moves.push(anim);
     });
     function finish() {
+      mini.classList.remove('is-morphing');
       done();
       stopMoves();
     }

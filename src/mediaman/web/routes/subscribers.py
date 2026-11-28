@@ -42,6 +42,7 @@ from mediaman.web.repository.subscribers import (
     try_add_subscriber,
 )
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes._ids import RowId
 from mediaman.web.routes.users.rate_limits import too_many
 
 
@@ -170,7 +171,7 @@ def api_add_subscriber(
 @router.delete("/api/subscribers/{subscriber_id}")
 def api_remove_subscriber(
     request: Request,
-    subscriber_id: int,
+    subscriber_id: RowId,
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
     reserved = _SUBSCRIBER_WRITE_LIMITER.reserve(username)
