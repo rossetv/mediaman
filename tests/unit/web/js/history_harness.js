@@ -795,10 +795,11 @@ const scenarios = {
       h.scroller.scrollTop = 500;
       h.scroll();
       h.tick();
-      return { stuck: heads.map((d) => d.classList.contains('is-stuck')), tools: h.q('.hx-tools').classList.contains('has-day') };
+      return { stuck: heads.map((d) => d.classList.contains('is-stuck')), pushed: heads.map((d) => d.classList.contains('is-pushed')), tools: h.q('.hx-tools').classList.contains('has-day') };
     };
-    // The scroller's top is at 60 and the heads stick 52px below it.
-    return [look([-40, 112, 400]), look([200, 400, 800])];
+    // The scroller's top is at 60 and the heads stick 52px below it; the last, the next day's head
+    // pushing the stuck one up.
+    return [look([-40, 112, 400]), look([200, 400, 800]), look([-40, 90, 130])];
   },
   sumPlace: async () => {
     const h = open({});

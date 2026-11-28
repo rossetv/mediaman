@@ -420,11 +420,14 @@
       var f = document.createElement('div');
       f.className = 'you__frame';
       f.setAttribute('aria-hidden', 'true');
-      ['fill', 'edge', 'end'].forEach(function (part) {
+      ['shade', 'glass', 'edge', 'end'].forEach(function (part) {
         var piece = document.createElement('i');
         piece.className = 'you__frame-' + part;
         f.appendChild(piece);
       });
+      var fill = document.createElement('i');
+      fill.className = 'you__frame-fill';
+      f.querySelector('.you__frame-glass').appendChild(fill);
       root.insertBefore(f, panel);
       frames[i] = f;
     }
@@ -438,7 +441,7 @@
   }
 
   /* A step that changes the panel's width from *w0*. Its box is held at the widest width meanwhile and
-     a frame drawn in its place, whose left edge moves while its fill grows or shrinks from the right;
+     a frame drawn in its place, whose left edge and fill move while its right side stays;
      Back keeps to the edge, the title to the middle, and *under*, the view the step's other one
      covers, travels with the edge, so no frame shows a view cut or the panel half empty. With reduced
      motion nothing moves: the wide frame fades over the narrow one. */
@@ -464,7 +467,10 @@
       f.style.width = box.width + 'px';
       f.style.height = box.height + 'px';
       move(f.querySelector('.you__frame-edge'), x, e, still ? e : e1);
-      move(f.querySelector('.you__frame-fill'), function (v) { return { transform: 'scaleX(' + (W - v) / W + ')' }; }, e, still ? e : e1);
+      // The fill slides under the glass's rounded clip, so its corners keep their shape and it keeps
+      // to the edge on the compositor; the shadow, soft, can take a scale.
+      move(f.querySelector('.you__frame-fill'), x, e, still ? e : e1);
+      move(f.querySelector('.you__frame-shade'), function (v) { return { transform: 'scaleX(' + (W - v) / W + ')' }; }, e, still ? e : e1);
     }
     var old = root.querySelector('.you__title.is-old');
     if (still) {
@@ -483,7 +489,7 @@
       move(old, by, e0 / 2, e1 / 2);
       if (under) {
         var left = under.offsetLeft;
-        move(under, function (e) { return { transform: 'translateX(' + (e - left) + 'px)', opacity: 1 }; }, e0, e1);
+        move(under, function (e) { return { transform: 'translateX(' + (e - left) + 'px)' }; }, e0, e1);
       }
     }
     sizing[0].onfinish = endSizing;
@@ -519,6 +525,8 @@
     }
     root.classList.toggle('is-wide', to.hasAttribute('data-wide'));
     root.classList.toggle('is-wider', to.hasAttribute('data-wider'));
+    // A view with a foot that saves: the toasts stand clear of it (_profile.css).
+    document.documentElement.classList.toggle('has-you-form', !!to.querySelector('.yo-foot'));
     drawBar(p, dir);
     if (from !== to) resize(w0, dir > 0 ? from : to, dir);
     if (how !== 'start' && was) keepFocus(was, to);
@@ -563,6 +571,7 @@
       if (focusIn) title.focus({ preventScroll: true });
       root.setAttribute('data-wait', group(p));
       root.classList.add('is-loading');
+      document.documentElement.classList.remove('has-you-form');
     }
     if (on) setTimeout(wait, WAIT_MS); else wait();
     load(group(p)).then(function (ok) {
@@ -580,6 +589,7 @@
     var was = path;
     path = null;
     root.classList.remove('is-open', 'is-loading');
+    document.documentElement.classList.remove('has-you-form');
     window.MM.inertPage.release(root);
     if (letPageGo) letPageGo();
     letPageGo = null;

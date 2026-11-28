@@ -307,10 +307,14 @@ def test_stepping_between_a_narrow_and_a_wide_view_moves_the_panel_s_edge_and_ne
     # edge moves 440 px to the right, from History's 880 px to the hub's 440
     assert back["held"] and back["frames"] == 1
     assert back["edge"] == [["translateX(220px)", "translateX(660px)"]]
-    assert back["fill"] == [["scaleX(0.8)", "scaleX(0.4)"]]
-    # the hub comes in with the edge, its own left on it from first frame to last, and opaque
+    # the fill slides with the edge by transform, on the compositor, never by its left or its scale;
+    # its shadow keeps to the same span
+    assert back["fill"] == [["translateX(220px)", "translateX(660px)"]]
+    assert back["shade"] == [["scaleX(0.8)", "scaleX(0.4)"]]
+    # the hub comes in with the edge, its own left on it from first frame to last; how strongly it
+    # shows is left to the stylesheet's fade, never held by the step
     assert back["hub"] == [["translateX(-440px)", "translateX(0px)"]]
-    assert back["hubShown"] == [[1, 1]]
+    assert back["hubShown"] == []
     assert back["ease"] == [push]
     # Back and the title keep to the frame: Back on its edge, the title in its middle
     assert back["up"] == [["220px", "660px"]]
@@ -319,7 +323,8 @@ def test_stepping_between_a_narrow_and_a_wide_view_moves_the_panel_s_edge_and_ne
     assert back["after"] == [False, 0]
     # into the wide view, the other way
     assert into["edge"] == [["translateX(660px)", "translateX(220px)"]]
-    assert into["fill"] == [["scaleX(0.4)", "scaleX(0.8)"]]
+    assert into["fill"] == [["translateX(660px)", "translateX(220px)"]]
+    assert into["hubShown"] == []
     assert into["hub"] == [["translateX(0px)", "translateX(-440px)"]]
     assert into["title"] == [["330px", "110px"]] and into["old"] == [["330px", "110px"]]
     assert into["after"] == [False, 0]
@@ -332,7 +337,7 @@ def test_settings_opens_wider_than_history_and_the_edge_moves_all_the_way_from_t
     push = out["full"]["tokens"]["--ease-push"]
     # 440 px to 1100 px: the frame's edge runs the whole 660 px between them, on the push curve
     assert into["held"] and into["edge"] == [["translateX(660px)", "translateX(0px)"]]
-    assert into["fill"] == [["scaleX(0.4)", "scaleX(1)"]]
+    assert into["fill"] == [["translateX(660px)", "translateX(0px)"]]
     assert into["hub"] == [["translateX(0px)", "translateX(-660px)"]] and into["ease"] == [push]
     assert into["up"] == [["660px", "0px"]] and into["title"] == [["330px", "0px"]]
     assert back["edge"] == [["translateX(0px)", "translateX(660px)"]]
@@ -388,3 +393,16 @@ def test_a_profile_view_a_step_below_another_goes_back_to_that_one() -> None:
     assert out["escaped"] == ["/?you=profile/subtitles", "Subtitles"]
     assert out["upped"] == ["/?you=profile/subtitles", "Subtitles"]
     assert out["hub"] == ["/?you=profile", "Profile", True]
+
+
+def test_the_page_is_marked_while_a_view_with_a_saving_foot_shows_and_not_after() -> None:
+    assert _run("formFoot") == {"hub": False, "form": True, "back": False, "closed": False}
+
+
+def test_the_page_is_not_marked_while_another_group_loads_or_after_it_fails() -> None:
+    assert _run("formFootWait") == {
+        "form": True,
+        "waiting": False,
+        "failed": False,
+        "title": "Profile",
+    }

@@ -57,7 +57,7 @@ const FRAGMENTS = {
     view('profile', 'Profile', [['button', { id: 'to-email', 'data-you-go': 'profile/email' }], ['a', { id: 'to-history', href: '/history?action=plays&bogus=1' }], ['button', { id: 'last' }],
       ['div', { id: 'inner', class: 'scroller' }, ['p', { id: 'deep' }]]]),
     view('profile/email', 'Email', [['input', { id: 'email' }], ['a', { id: 'out', href: '/downloads' }],
-      ['form', { id: 'loose', method: 'post' }], ['form', { id: 'logout', method: 'post', action: '/api/auth/logout' }]]),
+      ['form', { id: 'loose', method: 'post' }], ['form', { id: 'logout', method: 'post', action: '/api/auth/logout' }], ['div', { class: 'yo-foot' }]]),
     view('profile/subtitles', 'Subtitles', [['button', { id: 'to-sublang', 'data-you-go': 'profile/subtitles/language' }]]),
     view('profile/subtitles/language', 'Subtitle language', [['button', { id: 'lang' }]])],
   '/history': ['div', { 'data-you-group': 'history', 'data-styles': '', 'data-scripts': '/static/js/reauth.js?v=1 /static/js/history.js?v=1' }, view('history', 'History', [], 'wide')],
@@ -659,6 +659,7 @@ async function widthSteps(opts, to = 'history') {
       frames: frames.length,
       edge: frames[0] ? of(frames[0].querySelector('.you__frame-edge'), 'transform') : [],
       fill: frames[0] ? of(frames[0].querySelector('.you__frame-fill'), 'transform') : [],
+      shade: frames[0] ? of(frames[0].querySelector('.you__frame-shade'), 'transform') : [],
       fade: frames.map((f) => of(f, 'opacity')),
       hub: of(hub, 'transform'),
       hubShown: of(hub, 'opacity'),
@@ -681,6 +682,41 @@ async function widthSteps(opts, to = 'history') {
 }
 scenarios.widthSteps = async () => ({ full: await widthSteps({}), calm: await widthSteps({ calm: true }), phone: await widthSteps({ phone: true }) });
 scenarios.settingsSteps = async () => ({ full: await widthSteps({}, 'settings'), calm: await widthSteps({ calm: true }, 'settings') });
+
+// A view whose foot saves marks the page while it shows, so the toasts stand clear of the foot.
+scenarios.formFoot = async () => {
+  const p = open('/');
+  const marked = () => p.doc.documentElement.classList.contains('has-you-form');
+  p.you.go('profile');
+  await p.settle();
+  const hub = marked();
+  await p.click('to-email');
+  const form = marked();
+  p.you.go('profile');
+  await p.settle();
+  const back = marked();
+  await p.click('to-email');
+  p.you.close();
+  await p.settle();
+  return { hub, form, back, closed: marked() };
+};
+
+// A group on its way leaves no form on show, nor does one that fails to come.
+scenarios.formFootWait = async () => {
+  const p = open('/', { hold: true, server: (page) => (page === '/history' ? { status: 500 } : null) });
+  const marked = () => p.doc.documentElement.classList.contains('has-you-form');
+  p.you.go('profile/email');
+  await p.settle();
+  p.release();
+  await p.settle();
+  const form = marked();
+  p.you.go('history');
+  await p.settle();
+  const waiting = marked();
+  p.release();
+  await p.settle();
+  return { form, waiting, failed: marked(), title: p.title() };
+};
 
 const name = process.argv[2];
 if (!scenarios[name]) { console.error('unknown scenario ' + name); process.exit(2); }

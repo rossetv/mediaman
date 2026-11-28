@@ -778,16 +778,21 @@
       else if (travel < -32) tuck(false);
     }
 
-    /* The day whose head is stuck under the tools draws the hairline in their place. */
+    /* The day whose head is stuck under the tools draws the hairline in their place; pushed up by
+       the next day's, it slides under them. */
     function markDay() {
       dayCheck = false;
       var heads = MM.dom.qa('.hx-day__top', list);
       var stuck = null;
+      var line = 0;
       if (scrollEl && heads.length) {
-        var line = scrollEl.getBoundingClientRect().top + parseFloat(window.getComputedStyle(heads[0]).top) + 0.5;
+        line = scrollEl.getBoundingClientRect().top + parseFloat(window.getComputedStyle(heads[0]).top) + 0.5;
         for (var i = 0; i < heads.length && heads[i].getBoundingClientRect().top <= line; i++) stuck = heads[i];
       }
-      heads.forEach(function (h) { h.classList.toggle('is-stuck', h === stuck); });
+      heads.forEach(function (h) {
+        h.classList.toggle('is-stuck', h === stuck);
+        h.classList.toggle('is-pushed', h === stuck && h.getBoundingClientRect().top < line - 1);
+      });
       tools.classList.toggle('has-day', !!stuck);
     }
 
