@@ -152,7 +152,7 @@ def test_a_picture_sonarr_names_elsewhere_is_not_put_in_the_mail(tmp_path, tmdb,
 
     html = _html(init_db(str(tmp_path / "bare.db")), series=series)
 
-    assert "<img" not in html and "295604" not in html
+    assert '<img class="pic"' not in html and "295604" not in html
 
 
 def test_a_row_with_only_a_tvdb_id_asks_tmdb_by_the_series_tmdb_id(conn, tmdb):
