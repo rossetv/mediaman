@@ -108,6 +108,15 @@ def test_downloading_cards_sit_on_canvas_in_forced_colours() -> None:
     assert "forced-color-adjust" not in style(".dw__text", "_watch_downloading.css", media)
 
 
+def test_a_downloading_cards_long_name_takes_two_lines_and_is_never_cut_on_one() -> None:
+    title = style(".dw__title", "_watch_downloading.css")
+    assert title.get("-webkit-line-clamp") == title.get("line-clamp") == "2"
+    assert title.get("display") == "-webkit-box"
+    # One line with an ellipsis would cut the name mid-word, at any width.
+    sheet = rules("_watch_downloading.css")
+    assert not [d for _, sels, d in sheet if ".dw__title" in sels and "white-space" in d]
+
+
 def test_without_javascript_the_downloading_placeholder_is_not_shown() -> None:
     # Nothing fills it without JavaScript, so it would read as a load that never ends.
     hidden = style(".dlx.is-resting", "_watch_downloading.css", "(scripting: none)")

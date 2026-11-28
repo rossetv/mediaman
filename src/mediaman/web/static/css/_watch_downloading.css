@@ -114,9 +114,12 @@
 .dw__poster { flex: none; width: 52px; height: 78px; overflow: hidden; border-radius: var(--r-xs); background: linear-gradient(160deg, var(--s4), var(--s1)); }
 .dw__pic { display: block; width: 100%; height: 100%; object-fit: cover; }
 .dw__text { flex: 1; min-width: 0; text-shadow: 0 1px 8px color-mix(in srgb, var(--scrim) 70%, transparent); }
-.dw__title,
 .dw__line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dw__title { font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+/* A long name takes a second line and ends on a whole word; the cards of the row grow together. */
+.dw__title {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
+  font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25;
+}
 .dw__line { margin-top: 3px; font-size: 13px; line-height: 1.35; color: var(--t2); font-variant-numeric: tabular-nums; }
 .dw__line strong { font-weight: 600; color: var(--t1); }
 /* Two lines of it on the narrowest phones, or it would lose when it is tried again. */
