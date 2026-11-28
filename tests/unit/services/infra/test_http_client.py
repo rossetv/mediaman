@@ -508,26 +508,6 @@ class TestSafeHTTPErrorShape:
         # Host and path are preserved for debugging.
         assert exc.url == "example.com/api"
 
-    def test_json_error_returns_dict(self, monkeypatch):
-        monkeypatch.setattr(
-            http_client,
-            "_dispatch",
-            lambda *a, **kw: _response(status=500, body=b'{"error":"oops"}'),
-        )
-        with pytest.raises(SafeHTTPError) as excinfo:
-            SafeHTTPClient().get("http://example.com/")
-        assert excinfo.value.json_error() == {"error": "oops"}
-
-    def test_json_error_returns_none_for_non_json(self, monkeypatch):
-        monkeypatch.setattr(
-            http_client,
-            "_dispatch",
-            lambda *a, **kw: _response(status=500, body=b"plain text"),
-        )
-        with pytest.raises(SafeHTTPError) as excinfo:
-            SafeHTTPClient().get("http://example.com/")
-        assert excinfo.value.json_error() is None
-
     def test_body_snippet_truncated(self, monkeypatch):
         big = b"A" * (_BODY_SNIPPET_BYTES * 3)
         monkeypatch.setattr(

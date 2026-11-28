@@ -14,7 +14,7 @@ import pytest
 import requests
 from requests.structures import CaseInsensitiveDict
 
-from mediaman.services.cast.tracks import read_tracks
+from mediaman.services.cast.tracks import tracks_of
 from mediaman.services.infra.http import client as http_client
 from mediaman.services.media_meta import held_selections, plex_stream
 from mediaman.services.media_meta import plex as plex_module
@@ -45,7 +45,6 @@ _READS = [
         r"/library/metadata/\d+/thumb/\d+",
         r"/library/parts/\d+/indexes/sd/\d+",
         r"/status/sessions/history/all",
-        r"/accounts",
         r"/transcode/sessions",
         re.escape(TRANSCODE) + r"/(decision|start\.m3u8|ping|stop)",
         re.escape(TRANSCODE) + r"/session/[\w-]+/base/[\w.-]+",
@@ -128,8 +127,6 @@ class _Plex:
                 '<MediaContainer><Video viewedAt="1600000500" accountID="1"/></MediaContainer>',
                 xml,
             )
-        if path == "/accounts":
-            return 200, '<MediaContainer><Account id="2" name="viewer"/></MediaContainer>', xml
         if path == "/identity":
             return 200, '<MediaContainer machineIdentifier="m1"/>', xml
         if path == "/library/metadata/123/thumb/1":
@@ -231,7 +228,6 @@ def test_scan_watch_stream_and_cast_send_plex_only_reads_and_track_selections(pl
     scanner.get_watch_history("123")
     scanner.get_season_watch_history("201")
     scanner.get_user_ratings()
-    scanner.get_accounts()
     assert scanner.is_reachable()
 
     watch = PlexWatch(PLEX_URL, TOKEN)
@@ -242,7 +238,7 @@ def test_scan_watch_stream_and_cast_send_plex_only_reads_and_track_selections(pl
     watch.next_episode("202")
     watch.fetch_image("/library/metadata/123/thumb/1")
     watch.fetch_preview("55", 1000)
-    audio, _subtitles = read_tracks(watch, "123")
+    audio, _subtitles = tracks_of(watch.item_node("123"))
     assert [t["id"] for t in audio] == ["6", "7"]
 
     manager = StreamManager(lambda: (PLEX_URL, TOKEN), session=requests.Session())

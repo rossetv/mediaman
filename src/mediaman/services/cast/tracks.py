@@ -11,8 +11,6 @@ from dataclasses import dataclass
 from typing import TypedDict
 from xml.etree.ElementTree import Element
 
-from mediaman.services.media_meta.plex_watch import PlexWatch
-
 _ID_RE = re.compile(r"[0-9]{1,18}")
 _LABEL_MAX = 120
 _NAME_MAX = 60
@@ -211,11 +209,6 @@ def tracks_of(node: Element) -> tuple[list[Track], list[Track]]:
             continue
         tracks.append(_track(stream, len(tracks) + 1))
     return audio, subtitles
-
-
-def read_tracks(plex: PlexWatch, rating_key: str) -> tuple[list[Track], list[Track]]:
-    """Return ``(audio, subtitles)``, from the metadata ``get_item`` read where it did."""
-    return tracks_of(plex.item_node(rating_key))
 
 
 @dataclass(frozen=True)

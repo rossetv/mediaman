@@ -7,7 +7,6 @@ most callers import it from.
 
 from __future__ import annotations
 
-import json as _json
 from urllib.parse import urlparse
 
 from mediaman.core.format import log_snippet
@@ -46,10 +45,3 @@ class SafeHTTPError(Exception):
         self.body_snippet = body_snippet
         self.url = _safe_url(url)
         super().__init__(f"HTTP {status_code} from {self.url}: {log_snippet(body_snippet, 120)}")
-
-    def json_error(self) -> dict[str, object] | None:
-        try:
-            parsed = _json.loads(self.body_snippet)
-        except (ValueError, TypeError):
-            return None
-        return parsed if isinstance(parsed, dict) else None

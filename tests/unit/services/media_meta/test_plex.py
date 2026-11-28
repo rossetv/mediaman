@@ -361,28 +361,6 @@ class TestPlexClient:
         assert history[0]["episode_title"] == "Episode 1"
 
     @patch("mediaman.services.media_meta.plex.PlexServer")
-    def test_get_accounts(self, mock_cls):
-        import xml.etree.ElementTree as ET
-
-        mock_server = MagicMock()
-        mock_cls.return_value = mock_server
-
-        xml_str = """<MediaContainer>
-            <Account id="1" name="" />
-            <Account id="2" name="Alice" />
-            <Account id="3" name="Bob" />
-        </MediaContainer>"""
-        mock_server.query.return_value = ET.fromstring(xml_str)
-
-        client = PlexClient("http://plex:32400", "test-token")
-        accounts = client.get_accounts()
-
-        assert len(accounts) == 2
-        assert accounts[0] == {"id": 2, "name": "Alice"}
-        assert accounts[1] == {"id": 3, "name": "Bob"}
-        mock_server.query.assert_called_once_with("/accounts")
-
-    @patch("mediaman.services.media_meta.plex.PlexServer")
     def test_get_watch_history_uses_params_kwarg(self, mock_cls, fake_http, fake_response):
         """metadataItemID must be sent via params= not interpolated into the URL."""
         mock_server = MagicMock()

@@ -57,7 +57,6 @@ from mediaman.services.media_meta._plex_session import (  # noqa: F401
 )
 from mediaman.services.media_meta._plex_types import (  # noqa: F401
     _HISTORY_MAX_BYTES,
-    PlexAccount,
     PlexLibrarySection,
     PlexMovieItem,
     PlexSeasonItem,
@@ -307,15 +306,3 @@ class PlexClient:
             return True
         except (PlexApiException, http_requests.RequestException):
             return False
-
-    def get_accounts(self) -> list[PlexAccount]:
-        """Return named Plex accounts from /accounts; the home admin (id=1, empty name) is
-        excluded.
-        """
-        response = self.server.query("/accounts")  # type: ignore[no-untyped-call]  # rationale: plexapi has no stubs
-        accounts: list[PlexAccount] = []
-        for account in response.findall(".//Account"):
-            name = account.get("name", "")
-            if name:
-                accounts.append({"id": int(account.get("id", 0)), "name": name})
-        return accounts

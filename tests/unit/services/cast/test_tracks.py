@@ -8,7 +8,6 @@ import pytest
 from mediaman.services.cast.tracks import (
     Remembered,
     normalise_language,
-    read_tracks,
     resolve,
     tracks_of,
 )
@@ -270,8 +269,8 @@ def test_the_tracks_of_an_item_just_read_come_without_asking_plex_again(monkeypa
     plex = PlexWatch("http://plex.test", "tok")
 
     plex.get_item("7", marks=True)
-    audio, _ = read_tracks(plex, "7")
-    read_tracks(plex, "8")
+    audio, _ = tracks_of(plex.item_node("7"))
+    tracks_of(plex.item_node("8"))
 
     assert [t["language"] for t in audio] == ["de"]
     assert reads == ["7", "8"]

@@ -39,23 +39,6 @@ class _LookupsMixin:
         result = self._get_list(f"{endpoint}?term={quote(term, safe='')}")  # type: ignore[attr-defined]
         return cast(list[ArrLookupResult], result)
 
-    def get_release(self, item_id: int, *, endpoint: str) -> dict[str, object] | None:
-        """Return a single Arr item by its internal numeric ID.
-
-        Returns ``None`` when the item does not exist (404) or on a
-        network error.  All other exceptions — including programming
-        errors — are allowed to propagate.
-        """
-        try:
-            result = self._get(f"{endpoint}/{item_id}")  # type: ignore[attr-defined]
-            return result if isinstance(result, dict) else None
-        except SafeHTTPError as exc:
-            if exc.status_code == 404:
-                return None
-            raise
-        except RequestException:
-            return None
-
     def check_reachable(self) -> None:
         """Probe ``/api/v3/system/status``; raise ``SafeHTTPError`` or ``RequestException``
         when it does not answer, so a caller can tell why.

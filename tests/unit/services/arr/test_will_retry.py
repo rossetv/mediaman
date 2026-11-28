@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from mediaman.db import init_db
-from mediaman.services.arr.finding_copy import fixing_words, will_retry
+from mediaman.services.arr.finding_copy import fixing_words
 from tests.helpers.factories import insert_settings
 
 _NOW = datetime(2026, 1, 10, 12, tzinfo=UTC)
@@ -37,7 +37,7 @@ def test_a_show_retries_its_stuck_season_though_another_season_was_tried_often(c
     _row(conn, "sonarr:5:1", 2, None)
     _row(conn, "sonarr:5:2", 0, _STUCK)
 
-    assert will_retry(conn, "sonarr:5:", ["Not a sample"])
+    assert fixing_words(conn, "sonarr:5:", ["Not a sample"]) == "Fixing — finding another copy"
 
 
 def test_a_season_tried_many_times_before_is_still_retried(conn):
@@ -47,7 +47,7 @@ def test_a_season_tried_many_times_before_is_still_retried(conn):
 
 
 def test_a_download_sonarr_holds_for_a_while_is_not_said_to_be_retried(conn):
-    assert not will_retry(conn, "sonarr:5:2", ["Episode has a TBA title and recently aired"])
+    assert fixing_words(conn, "sonarr:5:2", ["Episode has a TBA title and recently aired"]) == ""
 
 
 def test_a_fault_of_the_setup_is_left_for_an_admin(conn):

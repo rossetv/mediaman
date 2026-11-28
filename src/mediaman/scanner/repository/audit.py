@@ -190,35 +190,3 @@ def _media_where_clause(action: str | None) -> tuple[str, tuple[str, ...]]:
     if action:
         return "WHERE al.action = ?", (action,)
     return "", ()
-
-
-def event_page(
-    conn: sqlite3.Connection, *, action: str | None, event_id: int, per_page: int
-) -> int | None:
-    """Return the 1-based page that holds event *event_id* under the filter, or None.
-
-    None when the event does not exist or the filter hides it. Counts the rows
-    that sort before it in the order the pages are read.
-    """
-    where_params: tuple[str, ...]
-    if action == "security":
-        where_sql, where_params = "WHERE al.action LIKE ?", ("sec:%",)
-    else:
-        where_sql, where_params = _media_where_clause(action)
-    where_sql = where_sql or "WHERE 1=1"
-    # rationale: where_sql comes from a hard-coded filter map; no user input enters the SQL fragment
-    target = conn.execute(  # nosec B608
-        f"SELECT al.created_at FROM audit_log al {where_sql} AND al.id = ?",
-        (*where_params, event_id),
-    ).fetchone()
-    if target is None:
-        return None
-    # rationale: where_sql comes from a hard-coded filter map; no user input enters the SQL fragment
-    ahead = conn.execute(  # nosec B608
-        f"""
-        SELECT COUNT(*) AS n FROM audit_log al {where_sql}
-          AND (al.created_at > ? OR (al.created_at = ? AND al.id > ?))
-        """,
-        (*where_params, target["created_at"], target["created_at"], event_id),
-    ).fetchone()
-    return int(ahead["n"]) // per_page + 1

@@ -1,8 +1,8 @@
 """Tests for the shared ArrClient HTTP plumbing.
 
 These tests cover only the kind-agnostic plumbing layer (``_get``/``_put``/
-``_post``/``_delete``, ``is_reachable``, ``last_error``, the lookup helpers
-and ``get_release``).  Either spec is valid here because none of these
+``_post``/``_delete``, ``is_reachable``, ``last_error`` and the lookup
+helpers).  Either spec is valid here because none of these
 methods read ``ArrClient.spec``; ``SONARR_SPEC`` is used arbitrarily.
 """
 
@@ -193,17 +193,6 @@ class TestPublicLookupHelpers:
         """Helpers return [] when the upstream response is empty."""
         fake_http.queue("GET", fake_response(json_data=[]))
         assert client.lookup_by_tmdb_id(1, endpoint="/api/v3/movie/lookup") == []
-
-    def test_get_release_returns_dict_for_valid_id(self, client, fake_http, fake_response):
-        fake_http.queue("GET", fake_response(json_data={"id": 7, "title": "Dune"}))
-        result = client.get_release(7, endpoint="/api/v3/movie")
-        assert result == {"id": 7, "title": "Dune"}
-
-    def test_get_release_returns_none_on_error(self, client, fake_http, fake_response):
-        """get_release returns None rather than raising when the ID is not found."""
-        fake_http.queue("GET", fake_response(status=404, text="not found"))
-        result = client.get_release(999, endpoint="/api/v3/movie")
-        assert result is None
 
 
 class TestCheckReachable:

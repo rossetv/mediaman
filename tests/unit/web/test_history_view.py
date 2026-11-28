@@ -11,7 +11,6 @@ import pytest
 from fastapi.templating import Jinja2Templates
 
 from mediaman.core.audit import security_event
-from mediaman.scanner.repository.audit import event_page
 from mediaman.web.routes._history_view import _VALUE_MAX, describe, redact_text
 from mediaman.web.routes.history import router as history_router
 from tests.helpers.factories import insert_audit_log
@@ -374,35 +373,6 @@ class TestNothingSensitive:
         assert _by_label(view)["Name tried"] == "typed-name"
         assert "Who" not in _by_label(view)
         assert "typed-name" not in view.summary
-
-
-class TestEventPage:
-    def _rows(self, conn, n, action="scanned"):
-        base = datetime(2026, 1, 1, tzinfo=UTC)
-        return [
-            insert_audit_log(
-                conn, media_item_id=f"m{i}", action=action, created_at=base + timedelta(minutes=i)
-            )
-            for i in range(n)
-        ]
-
-    def test_finds_the_page_in_newest_first_order(self, conn):
-        ids = self._rows(conn, 30)
-        assert event_page(conn, action=None, event_id=ids[-1], per_page=25) == 1
-        assert event_page(conn, action=None, event_id=ids[4], per_page=25) == 2
-
-    def test_rows_with_the_same_time_are_ordered_by_id(self, conn):
-        same = datetime(2026, 1, 1, tzinfo=UTC)
-        ids = [
-            insert_audit_log(conn, media_item_id=f"m{i}", action="scanned", created_at=same)
-            for i in range(3)
-        ]
-        assert [event_page(conn, action=None, event_id=i, per_page=2) for i in ids] == [2, 1, 1]
-
-    def test_none_when_missing_or_hidden_by_the_filter(self, conn):
-        ids = self._rows(conn, 2)
-        assert event_page(conn, action=None, event_id=999, per_page=25) is None
-        assert event_page(conn, action="deleted", event_id=ids[0], per_page=25) is None
 
 
 class TestPage:

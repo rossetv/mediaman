@@ -78,11 +78,6 @@ class PlexRatedItem(TypedDict):
     stars: float
 
 
-class PlexAccount(TypedDict):
-    id: int
-    name: str
-
-
 def _to_utc(dt: datetime | None) -> datetime | None:
     """Promote a plexapi datetime to a tz-aware UTC value.
 

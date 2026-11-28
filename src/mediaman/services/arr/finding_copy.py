@@ -46,13 +46,6 @@ def is_finding_copy(
     return row is not None
 
 
-def will_retry(conn: sqlite3.Connection, key: str, reasons: Sequence[str]) -> bool:
-    """Whether a download of *key*, as ``import_retry`` keys it, that needs attention for
-    *reasons* will be mended or replaced unasked. A *key* that ends in ":" is any season of a
-    series."""
-    return bool(fixing_words(conn, key, reasons))
-
-
 def fixing_words(conn: sqlite3.Connection, key: str, reasons: Sequence[str]) -> str:
     """What mediaman is doing about a download of *key*, as ``import_retry`` keys it, that needs
     attention for *reasons*, in a few words; "" when it leaves it for an admin. A *key* that ends
