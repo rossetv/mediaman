@@ -101,6 +101,17 @@ def test_nothing_on_the_tv_moves_under_reduced_motion(prop: str) -> None:
         assert held == "none" or held.startswith("pu "), (selector, held)
 
 
+def test_the_wait_ring_still_pulses_under_reduced_motion_on_a_page_coming_in() -> None:
+    """A ring that stands still on the waiting screens reads as a page that has hung."""
+    for ring in (".spin", ".in .mid > .spin"):
+        held = [
+            d.get("animation", "")
+            for w, sels, d in rules(TV)
+            if _within(w, REDUCED) and ring in sels and "animation" in d
+        ]
+        assert held and held[-1].startswith("pu "), ring
+
+
 def test_on_the_pages_a_letter_lies_under_its_picture_and_shows_where_it_fails() -> None:
     picture = style(".avatar--pic img", "_nav.css")
     assert (picture["position"], picture["inset"]) == ("absolute", "0")

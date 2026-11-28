@@ -984,15 +984,17 @@ const scenarios = {
     return { asks: t.paths('ask').map((c) => c.body), said: t.says(), kept: t.store['mm-tv-resume'] || null };
   },
   // The TV goes to standby while its film plays, the film goes to a phone meanwhile, and the TV wakes.
-  async standby() {
+  // `answering`: mediaman goes on answering while the page is put away, as a TV's browser may poll on.
+  async standby(how) {
     const t = await playing();
     t.now = film({ state: 'playing' });
     t.answers.poll = () => ready({ play: t.now, boot: 'a', resume: t.now ? 'ticket-p1' : null });
     await t.step(1500);
     const before = Boolean(t.store['mm-tv-resume']);
     t.hide(true);
-    t.answers.poll = [502, null];
+    if (how !== 'answering') t.answers.poll = [502, null];
     await t.step(12000);
+    if (how === 'answering') return { before, kept: t.store['mm-tv-resume'] || null };
     t.now = null;
     t.answers.poll = () => ready({ play: null, boot: 'a' });
     t.answers.ask = { ok: true };
@@ -1182,6 +1184,37 @@ const scenarios = {
     t.key(OK);
     await t.step(1500);
     return { said: t.says(), store: t.store, asked: t.paths('code').length };
+  },
+  // How long the page before stays once the next takes its place: `ms` after the swap.
+  async leaves(ms) {
+    const t = await playing();
+    t.now = film({ state: 'ended', url: null });
+    for (let i = 0; i < 3000 && !t.left(); i += 1) await t.step(1);
+    const swapped = t.left() !== '';
+    await t.step(Number(ms));
+    return { swapped, there: t.left() !== '' };
+  },
+  // The ticket kept on the TV, as mediaman hands it a fresh one with each answer.
+  async ticketKeptFresh() {
+    const t = await playing();
+    let n = 0;
+    t.answers.poll = () => { n += 1; return ready({ play: t.now, boot: 'a', resume: 'ticket-' + n }); };
+    await t.step(20000);
+    return { given: n, kept: JSON.parse(t.store['mm-tv-resume']).ticket };
+  },
+  // The pages a film starts under and ends on, as drawn.
+  async artPages() {
+    const t = tv({ kept: 'old' });
+    t.now = film({ state: 'loading' });
+    t.answers.poll = () => ready({ play: t.now });
+    // Nothing moves until it plays.
+    t.video.stuck = true;
+    t.run();
+    await t.step(1500);
+    const starting = t.html();
+    t.now = film({ state: 'ended', url: null });
+    await t.step(1500);
+    return { starting, ended: t.html() };
   },
   async bootWaits() {
     const t = tv({ kept: 'old' });

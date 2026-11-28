@@ -21,12 +21,13 @@ video::-webkit-media-controls { display: none !important; }
 @keyframes out { to { opacity: 0; transform: scale(1.04); } }
 @-webkit-keyframes fade { to { opacity: 0; } }
 @keyframes fade { to { opacity: 0; } }
-/* From-only, and filled backwards alone: the burn-in drift owns these boxes' transform once in. */
-.in .mid > *, .in .lc > *, .in .rc, .in .top > div, .in .bot > div { -webkit-animation: rise .7s cubic-bezier(.2, .8, .2, 1) .1s backwards; animation: rise .7s cubic-bezier(.2, .8, .2, 1) .1s backwards; }
-.in .mid > :nth-child(2), .in .lc > :nth-child(2), .in .rc, .in .top > :nth-child(2), .in .bot > :nth-child(2) { -webkit-animation-delay: .16s; animation-delay: .16s; }
-.in .mid > :nth-child(3), .in .lc > :nth-child(3), .in .bot > :nth-child(3) { -webkit-animation-delay: .22s; animation-delay: .22s; }
-.in .mid > :nth-child(4), .in .lc > :nth-child(4), .in .bot > :nth-child(4) { -webkit-animation-delay: .28s; animation-delay: .28s; }
-.in .mid > :nth-child(n+5), .in .lc > :nth-child(n+5), .in .bot > :nth-child(n+5) { -webkit-animation-delay: .34s; animation-delay: .34s; }
+/* The first line starts up as the new page's ground covers the old words, so the screen is never
+   empty between them. From-only, and filled backwards alone: the burn-in drift owns these boxes' transform once in. */
+.in .mid > *, .in .lc > *, .in .rc, .in .top > div, .in .bot > div { -webkit-animation: rise .7s cubic-bezier(.2, .8, .2, 1) .03s backwards; animation: rise .7s cubic-bezier(.2, .8, .2, 1) .03s backwards; }
+.in .mid > :nth-child(2), .in .lc > :nth-child(2), .in .rc, .in .top > :nth-child(2), .in .bot > :nth-child(2) { -webkit-animation-delay: .09s; animation-delay: .09s; }
+.in .mid > :nth-child(3), .in .lc > :nth-child(3), .in .bot > :nth-child(3) { -webkit-animation-delay: .15s; animation-delay: .15s; }
+.in .mid > :nth-child(4), .in .lc > :nth-child(4), .in .bot > :nth-child(4) { -webkit-animation-delay: .21s; animation-delay: .21s; }
+.in .mid > :nth-child(n+5), .in .lc > :nth-child(n+5), .in .bot > :nth-child(n+5) { -webkit-animation-delay: .27s; animation-delay: .27s; }
 /* The titles come down from the top edge; the people rise one by one, in their own time. */
 .in .top > div { -webkit-animation-name: drop; animation-name: drop; }
 .in .mid > .ppl { -webkit-animation: none; animation: none; }
@@ -91,9 +92,10 @@ video::-webkit-media-controls { display: none !important; }
 .pz .i { width: 44px; height: 44px; vertical-align: -7px; }
 /* Glass where nothing blurs: the tint at its solid weight, its edge lit along the top. */
 /* What a film starts under: big and bright enough to read from the sofa, over a larger orbit. */
-.start .spin { width: 128px; height: 128px; border-width: 5px; margin: 0 0 52px; }
-.start .spin:before { left: -91px; top: -91px; width: 300px; height: 300px; }
-.start .spin:after { left: 48px; top: -13.5px; width: 22px; height: 22px; -webkit-transform-origin: 11px 72.5px; transform-origin: 11px 72.5px; }
+.start .spin { width: 144px; height: 144px; border-width: 6px; margin: 0 0 52px; }
+.start .spin:before { left: -104px; top: -104px; width: 340px; height: 340px; }
+.start .spin:after { left: -6px; top: -6px; width: 144px; height: 144px; border-width: 6px; }
+.start .spin i { left: 54px; top: -15px; width: 24px; height: 24px; -webkit-transform-origin: 12px 81px; transform-origin: 12px 81px; }
 .start .t1 { font-size: 84px; line-height: 100px; }
 .start .t2 { font-size: 46px; line-height: 64px; margin-top: 8px; }
 .start .who { margin-top: 44px; font-size: 40px; color: #fff; }
@@ -106,10 +108,15 @@ video::-webkit-media-controls { display: none !important; }
 .up .t1 { font-size: 48px; line-height: 64px; }
 /* A wait: a light that orbits a faint ring, over a blue glow that breathes. Both move by
    transform and opacity alone, so a weak TV keeps them smooth. */
-.spin { position: relative; width: 96px; height: 96px; border: 4px solid rgba(255, 255, 255, .16); border-radius: 50%; margin: 30px 0 40px; -webkit-flex: none; flex: none; }
-.spin:before { content: ''; position: absolute; left: -66px; top: -66px; width: 220px; height: 220px; border-radius: 50%; background: -webkit-radial-gradient(center, circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); background: radial-gradient(circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); -webkit-animation: glow 3.2s ease-in-out infinite alternate; animation: glow 3.2s ease-in-out infinite alternate; }
-/* On the ring's line, turning about the ring's middle. */
-.spin:after { content: ''; position: absolute; left: 35px; top: -11px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 0 16px 3px rgba(41, 151, 255, .9); -webkit-transform-origin: 9px 55px; transform-origin: 9px 55px; -webkit-animation: sp 2s linear infinite; animation: sp 2s linear infinite; }
+.spin { position: relative; width: 112px; height: 112px; border: 5px solid rgba(255, 255, 255, .14); border-radius: 50%; margin: 30px 0 40px; -webkit-flex: none; flex: none; }
+.spin:before { content: ''; position: absolute; left: -79px; top: -79px; width: 260px; height: 260px; border-radius: 50%; background: -webkit-radial-gradient(center, circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); background: radial-gradient(circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); -webkit-animation: glow 3.2s ease-in-out infinite alternate; animation: glow 3.2s ease-in-out infinite alternate; }
+/* A comet on the ring's line: a light at its head and a tail that thins behind it, the two turned
+   together about the ring's middle. */
+.spin:after { content: ''; position: absolute; left: -5px; top: -5px; box-sizing: border-box; width: 112px; height: 112px; border: 5px solid transparent; border-top-color: rgba(166, 210, 255, .55); border-left-color: rgba(166, 210, 255, .2); border-radius: 50%; -webkit-animation: arc 2s linear infinite; animation: arc 2s linear infinite; }
+.spin i { position: absolute; z-index: 1; left: 41px; top: -12.5px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 0 16px 3px rgba(41, 151, 255, .9); -webkit-transform-origin: 10px 63.5px; transform-origin: 10px 63.5px; -webkit-animation: sp 2s linear infinite; animation: sp 2s linear infinite; }
+/* The tail's head at the top, where the light starts. */
+@-webkit-keyframes arc { from { -webkit-transform: rotate(-45deg); } to { -webkit-transform: rotate(315deg); } }
+@keyframes arc { from { transform: rotate(-45deg); } to { transform: rotate(315deg); } }
 @-webkit-keyframes sp { to { -webkit-transform: rotate(360deg); } }
 @keyframes sp { to { transform: rotate(360deg); } }
 @-webkit-keyframes glow { from { opacity: .4; -webkit-transform: scale(.8); } to { opacity: 1; -webkit-transform: scale(1.06); } }
@@ -117,8 +124,8 @@ video::-webkit-media-controls { display: none !important; }
 /* The icon drawn over and over, where the browser can: each dash is as long as its arch. Others have the ring. */
 .mark { display: none; }
 @supports (stroke-dashoffset: 1px) and (animation-name: a1) {
-  .spin--mark { width: 120px; border: 0; border-radius: 0; animation: none; }
-  .spin--mark:before { left: -50px; top: -62px; }
+  .spin--mark { width: 120px; height: 96px; border: 0; border-radius: 0; animation: none; }
+  .spin--mark:before { left: -70px; top: -82px; }
   .spin--mark:after { display: none; }
   .mark { display: block; position: relative; width: 120px; height: 96px; }
   .a1 { stroke-dasharray: 57.2px 114.4px; animation: a1 1.8s linear infinite both; }
@@ -171,12 +178,12 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .ppl { display: -webkit-flex; display: flex; -webkit-justify-content: center; justify-content: center; margin-top: 56px; }
 .pp { -webkit-flex: none; flex: none; width: 200px; margin: 0 12px; }
 /* As the page comes in, not each time it is drawn again. */
-.in .pp { -webkit-animation: rise .7s cubic-bezier(.2, .8, .2, 1) .16s backwards; animation: rise .7s cubic-bezier(.2, .8, .2, 1) .16s backwards; }
-.in .pp:nth-child(2) { -webkit-animation-delay: .22s; animation-delay: .22s; }
-.in .pp:nth-child(3) { -webkit-animation-delay: .28s; animation-delay: .28s; }
-.in .pp:nth-child(4) { -webkit-animation-delay: .34s; animation-delay: .34s; }
-.in .pp:nth-child(5) { -webkit-animation-delay: .4s; animation-delay: .4s; }
-.in .pp:nth-child(n+6) { -webkit-animation-delay: .46s; animation-delay: .46s; }
+.in .pp { -webkit-animation: rise .7s cubic-bezier(.2, .8, .2, 1) .09s backwards; animation: rise .7s cubic-bezier(.2, .8, .2, 1) .09s backwards; }
+.in .pp:nth-child(2) { -webkit-animation-delay: .15s; animation-delay: .15s; }
+.in .pp:nth-child(3) { -webkit-animation-delay: .21s; animation-delay: .21s; }
+.in .pp:nth-child(4) { -webkit-animation-delay: .27s; animation-delay: .27s; }
+.in .pp:nth-child(5) { -webkit-animation-delay: .33s; animation-delay: .33s; }
+.in .pp:nth-child(n+6) { -webkit-animation-delay: .39s; animation-delay: .39s; }
 @-webkit-keyframes rise { from { opacity: 0; -webkit-transform: translateY(24px); } }
 @keyframes rise { from { opacity: 0; transform: translateY(24px); } }
 .av { position: relative; display: block; width: 140px; height: 140px; margin: 0 auto; padding: 6px; border: 3px solid rgba(255, 255, 255, .32); border-radius: 50%; background: rgba(255, 255, 255, .08); }
@@ -198,9 +205,9 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
   .in .mid > *, .in .lc > *, .in .rc, .in .top > div, .in .bot > div, .in .mid > .ppl, .pz, .in .pp { -webkit-animation: none; animation: none; }
   .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
   #o { display: none; }
-  .spin { animation: pu 1.6s ease-in-out infinite; }
-  .spin:before, .spin:after { -webkit-animation: none; animation: none; }
-  .spin:after { display: none; }
+  .spin, .in .mid > .spin { -webkit-animation: pu 1.6s ease-in-out infinite; animation: pu 1.6s ease-in-out infinite; }
+  .spin:before, .spin:after, .spin i { -webkit-animation: none; animation: none; }
+  .spin:after, .spin i { display: none; }
   .pz.gone { display: none; -webkit-animation: none; animation: none; }
-  .spin--mark, .mark path, .a1, .a2 { animation: none; }
+  .spin--mark, .in .mid > .spin--mark, .mark path, .a1, .a2 { animation: none; }
 }

@@ -301,6 +301,17 @@ def test_a_tv_that_wakes_from_standby_does_not_take_back_a_film_that_went_elsewh
     assert out["asks"] == 0 and "is ready" in out["said"]
 
 
+def test_a_page_put_away_keeps_no_ticket_though_mediaman_goes_on_answering() -> None:
+    out = _run("standby", "answering")
+    assert out["before"] and out["kept"] is None
+
+
+def test_the_ticket_kept_on_the_tv_is_as_fresh_as_its_place() -> None:
+    out = _run("ticketKeptFresh")
+    # Answers come every second; the kept ticket is at most a few answers old.
+    assert out["given"] > 15 and int(out["kept"].split("-")[1]) >= out["given"] - 3
+
+
 def test_a_film_stopped_while_the_tv_answered_does_not_start_again() -> None:
     out = _run("resumes", "stopped")
     assert out["asks"] == [] and "is ready" in out["said"]
@@ -403,6 +414,35 @@ def test_the_page_before_stays_until_its_fade_is_over() -> None:
     assert longest > 0 and leave >= longest * 1000
 
 
+def test_the_page_before_is_there_for_its_whole_fade_and_then_gone() -> None:
+    longest = max(
+        _seconds(decls["animation"])
+        for where, selectors, decls in rules("tv.css")
+        if "animation" in decls and not where and any(s.startswith("#o") for s in selectors)
+    )
+    held = _run("leaves", str(round(longest * 1000)))
+    assert held == {"swapped": True, "there": True}
+    assert _run("leaves", "1000") == {"swapped": True, "there": False}
+
+
+def test_a_picture_fades_in_with_its_shade_as_one_so_it_never_flashes() -> None:
+    out = _run("artPages")
+    for page in (out["starting"], out["ended"]):
+        assert '<div class="pic" id="pic"><div class="shade"></div></div>' in page
+        assert page.count('class="shade"') == 1
+
+
+def test_the_new_page_s_first_words_rise_before_the_old_ones_are_a_quarter_gone() -> None:
+    """Else the ground has covered the old words and the screen is empty a moment."""
+    def timing(selector: str) -> list[float]:
+        (decls,) = [d for w, s, d in rules("tv.css") if not w and selector in s and "animation" in d]
+        return [float(n) for n, _ in re.findall(r"(?<![\w.])(\d*\.?\d+)(s)\b", decls["animation"])]
+
+    old_words = timing("#o .mid")[0]
+    first_delay = timing(".in .mid > *")[1]
+    assert first_delay <= old_words / 4
+
+
 def test_what_moves_on_the_tv_moves_by_opacity_and_transform_alone() -> None:
     """A TV's browser hands these to its GPU; anything else repaints each frame."""
     css = re.sub(r"/\*.*?\*/", "", (STATIC / "css/tv.css").read_text(), flags=re.S)
@@ -450,7 +490,7 @@ def test_the_page_waits_under_the_icon_and_a_film_that_starts_under_the_ring() -
     out = _run("bootWaits")
     assert out["boot"].count('class="brand"') == 1
     assert out["boot"].count('<div class="spin spin--mark"><svg class="mark"') == 1
-    assert out["later"].count('<div class="spin"></div>') == 1 and "mark" not in out["later"]
+    assert out["later"].count('<div class="spin"><i></i></div>') == 1 and "mark" not in out["later"]
 
 
 def test_a_page_that_waits_takes_no_press_for_the_page_before() -> None:

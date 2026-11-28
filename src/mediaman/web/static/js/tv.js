@@ -26,6 +26,7 @@
   var MOVE_MS = 60000;
   var LIT_MS = 500;
   var SKIPPED_MS = 3000;
+  var STORE_MS = 2000;       // what the TV keeps of what plays is written no more often than this
   var LEAVE_MS = 450;        // the page before fades out for as long as tv.css takes, and a little more
 
   var body = document.body;
@@ -536,8 +537,9 @@
     if (kept) kept.paused = !wanted;
     var changed = !was !== !kept || Boolean(kept) && (was.id !== kept.id || was.boot !== kept.boot || was.paused !== kept.paused);
     resumable = kept;
-    // A TV's storage is slow to write: as what it holds changes, and its ticket once a minute.
-    if (changed || (kept && at - storedAt > 60000)) {
+    // A TV's storage is slow to write: as what it holds changes, and its ticket as often as its
+    // place, which mediaman holds a pick-up close to.
+    if (changed || (kept && at - storedAt > STORE_MS)) {
       storedAt = at;
       remember(KEPT_RESUME, kept && JSON.stringify(kept));
     }
@@ -959,7 +961,7 @@
       if (counted - (play.played_s || 0) > 60) { breaks = 0; }
       if (ready && wanted && there && time - play.start_s > 60) tries = 0;
       lastTime = time;
-      if (there && ready && at - keptAt > 2000) keepPlace(time);
+      if (there && ready && at - keptAt > STORE_MS) keepPlace(time);
     }
     if (pending && mode === 'code') {
       if (now() >= pending.until) codeGone();
@@ -1129,7 +1131,7 @@
   // The page holds the name and its first wait as drawn, until the first of these pages takes its place.
   var BRAND = document.querySelector('.brand').outerHTML;
   var BOOT = document.querySelector('.mid').outerHTML;
-  var SPIN = '<div class="spin"></div>';
+  var SPIN = '<div class="spin"><i></i></div>';
   var buttons = [];          // what the page offers: [label, action]
 
   function offer(list) {
@@ -1169,8 +1171,10 @@
   // A TV that is paired need not pair anew.
   function leave() { return token ? [['Back', 'i']] : []; }
   function page(inner) { return '<div class="page">' + inner + '</div>'; }
-  function art() {
-    return '<div class="pic" id="pic"></div>';
+  /* The picture, and over it the shade the words need: one layer, so that it fades in whole and
+     the picture is never less shaded than it ends. */
+  function art(shaded) {
+    return '<div class="pic" id="pic">' + (shaded ? '<div class="shade"></div>' : '') + '</div>';
   }
   function titles() {
     return '<div class="t1">' + esc(play.title) + '</div><div class="t2">' + under(play) + '</div>';
@@ -1280,9 +1284,9 @@
       return page(middle('This TV&rsquo;s browser can&rsquo;t play films', 'It is missing what mediaman needs.<br>Ask an admin to add this TV by its address.', [['Try anyway', 'a']]));
     },
     load: function () {
-      return art() + '<div class="shade"></div><div class="mid start">' + SPIN + titles() + '<div class="sm who">' + face(starter(), true) + esc(starter()) + ' is starting it</div></div>' + offer([]);
+      return art(true) + '<div class="mid start">' + SPIN + titles() + '<div class="sm who">' + face(starter(), true) + esc(starter()) + ' is starting it</div></div>' + offer([]);
     },
-    soon: function () { return art() + '<div class="shade"></div><div class="mid start">' + SPIN + '<div class="l">Starting</div></div>' + offer([]); },
+    soon: function () { return art(true) + '<div class="mid start">' + SPIN + '<div class="l">Starting</div></div>' + offer([]); },
     play: function () { return overlay(false); },
     pause: function () { return overlay(true); },
     buf: function () {
@@ -1296,11 +1300,11 @@
     },
     still: function () {
       var minutes = Math.max(1, Math.ceil((play.still_in_s || 0) / 60));
-      return art() + '<div class="shade"></div>' + middle('Are you still watching?', 'Press OK here, or answer on your phone.<br>It stops in ' + minutes + (minutes === 1 ? ' minute' : ' minutes') + ' and keeps your place.' + (askNote && '<br>' + askNote),
+      return art(true) + middle('Are you still watching?', 'Press OK here, or answer on your phone.<br>It stops in ' + minutes + (minutes === 1 ? ' minute' : ' minutes') + ' and keeps your place.' + (askNote && '<br>' + askNote),
         [['Continue watching', 'k'], ['Stop', 's']]).replace(BRAND, '');
     },
     ended: function () {
-      return art() + '<div class="shade"></div><div class="mid">' + titles() + '<div class="sm">' + (askNote || 'That&rsquo;s the end.') + '</div>' + offer([['Play again', 'r'], ['Close', 's']]) + '</div>';
+      return art(true) + '<div class="mid">' + titles() + '<div class="sm">' + (askNote || 'That&rsquo;s the end.') + '</div>' + offer([['Play again', 'r'], ['Close', 's']]) + '</div>';
     },
     err: function () {
       var acts = FOR_GOOD[play.error] ? [['Back', 's']] : [['Try again', 'r'], ['Back', 's']];
