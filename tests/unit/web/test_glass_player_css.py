@@ -338,6 +338,15 @@ def test_on_a_phone_the_remote_s_sheet_is_solid_so_the_page_s_glass_stays_under_
     assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none"
 
 
+def test_on_a_phone_the_chooser_sheet_hides_the_picture_and_controls_without_the_blur() -> None:
+    # Where the blur is not drawn, a thin tint leaves the video and the controls under its words.
+    drawn = style(".player-av", PLAYER, PHONE)["background"]
+    assert drawn == "rgb(var(--g-tint) / max(var(--g-a), .94))"
+    assert int(style(".player-av", PLAYER, PHONE)["z-index"]) > int(
+        style(".player-av", PLAYER)["z-index"]
+    )
+
+
 def test_the_ask_card_dims_the_picture_plainly() -> None:
     dim = style(".player-ask::backdrop", PLAYER)
     assert dim["background"] == "var(--g-dim)"

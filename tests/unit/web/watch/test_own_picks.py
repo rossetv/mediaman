@@ -17,6 +17,7 @@ from mediaman.services.infra import ConfigDecryptError, SafeHTTPError, SSRFRefus
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai import client as openai_client
 from mediaman.services.openai.recommendations import prompts, user_picks
+from mediaman.services.openai.recommendations.reasons import SHARED_WHY
 from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository import ratings
@@ -320,11 +321,11 @@ class TestDetail:
                 '["Alpha"]',
                 "You loved Alpha, and this is the same quiet dread.",
             ),
-            # Written before reasons spoke to the person: it tells of the title, not of them.
+            # The model's own reason stands where it does not speak to them.
             (
-                "A crew of three on a station, with the silences of Alpha.",
+                "Andy Weir's improvised science carries over from Alpha.",
                 '["Alpha", "Beta"]',
-                "You watched Alpha and Beta.",
+                "Andy Weir's improvised science carries over from Alpha.",
             ),
             (None, '["Alpha"]', "You watched Alpha."),
             (None, None, "From what you’ve been watching lately."),
@@ -365,10 +366,21 @@ class TestDetail:
             ["Alpha"],
         )
 
-    def test_a_shared_pick_says_it_was_not_made_from_their_viewing(self, people, conn):
-        rec = insert_suggestion(conn, tmdb_id=12, reason="A heist told in real time.")
+    @pytest.mark.parametrize(
+        ("reason", "why"),
+        [
+            ("Its heist plays out in real time.", "Its heist plays out in real time."),
+            # Written as if for one person, though everyone sees it.
+            ("You loved Alpha, and this is as sharp.", SHARED_WHY),
+            (None, SHARED_WHY),
+        ],
+    )
+    def test_a_shared_pick_gives_its_reason_or_says_it_was_made_for_everyone(
+        self, people, conn, reason, why
+    ):
+        rec = insert_suggestion(conn, tmdb_id=12, reason=reason)
         body = people["amy"].get(f"/api/watch/title/rec-{rec}").json()
-        assert "not from your own viewing" in body["why"]
+        assert body["why"] == why
 
     @pytest.mark.parametrize("other", ["bob", "admin"])
     def test_anyone_else_gets_the_answer_of_a_pick_that_does_not_exist(

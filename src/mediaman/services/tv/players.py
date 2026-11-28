@@ -88,6 +88,8 @@ class Report:
     volume: float
     muted: bool
     can_volume: bool
+    #: With an end: the TV has counted down to the next episode itself, over the last credits.
+    counted: bool = False
 
 
 @dataclass(frozen=True)
@@ -139,6 +141,8 @@ class Play:
     replaced: Mapping[str, Any] | None = None
     #: Whether the TV jumps past intros and credits by itself, as its person chose.
     auto_skip: bool = True
+    #: Whether the TV evens out loud sounds, as its person chose.
+    reduce_loud: bool = False
 
 
 @dataclass
@@ -299,7 +303,7 @@ class Players:
             play.position_s, play.placed, play.reported_at = report.position_s, True, now
             play.played_s = max(play.played_s, report.played_s)
         if report.state == "ended":
-            self._at_end(tv, play)
+            self._at_end(tv, play, counted=report.counted)
             return
         play.state = report.state
         if was == "paused" and play.state == "playing":
@@ -310,7 +314,7 @@ class Players:
         if paused or (report.state == "playing" and now - play.saved_at >= SAVE_SECONDS):
             self._put_aside(play, end=False)
 
-    def _at_end(self, tv: _Tv, play: Play) -> None:
+    def _at_end(self, tv: _Tv, play: Play, *, counted: bool = False) -> None:
         self._put_aside(play, end=True)
         self._ended.append(play.id)
         now = self._clock()
@@ -320,7 +324,9 @@ class Players:
             play.state, play.still_at = "still", now
         else:
             play.state = "upnext"
-            play.upnext_at = now + COUNTDOWN_SECONDS if play.choice.autoplay else None
+            # A countdown the TV has shown already is not shown again.
+            wait = 0.0 if counted else COUNTDOWN_SECONDS
+            play.upnext_at = now + wait if play.choice.autoplay else None
 
     def stream_gone(self, token_hash: str, play_id: str, *, moved: bool) -> None:
         """The play's stream ended under the TV; with *moved*, its person plays the title elsewhere."""
@@ -676,6 +682,8 @@ class Players:
             "still_in_s": None if still is None else max(0.0, still + STILL_SECONDS - now),
             "error": play.error,
             "auto_skip": play.auto_skip,
+            "autoplay": play.choice.autoplay,
+            "reduce_loud": play.reduce_loud,
         }
 
 

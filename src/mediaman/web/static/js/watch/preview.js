@@ -1,7 +1,8 @@
 /* Watch page: a card rested on with the mouse grows into a short preview of its
  * title. It works from what every poster card carries
  * (.watch-card__link, data-title-ref or a Continue watching card's
- * data-dismiss-ref), so a row or grid that draws cards needs nothing more.
+ * data-dismiss-ref), so a row or grid that draws cards needs nothing more; a downloading
+ * card (.dw__link, or a coming one's .dwx__small-link) opens one the same way.
  * A finger held still on a poster opens it too, as wide as a phone allows; it stays once the
  * finger lifts, and a tap outside it, a scroll or Escape closes it. A keyboard or a screen
  * reader has what is in it from the card and the title detail. Find more like this is in the
@@ -20,6 +21,7 @@
   var icon = window.MM.dom.icon;
   var safePath = core.safePath;
 
+  var LINK = '.watch-card__link, .dw__link, .dwx__small-link';
   var REF_RE = /^[a-z]+(-[a-z]+)?-[0-9]{1,18}$/;
   var PICK_RE = /^(rec|pick)-[0-9]{1,10}$/;
   var LIBRARY_RE = /^(?:movie|show)-([0-9]+)$/;
@@ -98,9 +100,14 @@
 
   /* ── What a card says ── */
 
-  function cardOf(link) { return link.closest('.watch-card'); }
+  function cardOf(link) { return link.closest('.watch-card, .dw, .dwx'); }
 
-  function posterOf(link) { return link.querySelector('.watch-card__poster'); }
+  /* What it grows out of: a downloading card's link is its picture, whole. */
+  function posterOf(link) {
+    return link.querySelector('.watch-card__poster, .dwx__pic') || (link.classList.contains('dw__link') ? link : null);
+  }
+
+  function onPicture(link, target) { return link === posterOf(link) || !!target.closest('.watch-card__poster, .dwx__pic'); }
 
   function refOf(link) {
     var card = cardOf(link);
@@ -131,7 +138,7 @@
     var season = /^(?:Season (\d+)$|S(\d+) · E)/.exec(sub);
     return {
       ref: ref,
-      title: textOf(link, '.watch-card__title'),
+      title: textOf(link, '.watch-card__title, .dw__title'),
       href: link.getAttribute('href'),
       plays: !link.hasAttribute('data-title-ref'), // Continue watching: the card is a play link
       sub: sub,
@@ -385,6 +392,12 @@
     p.cardH = poster.offsetHeight;
     var box = el('div', 'pv__poster');
     var copy = poster.cloneNode(true);
+    if (poster === p.link) {
+      // What a downloading card shows hangs on its card's state and its --p.
+      var card = cardOf(p.link).cloneNode(false);
+      card.appendChild(copy);
+      copy = card;
+    }
     core.toArray(copy.querySelectorAll('img')).forEach(function (img) {
       img.setAttribute('loading', 'eager');
       img.setAttribute('decoding', 'sync');
@@ -1338,7 +1351,7 @@
     trail.push({ x: pos.x, y: pos.y, t: now() });
     if (trail.length > 40) trail.shift();
     var target = e.target && e.target.closest ? e.target : null;
-    var link = target && target.closest('.watch-card__link');
+    var link = target && target.closest(LINK);
     if (live && ((target && live.n.contains(target)) || link === live.link)) {
       clearTimeout(closeTimer);
       closeTimer = null;
@@ -1352,7 +1365,7 @@
       }, GRACE_MS);
     }
     // From the picture alone, and not once a level was given or while the levels are over it.
-    var of = link && target.closest('.watch-card__poster') ? cardOf(link) : null;
+    var of = link && onPicture(link, target) ? cardOf(link) : null;
     if (!of || !refOf(link) || of.classList.contains('is-lifted') || of.classList.contains('is-quiet')) {
       disarm();
       return;
@@ -1389,8 +1402,8 @@
       }
       return;
     }
-    var link = target && target.closest('.watch-card__link');
-    if (!link || !e.isPrimary || !target.closest('.watch-card__poster') || !refOf(link)) return;
+    var link = target && target.closest(LINK);
+    if (!link || !e.isPrimary || !onPicture(link, target) || !refOf(link)) return;
     var card = cardOf(link);
     if (live || card.classList.contains('is-lifted') || card.classList.contains('is-quiet') ||
       now() - scrolledAt < SETTLE_MS || covered()) return;
@@ -1808,7 +1821,7 @@
   }, true);
   // Of a finger: on a card, the link's own menu; on the preview, the picture's.
   document.addEventListener('contextmenu', function (e) {
-    if ((e.pointerType === 'touch' || touch || (live && live.finger)) && e.target.closest && e.target.closest('.watch-card__link, .pv')) e.preventDefault();
+    if ((e.pointerType === 'touch' || touch || (live && live.finger)) && e.target.closest && e.target.closest(LINK + ', .pv')) e.preventDefault();
   });
 
   document.addEventListener('pointermove', onMove);
@@ -1890,7 +1903,7 @@
 
   /* A card pressed, with its preview open or not: the detail opened with it. */
   document.addEventListener('click', function (e) {
-    var link = e.target.closest && e.target.closest('.watch-card__link');
+    var link = e.target.closest && e.target.closest(LINK);
     if (!link) return;
     disarm();
     if (!live || !detailOpen()) return;
