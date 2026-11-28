@@ -121,22 +121,29 @@
 /* Confirm dialog — overlay + card. Sits above existing modals
    (modal-backdrop = 100) so a destructive confirm raised by JS always wins
    focus. While it fades it keeps catching clicks, so a second one cannot
-   reach what is behind it. */
+   reach what is behind it. The overlay itself never fades: under a fading parent the card's glass
+   would see none of the page. Its dim (::before) and its card fade, each on the overlay's timing,
+   which ui-feedback.js reads, and the dim's fade is the one it waits for. */
 .ui-confirm-overlay {
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: var(--scrim-modal);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: max(20px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
-  opacity: 0;
   transition: opacity var(--dur) var(--ease-out);
 }
-.ui-confirm-overlay.is-visible { opacity: 1; }
+.ui-confirm-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--g-dim);
+  opacity: 0;
+  transition: inherit;
+}
+.ui-confirm-overlay.is-visible::before { opacity: 1; }
 
 /* The page does not scroll behind an open dialog (confirm, password, keep and season,
    abandon, picture: MM.dom.holdPage marks the page). A title's page, the storage panel
@@ -152,19 +159,51 @@ html.page-bar { scrollbar-gutter: stable; }
   html.page-bar body { padding-right: var(--page-bar, 0); }
 }
 
+/* Glass. What lies on it takes veils for its fills, and its quiet, blue and red words and its rings
+   lifted, so each holds over a white page. */
 .ui-confirm-card {
-  background: var(--s2);
-  border: 1px solid var(--hair-strong);
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent: var(--g-accent);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
+  --field-edge: var(--g-field-edge);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: var(--r-lg);
   padding: 24px;
   max-width: 440px;
   width: 100%;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
+  opacity: 0;
   transform: translateY(8px) scale(.98);
-  transition: transform var(--dur) var(--ease-out);
+  transition: inherit;
+  transition-property: opacity, transform;
 }
+.ui-confirm-card :focus-visible { outline-color: var(--g-focus); }
 .ui-confirm-overlay.is-visible .ui-confirm-card {
+  opacity: 1;
   transform: translateY(0) scale(1);
+}
+/* A phone, upright or on its side, shows no third layer of glass: over a title's sheet, the storage
+   sheet or the pane over Watch, each with glass of its own on it, the card is solid. */
+@media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
+  html:is(.has-ttl, .has-space) .ui-confirm-card,
+  .you.is-open ~ .ui-confirm-overlay .ui-confirm-card {
+    background: var(--g-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 .ui-confirm-title {
