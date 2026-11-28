@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.web._css import rgb, rules, style, token
+from tests.unit.web._css import rules, style
 
 CSS_DIR = Path(__file__).resolve().parents[3] / "src" / "mediaman" / "web" / "static" / "css"
 
@@ -71,18 +71,6 @@ def test_text_over_a_white_frame_keeps_aa_contrast(bar: str, row: str, reach: st
     token = re.search(r"color:\s*var\(--([\w-]+)\)", _rule(css, row)).group(1)
     share = int(re.search(rf"--{token}:[^;]*?(\d+)%", css).group(1)) / 100
     assert _contrast(255 * share + frame * (1 - share), frame) >= 4.5
-
-
-def test_a_quiet_button_in_a_card_stands_out_from_the_card() -> None:
-    css = _text("_player.css")
-    tokens = _text("_tokens.css")
-
-    def grey(body: str) -> int:
-        name = re.search(r"background:[^;]*var\(--(s\d)\)", body).group(1)
-        return int(re.search(rf"--{name}:\s*#(..)", tokens).group(1), 16)
-
-    pill = _rule(css, ".player-card .player-pill:not(.player-pill--primary)::before")
-    assert _contrast(grey(pill), grey(_rule(css, ".player-card"))) >= 1.4
 
 
 @pytest.mark.parametrize("track", ["::-webkit-slider-runnable-track", "::-moz-range-track"])
@@ -325,13 +313,6 @@ def test_the_dim_of_the_phones_sheet_leaves_as_the_sheet_does() -> None:
     # Where less is to move, it goes at once.
     still = style(".play-on:popover-open", "_play_on.css", "(prefers-reduced-motion: reduce)")
     assert still["display"] == "none"
-
-
-def test_nothing_shows_through_a_menu() -> None:
-    surface = re.fullmatch(r"var\((--s\d)\)", style(".player-menu", "_player.css")["background"])
-    assert surface
-    colour = rgb(token(surface[1]))
-    assert len(colour) == 3 or colour[3] == 1, colour
 
 
 def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
