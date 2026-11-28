@@ -690,3 +690,14 @@ def test_a_preview_s_title_words_give_way_line_by_line_and_only_where_a_name_lie
         s for _, sels, d in rules("_watch_preview.css") if d.get("opacity") == "0" for s in sels
     ]
     assert [s for s in hidden if ".pv__head" in s] == [covered]
+
+
+def test_try_again_wrapped_under_a_failed_search_s_sentence_starts_where_the_sentence_does() -> None:
+    # The ghost button's word starts its own padding in; on a phone it wraps under the sentence.
+    retry = style(".results-fail > .watch-results__retry", "_watch_search.css")
+    pad_left = px(retry["padding"].split()[-1])
+    margin_left = px(retry["margin"].split()[-1])
+    assert pad_left > 0 and margin_left == -pad_left
+    # Beside the sentence, the gap gives back what the margin takes: the word stands clear of it.
+    gap = px(style(".results-fail", "_watch_search.css")["gap"].split()[-1])
+    assert gap + margin_left + pad_left >= 24
