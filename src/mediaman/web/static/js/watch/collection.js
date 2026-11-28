@@ -39,7 +39,7 @@
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 
   function day(iso) {
-    return new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    return new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
   }
 
   function isOf(film, ref) { return film.ref === ref || film.library_ref === ref; }

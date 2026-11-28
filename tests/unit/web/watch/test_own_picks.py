@@ -458,6 +458,9 @@ class TestRefresh:
             sent.append(prompt)
             return [{"title": "Glass Onion", "media_type": "movie", "reason": "A heist."}]
 
+        # The refusal is process-wide; one left by an earlier test would stop every refresh here.
+        monkeypatch.setattr(openai_client, "_refused_key", None)
+        monkeypatch.setattr(openai_client, "_refused_at", 0.0)
         monkeypatch.setattr(own.threading, "Thread", AtOnce)
         monkeypatch.setattr(own, "build_plex_from_db", lambda *_a: None)
         monkeypatch.setattr(prompts, "call_openai", call)
@@ -581,7 +584,6 @@ class TestRefresh:
             raise exc
 
         self._play(conn, "amy", 5)
-        monkeypatch.setattr(openai_client, "_refused_key", None)
         monkeypatch.setattr(openai_client._OPENAI_CLIENT, "post", post)
         monkeypatch.setattr(prompts, "ask_openai", openai_client.ask_openai)
         people["amy"].post("/api/watch/picks/refresh")

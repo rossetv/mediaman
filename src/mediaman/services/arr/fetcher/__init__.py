@@ -33,7 +33,6 @@ from mediaman.services.arr.fetcher._base import (
 from mediaman.services.arr.fetcher._radarr import fetch_radarr_queue
 from mediaman.services.arr.fetcher._searching_since import stamp_searching_since
 from mediaman.services.arr.fetcher._sonarr import fetch_sonarr_queue
-from mediaman.services.arr.import_retry import note_stuck_imports
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 
 if TYPE_CHECKING:
@@ -123,6 +122,9 @@ def _fetch_service(
 ) -> None:
     """Add one service's cards to *result*, or the error that kept them out; while *steady*,
     a failure in a blip is answered by the service's last answer."""
+    # Here, not at the top: import_retry imports this package's _base.
+    from mediaman.services.arr.import_retry import note_stuck_imports
+
     failures: list[str] = []
     try:
         client = build(conn, secret_key)
