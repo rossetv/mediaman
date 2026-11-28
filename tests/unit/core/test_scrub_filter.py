@@ -367,6 +367,16 @@ class TestServerLogs:
                 "GET /api/cast/***/seg/0.ts HTTP/1.1",
             ),
             ("GET", "//API//cast//abc.DEF-123/x", "GET //API//cast//***/x HTTP/1.1"),
+            (
+                "GET",
+                "/api/tv/device/avatar/7/abc.DEF-123?v=0a1b",
+                "GET /api/tv/device/avatar/7/***?v=0a1b HTTP/1.1",
+            ),
+            (
+                "GET",
+                "//api//TV/device//avatar/7//abc.DEF-123",
+                "GET //api//TV/device//avatar/7//*** HTTP/1.1",
+            ),
             ("GET", "//keep/abc.DEF-123", "GET //keep/*** HTTP/1.1"),
             ("GET", "/keep//abc.DEF-123", "GET /keep//*** HTTP/1.1"),
             ("GET", "/KEEP/abc.DEF-123", "GET /KEEP/*** HTTP/1.1"),

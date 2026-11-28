@@ -1625,8 +1625,31 @@ def test_the_tv_shows_each_persons_picture_a_photo_under_a_name_only_it_was_told
     # The TV has no session: the photo comes to it by the name it was told alone.
     assert shown["amy"].startswith(f"/api/tv/device/avatar/{home}/")
     assert tv.client.get(shown["amy"]).content == data
-    assert tv.client.get(shown["amy"][:-1] + "x").status_code == 404
+    path, query = shown["amy"].split("?")
+    for wrong in (path[:-1] + "x", path[:-1], f"{path}0", path.rsplit("/", 1)[0] + "/1"):
+        assert tv.client.get(f"{wrong}?{query}").status_code == 404
     assert tv.client.get(shown["amy"].replace(f"/{home}/", f"/{home + 1}/")).status_code == 404
+
+
+def test_a_tvs_photo_name_tells_neither_who_the_person_is_nor_where_their_photo_is_kept(
+    tv, home, amy, conn
+):
+    _photo(conn, "amy")
+    url = tv.poll()["avatars"]["amy"]
+    path, query = url.split("?")
+    kept = avatars.get_avatar(conn, avatars.find_user_id(conn, "amy"))
+    assert path.rsplit("/", 1)[1] != str(kept.user_id)
+    assert query == f"v={kept.version}" and kept.file_name is not None
+    assert kept.file_name[:6] not in url
+
+
+def test_a_tvs_photo_name_ends_as_it_is_paired_anew(tv, home, amy, conn):
+    _photo(conn, "amy")
+    url = tv.poll()["avatars"]["amy"]
+    assert tv.client.get(url).status_code == 200
+    assert tv.pair(amy) == home
+    assert tv.client.get(url).status_code == 404
+    assert tv.client.get(tv.poll()["avatars"]["amy"]).status_code == 200
 
 
 def test_a_tvs_photo_name_ends_with_the_person_on_it(tv, home, amy, bob, person, conn):

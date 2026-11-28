@@ -451,7 +451,8 @@ def _avatar_key(token_hash: str, user_id: int) -> str:
 def _avatars(held: repo.Tv, *, device: bool = False) -> dict[str, str]:
     """The picture of each person the TV is paired with, by name.
 
-    The TV's own page has no session: a photo goes to it under a name only that TV is told.
+    The TV's own page has no session: a photo goes to it under a name only that TV is told, which
+    tells nothing of who the person is in mediaman nor where their photo is kept.
     """
     conn = get_db()
     members = repo.members(conn, held.id)
@@ -461,30 +462,25 @@ def _avatars(held: repo.Tv, *, device: bool = False) -> dict[str, str]:
         avatar = found[user_id]
         if device and avatar.file_name is not None and held.token_hash is not None:
             key = _avatar_key(held.token_hash, user_id)
-            shown[name] = f"/api/tv/device/avatar/{held.id}/{user_id}?v={avatar.version}&k={key}"
+            shown[name] = f"/api/tv/device/avatar/{held.id}/{key}?v={avatar.version}"
         else:
             shown[name] = avatar.url
     return shown
 
 
 @router.get("/api/tv/device/avatar/{tv_id}/{user_id}")
-def device_avatar(
-    request: Request,
-    tv_id: _TvId,
-    user_id: Annotated[int, Path(ge=1, le=2**63 - 1)],
-    k: str = "",
-    v: str = "",
-) -> Response:
-    """The photo of one of a TV's people, for that TV's page."""
-    held = repo.find(get_db(), tv_id)
-    if (
-        held is None
-        or held.token_hash is None
-        or not hmac.compare_digest(k.encode(), _avatar_key(held.token_hash, user_id).encode())
-        or user_id not in {member for member, _ in repo.members(get_db(), tv_id)}
-    ):
+def device_avatar(request: Request, tv_id: _TvId, user_id: str, v: str = "") -> Response:
+    """The photo of one of a TV's people, for that TV's page, by the name the TV was told."""
+    conn = get_db()
+    held = repo.find(conn, tv_id)
+    found = None
+    if held is not None and held.token_hash is not None:
+        for member, _ in repo.members(conn, tv_id):
+            if hmac.compare_digest(user_id.encode(), _avatar_key(held.token_hash, member).encode()):
+                found = member
+    if found is None:
         return _refused(request)
-    return photo_answer(get_db(), user_id, v)
+    return photo_answer(conn, found, v)
 
 
 # ── starting a stream on a TV ──

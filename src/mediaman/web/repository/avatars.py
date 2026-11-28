@@ -8,6 +8,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
+from hashlib import sha256
 
 from mediaman.core.time import now_iso
 from mediaman.services.avatars import drawn
@@ -30,7 +31,7 @@ class Avatar:
     @property
     def version(self) -> str:
         """Names this photo in its URL without telling where it is kept."""
-        return (self.file_name or "")[:12]
+        return sha256((self.file_name or "").encode()).hexdigest()[:12]
 
 
 def get_avatar(conn: sqlite3.Connection, user_id: int) -> Avatar:
