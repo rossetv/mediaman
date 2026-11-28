@@ -709,7 +709,7 @@
 /* Over the Space sheet or a title's sheet, at any width, it is solid: glass blurs only what is
    under it, which there is the sheet. */
 html:is(.has-space, .has-ttl) .watch-keep-menu {
-  background: var(--g-solid);
+  background: var(--g-opaque);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

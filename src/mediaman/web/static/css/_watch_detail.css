@@ -663,7 +663,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  background: var(--g-solid); /* on the sheet's glass: no second layer of it */
+  background: var(--g-opaque); /* on the sheet's glass: no second layer, and none of the sheet's words through it */
   border: 1px solid var(--g-edge);
   border-top-color: var(--g-lit);
   border-radius: var(--r-md);

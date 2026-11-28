@@ -177,13 +177,19 @@ def test_the_other_chips_on_the_sheet_take_the_floor_too() -> None:
 
 @pytest.mark.parametrize(
     ("piece", "media"),
-    [(".ttl-facts__menu", None), (".ttl__bar::before", None), (".ttl__sheet::before", WIDE)],
+    [(".ttl__bar::before", None), (".ttl__sheet::before", WIDE)],
 )
 def test_what_lies_on_the_sheet_s_glass_is_its_tint_solid_never_a_second_glass(
     piece: str, media: str | None
 ) -> None:
     drawn = style(piece, DETAIL, media)
     assert drawn["background"] == "var(--g-solid)"
+    assert "backdrop-filter" not in drawn
+
+
+def test_the_title_sheet_s_own_keep_menu_is_fully_opaque_with_no_blur() -> None:
+    drawn = style(".ttl-facts__menu", DETAIL)
+    assert drawn["background"] == "var(--g-opaque)"
     assert "backdrop-filter" not in drawn
 
 

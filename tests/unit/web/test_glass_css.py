@@ -522,7 +522,7 @@ def test_while_the_pane_changes_width_its_frame_carries_the_glass_once() -> None
 )
 def test_a_menu_that_opens_on_a_panel_s_glass_is_solid(menu: str, sheet: str, media: str) -> None:
     drawn = style(menu, sheet, media)
-    assert drawn["background"] == "var(--g-solid)"
+    assert drawn["background"] in ("var(--g-solid)", "var(--g-opaque)")
     assert drawn.get("backdrop-filter", "none") == "none"
 
 
