@@ -1906,7 +1906,7 @@ def test_the_tv_is_told_who_started_what_plays_not_whose_tv_it_is(tv, home, amy,
     tv.pair(bob)
     _play(bob, home)
     ready = tv.poll()
-    assert (ready["owner"], ready["play"]["by"]) == ("amy", "bob")
+    assert (ready["owner"], ready["play"]["by"]) == ("bob", "bob")
 
 
 @pytest.mark.parametrize(
@@ -1928,7 +1928,7 @@ def test_on_every_way_a_film_goes_on_the_tv_names_who_started_it_not_its_owner(
     elif how in ("tv_again", "tv_next"):
         assert tv.ask(how[3:]).status_code == 200
     ready = tv.poll()
-    assert (ready["owner"], ready["play"]["by"], ready["play"]["paused_by"]) == ("amy", "bob", None)
+    assert (ready["owner"], ready["play"]["by"], ready["play"]["paused_by"]) == ("bob", "bob", None)
 
 
 def test_the_tvs_poll_says_which_version_of_its_page_is_current(app, tv, home):
@@ -1937,3 +1937,32 @@ def test_the_tvs_poll_says_which_version_of_its_page_is_current(app, tv, home):
     app.include_router(tv_page_routes.router)
     assert 'data-v="abc123def456"' in TestClient(app).get("/tv").text
     assert tv.poll()["v"] == "abc123def456"
+
+
+# A TV page left open from an older mediaman names the poll's owner as who is starting a film.
+
+
+def test_a_tv_page_left_open_names_who_started_the_film_not_who_paired_the_tv(
+    tv, shared, amy, bob, monkeypatch, plex, clock
+):
+    _play(amy, shared, "501")
+    tv.poll("playing", 70)
+    assert _play(bob, shared, "502", confirm=True).status_code == 200
+    tv.poll("playing", 80)
+    _restart(monkeypatch, plex, clock)
+    assert tv.poll()["owner"] == "amy"
+    assert _play(bob, shared, "503").status_code == 200
+    ready = tv.poll()
+    assert (ready["owner"], ready["play"]["by"]) == ("bob", "bob")
+
+
+def test_a_tv_page_left_open_names_who_started_a_film_picked_up_after_a_restart(
+    tv, shared, amy, bob, monkeypatch, plex, clock
+):
+    _play(bob, shared, position_s=200)
+    ticket = tv.poll("playing", 300)["resume"]
+    _restart(monkeypatch, plex, clock)
+    assert tv.poll()["play"] is None
+    assert _resume(tv, ticket).status_code == 200
+    ready = tv.poll()
+    assert (ready["owner"], ready["play"]["by"]) == ("bob", "bob")

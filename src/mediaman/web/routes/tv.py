@@ -402,7 +402,9 @@ def device_poll(request: Request, body: _PollBody, x_tv_token: _Token = "") -> R
             "resume": _resume_ticket(request, players, held),
             "id": held.id,
             "name": held.name,
-            "owner": held.owner,
+            # A TV page left open from an older mediaman, which cannot load itself anew, names
+            # this person as who is starting what plays.
+            "owner": play["by"] if play else held.owner,
             "people": repo.people(get_db(), held.id),
             "avatars": _avatars(held, device=True),
             "play": play,
