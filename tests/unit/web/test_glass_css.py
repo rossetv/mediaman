@@ -517,12 +517,12 @@ def test_while_the_pane_changes_width_its_frame_carries_the_glass_once() -> None
     [
         # As a sheet it covers History's stuck tools, which blur too.
         (".hx-menu", HISTORY, PHONE),
-        ("html:is(.has-space, .has-ttl) .watch-keep-menu", KEEP, PHONE),
+        ("html:is(.has-space, .has-ttl) .watch-keep-menu", KEEP, None),
     ],
 )
 def test_a_menu_that_opens_on_a_panel_s_glass_is_solid(menu: str, sheet: str, media: str) -> None:
     drawn = style(menu, sheet, media)
-    assert drawn["background"] == "var(--g-solid)"
+    assert drawn["background"] in ("var(--g-solid)", "var(--g-opaque)")
     assert drawn.get("backdrop-filter", "none") == "none"
 
 

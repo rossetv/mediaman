@@ -1543,7 +1543,8 @@ def test_what_is_remembered_is_the_person_s_own_and_goes_at_sign_out() -> None:
 def test_where_no_title_has_the_words_return_is_still_said_to_ask() -> None:
     out = _run("askNoTitle")
     assert out["status"] == f"No matches for “{Q}”. Press Return to ask AI"
-    assert out["asked"] == f"No matches for “{Q}”"
+    # Once asked, the AI's own line is the one read out, not this one.
+    assert out["asked"] == ""
 
 
 def test_a_card_of_an_answer_drawn_again_keeps_the_focus() -> None:

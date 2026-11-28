@@ -706,13 +706,12 @@
 }
 .watch-keep-menu.is-above { transform: translateY(4px) scale(.98); transform-origin: bottom left; }
 .watch-keep-menu.is-open { opacity: 1; transform: none; pointer-events: auto; }
-/* On a phone, over the Space sheet or a title's sheet, it is solid: no third layer of glass. */
-@media (max-width: 699.98px) {
-  html:is(.has-space, .has-ttl) .watch-keep-menu {
-    background: var(--g-solid);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
+/* Over the Space sheet or a title's sheet, at any width, it is solid: glass blurs only what is
+   under it, which there is the sheet. */
+html:is(.has-space, .has-ttl) .watch-keep-menu {
+  background: var(--g-opaque);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .watch-keep-menu__item {
   flex: none;
