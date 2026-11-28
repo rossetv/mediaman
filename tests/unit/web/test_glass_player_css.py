@@ -40,7 +40,9 @@ def _specificity(selector: str) -> tuple[int, int, int]:
                     depth += {"(": 1, ")": -1}.get(selector[j], 0)
                     j += 1
                 if name in ("is", "not", "has"):
-                    best = max(_specificity(arg) for arg in _top_level(selector[i + 1 : j - 1], ","))
+                    best = max(
+                        _specificity(arg) for arg in _top_level(selector[i + 1 : j - 1], ",")
+                    )
                     ids, classes, types = ids + best[0], classes + best[1], types + best[2]
                 elif name != "where":
                     classes += 1
@@ -196,7 +198,13 @@ def test_resting_controls_fade_their_glass_and_words_and_never_a_bar_holding_gla
 
 
 # What the bars draw: each fades itself at rest, the pills by their glass and their words.
-IDLE_PIECES = [".player-back", ".player-titles", ".player-seek-row", ".player-volume", ".player-btn"]
+IDLE_PIECES = [
+    ".player-back",
+    ".player-titles",
+    ".player-seek-row",
+    ".player-volume",
+    ".player-btn",
+]
 
 
 def _idle_faded() -> list[str]:
@@ -263,7 +271,9 @@ def test_a_bar_s_shade_fades_with_its_controls() -> None:
 def test_a_bar_is_fully_shaded_where_its_shade_is_not_registered() -> None:
     # Without @property (Safari before 16.4) the shade is unset at rest: with no fallback the
     # bars' gradients are dropped and nothing darkens the picture under their words.
-    fallback = re.search(r"var\(--player-shade, ([^)]+)\)", style(".player-chrome", PLAYER)["--scrim"])
+    fallback = re.search(
+        r"var\(--player-shade, ([^)]+)\)", style(".player-chrome", PLAYER)["--scrim"]
+    )
     initial = re.search(r"@property --player-shade \{[^}]*initial-value: ([^;]+);", text(PLAYER))
     assert fallback and initial
     assert fallback[1].strip() == initial[1].strip() == "1"
@@ -325,7 +335,10 @@ def test_on_a_phone_the_remote_s_controls_blur_nothing_of_their_own(media: str) 
         assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none", control
     remote = style(".tv-rem", REMOTE, media)
     assert "brightness(.5)" in token("--g-filter")
-    for name, tint in (("--player-glass", "--g-player"), ("--player-glass-hover", "--g-player-hover")):
+    for name, tint in (
+        ("--player-glass", "--g-player"),
+        ("--player-glass-hover", "--g-player-hover"),
+    ):
         layers = _top_level(remote[name], ",")
         assert f"var({tint})" in layers[0], name
         assert rgb(layers[-1]) == (0, 0, 0, 0.5), name
@@ -380,7 +393,9 @@ def test_once_rated_the_other_names_keep_5_to_1_on_the_card_over_a_white_frame()
     bar = _over(_colour(scope["--s3"], {}), _glass("--g-a"))  # the grid bar's fill: --s3
     words = _colour(style(".player", PLAYER)["--t2"], {})
     # The ratings sheet steps them back on every page; it loads after this one on the player's.
-    names = re.compile(r"(\.player-rate )?\.rate\.has \.rate__b:not\(\.is-on\) > (\.rate__lab|:is\(.*\.rate__lab.*\))")
+    names = re.compile(
+        r"(\.player-rate )?\.rate\.has \.rate__b:not\(\.is-on\) > (\.rate__lab|:is\(.*\.rate__lab.*\))"
+    )
     found = [
         (_specificity(sel), order, float(decls["opacity"]))
         for order, sheet in enumerate([PLAYER, RATINGS])
@@ -459,7 +474,10 @@ def test_a_dead_control_fades_a_pill_s_glass_itself_never_a_parent_of_it(sheet: 
 @pytest.mark.parametrize(
     ("pill", "sheet"),
     [
-        (".tv-rem :is(.player-pill.is-dead, .is-dead .player-pill):not(.player-pill--primary)", REMOTE),
+        (
+            ".tv-rem :is(.player-pill.is-dead, .is-dead .player-pill):not(.player-pill--primary)",
+            REMOTE,
+        ),
         (".player.is-away .player-menu-wrap[data-away-idle][inert] .player-pill", PLAYER),
     ],
 )
@@ -468,7 +486,11 @@ def test_a_dead_pill_s_words_fade_with_its_glass(pill: str, sheet: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "glass", [".tv-rem .player-pill.is-dead:not(.player-pill--primary)::before", ".tv-rem .is-dead .player-pill::before"]
+    "glass",
+    [
+        ".tv-rem .player-pill.is-dead:not(.player-pill--primary)::before",
+        ".tv-rem .is-dead .player-pill::before",
+    ],
 )
 def test_a_dead_pill_s_glass_fades_whether_it_or_its_wrap_is_dead(glass: str) -> None:
     assert float(style(glass, REMOTE)["opacity"]) < 1
@@ -487,7 +509,9 @@ def test_a_dead_stop_fades_its_red_rather_than_turning_white() -> None:
     assert "player-pill" in stop  # the generic rule's subject, so both meet the same element
 
 
-@pytest.mark.parametrize(("disc", "sheet"), [(".tv-rem [data-play]", REMOTE), (".player.is-away [data-play]", PLAYER)])
+@pytest.mark.parametrize(
+    ("disc", "sheet"), [(".tv-rem [data-play]", REMOTE), (".player.is-away [data-play]", PLAYER)]
+)
 def test_the_ring_of_a_white_disc_lies_outside_it_on_the_glass(disc: str, sheet: str) -> None:
     # Inside, the light ring on white is about 1.6:1.
     media = "(max-width: 899.98px)"
