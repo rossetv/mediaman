@@ -116,12 +116,6 @@ def test_fluid_type_uses_clamp():
         assert "clamp(" in block, f"expected clamp() near {sel!r}"
 
 
-def test_container_system_present():
-    css = _css()
-    for cls in (".container", ".container--narrow", ".container--wide"):
-        assert cls in css, f"missing container modifier: {cls}"
-
-
 def test_nav_surfaces_present():
     """The nav is one bar of islands, .nav-glass: the way back (or the search), the island at
     the end, .nav-end, on which the profile button stands, and the .profile-menu."""

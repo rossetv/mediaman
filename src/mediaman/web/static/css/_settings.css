@@ -1,6 +1,5 @@
 /* SETTINGS — v1 primitives shared by settings panels (cards, rows,
-   inline buttons) and the JS-emitted bits (library pills' selected
-   state). The v2 cinematic page chrome (scoped under `.setg-pg`)
+   inline buttons). The v2 cinematic page chrome (scoped under `.setg-pg`)
    lives in _settings_pg.css. */
 
 /* Canonical card primitive for settings panels.
@@ -14,9 +13,8 @@
 }
 
 /* Canonical horizontal label/control row.
-   .settings-subrow and .form-row (in _base.css) serve the same purpose with
-   minor layout differences; all share --gap-row so the column gap is
-   consistent. */
+   .form-row (in _base.css) serves the same purpose with minor layout
+   differences. */
 .setg-row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -28,15 +26,6 @@
 .setg-row:last-child { border-bottom: 0; }
 .setg-row-lbl { font-weight: 500; font-size: 14px; }
 .setg-row-sub { color: var(--t3); font-size: 13px; margin-top: 2px; }
-
-/* Uses --gap-row for consistent column gap with .setg-row. */
-.settings-subrow {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: var(--gap-row);
-  align-items: center;
-}
-.settings-subrow-label { display: flex; flex-direction: column; gap: 2px; }
 
 /* A settings row's inline action (Test, Sync now): a small ghost .btn. */
 .btn-test {
@@ -87,20 +76,3 @@
 .newsletter-send-panel-actions { display: flex; gap: 8px; align-items: center; }
 .newsletter-send-status { color: var(--t3); font-size: 12px; }
 
-.library-pills { display: flex; flex-wrap: wrap; gap: 6px; }
-.library-pills .lib-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 5px 12px;
-  border-radius: var(--r-pill);
-  font-size: 12px;
-  background: var(--s3);
-  color: var(--t2);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.library-pills .lib-pill:hover { color: var(--t1); }
-.library-pills .lib-pill.on { background: var(--accent); color: var(--color-on-accent); }
-
-/* Library pill — JS toggles .selected; alias to .on for visual parity. */
-.library-pills .lib-pill.selected { background: var(--accent); color: var(--color-on-accent); }

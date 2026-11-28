@@ -1315,7 +1315,6 @@
   animation: player-pop var(--dur) var(--ease-out);
 }
 .player-av:focus { outline: 0; }
-.player-av.is-redrawn:not(.is-leaving) { animation: none; }
 /* The remote is not in .player: its chooser goes as the player's menus do. */
 .tv-rem .player-av.is-leaving { animation: player-drop var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
 .player-av-veil { display: none; }
@@ -1492,8 +1491,6 @@
   .player-av, .player-av-veil { animation: tv-fade var(--dur-fast) var(--ease-out) !important; }
   .player .player-av.is-leaving, .tv-rem .player-av.is-leaving, .player-av-veil.is-leaving { animation: tv-fade-out var(--dur-fast) var(--ease-out) forwards !important; }
   .player-av-row.is-picked > .player-menu-tick { animation: none; }
-  /* Drawn again in place, it does not fade in again. */
-  .player-av.is-redrawn:not(.is-leaving) { animation: none !important; }
 }
 @media (forced-colors: active) {
   .player-av { border: 1px solid CanvasText; }

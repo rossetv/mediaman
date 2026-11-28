@@ -162,7 +162,7 @@
   /* A control's track or a pressed neutral control. */
   --rgba-overlay-lg: rgba(255,255,255,.12);
 
-  /* Row gap shared by .setg-row, .settings-subrow, and .form-row. */
+  /* Row gap shared by .setg-row and .form-row. */
   --gap-row: 20px;
 
   /* Ink colour for text/glyphs sitting on a saturated fill (accent .on

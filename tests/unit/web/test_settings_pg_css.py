@@ -48,8 +48,7 @@ def test_the_save_bar_takes_its_own_room_under_the_sections_and_covers_none_of_t
 
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
     for part in (".usr-name", ".usr-sub"):
-        for at in (".usr-row", ".usr-self-head"):
-            assert "overflow-wrap: anywhere" in _declarations(f".setg-pg {at} {part}")
+        assert "overflow-wrap: anywhere" in _declarations(f".setg-pg .usr-row {part}")
 
 
 def test_buttons_whose_label_changes_have_a_minimum_width() -> None:

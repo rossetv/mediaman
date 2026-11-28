@@ -1,6 +1,5 @@
 /* FORMS — form input primitives (`.inp`, `.form-*`), field rows,
-   the password reveal toggle, the threshold-row pattern, the
-   button spinner, and the toggle switch (`.tog`). */
+   the button spinner, and the toggle switch (`.tog`). */
 
 /* Generic inline spinner for use inside buttons — picks up the button's
    text colour via currentColor so it works on any button variant.
@@ -88,34 +87,6 @@ select.inp {
 }
 .form-help a, .form-hint a { color: var(--accent); }
 
-.field-with-toggle { position: relative; display: flex; }
-.secret-toggle {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 11px;
-  font-weight: 500;
-  padding: 4px 10px;
-  border-radius: var(--r-pill);
-  color: var(--t3);
-  background: transparent;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.secret-toggle:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
-
-.threshold-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 14px;
-  align-items: center;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--hair);
-}
-.threshold-row:last-child { border-bottom: 0; }
-.threshold-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.threshold-name { font-weight: 500; font-size: 14px; }
-.threshold-desc { color: var(--t3); font-size: 12px; line-height: 1.4; }
 .threshold-unit  { color: var(--t3); font-size: 13px; }
 
 .tog {
