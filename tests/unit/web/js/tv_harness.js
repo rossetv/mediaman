@@ -14,8 +14,9 @@ const STAGE = template('tv.html').match(/<main id="s">(.*?)<\/main>/s)[1]
 
 // `full`: the browser has the Fullscreen API and goes full screen a moment after it is asked;
 // 'refuse' is one that rejects the request, 'webkit' one with only the prefixed API and
-// 'webkitOld' one with only the older prefixed API, whose S is a capital.
-function tv({ kept = null, plays = true, full = false } = {}) {
+// 'webkitOld' one with only the older prefixed API, whose S is a capital. `version`: of the
+// scripts the page was loaded with.
+function tv({ kept = null, plays = true, full = false, version } = {}) {
   const order = [];
   let time = 1e12;
   let timers = [];
@@ -87,6 +88,8 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !FIXED.includes(id)).map((id) => nodes[id]) } : null),
   });
   const body = Object.assign(element(), { attrs: { 'data-base': 'https://mediaman.example', 'data-hls': '/hls.js' } });
+  if (version) body.attrs['data-v'] = version;
+  const reloads = [];
   // What is drawn on the page is found by its id while it is drawn.
   const document = {
     body, createElement: element, on: {},
@@ -141,13 +144,13 @@ function tv({ kept = null, plays = true, full = false } = {}) {
   class FixedDate extends Date { static now() { return time + skew; } }
   const localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem(k, v) { store[k] = v; }, removeItem(k) { delete store[k]; } };
   const ctx = {
-    document, XMLHttpRequest, localStorage, Date: FixedDate, location: { protocol: 'https:', host: 'x' },
+    document, XMLHttpRequest, localStorage, Date: FixedDate, location: { protocol: 'https:', host: 'x', reload() { reloads.push(time); } },
     setTimeout: (fn, ms) => later(fn, ms), clearTimeout: (id) => { timers = timers.filter((t) => t.id !== id); },
     setInterval: (fn, ms) => later(fn, ms, ms), unescape, encodeURIComponent, innerWidth: 1920, innerHeight: 1080,
   };
   ctx.window = ctx;
   return {
-    sent, answers, video, store, fullAsks, order,
+    sent, answers, video, store, fullAsks, order, reloads,
     leaveFull() { document[inFull] = null; changed(); },
     // The TV goes to standby, or comes back from it.
     hide(hidden) { document.hidden = hidden; (document.on.visibilitychange || []).forEach((fn) => fn({})); },
@@ -211,7 +214,7 @@ function tv({ kept = null, plays = true, full = false } = {}) {
 
 const ready = (more) => ({ ok: true, state: 'ready', id: 1, name: 'Living room', owner: 'maren', play: null, commands: [], poll_ms: 1000, ...more });
 const film = (more) => ({
-  play_id: 'p1', state: 'loading', url: '/api/cast/t/index.m3u8', title: 'Glass Orchard', year: 2024, season: 1, episode: 4, episode_title: 'The Knife',
+  play_id: 'p1', by: 'maren', state: 'loading', url: '/api/cast/t/index.m3u8', title: 'Glass Orchard', year: 2024, season: 1, episode: 4, episode_title: 'The Knife',
   art_url: '/api/tv/device/art/p1', duration_s: 2880, start_s: 100, played_s: 50, markers: [], chapters: [], next: null, upnext_in_s: null, still_in_s: null, error: null, ...more,
 });
 const GONE = [404, { ok: false, error: 'not_found' }];
@@ -658,7 +661,34 @@ const scenarios = {
     t.answers.poll = () => ready({ ...both, play: film({ by: 'tobias' }) });
     t.run();
     await t.step(300);
-    return { says: t.says(), pictures: t.pictures().map((p) => p.src) };
+    const u = tv({ kept: 'old' });
+    u.answers.poll = () => ready({ ...both, play: film({ by: undefined }) });
+    u.run();
+    await u.step(300);
+    return { says: t.says(), pictures: t.pictures().map((p) => p.src), nameless: u.says() };
+  },
+  // mediaman was updated while the page was open: it loads itself anew once nothing plays, and
+  // once only for a version, should what loads be the page as it was.
+  async renewed() {
+    const t = tv({ kept: 'old', version: 'aaa' });
+    t.now = film();
+    t.answers.poll = () => ready({ v: 'bbb', play: t.now });
+    t.run();
+    await t.step(3000);
+    const playing = t.reloads.length;
+    t.now = null;
+    await t.step(3000);
+    const idle = t.reloads.length;
+    const u = tv({ kept: 'old', version: 'aaa' });
+    u.store['mm-tv-version'] = 'bbb';
+    u.answers.poll = () => ready({ v: 'bbb' });
+    u.run();
+    await u.step(3000);
+    const same = tv({ kept: 'old', version: 'bbb' });
+    same.answers.poll = () => ready({ v: 'bbb' });
+    same.run();
+    await same.step(3000);
+    return { playing, idle, kept: t.store['mm-tv-version'], again: u.reloads.length, current: same.reloads.length };
   },
   // tobias, paired with maren's TV too, starts a film on it and then pairs it anew: the TV is
   // still his, whether it was told it lost its token first or not.

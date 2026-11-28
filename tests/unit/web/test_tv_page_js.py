@@ -118,6 +118,14 @@ def test_the_tv_names_and_shows_who_started_the_film_not_whose_tv_it_is() -> Non
     out = _run("starter")
     assert "tobias is starting it" in out["says"] and "maren is starting it" not in out["says"]
     assert out["pictures"] == ["/static/avatars/avatar-03.svg"]
+    # With nobody named, the TV names nobody rather than whose TV it is.
+    assert "Glass Orchard" in out["nameless"] and "starting it" not in out["nameless"]
+
+
+def test_a_tv_left_open_through_an_update_loads_it_once_nothing_plays_and_once_only() -> None:
+    out = _run("renewed")
+    assert (out["playing"], out["idle"], out["kept"]) == (0, 1, "bbb")
+    assert (out["again"], out["current"]) == (0, 0)
 
 
 def test_each_person_is_shown_by_their_picture_over_their_letter_which_stays_if_it_fails() -> None:

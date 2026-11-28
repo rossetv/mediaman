@@ -12,6 +12,7 @@
   var KEPT = 'mm-tv';
   var KEPT_PLACE = 'mm-tv-place';
   var KEPT_RESUME = 'mm-tv-resume';
+  var KEPT_VERSION = 'mm-tv-version';  // of the scripts this page last loaded itself anew for
   var MAX_CODES = 12;        // shown by themselves, with no key pressed
   var RESTARTED_MS = 8000;
   var LOST_AFTER = 8000;
@@ -35,6 +36,7 @@
   var notes = document.getElementById('k');
   var video = document.getElementById('v');
   var base = body.getAttribute('data-base') || (location.protocol + '//' + location.host);
+  var version = body.getAttribute('data-v');
 
   // A TV sets its clock while the page runs. Date alone, where there is no other, never goes back.
   var latest = Date.now(), behind = 0;
@@ -521,6 +523,16 @@
     boot = got.boot;
     obey(got.commands || []);
     show();
+    renew(got);
+  }
+
+  /* The page stays open through mediaman's updates: once nothing plays, it loads what is new. A
+     page that comes back as it was, from a cache, is not loaded again for the same version. */
+  function renew(got) {
+    if (!version || !got.v || got.v === version || got.play || mode !== 'idle') return;
+    if (remembered(KEPT_VERSION) === got.v) return;
+    remember(KEPT_VERSION, got.v);
+    location.reload();
   }
 
   /* ── going on after mediaman, or the TV's network, dropped out ── */
@@ -1144,7 +1156,7 @@
     return '<div class="mid">' + BRAND + (extra || '') + '<div class="h">' + head + '</div><div class="l">' + lines + '</div>' + offer(list) + '</div>';
   }
   /* Whose film plays: who started it, not whose TV it is. */
-  function starter() { return play ? play.by || me.owner : null; }
+  function starter() { return play ? play.by : null; }
   function everyone() { return (me.people && me.people.length ? me.people : [me.owner]); }
   /* A person's picture over their letter, which shows where there is none or it fails to load.
      The letter is drawn from an attribute, so the words of the page stay the person's name. */
@@ -1284,7 +1296,7 @@
       return page(middle('This TV&rsquo;s browser can&rsquo;t play films', 'It is missing what mediaman needs.<br>Ask an admin to add this TV by its address.', [['Try anyway', 'a']]));
     },
     load: function () {
-      return art(true) + '<div class="mid start">' + SPIN + titles() + '<div class="sm who">' + face(starter(), true) + esc(starter()) + ' is starting it</div></div>' + offer([]);
+      return art(true) + '<div class="mid start">' + SPIN + titles() + (starter() ? '<div class="sm who">' + face(starter(), true) + esc(starter()) + ' is starting it</div>' : '') + '</div>' + offer([]);
     },
     soon: function () { return art(true) + '<div class="mid start">' + SPIN + '<div class="l">Starting</div></div>' + offer([]); },
     play: function () { return overlay(false); },
