@@ -897,7 +897,8 @@ const scenarios = {
     const focus = p.doc.activeElement;
     p.api.tvs[0].play = aPlay({ state: 'upnext', upnext_in_s: 8, next: { season: 1, episode: 5, title: 'Windfall' } });
     await p.pass(1000);
-    const out = { card: p.card(), line: p.$('[data-card-line]').textContent, focusKept: p.doc.activeElement === focus, status: p.$('[data-status]').textContent !== '' };
+    const out = { card: p.card(), line: p.$('[data-card-line]').textContent, focusKept: p.doc.activeElement === focus, status: p.$('[data-status]').textContent !== '',
+      acts: [...p.$('[data-card-actions]').children].map((b) => [b.textContent, b.classList.contains('player-pill--primary')]) };
     p.api.hold = [];
     await p.pass(0);
     await p.pressText('Play now');

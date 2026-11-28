@@ -1071,7 +1071,7 @@
 
   function upnextTitle(p) {
     if (p.upnextAt == null) return 'Next episode';
-    return 'Next episode in ' + Math.max(0, Math.ceil((p.upnextAt - now()) / 1000)) + ' s';
+    return 'Next episode in ' + Math.max(0, Math.ceil((p.upnextAt - now()) / 1000)) + ' s · Press to cancel';
   }
   function clock(ms) {
     var d = new Date(ms);
@@ -1136,7 +1136,8 @@
       var nx = p.next || {};
       return { key: 'upnext', title: upnextTitle(p), upnext: true,
         line: nx.season != null ? code(nx, ' · ') + (nx.title ? ' · ' + nx.title : '') : nx.label || p.title,
-        acts: [['Play now', function () { start({ kind: 'next' }); }], ['Cancel', cancelNext]] };
+        // Cancel is the one to press: to watch on, the person need only wait.
+        acts: [['Cancel', cancelNext], ['Play now', function () { start({ kind: 'next' }); }]] };
     }
     return null;
   }

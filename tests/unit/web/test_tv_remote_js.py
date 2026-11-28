@@ -228,6 +228,9 @@ def test_nothing_is_asked_for_after_signing_out() -> None:
 def test_the_next_episode_is_offered_without_taking_the_focus_and_starts_once() -> None:
     out = _run("upnext")
     assert out["card"].startswith("Next episode in ")
+    assert out["card"].endswith(" · Press to cancel")
+    # Cancel is first and the main one: to watch on, the person need only wait.
+    assert out["acts"] == [["Cancel", True], ["Play now", False]]
     assert out["line"] == "S1 · E5 · Windfall"
     assert out["focusKept"] is True
     assert out["status"] is True
@@ -512,7 +515,10 @@ def test_a_refused_change_on_a_chromecast_is_said_and_leaves_what_plays() -> Non
 
 def test_the_next_episode_on_a_chromecast_is_offered_and_the_question_after_three() -> None:
     out = _run("castUpnext")
-    assert (out["card"], out["line"]) == ("Next episode in 8 s", "S1 · E5 — Windfall")
+    assert (out["card"], out["line"]) == (
+        "Next episode in 8 s · Press to cancel",
+        "S1 · E5 — Windfall",
+    )
     assert out["waits"] == "Next episode"
     assert out["playing"] == "Playing on Den"
     assert out["still"] == ["Are you still watching?", True, True]
