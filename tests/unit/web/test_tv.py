@@ -14,6 +14,7 @@ import defusedxml.ElementTree as ET
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.crypto import generate_tv_resume_ticket, validate_tv_resume_ticket
 from mediaman.db import get_db
 from mediaman.services.avatars import drawn, files
 from mediaman.services.cast import tickets
@@ -1342,6 +1343,32 @@ def test_only_the_last_play_begun_on_the_tv_and_never_ended_goes_on_after_a_rest
     assert _resume(tv, stopped).status_code == 409
     assert _resume(tv, replaced).status_code == 409
     assert _resume(tv, latest).status_code == 200
+
+
+def test_a_ticket_that_names_no_play_starts_nothing_after_a_restart(
+    tv, home, amy, conn, secret_key, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    ticket = tv.poll("playing", 300)["resume"]
+    state = dict(validate_tv_resume_ticket(ticket, secret_key)["st"])
+    del state["play_id"]
+    older = generate_tv_resume_ticket(state=state, ttl_s=600, secret_key=secret_key)
+    conn.execute("UPDATE tvs SET resume_play_id = NULL")
+    conn.commit()
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    assert _resume(tv, older).status_code == 409
+
+
+def test_a_film_that_ended_by_itself_does_not_go_on_after_a_restart(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    ticket = tv.poll("playing", 5990)["resume"]
+    tv.poll("ended", 6000)
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    assert _resume(tv, ticket).status_code == 409
 
 
 def test_a_play_stopped_before_the_restart_does_not_go_on(tv, home, amy, monkeypatch, plex, clock):

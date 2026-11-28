@@ -485,7 +485,8 @@ def _resume(request: Request, held: repo.Tv, body: _Ask) -> int | Response:
             str(state.get("boot")),
             user,
             rating_key,
-            latest=state.get("play_id") == repo.resume_play(conn, key),
+            latest=isinstance(state.get("play_id"), str)
+            and state.get("play_id") == repo.resume_play(conn, key),
         )
     ):
         return _refusal(NotPlaying())
