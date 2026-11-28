@@ -244,7 +244,7 @@
 .watch-all-link .ico { font-size: 10px; transition: transform var(--dur) var(--ease-out); }
 .watch-all-link:hover { color: var(--t1); }
 .watch-all-link:hover .ico { transform: translateX(3px); }
-.watch-all-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: var(--r-xs); color: var(--t1); }
+.watch-all-link:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 6px; border-radius: var(--r-xs); color: var(--t1); }
 @media (prefers-reduced-motion: reduce) {
   .watch-all-link:hover .ico { transform: none; }
 }

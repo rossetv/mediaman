@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 
 import mediaman.web
+from tests.unit.web._css import contrast, style
+from tests.unit.web.test_glass_css import _colour
 
 _CSS = Path(mediaman.web.__file__).parent / "static" / "css"
 _ROW = "#keep-season-list > .keep-season-item"
@@ -67,7 +69,11 @@ def test_the_system_draws_the_box_where_its_colours_are_forced() -> None:
 
 
 def test_a_ticked_box_with_focus_shows_a_ring_apart_from_its_fill() -> None:
-    assert "outline-color: var(--accent-hi)" in _box(":checked:focus-visible")
+    # The app's ring, light where the fill is dark; a blue of the fill's own tone would merge.
+    assert _box(":checked:focus-visible") == ""
+    ring = style(":focus-visible", "_base.css")["outline"].split()[-1]
+    fill = _box(":checked").split("background: ")[1].split(";")[0]
+    assert contrast(_colour(ring, {})[:3], _colour(fill, {})[:3]) >= 2.5
 
 
 def test_a_box_lightens_only_under_a_pointer_that_hovers_so_a_tap_leaves_nothing() -> None:

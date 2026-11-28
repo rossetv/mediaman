@@ -372,6 +372,5 @@ def test_every_ring_the_title_s_sheet_draws_is_the_glass_s_ring_colour() -> None
 
 
 def test_a_ring_on_the_title_s_sheet_without_its_own_colour_takes_the_glass_ring() -> None:
-    # The page's own ring (the rating thumbs keep it) is a dark blue, under 3:1 on the glass.
-    assert style(":focus-visible", "_base.css")["outline"].endswith("var(--accent-cta)")
+    # The rating thumbs take the page's own ring; the sheet holds it to the glass's.
     assert style(".ttl__sheet :focus-visible", DETAIL)["outline-color"] == "var(--g-focus)"

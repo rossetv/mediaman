@@ -97,7 +97,7 @@
 }
 .space-row-link::after { content: ""; position: absolute; inset: -12px -10px; } /* 44px to tap */
 .space-row-link:hover { color: var(--t1); }
-.space-row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-xxs); }
+.space-row-link:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 4px; border-radius: var(--r-xxs); }
 .space-row-link > .ico { font-size: 9px; transition: transform var(--dur) var(--ease-out); }
 .space-row-link:hover > .ico { transform: translateX(2px); }
 .watch-row__head:has(> .space-row-link) { align-items: baseline; }
