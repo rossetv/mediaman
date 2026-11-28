@@ -75,6 +75,8 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/cast/{ticket}/seg/{name}"),
     ("HEAD", "/api/cast/{ticket}/seg/{name}"),
     ("OPTIONS", "/api/cast/{ticket}/seg/{name}"),
+    ("GET", "/api/cast/{ticket}/poster"),
+    ("OPTIONS", "/api/cast/{ticket}/poster"),
     ("GET", "/api/watch/stream/{stream_id}/preview/{n}"),
     ("POST", "/api/watch/dismissed/{ref}"),
     ("DELETE", "/api/watch/dismissed/{ref}"),

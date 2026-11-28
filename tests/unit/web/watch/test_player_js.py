@@ -3308,12 +3308,12 @@ def test_rows_stay_where_they_are_while_the_sheet_is_open(markup):
     later = [key for key, _ in out["later"]]
     assert later == ["here", "tv-5", "tv-7", "cast", "tv-6", "tv-11", "pair"]
     assert dict(out["later"])["tv-5"] == "Not open"
-    assert dict(out["later"])["cast"] == "No Chromecast found"
+    assert dict(out["later"])["cast"] == "No Chromecast found on this network"
 
 
 def test_a_chromecast_looked_for_and_not_found_is_said_so_when_the_sheet_opens_again(markup):
     out = elsewhere(markup, "away_none_found", "plain")
-    assert out == {"line": "No Chromecast found", "looks": 1}
+    assert out == {"line": "No Chromecast found on this network", "looks": 1}
 
 
 LOOKS = ["here", "pair"]

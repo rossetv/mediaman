@@ -40,6 +40,8 @@ _OPEN = {
     ("GET", "/api/cast/{ticket}/seg/{name}"),
     ("HEAD", "/api/cast/{ticket}/seg/{name}"),
     ("OPTIONS", "/api/cast/{ticket}/seg/{name}"),
+    ("GET", "/api/cast/{ticket}/poster"),
+    ("OPTIONS", "/api/cast/{ticket}/poster"),
 }
 
 #: These bodies are checked before the session, so each needs one that passes.
