@@ -110,6 +110,7 @@ def test_a_paired_tvs_code_is_for_another_person_and_a_pause_is_named_only_when_
     assert "Watch on this TV" not in out["code"]
     assert "Paused" in out["alone"] and "Paused by" not in out["alone"]
     assert "Paused by maren" in out["both"]
+    assert out["pictured"] == ["/static/avatars/avatar-05.svg"]
 
 
 def test_the_tv_names_and_shows_who_started_the_film_not_whose_tv_it_is() -> None:
@@ -135,6 +136,34 @@ def test_a_film_gives_way_to_the_person_who_takes_the_tv_over() -> None:
     assert "Someone else has this TV now" in out["said"]
     assert (out["src"], out["store"]) == (None, {"mm-tv": "fresh"})
     assert "Connected to tobias" in out["then"]
+
+
+@pytest.mark.parametrize("how", ["refused", "paired"])
+def test_a_person_who_started_the_film_and_pairs_the_tv_anew_is_not_told_another_has_it(
+    how: str,
+) -> None:
+    out = _run("reclaimed", how)
+    assert "tobias is starting it" in out["started"]
+    assert "Connected to tobias" in out["said"] and "Someone else" not in out["said"]
+
+
+@pytest.mark.parametrize("n", ["7", "9"])
+def test_the_people_stand_above_the_heading_alike_on_both_screens_and_seven_at_most(n) -> None:
+    out = _run("crowd", n)
+    for html in (out["idle"], out["conn"]):
+        assert html.index('class="ppl"') < html.index('class="h"')
+        assert html.count('class="pp"') == 7
+    if n == "9":
+        assert 'data-l="+3"' in out["idle"] and "kofi" in out["idle"] and "lena" not in out["idle"]
+    else:
+        assert 'data-l="+' not in out["idle"] and "lena" in out["idle"]
+
+
+def test_a_film_that_falters_as_it_starts_is_still_starting_not_waiting_for_the_network() -> None:
+    out = _run("faltersAtStart")
+    assert not [said for said in out["seen"] if "Waiting for the network" in said]
+    assert "is starting it" in out["seen"][-1]
+    assert "Waiting for the network" not in out["now"]
 
 
 def test_a_film_is_played_from_its_place_and_reported() -> None:

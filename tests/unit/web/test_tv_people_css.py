@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.unit.web._css import contrast, px, rgb, style, token
+from tests.unit.web._css import _within, contrast, px, rgb, rules, style, token
 
 TV = "tv.css"
 REDUCED = "(prefers-reduced-motion: reduce)"
@@ -49,19 +49,50 @@ def test_a_picture_that_failed_leaves_the_letter_under_it() -> None:
     assert style(".av img.gone", TV)["display"] == "none"
 
 
-def test_the_tvs_focus_ring_is_the_glass_s_focus_colour() -> None:
+def test_the_tvs_focus_ring_is_the_glass_s_focus_colour_and_reads_on_the_dark_around_it() -> None:
     assert token("--g-focus") == "var(--g-accent-text)"
-    assert style(".b.f", TV)["border-color"] == token("--g-accent-text")
+    focused = style(".b.f", TV)
+    ring = focused["box-shadow"]
+    assert ring.endswith(token("--g-accent-text"))
+    # It stands outside the white fill, past a dark gap, on the page or the film's dark shade.
+    assert px(ring.split()[3]) >= 4 and focused["border-color"] == "#000"
+    for under in ("#000", "#1d1d1f", focused["border-color"]):
+        assert contrast(rgb(token("--g-accent-text")), rgb(under)) >= 3
 
 
-def test_the_people_rise_in_only_where_motion_is_wanted() -> None:
-    assert "rise" in style(".pp", TV)["animation"]
-    assert style(".pp", TV, REDUCED)["animation"] == "none"
+def _sets(decls: dict[str, str], prop: str) -> bool:
+    return prop in decls or f"-webkit-{prop}" in decls
+
+
+@pytest.mark.parametrize("prop", ["animation", "transition"])
+def test_nothing_on_the_tv_moves_under_reduced_motion(prop: str) -> None:
+    """The cascade under reduced motion: for each selector that moves, the last rule to say how
+    holds still, whatever order the sheet keeps."""
+    last: dict[str, tuple[bool, dict[str, str]]] = {}
+    for where, selectors, decls in rules(TV):
+        reduced = _within(where, REDUCED)
+        if (where and not reduced and not where[0].startswith("@supports")) or not _sets(
+            decls, prop
+        ):
+            continue
+        for selector in selectors:
+            last[selector] = (reduced, decls)
+    moving = {sel for sel, (reduced, decls) in last.items() if not reduced}
+    assert not moving, f"{prop} left on under reduced motion: {sorted(moving)}"
+    for selector, (_, decls) in last.items():
+        held = decls.get(prop, decls.get(f"-webkit-{prop}", ""))
+        # The spinner pulses in place where it would turn.
+        assert held == "none" or held.startswith("pu "), (selector, held)
 
 
 def test_on_the_pages_a_letter_lies_under_its_picture_and_shows_where_it_fails() -> None:
-    assert style(".avatar > .avatar__letter + img", "_nav.css")["position"] == "absolute"
+    picture = style(".avatar--pic img", "_nav.css")
+    assert (picture["position"], picture["inset"]) == ("absolute", "0")
+    assert style(".avatar--pic", "_nav.css")["position"] == "relative"
     assert style('img[data-broken=""]', "_base.css")["display"] == "none"
+    # A picture that failed leaves its letter on the disc of one who has none.
+    broken = style('.avatar--pic:has(> .avatar__letter + img[data-broken=""])', "_nav.css")
+    assert broken["background"] == style(".avatar--letter", "_nav.css")["background"]
 
 
 def test_the_pair_page_rings_its_code_in_the_glass_s_focus_colour() -> None:

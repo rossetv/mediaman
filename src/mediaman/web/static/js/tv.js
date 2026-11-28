@@ -16,6 +16,7 @@
   var LOST_AFTER = 8000;
   var OVERLAY_MS = 4000;
   var STALL_MS = 1500;
+  var NET_GRACE_MS = 1500;   // a falter as a film starts or goes on is not yet worth a word
   var PUT_AGAIN_MS = 1500;
   var GIVE_UP_MS = 4000;
   var BROKEN_MS = 45000;
@@ -621,6 +622,7 @@
   var keptAt = 0;
   var movedAt = 0, lastTime = 0, lastTick = now();
   var breaks = 0, reloadDue = false, broken = false, overAt = null;
+  var falteredAt = 0;
   var canVolume = null;
 
   function native() {
@@ -779,6 +781,7 @@
     there = false;
     stalled = true;
     reloadDue = true;
+    falteredAt = now();
     show();
   }
 
@@ -862,6 +865,7 @@
         if (!ready && moving && there) begun();
       } else if (ready && at - movedAt > STALL_MS && !stalled) {
         stalled = true;
+        falteredAt = at;
         tell();
         show();
       }
@@ -883,6 +887,7 @@
       else put('in', nextLine());
     }
     if (play) bar();
+    if ((stalled || reloadDue) && which() !== shown) show();
     skipMarks();
     rest();
   }
@@ -972,8 +977,8 @@
     for (var i = 0; i < list.length; i++) out += '<button type="button" class="b" id="b' + i + '">' + list[i][0] + '</button>';
     return list.length ? out + '</div>' : '';
   }
-  function middle(head, lines, list, extra, after) {
-    return '<div class="mid">' + BRAND + (extra || '') + '<div class="h">' + head + '</div><div class="l">' + lines + '</div>' + (after || '') + offer(list) + '</div>';
+  function middle(head, lines, list, extra) {
+    return '<div class="mid">' + BRAND + (extra || '') + '<div class="h">' + head + '</div><div class="l">' + lines + '</div>' + offer(list) + '</div>';
   }
   /* Whose film plays: who started it, not whose TV it is. */
   function starter() { return play ? play.by || me.owner : null; }
@@ -985,11 +990,14 @@
     return '<span class="av' + (small ? ' av--s' : '') + '" data-l="' + esc(String(name).charAt(0).toUpperCase()) + '">' +
       (url ? '<img src="' + esc(url) + '" alt="">' : '') + '</span>';
   }
+  var FACES_MAX = 7;         // in a row on the TV, the last of them standing for any more
   function faces() {
-    return '<div class="ppl">' + everyone().map(function (w) {
+    var all = everyone();
+    var listed = all.length > FACES_MAX ? all.slice(0, FACES_MAX - 1) : all;
+    return '<div class="ppl">' + listed.map(function (w) {
       // A long name breaks after a dot or a dash before it breaks inside a word.
       return '<div class="pp">' + face(w) + '<div class="pn">' + esc(w).replace(/([._-])/g, '$1<wbr>') + '</div></div>';
-    }).join('') + '</div>';
+    }).join('') + (listed.length < all.length ? '<div class="pp"><span class="av" data-l="+' + (all.length - listed.length) + '"></span></div>' : '') + '</div>';
   }
   /* A picture that fails to load leaves its letter. */
   function gone() { this.className = 'gone'; }
@@ -1074,7 +1082,7 @@
     },
     idle: function () {
       return page('<div class="idle">' + middle(esc(me.name) + ' is ready', 'On your phone or computer, open a film,<br>press the TV button and choose ' + esc(me.name) + '.',
-        [['Pair another person', 'n'], ['Unpair this TV', 'u']], '', faces()) + '</div>');
+        [['Pair another person', 'n'], ['Unpair this TV', 'u']], faces()) + '</div>');
     },
     unpair: function () {
       var all = everyone().map(esc);
@@ -1125,6 +1133,8 @@
   };
   var FOCUS = { play: 1, pause: 1 };
 
+  function faltering() { return now() - falteredAt >= NET_GRACE_MS; }
+
   function which() {
     if (play && token && mode !== 'taken') {
       var state = play.state;
@@ -1134,9 +1144,9 @@
       if (state === 'upnext') return 'next';
       if (state === 'still' || state === 'ended') return state;
       if (broken || overAt !== null) return 'soon';
-      if (!loaded || !ready) return reloadDue ? 'buf' : 'load';
+      if (!loaded || !ready) return reloadDue && faltering() ? 'buf' : 'load';
       if (!wanted) return 'pause';
-      return stalled ? 'buf' : 'play';
+      return stalled && faltering() ? 'buf' : 'play';
     }
     if (away && mode !== 'old') return 'lost';
     if ((mode === 'idle' || mode === 'conn' || mode === 'unpair') && !me) return 'boot';
