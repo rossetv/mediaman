@@ -11,6 +11,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl {
   --ttl-bar: 56px;  /* holds Close, over a trailer on a phone */
   --ttl-shade: rgb(0 0 0 / .5); /* under the heading, at its darkest */
+  --ttl-foot: 16px;  /* where the hero's picture and its shades fade into the glass below */
   --ttl-gap: 16px;  /* between a playing trailer and the buttons under it, on a phone */
   position: fixed;
   inset: 0;
@@ -121,9 +122,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), translate var(--dur) var(--ease-out);
 }
 .ttl.is-trailer .ttl__close { translate: none; }
-.ttl__close:hover { background: color-mix(in srgb, var(--s5) 90%, transparent); }
+/* Darker, never lighter: the sheet's fills are white veils, and the white X would be lost in one
+   over a pale picture. */
+.ttl__close:is(:hover, :active) { background: color-mix(in srgb, var(--scrim) 72%, transparent); }
 .ttl__close:active { transform: scale(.94); }
-.ttl__close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl__close:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 
 /* ── Hero ── */
 
@@ -183,6 +186,18 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   background: var(--g-hero-scrim);
   transition: opacity var(--dur) var(--ease-out);
 }
+/* The picture and its scrim fade out at the hero's foot, so the glass below carries up into it
+   instead of meeting a dark edge. The blurred fill is scaled 1.2 from its middle: its foot lies
+   past the hero's by a twelfth of its height. */
+.ttl__hero::after,
+.ttl__hero > :is(.ttl__hero-skel, .ttl__art) {
+  -webkit-mask-image: linear-gradient(0deg, transparent, #000 var(--ttl-foot));
+  mask-image: linear-gradient(0deg, transparent, #000 var(--ttl-foot));
+}
+.ttl__fill {
+  -webkit-mask-image: linear-gradient(0deg, transparent 8.33%, #000 calc(8.33% + var(--ttl-foot) / 1.2));
+  mask-image: linear-gradient(0deg, transparent 8.33%, #000 calc(8.33% + var(--ttl-foot) / 1.2));
+}
 .ttl__head {
   position: relative;
   z-index: 1;
@@ -201,7 +216,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   position: absolute;
   z-index: -1;
   inset: -72px -100vw -12px;
-  background: linear-gradient(0deg, var(--ttl-shade), color-mix(in srgb, var(--ttl-shade) 86%, transparent) 40px, color-mix(in srgb, var(--ttl-shade) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--ttl-shade) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--ttl-shade) 14%, transparent) calc(100% - 18px), transparent);
+  background: linear-gradient(0deg, transparent, var(--ttl-shade) var(--ttl-foot), color-mix(in srgb, var(--ttl-shade) 86%, transparent) calc(var(--ttl-foot) + 40px), color-mix(in srgb, var(--ttl-shade) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--ttl-shade) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--ttl-shade) 14%, transparent) calc(100% - 18px), transparent);
   pointer-events: none;
 }
 .ttl__kind { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--t2); min-height: 1em; }
@@ -347,14 +362,25 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .cry-plate { position: fixed; z-index: var(--z-modal-backdrop); top: 0; left: 0; border-radius: var(--r-lg); background: var(--g-regular); -webkit-backdrop-filter: var(--g-filter); backdrop-filter: var(--g-filter); contain: layout style; pointer-events: none; }
 .cry-plate::before,
 .cry-plate::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
-.cry-plate::before { box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card), 0 0 70px 10px color-mix(in srgb, var(--scrim) 65%, transparent); opacity: calc(1 - var(--cry-at)); }
+.cry-plate::before { box-shadow: 0 0 0 1px var(--g-edge), var(--shadow-card), 0 0 70px 10px color-mix(in srgb, var(--scrim) 65%, transparent); opacity: calc(1 - var(--cry-at)); }
 .cry-plate::after { border: 1px solid var(--g-edge); border-top-color: var(--g-lit); box-shadow: var(--g-inset), var(--g-shadow); opacity: var(--cry-at); }
 .cry-shade { position: absolute; z-index: 0; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
 .cry-shade > i { position: absolute; }
-/* Past the hero too, as far as the picture goes past it on its way. */
-.cry-shade > i::before { content: ""; position: absolute; inset: -100vh 0; background: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 55%, transparent) 0%, transparent 62%); }
+/* The hero's scrim: its side half past the hero too, as far as the picture goes past it on its way,
+   its foot half on the hero alone, fading out at its foot as the hero's does. */
+.cry-shade > i::before {
+  content: "";
+  position: absolute;
+  inset: -100vh 0;
+  background: var(--g-hero-scrim);
+  background-position: 0 100vh, 0 0;
+  background-size: 100% calc(100% - 200vh), 100% 100%;
+  background-repeat: no-repeat;
+  -webkit-mask-image: linear-gradient(0deg, #000 100vh, transparent 100vh, #000 calc(100vh + var(--ttl-foot)));
+  mask-image: linear-gradient(0deg, #000 100vh, transparent 100vh, #000 calc(100vh + var(--ttl-foot)));
+}
 .cry-shade > i::after { content: ""; position: absolute; inset: 100% 0 -100vh; background: var(--g-solid); }
-.cry-shade > i > i { position: absolute; inset: auto 0 0; background: linear-gradient(0deg, var(--ttl-shade), color-mix(in srgb, var(--ttl-shade) 86%, transparent) 40px, color-mix(in srgb, var(--ttl-shade) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--ttl-shade) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--ttl-shade) 14%, transparent) calc(100% - 18px), transparent); }
+.cry-shade > i > i { position: absolute; inset: auto 0 0; background: linear-gradient(0deg, transparent, var(--ttl-shade) var(--ttl-foot), color-mix(in srgb, var(--ttl-shade) 86%, transparent) calc(var(--ttl-foot) + 40px), color-mix(in srgb, var(--ttl-shade) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--ttl-shade) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--ttl-shade) 14%, transparent) calc(100% - 18px), transparent); }
 .cry-under { position: absolute; z-index: 1; top: -1px; left: -1px; background: var(--s2); contain: strict; }
 .cry-ghost { position: absolute !important; z-index: 4; margin: 0; opacity: 1 !important; transform: none !important; pointer-events: none; }
 .cry-move { transform-origin: 0 0 !important; will-change: transform, opacity; }
@@ -370,7 +396,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* Open: the preview's picture shows through the hero until the page's own comes over it. */
 /* Its glass under the hero alone, so the picture there is not blurred into it. */
 .ttl.is-film .ttl__sheet { isolation: isolate; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-.ttl.is-film .ttl__sheet::after { content: ""; position: absolute; z-index: -1; inset: var(--ttl-hero) 0 0; border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); background: var(--g-regular); -webkit-backdrop-filter: var(--g-filter); backdrop-filter: var(--g-filter); pointer-events: none; }
+.ttl.is-film .ttl__sheet::after { content: ""; position: absolute; z-index: -1; inset: calc(var(--ttl-hero) - var(--ttl-foot)) 0 0; -webkit-mask-image: linear-gradient(transparent, #000 var(--ttl-foot)); mask-image: linear-gradient(transparent, #000 var(--ttl-foot)); border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); background: var(--g-regular); -webkit-backdrop-filter: var(--g-filter); backdrop-filter: var(--g-filter); pointer-events: none; }
 .ttl.is-film .ttl__sheet::before { visibility: hidden; }
 .ttl.is-film .ttl__hero { background: none; }
 .ttl.is-film .ttl__hero > .ttl__hero-skel { visibility: hidden; }
@@ -804,6 +830,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @media (max-width: 699.98px) {
   .ttl { padding: 0; }
   .ttl__sheet { max-width: none; min-height: 100%; border: 0; border-radius: 0; box-shadow: none; transform-origin: 50% 100%; }
+  .ttl.is-film .ttl__sheet::after { border-radius: 0; }
   .ttl.is-entering .ttl__sheet { animation-name: ttl-sheet-up; }
   .ttl.is-leaving .ttl__sheet { animation-name: ttl-sheet-down; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
   .ttl__hero { min-height: min(56.25vw, 62vh); gap: 16px; padding: calc(var(--ttl-bar) + 8px) 20px 14px; }
@@ -875,6 +902,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl { padding-block: 0; }
   .ttl__body { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
   .ttl__sheet { min-height: 100%; border-block: 0; border-radius: 0; }
+  .ttl.is-film .ttl__sheet::after { border-radius: 0; }
 }
 
 /* Phones, either way up: Close stays on screen, and a trailer gets the screen's width
@@ -888,11 +916,19 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-trailer .ttl__hero { min-height: min(calc(56.25vw + var(--ttl-bar) + var(--ttl-gap)), calc(100vh - 48px)); }
 }
 
+/* Phones, either way up: the dim and the sheet are two blurred layers already, so Close and the
+   trailer's frame on the sheet take none of their own. */
+@media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
+  .ttl__close,
+  .ttl__player { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .ttl__player { background: var(--pl); }
+}
+
 /* A small hero: the shade keeps close to the text, so the picture stays clear above it. */
 @media (max-width: 639.98px) {
   .ttl__head::before {
     inset-block: -40px -14px;
-    background: linear-gradient(0deg, var(--ttl-shade), color-mix(in srgb, var(--ttl-shade) 86%, transparent) 40px, color-mix(in srgb, var(--ttl-shade) 70%, transparent) calc(100% - 64px), color-mix(in srgb, var(--ttl-shade) 55%, transparent) calc(100% - 40px), color-mix(in srgb, var(--ttl-shade) 20%, transparent) calc(100% - 16px), transparent);
+    background: linear-gradient(0deg, transparent, var(--ttl-shade) var(--ttl-foot), color-mix(in srgb, var(--ttl-shade) 86%, transparent) calc(var(--ttl-foot) + 40px), color-mix(in srgb, var(--ttl-shade) 70%, transparent) calc(100% - 64px), color-mix(in srgb, var(--ttl-shade) 55%, transparent) calc(100% - 40px), color-mix(in srgb, var(--ttl-shade) 20%, transparent) calc(100% - 16px), transparent);
   }
 }
 

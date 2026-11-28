@@ -186,8 +186,10 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
 
 /* What the open field would cover makes room. */
 .wbar :is(.space-meter, .nav-end) { transition: opacity var(--dur) var(--ease-out) .12s, transform var(--dur-slow) var(--ease-out) .12s, background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
-/* Only the logo's fade back waits. */
-.wbar .brand { transition: opacity var(--dur) var(--ease-out) .12s, color var(--dur-fast) var(--ease-out); }
+/* Only the logo's fade back waits. The name fades its logo and its island's glass, never itself:
+   glass under a fading parent has nothing to blur, and flashes light. */
+.wbar .brand > * { transition: opacity var(--dur) var(--ease-out) .12s; }
+.wbar .brand::before { transition: opacity var(--dur-slow) var(--ease-out) .12s; }
 @media (min-width: 1100px) {
   .wbar.is-wide-open .space-meter { opacity: 0; pointer-events: none; transform: translateX(10px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
 }
@@ -203,7 +205,10 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
   .wbar { --wopen: 100cqw; }
   .wbar .watch-search { --bl: calc(var(--l) - var(--pad) + 16px); --br: calc(100cqw + var(--pad) - var(--r) + 8px); left: var(--pad); margin-left: 0; }
   .wbar .watch-search.is-focus { --bl: 0px; --br: 0px; }
-  .wbar:has(> .watch-search.is-focus) > :is(.brand, .nav-end) { opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out); }
+  .wbar:has(> .watch-search.is-focus) > :is(.brand, .nav-end) { pointer-events: none; }
+  .wbar:has(> .watch-search.is-focus) > .nav-end,
+  .wbar:has(> .watch-search.is-focus) > .brand > *,
+  .wbar:has(> .watch-search.is-focus) > .brand::before { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
 }
 /* A round button beside the profile's; pressed, it opens over the top as wide as the screen. */
 @keyframes watch-search-grow { from { clip-path: inset(0 calc(100% - var(--r) + var(--pad) + 8px) 0 calc(var(--r) - var(--pad) - 52px) round 22px); } to { clip-path: inset(0 round 22px); } }

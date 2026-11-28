@@ -212,7 +212,7 @@ def test_the_logo_stands_on_the_page_s_edge_and_never_moves_as_its_island_fades_
     assert re.search(rf"margin: 0 \d+px 0 -{room}px", brand)
     assert "transform" not in brand
     assert "transform" not in _of(".nav-glass.is-scrolled .brand", _outside(css))
-    assert "transform" not in _of(".wbar .brand", _css(CSS / "_watch_search.css"))
+    assert "transform" not in _of(".wbar .brand > *", _css(CSS / "_watch_search.css"))
 
 
 def test_on_a_phone_the_end_island_is_never_narrower_than_what_it_holds() -> None:

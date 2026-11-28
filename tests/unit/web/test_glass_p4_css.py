@@ -16,6 +16,8 @@ PREVIEW = "_watch_preview.css"
 SEARCH = "_watch_search.css"
 WIDE = "(min-width: 700px) and (min-height: 500.02px)"
 REDUCED = "(prefers-reduced-motion: reduce)"
+# Phones either way up: narrow, or short and touched.
+PHONES = "(max-width: 699.98px), (max-height: 500px) and (pointer: coarse)"
 
 # Each glass surface, and the sheet that draws it.
 SURFACES = [(".ttl__sheet", DETAIL), (".pv__shell", PREVIEW), (".watch-sheet", SEARCH)]
@@ -91,6 +93,43 @@ def test_the_shade_under_the_heading_is_dark_where_the_sheet_s_own_grey_is_glass
         assert "--s1" not in shade and "var(--ttl-shade)" in shade, shade
     darkest = _colour(style(".ttl", DETAIL)["--ttl-shade"], {})
     assert max(darkest[:3]) == 0 and darkest[3] >= 0.5
+
+
+def test_the_hero_s_picture_and_its_shades_fade_out_at_its_foot_into_the_glass_below() -> None:
+    # Dark to its last row, the hero would meet the body's glass at a hard edge over a light page.
+    for piece in (
+        ".ttl__hero::after",
+        ".ttl__hero > :is(.ttl__hero-skel, .ttl__art)",
+        ".ttl__fill",
+    ):
+        mask = style(piece, DETAIL)
+        assert mask["mask-image"] == mask["-webkit-mask-image"], piece
+        assert re.match(r"linear-gradient\(0deg, transparent[ ,]", mask["mask-image"]), piece
+    for _, sels, decls in rules(DETAIL):
+        if {".ttl__head::before", ".cry-shade > i > i"} & set(sels) and "background" in decls:
+            assert decls["background"].startswith("linear-gradient(0deg, transparent, "), sels
+
+
+def test_close_on_a_title_keeps_its_x_at_rest_lit_and_pressed_over_a_white_picture() -> None:
+    x = _colour(style(".ttl__close", DETAIL)["color"], _sheet_scope())
+    for state in (".ttl__close", ".ttl__close:is(:hover, :active)"):
+        under = _over(_colour(style(state, DETAIL)["background"], _sheet_scope()), WHITE)
+        assert contrast(_over(x, under), under) >= 4.5, state
+
+
+def test_the_stand_ins_of_a_preview_turning_into_its_title_look_as_what_they_stand_for() -> None:
+    # A stand-in drawn otherwise jumps to the real thing when the move ends, or from it as it starts.
+    assert (
+        style(".cry-shade > i::before", DETAIL)["background"]
+        == style(".ttl__hero::after", DETAIL)["background"]
+    )
+    ring = style(".cry-plate::before", DETAIL)["box-shadow"]
+    assert ring == style(".pv__shadow", PREVIEW)["box-shadow"]
+    landed = style(".cry-plate::after", DETAIL)
+    sheet = style(".ttl__sheet", DETAIL)
+    assert [landed[k] for k in ("border-top-color", "box-shadow")] == [
+        sheet[k] for k in ("border-top-color", "box-shadow")
+    ]
 
 
 # A see-through coloured chip on the sheet, and the classes its look comes from.
@@ -170,7 +209,8 @@ def test_a_surface_that_hands_its_place_to_another_takes_its_blur_away_with_its_
 
 def test_a_title_opened_from_its_preview_is_glass_from_under_its_hero_down() -> None:
     glass = style(".ttl.is-film .ttl__sheet::after", DETAIL)
-    assert glass["inset"].split()[0] == "var(--ttl-hero)"
+    # From where the hero's foot starts to fade into it.
+    assert glass["inset"].startswith("calc(var(--ttl-hero) - var(--ttl-foot))")
     assert glass["background"] == "var(--g-regular)"
     assert glass["backdrop-filter"] == glass["-webkit-backdrop-filter"] == "var(--g-filter)"
 
@@ -231,3 +271,35 @@ def test_a_red_item_of_a_keep_menu_holds_4_5_to_1_over_a_white_page_at_rest_lit_
             state,
             round(contrast(_over(word, under), under), 2),
         )
+
+
+def test_on_a_phone_a_menu_of_a_preview_over_the_search_sheet_is_solid_not_a_third_glass() -> None:
+    # The search sheet and the preview over it are two layers of glass already.
+    menu = style(".pv--over .pv-menu", PREVIEW, PHONES)
+    assert menu["background"] == "var(--g-solid)"
+    assert menu["backdrop-filter"] == menu["-webkit-backdrop-filter"] == "none"
+
+
+def test_on_a_phone_close_and_the_trailer_s_frame_take_no_blur_over_the_sheet_and_its_dim() -> None:
+    # The dim and the sheet blur already; a blur of their own would be a third layer.
+    for piece in (".ttl__close", ".ttl__player"):
+        drawn = style(piece, DETAIL, PHONES)
+        assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none", piece
+    assert style(".ttl__player", DETAIL, PHONES)["background"] == "var(--pl)"
+
+
+def test_close_on_a_title_rings_in_the_ring_made_for_glass() -> None:
+    assert style(".ttl__close:focus-visible", DETAIL)["outline"] == "2px solid var(--g-focus)"
+
+
+def test_opening_search_fades_the_name_s_logo_and_its_glass_never_the_name_itself() -> None:
+    # Under a fading parent, the island's glass stops blurring and flashes light.
+    faded = {
+        sel
+        for _, sels, decls in rules(SEARCH)
+        if decls.get("opacity") == "0" or "opacity" in decls.get("transition", "")
+        for sel in sels
+    }
+    assert not {sel for sel in faded if re.search(r"\.brand\)?$", sel) or ":is(.brand" in sel}
+    shown = ".wbar:has(> .watch-search.is-focus) > .brand"
+    assert {f"{shown} > *", f"{shown}::before"} <= faded
