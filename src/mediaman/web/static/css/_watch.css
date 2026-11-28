@@ -712,6 +712,17 @@
     backdrop-filter: none;
   }
 }
+/* The search sheet stands in the top bar, and a preview of one of its cards over it: a menu opened
+   from that preview goes over both, and on a phone it is solid, the sheet and the preview being
+   the two layers of glass already. */
+html.has-sheet .watch-keep-menu { z-index: calc(var(--z-nav) + 2); }
+@media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
+  html.has-sheet .watch-keep-menu {
+    background: var(--g-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
 .watch-keep-menu__item {
   flex: none;
   min-height: 44px;

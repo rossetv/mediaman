@@ -152,7 +152,7 @@ function load(opts = {}) {
   ctx.window = ctx;
   vm.createContext(ctx);
   if (opts.tvs) ctx.MM.playOn = { button(href, className) { const b = doc.createElement('button'); b.className = className; b.setAttribute('data-play-on', href); return b; } };
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/card-tools.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/carry.js', 'watch/preview.js'].forEach((f) => {
+  ['core/dom.js', ...(opts.modals ? ['modal-a11y.js'] : []), 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/card-tools.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/carry.js', 'watch/preview.js'].forEach((f) => {
     vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
     if (f === 'watch/core.js') {
       const html = doc.documentElement.classList;
@@ -782,7 +782,7 @@ const scenarios = {
     h.doc.querySelector('.pv-menu [data-act="like"]').click();
     return Object.assign(out, { asked, open: h.title() });
   },
-  /* The menu hangs on the page, outside the preview: it is marked while its preview is over the search sheet. */
+  /* The menu hangs beside the preview, outside it: it is marked while its preview is over the search sheet. */
   async menuOverSearch() {
     const h = load();
     const grid = h.doc.querySelector('#watch-browse');
@@ -800,6 +800,21 @@ const scenarios = {
     const over = await opened('film');
     grid.classList.remove('watch-sheet');
     return { over, page: await opened('other') };
+  },
+  /* The search sheet makes the page under it inert, as search.js does, the rows only hidden:
+     the menu of a preview over it is still in reach, and so are the shared Keep menu and the preview. */
+  async menuUnderSheet() {
+    const h = load({ modals: true });
+    const bar = h.doc.body.insertBefore(h.doc.createElement('header'), h.doc.body.firstChild);
+    const grid = h.doc.querySelector('#watch-browse');
+    grid.classList.add('watch-sheet');
+    h.ctx.MM.inertPage.hold(bar, [grid]);
+    await h.rest('film');
+    const more = h.pv().querySelector('[data-preview-more]');
+    more.click();
+    const inert = (n) => { for (let a = n; a; a = a.parentNode) if (a.inert) return true; return false; };
+    const menu = h.doc.querySelector('.pv-menu');
+    return { open: !menu.hidden, menu: inert(menu), keep: inert(h.doc.querySelector('#watch-keep-menu')), preview: inert(more) };
   },
   async details() {
     const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2' } } });

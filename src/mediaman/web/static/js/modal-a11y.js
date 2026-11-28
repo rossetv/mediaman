@@ -1,6 +1,6 @@
 /* Modal a11y helpers:
  *
- *   - The page behind an open modal is inert, all but the toasts, the Keep menu and, under a title's
+ *   - The page behind an open modal is inert, all but the toasts, the Keep menu, a card's preview and, under a title's
  *     page, the bar of what plays on a TV, and Tab goes round the modal's own controls: those of the last opened, where one is over another
  *   - Escape closes the active modal via a caller-supplied close function
  *     (attach by calling window.ModalA11y.register(id, closeFn))
@@ -65,7 +65,7 @@
   function topModal() { return open[open.length - 1] || null; }
 
   /* Makes all that stands outside the modal inert, whatever level of the page the
-     modal is on. Toasts and the Keep menu stay in reach; toasts may stand in what is full screen. A confirm
+     modal is on. Toasts, the Keep menu and a card's preview with its menu stay in reach; toasts may stand in what is full screen. A confirm
      fading out still catches clicks, which what is inert does not. */
   function shutOut(node, keep, spare) {
     Array.prototype.forEach.call(node.children, function (child) {
@@ -97,7 +97,7 @@
     });
     veiled = [];
     if (!open.length) return;
-    var keep = [topModal(), document.getElementById('ui-toast-host'), document.getElementById('watch-keep-menu')].filter(Boolean);
+    var keep = [topModal(), document.getElementById('ui-toast-host'), document.getElementById('watch-keep-menu'), document.querySelector('.pv-layer')].filter(Boolean);
     Array.prototype.push.apply(keep, document.querySelectorAll('.ui-confirm-overlay.is-leaving'));
     if (tvBar()) keep.push(tvBar());
     shutOut(document.body, keep, [].concat.apply([], spares.map(function (s) { return typeof s === 'function' ? s() : s; })));

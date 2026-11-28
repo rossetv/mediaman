@@ -1139,7 +1139,7 @@
     menuNode.textContent = '';
     if (!live) return;
     var card = cardOf(live.link);
-    // The menu hangs on the page, outside the preview, so it carries the preview's place itself.
+    // The menu hangs beside the preview, outside it, so it carries the preview's place itself.
     menuNode.classList.toggle('pv-menu--over', live.n.classList.contains('pv--over'));
     menuNode.setAttribute('aria-label', 'More for ' + live.card.title);
     if (watch.marks && watch.marks.likeRef(live.card.ref, live.link)) item('like', 'i-sparkles', 'Find more like this');
@@ -1203,7 +1203,8 @@
     menuNode = el('div', 'watch-keep-menu watch-more-menu pv-menu');
     menuNode.setAttribute('role', 'menu');
     menuNode.hidden = true;
-    (document.getElementById('watch-page') || document.body).appendChild(menuNode);
+    // In the preview's layer, which stays in reach when the search sheet holds the page.
+    layerNode.appendChild(menuNode);
     menu = watch.keep.menu(menuNode, {
       trigger: '[data-preview-more]',
       fill: fillMenu,
