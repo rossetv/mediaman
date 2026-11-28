@@ -178,7 +178,8 @@
 
     /* Open below the trigger, or above it when that is where the room is,
        and stay clear of the sticky top bar and the phone's bottom tab bar.
-       A menu taller than the room scrolls inside it. Right-aligned to a
+       A menu taller than the room scrolls inside it, cut through the middle
+       of a row so that it plainly goes on. Right-aligned to a
        trigger at the right of the screen, and to one at a pane's or a
        Downloading card's end, so it stays on its side. */
     function place(trigger) {
@@ -195,8 +196,8 @@
       var above = h > below && room > below;
       var fits = Math.max(0, Math.floor(above ? room : below));
       if (h > fits) {
-        h = fits;
-        node.style.maxHeight = fits + 'px';
+        h = halfRow(fits);
+        node.style.maxHeight = h + 'px';
         node.scrollTop = scrolled;
       }
       var top = above ? rect.top - gap - h : rect.bottom + gap;
@@ -205,6 +206,16 @@
       node.classList.toggle('is-above', above);
       node.style.top = top + 'px';
       node.style.left = left + 'px';
+    }
+
+    /* The tallest height up to *fits* that ends halfway down a row, or *fits* if none does. */
+    function halfRow(fits) {
+      var cut = 0;
+      items().forEach(function (item) {
+        var mid = node.clientTop + item.offsetTop + item.offsetHeight / 2;
+        if (mid <= fits && mid > cut) cut = mid;
+      });
+      return cut ? Math.floor(cut) : fits;
     }
 
     /* Focus *item* and scroll the menu, not the page, just enough to show it. */

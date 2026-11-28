@@ -189,6 +189,13 @@ def test_a_long_picks_menu_stays_on_screen_and_scrolls_to_the_focused_batch() ->
     assert out["lastBottom"] <= out["menuBottom"]
 
 
+def test_a_menu_too_tall_for_the_room_ends_halfway_down_a_row() -> None:
+    out = _run("picksMenuCutMidRow")
+    item = out["ITEM"]
+    assert out["room"] - item < out["cut"] <= out["room"]
+    assert (out["cut"] - out["border"] - out["PAD"]) % item == item / 2
+
+
 def test_a_person_s_own_picks_open_by_their_own_refs_marked_as_ai_picks() -> None:
     out = _run("ownRow")
     # An older batch repeats a title under another number, and lists a ref that is none.
