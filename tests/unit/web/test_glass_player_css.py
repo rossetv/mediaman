@@ -12,12 +12,53 @@ from tests.unit.web._css import CSS_DIR, _top_level, contrast, rgb, rules, style
 from tests.unit.web.test_glass_css import BLACK, WHITE, _colour, _glass_over, _over
 
 PLAYER = "_player.css"
+RATINGS = "_ratings.css"
 REMOTE = "_tv_remote.css"
 PHONE = "(max-width: 699.98px)"
 FORCED = "(forced-colors: active)"
 SHORT_TOUCH = "(max-height: 500px) and (pointer: coarse)"
 # What opens over the picture, and the remote's own menu: one rule draws their glass.
 OPENED = [".player-menu", ".player-av", ".player-card", ".tv-po"]
+
+
+def _specificity(selector: str) -> tuple[int, int, int]:
+    """(ids, classes, types) of *selector*, an :is(), :not() or :has() counting as its most specific
+    argument and a :where() as nothing."""
+    ids = classes = types = 0
+    i = 0
+    while i < len(selector):
+        c = selector[i]
+        if selector.startswith("::", i):
+            types += 1
+            i = re.match(r"::[\w-]+", selector[i:]).end() + i
+        elif c == ":":
+            name = re.match(r":([\w-]+)", selector[i:])[1]
+            i += len(name) + 1
+            if i < len(selector) and selector[i] == "(":
+                depth, j = 1, i + 1
+                while depth:
+                    depth += {"(": 1, ")": -1}.get(selector[j], 0)
+                    j += 1
+                if name in ("is", "not", "has"):
+                    best = max(_specificity(arg) for arg in _top_level(selector[i + 1 : j - 1], ","))
+                    ids, classes, types = ids + best[0], classes + best[1], types + best[2]
+                elif name != "where":
+                    classes += 1
+                i = j
+            else:
+                classes += 1
+        elif c == "#":
+            ids += 1
+            i += 1
+        elif c in ".[":
+            classes += 1
+            i = (selector.index("]", i) if c == "[" else i) + 1
+        elif c.isalpha():
+            types += 1
+            i = re.match(r"[\w-]+", selector[i:]).end() + i
+        else:
+            i += 1
+    return ids, classes, types
 
 
 def _glass(alpha: str) -> tuple[float, ...]:
@@ -338,15 +379,18 @@ def test_once_rated_the_other_names_keep_5_to_1_on_the_card_over_a_white_frame()
     scope = style(".player-card", PLAYER)
     bar = _over(_colour(scope["--s3"], {}), _glass("--g-a"))  # the grid bar's fill: --s3
     words = _colour(style(".player", PLAYER)["--t2"], {})
-    step = min(
-        (
-            float(decls["opacity"])
-            for _, selectors, decls in rules(PLAYER)
-            if "opacity" in decls
-            and any(".rate.has" in sel and sel.endswith(".rate__lab") for sel in selectors)
-        ),
-        default=1.0,
-    )
+    # The ratings sheet steps them back on every page; it loads after this one on the player's.
+    names = re.compile(r"(\.player-rate )?\.rate\.has \.rate__b:not\(\.is-on\) > (\.rate__lab|:is\(.*\.rate__lab.*\))")
+    found = [
+        (_specificity(sel), order, float(decls["opacity"]))
+        for order, sheet in enumerate([PLAYER, RATINGS])
+        for where, selectors, decls in rules(sheet)
+        if not where and "opacity" in decls
+        for sel in selectors
+        if names.fullmatch(sel)
+    ]
+    assert found
+    step = max(found)[2]
     seen = _over((*words[:3], words[3] * step), bar)
     assert contrast(seen, bar) >= 5
 
@@ -410,3 +454,63 @@ def test_a_dead_control_fades_a_pill_s_glass_itself_never_a_parent_of_it(sheet: 
         REMOTE: ".tv-rem .is-dead .player-pill",
     }[sheet]
     assert float(style(pill + "::before", sheet)["opacity"]) < 1
+
+
+@pytest.mark.parametrize(
+    ("pill", "sheet"),
+    [
+        (".tv-rem :is(.player-pill.is-dead, .is-dead .player-pill):not(.player-pill--primary)", REMOTE),
+        (".player.is-away .player-menu-wrap[data-away-idle][inert] .player-pill", PLAYER),
+    ],
+)
+def test_a_dead_pill_s_words_fade_with_its_glass(pill: str, sheet: str) -> None:
+    assert style(pill, sheet)["color"] == "color-mix(in srgb, var(--t1) 40%, transparent)"
+
+
+@pytest.mark.parametrize(
+    "glass", [".tv-rem .player-pill.is-dead:not(.player-pill--primary)::before", ".tv-rem .is-dead .player-pill::before"]
+)
+def test_a_dead_pill_s_glass_fades_whether_it_or_its_wrap_is_dead(glass: str) -> None:
+    assert float(style(glass, REMOTE)["opacity"]) < 1
+
+
+def test_a_dead_stop_fades_its_red_rather_than_turning_white() -> None:
+    dead = ".tv-rem :is(.player-pill.is-dead, .is-dead .player-pill):not(.player-pill--primary)"
+    stop = next(
+        sel
+        for _, selectors, decls in rules(REMOTE)
+        if "var(--danger-text)" in decls.get("color", "")
+        for sel in selectors
+        if "tv-rem__danger" in sel and ".is-dead" in sel
+    )
+    assert _specificity(stop) > _specificity(dead)
+    assert "player-pill" in stop  # the generic rule's subject, so both meet the same element
+
+
+@pytest.mark.parametrize(("disc", "sheet"), [(".tv-rem [data-play]", REMOTE), (".player.is-away [data-play]", PLAYER)])
+def test_the_ring_of_a_white_disc_lies_outside_it_on_the_glass(disc: str, sheet: str) -> None:
+    # Inside, the light ring on white is about 1.6:1.
+    media = "(max-width: 899.98px)"
+    assert style(disc, sheet, media)["background"] == "var(--t1)"
+    offset = style(disc + ":focus-visible", sheet, media)["outline-offset"]
+    assert float(offset.removesuffix("px")) > 0
+    assert _specificity(disc + ":focus-visible") > _specificity(".player-btn:focus-visible")
+
+
+@pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
+def test_with_reduced_motion_the_page_s_glass_is_back_at_once_for_the_focus(media: str) -> None:
+    # The base sheet gives every element a near-instant transition of everything under reduced
+    # motion; a transition of visibility keeps the page hidden as close() gives the focus back.
+    assert "transition-duration: .01ms !important" in text("_base.css")
+    page = "html.has-tv-rem :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet)"
+    # The glass, and what is in it: a button inherits its visibility, and so transitions it too.
+    for drawn in (page, page + " *"):
+        rule = style(drawn, REMOTE, (media, "(prefers-reduced-motion: reduce)"))
+        assert rule["transition"] == "none !important", drawn
+
+
+@pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
+def test_over_a_title_the_remote_and_the_title_s_sheet_are_the_only_layers(media: str) -> None:
+    # The title's dim lies under its sheet, beside the title, and stays drawn under the remote.
+    assert "backdrop-filter: var(--g-dim-blur)" in text("_watch_detail.css")
+    assert style("html.has-tv-rem", REMOTE, media)["--g-dim-blur"] == "none"

@@ -750,6 +750,7 @@
 .player-rate .rate__lab { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: center; }
 /* Once rated, the other thumbs' hands step back only as far as glass over a white frame lets them
    keep 3:1; their names stay, as any step back takes them near 4.5:1. */
+.player-rate .rate.has .rate__b:not(.is-on) > .rate__lab { opacity: 1; }
 /* The chosen thumb's wash is see-through: a floor under it keeps its coloured name. */
 .player-rate .rate__hl { box-shadow: var(--g-chip-floor); }
 .player-rate .rate.has .rate__b:not(.is-on) > .rate-th { opacity: .7; }
@@ -1113,6 +1114,8 @@
   .player.is-away .player-btn { min-width: 56px; height: 56px; font-size: 24px; }
   .player.is-away .player-btn--skip { min-width: 72px; font-size: 32px; }
   .player.is-away [data-play] { width: 72px; height: 72px; border-radius: 50%; background: var(--t1); color: var(--bg); font-size: 26px; }
+  /* Around the white disc, on the glass: inside it the ring would be light on white. */
+  .player.is-away [data-play]:focus-visible { outline-offset: 3px; }
   .player.is-away [data-play] .player-btn-ring { width: 26px; height: 26px; border-color: color-mix(in srgb, var(--bg) 25%, transparent); border-top-color: var(--bg); }
   .player.is-away .player-volume .player-btn { min-width: 44px; height: 44px; font-size: 18px; }
   .player.is-away [data-next-btn] { min-width: 44px; height: 36px; margin: 4px 0; font-size: 13px; }

@@ -87,7 +87,7 @@ html.has-tv-remote { overflow: hidden; }
 /* A pill fades its glass and its words, never a parent of them: glass in a fading parent blurs nothing. */
 .tv-rem .is-dead:not(.player-av-wrap, .player-pill:not(.player-pill--primary)) { opacity: .4; }
 .tv-rem :is(.player-pill.is-dead, .is-dead .player-pill):not(.player-pill--primary) { color: color-mix(in srgb, var(--t1) 40%, transparent); }
-.tv-rem .tv-rem__danger.is-dead { color: color-mix(in srgb, var(--danger-text) 40%, transparent); }
+.tv-rem .player-pill.tv-rem__danger.is-dead:not(.player-pill--primary) { color: color-mix(in srgb, var(--danger-text) 40%, transparent); }
 .tv-rem .player-pill.is-dead:not(.player-pill--primary)::before,
 .tv-rem .is-dead .player-pill::before { opacity: .4; }
 .tv-rem__brk, .tv-rem .only-s { display: none; }
@@ -130,6 +130,8 @@ html.has-tv-remote { overflow: hidden; }
   .tv-rem .player-btn { min-width: 56px; height: 56px; font-size: 24px; }
   .tv-rem .player-btn--skip { min-width: 72px; font-size: 32px; }
   .tv-rem [data-play] { width: 72px; height: 72px; border-radius: 50%; background: var(--t1); color: var(--bg); font-size: 26px; }
+  /* Around the white disc, on the glass: inside it the ring would be light on white. */
+  .tv-rem [data-play]:focus-visible { outline-offset: 3px; }
   .tv-rem [data-play] .player-btn-ring { width: 26px; height: 26px; border-color: color-mix(in srgb, var(--bg) 25%, transparent); border-top-color: var(--bg); }
   .tv-rem .player-volume .player-btn { min-width: 44px; height: 44px; font-size: 18px; }
   .tv-rem .player-volume-slider { flex: 1; max-width: 380px; }
@@ -315,6 +317,16 @@ html.has-tv-rem .ui-toast-host {
   /* The page's own glass goes out of sight once the remote has faded in over it, and is back as the
      remote starts to go, where the focus returns to it. */
   html.has-tv-remote :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet) { visibility: hidden; transition: visibility 0s linear var(--dur); }
+  /* The base sheet's near-instant transitions would make the page's glass, and each control in it
+     that inherits its visibility, come back a moment after close() gives it the focus, which then
+     falls to the page. */
+  @media (prefers-reduced-motion: reduce) {
+    html.has-tv-rem :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet),
+    html.has-tv-rem :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet) * { transition: none !important; }
+  }
+  /* A title's sheet stays drawn while the remote fades over it: its dim gives up its blur, so the
+     sheet and the remote are the two layers. */
+  html.has-tv-rem { --g-dim-blur: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tv-rem, .tv-rem.is-leaving, .tv-rem__art, .tv-rem__say, .tv-rem .player-bottom, .tv-rem__dim,
