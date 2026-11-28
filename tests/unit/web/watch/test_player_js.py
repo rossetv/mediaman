@@ -687,6 +687,31 @@ def test_the_intro_and_the_credits_can_be_skipped_by_button_and_by_key(markup):
     )
 
 
+def test_where_the_person_skips_by_themselves_the_intro_counts_down_then_is_skipped(markup):
+    out = run(markup, "skip_count")
+    assert out["intro"] == ["Skipping intro in 5 · Cancel", True]
+    assert out["later"] == ["Skipping intro in 3 · Cancel", "0.400"]
+    # On the video's own time: a page left waiting with nothing playing skips nothing.
+    assert (out["waits"], out["skippedTo"]) == (63, 150)
+
+
+def test_a_press_during_the_count_keeps_the_credits_and_a_second_press_skips_them(markup):
+    out = run(markup, "skip_count")
+    assert out["credits"] == "Skipping credits in 5 · Cancel"
+    assert out["kept"] == ["Skip credits", False, 2401]
+    assert out["keptLater"] == ["Skip credits", False, 2410]
+    assert out["pressed"] == 2450
+    # The last credits are the next episode's card's: no count of their own.
+    assert out["last"] == ["Next episode", False]
+
+
+def test_escape_keeps_the_intro_and_one_stepped_into_is_not_counted(markup):
+    out = run(markup, "skip_count_keys")
+    assert (out["before"], out["escaped"]) == (True, [False, "Skip intro"])
+    assert out["after"] == [False, 70]
+    assert out["stepped"][:2] == [False, "Skip credits"]
+
+
 def test_skip_never_acts_by_itself_or_takes_the_focus(markup):
     out = run(markup, "skip")
     assert (out["plays"], out["focusKept"]) == (61, True)

@@ -84,7 +84,12 @@ def test_a_signed_in_person_is_told_the_home_address_to_open_on_the_tv(app, conn
 def test_the_tvs_page_loads_nothing_but_its_own_files(app):
     page = TestClient(app).get("/tv").text
     assert "https://" not in page
-    assert page.count("<script") == 1 and "/static/js/tv.js" in page
+    # The sound evened out where loud is chosen, then the page itself, which uses it.
+    assert re.findall(r'<script src="([^"?]+)', page) == [
+        "/static/js/watch/loudness.js",
+        "/static/js/tv.js",
+    ]
+    assert page.count("<script") == 2
     assert page.count("<link") == 4
     assert all(
         href.startswith("/static/") for href in re.findall(r'<link [^>]*href="([^"]+)', page)

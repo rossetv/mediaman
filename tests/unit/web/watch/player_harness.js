@@ -3636,6 +3636,65 @@ const scenarios = {
     return out;
   },
 
+  /* Where the person skips intros and credits by themselves: the intro counts down and is
+     skipped; credits a scene follows are kept by a press during their count; the last ones lead
+     on with no count of their own. */
+  async skip_count(p) {
+    p.replies[0] = answer('1080p-8000', Object.assign({ markers: MARKERS }, TRACKS));
+    p.held.tracks = { remembered: false, remembered_subtitle_choice: null, defaults: { audio_lang: null, subtitle_lang: null, reduce_loud: false, auto_skip: true } };
+    await streamPlays(p, 30);
+    await settle();
+    p.video.paused = false;
+    const at = (t) => { p.video.currentTime = t; fire(p.video, 'timeupdate'); };
+    const look = () => (gone(p.q('[data-skip]')) ? null : p.q('[data-skip-text]').textContent);
+    const counting = () => p.q('[data-skip]').classList.contains('is-counting');
+    const out = {};
+    at(61);
+    out.intro = [look(), counting()];
+    at(63);
+    out.later = [look(), p.q('[data-skip-fill]').style['--skip-done']];
+    p.tick(20000);
+    out.waits = p.video.currentTime;
+    at(66.2);
+    out.skippedTo = p.video.currentTime;
+    at(2401);
+    out.credits = look();
+    press(p.q('[data-skip]'));
+    out.kept = [look(), counting(), p.video.currentTime];
+    at(2410);
+    out.keptLater = [look(), counting(), p.video.currentTime];
+    press(p.q('[data-skip]'));
+    out.pressed = p.video.currentTime;
+    at(2710);
+    out.last = [look(), counting()];
+    return out;
+  },
+
+  /* Escape during the count keeps the intro; one reached by a step of the keys is not counted. */
+  async skip_count_keys(p) {
+    p.replies[0] = answer('1080p-8000', Object.assign({ markers: MARKERS }, TRACKS));
+    p.held.tracks = { remembered: false, remembered_subtitle_choice: null, defaults: { audio_lang: null, subtitle_lang: null, reduce_loud: false, auto_skip: true } };
+    await streamPlays(p, 30);
+    await settle();
+    p.video.paused = false;
+    const at = (t) => { p.video.currentTime = t; fire(p.video, 'timeupdate'); };
+    const counting = () => p.q('[data-skip]').classList.contains('is-counting');
+    const out = {};
+    at(61);
+    out.before = counting();
+    key('Escape');
+    out.escaped = [counting(), p.q('[data-skip-text]').textContent];
+    at(70);
+    out.after = [counting(), p.video.currentTime];
+    at(2390);
+    p.q('[data-seek]').focus();
+    key('ArrowRight');
+    p.tick(1000);
+    at(p.video.currentTime + 1);
+    out.stepped = [counting(), p.q('[data-skip-text]').textContent, Math.round(p.video.currentTime)];
+    return out;
+  },
+
   /* The last credits of a video that nothing follows. */
   async skip_last(p) {
     p.replies[0] = answer('1080p-8000', { markers: MARKERS });
