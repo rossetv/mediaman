@@ -3,7 +3,21 @@
 
 .play-on-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
+/* Glass. What lies on it takes veils for its fills, and its quiet, blue and red words and its rings
+   lifted, so each holds over a white page. */
 .play-on {
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent: var(--g-accent);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   position: fixed;
   inset: auto;
   width: 372px;
@@ -11,11 +25,14 @@
   max-height: min(620px, calc(100vh - 110px));
   margin: 0;
   padding: 6px;
-  border: 0;
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: var(--r-lg);
-  background: var(--s2);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
   color: var(--t1);
-  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
   overflow-y: auto;
   overscroll-behavior: contain;
   outline: 0;
@@ -112,10 +129,18 @@
     max-height: 86vh;
     max-height: 86dvh;
     padding: 8px max(12px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    border-bottom-width: 0;
     border-radius: var(--r-lg) var(--r-lg) 0 0;
   }
   .play-on::before { content: ''; display: block; width: 36px; height: 4px; margin: 4px auto; border-radius: var(--r-pill); background: var(--hair-strong); }
-  .play-on::backdrop { background: color-mix(in srgb, var(--scrim) 55%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: play-on-dim var(--dur) var(--ease-out); }
+  /* A plain dim, so the sheet's glass has the page to show. */
+  .play-on::backdrop { background: var(--g-dim); animation: play-on-dim var(--dur) var(--ease-out); }
+  /* No third layer of glass: over a title's sheet or the TV remote, each glass already, it is solid. */
+  html:is(.has-ttl, .has-tv-rem) .play-on {
+    background: var(--g-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
   .play-on__row { min-height: 60px; }
 }
 /* A phone held sideways: tighter, so that a question under a row fits without scrolling. */

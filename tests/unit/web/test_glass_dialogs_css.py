@@ -1,5 +1,5 @@
 """Glass on the dialogs: the confirm card, the shared modal sheet (abandon a download, the password
-check) and the keep dialogs, over a plain dim that lets the glass show the page, faded on the glass
+check), the keep dialogs and the sheet of TVs to play on, over a plain dim that lets the glass show the page, faded on the glass
 itself, legible over a white page, and solid on a phone where glass is already open under them."""
 
 from __future__ import annotations
@@ -14,8 +14,15 @@ from tests.unit.web.test_glass_css import PHONE, WHITE, _glass_over, _on, _resol
 CONFIRM = "_ui_feedback.css"
 MODAL = "_modal.css"
 ASK = "_watch_ask.css"
+WATCH_LIST = "_watch_list.css"
+PLAY_ON = "_play_on.css"
 
-CARDS = [(".ui-confirm-card", CONFIRM), (".modal-sheet", MODAL), (".keep-dialog", MODAL)]
+CARDS = [
+    (".ui-confirm-card", CONFIRM),
+    (".modal-sheet", MODAL),
+    (".keep-dialog", MODAL),
+    (".play-on", PLAY_ON),
+]
 DIMS = [
     (".ui-confirm-overlay::before", CONFIRM),
     (".modal-backdrop", MODAL),
@@ -68,9 +75,18 @@ def test_the_confirm_fades_its_dim_and_its_card_and_never_the_overlay_they_lie_i
     assert style(".ui-confirm-card", CONFIRM)["transition"] == "inherit"
 
 
+def test_the_sheet_of_tvs_lies_on_a_plain_dim_on_a_phone_and_on_nothing_wider() -> None:
+    assert style(".play-on::backdrop", PLAY_ON, PHONE)["background"] == "var(--g-dim)"
+    assert style(".play-on::backdrop", PLAY_ON)["background"] == "none"
+    for _, sels, decls in rules(PLAY_ON):
+        if ".play-on::backdrop" in sels:
+            assert "backdrop-filter" not in decls and "-webkit-backdrop-filter" not in decls
+
+
 def test_a_modal_brings_its_dim_in_and_out_and_fades_only_its_sheet() -> None:
-    frames = dict(re.findall(r"@keyframes ([\w-]+) \{(.*?)\}\n", text(MODAL)))
-    for name in ("modal-in", "modal-out"):
+    frames = dict(re.findall(r"@keyframes ([\w-]+) \{(.*?)\}\n", text(MODAL) + text(WATCH_LIST)))
+    assert "wl-dialog-scrim" in style(".wl-dialog.active", WATCH_LIST)["animation"]
+    for name in ("modal-in", "modal-out", "wl-dialog-scrim"):
         assert "opacity" not in frames[name] and "background-color" in frames[name], name
     for name in ("modal-sheet-in", "modal-sheet-out"):
         assert "opacity: 0" in frames[name], name
@@ -85,6 +101,7 @@ def test_a_modal_brings_its_dim_in_and_out_and_fades_only_its_sheet() -> None:
         (".you.is-open ~ .ui-confirm-overlay .ui-confirm-card", ".ui-confirm-card", CONFIRM),
         ("html:is(.has-ttl, .has-space) :is(.modal-sheet, .keep-dialog)", ".modal-sheet", MODAL),
         (".you.is-open ~ * :is(.modal-sheet, .keep-dialog)", ".modal-sheet", MODAL),
+        ("html:is(.has-ttl, .has-tv-rem) .play-on", ".play-on", PLAY_ON),
     ],
 )
 def test_on_a_phone_a_dialog_over_glass_is_solid_so_no_third_layer_blurs(
