@@ -3,7 +3,9 @@
 
 /* ── The strip ── */
 
-.ttl-cast { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 18px 12px; }
+/* A cell holds a long surname whole ("Featherstonehaugh" is 109px in the name's type): Chromium does not
+   hyphenate a word with a capital, so one wider than its cell would be cut mid-word with no hyphen. */
+.ttl-cast { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 18px 12px; }
 .ttl-cast__item { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 4px 0; border-radius: var(--r-md); text-align: center; }
 .ttl-cast__avatar { position: relative; display: block; width: 64px; height: 64px; border-radius: 50%; font-size: 16px; transition: transform var(--dur) var(--ease-out); }
 .ttl-cast__name { max-width: 100%; overflow-wrap: break-word; hyphens: auto; -webkit-hyphens: auto; font-size: 12px; font-weight: 500; line-height: 16px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
@@ -11,10 +13,10 @@
 .ttl-cast__name-skel { width: 70%; height: 10px; }
 button.ttl-cast__item:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 button.ttl-cast__item:active .ttl-cast__avatar { transform: scale(.96); }
+/* The whole of it is on the card, under a pointer and a finger alike. */
+button.ttl-cast__item > .ttl-cast__char { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 @media (hover: hover) {
   button.ttl-cast__item:hover .ttl-cast__avatar { transform: scale(1.06); }
-  /* The whole of it is on the card. */
-  button.ttl-cast__item > .ttl-cast__char { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 }
 /* The photo stays in the strip, still and at its own size: the card's starts and ends exactly on it. */
 .ttl-cast__item.is-out > .ttl-cast__avatar { transform: none !important; transition: none; }
@@ -108,8 +110,8 @@ button.cast-card__poster:active { transform: scale(.98); }
   .ttl-cast { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .ttl-cast__avatar { width: 56px; height: 56px; }
 }
-/* Four would leave a name like Understudy too wide for its column, to be broken. */
-@media (max-width: 359.98px) {
+/* Four would leave a long surname too wide for its column, to be cut: four need some 520px of window. */
+@media (max-width: 519.98px) {
   .ttl-cast { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 /* A short window has no room for the posters above or below a photo. */

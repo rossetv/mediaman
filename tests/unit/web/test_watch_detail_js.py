@@ -353,7 +353,7 @@ def test_download_turns_into_queued_then_downloading_then_ready_to_watch_in_plac
     assert out["downloading"]["primary"]["text"] == "Downloading 42%"
     assert out["downloading"]["bar"] == 42
     assert "3.1 GB of 7.4 GB" in out["downloading"]["line"]
-    assert "about 6 min left" in out["downloading"]["line"]
+    assert out["downloading"]["line"].endswith("GB6 min left"), "the server's words, as they are"
     assert out["downloading"]["note"] == "Follow it in Downloading."
     assert out["downloading"]["to"] == "/?dl=1"
     assert out["downloading"]["opener"] is True
@@ -1810,7 +1810,7 @@ def test_a_title_opened_while_it_downloads_shows_its_sizes_and_time_left_at_the_
 ):
     before, after, events = _run("downloadingSizes")
     assert before == ""
-    assert "3.1 GB of 7.4 GB" in after and "about 6 min left" in after
+    assert "3.1 GB of 7.4 GB" in after and after.endswith("GB6 min left")
     assert events == 1  # the share did not move, so nothing else is told
 
 

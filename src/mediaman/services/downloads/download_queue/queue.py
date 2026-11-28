@@ -48,14 +48,16 @@ def _build_unmatched_arr_item_bound(
     )
 
 
-def _eta(state: str, remain_mb: float, download_rate: int) -> str:
-    """The time left of a download in *state*: none while it waits its turn, since NZBGet's
-    speed is that of another download."""
-    from mediaman.services.downloads.download_format import format_eta
+def _eta(state: str, remain_mb: float, download_rate: int) -> tuple[str, int | None]:
+    """The time left of a download in *state*, in words and in minutes: none while it waits its
+    turn, since NZBGet's speed is that of another download."""
+    from mediaman.core.format import time_left
+    from mediaman.services.downloads.download_format import eta_minutes
 
     if state == "almost_ready":
-        return "Post-processing…"
-    return "" if state == "queued" else format_eta(remain_mb, download_rate)
+        return "Post-processing…", None
+    minutes = None if state == "queued" else eta_minutes(remain_mb, download_rate)
+    return ("" if minutes is None else time_left(minutes)), minutes
 
 
 def parse_nzb_queue(
@@ -248,9 +250,13 @@ def build_arr_items(
                 nzbs += _mark_series_nzb_matches(arr_candidates, nzb_parsed, normalise_for_match)
             # NZBGet fetches one download at a time, so the card is done once all of its are.
             state = _card_state(nzbs, map_state)
-            eta = _eta(state, _remain_mb(nzbs), download_rate)
+            eta, minutes = _eta(state, _remain_mb(nzbs), download_rate)
 
-            items.append(_build_matched_item(arr, matched_nzb, state, eta, download_rate))
+            items.append(
+                _build_matched_item(
+                    arr, matched_nzb, state, eta, download_rate, minutes_left=minutes
+                )
+            )
             trigger_search(conn, arr, matched_nzb=True, secret_key=secret_key)
         elif answered:
             items.append(_build_unmatched_arr_item_bound(arr, arr_base_urls_map))
@@ -277,7 +283,7 @@ def add_unmatched_nzb_items(
         )
         raw_remain = nzb["remain_mb"]
         remain_mb_val = float(raw_remain) if isinstance(raw_remain, int | float) else 0.0
-        eta = _eta(state, remain_mb_val, download_rate)
+        eta, minutes = _eta(state, remain_mb_val, download_rate)
         media_type = "series" if nzb["kind"] == "series" else "movie"
         dl_id_val = nzb["dl_id"]
         title_val = nzb["title"]
@@ -293,6 +299,7 @@ def add_unmatched_nzb_items(
                 state=state,
                 progress=progress_val if isinstance(progress_val, int) else 0,
                 eta=eta,
+                minutes_left=minutes,
                 size_done=format_bytes(
                     int(done_mb_val * 1024 * 1024) if isinstance(done_mb_val, int | float) else 0
                 ),

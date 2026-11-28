@@ -987,3 +987,12 @@ def test_with_reduced_motion_the_tucking_pills_and_chips_still_fade_over_the_sho
     duration, important = reduced["transition-duration"].rsplit(" ", 1)
     tucking = style(f".hx-tools.is-tucked > {selector}", _HISTORY, _PHONE)
     assert (duration, important) == (tucking["transition-duration"], "!important")
+
+
+def test_the_kinds_row_leaves_room_above_and_below_for_a_pill_s_keyboard_ring() -> None:
+    # The row scrolls sideways, which clips it above and below too: the 2 px ring, 2 px out, needs 4 px.
+    groups = style(".hx-groups", _HISTORY)
+    assert groups["overflow-x"] == "auto"
+    top = px(groups["padding"].split()[0])
+    margin_top = px(groups["margin"].split()[0])
+    assert top >= 4 and margin_top == -top

@@ -4,29 +4,43 @@ the database.
 
 from __future__ import annotations
 
+from mediaman.core.format import minutes_left, time_left
+
+
+def _timeleft_seconds(timeleft: object) -> int | None:
+    """Seconds in Radarr's or Sonarr's "[d.]hh:mm:ss"; None for anything else."""
+    if not isinstance(timeleft, str) or not timeleft:
+        return None
+    days, _, clock = (
+        timeleft.rpartition(".") if "." in timeleft.split(":")[0] else ("", "", timeleft)
+    )
+    parts = clock.split(":")
+    if len(parts) != 3:
+        return None
+    try:
+        hours, mins, secs = (int(p) for p in parts)
+        return int(days or 0) * 86400 + hours * 3600 + mins * 60 + secs
+    except ValueError:
+        return None
+
+
+def _timeleft_minutes(timeleft: object) -> int | None:
+    seconds = _timeleft_seconds(timeleft)
+    return None if seconds is None else minutes_left(seconds)
+
 
 def _format_timeleft(timeleft: str) -> str:
-    if not timeleft:
-        return ""
-    parts = timeleft.split(":")
-    if len(parts) != 3:
-        return ""
-    try:
-        hours, mins, secs = int(parts[0]), int(parts[1]), int(parts[2])
-    except ValueError:
-        return ""
-    if hours > 0:
-        return f"~{hours} hr {mins:02d} min remaining"
-    if mins > 0:
-        return f"~{mins} min remaining"
-    return f"~{max(1, secs)} sec remaining"
+    minutes = _timeleft_minutes(timeleft)
+    return "" if minutes is None else time_left(minutes)
 
 
-def _eta(state: str, timeleft: str) -> str:
-    """The time left of a download in *state*: none while it waits its turn."""
+def _eta(state: str, timeleft: str) -> tuple[str, int | None]:
+    """The time left of a download in *state*, in words and in minutes: none while it waits its
+    turn."""
     if state == "almost_ready":
-        return "Post-processing…"
-    return "" if state == "queued" else _format_timeleft(timeleft)
+        return "Post-processing…", None
+    minutes = None if state == "queued" else _timeleft_minutes(timeleft)
+    return ("" if minutes is None else time_left(minutes)), minutes
 
 
 def _safe_int(value: object) -> int:

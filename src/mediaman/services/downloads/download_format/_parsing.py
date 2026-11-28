@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from mediaman.core.format import minutes_left, time_left
+
 _SERIES_MARKER = re.compile(r"\bS\d{2}(?:E\d{1,3})?\b", flags=re.IGNORECASE)
 _TOKEN_PAT = re.compile(
     r"\b(?:(?:19|20)\d{2}|2160p|1080p|720p|480p|4K|UHD|HDR|BDRip|BluRay|WEB[-]?DL|"
@@ -100,12 +102,14 @@ def format_episode_label(season: int | None, episode: int | None) -> str:
     return label
 
 
-def format_eta(remain_mb: float, download_rate: int) -> str:
+def eta_minutes(remain_mb: float, download_rate: int) -> int | None:
+    """Minutes left of *remain_mb* at *download_rate* bytes a second; None when not known."""
     if download_rate > 0 and remain_mb > 0:
-        eta_sec = int(remain_mb * 1024 * 1024 / download_rate)
-        if eta_sec >= 3600:
-            return f"~{eta_sec // 3600} hr {(eta_sec % 3600) // 60:02d} min remaining"
-        if eta_sec >= 60:
-            return f"~{eta_sec // 60} min remaining"
-        return f"~{eta_sec} sec remaining"
-    return ""
+        return minutes_left(remain_mb * 1024 * 1024 / download_rate)
+    return None
+
+
+def format_eta(remain_mb: float, download_rate: int) -> str:
+    """The time left of *remain_mb* at *download_rate*, in words; "" when not known."""
+    minutes = eta_minutes(remain_mb, download_rate)
+    return "" if minutes is None else time_left(minutes)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.unit.web._css import rules, style
+from tests.unit.web._css import px, rules, style
 
 
 def test_a_hover_lights_a_row_only_where_there_is_a_pointer_to_hover_with() -> None:
@@ -17,3 +17,17 @@ def test_a_hover_lights_a_row_only_where_there_is_a_pointer_to_hover_with() -> N
 
 def test_on_a_short_screen_the_save_button_follows_the_form_and_covers_nothing() -> None:
     assert style(".yo-foot", "_profile.css", "(max-height: 500px)")["position"] == "static"
+
+
+def test_the_keyboard_ring_on_a_row_is_drawn_inside_the_group_that_clips_it() -> None:
+    # The group clips all outside its rounded box, so a ring drawn outside the row is not seen.
+    assert style(".yo-group", "_profile.css")["overflow"] == "hidden"
+    assert px(style(".yo-row:focus-visible", "_profile.css")["outline-offset"]) <= -2
+    assert (
+        style(".yo-group > .yo-row:first-child", "_profile.css")["border-top-left-radius"]
+        == "inherit"
+    )
+    assert (
+        style(".yo-group > .yo-row:last-child", "_profile.css")["border-bottom-right-radius"]
+        == "inherit"
+    )

@@ -690,3 +690,42 @@ def test_a_preview_s_title_words_give_way_line_by_line_and_only_where_a_name_lie
         s for _, sels, d in rules("_watch_preview.css") if d.get("opacity") == "0" for s in sels
     ]
     assert [s for s in hidden if ".pv__head" in s] == [covered]
+
+
+def test_try_again_wrapped_under_a_failed_search_s_sentence_starts_where_the_sentence_does() -> (
+    None
+):
+    # The ghost button's word starts its own padding in; on a phone it wraps under the sentence.
+    retry = style(".results-fail > .watch-results__retry", "_watch_search.css")
+    pad_left = px(retry["padding"].split()[-1])
+    margin_left = px(retry["margin"].split()[-1])
+    assert pad_left > 0 and margin_left == -pad_left
+    # Beside the sentence, the gap gives back what the margin takes: the word stands clear of it.
+    gap = px(style(".results-fail", "_watch_search.css")["gap"].split()[-1])
+    assert gap + margin_left + pad_left >= 24
+
+
+def test_the_stand_in_poster_of_the_home_hero_starts_below_the_bar_at_every_width() -> None:
+    # The hero runs up under the bar by --banner-lift; a poster placed from the banner's own top
+    # lands under the bar's islands. Each placement and size of it must reckon with the lift.
+    placed = [
+        (where, decls)
+        for where, sels, decls in rules("_watch.css")
+        if ".watch-banner__poster" in sels and ("top" in decls or "max-height" in decls)
+    ]
+    assert len(placed) >= 3
+    for where, decls in placed:
+        assert "var(--banner-lift" in decls.get("top", "var(--banner-lift"), where
+        if "%" in decls.get("max-height", ""):
+            assert "var(--banner-lift" in decls["max-height"], where
+    # Where it stands above the title (a phone), the title steps down by as much.
+    phone = "(max-width: 599.98px)"
+    assert "var(--banner-head" in style(".watch-banner", "_watch.css", phone)["padding"]
+    stepped = [
+        decls["--banner-head"]
+        for where, sels, decls in rules("_watch.css")
+        if phone in where
+        and "--banner-head" in decls
+        and any(":has(> .watch-banner__poster" in s for s in sels)
+    ]
+    assert stepped and "var(--banner-lift" in stepped[0]

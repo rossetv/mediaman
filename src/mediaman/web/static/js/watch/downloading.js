@@ -65,8 +65,11 @@
 
   /* ── What a card says ── */
 
+  /* As the server words it, and every card: "under a minute left", "20 min left", "1 h 5 min left". */
   function left(minutes) {
-    return minutes > 59 ? 'about ' + Math.round(minutes / 60) + ' h left' : minutes + ' min left';
+    if (minutes < 1) return 'under a minute left';
+    if (minutes < 60) return minutes + ' min left';
+    return Math.floor(minutes / 60) + ' h' + (minutes % 60 ? ' ' + minutes % 60 + ' min' : '') + ' left';
   }
 
   /* [what stands out, the rest] */

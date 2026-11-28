@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from mediaman.services.downloads import strip
-from mediaman.services.downloads.download_format import format_eta
+from mediaman.services.downloads.download_format import eta_minutes
 from mediaman.services.downloads.download_queue import VIEWER_OUTAGE
 from mediaman.services.downloads.strip import Answer, Shared, Strip, StripItem, collect, payload
 
@@ -85,10 +85,10 @@ def test_a_stuck_one_says_when_it_is_searched_for_again():
 
 
 @pytest.mark.parametrize(
-    ("remain_mb", "minutes"), [(0.5, 1), (14 * 60, 14), (65 * 60, 65), (0, None)]
+    ("remain_mb", "minutes"), [(0.5, 0), (14 * 60, 14), (65 * 60, 65), (0, None)]
 )
-def test_the_time_left_is_the_one_the_downloads_page_words(remain_mb, minutes):
-    assert _one(_raw(eta=format_eta(remain_mb, 1024 * 1024))).minutes_left == minutes
+def test_the_time_left_is_the_one_the_downloads_page_gives(remain_mb, minutes):
+    assert _one(_raw(minutes_left=eta_minutes(remain_mb, 1024 * 1024))).minutes_left == minutes
 
 
 def test_the_item_on_top_of_the_downloads_page_is_in_the_row_too():

@@ -104,6 +104,7 @@ def build_matched_item(
     state: str,
     eta: str,
     download_rate: int,
+    minutes_left: int | None = None,
 ) -> DownloadItem:
     # The NZBGet matched-entry dict is constructed by ``parse_nzb_queue`` in
     # queue.py with values typed as ``object``; coerce each field to its
@@ -129,6 +130,7 @@ def build_matched_item(
             state=state,
             progress=arr.get("progress", nzb_progress),
             eta=eta,
+            minutes_left=minutes_left,
             size_done=arr.get("done_str", ""),
             size_total=arr.get("size_str", ""),
             episodes=episodes,
@@ -146,6 +148,7 @@ def build_matched_item(
         state=state,
         progress=nzb_progress,
         eta=eta,
+        minutes_left=minutes_left,
         size_done=format_bytes(int(nzb_done_mb * 1024 * 1024)),
         size_total=format_bytes(int(nzb_file_mb * 1024 * 1024)),
         arr_id=arr.get("arr_id") or 0,

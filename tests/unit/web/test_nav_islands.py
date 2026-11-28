@@ -146,6 +146,7 @@ def _contexts(css: str) -> list[tuple[str, str]]:
 
 def _px(value: str, nav: int, lift: str) -> float:
     value = re.sub(r"var\(--banner-lift(?:, [^()]+)?\)", lift, value)
+    value = re.sub(r"var\(--banner-head, ([^()]+)\)", r"\1", value)
     value = value.replace("var(--nav-h)", f"{nav}px").replace("calc", "").replace("px", "")
     return float(eval(value, {"__builtins__": {}}))
 
@@ -167,10 +168,15 @@ def test_watch_s_hero_keeps_its_words_clear_of_the_bar_whatever_its_padding() ->
             if not pads:
                 continue
             top = re.split(r"\s+(?![^()]*\))", pads[-1][1].strip())[0]
+            # --banner-head stands for its fallback, or for any value a rule gives it.
+            tops = [top]
+            if "var(--banner-head" in top:
+                tops += [d.strip() for d in re.findall(r"--banner-head: ([^;]+);", _css(WATCH))]
             for nav in navs:
-                seen += 1
-                # The hero is drawn from the top of the window, under the bar.
-                assert _px(top, nav, lift_px) - nav >= 8, (pre, head.strip(), top, nav)
+                for each in tops:
+                    seen += 1
+                    # The hero is drawn from the top of the window, under the bar.
+                    assert _px(each, nav, lift_px) - nav >= 8, (pre, head.strip(), each, nav)
     assert seen >= 5
 
 
