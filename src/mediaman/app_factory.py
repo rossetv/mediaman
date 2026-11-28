@@ -437,6 +437,7 @@ def _register_routers(app: FastAPI) -> None:
     keeps import cost low.
     """
     from mediaman.web.routes.account import router as account_router
+    from mediaman.web.routes.activity import router as activity_router
     from mediaman.web.routes.auth import router as auth_router
     from mediaman.web.routes.avatars import router as avatars_router
     from mediaman.web.routes.cast import router as cast_router
@@ -483,6 +484,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(auth_router)
     app.include_router(force_pw_router)
     app.include_router(dashboard_router)
+    app.include_router(activity_router)
     app.include_router(download_router)
     app.include_router(downloads_router)
     app.include_router(downloads_strip_router)
