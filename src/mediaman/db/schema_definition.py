@@ -682,7 +682,9 @@ CREATE TABLE IF NOT EXISTS arr_searching_since (
 -- mediaman removed for another: since when it has been held back (NULL while it is not),
 -- the tries made, and while one runs when it began, the queue ids removed, the search
 -- still to be sent and what the card shows meanwhile; and when the last try began, with the
--- episodes it was for, kept after it ends to tell a later import from a file held before.
+-- episodes it was for, kept after it ends to tell a later import from a file held before;
+-- since when the title has gone without importing, and when its download was last mended in
+-- place rather than replaced.
 CREATE TABLE IF NOT EXISTS arr_import_retries (
     key TEXT PRIMARY KEY,
     stuck_since TEXT,
@@ -692,7 +694,9 @@ CREATE TABLE IF NOT EXISTS arr_import_retries (
     search TEXT,
     shown TEXT,
     tried_at TEXT,
-    tried_episodes TEXT
+    tried_episodes TEXT,
+    first_stuck_at TEXT,
+    fixed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS keep_tokens_used (

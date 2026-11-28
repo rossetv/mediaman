@@ -177,6 +177,7 @@ class ArrQueueItem(TypedDict, total=False):
     sizeleft: int
     timeleft: str
     downloadId: str
+    outputPath: str
     movieId: int
     seriesId: int
     episodeId: int
