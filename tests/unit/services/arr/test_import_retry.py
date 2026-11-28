@@ -13,7 +13,8 @@ import requests
 from mediaman.db import init_db
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.fetcher import _forget_answers, fetch_arr_queue
-from mediaman.services.arr.finding_copy import is_finding_copy
+from mediaman.services.arr.finding_copy import fixing_words, is_finding_copy
+from mediaman.services.arr.import_retry import _mark_fixed
 from mediaman.services.arr.search_trigger import reset_search_triggers, trigger_pending_searches
 from mediaman.services.arr.seasons import queued_seasons
 from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
@@ -101,6 +102,8 @@ class Arrs:
         # What GET /api/v3/manualimport lists, and the queries it was asked with.
         self.manual: list[dict] = []
         self.manual_asked: list[dict] = []
+        # The error each command, by name, is answered with.
+        self.breaking: dict[str, Exception] = {}
         fake_http.handler(self._answer)
         clients = {
             "sonarr": ArrClient(SONARR_SPEC, "http://sonarr.test:8989", "k"),
@@ -111,7 +114,7 @@ class Arrs:
                 f"mediaman.services.arr.build.build_{name}_from_db",
                 lambda *a, client=client: client,
             )
-        for module in ("import_retry", "fetcher._searching_since"):
+        for module in ("import_retry", "finding_copy", "fetcher._searching_since"):
             monkeypatch.setattr(f"mediaman.services.arr.{module}.now_utc", lambda: self.now)
 
     def _answer(self, method, url, **kwargs):
@@ -206,6 +209,8 @@ class Arrs:
         if method == "POST" and parts.path == "/api/v3/command":
             if self.refusing:
                 return _fake_response(status=self.refusing, json_data={})
+            if (body or {}).get("name") in self.breaking:
+                raise self.breaking[body["name"]]
             return _fake_response(json_data={"id": 1, **(body or {})})
         raise AssertionError(f"unexpected {method} {url}")
 
@@ -1522,19 +1527,6 @@ def test_a_title_stuck_for_a_week_says_so_in_history_on_each_daily_try(arrs):
     assert re.search(r"It has not imported for \d+ days; mediaman keeps trying", lines[-1])
 
 
-@pytest.fixture
-def nzbget(monkeypatch):
-    """NZBGet as mediaman reads it: whether its whole queue is paused."""
-    status = {"DownloadPaused": False}
-
-    class Client:
-        def get_status(self):
-            return status
-
-    monkeypatch.setattr("mediaman.services.arr.build.build_nzbget_from_db", lambda *a: Client())
-    return status
-
-
 def _paused(arrs: Arrs) -> None:
     arrs.queues["sonarr"] = [
         _stuck_episode(
@@ -1550,24 +1542,24 @@ def _paused(arrs: Arrs) -> None:
     ]
 
 
-def test_a_download_paused_on_its_own_for_hours_is_replaced(arrs, nzbget):
-    _paused(arrs)
-    arrs.poll()
-    arrs.poll(timedelta(hours=5))
-    assert arrs.changes() == []
-    arrs.poll(timedelta(hours=1))
-
-    assert [c[0] for c in arrs.changes()] == ["DELETE", "DELETE", "POST"]
-
-
-@pytest.mark.parametrize("paused", [True, None])
-def test_downloads_are_never_replaced_while_nzbget_is_paused_or_cannot_say(arrs, nzbget, paused):
-    nzbget["DownloadPaused"] = paused
+def test_a_paused_download_is_waited_for_as_someone_paused_it(arrs):
     _paused(arrs)
     arrs.poll()
     arrs.poll(timedelta(hours=30))
 
     assert arrs.changes() == []
+
+
+def test_a_held_download_whose_client_sonarr_cannot_reach_is_never_touched(arrs):
+    _season_stuck(arrs, 10)
+    for record in arrs.queues["sonarr"]:
+        record["status"] = "downloadClientUnavailable"
+    arrs.poll()
+    for _ in range(3):
+        arrs.poll(timedelta(days=1))
+
+    assert arrs.changes() == []
+    assert arrs.history() == []
 
 
 def test_a_stalled_download_is_replaced_once_it_has_gone_nowhere_for_hours(arrs):
@@ -1602,3 +1594,158 @@ def test_each_kind_of_mend_is_listed_under_downloads_in_history_for_an_admin(arr
     page = history.history_page(arrs.conn, viewer, history.Filters(action="downloads"))
 
     assert {e.action for e in page.entries} == {"import_renamed", "import_retried"}
+
+
+def _old_films(arrs: Arrs, count: int) -> list[int]:
+    """*count* films stuck for days that an older mediaman gave up on, the first stuck longest."""
+    ids = list(range(20, 20 + count))
+    arrs.queues["radarr"] = [
+        _stuck_film(
+            100 + movie_id,
+            movieId=movie_id,
+            movie={"id": movie_id, "title": f"Film {movie_id}", "tmdbId": movie_id, "images": []},
+        )
+        for movie_id in ids
+    ]
+    arrs.movies = [
+        _dune(id=movie_id, title=f"Film {movie_id}", tmdbId=movie_id) for movie_id in ids
+    ]
+    for n, movie_id in enumerate(ids):
+        since = (arrs.now - timedelta(days=10 - n)).isoformat()
+        arrs.conn.execute(
+            "INSERT INTO arr_import_retries (key, stuck_since, tries, first_stuck_at)"
+            " VALUES (?, ?, 2, ?)",
+            (f"radarr:{movie_id}", since, since),
+        )
+    arrs.conn.commit()
+    return ids
+
+
+def test_no_more_than_two_downloads_of_a_service_are_replaced_in_a_run_oldest_first(arrs):
+    ids = _old_films(arrs, 6)
+    arrs.poll()
+    first = [c[2] for c in arrs.changes() if c[0] == "DELETE"]
+    arrs.poll(timedelta(hours=1))
+    second = [c[2] for c in arrs.changes() if c[0] == "DELETE"]
+
+    assert first == [f"/api/v3/queue/{100 + i}" for i in ids[:2]]
+    assert second == [f"/api/v3/queue/{100 + i}" for i in ids[2:4]]
+
+
+def _matched_by_id(arrs: Arrs, *, held: bool = True) -> None:
+    _season_stuck(arrs, 10)
+    _says(arrs, _BY_ID, outputPath="/downloads/completed/comptv/Alone.S13")
+    if not held:
+        for record in arrs.queues["sonarr"]:
+            record["trackedDownloadStatus"] = "ok"
+    arrs.manual = [_manual(1), _manual(2)]
+
+
+def _manual_imports(made: list) -> int:
+    return len([c for c in made if c[0] == "POST" and c[3].get("name") == "ManualImport"])
+
+
+def test_a_download_that_comes_and_goes_is_imported_by_hand_once_and_then_replaced(arrs):
+    made = []
+    for held in (True, True, False, True, True):
+        _matched_by_id(arrs, held=held)
+        arrs.poll(timedelta(hours=1))
+        made += arrs.changes()
+
+    assert _manual_imports(made) == 1
+    assert len(arrs.manual_asked) == 1, "the files are read once for the one import by hand"
+    assert [c[2] for c in made if c[0] == "DELETE"] == ["/api/v3/queue/10", "/api/v3/queue/11"]
+
+
+def test_an_import_by_hand_that_may_have_gone_through_ends_the_run_for_that_title(arrs):
+    _matched_by_id(arrs)
+    arrs.breaking["ManualImport"] = requests.ReadTimeout("no answer")
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    made = arrs.changes()
+    assert _manual_imports(made) == 1
+    assert [c for c in made if c[0] == "DELETE"] == []
+    arrs.breaking = {}
+    arrs.poll(timedelta(hours=1))
+
+    made = arrs.changes()
+    assert _manual_imports(made) == 0, "one that may have gone through is not sent twice"
+    assert len([c for c in made if c[0] == "DELETE"]) == 2
+
+
+def test_a_season_beside_a_download_whose_client_is_unreachable_is_left_as_it_is(arrs):
+    _season_stuck(arrs, 10)
+    _says(arrs, "Sample")
+    arrs.queues["sonarr"][0]["status"] = "downloadClientUnavailable"
+    arrs.poll()
+    arrs.poll(timedelta(hours=3))
+
+    assert arrs.changes() == []
+
+
+def test_an_import_by_hand_that_could_not_be_sent_is_sent_again_next_run(arrs):
+    _matched_by_id(arrs)
+    arrs.breaking["ManualImport"] = requests.ConnectionError("refused")
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+    assert [c for c in arrs.changes() if c[0] == "DELETE"] == []
+    arrs.breaking = {}
+    arrs.poll(timedelta(hours=1))
+
+    made = arrs.changes()
+    assert _manual_imports(made) == 1
+    assert [c for c in made if c[0] == "DELETE"] == []
+
+
+def test_a_title_is_mended_in_place_by_one_run_alone(arrs):
+    _season_stuck(arrs, 10)
+    arrs.poll()
+    (since,) = arrs.conn.execute(
+        "SELECT stuck_since FROM arr_import_retries WHERE key='sonarr:5:13'"
+    ).fetchone()
+
+    assert _mark_fixed(arrs.conn, "sonarr:5:13", since, arrs.now)
+    assert not _mark_fixed(arrs.conn, "sonarr:5:13", since, arrs.now)
+
+
+def test_files_of_a_download_stuck_for_another_reason_are_never_renamed(arrs, obfuscated):
+    _says(arrs, "Sample", title=_RELEASE, outputPath=str(obfuscated))
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert sorted(p.name for p in obfuscated.iterdir()) == ["a8f3c2e9b1"]
+
+
+def _words(arrs: Arrs) -> str:
+    reasons = [r["statusMessages"][0]["messages"][0] for r in arrs.queues["sonarr"]]
+    return fixing_words(arrs.conn, "sonarr:5:", reasons)
+
+
+def test_the_card_says_files_are_renamed_only_of_a_download_in_the_downloads_folder(
+    arrs, obfuscated, tmp_path
+):
+    arrs.poll()
+    assert _words(arrs) == "Fixing — renaming files"
+
+    elsewhere = tmp_path / "elsewhere" / _RELEASE
+    elsewhere.mkdir(parents=True)
+    _says(arrs, "No files found are eligible for import", outputPath=str(elsewhere))
+    arrs.poll(timedelta(minutes=5))
+    assert _words(arrs) == "Fixing — finding another copy"
+
+
+def test_the_card_says_another_copy_is_looked_for_once_a_rename_did_not_take(arrs, obfuscated):
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert _words(arrs) == "Fixing — finding another copy"
+
+
+def test_the_card_of_a_download_whose_client_is_unreachable_claims_no_fix(arrs):
+    _season_stuck(arrs, 10)
+    for record in arrs.queues["sonarr"]:
+        record["status"] = "downloadClientUnavailable"
+    arrs.poll()
+
+    assert _words(arrs) == ""

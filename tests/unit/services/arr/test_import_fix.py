@@ -54,6 +54,40 @@ def test_an_obfuscated_video_is_given_its_extension_and_nothing_else_is_touched(
     assert (folder / "a8f3c2e9b1.mkv").read_bytes() == _MKV
 
 
+@pytest.mark.parametrize(
+    ("name", "head"),
+    [
+        ("track.mka", _MKV),
+        ("subs.mks", _MKV),
+        ("song.m4a", _MP4),
+        ("photo.heic", _MP4),
+        ("Some.Release.Name", _MKV),
+    ],
+)
+def test_a_file_that_has_any_extension_is_never_renamed(root, name, head):
+    folder = _release(root)
+    (folder / name).write_bytes(head)
+
+    assert import_fix.rename_videos(folder) == []
+    assert [p.name for p in folder.iterdir()] == [name]
+
+
+def test_with_no_hard_links_a_taken_name_is_still_never_written_over(root, monkeypatch):
+    folder = _release(root)
+    (folder / "video").write_bytes(_MKV)
+    (folder / "video.mkv").write_bytes(b"another file")
+    (folder / "other").write_bytes(_MKV)
+
+    def no_links(*args, **kwargs):
+        raise PermissionError("no hard links here")
+
+    monkeypatch.setattr(import_fix.os, "link", no_links)
+
+    assert import_fix.rename_videos(folder) == ["other.mkv"]
+    assert (folder / "video.mkv").read_bytes() == b"another file"
+    assert (folder / "other.mkv").read_bytes() == _MKV
+
+
 def test_a_file_whose_new_name_is_taken_is_left_as_it_is(root):
     folder = _release(root)
     (folder / "video").write_bytes(_MKV)
@@ -92,6 +126,12 @@ def test_a_folder_that_is_not_the_releases_own_inside_the_root_is_refused(root, 
     assert _found(root, output_path.format(root=root)) is None
 
 
+def test_a_release_name_linked_to_the_folder_downloads_share_is_refused(root):
+    os.symlink(root / "comptv", root / "comptv" / (_RELEASE + ".#2"))
+
+    assert _found(root, f"{root}/comptv/{_RELEASE}.#2") is None
+
+
 def test_a_release_folder_that_is_a_symlink_out_of_the_root_is_refused(root, tmp_path):
     outside = tmp_path / "library" / _RELEASE
     outside.mkdir(parents=True)
@@ -113,9 +153,12 @@ def test_a_release_folder_that_is_a_symlink_out_of_the_root_is_refused(root, tmp
     ],
 )
 def test_the_downloads_folder_is_used_only_while_it_is_set_there_and_writable(
-    tmp_path, named, used
+    tmp_path, monkeypatch, named, used
 ):
     (tmp_path / "shut").mkdir(mode=0o500)
+    # A relative path that is there and writable, from where mediaman runs.
+    (tmp_path / "relative").mkdir()
+    monkeypatch.chdir(tmp_path)
     conn = init_db(str(tmp_path / "mediaman.db"))
     if named is not None:
         value = named if named in ("", "relative") else str((tmp_path / named).resolve())

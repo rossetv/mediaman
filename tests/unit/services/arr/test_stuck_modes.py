@@ -85,4 +85,5 @@ def test_each_next_copy_is_left_longer_and_then_a_day():
     waits = [m.wait_for(n) for n in range(6)]
     hours = [timedelta(hours=h) for h in (1, 3, 12, 24, 24, 24)]
     assert waits == hours
-    assert m.wait_for(0, m.PAUSED) == m.UNFINISHED_FOR
+    assert m.wait_for(0, m.STALLED) == m.UNFINISHED_FOR
+    assert m.wait_for(0, m.PAUSED) == timedelta(hours=1)

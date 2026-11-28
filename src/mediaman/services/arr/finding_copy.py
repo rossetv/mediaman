@@ -58,7 +58,7 @@ def fixing_words(conn: sqlite3.Connection, key: str, reasons: Sequence[str]) -> 
     attention for *reasons*, in a few words; "" when it leaves it for an admin. A *key* that ends
     in ":" is any season of a series."""
     # Not at the top: import_retry needs the fetcher, which needs import_retry.
-    from mediaman.services.arr import import_fix, import_retry, stuck_modes
+    from mediaman.services.arr import import_retry
 
     if any(not_the_release(r) for r in reasons):
         return ""
@@ -67,21 +67,22 @@ def fixing_words(conn: sqlite3.Connection, key: str, reasons: Sequence[str]) -> 
             return ""
         # Of a series, the season stuck now, as that one is acted on.
         row = conn.execute(
-            "SELECT stuck_since, fixed_at, first_stuck_at FROM arr_import_retries"
+            "SELECT fix_plan, first_stuck_at FROM arr_import_retries"
             " WHERE key LIKE ? ORDER BY stuck_since IS NULL, first_stuck_at LIMIT 1",
             (f"{key}%" if key.endswith(":") else key,),
         ).fetchone()
     except sqlite3.DatabaseError:
         logger.warning("Failed to read whether %s is tried again", key, exc_info=True)
         return ""
-    stuck_since, fixed_at, first_stuck_at = row if row is not None else (None, None, None)
+    # As the queue's last fetch planned it; one not noted yet will be replaced.
+    plan, first_stuck_at = row if row is not None else (None, None)
+    if plan == "":
+        return ""
     first = parse_iso_utc(first_stuck_at) if first_stuck_at else None
     if first is not None and (days := (now_utc() - first).days) >= import_retry.LONG_STUCK.days:
         return f"Stuck for {days} days — still trying daily"
-    fixed = bool(fixed_at and stuck_since and fixed_at >= stuck_since)
-    modes = {stuck_modes.reason_mode(r) for r in reasons}
-    if not fixed and modes == {stuck_modes.NO_FILES} and import_fix.downloads_folder(conn):
+    if plan == import_retry.PLAN_RENAME:
         return "Fixing — renaming files"
-    if not fixed and modes == {stuck_modes.WRONG_MATCH}:
+    if plan == import_retry.PLAN_IMPORT:
         return "Fixing — importing the files"
     return "Fixing — finding another copy"

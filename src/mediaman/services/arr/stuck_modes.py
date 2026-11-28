@@ -3,7 +3,8 @@
 Each record is given one mode, which says how mediaman resolves it: renamed in place where its
 files want an extension, imported by hand where the service matched it by id alone, removed with
 its release blocklisted and searched for again otherwise. One held by the service's own setup, or
-by a hold that passes by itself, or by a download client the service cannot reach, is waited for.
+by a hold that passes by itself, or by a download client the service cannot reach, is waited for,
+as is one paused, which a person most often paused on purpose.
 """
 
 from __future__ import annotations
@@ -31,9 +32,7 @@ PAUSED = "paused"
 OTHER = "other"
 
 # Those mended by another copy, or in place first where they can be.
-ACTIONABLE = frozenset(
-    {NO_FILES, SAMPLE, WRONG_MATCH, MULTI_SEASON, FAILED, STALLED, PAUSED, OTHER}
-)
+ACTIONABLE = frozenset({NO_FILES, SAMPLE, WRONG_MATCH, MULTI_SEASON, FAILED, STALLED, OTHER})
 
 _HELD_BACK = frozenset({"importpending", "importblocked", "failedpending", "failed"})
 _NO_FILES = ("no files found are eligible", "no video files")
@@ -48,14 +47,14 @@ _WRONG_MATCH = (
 # How long a copy is left stuck before the next one is looked for, by the copies tried before.
 BACKOFF = (timedelta(hours=1), timedelta(hours=3), timedelta(hours=12))
 DAILY = timedelta(days=1)
-# A paused or stalled download may yet go on: it is given longer before it is replaced.
+# A stalled download may yet go on: it is given longer before it is replaced.
 UNFINISHED_FOR = timedelta(hours=6)
 
 
 def wait_for(tries: int, mode: str = "") -> timedelta:
     """How long a stuck copy is left before it is replaced, after *tries* copies before it."""
     wait = BACKOFF[tries] if 0 <= tries < len(BACKOFF) else DAILY
-    return max(wait, UNFINISHED_FOR) if mode in (STALLED, PAUSED) else wait
+    return max(wait, UNFINISHED_FOR) if mode == STALLED else wait
 
 
 def reason_mode(reason: str) -> str:

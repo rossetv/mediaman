@@ -1,6 +1,6 @@
 """Mending a stuck download where it lies, before another copy is looked for.
 
-A release whose video file came without an extension is given the one its first bytes say it is,
+A release whose video file came with no extension at all is given the one its first bytes say,
 inside its own folder alone, and Radarr or Sonarr is asked to import that folder again. A release
 the service matched by id alone is imported by hand, only when the service's own reading of every
 file names that title and episodes it waits for; nothing is ever guessed.
@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 FOLDER_SETTING = "import_fix_folder"
 
-VIDEO_EXTENSIONS = frozenset({".mkv", ".mp4", ".m4v", ".avi", ".webm", ".ts", ".mov", ".wmv"})
 # Each release folder is read this deep and this far, so a huge one costs nothing.
 _MAX_DEPTH = 3
 _MAX_FILES = 200
@@ -83,6 +82,9 @@ def release_folder(root: Path, output_path: str, release: str) -> Path | None:
         return None
     if folder == real_root or not folder.is_relative_to(real_root) or not folder.is_dir():
         return None
+    # A release name that links to another folder, such as the one downloads share, is not it.
+    if not _plain(folder.name).startswith(_plain(release)):
+        return None
     return folder
 
 
@@ -106,25 +108,32 @@ def _files(folder: Path) -> list[Path]:
 def _rename(path: Path, target: Path) -> bool:
     """Give *path* the name *target*, never over a file there: a hard link fails if one is."""
     try:
-        os.link(path, target)
+        os.link(path, target, follow_symlinks=False)
     except FileExistsError:
         return False
     except OSError:
-        # A filesystem with no hard links: checked, then renamed.
-        if target.exists() or target.is_symlink():
+        # A filesystem with no hard links: the name is taken first, so nothing else can be there
+        # when the file is moved onto it.
+        try:
+            os.close(os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+        except FileExistsError:
             return False
-        os.rename(path, target)
+        try:
+            os.rename(path, target)
+        except OSError:
+            os.unlink(target)
+            raise
         return True
     os.unlink(path)
     return True
 
 
 def rename_videos(folder: Path) -> list[str]:
-    """Give each video file in *folder* that lacks a video extension the one its first bytes say
-    it is, added to its name; the new names, of those renamed."""
+    """Give each video file in *folder* with no extension at all the one its first bytes say it
+    is; the new names, of those renamed. A file with any extension is left as it is."""
     renamed: list[str] = []
     for path in _files(folder):
-        if path.suffix.lower() in VIDEO_EXTENSIONS:
+        if path.suffix:
             continue
         try:
             with path.open("rb") as handle:
@@ -160,9 +169,10 @@ def manual_import_files(
     service: str, listed: list[dict[str, Any]], arr_id: int, episodes: Collection[int]
 ) -> list[dict[str, Any]]:
     """The files to import by hand of the download's files *listed* by the service, as
-    ``/api/v3/manualimport`` gives them; none unless every one is matched beyond doubt: to the
-    film or show *arr_id*, with nothing the service rejects it for, and of a show to episodes of
-    *episodes*, each taken by one file alone; and of a film, one file alone."""
+    ``/api/v3/manualimport`` gives them; none unless every one passes: the service matched it to
+    the film or show *arr_id*, gives no rejection of it and gives its quality; of a show, it names
+    episodes, all of them among the queued *episodes*, and no episode another file names; of a
+    film, it is the download's one file."""
     if not listed or (service == "radarr" and len(listed) != 1):
         return []
     files: list[dict[str, Any]] = []
