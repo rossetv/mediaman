@@ -3254,6 +3254,46 @@ scenarios.tonight = async () => {
   return out;
 };
 
+scenarios.tonightHidden = async () => {
+  const stored = {};
+  const p = await asking(undefined, { stored });
+  p.press(); await settle();
+  const shown = (q) => ({
+    card: !!q.sheet.querySelector('.tn'),
+    note: (q.sheet.querySelector('.tn-note') || {}).textContent || null,
+    picked: q.input.getAttribute('aria-activedescendant'),
+    active: q.doc.activeElement && q.doc.activeElement.id,
+  });
+  const out = {};
+  const close = p.sheet.querySelector('.tn__x');
+  out.button = [close.getAttribute('aria-label'), close.getAttribute('role')];
+  // An arrow down from the field lands on a time, never on Hide.
+  p.key('ArrowDown');
+  out.first = p.input.getAttribute('aria-activedescendant');
+  p.key('Escape');
+  close.focus();
+  click(p.doc, close);
+  await settle();
+  out.hidden = [shown(p), { ...stored }];
+  click(p.doc, p.sheet.querySelector('.tn-note .txt'));
+  await settle();
+  out.undone = [shown(p), { ...stored }];
+  click(p.doc, p.sheet.querySelector('.tn__x'));
+  await settle();
+  // The sheet closed and opened again: nothing stands where it was.
+  p.key('Escape');
+  p.key('Escape');
+  p.press(); await settle();
+  out.reopened = shown(p);
+  const q = await asking(undefined, { stored });
+  q.press(); await settle();
+  out.reloaded = shown(q);
+  const other = await asking({ account: 'a2' }, { stored });
+  other.press(); await settle();
+  out.otherAccount = shown(other).card;
+  return out;
+};
+
 /* The picture in the search field's token: its poster's address and the icon's symbol, null for none. */
 function tokenFace(p) {
   const face = p.$('watch-search-token').querySelector('.watch-face');
@@ -3877,7 +3917,7 @@ async function sheetFor(taste, more) {
   return {
     p,
     // The parts in the order they stand, and the line under one where there is one.
-    heads: p.sheet.children.map((n) => (n.classList.contains('tn') ? 'Tonight'
+    heads: p.sheet.children.map((n) => (n.querySelector('.tn') ? 'Tonight'
       : n.classList.contains('watch-sheet__title') || n.classList.contains('watch-sheet__hint') ? n.textContent
         : n.querySelector('.watch-sheet__title') ? n.querySelector('.watch-sheet__title').textContent : null)).filter(Boolean),
     forYou: p.sheet.querySelectorAll('.watch-try--for, .watch-try--ai').map((n) => [n.textContent, n.classList.contains('watch-try--ai'), n.getAttribute('role')]),
