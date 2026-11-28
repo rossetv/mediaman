@@ -164,12 +164,20 @@ def test_the_tv_gets_one_streams_address_its_words_and_its_place_and_nothing_els
         "type": "application/vnd.apple.mpegurl",
         "at": 100,
         "autoplay": True,
-        "title": "Glass Orchard",
+        "title": "S1 · E4",
         "line": "S1 · E4",
         "keys": ["autoplay", "currentTime", "media"],
         "info": ["contentId", "contentType", "customData", "duration", "metadata", "streamType"],
-        # A picture is behind the session, which the TV does not have.
-        "images": None,
+        # By the stream's own ticket, as the TV has no session.
+        "images": ["https://media.example/api/cast/ticket1/poster"],
+        "metadata": {
+            "kind": "TvShowMediaMetadata",
+            "seriesTitle": "Glass Orchard",
+            "season": 1,
+            "episode": 4,
+            "title": "S1 · E4",
+            "subtitle": "S1 · E4",
+        },
     }
     assert (out["name"], out["carriesOn"], out["ready"]) == ("Living room", True, 4)
     assert out["events"] == ["canplay", "playing"]
@@ -277,6 +285,53 @@ def test_a_stream_that_fails_on_the_tv_is_an_error_at_its_place_and_another_may_
     out = _run("errs")
     assert (out["events"], out["error"], out["at"]) == (["error"], {"code": 2}, 105)
     assert (out["gone"], out["after"]) == ([], None)
+
+
+def test_the_tv_shows_a_films_poster_and_name_and_an_episodes_show_season_and_number() -> None:
+    out = _run("metadata")
+    poster = ["https://media.example/api/cast/ticket1/poster"]
+    assert out["2021"] == {
+        "kind": "MovieMediaMetadata",
+        "title": "Orchard",
+        "subtitle": "2021",
+        "images": poster,
+    }
+    assert out["S2 · E3 — A — b"] == {
+        "kind": "TvShowMediaMetadata",
+        "seriesTitle": "Orchard",
+        "season": 2,
+        "episode": 3,
+        "title": "A — b",
+        "subtitle": "S2 · E3 — A — b",
+        "images": poster,
+    }
+    assert "season" not in out["E7"]
+
+
+@pytest.mark.parametrize("how", ["error", "gone"])
+def test_with_no_player_open_a_stream_mediaman_lost_is_opened_again_where_it_stood(
+    how: str,
+) -> None:
+    out = _run("revives")[how]
+    # Asked again while mediaman restarts, then put on the TV paused where it was.
+    assert (out["asked"], out["loads"], out["at"], out["autoplay"]) == (3, 2, 100, False)
+    assert (out["now"], out["ended"]) == (["st4", "best"], [])
+
+
+@pytest.mark.parametrize("how", ["error", "gone"])
+def test_a_stream_lost_again_at_once_is_not_opened_again(how: str) -> None:
+    assert _run("revives")[how]["again"] == {"asked": 3, "now": None, "ended": [True]}
+
+
+def test_a_mediaman_that_does_not_come_back_or_refuses_lets_the_tv_go() -> None:
+    out = _run("revives")
+    assert (out["never"]["now"], out["never"]["ended"], out["never"]["timers"]) == (
+        None,
+        [True],
+        0,
+    )
+    assert out["never"]["asks"] <= 21
+    assert out["refused"] == {"tries": 1, "now": None, "ended": [True]}
 
 
 @pytest.mark.parametrize(
@@ -604,7 +659,7 @@ def test_the_bar_of_another_page_pauses_seeks_and_stops_with_the_place_saved() -
     assert (out["ended"], out["told"], out["now"]) == ([True], True, None)
 
 
-def test_a_stream_the_server_has_ended_is_ended_on_the_tv_and_an_outage_is_not() -> None:
+def test_a_stream_another_start_replaced_is_ended_on_the_tv_and_an_outage_is_not() -> None:
     out = _run("keeperGone")
     assert out["410"] == {"ended": [True], "record": False, "now": None}
     assert out["502"] == {"ended": [], "record": True, "now": None}

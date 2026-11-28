@@ -61,6 +61,10 @@
   var AUTOPLAY_KEY = 'mediaman.watch.autoplay';
   var KEEP_ALIVE_MS = 60000;
   var VOLUME_MS = 150;
+  /* A stream the TV lost is opened again once in this long, however often the TV says so; meanwhile
+     mediaman, restarting, is waited for. */
+  var REVIVE_MS = 60000;
+  var REVIVE_EVERY_MS = 3000;
   /* Past this a TV that has not said it did what was pressed is taken at its word. */
   var ANSWER_MS = 10000;
   var RECORD = 'mediaman.watch.cast';
@@ -308,6 +312,7 @@
       silent: false,     // joined at its end, the TV having named nothing
       auto: 0,           // episodes that began by themselves
       sign: now(),       // when somebody last pressed
+      revived: -Infinity, // when a stream the TV lost was last opened again
       gone: [],
       noted: 0,
       timers: {},
@@ -455,7 +460,9 @@
         p.error = { code: 2 };
         if (p.followed) emit('error');
         /* Where another stream is on its way this one may have ended for it. */
-        else if (!p.changing) goneBy(p, 'stopped', true);
+        else if (p.changing) return;
+        else if (now() - p.revived >= REVIVE_MS) revive(p);
+        else goneBy(p, 'stopped', true);
       } else if (ms.idleReason === reasons.INTERRUPTED) {
         goneBy(p, 'taken');
       } else if (ms.idleReason === reasons.CANCELLED) {
@@ -606,9 +613,7 @@
     var info = new cast.MediaInfo(p.stream.url, HLS);
     info.streamType = cast.StreamType.BUFFERED;
     if (p.duration) info.duration = p.duration;
-    info.metadata = new cast.GenericMediaMetadata();
-    info.metadata.title = p.title.title || '';
-    info.metadata.subtitle = p.title.subtitle || '';
+    info.metadata = metadataOf(p.title, p.stream.url);
     info.customData = { stream: stream.stream_id };
     var request = new cast.LoadRequest(info);
     request.currentTime = p.place;
@@ -633,6 +638,30 @@
         resolve();
       }, failed);
     });
+  }
+
+  /* As the player names an episode; of a film the line is its year. */
+  function episodeOf(line) { return /^(?:S(\d+) · )?E(\d+)(?: — (.*))?$/.exec(line || ''); }
+
+  /* The TV's words and picture: the poster is read by the stream's own ticket, as the TV has no
+     session. */
+  function metadataOf(title, url) {
+    var cast = global.chrome.cast;
+    var ep = episodeOf(title.subtitle);
+    var data;
+    if (ep) {
+      data = new cast.media.TvShowMediaMetadata();
+      data.seriesTitle = title.title || '';
+      if (ep[1]) data.season = Number(ep[1]);
+      data.episode = Number(ep[2]);
+      data.title = ep[3] || title.subtitle;
+    } else {
+      data = new cast.media.MovieMediaMetadata();
+      data.title = title.title || '';
+    }
+    data.subtitle = title.subtitle || '';
+    data.images = [new cast.Image(new URL('poster', url).href)];
+    return data;
   }
 
   /* What is skipped is not played. */
@@ -911,7 +940,7 @@
       return null;
     }
     var said = plays && ms.media.metadata || {};
-    var p = makePlay(session, kept.title || { rating_key: rec.key, title: said.title || '', subtitle: said.subtitle || '' }, followed);
+    var p = makePlay(session, kept.title || { rating_key: rec.key, title: said.seriesTitle || said.title || '', subtitle: said.subtitle || '' }, followed);
     p.stream = { stream_id: rec.stream };
     p.keep = kept.keep || null;
     p.played = Number(rec.played) || 0;
@@ -992,9 +1021,11 @@
     }, function (err) {
       p.saving = false;
       if (!err || err.status !== 410 || p.followed || p.done || p.changing || id !== p.stream.stream_id) return;
-      /* A page that was left as it put another stream on the TV: it is opened again. Else the stream
-         is over, or it is not this person's, and the TV cannot go on with it. */
+      /* A page that was left as it put another stream on the TV: it is opened again. So is one
+         mediaman lost as it restarted, or ended after a long pause, once. Else another start took
+         its place, and the TV cannot go on with it. */
       if (p.cut) reopen(p);
+      else if (err.error !== 'replaced' && now() - p.revived >= REVIVE_MS) revive(p);
       else goneBy(p, 'stopped', true);
     });
   }
@@ -1009,7 +1040,7 @@
     var given = keep.given || {};
     var line = p.title.subtitle || '';
     /* As the player names an episode; of a film the line is its year. */
-    var ep = /^(?:S(\d+) · )?E(\d+)(?: — (.*))?$/.exec(line);
+    var ep = episodeOf(line);
     var state = p.paused ? 'paused' : 'playing';
     if (p.wait) state = p.wait.kind;
     else if (p.changing || !p.ms || !p.begun) state = 'loading';
@@ -1106,7 +1137,9 @@
     if (audio) ask.audio = audio;
     return limited(START_WAIT_MS, function (signal) {
       return MM.api.post('/api/cast/stream', ask, { signal: signal });
-    }).catch(function (err) { throw refusal(err && err.error || 'network_error'); });
+    }).catch(function (err) {
+      throw Object.assign(refusal(err && err.error || 'network_error'), { status: err && err.status || 0 });
+    });
   }
 
   /* Put another stream on the TV: another quality or subtitle where it stands, or the next episode. */
@@ -1211,10 +1244,18 @@
     });
   }
 
-  function openAgain(p, stale) {
+  /* Until `until`, a mediaman that does not answer, as while it restarts, is asked again. */
+  function openAgain(p, stale, until) {
     var keep = p.keep || {};
     var asked = { quality: keep.quality || 'auto', subtitle: keep.subtitle || null, audio: keep.audio || null };
-    return openStream(p.title.rating_key, asked.quality, asked.subtitle, asked.audio).then(function (data) {
+    function open() {
+      return openStream(p.title.rating_key, asked.quality, asked.subtitle, asked.audio).catch(function (err) {
+        var down = err.code === 'network_error' || err.code === 'unreachable' || err.status >= 500;
+        if (stale() || !down || !(now() + REVIVE_EVERY_MS < until)) throw err;
+        return new Promise(function (resolve) { p.timers.revive = setTimeout(resolve, REVIVE_EVERY_MS); }).then(open);
+      });
+    }
+    return open().then(function (data) {
       return put(p, stale, data, null, asked);
     }).catch(function () {
       if (!stale()) goneBy(p, 'stopped', true);
@@ -1223,6 +1264,13 @@
 
   function reopen(p) {
     swap(p, function (stale) { return openAgain(p, stale); });
+  }
+
+  /* The TV lost the stream: mediaman restarted, or ended it after a long pause. It is opened again
+     where it stood, once. */
+  function revive(p) {
+    p.revived = now();
+    swap(p, function (stale) { return openAgain(p, stale, p.revived + REVIVE_MS); });
   }
 
   /* No player of this page follows what plays. */

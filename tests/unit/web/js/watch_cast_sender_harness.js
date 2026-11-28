@@ -109,7 +109,7 @@ async function open(world, { player = false, playOn = true, sdk = 'good', chrome
     setMute(m) { tv.calls.push('mute ' + m); tv.muted = m; return Promise.resolve(); }
     endSession(stop) { tv.ended.push(stop); context.over('stopped'); }
     loadMedia(request) {
-      tv.loads.push({ url: request.media.contentId, type: request.media.contentType, at: request.currentTime, autoplay: request.autoplay, title: request.media.metadata.title, line: request.media.metadata.subtitle, keys: Object.keys(request).sort(), info: Object.keys(request.media).sort(), images: request.media.metadata.images || null });
+      tv.loads.push({ url: request.media.contentId, type: request.media.contentType, at: request.currentTime, autoplay: request.autoplay, title: request.media.metadata.title, line: request.media.metadata.subtitle, keys: Object.keys(request).sort(), info: Object.keys(request.media).sort(), images: (request.media.metadata.images || []).map((i) => i.url), metadata: Object.assign({ kind: request.media.metadata.constructor.name }, request.media.metadata, { images: undefined }) });
       if (tv.answers === 'late') return new Promise((resolve) => { tv.answer = resolve; });
       if (tv.answers === 'never') return new Promise(() => {});
       if (!tv.answers) return Promise.reject('load_media_failed');
@@ -162,6 +162,7 @@ async function open(world, { player = false, playOn = true, sdk = 'good', chrome
     ctx.chrome.cast = {
       AutoJoinPolicy: { ORIGIN_SCOPED: 'origin_scoped' }, ErrorCode: { CANCEL: 'cancel' },
       SessionStatus: { DISCONNECTED: 'disconnected', STOPPED: 'stopped' },
+      Image: class { constructor(url) { this.url = url; } },
       isAvailable: true,
       requestSessionById: (id) => page.asked.push('session ' + id),
       media: {
@@ -170,7 +171,8 @@ async function open(world, { player = false, playOn = true, sdk = 'good', chrome
         IdleReason: same('CANCELLED', 'INTERRUPTED', 'FINISHED', 'ERROR'),
         StreamType: { BUFFERED: 'BUFFERED' },
         MediaInfo: class { constructor(id, type) { this.contentId = id; this.contentType = type; } },
-        GenericMediaMetadata: class {},
+        TvShowMediaMetadata: class TvShowMediaMetadata {},
+        MovieMediaMetadata: class MovieMediaMetadata {},
         LoadRequest: class { constructor(media) { this.media = media; } },
         SeekRequest: class {},
       },
@@ -613,6 +615,17 @@ const scenarios = {
     w.tv.media[0].say('IDLE', { idleReason: 'FINISHED' });
     return { events: page.take(), at: page.play.media.currentTime, ended: page.play.media.ended, paused: page.play.media.paused, gone: page.gone };
   },
+  // What the TV shows beside the picture, for a film, an episode with a name and one without a season.
+  async metadata() {
+    const out = {};
+    for (const line of ['2021', 'S2 · E3 — A — b', 'E7']) {
+      const w = world();
+      await casting(w, { title: { rating_key: '5', title: 'Orchard', subtitle: line } });
+      const load = w.tv.loads[0];
+      out[line] = Object.assign({}, load.metadata, { images: load.images });
+    }
+    return out;
+  },
   async errs() {
     const w = world();
     const page = await casting(w);
@@ -622,6 +635,61 @@ const scenarios = {
     const out = { events: page.take(), error: page.play.media.error, at: page.play.media.currentTime, gone: page.gone.slice() };
     await page.play.load(stream(2, { position_s: 105 }));
     return Object.assign(out, { after: page.play.media.error });
+  },
+  // A stream mediaman lost, as it restarted or after a long pause, with no player open: the TV
+  // says so, or a save is refused as gone. It is opened again where it stood, once.
+  async revives() {
+    const out = {};
+    const ways = {
+      error: (w) => w.tv.media[0].say('IDLE', { idleReason: 'ERROR' }),
+      gone: (w, page) => { page.replies['/api/watch/progress'] = (body) => (body.stream_id === 'st1' ? Promise.reject({ status: 410, error: 'gone' }) : Promise.resolve({})); },
+    };
+    for (const name of Object.keys(ways)) {
+      const w = world();
+      const page = await casting(w, { paused: true });
+      page.play.keep({ quality: 'best' });
+      page.play.leave();
+      await w.clock.advance(1000);
+      const asked = [];
+      let down = 2;
+      page.replies['/api/cast/stream'] = (body) => {
+        asked.push([body.rating_key, body.quality]);
+        // mediaman is still restarting for the first two asks.
+        if (down-- > 0) return Promise.reject({ error: 'network_error', status: 0 });
+        return Promise.resolve({ stream_id: 'st' + (asked.length + 1), url: '/api/cast/t' + asked.length + '/index.m3u8', duration_s: 3000 });
+      };
+      ways[name](w, page);
+      // A paused TV's place is kept alive once a minute.
+      await w.clock.advance(name === 'gone' ? 70000 : 11000);
+      const load = w.tv.loads[w.tv.loads.length - 1];
+      const now = page.sender.now();
+      out[name] = { asked: asked.length, loads: w.tv.loads.length, at: load.at, autoplay: load.autoplay, now: now && [now.id, now.quality], ended: w.tv.ended.slice() };
+      // Again at once: it is over this time.
+      w.tv.media[0].say('IDLE', { idleReason: 'ERROR' });
+      await w.clock.advance(1000);
+      out[name].again = { asked: asked.length, now: page.sender.now(), ended: w.tv.ended };
+    }
+    // mediaman that does not come back in time: it is let go.
+    const w = world();
+    const page = await casting(w);
+    page.play.leave();
+    await w.clock.advance(1000);
+    let asks = 0;
+    page.replies['/api/cast/stream'] = () => { asks += 1; return Promise.reject({ error: 'network_error', status: 0 }); };
+    w.tv.media[0].say('IDLE', { idleReason: 'ERROR' });
+    await w.clock.advance(120000);
+    out.never = { asks, now: page.sender.now(), ended: w.tv.ended, timers: w.clock.waiting() };
+    // What the server refuses outright is not asked again.
+    const v = world();
+    const refused = await casting(v);
+    refused.play.leave();
+    await v.clock.advance(1000);
+    let tries = 0;
+    refused.replies['/api/cast/stream'] = () => { tries += 1; return Promise.reject({ error: 'too_many_streams', status: 429 }); };
+    v.tv.media[0].say('IDLE', { idleReason: 'ERROR' });
+    await v.clock.advance(30000);
+    out.refused = { tries, now: refused.sender.now(), ended: v.tv.ended };
+    return out;
   },
   async over() {
     const out = {};
@@ -1123,13 +1191,13 @@ const scenarios = {
   },
   async keeperGone() {
     const out = {};
-    for (const status of [410, 502]) {
+    for (const [name, refusal] of [['410', { status: 410, error: 'replaced' }], ['502', { status: 502 }]]) {
       const w = world();
       (await casting(w)).close();
       const page = await open(w);
-      page.replies['/api/watch/progress'] = { status };
+      page.replies['/api/watch/progress'] = refusal;
       await w.clock.advance(1000);
-      out[status] = { ended: w.tv.ended, record: RECORD in w.storage, now: page.sender.now() };
+      out[name] = { ended: w.tv.ended, record: RECORD in w.storage, now: page.sender.now() };
     }
     return out;
   },
@@ -1569,7 +1637,7 @@ const scenarios = {
       await w.clock.advance(1000);
       let asked = 0;
       other.replies['/api/cast/stream'] = () => { asked += 1; return Promise.resolve({ stream_id: 'st9', url: '/api/cast/t9/index.m3u8', duration_s: 2000 }); };
-      other.replies['/api/watch/progress'] = (body) => (body.stream_id === 'st1' ? Promise.reject({ status: 410 }) : Promise.resolve({}));
+      other.replies['/api/watch/progress'] = (body) => (body.stream_id === 'st1' ? Promise.reject({ status: 410, error: 'replaced' }) : Promise.resolve({}));
       await w.clock.advance(11000);
       out[name] = { asked, loads: w.tv.loads.length, ended: w.tv.ended };
     }
@@ -1597,8 +1665,8 @@ const scenarios = {
     const now = other.sender.now();
     await w.clock.advance(11000);
     const going = !!other.sender.now();
-    // Once: a stream that ends later is over.
-    other.replies['/api/watch/progress'] = { status: 410 };
+    // Once: a stream that another start takes the place of later is over.
+    other.replies['/api/watch/progress'] = { status: 410, error: 'replaced' };
     await w.clock.advance(11000);
     return { asked, now: now && [now.id, now.state, now.quality, now.next && now.next.rating_key], going, loads: w.tv.loads.length, after: other.sender.now(), ended: w.tv.ended };
   },

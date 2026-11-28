@@ -10,6 +10,7 @@ import defusedxml.ElementTree as ET
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
+from starlette.responses import Response
 
 from mediaman.config import Config
 from mediaman.db import get_db
@@ -229,6 +230,58 @@ def test_preflight_is_the_same_for_a_held_and_a_made_up_ticket(alice, tv):
     assert real.headers == made_up.headers
     assert "Range" in real.headers["access-control-allow-headers"]
     assert tv.options(_segment_url(url)).status_code == 204
+
+
+@pytest.fixture
+def posters(monkeypatch) -> dict[str, bytes]:
+    """Posters by key, as the poster code would serve them; any other key has none."""
+    held: dict[str, bytes] = {}
+
+    def serve(config, rating_key, scope):
+        if rating_key not in held:
+            return Response(status_code=404)
+        return Response(held[rating_key], media_type="image/jpeg")
+
+    monkeypatch.setattr(cast, "_serve_poster", serve)
+    return held
+
+
+def _poster_url(url: str) -> str:
+    return url.replace("index.m3u8", "poster")
+
+
+def test_a_tv_shows_the_poster_of_the_film_its_ticket_plays(alice, tv, posters):
+    posters["101"] = b"film poster"
+    resp = tv.get(_poster_url(_cast(alice)["url"]))
+    assert (resp.status_code, resp.content) == (200, b"film poster")
+    assert resp.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-credentials" not in resp.headers
+
+
+def test_an_episodes_poster_is_its_shows(alice, tv, posters):
+    posters["555"] = b"show poster"
+    started = _cast(alice)
+    manager = plex_stream.get_stream_manager()
+    manager._streams[started["stream_id"]].info["show_rating_key"] = "555"
+    assert tv.get(_poster_url(started["url"])).content == b"show poster"
+
+
+def test_a_poster_is_refused_alike_for_a_made_up_an_ended_and_a_posterless_ticket(
+    alice, tv, posters
+):
+    never = tv.get(f"/api/cast/{'x' * 43}/index.m3u8")
+    no_poster = _cast(alice, "102")
+    ended = _cast(alice)
+    posters["101"] = b"film poster"
+    _stop(alice, None, None, ended)
+    for path in (
+        f"/api/cast/{'x' * 43}/poster",
+        _poster_url(ended["url"]),
+        _poster_url(no_poster["url"]),
+    ):
+        resp = tv.get(path)
+        assert (resp.status_code, resp.content) == (404, never.content)
+        assert resp.headers == never.headers
 
 
 def test_starting_needs_a_session_and_is_not_open_to_other_origins(alice, tv):

@@ -1,6 +1,6 @@
 """Streams for a TV: started by a signed-in person, read by the TV with a ticket and no session.
 
-A ticket reads its own stream's playlist and segments and nothing else. Whatever a ticket is
+A ticket reads its own stream's playlist, segments and poster and nothing else. Whatever a ticket is
 refused for, the answer is the same 404 (429 once an address fails too often), so that a stranger
 learns nothing from it. Any origin may read the ticket routes, since a TV's player runs on its
 maker's; none may send credentials.
@@ -43,6 +43,7 @@ from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import user_must_change_password
 from mediaman.web.repository.tv import is_paired
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.poster import _serve_poster
 from mediaman.web.routes.watch.stream_api import (
     _gone_answer,
     _guarded_start,
@@ -283,6 +284,7 @@ def _head(content_type: str) -> Response:
 
 @router.options("/api/cast/{ticket}/index.m3u8")
 @router.options("/api/cast/{ticket}/seg/{name}")
+@router.options("/api/cast/{ticket}/poster")
 def cast_preflight() -> Response:
     return _for_tv(Response(status_code=204))
 
@@ -303,6 +305,24 @@ def cast_playlist(request: Request, ticket: str) -> Response:
     except PlexError as exc:
         return _for_tv(plex_failure(exc))
     return _for_tv(Response(text, media_type=_PLAYLIST_TYPE))
+
+
+@router.get("/api/cast/{ticket}/poster")
+def cast_poster(request: Request, ticket: str) -> Response:
+    """The poster of the title the ticket's stream plays, of its show for an episode: the TV
+    shows it beside the stream, and has no session to ask for it otherwise."""
+    held = _read_ticket(request, ticket)
+    if isinstance(held, Response):
+        return held
+    try:
+        stream = get_stream_manager().peek(held.stream_id, held.user)
+    except StreamGone:
+        return _refused(request)
+    key = str(stream.info.get("show_rating_key") or stream.rating_key)
+    poster = _serve_poster(request.app.state.config, key, "private")
+    if poster.status_code != 200:
+        return _for_tv(respond_err("not_found", status=404))
+    return _for_tv(poster)
 
 
 class _SegmentRoute(_StreamRoute):
