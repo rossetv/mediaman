@@ -21,7 +21,7 @@
   var SLOW_MS = 12000;
   var STOPPING_MS = 1500; // between tries while the call of a stopped question ends
   var STOPPING_TRIES = 60;
-  var AI_MS = 150000; // the longest a question is waited for, its tries and polls together: above the model's own timeout
+  var AI_MS = 180000; // the longest a question is waited for, its tries and polls together: covers the model's own timeout plus the answer check
   var LEAVING_MS = 8000; // how long a question waits at most for the server to be told of one given up
   var POLL_TRIES = 5; // polls in a row that may fail
   var KEPT = 30; // questions this page remembers

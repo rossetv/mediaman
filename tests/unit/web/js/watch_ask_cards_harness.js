@@ -228,9 +228,9 @@ const scenarios = {
     await p.start();
     const running = { status: 'running', run_id: 7, stage: 'choosing', owned: [], others: [], lead: 'owned' };
     const out = { start: p.seen() };
-    await p.until(140000, running);
+    await p.until(170000, running);
     out.before = p.seen();
-    await p.until(151000, running);
+    await p.until(181000, running);
     out.after = p.seen();
     out.stopped = p.calls.filter((c) => c.method === 'DELETE').map((c) => c.url);
     out.polledAfter = p.timers.filter((t) => t.on).length;
@@ -268,9 +268,9 @@ const scenarios = {
     };
     await p.until(0, null, asked);
     const running = { status: 'running', run_id: 8, stage: 'choosing', owned: [], others: [], lead: 'owned' };
-    await p.until(140000, running, asked);
+    await p.until(170000, running, asked);
     const out = { tries, before: p.seen() };
-    await p.until(151000, running, asked);
+    await p.until(181000, running, asked);
     out.after = p.seen();
     return out;
   },

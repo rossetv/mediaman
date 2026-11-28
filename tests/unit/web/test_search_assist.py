@@ -678,6 +678,18 @@ class TestRuns:
         assert amy.get(f"{BASE}/runs/{run}").json()["status"] == "failed"
         assert self._start(amy, "quite another question").status_code == 202
 
+    def test_a_phrases_run_is_never_closed_as_an_orphan(self, amy, conn, monkeypatch):
+        monkeypatch.setattr(assist, "_asked", {})
+        run = repo.start_run(conn, _id(conn), repo.PHRASES, now_utc())
+        assert isinstance(run, int)
+
+        amy.get(f"{BASE}/runs/{run}")
+
+        row = conn.execute(
+            "SELECT status, finished_at FROM user_ai_runs WHERE id = ?", (run,)
+        ).fetchone()
+        assert (row["status"], row["finished_at"]) == ("running", None)
+
     def test_startup_closes_the_runs_an_earlier_process_left_open(self, conn, monkeypatch):
         from mediaman import app_factory
 
