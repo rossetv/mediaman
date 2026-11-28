@@ -3554,3 +3554,24 @@ def test_a_copy_that_loses_audio_says_so_and_is_asked_for_once(markup):
     assert out["left"] == " · about 12 min left"
     assert len(out["asked"]) == 1
     assert "On its way" in out["pending"][0]
+
+
+def test_reduce_loud_sounds_builds_its_sound_once_crossfades_and_is_kept(markup):
+    out = run(markup, "loud_switch")
+    assert out["before"] == {"checked": "false", "heard": "as it comes, untouched"}
+    assert out["on"] == {"checked": "true", "heard": {"dry": 0, "compressed": 1}, "open": True}
+    assert out["off"]["heard"] == {"dry": 1, "compressed": 0}
+    assert out["again"]["heard"] == {"dry": 0, "compressed": 1}
+    assert (out["contexts"], out["sources"]) == (1, 1)
+    assert out["kept"] == [{"reduce_loud": v} for v in (True, False, True)]
+
+
+@pytest.mark.parametrize("browser", ["none", "apple"])
+def test_reduce_loud_sounds_is_not_offered_where_its_sound_would_not_be_heard(markup, browser):
+    assert run(markup, "loud_switch", plays=browser) == {"shown": False}
+
+
+def test_reduce_loud_sounds_kept_on_leaves_the_video_as_it_comes_until_a_press(markup):
+    out = run(markup, "loud_saved")
+    assert (out["checked"], out["beforePress"]) == ("true", "as it comes, untouched")
+    assert out["afterPress"] == {"dry": 0, "compressed": 1}

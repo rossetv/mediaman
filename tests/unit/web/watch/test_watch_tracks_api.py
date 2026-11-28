@@ -85,7 +85,7 @@ def test_a_title_lists_its_tracks_and_what_plays_without_any_choice(alice):
     assert [t["language"] for t in body["audio_tracks"]] == ["en", "de"]
     assert [t["id"] for t in body["subtitle_tracks"]] == ["13", "14"]
     assert body["remembered"] is False
-    assert body["defaults"] == {"audio_lang": None, "subtitle_lang": None}
+    assert body["defaults"] == {"audio_lang": None, "subtitle_lang": None, "reduce_loud": False}
 
 
 def test_a_choice_plays_on_the_item_and_carries_to_the_next_episode(alice):
@@ -225,6 +225,34 @@ def test_one_person_s_choice_is_not_another_s(alice, bob):
     alice.put("/api/account/playback", json={"audio_lang": "de"})
     assert _picked(bob.get("/api/watch/tracks/201")) == ("11", None)
     assert bob.get("/api/account/playback").json()["audio_lang"] is None
+
+
+def test_reduce_loud_sounds_is_kept_and_reaches_the_player_leaving_the_other_settings(alice):
+    alice.put("/api/account/playback", json={"audio_lang": "de", "auto_skip": False})
+    resp = alice.put("/api/account/playback", json={"reduce_loud": True})
+    assert (resp.json()["reduce_loud"], resp.json()["audio_lang"], resp.json()["auto_skip"]) == (
+        True,
+        "de",
+        False,
+    )
+    assert alice.get("/api/watch/tracks/201").json()["defaults"]["reduce_loud"] is True
+    alice.put("/api/account/playback", json={"subtitle_lang": "off"})
+    assert alice.get("/api/account/playback").json()["reduce_loud"] is True
+
+
+def test_one_person_s_reduce_loud_sounds_is_not_another_s(alice, bob):
+    alice.put("/api/account/playback", json={"reduce_loud": True})
+    assert bob.get("/api/account/playback").json()["reduce_loud"] is False
+    assert bob.get("/api/watch/tracks/201").json()["defaults"]["reduce_loud"] is False
+    bob.put("/api/account/playback", json={"reduce_loud": True})
+    bob.put("/api/account/playback", json={"reduce_loud": False})
+    assert alice.get("/api/watch/tracks/201").json()["defaults"]["reduce_loud"] is True
+
+
+@pytest.mark.parametrize("value", [None, "yes", 1])
+def test_reduce_loud_sounds_that_is_not_on_or_off_is_refused(alice, value):
+    assert alice.put("/api/account/playback", json={"reduce_loud": value}).status_code == 422
+    assert alice.get("/api/account/playback").json()["reduce_loud"] is False
 
 
 @pytest.mark.parametrize("body", [{"audio": "13"}, {"subtitle": "99"}])

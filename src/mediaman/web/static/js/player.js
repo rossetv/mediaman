@@ -21,7 +21,9 @@
  *   POST /api/cast/stream             {rating_key, quality, audio, subtitle, page, asked_s} → {stream_id,
  *                                     url, audio, subtitle, audio_tracks, subtitle_tracks} (a stream for a
  *                                     TV; watch/play-on.js)
- *   GET  /api/watch/tracks/<key>      (whether a choice of tracks is kept for the title, and the defaults)
+ *   GET  /api/watch/tracks/<key>      (whether a choice of tracks is kept for the title, and the defaults,
+ *                                     with reduce_loud)
+ *   PUT  /api/account/playback        {reduce_loud} (Reduce loud sounds, kept for the person; watch/loudness.js)
  *   PUT  /api/watch/tracks/<key>      {audio} or {subtitle} (kept for the title; the stream starts again
  *                                     with it), DELETE for the person's defaults again
  *   GET  /api/tvs/<id>, POST /api/tvs/<id>/commands  (what plays on a TV of the person's)
@@ -4450,12 +4452,54 @@
       showControls();
     },
     pick: pickTracks,
+    loud: pickLoud,
   }) : null;
+
+  /* Reduce loud sounds, where this browser can lead the video's sound through Web Audio. Its
+     sound does not follow the video to another device, so it plays as it comes while it is there. */
+  var LOUD_UNSAVED = 'Couldn’t keep Reduce loud sounds for next time. It stays as it is here.';
+  var LOUD_ELSEWHERE = 'Reduce loud sounds is off while the video plays on another device.';
+  var loud = MM.loudness ? MM.loudness.create(local, function () { loud = null; showTracks(); }) : null;
+  var loudOn = false;       // the person's setting
+  var loudPicked = false;   // changed on this page, over what the server said
+  var remoteOn = false;     // the video's own Remote Playback
+  if (loud && local.remote && local.remote.addEventListener) {
+    ['connecting', 'connect', 'disconnect'].forEach(function (name) {
+      local.remote.addEventListener(name, function () {
+        remoteOn = name !== 'disconnect';
+        if (loud) loud.dry(remoteOn);
+        showTracks();
+      });
+    });
+  }
+
+  function loudState() {
+    if (!loud || away) return null;
+    return { on: loudOn, note: remoteOn ? LOUD_ELSEWHERE : null };
+  }
+
+  /* Inside the press, which the context needs to start. */
+  function pickLoud(on) {
+    loudOn = on;
+    loudPicked = true;
+    if (loud) loud.set(on);
+    showTracks();
+    MM.api.put('/api/account/playback', { reduce_loud: on }).catch(function () {
+      if (window.UIFeedback) window.UIFeedback.error(LOUD_UNSAVED);
+    });
+  }
+
+  function takeLoud(defaults) {
+    if (loudPicked || !defaults || typeof defaults.reduce_loud !== 'boolean') return;
+    loudOn = defaults.reduce_loud;
+    /* Before any press the context waits, and the video plays as it comes until one. */
+    if (loud && (loudOn || loud.on())) loud.set(loudOn);
+  }
 
   function tracksUrl(key) { return '/api/watch/tracks/' + encodeURIComponent(key); }
 
   function trackState() {
-    return Object.assign({ title: item.title, series: !!showHref, on: away && away.play ? awayName() : null, art: pictureUrl() }, tracks);
+    return Object.assign({ title: item.title, series: !!showHref, on: away && away.play ? awayName() : null, art: pictureUrl(), loud: loudState() }, tracks);
   }
 
   /* The chooser, where it may change what plays: not while a TV with a remote of its own plays it,
@@ -4514,6 +4558,7 @@
     // What is kept for the subtitles, as the server gave it, to be given back as it is.
     tracks.keptSubtitle = data.remembered_subtitle_choice || null;
     tracks.defaults = data.defaults || null;
+    takeLoud(tracks.defaults);
     showTracks();
   }
 

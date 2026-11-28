@@ -1340,6 +1340,11 @@
 .player-av-row.is-picked > .player-menu-tick { animation: player-av-tick var(--dur-fast) var(--ease-out); }
 .player-av-row:disabled { cursor: default; }
 .player-av-none { padding: 4px 12px 10px; font-size: 13px; line-height: 1.45; color: var(--t3); }
+/* Reduce loud sounds: a switch under the audio, set off from its tracks by a hairline. */
+.player-av-loud { flex: none; margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--hair); }
+.player-av-loud > .player-av-none { padding-top: 10px; }
+.player-av-switch .player-av-sub { white-space: normal; }
+.player-av-switch > .tog { pointer-events: none; }
 /* What is kept, and the way back to the defaults. */
 .player-av-foot {
   flex: none;
