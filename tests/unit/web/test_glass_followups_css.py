@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from tests.unit.web._css import contrast, rules, style, token
+from tests.unit.web._css import contrast, rgb, rules, style, token
 from tests.unit.web.test_glass_css import WHITE, _colour, _glass_over, _over
 
 KEEP = "_watch.css"
@@ -80,10 +80,12 @@ def test_a_grid_s_stuck_head_rings_only_in_the_glass_s_ring(
 
 
 def test_every_ring_in_a_grid_s_glass_layer_is_the_glass_s_ring() -> None:
-    # The layers set --accent to the glass's blue for fills; a ring in it is a second blue.
+    # The layers set --accent to the glass's blue for fills; a ring in it is a second blue. A
+    # card's buttons are the same on the page and on a layer, and the glass's ring holds on both.
     # The home page's "All n titles" link lies on the page, not on a layer.
+    assert contrast(_colour("var(--g-focus)", {})[:3], rgb(token("--bg"))) >= 3
     seen = 0
-    for sheet in ("_watch_grid.css", "_watch_dlgrid.css"):
+    for sheet in ("_watch_grid.css", "_watch_dlgrid.css", "_watch_cards.css"):
         for where, sels, decls in rules(sheet):
             if any("forced-colors" in w for w in where):
                 continue
@@ -99,7 +101,7 @@ def test_every_ring_in_a_grid_s_glass_layer_is_the_glass_s_ring() -> None:
                 seen += 1
                 assert "var(--g-focus)" in value, (sheet, ringed, prop, value)
                 assert not re.search(r"var\(--(g-)?accent\)", value), (sheet, ringed, prop, value)
-    assert seen >= 8
+    assert seen >= 11
 
 
 def test_a_rows_menu_ticks_in_a_blue_that_keeps_4_5_to_1_on_its_glass() -> None:
