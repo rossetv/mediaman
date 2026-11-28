@@ -463,6 +463,13 @@ def test_while_the_pane_changes_width_its_frame_carries_the_glass_once() -> None
     fill = style(".you__frame-fill", YOU)
     assert fill["background"] == "var(--g-regular)"
     assert fill["backdrop-filter"] == fill["-webkit-backdrop-filter"] == "var(--g-filter)"
+    # The shadow is the shade's alone, outside the glass's clip, scaled from the side that stays:
+    # on the fill it would be clipped and drawn twice, and scaled from the left it would part from
+    # the glass mid-step.
+    shade = style(".you__frame-shade", YOU)
+    assert shade["box-shadow"] == "var(--g-shadow)"
+    assert shade["transform-origin"] == "100% 0"
+    assert "--g-shadow" not in fill["box-shadow"]
     # Its ends lie over the fill: glass of their own there would be laid twice, and darker.
     ends = style(".you__frame-end", YOU)
     assert "background" not in ends and "backdrop-filter" not in ends
@@ -839,6 +846,25 @@ def test_the_bar_island_s_controls_draw_their_ring_on_its_glass_in_the_glass_s_r
         assert px(offset) + px(width) <= 0, offset
 
 
+def test_below_900px_the_profile_button_s_ring_and_its_download_ring_keep_glass_between() -> None:
+    narrow = "(max-width: 899.98px)"
+    # Below 900px the button is a disc round the picture, its ring inside its edge.
+    edge = px(style(".profile-btn", NAV)["min-width"]) / 2
+    width = px(style(".space-meter:focus-visible", SPACE)["outline"].split()[0])
+    ring_in = edge + px(style(".profile-btn:focus-visible", NAV)["outline-offset"])
+    assert ring_in + width <= edge
+    # The download ring, drawn round the picture, draws in while the keyboard's ring shows.
+    picture = px(style(".avatar", NAV)["width"]) / 2
+    band = float(re.search(r"calc\(100% - ([\d.]+)px\)", style(".profile-ring", NAV)["mask"])[1])
+    assert style(".profile-btn:focus-visible .profile-ava", NAV, narrow)["transform"] == "none"
+    drawn = style(".profile-btn:focus-visible .profile-ring", NAV, narrow)
+    assert "transform" not in drawn
+    outer = picture - px(drawn["inset"])
+    assert outer + 1.5 <= ring_in
+    # Not onto the picture.
+    assert outer - band >= picture
+
+
 def test_a_stuck_day_head_holds_its_words_over_a_white_picture_blurred_under_it() -> None:
     # The worst a row can pass under the head: a white picture filling an avatar's disc, as much of
     # it as the head's blur gathers at the disc's middle, which is most where the blur is least.
@@ -857,29 +883,105 @@ def test_a_stuck_day_head_holds_its_words_over_a_white_picture_blurred_under_it(
 
 def test_a_phone_never_stacks_a_third_blur_in_history() -> None:
     # Unfolded, the tools lie over a stuck day head: one of the two blurs, the other is under it.
-    covered = style(
-        ".hx-tools.has-day:not(.is-tucked) ~ .hx-list .hx-day__top.is-stuck", HISTORY, PHONE
-    )
-    assert covered["backdrop-filter"] == covered["-webkit-backdrop-filter"] == "none"
+    # Pushed up by the next day's head, the stuck one slides under the tucked tools: the same.
+    for head in (
+        ".hx-tools.has-day:not(.is-tucked) ~ .hx-list .hx-day__top.is-stuck",
+        ".hx-day__top.is-pushed",
+    ):
+        covered = style(head, HISTORY, PHONE)
+        assert covered["backdrop-filter"] == covered["-webkit-backdrop-filter"] == "none", head
+        # At once: a blur easing out would be a third layer while it lasts.
+        assert "backdrop-filter" not in covered["transition-property"], head
+    # What shows of a pushed head is solid, at once: the rows under it would show sharp through it.
+    pushed = style(".hx-day__top.is-pushed", HISTORY, PHONE)
+    assert pushed["background-color"] == "var(--g-solid)"
+    assert "background-color" not in pushed["transition-property"]
     # The kinds' arrows sit on the stuck tools: solid, never a blur of their own.
     for where, selectors, decls in rules(HISTORY):
         if any(".hx-kinds-arrow" in s for s in selectors):
             assert decls.get("backdrop-filter", "none") == "none", (where, selectors)
             assert decls.get("-webkit-backdrop-filter", "none") == "none", (where, selectors)
-    arrow = style(".hx-kinds-arrow", HISTORY, "(hover: hover) and (pointer: fine)")
-    assert _colour(arrow["background"], {})[3] == 1
+    for arrow in (".hx-kinds-arrow", ".hx-kinds-arrow:hover"):
+        drawn = style(arrow, HISTORY, "(hover: hover) and (pointer: fine)")
+        assert _colour(drawn["background"], {})[3] == 1, arrow
 
 
-def test_a_toast_stands_above_a_form_s_foot_clear_of_its_button_and_its_blur() -> None:
+def _matches(condition: str, w: int, h: int) -> bool:
+    """Whether a screen of *w* by *h* meets an @media condition of widths and heights alone."""
+    limits = {
+        "min-width": lambda v: w >= v,
+        "max-width": lambda v: w <= v,
+        "max-height": lambda v: h <= v,
+    }
+    for alternative in _top_level(condition, ","):
+        parts = re.findall(r"\(([\w-]+):\s*([\d.]+)px\)", alternative)
+        if (
+            parts
+            and len(parts) == alternative.count("(")
+            and all(limits[f](float(v)) for f, v in parts)
+        ):
+            return True
+    return False
+
+
+def _at(selector: str, sheet: str, w: int, h: int) -> dict[str, str]:
+    """What the rules headed by *selector* declare on a screen of *w* by *h*, later winning."""
+    merged: dict[str, str] = {}
+    for where, selectors, decls in rules(sheet):
+        if selector in selectors and all(
+            not c.startswith("@") and _matches(c, w, h) for c in where
+        ):
+            merged.update(decls)
+    return merged
+
+
+def _length(value: str, w: int, scope: dict[str, str]) -> float:
+    """A length in px on a screen *w* wide with no safe areas, *scope* giving the custom properties."""
+    for _ in range(4):
+        value = re.sub(r"env\([^()]*\)", "0px", value)
+        value = re.sub(
+            r"var\((--[\w-]+)(?:,\s*([^()]*(?:\([^()]*\))?[^()]*))?\)",
+            lambda m: scope.get(m[1], m[2] or ""),
+            value,
+        )
+    value = value.replace("100vw", f"{w}px").replace("100%", f"{w}px").replace("calc", "")
+    value = value.replace("px", "")
+    # Numbers, signs, brackets and min/max alone are left by now: anything else is not a length.
+    assert re.fullmatch(r"(?:[\d.\s+\-*/(),]|min|max)+", value), value
+    return float(eval(value, {"__builtins__": {}, "min": min, "max": max}))
+
+
+# Phones upright and on their side, a small window, a desktop, and the edges of their rules.
+SCREENS = [(402, 874), (440, 956), (667, 375), (700, 420), (874, 402), (1024, 560), (1440, 900)]
+
+
+@pytest.mark.parametrize(("w", "h"), SCREENS)
+def test_a_toast_over_a_form_never_lies_on_its_controls_whatever_its_scroll(w: int, h: int) -> None:
+    toast = _at("html.has-you-form body .ui-toast-host", PROFILE, w, h)
     foot = style(".yo-foot", PROFILE)
-    top, _, bottom = _top_level(foot["padding"], " ")
-    button = px(style(".yo-foot .btn", PROFILE)["min-height"])
-    tall = px(top) + button + px(re.match(r"calc\((\S+)", bottom)[1])
-    lifted = "html.has-you-form body .ui-toast-host"
-    phone = re.match(r"calc\((\S+)", style(lifted, PROFILE, PHONE)["bottom"])[1]
-    assert px(phone) > tall
-    # Wider, the pane stands 12px off the foot of the screen, with the foot at its own foot.
-    assert px(style(lifted, PROFILE)["--toast-bottom"]) > tall + 12
+    pinned = _at(".yo-foot", PROFILE, w, h)["position"] != "static"
+    if w >= 700:
+        # A side panel: the form scrolls under any spot on it, so the toast stands off it.
+        pane = {**style(".you", YOU), **_at(".you__panel", YOU, w, h)}
+        left = w - _length(pane["right"], w, {}) - _length(pane["width"], w, pane)
+        assert toast["right"] == "auto"
+        assert _length(toast["left"], w, {}) + _length(toast["max-width"], w, {}) <= left
+    elif pinned:
+        # A sheet with its foot held in sight: the toast stands above it, over what never scrolls.
+        top, _, bottom = _top_level(foot["padding"], " ")
+        button = px(style(".yo-foot .btn", PROFILE)["min-height"])
+        tall = _length(top, w, {}) + button + _length(bottom, w, {})
+        assert toast["top"] == "auto" and _length(toast["bottom"], w, {}) > tall
+    else:
+        # The foot follows the form: the toast stands on the sheet's bar, under its handle and
+        # between Back and Close, which take the bar's two equal sides.
+        sheet_top = re.search(
+            r"max\([^()]*(?:\([^()]*\))?[^()]*\)", style(".you__panel", YOU, PHONE)["height"]
+        )[0]
+        grab = px(style(".you__grab", YOU, PHONE)["height"])
+        assert toast["bottom"] == "auto"
+        assert _length(toast["top"], w, {}) >= _length(sheet_top, w, {}) + grab
+        assert _length(toast["left"], w, {}) == _length(toast["right"], w, {}) > 44
 
 
 def test_the_pane_s_glass_reaches_to_its_edge_so_what_it_holds_sits_inside_it_evenly() -> None:

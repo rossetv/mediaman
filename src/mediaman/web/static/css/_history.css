@@ -500,8 +500,12 @@
   /* The heads stick under the search alone; the pills coming back cover them. */
   .hx-day__top { top: calc(var(--hx-tools, 192px) - var(--hx-fold, 0px)); }
   .hx-tools.is-stuck.has-day:not(.is-tucked) { border-bottom-color: var(--hair); }
-  /* Under them a head's blur would stack a third layer on the pane's glass and theirs. */
-  .hx-tools.has-day:not(.is-tucked) ~ .hx-list .hx-day__top.is-stuck { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  /* Under them a head's blur would stack a third layer on the pane's glass and theirs: under the
+     pills come back, or pushed up under the search by the next day's head. It goes at once. */
+  .hx-tools.has-day:not(.is-tucked) ~ .hx-list .hx-day__top.is-stuck,
+  .hx-day__top.is-pushed { -webkit-backdrop-filter: none; backdrop-filter: none; transition-property: border-color, background-color, box-shadow; }
+  /* What shows of a pushed head is solid, so the rows under it never show sharp through its words. */
+  .hx-day__top.is-pushed { background-color: var(--g-solid); transition-property: border-color, box-shadow; }
   .you-view[data-view="history"] { scroll-padding-top: calc(var(--hx-tools, 192px) + 48px); }
   .hist-body { padding-left: 14px; }
   .hist-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }

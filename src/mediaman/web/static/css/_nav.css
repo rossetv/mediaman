@@ -208,6 +208,10 @@
   .profile-btn::before { inset: -1px; }
   .profile-btn-name,
   .profile-btn > .ico { display: none; }
+  /* The keyboard's ring takes the button's edge, where the download ring reaches: that draws in,
+     with the island's glass between them, so the light ring never lies on the blue one. */
+  .profile-btn:focus-visible .profile-ava { transform: none; }
+  .profile-btn:focus-visible .profile-ring { inset: -3px; }
 }
 
 /* Initials on one of six colours, each with at least 4.5:1 under the white letters. */

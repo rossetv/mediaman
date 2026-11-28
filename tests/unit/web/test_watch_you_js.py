@@ -397,3 +397,12 @@ def test_a_profile_view_a_step_below_another_goes_back_to_that_one() -> None:
 
 def test_the_page_is_marked_while_a_view_with_a_saving_foot_shows_and_not_after() -> None:
     assert _run("formFoot") == {"hub": False, "form": True, "back": False, "closed": False}
+
+
+def test_the_page_is_not_marked_while_another_group_loads_or_after_it_fails() -> None:
+    assert _run("formFootWait") == {
+        "form": True,
+        "waiting": False,
+        "failed": False,
+        "title": "Profile",
+    }

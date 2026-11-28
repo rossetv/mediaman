@@ -701,6 +701,23 @@ scenarios.formFoot = async () => {
   return { hub, form, back, closed: marked() };
 };
 
+// A group on its way leaves no form on show, nor does one that fails to come.
+scenarios.formFootWait = async () => {
+  const p = open('/', { hold: true, server: (page) => (page === '/history' ? { status: 500 } : null) });
+  const marked = () => p.doc.documentElement.classList.contains('has-you-form');
+  p.you.go('profile/email');
+  await p.settle();
+  p.release();
+  await p.settle();
+  const form = marked();
+  p.you.go('history');
+  await p.settle();
+  const waiting = marked();
+  p.release();
+  await p.settle();
+  return { form, waiting, failed: marked(), title: p.title() };
+};
+
 const name = process.argv[2];
 if (!scenarios[name]) { console.error('unknown scenario ' + name); process.exit(2); }
 Promise.resolve(scenarios[name]()).then((out) => console.log(JSON.stringify(out)), (err) => { console.error(err.stack); process.exit(1); });

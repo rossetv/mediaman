@@ -94,11 +94,20 @@
 .yo-foot--two .btn { flex: 1; }
 /* What is brought into view stops above the foot: its button of 48px and its padding of 28px. */
 .you-view:has(.yo-foot) { scroll-padding-bottom: 88px; }
-/* A toast stands clear of the foot: over it, it would hide the button a failed save is tried again
-   with, and on a phone lay a third blur over the foot's and the sheet's. */
-html.has-you-form body .ui-toast-host { --toast-bottom: 100px; }
+/* A toast stands where no control of a form is: over one it would hide what a failed save is tried
+   again with, and on a phone lay a third blur over the foot's and the sheet's. A form scrolls, so
+   from 700px it stands beside the pane (440px wide, 12px off the edge), 16px clear of it. */
+@media (min-width: 700px) {
+  html.has-you-form body .ui-toast-host { right: auto; left: max(24px, env(safe-area-inset-left, 0px)); max-width: min(360px, calc(100vw - 492px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))); }
+}
+/* The sheet is the whole width: above its foot, which stays in sight with nothing under it. */
 @media (max-width: 699.98px) {
-  html.has-you-form body .ui-toast-host { bottom: calc(88px + var(--sa-bottom, env(safe-area-inset-bottom, 0px))); }
+  html.has-you-form body .ui-toast-host { top: auto; bottom: calc(88px + var(--sa-bottom, env(safe-area-inset-bottom, 0px))); }
+}
+/* On its side the foot follows the form, so the screen's foot is no clearer: over the sheet's bar,
+   under its handle (18px) and between Back, labelled Profile, and Close. */
+@media (max-width: 699.98px) and (max-height: 500px) {
+  html.has-you-form body .ui-toast-host { top: calc(max(16px, env(safe-area-inset-top, 0px) + 8px) + 18px); right: calc(112px + env(safe-area-inset-right, 0px)); bottom: auto; left: calc(112px + env(safe-area-inset-left, 0px)); max-width: none; justify-content: flex-start; }
 }
 /* A phone on its side: the foot follows the form, so it covers none of it. */
 @media (max-height: 500px) {

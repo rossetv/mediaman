@@ -571,6 +571,7 @@
       if (focusIn) title.focus({ preventScroll: true });
       root.setAttribute('data-wait', group(p));
       root.classList.add('is-loading');
+      document.documentElement.classList.remove('has-you-form');
     }
     if (on) setTimeout(wait, WAIT_MS); else wait();
     load(group(p)).then(function (ok) {
