@@ -863,11 +863,18 @@
       var tones = {};
       Array.prototype.forEach.call(document.querySelectorAll('[data-conn]'), function (pill) {
         var tone = ['ok', 'err', 'off'].filter(function (t) { return pill.classList.contains(t); })[0] || 'unknown';
+        // A service that answered and turned the key away is not one that does not answer.
+        if (tone === 'err' && pill.classList.contains('is-refused')) tone = 'refused';
         tones[pill.getAttribute('data-conn')] = tone;
       });
       var known = Object.keys(tones).map(function (k) { return tones[k]; });
-      var bad = known.filter(function (t) { return t === 'err'; }).length;
-      var text = bad ? (bad === 1 ? '1 service is not answering' : bad + ' services are not answering')
+      var down = known.filter(function (t) { return t === 'err'; }).length;
+      var refused = known.filter(function (t) { return t === 'refused'; }).length;
+      var bad = down + refused;
+      var keys = refused === 1 ? ' refused its key' : ' refused their keys';
+      var text = down && refused ? down + ' not answering, ' + refused + keys
+        : refused ? refused + (refused === 1 ? ' service' : ' services') + keys
+        : down ? (down === 1 ? '1 service is not answering' : down + ' services are not answering')
         : !known.length || known.indexOf('unknown') !== -1 ? neutral
         : known.indexOf('ok') === -1 ? 'No services are set up yet'
         : 'Everything is connected';

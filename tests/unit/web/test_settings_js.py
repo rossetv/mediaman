@@ -165,6 +165,20 @@ def test_the_list_says_how_many_services_are_not_answering_or_how_many_are_conne
     assert out["up"] == {"text": "2 of 3 connected", "bad": False}
 
 
+def test_a_refused_key_reads_as_refused_and_is_counted_apart_from_not_answering() -> None:
+    out = _run("refusedKey")
+    first = out["first"]
+    assert first["plex"] == {"label": "Not answering", "refused": False, "err": True}
+    for svc in ("sonarr", "openai"):
+        assert first[svc]["refused"] is True and first[svc]["err"] is True
+        assert "refused" in first[svc]["label"].lower()
+        assert "answering" not in first[svc]["label"].lower()
+    assert "1 not answering" in first["line"]
+    assert "2 refused" in first["line"]
+    assert first["badge"] == "3"
+    assert out["after"] == {"label": "Not answering", "refused": False, "err": True}
+
+
 def test_pressed_test_that_is_rate_limited_warns_and_is_not_counted() -> None:
     out = _run("manualRateLimit")
     assert "warn" in out["pill"].split()
@@ -248,6 +262,9 @@ def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
     text = _run("fieldError")["text"]
     assert "Base URL must start with http:// or https://." in text
     assert "must be between 1 and 365 days." in text
+    # a label that already names the unit does not have it said twice
+    assert "Minimum age must be between 1 and 365 days." in text
+    assert "in days must" not in text
     # a field the page does not show falls back to its key in words
     assert "Mystery key is not valid." in text
     assert "base_url" not in text and "got" not in text
@@ -364,6 +381,18 @@ def test_a_save_sends_only_the_settings_that_were_changed() -> None:
     assert out["restored"] == {"scan_time": "10:00"}
     assert out["one"] == {"grace_days": 20}
     assert out["two"] == {"base_url": "http://b", "openai_model": "other"}
+    # a day count that is no whole number goes as typed, for the server to refuse, never cut down
+    assert out["fraction"] == {"grace_days": "30.5"}
+
+
+def test_a_cleared_scan_time_is_refused_in_the_bar_and_not_said_to_be_saved() -> None:
+    out = _run("blankScanTime")
+    refused = out["refused"]
+    assert refused["sent"] == 0
+    assert refused["error"] is True
+    assert "Scan time" in refused["status"]
+    assert "saved" not in refused["status"].lower()
+    assert out["fixed"] == {"scan_time": "11:30", "base_url": "http://b"}
 
 
 def test_an_edit_that_is_put_back_leaves_nothing_unsaved() -> None:
