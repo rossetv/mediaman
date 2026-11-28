@@ -274,6 +274,8 @@ async function page(opts = {}) {
       clock = end;
     },
     async press(sel, how) { click(doc, $(sel), how); await settle(); },
+    // A press of a pointer begins on the remote.
+    down: () => ($('#tv-remote').listeners.pointerdown || []).forEach((fn) => fn({ pointerType: 'mouse' })),
     /* Audio & subtitles opened from the keyboard, and the row with *text* picked in it. */
     async openTracks() { click(doc, $('[data-av-btn]'), { detail: 0 }); await settle(); },
     async pickTrack(text) {
@@ -354,7 +356,7 @@ function moving(p) {
   p.$('#tv-mini').getBoundingClientRect = box(BAR);
   p.$('[data-sheet]').getBoundingClientRect = box(CARD);
   p.$('[data-hero]').setPointerCapture = () => {};
-  p.win.getComputedStyle = () => ({ getPropertyValue: (k) => ({ '--mini-lean': 'translateY(-4px) scale(1.01)' }[k] || ''), transform: 'matrix(0.5, 0, 0, 0.5, 10, 20)', opacity: '0.5' });
+  p.win.getComputedStyle = () => ({ getPropertyValue: (k) => ({ '--mini-lean': 'scale(1.016, 1.08)', '--mini-lean-part': 'scale(0.984, 0.926)' }[k] || ''), transform: 'matrix(0.5, 0, 0, 0.5, 10, 20)', opacity: '0.5' });
   const name = (el) => ['data-glass', 'data-veil', 'data-sheet', 'data-morph-art', 'data-title', 'data-mid', 'data-hero', 'id'].map((k) => el.hasAttribute(k) && (k === 'id' ? el.getAttribute('id') : k)).find(Boolean) || el.className;
   return {
     live: () => moves.filter((a) => !a.cancelled),
@@ -366,17 +368,62 @@ function moving(p) {
 }
 
 const scenarios = {
-  // The second press of a double click lands on the card's foot: Stop and bring it here, and Stop,
-  // wait a moment after it opens; a key, and a press after that, go through.
+  // The stretches over the whole of each move, as parts of it: the glass is drawn before the bar
+  // goes, the bar is back before the glass goes, and one title is always there.
+  async spans() {
+    const p = await page();
+    const mv = moving(p);
+    const span = (sel, prop) => {
+      const a = mv.of(sel).find((x) => prop in x.frames[0]);
+      return [a.how.delay, a.how.delay + a.how.duration];
+    };
+    await p.open();
+    const open = { glass: span('[data-glass]', 'opacity'), bar: span('#tv-mini', 'opacity'), barTitle: span('[data-mini-title]', 'opacity'), title: span('[data-title]', 'opacity') };
+    await mv.end();
+    await p.press('[data-close]');
+    const close = { glass: span('[data-glass]', 'opacity'), bar: span('#tv-mini', 'opacity'), barTitle: span('[data-mini-title]', 'opacity'), title: span('[data-title]', 'opacity') };
+    return { open, close };
+  },
+  // A press that began on the card before it settled does nothing, however late it ends; one begun
+  // after acts, and a key at once.
   async doublePress() {
     const p = await page();
     await p.open();
+    await p.pass(450);
+    p.down();
+    await p.pass(150);
     await p.press('[data-bring]', { detail: 2 });
     await p.press('[data-stop]', { detail: 2 });
-    const soon = p.sent();
-    await p.pass(600);
+    const at600 = p.sent().map((b) => b.kind);
+    await p.pass(50);
+    p.down();
     await p.press('[data-stop]', { detail: 1 });
-    return { soon, later: p.sent().map((b) => b.kind), growing: p.$('#tv-remote').classList.contains('is-growing') };
+    const late = p.sent().map((b) => b.kind);
+    const q = await page();
+    await q.open();
+    await q.pass(1000);
+    q.down();
+    await q.press('[data-stop]', { detail: 1 });
+    const k = await page();
+    await k.open();
+    await k.press('[data-stop]', { detail: 0 });
+    return { at600, late, at1s: q.sent().map((b) => b.kind), keyed: k.sent().map((b) => b.kind) };
+  },
+  // As it grows, a tap beside the card closes it, but not one where the bar stood.
+  async tapBeside() {
+    const out = {};
+    for (const [name, x] of [['onBar', 400], ['beside', 100]]) {
+      const p = await page();
+      const mv = moving(p);
+      await p.open();
+      const growing = p.$('#tv-remote').classList.contains('is-growing');
+      p.down();
+      await p.press('[data-veil]', { detail: 1, clientX: x, clientY: 850 });
+      out[name] = { growing, open: p.isOpen() };
+      await mv.end();
+      out[name].grown = !p.$('#tv-remote').classList.contains('is-growing');
+    }
+    return out;
   },
   // Closed as it opens, the parts are measured where they are laid out, with the opening stopped.
   async measuredStopped() {
@@ -397,8 +444,9 @@ const scenarios = {
       const mv = moving(p);
       await p.on('[data-open]', 'pointerenter', { pointerType });
       const to = mv.of('#tv-mini').map((a) => a.frames[1].transform);
+      const words = mv.of('.tv-mini__t').map((a) => a.frames[1].transform);
       await p.on('[data-open]', 'pointerleave', { pointerType });
-      out[name] = { to, back: mv.of('#tv-mini').map((a) => a.frames[1].transform) };
+      out[name] = { to, words, back: mv.of('#tv-mini').map((a) => a.frames[1].transform) };
     }
     return out;
   },

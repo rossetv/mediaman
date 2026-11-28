@@ -809,7 +809,7 @@
   var miniLeaving = null;
   /* The page says what of it shows, for what makes room for it (_tv_remote.css). */
   function showMini(on, leaving) {
-    if (leaving) unlean();
+    if (leaving && leans) unlean();
     setHidden(mini, !on);
     mini.classList.toggle('is-leaving', leaving);
     document.documentElement.classList.toggle('has-tv-mini', on);
@@ -1474,9 +1474,13 @@
   root.addEventListener('click', function (e) {
     function hit(sel) { return e.target.closest(sel); }
     var pill = hit('[data-menu]');
-    // The second press of a double click on the bar lands where these stand: pressed (not keyed),
-    // they wait a moment.
-    if (e.detail && hit('[data-bring], [data-stop]') && now() - openedAt < SETTLE_MS) return;
+    // The second press of a double click on the bar lands on the card as it opens: a press that
+    // began before the card settled does nothing on it, nor beside it where the bar stood. A key
+    // acts at once.
+    if (e.detail && pressedAt < openedAt + SETTLE_MS && !hit('[data-close]')) {
+      var b = e.target === els.veil && openBar;
+      if (!b || e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom) return;
+    }
     if (hit('[data-close]') || e.target === els.veil) close();
     else if (hit('[data-po-close]') || hit('[data-po-veil]')) closeMenu();
     else if (hit('[data-play]')) toggle();
@@ -1491,6 +1495,8 @@
     else if (hit('[data-bring]')) bring();
     else if (hit('[data-stop]')) stop();
   });
+
+  root.addEventListener('pointerdown', function () { pressedAt = now(); }, true);
 
   root.addEventListener('keydown', function (e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1651,7 +1657,7 @@
   var FADE_MS = 150;
   var PULL_PX = 110; // a sheet pulled down this far closes as it is let go
   var FLICK_PX_MS = 0.5; // and so does one flicked down faster than this
-  var SETTLE_MS = 500; // that a press of Stop and bring it here, or Stop, waits after the card opens
+  var SETTLE_MS = 600; // that a press on the card must begin after it opens to act
   var LEAN_MS = 440;
   var UNLEAN_MS = 260;
   var moves = [];
@@ -1682,6 +1688,15 @@
     }
     return 'translate(' + (from.left - to.left) + 'px, ' + (from.top - to.top) + 'px) scale(' + from.width / to.width + ', ' + from.height / to.height + ')';
   }
+  /* How wide the words of *el* are drawn: as long as they run, up to its own width. */
+  function shownWidth(el) {
+    var range = document.createRange && document.createRange();
+    if (!range) return box(el).width;
+    range.selectNodeContents(el);
+    var run = 0;
+    Array.prototype.forEach.call(range.getClientRects(), function (r) { run = Math.max(run, r.right - box(el).left); });
+    return Math.min(run || box(el).width, box(el).width);
+  }
   /* How much larger the words of *to* are than those of *from*. */
   function wordsOf(from, to) {
     var a = parseFloat(global.getComputedStyle(from).fontSize);
@@ -1709,13 +1724,14 @@
         .concat([els.glass, els.hero, els.mid, els.bottom].map(function (el) { return { el: el, k: 'opacity', shut: '0', open: '1', span: [0, 0.5] }; }));
     }
     // The card's glass is drawn in full before the bar goes, and the bar is mostly back before the
-    // glass goes, so nothing between them dips. The bar's title hands over to the card's, one going
-    // as the other comes, as their letters are not quite the same.
+    // glass goes, so nothing between them dips. Opening, the bar's title hands over to the card's,
+    // one going before the other comes, as their letters are not quite the same; closing, the
+    // bar's comes as the card's goes, so a title is always there.
     var t = [veil,
       { el: els.glass, k: 'transform', shut: fit(bar, sheet), open: 'none', span: [0, 1], spring: true },
       { el: els.glass, k: 'opacity', shut: '0', open: '1', span: [0, 0.2], back: [0.6, 0.85] },
       { el: mini, k: 'opacity', shut: '1', open: '0', span: [0.2, 0.45], back: [0.5, 0.72] },
-      { el: m('[data-mini-title]'), k: 'opacity', shut: '1', open: '0', span: [0, 0.05], back: [0.72, 0.84] }];
+      { el: m('[data-mini-title]'), k: 'opacity', shut: '1', open: '0', span: [0, 0.05], back: [0.62, 0.76] }];
     function travel(from, to, even) {
       var a = box(from);
       var b = box(to);
@@ -1738,9 +1754,12 @@
         shared.push(el);
       });
     }
-    if (travel(m('[data-mini-title]'), els.title, true)) {
+    // A title that would run past the bar's at the bar's size comes and goes on the card instead.
+    var words = box(m('[data-mini-title]'));
+    var fits = words && box(els.title) && shownWidth(els.title) * wordsOf(m('[data-mini-title]'), els.title) <= words.width + 8;
+    if (fits && travel(m('[data-mini-title]'), els.title, true)) {
       shared.push(els.title);
-      t.push({ el: els.title, k: 'opacity', shut: '0', open: '1', span: [0.05, 0.12], back: [0.58, 0.72] });
+      t.push({ el: els.title, k: 'opacity', shut: '0', open: '1', span: [0.05, 0.12], back: [0.66, 0.8] });
     }
     var track = els.seek.querySelector('.player-seek-track');
     if (travel(m('.tv-mini__bar'), track)) {
@@ -1833,51 +1852,70 @@
 
   /* ── the bar leaning towards the card ── */
 
-  /* Under the mouse the bar leans towards the card it opens into, and back as the mouse goes, each
-     from wherever it is (_tv_remote.css holds how far, and the curve). A finger, and less motion,
-     get none of it. Opened, the bar is held as it was, so the card grows from where it is seen. */
+  /* Under the mouse the bar swells towards the card it opens into, as if pushing to open, then holds
+     back; it goes back as the mouse goes, each from wherever it is. Its glass is stretched up and
+     out from its foot, which rounds its corners on the way, and what is on it is drawn back to its
+     own size (_tv_remote.css holds how far, and the curve). A finger, and less motion, get none
+     of it. Opened, the bar is held as it was, so the card grows from where it is seen, and leans
+     again as it closes under a mouse still on it. */
   var mouse = global.matchMedia('(hover: hover) and (pointer: fine)');
-  var lean = null;
+  var leans = [];
+  var lastMouse = null;
+  function leanParts() { return [mini].concat(MM.dom.qa('.tv-mini__pic, .tv-mini__t, .tv-mini > .player-btn', mini)); }
   function leanTo(on) {
     if (typeof mini.animate !== 'function' || isOpen || mini.style.transform) return;
-    if (on ? !mouse.matches || calm() || mini.classList.contains('is-leaving') : !lean) return;
+    if (on ? !mouse.matches || calm() || mini.classList.contains('is-leaving') : !leans.length) return;
     var drawn = global.getComputedStyle(mini);
     var bend = drawn.getPropertyValue('--mini-lean-curve').trim();
-    var from = drawn.transform;
-    if (lean) lean.cancel();
-    var anim = mini.animate([{ transform: from }, { transform: on ? drawn.getPropertyValue('--mini-lean').trim() : 'none' }], {
-      duration: on ? LEAN_MS : UNLEAN_MS,
-      easing: on && bend && global.CSS && global.CSS.supports && global.CSS.supports('transition-timing-function', bend) ? bend : 'ease-out',
-      fill: 'forwards',
+    var to = { bar: drawn.getPropertyValue('--mini-lean').trim(), part: drawn.getPropertyValue('--mini-lean-part').trim() };
+    var parts = leanParts();
+    var from = parts.map(function (el) { return global.getComputedStyle(el).transform; });
+    unlean();
+    leans = parts.map(function (el, i) {
+      return el.animate([{ transform: from[i] }, { transform: on ? (el === mini ? to.bar : to.part) : 'none' }], {
+        duration: on ? LEAN_MS : UNLEAN_MS,
+        easing: on && bend && global.CSS && global.CSS.supports && global.CSS.supports('transition-timing-function', bend) ? bend : 'ease-out',
+        fill: 'forwards',
+      });
     });
-    lean = anim;
-    if (!on) anim.onfinish = function () { if (lean === anim) unlean(); };
+    var mine = leans;
+    if (!on) mine[0].onfinish = function () { if (leans === mine) unlean(); };
   }
   function unlean() {
-    if (lean) lean.cancel();
-    lean = null;
+    leans.splice(0).forEach(function (a) { a.cancel(); });
   }
   function holdBar(on) {
+    var parts = leanParts();
     if (on) {
-      var at = global.getComputedStyle ? global.getComputedStyle(mini).transform : '';
+      var at = global.getComputedStyle ? parts.map(function (el) { return global.getComputedStyle(el).transform; }) : [];
       unlean();
-      if (at && at !== 'none') {
-        mini.style.transition = 'none';
-        mini.style.transform = at;
-      }
-    } else {
-      // It eases back from there, on its own transition.
-      mini.style.transition = '';
-      mini.style.transform = '';
+      parts.forEach(function (el, i) {
+        if (!at[i] || at[i] === 'none') return;
+        el.style.transition = 'none';
+        el.style.transform = at[i];
+      });
+      return;
     }
+    // It eases back from there, on its own transition, or leans again where the mouse still is.
+    parts.forEach(function (el) {
+      el.style.transition = '';
+      el.style.transform = '';
+    });
+    var over = lastMouse && document.elementFromPoint && document.elementFromPoint(lastMouse.x, lastMouse.y);
+    if (over && over.closest && over.closest('[data-open]') === m('[data-open]')) leanTo(true);
   }
   m('[data-open]').addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') leanTo(true); });
   m('[data-open]').addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') leanTo(false); });
+  document.addEventListener('pointermove', function (e) {
+    if (e.pointerType === 'mouse') lastMouse = { x: e.clientX, y: e.clientY };
+  }, { passive: true });
 
   /* ── opening and closing ── */
 
   var exit = null; // the card on its way out
   var openedAt = -Infinity;
+  var openBar = null; // where the bar stood as the card opened
+  var pressedAt = -Infinity; // when the last press on the remote began
   function open(which) {
     var id = typeof which === 'object' ? which.id : which;
     if (!tv || tv.id !== id) {
@@ -1902,6 +1940,7 @@
       holdBar(true);
       isOpen = true;
       openedAt = now();
+      openBar = bar || null;
       root.classList.add('is-growing');
       follow();
       exit = null;

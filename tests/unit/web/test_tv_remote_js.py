@@ -884,11 +884,19 @@ def test_a_sheet_pulled_down_far_closes_and_a_short_pull_springs_back() -> None:
     assert out["mouse"] == {"held": "", "open": True, "from": []}
 
 
-def test_a_second_press_of_a_double_click_stops_nothing_and_a_later_press_does() -> None:
-    out = _run("doublePress")
-    assert out["soon"] == []
-    assert out["later"] == ["stop"]
-    assert out["growing"] is False
+def test_a_press_begun_before_the_card_settled_stops_nothing_and_a_later_one_does() -> None:
+    assert _run("doublePress") == {
+        "at600": [],
+        "late": ["stop"],
+        "at1s": ["stop"],
+        "keyed": ["stop"],
+    }
+
+
+def test_as_the_card_grows_a_tap_beside_it_closes_it_but_not_one_where_the_bar_stood() -> None:
+    out = _run("tapBeside")
+    assert out["onBar"] == {"growing": True, "open": True, "grown": True}
+    assert out["beside"]["open"] is False
 
 
 def test_a_card_closed_as_it_opens_is_measured_with_the_opening_stopped() -> None:
@@ -897,9 +905,14 @@ def test_a_card_closed_as_it_opens_is_measured_with_the_opening_stopped() -> Non
 
 def test_the_bar_leans_under_a_mouse_and_back_but_not_under_a_finger_nor_with_less_motion() -> None:
     out = _run("leans")
-    assert out["mouse"] == {"to": ["translateY(-4px) scale(1.01)"], "back": ["none"]}
+    # The glass swells; the words on it are drawn back to their size.
+    assert out["mouse"] == {
+        "to": ["scale(1.016, 1.08)"],
+        "words": ["scale(0.984, 0.926)"],
+        "back": ["none"],
+    }
     for still in ("finger", "still", "noHover"):
-        assert out[still] == {"to": [], "back": []}, still
+        assert out[still] == {"to": [], "words": [], "back": []}, still
 
 
 def test_opened_from_the_lean_the_bar_is_held_there_until_the_card_is_back_in_it() -> None:
@@ -910,3 +923,18 @@ def test_opened_from_the_lean_the_bar_is_held_there_until_the_card_is_back_in_it
         "closing": "matrix(0.5, 0, 0, 0.5, 10, 20)",
         "after": "",
     }
+
+
+def test_the_glass_is_drawn_before_the_bar_goes_and_one_title_is_always_there() -> None:
+    out = _run("spans")
+    opening, closing = out["open"], out["close"]
+    # Opening: the glass is whole before the bar starts to fade; the bar's title is gone before
+    # the card's comes, as their letters differ.
+    assert opening["glass"][1] <= opening["bar"][0]
+    assert opening["barTitle"][1] <= opening["title"][0]
+    # Closing: the bar comes back before the glass goes, and the titles cross.
+    assert closing["bar"][0] < closing["glass"][0]
+    assert (
+        closing["barTitle"][0] < closing["title"][1]
+        and closing["title"][0] < closing["barTitle"][1]
+    )

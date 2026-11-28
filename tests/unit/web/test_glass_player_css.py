@@ -523,3 +523,43 @@ def test_words_on_the_remote_s_picture_keep_4_5_to_1_over_a_white_frame() -> Non
     assert shade[:3] == (0, 0, 0)
     behind = tuple(255 * (1 - shade[3]) for _ in range(3))
     assert contrast(WHITE, behind) >= 4.5
+
+
+def test_the_bar_s_lean_on_a_key_and_its_squeeze_on_a_press_wait_for_motion_to_be_allowed() -> None:
+    moved = [
+        where
+        for where, selectors, decls in rules(REMOTE)
+        if "transform" in decls and any(sel.startswith(".tv-mini:has(") for sel in selectors)
+    ]
+    assert moved
+    for where in moved:
+        assert "(prefers-reduced-motion: no-preference)" in " ".join(where), where
+
+
+def test_on_a_phone_on_its_side_a_long_title_is_cut_short_beside_its_buttons() -> None:
+    short = "(max-height: 520px)"
+    assert style(".tv-rem .player-top", REMOTE, short)["flex-wrap"] == "nowrap"
+    assert style(".tv-rem .player-titles", REMOTE, short)["min-width"] == "0"
+
+
+def test_as_the_card_grows_none_of_its_controls_can_be_pressed() -> None:
+    assert style(".tv-rem.is-growing .tv-rem__card *", REMOTE)["pointer-events"] == "none"
+
+
+@pytest.mark.parametrize("media", [None, "(max-height: 520px)"])
+def test_where_the_bar_stood_the_card_has_its_play_controls_and_no_stop(media: str | None) -> None:
+    def order(sel: str) -> int:
+        found = style(sel, REMOTE)
+        if media and any(
+            sel in sels for where, sels, _ in rules(REMOTE) if media in " ".join(where)
+        ):
+            found = {**found, **style(sel, REMOTE, media)}
+        return int(found["order"])
+
+    stop = order(".tv-rem__end")
+    for control in (".tv-rem [data-back10]", ".tv-rem [data-play]", ".tv-rem [data-fwd10]"):
+        assert order(control) > stop, control
+    if media:
+        # On its side the volume shares the play controls' row, left of them, as the bar stood
+        # on the right.
+        assert stop < order(".tv-rem .player-volume") < order(".tv-rem [data-back10]")
