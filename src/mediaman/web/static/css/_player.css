@@ -43,7 +43,7 @@
 /* Controls fade out while playing and nobody touches anything. Each piece fades itself, and a bar
    only its shade: glass under a fading parent blurs none of the picture while it fades. */
 @property --player-shade { syntax: "<number>"; inherits: true; initial-value: 1; }
-.player-chrome { --scrim: rgb(0 0 0 / var(--player-shade)); transition: --player-shade var(--dur-slow) var(--ease-out); }
+.player-chrome { --scrim: rgb(0 0 0 / var(--player-shade, 1)); transition: --player-shade var(--dur-slow) var(--ease-out); }
 .player.is-idle .player-chrome { --player-shade: 0; }
 .player-chrome :is(.player-titles, .player-seek-row, .player-volume) { transition: opacity var(--dur-slow) var(--ease-out); }
 .player.is-idle .player-chrome :is(.player-back, .player-titles, .player-seek-row, .player-volume, .player-btn:not(.player-volume > *)) { opacity: 0; }
@@ -351,6 +351,8 @@
 .player-volume-slider:focus-visible { outline: none; }
 .player-volume-slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--g-focus); outline-offset: 3px; }
 .player-volume-slider:focus-visible::-moz-range-thumb { outline: 2px solid var(--g-focus); outline-offset: 3px; }
+/* And every other control that takes the keyboard here, as the cards' buttons. */
+.player :focus-visible { outline-color: var(--g-focus); }
 
 /* Skip intro, Skip credits, Next episode: there without the controls at first. */
 .player-skip {
@@ -746,15 +748,14 @@
 .player .player-rate .rate__set { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .player .player-rate .rate__b { height: auto; min-height: var(--rate-h, 72px); padding: 4px 0; }
 .player-rate .rate__lab { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: center; }
-/* Once rated, the other thumbs step back only as far as glass over a white frame lets their
-   names keep 4.5:1, and their hands 3:1. */
-.player-rate .rate.has .rate__b:not(.is-on) > .rate__lab { opacity: .9; }
+/* Once rated, the other thumbs' hands step back only as far as glass over a white frame lets them
+   keep 3:1; their names stay, as any step back takes them near 4.5:1. */
 /* The chosen thumb's wash is see-through: a floor under it keeps its coloured name. */
 .player-rate .rate__hl { box-shadow: var(--g-chip-floor); }
 .player-rate .rate.has .rate__b:not(.is-on) > .rate-th { opacity: .7; }
-.player-rate .rate.has .rate__b:not(.is-on):focus-visible > :is(.rate-th, .rate__lab) { opacity: 1; }
+.player-rate .rate.has .rate__b:not(.is-on):focus-visible > .rate-th { opacity: 1; }
 @media (hover: hover) {
-  .player-rate .rate.has .rate__b:not(.is-on):hover > :is(.rate-th, .rate__lab) { opacity: 1; }
+  .player-rate .rate.has .rate__b:not(.is-on):hover > .rate-th { opacity: 1; }
 }
 /* Where it stands clear of subtitles, above where it stands by the other card. */
 .player-rate--beside {
@@ -1067,7 +1068,10 @@
 .player-away-on { font-size: 15px; font-weight: 500; color: var(--accent-hi); text-wrap: balance; overflow-wrap: anywhere; }
 .player-away-on .ico { width: 20px; height: 20px; margin-right: 8px; vertical-align: -.3em; }
 .player-away-hint { margin-top: 6px; font-size: 14px; line-height: 1.45; color: var(--t2); text-wrap: balance; }
-.player.is-away [data-away-idle][inert] { opacity: .4; }
+/* A pill fades its glass and its words, never a parent of them: glass in a fading parent blurs nothing. */
+.player.is-away [data-away-idle][inert]:not(.player-menu-wrap) { opacity: .4; }
+.player.is-away .player-menu-wrap[data-away-idle][inert] .player-pill { color: color-mix(in srgb, var(--t1) 40%, transparent); }
+.player.is-away .player-menu-wrap[data-away-idle][inert] .player-pill::before { opacity: .4; }
 .player.is-away.is-wordless .player-away-say { visibility: hidden; }
 @media (max-width: 1199.98px) {
   .player.is-away .player-upnext.is-under { top: var(--away-under); bottom: auto; max-height: none; }
@@ -1219,6 +1223,9 @@
   .player-bubble-text { border: 1px solid CanvasText; }
   .player-pill::before,
   .player-bubble-text { background: Canvas; }
+  /* Words are drawn in a system colour here, never clear: a resting pill fades whole, as its glass
+     blurs nothing in this mode. */
+  .player.is-idle .player-chrome .player-pill { opacity: 0; }
   .player-menu-item:hover,
   .player-menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 }

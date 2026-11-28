@@ -8,12 +8,13 @@ import re
 
 import pytest
 
-from tests.unit.web._css import contrast, rules, style, text, token
+from tests.unit.web._css import CSS_DIR, _top_level, contrast, rgb, rules, style, text, token
 from tests.unit.web.test_glass_css import BLACK, WHITE, _colour, _glass_over, _over
 
 PLAYER = "_player.css"
 REMOTE = "_tv_remote.css"
 PHONE = "(max-width: 699.98px)"
+FORCED = "(forced-colors: active)"
 SHORT_TOUCH = "(max-height: 500px) and (pointer: coarse)"
 # What opens over the picture, and the remote's own menu: one rule draws their glass.
 OPENED = [".player-menu", ".player-av", ".player-card", ".tv-po"]
@@ -153,12 +154,78 @@ def test_resting_controls_fade_their_glass_and_words_and_never_a_bar_holding_gla
     assert "opacity" not in style(".player-chrome", PLAYER)
 
 
+# What the bars draw: each fades itself at rest, the pills by their glass and their words.
+IDLE_PIECES = [".player-back", ".player-titles", ".player-seek-row", ".player-volume", ".player-btn"]
+
+
+def _idle_faded() -> list[str]:
+    """What the rule that takes the bars' pieces to opacity 0 at rest names in its :is()."""
+    named = []
+    for where, selectors, decls in rules(PLAYER):
+        for sel in selectors:
+            found = re.fullmatch(r"\.player\.is-idle \.player-chrome :is\((.*)\)", sel)
+            if not where and found and decls.get("opacity") == "0":
+                named += _top_level(found[1], ",")
+    return named
+
+
+@pytest.mark.parametrize("piece", IDLE_PIECES)
+def test_every_piece_of_the_bars_is_out_of_sight_at_rest(piece: str) -> None:
+    assert any(re.match(rf"{re.escape(piece)}(?![\w-])", item) for item in _idle_faded()), piece
+
+
+@pytest.mark.parametrize("piece", IDLE_PIECES)
+def test_every_piece_of_the_bars_fades_out_rather_than_blinks(piece: str) -> None:
+    fades = [
+        decls["transition"]
+        for where, selectors, decls in rules(PLAYER)
+        if not where
+        and "transition" in decls
+        and any(re.search(rf"{re.escape(piece)}(?![\w-])", sel) for sel in selectors)
+    ]
+    assert any("opacity var(--dur-slow)" in t for t in fades), (piece, fades)
+
+
+def test_a_pill_fades_its_words_and_its_glass_at_rest() -> None:
+    assert "color var(--dur-slow)" in style(".player-pill", PLAYER)["transition"]
+    assert "opacity var(--dur-slow)" in style(".player-pill::before", PLAYER)["transition"]
+
+
+def test_in_forced_colours_a_resting_pill_s_words_go_too() -> None:
+    # Forced colours draw words in a system colour, so a clear colour no longer hides them; the
+    # pill's glass blurs nothing in that mode, so it fades whole.
+    assert style(".player.is-idle .player-chrome .player-pill", PLAYER, FORCED)["opacity"] == "0"
+
+
+@pytest.mark.parametrize("sheet", [PLAYER, REMOTE])
+def test_the_prefixed_filter_comes_first_so_the_standard_one_wins(sheet: str) -> None:
+    pairs = 0
+    for where, selectors, decls in rules(sheet):
+        names = list(decls)
+        if "backdrop-filter" in decls and "-webkit-backdrop-filter" in decls:
+            pairs += 1
+            assert names.index("-webkit-backdrop-filter") < names.index("backdrop-filter"), (
+                where,
+                selectors,
+            )
+    assert pairs
+
+
 def test_a_bar_s_shade_fades_with_its_controls() -> None:
     bar = style(".player-chrome", PLAYER)
-    assert "var(--player-shade)" in bar["--scrim"]
+    assert "var(--player-shade" in bar["--scrim"]
     assert bar["transition"].startswith("--player-shade ")
     assert style(".player.is-idle .player-chrome", PLAYER)["--player-shade"] == "0"
     assert re.search(r"@property --player-shade \{[^}]*inherits: true", text(PLAYER))
+
+
+def test_a_bar_is_fully_shaded_where_its_shade_is_not_registered() -> None:
+    # Without @property (Safari before 16.4) the shade is unset at rest: with no fallback the
+    # bars' gradients are dropped and nothing darkens the picture under their words.
+    fallback = re.search(r"var\(--player-shade, ([^)]+)\)", style(".player-chrome", PLAYER)["--scrim"])
+    initial = re.search(r"@property --player-shade \{[^}]*initial-value: ([^;]+);", text(PLAYER))
+    assert fallback and initial
+    assert fallback[1].strip() == initial[1].strip() == "1"
 
 
 @pytest.mark.parametrize(
@@ -191,18 +258,36 @@ def test_a_phone_sheet_dims_the_picture_with_a_plain_veil(veil: str, sheet: str)
 
 
 @pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
-@pytest.mark.parametrize(
-    "over",
-    [
-        ".tv-rem :is(.player-av, .player-card, .player-menu, .tv-po)",
-        "html.has-ttl .tv-mini",
-    ],
-)
-def test_on_a_phone_what_would_be_a_third_layer_of_glass_is_solid(over: str, media: str) -> None:
-    # The remote and its pills are two layers already; a title's dim and sheet are two under the bar.
-    drawn = style(over, REMOTE, media)
+def test_on_a_phone_the_bar_over_a_title_is_solid(media: str) -> None:
+    # A title's dim and sheet are two layers under the bar already.
+    drawn = style("html.has-ttl .tv-mini", REMOTE, media)
     assert drawn["background"] == "var(--g-solid)"
     assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none"
+
+
+@pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
+def test_on_a_phone_a_sheet_over_the_remote_is_opaque_so_no_control_shows_through(
+    media: str,
+) -> None:
+    # Unblurred, any see-through left draws the remote's white controls under the sheet's words.
+    drawn = style(".tv-rem :is(.player-av, .player-card, .player-menu, .tv-po)", REMOTE, media)
+    assert drawn["background"] == "rgb(var(--g-tint))"
+    assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none"
+
+
+@pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
+def test_on_a_phone_the_remote_s_controls_blur_nothing_of_their_own(media: str) -> None:
+    # With the remote's glass and the page's glass under it as it fades in and out, a control's
+    # own blur would be a third layer. A dark veil halves what is under it, as its filter would.
+    for control in (".tv-rem .player-back", ".tv-rem .player-pill::before"):
+        drawn = style(control, REMOTE, media)
+        assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none", control
+    remote = style(".tv-rem", REMOTE, media)
+    assert "brightness(.5)" in token("--g-filter")
+    for name, tint in (("--player-glass", "--g-player"), ("--player-glass-hover", "--g-player-hover")):
+        layers = _top_level(remote[name], ",")
+        assert f"var({tint})" in layers[0], name
+        assert rgb(layers[-1]) == (0, 0, 0, 0.5), name
 
 
 def test_the_ask_card_dims_the_picture_plainly() -> None:
@@ -222,6 +307,19 @@ def test_every_keyboard_ring_in_the_player_and_the_remote_is_the_glass_s_blue(sh
     assert rings
 
 
+@pytest.mark.parametrize(
+    ("scope", "sheet"), [(".player", PLAYER), (".tv-rem", REMOTE), (".tv-mini", REMOTE)]
+)
+def test_a_control_with_no_ring_of_its_own_takes_the_glass_s_ring_not_the_page_s(
+    scope: str, sheet: str
+) -> None:
+    # The page's ring is near the glass's own tone over a white frame (about 2:1), as on the rate
+    # card's thumbs and close button, which draw no ring of their own.
+    assert style(f"{scope} :focus-visible", sheet)["outline-color"] == "var(--g-focus)"
+    ring = rgb(token(token("--g-focus")[4:-1]))
+    assert contrast(ring, _glass("--g-a")) >= 3
+
+
 @pytest.mark.parametrize("sheet", [PLAYER, REMOTE])
 def test_no_word_or_tick_is_in_the_blue_kept_for_fills(sheet: str) -> None:
     # The fills' blue is under 4.5:1 on glass over a white frame.
@@ -235,26 +333,80 @@ def test_the_bar_s_progress_holds_3_to_1_on_its_glass_over_a_white_page() -> Non
     assert contrast(_over(fill, glass), glass) >= 3
 
 
-def test_once_rated_the_other_names_keep_4_5_to_1_on_the_card_over_a_white_frame() -> None:
+def test_once_rated_the_other_names_keep_5_to_1_on_the_card_over_a_white_frame() -> None:
+    # Clear of the 4.5:1 edge, so a later step of the glass's greys does not take them under it.
     scope = style(".player-card", PLAYER)
     bar = _over(_colour(scope["--s3"], {}), _glass("--g-a"))  # the grid bar's fill: --s3
     words = _colour(style(".player", PLAYER)["--t2"], {})
-    step = float(
-        style(".player-rate .rate.has .rate__b:not(.is-on) > .rate__lab", PLAYER)["opacity"]
+    step = min(
+        (
+            float(decls["opacity"])
+            for _, selectors, decls in rules(PLAYER)
+            if "opacity" in decls
+            and any(".rate.has" in sel and sel.endswith(".rate__lab") for sel in selectors)
+        ),
+        default=1.0,
     )
     seen = _over((*words[:3], words[3] * step), bar)
-    assert contrast(seen, bar) >= 4.5
+    assert contrast(seen, bar) >= 5
 
 
 def test_the_chosen_thumb_s_see_through_wash_has_a_floor_on_the_card() -> None:
     assert style(".player-rate .rate__hl", PLAYER)["box-shadow"] == "var(--g-chip-floor)"
 
 
+PAGE_GLASS = "html.has-tv-remote :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet)"
+
+
 @pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
-def test_on_a_phone_the_page_s_glass_is_out_of_sight_under_the_remote(media: str) -> None:
-    # The bar's islands, the small bar, a title, a panel or the search's sheet under the remote's glass and its
-    # buttons' would be a third layer and more.
-    hidden = style(
-        "html.has-tv-rem :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet)", REMOTE, media
-    )
+def test_on_a_phone_the_page_s_glass_goes_only_once_the_remote_has_faded_in_over_it(
+    media: str,
+) -> None:
+    hidden = style(PAGE_GLASS, REMOTE, media)
     assert hidden["visibility"] == "hidden"
+    # Hidden at once, the bar the person tapped would vanish under a remote still nearly clear.
+    fade_in = style(".tv-rem", REMOTE)["animation"].split()[1]
+    assert hidden["transition"].split()[:2] == ["visibility", "0s"]
+    assert hidden["transition"].split()[-1] == fade_in
+
+
+def test_closing_the_remote_shows_the_page_s_glass_before_it_gives_the_focus_back() -> None:
+    # Focus cannot land on what is visibility:hidden. The class the rule hangs on goes first in
+    # close(); the one that stays through the remote's fade out must not hide the page.
+    js = (CSS_DIR.parent / "js" / "tv-remote.js").read_text(encoding="utf-8")
+    close = js[js.index("function close()") :]
+    close = close[: close.index("\n  }\n")]
+    shown = close.index("classList.remove('has-tv-remote')")
+    assert shown < close.index("ModalA11y.onClosed")
+    assert shown < close.index(".focus(")
+    assert not any(
+        "has-tv-rem " in sel or "has-tv-rem:" in sel or sel.endswith("has-tv-rem")
+        for _, selectors, decls in rules(REMOTE)
+        if decls.get("visibility") == "hidden"
+        for sel in selectors
+    )
+
+
+# What holds a pill's glass among what is faded when it cannot be used.
+SPARED = {PLAYER: [".player-menu-wrap"], REMOTE: [".player-av-wrap", ".player-pill"]}
+
+
+@pytest.mark.parametrize("sheet", [PLAYER, REMOTE])
+def test_a_dead_control_fades_a_pill_s_glass_itself_never_a_parent_of_it(sheet: str) -> None:
+    # Glass in a parent with opacity below 1 blurs nothing: a dead pill, or a wrap holding one,
+    # fades its glass and its words instead.
+    faded = 0
+    for where, selectors, decls in rules(sheet):
+        for sel in selectors:
+            dead = ".is-dead" in sel or "[inert]" in sel
+            if dead and decls.get("opacity", "1") != "1" and not sel.endswith("::before"):
+                faded += 1
+                spared = sel[sel.index(":not(") :] if ":not(" in sel else ""
+                for holder in SPARED[sheet]:
+                    assert holder in spared, (where, sel, holder)
+    assert faded
+    pill = {
+        PLAYER: ".player.is-away .player-menu-wrap[data-away-idle][inert] .player-pill",
+        REMOTE: ".tv-rem .is-dead .player-pill",
+    }[sheet]
+    assert float(style(pill + "::before", sheet)["opacity"]) < 1

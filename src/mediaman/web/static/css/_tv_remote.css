@@ -32,6 +32,8 @@
 }
 .tv-rem.is-leaving { animation: tv-fade-out var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
 .tv-rem:focus { outline: none; }
+/* Every control on the remote's glass and the bar's takes the glass's ring. */
+.tv-rem :focus-visible, .tv-mini :focus-visible { outline-color: var(--g-focus); }
 html.has-tv-remote { overflow: hidden; }
 /* Beside a phone's side insets the row can be narrower than its controls. */
 .tv-rem .player-controls { flex-wrap: wrap; }
@@ -81,7 +83,13 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem__vol-no { padding: 0 8px; font-size: 13px; line-height: 1.35; color: var(--t2); }
 .tv-rem__end { display: flex; gap: 8px; }
 .tv-rem__danger { color: var(--danger-text); }
-.tv-rem .is-dead { opacity: .4; pointer-events: none; }
+.tv-rem .is-dead { pointer-events: none; }
+/* A pill fades its glass and its words, never a parent of them: glass in a fading parent blurs nothing. */
+.tv-rem .is-dead:not(.player-av-wrap, .player-pill:not(.player-pill--primary)) { opacity: .4; }
+.tv-rem :is(.player-pill.is-dead, .is-dead .player-pill):not(.player-pill--primary) { color: color-mix(in srgb, var(--t1) 40%, transparent); }
+.tv-rem .tv-rem__danger.is-dead { color: color-mix(in srgb, var(--danger-text) 40%, transparent); }
+.tv-rem .player-pill.is-dead:not(.player-pill--primary)::before,
+.tv-rem .is-dead .player-pill::before { opacity: .4; }
 .tv-rem__brk, .tv-rem .only-s { display: none; }
 .tv-rem__dim { position: absolute; inset: 0; z-index: 4; background: color-mix(in srgb, var(--scrim) 60%, transparent); animation: tv-fade var(--dur) var(--ease-out); }
 /* The way out stays above what is dimmed. */
@@ -279,18 +287,34 @@ html.has-tv-rem .ui-toast-host {
   justify-content: flex-start;
   max-height: calc(100dvh - var(--toast-top) - 130px);
 }
-/* A phone, or a short touch screen: no more than two layers of glass. The remote and its pills are
-   two already, so what opens over them is solid; so is the bar over a title's dim and sheet. */
+/* A phone, or a short touch screen: no more than two layers of glass. */
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
-  .tv-rem :is(.player-av, .player-card, .player-menu, .tv-po),
+  /* What opens over the remote is solid, and opaque: the remote's controls would show through. */
+  .tv-rem :is(.player-av, .player-card, .player-menu, .tv-po) {
+    background: rgb(var(--g-tint));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* The bar over a title's dim and sheet. */
   html.has-ttl .tv-mini {
     background: var(--g-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  /* The page's own glass is out of sight under the remote while it is there: with the remote's
-     and its buttons' it would be a third layer. */
-  html.has-tv-rem :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet) { visibility: hidden; }
+  /* The remote's controls lie on its glass: a dark veil halves what is under them as their filter
+     would, and they blur nothing of their own, so the page's glass is never a third layer. */
+  .tv-rem {
+    --player-glass: linear-gradient(var(--g-player), var(--g-player)), rgb(0 0 0 / .5);
+    --player-glass-hover: linear-gradient(var(--g-player-hover), var(--g-player-hover)), rgb(0 0 0 / .5);
+  }
+  .tv-rem .player-back,
+  .tv-rem .player-pill::before {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* The page's own glass goes out of sight once the remote has faded in over it, and is back as the
+     remote starts to go, where the focus returns to it. */
+  html.has-tv-remote :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet) { visibility: hidden; transition: visibility 0s linear var(--dur); }
 }
 @media (prefers-reduced-motion: reduce) {
   .tv-rem, .tv-rem.is-leaving, .tv-rem__art, .tv-rem__say, .tv-rem .player-bottom, .tv-rem__dim,
