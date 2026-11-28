@@ -82,8 +82,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @keyframes ttl-fade-out { to { opacity: 0; } }
 @keyframes ttl-sheet-in  { from { opacity: 0; transform: translateY(16px) scale(.96); } }
 @keyframes ttl-sheet-out { to { opacity: 0; transform: translateY(8px) scale(.98); } }
-@keyframes ttl-sheet-up   { from { transform: translateY(100%); } }
-@keyframes ttl-sheet-down { to { transform: translateY(100%); } }
+/* From the screen's foot, not the sheet's, which can be many screens tall. */
+@keyframes ttl-sheet-up   { from { transform: translateY(100dvh); } }
+@keyframes ttl-sheet-down { to { transform: translateY(100dvh); } }
 
 /* Over the hero's top edge, and above a trailer rather than on it. */
 .ttl__bar {
@@ -106,6 +107,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   transition: opacity var(--dur) var(--ease-out);
 }
 .ttl.is-trailer .ttl__bar::before { opacity: 1; }
+.ttl__grab { display: none; }
 .ttl__close {
   margin-left: auto;
   pointer-events: auto;
@@ -845,6 +847,34 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-film .ttl__sheet::after { border-radius: 0; }
   .ttl.is-entering .ttl__sheet { animation-name: ttl-sheet-up; }
   .ttl.is-leaving .ttl__sheet { animation-name: ttl-sheet-down; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
+  .ttl__sheet.is-dragged,
+  .ttl:has(> .ttl__sheet.is-dragged) + .ttl__dim { transition: none; }
+  /* Pulled down, the sheet closes; over the hero, under the bar's Close. */
+  .ttl__grab {
+    display: block;
+    position: absolute;
+    top: env(safe-area-inset-top, 0px);
+    left: 50%;
+    z-index: 6;
+    width: 96px;
+    height: 24px;
+    translate: -50% 0;
+    touch-action: none;
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .ttl__grab::after {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 5px;
+    margin: 8px auto 0;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--t1) 55%, transparent);
+  }
+  /* A trailer is left by Close first. */
+  .ttl.is-trailer .ttl__grab { display: none; }
   .ttl__hero { min-height: min(56.25vw, 62vh); gap: 16px; padding: calc(var(--ttl-bar) + 8px) 20px 14px; }
   .ttl.is-short .ttl__hero { padding-top: calc(var(--ttl-bar) + 16px); }
   .ttl__poster { width: min(140px, 24vw, 30vh); border-radius: var(--r-sm); }

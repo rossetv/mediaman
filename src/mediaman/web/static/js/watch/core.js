@@ -446,8 +446,99 @@
     return b;
   }
 
+  var PULL_PX = 120; // pulled this far down, a sheet closes
+  var FLICK_PX_MS = 0.6; // or flicked down this fast, from 30 px on
+  var GIVE_PX = 36; // pulled up, a sheet gives less the further it goes, and never this far
+
+  /* Phones: a sheet pulled down by a handle, or by its content scrolled to the top, follows the
+     finger; past a point, or flicked, it closes, else it goes back. Pulled up, it gives a little.
+     o: panel (what moves), veil (what fades as it goes), handles, area (the content), on() (it can
+     be pulled now), top(node) (what a touch on *node* scrolls in, which must be at its top with all
+     between, or null where no pull starts there) and close(). With hold, a sheet that closes is
+     left where it was let go, for its own close to take it on from there and put it back. */
+  function sheetPull(o) {
+    var pull = null;
+    function drag(by) {
+      pull.by = by;
+      // Pulled up, it gives as a rubber band does: at first about half the way, then ever less.
+      var give = by < 0 ? -GIVE_PX * (1 - 1 / (1 - by * 0.55 / GIVE_PX)) : by;
+      o.panel.style.transform = 'translateY(' + Math.round(give) + 'px)';
+      // Over what is in sight: a sheet taller than the screen fades as fast as one that fits it.
+      var tall = Math.min(o.panel.offsetHeight || 1, window.innerHeight || Infinity);
+      if (o.veil) o.veil.style.opacity = String(Math.max(0, Math.min(1, 1 - by / tall)));
+    }
+    function letGo(ended, t) {
+      var by = pull.by;
+      var shut = ended && (by > PULL_PX || (by > 30 && by / Math.max(1, t - pull.t) > FLICK_PX_MS));
+      pull = null;
+      o.panel.classList.remove('is-dragged');
+      if (!shut || !o.hold) {
+        if (o.veil) o.veil.style.opacity = '';
+        o.panel.style.transform = '';
+      }
+      if (shut) o.close();
+    }
+    function onDown(e) {
+      if (!o.on() || e.button || (e.target.closest && e.target.closest('button'))) return;
+      pull = { id: e.pointerId, y: e.clientY, t: e.timeStamp, by: 0 };
+      if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
+      o.panel.classList.add('is-dragged');
+    }
+    function onMove(e) {
+      if (pull && e.pointerId === pull.id) drag(e.clientY - pull.y);
+    }
+    function onUp(e) {
+      if (pull && e.pointerId === pull.id) letGo(e.type === 'pointerup', e.timeStamp);
+    }
+    o.handles.forEach(function (h) {
+      if (!h) return;
+      h.addEventListener('pointerdown', onDown);
+      h.addEventListener('pointermove', onMove);
+      h.addEventListener('pointerup', onUp);
+      h.addEventListener('pointercancel', onUp);
+      h.addEventListener('lostpointercapture', onUp);
+    });
+
+    // The content scrolls under a finger, so its pull is followed by touch: it is the sheet's only once
+    // the finger has gone down far enough from content at its top, more down than sideways.
+    var tug = null;
+    function scrolled(from, top) {
+      for (var n = from; n && n !== top.parentNode; n = n.parentNode) if (n.scrollTop > 0) return true;
+      return false;
+    }
+    o.area.addEventListener('touchstart', function (e) {
+      tug = null;
+      if (!o.on() || pull || e.touches.length !== 1) return;
+      var top = o.top(e.target);
+      if (!top || scrolled(e.target, top) || e.target.closest('input, textarea, select, [contenteditable], [role="application"]')) return;
+      tug = { top: top, at: e.target, x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }, { passive: true });
+    o.area.addEventListener('touchmove', function (e) {
+      if (!tug) return;
+      var t = e.touches[0];
+      var dy = t.clientY - tug.y;
+      var dx = Math.abs(t.clientX - tug.x);
+      if (!pull) {
+        if (Math.abs(dy) < 8 && dx < 8) return;
+        if (scrolled(tug.at, tug.top) || dx > dy) { tug = null; return; }
+        pull = { id: 'touch', y: tug.y, t: e.timeStamp, by: 0 };
+        o.panel.classList.add('is-dragged');
+      }
+      e.preventDefault();
+      drag(Math.max(0, dy));
+    }, { passive: false });
+    function touchEnd(e) {
+      var mine = tug && pull && pull.id === 'touch';
+      tug = null;
+      if (mine) letGo(e.type === 'touchend', e.timeStamp);
+    }
+    o.area.addEventListener('touchend', touchEnd);
+    o.area.addEventListener('touchcancel', touchEnd);
+  }
+
   window.MMWatch = window.MMWatch || {};
   window.MMWatch.core = {
+    sheetPull: sheetPull,
     markOf: markOf,
     caption: caption,
     watchedBadge: watchedBadge,

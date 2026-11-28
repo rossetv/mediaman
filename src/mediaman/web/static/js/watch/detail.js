@@ -70,6 +70,7 @@
   var poster = part('poster');
   var player = part('player');
   var closeBtn = root.querySelector('.ttl__close');
+  var dim = document.querySelector('.ttl__dim');
   var kindEl = part('kind');
   var taglineEl = part('tagline');
   var metaEl = part('meta');
@@ -264,6 +265,7 @@
 
   function unveil() {
     root.hidden = false;
+    unpull();
     root.classList.remove('is-leaving', 'is-aside', 'is-trailer');
     nameClose();
     lockPage(true);
@@ -608,6 +610,7 @@
 
   function shut() {
     root.hidden = true;
+    unpull();
     root.classList.remove('is-leaving', 'is-aside', 'ttl--admin');
     root.removeAttribute('aria-busy');
     emptyBody();
@@ -4293,6 +4296,27 @@
       season: season ? Number(season[1]) : undefined, atEpisodes: card.getAttribute('data-title-at') === 'episodes', push: true });
   });
 
+  /* ── Pulled down ── */
+
+  /* Phones: the sheet at its top is pulled down by its handle or its content, and closes as Close
+     does. One pulled shut goes on down from where it was let go. */
+  core.sheetPull({
+    panel: sheet,
+    veil: dim,
+    handles: [root.querySelector('.ttl__grab')],
+    area: root,
+    // Not over a trailer, which Close leaves first.
+    on: function () { return isOpen && !wide() && !trailerOn() && !root.classList.contains('is-leaving') && !(root.scrollTop > 0); },
+    top: function (node) { return sheet.contains(node) ? root : null; },
+    close: requestClose,
+    hold: true
+  });
+
+  function unpull() {
+    sheet.style.transform = '';
+    if (dim) dim.style.opacity = '';
+  }
+
   /* ── The address ── */
 
   /* A title the address opens: as it was left when Back leads to it. */
@@ -4307,6 +4331,10 @@
     params: [],
     hash: true,
     read: hashRef,
+    // Back with a question open over the title takes the question away, and only that.
+    leave: function () {
+      return window.UIFeedback && window.UIFeedback.dismissConfirm && window.UIFeedback.dismissConfirm() ? Promise.resolve(false) : null;
+    },
     open: function (ref, how) {
       // The title's own entry, left as it was when its trailer's took the library ref.
       if (isOpen && ref === cur.openedAs && ref !== cur.ref) readdress(cur.ref);

@@ -35,3 +35,13 @@ def test_the_logo_back_and_profile_buttons_dim_under_a_pointer_only() -> None:
         ]
         assert hovers, selector
         assert all(media == ("(hover: hover)",) for media, _ in hovers), selector
+
+
+def test_on_a_phone_a_person_s_name_takes_the_field_s_room_till_it_is_pressed() -> None:
+    shut = ".wbar .watch-search.has-token:not(.is-focus, .has-value)"
+    phone = "(max-width: 699.98px)"
+    assert style(shut + " .watch-search__ph", "_watch_search.css", phone)["visibility"] == "hidden"
+    assert style(shut + " .watch-search__token", "_watch_search.css", phone)["max-width"] == "100%"
+    # The field lies under the name, so a press anywhere on it still starts a search.
+    field = style(shut + " .watch-search__field", "_watch_search.css", phone)
+    assert (field["position"], field["inset"]) == ("absolute", "0")

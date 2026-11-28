@@ -16,7 +16,7 @@
  * Profile's is fetched ahead once the pointer nears the profile button, or it is pressed or focused,
  * and History's and Settings' once the hub is on show; only put in the pane when it is opened.
  *
- * Needs watch/address.js, modal-a11y.js, core/dom.js and ui-feedback.js.
+ * Needs watch/core.js, watch/address.js, modal-a11y.js, core/dom.js and ui-feedback.js.
  */
 (function () {
   'use strict';
@@ -36,8 +36,6 @@
   var PAGES = { profile: '/account', history: '/history', settings: '/settings' };
   var TITLES = { profile: 'Profile', history: 'History', settings: 'Settings' };
   var FAILED = 'That did not load. Try again.';
-  var PULL_PX = 120; // pulled this far down, the sheet closes
-  var FLICK_PX_MS = 0.6; // or flicked down this fast, from 30 px on
   var HIDE_MS = 260; // the panel's slide (--dur-slow) and a frame
   var CALM_MS = 160; // its fade (--dur-fast) and a frame
   var STEP_MS = 250; // a step between views (--dur-slow)
@@ -46,7 +44,6 @@
   var GONE_MS = 90; // the title a step leaves is gone by then,
   var LAG_MS = 60; // and the new one starts this much after it, so the two are never both legible
   var NUDGE_PX = 12; // how far the bar's words move with a step
-  var GIVE_PX = 36; // pulled up, the sheet gives less the further it goes, and never this far
   var IDLE_MS = 1500; // where the browser cannot say when it is idle
 
   var admin = root.hasAttribute('data-admin');
@@ -726,82 +723,17 @@
     e.returnValue = '';
   });
 
-  /* Phones: the sheet is pulled down by its handle or its bar, or by its content scrolled to the top;
-     past a point, or flicked, it closes. Pulled up, it gives a little and comes back. */
-  var pull = null;
-  function drag(by) {
-    pull.by = by;
-    // Pulled up, it gives as a rubber band does: at first about half the way, then ever less.
-    var give = by < 0 ? -GIVE_PX * (1 - 1 / (1 - by * 0.55 / GIVE_PX)) : by;
-    panel.style.transform = 'translateY(' + Math.round(give) + 'px)';
-    veil.style.opacity = String(Math.max(0, Math.min(1, 1 - by / (panel.offsetHeight || 1))));
-  }
-  function letGo(ended, t) {
-    var by = pull.by;
-    var fast = by > 30 && by / Math.max(1, t - pull.t) > FLICK_PX_MS;
-    pull = null;
-    panel.classList.remove('is-dragged');
-    veil.style.opacity = '';
-    panel.style.transform = '';
-    if (ended && (by > PULL_PX || fast)) close();
-  }
-  function onDown(e) {
-    if (!openNow || !phone.matches || e.button || (e.target.closest && e.target.closest('button'))) return;
-    pull = { id: e.pointerId, y: e.clientY, t: e.timeStamp, by: 0 };
-    if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
-    panel.classList.add('is-dragged');
-  }
-  function onMove(e) {
-    if (pull && e.pointerId === pull.id) drag(e.clientY - pull.y);
-  }
-  function onUp(e) {
-    if (pull && e.pointerId === pull.id) letGo(e.type === 'pointerup', e.timeStamp);
-  }
-  [root.querySelector('.you__grab'), root.querySelector('.you__bar')].forEach(function (el) {
-    if (!el) return;
-    el.addEventListener('pointerdown', onDown);
-    el.addEventListener('pointermove', onMove);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('pointercancel', onUp);
-    el.addEventListener('lostpointercapture', onUp);
+  /* Phones: the sheet is pulled down by its handle or its bar, or by its content scrolled to the top:
+     what scrolls inside the view, as Settings' list and section do, must be at its top too. */
+  window.MMWatch.core.sheetPull({
+    panel: panel,
+    veil: veil,
+    handles: [root.querySelector('.you__grab'), root.querySelector('.you__bar')],
+    area: views,
+    on: function () { return openNow && phone.matches; },
+    top: function (node) { return node.closest && node.closest('.you-view'); },
+    close: close
   });
-
-  // The content scrolls under a finger, so its pull is followed by touch: it is the sheet's only once
-  // the finger has gone down far enough from a view at its top, more down than sideways. What
-  // scrolls inside the view, as Settings' list and section do, must be at its top too.
-  var tug = null;
-  function scrolled(from, v) {
-    for (var n = from; n && n !== v.parentNode; n = n.parentNode) if (n.scrollTop > 0) return true;
-    return false;
-  }
-  views.addEventListener('touchstart', function (e) {
-    tug = null;
-    if (!openNow || !phone.matches || pull || e.touches.length !== 1) return;
-    var v = e.target.closest && e.target.closest('.you-view');
-    if (!v || scrolled(e.target, v) || e.target.closest('input, textarea, select, [contenteditable], [role="application"]')) return;
-    tug = { view: v, at: e.target, x: e.touches[0].clientX, y: e.touches[0].clientY };
-  }, { passive: true });
-  views.addEventListener('touchmove', function (e) {
-    if (!tug) return;
-    var t = e.touches[0];
-    var dy = t.clientY - tug.y;
-    var dx = Math.abs(t.clientX - tug.x);
-    if (!pull) {
-      if (Math.abs(dy) < 8 && dx < 8) return;
-      if (scrolled(tug.at, tug.view) || dx > dy) { tug = null; return; }
-      pull = { id: 'touch', y: tug.y, t: e.timeStamp, by: 0 };
-      panel.classList.add('is-dragged');
-    }
-    e.preventDefault();
-    drag(Math.max(0, dy));
-  }, { passive: false });
-  function touchEnd(e) {
-    var mine = tug && pull && pull.id === 'touch';
-    tug = null;
-    if (mine) letGo(e.type === 'touchend', e.timeStamp);
-  }
-  views.addEventListener('touchend', touchEnd);
-  views.addEventListener('touchcancel', touchEnd);
 
   // The pointer nearing the profile button, or a press or the focus on it, fetches Profile ahead:
   // only then, so a page that never opens it asks for nothing.

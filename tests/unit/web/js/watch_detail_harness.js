@@ -4114,6 +4114,76 @@ scenarios.thumbsNone = async () => {
   return out;
 };
 
+// On a phone the sheet at its top is pulled down by its handle or its content: far enough, or
+// flicked, it closes through the address from where it was let go; else it goes back.
+scenarios.pullToClose = async () => {
+  const run = async (o) => {
+    const p = load({ narrow: !o.wide, routes: { '/api/watch/title/show-300': LIB_SHOW } });
+    p.run();
+    await openCard(p, 'show-300');
+    const root = p.ttl();
+    const sheet = p.q('.ttl__sheet');
+    root.scrollTop = o.scrolled || 0;
+    let kept = null;
+    let moved;
+    if (o.grab) {
+      const grab = p.q('.ttl__grab');
+      const send = (type, y, t) => (grab.listeners[type] || []).forEach((fn) => fn({ type, pointerId: 1, button: 0, clientY: 100 + y, timeStamp: t, target: grab, currentTarget: grab }));
+      send('pointerdown', 0, 0);
+      send('pointermove', o.grab[0], o.grab[1]);
+      moved = sheet.style.transform;
+      send('pointerup', o.grab[0], o.grab[1]);
+    } else {
+      const at = p.q('.ttl__head');
+      const touch = (type, y) => {
+        const e = { type, target: at, touches: type === 'touchend' ? [] : [{ clientX: 50, clientY: y }], timeStamp: y,
+          defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+        (root.listeners[type] || []).forEach((fn) => fn(e));
+        return e.defaultPrevented;
+      };
+      touch('touchstart', 100);
+      kept = [140, 260, 400].map((y) => touch('touchmove', y));
+      moved = sheet.style.transform;
+      touch('touchend', 400);
+    }
+    const left = sheet.style.transform;
+    await settle();
+    const out = { kept, moved, left, open: p.loc.hash !== '', leaving: root.classList.contains('is-leaving') };
+    p.tick();
+    out.after = sheet.style.transform;
+    return out;
+  };
+  return {
+    content: await run({}),
+    scrolled: await run({ scrolled: 40 }),
+    short: await run({ grab: [60, 600] }),
+    flick: await run({ grab: [60, 50] }),
+    far: await run({ grab: [300, 900] }),
+    wide: await run({ grab: [300, 900], wide: true }),
+    grabScrolled: await run({ grab: [300, 900], scrolled: 40 }),
+  };
+};
+
+// Back with the Delete question open over a title takes the question away and leaves the title
+// and its entry; the next Back closes the title.
+scenarios.backOnConfirm = async () => {
+  const p = load({ admin: true, routes: { '/api/watch/title/show-300': LIB_SHOW } });
+  p.run();
+  p.ctx.performance = { now: () => 0 };
+  p.ctx.getComputedStyle = () => ({ getPropertyValue: () => '', display: 'block', transitionDuration: '0s', transitionDelay: '0s' });
+  vm.runInContext(fs.readFileSync(path.join(JS, 'ui-feedback.js'), 'utf8'), p.ctx);
+  await openCard(p, 'show-300');
+  let answer = null;
+  p.ctx.UIFeedback.confirm({ title: 'Delete Brightwater?' }).then((yes) => { answer = yes; });
+  p.ctx.history.back();
+  await settle();
+  const first = { answer, asking: !!p.doc.querySelector('.ui-confirm-overlay:not(.is-leaving)'), hash: p.loc.hash,
+    open: !p.ttl().hidden && !p.ttl().classList.contains('is-leaving') };
+  p.ctx.history.back();
+  await settle();
+  return { first, second: { hash: p.loc.hash, leaving: p.ttl().classList.contains('is-leaving') } };
+};
+
 scenarios[process.argv[2]]().then((out) => {
   process.stdout.write(JSON.stringify(out));
 }).catch((err) => {
