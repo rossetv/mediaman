@@ -4,11 +4,13 @@ dark mail, colours Outlook can draw, no broken picture box, and buttons that nam
 from __future__ import annotations
 
 import re
+import struct
 from collections.abc import Callable, Iterator
 
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
+from mediaman.app_factory import _STATIC_DIR
 from mediaman.services.mail.newsletter.render import _TEMPLATE_DIR
 from tests.unit.services.mail.test_download_ready_email import _render as _ready
 from tests.unit.services.mail.test_newsletter_template import _contrast, _full_context
@@ -38,6 +40,7 @@ def _ready_mail(pictures: bool = True) -> str:
         ratings={"rating": "7.9", "imdb_rating": "7.8", "rt_rating": "91%"},
         description="A map-maker leaves the coast.",
         watch_url="https://mm.example/watch",
+        site="https://mm.example",
     )
 
 
@@ -127,8 +130,8 @@ def test_text_on_the_page_turns_light_in_the_reader_s_dark_mail(mail: Callable[.
 
 @every_mail
 def test_no_picture_leaves_no_image_tag(mail: Callable[..., str]) -> None:
-    assert "<img" in mail()
-    assert "<img" not in mail(pictures=False)
+    assert '<img class="pic"' in mail()
+    assert '<img class="pic"' not in mail(pictures=False)
 
 
 @every_mail
@@ -137,3 +140,33 @@ def test_each_button_names_its_own_font(mail: Callable[..., str]) -> None:
 
     assert buttons
     assert [b for b in buttons if "font-family:" not in b] == []
+
+
+def _name_picture(html: str) -> str | None:
+    """The tag of the picture of the name in the mail's head, if it has one."""
+    return _found(r'(<img [^>]*alt="mediaman"[^>]*>)', html)
+
+
+@every_mail
+def test_the_head_draws_the_apps_name_as_a_picture_from_the_site(mail: Callable[..., str]) -> None:
+    html = mail()
+    tag = _name_picture(html) or ""
+
+    assert re.fullmatch(
+        r"https://[\w.]+/static/mail/[\w-]+\.png", _found(r'src="([^"]+)"', tag) or ""
+    )
+    assert "media<span" not in html
+    assert "data:" not in html and "<svg" not in html
+
+
+@every_mail
+def test_the_picture_of_the_name_is_there_at_twice_the_size_it_is_shown(
+    mail: Callable[..., str],
+) -> None:
+    tag = _name_picture(mail()) or ""
+    shown = [int(_found(rf'{side}="(\d+)"', tag) or 0) for side in ("width", "height")]
+    src = _found(r'src="[^"]*/static/([^"]+)"', tag) or "missing.png"
+    png = (_STATIC_DIR / src).read_bytes() if (_STATIC_DIR / src).is_file() else b""
+
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    assert list(struct.unpack(">II", png[16:24])) == [2 * n for n in shown]

@@ -225,6 +225,7 @@ def _register_maintenance_jobs(
     from mediaman.services.arr._throttle_persistence import reconcile_stranded_throttle
     from mediaman.services.arr.completion import cleanup_recent_downloads
     from mediaman.services.arr.search_trigger import trigger_pending_searches
+    from mediaman.services.plex_link.sync import read_plays
     from mediaman.services.watch_catalog import fill_title_meta
 
     scheduler.add_job(
@@ -268,6 +269,16 @@ def _register_maintenance_jobs(
             coalesce=True,
             misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
         )
+    # Plays in a Plex app reach History within the half hour, not at the next weekly scan.
+    scheduler.add_job(
+        lambda: read_plays(_open_db_for_job(), secret_key),
+        IntervalTrigger(minutes=30),
+        id="read_plex_plays",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+    )
     # Activity's history: one reading of the server a step, kept for the tab's periods.
     scheduler.add_job(
         lambda: sample_and_store(_open_db_for_job(), secret_key),

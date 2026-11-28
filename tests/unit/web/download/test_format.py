@@ -49,8 +49,8 @@ class TestStateMapping:
         assert map_state(nzbget_status="QUEUED", has_nzbget_match=True) == "queued"
 
     def test_paused_state(self):
-        """NZBGet status is PAUSED → queued: nothing comes in."""
-        assert map_state(nzbget_status="PAUSED", has_nzbget_match=True) == "queued"
+        """NZBGet status is PAUSED → paused: nothing comes in until someone resumes it."""
+        assert map_state(nzbget_status="PAUSED", has_nzbget_match=True) == "paused"
 
 
 class TestBuildItem:

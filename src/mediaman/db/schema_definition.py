@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS admin_users (
     -- 1 while a paired TV playing for this person jumps past intros and credits by itself.
     tv_auto_skip INTEGER NOT NULL DEFAULT 1,
     -- 1 while the player evens out this person's loud and quiet sounds, where the browser can.
-    reduce_loud INTEGER NOT NULL DEFAULT 0
+    reduce_loud INTEGER NOT NULL DEFAULT 0,
+    -- 1 while the search panel shows this person Tonight (how long have you got, and what fits).
+    search_tonight INTEGER NOT NULL DEFAULT 1
 );
 
 -- A person's audio and subtitles for a show or movie (title_key), kept until they go back to
@@ -718,7 +720,9 @@ CREATE TABLE IF NOT EXISTS arr_searching_since (
 -- still to be sent and what the card shows meanwhile; and when the last try began, with the
 -- episodes it was for, kept after it ends to tell a later import from a file held before;
 -- since when the title has gone without importing, when its download was last mended in place
--- rather than replaced and on which try, and what mediaman will next do about it.
+-- rather than replaced and on which try, and what mediaman will next do about it; the reason the
+-- last copy was replaced for, how many copies in a row were replaced for it, and when mediaman
+-- stopped replacing them as it kept coming back.
 CREATE TABLE IF NOT EXISTS arr_import_retries (
     key TEXT PRIMARY KEY,
     stuck_since TEXT,
@@ -732,7 +736,10 @@ CREATE TABLE IF NOT EXISTS arr_import_retries (
     first_stuck_at TEXT,
     fixed_at TEXT,
     fixed_tries INTEGER,
-    fix_plan TEXT
+    fix_plan TEXT,
+    last_reason TEXT,
+    reason_tries INTEGER NOT NULL DEFAULT 0,
+    stopped_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS keep_tokens_used (

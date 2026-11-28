@@ -196,3 +196,19 @@ class TestPlainHttpWarning:
         with caplog.at_level("WARNING"):
             NzbgetClient("http://[2606:4700::1111]:6789", "user", "pass")
         assert len(self._warnings(caplog)) == 1
+
+
+class TestResumeGroups:
+    def test_resumes_only_the_downloads_named(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(json_data={"result": True}))
+
+        client.resume_groups([11, 12])
+
+        ((_, _, sent),) = fake_http.calls
+        assert sent["json"] == {"method": "editqueue", "params": ["GroupResume", "", [11, 12]]}
+
+    def test_a_refused_resume_raises(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(json_data={"result": False}))
+
+        with pytest.raises(NzbgetError):
+            client.resume_groups([11])

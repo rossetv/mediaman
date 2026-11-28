@@ -411,6 +411,31 @@ const scenarios = {
       trigger: ['data-dl-id', 'data-arr-id', 'data-kind', 'data-title', 'data-stuck-seasons', 'data-abandon-trigger'].map((k) => more.getAttribute(k)),
       stop: [stop.getAttribute('data-abandon-upcoming'), stop.getAttribute('title')] };
   },
+  // Paused in NZBGet, and stopped after the same fault came back: each says so, and an admin's menu
+  // offers to resume it, or to try again.
+  async nzbActions() {
+    const p = load({
+      url: '/?dl=1',
+      all: [all([
+        dl('Harrow', { state: 'paused', state_label: 'Paused in NZBGet', paused_ids: [61], size_total: '8 GB' }),
+        dl('Lowmoor', { state: 'paused', state_label: 'NZBGet is paused' }),
+        dl('Saltings', { state: 'needs_attention', stopped: 'Stopped trying after 3 copies failed the same way', attention: 'Not an upgrade', arr_source: 'Radarr' }),
+      ])],
+    });
+    await p.step(100);
+    const posted = [];
+    p.ctx.MM.api.post = (path, body) => { posted.push([path, body]); return Promise.resolve({}); };
+    const card = (t) => ({ line: p.text(p.card(t).querySelector('.dw__line')), say: p.text(p.card(t).querySelector('.dwx__say')) });
+    const out = { cards: { Harrow: card('Harrow'), Lowmoor: card('Lowmoor'), Saltings: card('Saltings') } };
+    out.menus = { Harrow: p.menuOf('Harrow'), Lowmoor: p.menuOf('Lowmoor'), Saltings: p.menuOf('Saltings') };
+    p.click(p.card('Harrow').querySelector('[data-dl-more]'));
+    p.click(p.q('#watch-dl-menu [data-dl-resume]'));
+    p.click(p.card('Saltings').querySelector('[data-dl-more]'));
+    p.click(p.q('#watch-dl-menu [data-dl-try-again]'));
+    await p.step(10);
+    out.posted = posted;
+    return out;
+  },
   async viewer() {
     const p = load({
       admin: false, url: '/?dl=1',

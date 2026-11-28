@@ -7,9 +7,12 @@ an hour after that, it is removed from the download client with its release bloc
 same film or episodes are searched for again. A stalled download is replaced the same way once
 it has gone nowhere for a while. A download is mended in place once for each copy, so one that
 comes and goes is not mended over and over. Each next copy is left longer before it is replaced,
-by ``stuck_modes.wait_for``, and then once a day, for as long as the title does not import; no
-more than ``_REPLACED_PER_RUN`` downloads of a service are replaced in a run, those stuck longest
-first. One held by the service's own setup rather than by its release is left for an admin; one
+by ``stuck_modes.wait_for``, and then once a day, for as long as the title does not import,
+until ``SAME_REASON_TRIES`` copies in a row were replaced for the same reason: then mediaman stops,
+says so, and waits for an admin to have it try again. No more than ``_REPLACED_PER_RUN`` downloads
+of a service are replaced in a run, those stuck longest first. A download Radarr or Sonarr says is
+coming in that has brought nothing for ``UNMOVING_FOR`` is taken as stalled, as neither says so of
+a Usenet download. One held by the service's own setup rather than by its release is left for an admin; one
 the service holds for a while and imports by itself, one paused, and one whose download client the
 service cannot reach are waited for. While another copy is looked for,
 its card says so. Library files and Plex are never touched, nor a download still coming in or
@@ -25,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -51,6 +55,13 @@ SETTING = "import_retry_enabled"
 AUDIT_ACTION = "import_retried"
 RENAMED_ACTION = "import_renamed"
 IMPORTED_ACTION = "import_imported"
+STOPPED_ACTION = "import_stopped"
+
+# How many copies in a row are replaced for the same reason before mediaman stops: one that is
+# "Not an upgrade" would otherwise be downloaded again every day.
+SAME_REASON_TRIES = 3
+# How long a download said to be coming in may bring nothing before it is taken as stalled.
+UNMOVING_FOR = timedelta(hours=3)
 
 _STUCK_FOR = timedelta(hours=1)
 # The poller runs hourly, so one first seen stuck on a run has been stuck an hour on the next
@@ -71,6 +82,59 @@ PLAN_IMPORT = "import"
 PLAN_REPLACE = "replace"
 
 _ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ConfigDecryptError, ValueError)
+
+# rationale: what is left of each download coming in, and since when, to tell one that brings
+# nothing; kept in the process, as a restart only puts off telling it. Guarded by _moving_lock.
+_moving: dict[str, tuple[int, datetime]] = {}
+_moving_lock = threading.Lock()
+
+
+def forget_progress() -> None:
+    with _moving_lock:
+        _moving.clear()
+
+
+def _queue_entries(cards: Sequence[ArrCard]) -> list[Any]:
+    """The queue records of *cards*: a film's card, or a show's episodes."""
+    entries: list[Any] = []
+    for card in cards:
+        if card.get("kind") == "series":
+            entries += card.get("episodes") or []
+        elif card.get("queue_id"):
+            entries.append(card)
+    return entries
+
+
+def _mark_unmoving(service: str, cards: Sequence[ArrCard], now: datetime, complete: bool) -> None:
+    """Have each of *service*'s downloads that the service says is coming in, but that has
+    brought nothing for ``UNMOVING_FOR``, say it stalled, as the service says of one itself."""
+    seen: set[str] = set()
+    with _moving_lock:
+        for entry in _queue_entries(cards):
+            key = f"{service}:{entry.get('download_id') or entry.get('queue_id')}"
+            left = entry.get("sizeleft")
+            coming = (
+                str(entry.get("status") or "").lower() == "downloading"
+                and str(entry.get("tracked_status") or "").lower() not in ("warning", "error")
+                and isinstance(left, int)
+                and left > 0
+            )
+            if not coming:
+                _moving.pop(key, None)
+                continue
+            seen.add(key)
+            was = _moving.get(key)
+            if was is None or was[0] != left:
+                _moving[key] = (left, now)
+                continue
+            if (still := now - was[1]) >= UNMOVING_FOR:
+                hours = int(still.total_seconds() // 3600)
+                entry["tracked_state"] = "downloading"
+                entry["tracked_status"] = "warning"
+                entry["attention"] = f"Stalled: no progress for {hours} hours"
+        if complete:
+            for key in [k for k in _moving if k.startswith(f"{service}:") and k not in seen]:
+                del _moving[key]
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +379,7 @@ def note_stuck_imports(
     """
     now_dt = now_utc()
     now = now_dt.isoformat()
+    _mark_unmoving(service, cards, now_dt, complete)
     try:
         enabled = get_bool_setting(conn, SETTING, default=True)
         rows = {
@@ -645,12 +710,12 @@ def _retry(
     search again, once it has been stuck long enough; one of them in a run. ``_SILENT`` when its
     service gave no answer, ``_REPLACED`` when it was replaced, else ""."""
     row = conn.execute(
-        "SELECT stuck_since, tries, fixed_at, first_stuck_at, fixed_tries FROM arr_import_retries"
-        " WHERE key=? AND retried_at IS NULL",
+        "SELECT stuck_since, tries, fixed_at, first_stuck_at, fixed_tries, last_reason,"
+        " reason_tries, stopped_at FROM arr_import_retries WHERE key=? AND retried_at IS NULL",
         (unit.key,),
     ).fetchone()
     since = parse_iso_utc(row[0]) if row is not None and row[0] else None
-    if since is None or now - since < _STUCK_FOR - _POLL_SLACK:
+    if since is None or now - since < _STUCK_FOR - _POLL_SLACK or row[7] is not None:
         return ""
     if row[4] is None or row[4] != row[1]:
         mended = _fix_in_place(conn, secret_key, card, unit, row)
@@ -661,6 +726,11 @@ def _retry(
         return ""
     if not may_replace or now - since < stuck_modes.wait_for(row[1], unit.mode) - _POLL_SLACK:
         return ""
+    same = row[5] == unit.reason
+    if same and row[6] >= SAME_REASON_TRIES:
+        _stop(conn, card, unit, now, row[6])
+        return ""
+    reason_tries = row[6] + 1 if same else 1
     service = unit.key.partition(":")[0]
     first = parse_iso_utc(row[3]) if row[3] else None
     stuck_days = (now - first).days if first is not None else 0
@@ -671,8 +741,8 @@ def _retry(
         # from here, as the removal may go through whatever is heard of it.
         claimed = conn.execute(
             "UPDATE arr_import_retries SET stuck_since=NULL, tries=tries + 1, retried_at=?,"
-            " removed=?, search=?, shown=?, tried_at=?, tried_episodes=?"
-            " WHERE key=? AND stuck_since=? AND retried_at IS NULL AND tries=?",
+            " removed=?, search=?, shown=?, tried_at=?, tried_episodes=?, last_reason=?,"
+            " reason_tries=? WHERE key=? AND stuck_since=? AND retried_at IS NULL AND tries=?",
             (
                 now.isoformat(),
                 json.dumps(sorted(unit.held_ids)),
@@ -680,6 +750,8 @@ def _retry(
                 shown,
                 now.isoformat(),
                 json.dumps(sorted(unit.episodes)),
+                unit.reason,
+                reason_tries,
                 unit.key,
                 row[0],
                 row[1],
@@ -726,10 +798,13 @@ def _retry(
         with conn:
             conn.execute(
                 "UPDATE arr_import_retries SET stuck_since=?, tries=?, retried_at=NULL,"
-                " removed=NULL, search=NULL, shown=NULL WHERE key=?",
+                " removed=NULL, search=NULL, shown=NULL, last_reason=?, reason_tries=?"
+                " WHERE key=?",
                 (
                     now.isoformat() if refused else row[0],
                     row[1] + 1 if refused else row[1],
+                    unit.reason if refused else row[5],
+                    reason_tries if refused else row[6],
                     unit.key,
                 ),
             )
@@ -740,6 +815,57 @@ def _retry(
     )
     silent = _search(conn, client, unit.key, search, shown, now, every_removed)
     return _SILENT if silent else _REPLACED
+
+
+def _stop(
+    conn: sqlite3.Connection, card: Mapping[str, object], unit: _Unit, now: datetime, tries: int
+) -> None:
+    """Stop replacing *unit*'s download, which failed for the same reason *tries* copies in a
+    row, and write so to History, once."""
+    with conn:
+        stopped = conn.execute(
+            "UPDATE arr_import_retries SET stopped_at=? WHERE key=? AND stopped_at IS NULL",
+            (now.isoformat(), unit.key),
+        ).rowcount
+        if stopped:
+            reason = f" ({unit.reason})" if unit.reason else ""
+            log_audit(
+                conn,
+                unit.key,
+                STOPPED_ACTION,
+                f"{_name(_shown_of(card, unit))} kept failing for the same reason{reason} after"
+                f" {tries} copies; mediaman stopped downloading it again until an admin tries again",
+            )
+    logger.info("import_retry.stopped key=%s tries=%d", unit.key, tries)
+
+
+def stopped_words(conn: sqlite3.Connection, key: str) -> str:
+    """What a card says of a title of *key*, as ``import_retry`` keys it, that mediaman stopped
+    replacing; "" while it still tries. A *key* that ends in ":" is any season of a series."""
+    try:
+        row = conn.execute(
+            "SELECT reason_tries FROM arr_import_retries WHERE key LIKE ? AND stopped_at IS NOT NULL"
+            " LIMIT 1",
+            (f"{key}%" if key.endswith(":") else key,),
+        ).fetchone()
+    except sqlite3.DatabaseError:
+        logger.warning("Failed to read whether %s was given up", key, exc_info=True)
+        return ""
+    return "" if row is None else f"Stopped trying after {row[0]} copies failed the same way"
+
+
+def try_again(conn: sqlite3.Connection, key: str) -> bool:
+    """Have mediaman replace the stuck download of *key* again, as it stopped doing; a *key* that
+    ends in ":" is every season of a series. Whether there was one it had stopped for."""
+    with conn:
+        return (
+            conn.execute(
+                "UPDATE arr_import_retries SET stopped_at=NULL, reason_tries=0"
+                " WHERE key LIKE ? AND stopped_at IS NOT NULL",
+                (f"{key}%" if key.endswith(":") else key,),
+            ).rowcount
+            > 0
+        )
 
 
 def _may_have_acted(exc: Exception) -> bool:
