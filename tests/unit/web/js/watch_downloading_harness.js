@@ -125,6 +125,7 @@ const scenarios = {
       item('Viewer', { ...held, attention: '', attention_hint: '' }),
       item('Retried', { ...held, retrying: true, attention: why, attention_hint: 'Fix it in Sonarr: Activity → Queue' }),
       item('ViewerRetried', { ...held, retrying: true, attention: '', attention_hint: '' }),
+      item('Stopped', { ...held, line: 'Stopped trying after 3 copies failed the same way', attention: why }),
     ])]);
     await p.step(10);
     const of = (t) => ({
@@ -132,7 +133,7 @@ const scenarios = {
       classes: p.card(t).className, fill: p.card(t).style.set['--p'],
       fix: ((n) => (n && !n.hidden ? n.textContent : null))(p.card(t).querySelector('.dw__fix')),
     });
-    return { told: of('Told'), viewer: of('Viewer'), retried: of('Retried'), viewerRetried: of('ViewerRetried') };
+    return { told: of('Told'), viewer: of('Viewer'), retried: of('Retried'), viewerRetried: of('ViewerRetried'), stopped: of('Stopped') };
   },
   async nothing() {
     const p = load([answer([])]);

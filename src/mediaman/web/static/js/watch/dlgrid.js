@@ -210,9 +210,10 @@
   function sayOf(item) {
     var state = item.state;
     /* Of one mediaman is mending, its line says so. */
-    if (state === 'needs_attention' && item.stopped) return [item.stopped, admin && item.attention ? ' · ' + item.attention : ''];
+    // The card's line says it stopped; the foot says why, or what is left to do.
+    if (state === 'needs_attention' && item.stopped) return ['', (admin && item.attention) || 'Won’t finish until an admin sorts it out'];
     if (state === 'needs_attention') return ['', (admin && item.attention) || (item.fixing ? 'Nothing for you to do' : fixWords(item))];
-    if (state === 'paused') return ['', [item.state_label || 'Paused', item.size_total].filter(Boolean).join(' · ')];
+    if (state === 'paused') return ['', ['Waiting to be resumed', item.size_total].filter(Boolean).join(' · ')];
     if (state === 'finding_copy') return ['', 'Finding another copy'];
     if (state === 'searching') return ['', item.search_hint || 'Waiting for its first search'];
     if (state === 'queued') return ['', ['Waiting its turn', item.size_total].filter(Boolean).join(' · ')];
