@@ -45,7 +45,7 @@ def _radarr_queue_item(queue: list[ArrQueueItem], tmdb_id: int) -> DownloadItem 
             item.get("trackedDownloadStatus") or "",
             attention_reason(item),
         )
-        eta = _eta(state, item.get("timeleft", ""))
+        eta, minutes = _eta(state, item.get("timeleft", ""))
         title = item_movie.get("title", "")
         return build_item(
             dl_id=f"radarr:{title}",
@@ -55,6 +55,7 @@ def _radarr_queue_item(queue: list[ArrQueueItem], tmdb_id: int) -> DownloadItem 
             state=state,
             progress=progress,
             eta=eta,
+            minutes_left=minutes,
             size_done=format_bytes(size_total - size_left),
             size_total=format_bytes(size_total),
             arr_source="Radarr",

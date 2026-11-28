@@ -373,6 +373,15 @@ class SettingsUpdate(BaseModel):
             raise ValueError("library_sync_interval must be between 0 and 1440 minutes")
         return iv
 
+    @field_validator(*_DAY_SETTING_BOUNDS, mode="before")
+    @classmethod
+    def emptied_day_setting_names_its_range(cls, v: object, info: ValidationInfo) -> object:
+        """An emptied field is refused with the range it takes, not as a number that cannot be read."""
+        if isinstance(v, str) and not v.strip():
+            label, low, high = _DAY_SETTING_BOUNDS[info.field_name or ""]
+            raise ValueError(f"{label} must be between {low} and {high} days")
+        return v
+
     @field_validator(*_DAY_SETTING_BOUNDS, mode="after")
     @classmethod
     def validate_day_settings(cls, v: int | None, info: ValidationInfo) -> int | None:

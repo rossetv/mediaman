@@ -66,7 +66,6 @@ _RANK: dict[State, int] = {
     "stuck": 2,
 }
 _KEY_SALT = secrets.token_bytes(16)
-_ETA = re.compile(r"~(?:(\d+) hr )?(\d+) (min|sec) remaining")
 # What is left of "[GROUP] Title - 01 [1080p]" once its quality is cut off.
 _FANSUB = re.compile(r"\[[^\]]*\] (.+) \[")
 
@@ -127,13 +126,11 @@ class Answer:
     age_s: float
 
 
-def _minutes_left(eta: object) -> int | None:
-    found = _ETA.fullmatch(eta) if isinstance(eta, str) else None
-    if found is None:
+def _minutes_left(minutes: object) -> int | None:
+    """The queue's minutes left, None where it gave none."""
+    if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 0:
         return None
-    if found[3] == "sec":
-        return 1
-    return int(found[1] or 0) * 60 + int(found[2])
+    return minutes
 
 
 def _text(value: object) -> str:
@@ -211,7 +208,7 @@ def _current(item: Mapping[str, object]) -> StripItem:
         kind=_kind_of(item),
         state=state,
         percent=max(0, min(100, _int(item.get("progress")))) if state in _ACTIVE else 0,
-        minutes_left=_minutes_left(item.get("eta")) if state == "downloading" else None,
+        minutes_left=_minutes_left(item.get("minutes_left")) if state == "downloading" else None,
         line=WAITING_TO_IMPORT if state == "almost_ready" and waits else hint,
         poster_url=_text(item.get("poster_url")),
         tmdb_id=tmdb_id,

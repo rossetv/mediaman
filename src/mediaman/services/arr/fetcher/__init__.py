@@ -18,11 +18,11 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import requests
 
-from mediaman.services.arr import ArrError
+from mediaman.services.arr import ArrError, _library_hold
 from mediaman.services.arr._throttle_persistence import adopt_throttle
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
@@ -64,6 +64,35 @@ def _forget_answers() -> None:
     with _answers_lock:
         _last_answers.clear()
         _failing_since.clear()
+    _library_hold.forget()
+
+
+class _HeldLibrary:
+    """*client* for a poll: its queue read live, its library as _library_hold holds it."""
+
+    def __init__(self, client: ArrClient) -> None:
+        self._client = client
+        self._queue: frozenset[object] | None = None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def get_queue(self) -> list[Any]:
+        entries = self._client.get_queue()
+        self._queue = _library_hold.queue_of(entries)
+        return entries
+
+    def get_movies(self) -> list[Any]:
+        return self._held("movies", self._client.get_movies)
+
+    def get_series(self) -> list[Any]:
+        return self._held("series", self._client.get_series)
+
+    def get_episodes(self, series_id: int) -> list[Any]:
+        return self._held(f"episodes:{series_id}", lambda: self._client.get_episodes(series_id))
+
+    def _held(self, what: str, read: Callable[[], list[Any]]) -> list[Any]:
+        return _library_hold.held_read(self._client._url, what, self._queue, read)
 
 
 def fetch_arr_queue_result(
@@ -130,7 +159,9 @@ def _fetch_service(
         client = build(conn, secret_key)
         if client is None:
             return
-        cards = fetch(client, on_failure=lambda: failures.append(name))
+        # A poll reads the library as held; a caller that acts on what it reads reads it live.
+        polled = cast("ArrClient", _HeldLibrary(client)) if steady else client
+        cards = fetch(polled, on_failure=lambda: failures.append(name))
     except (
         SafeHTTPError,
         requests.RequestException,

@@ -51,7 +51,8 @@
       var el = document.getElementById(id);
       return el ? el.value : '';
     }
-    function n(id) { var x = parseInt(v(id), 10); return isFinite(x) ? x : 0; }
+    // A whole number goes as one; anything else as typed, for the server to refuse rather than to store cut down.
+    function n(id) { var text = String(v(id)).trim(); return /^-?\d+$/.test(text) ? parseInt(text, 10) : text; }
     var selectedLibs = now && now.disk ? now.disk.libs : [];
     var diskMap = now && now.disk ? MM.settings.diskThresholds.changes(saved.disk.disk, now.disk.disk) : null;
     var payload = {

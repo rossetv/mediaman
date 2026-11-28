@@ -4,7 +4,7 @@
  * Responsibilities:
  *   - Fetch /api/plex/libraries and paint the picker, a toggle button for each
  *   - Maintain the selected-library set
- *   - Build the per-library "lp-card" (path + threshold + live usage bar)
+ *   - Build the per-library "dt-card" (path + threshold + live usage bar)
  *   - Read /api/settings/disk-usage as the user edits, and say what the scanner will do
  *   - Keep each library's path and threshold, as saved and as typed, through
  *     every redraw, whether or not the library is selected
@@ -130,30 +130,30 @@
 
   function buildLibPathCard(lib, cfg) {
     var card = document.createElement('div');
-    card.className = 'lp-card';
+    card.className = 'dt-card';
     card.dataset.libId = String(lib.id);
 
     var head = document.createElement('div');
-    head.className = 'lp-head';
+    head.className = 'dt-head';
     var glyph = document.createElement('div');
-    glyph.className = 'lp-glyph';
+    glyph.className = 'dt-glyph';
     glyph.textContent = (lib.title || '?').charAt(0).toUpperCase();
     head.appendChild(glyph);
 
     var title = document.createElement('div');
-    title.className = 'lp-title';
+    title.className = 'dt-title';
     var nameTxt = document.createElement('div');
-    nameTxt.className = 'lp-name-txt';
+    nameTxt.className = 'dt-name';
     nameTxt.textContent = lib.title;
     var kind = document.createElement('div');
-    kind.className = 'lp-kind';
+    kind.className = 'dt-kind';
     kind.textContent = 'Plex library' + (lib.type ? ' · ' + lib.type : '');
     title.appendChild(nameTxt);
     title.appendChild(kind);
     head.appendChild(title);
 
     var usage = document.createElement('div');
-    usage.className = 'lp-usage';
+    usage.className = 'dt-usage';
     var pct = document.createElement('span');
     pct.className = 'pct';
     pct.dataset.role = 'pct';
@@ -168,7 +168,7 @@
     card.appendChild(head);
 
     var bar = document.createElement('div');
-    bar.className = 'lp-bar2';
+    bar.className = 'dt-bar';
     var fill = document.createElement('span');
     fill.className = 'fill';
     fill.dataset.role = 'fill';
@@ -181,7 +181,7 @@
     card.appendChild(bar);
 
     var body = document.createElement('div');
-    body.className = 'lp-body';
+    body.className = 'dt-body';
 
     var pathFld = document.createElement('div');
     pathFld.className = 'fld';
@@ -226,7 +226,7 @@
     card.appendChild(body);
 
     var foot = document.createElement('div');
-    foot.className = 'lp-foot';
+    foot.className = 'dt-foot';
     var state = document.createElement('span');
     state.dataset.role = 'state';
     foot.appendChild(state);
@@ -403,7 +403,7 @@
   }
 
   function keepTyped() {
-    document.querySelectorAll('#disk-threshold-rows .lp-card').forEach(function (card) {
+    document.querySelectorAll('#disk-threshold-rows .dt-card').forEach(function (card) {
       var entry = entryOf(card);
       if (entry !== undefined) DISK_THRESHOLDS[card.dataset.libId] = entry;
     });

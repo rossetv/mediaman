@@ -57,25 +57,20 @@ class TestFormatTimeleft:
     def test_invalid_format_returns_empty(self):
         assert _format_timeleft("not-a-time") == ""
 
-    def test_hours_and_minutes(self):
-        result = _format_timeleft("02:15:00")
-        assert "2 hr" in result
-        assert "15 min" in result
-
-    def test_minutes_only(self):
-        result = _format_timeleft("00:07:30")
-        assert "7 min" in result
-        assert "hr" not in result
-
-    def test_seconds_only_returns_at_least_1_sec(self):
-        result = _format_timeleft("00:00:45")
-        assert "sec" in result
-        assert "45" in result
-
-    def test_zero_seconds_returns_1_sec(self):
-        """Avoids "~0 sec remaining" — minimum is 1 sec."""
-        result = _format_timeleft("00:00:00")
-        assert "1 sec" in result
+    # Worded as the rest of mediaman words a time left ("1 h 5 min left" on a card).
+    @pytest.mark.parametrize(
+        ("timeleft", "said"),
+        [
+            ("02:15:00", "2 h 15 min left"),
+            ("02:00:30", "2 h left"),
+            ("00:07:30", "7 min left"),
+            ("00:00:45", "under a minute left"),
+            ("00:00:00", "under a minute left"),
+            ("1.02:05:00", "26 h 5 min left"),
+        ],
+    )
+    def test_the_time_left_is_worded_as_everywhere_else(self, timeleft, said):
+        assert _format_timeleft(timeleft) == said
 
     def test_wrong_part_count_returns_empty(self):
         assert _format_timeleft("10:30") == ""

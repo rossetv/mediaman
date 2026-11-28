@@ -561,7 +561,7 @@ FLOORED = [
     (".dev-here", PROFILE),
     (".setg-pg .glyph", PANELS),
     (".setg-pg .intg-card-hd .conn", PANELS),
-    (".setg-pg .lp-head .lp-glyph", PANELS),
+    (".setg-pg .dt-head .dt-glyph", PANELS),
     (".setg-pg .usr-row .you-pill", PANELS),
     (".space-item .watch-keep::before", SPACE),
 ]

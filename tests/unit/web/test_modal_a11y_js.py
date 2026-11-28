@@ -83,6 +83,10 @@ def test_tab_stops_where_the_browser_would_and_nowhere_else() -> None:
     assert _run("stops") == ["first", "more", "frame", "own", "first"]
 
 
+def test_tab_passes_over_what_a_closed_details_holds_and_goes_on_to_the_next_entry() -> None:
+    assert _run("closedDetails") == ["shut", "opened", "shown", "shut"]
+
+
 def test_the_bar_of_a_tv_is_in_reach_under_a_titles_page_and_no_other_dialog() -> None:
     out = _run("tvBar")
     assert out["otherDialog"] is True

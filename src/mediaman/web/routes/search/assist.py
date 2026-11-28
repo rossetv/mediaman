@@ -42,6 +42,7 @@ from mediaman.web.repository.recommended import fetch_recommendations, group_int
 from mediaman.web.repository.seen_titles import PersonMarks, person_marks
 from mediaman.web.repository.watch_progress import continue_watching
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes._ids import RowId
 from mediaman.web.routes.watch.card_marks import CardMarks, card_marks, marked, tmdb_ref
 from mediaman.web.routes.watch.catalog_api import _arr, held_fields
 from mediaman.web.routes.watch.pages import (
@@ -707,7 +708,7 @@ def _running(conn: sqlite3.Connection, user_id: int, run_id: int) -> JSONRespons
 
 @router.get("/api/search/assist/runs/{run_id}")
 def api_run(
-    run_id: int, request: Request, username: str = Depends(get_current_user)
+    run_id: RowId, request: Request, username: str = Depends(get_current_user)
 ) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
@@ -753,7 +754,7 @@ def api_run(
 
 
 @router.delete("/api/search/assist/runs/{run_id}")
-def api_stop(run_id: int, username: str = Depends(get_current_user)) -> JSONResponse:
+def api_stop(run_id: RowId, username: str = Depends(get_current_user)) -> JSONResponse:
     """Stop a run: it keeps nothing, counts as a question asked, and holds its place until
     the call it made has ended."""
     conn, user_id = _person(username)

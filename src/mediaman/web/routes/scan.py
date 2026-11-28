@@ -7,7 +7,7 @@ import threading
 import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from plexapi.exceptions import PlexApiException, Unauthorized
+from plexapi.exceptions import PlexApiException
 from starlette.responses import Response
 
 from mediaman.core.audit import security_event
@@ -20,7 +20,7 @@ from mediaman.db import (
     start_scan_run,
 )
 from mediaman.scanner.repository.scheduled_actions import clear_pending_deletions
-from mediaman.scanner.runner import SCAN_FAILED_DISK_LIMITS, SCAN_FAILED_NO_LIBRARY
+from mediaman.scanner.runner import SCAN_FAILURE_REASONS, plex_failure
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 from mediaman.services.media_meta._plex_session import _scrub_plex_token
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
@@ -32,6 +32,7 @@ from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.repository.delete_intents import reconcile_before_scan
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.users.rate_limits import too_many
 
 logger = logging.getLogger(__name__)
 
@@ -138,10 +139,7 @@ def scan_status(admin: str = Depends(get_current_admin)) -> dict[str, object]:
     if row is None or (row["status"] == "done" and not row["error"]):
         return {"running": False}
     reason = row["error"]
-    if row["status"] == "error" and reason not in (
-        SCAN_FAILED_DISK_LIMITS,
-        SCAN_FAILED_NO_LIBRARY,
-    ):
+    if row["status"] == "error" and reason not in SCAN_FAILURE_REASONS:
         # The stored error text can be an exception message; show a fixed one.
         reason = "see the server log for details"
     return {"running": False, "status": row["status"], "reason": reason}
@@ -162,9 +160,7 @@ def clear_scheduled(
     """
     if not _CLEAR_SCHEDULED_LIMITER.check(admin):
         logger.warning("scan.clear_throttled user=%s", _sanitise_log_field(admin))
-        return respond_err(
-            "too_many_requests", status=429, message="Too many scan triggers — slow down"
-        )
+        return too_many(_CLEAR_SCHEDULED_LIMITER, admin, "Too many clears.")
     conn = get_db()
     try:
         result = clear_pending_deletions(conn, audit_actor=admin, audit_ip=get_client_ip(request))
@@ -182,14 +178,12 @@ def clear_scheduled(
 
 def _sync_failure_message(exc: Exception) -> str:
     """Say what went wrong with a library sync, without echoing the URL or token."""
-    refused = isinstance(exc, Unauthorized) or (
-        isinstance(exc, SafeHTTPError) and exc.status_code in (401, 403)
-    )
-    if refused:
+    kind = plex_failure(exc)
+    if kind == "refused":
         return "Plex refused the token — check the Plex token in Settings"
-    if isinstance(exc, ConfigDecryptError):
+    if kind == "unreadable":
         return "Saved settings could not be read — check the secret key"
-    if isinstance(exc, (requests.RequestException, SafeHTTPError)):
+    if kind == "unreachable":
         return "Couldn't reach Plex — check the Plex URL in Settings and that the server is running"
     return "Library sync failed"
 
@@ -200,9 +194,7 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
 
     if not _LIBRARY_SYNC_LIMITER.check(admin):
         logger.warning("library.sync_throttled user=%s", _sanitise_log_field(admin))
-        return respond_err(
-            "too_many_requests", status=429, message="Too many sync triggers — slow down"
-        )
+        return too_many(_LIBRARY_SYNC_LIMITER, admin, "Too many syncs.")
 
     conn = get_db()
     config = request.app.state.config

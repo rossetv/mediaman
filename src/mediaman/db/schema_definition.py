@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS admin_users (
     -- only the forced signs in the audio's language, 'off' for none at all.
     subtitle_lang TEXT,
     -- 1 while a paired TV playing for this person jumps past intros and credits by itself.
-    tv_auto_skip INTEGER NOT NULL DEFAULT 1
+    tv_auto_skip INTEGER NOT NULL DEFAULT 1,
+    -- 1 while the player evens out this person's loud and quiet sounds, where the browser can.
+    reduce_loud INTEGER NOT NULL DEFAULT 0
 );
 
 -- A person's audio and subtitles for a show or movie (title_key), kept until they go back to

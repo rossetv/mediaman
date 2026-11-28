@@ -14,6 +14,10 @@
  * where `on` is the name of the TV that plays it, or null for this device. With no tracks the
  * control is hidden.
  *
+ * Where the state has `loud: {on, note}`, a Reduce loud sounds switch sits under the audio, or the
+ * note in its place while it cannot be had. A press flips it, leaves the chooser open and calls
+ * `loud(on)` inside the press, which the host's Web Audio needs to start.
+ *
  * Where the state names the title's `key` and watch/languages.js is there, a row under each column
  * leads on to another language: views pushed inside the same glass, which slide (or, with less
  * motion, only fade) and grow it by a clip of its edge. Escape goes back a view, then closes.
@@ -32,6 +36,7 @@
   var FADE_MS = 150;
   var LIT_MS = 3000;         // subtitles just added stay lit         // the control's words, from what played to what plays
   var DEFAULTS_HREF = '/?you=profile/audio';
+  var LOUD = { main: 'Reduce loud sounds', sub: 'Quieter explosions, clearer speech' };
   var TV_ICON = 'play-on-tv'; // of _play_on.html
 
   var reduce = global.matchMedia ? global.matchMedia('(prefers-reduced-motion: reduce)') : null;
@@ -273,6 +278,41 @@
       return f;
     }
 
+    function loudRow() {
+      var l = state.loud;
+      if (!l) return [];
+      var wrap = document.createElement('div');
+      wrap.className = 'player-av-loud';
+      if (l.note) {
+        var p = document.createElement('p');
+        p.className = 'player-av-none';
+        p.textContent = l.note;
+        wrap.appendChild(p);
+        return [wrap];
+      }
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'player-av-row player-av-switch';
+      b.setAttribute('role', 'switch');
+      b.setAttribute('aria-checked', String(!!l.on));
+      b.setAttribute('data-av-loud', '');
+      var words = span('player-av-text');
+      words.appendChild(span('player-av-main', LOUD.main));
+      words.appendChild(span('player-av-sub', LOUD.sub));
+      b.appendChild(words);
+      b.appendChild(span('tog' + (l.on ? ' on' : '')));
+      wrap.appendChild(b);
+      return [wrap];
+    }
+
+    function flipLoud(b) {
+      var on = b.getAttribute('aria-checked') !== 'true';
+      b.setAttribute('aria-checked', String(on));
+      b.querySelector('.tog').classList.toggle('on', on);
+      state = Object.assign({}, state, { loud: { on: on, note: null } });
+      if (opts.loud) opts.loud(on);
+    }
+
     /* Another language, where the title can be asked about: watch/languages.js. */
     var langs = null;
     function languages() {
@@ -356,7 +396,7 @@
       var tagged = mine && audio.filter(function (t) { return t.language === mine && !t.commentary; })[0];
       cols.appendChild(column('audio', 'Audio', audio.map(function (t) {
         return row('audio', t.id, audioText(t), t === playing, t === tagged ? 'Your default' : '');
-      }), audio.length === 1 ? 'This title has one audio track.' : '', more ? more.audioRows() : []));
+      }), audio.length === 1 ? 'This title has one audio track.' : '', (more ? more.audioRows() : []).concat(loudRow())));
 
       var subs = state.subtitle_tracks || [];
       var shown = state.subtitle && find(subs, state.subtitle) ? state.subtitle : 'off';
@@ -392,13 +432,14 @@
     function redrawMenu() {
       var old = stack[0].el;
       var had = box.contains(document.activeElement);
+      var onLoud = had && document.activeElement.hasAttribute('data-av-loud');
       var v = menuView();
       v.el.classList.add('lp-view');
       stack[0] = v;
       old.parentNode.insertBefore(v.el, old);
       old.remove();
       v.after();
-      if (had) (v.el.querySelector('[role="radio"][aria-checked="true"]') || box).focus({ preventScroll: true });
+      if (had) (v.el.querySelector(onLoud ? '[data-av-loud]' : '[role="radio"][aria-checked="true"]') || box).focus({ preventScroll: true });
     }
 
     function open(trigger, byKey, first) {
@@ -604,6 +645,7 @@
       var t = e.target;
       if (t.closest('[data-av-close]')) { close(true); return; }
       if (t.closest('[data-av-reset]')) { if (!busy) then({ reset: true }); return; }
+      if (t.closest('[data-av-loud]')) { flipLoud(t.closest('[data-av-loud]')); return; }
       var r = t.closest('.player-av-row[role="radio"]');
       if (r) choose(r);
     }
@@ -616,7 +658,7 @@
       close(false);
     });
 
-    var STOPS = '[data-av-close], .player-av-row[tabindex="0"], .player-av-link, .lp-more, .lp-pending, .lp-back, .lp-x, .lp-input, .lp-clear, .lp-seg-btn[tabindex="0"], .lp-opt[tabindex="0"], .lp-ver[tabindex="0"], .lp-act';
+    var STOPS = '[data-av-close], [data-av-loud], .player-av-row[tabindex="0"], .player-av-link, .lp-more, .lp-pending, .lp-back, .lp-x, .lp-input, .lp-clear, .lp-seg-btn[tabindex="0"], .lp-opt[tabindex="0"], .lp-ver[tabindex="0"], .lp-act';
 
     /* Keys while it is open; true where the key was its own. */
     function key(e) {
@@ -659,10 +701,13 @@
         var said = JSON.stringify(next);
         if (said === seen) return;
         seen = said;
+        /* The switch already shows what a flip of it made: the knob is left to finish its slide. */
+        var flipped = !!state && !!next && JSON.stringify(state.loud || null) === JSON.stringify(next.loud || null) &&
+          JSON.stringify(Object.assign({}, state, { loud: null })) === JSON.stringify(Object.assign({}, next, { loud: null }));
         state = fresh ? withFresh(next) : next;
         showState();
         /* What it offers changed under it: the menu is drawn again in place, the focus still in it. */
-        if (box && stack.length && stack[0].menu) {
+        if (box && stack.length && stack[0].menu && !flipped) {
           if (stack.length === 1) redrawMenu();
           else stack[0] = menuView();
         }

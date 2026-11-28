@@ -22,6 +22,7 @@ from mediaman.services.downloads.download_format._classify import (
     queue_attentions,
 )
 from mediaman.services.downloads.download_format._parsing import (
+    eta_minutes,
     format_episode_label,
     format_eta,
     format_relative_time,
@@ -48,6 +49,7 @@ __all__ = [
     "compute_movie_released_at",
     "compute_series_released_at",
     # Classification
+    "eta_minutes",
     "extract_poster_url",
     "format_episode_label",
     "format_eta",

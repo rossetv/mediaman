@@ -2158,7 +2158,7 @@
       box.appendChild(bar);
       var line = el('div', 'dl-progress__line');
       line.appendChild(el('span', '', k.sizeDone && k.sizeTotal ? k.sizeDone + ' of ' + k.sizeTotal : ''));
-      line.appendChild(el('span', '', k.eta ? k.eta.replace(/^~/, 'about ').replace(/ remaining$/, ' left') : ''));
+      line.appendChild(el('span', '', k.eta || ''));
       box.appendChild(line);
       under.appendChild(box);
       followNote(under, '');

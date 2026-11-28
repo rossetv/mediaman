@@ -87,8 +87,32 @@
     if (gb >= 1) return gb.toFixed(1) + ' GB';
     return Math.round(b / KIB / KIB) + ' MB';
   }
+  /* What is still to come, to the nearest GB: short enough for the queue's line. */
+  function bytesWhole(b) {
+    if (!known(b)) return '—';
+    var gb = b / KIB / KIB / KIB;
+    var mb = Math.round(b / KIB / KIB);
+    return gb >= 1 || mb >= KIB ? Math.round(gb) + '\u00a0GB' : mb + '\u00a0MB';
+  }
+  /* A graph's scale, in the unit its steps were picked in: whole KB below 1 MB, then MB. */
+  function scaleRate(b) {
+    var mb = b / KIB / KIB;
+    return mb < 1 ? Math.round(b / KIB) + '\u00a0KB/s' : +mb.toFixed(1) + '\u00a0MB/s';
+  }
+  /* "1 h 5 min", "2 h", "40 min": as the rest of mediaman writes a time. */
+  function hoursMinutes(minutes) {
+    if (minutes < 60) return minutes + '\u00a0min';
+    var rest = minutes % 60;
+    return Math.floor(minutes / 60) + '\u00a0h' + (rest ? ' ' + rest + '\u00a0min' : '');
+  }
   function gbOnly(b) { return known(b) ? (b / KIB / KIB / KIB).toFixed(1) : '—'; }
-  function pct(n) { return !known(n) ? '—' : n < 1 && n > 0 ? n.toFixed(1) + '%' : Math.round(n) + '%'; }
+  /* Under 1% to a tenth, so a busy app never reads as "0.0%"; from 1% whole. */
+  function pct(n) {
+    if (!known(n)) return '—';
+    var tenth = Math.round(n * 10) / 10;
+    if (n > 0 && tenth === 0) return '<0.1%';
+    return n > 0 && tenth < 1 ? tenth.toFixed(1) + '%' : Math.round(n) + '%';
+  }
   function mbps(b) { return Math.round(b * 8 / 1e6) + ' Mbps'; }
 
   function clock(at, withDay) {
@@ -100,7 +124,7 @@
   function ago(at, now) {
     var s = Math.max(0, now - at);
     if (s < 90) return 'just now';
-    if (s < 3600) return Math.round(s / 60) + ' min ago';
+    if (Math.round(s / 60) < 60) return Math.round(s / 60) + ' min ago';
     if (s < 86400 * 2) return plural(Math.round(s / 3600), 'hour') + ' ago';
     return plural(Math.round(s / 86400), 'day') + ' ago';
   }
@@ -195,8 +219,9 @@
     return steps[steps.length - 1] * Math.ceil(v * 1.1 / steps[steps.length - 1]);
   }
   var MB = KIB * KIB;
-  var RATE_STEPS = [0.5, 1, 2, 5, 10, 25, 50, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000].map(function (x) { return x * MB; });
-  var UP_STEPS = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500].map(function (x) { return x * MB; });
+  // Steps under 1 MB are whole KB, and none is 1 MB: its half would read "512 KB/s".
+  var RATE_STEPS = [500 / KIB, 2, 5, 10, 25, 50, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000].map(function (x) { return x * MB; });
+  var UP_STEPS = [50 / KIB, 100 / KIB, 250 / KIB, 500 / KIB, 1, 2, 5, 10, 25, 50, 100, 250, 500].map(function (x) { return x * MB; });
 
   /* A path through the known values, broken where one is not known; an area closes down to
      *base* (a number or, stacked, the values under it). */
@@ -422,7 +447,8 @@
       at: times(wnd),
       layers: [{ vals: down }, { vals: up }],
       max: niceMax(hiDown, RATE_STEPS),
-      upMax: niceMax(hiUp, UP_STEPS)
+      upMax: niceMax(hiUp, UP_STEPS),
+      upKnown: up.some(known)
     };
   }
 
@@ -726,12 +752,12 @@
   var IMPORTER = { sonarr: 'Sonarr', radarr: 'Radarr' };
   var STATE_WORD = { downloading: 'Downloading', queued: 'Queued', paused: 'Paused', repairing: 'Repairing', unpacking: 'Unpacking', finishing: 'Finishing' };
 
+  /* Nothing once nothing is left: a finished download is not "a minute" away. */
   function minutesLeft(left, speed) {
-    if (!(speed > 0)) return '';
+    if (!(speed > 0) || !(left > 0)) return '';
     var s = left / speed;
     if (s < 90) return 'a minute left';
-    if (s < 3600) return Math.round(s / 60) + ' min left';
-    return Math.floor(s / 3600) + ' h ' + Math.round(s % 3600 / 60) + ' min left';
+    return hoursMinutes(Math.round(s / 60)) + ' left';
   }
 
   function paintRows(d) {
@@ -752,7 +778,7 @@
       fillSubs(dl.subs, []);
     } else {
       var q = d.downloads;
-      setText(dl.sub, q.count ? 'NZBGet · ' + q.count + ' in the queue · ' + bytes(q.left).replace(/\.\d/, '') + ' to go' : 'NZBGet · Queue empty');
+      setText(dl.sub, q.count ? 'NZBGet · ' + q.count + ' in the queue · ' + bytesWhole(q.left) + ' to go' : 'NZBGet · Queue empty');
       count(dl.val, q.rate, rate);
       fillSubs(dl.subs, q.items.map(function (it) {
         var o = { key: 'dl' + it.title, name: it.title };
@@ -994,20 +1020,22 @@
   function paintCharts(slide) {
     var c = collecting();
     var tooSoon = period.id !== 'live' && !hist[period.id];
+    var nm = null;
     setText(N.netNote, period.note);
     setText(N.axisFrom, period.id === 'live' ? '1 min ago' : period.note.replace(/^the last /, '').replace(/^hour$/, '1 hour') + ' ago');
     Object.keys(charts).forEach(function (k) {
       var ch = charts[k];
       var m = k === 'net' ? netModel() : stackModel(k === 'cpu' ? 0 : 1);
       if (tooSoon) return;
+      if (k === 'net') nm = m;
       if (slide && period.id === 'live') { ch.draw(m); ch.slide(); } else morph(ch, m);
       ch.empty.hidden = !c;
       ch.empty.textContent = c || '';
       ch.box.classList.toggle('is-collecting', !!c);
       ch.collecting = c;
     });
-    var nm = charts.net.m;
-    if (nm) { setText(N.netMax, rate(nm.max)); setText(N.upMax, rate(nm.upMax)); }
+    // The scale says where the graph is going, not a frame part way there.
+    if (nm) { setText(N.netMax, scaleRate(nm.max)); setText(N.upMax, scaleRate(nm.upMax)); N.upMax.hidden = !nm.upKnown; }
     N.netGrow.setAttribute('aria-label', 'Network, ' + period.note + (c ? ', ' + lower(c) : '') + '. Show larger');
     [N.cpu, N.mem].forEach(function (card) { card.grow.setAttribute('aria-label', card.grow._label + ', ' + period.note + '. Show larger'); });
     if (big) big.paint();
@@ -1223,7 +1251,7 @@
         chart.empty.textContent = c || '';
         chart.box.setAttribute('aria-label', spec.title + ', ' + period.note + '. Use the arrow keys to read it.');
         var fmt = name === 'net' ? rate : name === 'cpu' ? pct : memFmt();
-        var ticks = name === 'net' ? [rate(m.max), rate(m.max / 2), '0', rate(m.upMax)]
+        var ticks = name === 'net' ? [scaleRate(m.max), scaleRate(m.max / 2), '0', m.upKnown ? scaleRate(m.upMax) : '']
           : axisTicks(m.max, name === 'mem' && memTotal() ? gbTick : fmt, 4);
         yAxis.replaceChildren.apply(yAxis, ticks.map(function (t, i) { var s = el('span', 'act-big__tick', t); s.style.setProperty('--at', name === 'net' ? [0, 0.345, 0.69, 1][i] : i / 4); return s; }));
         if (!grid.children.length) {

@@ -1366,6 +1366,31 @@ def test_an_obfuscated_download_is_renamed_and_imported_again_before_any_other_c
     assert arrs.history() == []
 
 
+def _writes_held_at_commands(arrs, fake_http) -> list[bool]:
+    """Whether the job's connection held a write open as each command reached the service."""
+    held: list[bool] = []
+    inner = arrs._answer
+
+    def answer(method, url, **kwargs):
+        if method == "POST" and urlsplit(url).path == "/api/v3/command":
+            held.append(arrs.conn.in_transaction)
+        return inner(method, url, **kwargs)
+
+    fake_http.handler(answer)
+    return held
+
+
+def test_a_rename_in_place_holds_no_write_open_while_the_service_is_asked_nor_after(
+    arrs, obfuscated, fake_http
+):
+    held = _writes_held_at_commands(arrs, fake_http)
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert held == [False]
+    assert not arrs.conn.in_transaction
+
+
 def test_a_rename_in_place_says_so_in_the_log_with_the_title_the_files_and_the_mode(
     arrs, obfuscated, caplog
 ):
@@ -1478,6 +1503,17 @@ def test_a_release_matched_by_id_alone_is_imported_by_hand_when_each_file_is_bey
     assert _history_of(arrs, "import_imported")[0].endswith(
         "imported its 2 files by hand in Sonarr"
     )
+
+
+def test_an_import_by_hand_leaves_no_write_open_for_other_writers_to_wait_on(arrs):
+    _season_stuck(arrs, 10)
+    _says(arrs, _BY_ID, outputPath="/downloads/completed/comptv/Alone.S13")
+    arrs.manual = [_manual(1), _manual(2)]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert _history_of(arrs, "import_imported")
+    assert not arrs.conn.in_transaction
 
 
 def test_a_release_matched_by_id_whose_files_are_in_doubt_is_replaced(arrs):

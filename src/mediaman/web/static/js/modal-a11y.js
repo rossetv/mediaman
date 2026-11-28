@@ -50,6 +50,17 @@
     return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
   }
 
+  /* What a closed <details> holds, but for its own summary, still has a box in Chrome and Safari,
+     yet takes no focus: a Tab stop there would leave the focus where it was. */
+  function shutInDetails(el) {
+    for (var node = el; node.parentNode && node.parentNode.nodeType === 1; node = node.parentNode) {
+      var up = node.parentNode;
+      if (up.tagName === 'DETAILS' && !up.hasAttribute('open')
+          && !(node.tagName === 'SUMMARY' && up.querySelector('summary') === node)) return true;
+    }
+    return false;
+  }
+
   function getFocusable(modal) {
     if (!modal) return [];
     return Array.prototype.filter.call(
@@ -59,6 +70,7 @@
           && !(parseInt(el.getAttribute('tabindex'), 10) < 0)
           && !el.closest('[inert]')
           && el.getAttribute('aria-hidden') !== 'true'
+          && !shutInDetails(el)
           && isVisible(el);
       }
     );

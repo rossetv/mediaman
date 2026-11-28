@@ -26,7 +26,7 @@ def test_with_nothing_downloading_there_is_no_row(out) -> None:
 def test_each_state_is_told_in_words(out) -> None:
     assert out["states"]["lines"] == {
         "Down": "71% · 6 min left",
-        "Hours": "40% · about 2 h left",
+        "Hours": "40% · 2 h 10 min left",
         "Unknown": "40%",
         "Almost": "Almost ready",
         "Queued": "Queued",

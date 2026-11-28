@@ -471,9 +471,12 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .results-group__count { font-size: 13px; color: var(--t3); }
 .results-grid .watch-card--skel .skel--line { font-size: 12px; margin-block: calc((1lh - 10px) / 2); }
 
-.results-fail { display: flex; flex-wrap: wrap; grid-column: 1 / -1; align-items: center; gap: 0 14px; width: fit-content; max-width: 100%; padding: 2px 8px 2px 16px; border-radius: var(--r-lg); background: var(--rgba-danger-bg); color: var(--danger-text); font-size: 15px; line-height: 1.35; }
+/* Try again is a ghost button whose word starts its own padding in: pulled back by that padding, it lines up
+   with the sentence when it wraps under it, and the column gap (only ever between items on one line) gives
+   that back beside it. */
+.results-fail { display: flex; flex-wrap: wrap; grid-column: 1 / -1; align-items: center; gap: 0 26px; width: fit-content; max-width: 100%; padding: 2px 8px 2px 16px; border-radius: var(--r-lg); background: var(--rgba-danger-bg); color: var(--danger-text); font-size: 15px; line-height: 1.35; }
 .results-fail > span { min-width: 0; padding: 10px 0; }
-.results-fail > .watch-results__retry { display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 0 12px; border-radius: var(--r-pill); color: var(--accent-hi); }
+.results-fail > .watch-results__retry { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 0 -12px; padding: 0 12px; border-radius: var(--r-pill); color: var(--accent-hi); }
 .results-fail .ico { font-size: 14px; transition: transform var(--dur-slow) var(--ease-spring); }
 @media (hover: hover) { .results-fail > .watch-results__retry:hover .ico { transform: rotate(60deg); } }
 

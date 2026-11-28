@@ -252,6 +252,19 @@ const scenarios = {
     for (let i = 0; i < 4; i++) { p.key('Tab'); out.push(p.focused()); }
     return out;
   },
+  // Two entries like History's, the first closed with its buttons inside, the second open.
+  closedDetails() {
+    const p = page();
+    p.$('card').textContent = '';
+    p.$('card').append(...[
+      ['details', {}, ['summary', { id: 'shut' }], ['div', {}, ['button', { id: 'hid' }], ['details', { open: '' }, ['summary', { id: 'deeper' }]]]],
+      ['details', { open: '' }, ['summary', { id: 'opened' }], ['button', { id: 'shown' }]],
+    ].map((n) => build(p.doc, n)));
+    p.setup('low').open();
+    const out = [p.focused()];
+    for (let i = 0; i < 3; i++) { p.key('Tab'); out.push(p.focused()); }
+    return out;
+  },
   // A group of radios between two buttons: none checked, one checked, and one with the keyboard.
   radios() {
     const p = page();

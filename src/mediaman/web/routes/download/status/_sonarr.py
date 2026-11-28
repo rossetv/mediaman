@@ -22,7 +22,7 @@ from mediaman.services.downloads.download_format import (
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
 
-from ._shared import _eta, _safe_int, _safe_progress
+from ._shared import _eta, _safe_int, _safe_progress, _timeleft_seconds
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
@@ -111,7 +111,13 @@ def _sonarr_aggregate(series_title: str, ep_entries: list[_SonarrEpEntry]) -> Do
     total_left = sum(left for _, left in sizes.values())
     overall_progress = _safe_progress(total_size, total_left) if total_size else 0
     state = map_queue_state(cast("list[dict[str, object]]", ep_entries))
-    eta = _eta(state, max((e["timeleft"] for e in ep_entries if e["timeleft"]), default=""))
+    # The longest time left of its episodes, by time and not by its text.
+    timeleft = max(
+        (e["timeleft"] for e in ep_entries if e["timeleft"]),
+        key=lambda t: _timeleft_seconds(t) or 0,
+        default="",
+    )
+    eta, minutes = _eta(state, timeleft)
     episode_summary = build_episode_summary(episodes)
     return build_item(
         dl_id=f"sonarr:{series_title}",
@@ -121,6 +127,7 @@ def _sonarr_aggregate(series_title: str, ep_entries: list[_SonarrEpEntry]) -> Do
         state=state,
         progress=overall_progress,
         eta=eta,
+        minutes_left=minutes,
         size_done=format_bytes(total_size - total_left),
         size_total=format_bytes(total_size),
         episodes=episodes,
