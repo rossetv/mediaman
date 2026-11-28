@@ -67,7 +67,7 @@ function tv({ kept = null, plays = true, full = false, version, base = 'https://
   nodes.s = element();
   // The skip note's place, over every page drawn on the stage.
   nodes.k = element();
-  nodes.sk = element();
+  nodes.sk = Object.assign(element(), { id: 'sk' });
   // The wait's pill, beside the note, and the film's last picture, held under the stage.
   nodes.nw = classed(element());
   nodes.fr = Object.assign(classed(element()), { getContext: () => ({ drawImage() {} }) });
@@ -672,6 +672,27 @@ const scenarios = {
     await t.step(1500);
     t.click('b0');
     return t.paths('ask').length;
+  },
+  // A click at a film's picture does what the play button does, unless it lands on a control.
+  async taps(where) {
+    const t = where === 'starting' ? tv({ kept: 'old' }) : await playing();
+    if (where === 'starting') {
+      t.answers.poll = () => ready({ play: film() });
+      t.run();
+      await t.step(50);
+    }
+    t.answers.ask = { ok: true };
+    if (where === 'hidden') await t.step(10 * 1000);
+    if (where === 'paused') { t.video.fire('pause'); t.now = film({ paused: true }); await t.step(100); }
+    if (where === 'buffering') { t.video.stuck = true; for (let i = 0; i < 60 && !t.says().includes('Waiting for the network'); i += 1) await t.step(100); }
+    const hiddenBefore = t.ov() === 'ov hide';
+    t.video.calls.length = 0;
+    const before = t.sent.length;
+    if (where === 'button') t.click('b1');
+    else if (where === 'note') t.click('sk');
+    else t.clickPage();
+    await t.step(100);
+    return { calls: t.video.calls.slice(), sent: t.sent.slice(before).map((c) => c.path), hiddenBefore, shows: t.ov() };
   },
   async pairs() {
     const t = tv();

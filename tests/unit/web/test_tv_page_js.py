@@ -807,6 +807,21 @@ def test_a_paused_film_plays_by_the_press_that_wakes_it(how: str) -> None:
     assert out["calls"] == ["play"]
 
 
+def test_a_click_on_the_bare_picture_does_what_the_play_button_does_and_only_there() -> None:
+    by_button = _run("taps", "button")
+    assert by_button["calls"] == ["pause"]
+    for where in ("page", "hidden"):
+        out = _run("taps", where)
+        assert (out["calls"], out["sent"]) == (by_button["calls"], by_button["sent"]), where
+    assert _run("taps", "hidden")["hiddenBefore"] is True
+    for where in ("note", "starting", "buffering"):
+        assert _run("taps", where)["calls"] == [], where
+
+
+def test_a_click_on_the_bare_picture_of_a_paused_film_plays_it() -> None:
+    assert _run("taps", "paused")["calls"] == ["play"]
+
+
 def test_a_click_a_while_after_a_pointer_woke_the_page_counts() -> None:
     assert _run("pointsThenClicks") == 1
 
