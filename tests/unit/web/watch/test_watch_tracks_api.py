@@ -85,7 +85,12 @@ def test_a_title_lists_its_tracks_and_what_plays_without_any_choice(alice):
     assert [t["language"] for t in body["audio_tracks"]] == ["en", "de"]
     assert [t["id"] for t in body["subtitle_tracks"]] == ["13", "14"]
     assert body["remembered"] is False
-    assert body["defaults"] == {"audio_lang": None, "subtitle_lang": None, "reduce_loud": False}
+    assert body["defaults"] == {
+        "audio_lang": None,
+        "subtitle_lang": None,
+        "reduce_loud": False,
+        "auto_skip": True,
+    }
 
 
 def test_a_choice_plays_on_the_item_and_carries_to_the_next_episode(alice):
@@ -238,6 +243,11 @@ def test_reduce_loud_sounds_is_kept_and_reaches_the_player_leaving_the_other_set
     assert alice.get("/api/watch/tracks/201").json()["defaults"]["reduce_loud"] is True
     alice.put("/api/account/playback", json={"subtitle_lang": "off"})
     assert alice.get("/api/account/playback").json()["reduce_loud"] is True
+
+
+def test_skip_intros_and_credits_turned_off_reaches_the_player(alice):
+    alice.put("/api/account/playback", json={"auto_skip": False})
+    assert alice.get("/api/watch/tracks/201").json()["defaults"]["auto_skip"] is False
 
 
 def test_one_person_s_reduce_loud_sounds_is_not_another_s(alice, bob):

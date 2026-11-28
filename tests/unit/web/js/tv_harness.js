@@ -7,6 +7,7 @@ const vm = require('vm');
 
 const WEB = path.resolve(__dirname, '../../../../src/mediaman/web/static');
 const SOURCE = fs.readFileSync(path.join(WEB, 'js/tv.js'), 'utf8');
+const LOUDNESS = fs.readFileSync(path.join(WEB, 'js/watch/loudness.js'), 'utf8');
 const template = (name) => fs.readFileSync(path.join(WEB, '../templates', name), 'utf8');
 // What the stage holds as the page is opened.
 const STAGE = template('tv.html').match(/<main id="s">(.*?)<\/main>/s)[1]
@@ -15,8 +16,9 @@ const STAGE = template('tv.html').match(/<main id="s">(.*?)<\/main>/s)[1]
 // `full`: the browser has the Fullscreen API and goes full screen a moment after it is asked;
 // 'refuse' is one that rejects the request, 'webkit' one with only the prefixed API and
 // 'webkitOld' one with only the older prefixed API, whose S is a capital. `version`: of the
-// scripts the page was loaded with; `base`: the address it is told to show.
-function tv({ kept = null, plays = true, full = false, version, base = 'https://mediaman.example' } = {}) {
+// scripts the page was loaded with; `base`: the address it is told to show. `audio`: the page has
+// watch/loudness.js and Web Audio, as Chromium has it, or as WebKit ('apple').
+function tv({ kept = null, plays = true, full = false, version, base = 'https://mediaman.example', audio = null } = {}) {
   const order = [];
   let time = 1e12;
   let timers = [];
@@ -153,13 +155,19 @@ function tv({ kept = null, plays = true, full = false, version, base = 'https://
     setInterval: (fn, ms) => later(fn, ms, ms), unescape, encodeURIComponent, innerWidth: 1920, innerHeight: 1080,
   };
   ctx.window = ctx;
+  const sound = audio && fakeAudio(ctx, audio);
   return {
-    sent, answers, video, store, fullAsks, order, reloads,
+    sent, answers, video, store, fullAsks, order, reloads, sound,
     leaveFull() { document[inFull] = null; changed(); },
     // The TV goes to standby, or comes back from it.
     hide(hidden) { document.hidden = hidden; (document.on.visibilitychange || []).forEach((fn) => fn({})); },
     ov: () => (document.getElementById('ov') || {}).className,
-    run() { vm.runInContext(SOURCE, vm.createContext(ctx)); return this; },
+    run() {
+      const context = vm.createContext(ctx);
+      if (audio) vm.runInContext(LOUDNESS, context);
+      vm.runInContext(SOURCE, context);
+      return this;
+    },
     qr: (text) => ctx.window.MMTv.qr(text),
     // Steps the clock, and lets what was promised come.
     async step(ms) {
@@ -214,6 +222,43 @@ function tv({ kept = null, plays = true, full = false, version, base = 'https://
     paths: (p) => sent.filter((c) => c.path === p),
     last: (p) => sent.filter((c) => c.path === p).pop(),
   };
+}
+
+// Web Audio: a context runs once resumed after a press, as a TV's browser lets it.
+function fakeAudio(win, how) {
+  const log = { contexts: [], pressed: false };
+  class Param {
+    constructor(v) { this.value = v; }
+    cancelScheduledValues() {}
+    setValueAtTime(v) { this.value = v; }
+    linearRampToValueAtTime(v) { this.value = v; }
+  }
+  class AudioNode {
+    constructor() { this.to = []; }
+    connect(n) { this.to.push(n); return n; }
+  }
+  class AudioContext {
+    constructor() { this.state = 'suspended'; this.currentTime = 0; this.destination = new AudioNode(); this.listeners = {}; log.contexts.push(this); }
+    addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
+    resume() {
+      if (log.pressed && this.state !== 'running') { this.state = 'running'; (this.listeners.statechange || []).forEach((fn) => fn()); }
+      return Promise.resolve();
+    }
+    close() { this.state = 'closed'; return Promise.resolve(); }
+    createMediaElementSource(media) { const n = new AudioNode(); n.media = media; this.source = n; return n; }
+    createDynamicsCompressor() { const n = new AudioNode(); ['threshold', 'knee', 'ratio', 'attack', 'release'].forEach((k) => { n[k] = new Param(0); }); return n; }
+    createGain() { const n = new AudioNode(); n.gain = new Param(1); return n; }
+  }
+  win.AudioContext = AudioContext;
+  win.navigator = { vendor: how === 'apple' ? 'Apple Computer, Inc.' : 'Google Inc.' };
+  // What reaches the speakers, as gains: of the sound as it comes, and of it compressed.
+  log.heard = () => {
+    const c = log.contexts[0];
+    if (!c || !c.source) return 'as it comes';
+    const [dry, comp] = c.source.to;
+    return { dry: dry.gain.value, compressed: comp.to[0].to[0].gain.value };
+  };
+  return log;
 }
 
 const ready = (more) => ({ ok: true, state: 'ready', id: 1, name: 'Living room', owner: 'maren', play: null, commands: [], poll_ms: 1000, ...more });
@@ -304,9 +349,53 @@ const SKIPS = {
     await t.step(5000);
     return { at: at(t) };
   },
+  // 4 s into the last credits, the next episode's card comes over them as they play on.
   async credits() {
-    const t = await skipping({ start_s: 2690, next: NEXT }, 16000);
-    return { to: t.video.sets.pop(), note: note(t).shown, asked: t.paths('ask').map((c) => c.body.what) };
+    const t = await skipping({ start_s: 2690, next: NEXT }, 13500);
+    const before = { says: t.says(), playing: !t.video.paused };
+    await t.step(1000);
+    return {
+      before: before.says, says: t.says(), held: t.held(), playing: before.playing && !t.video.paused,
+      jumped: t.video.sets.filter((s) => s > 2700), note: note(t).shown, asked: t.paths('ask').map((c) => c.body.what),
+    };
+  },
+  // Its countdown run out, the episode ends where it is, and mediaman, told so, goes on at once.
+  async creditsRunOut() {
+    const t = await skipping({ start_s: 2690, next: NEXT }, 25000);
+    const ended = t.last('poll').body.report;
+    const out = { jumped: t.video.sets.filter((s) => s > 2700), paused: t.video.paused, ended };
+    t.now = { ...t.now, state: 'upnext', upnext_in_s: 0, url: null };
+    t.answers.ask = { ok: true };
+    const drawn = [];
+    for (let i = 0; i < 8; i += 1) { await t.step(250); drawn.push(t.says()); }
+    return { ...out, asked: t.paths('ask').map((c) => c.body.what), cardAgain: drawn.some((d) => /Next episode in/.test(d)) };
+  },
+  // Watch credits, by OK on it or by Back, keeps them playing to the end, the card gone for good.
+  async watchCredits(how) {
+    const t = await skipping({ start_s: 2690, next: NEXT }, 15000);
+    t.key(how === 'back' ? BACK : OK);
+    const gone = !/Watch credits/.test(t.says());
+    await t.step(20000);
+    return { gone, again: /Watch credits/.test(t.says()), at: at(t), paused: t.video.paused, ended: t.paths('poll').some((c) => c.body.report && c.body.report.state === 'ended'), asked: t.paths('ask').length };
+  },
+  // Where nothing follows by itself, the card waits for Play now over the credits.
+  async creditsNoAutoplay() {
+    const t = await skipping({ start_s: 2690, next: NEXT, autoplay: false }, 30000);
+    const out = { says: t.says(), held: t.held(), at: at(t), paused: t.video.paused };
+    t.key(OK);
+    return { ...out, asked: t.paths('ask').map((c) => c.body.what) };
+  },
+  // A pause takes the card away; it comes again, counting afresh, as the credits play on.
+  async creditsPaused() {
+    const t = await skipping({ start_s: 2690, next: NEXT }, 20000);
+    t.video.pause();
+    t.video.fire('pause');
+    await t.step(20000);
+    const card = /Watch credits/.test(t.says());
+    t.video.play();
+    t.video.fire('play');
+    await t.step(1000);
+    return { paused: card, again: t.says(), ended: t.paths('poll').some((c) => c.body.report && c.body.report.state === 'ended') };
   },
   async midCredits() {
     const t = await skipping({ start_s: 1190, markers: [{ kind: 'credits', start_s: 1200, end_s: 1260, final: false }] }, 20000);
@@ -358,7 +447,7 @@ const SKIPS = {
     const markers = [{ kind: 'credits', start_s: 2700, end_s: 2880, final: false }];
     const on = await skipping({ start_s: 2690, markers, next: NEXT }, 16000);
     const off = await skipping({ start_s: 2690, markers }, 15000);
-    return { to: on.video.sets.pop(), note: note(on).shown, plays: at(off) };
+    return { card: /Watch credits/.test(on.says()), note: note(on).shown, plays: at(off), offCard: /Watch credits/.test(off.says()) };
   },
   // The count is said once, as it comes, and its ticking number is not read out.
   async spoken() {
@@ -370,14 +459,14 @@ const SKIPS = {
     const t = await skipping({}, 14000);
     return { duration: t.bar.style.animationDuration, delay: parseFloat(t.bar.style.animationDelay) };
   },
-  // The last credits play 4 s before the jump to the end: where it jumps from.
+  // The last credits play 4 s before the card comes: where it comes.
   async lastHeld() {
     const t = await skipping({ start_s: 2690, next: NEXT }, 8000);
     let from = null;
     for (let i = 0; i < 40 && from === null; i += 1) {
       const was = t.video.time;
       await t.step(250);
-      if (t.video.sets.some((s) => s > 2700)) from = was;
+      if (/Watch credits/.test(t.says())) from = was;
     }
     return from;
   },
@@ -460,8 +549,28 @@ async function left(name, short) {
   return t;
 }
 
+// What plays as whoever started it chose for loud sounds (`loud`), in a browser (`how`), once a
+// key was pressed on the TV; then the next title, with the other choice.
+async function loudPlays(how, loud) {
+  const t = tv({ kept: 'old', audio: how });
+  t.answers.poll = () => ready({ play: t.now });
+  t.now = film({ reduce_loud: loud });
+  t.run();
+  await t.step(50);
+  t.video.fire('loadedmetadata');
+  t.video.fire('playing');
+  t.sound.pressed = true;
+  t.video.fire('play');
+  await t.step(1000);
+  const first = t.sound.heard();
+  t.now = film({ play_id: 'p2', reduce_loud: !loud });
+  await t.step(1500);
+  return { first, next: t.sound.heard(), contexts: t.sound.contexts.length };
+}
+
 const scenarios = {
-  async skip(name) { return SKIPS[name](); },
+  async skip(name, arg) { return SKIPS[name](arg); },
+  async loud(how, loud) { return loudPlays(how, loud === 'on'); },
   async rests(name) {
     const t = await left(name, 2000);
     const before = t.look();
@@ -1792,7 +1901,7 @@ const scenarios = {
   async es5() {
     const acorn = require('internal/deps/acorn/acorn/dist/acorn');
     const out = {};
-    for (const f of ['js/tv.js', 'vendor/hls/hls.min.js']) {
+    for (const f of ['js/tv.js', 'js/watch/loudness.js', 'vendor/hls/hls.min.js']) {
       try { acorn.parse(fs.readFileSync(path.join(WEB, f), 'utf8'), { ecmaVersion: 5 }); out[f] = 'ES5'; } catch (e) { out[f] = e.message; }
     }
     try { acorn.parse('let x = 1', { ecmaVersion: 5 }); out.let = 'ES5'; } catch (e) { out.let = 'refused'; }

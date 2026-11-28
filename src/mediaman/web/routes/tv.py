@@ -144,6 +144,7 @@ class _ReportIn(_Body):
     volume: float = Field(default=1, ge=0, le=1)
     muted: bool = False
     can_volume: bool = False
+    counted: bool = False
 
 
 class _Poll(_Body):
@@ -702,6 +703,7 @@ def _start_on(
             asked=players.now() - asked_s,
             next_state="end" if item.type == "movie" else "unknown",
             auto_skip=track_choices.skips_on_tv(conn, user),
+            reduce_loud=track_choices.reduces_loud(conn, user),
         )
         command.append(players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed))
         begun.append(play)

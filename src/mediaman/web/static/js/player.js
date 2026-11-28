@@ -165,6 +165,9 @@
   var BAND_CUT_PX = 2;
   /* The skip button stays this long; after that it comes and goes with the controls. */
   var SKIP_SHOWN_MS = 10000;
+  /* Where the person skips them by themselves, an intro or credits a scene follows count down
+     this long first, as on the TV, and a press keeps them. */
+  var SKIP_COUNT_S = 5;
   var MARKER_NAMES = { intro: 'Intro', credits: 'Credits' };
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
@@ -296,6 +299,7 @@
     remaining: q('[data-remaining]'),
     skip: q('[data-skip]'),
     skipText: q('[data-skip-text]'),
+    skipFill: q('[data-skip-fill]'),
     qualityBtn: q('[data-quality-btn]'),
     qualityMenu: q('[data-quality-menu]'),
     fullscreen: q('[data-fullscreen]'),
@@ -442,6 +446,8 @@
   var chapters;              // {title, start_s}, in order
   var chapterShown;          // the one the chapters button names
   var skipMarker;            // the marker the skip button now offers to skip, or null
+  var skipCount = null;      // {from, n}: where in the marker its count began, and of how many seconds
+  var autoSkip = false;      // the person skips intros and credits by themselves
   var creditsOffered;        // the next episode's card has come in this pass through the last credits
   var creditsRun;            // of this pass: {s, due} played of the last credits, and whether the card is due
   var troubleAtPlayed;
@@ -1950,7 +1956,14 @@
 
   function seekTo(t) {
     pressedPlay();
+    askedInto(t);
     moveTo(t);
+  }
+
+  /* A place the person asked for: an intro or credits there are theirs to watch. */
+  function askedInto(t) {
+    var m = markerAt(within(t));
+    if (m) m.kept = true;
   }
 
   function moveTo(t) {
@@ -1994,6 +2007,7 @@
 
   function aimAt(t) {
     pressedPlay();
+    askedInto(t);
     aimS = within(t);
     hideUpnext();
     leftEnd(aimS);
@@ -2307,23 +2321,84 @@
     var over = video.ended || switching || onTv() || opening() || (els.ask && els.ask.open) || (els.upnext && !els.upnext.hidden);
     var m = !shown(els.message) && !over ? markerAt(position()) : null;
     if (m !== skipMarker) offerSkip(m);
+    countSkip();
   }
 
   function offerSkip(m) {
     skipMarker = m;
-    clearTimeout(skipTimer);
-    els.skip.classList.remove('is-quiet');
+    stopCount();
     if (!m && els.skip === document.activeElement) els.play.focus();
     if (!m) {
+      clearTimeout(skipTimer);
+      els.skip.classList.remove('is-quiet');
       leave(els.skip);
       return;
     }
     show(els.skip);
+    labelSkip();
+  }
+
+  function labelSkip() {
+    var m = skipMarker;
     var label = endsEpisode(m) ? 'Next episode' : 'Skip ' + MARKER_NAMES[m.kind].toLowerCase();
     els.skipText.textContent = label;
     els.skip.setAttribute('title', label + ' (S)');
+    els.skip.classList.remove('is-quiet');
     keepOffSkip();
+    clearTimeout(skipTimer);
     skipTimer = setTimeout(function () { els.skip.classList.add('is-quiet'); }, SKIP_SHOWN_MS);
+  }
+
+  /* Not the credits that end the title: the next episode's card is for those. */
+  function countsDown(m) {
+    var d = duration();
+    return m.kind === 'intro' || !(m.final || (d > 0 && m.end_s >= d - 1));
+  }
+
+  /* The count runs on the video's own time, so a pause holds it. One too short for a count of 2
+     leaves the button to press. */
+  function countSkip() {
+    var m = skipMarker;
+    if (!m || m.kept || !autoSkip || !countsDown(m)) {
+      if (skipCount) { stopCount(); if (m) labelSkip(); }
+      return;
+    }
+    var t = position();
+    if (!skipCount) {
+      var n = Math.min(SKIP_COUNT_S, Math.floor(m.end_s - 1.5 - t));
+      if (n < 2) return;
+      skipCount = { from: t, n: n };
+      clearTimeout(skipTimer);
+      els.skip.classList.remove('is-quiet');
+      els.skip.classList.add('is-counting');
+      els.skip.setAttribute('title', 'Keep watching (Esc)');
+      els.upnextStatus.textContent = 'Skipping ' + MARKER_NAMES[m.kind].toLowerCase() + ' in ' + n +
+        ' seconds. Press Cancel to keep watching.';
+    }
+    var left = skipCount.n - (t - skipCount.from);
+    if (left <= 0) {
+      m.kept = true;
+      stopCount();
+      seekTo(m.end_s);
+      return;
+    }
+    els.skipText.textContent = 'Skipping ' + MARKER_NAMES[m.kind].toLowerCase() + ' in ' + Math.ceil(left) + ' · Cancel';
+    els.skipFill.style.setProperty('--skip-done', Math.min(1, 1 - left / skipCount.n).toFixed(3));
+  }
+
+  function stopCount() {
+    if (!skipCount) return;
+    skipCount = null;
+    els.skip.classList.remove('is-counting');
+    els.skipFill.style.setProperty('--skip-done', '0');
+  }
+
+  /* A press during the count keeps the intro or credits playing, the button there to skip them. */
+  function keepSkip() {
+    skipMarker.kept = true;
+    stopCount();
+    labelSkip();
+    els.upnextStatus.textContent = 'Not skipped.';
   }
 
   /* Only the last credits lead on; a scene may follow the others. */
@@ -2338,7 +2413,13 @@
   }
 
   function skipOn() {
+    if (skipCount) keepSkip();
+    else skipNow();
+  }
+
+  function skipNow() {
     if (!skipMarker) return;
+    stopCount();
     if (!endsEpisode(skipMarker)) {
       seekTo(skipMarker.end_s);
       return;
@@ -2897,6 +2978,7 @@
     if (menuOpen()) focusByPointer = false;
     if (e.key === 'Escape') {
       if (menuOpen()) closeMenus(true);
+      else if (skipCount) keepSkip();
       else if (shown(els.rate) && (!upnextOpen() || els.rate.contains(document.activeElement))) endRating();
       else hideUpnext();
       return;
@@ -2937,7 +3019,7 @@
       if ((!skipMarker && !goesOn) || menuOpen()) return;
       e.preventDefault();
       if (goesOn) goOnFromHere(false);
-      else skipOn();
+      else skipNow();
     } else {
       return;
     }
@@ -4559,6 +4641,8 @@
     tracks.keptSubtitle = data.remembered_subtitle_choice || null;
     tracks.defaults = data.defaults || null;
     takeLoud(tracks.defaults);
+    autoSkip = !!tracks.defaults && tracks.defaults.auto_skip === true;
+    showSkip();
     showTracks();
   }
 
