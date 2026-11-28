@@ -599,6 +599,9 @@
     });
     var to = aside ? null : origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin
       : cur && (cur.fallback || cardOf(cur.ref) || cardOf(cur.openedAs));
+    // A card of the search sheet, shut now, takes no focus: the spare does, as for the sheet's own picks.
+    var inSheet = to && to.closest && to.closest('.watch-sheet');
+    if (inSheet && !inSheet.classList.contains('is-on')) to = core.spareFocus();
     if (to && document.body.contains(to)) to.focus({ preventScroll: true });
     else if (root.contains(document.activeElement)) document.activeElement.blur();
   }

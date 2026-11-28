@@ -613,6 +613,19 @@ const scenarios = {
     return out;
   },
 
+  // Opened from a card of the search sheet (its preview's Details), then closed once the sheet has shut.
+  async sheetCardCloses() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    p.run();
+    const sheet = p.doc.body.appendChild(build(p.doc, ['div', { class: 'watch-sheet is-on' },
+      ['a', { class: 'watch-card__link', href: '/watch/movie/1', 'data-title-ref': 'tmdb-movie-77' }, 'Meridian']]));
+    p.ctx.MMWatch.detail.open('tmdb-movie-77', { origin: sheet.firstChild, title: 'Meridian' });
+    await settle();
+    sheet.classList.remove('is-on');
+    p.key('Escape');
+    return p.doc.activeElement.id;
+  },
+
   // A title closed, opened again with Forward, then closed with Escape.
   async forwardThenEscape() {
     const p = load({ routes: { '/api/watch/title/show-300': LIB_SHOW } });
