@@ -2615,6 +2615,10 @@ def test_subtitles_a_tv_plays_otherwise_start_again_with_what_is_kept_not_off(ma
     assert elsewhere(markup, "away_subtitle") == ["71", "none named"]
 
 
+def test_a_subtitle_pick_a_tv_is_given_no_subtitle_for_starts_again_naming_none(markup):
+    assert elsewhere(markup, "away_no_subtitle") == [["62", "none named"]]
+
+
 def test_the_next_episode_goes_on_where_this_one_played(markup, tmp_path_factory):
     next_item = {**EPISODE["item"], "rating_key": "502", "subtitle": "S2 · E5"}
     next_page = _markup(tmp_path_factory, {**EPISODE, "item": next_item})
@@ -3419,6 +3423,13 @@ KEPT_ON["subtitle_hearing_impaired"] = True
 def test_subtitles_given_up_go_back_to_what_was_kept_and_never_to_a_new_off(markup, how, back):
     out = run(markup, "tracks_refused", plays=how)
     assert out["kept"] == [{"subtitle": "71"}, back]
+
+
+def test_defaults_plex_will_not_play_put_back_the_choice_kept_before(markup):
+    assert run(markup, "tracks_reset_refused") == [
+        ["DELETE", None],
+        ["PUT", {"audio": "62", "subtitle_choice": KEPT_ON}],
+    ]
 
 
 def test_the_chooser_moves_as_radios_and_gives_the_focus_back(markup):

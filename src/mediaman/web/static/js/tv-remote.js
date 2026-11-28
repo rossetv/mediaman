@@ -1354,9 +1354,10 @@
       }, function (err) {
         if (!err || err.error !== 'track_unavailable') { refuse(err || {}); return; }
         // The subtitles kept, given back as they were; not known, none is named, as Off would
-        // hide every episode's signs and songs.
-        var back = was === false || what === 'reset' ? null : what === 'audio' ? { audio: before.audio }
-          : wasSubtitle ? { subtitle_choice: wasSubtitle } : { subtitle: null };
+        // hide every episode's signs and songs. A reset puts back the audio that played as well.
+        var subtitles = wasSubtitle ? { subtitle_choice: wasSubtitle } : { subtitle: null };
+        var back = was === false || (what === 'reset' && !was) ? null : what === 'audio' ? { audio: before.audio }
+          : what === 'subtitle' ? subtitles : Object.assign({ audio: before.audio }, subtitles);
         (back ? MM.api.put(tracksUrl(key), back) : MM.api.delete(tracksUrl(key))).then(function (d) {
           heardKept(key, d);
         }, function () { /* said below */ });
