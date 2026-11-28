@@ -642,9 +642,9 @@ class TestForgettingWhatIsNoLongerWanted:
 
         def run(cards, *, missing, unreachable=()):
             if isinstance(missing, Exception):
-                sonarr.get_missing_series.side_effect = missing
+                sonarr.get_missing_episodes.side_effect = missing
             else:
-                sonarr.get_missing_series.return_value = missing
+                sonarr.get_missing_episodes.return_value = missing
             result = FetchResult(cards=cards, unreachable=list(unreachable))
             monkeypatch.setattr(_st, "fetch_arr_queue_result", lambda c, sk, steady: result)
             _st.trigger_pending_searches(db_conn, "key")
@@ -671,7 +671,7 @@ class TestForgettingWhatIsNoLongerWanted:
 
         run_pass(
             [_card("radarr:Still Missing#7", 1), _card("sonarr:No Files Yet", 2)],
-            missing={3: "Partly Missing"},
+            missing={3: ("Partly Missing", [])},
         )
 
         assert self._counts(db_conn) == {

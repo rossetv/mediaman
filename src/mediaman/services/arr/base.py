@@ -117,8 +117,8 @@ class ArrClient(
                 f"this client has kind={self.spec.kind!r}"
             )
 
-    def get_queue(self) -> list[ArrQueueItem]:
-        """Return the current download queue.
+    def get_queue(self, *, quick: bool = False) -> list[ArrQueueItem]:
+        """Return the current download queue, each page *quick* with one short try.
 
         Paginates through all pages — otherwise long queues get silently
         truncated at the default page size, orphaning every NZB whose
@@ -136,7 +136,7 @@ class ArrClient(
             extra = "&includeMovie=true"
         for _ in range(max_pages):  # hard cap to prevent runaway paging
             records, total = self._get_page(
-                f"/api/v3/queue?page={page}&pageSize={page_size}{extra}"
+                f"/api/v3/queue?page={page}&pageSize={page_size}{extra}", quick=quick
             )
             if not records:
                 break

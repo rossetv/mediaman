@@ -26,13 +26,17 @@ SAMPLE = "sample"
 # The service found its show or film through the grab alone, or not at all.
 WRONG_MATCH = "wrong_match"
 MULTI_SEASON = "multi_season"
+# The service will not import it over the file the title has: it is no better.
+NOT_UPGRADE = "not_upgrade"
 FAILED = "failed"
 STALLED = "stalled"
 PAUSED = "paused"
 OTHER = "other"
 
 # Those mended by another copy, or in place first where they can be.
-ACTIONABLE = frozenset({NO_FILES, SAMPLE, WRONG_MATCH, MULTI_SEASON, FAILED, STALLED, OTHER})
+ACTIONABLE = frozenset(
+    {NO_FILES, SAMPLE, WRONG_MATCH, MULTI_SEASON, NOT_UPGRADE, FAILED, STALLED, OTHER}
+)
 
 _HELD_BACK = frozenset({"importpending", "importblocked", "failedpending", "failed"})
 _NO_FILES = ("no files found are eligible", "no video files")
@@ -73,6 +77,9 @@ def reason_mode(reason: str) -> str:
         return SAMPLE
     if any(words in lower for words in _WRONG_MATCH):
         return WRONG_MATCH
+    # "Not an upgrade for existing movie file(s)", "Not a Custom Format upgrade for existing ...".
+    if lower.startswith("not a") and "upgrade" in lower:
+        return NOT_UPGRADE
     return OTHER
 
 

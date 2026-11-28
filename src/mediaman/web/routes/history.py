@@ -114,6 +114,8 @@ ACTION_BADGE_CLASS = {
     "import_renamed": "badge-action-redownloaded",
     "import_imported": "badge-action-redownloaded",
     "import_stopped": "badge-action-deleted",
+    "import_not_upgrade": "badge-action-scanned",
+    "search_stopped": "badge-action-deleted",
     "unkept": "badge-action-unprotected",
     "unprotected": "badge-action-unprotected",
     "kept_show": "badge-action-protected",
@@ -158,6 +160,8 @@ ACTION_LABELS = {
     "import_renamed": "renamed files so it could import",
     "import_imported": "imported by hand",
     "import_stopped": "stopped trying to download",
+    "import_not_upgrade": "skipped, not an upgrade",
+    "search_stopped": "stopped searching for",
 }
 
 # What a waiting deletion waits for, by the first of these its stored text has.

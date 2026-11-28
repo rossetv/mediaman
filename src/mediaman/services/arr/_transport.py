@@ -149,9 +149,9 @@ class _TransportMixin:
         """
         return self._object_list(self._get(path, quick=quick), path)
 
-    def _get_page(self, path: str) -> tuple[list[dict[str, Any]], int]:
+    def _get_page(self, path: str, *, quick: bool = False) -> tuple[list[dict[str, Any]], int]:
         """GET one page of a paged endpoint as ``(records, totalRecords)``; raises like ``_get_list``."""
-        data = self._get(path)
+        data = self._get(path, quick=quick)
         total = data.get("totalRecords") if isinstance(data, dict) else None
         if not isinstance(data, dict) or not isinstance(total, int):
             raise ArrUpstreamError(f"Arr returned no page of records for {path}")

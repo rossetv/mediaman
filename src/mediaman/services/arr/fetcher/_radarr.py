@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
     _iter_still_searching,
     clamp_progress,
+    each_record,
     film_id,
     make_arr_card,
+    well_formed,
 )
 
 if TYPE_CHECKING:
@@ -33,41 +35,46 @@ def _identify(card: ArrCard, tmdb_id: int | None) -> None:
 
 def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
     items: list[ArrCard] = []
-    for q in client.get_queue():
-        movie = q.get("movie") or {}
-        size = q.get("size") or 0
-        sizeleft = max(0, q.get("sizeleft") or 0)
-        # Clamp to [0, 100]: Radarr can briefly report ``sizeleft > size`` while
-        # a torrent re-downloads or pads, which would otherwise produce a
-        # negative percentage and break progress bars.
-        progress = clamp_progress(size, sizeleft)
-        status = q.get("status") or q.get("trackedDownloadStatus") or "queued"
-        poster_url = extract_poster_url(movie.get("images"))
-        m_title = movie.get("title") or q.get("title") or "Unknown"
-        release_name = q.get("title") or ""
-        card = make_arr_card(
-            "movie",
-            m_title,
-            source="Radarr",
-            year=movie.get("year"),
-            poster_url=poster_url,
-            progress=progress,
-            size=size,
-            sizeleft=sizeleft,
-            timeleft=q.get("timeleft") or "",
-            status=status,
-            release_names=[release_name] if release_name else [],
-        )
-        card["tracked_state"] = q.get("trackedDownloadState") or ""
-        card["tracked_status"] = q.get("trackedDownloadStatus") or ""
-        card["attention"] = attention_reason(q)
-        card["queue_id"] = q.get("id") or 0
-        card["movie_id"] = q.get("movieId") or movie.get("id") or 0
-        card["download_id"] = q.get("downloadId") or ""
-        card["output_path"] = q.get("outputPath") or ""
-        _identify(card, movie.get("tmdbId"))
-        items.append(card)
+    each_record(client.get_queue(), "Radarr queue", lambda q: items.append(_queue_card(q)), "movie")
     return items
+
+
+def _queue_card(q: Any) -> ArrCard:
+    """The card of a Radarr queue record."""
+    movie = q.get("movie") or {}
+    size = q.get("size") or 0
+    sizeleft = max(0, q.get("sizeleft") or 0)
+    # Clamp to [0, 100]: Radarr can briefly report ``sizeleft > size`` while
+    # a torrent re-downloads or pads, which would otherwise produce a
+    # negative percentage and break progress bars.
+    progress = clamp_progress(size, sizeleft)
+    status = q.get("status") or q.get("trackedDownloadStatus") or "queued"
+    poster_url = extract_poster_url(movie.get("images"))
+    m_title = movie.get("title") or q.get("title") or "Unknown"
+    release_name = q.get("title") or ""
+    card = make_arr_card(
+        "movie",
+        m_title,
+        source="Radarr",
+        year=movie.get("year"),
+        poster_url=poster_url,
+        progress=progress,
+        size=size,
+        sizeleft=sizeleft,
+        timeleft=q.get("timeleft") or "",
+        status=status,
+        release_names=[release_name] if release_name else [],
+    )
+    card["tracked_state"] = q.get("trackedDownloadState") or ""
+    card["tracked_status"] = q.get("trackedDownloadStatus") or ""
+    card["attention"] = attention_reason(q)
+    card["queue_id"] = q.get("id") or 0
+    card["movie_id"] = q.get("movieId") or movie.get("id") or 0
+    card["download_id"] = q.get("downloadId") or ""
+    card["output_path"] = q.get("outputPath") or ""
+    card["has_file"] = movie.get("hasFile") is True
+    _identify(card, movie.get("tmdbId"))
+    return card
 
 
 def _build_still_searching_cards(
@@ -82,15 +89,14 @@ def _build_still_searching_cards(
         (card["title"], card.get("year")) for card in queue_cards if "tmdb_id" not in card
     }
     items: list[ArrCard] = []
-    for movie in movies:
+
+    def add(movie: RadarrMovie) -> None:
         m_title = movie.get("title", "")
         m_year = movie.get("year")
-        if not movie.get("monitored"):
-            continue
-        if movie.get("hasFile"):
-            continue
+        if not movie.get("monitored") or movie.get("hasFile"):
+            return
         if movie.get("tmdbId") in queued or (m_title, m_year) in queued_title_years:
-            continue
+            return
 
         is_upcoming, release_label = classify_movie_upcoming(movie)
         released_at = compute_movie_released_at(movie)
@@ -117,6 +123,8 @@ def _build_still_searching_cards(
         )
         _identify(card, movie.get("tmdbId"))
         items.append(card)
+
+    each_record(movies, "Radarr films", add)
     return items
 
 
@@ -141,9 +149,13 @@ def fetch_radarr_queue(
     instead.
     """
     items = _build_queue_cards(client)
-    movies = list(
-        _iter_still_searching(client.get_movies, service_label="Radarr", on_failure=on_failure)
-    )
+    movies = [
+        movie
+        for movie in _iter_still_searching(
+            client.get_movies, service_label="Radarr", on_failure=on_failure
+        )
+        if well_formed(movie)
+    ]
     items.extend(_build_still_searching_cards(movies, items))
     _label_shared_titles(items, movies)
     return items

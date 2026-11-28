@@ -18,7 +18,8 @@ What this module owns:
   and the per-item throttle gate.
 * ``trigger_pending_searches`` — the scheduler-driven sweep.
 * ``_trigger_sonarr_partial_missing`` — the second pass for series with
-  partial episode coverage.
+  partial episode coverage, which stops searching for a series after
+  ``_PARTIAL_TRIES`` tries until one of its missing episodes arrives.
 
 State and persistence helpers are re-exported here at module level so that
 ``mediaman.services.arr.search_trigger.<helper>`` remains a stable patch
@@ -27,11 +28,12 @@ target for tests; production calls in this file resolve them as bare names.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -40,6 +42,8 @@ import requests
 if TYPE_CHECKING:
     from mediaman.services.arr.fetcher import ArrCard
 
+from mediaman.core.audit import log_audit
+from mediaman.core.time import now_utc
 from mediaman.services.arr import ArrError
 from mediaman.services.arr._throttle_persistence import (  # noqa: F401
     _STRANDED_THROTTLE_TTL_SECONDS,
@@ -85,6 +89,13 @@ _SEARCH_STALE_SECONDS = 5 * 60  # trigger if item has been searching > 5 min
 # instance within this window, regardless of how many items are eligible. Caps
 # fan-out to the indexer when many stuck items contend at the same moment.
 _PER_ARR_THROTTLE_SECONDS = 15 * 60
+
+# The partial-missing pass stops searching for a series after this many tries: as the backoff
+# grows to a day, about ten in the first day and a half, then one a day for two weeks.
+_PARTIAL_TRIES = 24
+# A series missing more episodes than this is searched for whole, not episode by episode.
+_EPISODE_SEARCH_MAX = 10
+PARTIAL_STOPPED_ACTION = "search_stopped"
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,8 +334,11 @@ def maybe_trigger_search(
         client = builders[inputs.service](conn, secret_key)
         if client is None:
             return
+        episode_ids = item.get("episode_ids")
         if kind == "movie":
             client.search_movie(arr_id)
+        elif isinstance(episode_ids, list) and episode_ids:
+            client.send_command({"name": "EpisodeSearch", "episodeIds": episode_ids})
         else:
             client.search_series(arr_id)
         triggered = True
@@ -462,11 +476,14 @@ def _trigger_sonarr_partial_missing(
     secret_key: str,
     searched: set[tuple[str, int]] | None = None,
 ) -> set[str] | None:
-    """Fire SeriesSearch for Sonarr series with partial missing episodes.
+    """Search for the missing episodes of Sonarr series that have some, by EpisodeSearch where
+    they are few, else SeriesSearch.
 
     Dedupes against series already handled by the main pass via
     ``arr_id`` and against *searched*, and reuses the ``sonarr:{title}`` dl_id format so the
-    per-item throttle recognises the same series across passes.
+    per-item throttle recognises the same series across passes. A series tried
+    ``_PARTIAL_TRIES`` times is no longer searched for, which History says, until one of the
+    episodes it missed then arrives.
 
     Returns the dl_ids of every series with episodes missing, or None
     where Sonarr is not set up.
@@ -480,7 +497,9 @@ def _trigger_sonarr_partial_missing(
         for item in arr_items
         if item.get("kind") == "series" and item.get("arr_id")
     }
-    missing = sonarr_client.get_missing_series()
+    missing = sonarr_client.get_missing_episodes()
+    stopped = _stopped_partials(conn)
+    _forget_partials(conn, stopped.keys() - missing.keys())
 
     # Cheap pre-filter on the per-arr-instance fan-out cap: this pass only ever
     # builds *fresh* ``sonarr:{title}`` dl_ids (series the main pass didn't
@@ -494,20 +513,99 @@ def _trigger_sonarr_partial_missing(
     with _state_lock:
         arr_last_epoch, _ = _last_search_trigger_by_arr.get(_arr_throttle_key("sonarr"), (0.0, ""))
     if now - arr_last_epoch >= _PER_ARR_THROTTLE_SECONDS:
-        for series_id, title in missing.items():
+        for series_id, (title, episode_ids) in missing.items():
             if series_id in already_poked:
+                continue
+            dl_id = f"sonarr:{title}"
+            if not _partial_due(conn, series_id, dl_id, title, episode_ids, stopped):
                 continue
             maybe_trigger_search(
                 conn,
                 {
                     "kind": "series",
-                    "dl_id": f"sonarr:{title}",
+                    "dl_id": dl_id,
                     "arr_id": series_id,
                     "is_upcoming": False,
                     "added_at": 0.0,
+                    "episode_ids": sorted(episode_ids)
+                    if len(episode_ids) <= _EPISODE_SEARCH_MAX
+                    else [],
                 },
                 matched_nzb=False,
                 secret_key=secret_key,
                 searched=searched,
             )
-    return {f"sonarr:{title}" for title in missing.values()}
+    return {f"sonarr:{title}" for title, _ids in missing.values()}
+
+
+def _stopped_partials(conn: sqlite3.Connection) -> dict[int, frozenset[int]]:
+    """The series the partial-missing pass stopped searching for, with the episodes then missing."""
+    stopped: dict[int, frozenset[int]] = {}
+    for series_id, text in conn.execute("SELECT series_id, missing FROM arr_partial_stopped"):
+        try:
+            ids = json.loads(text)
+        except ValueError:
+            ids = []
+        stopped[series_id] = frozenset(i for i in ids if isinstance(i, int))
+    return stopped
+
+
+def _forget_partials(conn: sqlite3.Connection, series_ids: Collection[int]) -> None:
+    if series_ids:
+        with conn:
+            conn.executemany(
+                "DELETE FROM arr_partial_stopped WHERE series_id=?", [(i,) for i in series_ids]
+            )
+
+
+def _partial_due(
+    conn: sqlite3.Connection,
+    series_id: int,
+    dl_id: str,
+    title: str,
+    episode_ids: list[int],
+    stopped: Mapping[int, frozenset[int]],
+) -> bool:
+    """Whether the partial-missing pass may search for *series_id*, missing *episode_ids*.
+
+    Not while it is stopped and none of the episodes it missed then has arrived: once one
+    has, its tries count from none again. Not once it has been tried ``_PARTIAL_TRIES`` times:
+    it is stopped then, which is logged and said to History.
+    """
+    if series_id in stopped:
+        if not stopped[series_id] - set(episode_ids):
+            return False
+        _forget_partials(conn, [series_id])
+        clear_throttle(conn, dl_id)
+        logger.info("search.partial_resumed series_id=%d title=%s", series_id, title)
+        return True
+    loaded = _load_throttle_from_db(conn, dl_id)
+    if loaded is None:
+        return False
+    with _state_lock:
+        tries = max(loaded[1], _search_count.get(dl_id, 0))
+    if tries < _PARTIAL_TRIES:
+        return True
+    count = len(episode_ids)
+    episodes = f"{count} episode{'' if count == 1 else 's'}" if count else "the missing episodes"
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO arr_partial_stopped (series_id, missing, stopped_at)"
+            " VALUES (?, ?, ?)",
+            (series_id, json.dumps(sorted(episode_ids)), now_utc().isoformat()),
+        )
+        log_audit(
+            conn,
+            dl_id,
+            PARTIAL_STOPPED_ACTION,
+            f"Still can't find {episodes} of '{title}' after 2 weeks. Stopped searching;"
+            " mediaman searches again when one of them arrives",
+        )
+    logger.info(
+        "search.partial_stopped series_id=%d title=%s tries=%d episodes=%d",
+        series_id,
+        title,
+        tries,
+        count,
+    )
+    return False

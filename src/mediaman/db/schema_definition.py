@@ -745,6 +745,14 @@ CREATE TABLE IF NOT EXISTS arr_import_retries (
     next_try_at TEXT
 );
 
+-- A Sonarr series with some episodes missing that mediaman stopped searching for, as it tried
+-- long enough: the episodes missing then, so it searches again once one of them arrives.
+CREATE TABLE IF NOT EXISTS arr_partial_stopped (
+    series_id INTEGER PRIMARY KEY,
+    missing TEXT NOT NULL,
+    stopped_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS keep_tokens_used (
     token_hash TEXT PRIMARY KEY,
     used_at TEXT NOT NULL

@@ -214,9 +214,9 @@ class TestTriggerSonarrPartialMissing:
         conn = MagicMock()
         mock_sonarr = MagicMock()
         # Both id=10 (already poked) and id=20 (new) returned by Sonarr
-        mock_sonarr.get_missing_series.return_value = {
-            10: "Already Covered",
-            20: "New Partial",
+        mock_sonarr.get_missing_episodes.return_value = {
+            10: ("Already Covered", []),
+            20: ("New Partial", []),
         }
 
         monkeypatch.setattr(
@@ -290,7 +290,7 @@ class TestTriggerSonarrPartialMissing:
         # Tick 2: the partial-missing pass sees the same series under a
         # different title (Sonarr renamed it). Without the parallel
         # throttle this fires a second search; with it, the pass skips.
-        sonarr_client.get_missing_series.return_value = {42: "New Title"}
+        sonarr_client.get_missing_episodes.return_value = {42: ("New Title", [])}
         _st._trigger_sonarr_partial_missing(db_conn, [], "key")
 
         assert sonarr_client.search_series.call_count == 1, (

@@ -514,8 +514,14 @@ class _SonarrMixin:
         """Return ``{series_id: series_title}`` for every series with at least
         one monitored missing episode, matching Sonarr's Wanted/Missing view.
         """
-        self._require_series("get_missing_series")  # type: ignore[attr-defined]
-        out: dict[int, str] = {}
+        return {sid: title for sid, (title, _ids) in self.get_missing_episodes().items()}
+
+    def get_missing_episodes(self) -> dict[int, tuple[str, list[int]]]:
+        """Return ``{series_id: (series_title, episode_ids)}`` for every series with at least
+        one monitored missing episode, with the ids of those episodes, as Wanted/Missing lists.
+        """
+        self._require_series("get_missing_episodes")  # type: ignore[attr-defined]
+        out: dict[int, tuple[str, list[int]]] = {}
         page = 1
         page_size = 250
         max_pages = 100
@@ -527,11 +533,17 @@ class _SonarrMixin:
             if not records:
                 break
             for rec in records:
-                series = rec.get("series") or {}
+                series = rec.get("series")
+                if not isinstance(series, dict):
+                    continue
                 sid = series.get("id")
-                title = series.get("title", "")
-                if sid and sid not in out:
-                    out[sid] = title
+                if not isinstance(sid, int) or isinstance(sid, bool) or not sid:
+                    continue
+                title = series.get("title")
+                ids = out.setdefault(sid, (title if isinstance(title, str) else "", []))[1]
+                episode_id = rec.get("id")
+                if isinstance(episode_id, int) and not isinstance(episode_id, bool):
+                    ids.append(episode_id)
             if page * page_size >= total:
                 break
             page += 1
@@ -540,7 +552,7 @@ class _SonarrMixin:
             # the wanted/missing list is being silently truncated. Warn so the
             # un-poked series past the cap are observable.
             logger.warning(
-                "sonarr.get_missing_series: hit the %d-page cap (%d series) — "
+                "sonarr.get_missing_episodes: hit the %d-page cap (%d series) — "
                 "wanted/missing list may be truncated",
                 max_pages,
                 len(out),

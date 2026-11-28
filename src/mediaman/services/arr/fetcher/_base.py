@@ -50,6 +50,59 @@ def _iter_still_searching[T](
         on_failure()
 
 
+# What building a card of a record not of the shape Radarr or Sonarr documents can raise.
+_BAD_RECORD = (TypeError, AttributeError, ValueError, KeyError)
+# The lists that left out a record on their last read, logged once until a read leaves out none.
+_reported: set[str] = set()
+
+
+def _optional(value: object, kind: type | tuple[type, ...]) -> bool:
+    return value is None or (isinstance(value, kind) and not isinstance(value, bool))
+
+
+def well_formed(record: object, *parts: str) -> bool:
+    """Whether a Radarr or Sonarr *record* has the shape a card is built from: an object whose
+    title is text and sizes are numbers, and whose *parts*, such as its film, are each an object
+    or absent, with a text title and a list of objects for images."""
+    if not isinstance(record, dict):
+        return False
+    for name in parts:
+        part = record.get(name)
+        if part is None:
+            continue
+        if not isinstance(part, dict) or not _optional(part.get("title"), str):
+            return False
+        images = part.get("images")
+        if not _optional(images, list) or not all(isinstance(i, dict) for i in images or []):
+            return False
+    return (
+        _optional(record.get("title"), str)
+        and _optional(record.get("images"), list)
+        and all(_optional(record.get(k), (int, float)) for k in ("size", "sizeleft"))
+    )
+
+
+def each_record[T](
+    records: Iterable[T], what: str, use: Callable[[T], object], *parts: str
+) -> None:
+    """Hand each of *records* that is ``well_formed`` with its *parts* to *use*, leaving out one
+    that is not or that *use* cannot build from, so one bad record hides no other; that *what*
+    left some out is logged once, until a read of it leaves out none."""
+    skipped = 0
+    for record in records:
+        try:
+            if not well_formed(record, *parts):
+                raise TypeError("not of the documented shape")
+            use(record)
+        except _BAD_RECORD:
+            skipped += 1
+    if not skipped:
+        _reported.discard(what)
+    elif what not in _reported:
+        _reported.add(what)
+        logger.warning("arr_fetcher.bad_records list=%s skipped=%d", what, skipped)
+
+
 def clamp_progress(size: int, sizeleft: int) -> int:
     """Compute integer progress percentage from size/sizeleft, clamped to [0, 100].
 
@@ -136,6 +189,8 @@ class ArrEpisodeEntry(_ArrEpisodeRequired, total=False):
     # The release's name, and the folder its download is in as Sonarr sees it.
     release: str
     output_path: str
+    # Whether the episode has a file already, which the download would replace.
+    has_file: bool
 
 
 class BaseArrCard(TypedDict):
@@ -176,6 +231,8 @@ class ArrCard(BaseArrCard, total=False):
     download_id: str
     # The folder a film's download is in, as Radarr sees it.
     output_path: str
+    # Of a film's queue entry: whether the film has a file already, which the download would replace.
+    has_file: bool
     is_upcoming: bool
     release_label: str
     arr_id: int

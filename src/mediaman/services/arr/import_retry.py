@@ -4,8 +4,9 @@ A film's download, or a Sonarr season's, that has been stuck for an hour is firs
 it lies when it can be: its video files given the extension they lack, or the files the service
 matched by id alone imported by hand (see ``import_fix``). Otherwise, or when it is still stuck
 an hour after that, it is removed from the download client with its release blocklisted, and the
-same film or episodes are searched for again. A stalled download is replaced the same way once
-it has gone nowhere for a while. A download is mended in place once for each copy, so one that
+same film or episodes are searched for again; one the service will not import as it is no
+better than the file the title has is removed so, and nothing is searched for. A stalled
+download is replaced the same way once it has gone nowhere for a while. A download is mended in place once for each copy, so one that
 comes and goes is not mended over and over. Each next copy is left longer before it is replaced,
 by ``stuck_modes.wait_for``, and then once a day, for as long as the title does not import,
 until ``SAME_REASON_TRIES`` copies in a row were replaced for the same reason: then mediaman stops,
@@ -56,6 +57,7 @@ AUDIT_ACTION = "import_retried"
 RENAMED_ACTION = "import_renamed"
 IMPORTED_ACTION = "import_imported"
 STOPPED_ACTION = "import_stopped"
+NOT_UPGRADE_ACTION = "import_not_upgrade"
 
 # How many copies in a row are replaced for the same reason before mediaman stops: one that is
 # "Not an upgrade" would otherwise be downloaded again every day.
@@ -159,6 +161,8 @@ class _Unit:
     # as the service sees it and its release's name, and the episodes of its records.
     places: Mapping[str, tuple[str, str]] = field(default_factory=dict)
     download_episodes: Mapping[str, frozenset[int]] = field(default_factory=dict)
+    # Whether the film, or every episode of the records that need attention, has a file already.
+    has_file: bool = False
 
 
 def _int(value: object) -> int:
@@ -220,6 +224,7 @@ def _unit(
         mode=_unit_mode(modes),
         places=places,
         download_episodes={d: frozenset(ids - {0}) for d, ids in episodes.items()},
+        has_file=bool(held) and all(e.get("has_file") is True for e in held),
     )
 
 
@@ -760,6 +765,8 @@ def _retry(
     since = parse_iso_utc(row[0]) if row is not None and row[0] else None
     if since is None or now - since < _STUCK_FOR - _POLL_SLACK or row[7] is not None:
         return ""
+    if unit.mode == stuck_modes.NOT_UPGRADE and unit.has_file:
+        return _skip_not_upgrade(conn, secret_key, card, unit, row[0])
     if row[4] is None or row[4] != row[1]:
         mended = _fix_in_place(conn, secret_key, card, unit, row)
         if mended is None or mended:
@@ -858,6 +865,55 @@ def _retry(
     )
     silent = _search(conn, client, unit.key, search, shown, now, every_removed)
     return _SILENT if silent else _REPLACED
+
+
+def _skip_not_upgrade(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    card: Mapping[str, object],
+    unit: _Unit,
+    stuck_since: str,
+) -> str:
+    """Remove *unit*'s download, which the service will not import as it is no better than the
+    file the title has, with its release blocklisted, and search for nothing: the title has a
+    copy. Said to History when a record was removed; ``_SILENT`` when the service gave no answer.
+    """
+    with conn:
+        # Taken by the one run that changes the row; one still listed is stuck again on the next
+        # fetch, and gone from the queue, it is forgotten as any other.
+        claimed = conn.execute(
+            "UPDATE arr_import_retries SET stuck_since=NULL WHERE key=? AND stuck_since=?"
+            " AND retried_at IS NULL",
+            (unit.key, stuck_since),
+        ).rowcount
+    if claimed != 1:
+        return ""
+    service = unit.key.partition(":")[0]
+    removed = 0
+    try:
+        client = _client(conn, secret_key, service)
+        if client is None:
+            return _SILENT
+        for queue_id in sorted(unit.held_ids):
+            removed += bool(client.remove_from_queue(queue_id))
+    except _ERRORS as exc:
+        logger.warning(
+            "Could not remove %s's download that is no upgrade; trying again later",
+            unit.key,
+            exc_info=True,
+        )
+        return _SILENT if _no_answer(exc) else ""
+    logger.info("import_retry.not_upgrade key=%s removed=%d", unit.key, removed)
+    if removed:
+        with conn:
+            log_audit(
+                conn,
+                unit.key,
+                NOT_UPGRADE_ACTION,
+                f"Skipped a download of {_name(_shown_of(card, unit))}: it wasn't better than"
+                " the copy you have",
+            )
+    return ""
 
 
 def _stop(

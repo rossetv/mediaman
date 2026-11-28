@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import requests
 
@@ -13,6 +13,7 @@ from mediaman.services.arr.fetcher._base import (
     ArrEpisodeEntry,
     _iter_still_searching,
     clamp_progress,
+    each_record,
     make_arr_card,
 )
 from mediaman.services.arr.state import (
@@ -160,10 +161,12 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
     items: list[ArrCard] = []
     series_map: dict[int, ArrCard] = {}  # series_id -> grouped card
 
-    for q in client.get_queue():
+    def add(q: Any) -> None:
         series = q.get("series") or {}
         episode = q.get("episode") or {}
         series_id = series.get("id", 0)
+        if not isinstance(series_id, int):
+            raise TypeError("series id is no number")
         size = q.get("size") or 0
         sizeleft = max(0, q.get("sizeleft") or 0)
         # Clamp to [0, 100]: Sonarr can briefly report ``sizeleft > size``
@@ -195,6 +198,7 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
                 "episode_id": q.get("episodeId") or episode.get("id") or 0,
                 "release": q.get("title") or "",
                 "output_path": q.get("outputPath") or "",
+                "has_file": episode.get("hasFile") is True,
             },
         )
 
@@ -216,6 +220,8 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
         if release_name:
             series_map[series_id]["release_names"].append(release_name)
         series_map[series_id]["episodes"].append(ep_entry)
+
+    each_record(client.get_queue(), "Sonarr queue", add, "series", "episode")
 
     for card_series_id, card in series_map.items():
         _aggregate_pack_episodes(card, card_series_id)
@@ -273,21 +279,20 @@ def _build_still_searching_cards(
     phase 1.
     """
     items: list[ArrCard] = []
-    for series in _iter_still_searching(
-        client.get_series, service_label="Sonarr", on_failure=on_failure
-    ):
+
+    def add(series: SonarrSeries) -> None:
         s_title = series.get("title", "")
         s_year = series.get("year")
         if not series.get("monitored"):
-            continue
+            return
         stats = series.get("statistics") or {}
         if stats.get("episodeFileCount", 0) > 0:
-            continue
+            return
         if (s_title, s_year) in queue_series_title_years:
-            continue
+            return
         # Abandon unmonitors seasons and leaves the series monitored.
         if not _sonarr_will_fetch(series):
-            continue
+            return
 
         series_id = series.get("id", 0)
         episodes_raw: list[ArrEpisode] = []
@@ -336,6 +341,12 @@ def _build_still_searching_cards(
         if tmdb_id := series.get("tmdbId"):
             card["tmdb_id"] = tmdb_id
         items.append(card)
+
+    each_record(
+        _iter_still_searching(client.get_series, service_label="Sonarr", on_failure=on_failure),
+        "Sonarr series",
+        add,
+    )
     return items
 
 

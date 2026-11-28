@@ -18,11 +18,11 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
-import requests
-
-from mediaman.services.arr import ArrError, _library_hold
+from mediaman.services.arr import _library_hold
 from mediaman.services.arr._throttle_persistence import adopt_throttle
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
@@ -33,7 +33,7 @@ from mediaman.services.arr.fetcher._base import (
 from mediaman.services.arr.fetcher._radarr import fetch_radarr_queue
 from mediaman.services.arr.fetcher._searching_since import stamp_searching_since
 from mediaman.services.arr.fetcher._sonarr import fetch_sonarr_queue
-from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
@@ -78,7 +78,7 @@ class _HeldLibrary:
         return getattr(self._client, name)
 
     def get_queue(self) -> list[Any]:
-        entries = self._client.get_queue()
+        entries = self._client.get_queue(quick=True)
         self._queue = _library_hold.queue_of(entries)
         return entries
 
@@ -104,7 +104,10 @@ def fetch_arr_queue_result(
     in DB settings.
 
     Unlike ``fetch_arr_queue``, this surfaces errors alongside cards so
-    callers can show when a service is unreachable. While *steady*, a service
+    callers can show when a service is unreachable. The services are read at
+    the same time, and a poll, while *steady*, gives each queue page one short
+    try, so a service that hangs holds back no other. One that fails for any
+    reason is reported alone, the other's cards kept. While *steady*, a service
     that fails within five seconds of its first failure in a row is given its
     last answer's cards, if that answer is less than a minute old, and not
     reported; a failure after that is. A refused key is reported at once.
@@ -112,11 +115,37 @@ def fetch_arr_queue_result(
     from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 
     result = FetchResult()
-    for name, build, fetch in (
-        ("Radarr", build_radarr_from_db, fetch_radarr_queue),
-        ("Sonarr", build_sonarr_from_db, fetch_sonarr_queue),
-    ):
-        _fetch_service(conn, secret_key, name, build, fetch, result, steady=steady)
+    reads: list[tuple[str, Future[list[ArrCard]], list[str]]] = []
+    # The database is read and written here alone: the connection is this thread's.
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="arr-fetch") as pool:
+        for name, build, fetch in (
+            ("Radarr", build_radarr_from_db, fetch_radarr_queue),
+            ("Sonarr", build_sonarr_from_db, fetch_sonarr_queue),
+        ):
+            try:
+                client = build(conn, secret_key)
+            except Exception as exc:  # rationale: one service's failure must not hide the other's
+                _failed(name, exc, result, steady=steady)
+                continue
+            if client is None:
+                continue
+            # A poll reads the library as held; a caller that acts on what it reads reads it live.
+            polled = cast("ArrClient", _HeldLibrary(client)) if steady else client
+            failures: list[str] = []
+            reads.append(
+                (
+                    name,
+                    pool.submit(fetch, polled, on_failure=partial(failures.append, name)),
+                    failures,
+                )
+            )
+    for name, read, failures in reads:
+        try:
+            cards = read.result()
+        except Exception as exc:  # rationale: one service's failure must not hide the other's
+            _failed(name, exc, result, steady=steady)
+            continue
+        _add_cards(conn, name, cards, failures, result, steady=steady)
     return result
 
 
@@ -139,45 +168,32 @@ def _keep_answer(name: str, cards: list[ArrCard]) -> None:
         _failing_since.pop(name, None)
 
 
-def _fetch_service(
+def _failed(name: str, exc: Exception, result: FetchResult, *, steady: bool) -> None:
+    """Report that *name* gave no cards, for *exc*; while *steady*, a failure in a blip is
+    answered by the service's last answer."""
+    logger.warning("Failed to fetch %s queue: %s", name, exc, exc_info=True)
+    refused = isinstance(exc, SafeHTTPError) and exc.status_code in (401, 403)
+    if steady and not refused and _stand_in(name, result):
+        return
+    result.errors.append(f"{name} fetch failed: {exc}")
+    result.unreachable.append(name)
+    if refused:
+        result.refused.append(name)
+
+
+def _add_cards(
     conn: sqlite3.Connection,
-    secret_key: str,
     name: str,
-    build: Callable[[sqlite3.Connection, str], ArrClient | None],
-    fetch: Callable[..., list[ArrCard]],
+    cards: list[ArrCard],
+    failures: list[str],
     result: FetchResult,
     *,
     steady: bool,
 ) -> None:
-    """Add one service's cards to *result*, or the error that kept them out; while *steady*,
-    a failure in a blip is answered by the service's last answer."""
+    """Add one service's *cards* to *result*, those of a read with *failures* incomplete."""
     # Here, not at the top: import_retry imports this package's _base.
     from mediaman.services.arr.import_retry import note_stuck_imports
 
-    failures: list[str] = []
-    try:
-        client = build(conn, secret_key)
-        if client is None:
-            return
-        # A poll reads the library as held; a caller that acts on what it reads reads it live.
-        polled = cast("ArrClient", _HeldLibrary(client)) if steady else client
-        cards = fetch(polled, on_failure=lambda: failures.append(name))
-    except (
-        SafeHTTPError,
-        requests.RequestException,
-        ArrError,
-        sqlite3.Error,
-        ConfigDecryptError,
-    ) as exc:
-        logger.warning("Failed to fetch %s queue: %s", name, exc, exc_info=True)
-        refused = isinstance(exc, SafeHTTPError) and exc.status_code in (401, 403)
-        if steady and not refused and _stand_in(name, result):
-            return
-        result.errors.append(f"{name} fetch failed: {exc}")
-        result.unreachable.append(name)
-        if refused:
-            result.refused.append(name)
-        return
     if steady and failures and _stand_in(name, result):
         return
     result.unreachable.extend(failures)

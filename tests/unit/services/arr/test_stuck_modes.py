@@ -51,7 +51,8 @@ def _mode(message: str, held: tuple[str, str, str] = _HELD) -> str:
             " release",
             m.OTHER,
         ),
-        ("Not an upgrade for existing episode file(s)", m.OTHER),
+        ("Not an upgrade for existing episode file(s)", m.NOT_UPGRADE),
+        ("Not a Custom Format upgrade for existing movie file(s)", m.NOT_UPGRADE),
         ("Not enough free space", m.SETUP),
         (
             "Import failed, path does not exist or is not accessible by Sonarr:"

@@ -357,9 +357,9 @@ class TestTriggerPendingSearches:
 
         # Sonarr client returns id=1 (dup) and id=2 (partial missing, new).
         mock_sonarr = MagicMock()
-        mock_sonarr.get_missing_series.return_value = {
-            1: "Already",
-            2: "Partial Show",
+        mock_sonarr.get_missing_episodes.return_value = {
+            1: ("Already", []),
+            2: ("Partial Show", []),
         }
         monkeypatch.setattr(
             "mediaman.services.arr.search_trigger.build_radarr_from_db",

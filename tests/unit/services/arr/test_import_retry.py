@@ -924,6 +924,33 @@ def test_a_film_that_had_its_file_before_its_tries_keeps_them(arrs):
     ]
 
 
+def test_a_download_no_better_than_the_films_file_is_removed_and_nothing_searched_for(arrs):
+    message = "Not an upgrade for existing movie file(s)"
+    arrs.queues["radarr"] = [
+        _stuck_film(
+            40,
+            statusMessages=[{"title": "Dune", "messages": [message]}],
+            movie={"id": 9, "title": "Dune", "year": 2021, "tmdbId": 438631, "hasFile": True},
+        )
+    ]
+    arrs.movies = [_dune(hasFile=True)]
+    arrs.poll()
+    arrs.poll(timedelta(hours=1))
+
+    assert arrs.changes() == [
+        (
+            "DELETE",
+            "radarr",
+            "/api/v3/queue/40",
+            {"removeFromClient": ["true"], "blocklist": ["true"], "skipRedownload": ["true"]},
+        )
+    ]
+    said = arrs.conn.execute("SELECT detail FROM audit_log WHERE action='import_not_upgrade'")
+    assert [r[0] for r in said] == [
+        "Skipped a download of 'Dune': it wasn't better than the copy you have"
+    ]
+
+
 def test_a_season_that_had_its_files_before_its_tries_keeps_them(arrs):
     arrs.files = {501: "2025-06-01T00:00:00Z", 502: "2025-06-01T00:00:00Z"}
     for first in (10, 30, 50, 70):
