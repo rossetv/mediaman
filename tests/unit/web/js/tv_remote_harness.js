@@ -368,10 +368,48 @@ function moving(p) {
 }
 
 const scenarios = {
+  // A click with no press before it, as some screen readers send, acts once the card has settled.
+  async unpressed() {
+    const p = await page();
+    await p.open();
+    await p.pass(1000);
+    await p.press('[data-stop]', { detail: 1 });
+    return p.sent().map((b) => b.kind);
+  },
+  // A title too long for the bar's room does not travel into it, it comes and goes on the card.
+  async longTitle() {
+    const out = {};
+    for (const [name, room] of [['short', 400], ['long', 60]]) {
+      const p = await page();
+      const mv = moving(p);
+      p.$('[data-mini-title]').getBoundingClientRect = () => ({ left: 400, top: 830, width: room, height: 19, right: 400 + room, bottom: 849 });
+      p.$('[data-title]').getBoundingClientRect = () => ({ left: 470, top: 460, width: 480, height: 27, right: 950, bottom: 487 });
+      await p.open();
+      out[name] = mv.of('[data-title]').map((a) => a.frames[0].transform).filter(Boolean);
+    }
+    return out;
+  },
+  // Closed with the mouse still on the bar, the bar swells again; with it gone, it does not.
+  async rearmed() {
+    const out = {};
+    for (const [name, on] of [['still', true], ['gone', false]]) {
+      const p = await page({ mouse: true });
+      const mv = moving(p);
+      p.doc.elementFromPoint = () => (on ? p.$('[data-open] .tv-mini__t') : p.doc.body);
+      (p.doc.listeners.pointermove || []).forEach((fn) => fn({ pointerType: 'mouse', clientX: 500, clientY: 850 }));
+      await p.on('[data-open]', 'pointerenter', { pointerType: 'mouse' });
+      await p.open();
+      await mv.end();
+      await p.press('[data-close]');
+      await mv.end();
+      out[name] = mv.of('#tv-mini').map((a) => a.frames[1].transform);
+    }
+    return out;
+  },
   // The stretches over the whole of each move, as parts of it: the glass is drawn before the bar
   // goes, the bar is back before the glass goes, and one title is always there.
-  async spans() {
-    const p = await page();
+  async spans(film) {
+    const p = await page(film ? { tvs: [aTv({ play: aPlay({ season: null, episode: null, episode_title: null }) })] } : {});
     const mv = moving(p);
     const span = (sel, prop) => {
       const a = mv.of(sel).find((x) => prop in x.frames[0]);

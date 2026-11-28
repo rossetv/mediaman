@@ -1478,7 +1478,7 @@
     // The second press of a double click on the bar lands on the card as it opens: a press that
     // began before the card settled does nothing on it, nor beside it where the bar stood. A key
     // acts at once.
-    if (e.detail && pressedAt < openedAt + SETTLE_MS && !hit('[data-close]')) {
+    if (e.detail && pressedAt >= openedAt && pressedAt < openedAt + SETTLE_MS && !hit('[data-close]')) {
       var b = e.target === els.veil && openBar;
       if (!b || e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom) return;
     }
@@ -1726,13 +1726,13 @@
     }
     // The card's glass is drawn in full before the bar goes, and the bar is mostly back before the
     // glass goes, so nothing between them dips. Opening, the bar's title hands over to the card's,
-    // one going before the other comes, as their letters are not quite the same; closing, the
-    // bar's comes as the card's goes, so a title is always there.
+    // one going before the other comes, as their letters are not quite the same.
     var t = [veil,
       { el: els.glass, k: 'transform', shut: fit(bar, sheet), open: 'none', span: [0, 1], spring: true },
       { el: els.glass, k: 'opacity', shut: '0', open: '1', span: [0, 0.2], back: [0.6, 0.85] },
       { el: mini, k: 'opacity', shut: '1', open: '0', span: [0.2, 0.45], back: [0.5, 0.72] },
       { el: m('[data-mini-title]'), k: 'opacity', shut: '1', open: '0', span: [0, 0.05], back: [0.62, 0.76] }];
+    var barTitle = t[t.length - 1];
     function travel(from, to, even) {
       var a = box(from);
       var b = box(to);
@@ -1760,7 +1760,11 @@
     var fits = words && box(els.title) && shownWidth(els.title) * wordsOf(m('[data-mini-title]'), els.title) <= words.width + 8;
     if (fits && travel(m('[data-mini-title]'), els.title, true)) {
       shared.push(els.title);
-      t.push({ el: els.title, k: 'opacity', shut: '0', open: '1', span: [0.05, 0.12], back: [0.66, 0.8] });
+      // Closing, the same words on the same line cross; others would show through each other, so
+      // the card's go first and the bar's come straight after, quickly.
+      var same = els.title.textContent === m('[data-mini-title]').textContent;
+      t.push({ el: els.title, k: 'opacity', shut: '0', open: '1', span: [0.05, 0.12], back: same ? [0.66, 0.8] : [0.6, 0.71], ease: same ? '' : 'ease-in' });
+      if (!same) barTitle.back = [0.71, 0.78];
     }
     var track = els.seek.querySelector('.player-seek-track');
     if (travel(m('.tv-mini__bar'), track)) {
@@ -1807,7 +1811,7 @@
       var anim = tr.el.animate([a, b], {
         duration: whole * (span[1] - span[0]),
         delay: whole * span[0],
-        easing: tr.spring ? (opening ? springCurve() : curve('--ease-push') || 'ease-out') : 'ease-out',
+        easing: tr.spring ? (opening ? springCurve() : curve('--ease-push') || 'ease-out') : !opening && tr.ease || 'ease-out',
         fill: 'both',
       });
       anim.track = tr;

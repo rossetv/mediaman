@@ -21,8 +21,8 @@ def _template() -> str:
     return env.get_template("_tv_remote.html").render()
 
 
-def _run(scenario: str):
-    result = run_node(HARNESS, scenario, input=_template())
+def _run(scenario: str, *args: str):
+    result = run_node(HARNESS, scenario, *args, input=_template())
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
@@ -938,9 +938,26 @@ def test_the_glass_is_drawn_before_the_bar_goes_and_one_title_is_always_there() 
     # the card's comes, as their letters differ.
     assert opening["glass"][1] <= opening["bar"][0]
     assert opening["barTitle"][1] <= opening["title"][0]
-    # Closing: the bar comes back before the glass goes, and the titles cross.
+    # Closing: the bar comes back before the glass goes. "Glass Orchard" and the bar's
+    # "Glass Orchard · S1 E4" would show through each other: the card's goes first.
     assert closing["bar"][0] < closing["glass"][0]
-    assert (
-        closing["barTitle"][0] < closing["title"][1]
-        and closing["title"][0] < closing["barTitle"][1]
-    )
+    assert closing["title"][1] <= closing["barTitle"][0]
+    # A film's title is the same on both, and they cross, so a title is always there.
+    film = _run("spans", "film")["close"]
+    assert film["barTitle"][0] < film["title"][1] and film["title"][0] < film["barTitle"][1]
+
+
+def test_a_click_with_no_press_before_it_acts_once_the_card_has_settled() -> None:
+    assert _run("unpressed") == ["stop"]
+
+
+def test_a_title_too_long_for_the_bar_s_room_does_not_travel_into_it() -> None:
+    out = _run("longTitle")
+    assert any(t.startswith("translate(") and "scale(" in t for t in out["short"])
+    assert out["long"] == ["translateY(14px)"]
+
+
+def test_closed_with_the_mouse_still_on_the_bar_the_bar_swells_again() -> None:
+    out = _run("rearmed")
+    assert out["still"] == ["scale(1.016, 1.08)"]
+    assert out["gone"] == []
