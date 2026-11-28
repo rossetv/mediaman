@@ -950,9 +950,9 @@ def test_a_phone_never_stacks_a_third_blur_in_history() -> None:
         assert covered["backdrop-filter"] == covered["-webkit-backdrop-filter"] == "none", head
         # At once: a blur easing out would be a third layer while it lasts.
         assert "backdrop-filter" not in covered["transition-property"], head
-    # What shows of a pushed head is solid, at once: the rows under it would show sharp through it.
+    # What shows of a pushed head is opaque, at once: the rows under it would show through it.
     pushed = style(".hx-day__top.is-pushed", HISTORY, PHONE)
-    assert pushed["background-color"] == "var(--g-solid)"
+    assert _colour(pushed["background-color"], {})[3] == 1
     assert "background-color" not in pushed["transition-property"]
     # The kinds' arrows sit on the stuck tools: solid, never a blur of their own.
     for where, selectors, decls in rules(HISTORY):

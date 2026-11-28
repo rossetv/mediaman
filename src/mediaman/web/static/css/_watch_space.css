@@ -306,21 +306,22 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 .space-bar { position: relative; flex: none; display: flex; align-items: center; gap: 3px; height: 60px; margin: 0 -2px; }
 .space-seg { position: relative; flex: var(--v) 1 0; min-width: 12px; height: 60px; border-radius: var(--r-sm); }
 .space-seg:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -6px; border-radius: var(--r-sm); }
+/* 22px tall at rest, grown by --k from its middle: resized rather than scaled, so Free's edge and
+   the round ends keep their width instead of stretching. */
 .space-seg::before {
   content: "";
   position: absolute;
-  inset: 19px 0;
+  inset: calc(50% - 11px * var(--k, 1)) 0;
   border-radius: 1px;
   background: var(--c);
-  transition: transform var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out);
-  will-change: transform;
+  transition: inset var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out);
 }
 /* Only the bar's two outer ends are round; every corner between parts is nearly square. */
 .space-seg--first::before { border-start-start-radius: 11px; border-end-start-radius: 11px; }
 .space-seg--last::before { border-start-end-radius: 11px; border-end-end-radius: 11px; }
-.space-bar.has-active .space-seg::before { opacity: .28; transform: scaleY(.72); }
-.space-bar.has-active .space-seg.is-active::before { opacity: 1; transform: scaleY(1.5); }
-.space-bar:not(.has-active) .space-seg:active::before { transform: scaleY(1.2); }
+.space-bar.has-active .space-seg::before { --k: .72; opacity: .28; }
+.space-bar.has-active .space-seg.is-active::before { --k: 1.5; opacity: 1; }
+.space-bar:not(.has-active) .space-seg:active::before { --k: 1.2; }
 /* What the filesystem keeps back: neither used nor free. */
 .space-bar__rest { flex: var(--v) 1 0; height: 22px; border-radius: 1px 11px 11px 1px; background: var(--rgba-overlay-sm); }
 .space-tick {
@@ -549,7 +550,6 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
   .space-fig__n small { font-size: 15px; }
   .space-fig__line { margin-top: 2px; }
   .space-bar, .space-seg { height: 44px; }
-  .space-seg::before { inset: 11px 0; }
   .space__foot { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
 }
 

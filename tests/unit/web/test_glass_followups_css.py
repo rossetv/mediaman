@@ -78,3 +78,25 @@ def test_a_grid_s_stuck_head_rings_only_in_the_glass_s_ring(
 def test_a_rows_menu_ticks_in_a_blue_that_keeps_4_5_to_1_on_its_glass() -> None:
     tick = style(".rec-menu .watch-keep-menu__item > .ico", "_watch_browse.css")["color"]
     assert _on_glass(tick, style(".watch-keep-menu", KEEP)) >= 4.5
+
+
+def test_the_title_s_hero_draws_no_fill_past_its_fading_foot() -> None:
+    # A fill on the hero itself is not masked: it ends on a line lighter than the glass below.
+    for _, sels, decls in rules("_watch_detail.css"):
+        for sel in sels:
+            if re.search(r"\.ttl__hero(?::[\w-]+\(.*\))*$", sel):
+                assert decls.get("background", "none") == "none", sel
+    fill = style(".ttl__hero::before", "_watch_detail.css")
+    assert fill["background"].startswith("linear-gradient(")
+    foot = style(".ttl__hero::after", "_watch_detail.css")["mask-image"]
+    assert fill["mask-image"] == fill["-webkit-mask-image"] == foot
+    assert foot.startswith("linear-gradient(0deg, transparent,")
+
+
+def test_the_space_bar_s_parts_grow_without_stretching_free_s_edge() -> None:
+    seen = 0
+    for _, sels, decls in rules("_watch_space.css"):
+        if any(".space-seg" in sel and sel.endswith("::before") for sel in sels):
+            seen += 1
+            assert "transform" not in decls and "will-change" not in decls, sels
+    assert seen >= 4

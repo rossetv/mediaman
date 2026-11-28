@@ -504,8 +504,8 @@
      pills come back, or pushed up under the search by the next day's head. It goes at once. */
   .hx-tools.has-day:not(.is-tucked) ~ .hx-list .hx-day__top.is-stuck,
   .hx-day__top.is-pushed { -webkit-backdrop-filter: none; backdrop-filter: none; transition-property: border-color, background-color, box-shadow; }
-  /* What shows of a pushed head is solid, so the rows under it never show sharp through its words. */
-  .hx-day__top.is-pushed { background-color: var(--g-solid); transition-property: border-color, box-shadow; }
+  /* What shows of a pushed head is opaque, so no row under it shows through its words at all. */
+  .hx-day__top.is-pushed { background-color: rgb(var(--g-tint)); transition-property: border-color, box-shadow; }
   .you-view[data-view="history"] { scroll-padding-top: calc(var(--hx-tools, 192px) + 48px); }
   .hist-body { padding-left: 14px; }
   .hist-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
