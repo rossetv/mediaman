@@ -1046,10 +1046,12 @@ const scenarios = {
     return { said, src, pressed, still, then: t.says(), raw: html.includes('<b>Orchard') };
   },
   // A film that was lost goes on by itself: after a restart, paused, after the network dropped out,
-  // refused, or not after a stop with nothing gone wrong.
+  // refused, or not after a stop with nothing gone wrong. `flaky`: the first asks after a restart
+  // meet a proxy's error and a lost answer; `flakyNetwork`, the same after the network dropped out.
   async resumes(how) {
     const t = await playing();
     let boot = 'a';
+    const network = how === 'network' || how === 'flakyNetwork';
     const answer = () => ready({ play: t.now, boot, resume: t.now ? 'ticket-' + t.now.play_id : null });
     t.now = film({ state: 'playing' });
     t.answers.poll = answer;
@@ -1057,13 +1059,15 @@ const scenarios = {
     if (how === 'paused') { t.video.pause(); t.video.fire('pause'); }
     await t.step(1500);
     if (how !== 'stopped') t.answers.poll = [502, null];
-    await t.step(how === 'network' ? 9000 : 3000);
+    await t.step(network ? 9000 : 3000);
     const at = t.video.currentTime;
-    if (how !== 'network' && how !== 'stopped') boot = 'b';
+    if (!network && how !== 'stopped') boot = 'b';
     t.now = null;
     t.answers.ask = how === 'refused' ? [409, { ok: false, error: 'not_playing' }] : { ok: true };
+    const flaky = [[502, null], [0, null], { ok: true }];
+    if (how === 'flaky' || how === 'flakyNetwork') t.answers.ask = () => flaky.shift();
     t.answers.poll = answer;
-    await t.step(2500);
+    await t.step(how.startsWith('flaky') ? 4500 : 2500);
     const said = t.says();
     const held = t.node('fr').className;
     const asks = t.paths('ask').map((c) => c.body);
@@ -1075,6 +1079,34 @@ const scenarios = {
     t.video.fire('playing');
     await t.step(500);
     return { ...out, freed: t.node('fr').className, pill: t.node('nw').className, now: t.says() };
+  },
+  // mediaman comes back from an update with new scripts while a film played: the page picks the
+  // film up first, and loads the new scripts only once nothing plays.
+  async resumesUpdated() {
+    const t = tv({ kept: 'old', version: 'aaa' });
+    let boot = 'a', v = 'aaa';
+    t.now = film({ state: 'playing' });
+    t.answers.poll = () => ready({ play: t.now, boot, v, resume: t.now ? 'ticket-' + t.now.play_id : null });
+    t.run();
+    await t.step(50);
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(3000);
+    const poll = t.answers.poll;
+    t.answers.poll = [502, null];
+    await t.step(3000);
+    boot = 'b'; v = 'bbb';
+    t.now = null;
+    t.answers.ask = { ok: true };
+    t.answers.poll = poll;
+    await t.step(2500);
+    const asks = t.paths('ask').length, during = t.reloads.length;
+    t.now = film({ play_id: 'p2', state: 'playing' });
+    await t.step(3000);
+    const playing = t.reloads.length;
+    t.now = null;
+    await t.step(3000);
+    return { asks, during, playing, idle: t.reloads.length };
   },
   // A page opened again while mediaman was away goes on from the place it kept.
   async resumesReopened(how) {
