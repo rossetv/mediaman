@@ -24,6 +24,10 @@ from pathlib import Path
 
 _RUNNER = Path(__file__).with_name("node_batch.js")
 
+# The harnesses expect what CI has, whatever the machine is set to; a run that needs
+# another zone or locale passes it in ``env``.
+PINNED_ENV = {"TZ": "UTC", "LANG": "en_GB.UTF-8", "LC_ALL": "en_GB.UTF-8"}
+
 
 class _Node:
     """One node process running ``node_batch.js``, asked one run at a time."""
@@ -37,6 +41,7 @@ class _Node:
             stdout=subprocess.DEVNULL,
             stderr=self._stderr,
             pass_fds=(write,),
+            env={**os.environ, **PINNED_ENV},
         )
         os.close(write)
         self._buffer = b""

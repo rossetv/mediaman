@@ -4,16 +4,16 @@ and the dialog that asks for those that are missing."""
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
+
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "watch_collection_harness.js"
 
 
 def _run(scenario: str) -> dict:
-    result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
-    )
+    # Fourteen hours ahead of UTC, where a release date read as an instant falls on the next day.
+    result = run_node(HARNESS, scenario, env={"TZ": "Pacific/Kiritimati"}, timeout=60)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 

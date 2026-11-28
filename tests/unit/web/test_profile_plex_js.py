@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
+
+from tests.helpers.node_batch import run_node
 
 HARNESS = Path(__file__).parent / "js" / "profile_plex_harness.js"
 
 
 def _run(scenario: str) -> Any:
-    result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
-    )
+    result = run_node(HARNESS, scenario, timeout=60)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
