@@ -28,6 +28,7 @@ from starlette.responses import Response
 
 from mediaman.core.audit import security_event
 from mediaman.core.time import now_utc
+from mediaman.crypto import generate_tv_resume_ticket, validate_tv_resume_ticket
 from mediaman.db import close_db, get_db
 from mediaman.services.cast.tickets import TICKET_SECONDS
 from mediaman.services.media_meta.plex_quality import TvQuality
@@ -89,6 +90,11 @@ _POLL_MS = {"pairing": 2000, "idle": 3000, "playing": 1000}
 _LOOKUPS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tv-next")
 _LOOKUP_WAIT_S = 4.0
 
+# How long after it last heard of mediaman a TV may have what it played start again by itself.
+_RESUME_SECONDS = 1800
+# How far past where it last said it was the TV may ask to go on from: it plays on while it is away.
+_RESUME_AHEAD_S = 60.0
+
 # A container is killed some seconds after it is told to stop, and more is to be done in them.
 _SAVE_BUDGET_S = 2.0
 
@@ -148,9 +154,12 @@ class _Poll(_Body):
 
 class _Ask(_Body):
     play_id: _PlayId
-    what: Literal["next", "auto", "again", "cancel", "stop"]
-    #: Of an ``again`` nobody pressed, whether the TV is paused.
+    what: Literal["next", "auto", "again", "cancel", "stop", "resume"]
+    #: Of an ``again`` nobody pressed, or a ``resume``, whether the TV is paused.
     paused: bool = False
+    #: Of a ``resume``: the ticket the TV was last given, and where the TV got to.
+    ticket: str = Field(default="", max_length=2048)
+    position_s: _Seconds | None = None
 
 
 class _Pair(_Body):
@@ -256,6 +265,12 @@ def _refused(request: Request) -> Response:
 
 def _carry_out(players: Players) -> None:
     """Save the places and end the streams that what plays on the TVs has left."""
+    ended = players.drain_ended()
+    if ended:
+        try:
+            repo.end_resume_plays(get_db(), ended)
+        except Exception:
+            logger.exception("tv: could not forget the plays that ended")
     for left in players.drain():
         manager = get_stream_manager()
         # rationale: whatever goes wrong with one, its stream must not go on running, nor the other
@@ -383,6 +398,7 @@ def device_poll(request: Request, body: _PollBody, x_tv_token: _Token = "") -> R
         {
             "state": "ready",
             "boot": players.boot,
+            "resume": _resume_ticket(request, players, held),
             "id": held.id,
             "name": held.name,
             "owner": held.owner,
@@ -416,10 +432,84 @@ def device_ask(request: Request, body: _AskBody, x_tv_token: _Token = "") -> Res
     key = hash_token(x_tv_token)
     if not _ASK_LIMITER.check(key):
         return _too_many(_ASK_LIMITER.retry_after(key))
-    done = _carry_on(
-        request, held, body.what, body.play_id, pressed=body.what != "again", paused=body.paused
-    )
+    if body.what == "resume":
+        done = _resume(request, held, body)
+    else:
+        done = _carry_on(
+            request, held, body.what, body.play_id, pressed=body.what != "again", paused=body.paused
+        )
     return done if isinstance(done, Response) else respond_ok()
+
+
+def _resume_ticket(request: Request, players: Players, held: repo.Tv) -> str | None:
+    """What the TV is to show to have what plays started again, should it be lost."""
+    play = players.to_resume(held.token_hash or "")
+    if play is None:
+        return None
+    state = {
+        "key": held.token_hash,
+        "user": play.user,
+        "user_id": play.user_id,
+        "rating_key": play.rating_key,
+        "play_id": play.id,
+        "place": play.position_s,
+        "quality": play.choice.quality,
+        "subtitle": play.choice.subtitle,
+        "autoplay": play.choice.autoplay,
+        "boot": players.boot,
+        "at": now_utc().timestamp(),
+    }
+    return generate_tv_resume_ticket(
+        state=state, ttl_s=_RESUME_SECONDS, secret_key=request.app.state.config.secret_key
+    )
+
+
+def _resume(request: Request, held: repo.Tv, body: _Ask) -> int | Response:
+    """Start again what the TV's ticket says played on it, where nothing has played since.
+
+    The ticket names no title the TV chose: only what a person started on this TV, and still
+    paired with it, plays again.
+    """
+    got = validate_tv_resume_ticket(body.ticket, request.app.state.config.secret_key)
+    state: dict[str, Any] = dict(got["st"]) if got is not None else {}
+    key, conn = held.token_hash or "", get_db()
+    user, user_id, rating_key = state.get("user"), state.get("user_id"), state.get("rating_key")
+    if (
+        not hmac.compare_digest(str(state.get("key")), key)
+        or not isinstance(user, str)
+        or not isinstance(rating_key, str)
+        or find_user_id(conn, user) != user_id
+        or not repo.is_paired(conn, key, user)
+        or not get_players().may_resume(
+            key,
+            str(state.get("boot")),
+            user,
+            rating_key,
+            latest=isinstance(state.get("play_id"), str)
+            and state.get("play_id") == repo.resume_play(conn, key),
+        )
+    ):
+        return _refusal(NotPlaying())
+    choice = Choice(
+        quality=str(state.get("quality") or "auto"),
+        subtitle=state.get("subtitle"),
+        autoplay=bool(state.get("autoplay", True)),
+    )
+    away = max(0.0, now_utc().timestamp() - float(state.get("at") or 0))
+    start_s = body.position_s
+    if start_s is not None:
+        start_s = min(start_s, float(state.get("place") or 0) + _RESUME_AHEAD_S)
+    return _start_on(
+        request,
+        replace(held, owner=user, owner_id=user_id),
+        rating_key,
+        choice,
+        start_s=start_s,
+        # Anything its person started elsewhere while the TV was away is newer.
+        asked_s=min(away, _RESUME_SECONDS),
+        paused=body.paused,
+        pressed=False,
+    )
 
 
 @router.post("/api/tv/device/unpair")
@@ -603,6 +693,7 @@ def _start_on(
         )
         command.append(players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed))
         begun.append(play)
+        repo.set_resume_play(conn, key, play.id)
         # Not before: signing out everywhere ends what has begun by then.
         if asked_by is not None and not repo.has_session(conn, asker or user, asked_by):
             with contextlib.suppress(NotPlaying, Stale):

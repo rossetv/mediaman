@@ -4795,6 +4795,20 @@ const scenarios = {
     return out;
   },
 
+  /* The countdown's card holds the focus on Cancel; Enter there stays, or Play now is clicked. */
+  async upnext_default(p) {
+    const how = p.win.serverPlays;
+    await streamPlays(p, 0);
+    endsNow(p);
+    const card = p.q('[data-upnext]');
+    const out = { focused: doc.activeElement === p.q('[data-upnext-cancel]') };
+    if (how === 'enter') key('Enter');
+    if (how === 'click') click(p.q('[data-upnext-play]'));
+    p.tick(how === 'wait' ? 0 : 12000);
+    await settle();
+    return Object.assign(out, { open: !gone(card), went: p.calls.some((c) => c.page) });
+  },
+
   /* On a touch screen, until a key is pressed. */
   async upnext_spoken_touch(p) {
     const status = p.q('[data-upnext-status]');
@@ -5236,6 +5250,31 @@ const scenarios = {
     click(p.q('[data-play]'));
     await settle();
     out.from = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    return out;
+  },
+
+  /* mediaman restarts while a TV plays: the TV picks it up again, or never does. */
+  async away_tv_restarted(p) {
+    const how = p.win.serverPlays;
+    await streamPlays(p, 30);
+    await openSheet(p);
+    await pickRow(p, 'tv-5');
+    let tv = Object.assign({}, LIVING, { boot: 'a', play: { play_id: 'p1', rating_key: '501', state: 'playing', position_s: 400 } });
+    p.elsewhere.tv = () => Promise.resolve({ tv: tv });
+    p.tick(6000);
+    await settle();
+    tv = Object.assign({}, LIVING, { boot: 'b' });
+    p.tick(6000);
+    await settle();
+    const out = { during: awayState(p).away };
+    if (how === 'back') tv = Object.assign({}, LIVING, { boot: 'b', play: { play_id: 'p2', rating_key: '501', state: 'playing', position_s: 405 } });
+    for (let i = 0; i < 8; i += 1) { p.tick(6000); await settle(); }
+    Object.assign(out, awayState(p));
+    if (how === 'gone') {
+      click(p.q('[data-play]'));
+      await settle();
+      out.from = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    }
     return out;
   },
 

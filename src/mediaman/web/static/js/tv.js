@@ -11,6 +11,7 @@
   var API = '/api/tv/device/';
   var KEPT = 'mm-tv';
   var KEPT_PLACE = 'mm-tv-place';
+  var KEPT_RESUME = 'mm-tv-resume';
   var MAX_CODES = 12;        // shown by themselves, with no key pressed
   var RESTARTED_MS = 8000;
   var LOST_AFTER = 8000;
@@ -25,6 +26,8 @@
   var MOVE_MS = 60000;
   var LIT_MS = 500;
   var SKIPPED_MS = 3000;
+  var STORE_MS = 2000;       // what the TV keeps of what plays is written no more often than this
+  var LEAVE_MS = 450;        // the page before fades out for as long as tv.css takes, and a little more
 
   var body = document.body;
   var stage = document.getElementById('s');
@@ -398,6 +401,7 @@
     token = mine.token;
     remember(KEPT, token);
     remember(KEPT_PLACE, null);
+    keepResume(null);
     codes = 0;
     lastDone = 0;
     play = null;
@@ -462,11 +466,12 @@
         if (status === 429) heard(); else missed(false);
         return;
       }
+      var wasAway = now() - heardAt > LOST_AFTER;
       heard();
       // First, so that nothing a TV's browser throws below ends the polling.
       pollSoon(again ? 500 : got.poll_ms || 3000);
       again = false;
-      take(got);
+      take(got, wasAway);
     });
   }
 
@@ -486,6 +491,7 @@
     me = null;
     remember(KEPT, null);
     remember(KEPT_PLACE, null);
+    keepResume(null);
     mode = 'out';
   }
 
@@ -500,15 +506,86 @@
     }, RESTARTED_MS);
   }
 
-  function take(got) {
+  function take(got, wasAway) {
     me = { name: got.name, owner: got.owner, people: got.people || [], avatars: got.avatars || {} };
     if (mode === 'boot') mode = 'idle';
     var was = play;
+    var lost = lostPlay(was, got, wasAway);
+    // Where it was, before the page lets the film go.
+    var at = lost && was && loaded === was.play_id ? position() : lastPlace({ play_id: lost && lost.id, start_s: null });
+    var paused = was ? !wanted : lost && lost.paused;
     playing(got.play);
-    if (was && !got.play && boot !== got.boot) restarted(was);
+    if (lost) resume(lost, at, paused, got.boot, Boolean(was));
+    else if (was && !got.play && boot !== got.boot) restarted(was);
+    if (!lost && resuming !== got.boot) keepResume(got.play && got.resume ? { ticket: got.resume, id: got.play.play_id, boot: got.boot, title: got.play.title } : null);
     boot = got.boot;
     obey(got.commands || []);
     show();
+  }
+
+  /* ── going on after mediaman, or the TV's network, dropped out ── */
+
+  var resumable = null;      // {ticket, id, boot, title, paused}: the server's word that what plays may go on
+  var resuming = null;       // the run of mediaman asked to go on, until it answers
+  var resumingFrom = false;  // whether mediaman restarted, rather than the network dropped out
+
+  var storedAt = 0;
+
+  function keepResume(kept) {
+    var was = resumable, at = now();
+    if (document.hidden) kept = null;
+    if (kept) kept.paused = !wanted;
+    var changed = !was !== !kept || Boolean(kept) && (was.id !== kept.id || was.boot !== kept.boot || was.paused !== kept.paused);
+    resumable = kept;
+    // A TV's storage is slow to write: as what it holds changes, and its ticket as often as its
+    // place, which mediaman holds a pick-up close to.
+    if (changed || (kept && at - storedAt > STORE_MS)) {
+      storedAt = at;
+      remember(KEPT_RESUME, kept && JSON.stringify(kept));
+    }
+  }
+  function forgetResume() {
+    resumable = null;
+    remember(KEPT_RESUME, null);
+  }
+  /* A page put away, as the TV goes to standby or another app is opened, was left on purpose: what
+     played may have gone to a phone meanwhile, so it is not picked up as the TV comes back. A restart
+     or a dropped network while the page is on screen keeps it. */
+  document.addEventListener('visibilitychange', function () { if (document.hidden) forgetResume(); });
+  if (window.addEventListener) window.addEventListener('pagehide', forgetResume);
+
+  function keptResume() {
+    if (resumable) return resumable;
+    try { return JSON.parse(remembered(KEPT_RESUME) || 'null'); } catch (e) { return null; }
+  }
+
+  /* What played and was lost, where it is to go on: mediaman restarted, or the network dropped out
+     for longer than mediaman holds a play. A page opened again knows only of a restart. */
+  function lostPlay(was, got, wasAway) {
+    var kept = keptResume();
+    if (got.play || !kept || !kept.ticket || resuming === got.boot) return null;
+    if (was && was.play_id !== kept.id) return null;
+    return kept.boot !== got.boot || (was && wasAway) ? kept : null;
+  }
+
+  /* `seen`: whether this page was showing the film as it was lost. One opened afresh has nothing to
+     tell of a pick-up that was refused. */
+  function resume(kept, at, paused, run, seen) {
+    endedWith = { title: kept.title, state: 'playing' };
+    resuming = run;
+    resumingFrom = kept.boot !== run;
+    mode = 'resuming';
+    var wish = { play_id: kept.id, what: 'resume', ticket: kept.ticket, paused: Boolean(paused) };
+    if (at) wish.position_s = Math.max(0, at);
+    send('ask', token, wish, 110000, function (status) {
+      if (mode !== 'resuming') return;
+      if (status === 200) { tell(); return; }
+      // From the store too, where a page opened afresh found it: it is asked for once.
+      forgetResume();
+      resuming = null;
+      if (resumingFrom && seen) restarted(endedWith); else mode = 'idle';
+      show();
+    });
   }
 
   /* ── what is to play ── */
@@ -528,7 +605,8 @@
       asked = null;
       return;
     }
-    if (mode === 'conn' || mode === 'unpair' || mode === 'taken' || mode === 'code' || mode === 'restarted') mode = 'idle';
+    if (mode === 'conn' || mode === 'unpair' || mode === 'taken' || mode === 'code' || mode === 'restarted' || mode === 'resuming') mode = 'idle';
+    resuming = null;
     if (!was || was.play_id !== next.play_id) {
       unload();
       rouse();
@@ -831,6 +909,7 @@
   video.addEventListener('pause', function () {
     if (!loaded || !ready || video.ended || reloadDue || broken) return;
     wanted = false;
+    if (there) keepPlace(video.currentTime);
     show();
     tell();
   });
@@ -847,6 +926,12 @@
   video.addEventListener('error', function () {
     if (!hls && video.getAttribute('src')) broke();
   });
+
+  /* Where the film is, kept on the TV itself: mediaman may be away when it is wanted. */
+  function keepPlace(time) {
+    keptAt = now();
+    remember(KEPT_PLACE, play.play_id + ' ' + Math.floor(time));
+  }
 
   function tick() {
     var at = now(), since = Math.min(2000, Math.max(0, at - lastTick));
@@ -876,7 +961,7 @@
       if (counted - (play.played_s || 0) > 60) { breaks = 0; }
       if (ready && wanted && there && time - play.start_s > 60) tries = 0;
       lastTime = time;
-      if (there && ready && at - keptAt > 5000) { keptAt = at; remember(KEPT_PLACE, play.play_id + ' ' + Math.floor(time)); }
+      if (there && ready && at - keptAt > STORE_MS) keepPlace(time);
     }
     if (pending && mode === 'code') {
       if (now() >= pending.until) codeGone();
@@ -884,7 +969,7 @@
     }
     if (play && play.state === 'upnext' && endsAt && asked !== play.play_id) {
       if (at >= endsAt && at >= autoAt) ask('auto');
-      else put('in', nextLine());
+      else put('inn', String(nextLeft()));
     }
     if (play) bar();
     if ((stalled || reloadDue) && which() !== shown) show();
@@ -1046,7 +1131,7 @@
   // The page holds the name and its first wait as drawn, until the first of these pages takes its place.
   var BRAND = document.querySelector('.brand').outerHTML;
   var BOOT = document.querySelector('.mid').outerHTML;
-  var SPIN = '<div class="spin"></div>';
+  var SPIN = '<div class="spin"><i></i></div>';
   var buttons = [];          // what the page offers: [label, action]
 
   function offer(list) {
@@ -1086,8 +1171,10 @@
   // A TV that is paired need not pair anew.
   function leave() { return token ? [['Back', 'i']] : []; }
   function page(inner) { return '<div class="page">' + inner + '</div>'; }
-  function art() {
-    return '<div class="pic" id="pic"></div>';
+  /* The picture, and over it the shade the words need: one layer, so that it fades in whole and
+     the picture is never less shaded than it ends. */
+  function art(shaded) {
+    return '<div class="pic" id="pic">' + (shaded ? '<div class="shade"></div>' : '') + '</div>';
   }
   function titles() {
     return '<div class="t1">' + esc(play.title) + '</div><div class="t2">' + under(play) + '</div>';
@@ -1096,8 +1183,18 @@
     var left = clock((pending.until - now()) / 1000);
     return pending.ranOut ? 'The last code ran out. This one works for ' + left + '.' : 'This code works for ' + left + '.';
   }
+  function nextLeft() { return Math.max(0, Math.ceil((endsAt - now()) / 1000)); }
+  /* As the skip's count is: drawn once, so that a reader says it once; only its number ticks. */
+  var upLine = { of: '', html: '' };
   function nextLine() {
-    return endsAt ? 'Next episode in ' + Math.max(0, Math.ceil((endsAt - now()) / 1000)) + ' s' : 'Next episode';
+    if (!endsAt) return 'Next episode';
+    var of = play.play_id + ' ' + play.state;
+    if (upLine.of !== of) {
+      var n = nextLeft();
+      upLine = { of: of, html: '<span aria-hidden="true">Next episode in <span id="inn">' + n + '</span> &middot; Press to cancel</span>' +
+        '<span class="sr">Next episode in ' + n + (n === 1 ? ' second' : ' seconds') + '. Press to cancel.</span><i class="dr" id="ndr"></i>', left: n };
+    }
+    return upLine.html;
   }
   function marks() {
     var total = play.duration_s, at = [], left = [], i;
@@ -1128,8 +1225,8 @@
     }
   }
   function overlay(paused) {
-    return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot">' +
-      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by && me && me.people && me.people.length > 1 ? ' by ' + face(play.paused_by, true) + esc(play.paused_by) : '')) + '</div>' : '') +
+    return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot" id="bt">' +
+      (paused ? '<div class="pz" id="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by && me && me.people && me.people.length > 1 ? ' by ' + face(play.paused_by, true) + esc(play.paused_by) : '')) + '</div>' : '') +
       '<div class="bar"><div class="p" id="pr"></div>' + markNodes() + '</div><div class="tms"><span id="el"></span><span id="re"></span></div>' +
       offer([[glyph('back') + '10 s', 'b'], [glyph(paused ? 'play' : 'pause') + (paused ? 'Play' : 'Pause'), 'p'], [glyph('fwd') + '10 s', 'f'], [glyph('stop') + 'Stop', 's']]) +
       '</div></div>';
@@ -1173,6 +1270,9 @@
       return page(middle('Signed out', 'This TV was unpaired. Nothing of yours is left on it.<br>Pair it again to watch.', [['Pair this TV', 'n']]));
     },
     taken: function () { return page(middle('Someone else has this TV now', 'The film stopped. Its place is kept.', [], SPIN)); },
+    resuming: function () {
+      return page(middle(resumingFrom ? 'mediaman restarted' : 'Back online', 'Picking up ' + esc(endedWith.title) + ' where you were.', [], SPIN));
+    },
     restarted: function () {
       var over = /^(ended|upnext|still)$/.test(endedWith.state);
       return page(middle('mediaman restarted', over ? 'The TV is ready for something else.' : 'Your place in ' + esc(endedWith.title) + ' is kept.', [['OK', 'i']]));
@@ -1184,9 +1284,9 @@
       return page(middle('This TV&rsquo;s browser can&rsquo;t play films', 'It is missing what mediaman needs.<br>Ask an admin to add this TV by its address.', [['Try anyway', 'a']]));
     },
     load: function () {
-      return art() + '<div class="shade"></div><div class="mid">' + SPIN + titles() + '<div class="sm who">' + face(starter(), true) + esc(starter()) + ' is starting it</div></div>' + offer([]);
+      return art(true) + '<div class="mid start">' + SPIN + titles() + '<div class="sm who">' + face(starter(), true) + esc(starter()) + ' is starting it</div></div>' + offer([]);
     },
-    soon: function () { return art() + '<div class="shade"></div><div class="mid">' + SPIN + '<div class="l">Starting</div></div>' + offer([]); },
+    soon: function () { return art(true) + '<div class="mid start">' + SPIN + '<div class="l">Starting</div></div>' + offer([]); },
     play: function () { return overlay(false); },
     pause: function () { return overlay(true); },
     buf: function () {
@@ -1194,16 +1294,17 @@
     },
     next: function () {
       var after = play.next || {};
-      return art() + '<div class="up"><div class="t2" id="in"></div><div class="t1">' + (episode(after, after.title) || esc(play.title)) + '</div>' +
-        (askNote && '<div class="t2">' + askNote + '</div>') + offer([['Play now', 'k'], ['Cancel', 'c']]) + '</div>';
+      // Cancel comes first and has the focus: whoever wants the next episode need only wait.
+      return art() + '<div class="up"><div class="t2" id="in">' + nextLine() + '</div><div class="t1">' + (episode(after, after.title) || esc(play.title)) + '</div>' +
+        (askNote && '<div class="t2">' + askNote + '</div>') + offer([['Cancel', 'c'], ['Play now', 'k']]) + '</div>';
     },
     still: function () {
       var minutes = Math.max(1, Math.ceil((play.still_in_s || 0) / 60));
-      return art() + '<div class="shade"></div>' + middle('Are you still watching?', 'Press OK here, or answer on your phone.<br>It stops in ' + minutes + (minutes === 1 ? ' minute' : ' minutes') + ' and keeps your place.' + (askNote && '<br>' + askNote),
+      return art(true) + middle('Are you still watching?', 'Press OK here, or answer on your phone.<br>It stops in ' + minutes + (minutes === 1 ? ' minute' : ' minutes') + ' and keeps your place.' + (askNote && '<br>' + askNote),
         [['Continue watching', 'k'], ['Stop', 's']]).replace(BRAND, '');
     },
     ended: function () {
-      return art() + '<div class="shade"></div><div class="mid">' + titles() + '<div class="sm">' + (askNote || 'That&rsquo;s the end.') + '</div>' + offer([['Play again', 'r'], ['Close', 's']]) + '</div>';
+      return art(true) + '<div class="mid">' + titles() + '<div class="sm">' + (askNote || 'That&rsquo;s the end.') + '</div>' + offer([['Play again', 'r'], ['Close', 's']]) + '</div>';
     },
     err: function () {
       var acts = FOR_GOOD[play.error] ? [['Back', 's']] : [['Try again', 'r'], ['Back', 's']];
@@ -1239,16 +1340,25 @@
     var name = which();
     var html = PAGES[name]();
     if (html !== drawn) {
-      var kept = name === shown ? focus : FOCUS[name] || 0;
+      // With no countdown, nothing comes by itself: Play now is the press to make.
+      var kept = name === shown ? focus : name === 'next' && !endsAt ? 1 : FOCUS[name] || 0;
       // The overlay of a film that pauses or plays on is the same place.
       if (FOCUS[name] && FOCUS[shown]) kept = focus;
+      var before = document.getElementById('ov');
+      var tucked = Boolean(before) && before.className === 'ov hide';
+      var pausedLine = name === 'play' && shown === 'pause' && document.getElementById('pz');
       swap(name !== shown && !(FOCUS[name] && FOCUS[shown]));
       stage.innerHTML = html;
+      // Controls that were away come back in as a film is paused, rather than appear at once.
+      var after = tucked && document.getElementById('ov');
+      if (after) { after.className = 'ov hide'; void after.offsetWidth; }
+      if (pausedLine) fadeOut(pausedLine);
       watchFaces();
       drawn = html;
       dressed = '';
       focus = Math.min(kept, Math.max(0, buttons.length - 1));
       paint();
+      if (name === 'next') drain();
     }
     if (name !== shown) {
       shown = name;
@@ -1256,8 +1366,25 @@
       if (name === 'play' || name === 'pause') wake();
     }
     if (pending) put('cd', codeLine());
-    if (play) { put('in', nextLine()); bar(); dress(); }
+    if (play) { if (endsAt) put('inn', String(nextLeft())); bar(); dress(); }
     hush();
+  }
+
+  /* The "Paused" line of a film that plays on stays a moment where it was, and fades. The controls
+     under it keep their place: the bar they sit in is held to the bottom. */
+  function fadeOut(line) {
+    var bot = document.getElementById('bt');
+    if (!bot) return;
+    line.removeAttribute('id');
+    line.className = 'pz gone';
+    bot.insertBefore(line, bot.firstChild);
+    setTimeout(function () { if (line.parentNode) line.parentNode.removeChild(line); }, LEAVE_MS);
+  }
+
+  /* The countdown's bar runs down over what is left of it as it is drawn. */
+  function drain() {
+    var node = document.getElementById('ndr');
+    if (node) node.style.webkitAnimationDuration = node.style.animationDuration = upLine.left + 's';
   }
 
   /* The page before fades out under the new one, which fades in. */
@@ -1271,7 +1398,7 @@
     while (stage.firstChild) leaving.appendChild(stage.firstChild);
     var nodes = leaving.getElementsByTagName('*');
     for (var i = 0; i < nodes.length; i++) nodes[i].removeAttribute('id');
-    leftTimer = setTimeout(function () { leftTimer = null; leaving.innerHTML = ''; }, 250);
+    leftTimer = setTimeout(function () { leftTimer = null; leaving.innerHTML = ''; }, LEAVE_MS);
   }
 
   function paint() {
@@ -1297,7 +1424,7 @@
   }
 
   // What plays, waits for a film or counts down; the rest are still pictures.
-  var BRIGHT = { play: 1, buf: 1, load: 1, soon: 1, next: 1, still: 1 };
+  var BRIGHT = { play: 1, buf: 1, load: 1, soon: 1, next: 1, still: 1, resuming: 1 };
   // Where a press meant for the light would start a film, ask for a code, unpair or leave the page.
   var LIGHT_FIRST = { idle: 1, code: 1, unpair: 1, ended: 1, err: 1, out: 1, press: 1, old: 1, conn: 1 };
   var stirredAt = now();

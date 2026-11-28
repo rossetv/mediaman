@@ -8,12 +8,35 @@ video::-webkit-media-controls { display: none !important; }
 #o { pointer-events: none; }
 #k { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; -webkit-transform-origin: 0 0; transform-origin: 0 0; pointer-events: none; }
 
-.in > div { -webkit-animation: in .2s ease-out; animation: in .2s ease-out; }
-#o > div { -webkit-animation: out .2s ease-out forwards; animation: out .2s ease-out forwards; }
+/* One page gives way to the next. The old one's words swell a little and are gone at once; its
+   ground holds while the new page fades up over it, then goes, so nothing dips between them. The
+   new page's words rise into place a line at a time. Opacity and transform alone, which a TV's
+   browser hands to its GPU, on the app's curves: --ease-out, and --ease-exit for what leaves. */
+.in > div { -webkit-animation: in .5s cubic-bezier(.2, .8, .2, 1); animation: in .5s cubic-bezier(.2, .8, .2, 1); }
+#o > div { -webkit-animation: fade .4s cubic-bezier(.4, 0, 1, 1) forwards; animation: fade .4s cubic-bezier(.4, 0, 1, 1) forwards; }
+#o .mid, #o .code, #o > .up, #o .ov > div { -webkit-animation: out .25s cubic-bezier(.2, .8, .2, 1) forwards; animation: out .25s cubic-bezier(.2, .8, .2, 1) forwards; }
 @-webkit-keyframes in { from { opacity: 0; } }
 @keyframes in { from { opacity: 0; } }
-@-webkit-keyframes out { to { opacity: 0; } }
-@keyframes out { to { opacity: 0; } }
+@-webkit-keyframes out { to { opacity: 0; -webkit-transform: scale(1.04); } }
+@keyframes out { to { opacity: 0; transform: scale(1.04); } }
+@-webkit-keyframes fade { to { opacity: 0; } }
+@keyframes fade { to { opacity: 0; } }
+/* The first line starts up as the new page's ground covers the old words, so the screen is never
+   empty between them. From-only, and filled backwards alone: the burn-in drift owns these boxes' transform once in. */
+.in .mid > *, .in .lc > *, .in .rc, .in .top > div, .in .bot > div { -webkit-animation: rise .7s cubic-bezier(.2, .8, .2, 1) .03s backwards; animation: rise .7s cubic-bezier(.2, .8, .2, 1) .03s backwards; }
+.in .mid > :nth-child(2), .in .lc > :nth-child(2), .in .rc, .in .top > :nth-child(2), .in .bot > :nth-child(2) { -webkit-animation-delay: .09s; animation-delay: .09s; }
+.in .mid > :nth-child(3), .in .lc > :nth-child(3), .in .bot > :nth-child(3) { -webkit-animation-delay: .15s; animation-delay: .15s; }
+.in .mid > :nth-child(4), .in .lc > :nth-child(4), .in .bot > :nth-child(4) { -webkit-animation-delay: .21s; animation-delay: .21s; }
+.in .mid > :nth-child(n+5), .in .lc > :nth-child(n+5), .in .bot > :nth-child(n+5) { -webkit-animation-delay: .27s; animation-delay: .27s; }
+/* The titles come down from the top edge; the people rise one by one, in their own time. */
+.in .top > div { -webkit-animation-name: drop; animation-name: drop; }
+.in .mid > .ppl { -webkit-animation: none; animation: none; }
+/* The next episode's card comes up from where it rests. */
+.in > .up { -webkit-animation: card .6s cubic-bezier(.32, .72, 0, 1) backwards; animation: card .6s cubic-bezier(.32, .72, 0, 1) backwards; }
+@-webkit-keyframes drop { from { opacity: 0; -webkit-transform: translateY(-20px); } }
+@keyframes drop { from { opacity: 0; transform: translateY(-20px); } }
+@-webkit-keyframes card { from { opacity: 0; -webkit-transform: translateY(48px) scale(.96); } }
+@keyframes card { from { opacity: 0; transform: translateY(48px) scale(.96); } }
 .page { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; }
 /* Where nothing plays: a calm light from above. */
 .page { background: #000 -webkit-radial-gradient(50% 0, ellipse, rgba(41, 151, 255, .18), rgba(41, 151, 255, 0) 62%); background: #000 radial-gradient(ellipse at 50% 0, rgba(41, 151, 255, .18), rgba(41, 151, 255, 0) 62%); }
@@ -43,39 +66,72 @@ video::-webkit-media-controls { display: none !important; }
 .mid .sm { margin: 30px 0 0; }
 .bs { display: -webkit-flex; display: flex; }
 .mid .bs { margin-top: 60px; -webkit-justify-content: center; justify-content: center; }
-.b { font-family: inherit; font-size: 34px; line-height: 40px; color: #fff; background: #2e2e33; border: 6px solid #2e2e33; border-radius: 48px; padding: 18px 44px; margin-right: 24px; outline: none; transition: background .15s, color .15s; }
+.b { font-family: inherit; font-size: 34px; line-height: 40px; color: #fff; background: #2e2e33; border: 6px solid #2e2e33; border-radius: 48px; padding: 18px 44px; margin-right: 24px; outline: none; -webkit-transition: background .15s, color .15s, -webkit-transform .25s cubic-bezier(.2, .8, .2, 1); transition: background .15s, color .15s, transform .25s cubic-bezier(.2, .8, .2, 1); }
 .bs .b:last-child { margin-right: 0; }
 /* The ring stands clear of the white fill, on the dark around it, where it reads. */
-.b.f { background: #fff; color: #000; border-color: #000; box-shadow: 0 0 0 6px #a6d2ff; }
+.b.f { background: #fff; color: #000; border-color: #000; box-shadow: 0 0 0 6px #a6d2ff; -webkit-transform: scale(1.03); transform: scale(1.03); }
 .i { width: 34px; height: 34px; fill: currentColor; vertical-align: -5px; margin-right: 16px; }
 
 .pic { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000 no-repeat center; background-size: cover; }
 .shade { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; background: rgba(0, 0, 0, .78); }
 .t1 { font-size: 60px; font-weight: 700; line-height: 76px; word-wrap: break-word; }
 .t2 { font-size: 38px; line-height: 54px; color: #dedee0; word-wrap: break-word; }
-.ov { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; opacity: 1; transition: opacity .3s; }
+.ov { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; opacity: 1; transition: opacity .45s cubic-bezier(.2, .8, .2, 1); }
 .ov.hide { opacity: 0; }
+/* The controls slip off their edges as they go, and back as they come. */
+.ov .top, .ov .bot { -webkit-transition: -webkit-transform .45s cubic-bezier(.2, .8, .2, 1); transition: transform .45s cubic-bezier(.2, .8, .2, 1); }
+.ov.hide .top { -webkit-transform: translateY(-28px); transform: translateY(-28px); }
+.ov.hide .bot { -webkit-transform: translateY(28px); transform: translateY(28px); }
 .top { position: absolute; left: 0; right: 0; top: 0; padding: 70px 110px 120px; background: linear-gradient(rgba(0, 0, 0, .85), rgba(0, 0, 0, .6) 60%, rgba(0, 0, 0, 0)); }
 .bot { position: absolute; left: 0; right: 0; bottom: 0; padding: 140px 110px 70px; background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, .75) 45%, rgba(0, 0, 0, .92)); }
 .bar { position: relative; height: 10px; background: #5a5a5e; border-radius: 5px; }
 .bar .p { height: 10px; background: #2997ff; border-radius: 5px; }
 .bar i { position: absolute; top: 0; width: 4px; height: 10px; background: #000; }
 .tms { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; font-size: 32px; margin: 16px 0 34px; color: #dedee0; }
-.pz { font-size: 44px; font-weight: 700; margin-bottom: 34px; }
+.pz { font-size: 44px; font-weight: 700; margin-bottom: 34px; -webkit-animation: rise .5s cubic-bezier(.2, .8, .2, 1) backwards; animation: rise .5s cubic-bezier(.2, .8, .2, 1) backwards; }
 .pz .i { width: 44px; height: 44px; vertical-align: -7px; }
-.up { position: absolute; right: 110px; bottom: 90px; width: 800px; background: #1d1d1f; border-radius: 24px; padding: 44px 48px; }
+/* Glass where nothing blurs: the tint at its solid weight, its edge lit along the top. */
+/* What a film starts under: big and bright enough to read from the sofa, over a larger orbit. */
+.start .spin { width: 144px; height: 144px; border-width: 6px; margin: 0 0 52px; }
+.start .spin:before { left: -104px; top: -104px; width: 340px; height: 340px; }
+.start .spin:after { left: -6px; top: -6px; width: 144px; height: 144px; }
+.start .spin i { left: 54px; top: -15px; width: 24px; height: 24px; -webkit-transform-origin: 12px 81px; transform-origin: 12px 81px; }
+.start .t1 { font-size: 84px; line-height: 100px; }
+.start .t2 { font-size: 46px; line-height: 64px; margin-top: 8px; }
+.start .who { margin-top: 44px; font-size: 40px; color: #fff; }
+.start .l { font-size: 52px; line-height: 64px; color: #fff; }
+.start .av--s { width: 80px; height: 80px; }
+.start .av--s:before { width: 68px; height: 68px; line-height: 68px; font-size: 32px; }
+.start .av--s img { width: 68px; height: 68px; }
+.up { position: absolute; right: 110px; bottom: 90px; width: 800px; background: #1d1d1f; background: rgba(28, 28, 32, .94); border: 2px solid rgba(255, 255, 255, .14); border-top-color: rgba(255, 255, 255, .3); border-radius: 28px; padding: 44px 48px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 30px 80px rgba(0, 0, 0, .55); }
 .up .bs { margin-top: 34px; }
 .up .t1 { font-size: 48px; line-height: 64px; }
-.spin { width: 96px; height: 96px; border: 8px solid #4a4a4e; border-top-color: #fff; border-radius: 50%; -webkit-animation: sp 1s linear infinite; animation: sp 1s linear infinite; margin: 30px 0 40px; -webkit-flex: none; flex: none; }
+/* A wait: a light that orbits a faint ring, over a blue glow that breathes. Both move by
+   transform and opacity alone, so a weak TV keeps them smooth. */
+.spin { position: relative; width: 112px; height: 112px; border: 5px solid rgba(255, 255, 255, .14); border-radius: 50%; margin: 30px 0 40px; -webkit-flex: none; flex: none; }
+.spin:before { content: ''; position: absolute; left: -79px; top: -79px; width: 260px; height: 260px; border-radius: 50%; background: -webkit-radial-gradient(center, circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); background: radial-gradient(circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); -webkit-animation: glow 3.2s ease-in-out infinite alternate; animation: glow 3.2s ease-in-out infinite alternate; }
+/* A comet on the ring's line: a light, and a tail that brightens without a seam from nothing to
+   the light, the two turned together about the ring's middle. A browser that cannot draw the tail
+   has the light alone. */
+.spin:after { content: ''; position: absolute; left: -5px; top: -5px; width: 112px; height: 112px; border-radius: 50%; -webkit-animation: sp 2s linear infinite; animation: sp 2s linear infinite; }
+.spin i { position: absolute; z-index: 1; left: 41px; top: -12.5px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 0 16px 3px rgba(41, 151, 255, .9); -webkit-transform-origin: 10px 63.5px; transform-origin: 10px 63.5px; -webkit-animation: sp 2s linear infinite; animation: sp 2s linear infinite; }
 @-webkit-keyframes sp { to { -webkit-transform: rotate(360deg); } }
 @keyframes sp { to { transform: rotate(360deg); } }
+@-webkit-keyframes glow { from { opacity: .4; -webkit-transform: scale(.8); } to { opacity: 1; -webkit-transform: scale(1.06); } }
+@keyframes glow { from { opacity: .4; transform: scale(.8); } to { opacity: 1; transform: scale(1.06); } }
 /* The icon drawn over and over, where the browser can: each dash is as long as its arch. Others have the ring. */
 .mark { display: none; }
 @supports (stroke-dashoffset: 1px) and (animation-name: a1) {
-  .spin--mark { width: 120px; border: 0; border-radius: 0; animation: none; }
-  .mark { display: block; width: 120px; height: 96px; }
+  .spin--mark { width: 120px; height: 96px; border: 0; border-radius: 0; animation: none; }
+  .spin--mark:before { left: -70px; top: -82px; }
+  .spin--mark:after { display: none; }
+  .mark { display: block; position: relative; width: 120px; height: 96px; }
   .a1 { stroke-dasharray: 57.2px 114.4px; animation: a1 1.8s linear infinite both; }
   .a2 { stroke-dasharray: 43.9px 87.8px; animation: a2 1.8s .3s linear infinite both; }
+}
+@supports (background: conic-gradient(#000, #fff)) {
+  .spin:after { background: conic-gradient(rgba(166, 210, 255, 0) 100deg, rgba(166, 210, 255, .2) 260deg, rgba(166, 210, 255, .85)); -webkit-mask-image: radial-gradient(circle, transparent 50.5px, #000 51px, #000 55.5px, transparent 56px); mask-image: radial-gradient(circle, transparent 50.5px, #000 51px, #000 55.5px, transparent 56px); }
+  .start .spin:after { -webkit-mask-image: radial-gradient(circle, transparent 65.5px, #000 66px, #000 71.5px, transparent 72px); mask-image: radial-gradient(circle, transparent 65.5px, #000 66px, #000 71.5px, transparent 72px); }
 }
 @keyframes a1 { 0% { stroke-dashoffset: 57.2px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -57.2px; opacity: 1; } 100% { stroke-dashoffset: -57.2px; opacity: 0; } }
 @keyframes a2 { 0% { stroke-dashoffset: 43.9px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -43.9px; opacity: 1; } 100% { stroke-dashoffset: -43.9px; opacity: 0; } }
@@ -94,14 +150,18 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .d1 .top > div, .d1 .bot > div { -webkit-transform: translate(14px, -14px); transform: translate(14px, -14px); }
 .d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-14px, -4px); transform: translate(-14px, -4px); }
 /* Level with the title, where burned-in subtitles never are; a label, not one of the buttons. */
-.sk { position: absolute; right: 110px; top: 74px; font-size: 34px; line-height: 40px; color: #fff; background: #000; background: rgba(0, 0, 0, .6); border-radius: 12px; padding: 14px 24px; opacity: 0; -webkit-transform: translateY(-16px); transform: translateY(-16px); transition: opacity .3s, -webkit-transform .3s; transition: opacity .3s, transform .3s; }
+.sk { position: absolute; right: 110px; top: 74px; font-size: 34px; line-height: 40px; color: #fff; background: #000; background: rgba(28, 28, 32, .8); border: 2px solid rgba(255, 255, 255, .14); border-top-color: rgba(255, 255, 255, .3); border-radius: 16px; padding: 14px 26px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 12px 40px rgba(0, 0, 0, .45); opacity: 0; -webkit-transform: translateY(-18px) scale(.96); transform: translateY(-18px) scale(.96); -webkit-transition: opacity .45s cubic-bezier(.2, .8, .2, 1), -webkit-transform .45s cubic-bezier(.2, .8, .2, 1); transition: opacity .45s cubic-bezier(.2, .8, .2, 1), transform .45s cubic-bezier(.2, .8, .2, 1); }
 .sk.on { opacity: 1; -webkit-transform: none; transform: none; }
 .sk .i { fill: #2997ff; }
 /* White: over a white frame the note's box is #666, where blue would not show. */
-.sk .dr { display: block; height: 4px; margin-top: 10px; border-radius: 2px; background: #fff; -webkit-transform-origin: 0 0; transform-origin: 0 0; -webkit-animation: dr linear forwards; animation: dr linear forwards; }
+.sk .dr, .up .dr { display: block; height: 4px; margin-top: 10px; border-radius: 2px; background: #fff; -webkit-transform-origin: 0 0; transform-origin: 0 0; -webkit-animation: dr linear forwards; animation: dr linear forwards; }
 @-webkit-keyframes dr { from { -webkit-transform: scaleX(1); } to { -webkit-transform: scaleX(0); } }
 @keyframes dr { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* As a film plays on, the line that said it was paused sinks away. */
+.pz.gone { -webkit-animation: sink .35s cubic-bezier(.2, .8, .2, 1) forwards; animation: sink .35s cubic-bezier(.2, .8, .2, 1) forwards; }
+@-webkit-keyframes sink { to { opacity: 0; -webkit-transform: translateY(16px); } }
+@keyframes sink { to { opacity: 0; transform: translateY(16px); } }
 @media (forced-colors: active) {
   .b.f, .bar .p { forced-color-adjust: none; background: Highlight; }
   .b.f { color: HighlightText; border-color: Highlight; }
@@ -118,12 +178,14 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 /* Each person the TV is paired with: their picture in a ring, over their letter, which shows
    where there is none or it fails to load. Seven fit in a row, the last of them for any more. */
 .ppl { display: -webkit-flex; display: flex; -webkit-justify-content: center; justify-content: center; margin-top: 56px; }
-.pp { -webkit-flex: none; flex: none; width: 200px; margin: 0 12px; -webkit-animation: rise .6s ease-out both; animation: rise .6s ease-out both; }
-.pp:nth-child(2) { -webkit-animation-delay: .07s; animation-delay: .07s; }
-.pp:nth-child(3) { -webkit-animation-delay: .14s; animation-delay: .14s; }
-.pp:nth-child(4) { -webkit-animation-delay: .21s; animation-delay: .21s; }
-.pp:nth-child(5) { -webkit-animation-delay: .28s; animation-delay: .28s; }
-.pp:nth-child(n+6) { -webkit-animation-delay: .35s; animation-delay: .35s; }
+.pp { -webkit-flex: none; flex: none; width: 200px; margin: 0 12px; }
+/* As the page comes in, not each time it is drawn again. */
+.in .pp { -webkit-animation: rise .7s cubic-bezier(.2, .8, .2, 1) .09s backwards; animation: rise .7s cubic-bezier(.2, .8, .2, 1) .09s backwards; }
+.in .pp:nth-child(2) { -webkit-animation-delay: .15s; animation-delay: .15s; }
+.in .pp:nth-child(3) { -webkit-animation-delay: .21s; animation-delay: .21s; }
+.in .pp:nth-child(4) { -webkit-animation-delay: .27s; animation-delay: .27s; }
+.in .pp:nth-child(5) { -webkit-animation-delay: .33s; animation-delay: .33s; }
+.in .pp:nth-child(n+6) { -webkit-animation-delay: .39s; animation-delay: .39s; }
 @-webkit-keyframes rise { from { opacity: 0; -webkit-transform: translateY(24px); } }
 @keyframes rise { from { opacity: 0; transform: translateY(24px); } }
 .av { position: relative; display: block; width: 140px; height: 140px; margin: 0 auto; padding: 6px; border: 3px solid rgba(255, 255, 255, .32); border-radius: 50%; background: rgba(255, 255, 255, .08); }
@@ -137,12 +199,17 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .av--s img { left: 4px; top: 4px; width: 56px; height: 56px; }
 .who { line-height: 68px; color: #dedee0; }
 @media (prefers-reduced-motion: reduce) {
-  .b, .ov, .sk, body:after, .dim:after { transition: none; }
-  .sk .dr { display: none; -webkit-animation: none; animation: none; }
-  .in > div, #o > div { -webkit-animation: none; animation: none; }
+  .b, .ov, .sk, body:after, .dim:after { -webkit-transition: none; transition: none; }
+  .ov .top, .ov .bot { -webkit-transition: none; transition: none; }
+  .b.f { -webkit-transform: none; transform: none; }
+  .sk .dr, .up .dr { display: none; -webkit-animation: none; animation: none; }
+  .in > div, #o > div, #o .mid, #o .code, #o > .up, #o .ov > div, .in > .up { -webkit-animation: none; animation: none; }
+  .in .mid > *, .in .lc > *, .in .rc, .in .top > div, .in .bot > div, .in .mid > .ppl, .pz, .in .pp { -webkit-animation: none; animation: none; }
   .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
   #o { display: none; }
-  .spin { animation: pu 1.6s ease-in-out infinite; }
-  .spin--mark, .mark path, .a1, .a2 { animation: none; }
-  .pp { -webkit-animation: none; animation: none; }
+  .spin, .in .mid > .spin { -webkit-animation: pu 1.6s ease-in-out infinite; animation: pu 1.6s ease-in-out infinite; }
+  .spin:before, .spin:after, .spin i { -webkit-animation: none; animation: none; }
+  .spin:after, .spin i { display: none; }
+  .pz.gone { display: none; -webkit-animation: none; animation: none; }
+  .spin--mark, .in .mid > .spin--mark, .mark path, .a1, .a2 { animation: none; }
 }

@@ -1207,7 +1207,7 @@ def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
     out = run(markup, "upnext_spoken")
     # In full screen the browser keeps Escape for itself.
     said = (
-        "Next episode in 10 seconds: S2 · E5 — High Tide. S plays it now; Space or Escape cancels."
+        "Next episode in 10 seconds: S2 · E5 — High Tide. Enter or Escape cancels; S plays it now."
     )
     assert (out["polite"], out["before"], out["cancelled"]) == ("status", "", "")
     assert (out["counting"], out["later"], out["again"]) == (said, said, said)
@@ -1215,10 +1215,29 @@ def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
     assert out["still"] == "Next episode: S2 · E5 — High Tide"
 
 
+def test_the_countdowns_card_draws_cancel_as_the_strong_button_and_play_now_as_the_quiet_one(
+    markup,
+):
+    html = markup.read_text()
+    found = re.findall(r'<button[^>]*class="([^"]*)"[^>]*(data-upnext-\w+)', html)
+    buttons = {attr: cls for cls, attr in found}
+    assert "player-pill--primary" in buttons["data-upnext-cancel"]
+    assert "player-pill--primary" not in buttons["data-upnext-play"]
+
+
+@pytest.mark.parametrize(("how", "went"), [("enter", False), ("click", True)])
+def test_the_countdowns_card_has_cancel_focused_so_enter_stays_and_play_now_still_plays(
+    markup, season, how, went
+):
+    out = run(markup, "upnext_default", plays=how, pages=season)
+    assert out["focused"] is True
+    assert (out["open"], out["went"]) == (False, went)
+
+
 def test_on_a_touch_screen_the_card_names_no_keys_until_one_is_pressed(markup):
     out = run(markup, "upnext_spoken_touch")
     assert out["touch"] == "Next episode in 10 seconds: S2 · E5 — High Tide. Tap Cancel to stay."
-    assert out["keyed"].endswith("S plays it now; Space or Escape cancels.")
+    assert out["keyed"].endswith("Enter or Escape cancels; S plays it now.")
 
 
 def test_autoplay_off_shows_the_next_episode_and_waits(markup):
@@ -2359,6 +2378,21 @@ def test_a_tv_that_is_over_leaves_the_place_here_and_waits_for_a_press(markup, w
         )
 
 
+def test_a_tv_that_picks_up_again_after_a_restart_is_followed_on(markup):
+    out = elsewhere(markup, "away_tv_restarted", "back")
+    assert (out["during"], out["away"], out["says"]) == (True, True, "Playing on Living room")
+
+
+def test_a_tv_that_never_picks_up_after_a_restart_leaves_where_it_had_got_to(markup):
+    out = elsewhere(markup, "away_tv_restarted", "gone")
+    assert (out["during"], out["says"], out["hint"]) == (
+        True,
+        "Was playing on Living room",
+        "Your place is saved at 6:40.",
+    )
+    assert out["from"] == 400
+
+
 @pytest.mark.parametrize("how", ["again", "limit", "closed"])
 def test_a_tv_that_does_not_start_says_so_and_it_plays_on_here(markup, how):
     out = elsewhere(markup, "away_tv_refused", how)
@@ -3120,9 +3154,10 @@ def test_a_way_that_lets_go_of_a_silent_tv_says_it_may_still_play(markup):
 def test_a_tv_that_does_not_answer_has_the_remotes_card(markup, how):
     out = elsewhere(markup, "away_lost_tv", how)
     lost = out["lost"]
+    # Where the TV last said it was, not where it was started from.
     assert (lost["says"], lost["hint"]) == (
         "Was playing on Living room",
-        "Your place is saved at 0:30.",
+        "Your place is saved at 0:40.",
     )
     assert lost["message"]["text"] == "Living room stopped answering"
     assert "away from its browser" in lost["message"]["line"]

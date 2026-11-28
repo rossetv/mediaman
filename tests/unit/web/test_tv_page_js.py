@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.node_batch import run_node
+from tests.unit.web._css import rules
 
 HARNESS = Path(__file__).parent / "js" / "tv_harness.js"
 STATIC = Path(__file__).resolve().parents[3] / "src/mediaman/web/static"
@@ -262,6 +263,72 @@ def test_any_key_goes_on_from_the_page_that_says_mediaman_restarted(how: str) ->
     assert "is ready" in out["then"]
 
 
+def test_after_a_restart_the_tv_picks_the_film_up_where_it_got_to_by_itself() -> None:
+    out = _run("resumes", "restart")
+    (wish,) = out["asks"]
+    assert (wish["what"], wish["ticket"], wish["play_id"], wish["paused"]) == (
+        "resume",
+        "ticket-p1",
+        "p1",
+        False,
+    )
+    assert abs(wish["position_s"] - out["at"]) < 2
+    assert "mediaman restarted" in out["said"] and "Picking up Glass Orchard" in out["said"]
+    assert "is ready" not in out["then"] and out["src"] and out["playing"]
+    assert abs(out["put"] - out["at"]) < 2
+
+
+def test_a_film_paused_as_mediaman_restarted_comes_back_paused() -> None:
+    out = _run("resumes", "paused")
+    assert out["asks"][0]["paused"] is True and not out["playing"]
+
+
+def test_a_film_dropped_while_the_tv_was_off_the_network_goes_on_too() -> None:
+    out = _run("resumes", "network")
+    assert [a["what"] for a in out["asks"]] == ["resume"]
+    assert "Picking up" in out["said"] and "restarted" not in out["said"]
+
+
+def test_a_page_opened_again_whose_ticket_ran_out_is_simply_ready() -> None:
+    out = _run("resumesReopened", "expired")
+    assert len(out["asks"]) == 1 and out["kept"] is None
+    assert "is ready" in out["said"] and "restarted" not in out["said"]
+
+
+def test_a_tv_that_wakes_from_standby_does_not_take_back_a_film_that_went_elsewhere() -> None:
+    out = _run("standby")
+    assert out["before"] and out["kept"] is None
+    assert out["asks"] == 0 and "is ready" in out["said"]
+
+
+def test_a_page_put_away_keeps_no_ticket_though_mediaman_goes_on_answering() -> None:
+    out = _run("standby", "answering")
+    assert out["before"] and out["kept"] is None
+
+
+def test_the_ticket_kept_on_the_tv_is_as_fresh_as_its_place() -> None:
+    out = _run("ticketKeptFresh")
+    # Answers come every second; the kept ticket is at most a few answers old.
+    assert out["given"] > 15 and int(out["kept"].split("-")[1]) >= out["given"] - 3
+
+
+def test_a_film_stopped_while_the_tv_answered_does_not_start_again() -> None:
+    out = _run("resumes", "stopped")
+    assert out["asks"] == [] and "is ready" in out["said"]
+
+
+def test_a_refused_pick_up_says_the_place_is_kept_and_asks_once() -> None:
+    out = _run("resumes", "refused")
+    assert len(out["asks"]) == 1 and "is kept" in out["said"] and not out["src"]
+
+
+def test_a_page_opened_again_while_mediaman_was_away_picks_up_from_its_own_place() -> None:
+    out = _run("resumesReopened")
+    (wish,) = out["asks"]
+    assert (wish["ticket"], wish["position_s"], wish["paused"]) == ("ticket-p1", 1500, True)
+    assert "Picking up Glass Orchard" in out["said"]
+
+
 def test_no_place_is_promised_in_a_film_that_was_over() -> None:
     out = _run("restarts", "over")
     assert "mediaman restarted" in out["said"] and "place" not in out["said"]
@@ -313,6 +380,88 @@ def test_the_motion_is_off_under_reduced_motion_and_colours_forced_keep_the_focu
     )
 
 
+def test_each_status_of_a_film_fades_into_the_next_and_none_cuts() -> None:
+    for name, there, entering, left in _run("everyChangeFades"):
+        assert there, name
+        assert (entering, left) == ("in", True), name
+
+
+def test_controls_that_were_away_come_back_in_as_a_film_is_paused() -> None:
+    out = _run("pausedWhileHidden")
+    assert out["before"] == "ov hide" and out["paused"]
+    # Drawn hidden first, so that showing them is a fade and not a cut.
+    assert out["classes"][0] == "ov hide" and out["classes"][-1] == "ov"
+    # Played on, the line that said it was paused stays a moment to fade.
+    assert out["line"] == "pz gone" and not out["said"]
+
+
+def _seconds(value: str) -> float:
+    times = re.findall(r"(?<![\w.])(\d*\.?\d+)(ms|s)\b", value)
+    return sum(float(n) / (1000 if unit == "ms" else 1) for n, unit in times[:2])
+
+
+def test_the_page_before_stays_until_its_fade_is_over() -> None:
+    """tv.js empties the page before after LEAVE_MS: a fade longer than that would be cut off."""
+    leave = int(re.search(r"var LEAVE_MS = (\d+);", (STATIC / "js/tv.js").read_text())[1])
+    longest = max(
+        _seconds(decls["animation"])
+        for where, selectors, decls in rules("tv.css")
+        if "animation" in decls
+        and not where
+        and any(s.startswith("#o") for s in selectors)
+        and decls["animation"] != "none"
+    )
+    assert longest > 0 and leave >= longest * 1000
+
+
+def test_the_page_before_is_there_for_its_whole_fade_and_then_gone() -> None:
+    longest = max(
+        _seconds(decls["animation"])
+        for where, selectors, decls in rules("tv.css")
+        if "animation" in decls and not where and any(s.startswith("#o") for s in selectors)
+    )
+    held = _run("leaves", str(round(longest * 1000)))
+    assert held == {"swapped": True, "there": True}
+    assert _run("leaves", "1000") == {"swapped": True, "there": False}
+
+
+def test_a_picture_fades_in_with_its_shade_as_one_so_it_never_flashes() -> None:
+    out = _run("artPages")
+    for page in (out["starting"], out["ended"]):
+        assert '<div class="pic" id="pic"><div class="shade"></div></div>' in page
+        assert page.count('class="shade"') == 1
+
+
+def test_the_new_page_s_first_words_rise_before_the_old_ones_are_a_quarter_gone() -> None:
+    """Else the ground has covered the old words and the screen is empty a moment."""
+
+    def timing(selector: str) -> list[float]:
+        (decls,) = [
+            d for w, s, d in rules("tv.css") if not w and selector in s and "animation" in d
+        ]
+        return [float(n) for n, _ in re.findall(r"(?<![\w.])(\d*\.?\d+)(s)\b", decls["animation"])]
+
+    old_words = timing("#o .mid")[0]
+    first_delay = timing(".in .mid > *")[1]
+    assert first_delay <= old_words / 4
+
+
+def test_what_moves_on_the_tv_moves_by_opacity_and_transform_alone() -> None:
+    """A TV's browser hands these to its GPU; anything else repaints each frame."""
+    css = re.sub(r"/\*.*?\*/", "", (STATIC / "css/tv.css").read_text(), flags=re.S)
+    frames = re.findall(r"@(?:-webkit-)?keyframes\s+([\w-]+)\s*\{((?:[^{}]*\{[^}]*\})*)\s*\}", css)
+    assert len(frames) > 10
+    for name, body in frames:
+        # The icon drawing itself along its stroke, a small picture of its own.
+        if name in ("a1", "a2"):
+            continue
+        assert set(re.findall(r"([\w-]+)\s*:", body)) <= {
+            "opacity",
+            "transform",
+            "-webkit-transform",
+        }, name
+
+
 def test_a_code_shown_before_counts_for_as_long_as_it_is_good() -> None:
     out = _run("usedCodeSeenLate", "used")
     assert min(out["count"]) > 20
@@ -348,7 +497,7 @@ def test_the_page_waits_under_the_icon_and_a_film_that_starts_under_the_ring() -
     out = _run("bootWaits")
     assert out["boot"].count('class="brand"') == 1
     assert out["boot"].count('<div class="spin spin--mark"><svg class="mark"') == 1
-    assert out["later"].count('<div class="spin"></div>') == 1 and "mark" not in out["later"]
+    assert out["later"].count('<div class="spin"><i></i></div>') == 1 and "mark" not in out["later"]
 
 
 def test_a_page_that_waits_takes_no_press_for_the_page_before() -> None:
@@ -393,13 +542,39 @@ def test_a_key_first_brings_the_controls_back_and_then_works_them() -> None:
 def test_the_next_episode_is_asked_for_when_the_countdown_has_run_out() -> None:
     out = _run("upnext")
     assert out["reported"] == ["ended", 2880]
-    assert "E5" in out["said"] and "Next episode in 7 s" in out["said"]
+    assert "E5" in out["said"] and out["said"].endswith("|7")
     assert out["asks"] == [{"play_id": "p1", "what": "auto"}]
+
+
+def test_the_countdown_to_the_next_episode_has_cancel_first_and_focused() -> None:
+    out = _run("upnextKeys", "wait")
+    assert out["focused"] == "b0" and out["line"].endswith("Cancel Play now")
+    assert out["asks"] == ["auto"]
+
+
+@pytest.mark.parametrize(
+    ("how", "asked"), [("ok", "cancel"), ("back", "cancel"), ("right", "next")]
+)
+def test_ok_and_back_cancel_the_countdown_and_play_now_is_a_move_away(how: str, asked: str) -> None:
+    assert _run("upnextKeys", how)["asks"] == [asked]
+
+
+def test_the_countdown_says_press_to_cancel_once_and_ticks_only_its_number() -> None:
+    out = _run("upnextKeys", "wait")
+    assert "Next episode in 9 · Press to cancel" in out["line"].replace("&middot;", "·")
+    assert "Next episode in 9 seconds. Press to cancel." in out["line"]
+    assert (out["written"], out["count"], out["drain"]) == (0, "7", "9s")
+
+
+def test_the_countdowns_bar_does_not_drain_under_reduced_motion() -> None:
+    css = (STATIC / "css/tv.css").read_text()
+    reduced = css[css.index("prefers-reduced-motion") :]
+    assert re.search(r"\.up \.dr[^{]*\{[^}]*display: none", reduced)
 
 
 def test_with_no_countdown_only_a_key_starts_the_next_episode_and_only_once() -> None:
     out = _run("noCountdown")
-    assert out["said"] == "Next episode"
+    assert "Next episode" in out["said"] and "cancel" not in out["said"]
     assert out["asks"] == [{"play_id": "p1", "what": "next"}]
 
 

@@ -3,9 +3,11 @@ sofa, in colours that hold 4.5:1, rung in the glass's focus colour, and still un
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
-from tests.unit.web._css import _within, contrast, px, rgb, rules, style, token
+from tests.unit.web._css import _within, contrast, px, rgb, rules, style, text, token
 
 TV = "tv.css"
 REDUCED = "(prefers-reduced-motion: reduce)"
@@ -60,6 +62,20 @@ def test_the_tvs_focus_ring_is_the_glass_s_focus_colour_and_reads_on_the_dark_ar
         assert contrast(rgb(token("--g-accent-text")), rgb(under)) >= 3
 
 
+def test_the_tv_moves_on_the_app_s_curves_and_its_cards_are_the_glass_s_solid_weight() -> None:
+    """The TV's sheet cannot read the tokens, so it copies them; these keep the copies true."""
+    curves = {token(name).replace(" ", "") for name in ("--ease-out", "--ease-push", "--ease-exit")}
+    used = {c.replace(" ", "") for c in re.findall(r"cubic-bezier\([^)]*\)", text(TV))}
+    assert used and used <= curves
+    tint = "rgba({}, .94)".format(", ".join(token("--g-tint").split()))
+    edge = token("--g-edge").replace("rgb(255 255 255 / ", "rgba(255, 255, 255, ")
+    lit = token("--g-lit").replace("rgb(255 255 255 / ", "rgba(255, 255, 255, ")
+    for card in (".up", ".sk"):
+        glass = style(card, TV)
+        assert edge in glass["border"] and glass["border-top-color"] == lit, card
+    assert style(".up", TV)["background"] == tint
+
+
 def _sets(decls: dict[str, str], prop: str) -> bool:
     return prop in decls or f"-webkit-{prop}" in decls
 
@@ -83,6 +99,17 @@ def test_nothing_on_the_tv_moves_under_reduced_motion(prop: str) -> None:
         held = decls.get(prop, decls.get(f"-webkit-{prop}", ""))
         # The spinner pulses in place where it would turn.
         assert held == "none" or held.startswith("pu "), (selector, held)
+
+
+def test_the_wait_ring_still_pulses_under_reduced_motion_on_a_page_coming_in() -> None:
+    """A ring that stands still on the waiting screens reads as a page that has hung."""
+    for ring in (".spin", ".in .mid > .spin"):
+        held = [
+            d.get("animation", "")
+            for w, sels, d in rules(TV)
+            if _within(w, REDUCED) and ring in sels and "animation" in d
+        ]
+        assert held and held[-1].startswith("pu "), ring
 
 
 def test_on_the_pages_a_letter_lies_under_its_picture_and_shows_where_it_fails() -> None:

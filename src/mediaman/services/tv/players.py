@@ -29,6 +29,9 @@ SAVE_SECONDS = 10.0
 GONE_KEEP_SECONDS = 600.0
 _FORGET_SECONDS = 3600.0
 
+#: A play in these states has nothing left to go on with.
+_OVER = frozenset({"ended", "upnext", "still", "failed"})
+
 NextState = Literal["next", "end", "unknown"]
 #: The TV's own word on what it does.
 Reported = Literal["loading", "playing", "paused", "buffering", "ended", "error"]
@@ -160,6 +163,8 @@ class Players:
         # begun before reaches it.
         self._tvs: dict[str, _Tv] = {}
         self._left: list[Left] = []
+        # Plays that ended, which no restart is to start again.
+        self._ended: list[str] = []
         # (person's id, TV) that was theirs -> (since when not, why, what had played).
         self._gone: dict[tuple[int, int], tuple[float, str, dict[str, Any]]] = {}
         # A TV skips ids it has had, and it outlives this process.
@@ -172,6 +177,12 @@ class Players:
         with self._lock:
             left, self._left = self._left, []
         return left
+
+    def drain_ended(self) -> list[str]:
+        """The plays that ended since the last call."""
+        with self._lock:
+            ended, self._ended = self._ended, []
+        return ended
 
     # The methods below that take a _Tv need the lock.
 
@@ -209,6 +220,7 @@ class Players:
         if tv.play is None:
             return
         self._put_aside(tv.play, end=True)
+        self._ended.append(tv.play.id)
         tv.last = {"reason": reason, **_summary(tv.play), "by": tv.play.user, "stopped_by": by}
         tv.play = None
         tv.commands = []
@@ -287,6 +299,7 @@ class Players:
 
     def _at_end(self, tv: _Tv, play: Play) -> None:
         self._put_aside(play, end=True)
+        self._ended.append(play.id)
         now = self._clock()
         if play.next_state == "end":
             play.state = "ended"
@@ -342,6 +355,43 @@ class Players:
         found = next((p for p in plays if p is not None and p.id == play_id), None)
         return (found.user, found.rating_key) if found is not None else None
 
+    def to_resume(self, token_hash: str) -> Play | None:
+        """What plays on the TV, where it is to go on should mediaman or the TV drop out."""
+        with self._lock:
+            play = self._tv(token_hash).play
+            if play is None or play.state in _OVER:
+                return None
+            return play
+
+    def may_resume(
+        self, token_hash: str, boot: str, user: str, rating_key: str, *, latest: bool
+    ) -> bool:
+        """Whether *user*'s *rating_key*, playing on the TV in run *boot*, may start again by itself.
+
+        Only where nothing else has played on it since, and the person plays the title on no other
+        TV: after a restart, nothing at all, and only the play *latest* says was the last begun on
+        it and never ended; in the same run, only where the play was dropped because the TV stopped
+        answering.
+        """
+        with self._lock:
+            tv = self._tv(token_hash)
+            if tv.play is not None:
+                return False
+            for other in self._tvs.values():
+                play = other.play
+                if play is None or play.state in _OVER:
+                    continue
+                if play.user == user and play.rating_key == rating_key:
+                    return False
+            if boot != self.boot:
+                return latest and tv.last is None
+            last = tv.last or {}
+            return (last.get("reason"), last.get("by"), last.get("rating_key")) == (
+                "lost",
+                user,
+                rating_key,
+            )
+
     # ── what plays ──
 
     def current(self, token_hash: str, play_id: str | None = None) -> Play:
@@ -378,6 +428,7 @@ class Players:
                 elif was.state not in ("ended", "failed", "still"):
                     play.replaced = {"by": was.user, "title": was.about.get("title")}
                 self._put_aside(was, end=True)
+                self._ended.append(was.id)
             if by_itself:
                 tv.sitting += 1
             elif pressed:

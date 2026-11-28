@@ -196,6 +196,7 @@
   var TV_EVERY_MS = 5000;
   var TV_BEGINS_MS = 1000;
   var TV_HIDDEN_MS = 30000;
+  var TV_BACK_MS = 30000;    // a TV whose play mediaman lost in a restart picks it up by itself within
   /* A TV that lets go of the title pauses it first, just before it says so. */
   var LET_GO_MS = 5000;
   var MSG_NEXT_UNKNOWN = "Can't find the next episode right now.";
@@ -3208,11 +3209,13 @@
     showSkip();
     els.upnextStatus.textContent = counts
       ? 'Next episode in ' + COUNTDOWN_S + ' seconds: ' + next.label + '. ' +
-        (keysUsed || finePointer.matches ? 'S plays it now; Space or Escape cancels.' : creditsPlayOn() ? 'Tap Watch credits to keep watching.' : 'Tap Cancel to stay.')
+        (keysUsed || finePointer.matches ? 'Enter or Escape cancels; S plays it now.' : creditsPlayOn() ? 'Tap Watch credits to keep watching.' : 'Tap Cancel to stay.')
       : 'Next episode: ' + next.label;
     paintAway();
     showControls();
     if (!counts) return;
+    // Whoever wants the next episode need only wait: a press is for staying.
+    if (!(els.rate && els.rate.contains(document.activeElement))) els.upnextCancel.focus({ preventScroll: true });
     var until = Date.now() + COUNTDOWN_S * 1000;
     var count = function () {
       var left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
@@ -4145,6 +4148,7 @@
   /* ---- a TV with a page of its own ---- */
 
   var tvTimer = null;
+  var tvBackUntil = 0;
   var tvLeaving = false;
 
   function tvUrl(tv) { return '/api/tvs/' + encodeURIComponent(tv.id); }
@@ -4197,8 +4201,17 @@
     clearTimeout(tvTimer);
     MM.api.get(tvUrl(tv)).then(function (data) {
       if (!onTv() || away.tv.id !== tv.id || tvLeaving) return;
+      var play = data.tv.play;
+      if (!play && !data.tv.last && data.tv.boot !== tv.boot) {
+        // mediaman restarted under the TV, which goes on by itself in a moment.
+        if (!tvBackUntil) tvBackUntil = Date.now() + TV_BACK_MS;
+        if (Date.now() < tvBackUntil) return;
+      }
+      tvBackUntil = 0;
       away.tv = data.tv;
-      if (data.tv.play) paintAway();
+      // Where it stands there is the place to go on from, should the TV be lost.
+      if (play && isThis(play) && typeof play.position_s === 'number') pendingStart = play.position_s;
+      if (play) paintAway();
       else tvOver(data.tv.last);
     }, function (err) {
       if (!onTv() || tvLeaving) return;

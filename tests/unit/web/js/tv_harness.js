@@ -26,12 +26,20 @@ function tv({ kept = null, plays = true, full = false } = {}) {
   const sent = [];
   const answers = {};
   const nodes = {};
+  // Each class a node was given, in turn.
+  const classed = (node) => {
+    let now = '';
+    node.classes = [];
+    Object.defineProperty(node, 'className', { get: () => now, set(v) { now = v; node.classes.push(v); } });
+    return node;
+  };
   const element = () => ({
     innerHTML: '', className: '', style: {}, attrs: {}, children: [], on: {},
     setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; },
     removeAttribute(k) { delete this.attrs[k]; if (k === 'id') this.id = ''; if (k === 'src') this.gone = true; },
     addEventListener(k, fn) { (this.on[k] = this.on[k] || []).push(fn); },
     appendChild(n) { this.children.push(n); return n; },
+    insertBefore(n) { this.children.unshift(n); return n; },
     getElementsByTagName: () => [],
   });
   const video = Object.assign(element(), {
@@ -91,7 +99,7 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     getElementById(id) {
       if (FIXED.includes(id)) return nodes[id];
       if (!nodes.s.innerHTML.includes('id="' + id + '"')) return null;
-      return (nodes[id] = nodes[id] || Object.assign(element(), { id, nodeType: 1, focus() { if (document.activeElement === this) return; document.activeElement = this; (document.on.focus || []).forEach((fn) => fn({ target: this })); } }));
+      return (nodes[id] = nodes[id] || Object.assign(classed(element()), { id, nodeType: 1, focus() { if (document.activeElement === this) return; document.activeElement = this; (document.on.focus || []).forEach((fn) => fn({ target: this })); } }));
     },
   };
   const fullAsks = [];
@@ -141,6 +149,8 @@ function tv({ kept = null, plays = true, full = false } = {}) {
   return {
     sent, answers, video, store, fullAsks, order,
     leaveFull() { document[inFull] = null; changed(); },
+    // The TV goes to standby, or comes back from it.
+    hide(hidden) { document.hidden = hidden; (document.on.visibilitychange || []).forEach((fn) => fn({})); },
     ov: () => (document.getElementById('ov') || {}).className,
     run() { vm.runInContext(SOURCE, vm.createContext(ctx)); return this; },
     qr: (text) => ctx.window.MMTv.qr(text),
@@ -934,6 +944,64 @@ const scenarios = {
     await t.step(8000);
     return { said, src, pressed, still, then: t.says(), raw: html.includes('<b>Orchard') };
   },
+  // A film that was lost goes on by itself: after a restart, paused, after the network dropped out,
+  // refused, or not after a stop with nothing gone wrong.
+  async resumes(how) {
+    const t = await playing();
+    let boot = 'a';
+    const answer = () => ready({ play: t.now, boot, resume: t.now ? 'ticket-' + t.now.play_id : null });
+    t.now = film({ state: 'playing' });
+    t.answers.poll = answer;
+    await t.step(1500);
+    if (how === 'paused') { t.video.pause(); t.video.fire('pause'); }
+    await t.step(1500);
+    if (how !== 'stopped') t.answers.poll = [502, null];
+    await t.step(how === 'network' ? 9000 : 3000);
+    const at = t.video.currentTime;
+    if (how !== 'network' && how !== 'stopped') boot = 'b';
+    t.now = null;
+    t.answers.ask = how === 'refused' ? [409, { ok: false, error: 'not_playing' }] : { ok: true };
+    t.answers.poll = answer;
+    await t.step(2500);
+    const said = t.says();
+    const asks = t.paths('ask').map((c) => c.body);
+    if (asks.length && how !== 'refused') t.now = film({ play_id: 'p2', state: 'loading', start_s: asks[0].position_s, paused: asks[0].paused });
+    await t.step(1500);
+    t.video.fire('loadedmetadata');
+    await t.step(500);
+    return { asks, at, said, then: t.says(), src: t.video.attrs.src || null, put: t.video.sets.pop(), playing: !t.video.paused };
+  },
+  // A page opened again while mediaman was away goes on from the place it kept.
+  async resumesReopened(how) {
+    const t = tv({ kept: 'old' });
+    t.store['mm-tv-resume'] = JSON.stringify({ ticket: 'ticket-p1', id: 'p1', boot: 'a', title: 'Glass Orchard', paused: true });
+    t.store['mm-tv-place'] = 'p1 1500';
+    t.answers.poll = () => ready({ boot: 'b' });
+    // A ticket that ran out while the page was closed.
+    t.answers.ask = how === 'expired' ? [409, { ok: false, error: 'not_playing' }] : { ok: true };
+    t.run();
+    await t.step(1500);
+    return { asks: t.paths('ask').map((c) => c.body), said: t.says(), kept: t.store['mm-tv-resume'] || null };
+  },
+  // The TV goes to standby while its film plays, the film goes to a phone meanwhile, and the TV wakes.
+  // `answering`: mediaman goes on answering while the page is put away, as a TV's browser may poll on.
+  async standby(how) {
+    const t = await playing();
+    t.now = film({ state: 'playing' });
+    t.answers.poll = () => ready({ play: t.now, boot: 'a', resume: t.now ? 'ticket-p1' : null });
+    await t.step(1500);
+    const before = Boolean(t.store['mm-tv-resume']);
+    t.hide(true);
+    if (how !== 'answering') t.answers.poll = [502, null];
+    await t.step(12000);
+    if (how === 'answering') return { before, kept: t.store['mm-tv-resume'] || null };
+    t.now = null;
+    t.answers.poll = () => ready({ play: null, boot: 'a' });
+    t.answers.ask = { ok: true };
+    t.hide(false);
+    await t.step(3000);
+    return { before, asks: t.paths('ask').length, kept: t.store['mm-tv-resume'] || null, said: t.says() };
+  },
   // a page opened after the restart knew of no film, and one that shows nothing has nothing to say
   async restartsIdle() {
     const t = tv({ kept: 'old' });
@@ -967,6 +1035,43 @@ const scenarios = {
     return out;
   },
   // the controls of a film as its page leaves
+  // The controls of a film paused while they were away come back in from where they went.
+  async pausedWhileHidden() {
+    const t = await playing();
+    await t.step(4500);
+    const before = t.ov();
+    t.answers.poll = () => ready({ play: t.now, commands: [{ id: 8, kind: 'pause' }] });
+    for (let i = 0; i < 20 && !t.says().includes('Paused'); i += 1) await t.step(100);
+    const classes = t.node('ov').classes, paused = t.says().includes('Paused');
+    t.key(OK);
+    const line = (t.node('bt').children[0] || {}).className;
+    return { before, classes, paused, line, said: t.says().includes('Paused') };
+  },
+  // Each status a film goes through, and the page after it, as the page before gives way to it.
+  async everyChangeFades() {
+    const t = await playing();
+    const seen = [];
+    const next = async (name, words, gone) => {
+      const there = () => (gone ? !t.says().includes(words) : t.says().includes(words));
+      for (let i = 0; i < 60 && !there(); i += 1) await t.step(100);
+      seen.push([name, there(), t.entering(), t.left() !== '']);
+    };
+    t.video.stuck = true;
+    await next('waiting', 'Waiting for the network');
+    t.video.stuck = false;
+    await next('playing', 'Waiting for the network', true);
+    t.now = film({ state: 'upnext', url: null, upnext_in_s: 9, next: { season: 1, episode: 5, title: 'Windfall' } });
+    await next('next episode', 'Windfall');
+    t.now = film({ state: 'ended', url: null });
+    await next('ended', 'the end');
+    t.now = film({ state: 'failed', url: null, error: 'tv' });
+    await next('error', 'play here');
+    t.now = film({ state: 'still', url: null, still_in_s: 120 });
+    await next('still watching', 'still watching');
+    t.now = null;
+    await next('ready', 'is ready');
+    return seen;
+  },
   async barLeaves() {
     const t = await playing({ chapters: [{ start_s: 720 }, { start_s: 1440 }] });
     t.now = film({ chapters: t.now.chapters, state: 'upnext', url: null });
@@ -1079,6 +1184,37 @@ const scenarios = {
     t.key(OK);
     await t.step(1500);
     return { said: t.says(), store: t.store, asked: t.paths('code').length };
+  },
+  // How long the page before stays once the next takes its place: `ms` after the swap.
+  async leaves(ms) {
+    const t = await playing();
+    t.now = film({ state: 'ended', url: null });
+    for (let i = 0; i < 3000 && !t.left(); i += 1) await t.step(1);
+    const swapped = t.left() !== '';
+    await t.step(Number(ms));
+    return { swapped, there: t.left() !== '' };
+  },
+  // The ticket kept on the TV, as mediaman hands it a fresh one with each answer.
+  async ticketKeptFresh() {
+    const t = await playing();
+    let n = 0;
+    t.answers.poll = () => { n += 1; return ready({ play: t.now, boot: 'a', resume: 'ticket-' + n }); };
+    await t.step(20000);
+    return { given: n, kept: JSON.parse(t.store['mm-tv-resume']).ticket };
+  },
+  // The pages a film starts under and ends on, as drawn.
+  async artPages() {
+    const t = tv({ kept: 'old' });
+    t.now = film({ state: 'loading' });
+    t.answers.poll = () => ready({ play: t.now });
+    // Nothing moves until it plays.
+    t.video.stuck = true;
+    t.run();
+    await t.step(1500);
+    const starting = t.html();
+    t.now = film({ state: 'ended', url: null });
+    await t.step(1500);
+    return { starting, ended: t.html() };
   },
   async bootWaits() {
     const t = tv({ kept: 'old' });
@@ -1327,16 +1463,35 @@ const scenarios = {
     let left = 10;
     t.answers.poll = () => ready({ play: film({ state: 'upnext', url: null, upnext_in_s: (left = Math.max(0, left - 1)), next: { season: 1, episode: 5, title: 'Windfall' } }) });
     await t.step(2200);
-    const said = t.says() + '|' + t.text('in');
+    const said = t.says() + '|' + t.text('inn');
     t.answers.ask = [409, { ok: false, error: 'no_next' }];
     await t.step(11000);
     return { reported: [reported.state, reported.position_s], said, asks: t.paths('ask').map((c) => c.body) };
+  },
+  // The countdown to the next episode, answered by `how`: nothing, OK, Back, or OK on Play now.
+  async upnextKeys(how) {
+    const t = await playing();
+    let left = 10;
+    t.answers.poll = () => ready({ play: film({ state: 'upnext', url: null, upnext_in_s: (left = Math.max(0, left - 1)), next: { season: 1, episode: 5, title: 'Windfall' } }) });
+    const written = [];
+    await t.step(1100);
+    const line = t.node('in');
+    let html = line.innerHTML;
+    Object.defineProperty(line, 'innerHTML', { get: () => html, set(v) { html = v; written.push(v); } });
+    await t.step(2000);
+    const out = { focused: t.held(), line: t.says(), drain: (t.style('ndr') || {}).animationDuration, count: t.text('inn') };
+    t.answers.ask = { ok: true };
+    if (how === 'ok') t.key(OK);
+    if (how === 'back') t.key(BACK);
+    if (how === 'right') { t.key(RIGHT); t.key(OK); }
+    await t.step(how === 'wait' ? 11000 : 100);
+    return Object.assign(out, { written: written.length, asks: t.paths('ask').map((c) => c.body.what) });
   },
   async noCountdown() {
     const t = await playing();
     t.now = film({ state: 'upnext', url: null, next: { season: null, episode: null, title: null } });
     await t.step(30000);
-    const said = t.text('in');
+    const said = t.says();
     t.answers.ask = { ok: true };
     t.key(OK); t.key(OK);
     await t.step(500);
