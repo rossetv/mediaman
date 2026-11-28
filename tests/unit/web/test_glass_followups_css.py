@@ -112,3 +112,32 @@ def test_the_space_bar_s_parts_grow_without_stretching_free_s_edge() -> None:
     pressed = style(".space-bar:not(.has-active) .space-seg:active::before", "_watch_space.css")
     assert float(chosen["--k"]) > 1 > float(others["--k"])
     assert float(pressed["--k"]) > 1
+
+
+def _eased(curve: str, at: float) -> float:
+    """How far a cubic-bezier(...) *curve* has gone at *at* of its time."""
+    x1, y1, x2, y2 = (float(n) for n in re.fullmatch(r"cubic-bezier\((.+)\)", curve)[1].split(","))
+    lo, hi = 0.0, 1.0
+    for _ in range(50):
+        s = (lo + hi) / 2
+        if 3 * (1 - s) ** 2 * s * x1 + 3 * (1 - s) * s * s * x2 + s**3 < at:
+            lo = s
+        else:
+            hi = s
+    return 3 * (1 - s) ** 2 * s * y1 + 3 * (1 - s) * s * s * y2 + s**3
+
+
+def test_on_a_phone_the_bar_s_islands_stop_blurring_before_a_rising_title_reaches_them() -> None:
+    # Sheet, dim and islands blurred at one point would be three layers. The islands end 56px down;
+    # on a phone 568px tall the rising sheet reaches them when it has 56px left to go.
+    held = style("html.has-ttl :is(.nav-glass[inert], [inert] .nav-glass)", "_nav.css", PHONES)
+    factor = float(
+        re.fullmatch(
+            r"isle-calm calc\(var\(--dur-slow\) \* ([\d.]+)\) step-end forwards", held["animation"]
+        )[1]
+    )
+    rise = style(".ttl.is-entering .ttl__sheet", "_watch_detail.css")["animation"].split()
+    assert rise[1] == "var(--dur-slow)"
+    curve = token(rise[2][len("var(") : -1])
+    reached = next(t / 1000 for t in range(1001) if _eased(curve, t / 1000) >= 1 - 56 / 568)
+    assert 0 < factor < reached
