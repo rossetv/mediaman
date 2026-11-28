@@ -692,7 +692,9 @@ def test_a_preview_s_title_words_give_way_line_by_line_and_only_where_a_name_lie
     assert [s for s in hidden if ".pv__head" in s] == [covered]
 
 
-def test_try_again_wrapped_under_a_failed_search_s_sentence_starts_where_the_sentence_does() -> None:
+def test_try_again_wrapped_under_a_failed_search_s_sentence_starts_where_the_sentence_does() -> (
+    None
+):
     # The ghost button's word starts its own padding in; on a phone it wraps under the sentence.
     retry = style(".results-fail > .watch-results__retry", "_watch_search.css")
     pad_left = px(retry["padding"].split()[-1])
@@ -722,6 +724,8 @@ def test_the_stand_in_poster_of_the_home_hero_starts_below_the_bar_at_every_widt
     stepped = [
         decls["--banner-head"]
         for where, sels, decls in rules("_watch.css")
-        if phone in where and "--banner-head" in decls and any(":has(> .watch-banner__poster" in s for s in sels)
+        if phone in where
+        and "--banner-head" in decls
+        and any(":has(> .watch-banner__poster" in s for s in sels)
     ]
     assert stepped and "var(--banner-lift" in stepped[0]

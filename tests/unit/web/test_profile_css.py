@@ -23,5 +23,11 @@ def test_the_keyboard_ring_on_a_row_is_drawn_inside_the_group_that_clips_it() ->
     # The group clips all outside its rounded box, so a ring drawn outside the row is not seen.
     assert style(".yo-group", "_profile.css")["overflow"] == "hidden"
     assert px(style(".yo-row:focus-visible", "_profile.css")["outline-offset"]) <= -2
-    assert style(".yo-group > .yo-row:first-child", "_profile.css")["border-top-left-radius"] == "inherit"
-    assert style(".yo-group > .yo-row:last-child", "_profile.css")["border-bottom-right-radius"] == "inherit"
+    assert (
+        style(".yo-group > .yo-row:first-child", "_profile.css")["border-top-left-radius"]
+        == "inherit"
+    )
+    assert (
+        style(".yo-group > .yo-row:last-child", "_profile.css")["border-bottom-right-radius"]
+        == "inherit"
+    )
