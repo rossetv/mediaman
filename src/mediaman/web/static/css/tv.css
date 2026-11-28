@@ -94,7 +94,7 @@ video::-webkit-media-controls { display: none !important; }
 /* What a film starts under: big and bright enough to read from the sofa, over a larger orbit. */
 .start .spin { width: 144px; height: 144px; border-width: 6px; margin: 0 0 52px; }
 .start .spin:before { left: -104px; top: -104px; width: 340px; height: 340px; }
-.start .spin:after { left: -6px; top: -6px; width: 144px; height: 144px; border-width: 6px; }
+.start .spin:after { left: -6px; top: -6px; width: 144px; height: 144px; }
 .start .spin i { left: 54px; top: -15px; width: 24px; height: 24px; -webkit-transform-origin: 12px 81px; transform-origin: 12px 81px; }
 .start .t1 { font-size: 84px; line-height: 100px; }
 .start .t2 { font-size: 46px; line-height: 64px; margin-top: 8px; }
@@ -110,13 +110,11 @@ video::-webkit-media-controls { display: none !important; }
    transform and opacity alone, so a weak TV keeps them smooth. */
 .spin { position: relative; width: 112px; height: 112px; border: 5px solid rgba(255, 255, 255, .14); border-radius: 50%; margin: 30px 0 40px; -webkit-flex: none; flex: none; }
 .spin:before { content: ''; position: absolute; left: -79px; top: -79px; width: 260px; height: 260px; border-radius: 50%; background: -webkit-radial-gradient(center, circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); background: radial-gradient(circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); -webkit-animation: glow 3.2s ease-in-out infinite alternate; animation: glow 3.2s ease-in-out infinite alternate; }
-/* A comet on the ring's line: a light at its head and a tail that thins behind it, the two turned
-   together about the ring's middle. */
-.spin:after { content: ''; position: absolute; left: -5px; top: -5px; box-sizing: border-box; width: 112px; height: 112px; border: 5px solid transparent; border-top-color: rgba(166, 210, 255, .55); border-left-color: rgba(166, 210, 255, .2); border-radius: 50%; -webkit-animation: arc 2s linear infinite; animation: arc 2s linear infinite; }
+/* A comet on the ring's line: a light, and a tail that brightens without a seam from nothing to
+   the light, the two turned together about the ring's middle. A browser that cannot draw the tail
+   has the light alone. */
+.spin:after { content: ''; position: absolute; left: -5px; top: -5px; width: 112px; height: 112px; border-radius: 50%; -webkit-animation: sp 2s linear infinite; animation: sp 2s linear infinite; }
 .spin i { position: absolute; z-index: 1; left: 41px; top: -12.5px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 0 16px 3px rgba(41, 151, 255, .9); -webkit-transform-origin: 10px 63.5px; transform-origin: 10px 63.5px; -webkit-animation: sp 2s linear infinite; animation: sp 2s linear infinite; }
-/* The tail's head at the top, where the light starts. */
-@-webkit-keyframes arc { from { -webkit-transform: rotate(-45deg); } to { -webkit-transform: rotate(315deg); } }
-@keyframes arc { from { transform: rotate(-45deg); } to { transform: rotate(315deg); } }
 @-webkit-keyframes sp { to { -webkit-transform: rotate(360deg); } }
 @keyframes sp { to { transform: rotate(360deg); } }
 @-webkit-keyframes glow { from { opacity: .4; -webkit-transform: scale(.8); } to { opacity: 1; -webkit-transform: scale(1.06); } }
@@ -130,6 +128,10 @@ video::-webkit-media-controls { display: none !important; }
   .mark { display: block; position: relative; width: 120px; height: 96px; }
   .a1 { stroke-dasharray: 57.2px 114.4px; animation: a1 1.8s linear infinite both; }
   .a2 { stroke-dasharray: 43.9px 87.8px; animation: a2 1.8s .3s linear infinite both; }
+}
+@supports (background: conic-gradient(#000, #fff)) {
+  .spin:after { background: conic-gradient(rgba(166, 210, 255, 0) 100deg, rgba(166, 210, 255, .2) 260deg, rgba(166, 210, 255, .85)); -webkit-mask-image: radial-gradient(circle, transparent 50.5px, #000 51px, #000 55.5px, transparent 56px); mask-image: radial-gradient(circle, transparent 50.5px, #000 51px, #000 55.5px, transparent 56px); }
+  .start .spin:after { -webkit-mask-image: radial-gradient(circle, transparent 65.5px, #000 66px, #000 71.5px, transparent 72px); mask-image: radial-gradient(circle, transparent 65.5px, #000 66px, #000 71.5px, transparent 72px); }
 }
 @keyframes a1 { 0% { stroke-dashoffset: 57.2px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -57.2px; opacity: 1; } 100% { stroke-dashoffset: -57.2px; opacity: 0; } }
 @keyframes a2 { 0% { stroke-dashoffset: 43.9px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -43.9px; opacity: 1; } 100% { stroke-dashoffset: -43.9px; opacity: 0; } }
