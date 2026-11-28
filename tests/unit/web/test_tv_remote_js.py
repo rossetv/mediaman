@@ -78,6 +78,10 @@ def test_a_pause_shows_at_once_and_another_phones_play_is_followed() -> None:
     assert out["other"] == "Playing on Living room"
 
 
+def test_the_remotes_back_never_says_the_tv_keeps_playing_while_it_is_paused() -> None:
+    assert "playing" not in _run("pause")["back"]
+
+
 def test_anothers_film_is_named_as_theirs_and_their_pause_as_by_them() -> None:
     out = _run("anothers")
     assert out["says"] == "maren’s · on Living room"

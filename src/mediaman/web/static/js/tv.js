@@ -281,6 +281,7 @@
       var answer = null;
       try { answer = JSON.parse(xhr.responseText); } catch (e) { answer = null; }
       var status = xhr.status;
+      reached = status > 0;
       // A proxy's own page is not an answer.
       if (!answer || typeof answer !== 'object') { answer = {}; status = 0; }
       done(status, answer, status === 429 ? Number(xhr.getResponseHeader('Retry-After')) || 10 : 0);
@@ -289,6 +290,7 @@
     var late = setTimeout(function () {
       if (over) return;
       over = true;
+      reached = false;
       xhr.abort();
       done(0, {}, 0);
     }, wait);
@@ -321,6 +323,7 @@
   var waitUntil = 0;         // no new code before
   var heardAt = now();
   var away = false;
+  var reached = true;        // whether mediaman's address gave the last answer, though not one of its own
 
   /* ── pairing ── */
 
@@ -458,6 +461,7 @@
     var mine = loop;
     var data = { ack: lastDone, active: active };
     if (play && play.url && loaded === play.play_id) try { data.report = report(); } catch (e) { /* Nothing to report. */ }
+    else if (letGo && letGo.held && letGo.report) data.report = letGo.report;
     active = false;
     polling = true;
     polledAt = now();
@@ -514,6 +518,7 @@
   function take(got, wasAway) {
     me = { name: got.name, owner: got.owner, people: got.people || [], avatars: got.avatars || {} };
     if (mode === 'boot') mode = 'idle';
+    if (letGo) got = stillLetGo(got);
     var was = play;
     var lost = lostPlay(was, got, wasAway);
     // Where it was, before the page lets the film go.
@@ -537,6 +542,42 @@
     if (remembered(KEPT_VERSION) === got.v) return;
     remember(KEPT_VERSION, got.v);
     location.reload();
+  }
+
+  /* A film stopped on the TV through a long wait, while mediaman could not be told: the TV is ready
+     at once, and mediaman, once it answers, is told where the film got to and that it stopped. */
+  var letGo = null;          // {id, report, held, asking}
+
+  function letItGo() {
+    var at = null;
+    if (loaded === play.play_id) try { at = report(); at.state = 'paused'; } catch (e) { at = null; }
+    letGo = { id: play.play_id, report: at, held: false, asking: false };
+    play = null;
+    unload();
+    pickingUp = false;
+    mode = 'idle';
+  }
+  /* What the answer is, the film let go of left out of it. */
+  function stillLetGo(got) {
+    // It is not picked up again.
+    var kept = keptResume();
+    if (kept && kept.id === letGo.id) forgetResume();
+    if (!got.play || got.play.play_id !== letGo.id) {
+      letGo = null;
+      return got;
+    }
+    // Where it got to goes with the next poll, while mediaman is known to hold it; then the stop.
+    if (!letGo.held && letGo.report) { letGo.held = true; tell(); }
+    else if (!letGo.asking) {
+      var mine = letGo;
+      mine.asking = true;
+      send('ask', token, { play_id: mine.id, what: 'stop' }, 10000, function (status) {
+        mine.asking = false;
+        if (status === 200) tell();
+      });
+    }
+    got.play = got.resume = null;
+    return got;
   }
 
   /* ── going on after mediaman, or the TV's network, dropped out ── */
@@ -1375,7 +1416,7 @@
       return page(middle('mediaman restarted', over ? 'The TV is ready for something else.' : 'Your place in ' + esc(endedWith.title) + ' is kept.', [['OK', 'i']]));
     },
     lost: function () {
-      return page(middle('mediaman isn&rsquo;t answering', 'Trying again by itself. If it stays like this,<br>check the TV is on the internet.', [], SPIN));
+      return page(middle(offline() ? 'Waiting for the network' : 'mediaman isn&rsquo;t answering', 'Trying again by itself. If it stays like this,<br>check the TV is on the internet.', [], SPIN));
     },
     old: function () {
       return page(middle('This TV&rsquo;s browser can&rsquo;t play films', 'It is missing what mediaman needs.<br>Ask an admin to add this TV by its address.', [['Try anyway', 'a']]));
@@ -1390,8 +1431,9 @@
        darkens the picture and takes its middle only once the wait has gone on. */
     buf: function () {
       var words = waitWords();
-      return '<div class="wl' + (waitLong ? ' on' : '') + '" id="wl" aria-hidden="true"><div class="mid">' + SPIN + '<div class="l">' + words[0] + '</div>' +
-        (words[1] && '<div class="t2">' + words[1] + '</div>') + '</div></div>' + offer([]);
+      // Once dark, the pill is away and this says the wait itself.
+      return '<div class="wl' + (waitLong ? ' on' : '') + '" id="wl"' + (waitLong ? '' : ' aria-hidden="true"') + '><div class="mid">' + SPIN + '<div class="l">' + words[0] + '</div>' +
+        (words[1] && '<div class="t2">' + words[1] + '</div>') + offer(mayLetGo() ? [['Stop', 'x']] : []) + '</div></div>';
     },
     next: function () {
       var after = play.next || {};
@@ -1497,8 +1539,13 @@
   var waitFrom = 0, waitLong = false, waitTimer = null, pillSaid = '';
   function waitWords() {
     if (pickingUp && !away) return resumingFrom ? ['mediaman restarted', 'Picking up ' + esc(endedWith.title) + ' where you were.'] : ['Picking up ' + esc(endedWith.title) + ' where you were.', ''];
-    return ['Waiting for the network', away ? 'mediaman isn&rsquo;t answering yet. Trying again by itself.' : ''];
+    if (!away) return ['Waiting for the network', ''];
+    return ['Waiting for the network', offline() ? 'Trying again by itself.' : 'mediaman isn&rsquo;t answering yet. Trying again by itself.'];
   }
+  /* Only where mediaman's address answered, though not as mediaman, is mediaman to blame. */
+  function offline() { return !reached || Boolean(window.navigator && window.navigator.onLine === false); }
+  /* Through a long wait a film may be stopped, its place kept. */
+  function mayLetGo() { return waitLong && Boolean(play); }
   function waiting(name) {
     var pill = document.getElementById('nw');
     var frame = document.getElementById('fr');
@@ -1511,11 +1558,13 @@
       var left = waitFrom + WAIT_LONG_MS - now();
       if (left > 0) waitTimer = setTimeout(show, left);
       else if (!waitLong) {
-        // The layer drawn clear until now darkens as a fade, and is not drawn afresh at the next show.
+        // Drawn again with its way out, the layer drawn clear until now darkens as a fade.
         waitLong = true;
+        stage.innerHTML = drawn = PAGES.buf();
         var layer = document.getElementById('wl');
-        if (layer) layer.className = 'wl on';
-        drawn = PAGES.buf();
+        if (layer) { layer.className = 'wl'; void layer.offsetWidth; layer.className = 'wl on'; }
+        focus = 0;
+        paint();
       }
       tellPill(pill, waitWords(), waitLong ? 'nw' : 'nw on');
       return;
@@ -1679,6 +1728,7 @@
     else if (what === 'c') ask('cancel');
     else if (what === 'r') { tries = 0; ask('again'); }
     else if (what === 's') ask('stop');
+    else if (what === 'x') { if (mayLetGo()) letItGo(); }
     else if (what === 'p') { if (wanted) hold(); else go(); tell(); }
     else if (what === 'b' || what === 'f') seekAsked(position() + (what === 'b' ? -10 : 10));
     show();
@@ -1704,6 +1754,7 @@
     if (shown === 'next') { act('c'); return true; }
     if (shown === 'credits') { act('w'); return true; }
     if (shown === 'err' || shown === 'ended') { act('s'); return true; }
+    if (shown === 'buf' && mayLetGo()) { act('x'); return true; }
     return shown === 'pause' || shown === 'buf' || shown === 'load' || shown === 'soon' || shown === 'still';
   }
 

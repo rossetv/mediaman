@@ -727,6 +727,32 @@ def test_the_wait_over_a_film_moves_only_what_a_weak_tv_draws_smoothly_and_still
             assert reduced.get(selector, {}).get(kind) == "none", (selector, kind)
 
 
+def test_a_long_wait_blames_mediaman_only_where_its_address_answered() -> None:
+    assert "mediaman isn’t answering yet" in _run("waitLine", "proxy")
+    down = _run("waitLine", "down")
+    assert "mediaman" not in down and "Trying again by itself." in down
+
+
+@pytest.mark.parametrize("how", ["ok", "click", "back"])
+def test_a_long_wait_offers_a_way_out_to_the_ready_screen_that_keeps_the_place(how: str) -> None:
+    out = _run("waitStop", how, "held")
+    # Half a minute in there is no way out yet, and Back does nothing.
+    assert "<button" not in out["early"]["html"] and "Waiting" in out["early"]["back"]
+    assert ">Stop</button>" in out["long"]["html"] and out["long"]["held"] == "b0"
+    assert not out["long"]["hidden"]
+    assert out["stopped"]["src"] is None and "Waiting for the network" in out["stopped"]["says"]
+    assert out["stopped"]["place"] == "p1 120"
+    # Once mediaman answers, it hears where the film got to, then that it stopped; nothing reloads.
+    assert out["reports"][0]["state"] == "paused" and round(out["reports"][0]["position_s"]) == 120
+    assert out["asks"] == [{"play_id": "p1", "what": "stop"}]
+    assert "is ready" in out["after"] and out["src"] is None
+
+
+def test_a_film_stopped_through_a_long_wait_is_not_picked_up_after_a_restart() -> None:
+    out = _run("waitStop", "ok", "restart")
+    assert out["asks"] == [] and "is ready" in out["after"]
+
+
 def test_a_server_that_does_not_answer_shows_only_where_nothing_plays() -> None:
     out = _run("lost")
     assert "answering" not in out["whilePlaying"]
