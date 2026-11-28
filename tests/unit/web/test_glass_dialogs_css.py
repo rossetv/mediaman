@@ -144,9 +144,8 @@ def test_on_a_phone_a_dialog_over_glass_is_solid_so_no_third_layer_blurs(
 def test_the_download_mark_on_an_answer_s_poster_is_a_solid_chip_that_blurs_nothing() -> None:
     drawn = style(".watch-badge--get", ASK)
     assert drawn["background"] == "var(--g-tip)"
-    # Its edge, the tip's own, or a dark poster swallows the chip's shape.
-    edge = drawn["box-shadow"]
-    assert edge.startswith("0 0 0 1px ") and edge in token("--g-tip-shadow"), edge
+    # A light hairline round it, or a dark poster swallows the chip's shape.
+    assert re.fullmatch(r"0 0 0 1px rgb\(255 255 255 / \.\d+\)", drawn["box-shadow"])
     assert "backdrop-filter" not in drawn and "-webkit-backdrop-filter" not in drawn
     assert contrast((255.0, 255.0, 255.0), _on(token("--g-tip"), WHITE)) >= 4.5
 

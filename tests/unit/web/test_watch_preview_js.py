@@ -301,7 +301,7 @@ def test_a_previews_menu_is_marked_over_the_search_sheet_and_unmarked_on_the_pag
     assert out["page"] == ["Orbit", True, False, False]
 
 
-def test_a_previews_menu_and_the_keep_menu_stay_in_reach_while_the_search_sheet_holds_the_page() -> None:
+def test_a_preview_and_both_its_menus_stay_in_reach_under_the_search_sheet() -> None:
     out = _run("menuUnderSheet")
     assert out == {"open": True, "menu": False, "keep": False, "preview": False}
 

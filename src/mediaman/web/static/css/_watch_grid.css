@@ -127,7 +127,7 @@
 }
 .watch-all__back:hover { background: var(--rgba-overlay-lg); }
 .watch-all__back:active { background: var(--s4); }
-.watch-all__back:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 50%; }
+.watch-all__back:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -4px; border-radius: 50%; }
 .watch-all__names { display: flex; align-items: center; gap: 6px; min-width: 0; }
 /* The padding keeps descenders out of the ellipsis' clip. */
 .watch-all__title {
@@ -148,6 +148,7 @@
 .watch-all__tools { display: flex; flex: none; gap: 8px; margin-left: auto; }
 .watch-all__sort-icon { width: 1em; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .watch-all__tools .row-tool .ico:not(.row-tool__chev) { font-size: 13px; }
+.watch-all__tools .row-tool:focus-visible { outline-color: var(--g-focus); }
 .watch-all__body { padding: 8px var(--pad) 0; }
 /* The menu clamps 8px from the window's edge; its pill stands a gutter from it. */
 .watch-all__menu { min-width: 210px; margin-left: calc(8px - var(--pad)); }
