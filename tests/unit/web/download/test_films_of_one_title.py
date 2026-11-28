@@ -10,6 +10,7 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
+from mediaman.services.arr import _library_hold
 from mediaman.services.arr.search_trigger import get_search_info, reset_search_triggers
 from mediaman.services.downloads.download_queue import _reset_previous_queue
 from mediaman.web.auth.session_store import create_session
@@ -281,7 +282,11 @@ def test_an_abandon_reaches_its_film_whatever_its_title_does_meanwhile(downloads
     assert downloads.unmonitored() == [_OLD]
 
 
-def test_a_film_keeps_its_id_and_searches_when_the_other_of_its_title_goes(downloads, conn):
+def test_a_film_keeps_its_id_and_searches_when_the_other_of_its_title_goes(
+    downloads, conn, monkeypatch
+):
+    hold = [1000.0]
+    monkeypatch.setattr(_library_hold, "clock", lambda: hold[0])
     for number in (_OLD, _NEW):
         _since(conn, number, _NOW - timedelta(days=9))
     shown = downloads.ids()[_OLD]
@@ -289,6 +294,8 @@ def test_a_film_keeps_its_id_and_searches_when_the_other_of_its_title_goes(downl
     reset_search_triggers()
     searches = downloads.radarr.search_movie.call_count
     downloads.films = [downloads.film(_OLD)]
+    # Removed in Radarr itself, so seen once the library held for the poll runs out.
+    hold[0] += _library_hold.HOLD_SECONDS
     assert downloads.ids() == {_OLD: shown}
     assert get_search_info(shown)[0] == 14
     assert downloads.radarr.search_movie.call_count == searches

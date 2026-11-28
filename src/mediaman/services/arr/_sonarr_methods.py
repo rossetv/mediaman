@@ -20,6 +20,7 @@ from typing import Any, cast
 
 import requests
 
+from mediaman.services.arr import _library_hold
 from mediaman.services.arr._transport import (
     _ARR_TIMEOUT_SECONDS,
     ArrConfigError,
@@ -191,6 +192,9 @@ class _SonarrMixin:
                 except SafeHTTPError as file_exc:
                     if file_exc.status_code != 404:
                         raise
+        finally:
+            # Whatever came of it: one that failed may have been carried out.
+            _library_hold.forget(self._url)  # type: ignore[attr-defined]
 
     def delete_series(self, series_id: int) -> None:
         """Delete a series from Sonarr, its files, and add to exclusion list."""
