@@ -545,7 +545,7 @@
     text.appendChild(el('b', '', o.name));
     /* Keeps the two apart in the row's spoken name. */
     text.appendChild(document.createTextNode(' '));
-    if (o.sub) text.appendChild(el('small', '', o.sub));
+    if (o.sub) text.appendChild(el('small', o.fresh ? 'is-new' : '', o.sub));
     var end = el('span', 'play-on__end');
     if (o.starting || o.looks) end.appendChild(ring());
     else if (o.on) end.appendChild(MM.dom.icon('i-check'));
@@ -589,9 +589,12 @@
     var looks = !there && told(way, 'looking');
     var trouble = !there && told(way, 'trouble') ? way.trouble() : null;
     var none = !there && !looks && !trouble && !here && wait !== way.id;
+    /* Comes in softly once, not again at each drawing. */
+    var fresh = none && !sheet.none[way.id];
+    sheet.none[way.id] = none;
     row(list, {
-      id: way.id, icon: way.icon, name: way.label, on: here, starting: wait === way.id, looks: looks, off: none, more: !none,
-      sub: here ? 'Playing here now' : wait === way.id ? 'Starting…' : looks ? 'Looking for TVs…' : none ? 'No ' + way.label + ' found' : way.sub,
+      id: way.id, icon: way.icon, name: way.label, on: here, starting: wait === way.id, looks: looks, off: none, more: !none, fresh: fresh,
+      sub: here ? 'Playing here now' : wait === way.id ? 'Starting…' : looks ? 'Looking for TVs…' : none ? 'No ' + way.label + ' found on this network' : way.sub,
     }, function () {
       if (here) {
         close();
@@ -930,7 +933,7 @@
     ways.forEach(function (w) {
       try { if (w.look) w.look(); } catch (e) { /* it is not there */ }
     });
-    sheet = { node: node, btn: btn, host: host, pairing: null, rows: {}, order: [], over: false, waits: false, top: 0 };
+    sheet = { node: node, btn: btn, host: host, pairing: null, rows: {}, order: [], none: {}, over: false, waits: false, top: 0 };
     say = null;
     limit = false;
     document.body.appendChild(node);

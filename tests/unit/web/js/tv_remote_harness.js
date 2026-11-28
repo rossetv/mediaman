@@ -1235,6 +1235,24 @@ const scenarios = {
     }
     return out;
   },
+  // The sheet while Chrome looks for a Chromecast, once none has answered, and drawn again.
+  async sheetNoCast() {
+    const p = await page({ sheet: true });
+    let looking = true;
+    p.win.MM.playOn.register({ id: 'cast', label: 'Chromecast', icon: 'x', available: () => false, looking: () => looking, start: () => new Promise(() => {}) });
+    await p.open();
+    await p.press('#tv-remote [data-play-on]');
+    const line = () => { const s = p.$('.play-on [data-key="cast"]').querySelector('small'); return [s.textContent, s.className]; };
+    const out = { looking: line() };
+    looking = false;
+    p.win.MM.playOn.changed();
+    await settle();
+    out.none = line();
+    p.win.MM.playOn.changed();
+    await settle();
+    out.again = line();
+    return out;
+  },
   // The sheet: a TV that refused to start, for a file Plex cannot play and for an outage.
   async sheetRefused() {
     const out = {};

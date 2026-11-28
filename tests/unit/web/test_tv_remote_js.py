@@ -828,6 +828,13 @@ def test_a_file_plex_cannot_play_is_said_with_no_try_again_unlike_an_outage() ->
     assert "Try again" in out["unreachable"]["labels"]
 
 
+def test_no_chromecast_answering_says_so_in_one_line_that_comes_in_once() -> None:
+    out = _run("sheetNoCast")
+    assert out["looking"] == ["Looking for TVs…", ""]
+    assert out["none"] == ["No Chromecast found on this network", "is-new"]
+    assert out["again"] == ["No Chromecast found on this network", ""]
+
+
 def test_a_tv_that_cannot_start_a_file_plex_cannot_play_offers_no_try_again() -> None:
     out = _run("sheetRefused")
     assert "Dolby Vision Profile 5" in out["unplayable_dolby_vision_5"]

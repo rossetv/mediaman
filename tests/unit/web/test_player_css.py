@@ -315,6 +315,12 @@ def test_the_dim_of_the_phones_sheet_leaves_as_the_sheet_does() -> None:
     assert still["display"] == "none"
 
 
+def test_the_no_chromecast_line_fades_in_only_where_motion_is_welcome() -> None:
+    line = ".play-on__text small.is-new"
+    assert "play-on-fade" in style(line, "_play_on.css")["animation"]
+    assert style(line, "_play_on.css", "(prefers-reduced-motion: reduce)")["animation"] == "none"
+
+
 def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
     away = ".player.is-away :is(.player-upnext, .player-rate)"
     cards = style(away, "_player.css")

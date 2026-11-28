@@ -79,6 +79,8 @@
 .play-on__row.is-on .play-on__end .ico { font-size: 15px; color: var(--accent); }
 .play-on__row.is-off .play-on__icon { opacity: .55; }
 .play-on__row.is-off b { color: var(--t2); }
+.play-on__text small.is-new { animation: play-on-fade var(--dur) var(--ease-out); }
+@keyframes play-on-fade { from { opacity: 0; } }
 .play-on__ring { flex: none; width: 18px; height: 18px; border: 2px solid color-mix(in srgb, var(--t1) 25%, transparent); border-top-color: var(--t1); border-radius: 50%; animation: play-on-spin .9s linear infinite; }
 @keyframes play-on-spin { to { transform: rotate(360deg); } }
 
@@ -157,7 +159,8 @@
 @media (prefers-reduced-motion: reduce) {
   .play-on,
   .play-on::backdrop,
-  .play-on__say.is-new { animation: none; }
+  .play-on__say.is-new,
+  .play-on__text small.is-new { animation: none; }
   .play-on:popover-open { display: none; }
   .play-on__ring { animation: loading-pulse 1.6s ease-in-out infinite !important; }
 }
