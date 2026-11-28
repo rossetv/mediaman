@@ -109,6 +109,11 @@ def test_a_save_error_or_what_a_save_left_out_wraps_whole_and_is_never_hidden() 
             assert "display: none" not in body, head
 
 
+def test_a_list_line_that_says_what_is_wrong_wraps_rather_than_being_cut() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    assert "white-space: normal" in _declarations(".stx-link__sub.is-bad", css)
+
+
 def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
     (block,) = re.findall(r"@media \(forced-colors: active\) \{((?:[^{}]*\{[^{}]*\})*)", css)

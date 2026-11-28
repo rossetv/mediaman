@@ -174,7 +174,7 @@ def test_a_refused_key_reads_as_refused_and_is_counted_apart_from_not_answering(
         assert "refused" in first[svc]["label"].lower()
         assert "answering" not in first[svc]["label"].lower()
     assert "1 not answering" in first["line"]
-    assert "2 refused" in first["line"]
+    assert "2 keys refused" in first["line"]
     assert first["badge"] == "3"
     assert out["after"] == {"label": "Not answering", "refused": False, "err": True}
 

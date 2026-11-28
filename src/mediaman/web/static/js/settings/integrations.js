@@ -57,11 +57,11 @@
     return out;
   }
 
-  /* "1 service is not answering", "2 services refused their keys", or "1 not answering, 2 refused their keys". */
+  /* "1 service is not answering", "2 keys refused", or "1 not answering, 2 keys refused". */
   function failureWords(f) {
-    var keys = f.refused === 1 ? ' refused its key' : ' refused their keys';
-    if (f.down && f.refused) return f.down + ' not answering, ' + f.refused + keys;
-    if (f.refused) return f.refused + (f.refused === 1 ? ' service' : ' services') + keys;
+    var keys = f.refused + (f.refused === 1 ? ' key refused' : ' keys refused');
+    if (f.down && f.refused) return f.down + ' not answering, ' + keys;
+    if (f.refused) return keys;
     return f.down + (f.down === 1 ? ' service is' : ' services are') + ' not answering';
   }
 

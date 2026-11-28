@@ -563,7 +563,7 @@ def test_the_settings_tile_counts_a_refused_key_apart_from_a_service_not_answeri
     text, bad = out["refused"]["settings"]
     assert bad is True
     assert "1 not answering" in text
-    assert "2 refused" in text
+    assert "2 keys refused" in text
     text, bad = out["oneRefused"]["settings"]
     assert bad is True
     assert "not answering" not in text

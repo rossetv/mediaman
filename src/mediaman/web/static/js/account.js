@@ -871,9 +871,9 @@
       var down = known.filter(function (t) { return t === 'err'; }).length;
       var refused = known.filter(function (t) { return t === 'refused'; }).length;
       var bad = down + refused;
-      var keys = refused === 1 ? ' refused its key' : ' refused their keys';
-      var text = down && refused ? down + ' not answering, ' + refused + keys
-        : refused ? refused + (refused === 1 ? ' service' : ' services') + keys
+      var keys = refused + (refused === 1 ? ' key refused' : ' keys refused');
+      var text = down && refused ? down + ' not answering, ' + keys
+        : refused ? keys
         : down ? (down === 1 ? '1 service is not answering' : down + ' services are not answering')
         : !known.length || known.indexOf('unknown') !== -1 ? neutral
         : known.indexOf('ok') === -1 ? 'No services are set up yet'
