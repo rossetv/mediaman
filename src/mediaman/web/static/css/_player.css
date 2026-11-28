@@ -1404,6 +1404,9 @@
     border-bottom: 0;
     border-radius: 20px 20px 0 0;
     box-shadow: var(--g-inset);
+    /* Near opaque whether or not the blur draws: low-power and WebKit show the video and the
+       controls through a thinner tint, over the sheet's own words. */
+    background: rgb(var(--g-tint) / max(var(--g-a), .94));
     animation: player-av-up var(--dur-slow) var(--ease-push);
   }
   .player-av::before { content: ""; flex: none; display: block; width: 36px; height: 5px; margin: 8px auto 2px; border-radius: var(--r-pill); background: var(--hair-hover); }
