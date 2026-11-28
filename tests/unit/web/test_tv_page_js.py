@@ -71,7 +71,7 @@ def test_a_code_that_ran_out_is_renewed_and_a_tv_nobody_stands_at_stops() -> Non
 
 def test_a_tv_that_asked_for_too_many_codes_waits_as_long_as_it_is_told() -> None:
     out = _run("tooManyCodes")
-    assert out["asked"] == 1 and "4 minutes" in out["said"]
+    assert out["asked"] == 1 and "4 minutes" in out["first"] and "seconds" in out["said"]
     assert "482 916" in out["now"]
 
 
@@ -118,6 +118,14 @@ def test_the_tv_names_and_shows_who_started_the_film_not_whose_tv_it_is() -> Non
     out = _run("starter")
     assert "tobias is starting it" in out["says"] and "maren is starting it" not in out["says"]
     assert out["pictures"] == ["/static/avatars/avatar-03.svg"]
+    # With nobody named, the TV names nobody rather than whose TV it is.
+    assert "Glass Orchard" in out["nameless"] and "starting it" not in out["nameless"]
+
+
+def test_a_tv_left_open_through_an_update_loads_it_once_nothing_plays_and_once_only() -> None:
+    out = _run("renewed")
+    assert (out["playing"], out["idle"], out["kept"]) == (0, 1, "bbb")
+    assert (out["again"], out["current"]) == (0, 0)
 
 
 def test_each_person_is_shown_by_their_picture_over_their_letter_which_stays_if_it_fails() -> None:
@@ -850,3 +858,61 @@ def test_a_file_plex_cannot_play_says_why_and_offers_no_try_again() -> None:
     assert "Dolby Vision Profile 5" in said
     assert "Try again" not in said
     assert "Try again" in _run("failsWith", "unreachable")
+
+
+def _declared(selector: str) -> dict[str, str]:
+    """What tv.css declares for *selector* outside any @media, its rules merged in order."""
+    out: dict[str, str] = {}
+    for where, selectors, decls in rules("tv.css"):
+        if not where and selector in selectors:
+            out.update(decls)
+    return out
+
+
+def test_a_refusal_is_said_for_what_it_is_and_never_as_plex_out_of_reach() -> None:
+    out = _run("refusals")
+    assert "There is no next episode" in out["next"]
+    assert "isn’t playing on the TV any more" in out["again"]
+    for said in out.values():
+        assert "reach Plex" not in said
+    # mediaman answered the Stop, so it is not said to be silent.
+    assert "isn’t answering" not in out["stop"]
+
+
+def test_a_next_episode_that_cannot_start_says_so_in_place_of_a_count_stuck_at_nought() -> None:
+    out = _run("autoFails")
+    assert "Next episode couldn’t start" in out["failed"] and "reach Plex" in out["failed"]
+    assert "Next episode in 0" not in out["failed"]
+    # It goes on trying by itself, and keeps saying why while it does.
+    assert out["asks"] >= 2 and "Next episode couldn’t start" in out["retried"]
+
+
+def test_the_address_to_type_on_the_pairing_screen_breaks_only_after_a_dot_or_slash() -> None:
+    out = _run("longAddress")
+    assert out.replace("<wbr>", "") == "mediaman.vilmar-family-home.duckdns.org:8443/pair"
+    assert "duckdns.<wbr>org:8443/<wbr>pair" in out
+    assert "word-break" not in _declared(".addr")
+
+
+def test_the_title_keeps_clear_of_the_skip_note_only_while_it_shows() -> None:
+    out = _run("noteRoom")
+    assert out["counting"] == {"note": True, "top": "top noted"}
+    assert out["after"] == "top"
+    assert "padding-right" in _declared(".top.noted")
+
+
+def test_the_wait_for_a_code_counts_down_and_says_seconds_under_a_minute() -> None:
+    out = _run("slowCounts")
+    assert "in 3 minutes" in out["first"]
+    assert "in 55 seconds" in out["later"]
+    assert "a minute" not in out["later"]
+    assert "in 15 seconds" in out["last"]
+
+
+def test_a_long_name_under_a_face_ends_in_an_ellipsis_within_two_lines() -> None:
+    pn = _declared(".pn")
+    assert (pn["-webkit-line-clamp"], pn["display"], pn["max-height"]) == (
+        "2",
+        "-webkit-box",
+        "80px",
+    )

@@ -12,8 +12,10 @@ from concurrent.futures import ThreadPoolExecutor, wait
 
 import defusedxml.ElementTree as ET
 import pytest
+from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
+from mediaman.app_factory import _TEMPLATE_DIR
 from mediaman.crypto import generate_tv_resume_ticket, validate_tv_resume_ticket
 from mediaman.db import get_db
 from mediaman.services.avatars import drawn, files
@@ -52,6 +54,7 @@ from mediaman.web.repository import tv as repo
 from mediaman.web.repository.track_choices import Defaults, set_defaults
 from mediaman.web.repository.watch_progress import get_progress, save_progress
 from mediaman.web.routes import tv as tv_routes
+from mediaman.web.routes import tv_page as tv_page_routes
 from mediaman.web.routes.watch import stream_api
 from tests.unit.services.avatars import photos
 from tests.unit.web.test_cast import PLEX_URL, TOKEN, Clock, FakePlex
@@ -1904,3 +1907,33 @@ def test_the_tv_is_told_who_started_what_plays_not_whose_tv_it_is(tv, home, amy,
     _play(bob, home)
     ready = tv.poll()
     assert (ready["owner"], ready["play"]["by"]) == ("amy", "bob")
+
+
+@pytest.mark.parametrize(
+    "how", ["confirmed", "restart", "subtitles", "next", "tv_again", "tv_next"]
+)
+def test_on_every_way_a_film_goes_on_the_tv_names_who_started_it_not_its_owner(
+    tv, shared, amy, bob, how
+):
+    _play(amy, shared, "501")
+    tv.poll("playing", 70)
+    assert _play(bob, shared, "502", confirm=True).status_code == 200
+    tv.poll("playing", 70)
+    if how == "restart":
+        assert _command(amy, shared, "quality", quality="low").status_code == 200
+    elif how == "subtitles":
+        assert _command(amy, shared, "subtitles", subtitle="off").status_code == 200
+    elif how == "next":
+        assert _command(amy, shared, "next").status_code == 200
+    elif how in ("tv_again", "tv_next"):
+        assert tv.ask(how[3:]).status_code == 200
+    ready = tv.poll()
+    assert (ready["owner"], ready["play"]["by"], ready["play"]["paused_by"]) == ("amy", "bob", None)
+
+
+def test_the_tvs_poll_says_which_version_of_its_page_is_current(app, tv, home):
+    app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+    app.state.templates.env.globals["static_v"] = "abc123def456"
+    app.include_router(tv_page_routes.router)
+    assert 'data-v="abc123def456"' in TestClient(app).get("/tv").text
+    assert tv.poll()["v"] == "abc123def456"

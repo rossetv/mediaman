@@ -2437,7 +2437,8 @@ def test_a_tv_is_paired_in_the_sheet_named_and_played_on(markup):
     assert out["wrong"][1] == ""
     assert "stops what they’re watching" in out["others"][0]
     assert out["sent"] == [["123456", False], ["482916", False], ["482916", True]]
-    assert out["name"] == "Living room"
+    # The person has a Living room already.
+    assert out["name"] == "Living room 2"
     assert out["named"] == [["/api/tvs/9", "Den"]]
     assert out["plays"] == ["/api/tvs/9/play"]
 
@@ -3232,6 +3233,12 @@ def test_a_tv_just_paired_is_asked_until_it_is_heard_of(markup):
     # Not for ever.
     assert 3 < out["plays"] < 10
     assert "didn’t start" in out["says"]
+
+
+def test_a_tv_paired_from_the_sheet_is_offered_a_name_not_taken_and_told_of_a_repeat(markup):
+    out = elsewhere(markup, "away_pair_naming")
+    assert (out["offered"], out["first"]) == ("Living room 2", "")
+    assert "already have a TV with this name" in out["repeated"]
 
 
 def test_full_screen_is_left_as_it_begins_elsewhere(markup):
