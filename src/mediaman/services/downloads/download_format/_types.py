@@ -74,6 +74,8 @@ class DownloadItem(TypedDict):
     # Of one that needs attention, on the status poll alone: whether mediaman will look for
     # another copy unasked.
     retrying: NotRequired[bool]
+    # What mediaman is doing about it, in a few words; "" when it leaves it for an admin.
+    fixing: NotRequired[str]
     # How the retry bookkeeping keys it, where it is one of Radarr's or Sonarr's, for the server
     # alone: the season's number is left off a show's.
     retry_key: NotRequired[str]

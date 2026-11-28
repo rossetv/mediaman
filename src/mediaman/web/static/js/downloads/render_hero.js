@@ -37,7 +37,8 @@
     /* The link into Radarr or Sonarr is an admin's alone; for anyone else it is never drawn. */
     var link = !held && d.canAbandonHere() ? item.arr_link : '';
     var words = (held ? item.attention : item.search_hint) || '';
-    var fix = held ? (item.retrying ? 'mediaman will look for another copy' : item.attention_hint || 'Won’t finish until an admin sorts it out') : '';
+    /* Of one mediaman is mending, its state already says how. */
+    var fix = held && !item.fixing ? (item.retrying ? 'mediaman will look for another copy' : item.attention_hint || 'Won’t finish until an admin sorts it out') : '';
     if ((item.state !== 'searching' && !held) || (!words && !link && !fix)) {
       d.passFocus(hint);
       hint.hidden = true;

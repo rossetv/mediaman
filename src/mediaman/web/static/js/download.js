@@ -202,7 +202,7 @@
     var second = { queued: 'Queued', finding_copy: 'Finding another copy' }[data.state] || 'Searching';
     MM.dom.setText(steps.children[1].querySelector('span'), second);
     var third = data.state === 'almost_ready' ? (data.state_label || 'Almost ready')
-      : data.state === 'needs_attention' ? 'Needs attention' : 'Downloading';
+      : data.state === 'needs_attention' ? data.fixing || 'Needs attention' : 'Downloading';
     MM.dom.setText(steps.children[2].querySelector('span'), third);
 
     var done = data.progress || 0;
@@ -222,6 +222,7 @@
 
   /* Only what is true of one that will not finish as it is. */
   function stuckWords(data) {
+    if (data.fixing) return 'This copy won’t finish as it is. ' + data.fixing + '.';
     if (data.retrying) return 'This copy won’t finish. mediaman will look for another copy.';
     if (data.attention_hint) return 'It won’t finish by itself. ' + data.attention_hint + '.';
     return 'It won’t finish until an admin sorts it out.';

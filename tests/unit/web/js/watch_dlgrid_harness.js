@@ -380,6 +380,7 @@ const scenarios = {
         dl('Sundial', { state: 'almost_ready', state_label: 'Waiting to import', progress: 100, size_done: '2 GB', size_total: '2 GB' }),
         dl('Windward', { state: 'needs_attention', attention: why, attention_hint: 'Fix it in Radarr: Activity → Queue', arr_source: 'Radarr', arr_link: 'http://radarr.local/movie/1' }),
         dl('Tallow Hill', { state: 'needs_attention', retrying: true, attention: why }),
+        dl('Pale Harbour', { state: 'needs_attention', retrying: true, fixing: 'Fixing — renaming files', attention: why }),
         dl('Quiet Engines', { state: 'searching', search_hint: 'Searched 11× · next attempt in ~24h', abandon_visible: true, arr_source: 'Radarr', arr_link: 'https://radarr.local/movie/2' }),
         dl('Cobblestone', { state: 'searching', search_hint: 'Searched once · next attempt in 1m', arr_link: 'javascript:alert(1)' }),
         dl('Finchley', { state: 'finding_copy' }),
@@ -395,9 +396,9 @@ const scenarios = {
         controls: c.querySelectorAll('button').map((n) => [n.getAttribute('data-act'), n.getAttribute('aria-label')]) };
     };
     const out = {};
-    ['Ember Coast', 'Honest Forger', 'Sundial', 'Windward', 'Tallow Hill', 'Quiet Engines', 'Cobblestone', 'Finchley', 'Lanterns'].forEach((t) => { out[t] = card(t); });
+    ['Ember Coast', 'Honest Forger', 'Sundial', 'Windward', 'Tallow Hill', 'Pale Harbour', 'Quiet Engines', 'Cobblestone', 'Finchley', 'Lanterns'].forEach((t) => { out[t] = card(t); });
     const menus = {};
-    ['Windward', 'Tallow Hill', 'Quiet Engines', 'Cobblestone', 'Finchley'].forEach((t) => { menus[t] = p.menuOf(t); });
+    ['Windward', 'Tallow Hill', 'Pale Harbour', 'Quiet Engines', 'Cobblestone', 'Finchley'].forEach((t) => { menus[t] = p.menuOf(t); });
     const states = {};
     ['Windward', 'Honest Forger', 'Quiet Engines', 'Ember Coast'].forEach((t) => {
       states[t] = ['is-stuck', 'is-looking', 'is-queued'].filter((k) => p.card(t).classList.contains(k));
@@ -417,6 +418,7 @@ const scenarios = {
       all: [all([
         dl('Windward', { state: 'needs_attention', attention: 'Path fault', attention_hint: 'Fix it in Radarr: Activity → Queue', arr_source: 'Radarr', arr_link: 'http://radarr/1' }),
         dl('Tallow Hill', { state: 'needs_attention', retrying: true }),
+        dl('Pale Harbour', { state: 'needs_attention', retrying: true, fixing: 'Fixing — renaming files' }),
         dl('Quiet Engines', { state: 'searching', search_hint: 'Searched 11× · next attempt in ~24h', abandon_visible: true, arr_link: 'http://radarr/2' }),
       ], { upcoming: [dl('Lanterns', { release_label: 'Not yet released' })] })],
     });
