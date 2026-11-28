@@ -1880,6 +1880,41 @@ const scenarios = {
     seen.after = look();
     return seen;
   },
+  // The line under a long wait, as mediaman's address answers with an error of its own, or as
+  // nothing at all is reached.
+  async waitLine(how) {
+    const t = await playing();
+    t.answers.poll = how === 'proxy' ? [502, null] : [0, null];
+    t.video.stuck = true;
+    await t.step(15000);
+    return t.node('nw').innerHTML.replace(/<[^>]+>/g, ' ').replace(/&rsquo;/g, '’').replace(/\s+/g, ' ').trim();
+  },
+  // A film stopped through a long wait, by `how`: OK on its Stop, a pointer's click, or Back. As
+  // mediaman answers again it still holds the film, or (`restart`) restarted meanwhile.
+  async waitStop(how, then) {
+    const t = await playing({}, 0);
+    t.answers.poll = () => ready({ play: t.now, resume: 'ticket', boot: 'b1' });
+    await t.step(20000);
+    t.answers.poll = [0, null];
+    t.answers.ask = { ok: true };
+    t.video.stuck = true;
+    await t.step(30000);
+    const early = { html: t.html(), back: (t.key(BACK), t.says()) };
+    await t.step(36000);
+    const long = { html: t.html(), held: t.held(), hidden: t.html().includes('aria-hidden') };
+    if (how === 'click') t.click('b0'); else t.key(how === 'back' ? BACK : OK);
+    await t.step(100);
+    const stopped = { says: t.says(), src: t.video.getAttribute('src'), place: t.store['mm-tv-place'] || null };
+    const polls = t.paths('poll').length;
+    if (then === 'restart') t.answers.poll = ready({ boot: 'b2' });
+    else t.answers.poll = () => (t.paths('ask').length ? ready({ boot: 'b1' }) : ready({ play: t.now, boot: 'b1' }));
+    await t.step(5000);
+    const reports = t.paths('poll').slice(polls).map((c) => c.body.report || null).filter(Boolean);
+    return {
+      early, long, stopped,
+      reports, asks: t.paths('ask').map((c) => c.body), after: t.says(), src: t.video.getAttribute('src'),
+    };
+  },
   async lost() {
     const t = await playing();
     t.answers.poll = [502, null];

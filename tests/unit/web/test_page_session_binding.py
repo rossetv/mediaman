@@ -42,7 +42,7 @@ class TestPageSessionBinding:
         assert resp.headers["location"] == "/?all=library"
 
     def test_library_redirects_on_different_ua(self, app_factory, conn, templates_stub):
-        """Stolen cookie replayed with a different UA → redirect to /login."""
+        """Stolen cookie replayed with a different UA → redirect to /login, which says why once."""
         token = _issue_session(conn, ua="Mozilla/5.0 Firefox", ip="testclient")
 
         app = app_factory(library_router, conn=conn, state_extras={"templates": templates_stub})
@@ -55,7 +55,11 @@ class TestPageSessionBinding:
             follow_redirects=False,
         )
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/login?next=%2Flibrary"
+        assert resp.headers["location"] == "/login?out=safety&next=%2Flibrary"
+
+        # The session is gone now, so the next refusal is a plain one.
+        again = client.get("/library", follow_redirects=False)
+        assert again.headers["location"] == "/login?next=%2Flibrary"
 
     def test_library_redirects_when_no_cookie(self, app_factory, conn, templates_stub):
         app = app_factory(library_router, conn=conn, state_extras={"templates": templates_stub})

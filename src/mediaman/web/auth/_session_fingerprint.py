@@ -5,6 +5,7 @@ import ipaddress
 import os
 
 from mediaman.services.rate_limit.ip_resolver import unmap_ipv4
+from mediaman.web.auth.session_store._device import _BROWSERS, _SYSTEMS, _first
 
 _FINGERPRINT_MODE_ENV = "MEDIAMAN_FINGERPRINT_MODE"
 #: Supported fingerprint modes.  Each one trades resilience against
@@ -16,13 +17,14 @@ _FINGERPRINT_MODE_ENV = "MEDIAMAN_FINGERPRINT_MODE"
 #:              client IPs unpredictably or where every legitimate
 #:              client is on a churn-heavy CGNAT.
 #:
-#: ``loose``  — IPv4 bucketed at ``/24`` and IPv6 at ``/64``; UA hash
-#:              truncated to 16 hex chars.  This is the default.  It
-#:              tolerates an end user roaming inside a single carrier
-#:              CGNAT pool and minor UA churn (Chrome version bumps mid
-#:              session) without invalidating the cookie, while still
-#:              shutting down a stolen-cookie replay from a different
-#:              network or a different browser family.
+#: ``loose``  — IPv4 bucketed at ``/24`` and IPv6 at ``/64``; of the UA
+#:              only the browser family and system are hashed (truncated
+#:              to 16 hex chars), so a version bump or other noise in the
+#:              UA keeps the session.  This is the default.  It tolerates
+#:              an end user roaming inside a single carrier CGNAT pool,
+#:              while still shutting down a stolen-cookie replay from a
+#:              different network, browser family or system.  A UA naming
+#:              no known browser is hashed whole, so it must match exactly.
 #:
 #: ``strict`` — full client IP (no bucketing) and full SHA-256 UA hash
 #:              (no truncation).  Maximum binding strength but
@@ -70,10 +72,29 @@ def _client_fingerprint(
     if mode is None:
         mode = _fingerprint_mode()
     bucket_cfg = _FINGERPRINT_BUCKETS.get(mode, _FINGERPRINT_BUCKETS["loose"])
-    ua_hash_chars = bucket_cfg["ua_hash_chars"]
-    full_ua_hash = hashlib.sha256((user_agent or "").encode()).hexdigest()
-    ua_hash = full_ua_hash if ua_hash_chars is None else full_ua_hash[:ua_hash_chars]
+    ua = user_agent or ""
+    if bucket_cfg["ua_hash_chars"] is not None:
+        ua = _stable_ua(ua)
+    return _fingerprint(ua, client_ip, bucket_cfg)
 
+
+def _legacy_loose_fingerprint(user_agent: str | None, client_ip: str | None) -> str:
+    """The loose fingerprint as it was once stored: the whole UA hashed, not its stable parts."""
+    return _fingerprint(user_agent or "", client_ip, _FINGERPRINT_BUCKETS["loose"])
+
+
+def _stable_ua(user_agent: str) -> str:
+    """The browser family and system *user_agent* names, or the whole UA when no browser is known."""
+    browser = _first(_BROWSERS, user_agent)
+    if browser is None:
+        return user_agent
+    return f"{browser}|{_first(_SYSTEMS, user_agent) or ''}"
+
+
+def _fingerprint(ua: str, client_ip: str | None, bucket_cfg: dict[str, int | None]) -> str:
+    ua_hash_chars = bucket_cfg["ua_hash_chars"]
+    full_ua_hash = hashlib.sha256(ua.encode()).hexdigest()
+    ua_hash = full_ua_hash if ua_hash_chars is None else full_ua_hash[:ua_hash_chars]
     if not client_ip:
         prefix = "unknown"
     else:

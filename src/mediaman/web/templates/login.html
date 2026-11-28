@@ -25,6 +25,9 @@
         {%- if wait %}<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>
         {%- else %}<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.4v.1"/></svg>{% endif -%}
         <span>{{ error }}</span></div>
+      {% elif dropped %}
+      {# Amber, as for a wait: the session was dropped for a changed client, which is nobody's fault. #}
+      <div class="login-msg is-wait" role="status"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.4v.1"/></svg><span>You were signed out for safety. Please sign in again.</span></div>
       {% endif %}
       {# Shown by login.js when the browser is offline, in place of a post that could not go. #}
       <div class="login-msg is-wait" id="login-down" role="alert" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2.5 9a14 14 0 0 1 5-2.9M21.5 9A14 14 0 0 0 11 5.6M5.5 12.4a9 9 0 0 1 4-2M18.5 12.4a9 9 0 0 0-2.7-1.6M9 15.8a4.5 4.5 0 0 1 5.4-.6M12 19.3v.1M3 3l18 18"/></svg><span>Could not reach mediaman. Check your connection and try again.</span></div>

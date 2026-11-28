@@ -690,6 +690,7 @@ const scenarios = {
     Object.assign(p.api.tvs[0], { acked: 1 });
     p.api.tvs[0].play.state = 'paused';
     await p.pass(5000);
+    out.back = p.$('[data-close]').getAttribute('aria-label');
     // Another phone presses play.
     p.api.tvs[0].play.state = 'playing';
     await p.pass(5000);
