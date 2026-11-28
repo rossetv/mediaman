@@ -408,6 +408,21 @@ const scenarios = {
     return out;
   },
 
+  // The row of downloads that won't import: what is done next and when, later and due.
+  async fixing() {
+    const out = {};
+    const cases = { later: { plan: 'import', at: NOW + 1800 }, due: { plan: 'replace', at: NOW - 60 } };
+    for (const [name, next] of Object.entries(cases)) {
+      const p = await page({ live: { work: { searching: {}, fixing: 2, fix_next: next, scanning: false, ai: null } } });
+      await p.open();
+      const row = p.doc.querySelectorAll('#space-activity .act-work')
+        .find((li) => / won’t import/.test(li.textContent));
+      out[name] = [row.querySelector('b').textContent, row.querySelector('small').textContent,
+        row.querySelector('.act-work__state').textContent];
+    }
+    return out;
+  },
+
   // mediaman's CPU key for a small share, and figures that round up to a whole one.
   async smallCpu() {
     const out = {};

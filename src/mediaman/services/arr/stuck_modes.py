@@ -39,6 +39,7 @@ _NO_FILES = ("no files found are eligible", "no video files")
 _WRONG_MATCH = (
     "matched to series by id",
     "matched to movie by id",
+    "matched by id",
     "unknown series",
     "unknown movie",
     "title mismatch",
