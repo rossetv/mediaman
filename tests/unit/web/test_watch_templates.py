@@ -491,6 +491,17 @@ def test_the_watch_page_loads_what_asks_the_ai():
         assert f"/static/{name}?v=" in html
 
 
+def test_another_language_loads_on_the_title_page_and_the_player_alone():
+    assert _watch().count("/static/js/watch/languages.js?v=") == 1
+    holders = sorted(
+        str(t.relative_to(TEMPLATES))
+        for t in TEMPLATES.rglob("*.html")
+        if "watch/languages.js" in t.read_text()
+    )
+    # Every other page, sign-in and a download's page among them, extends base.html.
+    assert holders == ["watch.html", "watch_player.html"]
+
+
 def test_a_phone_s_keyboard_offers_search_and_leaves_what_is_typed_alone() -> None:
     field = re.search(r'<input id="watch-search"[^>]*>', _watch())
     assert field is not None
