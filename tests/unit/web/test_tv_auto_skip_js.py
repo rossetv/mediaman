@@ -5,6 +5,7 @@ Profile's switch for it (profile-playback.js)."""
 from __future__ import annotations
 
 import json
+import re
 from functools import cache
 from pathlib import Path
 
@@ -51,7 +52,21 @@ def test_the_tv_plays_up_to_an_intro_untouched() -> None:
     assert _tv("beforeIntro") == {"sets": []}
 
 
-def test_an_intro_that_starts_is_jumped_past_with_a_note_that_then_goes() -> None:
+def test_an_intro_plays_a_beat_then_counts_down_on_screen_before_the_jump() -> None:
+    out = _tv("counts")
+    assert out["landed"] == {"sets": 0, "note": False}
+    counting = out["counting"]
+    assert (counting["sets"], counting["note"]["shown"]) == (0, True)
+    assert re.fullmatch(r"Skipping intro in [345] · Back to watch", counting["note"]["text"])
+
+
+def test_back_during_the_count_keeps_the_intro_playing() -> None:
+    out = _tv("kept")
+    assert (out["counting"], out["hidden"], out["sets"]) == (True, True, [])
+    assert out["at"] == 75
+
+
+def test_an_intro_is_jumped_past_after_its_count_with_a_note_that_then_goes() -> None:
     out = _tv("intro")
     assert 150 <= out["at"] <= 152
     assert out["note"] == {"shown": True, "text": "Skipped intro"}

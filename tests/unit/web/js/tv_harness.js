@@ -216,11 +216,20 @@ async function playing(more, ms = 600) {
 // A title with an intro and credits, which the TV is to skip, started at `start_s` and playing for `ms`.
 const INTRO = { kind: 'intro', start_s: 60, end_s: 150, final: false };
 const NEXT = { rating_key: '502', season: 1, episode: 5, title: 'Windfall' };
-function skipping(more, ms) {
-  return playing({ start_s: 50, played_s: 0, auto_skip: true, markers: [INTRO, { kind: 'credits', start_s: 2700, end_s: 2880, final: true }], ...more }, ms);
+async function skipping(more, ms) {
+  const t = await playing({ start_s: 50, played_s: 0, auto_skip: true, markers: [INTRO, { kind: 'credits', start_s: 2700, end_s: 2880, final: true }], ...more }, 0);
+  // The note's count goes in a span of its own, as the browser parses it.
+  const span = { textContent: '' };
+  t.node('sk').getElementsByTagName = (tag) => (tag === 'span' && t.node('sk').innerHTML.includes('<span') ? [span] : []);
+  t.count = span;
+  await t.step(ms);
+  return t;
 }
 const at = (t) => Math.round(t.video.time);
-const note = (t) => ({ shown: t.node('sk').className === 'sk on', text: t.node('sk').innerHTML.replace(/<[^>]+>/g, '') });
+const note = (t) => ({
+  shown: t.node('sk').className === 'sk on',
+  text: t.node('sk').innerHTML.replace(/<span[^>]*><\/span>/, t.count.textContent).replace(/<[^>]+>/g, ''),
+});
 // Commands the TV is given with each answer from now on.
 const told = (t, commands) => { t.answers.poll = () => ready({ play: t.now, commands }); };
 
@@ -228,8 +237,25 @@ const SKIPS = {
   // The page has the note's place, over every page drawn on the stage.
   async page() { return /<div id="k"><div class="sk" id="sk" role="status"><\/div><\/div>/.test(template('tv.html')); },
   async beforeIntro() { const t = await skipping({}, 5000); return { sets: t.video.sets.filter((s) => s > 100) }; },
+  // Into the intro: a beat of it, then a count on screen, then the jump.
+  async counts() {
+    const t = await skipping({}, 12000);
+    const landed = { sets: t.video.sets.filter((s) => s > 100).length, note: note(t).shown };
+    await t.step(2500);
+    const counting = { at: at(t), note: note(t), sets: t.video.sets.filter((s) => s > 100).length };
+    return { landed, counting };
+  },
+  // Back during the count keeps the intro playing.
+  async kept() {
+    const t = await skipping({}, 15000);
+    const counting = note(t).shown;
+    t.key(BACK);
+    const hidden = !note(t).shown;
+    await t.step(10000);
+    return { counting, hidden, at: at(t), sets: t.video.sets.filter((s) => s > 100) };
+  },
   async intro() {
-    const t = await skipping({}, 11000);
+    const t = await skipping({}, 19000);
     const out = { at: at(t), note: note(t) };
     await t.step(3000);
     return { ...out, later: note(t).shown };
@@ -238,22 +264,22 @@ const SKIPS = {
   async noMarks() { return { at: at(await skipping({ markers: [] }, 15000)) }; },
   // Taken back into the intro once it was skipped, it plays.
   async back() {
-    const t = await skipping({}, 11000);
+    const t = await skipping({}, 19000);
     t.video.time = 70;
     await t.step(5000);
     return { at: at(t) };
   },
   async credits() {
-    const t = await skipping({ start_s: 2690, next: NEXT }, 11000);
+    const t = await skipping({ start_s: 2690, next: NEXT }, 16000);
     return { to: t.video.sets.pop(), note: note(t).shown, asked: t.paths('ask').map((c) => c.body.what) };
   },
   async midCredits() {
-    const t = await skipping({ start_s: 1190, markers: [{ kind: 'credits', start_s: 1200, end_s: 1260, final: false }] }, 11000);
+    const t = await skipping({ start_s: 1190, markers: [{ kind: 'credits', start_s: 1200, end_s: 1260, final: false }] }, 20000);
     return { at: at(t), note: note(t) };
   },
   // Resumed inside the intro, the TV still skips it.
   async resumedInIntro() {
-    const t = await skipping({ start_s: 70 }, 3000);
+    const t = await skipping({ start_s: 70 }, 10000);
     return { at: at(t), note: note(t) };
   },
   // A person who seeks into an intro the TV has not skipped watches it.
@@ -265,12 +291,12 @@ const SKIPS = {
   },
   // The next play skips the same intro again.
   async nextPlay() {
-    const t = await skipping({}, 11000);
+    const t = await skipping({}, 19000);
     t.now = { ...t.now, play_id: 'p2', start_s: 50 };
     await t.step(1500);
     t.video.fire('loadedmetadata');
     t.video.fire('playing');
-    await t.step(11000);
+    await t.step(19000);
     return { at: at(t) };
   },
   // Sent on by the remote while a browser is slow to move there, it is not skipped from where it was.
@@ -295,7 +321,7 @@ const SKIPS = {
   // Credits Plex does not mark as the last, but that run to the end, are the last.
   async creditsToTheEnd() {
     const markers = [{ kind: 'credits', start_s: 2700, end_s: 2880, final: false }];
-    const on = await skipping({ start_s: 2690, markers, next: NEXT }, 15000);
+    const on = await skipping({ start_s: 2690, markers, next: NEXT }, 16000);
     const off = await skipping({ start_s: 2690, markers }, 15000);
     return { to: on.video.sets.pop(), note: note(on).shown, plays: at(off) };
   },

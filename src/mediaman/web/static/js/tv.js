@@ -892,10 +892,16 @@
 
   var skipped = {};          // of the play, by where each starts: a marker is skipped once
   var noteTimer = null;
+  var noteText = '';
+  var entered = null;        // {play, start, at}: the marker the TV plays in, and where in it the TV began it
+  var LAND_S = { intro: 3, credits: 4 };
+  var COUNT_S = 5;
 
-  /* Where its person wants it, the TV plays on past an intro or credits as they start: a TV's
-     remote may have no key to skip with. Credits that end the title are skipped only where a next
-     episode follows, to the end, where the TV's own next episode and "still watching" take over. */
+  /* Where its person wants it, the TV plays on past an intro or credits: a TV's remote may have no
+     key to skip with. It lands a few seconds in, so nothing is cut off at its first frame, and an
+     intro or credits a scene follows count down on screen first, which Back stops. Credits that
+     end the title are skipped only where a next episode follows, to the end, where the TV's own
+     next episode, with its own countdown, and "still watching" take over. */
   function skipMarks() {
     if (!play || !play.auto_skip || !loaded || !ready || !there || !wanted || video.seeking || overAt !== null || broken || reloadDue) return;
     var t = video.currentTime, list = play.markers || [];
@@ -906,18 +912,41 @@
       if (t < m.start_s || t >= m.end_s - 1 || skipped[m.start_s]) continue;
       var last = m.kind === 'credits' && (m.final || (end && m.end_s >= end - 1));
       if (last && !goesOn) continue;
+      if (!entered || entered.play !== play.play_id || entered.start !== m.start_s || t < entered.at) entered = { play: play.play_id, start: m.start_s, at: t };
+      var name = m.kind === 'intro' ? 'intro' : 'credits';
+      var left = LAND_S[name] + (last ? 0 : COUNT_S) - (t - entered.at);
+      if (left > 0) {
+        if (left <= COUNT_S && !last) note('Skipping ' + name + ' in <span aria-hidden="true"></span> · Back to watch', Math.ceil(left));
+        return;
+      }
+      entered = null;
       skipped[m.start_s] = true;
       seek(m.end_s);
       tell();
-      if (!last) note(m.kind === 'intro' ? 'Skipped intro' : 'Skipped credits');
+      if (!last) note(name === 'intro' ? 'Skipped intro' : 'Skipped credits');
       return;
     }
+    entered = null;
   }
 
-  function note(text) {
+  /* Back during a countdown keeps the intro or credits playing. */
+  function keepMark() {
+    var node = document.getElementById('sk');
+    if (!entered || !node || node.className !== 'sk on' || noteText.indexOf('Skipping') !== 0) return false;
+    skipped[entered.start] = true;
+    entered = null;
+    clearTimeout(noteTimer);
+    node.className = 'sk';
+    return true;
+  }
+
+  /* A count, `n`, goes in the note's span: a reader of the status hears the note once. */
+  function note(text, n) {
     var node = document.getElementById('sk');
     if (!node) return;
-    node.innerHTML = glyph('step') + text;
+    if (noteText !== text || node.className !== 'sk on') node.innerHTML = glyph('step') + text;
+    noteText = text;
+    if (n !== undefined) node.getElementsByTagName('span')[0].textContent = String(n);
     node.className = 'sk on';
     clearTimeout(noteTimer);
     noteTimer = setTimeout(function () { node.className = 'sk'; }, SKIPPED_MS);
@@ -1282,6 +1311,7 @@
   }
 
   function back() {
+    if (shown === 'play' && keepMark()) return true;
     if (shown === 'play' && !hidden) { hidden = true; hush(); return true; }
     if (shown === 'play') { wake(); return true; }
     if (shown === 'unpair' || (token && (shown === 'code' || shown === 'press' || shown === 'slow'))) { act('i'); return true; }
