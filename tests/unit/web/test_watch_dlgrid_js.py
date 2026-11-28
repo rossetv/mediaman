@@ -154,13 +154,13 @@ def test_an_open_grid_of_a_row_closes_before_downloading_opens(out) -> None:
 def test_downloads_are_grouped_needs_attention_first_with_their_counts(out) -> None:
     run = out["groups"]
     assert run["order"] == [
-        ["Needs attention · 2", "Windward", "Tallow Hill"],
+        ["Needs attention · 3", "Windward", "Tallow Hill", "Pale Harbour"],
         ["Downloading · 3", "Ember Coast", "Honest Forger", "Sundial"],
         ["Looking for a copy · 3", "Quiet Engines", "Cobblestone", "Finchley"],
         ["Coming soon · 2", "Lanterns", "Orchard"],
     ]
     assert run["title"] == "Downloading"
-    assert run["count"] == "8 in progress · 2 coming soon"
+    assert run["count"] == "9 in progress · 2 coming soon"
 
 
 def test_queued_rows_that_sat_under_up_next_on_the_old_page_wait_their_turn_under_downloading(
@@ -202,6 +202,16 @@ def test_an_admin_is_told_what_is_wrong_on_its_line_and_whole_with_what_comes_of
     assert details[4] == "true", "it is read, not pressed"
     retrying = run["menus"]["Tallow Hill"]["items"][0][0]
     assert retrying.endswith("mediaman will look for another copy")
+
+
+def test_a_stuck_download_mediaman_is_mending_says_so_on_its_line(out) -> None:
+    run = out["groups"]
+    card = run["cards"]["Pale Harbour"]
+    assert (card["line"], card["say"]) == (
+        "Fixing — renaming files",
+        "Import failed, path does not exist",
+    )
+    assert run["menus"]["Pale Harbour"]["items"][0][0].endswith("Fixing — renaming files")
 
 
 def test_an_admin_is_given_the_link_into_radarr_only_to_a_web_address(out) -> None:
@@ -263,6 +273,7 @@ def test_a_viewer_is_never_drawn_a_menu_a_stop_tracking_or_a_reason_even_if_sent
     assert run["say"] == [
         "Won’t finish until an admin sorts it out",
         "mediaman will look for another copy",
+        "Nothing for you to do",
         "Searched 11× · next attempt in ~24h",
     ]
 

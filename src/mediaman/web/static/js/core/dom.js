@@ -36,6 +36,11 @@
  *   MM.dom.setIcon(svg, name)
  *     Shows another symbol in an icon.
  *
+ *   MM.dom.avatar(name, url?)
+ *     A person's avatar: their picture at url over the first letter of their
+ *     name, which shows where there is no url or the picture fails to load.
+ *     Decorative, so the name must stand beside it.
+ *
  *   MM.dom.fold(details, toggle)
  *     Makes a <details> (class fold-more) open and shut smoothly when its
  *     summary, toggle, is pressed; with reduced motion the browser does it.
@@ -88,6 +93,24 @@
       use.setAttribute('href', '#' + name);
       svg.appendChild(use);
       return svg;
+    },
+
+    avatar: function (name, url) {
+      var face = document.createElement('span');
+      face.className = url ? 'avatar avatar--pic' : 'avatar avatar--letter';
+      face.setAttribute('aria-hidden', 'true');
+      var letter = document.createElement('b');
+      letter.className = 'avatar__letter';
+      letter.textContent = String(name || '?').charAt(0).toUpperCase();
+      face.appendChild(letter);
+      if (url) {
+        var img = document.createElement('img');
+        img.setAttribute('src', url);
+        img.setAttribute('alt', '');
+        img.setAttribute('data-broken-on-error', '');
+        face.appendChild(img);
+      }
+      return face;
     },
 
     setIcon: function (svg, name) {

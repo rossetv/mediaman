@@ -91,6 +91,7 @@
       suggestions_enabled:   v('suggestions_enabled'),
       auto_abandon_enabled:  v('auto_abandon_enabled'),
       import_retry_enabled:  v('import_retry_enabled'),
+      import_fix_folder:     v('import_fix_folder'),
       google_cast_enabled:   v('google_cast_enabled'),
     };
     if (diskMap !== null) payload.disk_thresholds = diskMap;

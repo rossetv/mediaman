@@ -25,7 +25,14 @@ PLAYS = "plays"
 #: of actions, which end in a separator.
 GROUPS: dict[str, tuple[str, ...]] = {
     PLAYS: (),
-    "downloads": ("downloaded", "re_downloaded", "import_retried", "sec:auto_abandon."),
+    "downloads": (
+        "downloaded",
+        "re_downloaded",
+        "import_retried",
+        "import_renamed",
+        "import_imported",
+        "sec:auto_abandon.",
+    ),
     "keeps": (*_FILTER_MAP["kept"], *_FILTER_MAP["unkept"]),
     "deletions": (
         "scheduled",

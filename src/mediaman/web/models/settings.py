@@ -185,6 +185,9 @@ class SettingsUpdate(BaseModel):
 
     auto_abandon_enabled: bool | None = None
     import_retry_enabled: bool | None = None
+    # The downloads folder as Radarr and Sonarr name it, which mediaman sees at the same path;
+    # "" leaves downloads untouched on disk.
+    import_fix_folder: Annotated[str | None, Field(max_length=512)] = None
 
     # Never stored or read: a settings page left open from an earlier version still sends them.
     older_tvs_enabled: bool | None = None
@@ -311,6 +314,23 @@ class SettingsUpdate(BaseModel):
         if v not in OPENAI_MODELS:
             raise ValueError(f"openai_model must be one of {list(OPENAI_MODELS)}")
         return v
+
+    @field_validator("import_fix_folder", mode="before")
+    @classmethod
+    def validate_import_fix_folder(cls, v: object) -> object:
+        """An absolute folder other than the root, without ".." in it, or "" for none."""
+        if v is None:
+            return v
+        if not isinstance(v, str):
+            raise ValueError("import_fix_folder must be a string")
+        v = v.strip()
+        if not v:
+            return ""
+        _reject_crlf(v)
+        parts = v.split("/")
+        if not v.startswith("/") or "\x00" in v or ".." in parts or not v.strip("/"):
+            raise ValueError("import_fix_folder must be an absolute folder path, not /")
+        return v.rstrip("/")
 
     @field_validator("scan_timezone", mode="before")
     @classmethod

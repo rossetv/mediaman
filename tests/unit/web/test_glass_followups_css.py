@@ -98,7 +98,6 @@ OWN_RINGS = {
     ("_nav.css", "var(--t1)"),
     ("_unsubscribe.css", "var(--t1)"),
     ("_profile_picture.css", "var(--t1)"),
-    ("_pair.css", "var(--accent)"),
     ("_play_on.css", "var(--accent)"),
 }
 # How many visible rings each sheet draws in the glass's ring: one dropped to `none` is one lost.
@@ -109,6 +108,7 @@ RINGS = {
     "_login.css": 2,
     "_modal.css": 1,
     "_nav.css": 2,
+    "_pair.css": 1,
     "_password.css": 2,
     "_play_on.css": 2,
     "_player.css": 9,

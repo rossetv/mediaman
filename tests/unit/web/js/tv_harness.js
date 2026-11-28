@@ -68,6 +68,13 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     Object.keys(nodes).forEach((id) => { if (!FIXED.includes(id)) delete nodes[id]; });
   };
   Object.defineProperty(nodes.s, 'innerHTML', { get: () => html, set: drawn });
+  // The pictures drawn on the stage, each with what the page set on it.
+  let pictures = [];
+  nodes.s.getElementsByTagName = (tag) => {
+    if (tag !== 'img') return [];
+    pictures = (html.match(/<img [^>]*>/g) || []).map((markup) => ({ src: markup.match(/src="([^"]*)"/)[1].replace(/&#38;/g, '&'), className: '' }));
+    return pictures;
+  };
   Object.defineProperty(nodes.s, 'firstChild', {
     get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !FIXED.includes(id)).map((id) => nodes[id]) } : null),
   });
@@ -184,6 +191,7 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     },
     look: () => body.className,
     html: () => nodes.s.innerHTML,
+    pictures: () => pictures,
     says: () => nodes.s.innerHTML.replace(/<svg[^>]* aria-label="([^"]*)"[^>]*>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     text: (id) => document.getElementById(id).innerHTML,
     paths: (p) => sent.filter((c) => c.path === p),
@@ -216,11 +224,30 @@ async function playing(more, ms = 600) {
 // A title with an intro and credits, which the TV is to skip, started at `start_s` and playing for `ms`.
 const INTRO = { kind: 'intro', start_s: 60, end_s: 150, final: false };
 const NEXT = { rating_key: '502', season: 1, episode: 5, title: 'Windfall' };
-function skipping(more, ms) {
-  return playing({ start_s: 50, played_s: 0, auto_skip: true, markers: [INTRO, { kind: 'credits', start_s: 2700, end_s: 2880, final: true }], ...more }, ms);
+async function skipping(more, ms) {
+  const t = await playing({ start_s: 50, played_s: 0, auto_skip: true, markers: [INTRO, { kind: 'credits', start_s: 2700, end_s: 2880, final: true }], ...more }, 0);
+  // The note's count goes in a span of its own, as the browser parses it.
+  const span = { textContent: '' };
+  const sk = t.node('sk');
+  t.bar = { style: {} };
+  sk.getElementsByTagName = (tag) => (tag === 'span' && sk.innerHTML.includes('<span') ? [span] : tag === 'i' && sk.innerHTML.includes('<i') ? [t.bar] : []);
+  t.count = span;
+  // Each text the note is given, as a reader of the status would hear it come.
+  t.written = [];
+  let shown = '';
+  Object.defineProperty(sk, 'innerHTML', { get: () => shown, set(v) { shown = v; t.written.push(v); } });
+  await t.step(ms);
+  return t;
 }
 const at = (t) => Math.round(t.video.time);
-const note = (t) => ({ shown: t.node('sk').className === 'sk on', text: t.node('sk').innerHTML.replace(/<[^>]+>/g, '') });
+const note = (t) => ({
+  shown: t.node('sk').className === 'sk on',
+  text: t.node('sk').innerHTML.replace(/<span class="sr">.*?<\/span>/, '').replace(/<span[^>]*><\/span>/, t.count.textContent).replace(/<[^>]+>/g, ''),
+});
+// What a screen reader is given of a note: none of what is aria-hidden.
+const spoken = (html) => html.replace(/<span aria-hidden="true">.*?<\/span>/g, '').replace(/<[^>]+>/g, '');
+const counts = (t) => t.written.filter((w) => w.includes('Skipping'));
+const jumped = (t) => t.video.sets.filter((s) => s > 100);
 // Commands the TV is given with each answer from now on.
 const told = (t, commands) => { t.answers.poll = () => ready({ play: t.now, commands }); };
 
@@ -228,8 +255,25 @@ const SKIPS = {
   // The page has the note's place, over every page drawn on the stage.
   async page() { return /<div id="k"><div class="sk" id="sk" role="status"><\/div><\/div>/.test(template('tv.html')); },
   async beforeIntro() { const t = await skipping({}, 5000); return { sets: t.video.sets.filter((s) => s > 100) }; },
+  // Into the intro: a beat of it, then a count on screen, then the jump.
+  async counts() {
+    const t = await skipping({}, 12000);
+    const landed = { sets: t.video.sets.filter((s) => s > 100).length, note: note(t).shown };
+    await t.step(2500);
+    const counting = { at: at(t), note: note(t), sets: t.video.sets.filter((s) => s > 100).length };
+    return { landed, counting };
+  },
+  // Back during the count keeps the intro playing.
+  async kept() {
+    const t = await skipping({}, 15000);
+    const counting = note(t).shown;
+    t.key(BACK);
+    const hidden = !note(t).shown;
+    await t.step(10000);
+    return { counting, hidden, at: at(t), sets: t.video.sets.filter((s) => s > 100) };
+  },
   async intro() {
-    const t = await skipping({}, 11000);
+    const t = await skipping({}, 19000);
     const out = { at: at(t), note: note(t) };
     await t.step(3000);
     return { ...out, later: note(t).shown };
@@ -238,22 +282,22 @@ const SKIPS = {
   async noMarks() { return { at: at(await skipping({ markers: [] }, 15000)) }; },
   // Taken back into the intro once it was skipped, it plays.
   async back() {
-    const t = await skipping({}, 11000);
+    const t = await skipping({}, 19000);
     t.video.time = 70;
     await t.step(5000);
     return { at: at(t) };
   },
   async credits() {
-    const t = await skipping({ start_s: 2690, next: NEXT }, 11000);
+    const t = await skipping({ start_s: 2690, next: NEXT }, 16000);
     return { to: t.video.sets.pop(), note: note(t).shown, asked: t.paths('ask').map((c) => c.body.what) };
   },
   async midCredits() {
-    const t = await skipping({ start_s: 1190, markers: [{ kind: 'credits', start_s: 1200, end_s: 1260, final: false }] }, 11000);
+    const t = await skipping({ start_s: 1190, markers: [{ kind: 'credits', start_s: 1200, end_s: 1260, final: false }] }, 20000);
     return { at: at(t), note: note(t) };
   },
   // Resumed inside the intro, the TV still skips it.
   async resumedInIntro() {
-    const t = await skipping({ start_s: 70 }, 3000);
+    const t = await skipping({ start_s: 70 }, 10000);
     return { at: at(t), note: note(t) };
   },
   // A person who seeks into an intro the TV has not skipped watches it.
@@ -265,12 +309,12 @@ const SKIPS = {
   },
   // The next play skips the same intro again.
   async nextPlay() {
-    const t = await skipping({}, 11000);
+    const t = await skipping({}, 19000);
     t.now = { ...t.now, play_id: 'p2', start_s: 50 };
     await t.step(1500);
     t.video.fire('loadedmetadata');
     t.video.fire('playing');
-    await t.step(11000);
+    await t.step(19000);
     return { at: at(t) };
   },
   // Sent on by the remote while a browser is slow to move there, it is not skipped from where it was.
@@ -295,9 +339,70 @@ const SKIPS = {
   // Credits Plex does not mark as the last, but that run to the end, are the last.
   async creditsToTheEnd() {
     const markers = [{ kind: 'credits', start_s: 2700, end_s: 2880, final: false }];
-    const on = await skipping({ start_s: 2690, markers, next: NEXT }, 15000);
+    const on = await skipping({ start_s: 2690, markers, next: NEXT }, 16000);
     const off = await skipping({ start_s: 2690, markers }, 15000);
     return { to: on.video.sets.pop(), note: note(on).shown, plays: at(off) };
+  },
+  // The count is said once, as it comes, and its ticking number is not read out.
+  async spoken() {
+    const t = await skipping({}, 21000);
+    return { said: counts(t).map(spoken), hidden: counts(t).map((w) => /in <span aria-hidden="true"><\/span>/.test(w)) };
+  },
+  // A bar drains under the count, over the whole of it.
+  async drains() {
+    const t = await skipping({}, 14000);
+    return { duration: t.bar.style.animationDuration, delay: parseFloat(t.bar.style.animationDelay) };
+  },
+  // The last credits play 4 s before the jump to the end: where it jumps from.
+  async lastHeld() {
+    const t = await skipping({ start_s: 2690, next: NEXT }, 8000);
+    let from = null;
+    for (let i = 0; i < 40 && from === null; i += 1) {
+      const was = t.video.time;
+      await t.step(250);
+      if (t.video.sets.some((s) => s > 2700)) from = was;
+    }
+    return from;
+  },
+  // OK during the count, the controls hidden, keeps the intro playing as Back does; outside one, it only brings up the controls.
+  async okKeeps() {
+    const before = await skipping({}, 8000);
+    before.key(OK);
+    const t = await skipping({}, 15000);
+    const counting = note(t).shown;
+    t.key(OK);
+    const hidden = !note(t).shown;
+    await t.step(10000);
+    return { before: jumped(before), counting, hidden, at: at(t), sets: jumped(t) };
+  },
+  // An intro too short for the whole count counts what fits; one with no room for a count is jumped past at once.
+  async shortIntro() {
+    const t = await skipping({ markers: [{ kind: 'intro', start_s: 60, end_s: 68, final: false }] }, 20000);
+    const tiny = await skipping({ markers: [{ kind: 'intro', start_s: 60, end_s: 63, final: false }] }, 14000);
+    const past = (x) => x.video.sets.filter((s) => s > 50);
+    return { said: counts(t).map(spoken), jumped: past(t), tiny: { jumped: past(tiny), at: at(tiny), counted: counts(tiny).length } };
+  },
+  // A count ends with what takes the TV out of it: a seek out, a step of 10 s within, another play.
+  async stale() {
+    const out = {};
+    let t = await skipping({}, 15000);
+    told(t, [{ id: 1, kind: 'seek', position_s: 200 }]);
+    await t.step(1500);
+    out.seekOut = note(t).shown;
+    t = await skipping({}, 15000);
+    t.key(412); // the remote's own key back 10 s, still in the intro
+    out.stepped = note(t).shown;
+    t = await skipping({}, 15000);
+    t.now = { ...t.now, play_id: 'p2', start_s: 50 };
+    await t.step(1100);
+    out.played = note(t).shown;
+    // Back as the note goes is no Back to its count: the next play skips the same intro.
+    t.key(BACK);
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(19000);
+    out.nextSkips = at(t);
+    return out;
   },
   async paused() {
     const t = await skipping({}, 3000);
@@ -536,6 +641,91 @@ const scenarios = {
     await u.step(3000);
     return { src, kept: t.video.attrs.src, store: t.store, more: after - fresh, idle: u.says(), polled: u.last('poll').token };
   },
+  // The TV is maren's; tobias, paired with it too, starts a film on it.
+  async starter() {
+    const t = tv({ kept: 'old' });
+    const both = { owner: 'maren', people: ['maren', 'tobias'], avatars: { tobias: '/static/avatars/avatar-03.svg' } };
+    t.answers.poll = () => ready({ ...both, play: film({ by: 'tobias' }) });
+    t.run();
+    await t.step(300);
+    return { says: t.says(), pictures: t.pictures().map((p) => p.src) };
+  },
+  // tobias, paired with maren's TV too, starts a film on it and then pairs it anew: the TV is
+  // still his, whether it was told it lost its token first or not.
+  async reclaimed(how) {
+    const t = tv({ kept: 'old' });
+    const both = { people: ['maren', 'tobias'] };
+    t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'pairing', expires_in_s: 200, poll_ms: 2000 } : ready({ ...both, play: t.now }));
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(1500);
+    t.key(OK);
+    await t.step(500);
+    t.now = film({ by: 'tobias' });
+    let started = '';
+    for (let i = 0; i < 30 && !started; i += 1) {
+      await t.step(50);
+      if (t.says().includes('starting it')) started = t.says();
+    }
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(1000);
+    const his = ready({ owner: 'tobias', name: 'TV', people: ['tobias'] });
+    if (how === 'refused') {
+      t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'pairing', expires_in_s: 200, poll_ms: 2000 } : GONE);
+      await t.step(2500);
+    }
+    t.answers.poll = (c) => (c.token === 'fresh' ? his : how === 'refused' ? GONE : ready({ ...both, play: t.now }));
+    let said = '';
+    for (let i = 0; i < 40 && !said; i += 1) {
+      await t.step(100);
+      if (/Someone else|Connected to/.test(t.says())) said = t.says();
+    }
+    return { started, said };
+  },
+  // Many people paired with one TV, as it is ready and as it was just paired.
+  async crowd(n) {
+    const people = ['maren', 'tobias', 'juniper', 'oskar', 'ines', 'kofi', 'lena', 'mats', 'noor'].slice(0, Number(n));
+    const t = tv({ kept: 'old' });
+    t.answers.poll = (c) => (c.token === 'fresh' ? ready({ people }) : ready({ people, poll_ms: 2000 }));
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.run();
+    await t.step(1500);
+    const idle = t.html();
+    t.key(OK);
+    let conn = '';
+    for (let i = 0; i < 60 && !conn; i += 1) {
+      await t.step(100);
+      if (t.says().includes('so films can start with sound')) conn = t.html();
+    }
+    return { idle, conn };
+  },
+  // The stream fails once as it starts and plays at the next try.
+  async faltersAtStart() {
+    const t = tv({ kept: 'old' });
+    t.answers.poll = () => ready({ play: t.now });
+    t.now = film();
+    t.run();
+    await t.step(50);
+    const seen = [];
+    t.video.fire('error');
+    for (let i = 0; i < 12; i += 1) { await t.step(100); seen.push(t.says()); }
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(600);
+    return { seen, now: t.says() };
+  },
+  async faces() {
+    const t = tv({ kept: 'old' });
+    const photo = '/api/tv/device/avatar/1/2?v=ab&k=cd';
+    t.answers.poll = () => ready({ people: ['maren', 'tobias'], avatars: { maren: photo } });
+    t.run();
+    await t.step(1500);
+    const pictures = t.pictures();
+    const before = pictures.map((p) => [p.src, p.className]);
+    pictures[0].onerror.call(pictures[0]);
+    return { before, after: pictures[0].className, html: t.html(), says: t.says() };
+  },
   async shared() {
     const t = tv({ kept: 'old' });
     t.answers.poll = (c) => (c.token === 'fresh' ? { ok: true, state: 'pairing', expires_in_s: 290, poll_ms: 2000 } : ready({ people: ['maren'], poll_ms: 2000 }));
@@ -547,13 +737,15 @@ const scenarios = {
     const code = t.says();
     const paused = async (people) => {
       const p = await playing();
-      p.answers.poll = () => ready({ play: p.now, people });
+      p.answers.poll = () => ready({ play: p.now, people, avatars: { maren: '/static/avatars/avatar-05.svg' } });
       p.video.fire('pause');
       p.now = film({ state: 'paused', paused_by: 'maren' });
       await p.step(2500);
-      return p.says();
+      return { says: p.says(), pictures: p.pictures().map((x) => x.src) };
     };
-    return { code, alone: await paused(['maren']), both: await paused(['maren', 'tobias']) };
+    const alone = await paused(['maren']);
+    const both = await paused(['maren', 'tobias']);
+    return { code, alone: alone.says, both: both.says, pictured: both.pictures };
   },
   // The code for a second person, then that person joins, then OK goes on to the page it was on.
   async joinFades() {

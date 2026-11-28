@@ -212,12 +212,14 @@ class _Scrubbed:
 _REDACTED_TOKEN = "***"
 # Emailed links carry their credential in the path (/keep/<token>,
 # /download/<token>, /api/keep/<token>/forever), as a TV's stream address does
-# (/api/cast/<ticket>/...), or in a query value
-# (/unsubscribe?token=..., /api/poster/<key>?sig=...).
+# (/api/cast/<ticket>/...) and a TV's photo of a person (/api/tv/device/avatar/<tv>/<key>),
+# or in a query value (/unsubscribe?token=..., /api/poster/<key>?sig=...).
 # Slash runs and case are ignored because the credential is still usable
 # through those spellings.
 _TOKEN_PATH_RE = re.compile(
-    r"^((?:/+api)?/+keep/+|/+download/+|/+api/+cast/+)[^/?#]+", re.IGNORECASE
+    r"^((?:/+api)?/+keep/+|/+download/+|/+api/+cast/+|/+api/+tv/+device/+avatar/+[^/?#]*/+)"
+    r"[^/?#]+",
+    re.IGNORECASE,
 )
 # The same ticket anywhere in a line, such as an address an error quotes.
 _CAST_TICKET_RE = re.compile(r"(/api/+cast/+)[A-Za-z0-9_-]{16,}", re.IGNORECASE)

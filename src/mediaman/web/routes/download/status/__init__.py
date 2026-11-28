@@ -21,7 +21,7 @@ from mediaman.crypto import generate_poll_token, validate_poll_token
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.arr.finding_copy import is_finding_copy, will_retry
+from mediaman.services.arr.finding_copy import fixing_words, is_finding_copy
 from mediaman.services.downloads.download_format import (
     attention_reason,
     build_item,
@@ -192,10 +192,12 @@ def _sonarr_status(
 def _retrying(
     conn: sqlite3.Connection, item: DownloadItem, key: str | None, reasons: list[str]
 ) -> DownloadItem:
-    """*item*, of one that needs attention saying whether another copy will be looked for."""
+    """*item*, of one that needs attention saying what mediaman does about it unasked."""
     if item["state"] != "needs_attention":
         return item
-    return {**item, "retrying": key is not None and will_retry(conn, key, reasons)}
+    fixing = fixing_words(conn, key, reasons) if key is not None else ""
+    label = fixing or item["state_label"]
+    return {**item, "retrying": bool(fixing), "fixing": fixing, "state_label": label}
 
 
 def _playable(
