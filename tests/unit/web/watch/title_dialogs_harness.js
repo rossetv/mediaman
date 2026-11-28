@@ -40,7 +40,7 @@ async function asked() {
 
 /* Add a language from a film's page and from a show's: what it says each has, and what its
    audio first looks for. */
-async function addLanguage(ref, key) {
+async function addLanguage(ref, key, onward) {
   const tracks = { audio: '1', subtitle: null, remembered: false, defaults: {},
     audio_tracks: [{ id: '1', language: 'en', commentary: false }], subtitle_tracks: [{ id: '2', language: 'es', forced: false }] };
   const langs = [{ code: 'en', name: 'English', native: 'English' }, { code: 'pt', name: 'Portuguese', native: 'Português' }];
@@ -48,6 +48,10 @@ async function addLanguage(ref, key) {
     '/api/watch/title/show-300': LIB_SHOW, '/api/watch/title/movie-120': LIB_MOVIE,
     ['/api/watch/tracks/' + key]: tracks,
     ['/api/watch/languages/' + key]: { languages: langs, recent: [], household_subtitles: [], household_audio: [], copies: [], season: 2 },
+    ['/api/watch/languages/' + key + '/audio?language=pt&scope=movie']: { service: 'Radarr', have: { languages: ['en'] },
+      found: [{ languages: ['pt', 'en'], quality: 'Bluray-1080p', size_bytes: 2.4e9, age_days: 30, indexer: 'Nyaa', season_pack: false, loses: [] }] },
+  }, posted: {
+    ['/api/watch/languages/' + key + '/audio']: { copies: [{ id: 1, language: 'pt', scope: 'movie', status: 'waiting', progress: null, minutes_left: null, release_languages: ['pt', 'en'], quality: 'Bluray-1080p' }] },
   } });
   p.run();
   ['watch/tracks.js', 'watch/languages.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), p.ctx));
@@ -68,12 +72,31 @@ async function addLanguage(ref, key) {
   p.tick();
   await settle();
   out.search = p.gets.filter((u) => /\/audio\?/.test(u));
+  if (onward) await onward(p, box, out);
   return out;
+}
+
+/* Asked for from the film's page: what its card says, and where its back and Done go. */
+async function onwayFromPage(p, box, out) {
+  const tick = async () => { p.tick(); await settle(); p.tick(); await settle(); };
+  await tick();
+  click(p.doc, box.querySelector('.lp-ver'));
+  await tick();
+  click(p.doc, box.querySelector('.lp-act.player-pill--primary'));
+  await tick();
+  out.onway = { back: box.querySelector('.lp-back').getAttribute('aria-label'), facts: box.querySelectorAll('.lp-facts li').map((li) => li.textContent) };
+  click(p.doc, box.querySelector(out.leave));
+  await tick();
+  out.after = box.getAttribute('aria-label');
 }
 
 const scenarios = {
   async languages() {
     return { film: await addLanguage('movie-120', '120'), show: await addLanguage('show-300', '41') };
+  },
+  async languagesAsked() {
+    const leave = (how) => (p, box, out) => { out.leave = how; return onwayFromPage(p, box, out); };
+    return { back: await addLanguage('movie-120', '120', leave('.lp-back')), done: await addLanguage('movie-120', '120', leave('.lp-acts .lp-act')) };
   },
   async back() {
     const p = await asked();

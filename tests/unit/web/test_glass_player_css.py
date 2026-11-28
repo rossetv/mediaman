@@ -563,3 +563,19 @@ def test_where_the_bar_stood_the_card_has_its_play_controls_and_no_stop(media: s
         # On its side the volume shares the play controls' row, left of them, as the bar stood
         # on the right.
         assert stop < order(".tv-rem .player-volume") < order(".tv-rem [data-back10]")
+
+
+@pytest.mark.parametrize("media", [None, PHONE])
+def test_the_title_page_s_language_sheet_is_the_chooser_s_glass_never_a_near_solid_fill(
+    media: str | None,
+) -> None:
+    # A fill of .96 alpha with no blur leaves the page's white words faintly under the sheet's.
+    for where, selectors, decls in rules(PLAYER):
+        if not any(s.startswith(".player-av.lp-dialog") and " " not in s for s in selectors):
+            continue
+        if media is not None and where and PHONE not in where:
+            continue
+        for prop in ("background", "backdrop-filter", "-webkit-backdrop-filter"):
+            assert prop not in decls, (selectors, prop)
+    drawn = style(".player-av", PLAYER)
+    assert drawn["backdrop-filter"] == "var(--g-filter)"

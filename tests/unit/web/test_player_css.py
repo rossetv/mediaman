@@ -336,3 +336,11 @@ def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
     assert lowered
     for where, sel, bottom in lowered:
         assert bottom == "auto" or re.search(r"var\(--(away|player)-foot", bottom), (where, sel)
+
+
+def test_a_language_view_s_middle_scrolls_and_its_answer_stays_at_the_foot() -> None:
+    # On a phone on its side the glass is the screen's height: what does not fit scrolls.
+    middle = style(".lp-scroll", "_player.css")
+    assert middle["overflow-y"] == "auto"
+    assert middle["min-height"] == "0"
+    assert style(".lp-acts--end", "_player.css")["flex"] == "none"

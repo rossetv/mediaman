@@ -3542,8 +3542,49 @@ def test_a_copy_that_loses_audio_says_so_and_is_asked_for_once(markup):
     out = run(markup, "languages_audio")
     assert out["copies"] == 2
     assert "English and German audio goes with the old copy" in out["warning"]
+    # Where the glass is short, what it says scrolls and the answer stays in reach below it.
+    assert out["scrolls"] == ["lp-ver", "lp-facts", "lp-confirm-note"]
+    assert out["answerScrolls"] is False
     assert out["sending"] is True
     assert out["onway"] == "Portuguese audio, on its way"
     assert out["left"] == " · about 12 min left"
     assert len(out["asked"]) == 1
     assert "On its way" in out["pending"][0]
+
+
+def test_a_copy_on_its_way_moves_on_in_the_open_menu_without_taking_the_focus_or_the_scroll(
+    markup,
+):
+    out = run(markup, "languages_follow")
+    steps = out["steps"]
+    assert all(s["same"] and s["focus"] and s["scroll"] == 173 for s in steps), steps
+    assert [s["line"] for s in steps] == [
+        "Asked for · waiting to start",
+        "On its way · 34% · about 12 min left",
+        "On its way · 61% · about 12 min left",
+        "Almost in · being put in place",
+    ]
+    assert [s["waiting"] for s in steps] == [True, False, False, False]
+    assert steps[2]["label"] == "Portuguese audio, On its way, 61 percent. Show progress."
+    assert out["swapped"] == {"rows": ["2"], "focus": True, "scroll": 173}
+    assert out["failed"] == {
+        "line": "Didn’t download · look for another",
+        "again": True,
+        "bar": True,
+    }
+    assert out["failedOpens"] == "Portuguese audio"
+
+
+def test_a_copy_that_starts_once_its_card_is_up_shows_its_percentage(markup):
+    out = run(markup, "languages_onway_starts")
+    assert out == {
+        "before": "Asked for · waiting to start",
+        "after": "On its way · 34% · about 12 min left",
+    }
+
+
+def test_subtitles_added_at_the_end_of_a_long_list_are_scrolled_into_sight(markup):
+    out = run(markup, "languages_added_seen")
+    # The row at 700 to 752 in a list 400 high, clear of its 28 px fade, after the player was told
+    # of them and drew the menu anew.
+    assert out == {"added": 380, "redrawn": 1, "later": 380}
