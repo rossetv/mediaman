@@ -4,6 +4,9 @@
 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: Arial, Helvetica, sans-serif; }
 video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: #000; }
 video::-webkit-media-controls { display: none !important; }
+/* The film's last picture, held where it was while the film is taken up again. */
+#fr { position: absolute; left: 0; top: 0; width: 100%; height: 100%; visibility: hidden; }
+#fr.on { visibility: visible; }
 #s, #o { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; -webkit-transform-origin: 0 0; transform-origin: 0 0; }
 #o { pointer-events: none; }
 #k { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; -webkit-transform-origin: 0 0; transform-origin: 0 0; pointer-events: none; }
@@ -159,6 +162,26 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .sk { position: absolute; right: 110px; top: 74px; font-size: 34px; line-height: 40px; color: #fff; background: #000; background: rgba(28, 28, 32, .8); border: 2px solid rgba(255, 255, 255, .14); border-top-color: rgba(255, 255, 255, .3); border-radius: 16px; padding: 14px 26px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 12px 40px rgba(0, 0, 0, .45); opacity: 0; -webkit-transform: translateY(-18px) scale(.96); transform: translateY(-18px) scale(.96); -webkit-transition: opacity .45s cubic-bezier(.2, .8, .2, 1), -webkit-transform .45s cubic-bezier(.2, .8, .2, 1); transition: opacity .45s cubic-bezier(.2, .8, .2, 1), transform .45s cubic-bezier(.2, .8, .2, 1); }
 .sk.on { opacity: 1; -webkit-transform: none; transform: none; }
 .sk .i { fill: #2997ff; }
+/* A wait over the film: a glass pill with a small eclipse, in the corner across from the skip note
+   and clear of subtitles; then, as it goes on, the film darkened and the eclipse in its middle. The
+   picture behind is the film's own throughout. */
+.nw { position: absolute; left: 110px; top: 74px; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; max-width: 900px; color: #fff; background: #000; background: rgba(28, 28, 32, .8); border: 2px solid rgba(255, 255, 255, .14); border-top-color: rgba(255, 255, 255, .3); border-radius: 48px; padding: 20px 40px 20px 22px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 12px 40px rgba(0, 0, 0, .45); visibility: hidden; opacity: 0; -webkit-transform: translateY(-18px) scale(.96); transform: translateY(-18px) scale(.96); -webkit-transition: opacity .6s cubic-bezier(.2, .8, .2, 1), visibility .6s, -webkit-transform .6s cubic-bezier(.2, .8, .2, 1); transition: opacity .6s cubic-bezier(.2, .8, .2, 1), visibility .6s, transform .6s cubic-bezier(.2, .8, .2, 1); }
+.nw.on { visibility: visible; opacity: 1; -webkit-transform: none; transform: none; }
+.nwt span { display: block; font-size: 38px; line-height: 46px; font-weight: 700; }
+.nwt .nws { font-size: 30px; line-height: 38px; font-weight: 400; color: #cfcfd2; }
+.ec { position: relative; display: block; width: 52px; height: 52px; margin-right: 24px; -webkit-flex: none; flex: none; }
+.ec:before { content: ''; position: absolute; left: -26px; top: -26px; width: 104px; height: 104px; border-radius: 50%; background: radial-gradient(closest-side, rgba(41, 151, 255, 0) 48%, rgba(80, 170, 255, .65) 52%, rgba(41, 151, 255, .16) 72%, rgba(41, 151, 255, 0)); -webkit-animation: cor 4s ease-in-out infinite alternate; animation: cor 4s ease-in-out infinite alternate; }
+.ec i { position: absolute; left: -6px; top: -6px; width: 64px; height: 64px; border-radius: 50%; background: radial-gradient(ellipse 60% 16% at 50% 6%, rgba(255, 255, 255, .95), rgba(170, 215, 255, .7) 34%, rgba(41, 151, 255, 0)); -webkit-transition: opacity .6s; transition: opacity .6s; -webkit-animation: sp 4s linear infinite; animation: sp 4s linear infinite; }
+.ec:after { content: ''; position: absolute; left: 0; top: 0; width: 52px; height: 52px; border-radius: 50%; background: #05070d; background: radial-gradient(circle at 50% 35%, #0e1422, #04060b 70%); box-shadow: inset 0 0 0 1px rgba(166, 210, 255, .22), 0 0 0 2px rgba(120, 190, 255, .35), 0 0 14px rgba(41, 151, 255, .4); }
+/* Back: the light that went round settles into the whole ring. */
+.nw.ok .ec i { opacity: 0; }
+.nw.ok .ec:before { opacity: 1; -webkit-animation: none; animation: none; }
+/* Darkest behind the words, and the film still there at the edges. Hidden while clear, so that
+   the eclipse in it is not drawn for nothing. */
+.wl { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: rgba(0, 0, 0, .6); background: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, .74), rgba(0, 0, 0, .46) 80%); text-shadow: 0 2px 12px rgba(0, 0, 0, .6); visibility: hidden; opacity: 0; -webkit-transition: opacity 1.2s ease-in-out, visibility 1.2s; transition: opacity 1.2s ease-in-out, visibility 1.2s; }
+.wl.on { visibility: visible; opacity: 1; }
+.wl .mid { -webkit-transform: scale(.92); transform: scale(.92); -webkit-transition: -webkit-transform 1.2s cubic-bezier(.2, .8, .2, 1); transition: transform 1.2s cubic-bezier(.2, .8, .2, 1); }
+.wl.on .mid { -webkit-transform: none; transform: none; }
 /* White: over a white frame the note's box is #666, where blue would not show. */
 .sk .dr, .up .dr { display: block; height: 4px; margin-top: 10px; border-radius: 2px; background: #fff; -webkit-transform-origin: 0 0; transform-origin: 0 0; -webkit-animation: dr linear forwards; animation: dr linear forwards; }
 @-webkit-keyframes dr { from { -webkit-transform: scaleX(1); } to { -webkit-transform: scaleX(0); } }
@@ -208,6 +231,8 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .who { line-height: 68px; color: #dedee0; }
 @media (prefers-reduced-motion: reduce) {
   .b, .ov, .sk, body:after, .dim:after { -webkit-transition: none; transition: none; }
+  .nw, .ec i, .wl, .wl .mid { -webkit-transition: none; transition: none; }
+  .ec:before, .ec i, .nw.ok .ec:before { -webkit-animation: none; animation: none; }
   .ov .top, .ov .bot { -webkit-transition: none; transition: none; }
   .b.f { -webkit-transform: none; transform: none; }
   .sk .dr, .up .dr { display: none; -webkit-animation: none; animation: none; }

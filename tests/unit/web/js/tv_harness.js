@@ -44,12 +44,13 @@ function tv({ kept = null, plays = true, full = false, version, base = 'https://
     getElementsByTagName: () => [],
   });
   const video = Object.assign(element(), {
-    paused: true, ended: false, volume: 1, muted: false, seeking: false, duration: 2880, calls: [], refuse: false,
+    paused: true, ended: false, volume: 1, muted: false, seeking: false, duration: 2880, videoWidth: 0, videoHeight: 0, calls: [], refuse: false,
     canPlayType: () => (plays ? 'maybe' : ''),
-    load() { this.paused = true; this.time = 0; },
+    // Its picture is gone as it is loaded anew, and its size is known again with its metadata.
+    load() { this.paused = true; this.time = 0; this.videoWidth = this.videoHeight = 0; },
     play() { this.calls.push('play'); order.push('play'); if (this.refuse) return Promise.reject(Object.assign(new Error('no'), { name: 'NotAllowedError' })); this.paused = false; return undefined; },
     pause() { this.calls.push('pause'); this.paused = true; },
-    fire(type) { (this.on[type] || []).forEach((fn) => fn({})); },
+    fire(type) { if (type === 'loadedmetadata') Object.assign(this, { videoWidth: 1920, videoHeight: 800 }); (this.on[type] || []).forEach((fn) => fn({})); },
   });
   // A seek lands `land` seconds off, and the event that tells of it comes a moment later.
   video.sets = [];
@@ -65,6 +66,9 @@ function tv({ kept = null, plays = true, full = false, version, base = 'https://
   // The skip note's place, over every page drawn on the stage.
   nodes.k = element();
   nodes.sk = element();
+  // The wait's pill, beside the note, and the film's last picture, held under the stage.
+  nodes.nw = classed(element());
+  nodes.fr = Object.assign(classed(element()), { getContext: () => ({ drawImage() {} }) });
   // The page before: what was drawn on the stage, moved with the nodes it had.
   nodes.o = Object.assign(element(), {
     held: [],
@@ -219,7 +223,7 @@ const film = (more) => ({
 });
 const GONE = [404, { ok: false, error: 'not_found' }];
 const OK = 13, LEFT = 37, RIGHT = 39, BACK = 10009;
-const FIXED = ['v', 's', 'o', 'k', 'sk'];
+const FIXED = ['v', 's', 'o', 'k', 'sk', 'nw', 'fr'];
 
 // Started, then playing for `ms`.
 async function playing(more, ms = 600) {
@@ -266,7 +270,7 @@ const told = (t, commands) => { t.answers.poll = () => ready({ play: t.now, comm
 
 const SKIPS = {
   // The page has the note's place, over every page drawn on the stage.
-  async page() { return /<div id="k"><div class="sk" id="sk" role="status"><\/div><\/div>/.test(template('tv.html')); },
+  async page() { return /<div id="k"><div class="sk" id="sk" role="status"><\/div>/.test(template('tv.html')); },
   async beforeIntro() { const t = await skipping({}, 5000); return { sets: t.video.sets.filter((s) => s > 100) }; },
   // Into the intro: a beat of it, then a count on screen, then the jump.
   async counts() {
@@ -1061,12 +1065,16 @@ const scenarios = {
     t.answers.poll = answer;
     await t.step(2500);
     const said = t.says();
+    const held = t.node('fr').className;
     const asks = t.paths('ask').map((c) => c.body);
     if (asks.length && how !== 'refused') t.now = film({ play_id: 'p2', state: 'loading', start_s: asks[0].position_s, paused: asks[0].paused });
     await t.step(1500);
     t.video.fire('loadedmetadata');
     await t.step(500);
-    return { asks, at, said, then: t.says(), src: t.video.attrs.src || null, put: t.video.sets.pop(), playing: !t.video.paused };
+    const out = { asks, at, said, held, then: t.says(), src: t.video.attrs.src || null, put: t.video.sets.pop(), playing: !t.video.paused };
+    t.video.fire('playing');
+    await t.step(500);
+    return { ...out, freed: t.node('fr').className, pill: t.node('nw').className, now: t.says() };
   },
   // A page opened again while mediaman was away goes on from the place it kept.
   async resumesReopened(how) {
@@ -1673,6 +1681,27 @@ const scenarios = {
     t.video.stuck = false;
     await t.step(2500);
     return { state, said, after: t.last('poll').body.report.state };
+  },
+  // A film that stops for `ms`, then plays on: what the wait shows at each moment of it.
+  async waits(ms) {
+    const t = await playing();
+    const look = () => ({
+      pill: t.node('nw').className, says: t.node('nw').innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+      dim: t.html().includes('id="wl"') ? t.node('wl').className || 'wl' : null, frame: t.node('fr').className, ov: t.ov() || null,
+    });
+    const seen = {};
+    t.video.stuck = true;
+    await t.step(2500);
+    seen.early = { ...look(), screen: t.says() };
+    await t.step(1500);
+    seen.pill = look();
+    if (Number(ms) > 4000) { await t.step(Number(ms) - 4000); seen.long = look(); }
+    t.video.stuck = false;
+    await t.step(600);
+    seen.back = { ...look(), left: t.left() };
+    await t.step(3000);
+    seen.after = look();
+    return seen;
   },
   async lost() {
     const t = await playing();

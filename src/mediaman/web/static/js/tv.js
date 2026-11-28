@@ -29,6 +29,11 @@
   var SKIPPED_MS = 3000;
   var STORE_MS = 2000;       // what the TV keeps of what plays is written no more often than this
   var LEAVE_MS = 450;        // the page before fades out for as long as tv.css takes, and a little more
+  // A wait shown this long, some 13 s after the picture stopped, darkens the film and takes its
+  // middle: a dropped Wi-Fi or a stream filling again is mostly over by then, and past it a
+  // missing mediaman has been missed long enough to say so.
+  var WAIT_LONG_MS = 10000;
+  var BACK_MS = 2500;        // the word that the film is back stays this long
 
   var body = document.body;
   var stage = document.getElementById('s');
@@ -516,6 +521,7 @@
     // Where it was, before the page lets the film go.
     var at = lost && was && loaded === was.play_id ? position() : lastPlace({ play_id: lost && lost.id, start_s: null });
     var paused = was ? !wanted : lost && lost.paused;
+    if (lost && was && loaded === was.play_id) still();
     playing(got.play);
     if (lost) resume(lost, at, paused, got.boot, Boolean(was));
     else if (was && !got.play && boot !== got.boot) restarted(was);
@@ -540,6 +546,7 @@
   var resumable = null;      // {ticket, id, boot, title, paused}: the server's word that what plays may go on
   var resuming = null;       // the run of mediaman asked to go on, until it answers
   var resumingFrom = false;  // whether mediaman restarted, rather than the network dropped out
+  var pickingUp = false;     // the film that was lost goes on over its own last picture, until it plays
 
   var storedAt = 0;
 
@@ -586,6 +593,7 @@
     endedWith = { title: kept.title, state: 'playing' };
     resuming = run;
     resumingFrom = kept.boot !== run;
+    pickingUp = seen;
     mode = 'resuming';
     var wish = { play_id: kept.id, what: 'resume', ticket: kept.ticket, paused: Boolean(paused) };
     if (at) wish.position_s = Math.max(0, at);
@@ -595,6 +603,7 @@
       // From the store too, where a page opened afresh found it: it is asked for once.
       forgetResume();
       resuming = null;
+      pickingUp = false;
       if (resumingFrom && seen) restarted(endedWith); else mode = 'idle';
       show();
     });
@@ -1326,8 +1335,12 @@
     soon: function () { return art(true) + '<div class="mid start">' + SPIN + '<div class="l">Starting</div></div>' + offer([]); },
     play: function () { return overlay(false); },
     pause: function () { return overlay(true); },
+    /* Over the film's own picture, which stays: the words are in the pill at first, and this
+       darkens the picture and takes its middle only once the wait has gone on. */
     buf: function () {
-      return '<div class="shade"></div><div class="mid">' + SPIN + '<div class="l">Waiting for the network</div></div>' + offer([]);
+      var words = waitWords();
+      return '<div class="wl' + (waitLong ? ' on' : '') + '" id="wl" aria-hidden="true"><div class="mid">' + SPIN + '<div class="l">' + words[0] + '</div>' +
+        (words[1] && '<div class="t2">' + words[1] + '</div>') + '</div></div>' + offer([]);
     },
     next: function () {
       var after = play.next || {};
@@ -1355,16 +1368,19 @@
   function which() {
     if (play && token && mode !== 'taken') {
       var state = play.state;
-      if (away && !(loaded && ready && !stalled)) return 'lost';
+      // A film on screen as mediaman went away waits over its own picture, as does a wait under way.
+      if (away && shown !== 'buf' && !pickingUp && !(loaded && ready && !broken && overAt === null)) return 'lost';
       if (asked === play.play_id) return 'soon';
       if (state === 'failed') return 'err';
       if (state === 'upnext') return 'next';
       if (state === 'still' || state === 'ended') return state;
       if (broken || overAt !== null) return 'soon';
-      if (!loaded || !ready) return reloadDue && faltering() ? 'buf' : 'load';
+      // A film taken up again, after a wait or a restart, goes on waiting rather than starting over.
+      if (!loaded || !ready) return (reloadDue && faltering()) || pickingUp || shown === 'buf' ? 'buf' : 'load';
       if (!wanted) return 'pause';
       return stalled && faltering() ? 'buf' : 'play';
     }
+    if (mode === 'resuming' && pickingUp) return 'buf';
     if (away && mode !== 'old') return 'lost';
     if ((mode === 'idle' || mode === 'conn' || mode === 'unpair') && !me) return 'boot';
     return mode;
@@ -1374,7 +1390,7 @@
   var shown = '', drawn = '', dressed = '', focus = 0, hideTimer = null, hidden = false;
 
   function show() {
-    var name = which();
+    var name = which(), from = shown;
     var html = PAGES[name]();
     if (html !== drawn) {
       // With no countdown, nothing comes by itself: Play now is the press to make.
@@ -1398,14 +1414,77 @@
       paint();
       if (name === 'next') drain();
     }
+    waiting(name);
     if (name !== shown) {
       shown = name;
       rouse();
-      if (name === 'play' || name === 'pause') wake();
+      // A film that comes back from a wait plays on as it was, its controls away.
+      if (name === 'play' && from === 'buf') { clearTimeout(hideTimer); hidden = true; }
+      else if (name === 'play' || name === 'pause') wake();
     }
     if (pending) put('cd', codeLine());
     if (play) { if (endsAt) put('inn', String(nextLeft())); bar(); dress(); }
     hush();
+  }
+
+  /* A wait grows only as it lasts. A falter of a moment shows nothing; then a pill in the corner
+     says so over the film's own picture; only a long wait darkens the picture. As the film comes
+     back, the pill says so and goes. */
+  var waitFrom = 0, waitLong = false, waitTimer = null, backTimer = null, pillSaid = '';
+  function waitWords() {
+    if (pickingUp && !away) return [resumingFrom ? 'mediaman restarted' : 'Back online', 'Picking up ' + esc(endedWith.title) + ' where you were.'];
+    return ['Waiting for the network', away ? 'mediaman isn&rsquo;t answering yet. Trying again by itself.' : ''];
+  }
+  function waiting(name) {
+    var pill = document.getElementById('nw');
+    var frame = document.getElementById('fr');
+    clearTimeout(waitTimer);
+    if (name === 'buf') {
+      if (shown !== 'buf') {
+        waitFrom = now();
+        clearTimeout(backTimer);
+        if (!frame || frame.className !== 'on') still();
+      }
+      var left = waitFrom + WAIT_LONG_MS - now();
+      if (left > 0) waitTimer = setTimeout(show, left);
+      else if (!waitLong) {
+        // The layer drawn clear until now darkens as a fade, and is not drawn afresh at the next show.
+        waitLong = true;
+        var layer = document.getElementById('wl');
+        if (layer) layer.className = 'wl on';
+        drawn = PAGES.buf();
+      }
+      tellPill(pill, waitWords(), waitLong ? 'nw' : 'nw on');
+      return;
+    }
+    if (shown !== 'buf') return;
+    waitLong = false;
+    if (frame) frame.className = '';
+    var back = name === 'play' || (name === 'pause' && pickingUp);
+    pickingUp = false;
+    if (!back) { tellPill(pill, null, 'nw'); return; }
+    tellPill(pill, ['Back online', ''], 'nw on ok');
+    backTimer = setTimeout(function () { if (pill && shown !== 'buf') pill.className = 'nw ok'; }, BACK_MS);
+  }
+  function tellPill(pill, words, look) {
+    if (!pill) return;
+    var said = words ? '<b class="ec"><i></i></b><span class="nwt"><span>' + words[0] + '</span>' + (words[1] && '<span class="nws">' + words[1] + '</span>') + '</span>' : pillSaid;
+    // Drawn again only as its words change, so that a reader says them once.
+    if (said !== pillSaid) pill.innerHTML = pillSaid = said;
+    if (pill.className !== look) pill.className = look;
+  }
+  /* The film's last picture, kept over where it was as the film is let go to be taken up again. */
+  function still() {
+    var frame = document.getElementById('fr');
+    var w = video.videoWidth, h = video.videoHeight;
+    if (!frame || !frame.getContext || !w || !h) return;
+    var k = Math.min(window.innerWidth / w, window.innerHeight / h);
+    frame.width = window.innerWidth;
+    frame.height = window.innerHeight;
+    try {
+      frame.getContext('2d').drawImage(video, (frame.width - w * k) / 2, (frame.height - h * k) / 2, w * k, h * k);
+      frame.className = 'on';
+    } catch (e) { /* The video's own picture is left. */ }
   }
 
   /* The "Paused" line of a film that plays on stays a moment where it was, and fades. The controls
