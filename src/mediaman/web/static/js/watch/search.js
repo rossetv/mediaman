@@ -2546,11 +2546,11 @@
     });
     // A menu opened from a preview over the sheet takes the focus: the sheet stays under it.
     function overSheet() { return [document.querySelector('.pv-layer'), byId('watch-keep-menu')]; }
-    function holdsSheet(n) {
-      return !!n && (n === input || sheet.contains(n) || overSheet().some(function (o) { return !!o && o.contains(n); }));
-    }
-    /* *fromOver*: the focus left a preview or its menu. Dropped there with nowhere to go, as when a
-       Keep takes the card away, it comes back to the field, as core.spareFocus would have it. */
+    function inOver(n) { return !!n && overSheet().some(function (o) { return !!o && o.contains(n); }); }
+    function holdsSheet(n) { return !!n && (n === input || sheet.contains(n) || inOver(n)); }
+    /* *fromOver*: the focus left a preview or its menu, or the field gave it to one. Dropped there with
+       nowhere to go, as when a Keep takes the card away, it comes back to the field, as
+       core.spareFocus would have it. */
     function letGo(fromOver) {
       setTimeout(function () {
         var at = document.activeElement;
@@ -2564,9 +2564,10 @@
         if (!input.value) restHint();
       });
     }
-    input.addEventListener('blur', function () {
+    // Safari gives a pressed menu item no focus: the field may have it back before the Keep button does.
+    input.addEventListener('blur', function (e) {
       sync();
-      letGo(false);
+      letGo(inOver(e && e.relatedTarget));
     });
     document.addEventListener('focusout', function (e) {
       if (sheetOn && e.target !== input && !sheet.contains(e.target) && holdsSheet(e.target)) letGo(true);

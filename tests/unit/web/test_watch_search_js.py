@@ -973,6 +973,10 @@ def test_focus_dropped_from_a_preview_s_menu_comes_back_to_the_field_or_the_shee
     assert out["elsewhere"]["after"] == [False, False, False]
 
 
+def test_a_keep_over_the_sheet_leaves_it_open_where_a_press_takes_no_focus() -> None:
+    assert _run("sheetAfterSafariKeep") == [True, True, True]
+
+
 def test_words_changed_again_before_they_were_seen_are_never_faded_out() -> None:
     out = _run("hintSwap")
     label, first, second = (

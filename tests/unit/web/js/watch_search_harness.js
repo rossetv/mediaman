@@ -2217,6 +2217,22 @@ const scenarios = {
     return { nowhere: await run(false, false), finger: await run(true, false), elsewhere: await run(false, true) };
   },
 
+  // As Safari has it: the pressed Keep item takes no focus, the field has it back, then hands it to
+  // the preview's Keep button, which the Keep takes away. The sheet stays, the focus back in the field.
+  async sheetAfterSafariKeep() {
+    const p = await ready(ADMIN);
+    const layer = p.doc.body.appendChild(build(p.doc, ['div', { class: 'pv-layer' }, ['button', { class: 'pv__keep' }, 'Keep']]));
+    const keep = layer.querySelector('.pv__keep');
+    p.press();
+    p.input.focus();
+    keep.focus();
+    p.input.listeners.blur.forEach((fn) => fn({ relatedTarget: keep }));
+    keep.remove();
+    p.doc.body.focus();
+    await settle();
+    return [p.doc.documentElement.classList.contains('has-sheet'), p.sheet.classList.contains('is-on'), p.doc.activeElement === p.input];
+  },
+
   // The field's words change by fading the old ones out, then the new ones in; words changed again
   // before they were seen are never faded out as if they had been.
   async hintSwap() {
