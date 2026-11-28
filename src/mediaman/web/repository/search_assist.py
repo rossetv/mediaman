@@ -31,8 +31,10 @@ DAILY_LIMITS: dict[str, tuple[int, int]] = {
     "ai_questions_per_day": (QUESTIONS_PER_DAY, 200),
     "ai_everyone_per_day": (EVERYONE_PER_DAY, 500),
 }
-#: Runs for everyone at one time.
+#: Runs for everyone at one time, and of one person: their question and the calls of those
+#: they stopped, whose answers are thrown away. One place is always left for someone else.
 AT_ONCE = 4
+OWN_AT_ONCE = 3
 RECENT_SHOWN = 6
 PHRASE_MAX = 200
 PHRASES_LAST = timedelta(days=1)
@@ -87,6 +89,17 @@ def asks_on_its_own(conn: sqlite3.Connection, user_id: int) -> bool:
 def set_asks_on_its_own(conn: sqlite3.Connection, user_id: int, enabled: bool) -> None:
     with conn:
         conn.execute("UPDATE admin_users SET ai_auto_ask = ? WHERE id = ?", (enabled, user_id))
+
+
+def shows_tonight(conn: sqlite3.Connection, user_id: int) -> bool:
+    """Whether the search panel shows the person Tonight."""
+    row = conn.execute("SELECT search_tonight FROM admin_users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row and row["search_tonight"])
+
+
+def set_shows_tonight(conn: sqlite3.Connection, user_id: int, enabled: bool) -> None:
+    with conn:
+        conn.execute("UPDATE admin_users SET search_tonight = ? WHERE id = ?", (enabled, user_id))
 
 
 # --- Recent searches -----------------------------------------------------------
@@ -234,10 +247,12 @@ def switched_off(conn: sqlite3.Connection) -> bool:
 
 def questions_left(conn: sqlite3.Connection, user_id: int, now: datetime) -> int:
     """The questions the person may still ask today: the fewer of what their own limit and
-    everyone's leave. Counted as ``start_run`` counts them."""
+    everyone's leave. Counted as ``start_run`` counts them: a question stopped before it was
+    answered is none of the person's, though its call counts against everyone's."""
     today = _midnight(now).isoformat()
     mine = conn.execute(
-        "SELECT COUNT(*) FROM user_ai_runs WHERE user_id = ? AND kind <> ? AND started_at >= ?",
+        "SELECT COUNT(*) FROM user_ai_runs WHERE user_id = ? AND kind <> ? AND started_at >= ?"
+        " AND status <> 'cancelled'",
         (user_id, PHRASES, today),
     ).fetchone()[0]
     everyone = conn.execute(
@@ -255,9 +270,9 @@ def questions_left(conn: sqlite3.Connection, user_id: int, now: datetime) -> int
 
 @dataclass(frozen=True, slots=True)
 class Refused:
-    """Why there can be no run now: "running" (*run_id* goes on), "stopping" (the call of one
-    that was stopped has yet to end), "busy", "limit" (the
-    person's) or "limit_everyone" (the number is *limit*)."""
+    """Why there can be no run now: "running" (*run_id* goes on), "stopping" (the person holds
+    every place they may, with calls of runs they stopped), "busy", "limit" (the person's) or
+    "limit_everyone" (the number is *limit*)."""
 
     reason: str
     run_id: int | None = None
@@ -274,7 +289,8 @@ def start_run(conn: sqlite3.Connection, user_id: int, kind: str, now: datetime) 
 
     Checked and recorded under the write lock, so two requests at once start one run. The
     phrases are made unasked, so they neither hold up a question nor count as one. A stopped
-    run holds its place until its call has ended.
+    run holds a place of everyone's until its call has ended, but a new question of the person
+    starts beside it, and it is not counted against their day.
     """
     today = _midnight(now)
     own = "kind = :phrases" if kind == PHRASES else "kind <> :phrases"
@@ -292,9 +308,9 @@ def start_run(conn: sqlite3.Connection, user_id: int, kind: str, now: datetime) 
         )
         # rationale: only the fixed fragment above is interpolated; every value is bound
         mine = conn.execute(  # nosec B608
-            "SELECT MAX(CASE WHEN finished_at IS NULL THEN id END) AS open,"
+            "SELECT COUNT(CASE WHEN finished_at IS NULL THEN 1 END) AS open,"
             " MAX(CASE WHEN status = 'running' THEN id END) AS running,"
-            " COUNT(CASE WHEN started_at >= :today THEN 1 END) AS today"
+            " COUNT(CASE WHEN started_at >= :today AND status <> 'cancelled' THEN 1 END) AS today"
             f" FROM user_ai_runs WHERE user_id = :user AND {own}",
             {"today": today.isoformat(), "user": user_id, "phrases": PHRASES},
         ).fetchone()
@@ -306,7 +322,7 @@ def start_run(conn: sqlite3.Connection, user_id: int, kind: str, now: datetime) 
         ).fetchone()
         if mine["running"] is not None:
             return Refused("running", run_id=mine["running"])
-        if mine["open"] is not None:
+        if mine["open"] >= OWN_AT_ONCE:
             return Refused("stopping")
         resets_at = (today + timedelta(days=1)).isoformat()
         limit = daily_limit(conn, "ai_questions_per_day")

@@ -97,7 +97,7 @@ class TestSwitch:
 
         assert (resp.status_code, resp.json()) == (
             200,
-            {"ok": True, "enabled": True, "auto": False},
+            {"ok": True, "enabled": True, "auto": False, "tonight": True},
         )
         assert people["amy"].get(BASE).json()["auto"] is False
         assert people["amy"].get(f"{BASE}/history").json()["auto"] is False
@@ -121,6 +121,7 @@ class TestSwitch:
             "ok": True,
             "enabled": False,
             "auto": False,
+            "tonight": True,
         }
 
 
@@ -254,23 +255,11 @@ class TestDifferentPicks:
 
 
 class TestStopping:
-    def test_asking_again_while_a_stopped_run_ends_spends_none_of_the_minute(
-        self, amy, model, monkeypatch
-    ):
-        held = []
-
-        class Held(HeldThread):
-            def __init__(self, target, name, daemon) -> None:
-                held.append(target)
-
-        monkeypatch.setattr(assist.threading, "Thread", Held)
+    def test_a_question_asked_after_one_was_stopped_starts_at_once(self, amy, model, monkeypatch):
+        monkeypatch.setattr(assist.threading, "Thread", HeldThread)
         monkeypatch.setattr(assist, "_ASK_LIMITER", ActionRateLimiter(2, 60))
         run = amy.post(f"{BASE}/ask", json={"q": Q}).json()["run_id"]
         amy.delete(f"{BASE}/runs/{run}")
 
-        tries = [amy.post(f"{BASE}/ask", json={"q": "another question"}) for _ in range(4)]
-
-        assert [(r.status_code, r.json()["error"]) for r in tries] == [(409, "stopping")] * 4
-        held.pop()()
         assert amy.post(f"{BASE}/ask", json={"q": "another question"}).status_code == 202
         assert amy.post(f"{BASE}/ask", json={"q": "a third question"}).status_code == 429

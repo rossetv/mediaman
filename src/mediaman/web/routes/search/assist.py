@@ -43,7 +43,7 @@ from mediaman.web.repository.seen_titles import PersonMarks, person_marks
 from mediaman.web.repository.watch_progress import continue_watching
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._ids import RowId
-from mediaman.web.routes.watch.card_marks import CardMarks, card_marks, marked, tmdb_ref
+from mediaman.web.routes.watch.card_marks import CardMarks, card_marks, marked, scored, tmdb_ref
 from mediaman.web.routes.watch.catalog_api import _arr, held_fields
 from mediaman.web.routes.watch.pages import (
     can_download,
@@ -145,16 +145,18 @@ class _LikeBody(BaseModel):
 
 
 class _HistoryBody(BaseModel):
-    """Either switch of the person's, or both: *auto* is whether search asks on its own."""
+    """Any of the person's switches: *auto* is whether search asks on its own, *tonight*
+    whether the search panel shows Tonight."""
 
     model_config = ConfigDict(extra="forbid")
     enabled: StrictBool | None = None
     auto: StrictBool | None = None
+    tonight: StrictBool | None = None
 
     @model_validator(mode="after")
     def _one_at_least(self) -> _HistoryBody:
-        if self.enabled is None and self.auto is None:
-            raise ValueError("enabled or auto is required")
+        if self.enabled is None and self.auto is None and self.tonight is None:
+            raise ValueError("enabled, auto or tonight is required")
         return self
 
 
@@ -318,6 +320,7 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
             "min_words": MIN_WORDS,
             "left": repo.questions_left(conn, user_id, now_utc()),
             "auto": repo.asks_on_its_own(conn, user_id),
+            "tonight_hidden": not repo.shows_tonight(conn, user_id),
         }
     )
 
@@ -362,6 +365,7 @@ def api_history(request: Request, username: str = Depends(get_current_user)) -> 
         {
             "enabled": repo.uses_history(conn, user_id),
             "auto": repo.asks_on_its_own(conn, user_id),
+            "tonight": repo.shows_tonight(conn, user_id),
             # Recommendations use it too, with neither TMDB nor the AI in search.
             "available": _has_openai_key(request, conn),
         }
@@ -379,8 +383,14 @@ def api_set_history(body: _HistoryBody, username: str = Depends(get_current_user
             _forget(user_id)
     if body.auto is not None:
         repo.set_asks_on_its_own(conn, user_id, body.auto)
+    if body.tonight is not None:
+        repo.set_shows_tonight(conn, user_id, body.tonight)
     return respond_ok(
-        {"enabled": repo.uses_history(conn, user_id), "auto": repo.asks_on_its_own(conn, user_id)}
+        {
+            "enabled": repo.uses_history(conn, user_id),
+            "auto": repo.asks_on_its_own(conn, user_id),
+            "tonight": repo.shows_tonight(conn, user_id),
+        }
     )
 
 
@@ -755,8 +765,8 @@ def api_run(
 
 @router.delete("/api/search/assist/runs/{run_id}")
 def api_stop(run_id: RowId, username: str = Depends(get_current_user)) -> JSONResponse:
-    """Stop a run: it keeps nothing, counts as a question asked, and holds its place until
-    the call it made has ended."""
+    """Stop a run: it keeps nothing and is no question of the person's day; its call holds a
+    place of everyone's until it has ended, though the person may ask again at once."""
     conn, user_id = _person(username)
     if user_id is None or repo.run_status(conn, user_id, run_id, now_utc()) is None:
         return _not_found()
@@ -809,7 +819,7 @@ def _shown(
         found = [_card(t, index, arr, held, marks) for _, t in sorted(kept, key=lambda k: k[0])]
         return [c for c in found if c is not None]
 
-    shown = cards(stored)
+    shown = scored(conn, cards(stored))
     before = shown if stored is base else cards(base)
     chips = list(base["chips"])
     if len({c["in_library"] for c in before}) == 2:
@@ -894,17 +904,20 @@ def api_tonight(
         skip=skip,
     )
     held = held_fields(conn, username, lib.scanned_library_ids(conn))
+    shortest = _tonight_card(found.shortest, held) if found.shortest else None
+    items = scored(conn, [_tonight_card(c, held) for c in found.titles])
+    scored(conn, [shortest] if shortest else [])
     return respond_ok(
         {
             "minutes": minutes,
-            "items": [_tonight_card(c, held) for c in found.titles],
+            "items": items,
             "total": found.total,
             "more": found.total > skip + len(found.titles),
             # Where the set after this one starts: the page pages by the server's sets.
             "next": skip + len(found.titles),
             # Whether *total* is all that fits: false where some running times were not looked up.
             "checked": found.checked,
-            "shortest": _tonight_card(found.shortest, held) if found.shortest else None,
+            "shortest": shortest,
         }
     )
 
@@ -966,7 +979,7 @@ def api_tonight_elsewhere(
                 "can_download": can[cast(str, card["kind"])],
             }
         )
-    return respond_ok({"minutes": minutes, "items": items})
+    return respond_ok({"minutes": minutes, "items": scored(conn, items)})
 
 
 def _picks(conn: sqlite3.Connection, username: str, own: PersonMarks) -> list[dict[str, object]]:

@@ -41,6 +41,8 @@
   var scroller = null;
   var words = null; // { name, count, link, note }
   var cards = {}; // by key: { node, item, timer }
+  // A finished download is told of for a day, but on this row its card stays for a minute.
+  var CARD_S = 60;
   var landed = {}; // keys of what went to Recently added, until it downloads again
   var last = null; // the answer on show
   var starting = true;
@@ -77,9 +79,12 @@
     if (item.state === 'ready') return ['', item.line || 'Ready to watch'];
     if (item.state === 'almost_ready') return item.line ? ['', item.line] : ['Almost ready', ''];
     /* What Radarr or Sonarr says is wrong is told to an admin alone. */
-    if (item.state === 'needs_attention') return [item.fixing || 'Needs attention', item.attention ? ' · ' + item.attention : ''];
+    // One mediaman stopped replacing says so alone: the reason is in the grid's menu.
+    if (item.state === 'needs_attention' && !item.fixing && item.line) return [item.line, ''];
+    if (item.state === 'needs_attention') return [item.fixing || item.line || 'Needs attention', item.attention ? ' · ' + item.attention : ''];
     if (item.state === 'finding_copy') return ['', 'Finding another copy'];
-    if (item.state === 'queued') return ['', 'Queued'];
+    // One paused in NZBGet says so on its line.
+    if (item.state === 'queued') return ['', item.line || 'Queued'];
     if (item.state === 'stuck') return ['', 'Nothing found yet' + (item.line ? ' · ' + item.line : '')];
     if (item.state === 'searching') return ['', 'Looking for a copy'];
     return [item.percent + '%', typeof item.minutes_left === 'number' ? ' · ' + left(item.minutes_left) : ''];
@@ -194,7 +199,7 @@
     card.item = item;
     paint(card.node, item, lost);
     if (item.state === 'ready' && !wasReady) {
-      card.timer = setTimeout(function () { land(item.key, Object.keys(cards).length === 1); draw(last); }, Math.max(1, item.ready_seconds || 1) * 1000);
+      card.timer = setTimeout(function () { land(item.key, Object.keys(cards).length === 1); draw(last); }, Math.max(1, Math.min(item.ready_seconds || 1, CARD_S)) * 1000);
     }
     if (item.state !== 'ready') clearTimeout(card.timer);
   }
@@ -342,6 +347,7 @@
     Object.keys(landed).forEach(function (key) { if (!held[key]) delete landed[key]; });
     var list = state.items.filter(function (item) {
       if (item.state !== 'ready') delete landed[item.key];
+      if (item.state === 'ready' && item.finished_at && Date.now() / 1000 - item.finished_at > CARD_S) return false;
       return !landed[item.key];
     });
     var there = {};

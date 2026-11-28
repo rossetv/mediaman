@@ -56,15 +56,31 @@ def _eta(state: str, remain_mb: float, download_rate: int) -> tuple[str, int | N
 
     if state == "almost_ready":
         return "Post-processing…", None
+    if state == "paused":
+        return "", None
     minutes = None if state == "queued" else eta_minutes(remain_mb, download_rate)
     return ("" if minutes is None else time_left(minutes)), minutes
 
 
+def _download_ids(nzb: dict[str, object]) -> frozenset[str]:
+    """The ids Radarr and Sonarr may know an NZBGet download by: the "drone" parameter they
+    give it as they add it, and NZBGet's own NZBID."""
+    ids = {str(nzb_id)} if isinstance(nzb_id := nzb.get("NZBID"), int) else set()
+    params = nzb.get("Parameters")
+    for param in params if isinstance(params, list) else []:
+        if isinstance(param, dict) and param.get("Name") == "drone" and param.get("Value"):
+            ids.add(str(param["Value"]))
+    return frozenset(i.lower() for i in ids)
+
+
 def parse_nzb_queue(
-    nzb_queue: list[dict[str, object]],
+    nzb_queue: list[dict[str, object]], *, queue_paused: bool = False
 ) -> list[dict[str, object]]:
     """Parse raw NZBGet entries into normalised dicts with a _matched flag (initially
     False), so matching can claim entries without modifying the source list.
+
+    While NZBGet's whole queue is *queue_paused*, nothing of it comes in: each that would is
+    paused too, but by NZBGet's own pause, which no one download's resume lifts.
     """
     from mediaman.services.downloads.download_format import (
         looks_like_series_nzb,
@@ -88,9 +104,19 @@ def parse_nzb_queue(
         remain_mb = max(0, raw_remain_mb) if isinstance(raw_remain_mb, int | float) else 0
         done_mb = file_mb - remain_mb
         pct = max(0, round(done_mb / file_mb * 100)) if file_mb > 0 else 0
+        raw_status = nzb.get("Status", "")
+        status = raw_status if isinstance(raw_status, str) else ""
+        paused_alone = status.upper() == "PAUSED" and not queue_paused
+        if queue_paused and status.upper() in ("QUEUED", "DOWNLOADING", "FETCHING"):
+            status = "PAUSED"
+        nzb_id = nzb.get("NZBID")
         nzb_parsed.append(
             {
-                "raw_status": nzb.get("Status", ""),
+                "raw_status": status,
+                "queue_paused": queue_paused,
+                "paused_id": nzb_id if paused_alone and isinstance(nzb_id, int) else None,
+                "download_ids": _download_ids(nzb),
+                "name_norm": normalise_for_match(nzb_name),
                 "dl_id": nzb_name,
                 "title": clean,
                 "progress": pct,
@@ -106,16 +132,53 @@ def parse_nzb_queue(
     return nzb_parsed
 
 
+def _card_download_ids(arr: ArrCard) -> frozenset[str]:
+    """The download client's ids Radarr or Sonarr gave of *arr*'s downloads."""
+    ids = [arr.get("download_id") or ""]
+    ids += [ep.get("download_id") or "" for ep in arr.get("episodes") or []]
+    return frozenset(i.lower() for i in ids if i)
+
+
+def _is_of(
+    nzb: dict[str, object],
+    arr_candidates: list[str],
+    card_ids: frozenset[str],
+    normalise_for_match: Callable[[str], str],
+) -> bool:
+    """Whether *nzb* is a download of the card: by the ids Radarr or Sonarr gave of it where
+    NZBGet holds one of those, else by its title or its release's name, whole and exact, so that
+    "Alone" never takes a download of "Home Alone"."""
+    ids = nzb.get("download_ids")
+    if card_ids and isinstance(ids, frozenset) and ids & card_ids:
+        return True
+    title_val = nzb.get("title") or ""
+    nzb_t_norm = normalise_for_match(title_val if isinstance(title_val, str) else "")
+    name_norm = nzb.get("name_norm")
+    names = [n for n in (nzb_t_norm, name_norm) if isinstance(n, str) and n]
+    return any(nzb_matches_arr(name, arr_candidates) for name in names)
+
+
 def _find_best_nzb_match(
     arr_candidates: list[str],
     arr_is_series: bool,
     nzb_parsed: list[dict[str, object]],
     normalise_for_match: Callable[[str], str],
+    card_ids: frozenset[str] = frozenset(),
 ) -> dict[str, object] | None:
-    """Return the unmatched NZB entry matching *arr_candidates* with the most data left to
-    download, so a partly downloaded pack beats an older completed one; None if none
-    match.
+    """Return the unmatched NZB entry of the card with the most data left to download, so a
+    partly downloaded pack beats an older completed one; None if none is of it. One NZBGet
+    holds by an id the card gives wins over any found by name alone.
     """
+    if card_ids:
+        by_id = [
+            nzb
+            for nzb in nzb_parsed
+            if not nzb["_matched"]
+            and isinstance(ids := nzb.get("download_ids"), frozenset)
+            and ids & card_ids
+        ]
+        if by_id:
+            return max(by_id, key=_remain_of)
     best_remain = -1.0
     matched_nzb = None
     for nzb in nzb_parsed:
@@ -123,11 +186,7 @@ def _find_best_nzb_match(
             continue
         if not arr_is_series and nzb.get("looks_like_series"):
             continue
-        title_val = nzb.get("title") or ""
-        nzb_t_norm = normalise_for_match(title_val if isinstance(title_val, str) else "")
-        if not nzb_t_norm:
-            continue
-        if nzb_matches_arr(nzb_t_norm, arr_candidates):
+        if _is_of(nzb, arr_candidates, frozenset(), normalise_for_match):
             raw_remain = nzb.get("remain_mb", 0) or 0
             remain = float(raw_remain) if isinstance(raw_remain, int | float) else 0.0
             if remain > best_remain:
@@ -136,10 +195,16 @@ def _find_best_nzb_match(
     return matched_nzb
 
 
+def _remain_of(nzb: dict[str, object]) -> float:
+    raw = nzb.get("remain_mb", 0) or 0
+    return float(raw) if isinstance(raw, int | float) else 0.0
+
+
 def _mark_series_nzb_matches(
     arr_candidates: list[str],
     nzb_parsed: list[dict[str, object]],
     normalise_for_match: Callable[[str], str],
+    card_ids: frozenset[str] = frozenset(),
 ) -> list[dict[str, object]]:
     """Mark NZB entries matching *arr_candidates* as _matched=True, claiming sibling NZBs
     (e.g. episodes when a pack is the primary match) so they are not shown as unmatched;
@@ -149,9 +214,7 @@ def _mark_series_nzb_matches(
     for nzb in nzb_parsed:
         if nzb["_matched"]:
             continue
-        title_val = nzb.get("title") or ""
-        nzb_t_norm = normalise_for_match(title_val if isinstance(title_val, str) else "")
-        if nzb_t_norm and nzb_matches_arr(nzb_t_norm, arr_candidates):
+        if _is_of(nzb, arr_candidates, card_ids, normalise_for_match):
             nzb["_matched"] = True
             claimed.append(nzb)
     return claimed
@@ -159,7 +222,7 @@ def _mark_series_nzb_matches(
 
 # The order in which one of a card's NZBGet downloads speaks for the card: one still bringing
 # data in, else one being unpacked, else one waiting its turn.
-_STATE_RANK = ("downloading", "almost_ready", "queued")
+_STATE_RANK = ("downloading", "almost_ready", "queued", "paused")
 
 
 def _card_state(nzbs: Sequence[dict[str, object]], map_state: Callable[..., str]) -> str:
@@ -169,6 +232,21 @@ def _card_state(nzbs: Sequence[dict[str, object]], map_state: Callable[..., str]
         for nzb in nzbs
     }
     return next((rank for rank in _STATE_RANK if rank in states), next(iter(states)))
+
+
+def _mark_paused(item: DownloadItem, nzbs: Sequence[dict[str, object]]) -> None:
+    """Say of a paused *item* whether NZBGet's whole queue is paused, and else give the ids of
+    its downloads paused one by one, which an admin may resume."""
+    if item["state"] != "paused":
+        return
+    if any(nzb.get("queue_paused") for nzb in nzbs):
+        from mediaman.services.downloads.download_format._types import QUEUE_PAUSED
+
+        item["state_label"] = QUEUE_PAUSED
+        return
+    ids = [i for nzb in nzbs if isinstance(i := nzb.get("paused_id"), int)]
+    if ids:
+        item["paused_ids"] = ids
 
 
 def _remain_mb(nzbs: Sequence[dict[str, object]]) -> float:
@@ -237,26 +315,35 @@ def build_arr_items(
         arr_candidates = [c for c in [arr_title_norm, *release_name_norms] if c]
         arr_is_series = arr.get("kind") == "series"
 
+        card_ids = _card_download_ids(arr)
+
         matched_nzb = (
-            _find_best_nzb_match(arr_candidates, arr_is_series, nzb_parsed, normalise_for_match)
-            if arr_candidates
+            _find_best_nzb_match(
+                arr_candidates, arr_is_series, nzb_parsed, normalise_for_match, card_ids
+            )
+            if arr_candidates or card_ids
             else None
         )
 
         if matched_nzb and not matched_nzb["_matched"]:
             matched_nzb["_matched"] = True
             nzbs = [matched_nzb]
-            if arr_is_series and arr_candidates:
-                nzbs += _mark_series_nzb_matches(arr_candidates, nzb_parsed, normalise_for_match)
-            # NZBGet fetches one download at a time, so the card is done once all of its are.
-            state = _card_state(nzbs, map_state)
-            eta, minutes = _eta(state, _remain_mb(nzbs), download_rate)
-
-            items.append(
-                _build_matched_item(
+            if arr_is_series:
+                nzbs += _mark_series_nzb_matches(
+                    arr_candidates, nzb_parsed, normalise_for_match, card_ids
+                )
+            if _arr_needs_attention(arr):
+                # What Radarr or Sonarr says is wrong outweighs how NZBGet holds it.
+                items.append(_build_unmatched_arr_item_bound(arr, arr_base_urls_map))
+            else:
+                # NZBGet fetches one download at a time, so the card is done once all of its are.
+                state = _card_state(nzbs, map_state)
+                eta, minutes = _eta(state, _remain_mb(nzbs), download_rate)
+                item = _build_matched_item(
                     arr, matched_nzb, state, eta, download_rate, minutes_left=minutes
                 )
-            )
+                _mark_paused(item, nzbs)
+                items.append(item)
             trigger_search(conn, arr, matched_nzb=True, secret_key=secret_key)
         elif answered:
             items.append(_build_unmatched_arr_item_bound(arr, arr_base_urls_map))
@@ -264,6 +351,22 @@ def build_arr_items(
                 trigger_search(conn, arr, matched_nzb=False, secret_key=secret_key)
 
     return items, upcoming_items
+
+
+def _arr_needs_attention(arr: ArrCard) -> bool:
+    """Whether Radarr or Sonarr says *arr*'s download needs a person, or has stalled."""
+    from mediaman.services.downloads.download_format import map_arr_status, map_queue_state
+
+    if arr.get("kind") == "series":
+        episodes = arr.get("episodes") or []
+        return bool(episodes) and map_queue_state(episodes) == "needs_attention"
+    state = map_arr_status(
+        arr.get("status", ""),
+        arr.get("tracked_state", ""),
+        arr.get("tracked_status", ""),
+        arr.get("attention", ""),
+    )
+    return state == "needs_attention"
 
 
 def add_unmatched_nzb_items(
@@ -290,23 +393,23 @@ def add_unmatched_nzb_items(
         progress_val = nzb["progress"]
         done_mb_val = nzb["done_mb"]
         file_mb_val = nzb["file_mb"]
-        items.append(
-            build_item(
-                dl_id=dl_id_val if isinstance(dl_id_val, str) else "",
-                title=title_val if isinstance(title_val, str) else "",
-                media_type=media_type,
-                poster_url="",
-                state=state,
-                progress=progress_val if isinstance(progress_val, int) else 0,
-                eta=eta,
-                minutes_left=minutes,
-                size_done=format_bytes(
-                    int(done_mb_val * 1024 * 1024) if isinstance(done_mb_val, int | float) else 0
-                ),
-                size_total=format_bytes(
-                    int(file_mb_val * 1024 * 1024) if isinstance(file_mb_val, int | float) else 0
-                ),
-                arr_id=0,
-                kind=media_type,
-            )
+        item = build_item(
+            dl_id=dl_id_val if isinstance(dl_id_val, str) else "",
+            title=title_val if isinstance(title_val, str) else "",
+            media_type=media_type,
+            poster_url="",
+            state=state,
+            progress=progress_val if isinstance(progress_val, int) else 0,
+            eta=eta,
+            minutes_left=minutes,
+            size_done=format_bytes(
+                int(done_mb_val * 1024 * 1024) if isinstance(done_mb_val, int | float) else 0
+            ),
+            size_total=format_bytes(
+                int(file_mb_val * 1024 * 1024) if isinstance(file_mb_val, int | float) else 0
+            ),
+            arr_id=0,
+            kind=media_type,
         )
+        _mark_paused(item, [nzb])
+        items.append(item)

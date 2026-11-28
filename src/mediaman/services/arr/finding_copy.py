@@ -71,6 +71,8 @@ def fixing_words(conn: sqlite3.Connection, key: str, reasons: Sequence[str]) -> 
             " WHERE key LIKE ? ORDER BY stuck_since IS NULL, first_stuck_at LIMIT 1",
             (f"{key}%" if key.endswith(":") else key,),
         ).fetchone()
+        if import_retry.stopped_words(conn, key):
+            return ""
     except sqlite3.DatabaseError:
         logger.warning("Failed to read whether %s is tried again", key, exc_info=True)
         return ""

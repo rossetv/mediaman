@@ -156,12 +156,16 @@ _ADDED_COLUMNS = (
     ("arr_import_retries", "fixed_at", "TEXT"),
     ("arr_import_retries", "fixed_tries", "INTEGER"),
     ("arr_import_retries", "fix_plan", "TEXT"),
+    ("arr_import_retries", "last_reason", "TEXT"),
+    ("arr_import_retries", "reason_tries", "INTEGER NOT NULL DEFAULT 0"),
+    ("arr_import_retries", "stopped_at", "TEXT"),
     ("admin_users", "ai_auto_ask", "INTEGER NOT NULL DEFAULT 1"),
     ("admin_users", "audio_lang", "TEXT"),
     ("admin_users", "subtitle_lang", "TEXT"),
     ("admin_users", "tv_auto_skip", "INTEGER NOT NULL DEFAULT 1"),
     ("admin_users", "reduce_loud", "INTEGER NOT NULL DEFAULT 0"),
     ("tvs", "resume_state", "TEXT"),
+    ("admin_users", "search_tonight", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.

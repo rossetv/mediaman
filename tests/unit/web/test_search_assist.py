@@ -290,6 +290,16 @@ def _episode_played(conn, show, number, *, position=None, at="2026-01-01", user=
     conn.commit()
 
 
+def _cache_scores(conn, *rows):
+    """What OMDb said of films, as the ratings cache holds it: (tmdb_id, IMDb, Rotten Tomatoes)."""
+    conn.executemany(
+        "INSERT INTO ratings_cache (tmdb_id, media_type, imdb_rating, rt_rating, metascore,"
+        " fetched_at) VALUES (?, 'movie', ?, ?, NULL, '2026-01-01T00:00:00+00:00')",
+        rows,
+    )
+    conn.commit()
+
+
 def _six(model):
     model.items = [{"phrase": f"quiet heist number {n}"} for n in range(8)]
 
@@ -509,6 +519,17 @@ class TestAsk:
         _rate(conn, 4, -1)
         assert [t["title"] for t in _ask(amy)["others"]] == ["Orchard", "Kestrel"]
         assert len(model.prompts) == 1
+
+    def test_a_card_shows_the_scores_the_ratings_cache_holds(self, amy, model, conn):
+        _own(conn, 2)
+        _cache_scores(conn, (2, "8.1", "87%"), (6, None, "40%"))
+        model.items = [_title("Alibi"), _title("Orchard")]
+        found = _ask(amy)
+
+        assert [(t["title"], t.get("rt"), t.get("imdb")) for t in found["owned"]] == [
+            ("Alibi", 87, "8.1")
+        ]
+        assert [(t["title"], t.get("rt")) for t in found["others"]] == [("Orchard", 40)]
 
     def test_a_title_says_what_it_is_rated_and_whether_it_is_marked(self, amy, model, conn):
         model.items = [_title("Alibi"), _title("Orchard")]
@@ -847,6 +868,7 @@ class TestRuns:
             "ok": True,
             "enabled": True,
             "auto": True,
+            "tonight": True,
             "available": True,
         }
 
@@ -861,7 +883,9 @@ class TestRuns:
         amy.get(BASE)
         assert self._start(amy).status_code == 202
 
-    def test_a_stopped_run_holds_its_place_until_its_call_ends(self, people, conn, monkeypatch):
+    def test_a_stopped_run_frees_the_person_at_once_however_it_was_stopped(
+        self, people, monkeypatch
+    ):
         held = []
 
         class Held(HeldThread):
@@ -875,13 +899,70 @@ class TestRuns:
             lambda run: people["amy"].put(f"{BASE}/history", json={"enabled": False}),
         ):
             how(self._start(people["amy"]).json()["run_id"])
-            again = self._start(people["amy"])
-            assert (again.status_code, again.json()["error"]) == (409, "stopping")
-            monkeypatch.setattr(repo, "AT_ONCE", 1)
-            assert self._start(people["bob"]).json()["error"] == "busy"
-            monkeypatch.setattr(repo, "AT_ONCE", 4)
-            held.pop()()
-        assert self._start(people["amy"]).status_code == 202
+            assert self._start(people["amy"], "quite another question").status_code == 202
+            while held:
+                held.pop()()
+
+    def test_a_stopped_runs_call_holds_a_place_of_everyones_until_it_ends(
+        self, people, monkeypatch
+    ):
+        held = []
+
+        class Held(HeldThread):
+            def __init__(self, target, name, daemon) -> None:
+                held.append(target)
+
+        monkeypatch.setattr(assist.threading, "Thread", Held)
+        monkeypatch.setattr(repo, "AT_ONCE", 2)
+        stopped = self._start(people["amy"]).json()["run_id"]
+        people["amy"].delete(f"{BASE}/runs/{stopped}")
+        assert self._start(people["amy"], "quite another question").status_code == 202
+
+        assert self._start(people["bob"]).json()["error"] == "busy"
+        held[0]()
+        assert self._start(people["bob"]).status_code == 202
+
+    def test_a_person_holds_no_more_places_than_their_share_with_runs_they_stopped(
+        self, people, monkeypatch
+    ):
+        monkeypatch.setattr(assist.threading, "Thread", HeldThread)
+        amy = people["amy"]
+        for n in range(repo.OWN_AT_ONCE):
+            amy.delete(f"{BASE}/runs/{self._start(amy, f'question number {n}').json()['run_id']}")
+
+        again = self._start(amy)
+        assert (again.status_code, again.json()["error"]) == (409, "stopping")
+        assert self._start(people["bob"]).status_code == 202
+
+    def test_the_answer_of_a_stopped_run_is_thrown_away_and_costs_none_of_the_day(
+        self, amy, model, monkeypatch
+    ):
+        held = []
+
+        class Held(HeldThread):
+            def __init__(self, target, name, daemon) -> None:
+                held.append(target)
+
+        monkeypatch.setattr(assist.threading, "Thread", Held)
+        model.items = [_title("Alibi")]
+        left = amy.get(BASE).json()["left"]
+        stopped = self._start(amy).json()["run_id"]
+
+        def refined(_conn):
+            # The person types on while the model answers the question they left.
+            model.meanwhile = lambda _c: None
+            amy.delete(f"{BASE}/runs/{stopped}")
+            assert self._start(amy, "quite another question").status_code == 202
+
+        model.meanwhile = refined
+        while held:
+            held.pop(0)()
+
+        assert len(model.prompts) == 2
+        assert amy.get(f"{BASE}/runs/{stopped}").json()["status"] == "cancelled"
+        assert amy.get(BASE).json()["left"] == left - 1
+        # Its answer was never kept: asked again, the model is asked again.
+        assert self._start(amy).status_code == 202
 
     def test_what_is_cleared_before_the_run_gets_to_work_is_not_sent(self, amy, model, monkeypatch):
         held = []
@@ -1119,6 +1200,24 @@ class TestTonight:
         _rate(conn, 1, 1)
         [item] = self._get(amy, 120)["items"]
         assert (item["tmdb_ref"], item["level"]) == ("tmdb-movie-1", 1)
+
+    def test_a_title_shows_the_scores_the_ratings_cache_holds(self, amy, conn):
+        _own(conn, 1)
+        _cache_scores(conn, (1, "7.4", "91%"))
+        [item] = self._get(amy, 120)["items"]
+        assert (item["rt"], item["imdb"]) == (91, "7.4")
+
+    def test_it_is_hidden_for_the_one_account_that_hid_it_till_shown_again(self, people):
+        amy, bob = people["amy"], people["bob"]
+        assert amy.put(f"{BASE}/history", json={"tonight": False}).json()["tonight"] is False
+
+        assert (amy.get(BASE).json()["tonight_hidden"], bob.get(BASE).json()["tonight_hidden"]) == (
+            True,
+            False,
+        )
+        assert amy.get(f"{BASE}/history").json()["tonight"] is False
+        amy.put(f"{BASE}/history", json={"tonight": True})
+        assert amy.get(BASE).json()["tonight_hidden"] is False
 
     def test_when_none_fits_the_shortest_is_named(self, amy, conn):
         _own(conn, 1, 2)

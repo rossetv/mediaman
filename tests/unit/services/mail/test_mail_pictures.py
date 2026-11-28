@@ -70,7 +70,7 @@ def _ready_mail(
 
 
 def _pictures(html: str) -> set[str]:
-    return set(re.findall(r'<img [^>]*src="([^"]*)"', html))
+    return set(re.findall(r'<img class="pic" src="([^"]*)"', html))
 
 
 def _lasts_days(url: str, secret_key: str) -> float:
@@ -96,6 +96,18 @@ def test_the_ready_mail_takes_tmdbs_pictures_from_this_site(secret_key, wide, sh
 )
 def test_with_no_site_address_the_ready_mail_s_pictures_are_tmdbs(secret_key, wide, shown):
     assert _pictures(_ready_mail(secret_key, "", wide=wide)) == {shown}
+
+
+@pytest.mark.parametrize(
+    ("base_url", "shown"), [(SITE + "/", True), ("", False), ("ftp://x", False)]
+)
+def test_the_ready_mail_heads_with_the_name_from_this_site_when_it_has_one(
+    secret_key, base_url, shown
+):
+    html = _ready_mail(secret_key, base_url)
+
+    assert (f'src="{SITE}/static/mail/wordmark.png"' in html) is shown
+    assert ("/static/mail/" in html) is shown
 
 
 def test_a_poster_radarr_names_on_another_host_is_not_put_in_the_mail(secret_key):

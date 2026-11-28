@@ -46,7 +46,7 @@
 <table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f2f2f4" style="background:#f2f2f4"><tr><td class="wrap" align="center" style="padding:20px 12px 32px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:separate;{{ m.ff }}">
 {%- if dry_run %}<tr><td class="warn" align="center" bgcolor="#fff2d6" style="background:#fff2d6;border-radius:12px;padding:12px 20px;color:#7a4b00;font-size:14px;font-weight:600;line-height:20px;{{ m.ff }}">A trial run: nothing will really be deleted.</td></tr>{% endif %}
-{{ m.brand(report_date) }}
+{{ m.brand(report_date,base_url) }}
 <tr><td class="card" bgcolor="#ffffff" style="background:#ffffff;border-radius:16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed">
 {%- if n %}

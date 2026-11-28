@@ -400,6 +400,13 @@ def test_every_id_and_hook_of_the_three_panes_stays_and_none_is_used_twice(admin
     assert len(every) == len(set(every))
 
 
+def test_the_profile_pane_has_no_way_into_downloads(admin):
+    profile = _fragment(admin.get("/account?pane=1").text)
+
+    assert "account-dl" not in profile.ids
+    assert "/?dl=1" not in admin.get("/account?pane=1").text
+
+
 def test_a_view_has_no_way_out_of_its_own_and_the_pane_over_watch_has_up_and_close(admin):
     profile = _fragment(admin.get("/account?pane=1").text)
     watch = admin.get("/").text

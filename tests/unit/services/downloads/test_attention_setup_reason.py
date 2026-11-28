@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mediaman.services.downloads.download_format import attention_reason
+from mediaman.services.downloads.download_format._types import attention_hint
 
 
 def _held(*messages: dict[str, object]) -> dict[str, object]:
@@ -30,3 +33,24 @@ def test_a_long_setup_fault_keeps_the_words_that_name_it():
 
     assert len(reason) <= 160
     assert "not a valid local path" in reason
+
+
+@pytest.mark.parametrize(
+    ("reason", "fix"),
+    [
+        ("Import failed, path does not exist or is not accessible by Sonarr: /x", "Remote Path"),
+        ("Access to the path '/tv/Alone' is denied", "access to the download folder"),
+        ("Root folder missing: /tv", "root folder"),
+        ("Not enough free space", "disk space"),
+        ("Can't reach the download client", "Download Clients"),
+    ],
+)
+def test_a_fault_of_the_services_own_setup_says_what_to_put_right_there(reason, fix):
+    assert fix.lower() in attention_hint("Sonarr", reason).lower()
+
+
+def test_a_download_whose_client_is_unreachable_says_so_where_the_service_says_nothing():
+    assert (
+        attention_reason({"status": "downloadClientUnavailable"})
+        == "Can't reach the download client"
+    )

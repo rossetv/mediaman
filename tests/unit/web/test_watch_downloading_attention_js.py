@@ -55,6 +55,10 @@ def test_one_mediaman_will_try_again_says_so_to_an_admin_and_a_viewer_alike(card
     assert card["viewerRetried"]["title"] == said
 
 
+def test_one_mediaman_stopped_replacing_says_so_alone_without_the_long_reason(card) -> None:
+    assert card["stopped"]["line"] == "Stopped trying after 3 copies failed the same way"
+
+
 def test_a_card_that_is_stuck_has_no_full_bar_that_reads_as_done() -> None:
     assert style(".dw.is-stuck .dw__bar i", "_watch_downloading.css")["opacity"] == "0"
 

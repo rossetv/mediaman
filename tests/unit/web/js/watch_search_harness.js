@@ -96,6 +96,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
           : new Promise((resolve, reject) => { calls.push({ url, resolve, reject }); })),
         post: (url, body, opts) => new Promise((resolve, reject) => { calls.push({ method: 'POST', url, body, opts, resolve, reject }); }),
         delete: (url, opts) => new Promise((resolve, reject) => { calls.push({ method: 'DELETE', url, opts, resolve, reject }); }),
+        put: (url, body) => new Promise((resolve, reject) => { calls.push({ method: 'PUT', url, body, resolve, reject }); }),
         messageOf: (_e, fallback) => fallback,
       },
     },
@@ -3272,12 +3273,14 @@ scenarios.tonightHidden = async () => {
   out.first = p.input.getAttribute('aria-activedescendant');
   p.key('Escape');
   close.focus();
+  // What the account was told to keep, in order.
+  const saved = (q) => q.calls.filter((c) => c.method === 'PUT').map((c) => [c.url, c.body]);
   click(p.doc, close);
   await settle();
-  out.hidden = [shown(p), { ...stored }];
+  out.hidden = [shown(p), saved(p)];
   click(p.doc, p.sheet.querySelector('.tn-note .txt'));
   await settle();
-  out.undone = [shown(p), { ...stored }];
+  out.undone = [shown(p), saved(p)];
   click(p.doc, p.sheet.querySelector('.tn__x'));
   await settle();
   // The sheet closed and opened again: nothing stands where it was.
@@ -3285,12 +3288,21 @@ scenarios.tonightHidden = async () => {
   p.key('Escape');
   p.press(); await settle();
   out.reopened = shown(p);
-  const q = await asking(undefined, { stored });
+  // Another device of the account, which says it is hidden.
+  const q = await asking({ tonight_hidden: true }, { stored });
   q.press(); await settle();
   out.reloaded = shown(q);
-  const other = await asking({ account: 'a2' }, { stored });
-  other.press(); await settle();
-  out.otherAccount = shown(other).card;
+  // The Profile's switch brings it back: the search asks again what the account says.
+  q.key('Escape');
+  q.assist.tonight_hidden = false;
+  await q.ctx.MMWatch.ask.load();
+  q.press(); await settle();
+  out.switchedBack = shown(q).card;
+  // A device that hid it before the account kept it: the account is told, and the device forgets.
+  const old = { 'mm.watch.no-tonight:a1': '1' };
+  const r = await asking(undefined, { stored: old });
+  r.press(); await settle();
+  out.carried = [shown(r).card, saved(r), { ...old }];
   return out;
 };
 
