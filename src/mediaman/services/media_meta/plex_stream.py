@@ -113,6 +113,9 @@ _POOL_MAXSIZE = 32
 # are few per stream and per user, and far fewer than the threads in all. A player reads one or
 # two ahead.
 MAX_READS_PER_STREAM = 2
+# A TV reading with a ticket may ask for each segment twice, as an AirPlay TV does: at the player's
+# limit its second read would wait on its first, and the sound stalls.
+MAX_TV_READS_PER_STREAM = 2 * MAX_READS_PER_STREAM
 MAX_READS_PER_USER = MAX_READS_PER_STREAM * MAX_STREAMS_PER_USER
 MAX_READS_TOTAL = 16
 # The whole of a segment read; the read timeout alone would let a trickling body hold its slot.
@@ -832,7 +835,8 @@ class StreamManager:
             if (
                 len(self._reads) >= MAX_READS_TOTAL
                 or sum(r.user == read.user for r in self._reads) >= MAX_READS_PER_USER
-                or sum(r.stream_id == read.stream_id for r in self._reads) >= MAX_READS_PER_STREAM
+                or sum(r.stream_id == read.stream_id for r in self._reads)
+                >= (MAX_TV_READS_PER_STREAM if read.by_tv else MAX_READS_PER_STREAM)
             ):
                 raise TooManyReads("too many segments are being read")
             self._reads.add(read)

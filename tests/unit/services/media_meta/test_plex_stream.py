@@ -1503,11 +1503,11 @@ def test_someone_elses_stream_cannot_be_peeked_at(manager):
         manager.peek(stream_id, "bob")
 
 
-def _fill(manager: StreamManager, stream_id: str, user: str) -> list:
+def _fill(manager: StreamManager, stream_id: str, user: str, *, by_tv: bool = False) -> list:
     reads = []
     with contextlib.suppress(TooManyReads):
         while len(reads) < 100:
-            read = SegmentRead(stream_id, user)
+            read = SegmentRead(stream_id, user, by_tv=by_tv)
             manager.claim_read(read)
             reads.append(read)
     return reads
@@ -1522,6 +1522,17 @@ def test_a_stream_reads_two_segments_at_once_and_goes_on_once_one_is_given_back(
     manager.release_read(reads[0])
 
     assert len(_fill(manager, stream_id, "alice")) == 1
+
+
+def test_a_tv_that_reads_each_segment_twice_gets_both_reads_of_two_segments(manager):
+    stream_id = _start(manager)
+    assert len(_fill(manager, stream_id, "alice", by_tv=True)) == 4
+
+
+def test_a_tvs_reads_still_count_against_its_persons_limit(manager):
+    held = len(_fill(manager, _start(manager, rating_key="1"), "alice", by_tv=True))
+    held += len(_fill(manager, _start(manager, rating_key="2"), "alice", by_tv=True))
+    assert held == MAX_READS_PER_USER
 
 
 def test_a_full_stream_leaves_the_same_persons_other_titles_and_other_people_alone(manager):
