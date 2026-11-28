@@ -21,6 +21,7 @@
   var SLOW_MS = 12000;
   var STOPPING_MS = 1500; // between tries while the call of a stopped question ends
   var STOPPING_TRIES = 60;
+  var AI_MS = 150000; // the longest a question is waited for, its tries and polls together: above the model's own timeout
   var LEAVING_MS = 8000; // how long a question waits at most for the server to be told of one given up
   var POLL_TRIES = 5; // polls in a row that may fail
   var KEPT = 30; // questions this page remembers
@@ -279,14 +280,27 @@
   function leave() {
     var g = going;
     if (!g) return;
+    giveUp(g);
+    rest(g.item);
+    changed(g.item);
+  }
+
+  /* Stop asking *g*, and have the server end its run. */
+  function giveUp(g) {
     going = null;
     g.left = true;
     clearTimeout(g.timer);
     clearTimeout(g.slow);
+    clearTimeout(g.deadline);
     if (g.wake) g.wake();
     leaving = g.posted.then(function (run) { return run ? endRun(run) : null; });
-    rest(g.item);
-    changed(g.item);
+  }
+
+  /* No answer in time: the person is told so, with a way to ask again. */
+  function expire(g) {
+    if (going !== g) return;
+    giveUp(g);
+    refuse(g, null);
   }
 
   function endRun(run) {
@@ -336,7 +350,7 @@
     chip = chip || '';
     remember(item);
     leave();
-    var g = going = { item: item, chip: chip, auto: !!auto && !chip && !fresh, fresh: !!fresh, left: false, timer: null, slow: null, wake: null };
+    var g = going = { item: item, chip: chip, auto: !!auto && !chip && !fresh, fresh: !!fresh, left: false, timer: null, slow: null, deadline: null, wake: null };
     g.posted = inTime(leaving).then(function () {
       return over && !g.left ? inTime(endRun(over)) : null;
     }).then(function () { return item.like && !g.left ? lookSimilar(item) : null; })
@@ -354,6 +368,7 @@
       item.slow = true;
       changed(item);
     }, SLOW_MS);
+    g.deadline = setTimeout(function () { expire(g); }, AI_MS);
   }
 
   /* Returns the run to poll, or null: it was answered, refused or given up. */
@@ -418,10 +433,7 @@
           }
           poll(g, run, POLL_TRIES);
         }
-        else if (data.status === 'cancelled') {
-          ended(g);
-          changed(g.item);
-        } else refuse(g, data.error === 'unavailable' ? { error: data.error, data: data } : null);
+        else refuse(g, data.error === 'unavailable' ? { error: data.error, data: data } : null);
       }, function (err) {
         if (g.left) return;
         var gone = err && err.status >= 400 && err.status < 500 && err.status !== 429;
@@ -433,6 +445,7 @@
 
   function ended(g) {
     clearTimeout(g.slow);
+    clearTimeout(g.deadline);
     if (going === g) going = null;
     rest(g.item);
   }

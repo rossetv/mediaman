@@ -1,5 +1,6 @@
 // Runs watch/ask.js and watch/search.js against the fake DOM and prints one scenario's outcome as
-// JSON: what the AI's answer draws (reasons, order of the groups, titles so far).
+// JSON: what the AI's answer draws (reasons, order of the groups, titles so far), and how a
+// question that gets no answer ends.
 // Usage: node watch_ask_cards_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -22,6 +23,7 @@ const card = (n, owned, over) => ({
 function load() {
   const doc = makeDocument();
   const timers = [];
+  const clock = { now: 0 };
   const calls = [];
   const on = {};
   const tab = { entries: [{ url: '/', state: null }], index: 0 };
@@ -29,7 +31,7 @@ function load() {
   doc.dispatchEvent = (e) => (doc.listeners[e.type] || []).forEach((fn) => fn(e));
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, Error, Infinity, URLSearchParams, parseFloat,
-    setTimeout: (fn, ms) => { if (!ms) { setImmediate(fn); return -1; } timers.push({ fn, ms, on: true }); return timers.length; },
+    setTimeout: (fn, ms) => { if (!ms) { setImmediate(fn); return -1; } timers.push({ fn, ms, at: clock.now + ms, on: true }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].on = false; },
     setInterval: () => 0,
     clearInterval: () => {},
@@ -81,6 +83,7 @@ function load() {
       ['span', { id: 'watch-search-token', hidden: '' }],
       ['span', { class: 'watch-search__field' }, ['span', { id: 'watch-search-hint' }, 'Search'],
         ['input', { id: 'watch-search', class: 'watch-search__input', value: '', role: 'combobox' }]],
+      ['button', { id: 'watch-search-ai', class: 'watch-search__ai', type: 'button', tabindex: '-1', 'aria-hidden': 'true' }, ['span', {}, 'Ask AI']],
       ['button', { id: 'watch-search-clear' }]],
     ['div', { id: 'watch-sheet' }],
     ['span', { id: 'watch-search-status' }],
@@ -115,6 +118,37 @@ function load() {
     const e = { key: 'Enter', target: input, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
     input.listeners.keydown.forEach((fn) => fn(e));
     await settle();
+  };
+  /* Time goes on to *ms* from the start, each timer fired when it is due; a poll is answered
+     *payload*, and an ask settled by *asked*(call), where it is given. */
+  p.until = async (ms, payload, asked) => {
+    for (;;) {
+      const due = timers.filter((t) => t.on && t.at <= ms).sort((a, b) => a.at - b.at)[0];
+      if (!due) break;
+      due.on = false;
+      clock.now = due.at;
+      due.fn();
+      await settle();
+      await p.reply('GET', '/runs/', payload);
+      if (asked) {
+        calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ask') && !c.done).forEach((c) => { c.done = true; asked(c); });
+        await settle();
+      }
+    }
+    clock.now = ms;
+  };
+  // What the person sees of the question: its kicker, outlines, the line it ends on, and the bar's chip.
+  p.seen = () => {
+    const off = doc.querySelector('.ask .ask__off');
+    const again = doc.querySelector('.ask .ask__off .chip');
+    return {
+      kicker: (doc.querySelector('.ask .ask__kicker') || {}).textContent || '',
+      outlines: p.outlines(),
+      busy: doc.querySelector('section.ask').getAttribute('aria-busy'),
+      off: off ? off.textContent : '',
+      again: again ? again.textContent : '',
+      chip: doc.querySelector('#watch-search-ai span').textContent,
+    };
   };
   p.cards = () => doc.querySelectorAll('.ask .watch-card__link').map((n) => n.querySelector('.watch-card__title').textContent);
   p.whys = () => doc.querySelectorAll('.ask .watch-card__why').map((n) => ({ text: n.textContent, bold: n.children.map((c) => c.tagName + ':' + c.textContent), kids: n.children.length }));
@@ -186,6 +220,58 @@ const scenarios = {
     out.three = [p.cards(), p.outlines()];
     await p.poll({ status: 'done', owned: [card(1, true)], others: [card(2, false), card(3, false)], chips: [], instead: [], lead: 'others' });
     out.done = [p.cards(), p.outlines()];
+    return out;
+  },
+  // A run the server answers "running" for ever is given up once the deadline comes.
+  async forever() {
+    const p = load();
+    await p.start();
+    const running = { status: 'running', run_id: 7, stage: 'choosing', owned: [], others: [], lead: 'owned' };
+    const out = { start: p.seen() };
+    await p.until(140000, running);
+    out.before = p.seen();
+    await p.until(151000, running);
+    out.after = p.seen();
+    out.stopped = p.calls.filter((c) => c.method === 'DELETE').map((c) => c.url);
+    out.polledAfter = p.timers.filter((t) => t.on).length;
+    return out;
+  },
+  // A run that fails, or is stopped elsewhere, ends at once; Try again asks anew.
+  async failed() {
+    const out = {};
+    for (const status of ['failed', 'cancelled']) {
+      const p = load();
+      await p.start();
+      await p.poll({ status, run_id: 7 });
+      out[status] = p.seen();
+    }
+    const p = load();
+    await p.start();
+    await p.poll({ status: 'failed', run_id: 7 });
+    click(p.doc, p.doc.querySelector('.ask .ask__off .chip'));
+    await settle();
+    out.asked = p.calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ask')).map((c) => c.body.q);
+    out.again = p.seen();
+    return out;
+  },
+  // A question that keeps being told the run before it is stopping is given up at the deadline too.
+  async stopping() {
+    const p = load();
+    await settle();
+    await p.ask(Q);
+    let tries = 0;
+    // The run before ends after some forty tries; this one then runs for ever.
+    const asked = (c) => {
+      tries++;
+      if (tries < 40) c.reject({ error: 'stopping', status: 409, data: {} });
+      else c.resolve({ status: 'running', run_id: 8 });
+    };
+    await p.until(0, null, asked);
+    const running = { status: 'running', run_id: 8, stage: 'choosing', owned: [], others: [], lead: 'owned' };
+    await p.until(140000, running, asked);
+    const out = { tries, before: p.seen() };
+    await p.until(151000, running, asked);
+    out.after = p.seen();
     return out;
   },
 };
