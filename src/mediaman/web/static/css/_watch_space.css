@@ -299,6 +299,9 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
 .space-fig__line--warn { color: color-mix(in srgb, var(--orange) 65%, var(--t1)); }
 .space-fig__line--bad { color: var(--danger-text); }
 .space-dot { display: block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+/* Free is the grey of the glass over a white page: it is drawn with an edge, in its key and in the bar. */
+.space-c--free .space-dot,
+.space-seg--free::before { box-shadow: inset 0 0 0 1.5px var(--t3); }
 
 .space-bar { position: relative; flex: none; display: flex; align-items: center; gap: 3px; height: 60px; margin: 0 -2px; }
 .space-seg { position: relative; flex: var(--v) 1 0; min-width: 12px; height: 60px; border-radius: var(--r-sm); }
