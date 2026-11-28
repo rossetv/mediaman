@@ -553,14 +553,16 @@ def _rename_in_place(
         unit.mode,
         service,
     )
-    log_audit(
-        conn,
-        unit.key,
-        RENAMED_ACTION,
-        f"{title} couldn't be imported ({unit.reason}); renamed"
-        f" {len(renamed)} {plural} so {service.capitalize()} could import"
-        f" {'it' if len(renamed) == 1 else 'them'}",
-    )
+    # Committed before the service is asked, so no write waits on its answer.
+    with conn:
+        log_audit(
+            conn,
+            unit.key,
+            RENAMED_ACTION,
+            f"{title} couldn't be imported ({unit.reason}); renamed"
+            f" {len(renamed)} {plural} so {service.capitalize()} could import"
+            f" {'it' if len(renamed) == 1 else 'them'}",
+        )
     try:
         for output_path, download in rescans:
             client.send_command(import_fix.scan_command(service, output_path, download))
@@ -595,13 +597,14 @@ def _import_by_hand(
         _unmark_fixed(conn, unit.key, row)
         raise
     plural = "file" if len(files) == 1 else "files"
-    log_audit(
-        conn,
-        unit.key,
-        IMPORTED_ACTION,
-        f"{_name(_shown_of(card, unit))} couldn't be imported ({unit.reason}); imported its"
-        f" {len(files)} {plural} by hand in {service.capitalize()}",
-    )
+    with conn:
+        log_audit(
+            conn,
+            unit.key,
+            IMPORTED_ACTION,
+            f"{_name(_shown_of(card, unit))} couldn't be imported ({unit.reason}); imported its"
+            f" {len(files)} {plural} by hand in {service.capitalize()}",
+        )
     return True
 
 
