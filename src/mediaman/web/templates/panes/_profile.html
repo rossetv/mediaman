@@ -17,11 +17,6 @@
       </div>
     </div>
 
-    {# Shown while something downloads (account.js): on a phone the ring round the picture is too thin to tap. #}
-    <div class="yo-group yo-dl" id="account-dl" hidden>
-      <a class="yo-row" href="/?dl=1"><span class="yo-row__ico yo-ico--blue">{{ c.icon("i-download") }}</span><span class="yo-row__label">Downloading</span><span class="yo-row__value" data-row-value></span>{{ c.icon("i-chevron-right", "yo-row__chev") }}</a>
-    </div>
-
     {% if role == "admin" %}
     <div class="yo-tiles">
       <button type="button" class="yo-tile" data-you-go="history"><span class="yo-tile__ico yo-ico--blue">{{ c.icon("i-clock-rotate-left") }}</span><span class="yo-tile__name">History</span><span class="yo-tile__sub" id="account-tile-history" data-me="{{ username }}">What was played, downloaded and kept</span></button>

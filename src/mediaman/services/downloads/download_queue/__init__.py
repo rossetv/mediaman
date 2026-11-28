@@ -434,8 +434,8 @@ def build_downloads_response(
     raw_download_rate = nzb_status.get("DownloadRate", 0)
     download_rate = raw_download_rate if isinstance(raw_download_rate, int) else 0
 
-    # 3. Parse NZBGet items.
-    nzb_parsed = _parse_nzb_queue(nzb_queue)
+    # 3. Parse NZBGet items, each paused while NZBGet's whole queue is.
+    nzb_parsed = _parse_nzb_queue(nzb_queue, queue_paused=nzb_status.get("DownloadPaused") is True)
 
     # 4. Match arr cards to NZBGet entries; collect upcoming separately.
     # Pass maybe_trigger_search explicitly so monkeypatching it at the

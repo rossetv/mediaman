@@ -145,7 +145,7 @@ class TestBuildUnmatchedArrItem:
 
     @pytest.mark.parametrize(
         ("status", "progress"),
-        [("failed", 40), ("failed", 100), ("downloadClientUnavailable", 40), ("warning", 0)],
+        [("failed", 40), ("failed", 100), ("warning", 0)],
     )
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_movie_whose_download_brings_nothing_is_not_downloading(
@@ -162,6 +162,23 @@ class TestBuildUnmatchedArrItem:
         )
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["state"] == "searching"
+
+    @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
+    def test_a_film_whose_download_client_radarr_cannot_reach_says_so_with_where_to_fix_it(
+        self, _mock_search
+    ):
+        arr = make_arr_card(
+            "movie",
+            "Dune",
+            source="Radarr",
+            size=100,
+            sizeleft=60,
+            status="downloadClientUnavailable",
+        )
+        arr["attention"] = "Can't reach the download client"
+        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        assert item["state"] == "needs_attention"
+        assert "Settings → Download Clients" in item["attention_hint"]
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_series_in_searching_state(self, _mock_search):

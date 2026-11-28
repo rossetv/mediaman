@@ -154,3 +154,108 @@ class TestFilmWithOneDownload:
         assert item["progress"] == 25
         assert item["eta"] == "1 h 40 min left"
         assert item["minutes_left"] == 100
+
+
+def _film_record(title: str, release: str, download_id: str, **more):
+    return {
+        "id": 5,
+        "movieId": 77,
+        "movie": {"id": 77, "title": title, "year": 2020, "images": []},
+        "title": release,
+        "size": 8000 * _MB,
+        "sizeleft": 6000 * _MB,
+        "status": "downloading",
+        "trackedDownloadStatus": "ok",
+        "trackedDownloadState": "downloading",
+        "statusMessages": [],
+        "downloadId": download_id,
+        **more,
+    }
+
+
+def _items(cards, groups, queue_paused=False):
+    items, _ = build_arr_items(
+        MagicMock(),
+        cards,
+        parse_nzb_queue(groups, queue_paused=queue_paused),
+        {},
+        _MIB_PER_SEC,
+        "k",
+        MagicMock(),
+    )
+    return items
+
+
+def _claimed(card, groups):
+    """The names of the NZBGet downloads the card took as its own."""
+    parsed = parse_nzb_queue(groups)
+    build_arr_items(MagicMock(), [card], parsed, {}, _MIB_PER_SEC, "k", MagicMock())
+    return [nzb["dl_id"] for nzb in parsed if nzb["_matched"]]
+
+
+class TestWhichDownloadIsTheCards:
+    def test_a_short_title_never_takes_a_longer_titles_download(self):
+        card = _card_for(_radarr, [_film_record("Alone", "Alone.2020.1080p-GRP", "")])
+        home = _group(60, "Home.Alone.1990.1080p.BluRay-GRP", "DOWNLOADING", 8000, 6000, "Movies")
+
+        assert _claimed(card, [home]) == []
+
+    def test_the_download_radarr_names_by_id_is_taken_over_one_of_the_same_name(self):
+        card = _card_for(_radarr, [_film_record("Alone", "Alone.2020.1080p-GRP", "abc123")])
+        other = _group(60, "Alone.2020.1080p-GRP", "QUEUED", 8000, 8000, "Movies")
+        own = {
+            **_group(61, "Renamed.By.Indexer", "DOWNLOADING", 8000, 6000, "Movies"),
+            "Parameters": [{"Name": "drone", "Value": "ABC123"}],
+        }
+
+        assert _claimed(card, [other, own]) == ["Renamed.By.Indexer"]
+
+    def test_with_no_id_nzbget_holds_the_exact_release_wins_over_a_longer_title(self):
+        card = _card_for(_radarr, [_film_record("Alone", "Alone.2020.1080p-GRP", "999")])
+        home = _group(60, "Home.Alone.1990.1080p.BluRay-GRP", "QUEUED", 9000, 9000, "Movies")
+        own = _group(61, "Alone.2020.1080p-GRP", "DOWNLOADING", 8000, 6000, "Movies")
+
+        assert _claimed(card, [home, own]) == ["Alone.2020.1080p-GRP"]
+
+
+class TestPausedInNzbget:
+    def _film(self):
+        return _card_for(_radarr, [_film_record("Alone", "Alone.2020.1080p-GRP", "61")])
+
+    def test_a_download_paused_by_itself_says_so_and_names_what_to_resume(self):
+        (item,) = _items(
+            [self._film()], [_group(61, "Alone.2020.1080p-GRP", "PAUSED", 8000, 6000, "Movies")]
+        )
+
+        assert (item["state"], item["state_label"], item["eta"]) == (
+            "paused",
+            "Paused in NZBGet",
+            "",
+        )
+        assert item["paused_ids"] == [61]
+
+    def test_while_all_of_nzbget_is_paused_nothing_offers_its_own_resume(self):
+        group = _group(61, "Alone.2020.1080p-GRP", "DOWNLOADING", 8000, 6000, "Movies")
+
+        (item,) = _items([self._film()], [group], queue_paused=True)
+
+        assert (item["state"], item["state_label"]) == ("paused", "NZBGet is paused")
+        assert "paused_ids" not in item
+
+
+def test_a_stalled_download_nzbget_still_holds_reads_as_needing_attention():
+    record = _film_record(
+        "Alone",
+        "Alone.2020.1080p-GRP",
+        "61",
+        trackedDownloadStatus="warning",
+        statusMessages=[{"title": "x", "messages": ["Stalled: no progress for 4 hours"]}],
+    )
+    card = _card_for(_radarr, [record])
+
+    (item,) = _items(
+        [card], [_group(61, "Alone.2020.1080p-GRP", "DOWNLOADING", 8000, 6000, "Movies")]
+    )
+
+    assert item["state"] == "needs_attention"
+    assert item["attention"] == "Stalled: no progress for 4 hours"
