@@ -17,6 +17,7 @@ from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 import requests
+from plexapi.exceptions import Unauthorized
 
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso
@@ -32,7 +33,7 @@ from mediaman.services.arr.build import (
 from mediaman.services.arr.build import (
     build_sonarr_from_db as _build_sonarr,
 )
-from mediaman.services.infra import SafeHTTPError, SSRFRefused, get_int_setting
+from mediaman.services.infra import ConfigDecryptError, SafeHTTPError, SSRFRefused, get_int_setting
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
@@ -69,6 +70,45 @@ SCAN_SKIPPED_NO_PLEX = "Plex not configured"
 SCAN_SKIPPED_PLEX_UNREACHABLE = "Plex could not be reached"
 SCAN_FAILED_NO_LIBRARY = "no library could be read from Plex"
 SCAN_FAILED_DISK_LIMITS = "no library was scanned: check the disk limits in Settings"
+SCAN_FAILED_PLEX_UNREACHABLE = (
+    "couldn't reach Plex — check the Plex URL in Settings and that the server is running"
+)
+SCAN_FAILED_PLEX_REFUSED = "Plex refused the token — check the Plex token in Settings"
+SCAN_FAILED_SETTINGS_UNREADABLE = "saved settings could not be read — check the secret key"
+#: What a failed scan may say of itself: each names no address, token or exception text.
+SCAN_FAILURE_REASONS = frozenset(
+    {
+        SCAN_FAILED_NO_LIBRARY,
+        SCAN_FAILED_DISK_LIMITS,
+        SCAN_FAILED_PLEX_UNREACHABLE,
+        SCAN_FAILED_PLEX_REFUSED,
+        SCAN_FAILED_SETTINGS_UNREADABLE,
+    }
+)
+
+
+def plex_failure(exc: BaseException) -> str | None:
+    """Return why Plex could not be used, from what building or asking it raised.
+
+    ``"refused"`` for a token Plex turned away, ``"unreadable"`` for a token that could not
+    be decrypted, ``"unreachable"`` for no answer, or None for anything else.
+    """
+    if isinstance(exc, Unauthorized) or (
+        isinstance(exc, SafeHTTPError) and exc.status_code in (401, 403)
+    ):
+        return "refused"
+    if isinstance(exc, ConfigDecryptError):
+        return "unreadable"
+    if isinstance(exc, (requests.RequestException, SafeHTTPError)):
+        return "unreachable"
+    return None
+
+
+_PLEX_FAILED_REASONS = {
+    "refused": SCAN_FAILED_PLEX_REFUSED,
+    "unreadable": SCAN_FAILED_SETTINGS_UNREADABLE,
+    "unreachable": SCAN_FAILED_PLEX_UNREACHABLE,
+}
 
 
 class ScanSummary(TypedDict, total=False):
@@ -464,7 +504,14 @@ def run_scan_from_db(
 
     plex_url = repository.read_setting(conn, "plex_url")
     plex_token = repository.read_setting(conn, "plex_token")
-    result = _build_plex_client(conn, secret_key)
+    try:
+        result = _build_plex_client(conn, secret_key)
+    except (Unauthorized, SafeHTTPError, requests.RequestException, ConfigDecryptError) as exc:
+        kind = plex_failure(exc)
+        if kind is None:  # pragma: no cover — every type caught has a kind
+            raise
+        logger.warning("Scan failed — Plex could not be used (%s: %s)", kind, type(exc).__name__)
+        return {"failed_reason": _PLEX_FAILED_REASONS[kind]}
     if result is None:
         # A configured but refused or unbuildable client also lands here.
         if not plex_url or not plex_token:
