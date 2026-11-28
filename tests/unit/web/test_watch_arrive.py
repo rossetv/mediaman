@@ -144,20 +144,118 @@ def _frames(name: str) -> str:
     return re.search(r"@keyframes " + name + r" \{([^\n]*)\}\n", css)[1]
 
 
-def test_under_reduced_motion_the_move_is_a_150ms_fade_and_nothing_moves() -> None:
-    base = (CSS / "_base.css").read_text()
+def _calm_fades() -> dict[str, str]:
+    base = re.sub(r"/\*.*?\*/", "", (CSS / "_base.css").read_text(), flags=re.S)
     calm = re.findall(r"@media \(prefers-reduced-motion: reduce\) \{\n(.*?)\n\}", base, flags=re.S)
     fades = [block for block in calm if "is-arriving" in block]
     assert len(fades) == 1
-    rules = {
+    return {
         sel.strip(): body.strip() for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", fades[0])
     }
+
+
+def test_under_reduced_motion_the_move_is_a_150ms_fade_and_nothing_moves() -> None:
+    rules = _calm_fades()
     assert set(rules) == {
-        "html.is-arriving :is(#main-content, header.nav-glass)",
+        "html.is-arriving :is(#main-content, .nav-glass > :not(.brand, .watch-search),"
+        " .nav-glass :is(.brand, .watch-search) > *)",
+        "html.is-arriving .nav-glass :is(.brand, .watch-search)::before",
         "html.is-arriving .mm-sky",
-        "html.is-leaving body",
+        "html.is-leaving body::after",
     }
     for body in rules.values():
         assert "var(--dur-fast) linear" in body and body.endswith("!important;")
         frames = _frames(re.search(r"animation: ([\w-]+)", body)[1])
         assert "opacity" in frames and "transform" not in frames
+
+
+# Just enough of a selector matcher for the arrival rules: tags, ids, classes, `*`, :is(), :not(),
+# a pseudo-element at the end, and the descendant and child combinators.
+def _top(text: str, seps: str) -> list[tuple[str, str]]:
+    """*text* cut at each of *seps* outside brackets, as (separator before, piece) pairs."""
+    out, depth, start, sep = [], 0, 0, ""
+    for i, ch in enumerate(text):
+        depth += (ch == "(") - (ch == ")")
+        if depth == 0 and ch in seps:
+            out.append((sep, text[start:i]))
+            start, sep = i + 1, ch
+    out.append((sep, text[start:]))
+    return [(s, p.strip()) for s, p in out if p.strip()]
+
+
+def _compound(comp: str, node: tuple[str, str, set[str]], chain: list) -> bool:
+    tag, ident, classes = node
+    for kind, name, args in re.findall(r"(::?|[.#]|)([\w*-]+)(\((?:[^()]|\([^()]*\))*\))?", comp):
+        if kind in ("", "*") and name not in ("*", tag):
+            return False
+        if (kind == "." and name not in classes) or (kind == "#" and name != ident):
+            return False
+        if kind == ":":
+            hit = any(_complex(arg, chain) for _, arg in _top(args[1:-1], ","))
+            if hit != (name == "is"):
+                return False
+    return True
+
+
+def _complex(sel: str, chain: list, pseudo: str = "") -> bool:
+    """Whether *sel* matches the last element of *chain* (and its *pseudo*-element, if any)."""
+    parts = _top(re.sub(r"\s*>\s*", ">", sel), " >")
+    *rest, (_, last) = parts
+    last, _, own = last.partition("::")
+    if own != pseudo:
+        return False  # a pseudo-element inside :is() or :not() is dropped, so it matches nothing
+
+    def walk(i: int, j: int) -> bool:
+        if not _compound(parts[i][1] if i < len(parts) - 1 else last, chain[j], chain[: j + 1]):
+            return False
+        if i == 0:
+            return True
+        up = range(j - 1, -1, -1) if parts[i][0] == " " else range(j - 1, j - 2, -1)
+        return any(walk(i - 1, k) for k in up if k >= 0)
+
+    return walk(len(parts) - 1, len(chain) - 1)
+
+
+_PAGE = [("html", "", {"is-arriving"}), ("body", "", set())]
+_BAR = [*_PAGE, ("header", "", {"nav-glass"})]
+_BRAND = [*_BAR, ("a", "", {"brand"})]
+_SEARCH = [*_BAR, ("div", "", {"watch-search"})]
+
+
+def _faded(chain: list, pseudo: str = "") -> bool:
+    return any(
+        _complex(one, chain, pseudo)
+        for sel, body in _calm_fades().items()
+        if "mm-fade-in" in body
+        for _, one in _top(sel, ",")
+    )
+
+
+def test_under_reduced_motion_signing_in_fades_each_island_and_its_glass() -> None:
+    for chain, pseudo in [
+        ([*_PAGE, ("main", "main-content", set())], ""),
+        ([*_BAR, ("a", "", {"nav-back"})], ""),
+        ([*_BAR, ("div", "", {"nav-end"})], ""),
+        (_BRAND, "before"),
+        ([*_BRAND, ("svg", "", {"ico", "wordmark"})], ""),
+        (_SEARCH, "before"),
+        ([*_SEARCH, ("div", "", {"watch-search__inner"})], ""),
+    ]:
+        assert _faded(chain, pseudo), (chain[-1], pseudo)
+
+
+def test_under_reduced_motion_signing_in_fades_no_element_that_holds_glass() -> None:
+    # Glass under a fading parent sees none of the page while it fades, then snaps to its blur.
+    for chain in (_PAGE, _BAR, _BRAND, _SEARCH):
+        assert not _faded(chain), chain[-1]
+
+
+def test_under_reduced_motion_log_out_covers_the_page_in_its_own_black_instead_of_fading_it() -> (
+    None
+):
+    rules = _calm_fades()
+    assert not any(sel.startswith("html.is-leaving body") and "::" not in sel for sel in rules)
+    cover = rules["html.is-leaving body::after"]
+    # Over everything, in the colour the page went out to when it faded.
+    assert "position: fixed" in cover and "inset: 0" in cover and "z-index: 2147483647" in cover
+    assert "background: var(--bg)" in cover and "animation: mm-in " in cover

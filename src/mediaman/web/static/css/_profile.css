@@ -89,7 +89,7 @@
 .yo-foot { position: sticky; bottom: calc(-24px - var(--sa-bottom, env(safe-area-inset-bottom, 0px))); z-index: 1; margin: auto -20px calc(-24px - var(--sa-bottom, env(safe-area-inset-bottom, 0px))); padding: 14px 20px calc(14px + var(--sa-bottom, env(safe-area-inset-bottom, 0px))); background: var(--g-stuck); -webkit-backdrop-filter: blur(var(--g-blur)); backdrop-filter: blur(var(--g-blur)); -webkit-mask-image: linear-gradient(transparent, #000 14px); mask-image: linear-gradient(transparent, #000 14px); }
 .yo-foot .btn { width: 100%; min-height: 48px; font-size: 16px; }
 /* Not yet to be pressed: grey, not a dimmed blue that still looks pressable. */
-.yo-foot .btn--primary:disabled { background: var(--s3); color: var(--t3); opacity: 1; }
+.yo-foot .btn--primary:is(:disabled, [aria-disabled="true"]) { background: var(--s3); color: var(--t3); opacity: 1; }
 .yo-foot--two { display: flex; gap: 10px; }
 .yo-foot--two .btn { flex: 1; }
 /* What is brought into view stops above the foot: its button of 48px and its padding of 28px. */

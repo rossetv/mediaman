@@ -1041,11 +1041,15 @@ def test_what_the_open_field_covers_comes_back_with_the_focus() -> None:
 
 def test_what_the_open_field_covers_can_have_the_focus() -> None:
     sheet = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_search.css"
-    rules = re.findall(r"([^{}]*(?:space-meter|nav-end\))) \{([^}]*)\}", sheet.read_text())
+    rules = re.findall(
+        r"([^{}]*(?:space-meter|nav-end|brand)[^{}]*) \{([^}]*)\}", sheet.read_text()
+    )
     hidden = [body for _, body in rules if "opacity: 0" in body]
-    assert len(hidden) == 2
-    for body in hidden:
-        assert "pointer-events: none" in body and "visibility" not in body
+    assert len(hidden) == 2 and not [body for body in hidden if "visibility" in body]
+    # Faded, never hidden, and a pointer passes through the whole of each to the field.
+    letting = {sel.strip() for sel, body in rules if "pointer-events: none" in body}
+    assert ".wbar.is-wide-open .space-meter" in letting
+    assert ".wbar:has(> .watch-search.is-focus) > :is(.brand, .nav-end)" in letting
 
 
 def test_the_field_is_measured_again_when_the_bars_padding_moves_the_islands() -> None:

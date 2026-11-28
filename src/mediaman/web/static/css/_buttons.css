@@ -21,9 +21,19 @@
                border-color var(--dur-fast) var(--ease-out);
   transition: var(--btn-moves);
 }
-.btn:active { transform: scale(.97); }
+.btn:active:not(:disabled, [aria-disabled="true"]) { transform: scale(.97); }
 .btn:disabled,
 .btn[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+/* On a dialog's glass a faded button lets the page through its words, under 4.5:1 over a white
+   one: a quiet veil and muted words say "not yet" instead. */
+:is(.ui-confirm-card, .modal-sheet, .keep-dialog, .play-on, .you__panel) .btn:is(:disabled, [aria-disabled="true"]) {
+  opacity: 1;
+  background: var(--s2);
+  color: var(--t3);
+}
+@media (forced-colors: active) {
+  :is(.ui-confirm-card, .modal-sheet, .keep-dialog, .play-on, .you__panel) .btn:is(:disabled, [aria-disabled="true"]) { color: GrayText; }
+}
 
 .btn--sm { min-height: 32px; padding: 0 12px; font-size: 12px; }
 .btn--lg { min-height: 44px; padding: 0 22px; font-size: 15px; }

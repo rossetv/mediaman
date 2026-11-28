@@ -6,7 +6,8 @@ from tests.unit.web._css import rules, style
 
 
 def test_the_logo_never_moves_and_only_its_fade_back_waits() -> None:
-    assert "transform" not in style(".wbar .brand", "_watch_search.css")
+    logo = style(".wbar .brand > *", "_watch_search.css")
+    assert "transform" not in logo and logo["transition"].endswith(" .12s")
     # The storage and the profile still wait their turn as a whole.
     shared = style(".wbar :is(.space-meter, .nav-end)", "_watch_search.css")
     assert "var(--dur-slow)" in shared["transition"]

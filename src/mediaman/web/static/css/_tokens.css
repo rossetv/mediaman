@@ -202,6 +202,9 @@
   --g-solid:     rgb(var(--g-tint) / .96);
   --g-edge:      rgb(255 255 255 / .14);    /* left, right and bottom */
   --g-lit:       rgb(255 255 255 / .3);     /* the top edge, catching the light */
+  /* A field's or a switch's edge on glass: the page's grey edge is near the glass's own tone over a
+     white page; this keeps 3:1 there. */
+  --g-field-edge: rgb(255 255 255 / .5);
   --g-inset:     inset 0 1px 0 rgb(255 255 255 / .08);
   --g-shadow:    var(--shadow-card);
   /* Inside glass, what is a step of solid grey elsewhere is a light veil, and the quiet words and
@@ -256,13 +259,14 @@
     --g-stuck: var(--g-regular);
     --g-edge: rgb(255 255 255 / .4);
     --g-lit: rgb(255 255 255 / .4);
+    --g-field-edge: rgb(255 255 255 / .62);
   }
 }
 @media (forced-colors: active) {
   :root {
     --g-thin: Canvas; --g-regular: Canvas; --g-thick: Canvas; --g-player: Canvas; --g-player-hover: Canvas; --g-solid: Canvas;
     --g-filter: none; --g-dim-blur: none; --g-stuck: Canvas;
-    --g-edge: CanvasText; --g-lit: CanvasText;
+    --g-edge: CanvasText; --g-lit: CanvasText; --g-field-edge: CanvasText;
     --g-inset: 0 0 0 transparent; --g-shadow: 0 0 0 transparent;
   }
 }

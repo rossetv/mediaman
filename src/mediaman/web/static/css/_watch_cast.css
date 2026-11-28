@@ -9,7 +9,7 @@
 .ttl-cast__name { max-width: 100%; overflow-wrap: break-word; hyphens: auto; -webkit-hyphens: auto; font-size: 12px; font-weight: 500; line-height: 16px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 .ttl-cast__char { max-width: 100%; margin-top: -2px; overflow-wrap: anywhere; hyphens: auto; -webkit-hyphens: auto; font-size: 11px; line-height: 15px; color: var(--t3); }
 .ttl-cast__name-skel { width: 70%; height: 10px; }
-button.ttl-cast__item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.ttl-cast__item:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 button.ttl-cast__item:active .ttl-cast__avatar { transform: scale(.96); }
 @media (hover: hover) {
   button.ttl-cast__item:hover .ttl-cast__avatar { transform: scale(1.06); }

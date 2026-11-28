@@ -10,6 +10,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 
 .ttl {
   --ttl-bar: 56px;  /* holds Close, over a trailer on a phone */
+  --ttl-shade: rgb(0 0 0 / .5); /* under the heading, at its darkest */
+  --ttl-foot: 16px;  /* where the hero's picture and its shades fade into the glass below */
   --ttl-gap: 16px;  /* between a playing trailer and the buttons under it, on a phone */
   position: fixed;
   inset: 0;
@@ -27,24 +29,43 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   z-index: var(--z-modal-backdrop);
   inset: 0;
   pointer-events: none;
-  background: color-mix(in srgb, var(--scrim) 74%, transparent);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  background: var(--g-dim);
+  -webkit-backdrop-filter: var(--g-dim-blur);
+  backdrop-filter: var(--g-dim-blur);
   transition: opacity var(--dur) var(--ease-out);
 }
+/* Glass, which fades and moves itself: glass under a fading parent has nothing to blur. What sits
+   on it takes veils for its fills, quiet words and coloured ones lifted, and rings in the lifted blue. */
 .ttl__sheet {
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent: var(--g-accent);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   position: relative;
   width: 100%;
   max-width: 980px;
-  background: var(--s1);
-  border: 1px solid var(--hair);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: var(--r-lg);
   overflow: hidden;
   overflow: clip; /* clips without scrolling, so the bar can stick to the overlay */
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
   transform-origin: 50% 0;
   transition: transform var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out);
 }
+/* A ring that takes the page's own colour (the rating thumbs' does) is under 3:1 on the glass. */
+.ttl__sheet :focus-visible { outline-color: var(--g-focus); }
 .ttl[hidden] + .ttl__dim { display: none; }
 .ttl.is-entering + .ttl__dim { animation: ttl-fade-in var(--dur) var(--ease-out) both; }
 .ttl.is-entering .ttl__sheet { animation: ttl-sheet-in var(--dur-slow) var(--ease-out) both; }
@@ -80,7 +101,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: var(--s1);
+  background: var(--g-solid); /* on the sheet's glass: no second layer of it */
   opacity: 0;
   transition: opacity var(--dur) var(--ease-out);
 }
@@ -103,9 +124,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), translate var(--dur) var(--ease-out);
 }
 .ttl.is-trailer .ttl__close { translate: none; }
-.ttl__close:hover { background: color-mix(in srgb, var(--s5) 90%, transparent); }
+/* Darker, never lighter: the sheet's fills are white veils, and the white X would be lost in one
+   over a pale picture. */
+.ttl__close:is(:hover, :active) { background: color-mix(in srgb, var(--scrim) 72%, transparent); }
 .ttl__close:active { transform: scale(.94); }
-.ttl__close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl__close:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 
 /* ── Hero ── */
 
@@ -162,8 +185,20 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 55%, transparent) 0%, transparent 62%);
+  background: var(--g-hero-scrim);
   transition: opacity var(--dur) var(--ease-out);
+}
+/* The picture and its scrim fade out at the hero's foot, so the glass below carries up into it
+   instead of meeting a dark edge. The blurred fill is scaled 1.2 from its middle: its foot lies
+   past the hero's by a twelfth of its height. */
+.ttl__hero::after,
+.ttl__hero > :is(.ttl__hero-skel, .ttl__art) {
+  -webkit-mask-image: linear-gradient(0deg, transparent, #000 var(--ttl-foot));
+  mask-image: linear-gradient(0deg, transparent, #000 var(--ttl-foot));
+}
+.ttl__fill {
+  -webkit-mask-image: linear-gradient(0deg, transparent 8.33%, #000 calc(8.33% + var(--ttl-foot) / 1.2));
+  mask-image: linear-gradient(0deg, transparent 8.33%, #000 calc(8.33% + var(--ttl-foot) / 1.2));
 }
 .ttl__head {
   position: relative;
@@ -173,15 +208,17 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   display: flex;
   flex-direction: column;
   gap: 10px;
+  text-shadow: var(--g-hero-text-shadow);
   transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
 }
-/* The shade rises with the text, whatever height it takes, and runs the hero's full width. */
+/* The shade rises with the text, whatever height it takes, and runs the hero's full width: under
+   the scrim, a picture lighter than the glass below still leaves the words 4.5:1. */
 .ttl__head::before {
   content: "";
   position: absolute;
   z-index: -1;
   inset: -72px -100vw -12px;
-  background: linear-gradient(0deg, var(--s1), color-mix(in srgb, var(--s1) 86%, transparent) 40px, color-mix(in srgb, var(--s1) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--s1) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--s1) 14%, transparent) calc(100% - 18px), transparent);
+  background: linear-gradient(0deg, transparent, var(--ttl-shade) var(--ttl-foot), color-mix(in srgb, var(--ttl-shade) 86%, transparent) calc(var(--ttl-foot) + 40px), color-mix(in srgb, var(--ttl-shade) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--ttl-shade) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--ttl-shade) 14%, transparent) calc(100% - 18px), transparent);
   pointer-events: none;
 }
 .ttl__kind { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--t2); min-height: 1em; }
@@ -213,13 +250,13 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
 :is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out), visibility var(--dur); }
 :is(.ttl__genre, .ttl__director)::after { content: ""; position: absolute; inset: -14px -3px; }
-:is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 :is(.ttl__genre, .ttl__director):active { opacity: .6; }
 @media (hover: hover) { :is(.ttl__genre, .ttl__director):hover { color: var(--t1); text-decoration-color: currentColor; } }
 .ttl.is-trailer .ttl__genre { visibility: hidden; }
 .ttl__meta > .ttl__meta-skel { width: min(300px, 70%); height: 14px; }
 .ttl__meta > .ttl__meta-skel::before { content: none; }
-.ttl__cert { display: inline-flex; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--t1) 40%, transparent); border-radius: var(--r-xxs); font-size: 12px; line-height: 18px; font-weight: 600; }
+.ttl__cert { display: inline-flex; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--t1) 40%, transparent); border-radius: var(--r-xxs); box-shadow: var(--g-chip-floor); font-size: 12px; line-height: 18px; font-weight: 600; }
 .ttl__meta > .ttl__cert { padding-left: 5px; }
 .ttl__meta > .ttl__cert::before { content: none; }
 
@@ -234,7 +271,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   /* Beside the video, the artwork out of focus, which melts into what is above and below. */
   --above: 0px;
   --below: 0px;
-  background: linear-gradient(180deg, var(--s1) var(--above), color-mix(in srgb, var(--s1) 78%, transparent) calc(var(--above) + 12%), color-mix(in srgb, var(--s1) 62%, transparent) calc(var(--above) + 30%) calc(70% - var(--below)), color-mix(in srgb, var(--s1) 78%, transparent) calc(88% - var(--below)), var(--s1) calc(100% - var(--below)));
+  --pl: rgb(var(--g-tint)); /* the glass's own tone, solid, which the page shows through elsewhere */
+  background: linear-gradient(180deg, var(--pl) var(--above), color-mix(in srgb, var(--pl) 78%, transparent) calc(var(--above) + 12%), color-mix(in srgb, var(--pl) 62%, transparent) calc(var(--above) + 30%) calc(70% - var(--below)), color-mix(in srgb, var(--pl) 78%, transparent) calc(88% - var(--below)), var(--pl) calc(100% - var(--below)));
   -webkit-backdrop-filter: blur(32px) saturate(1.3);
   backdrop-filter: blur(32px) saturate(1.3);
   opacity: 0;
@@ -278,16 +316,18 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
    sheet cannot clip what rises out of it. */
 @media (min-width: 700px) and (min-height: 500.02px) {
   .ttl__sheet { --strip: 40px; isolation: isolate; overflow: visible; }
+  /* Out of the glass's own box, where its blur does not reach: the tint alone, solid. */
   .ttl__sheet::before {
     content: "";
     position: absolute;
     z-index: -1;
     inset: calc(-1 * var(--strip) - 1px) -1px auto;
     height: calc(var(--strip) + 2 * var(--r-lg));
-    border: solid var(--hair);
+    border: solid var(--g-edge);
+    border-top-color: var(--g-lit);
     border-width: 1px 1px 0;
     border-radius: var(--r-lg) var(--r-lg) 0 0;
-    background: var(--s1);
+    background: var(--g-solid);
     opacity: 0;
     transform: translateY(var(--strip));
     transition: transform var(--dur) var(--ease-out), opacity 0s var(--dur);
@@ -313,24 +353,36 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl.is-carried *,
 .cry-ghost,
 .cry-ghost * { transition: none !important; animation: none !important; }
-.ttl.is-carried .ttl__sheet { overflow: visible; border-color: transparent; background: none; box-shadow: none; clip-path: var(--cry-clip); pointer-events: none; }
+.ttl.is-carried .ttl__sheet { overflow: visible; border-color: transparent; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; clip-path: var(--cry-clip); pointer-events: none; }
 .ttl.is-carried .ttl__sheet::before,
 .ttl.is-carried .ttl__hero > :is(.ttl__hero-skel, .ttl__art, .ttl__fill, .ttl__poster:not(.cry-move)) { visibility: hidden; }
 .ttl.is-carried .ttl__hero { overflow: visible; clip-path: none; background: none; }
 .ttl.is-carried .ttl__hero::after,
 .ttl.is-carried .ttl__head::before { visibility: hidden; } /* at once, which their opacity is not */
 .ttl.is-carried .ttl__body { position: relative; z-index: 2; }
-.cry-plate { position: fixed; z-index: var(--z-modal-backdrop); top: 0; left: 0; border-radius: var(--r-lg); background: var(--s1); contain: layout style; pointer-events: none; }
+/* The sheet's glass while the sheet is a window: the preview's below it, and the sheet's above. */
+.cry-plate { position: fixed; z-index: var(--z-modal-backdrop); top: 0; left: 0; border-radius: var(--r-lg); background: var(--g-regular); -webkit-backdrop-filter: var(--g-filter); backdrop-filter: var(--g-filter); contain: layout style; pointer-events: none; }
 .cry-plate::before,
 .cry-plate::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
-.cry-plate::before { box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card), 0 0 70px 10px color-mix(in srgb, var(--scrim) 65%, transparent); opacity: calc(1 - var(--cry-at)); }
-.cry-plate::after { border: 1px solid var(--hair); box-shadow: var(--shadow-card); opacity: var(--cry-at); }
+.cry-plate::before { box-shadow: 0 0 0 1px var(--g-edge), var(--shadow-card), 0 0 70px 10px color-mix(in srgb, var(--scrim) 65%, transparent); opacity: calc(1 - var(--cry-at)); }
+.cry-plate::after { border: 1px solid var(--g-edge); border-top-color: var(--g-lit); box-shadow: var(--g-inset), var(--g-shadow); opacity: var(--cry-at); }
 .cry-shade { position: absolute; z-index: 0; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
 .cry-shade > i { position: absolute; }
-/* Past the hero too, as far as the picture goes past it on its way. */
-.cry-shade > i::before { content: ""; position: absolute; inset: -100vh 0; background: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 55%, transparent) 0%, transparent 62%); }
-.cry-shade > i::after { content: ""; position: absolute; inset: 100% 0 -100vh; background: var(--s1); }
-.cry-shade > i > i { position: absolute; inset: auto 0 0; background: linear-gradient(0deg, var(--s1), color-mix(in srgb, var(--s1) 86%, transparent) 40px, color-mix(in srgb, var(--s1) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--s1) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--s1) 14%, transparent) calc(100% - 18px), transparent); }
+/* The hero's scrim: its side half past the hero too, as far as the picture goes past it on its way,
+   its foot half on the hero alone, fading out at its foot as the hero's does. */
+.cry-shade > i::before {
+  content: "";
+  position: absolute;
+  inset: -100vh 0;
+  background: var(--g-hero-scrim);
+  background-position: 0 100vh, 0 0;
+  background-size: 100% calc(100% - 200vh), 100% 100%;
+  background-repeat: no-repeat;
+  -webkit-mask-image: linear-gradient(0deg, #000 100vh, transparent 100vh, #000 calc(100vh + var(--ttl-foot)));
+  mask-image: linear-gradient(0deg, #000 100vh, transparent 100vh, #000 calc(100vh + var(--ttl-foot)));
+}
+.cry-shade > i::after { content: ""; position: absolute; inset: 100% 0 -100vh; background: var(--g-solid); }
+.cry-shade > i > i { position: absolute; inset: auto 0 0; background: linear-gradient(0deg, transparent, var(--ttl-shade) var(--ttl-foot), color-mix(in srgb, var(--ttl-shade) 86%, transparent) calc(var(--ttl-foot) + 40px), color-mix(in srgb, var(--ttl-shade) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--ttl-shade) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--ttl-shade) 14%, transparent) calc(100% - 18px), transparent); }
 .cry-under { position: absolute; z-index: 1; top: -1px; left: -1px; background: var(--s2); contain: strict; }
 .cry-ghost { position: absolute !important; z-index: 4; margin: 0; opacity: 1 !important; transform: none !important; pointer-events: none; }
 .cry-move { transform-origin: 0 0 !important; will-change: transform, opacity; }
@@ -344,7 +396,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl.is-carried .ttl__meta > span:first-child::before { visibility: hidden; }
 .cry-word { display: inline-block; transform-origin: 0 0; white-space: pre; }
 /* Open: the preview's picture shows through the hero until the page's own comes over it. */
-.ttl.is-film .ttl__sheet { background: linear-gradient(var(--s1), var(--s1)) 0 var(--ttl-hero) / 100% 100% no-repeat; }
+/* Its glass under the hero alone, so the picture there is not blurred into it. */
+.ttl.is-film .ttl__sheet { isolation: isolate; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.ttl.is-film .ttl__sheet::after { content: ""; position: absolute; z-index: -1; inset: calc(var(--ttl-hero) - var(--ttl-foot)) 0 0; -webkit-mask-image: linear-gradient(transparent, #000 var(--ttl-foot)); mask-image: linear-gradient(transparent, #000 var(--ttl-foot)); border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); background: var(--g-regular); -webkit-backdrop-filter: var(--g-filter); backdrop-filter: var(--g-filter); pointer-events: none; }
 .ttl.is-film .ttl__sheet::before { visibility: hidden; }
 .ttl.is-film .ttl__hero { background: none; }
 .ttl.is-film .ttl__hero > .ttl__hero-skel { visibility: hidden; }
@@ -381,12 +435,13 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__share-group > .ico { width: var(--share-icon); font-size: 13px; }
 .ttl__share::after { content: attr(data-widest); grid-area: 1 / 1; height: 0; overflow: hidden; visibility: hidden; padding-inline-start: calc(var(--share-icon) + var(--share-gap)); }
 .ttl__share[aria-disabled="true"] { cursor: progress; }
-.watch-btn--keep { background: var(--rgba-success-bg); color: var(--success); min-height: 44px; padding-inline: 20px; font-size: 16px; font-weight: 600; }
+/* Its see-through green lies on a dark floor, so the word holds over the glass on a light page. */
+.watch-btn--keep { background: var(--rgba-success-bg); box-shadow: var(--g-chip-floor); color: var(--success); min-height: 44px; padding-inline: 20px; font-size: 16px; font-weight: 600; }
 .watch-btn--keep:hover { background: color-mix(in srgb, var(--success) 22%, transparent); }
 .watch-btn--keep .watch-keep__chev { font-size: 10px; }
 .watch-btn--keep:focus-visible,
 .ttl__actions .btn:focus-visible,
-.dl-state:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dl-state:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .dl-state:focus { outline: none; }
 
 .ttl__progress { display: flex; align-items: center; gap: 12px; min-height: 1lh; font-size: 13px; color: var(--t2); }
@@ -400,7 +455,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__leaving { color: var(--danger-text); }
 .ttl__leaving-keep { position: relative; padding: 0; border: 0; border-radius: var(--r-xxs); background: none; font: inherit; color: inherit; text-align: inherit; text-decoration: underline 1px; text-underline-offset: 3px; cursor: pointer; }
 .ttl__leaving-keep::after { content: ""; position: absolute; inset: -12px -3px; }
-.ttl__leaving-keep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl__leaving-keep:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .ttl__leaving-keep:active { opacity: .6; }
 .ttl__leaving-skel { color: transparent; user-select: none; }
 .ttl__leaving:has(> .ttl__leaving-skel) > .ico { visibility: hidden; }
@@ -451,7 +506,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__error > .ico { flex: none; }
 .ttl__error > span { min-width: 0; overflow-wrap: anywhere; }
 .ttl__retry { flex: none; min-height: 44px; padding: 0 4px; color: var(--accent); font-weight: 500; }
-.ttl__retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+.ttl__retry:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; border-radius: var(--r-xs); }
 .ttl__sec-title { font-size: 19px; font-weight: 600; margin-bottom: 14px; }
 .ttl__sec-title:focus { outline: none; }
 .ttl__sec-skel { width: 80px; height: 18px; margin-bottom: 16px; }
@@ -470,8 +525,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* The rest of the line is held for those still to come, so it keeps its height when they do or do not. */
 .ttl__ratings-wait { flex: 1 1 0; min-width: 0; height: calc(1lh + 8px); font-size: 12px; }
 
-/* Rating pills */
-.ttl-rating { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; }
+/* Rating pills: each tint on a dark floor, as every see-through chip on glass. */
+.ttl-rating { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--r-pill); box-shadow: var(--g-chip-floor); font-size: 12px; font-weight: 600; }
 .ttl-rating__icon { font-size: 12px; }
 .ttl-rating__words { position: relative; white-space: nowrap; }
 .ttl-rating--imdb { background: var(--rgba-warning-bg); color: var(--warning); }
@@ -486,6 +541,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .dl-state--downloading { background: var(--rgba-accent-bg); color: var(--accent); font-variant-numeric: tabular-nums; }
 .dl-state--done { background: var(--rgba-success-bg); color: var(--success); }
 .dl-state--none { border: 1px solid var(--hair-strong); color: var(--t2); }
+.dl-state:not(.dl-state--none) { box-shadow: var(--g-chip-floor); }
 .dl-progress { display: flex; flex-direction: column; gap: 8px; width: min(380px, 100%); }
 .dl-progress .watch-bar--banner { width: 100%; }
 .dl-progress .watch-bar--banner::-webkit-progress-value { background: var(--accent); }
@@ -500,7 +556,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .season-pick__all { position: relative; color: var(--accent); font-size: 13px; font-weight: 500; }
 .season-pick__all::after { content: ""; position: absolute; inset: -14px -8px; }
 .season-pick__clear { color: var(--t3); }
-.season-pick__all:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-xs); }
+.season-pick__all:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 4px; border-radius: var(--r-xs); }
 .season-pick__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: 8px; }
 .season-pick__foot { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; font-size: 13px; }
 .season-pick__words { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -541,7 +597,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .season-chip__skel { width: auto; height: 56px; border-radius: var(--r-md); }
 @media (hover: hover) { .season-chip:hover { background: var(--s4); } }
 .season-chip:active { transform: scale(.98); }
-.season-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.season-chip:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .season-chip__box { grid-row: span 2; display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--t3); border-radius: var(--r-xxs); font-size: 10px; color: transparent; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .season-chip__name { min-width: 0; overflow-wrap: anywhere; text-align: left; }
 .season-chip__sub { min-height: 1lh; overflow-wrap: anywhere; font-size: 12px; color: var(--t3); }
@@ -585,7 +641,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl-facts__error { flex-wrap: wrap; font-size: 13px; }
 .ttl-facts__foot { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; padding-top: 12px; border-top: 1px solid var(--hair); }
 .ttl-facts__btn { min-height: 44px; font-size: 14px; padding-inline: 12px; }
-.ttl-facts__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl-facts__btn:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .ttl-facts__keep { position: relative; display: grid; }
 .ttl-facts__menu {
   position: absolute;
@@ -597,18 +653,19 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  background: var(--s3);
-  border: 1px solid var(--hair-strong);
+  background: var(--g-solid); /* on the sheet's glass: no second layer of it */
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: var(--r-md);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--g-inset), var(--g-shadow);
   opacity: 0;
   transform: translateY(4px) scale(.98);
   transform-origin: bottom left;
   transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .ttl-facts__menu.is-open { opacity: 1; transform: none; }
-.ttl-facts__menu .watch-keep-menu__item:hover,
-.ttl-facts__menu .watch-keep-menu__item:focus-visible { background: var(--s4); }
+/* A light step over the menu, pressed too: a quiet or a red word on it still holds over a white page. */
+.ttl-facts__menu .watch-keep-menu__item:is(:hover, :focus-visible, :active) { background: var(--s2); }
 
 /* ── Episodes ── */
 
@@ -643,7 +700,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* The dot ends the fact before it, so a line that wraps never begins with one, and the facts
    stay told apart where they share a line however narrow the phone. */
 .ttl .watch-ep__fact:not(:last-child)::after { content: "\00a0·"; }
-.ttl .watch-ep__state { order: 1; padding: 3px 10px; font-weight: 600; }
+.ttl .watch-ep__state { order: 1; padding: 3px 10px; box-shadow: var(--g-chip-floor); font-weight: 600; }
 .ttl .watch-ep__about { grid-area: about; margin-top: 4px; font-size: 14px; color: var(--t2); overflow-wrap: anywhere; }
 
 /* Two lines, the second fading out where there is more, easing open to the whole text as the
@@ -680,7 +737,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .watch-eprow:has(> .watch-ep.is-long) > .ttl-more { display: block; }
 .ttl-more.fade-in { animation-delay: .1s; } /* not over what its text slides off */
 .ttl-more:active { opacity: .6; }
-.ttl-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+.ttl-more:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; border-radius: var(--r-xs); }
 /* In the row's link, which leaves the room for it, and beside it in the page. */
 .ttl .watch-ep.is-long > .watch-ep__about { margin-bottom: 26px; }
 .ttl .watch-ep__more { grid-area: 1 / 1; z-index: 1; align-self: end; margin: 0 0 8px calc(12px + 24px + 184px + 2 * 18px); }
@@ -722,7 +779,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__season-line { display: flex; gap: 14px; }
 .ttl__season-more { position: relative; font-size: 13px; font-weight: 500; color: var(--accent); white-space: nowrap; }
 .ttl__season-more::after { content: ""; position: absolute; inset: -12px; }
-.ttl__season-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+.ttl__season-more:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; border-radius: var(--r-xs); }
 .ttl__season-facts { font-size: 13px; color: var(--t3); }
 .ttl__season-text { margin-top: 4px; font-size: 15px; color: var(--t2); overflow-wrap: anywhere; }
 .ttl__season.is-gone { position: absolute; inset-inline: -12px; bottom: 0; overflow: hidden; padding-inline: 12px; pointer-events: none; }
@@ -758,7 +815,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__sec-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
 .ttl__sec-head > .ttl__sec-title { margin: 0 auto 0 0; }
 .ttl__season-mark { min-height: 44px; padding-inline: 18px; font-size: 14px; }
-.ttl__season-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl__season-mark:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .ttl__error + .watch-episodes { margin-top: 10px; }
 
 /* ── Load failed ── */
@@ -775,6 +832,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @media (max-width: 699.98px) {
   .ttl { padding: 0; }
   .ttl__sheet { max-width: none; min-height: 100%; border: 0; border-radius: 0; box-shadow: none; transform-origin: 50% 100%; }
+  .ttl.is-film .ttl__sheet::after { border-radius: 0; }
   .ttl.is-entering .ttl__sheet { animation-name: ttl-sheet-up; }
   .ttl.is-leaving .ttl__sheet { animation-name: ttl-sheet-down; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
   .ttl__hero { min-height: min(56.25vw, 62vh); gap: 16px; padding: calc(var(--ttl-bar) + 8px) 20px 14px; }
@@ -846,6 +904,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl { padding-block: 0; }
   .ttl__body { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
   .ttl__sheet { min-height: 100%; border-block: 0; border-radius: 0; }
+  .ttl.is-film .ttl__sheet::after { border-radius: 0; }
 }
 
 /* Phones, either way up: Close stays on screen, and a trailer gets the screen's width
@@ -859,11 +918,19 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-trailer .ttl__hero { min-height: min(calc(56.25vw + var(--ttl-bar) + var(--ttl-gap)), calc(100vh - 48px)); }
 }
 
+/* Phones, either way up: the dim and the sheet are two blurred layers already, so Close and the
+   trailer's frame on the sheet take none of their own. The share page's Close has no sheet under it. */
+@media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
+  .ttl .ttl__close,
+  .ttl__player { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .ttl__player { background: var(--pl); }
+}
+
 /* A small hero: the shade keeps close to the text, so the picture stays clear above it. */
 @media (max-width: 639.98px) {
   .ttl__head::before {
     inset-block: -40px -14px;
-    background: linear-gradient(0deg, var(--s1), color-mix(in srgb, var(--s1) 86%, transparent) 40px, color-mix(in srgb, var(--s1) 70%, transparent) calc(100% - 64px), color-mix(in srgb, var(--s1) 55%, transparent) calc(100% - 40px), color-mix(in srgb, var(--s1) 20%, transparent) calc(100% - 16px), transparent);
+    background: linear-gradient(0deg, transparent, var(--ttl-shade) var(--ttl-foot), color-mix(in srgb, var(--ttl-shade) 86%, transparent) calc(var(--ttl-foot) + 40px), color-mix(in srgb, var(--ttl-shade) 70%, transparent) calc(100% - 64px), color-mix(in srgb, var(--ttl-shade) 55%, transparent) calc(100% - 40px), color-mix(in srgb, var(--ttl-shade) 20%, transparent) calc(100% - 16px), transparent);
   }
 }
 
