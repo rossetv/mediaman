@@ -205,7 +205,7 @@
 /* On a phone, either way up, a preview over the search sheet is already glass on glass: its menu
    is solid, never a third layer. */
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
-  .pv--over .pv-menu { background: var(--g-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .pv-menu--over { background: var(--g-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 
 /* No growing: a short fade in place. It carries its own !important, since the app's rule for

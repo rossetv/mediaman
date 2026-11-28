@@ -274,17 +274,20 @@ def test_a_red_item_of_a_keep_menu_holds_4_5_to_1_over_a_white_page_at_rest_lit_
 
 
 def test_on_a_phone_a_menu_of_a_preview_over_the_search_sheet_is_solid_not_a_third_glass() -> None:
-    # The search sheet and the preview over it are two layers of glass already.
-    menu = style(".pv--over .pv-menu", PREVIEW, PHONES)
+    # The search sheet and the preview over it are two layers of glass already. The menu hangs
+    # outside the preview, so preview.js marks the menu itself.
+    menu = style(".pv-menu--over", PREVIEW, PHONES)
     assert menu["background"] == "var(--g-solid)"
     assert menu["backdrop-filter"] == menu["-webkit-backdrop-filter"] == "none"
 
 
 def test_on_a_phone_close_and_the_trailer_s_frame_take_no_blur_over_the_sheet_and_its_dim() -> None:
     # The dim and the sheet blur already; a blur of their own would be a third layer.
-    for piece in (".ttl__close", ".ttl__player"):
+    for piece in (".ttl .ttl__close", ".ttl__player"):
         drawn = style(piece, DETAIL, PHONES)
         assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none", piece
+    # The share page's Close, on no sheet, keeps its blur.
+    assert "backdrop-filter" not in style(".ttl__close", DETAIL, PHONES)
     assert style(".ttl__player", DETAIL, PHONES)["background"] == "var(--pl)"
 
 
@@ -352,6 +355,20 @@ def test_the_name_s_rim_still_eases_in_where_search_sets_how_its_glass_fades() -
     # The search sheet's rule comes later and would otherwise drop the rim's own easing.
     assert "box-shadow" in style(".nav-glass .brand::before", "_nav.css")["transition"]
     assert "box-shadow" in style(".wbar .brand::before", SEARCH)["transition"]
+
+
+def test_every_ring_the_title_s_sheet_draws_is_the_glass_s_ring_colour() -> None:
+    # A ring of the page's own blue beside the glass ring would be two blues on one sheet.
+    checked = 0
+    for where, selectors, decls in rules(DETAIL) + rules("_watch_cast.css"):
+        if any("forced-colors" in w for w in where) or not any(":focus" in s for s in selectors):
+            continue
+        for prop in ("outline", "outline-color"):
+            colour = re.search(r"var\(--[\w-]+\)", decls.get(prop, ""))
+            if colour:
+                checked += 1
+                assert colour[0] == "var(--g-focus)", (selectors, prop)
+    assert checked > 10
 
 
 def test_a_ring_on_the_title_s_sheet_without_its_own_colour_takes_the_glass_ring() -> None:

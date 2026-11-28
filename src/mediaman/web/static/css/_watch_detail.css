@@ -250,7 +250,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
 :is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out), visibility var(--dur); }
 :is(.ttl__genre, .ttl__director)::after { content: ""; position: absolute; inset: -14px -3px; }
-:is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 :is(.ttl__genre, .ttl__director):active { opacity: .6; }
 @media (hover: hover) { :is(.ttl__genre, .ttl__director):hover { color: var(--t1); text-decoration-color: currentColor; } }
 .ttl.is-trailer .ttl__genre { visibility: hidden; }
@@ -441,7 +441,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .watch-btn--keep .watch-keep__chev { font-size: 10px; }
 .watch-btn--keep:focus-visible,
 .ttl__actions .btn:focus-visible,
-.dl-state:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dl-state:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .dl-state:focus { outline: none; }
 
 .ttl__progress { display: flex; align-items: center; gap: 12px; min-height: 1lh; font-size: 13px; color: var(--t2); }
@@ -455,7 +455,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__leaving { color: var(--danger-text); }
 .ttl__leaving-keep { position: relative; padding: 0; border: 0; border-radius: var(--r-xxs); background: none; font: inherit; color: inherit; text-align: inherit; text-decoration: underline 1px; text-underline-offset: 3px; cursor: pointer; }
 .ttl__leaving-keep::after { content: ""; position: absolute; inset: -12px -3px; }
-.ttl__leaving-keep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl__leaving-keep:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .ttl__leaving-keep:active { opacity: .6; }
 .ttl__leaving-skel { color: transparent; user-select: none; }
 .ttl__leaving:has(> .ttl__leaving-skel) > .ico { visibility: hidden; }
@@ -506,7 +506,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__error > .ico { flex: none; }
 .ttl__error > span { min-width: 0; overflow-wrap: anywhere; }
 .ttl__retry { flex: none; min-height: 44px; padding: 0 4px; color: var(--accent); font-weight: 500; }
-.ttl__retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+.ttl__retry:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; border-radius: var(--r-xs); }
 .ttl__sec-title { font-size: 19px; font-weight: 600; margin-bottom: 14px; }
 .ttl__sec-title:focus { outline: none; }
 .ttl__sec-skel { width: 80px; height: 18px; margin-bottom: 16px; }
@@ -556,7 +556,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .season-pick__all { position: relative; color: var(--accent); font-size: 13px; font-weight: 500; }
 .season-pick__all::after { content: ""; position: absolute; inset: -14px -8px; }
 .season-pick__clear { color: var(--t3); }
-.season-pick__all:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-xs); }
+.season-pick__all:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 4px; border-radius: var(--r-xs); }
 .season-pick__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: 8px; }
 .season-pick__foot { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; font-size: 13px; }
 .season-pick__words { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -597,7 +597,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .season-chip__skel { width: auto; height: 56px; border-radius: var(--r-md); }
 @media (hover: hover) { .season-chip:hover { background: var(--s4); } }
 .season-chip:active { transform: scale(.98); }
-.season-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.season-chip:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .season-chip__box { grid-row: span 2; display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--t3); border-radius: var(--r-xxs); font-size: 10px; color: transparent; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .season-chip__name { min-width: 0; overflow-wrap: anywhere; text-align: left; }
 .season-chip__sub { min-height: 1lh; overflow-wrap: anywhere; font-size: 12px; color: var(--t3); }
@@ -641,7 +641,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl-facts__error { flex-wrap: wrap; font-size: 13px; }
 .ttl-facts__foot { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; padding-top: 12px; border-top: 1px solid var(--hair); }
 .ttl-facts__btn { min-height: 44px; font-size: 14px; padding-inline: 12px; }
-.ttl-facts__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl-facts__btn:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .ttl-facts__keep { position: relative; display: grid; }
 .ttl-facts__menu {
   position: absolute;
@@ -737,7 +737,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .watch-eprow:has(> .watch-ep.is-long) > .ttl-more { display: block; }
 .ttl-more.fade-in { animation-delay: .1s; } /* not over what its text slides off */
 .ttl-more:active { opacity: .6; }
-.ttl-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+.ttl-more:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; border-radius: var(--r-xs); }
 /* In the row's link, which leaves the room for it, and beside it in the page. */
 .ttl .watch-ep.is-long > .watch-ep__about { margin-bottom: 26px; }
 .ttl .watch-ep__more { grid-area: 1 / 1; z-index: 1; align-self: end; margin: 0 0 8px calc(12px + 24px + 184px + 2 * 18px); }
@@ -779,7 +779,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__season-line { display: flex; gap: 14px; }
 .ttl__season-more { position: relative; font-size: 13px; font-weight: 500; color: var(--accent); white-space: nowrap; }
 .ttl__season-more::after { content: ""; position: absolute; inset: -12px; }
-.ttl__season-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+.ttl__season-more:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; border-radius: var(--r-xs); }
 .ttl__season-facts { font-size: 13px; color: var(--t3); }
 .ttl__season-text { margin-top: 4px; font-size: 15px; color: var(--t2); overflow-wrap: anywhere; }
 .ttl__season.is-gone { position: absolute; inset-inline: -12px; bottom: 0; overflow: hidden; padding-inline: 12px; pointer-events: none; }
@@ -815,7 +815,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__sec-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
 .ttl__sec-head > .ttl__sec-title { margin: 0 auto 0 0; }
 .ttl__season-mark { min-height: 44px; padding-inline: 18px; font-size: 14px; }
-.ttl__season-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ttl__season-mark:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .ttl__error + .watch-episodes { margin-top: 10px; }
 
 /* ── Load failed ── */
@@ -919,9 +919,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 }
 
 /* Phones, either way up: the dim and the sheet are two blurred layers already, so Close and the
-   trailer's frame on the sheet take none of their own. */
+   trailer's frame on the sheet take none of their own. The share page's Close has no sheet under it. */
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
-  .ttl__close,
+  .ttl .ttl__close,
   .ttl__player { -webkit-backdrop-filter: none; backdrop-filter: none; }
   .ttl__player { background: var(--pl); }
 }
