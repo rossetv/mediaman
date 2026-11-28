@@ -399,11 +399,15 @@
 
   function drawDownloads(state) {
     shown = state;
-    var sum = state.summary;
     var fresh = unseenOf(state);
+    // A finished download is kept for a day: once seen, or past the few that Downloading lists,
+    // the ring no longer counts it.
+    var old = Array.isArray(state.items) && state.items.length ? state.summary.ready - fresh : 0;
+    var sum = Object.assign({}, state.summary, { total: state.summary.total - old, ready: state.summary.ready - old });
+    state = Object.assign({}, state, { summary: sum });
     var going = sum.total - sum.ready;
     // Downloading lists no more than the answer holds, so a count past that is not shown there.
-    var ready = Array.isArray(state.items) && state.items.length ? readyOf(state).length : sum.ready;
+    var ready = Array.isArray(state.items) && state.items.length ? fresh : sum.ready;
     var words = fresh ? fresh + ' ready to watch'
       : sum.active ? going + (sum.waiting ? ' in progress' : ' downloading')
       : sum.waiting ? sum.waiting + ' waiting to download'

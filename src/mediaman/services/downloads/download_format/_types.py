@@ -11,6 +11,7 @@ from typing import Any, NotRequired, TypedDict
 DOWNLOAD_STATE_LABELS: dict[str, str] = {
     "searching": "Looking for a copy",
     "queued": "Queued",
+    "paused": "Paused in NZBGet",
     "downloading": "Downloading",
     "almost_ready": "Almost ready",
     "needs_attention": "Needs attention",
@@ -27,10 +28,36 @@ def state_label(state: str) -> str:
 WAITING_TO_IMPORT = "Waiting to import"
 
 
+# What NZBGet's own pause of everything it holds is told as, in place of one download's pause.
+QUEUE_PAUSED = "NZBGet is paused"
+
+# What an admin does about a fault of the service's own setup, by the words that name it.
+_SETUP_FIXES = (
+    (
+        ("remote path mapping", "not a valid local path", "path does not exist"),
+        "Check the remote path mapping in {source}: Settings → Download Clients",
+    ),
+    (
+        ("permission", "access to the path", "not accessible"),
+        "Give {source} access to the download folder",
+    ),
+    (("root folder missing",), "Add the root folder back in {source}: Settings → Media Management"),
+    (("not enough free space",), "Free up disk space; {source} imports it by itself then"),
+    (
+        ("can't reach the download client", "download client is unavailable"),
+        "Check the download client in {source}: Settings → Download Clients",
+    ),
+)
+
+
 def attention_hint(source: str, reason: str = "") -> str:
-    """Where an admin deals with a download that needs attention."""
-    if "contains all episodes" in reason.lower():
+    """Where and how an admin deals with a download that needs attention."""
+    lower = reason.lower()
+    if "contains all episodes" in lower:
         return f"Import it by hand in {source or 'Sonarr'}: Activity → Queue → Manual Import"
+    for words, fix in _SETUP_FIXES:
+        if any(w in lower for w in words):
+            return fix.format(source=source or "Radarr or Sonarr")
     return f"Fix it in {source or 'Radarr or Sonarr'}: Activity → Queue"
 
 
@@ -78,6 +105,10 @@ class DownloadItem(TypedDict):
     retrying: NotRequired[bool]
     # What mediaman is doing about it, in a few words; "" when it leaves it for an admin.
     fixing: NotRequired[str]
+    # That mediaman stopped replacing it, as the same fault kept coming back; "" while it tries.
+    stopped: NotRequired[str]
+    # Of one paused in NZBGet: NZBGet's ids of its downloads that an admin may resume.
+    paused_ids: NotRequired[list[int]]
     # How the retry bookkeeping keys it, where it is one of Radarr's or Sonarr's, for the server
     # alone: the season's number is left off a show's.
     retry_key: NotRequired[str]

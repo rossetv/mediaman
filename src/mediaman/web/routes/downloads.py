@@ -5,9 +5,11 @@ The /downloads address leads to Downloading on Watch.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from typing import Any
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
@@ -16,7 +18,9 @@ from starlette.responses import Response
 from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.arr.build import build_nzbget_from_db
 from mediaman.services.arr.fetcher._base import is_film_id
+from mediaman.services.arr.import_retry import try_again
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import (
@@ -25,6 +29,8 @@ from mediaman.services.downloads.download_queue import (
     downloads_subtitle,
 )
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
+from mediaman.services.downloads.nzbget import NzbgetError
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.watch_catalog import tmdb_image_url
 from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
@@ -44,11 +50,17 @@ from mediaman.web.routes.downloads_strip import (
 from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch.card_marks import scored
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
 class AbandonRequest(BaseModel):
     seasons: list[int] = Field(default_factory=list)
+    arr_id: int | None = None
+
+
+class ItemRequest(BaseModel):
     arr_id: int | None = None
 
 
@@ -255,6 +267,7 @@ def _for_viewer(payload: DownloadsResponse) -> None:
             attention_hint="",
         )
         item.pop("tmdb_id", None)
+        item.pop("paused_ids", None)
         item.pop("queued_since", None)
         item.pop("searching_since", None)
     for item in [*items, *payload["recent"]]:
@@ -351,3 +364,63 @@ def _abandon(request: Request, body: AbandonRequest, dl_id: str) -> JSONResponse
         words = f"{service} didn't {done} it. Try again."
         return respond_failure(words, status=502, abandoned=abandoned)
     return JSONResponse({"ok": True, "abandoned": abandoned})
+
+
+@router.post("/api/downloads/{dl_id:path}/resume")
+def downloads_resume(
+    request: Request,
+    body: ItemRequest,
+    dl_id: str = Path(..., description="dl_id of the item to resume"),
+    admin: str = Depends(get_current_admin),
+) -> JSONResponse:
+    """Resume the downloads of one item NZBGet holds paused by themselves, as the queue now
+    lists them; never NZBGet's whole queue. 404 when it is no longer listed, 409 when it is not
+    paused by itself (or all of NZBGet is), 502 when NZBGet does not take it."""
+    conn = get_db()
+    secret_key = request.app.state.config.secret_key
+    try:
+        item = _lookup_dl_item(conn, secret_key, dl_id, body.arr_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="It's no longer in the queue.")
+        ids = item.get("paused_ids")
+        if item.get("state") != "paused" or not isinstance(ids, list) or not ids:
+            raise HTTPException(status_code=409, detail="It's not paused by itself. Reload.")
+        client = build_nzbget_from_db(conn, secret_key)
+        if client is None:
+            raise HTTPException(status_code=409, detail="NZBGet isn't set up.")
+        try:
+            client.resume_groups([int(i) for i in ids])
+        except (SafeHTTPError, requests.RequestException, NzbgetError) as exc:
+            raise HTTPException(
+                status_code=502, detail="NZBGet didn't resume it. Try again."
+            ) from exc
+    except HTTPException as exc:
+        words = str(exc.detail)
+        return respond_failure(words, status=exc.status_code, detail=words)
+    logger.info("downloads.resumed dl_id=%s nzb_ids=%s by=%s", dl_id, ids, admin)
+    return JSONResponse({"ok": True})
+
+
+@router.post("/api/downloads/{dl_id:path}/try-again")
+def downloads_try_again(
+    request: Request,
+    body: ItemRequest,
+    dl_id: str = Path(..., description="dl_id of the item to try again"),
+    admin: str = Depends(get_current_admin),
+) -> JSONResponse:
+    """Have mediaman replace an item's stuck download again, as it stopped doing when the same
+    fault kept coming back. 404 when it is no longer listed, 409 when mediaman had not stopped."""
+    conn = get_db()
+    secret_key = request.app.state.config.secret_key
+    try:
+        item = _lookup_dl_item(conn, secret_key, dl_id, body.arr_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="It's no longer in the queue.")
+        key = item.get("retry_key")
+        if not isinstance(key, str) or not key or not try_again(conn, key):
+            raise HTTPException(status_code=409, detail="mediaman is still trying it.")
+    except HTTPException as exc:
+        words = str(exc.detail)
+        return respond_failure(words, status=exc.status_code, detail=words)
+    logger.info("downloads.try_again key=%s by=%s", key, admin)
+    return JSONResponse({"ok": True})

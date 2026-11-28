@@ -81,6 +81,17 @@ def test_what_is_done_is_said_once_and_stays_a_minute(out) -> None:
     assert out["readyLands"]["still"] == ["A", "B"]
 
 
+def test_a_finished_one_the_server_keeps_for_a_day_leaves_the_row_after_its_minute(out) -> None:
+    kept = out["dayLong"]
+    assert kept["at"] == ["A", "B"]
+    assert kept["cards"] == ["A"]
+    assert kept["recent"][0] == "B"
+
+
+def test_one_finished_long_ago_is_not_drawn_in_the_row(out) -> None:
+    assert out["finishedLongAgo"]["cards"] == ["A"]
+
+
 def test_then_it_goes_to_the_front_of_recently_added(out) -> None:
     landed = out["readyLands"]
     assert landed["cards"] == ["A"]

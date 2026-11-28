@@ -219,6 +219,16 @@ def _reset_held_libraries():
 
 
 @pytest.fixture(autouse=True)
+def _reset_download_progress():
+    """How far one test's downloads had come must not make the next test's look stalled."""
+    from mediaman.services.arr import import_retry
+
+    import_retry.forget_progress()
+    yield
+    import_retry.forget_progress()
+
+
+@pytest.fixture(autouse=True)
 def _reset_notification_claims_ending():
     """A test that ends the claims must not stop the next test's tick from claiming."""
     from mediaman.services.downloads import _notification_claims
