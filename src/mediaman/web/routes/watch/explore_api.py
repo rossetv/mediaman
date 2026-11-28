@@ -77,7 +77,12 @@ def api_watch_explore(
         return _genres(conn, client)
     out: dict[str, object] = {
         "tmdb_configured": client is not None,
-        "genre": {"id": chosen.id, "name": chosen.name, "types": chosen.types},
+        "genre": {
+            "id": chosen.id,
+            "name": chosen.name,
+            "short": chosen.short or chosen.name,
+            "types": chosen.types,
+        },
         "type": type,
         "sort": sort,
         "decade": decade,
@@ -162,6 +167,7 @@ def _genres(conn: sqlite3.Connection, client: TmdbClient | None) -> JSONResponse
                 {
                     "id": g.id,
                     "name": g.name,
+                    "short": g.short or g.name,
                     "aliases": list(g.aliases),
                     "types": g.types,
                     "poster_urls": posters.get(g.id, []),

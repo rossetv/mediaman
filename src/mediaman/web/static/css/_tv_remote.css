@@ -2,9 +2,16 @@
    Both draw with the player's own buttons, pills, seek bar and cards. */
 
 /* ── the remote ── */
+/* Thick glass over the whole page, which stays faintly behind it; its words are lifted as on all glass. */
 .tv-rem {
-  --player-glass: color-mix(in srgb, var(--s2) 80%, transparent);
-  --player-glass-hover: color-mix(in srgb, var(--s3) 85%, transparent);
+  --player-glass: var(--g-player);
+  --player-glass-hover: var(--g-player-hover);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   --player-t2: color-mix(in srgb, var(--t1) 90%, transparent);
   --player-top: max(26px, env(safe-area-inset-top));
   --player-foot: max(14px, env(safe-area-inset-bottom));
@@ -15,7 +22,9 @@
   flex-direction: column;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--bg);
+  background: var(--g-thick);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
   color: var(--t1);
   user-select: none;
   -webkit-user-select: none;
@@ -23,6 +32,8 @@
 }
 .tv-rem.is-leaving { animation: tv-fade-out var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
 .tv-rem:focus { outline: none; }
+/* Every control on the remote's glass and the bar's takes the glass's ring. */
+.tv-rem :focus-visible, .tv-mini :focus-visible { outline-color: var(--g-focus); }
 html.has-tv-remote { overflow: hidden; }
 /* Beside a phone's side insets the row can be narrower than its controls. */
 .tv-rem .player-controls { flex-wrap: wrap; }
@@ -40,7 +51,9 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem__art > .ico { width: 56px; height: 56px; }
 .tv-mini__pic > .ico { width: 20px; height: 20px; }
 .tv-rem__art img, .tv-mini__pic img { position: relative; }
-.tv-rem__say, .tv-rem .player-bottom { animation: tv-rise var(--dur-slow) var(--ease-out); }
+.tv-rem__say { animation: tv-rise var(--dur-slow) var(--ease-out); }
+/* The row holds glass, so it only rises: the remote's own fade brings it in. */
+.tv-rem .player-bottom { animation: tv-lift var(--dur-slow) var(--ease-out); }
 .tv-rem.is-paused .tv-rem__art { opacity: .72; }
 .tv-rem.is-gone .tv-rem__art { opacity: .4; filter: grayscale(.6); }
 .tv-rem.is-load .tv-rem__art::after { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--scrim) 55%, transparent); }
@@ -69,8 +82,14 @@ html.has-tv-remote { overflow: hidden; }
 }
 .tv-rem__vol-no { padding: 0 8px; font-size: 13px; line-height: 1.35; color: var(--t2); }
 .tv-rem__end { display: flex; gap: 8px; }
-.tv-rem__danger { color: var(--danger-soft); }
-.tv-rem .is-dead { opacity: .4; pointer-events: none; }
+.tv-rem__danger { color: var(--danger-text); }
+.tv-rem .is-dead { pointer-events: none; }
+/* A pill fades its glass and its words, never a parent of them: glass in a fading parent blurs nothing. */
+.tv-rem .is-dead:not(.player-av-wrap, .player-pill:not(.player-pill--primary)) { opacity: .4; }
+.tv-rem :is(.player-pill.is-dead, .is-dead .player-pill):not(.player-pill--primary) { color: color-mix(in srgb, var(--t1) 40%, transparent); }
+.tv-rem .player-pill.tv-rem__danger.is-dead:not(.player-pill--primary) { color: color-mix(in srgb, var(--danger-text) 40%, transparent); }
+.tv-rem .player-pill.is-dead:not(.player-pill--primary)::before,
+.tv-rem .is-dead .player-pill::before { opacity: .4; }
 .tv-rem__brk, .tv-rem .only-s { display: none; }
 .tv-rem__dim { position: absolute; inset: 0; z-index: 4; background: color-mix(in srgb, var(--scrim) 60%, transparent); animation: tv-fade var(--dur) var(--ease-out); }
 /* The way out stays above what is dimmed. */
@@ -78,7 +97,7 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem .player-card { z-index: 5; }
 .tv-rem .player-card-line { -webkit-line-clamp: 4; }
 .tv-rem .player-message { position: fixed; }
-.tv-rem .player-upnext { bottom: 100%; background: var(--s2); }
+.tv-rem .player-upnext { bottom: 100%; }
 .tv-rem .player-upnext.is-leaving, .tv-rem .player-message.is-leaving, .tv-po.is-leaving { animation: player-drop var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
 .tv-rem__dim.is-leaving, .tv-po-veil.is-leaving { animation: tv-fade-out var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
 
@@ -86,6 +105,7 @@ html.has-tv-remote { overflow: hidden; }
 @keyframes tv-fade-out { to { opacity: 0; } }
 @keyframes tv-art { from { opacity: .2; transform: scale(1.5); } }
 @keyframes tv-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes tv-lift { from { transform: translateY(8px); } }
 @keyframes tv-sink { to { opacity: 0; transform: translateY(8px); } }
 
 @media (max-width: 899.98px) {
@@ -110,6 +130,8 @@ html.has-tv-remote { overflow: hidden; }
   .tv-rem .player-btn { min-width: 56px; height: 56px; font-size: 24px; }
   .tv-rem .player-btn--skip { min-width: 72px; font-size: 32px; }
   .tv-rem [data-play] { width: 72px; height: 72px; border-radius: 50%; background: var(--t1); color: var(--bg); font-size: 26px; }
+  /* Around the white disc, on the glass: inside it the ring would be light on white. */
+  .tv-rem [data-play]:focus-visible { outline-offset: 3px; }
   .tv-rem [data-play] .player-btn-ring { width: 26px; height: 26px; border-color: color-mix(in srgb, var(--bg) 25%, transparent); border-top-color: var(--bg); }
   .tv-rem .player-volume .player-btn { min-width: 44px; height: 44px; font-size: 18px; }
   .tv-rem .player-volume-slider { flex: 1; max-width: 380px; }
@@ -156,21 +178,30 @@ html.has-tv-remote { overflow: hidden; }
 
 /* ── a menu of the remote; below 700px a sheet ── */
 .tv-po-veil { position: fixed; inset: 0; z-index: 6; }
-.tv-po { position: fixed; z-index: 7; width: 372px; max-width: calc(100vw - 24px); max-height: min(620px, calc(100dvh - 110px)); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border-radius: var(--r-lg); background: var(--s2); box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); animation: tv-rise var(--dur) var(--ease-out); }
+.tv-po { position: fixed; z-index: 7; width: 372px; max-width: calc(100vw - 24px); max-height: min(620px, calc(100dvh - 110px)); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border-radius: var(--r-lg); animation: tv-rise var(--dur) var(--ease-out); }
 .tv-po__head { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 0 0 12px; font-size: 15px; font-weight: 600; }
 .tv-po__head > span { flex: 1; min-width: 0; }
 .tv-po__head button { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--t2); font-size: 15px; transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
 .tv-po__head button:hover { color: var(--t1); background: var(--hair); }
+.tv-po__head button:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; }
 .tv-po .player-menu-item { width: 100%; }
 .tv-po__note { padding: 8px 12px 10px; font-size: 13px; line-height: 1.45; color: var(--t2); }
 @media (max-width: 699.98px) {
-  .tv-po-veil { background: color-mix(in srgb, var(--scrim) 55%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: tv-fade var(--dur) var(--ease-out); }
-  .tv-po { left: 0; right: 0; bottom: 0; width: 100%; max-width: none; max-height: 86dvh; padding: 8px 12px max(24px, env(safe-area-inset-bottom)); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .tv-po-veil { background: var(--g-dim); animation: tv-fade var(--dur) var(--ease-out); }
+  .tv-po { left: 0; right: 0; bottom: 0; width: 100%; max-width: none; max-height: 86dvh; padding: 8px 12px max(24px, env(safe-area-inset-bottom)); border-bottom: 0; border-radius: var(--r-lg) var(--r-lg) 0 0; }
   .tv-po::before { content: ""; display: block; width: 36px; height: 4px; margin: 4px auto; border-radius: 9px; background: var(--hair-strong); }
 }
 
 /* ── the small bar ── */
 .tv-mini {
+  /* Inside the glass: veils for fills, quiet words and blue and red ones lifted. */
+  --s3: var(--g-s3);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   position: fixed;
   z-index: calc(var(--z-nav) - 1);
   left: 0;
@@ -183,10 +214,12 @@ html.has-tv-remote { overflow: hidden; }
   gap: 12px;
   padding: 8px 8px 8px 10px;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--s2) 94%, transparent);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
+  background: var(--g-thin);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
+  box-shadow: var(--g-inset), var(--g-shadow);
   overflow: hidden;
   animation: tv-mini-in var(--dur-slow) var(--ease-out);
 }
@@ -196,7 +229,7 @@ html.has-tv-remote { overflow: hidden; }
 .tv-mini__open { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 12px; text-align: left; border-radius: 8px; }
 /* All of the bar that is no other button opens the remote; the others stand above it. */
 .tv-mini__open::before { content: ""; position: absolute; inset: 0; }
-.tv-mini__open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tv-mini__open:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .tv-mini__pic { position: relative; flex: none; width: 72px; height: 42px; border-radius: 7px; overflow: hidden; background: var(--s3); }
 .tv-mini__pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tv-mini__t { flex: 1; min-width: 0; font-size: 14px; line-height: 1.35; }
@@ -210,7 +243,7 @@ html.has-tv-remote { overflow: hidden; }
 .tv-mini .player-btn--skip { font-size: 24px; }
 .tv-mini .tv-mini__other { font-size: 13px; color: var(--t2); font-variant-numeric: tabular-nums; }
 .tv-mini__bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--hair-strong); pointer-events: none; }
-.tv-mini__bar i { display: block; height: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; }
+.tv-mini__bar i { display: block; height: 100%; background: var(--g-accent); transform: scaleX(0); transform-origin: left; }
 
 /* What the bar stands over can be scrolled clear of it, and the toasts stay clear. */
 html.has-tv-mini:not(.is-tv-mini-leaving) body { padding-bottom: calc(66px + max(16px, env(safe-area-inset-bottom, 0px))); }
@@ -255,6 +288,45 @@ html.has-tv-rem .ui-toast-host {
   bottom: auto;
   justify-content: flex-start;
   max-height: calc(100dvh - var(--toast-top) - 130px);
+}
+/* A phone, or a short touch screen: no more than two layers of glass. */
+@media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
+  /* What opens over the remote is solid, and opaque: the remote's controls would show through. */
+  .tv-rem :is(.player-av, .player-card, .player-menu, .tv-po) {
+    background: rgb(var(--g-tint));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* The bar over a title's dim and sheet. */
+  html.has-ttl .tv-mini {
+    background: var(--g-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* The remote's controls lie on its glass: a dark veil halves what is under them as their filter
+     would, and they blur nothing of their own, so the page's glass is never a third layer. */
+  .tv-rem {
+    --player-glass: linear-gradient(var(--g-player), var(--g-player)), rgb(0 0 0 / .5);
+    --player-glass-hover: linear-gradient(var(--g-player-hover), var(--g-player-hover)), rgb(0 0 0 / .5);
+  }
+  .tv-rem .player-back,
+  .tv-rem .player-pill::before {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* The page's own glass goes out of sight once the remote has faded in over it, and is back as the
+     remote starts to go, where the focus returns to it. */
+  html.has-tv-remote :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet) { visibility: hidden; transition: visibility 0s linear var(--dur); }
+  /* The base sheet's near-instant transitions would make the page's glass, and each control in it
+     that inherits its visibility, come back a moment after close() gives it the focus, which then
+     falls to the page. */
+  @media (prefers-reduced-motion: reduce) {
+    html.has-tv-rem :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet),
+    html.has-tv-rem :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet) * { transition: none !important; }
+  }
+  /* A title's sheet stays drawn while the remote fades over it: its dim gives up its blur, so the
+     sheet and the remote are the two layers. */
+  html.has-tv-rem { --g-dim-blur: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tv-rem, .tv-rem.is-leaving, .tv-rem__art, .tv-rem__say, .tv-rem .player-bottom, .tv-rem__dim,

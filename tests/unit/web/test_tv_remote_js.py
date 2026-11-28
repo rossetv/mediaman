@@ -793,6 +793,21 @@ def test_a_choice_kept_for_the_title_can_go_back_to_the_defaults_from_the_remote
     assert out["tv"]["toasts"][-1] == "Back to your defaults: English."
 
 
+def test_defaults_the_tv_cannot_play_put_back_the_choice_kept_before() -> None:
+    choice = {
+        "rating_key": "9001",
+        "subtitle": "on",
+        "subtitle_id": "11",
+        "subtitle_lang": "en",
+        "subtitle_forced": False,
+        "subtitle_hearing_impaired": False,
+    }
+    assert _run("tracksDefaultsRefused") == [
+        ["DELETE", None],
+        ["PUT", {"audio": "62", "subtitle_choice": choice}],
+    ]
+
+
 def test_signs_and_songs_are_capitalised_only_where_a_sentence_begins() -> None:
     assert _run("saidSigns") == [
         "Back to your defaults: English, signs & songs only.",

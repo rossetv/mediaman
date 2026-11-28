@@ -7,7 +7,10 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from tests.helpers.node_batch import run_node
+from tests.unit.web._css import px, style
 
 HARNESS = Path(__file__).parent / "js" / "watch_search_harness.js"
 
@@ -1689,6 +1692,30 @@ def test_categories_stand_in_the_person_s_order_and_none_is_left_out() -> None:
     ]
 
 
+def test_a_category_tile_shows_its_short_name_and_is_still_called_by_its_full_one() -> None:
+    tiles = _run("forYou")["withAi"]["tiles"]
+    assert tiles["science-fiction"] == ["Sci-fi", "Sci-fi, Science Fiction"]
+    assert tiles["drama"] == ["Drama", "Drama"]
+    assert tiles["comedy"] == ["Comedy", "Comedy, one of your favourites"]
+
+
+def test_a_short_named_tile_s_spoken_name_starts_with_the_word_it_shows() -> None:
+    out = _run("shortFav")
+    assert out["fav"] == "Sci-fi, Science Fiction, one of your favourites"
+    assert out["plainFav"] == "Comedy, one of your favourites"
+
+
+@pytest.mark.parametrize("name", [".watch-tile > b", ".watch-tile__text > b"])
+def test_a_category_tile_s_name_never_wraps_and_trails_off_when_it_must(name: str) -> None:
+    rule = style(name, "_watch_search.css")
+    assert (rule["white-space"], rule["overflow"], rule["text-overflow"]) == (
+        "nowrap",
+        "hidden",
+        "ellipsis",
+    )
+    assert "overflow-wrap" not in rule
+
+
 def test_a_new_person_is_given_plain_searches_and_told_why_with_the_usual_order() -> None:
     out = _run("forYouNewbie")["newbie"]
     assert "For you" not in out["heads"]
@@ -1947,3 +1974,16 @@ def test_one_group_of_titles_under_an_answer_is_named_by_the_line_over_them() ->
     out = _run("oneGroup")
     assert out["one"] == {"line": "Matching your words1 title", "heads": []}
     assert out["two"]["heads"] == ["In your library", "Available to download"]
+
+
+def test_a_favourite_tile_s_second_line_has_room_to_stand_whole_on_the_narrowest_phone() -> None:
+    narrow = "(max-width: 359.98px)"
+    small = style(".watch-tile__text > small", "_watch_search.css")
+    assert px(small["font-size"]) >= 12
+    tile = style(".watch-tile", "_watch_search.css", narrow)
+    icon = style(".watch-tile > .watch-line", "_watch_search.css", narrow)
+    gap = px(style(".watch-tiles", "_watch_search.css", narrow)["gap"])
+    # At 320px the sheet holds 252px of tiles, two to a row; "You watch a lot" is 88px at 12px.
+    cell = (252 - gap) / 2
+    room = cell - 2 * px(tile["padding"].split()[1]) - px(tile["gap"]) - px(icon["width"])
+    assert room >= 89

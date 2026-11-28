@@ -203,9 +203,13 @@ def set_tracks(
     given = body.subtitle_choice
     subtitle: str | None
     if given is not None:
-        subtitle, subtitle_lang = given.subtitle, given.subtitle_lang
+        subtitle = given.subtitle
+        subtitle_lang = normalise_language(given.subtitle_lang)
+        if given.subtitle_lang is not None and subtitle_lang is None:
+            return respond_err("unknown_language", status=422)
         # Stream ids are of the item they were chosen on.
-        subtitle_id = given.subtitle_id if given.rating_key == item.rating_key else None
+        ids = {t["id"] for t in subtitles} if given.rating_key == item.rating_key else set()
+        subtitle_id = given.subtitle_id if given.subtitle_id in ids else None
         forced, hearing_impaired = given.subtitle_forced, given.subtitle_hearing_impaired
     elif "subtitle" not in sent:
         subtitle = kept.subtitle
