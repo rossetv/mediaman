@@ -198,6 +198,19 @@ const scenarios = {
     const link = p.doc.querySelector('[data-row-id="recent"]').querySelector('a');
     return { at, still, cards: p.cards(), recent: p.recent(), ref: link.getAttribute('data-title-ref'), heading: p.heading() };
   },
+  // The server tells of a finished one for a day; the row keeps its card for a minute.
+  async dayLong() {
+    const p = load([answer([item('A'), item('B')]), answer([item('A'), ready('B', 86000, { finished_at: 995 })])]);
+    await p.step(5010);
+    const at = p.cards();
+    await p.step(61000);
+    return { at, cards: p.cards(), recent: p.recent() };
+  },
+  async finishedLongAgo() {
+    const p = load([answer([ready('B', 80000, { finished_at: 1000 - 3600 }), item('A')])]);
+    await p.step(100);
+    return { cards: p.cards(), recent: p.recent() };
+  },
   async addedOnly() {
     const added = { line: 'In your library soon', playable: false };
     const p = load([answer([item('A'), item('B')]), answer([item('A'), ready('B', 60, added)])]);

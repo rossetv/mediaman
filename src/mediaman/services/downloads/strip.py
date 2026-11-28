@@ -33,7 +33,9 @@ HOLD_S = 4.0
 STALE_S = 30.0
 # A caller with no better to fall back on waits this long for the answer being made.
 WAIT_S = 3.0
-READY_S = 60
+# A finished download is kept this long, so someone away for the day still finds it. Whether they
+# have seen it is kept in their own browser.
+READY_S = 24 * 60 * 60
 MAX_ITEMS = 20
 # The ninth search comes some nine hours after the first, about when Downloads offers an admin
 # to abandon the title. Everybody sees how often it was searched for.
