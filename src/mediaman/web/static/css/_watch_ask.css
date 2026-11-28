@@ -25,10 +25,21 @@
 
 /* ── Tonight ── */
 
+/* Tonight and the line that brings it back once hidden fold open and shut as Recent does. */
+.tn-box { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out), margin-top var(--dur-slow) var(--ease-out); }
+.tn-box > div { min-height: 0; margin: 0 -4px; padding: 0 4px; overflow: hidden; }
+.tn-box.is-gone { grid-template-rows: 0fr; opacity: 0; }
+.tn-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 0 18px 0 16px; border: 1px solid var(--hair); border-radius: 16px; font-size: 13.5px; color: var(--t3); }
+.tn-note > .txt { margin-right: -8px; padding: 4px 8px; font: inherit; font-weight: 500; }
+
 .tn { padding: 14px; border: 1px solid var(--hair); border-radius: 16px; background: var(--s2); }
-.tn__head { container-type: inline-size; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.tn__head { container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; }
 .tn__head > b { font-size: 15px; font-weight: 600; }
-.tn__seg { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); padding: 3px; border-radius: 22px; background: var(--rgba-overlay-sm); }
+/* Hide: 44px to press, standing out into the box's padding so the title's line keeps its height. */
+.tn__x { grid-area: 1 / 2; display: grid; place-items: center; width: 44px; height: 44px; margin: -12px -8px -12px 0; border-radius: 50%; color: var(--t3); font-size: 15px; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.tn__x:hover { background: var(--s3); color: var(--t1); }
+.tn__x.is-picked { color: var(--t1); }
+.tn__seg { grid-column: 1 / -1; justify-self: start; position: relative; display: grid; grid-template-columns: repeat(5, 1fr); padding: 3px; border-radius: 22px; background: var(--rgba-overlay-sm); }
 .tn__seg > i { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 5); border-radius: 19px; background: var(--s5); opacity: 0; transition: transform var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
 .tn__seg > button { position: relative; min-width: 72px; min-height: 38px; padding: 0 10px; border-radius: 19px; color: var(--t2); font-size: 13px; font-weight: 500; white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
 .tn__seg > button::after { content: ""; position: absolute; inset: -3.5px 0; }
@@ -54,7 +65,7 @@
 .tn__foot > .txt::after { inset: 0 -8px; }
 .tn__none { padding: 16px 4px 2px; font-size: 14px; line-height: 1.45; color: var(--t2); }
 .tn__none > button { margin-top: 10px; }
-:is(.tn__seg > button, .txt, .tn__none > .chip).is-picked { outline: 2px solid var(--g-focus); outline-offset: -2px; }
+:is(.tn__seg > button, .tn__x, .txt, .tn__none > .chip).is-picked { outline: 2px solid var(--g-focus); outline-offset: -2px; }
 .txt.is-picked { outline-offset: 4px; }
 @keyframes watch-ask-rise { from { opacity: 0; transform: translateY(10px); } }
 
@@ -167,7 +178,7 @@ a.chip { text-decoration: none; }
 .watch-search__token .watch-face--art { border-radius: 5px; font-size: 13px; }
 
 @media (max-width: 599.98px) {
-  .tn__head { flex-direction: column; align-items: stretch; }
+  .tn__seg { justify-self: stretch; }
   .tn__seg > button { min-width: 0; padding: 0 4px; }
   /* A row to swipe, as the page's own rows are on a phone: the next card peeks in. */
   .tn__list { display: flex; margin: -4px -4px; padding: 4px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding-inline: 4px; scrollbar-width: none; }
@@ -235,6 +246,7 @@ a.chip { text-decoration: none; }
 /* ── Still ── */
 
 @media (prefers-reduced-motion: reduce) {
+  .tn-box { transition: none; }
   .tn__card,
   .ask-top,
   .ask__off { animation: none; }
@@ -251,6 +263,7 @@ a.chip { text-decoration: none; }
 @media (forced-colors: active) {
   .chip { border: 1px solid ButtonText; }
   .tn__seg { outline: 1px solid ButtonText; }
+  .tn__x.is-picked { outline-color: Highlight; }
   .tn__seg > button[aria-checked="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; }
   :is(.tn, .ask) .watch-card__link.is-picked > .watch-card__poster,
   .ask-top.is-picked { outline-color: Highlight; }

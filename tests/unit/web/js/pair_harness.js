@@ -7,6 +7,7 @@ const vm = require('vm');
 const { makeDocument, build, settle } = require('./fake_dom.js');
 
 const FILE = path.resolve(__dirname, '../../../../src/mediaman/web/static/js/pair.js');
+const DOM = path.resolve(__dirname, '../../../../src/mediaman/web/static/js/core/dom.js');
 
 let timerId = 0;
 let held = null;
@@ -52,6 +53,8 @@ function page(hash, answers, yes = true, owned = Promise.resolve({ tvs: [] })) {
     clearTimeout: (id) => { cancelled.add(id); },
     window: { addEventListener: (t, fn) => { listeners[t] = fn; } },
   });
+  ctx.window.MM = ctx.MM;
+  vm.runInContext(fs.readFileSync(DOM, 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
   const fire = (id, type) => $(id).listeners[type].forEach((fn) => fn({ preventDefault() {} }));
   return {
@@ -105,12 +108,18 @@ const scenarios = {
     return { code: p.location.href || null, name: q.location.href || null };
   },
   async joined() {
-    const p = page('#482916', [{ tv: { id: 7, name: 'Living room', people: ['amy', 'bob'] } }]);
+    const avatars = { amy: '/api/avatars/2?v=ab' };
+    const p = page('#482916', [{ tv: { id: 7, name: 'Living room', people: ['amy', 'bob'], avatars } }]);
     p.fire('pair-form', 'submit');
     await settle();
+    const faces = p.$('pair-people').querySelectorAll('.avatar').map((a) => {
+      const img = a.querySelector('img');
+      return [a.querySelector('.avatar__letter').textContent, img ? img.getAttribute('src') : null, img ? img.hasAttribute('data-broken-on-error') : null];
+    });
     return {
       asked: p.asked, sent: p.sent.map((s) => s[1]), shown: p.shown(), says: p.$('pair-ready-name').textContent,
-      people: p.$('pair-people').querySelectorAll('li').map((li) => li.textContent), listed: !p.$('pair-people').hidden,
+      people: p.$('pair-people').querySelectorAll('li').map((li) => li.querySelectorAll('span').pop().textContent), listed: !p.$('pair-people').hidden,
+      faces,
     };
   },
   async again() {

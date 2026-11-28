@@ -2010,9 +2010,9 @@
   /* The card in the row of a download that Radarr or Sonarr will not import, or that is looked for again. */
   function troubleOf(c) { return lookedFor(c, ['needs_attention', 'finding_copy']); }
 
-  /* What an admin is told of it, as the card tells it; a viewer's card holds none, but that it is tried again. */
+  /* What an admin is told of it, as the card tells it; a viewer's card holds none, but what mediaman does about it. */
   function fixOf(item) {
-    return [item.attention, item.retrying ? 'mediaman will look for another copy' : item.attention_hint].filter(Boolean).join(' · ');
+    return [item.attention, item.fixing || (item.retrying ? 'mediaman will look for another copy' : item.attention_hint)].filter(Boolean).join(' · ');
   }
 
   /* What else is said of a download, and where to follow it; opened from Downloading itself, only
@@ -2057,13 +2057,14 @@
     if (trouble) {
       // Nothing to press: a line of how it stands, where the in-progress states have a pill.
       var stuck = trouble.state === 'needs_attention';
-      var status = statusLine(stuck ? 'Needs attention' : 'Finding another copy',
+      var status = statusLine(stuck ? trouble.fixing || 'Needs attention' : 'Finding another copy',
         stuck ? 'i-triangle-exclamation' : 'i-magnifying-glass', 'ttl__status--warn');
       status.setAttribute('role', 'status');
       status.setAttribute('tabindex', '-1');
       status.setAttribute('data-ttl-act', 'primary');
       under.appendChild(status);
-      var why = stuck ? fixOf(trouble) || 'It won’t finish until an admin sorts it out' : '';
+      var why = !stuck ? '' : trouble.fixing ? trouble.attention || ''
+        : fixOf(trouble) || 'It won’t finish until an admin sorts it out';
       followNote(under, why ? why + '. ' : '');
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
@@ -2421,8 +2422,9 @@
       else chip.removeAttribute('title');
       chip.querySelector('.season-chip__name').textContent = seasonName(s);
       var sub = chip.querySelector('.season-chip__sub');
-      if (sub.textContent !== state.text) {
-        sub.textContent = state.text;
+      var said = trouble && trouble.fixing ? 'Fixing' : state.text;
+      if (sub.textContent !== said) {
+        sub.textContent = said;
         if (!first) core.fadeIn(sub);
       }
     });

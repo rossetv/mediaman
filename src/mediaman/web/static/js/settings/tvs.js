@@ -151,7 +151,7 @@
       var ul = el('ul', 'tv-ppl');
       tv.people.forEach(function (who) {
         var chip = el('li');
-        chip.appendChild(el('span', 'tv-face', who.charAt(0).toUpperCase()));
+        chip.appendChild(MM.dom.avatar(who, tv.avatars && tv.avatars[who]));
         chip.appendChild(el('span', '', who));
         var x = el('button', 'tv-ppl__x');
         x.type = 'button';

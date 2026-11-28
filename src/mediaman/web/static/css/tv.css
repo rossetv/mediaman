@@ -15,6 +15,8 @@ video::-webkit-media-controls { display: none !important; }
 @-webkit-keyframes out { to { opacity: 0; } }
 @keyframes out { to { opacity: 0; } }
 .page { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; }
+/* Where nothing plays: a calm light from above. */
+.page { background: #000 -webkit-radial-gradient(50% 0, ellipse, rgba(41, 151, 255, .18), rgba(41, 151, 255, 0) 62%); background: #000 radial-gradient(ellipse at 50% 0, rgba(41, 151, 255, .18), rgba(41, 151, 255, 0) 62%); }
 .brand { height: 45px; }
 .brand svg { display: block; width: 202px; height: 47px; }
 
@@ -43,9 +45,9 @@ video::-webkit-media-controls { display: none !important; }
 .mid .bs { margin-top: 60px; -webkit-justify-content: center; justify-content: center; }
 .b { font-family: inherit; font-size: 34px; line-height: 40px; color: #fff; background: #2e2e33; border: 6px solid #2e2e33; border-radius: 48px; padding: 18px 44px; margin-right: 24px; outline: none; transition: background .15s, color .15s; }
 .bs .b:last-child { margin-right: 0; }
-.b.f { background: #fff; color: #000; border-color: #2997ff; }
+/* The ring stands clear of the white fill, on the dark around it, where it reads. */
+.b.f { background: #fff; color: #000; border-color: #000; box-shadow: 0 0 0 6px #a6d2ff; }
 .i { width: 34px; height: 34px; fill: currentColor; vertical-align: -5px; margin-right: 16px; }
-.tick .i { width: 110px; height: 110px; margin: 30px 0 0; fill: #30d158; }
 
 .pic { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000 no-repeat center; background-size: cover; }
 .shade { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; background: rgba(0, 0, 0, .78); }
@@ -100,15 +102,6 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 @-webkit-keyframes dr { from { -webkit-transform: scaleX(1); } to { -webkit-transform: scaleX(0); } }
 @keyframes dr { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-@media (prefers-reduced-motion: reduce) {
-  .b, .ov, .sk { transition: none; }
-  .sk .dr { display: none; }
-  .in > div, #o > div { animation: none; }
-  .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
-  #o { display: none; }
-  .spin { animation: pu 1.6s ease-in-out infinite; }
-  .spin--mark, .mark path { animation: none; }
-}
 @media (forced-colors: active) {
   .b.f, .bar .p { forced-color-adjust: none; background: Highlight; }
   .b.f { color: HighlightText; border-color: Highlight; }
@@ -116,6 +109,40 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
   .wm-man { stroke: currentColor; }
   .qr { forced-color-adjust: none; }
 }
-.ppl { display: block; margin-top: 36px; }
-.ppl i { display: inline-block; font-style: normal; font-size: 32px; line-height: 56px; color: #fff; background: #2e2e33; border-radius: 40px; padding: 6px 30px 6px 6px; margin: 0 10px; vertical-align: middle; }
-.ppl b { display: inline-block; width: 56px; height: 56px; line-height: 56px; border-radius: 50%; background: #0071e3; color: #fff; font-weight: 600; text-align: center; margin-right: 16px; vertical-align: top; }
+/* The heading names one person already. */
+.hello .pp:only-child .pn { display: none; }
+/* Where the people stand, the column hangs from a fixed line, so their row keeps its place
+   from one screen to the next. */
+.idle .mid, .hello .mid { padding-top: 150px; -webkit-justify-content: flex-start; justify-content: flex-start; }
+
+/* Each person the TV is paired with: their picture in a ring, over their letter, which shows
+   where there is none or it fails to load. Seven fit in a row, the last of them for any more. */
+.ppl { display: -webkit-flex; display: flex; -webkit-justify-content: center; justify-content: center; margin-top: 56px; }
+.pp { -webkit-flex: none; flex: none; width: 200px; margin: 0 12px; -webkit-animation: rise .6s ease-out both; animation: rise .6s ease-out both; }
+.pp:nth-child(2) { -webkit-animation-delay: .07s; animation-delay: .07s; }
+.pp:nth-child(3) { -webkit-animation-delay: .14s; animation-delay: .14s; }
+.pp:nth-child(4) { -webkit-animation-delay: .21s; animation-delay: .21s; }
+.pp:nth-child(5) { -webkit-animation-delay: .28s; animation-delay: .28s; }
+.pp:nth-child(n+6) { -webkit-animation-delay: .35s; animation-delay: .35s; }
+@-webkit-keyframes rise { from { opacity: 0; -webkit-transform: translateY(24px); } }
+@keyframes rise { from { opacity: 0; transform: translateY(24px); } }
+.av { position: relative; display: block; width: 140px; height: 140px; margin: 0 auto; padding: 6px; border: 3px solid rgba(255, 255, 255, .32); border-radius: 50%; background: rgba(255, 255, 255, .08); }
+.av:before { content: attr(data-l); display: block; width: 122px; height: 122px; line-height: 122px; border-radius: 50%; background: #1d5c9e; color: #fff; font-size: 56px; font-weight: 700; text-align: center; }
+.av img { position: absolute; left: 6px; top: 6px; width: 122px; height: 122px; border-radius: 50%; object-fit: cover; background: #2e2e33; }
+.av img.gone { display: none; }
+.pn { max-height: 80px; overflow: hidden; margin-top: 18px; font-size: 32px; line-height: 40px; color: #fff; word-wrap: break-word; }
+/* Beside a name in a line: who started what plays, or paused it. */
+.av--s { display: inline-block; width: 68px; height: 68px; padding: 4px; border-width: 2px; margin: 0 18px 0 6px; vertical-align: middle; }
+.av--s:before { width: 56px; height: 56px; line-height: 56px; font-size: 28px; }
+.av--s img { left: 4px; top: 4px; width: 56px; height: 56px; }
+.who { line-height: 68px; color: #dedee0; }
+@media (prefers-reduced-motion: reduce) {
+  .b, .ov, .sk, body:after, .dim:after { transition: none; }
+  .sk .dr { display: none; -webkit-animation: none; animation: none; }
+  .in > div, #o > div { -webkit-animation: none; animation: none; }
+  .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
+  #o { display: none; }
+  .spin { animation: pu 1.6s ease-in-out infinite; }
+  .spin--mark, .mark path, .a1, .a2 { animation: none; }
+  .pp { -webkit-animation: none; animation: none; }
+}

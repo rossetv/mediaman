@@ -9,6 +9,7 @@ are under ``/api/tvs``; a TV of someone else's is answered as one that never was
 from __future__ import annotations
 
 import contextlib
+import hmac
 import json
 import logging
 import re
@@ -18,6 +19,7 @@ from collections.abc import Callable, Coroutine, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, replace
 from functools import partial
+from hashlib import sha256
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request
@@ -54,11 +56,12 @@ from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.auth.session_store import validate_session
-from mediaman.web.repository import track_choices
+from mediaman.web.repository import avatars, track_choices
 from mediaman.web.repository import tv as repo
 from mediaman.web.repository.ratings import find_user_id
 from mediaman.web.repository.watch_progress import get_progress
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.avatars import photo_answer
 from mediaman.web.routes.cast import _CastRequest
 from mediaman.web.routes.cast import _start as _start_cast
 from mediaman.web.routes.watch.browse_api import api_watch_thumb
@@ -384,6 +387,7 @@ def device_poll(request: Request, body: _PollBody, x_tv_token: _Token = "") -> R
             "name": held.name,
             "owner": held.owner,
             "people": repo.people(get_db(), held.id),
+            "avatars": _avatars(held, device=True),
             "play": play,
             "commands": commands,
             "poll_ms": _POLL_MS["idle" if play is None else "playing"],
@@ -437,6 +441,46 @@ def device_art(request: Request, play_id: str) -> Response:
         return _refused(request)
     user, rating_key = playing
     return api_watch_thumb(request, rating_key, user)
+
+
+def _avatar_key(token_hash: str, user_id: int) -> str:
+    """Names one person's photo for one TV; it changes as the TV is paired anew."""
+    return hmac.new(token_hash.encode(), f"avatar:{user_id}".encode(), sha256).hexdigest()[:32]
+
+
+def _avatars(held: repo.Tv, *, device: bool = False) -> dict[str, str]:
+    """The picture of each person the TV is paired with, by name.
+
+    The TV's own page has no session: a photo goes to it under a name only that TV is told, which
+    tells nothing of who the person is in mediaman nor where their photo is kept.
+    """
+    conn = get_db()
+    members = repo.members(conn, held.id)
+    found = avatars.avatars_of(conn, [user_id for user_id, _ in members])
+    shown: dict[str, str] = {}
+    for user_id, name in members:
+        avatar = found[user_id]
+        if device and avatar.file_name is not None and held.token_hash is not None:
+            key = _avatar_key(held.token_hash, user_id)
+            shown[name] = f"/api/tv/device/avatar/{held.id}/{key}?v={avatar.version}"
+        else:
+            shown[name] = avatar.url
+    return shown
+
+
+@router.get("/api/tv/device/avatar/{tv_id}/{user_id}")
+def device_avatar(request: Request, tv_id: _TvId, user_id: str, v: str = "") -> Response:
+    """The photo of one of a TV's people, for that TV's page, by the name the TV was told."""
+    conn = get_db()
+    held = repo.find(conn, tv_id)
+    found = None
+    if held is not None and held.token_hash is not None:
+        for member, _ in repo.members(conn, tv_id):
+            if hmac.compare_digest(user_id.encode(), _avatar_key(held.token_hash, member).encode()):
+                found = member
+    if found is None:
+        return _refused(request)
+    return photo_answer(conn, found, v)
 
 
 # ── starting a stream on a TV ──
@@ -795,6 +839,7 @@ def _shown(held: repo.Tv) -> dict[str, Any]:
         "last_seen_at": held.last_seen_at,
         **view,
         "people": repo.people(get_db(), held.id),
+        "avatars": _avatars(held),
     }
 
 
@@ -865,7 +910,16 @@ def pair_tv(request: Request, body: _PairBody, username: _Username) -> Response:
         players.forget(again.token_hash or "", "stopped")
         _carry_out(players)
     people = repo.people(conn, paired.id)
-    return respond_ok({"tv": {"id": paired.id, "name": paired.name, "people": people}})
+    return respond_ok(
+        {
+            "tv": {
+                "id": paired.id,
+                "name": paired.name,
+                "people": people,
+                "avatars": _avatars(paired),
+            }
+        }
+    )
 
 
 @router.get("/api/tvs")
@@ -898,6 +952,7 @@ def all_tvs(admin: Annotated[str, Depends(get_current_admin)]) -> Response:
                     "name": held.name,
                     "owner": held.owner,
                     "people": repo.people(get_db(), held.id),
+                    "avatars": _avatars(held),
                     "paired_at": held.paired_at,
                     "last_seen_at": held.last_seen_at,
                     "on": players.is_on(held.token_hash or ""),

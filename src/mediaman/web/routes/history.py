@@ -110,6 +110,8 @@ ACTION_BADGE_CLASS = {
     "downloaded": "badge-action-downloaded",
     "re_downloaded": "badge-action-redownloaded",
     "import_retried": "badge-action-redownloaded",
+    "import_renamed": "badge-action-redownloaded",
+    "import_imported": "badge-action-redownloaded",
     "unkept": "badge-action-unprotected",
     "unprotected": "badge-action-unprotected",
     "kept_show": "badge-action-protected",
@@ -150,7 +152,9 @@ ACTION_LABELS = {
     "delete_incomplete": "delete incomplete",
     "delete_folders_failed": "folder cleanup failed",
     "re_downloaded": "re-downloaded",
-    "import_retried": "searched again for",
+    "import_retried": "blocklisted and searched again for",
+    "import_renamed": "renamed files so it could import",
+    "import_imported": "imported by hand",
 }
 
 # What a waiting deletion waits for, by the first of these its stored text has.

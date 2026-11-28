@@ -333,13 +333,13 @@ class TestPassingHold:
         assert map_queue_state([{**_HELD, "attention": said}]) == "needs_attention"
 
 
-def test_a_whole_season_file_is_told_to_an_admin_to_import_by_hand():
+def test_a_whole_season_file_is_another_copy_away_and_told_to_an_admin_to_import_by_hand():
     said = (
         "Single episode file contains all episodes in seasons. Review file name or manually import"
     )
     entry = {**_HELD, "attention": said}
     assert map_queue_state([entry]) == "needs_attention"
-    assert not_the_release(said)
+    assert not not_the_release(said)
     item = build_item(
         dl_id="sonarr:x",
         title="x",

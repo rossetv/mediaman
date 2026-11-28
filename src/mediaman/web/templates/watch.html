@@ -164,7 +164,7 @@
         {% if downloading['items'] %}
         <ul>
           {% for item in downloading['items'] %}
-          <li><span>{{ item.title }}</span> · {{ dl_says.get(item.state) or (item.percent ~ '%') }}</li>
+          <li><span>{{ item.title }}</span> · {{ (item.state == 'needs_attention' and item.fixing) or dl_says.get(item.state) or (item.percent ~ '%') }}</li>
           {% endfor %}
         </ul>
         {% elif not downloading.outage %}<p>Nothing downloading.</p>{% endif %}
