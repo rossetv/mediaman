@@ -185,6 +185,33 @@ def test_a_kept_choice_given_back_not_as_one_is_kept_is_refused(alice, body):
     assert _picked(alice.get("/api/watch/tracks/201"))[1] == "14"
 
 
+@pytest.mark.parametrize(
+    ("rating_key", "subtitle_id", "kept_id"),
+    [
+        ("201", "14", "14"),
+        # Of another item, or no track of this one: the language and kind stand alone.
+        ("202", "14", None),
+        ("201", "23", None),
+    ],
+)
+def test_a_kept_choice_given_back_keeps_its_track_only_where_the_item_has_it(
+    alice, rating_key, subtitle_id, kept_id
+):
+    choice = {**ON, "rating_key": rating_key, "subtitle_id": subtitle_id, "subtitle_lang": "eng"}
+    resp = alice.put("/api/watch/tracks/201", json={"subtitle_choice": choice})
+    assert resp.status_code == 200, resp.text
+    assert _kept(alice, "201") == {**ON, "subtitle_id": kept_id, "subtitle_lang": "en"}
+
+
+def test_a_kept_choice_given_back_in_a_language_not_known_is_refused(alice):
+    alice.put("/api/watch/tracks/201", json={"subtitle": "14"})
+    resp = alice.put(
+        "/api/watch/tracks/201", json={"subtitle_choice": {**ON, "subtitle_lang": "zz"}}
+    )
+    assert (resp.status_code, resp.json()["error"]) == (422, "unknown_language")
+    assert _picked(alice.get("/api/watch/tracks/201"))[1] == "14"
+
+
 def test_going_back_to_the_defaults_forgets_the_choice_for_the_whole_show(alice):
     alice.put("/api/watch/tracks/201", json={"audio": "12"})
     alice.put("/api/account/playback", json={"subtitle_lang": "en"})

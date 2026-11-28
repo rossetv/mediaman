@@ -786,6 +786,21 @@ const scenarios = {
     }
     return out;
   },
+  /* Use my defaults over German audio and English subtitles kept for the title, which the TV
+     cannot play. */
+  async tracksDefaultsRefused() {
+    const p = await page({ tvs: [aTv({ play: aPlay({ audio: '62', audio_tracks: AUDIO }) })] });
+    const choice = { rating_key: '9001', subtitle: 'on', subtitle_id: '11', subtitle_lang: 'en', subtitle_forced: false, subtitle_hearing_impaired: false };
+    p.api.kept = { remembered: true, remembered_subtitle_choice: choice, defaults: { audio_lang: 'en', subtitle_lang: null } };
+    p.api.plays = { audio: '61' };
+    p.api.refuse = 'track_unavailable';
+    await p.open();
+    await p.openTracks();
+    await p.pass(50);
+    await p.press('[data-av-reset]');
+    await p.pass(400);
+    return p.api.calls.filter((c) => c.method !== 'GET' && /\/api\/watch\/tracks\//.test(c.url)).map((c) => [c.method, c.body || null]);
+  },
   async subtitles() {
     const p = await page();
     await p.open();

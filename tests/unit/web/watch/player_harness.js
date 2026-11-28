@@ -368,12 +368,12 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
     put(url, body) {
       calls.push({ url: url, body: body });
       if (held.put === 'fails') return Promise.reject({ status: 502, error: 'unreachable' });
-      return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve({ media_type: 'movie', tmdb_id: 5 });
+      return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve(held.trackAnswer && /\/api\/watch\/tracks\//.test(url) ? held.trackAnswer : { media_type: 'movie', tmdb_id: 5 });
     },
     delete(url) {
       calls.push({ url: url, gone: true });
       if (held.put === 'fails') return Promise.reject({ status: 502, error: 'unreachable' });
-      return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve({ media_type: 'movie', tmdb_id: 5 });
+      return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve(held.trackAnswer && /\/api\/watch\/tracks\//.test(url) ? held.trackAnswer : { media_type: 'movie', tmdb_id: 5 });
     },
     messageOf(err, fallback) { return fallback; },
   };
@@ -980,6 +980,22 @@ async function awaySubtitle(p) {
   return p.elsewhere.starts().slice(1).map((b) => ('subtitle' in b ? b.subtitle : 'none named'));
 }
 
+/* A subtitle picked for the TV that the server answers with other audio and no subtitle: it starts
+   again naming none, not "off", which would go on to the next episodes. */
+async function awayNoSubtitle(p) {
+  p.elsewhere.languages = true;
+  p.held.tracks = { remembered: true, remembered_subtitle_choice: KEPT_CHOICE, defaults: { audio_lang: 'en', subtitle_lang: null } };
+  p.held.trackAnswer = { audio: '62', subtitle: null, remembered: true, remembered_subtitle_choice: KEPT_CHOICE };
+  await streamPlays(p, 30);
+  const way = await castPlays(p, true);
+  mediaPlays(way.media, 200);
+  await settle();
+  await pickTrack(p, '[data-subtitle="71"]');
+  p.tick(800);
+  await settle();
+  return p.elsewhere.starts().slice(1).map((b) => [b.audio || null, 'subtitle' in b ? b.subtitle : 'none named']);
+}
+
 const scenarios = {
   /* A pick in Audio & subtitles is kept for the title and the stream starts again where it was, the
      last frame held; by `serverPlays` the keeping fails, Plex plays other tracks, or the start fails. */
@@ -1044,6 +1060,22 @@ const scenarios = {
       await settle();
     }
     return { kept: bodies(), undo: !!undo };
+  },
+
+  /* Use my defaults over German audio and subtitles kept for the title; Plex plays the German
+     again, so what was kept is put back as it was. */
+  async tracks_reset_refused(p) {
+    const german = Object.assign({}, TRACKS, { audio: '62' });
+    p.replies[0] = answer('best', german);
+    p.held.tracks = { remembered: true, remembered_subtitle_choice: KEPT_SUBTITLES.onKept, defaults: { audio_lang: 'en', subtitle_lang: null } };
+    p.held.trackAnswer = { audio: '61', subtitle: null, remembered: false, remembered_subtitle_choice: null };
+    await streamPlays(p, 1268);
+    await settle();
+    p.replies.push(answer('best', german));
+    await pickTrack(p, '[data-av-reset]');
+    if (p.hlsList.length > 1) await streamPlays(p, 1268);
+    await settle();
+    return p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).map((c) => (c.gone ? ['DELETE', null] : ['PUT', c.body]));
   },
 
   /* A subtitle picked while the stream starts again for the audio just picked: it follows. Till
@@ -5632,6 +5664,7 @@ const scenarios = {
   },
 
   away_subtitle: awaySubtitle,
+  away_no_subtitle: awayNoSubtitle,
 
   /* The next episode goes on where this one played. */
   async away_next(p) {
