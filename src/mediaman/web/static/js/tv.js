@@ -29,10 +29,9 @@
   var SKIPPED_MS = 3000;
   var STORE_MS = 2000;       // what the TV keeps of what plays is written no more often than this
   var LEAVE_MS = 450;        // the page before fades out for as long as tv.css takes, and a little more
-  // A wait shown this long, some 13 s after the picture stopped, darkens the film and takes its
-  // middle: a dropped Wi-Fi or a stream filling again is mostly over by then, and past it a
-  // missing mediaman has been missed long enough to say so.
-  var WAIT_LONG_MS = 10000;
+  // A wait shown this long darkens the film and takes its middle. Until then the pill alone says
+  // so: a dropped Wi-Fi or a stream filling again is over long before, and is not worth more.
+  var WAIT_LONG_MS = 60000;
   var BACK_MS = 2500;        // the word that the film is back stays this long
 
   var body = document.body;
@@ -1378,7 +1377,8 @@
       // A film taken up again, after a wait or a restart, goes on waiting rather than starting over.
       if (!loaded || !ready) return (reloadDue && faltering()) || pickingUp || shown === 'buf' ? 'buf' : 'load';
       if (!wanted) return 'pause';
-      return stalled && faltering() ? 'buf' : 'play';
+      // A stream given up on and loaded again goes on with the wait already shown.
+      return stalled && (faltering() || shown === 'buf') ? 'buf' : 'play';
     }
     if (mode === 'resuming' && pickingUp) return 'buf';
     if (away && mode !== 'old') return 'lost';

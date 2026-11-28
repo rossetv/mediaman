@@ -640,8 +640,10 @@ def test_a_short_wait_is_a_pill_over_the_films_own_picture_and_ends_saying_it_is
 
 
 def test_only_a_long_wait_darkens_the_film_and_it_clears_as_the_film_comes_back() -> None:
-    out = _run("waits", "16000")
+    out = _run("waits", "66000")
     assert out["pill"]["dim"] == "wl"
+    # Half a minute in, it is still the pill alone over the film.
+    assert (out["mid"]["dim"], out["mid"]["pill"]) == ("wl", "nw on")
     assert out["long"]["dim"] == "wl on" and out["long"]["pill"] == "nw"
     assert out["back"]["dim"] is None and 'id="wl"' in out["back"]["left"]
     assert out["back"]["pill"] == "nw on ok" and out["after"]["pill"] == "nw ok"

@@ -1690,15 +1690,30 @@ const scenarios = {
       dim: t.html().includes('id="wl"') ? t.node('wl').className || 'wl' : null, frame: t.node('fr').className, ov: t.ov() || null,
     });
     const seen = {};
+    // A long wait is a network that is gone: mediaman is not heard from, and the stream given up
+    // on along the way is loaded again only once it is.
+    const gone = Number(ms) > 30000;
+    if (gone) t.answers.poll = [502, null];
     t.video.stuck = true;
     await t.step(2500);
     seen.early = { ...look(), screen: t.says() };
     await t.step(1500);
     seen.pill = look();
-    if (Number(ms) > 4000) { await t.step(Number(ms) - 4000); seen.long = look(); }
+    if (Number(ms) > 30000) { await t.step(26000); seen.mid = look(); }
+    if (Number(ms) > 4000) { await t.step(Number(ms) - (seen.mid ? 30000 : 4000)); seen.long = look(); }
+    // What the wait leaves behind as the film comes back, fading where it was.
+    let left = '';
+    const watch = async (step) => { for (let i = 0; i < step / 100; i += 1) { await t.step(100); left = left || t.left(); } };
+    if (gone) {
+      t.answers.poll = () => ready({ play: t.now });
+      await watch(3000);
+      t.video.fire('loadedmetadata');
+      t.video.fire('playing');
+      left = left || t.left();
+    }
     t.video.stuck = false;
-    await t.step(600);
-    seen.back = { ...look(), left: t.left() };
+    await watch(600);
+    seen.back = { ...look(), left };
     await t.step(3000);
     seen.after = look();
     return seen;
