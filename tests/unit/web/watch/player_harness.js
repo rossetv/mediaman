@@ -5708,6 +5708,46 @@ const scenarios = {
     return out;
   },
 
+  /* Where the person skips intros by themselves, over AirPlay or Google Cast the intro counts
+     down, then the TV is sent past it; a press during a second count keeps it. */
+  async away_auto_skip(p) {
+    const how = p.win.serverPlays;
+    p.replies[0] = answer('best', Object.assign({ markers: MARKERS }, TRACKS));
+    if (how === 'mms') p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
+    p.held.tracks = { remembered: false, remembered_subtitle_choice: null, defaults: { audio_lang: null, subtitle_lang: null, reduce_loud: false, auto_skip: true } };
+    await streamPlays(p, 30);
+    await settle();
+    let media = p.video;
+    let way = null;
+    if (how === 'mms') {
+      p.video.currentTime = 34;
+      p.elsewhere.ownOnTv(true, p.video, 'http://mm/api/cast/A1/index.m3u8');
+      await settle();
+    } else if (how === 'tvs') {
+      media = (await airPlays(p)).air;
+    } else {
+      way = await castPlays(p, true);
+      media = way.media;
+    }
+    media.paused = false;
+    const skip = p.q('[data-skip]');
+    const look = () => (gone(skip) ? null : p.q('[data-skip-text]').textContent);
+    const at = async (t) => { media.currentTime = t; fire(media, 'timeupdate'); p.tick(250); await settle(); };
+    const out = {};
+    /* What the Chromecast is left with, to skip by itself once the page is closed. */
+    if (way) out.kept = !!way.kept && way.kept.auto_skip;
+    await at(61);
+    out.counting = [look(), skip.classList.contains('is-counting')];
+    await at(66.2);
+    out.skippedTo = Math.round(media.currentTime);
+    await at(2401);
+    out.credits = look();
+    click(skip);
+    await at(2410);
+    out.keptCredits = [look(), Math.round(media.currentTime)];
+    return out;
+  },
+
   /* An iPhone with no TV of mediaman's, before Safari has said whether an AirPlay TV is near. */
   async away_airplay_alone(p) {
     p.replies[0].ok.airplay = '/api/cast/A1/index.m3u8';
@@ -6407,6 +6447,30 @@ const scenarios = {
     out.trouble = said();
     out.freed = sheet().style.minHeight;
     out.looks = looks;
+    return out;
+  },
+
+  /* Chrome looks for a Chromecast and finds none: the sheet, opened again later, says so, and a
+     press on the row looks again. */
+  async away_none_found(p) {
+    const way = castWay(true);
+    let state = { available: false, looking: true };
+    let looks = 0;
+    way.available = () => state.available;
+    way.looking = () => state.looking;
+    way.look = () => { looks++; };
+    await streamPlays(p, 30);
+    p.win.MM.playOn.register(way);
+    await openSheet(p);
+    await pickRow(p, 'close');
+    state = { available: false, looking: false };
+    p.win.MM.playOn.changed();
+    await openSheet(p);
+    const row = rowOf('cast');
+    const out = { line: row ? row.querySelector('small').textContent : null };
+    const before = looks;
+    await pickRow(p, 'cast');
+    out.looks = looks - before;
     return out;
   },
 

@@ -193,10 +193,19 @@ def test_a_tv_plays_the_stream_with_no_session(alice, tv):
     assert segment_url == _segment_url(url)
     segment = tv.get(segment_url)
     assert (segment.status_code, segment.content) == (200, b"video bytes")
+    assert playlist.headers["cache-control"] == "no-store, no-transform"
     for resp in (playlist, segment):
-        assert resp.headers["cache-control"] == "no-store, no-transform"
         assert resp.headers["access-control-allow-origin"] == "*"
         assert "access-control-allow-credentials" not in resp.headers
+
+
+def test_a_segment_may_be_kept_by_the_tv_alone_and_not_by_a_proxy(alice, tv):
+    segment = tv.get(_segment_url(_cast(alice)["url"]))
+    assert segment.status_code == 200
+    directives = {d.strip() for d in segment.headers["cache-control"].split(",")}
+    assert {"private", "no-transform"} <= directives
+    assert "no-store" not in directives
+    assert any(d.startswith("max-age=") and int(d[8:]) > 0 for d in directives)
 
 
 def test_head_answers_for_a_held_ticket_without_fetching_from_plex(alice, tv, plex):

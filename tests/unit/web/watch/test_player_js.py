@@ -3308,7 +3308,12 @@ def test_rows_stay_where_they_are_while_the_sheet_is_open(markup):
     later = [key for key, _ in out["later"]]
     assert later == ["here", "tv-5", "tv-7", "cast", "tv-6", "tv-11", "pair"]
     assert dict(out["later"])["tv-5"] == "Not open"
-    assert dict(out["later"])["cast"] == "No TV found"
+    assert dict(out["later"])["cast"] == "No Chromecast found"
+
+
+def test_a_chromecast_looked_for_and_not_found_is_said_so_when_the_sheet_opens_again(markup):
+    out = elsewhere(markup, "away_none_found", "plain")
+    assert out == {"line": "No Chromecast found", "looks": 1}
 
 
 LOOKS = ["here", "pair"]
@@ -3642,3 +3647,18 @@ def test_reduce_loud_sounds_kept_on_leaves_the_video_as_it_comes_until_a_press(m
     out = run(markup, "loud_saved")
     assert (out["checked"], out["beforePress"]) == ("true", "as it comes, untouched")
     assert out["afterPress"] == {"dry": 0, "compressed": 1}
+
+
+@pytest.mark.parametrize("mode", ["mms", "tvs", "cast"])
+def test_where_the_person_skips_by_themselves_a_tv_of_airplay_or_cast_counts_down_then_skips(
+    markup, mode
+):
+    out = elsewhere(markup, "away_auto_skip", mode)
+    assert out["counting"] == ["Skipping intro in 5 · Cancel", True]
+    assert out["skippedTo"] == 150
+    assert out["credits"] == "Skipping credits in 5 · Cancel"
+    assert out["keptCredits"] == ["Skip credits", 2410]
+
+
+def test_a_chromecast_is_left_knowing_the_person_skips_intros_and_credits_by_themselves(markup):
+    assert elsewhere(markup, "away_auto_skip", "cast")["kept"] is True

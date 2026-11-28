@@ -104,9 +104,17 @@
     return ways.filter(function (w) { return told(w, 'available'); });
   }
 
-  /* Those that are, may come to be, or say why they are not. */
+  var seen = [];              // the ways listed once: one that then finds nothing says so
+
+  /* Those that are, may come to be, or say why they are not; and those that were. */
   function listed() {
-    return ways.filter(function (w) { return told(w, 'available') || told(w, 'looking') || told(w, 'trouble'); });
+    return ways.filter(function (w) {
+      if (told(w, 'available') || told(w, 'looking') || told(w, 'trouble')) {
+        if (seen.indexOf(w) === -1) seen.push(w);
+        return true;
+      }
+      return seen.indexOf(w) !== -1;
+    });
   }
 
   function hasTvs() { return !absent && (tvs !== null || lost); }
@@ -583,7 +591,7 @@
     var none = !there && !looks && !trouble && !here && wait !== way.id;
     row(list, {
       id: way.id, icon: way.icon, name: way.label, on: here, starting: wait === way.id, looks: looks, off: none, more: !none,
-      sub: here ? 'Playing here now' : wait === way.id ? 'Starting…' : looks ? 'Looking for TVs…' : none ? 'No TV found' : way.sub,
+      sub: here ? 'Playing here now' : wait === way.id ? 'Starting…' : looks ? 'Looking for TVs…' : none ? 'No ' + way.label + ' found' : way.sub,
     }, function () {
       if (here) {
         close();

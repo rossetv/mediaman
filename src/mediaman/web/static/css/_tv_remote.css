@@ -148,6 +148,8 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem__skip.player-pill { gap: 8px; font-size: 15px; padding: 0 18px; }
 .tv-rem__skip { animation: tv-rise var(--dur) var(--ease-out); }
 .tv-rem__skip.is-leaving { animation: tv-sink var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+.tv-rem__skip.is-counting { font-variant-numeric: tabular-nums; }
+.tv-rem__skip.is-counting .ico { display: none; }
 
 .tv-rem .player-bottom { position: relative; inset: auto; padding: 6px 14px 0; background: none; }
 .tv-rem .player-seek-row { gap: 12px; }

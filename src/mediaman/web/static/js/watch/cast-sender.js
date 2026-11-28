@@ -49,6 +49,9 @@
   /* How long Chrome may search before there is no TV. */
   var SEARCH_MS = 4000;
   var COUNTDOWN_MS = 10000;
+  /* Where the person skips them by themselves, an intro or credits a scene follows count down
+     this long first, as in the player, and a press keeps them. */
+  var SKIP_COUNT_S = 5;
   var COUNT_OLD_MS = 60000;
   /* "Are you still watching?": after this many episodes that began by themselves, or this long
      without a sign of anybody. */
@@ -132,8 +135,7 @@
     if (ok) ok = safely(function () { setUp(); return true; }, false);
     if (ok) {
       failed = false;
-      searching = true;
-      setTimeout(function () { searching = false; changed(); }, SEARCH_MS);
+      search();
     } else {
       context = null;
       if (tag) tag.remove();
@@ -141,6 +143,13 @@
     }
     heard(ok);
     changed();
+  }
+
+  var searchTimer = null;
+  function search() {
+    searching = true;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { searching = false; changed(); }, SEARCH_MS);
   }
 
   function setUp() {
@@ -294,6 +303,7 @@
       cut: false,        // the page before was left as it changed its stream
       changing: false,   // another stream is on its way
       wait: null,        // at its end: 'upnext' or 'still', and when that is over
+      skip: null,        // counting down to a skip: {marker, from, n}
       until: null,       // when the count of the player that follows it is over
       silent: false,     // joined at its end, the TV having named nothing
       auto: 0,           // episodes that began by themselves
@@ -576,7 +586,7 @@
     p.duration = stream.duration_s || 0;
     p.paused = !!stream.paused;
     p.begun = p.ended = false;
-    p.error = p.aim = p.asked = p.seen = null;
+    p.error = p.aim = p.asked = p.seen = p.skip = null;
     p.was = '';
     p.ready = 0;
   }
@@ -645,8 +655,55 @@
       if (rec && rec.stream === p.stream.stream_id && !ownedElsewhere(rec)) note(p);
     }
     if (p.followed) return;
+    countSkip(p);
     if (p.wait && !p.changing && p.wait.until !== null && now() >= p.wait.until) waitOver(p);
     else keepPlace(p);
+  }
+
+  /* An intro or credits it stands in, until a second before their end. */
+  function markerAt(p, t) {
+    var m = ((p.keep && p.keep.markers) || []).filter(function (x) { return x.start_s <= t; }).pop();
+    return m && t < m.end_s - 1 ? m : null;
+  }
+
+  /* As the player: not the credits that end the title, the next episode's wait is for those. */
+  function countsDown(p, m) {
+    return m.kind === 'intro' || !(m.final || (p.duration > 0 && m.end_s >= p.duration - 1));
+  }
+
+  /* With no player to do it, the skip the person asked for; on the TV's own time, so a pause
+     holds it. One too short for a count of 2 is left to a press. */
+  function countSkip(p) {
+    if (!p.ms || !p.begun || p.lost !== null || p.aim !== null || p.wait || p.changing) return;
+    var t = p.at();
+    var m = p.keep && p.keep.auto_skip === true ? markerAt(p, t) : null;
+    if (!m || m.kept || !countsDown(p, m)) {
+      if (p.skip) { p.skip = null; tell(); }
+      return;
+    }
+    if (!p.skip || p.skip.marker !== m) {
+      var n = Math.min(SKIP_COUNT_S, Math.floor(m.end_s - 1.5 - t));
+      p.skip = n < 2 ? null : { marker: m, from: t, n: n };
+      if (p.skip) tell();
+      return;
+    }
+    var before = skipIn(p);
+    if (t - p.skip.from < p.skip.n) {
+      if (skipIn(p) !== before) tell();
+      return;
+    }
+    keepMarker(p);
+    p.media.currentTime = m.end_s;
+  }
+
+  function skipIn(p) { return p.skip ? Math.max(0, Math.ceil(p.skip.n - (p.at() - p.skip.from))) : null; }
+
+  /* Skipped, or kept by a press: it is not counted down again. */
+  function keepMarker(p) {
+    p.skip.marker.kept = true;
+    p.skip = null;
+    noteKept(p);
+    tell();
   }
 
   /* Over here: nothing more is said of it. */
@@ -984,6 +1041,7 @@
       next: keep.next || null,
       upnext_in_s: waits(p, 'upnext'),
       still_in_s: waits(p, 'still'),
+      skip_in_s: skipIn(p),
     };
   }
 
@@ -1105,7 +1163,9 @@
     }
     if (about && !p.wait) stopOnServer(p.stream.stream_id, body(p));
     var next = about ? about.next : p.keep && p.keep.next || null;
+    var autoSkip = !!p.keep && p.keep.auto_skip === true;
     p.wait = null;
+    p.skip = null;
     return load(p, {
       stream_id: data.stream_id,
       url: data.url,
@@ -1129,6 +1189,7 @@
         markers: data.markers || [],
         chapters: data.chapters || [],
         next: next,
+        auto_skip: autoSkip,
       };
       noteKept(p);
     }, function (err) {
@@ -1387,7 +1448,15 @@
       trouble: function () { return failed ? NO_SCRIPT : null; },
       /* Whether pressing it opens the browser's list. */
       asks: function () { return !failed && !ownSession(); },
-      look: function () { loadSdk().catch(function () {}); },
+      /* Where none was found, pressing it looks again. */
+      look: function () {
+        if (context && !searching && !available()) {
+          search();
+          changed();
+        } else {
+          loadSdk().catch(function () {});
+        }
+      },
       start: start,
       again: again,
       release: release,
@@ -1426,6 +1495,8 @@
     start: function (change) {
       return pressed(function (p) { return goOn(p, change); }) || Promise.reject(refusal('failed', NOT_TAKEN));
     },
+    /* A press during the count keeps the intro or credits playing. */
+    keepSkip: function () { pressed(function (p) { if (p.skip) keepMarker(p); }); },
     cancel: function () {
       pressed(function (p) {
         if (!p.wait) return;

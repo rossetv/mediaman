@@ -11,8 +11,10 @@ from __future__ import annotations
 import contextlib
 import logging
 import sqlite3
+from collections.abc import Callable, Coroutine
 from dataclasses import asdict
 from functools import partial
+from typing import Any
 
 from fastapi import APIRouter, Cookie, Depends, Request
 from pydantic import Field
@@ -68,6 +70,11 @@ _PLAYLIST_TYPE = "application/vnd.apple.mpegurl"
 _STREAM_LIMITER = RateLimiter(max_attempts=240, window_seconds=60)
 # Keyed by address, which the TVs behind a proxy share, so only failures count.
 _FAILURE_LIMITER = RateLimiter(max_attempts=60, window_seconds=60)
+
+# A segment's bytes never change under its ticket's address, so the TV may keep it and read it
+# again from its own cache: AirPlay TVs read each one twice. No proxy may store it. Short, as a
+# kept segment stays readable there after its ticket ends.
+_SEGMENT_CACHE = "private, max-age=600, no-transform"
 
 _CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -298,7 +305,21 @@ def cast_playlist(request: Request, ticket: str) -> Response:
     return _for_tv(Response(text, media_type=_PLAYLIST_TYPE))
 
 
-@router.api_route("/api/cast/{ticket}/seg/{name}", methods=["GET", "HEAD"])
+class _SegmentRoute(_StreamRoute):
+    """A stream route whose segments, once read, the TV may keep."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def kept(request: Request) -> Response:
+            response = await handler(request)
+            if request.method == "GET" and response.status_code == 200:
+                response.headers["Cache-Control"] = _SEGMENT_CACHE
+            return response
+
+        return kept
+
+
 async def cast_segment(request: Request, ticket: str, name: str) -> Response:
     held = await run_in_threadpool(_read_ticket, request, ticket)
     if isinstance(held, Response):
@@ -310,3 +331,11 @@ async def cast_segment(request: Request, ticket: str, name: str) -> Response:
         return _for_tv(await _read_segment(request, held.stream_id, held.user, name, by_tv=True))
     except (ValueError, StreamGone):
         return _refused(request)
+
+
+router.add_api_route(
+    "/api/cast/{ticket}/seg/{name}",
+    cast_segment,
+    methods=["GET", "HEAD"],
+    route_class_override=_SegmentRoute,
+)

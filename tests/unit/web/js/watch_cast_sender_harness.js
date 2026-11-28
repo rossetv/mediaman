@@ -326,6 +326,10 @@ const scenarios = {
     out.noTv = { there: none.way.available(), looking: none.way.looking() };
     await w.clock.advance(4000);
     out.searched = { there: none.way.available(), looking: none.way.looking() };
+    none.way.look();
+    out.again = none.way.looking();
+    await w.clock.advance(4000);
+    out.againOver = none.way.looking();
     none.context.set('NOT_CONNECTED');
     out.found = { there: none.way.available(), looking: none.way.looking() };
     return out;
@@ -1771,6 +1775,53 @@ const scenarios = {
     await t.end();
     await t.w.clock.advance(12000);
     out.failed = { now: look(t.page), ended: t.w.tv.ended };
+    return out;
+  },
+  // Where the person skips intros and credits by themselves, with no player open.
+  async skips() {
+    const markers = [
+      { kind: 'intro', start_s: 100, end_s: 200, final: false },
+      { kind: 'credits', start_s: 2400, end_s: 2450, final: false },
+      { kind: 'credits', start_s: 2700, end_s: 3000, final: true },
+    ];
+    const make = async (autoSkip) => {
+      const w = world();
+      const page = await casting(w);
+      page.play.keep({ quality: 'best', next: null, auto_skip: autoSkip, markers: JSON.parse(JSON.stringify(markers)) });
+      page.play.leave();
+      await w.clock.advance(1000);
+      return { w, page, at: async (s) => { w.tv.media[0].say('PLAYING', { currentTime: s }); await settle(); } };
+    };
+    const look = (t) => t.page.sender.now().skip_in_s;
+    const seeks = (t) => t.w.tv.calls.filter((c) => /^seek/.test(c));
+    const out = {};
+
+    let t = await make(true);
+    await t.at(100);
+    await t.w.clock.advance(1000);
+    out.intro = look(t);
+    await t.w.clock.advance(2000);
+    out.later = look(t);
+    t.w.tv.media[0].say('PAUSED');
+    await t.w.clock.advance(20000);
+    out.paused = [look(t), seeks(t)];
+    t.w.tv.media[0].say('PLAYING');
+    await t.w.clock.advance(3000);
+    out.skipped = [seeks(t), look(t)];
+    await t.at(2400);
+    await t.w.clock.advance(1000);
+    out.credits = look(t);
+    t.page.sender.keepSkip();
+    await t.w.clock.advance(10000);
+    out.kept = [look(t), seeks(t).length];
+    await t.at(2700);
+    await t.w.clock.advance(1000);
+    out.last = look(t);
+
+    t = await make(false);
+    await t.at(100);
+    await t.w.clock.advance(8000);
+    out.off = [look(t), seeks(t)];
     return out;
   },
   // The player's page of another title leaves the play to the script.
