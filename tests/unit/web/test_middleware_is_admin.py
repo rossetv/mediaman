@@ -451,7 +451,7 @@ class TestResolvePageSession:
         result = resolve_page_session(req)
         assert isinstance(result, RedirectResponse)
         assert result.status_code == 302
-        assert result.headers["location"] == "/login"
+        assert result.headers["location"] == "/login?out=safety"
 
     def test_redirect_location_is_login(self, conn):
         """The redirect target must specifically be ``/login`` (not ``/`` or

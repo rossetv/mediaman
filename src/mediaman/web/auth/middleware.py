@@ -72,6 +72,9 @@ _PASSIVE_PATHS = frozenset({"/api/downloads/strip"})
 #: stale entry for a different token is never reused.
 _SESSION_CACHE_ATTR = "_mm_resolved_session"
 
+#: Set on ``request.state`` when this request's session was deleted for a broken client binding.
+_FINGERPRINT_DROP_ATTR = "_mm_fingerprint_dropped"
+
 
 def resolve_cached_session(
     request: Request | None,
@@ -113,6 +116,11 @@ def resolve_cached_session(
         client_ip=client_ip,
         request_supplied=request is not None,
         extend=request is None or request.scope["path"] not in _PASSIVE_PATHS,
+        on_fingerprint_drop=(
+            None
+            if request is None
+            else lambda: setattr(request.state, _FINGERPRINT_DROP_ATTR, True)
+        ),
     )
     if request is not None:
         setattr(request.state, _SESSION_CACHE_ATTR, (token, username))
@@ -192,17 +200,20 @@ def get_optional_admin_from_token(
 def _login_path(request: Request) -> str:
     """The sign-in address that leads back to the page *request* asked for.
 
+    It says why when the session was just dropped for safety (``out=safety``).
     The address's hash never reaches the server: the browser carries it over each redirect.
     """
-    if request.method != "GET":
-        return "/login"
-    target = quote(request.scope["path"], safe="/:@!$&'()*+,;=~")
-    query = request.scope.get("query_string", b"").decode("latin-1")
-    if query:
-        target += "?" + query
-    if target == LANDING_PATH or safe_return_path(target) is None:
-        return "/login"
-    return "/login?" + urlencode({"next": target})
+    params: dict[str, str] = {}
+    if getattr(request.state, _FINGERPRINT_DROP_ATTR, False) is True:
+        params["out"] = "safety"
+    if request.method == "GET":
+        target = quote(request.scope["path"], safe="/:@!$&'()*+,;=~")
+        query = request.scope.get("query_string", b"").decode("latin-1")
+        if query:
+            target += "?" + query
+        if target != LANDING_PATH and safe_return_path(target) is not None:
+            params["next"] = target
+    return "/login?" + urlencode(params) if params else "/login"
 
 
 def resolve_page_session(

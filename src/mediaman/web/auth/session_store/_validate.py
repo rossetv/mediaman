@@ -31,9 +31,11 @@ from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth._session_fingerprint import (
     _client_fingerprint,
     _fingerprint_mode,
+    _legacy_loose_fingerprint,
 )
 from mediaman.web.auth.session_store._writes import (
     _cleanup_expired_with_commit,
+    _exec_with_commit,
     _refresh_last_used_with_commit,
     _try_delete_session,
 )
@@ -148,6 +150,10 @@ def _fingerprint_mismatch(
     other client must match the stored binding. Mode ``"off"`` (binding
     disabled) and a legacy row with no stored fingerprint (nothing to bind
     to) both validate as before.
+
+    A loose-mode row stored before the loose fingerprint hashed only the
+    UA's stable parts still matches on its whole-UA hash, and is then
+    rewritten to the current form, so a deploy signs nobody out.
     """
     stored_fp = row["fingerprint"]
     mode = _fingerprint_mode()
@@ -164,6 +170,13 @@ def _fingerprint_mismatch(
         return True
 
     current_fp = _client_fingerprint(user_agent, client_ip, mode=mode)
+    if (
+        current_fp != stored_fp
+        and mode == "loose"
+        and _legacy_loose_fingerprint(user_agent, client_ip) == stored_fp
+    ):
+        _upgrade_fingerprint(conn, row, token_hash, current_fp)
+        return False
     if current_fp != stored_fp:
         logger.warning(
             "session.fingerprint_mismatch user=%s expected=%s got=%s ip=%s mode=%s",
@@ -176,6 +189,26 @@ def _fingerprint_mismatch(
         _try_delete_session(conn, token_hash, reason="fingerprint_mismatch")
         return True
     return False
+
+
+def _upgrade_fingerprint(
+    conn: sqlite3.Connection, row: sqlite3.Row, token_hash: str, fingerprint: str
+) -> None:
+    """Store *fingerprint* in place of a row's old loose one; on failure the next request retries."""
+    try:
+        _exec_with_commit(
+            conn,
+            "UPDATE admin_sessions SET fingerprint = ? WHERE token_hash = ?",
+            (fingerprint, token_hash),
+        )
+    except sqlite3.Error:
+        logger.warning(
+            "session.fingerprint_upgrade_failed user=%s",
+            _sanitise_log_field(row["username"]),
+            exc_info=True,
+        )
+        return
+    logger.info("session.fingerprint_upgraded user=%s", _sanitise_log_field(row["username"]))
 
 
 def _maybe_refresh_last_used(
