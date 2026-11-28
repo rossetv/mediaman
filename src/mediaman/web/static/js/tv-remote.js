@@ -90,6 +90,10 @@
   var UNPAIRED = ['removed', 'left', 'account'];
   // A later press won: what the person sees is already that.
   var SILENT = ['superseded', 'replaced'];
+  // What a TV going from one stream to the next answers for a moment: a press is sent once more.
+  var PASSING = ['stale', 'not_playing'];
+  var AGAIN_MS = 1500;
+  var NOTE_MS = 6000; // that a press the TV refused is said on the card
 
   function $(sel) { return root.querySelector(sel); }
   function m(sel) { return mini.querySelector(sel); }
@@ -131,6 +135,7 @@
   var asks = false; // whether the card is one to be answered, with all else out of reach
   var timer = null;
   var asking = false; // a poll under way
+  var note = null; // a press the TV refused, as said on the card: {text, until}
   var ended = false; // signed out, or not let in: nothing more is asked
   var me = mini.getAttribute('data-me') || '';
   var dismissed = '';
@@ -532,16 +537,26 @@
     });
   }
 
+  function refusal(err) {
+    return err.name === 'AbortError' ? 'mediaman didn’t answer. Try again.'
+      : REFUSED[err.error] || MM.api.messageOf(err, 'That didn’t work. Try again.');
+  }
+
   function refuse(err) {
     if (sentTo(err)) { away(sentTo(err)); return; }
     if (isGone(err)) { lostTv(err); render(); return; }
-    if (SILENT.indexOf(err.error) === -1) {
-      var text = err.name === 'AbortError' ? 'mediaman didn’t answer. Try again.'
-        : REFUSED[err.error] || MM.api.messageOf(err, 'That didn’t work. Try again.');
-      global.UIFeedback.error(text);
-    }
+    if (SILENT.indexOf(err.error) === -1) global.UIFeedback.error(refusal(err));
     tick();
   }
+
+  /* A press the TV refused: said on the open card, under what plays, else as any refusal. */
+  function refuseSteer(err) {
+    if (!isOpen || sentTo(err) || isGone(err) || SILENT.indexOf(err.error) !== -1) { refuse(err); return; }
+    note = { text: refusal(err), until: now() + NOTE_MS };
+    tick();
+  }
+
+  function later(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
 
   /* Sent one at a time and in order: of what waits, only the newest of its kind. */
   function steer(kind, body, value) {
@@ -555,7 +570,7 @@
     }
     body.play_id = p.play_id;
     want(kind, value);
-    var item = { kind: kind, body: body, want: wants[kind], tv: tv.id };
+    var item = { kind: kind, body: body, want: wants[kind], tv: tv.id, title: p.rating_key };
     line = line.filter(function (x) { return x.kind !== kind; });
     line.push(item);
     render();
@@ -567,12 +582,23 @@
     var item = line.shift();
     if (!tv || tv.id !== item.tv) { pump(); return; }
     sending = true;
-    post(item.body).then(function (data) {
+    // A newer one of the kind is on its way: it speaks for both.
+    function newer() { return line.some(function (x) { return x.kind === item.kind; }); }
+    post(item.body).catch(function (err) {
+      if (err.status !== 409 || PASSING.indexOf(err.error) === -1) throw err;
+      return later(AGAIN_MS).then(askOne).then(function () {
+        // Sent again only to the same title, steerable now: on another, the press meant nothing.
+        var p = play();
+        if (newer() || !p || p.rating_key !== item.title || !canSteer()) throw err;
+        item.body.play_id = p.play_id;
+        return post(item.body);
+      }, function () { throw err; });
+    }).then(function (data) {
       item.want.id = data.id;
+      note = null;
     }, function (err) {
       if (wants[item.kind] === item.want) delete wants[item.kind];
-      // A newer one of the kind is on its way: it speaks for both.
-      if (!line.some(function (x) { return x.kind === item.kind; })) refuse(err);
+      if (!newer()) refuseSteer(err);
     }).then(function () {
       render();
       setTimeout(function () { sending = false; pump(); }, GAP_MS);
@@ -905,7 +931,9 @@
         : p.state === 'failed' ? 'Couldn’t play on ' : p.state === 'upnext' ? 'Finished on '
           : isPaused() && p.paused_by ? 'Paused by ' + p.paused_by + ' on '
             : isPaused() || p.state === 'still' ? 'Paused on ' : 'Playing on ') + name());
-    MM.dom.setText(els.hint, hintFor(p));
+    var refused = note && now() < note.until ? note.text : '';
+    MM.dom.setText(els.hint, refused || hintFor(p));
+    els.hint.classList.toggle('is-refused', !!refused);
 
     var steers = canSteer();
     live.forEach(function (el) {

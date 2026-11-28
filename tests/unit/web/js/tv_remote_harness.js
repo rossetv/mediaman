@@ -123,6 +123,12 @@ async function page(opts = {}) {
     if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, (api.gone && api.gone.data) || { last: api.gone && api.gone.last });
     if (method === 'GET') return { tv: copy(tv) };
     if (api.refuse) throw new APIError(api.refuse, 409, api.refusal);
+    // Refusals for the next commands, one each, as a TV changing streams gives them.
+    if (method === 'POST' && api.refuseNext && api.refuseNext.length) {
+      const why = api.refuseNext.shift();
+      if (api.then) api.then();
+      throw new APIError(why, 409);
+    }
     if (opts.sheet && /\/play$/.test(url)) {
       // As it begins there, it ends on the TV it was on.
       if (api.gives) Object.assign(api.tvs[0], { play: null, last: { ...aPlay(), reason: 'moved' } });
@@ -710,6 +716,21 @@ const scenarios = {
     p.api.refuse = 'tv_off';
     await p.press('[data-mini-play]');
     return { says: p.bar().says, toast: p.toasts.length };
+  },
+  /* A pause on the open remote refused as the TV changes streams: *why* once, or twice with
+     `twice`; with *then* the TV meanwhile plays that. */
+  async refusedAMoment(why, twice, then) {
+    const p = await page();
+    await p.open();
+    p.api.refuseNext = twice === 'twice' ? [why, why] : [why];
+    if (then) p.api.then = () => { Object.assign(p.api.tvs[0].play, JSON.parse(then)); };
+    await p.press('[data-play]');
+    const first = p.sent().length;
+    await p.pass(2000);
+    const out = { first, sent: p.sent().map((b) => b.play_id), hint: p.$('[data-hint]').textContent, toasts: p.toasts };
+    await p.pass(6000);
+    out.later = p.$('[data-hint]').textContent;
+    return out;
   },
   async unheard() {
     const p = await page();

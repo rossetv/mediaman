@@ -95,6 +95,37 @@ def test_a_refused_pause_is_taken_back_and_said() -> None:
     assert _run("refused") == {"says": "Playing on Living room", "toast": 1}
 
 
+USUAL_HINT = "You can lock or close this device. The TV carries on."
+
+
+@pytest.mark.parametrize("why", ["not_playing", "stale"])
+def test_a_pause_refused_as_the_tv_changes_streams_is_sent_once_more_and_not_said(why) -> None:
+    out = _run("refusedAMoment", why)
+    assert out["first"] == 1
+    assert out["sent"] == ["p1", "p1"]
+    assert out["hint"] == USUAL_HINT and out["toasts"] == []
+
+
+def test_a_pause_sent_again_goes_to_the_new_stream_of_the_same_title() -> None:
+    out = _run("refusedAMoment", "stale", "once", '{"play_id": "p2"}')
+    assert out["sent"] == ["p1", "p2"]
+    assert out["toasts"] == []
+
+
+def test_a_pause_refused_twice_is_said_on_the_card_for_a_while() -> None:
+    out = _run("refusedAMoment", "not_playing", "twice")
+    assert out["sent"] == ["p1", "p1"]
+    assert out["hint"] == "Nothing is playing on the TV now."
+    assert out["toasts"] == []
+    assert out["later"] == USUAL_HINT
+
+
+def test_a_pause_refused_as_another_title_begins_is_not_sent_to_it_but_said() -> None:
+    out = _run("refusedAMoment", "stale", "once", '{"play_id": "p2", "rating_key": "9002"}')
+    assert out["sent"] == ["p1"]
+    assert out["hint"] == "Something else plays on the TV now."
+
+
 def test_a_pause_the_tv_never_takes_is_not_shown_for_ever() -> None:
     assert _run("unheard") == "Playing on Living room"
 
