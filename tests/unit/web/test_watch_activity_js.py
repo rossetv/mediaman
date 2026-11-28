@@ -4,6 +4,7 @@ panel's Activity tab, its periods, its graphs grown and read, and its motion."""
 from __future__ import annotations
 
 import json
+import re
 from functools import cache
 from pathlib import Path
 
@@ -141,3 +142,61 @@ def test_a_download_being_unpacked_says_which_app_takes_it_and_is_not_drawn_as_b
     out = _run("unpacking")
     assert out["sub"].endswith("Sonarr imports it next")
     assert out["cls"] == "act-sub__val"
+
+
+def _read(scenario: str):
+    """What the scenario shows, with the no-break space between a figure and its unit as a space."""
+    return json.loads(json.dumps(_run(scenario)).replace("\\u00a0", " "))
+
+
+def test_the_queue_says_what_is_to_go_rounded_to_a_whole_gb_never_cut_down():
+    out = _read("queue")
+    assert out["head"] == "NZBGet · 6 in the queue · 2 GB to go"  # 1.86 GB, not "1 GB"
+    assert out["under"] == "NZBGet · 1 in the queue · 1 GB to go"  # not "1024 MB"
+
+
+def test_a_time_left_is_rounded_to_the_minute_before_it_is_split_into_hours():
+    subs = _read("queue")["subs"]
+    assert subs[0].endswith(" · 2 h left")  # 7190 s, not "1 h 60 min"
+    assert subs[1].endswith(" · 1 h left")  # 3590 s, not "60 min"
+    assert subs[2].endswith(" · 58 min left")  # 3500 s
+    assert subs[3].endswith(" · 2 h left")  # an exact hour has no "0 min"
+
+
+def test_a_finished_download_gives_no_time_left():
+    subs = _read("queue")["subs"]
+    assert subs[4] == "10.0 GB of 10.0 GB"
+    assert subs[5].endswith("GB") and "left" not in subs[5]  # more done than its size
+
+
+def test_last_asked_turns_to_hours_at_the_hour_and_never_says_60_min():
+    assert _read("asked") == {
+        "3560": "Last asked 59 min ago",
+        "3580": "Last asked 1 hour ago",
+        "5400": "Last asked 2 hours ago",
+    }
+
+
+def test_a_small_cpu_share_reads_under_a_tenth_not_zero_and_rounds_up_to_whole():
+    assert _read("smallCpu") == {"0.02": "<0.1%", "0.06": "0.1%", "0.97": "1%", "0.5": "0.5%"}
+
+
+def _honest(label: str) -> bool:
+    """A round figure in the unit it names: whole KB, or MB to at most a half."""
+    m = re.fullmatch(r"(\d+)(\.5)? (KB|MB)/s", label)
+    if m is None:
+        return False
+    return m[3] == "MB" or (not m[2] and int(m[1]) % 50 == 0)
+
+
+def test_every_network_scale_reads_as_a_round_figure_down_up_and_halfway():
+    for seen in _read("scales"):
+        labels = [seen["top"], seen["up"], *seen["ticks"][:2], seen["ticks"][3]]
+        assert all(_honest(t) for t in labels), seen
+        assert seen["ticks"][0] == seen["top"]
+
+
+def test_with_up_not_known_no_up_scale_is_shown():
+    out = _read("noUp")
+    assert out["small"] is True
+    assert out["ticks"][3] == ""
