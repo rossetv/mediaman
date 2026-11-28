@@ -21,6 +21,7 @@ from mediaman.scanner.repository.audit import (
     count_audit_rows,
     fetch_security_audit_rows,
 )
+from mediaman.services.plex_link import sync
 from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.history_text import (
     DELETE_ROOT_PREFIX,
@@ -444,6 +445,7 @@ def history_page(request: Request) -> Response:
     params = request.query_params
     if params.get("pane") != "1" or request.headers.get("sec-fetch-mode") == "navigate":
         return RedirectResponse(_pane_address(params), status_code=302)
+    sync.read_when_opened(conn, request.app.state, username)
     filters = _filters(viewer, **{k: params.get(k, "") for k in _FILTER_NAMES})
     try:
         page = min(max(1, int(params.get("page", 1))), _PAGE_MAX)

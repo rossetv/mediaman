@@ -13,6 +13,7 @@ from starlette.responses import Response
 from mediaman.core.format import format_day_month
 from mediaman.services.avatars import drawn
 from mediaman.services.mail.mailgun import load_mailgun_client
+from mediaman.services.plex_link import sync
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.auth.password_hash._change_password import password_changed_at
@@ -67,6 +68,7 @@ def account_page(request: Request) -> Response:
         or request.headers.get("sec-fetch-mode") == "navigate"
     ):
         return RedirectResponse("/?you=profile", status_code=302)
+    sync.read_when_opened(conn, request.app.state, username)
 
     templates = cast(Jinja2Templates, request.app.state.templates)
     response = templates.TemplateResponse(
