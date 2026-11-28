@@ -77,7 +77,7 @@
 
   /* ── What the panel knows ── */
 
-  var state = null; // { account, available, tonight, records, recent, phrases, left, auto, why }
+  var state = null; // { account, available, tonight, tonightHidden, records, recent, phrases, left, auto, why }
   var loading = null;
   var wipes = 0; // times the searches were forgotten
   var pageLeft = false; // the page is being left for the next person's
@@ -94,6 +94,7 @@
         account: data.account || '',
         available: data.available === true,
         tonight: data.tonight === true,
+        tonightHidden: data.tonight_hidden === true, // the person hid it, on any device
         records: data.records === true,
         recent: data.recent || [],
         phrases: data.personal && data.phrases ? data.phrases : [],

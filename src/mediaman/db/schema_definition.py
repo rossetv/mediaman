@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS admin_users (
     -- 1 while a paired TV playing for this person jumps past intros and credits by itself.
     tv_auto_skip INTEGER NOT NULL DEFAULT 1,
     -- 1 while the player evens out this person's loud and quiet sounds, where the browser can.
-    reduce_loud INTEGER NOT NULL DEFAULT 0
+    reduce_loud INTEGER NOT NULL DEFAULT 0,
+    -- 1 while the search panel shows this person Tonight (how long have you got, and what fits).
+    search_tonight INTEGER NOT NULL DEFAULT 1
 );
 
 -- A person's audio and subtitles for a show or movie (title_key), kept until they go back to
