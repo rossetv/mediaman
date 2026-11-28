@@ -33,7 +33,9 @@ HOLD_S = 4.0
 STALE_S = 30.0
 # A caller with no better to fall back on waits this long for the answer being made.
 WAIT_S = 3.0
-READY_S = 60
+# A finished download is kept this long, so someone away for the day still finds it. Whether they
+# have seen it is kept in their own browser.
+READY_S = 24 * 60 * 60
 MAX_ITEMS = 20
 # The ninth search comes some nine hours after the first, about when Downloads offers an admin
 # to abandon the title. Everybody sees how often it was searched for.
@@ -151,8 +153,9 @@ def _state_of(item: Mapping[str, object]) -> State:
         return "needs_attention"
     if state == "finding_copy":
         return "finding_copy"
-    # Only an item NZBGet does not hold names where it comes from.
-    if state == "queued" or not item.get("arr_source"):
+    # Only an item NZBGet does not hold names where it comes from. One paused waits as one
+    # queued does, and its line says why.
+    if state in ("queued", "paused") or not item.get("arr_source"):
         return "queued"
     return "stuck" if _int(item.get("search_count")) >= STUCK_AFTER_SEARCHES else "searching"
 
@@ -201,6 +204,10 @@ def _current(item: Mapping[str, object]) -> StripItem:
     # "Searched 12x · next attempt in ~4h"
     hint = _text(item.get("search_hint")).partition(" · ")[2] if state == "stuck" else ""
     waits = item.get("state_label") == WAITING_TO_IMPORT
+    if item.get("state") == "paused":
+        hint = _text(item.get("state_label"))
+    elif state == "needs_attention":
+        hint = _text(item.get("stopped"))
     return StripItem(
         key=_key_of(dl_id, tmdb_id),
         dl_id=dl_id,

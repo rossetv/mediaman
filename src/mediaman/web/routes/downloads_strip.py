@@ -15,6 +15,7 @@ from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.arr.finding_copy import fixing_words
+from mediaman.services.arr.import_retry import stopped_words
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.download_queue import build_downloads_response
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
@@ -88,7 +89,8 @@ def payload_for(
 
 def with_retrying(conn: sqlite3.Connection, data: DownloadsResponse) -> DownloadsResponse:
     """*data* with each download that needs attention saying what mediaman does about it
-    unasked, and whether it does anything: not while another copy of its title still downloads."""
+    unasked, and whether it does anything: not while another copy of its title still downloads;
+    or that it stopped, as the same fault kept coming back."""
     items = [data["hero"], *data["queue"]] if data["hero"] else data["queue"]
     downloading = {i.get("retry_key") for i in items if i.get("state") == "downloading"}
 
@@ -100,8 +102,15 @@ def with_retrying(conn: sqlite3.Connection, data: DownloadsResponse) -> Download
         if not isinstance(reasons, list):
             reasons = [item.get("attention") or ""]
         fixing = "" if key in downloading else fixing_words(conn, key, [str(r) for r in reasons])
-        label = fixing or item.get("state_label")
-        return {**item, "retrying": bool(fixing), "fixing": fixing, "state_label": label}
+        stopped = "" if fixing else stopped_words(conn, key)
+        label = fixing or stopped or item.get("state_label")
+        return {
+            **item,
+            "retrying": bool(fixing),
+            "fixing": fixing,
+            "stopped": stopped,
+            "state_label": label,
+        }
 
     return cast(
         DownloadsResponse,

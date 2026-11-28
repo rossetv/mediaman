@@ -184,15 +184,10 @@ def test_the_ring_and_the_count_say_how_what_is_downloading_stands_with_no_note_
         # What it last was is not told as what it is.
         "lost": (", downloads not updating", ["is-on", "is-lost"], 57, None),
         "found": (", 4 in progress", ["is-on"], 40, None),
-        # once seen, what is ready is told on its own and not counted as in progress
-        "seenMixed": (", 3 in progress, 1 ready to watch", ["is-on"], 57, None),
-        "seenDownloading": (", 1 downloading, 2 ready to watch", ["is-on"], 30, None),
-        "seenWaiting": (
-            ", 1 waiting to download, 1 ready to watch",
-            ["is-on", "is-ready"],
-            6,
-            None,
-        ),
+        # once seen, what is ready is no longer told: it stays a day, and the ring is for what is new
+        "seenMixed": (", 3 in progress", ["is-on"], 57, None),
+        "seenDownloading": (", 1 downloading", ["is-on"], 30, None),
+        "seenWaiting": (", 1 waiting to download", ["is-on", "is-waiting"], 6, None),
     }
     # nothing is left once the last one has gone
     over = out["over"]
@@ -200,10 +195,10 @@ def test_the_ring_and_the_count_say_how_what_is_downloading_stands_with_no_note_
     assert "is-on" not in over["ring"]
 
 
-def test_the_label_counts_the_ready_titles_downloading_lists_not_all_the_summary_counts() -> None:
+def test_the_label_counts_only_the_ready_titles_downloading_lists_that_are_new() -> None:
     out = _run("cappedReady")
-    assert out["mixed"].endswith(", 1 downloading, 2 ready to watch")
-    assert out["ready"].endswith(", 2 ready to watch")
+    assert out["mixed"].endswith(", 1 downloading")
+    assert out["ready"] == "Profile menu, robin"
 
 
 def test_on_watch_the_profile_button_opens_the_pane_and_never_the_menu() -> None:
@@ -370,7 +365,7 @@ def test_what_one_person_has_seen_leaves_the_count_of_another_on_the_same_browse
 def test_ready_titles_the_strip_does_not_list_are_never_counted() -> None:
     out = _run("unlisted")
     assert out["count"] is None
-    assert out["name"] == "Profile menu, robin, 20 ready to watch"
+    assert out["name"] == "Profile menu, robin"
 
 
 def test_a_browser_that_refuses_its_storage_still_counts_and_forgets_what_was_seen() -> None:

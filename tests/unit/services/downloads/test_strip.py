@@ -164,13 +164,15 @@ def test_such_a_release_is_not_held_while_nzbget_is_away_and_keeps_its_card_when
     assert (ready.key, ready.state, ready.title) == (before[0].key, "ready", strip.UNNAMED)
 
 
-def test_a_finished_one_is_ready_for_a_minute_and_then_gone():
+def test_a_finished_one_is_ready_for_a_day_and_then_gone():
     def items(seconds_ago):
         return collect(_data(recent=[_done("radarr:Ember Coast", seconds_ago)]), (), _NOW)
 
     [ready] = items(20)
-    assert (ready.state, ready.percent, ready.ready_seconds) == ("ready", 100, 40)
-    assert items(60) == []
+    assert (ready.state, ready.percent, ready.ready_seconds) == ("ready", 100, 24 * 3600 - 20)
+    [hours_on] = items(23 * 3600)
+    assert hours_on.state == "ready"
+    assert items(24 * 3600) == []
 
 
 def test_a_finished_one_keeps_its_place_and_the_title_it_was_known_by():
@@ -220,7 +222,7 @@ def test_with_nzbget_away_a_download_is_not_shown_as_looked_for():
 
 def test_what_finished_while_its_service_was_away_is_not_held_as_downloading():
     before = collect(_data(_raw()), (), _NOW)
-    done = _done("radarr:Ember Coast", 300)
+    done = _done("radarr:Ember Coast", 2 * strip.READY_S)
     assert collect(_data(recent=[done], unreachable=["Radarr"]), before, _NOW) == []
 
 
