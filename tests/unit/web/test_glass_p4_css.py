@@ -325,10 +325,10 @@ def test_on_a_phone_the_bar_s_islands_take_no_blur_under_a_title_s_sheet_in_plac
         "(prefers-reduced-motion: reduce) and (max-width: 699.98px), "
         "(prefers-reduced-motion: reduce) and (max-height: 500px) and (pointer: coarse)",
     )
-    # The flip waits out the sheet's rise; where motion is reduced, its fade, which the rule that
-    # cuts every animation short would otherwise make a flip at once.
+    # The flip comes before the rising sheet reaches them; where motion is reduced, after its fade,
+    # which the rule that cuts every animation short would otherwise make a flip at once.
     assert calm == {
-        (PHONES,): (_HELD, "isle-calm var(--dur-slow) step-end forwards"),
+        (PHONES,): (_HELD, "isle-calm calc(var(--dur-slow) * .3) step-end forwards"),
         reduced: (_HELD, "isle-calm var(--dur) step-end forwards !important"),
     }
     assert re.search(

@@ -514,12 +514,13 @@
   .container { padding-bottom: env(safe-area-inset-bottom, 0px); }
 }
 /* A phone, either way up, with a title's sheet over the whole screen: the sheet and its dim are
-   two blurred layers over the islands already, so they take none of their own. Not until the
-   sheet has risen over them, or faded in where motion is reduced, and only while the title holds
-   the page inert (watch/detail.js): it lets go as the sheet starts to fall. */
+   two blurred layers over the islands already, so they take none of their own. Not at once, the
+   dim being still faint, but before the rising sheet reaches them (at under 40% of its rise on a
+   phone of 568px or more), or once it has faded in where motion is reduced; and only while the
+   title holds the page inert (watch/detail.js): it lets go as the sheet starts to fall. */
 @keyframes isle-calm { to { --isle-blur: none; } }
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
-  html.has-ttl :is(.nav-glass[inert], [inert] .nav-glass) { animation: isle-calm var(--dur-slow) step-end forwards; }
+  html.has-ttl :is(.nav-glass[inert], [inert] .nav-glass) { animation: isle-calm calc(var(--dur-slow) * .3) step-end forwards; }
 }
 @media (prefers-reduced-motion: reduce) and (max-width: 699.98px), (prefers-reduced-motion: reduce) and (max-height: 500px) and (pointer: coarse) {
   html.has-ttl :is(.nav-glass[inert], [inert] .nav-glass) { animation: isle-calm var(--dur) step-end forwards !important; }

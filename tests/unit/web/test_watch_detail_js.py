@@ -58,6 +58,10 @@ def test_closing_twice_goes_back_once_and_a_double_click_does_not_reach_what_is_
     assert out["later"]["open"] is True
 
 
+def test_a_title_opened_from_the_shut_search_sheet_returns_focus_to_the_search_box() -> None:
+    assert _run("sheetCardCloses") == "watch-search"
+
+
 def test_a_title_opened_again_with_forward_returns_focus_to_its_card() -> None:
     assert _run("forwardThenEscape") == {"closed": True, "focus": "show-300"}
 

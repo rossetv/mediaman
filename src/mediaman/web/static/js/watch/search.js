@@ -1141,7 +1141,8 @@
       // Hidden from assistive tech, not made inert: that would restyle every card on the page. The
       // veil stays to be pressed: it closes the sheet, where a press through it would open what is under it.
       if (window.MM.inertPage) {
-        if (on) window.MM.inertPage.hold(bar, [browse, byId('watch-all'), veil].filter(Boolean));
+        // A preview of one of its cards, and the menu opened from that, stand over it and stay in reach.
+        if (on) window.MM.inertPage.hold(bar, [browse, byId('watch-all'), veil].filter(Boolean), overSheet);
         else window.MM.inertPage.release(bar);
       }
       sayList();
@@ -2543,14 +2544,38 @@
       sync();
       if (tabbed) openSheet(true);
     });
-    input.addEventListener('blur', function () {
-      sync();
+    // A menu opened from a preview over the sheet takes the focus: the sheet stays under it.
+    function overSheet() { return [document.querySelector('.pv-layer'), byId('watch-keep-menu')]; }
+    function inOver(n) { return !!n && overSheet().some(function (o) { return !!o && o.contains(n); }); }
+    function holdsSheet(n) { return !!n && (n === input || sheet.contains(n) || inOver(n)); }
+    // A finger's press outside the sheet and what stands over it drops the focus too, and that one closes it.
+    var pressedOut = false;
+    document.addEventListener('pointerdown', function (e) { pressedOut = !holdsSheet(e.target) && !box.contains(e.target); }, true);
+    document.addEventListener('keydown', function () { pressedOut = false; }, true);
+    /* *fromOver*: the focus left a preview or its menu, or the field gave it to one. Dropped there with
+       nowhere to go, as when a Keep takes the card away, it comes back to the field, or with a finger
+       to the sheet itself, where it raises no keyboard. */
+    function letGo(fromOver) {
       setTimeout(function () {
-        if (focused() || sheet.contains(document.activeElement)) return;
+        var at = document.activeElement;
+        if (holdsSheet(at)) return;
+        var finger = core.coarsePointer();
+        if (fromOver && (!at || at === document.body) && !(finger && pressedOut)) {
+          (finger ? sheet : input).focus({ preventScroll: true });
+          return;
+        }
         openSheet(false);
         pick(null);
         if (!input.value) restHint();
       });
+    }
+    // Safari gives a pressed menu item no focus: the field may have it back before the Keep button does.
+    input.addEventListener('blur', function (e) {
+      sync();
+      letGo(inOver(e && e.relatedTarget));
+    });
+    document.addEventListener('focusout', function (e) {
+      if (sheetOn && e.target !== input && !sheet.contains(e.target) && holdsSheet(e.target)) letGo(true);
     });
     box.addEventListener('mousedown', function (e) {
       if (clear.contains(e.target)) { e.preventDefault(); return; } // the caret stays

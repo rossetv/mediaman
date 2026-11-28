@@ -231,7 +231,6 @@
   --g-veil:      rgb(0 0 0 / .252);          /* behind a side panel */
   /* A tooltip, label or chip that can sit over light content: solid, never a --s* veil. */
   --g-tip:       #2c2c30;
-  --g-tip-shadow: 0 0 0 1px rgb(255 255 255 / .12), 0 6px 18px -6px rgb(0 0 0 / .6);
   /* Under a chip tinted with a see-through colour, so its coloured words hold over a white picture. */
   --g-chip-floor: inset 0 0 0 99px rgb(0 0 0 / .42);
   /* Words on a picture. */

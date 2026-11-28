@@ -1143,6 +1143,31 @@ const scenarios = {
     };
   },
 
+  // The same menu cut short: it ends halfway down a row, so that it plainly goes on.
+  async picksMenuCutMidRow() {
+    const ITEM = 46;
+    const PAD = 7;
+    const batches = Array.from({ length: 17 }, (_, i) => ({ id: 'b' + i, label: 'Picks', date_label: (i + 1) + ' Oct' }));
+    const p = load({ batches, innerHeight: 844, innerWidth: 390 });
+    await settle();
+    const pill = rec(p.doc).querySelector('[data-picks-menu]');
+    pill.getBoundingClientRect = () => ({ top: 500, bottom: 534, left: 20, right: 120, width: 100, height: 34 });
+    const menu = p.doc.getElementById('watch-picks-menu');
+    const full = batches.length * ITEM + 2 * PAD;
+    Object.defineProperty(menu, 'offsetHeight', { get: () => (menu.style.maxHeight ? parseFloat(menu.style.maxHeight) : full) });
+    menu.getBoundingClientRect = () => ({ top: parseFloat(menu.style.top), bottom: parseFloat(menu.style.top) + menu.offsetHeight, left: 0, right: 200, width: 200, height: menu.offsetHeight });
+    // Without its rows measured, the menu takes all the room there is.
+    click(p.doc, pill);
+    const room = parseFloat(menu.style.maxHeight);
+    click(p.doc, pill);
+    menu.clientTop = 1;
+    const row = (node) => (node.parentNode === menu ? menu.children.indexOf(node) : -1);
+    Object.defineProperty(Node.prototype, 'offsetTop', { configurable: true, get() { return row(this) < 0 ? 0 : PAD + row(this) * ITEM; } });
+    Object.defineProperty(Node.prototype, 'offsetHeight', { configurable: true, get() { return row(this) < 0 ? 0 : ITEM; } });
+    click(p.doc, pill);
+    return { room, cut: parseFloat(menu.style.maxHeight), ITEM, PAD, border: 1 };
+  },
+
   // A season line of pills 100px apart: the keys and the arrow page it like a poster row.
   async seasonLine() {
     const p = load();

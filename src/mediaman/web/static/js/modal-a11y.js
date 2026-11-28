@@ -1,6 +1,6 @@
 /* Modal a11y helpers:
  *
- *   - The page behind an open modal is inert, all but the toasts, the Keep menu and, under a title's
+ *   - The page behind an open modal is inert, all but the toasts, the Keep menu, what the modal keeps with it and, under a title's
  *     page, the bar of what plays on a TV, and Tab goes round the modal's own controls: those of the last opened, where one is over another
  *   - Escape closes the active modal via a caller-supplied close function
  *     (attach by calling window.ModalA11y.register(id, closeFn))
@@ -23,7 +23,8 @@
  * the focus trap and initial focus, and `ModalA11y.onClosed('delete-modal')`
  * to restore focus to the trigger. Something with a focus of its own calls
  * `MM.inertPage.hold(node[, spare])` as it opens and `MM.inertPage.release(node)` as it closes,
- * for the inert page and the Tab trap alone. What draws a trigger anew, or takes away what
+ * for the inert page and the Tab trap alone; `hold(node, spare, keep)` leaves *keep* (nodes, or a function of them)
+ * in reach while that modal is on top. What draws a trigger anew, or takes away what
  * modals were opened from, says so with `ModalA11y.handOn(find)` and `ModalA11y.closeFrom(node)`.
  */
 (function (global) {
@@ -40,6 +41,7 @@
   var open = [];               // the open modals, in open order
   var held = [];               // what the last of them has made inert
   var spares = [];             // by open modal, what it hides from assistive tech in place of inert, or a function of it
+  var keeps = [];              // by open modal, what stays in reach while it is on top, or a function of it
   var veiled = [];             // what is hidden so, with the aria-hidden it had
 
   function getModal(id) { return document.getElementById(id); }
@@ -65,7 +67,7 @@
   function topModal() { return open[open.length - 1] || null; }
 
   /* Makes all that stands outside the modal inert, whatever level of the page the
-     modal is on. Toasts and the Keep menu stay in reach; toasts may stand in what is full screen. A confirm
+     modal is on. Toasts, the Keep menu and what the top modal keeps stay in reach; toasts may stand in what is full screen. A confirm
      fading out still catches clicks, which what is inert does not. */
   function shutOut(node, keep, spare) {
     Array.prototype.forEach.call(node.children, function (child) {
@@ -97,7 +99,9 @@
     });
     veiled = [];
     if (!open.length) return;
-    var keep = [topModal(), document.getElementById('ui-toast-host'), document.getElementById('watch-keep-menu')].filter(Boolean);
+    var own = keeps[keeps.length - 1];
+    var keep = [topModal(), document.getElementById('ui-toast-host'), document.getElementById('watch-keep-menu')]
+      .concat(typeof own === 'function' ? own() : own).filter(Boolean);
     Array.prototype.push.apply(keep, document.querySelectorAll('.ui-confirm-overlay.is-leaving'));
     if (tvBar()) keep.push(tvBar());
     shutOut(document.body, keep, [].concat.apply([], spares.map(function (s) { return typeof s === 'function' ? s() : s; })));
@@ -107,10 +111,11 @@
      modal covers; Tab is held in the modal all the same. Spared under one modal, it is spared
      under those over it. A function is asked again each time the page is shut out, for what is
      built after the modal opened. */
-  function hold(modal, spare) {
+  function hold(modal, spare, keep) {
     if (open.indexOf(modal) !== -1) return;
     open.push(modal);
     spares.push(spare || []);
+    keeps.push(keep || []);
     settle();
   }
 
@@ -119,6 +124,7 @@
     if (at === -1) return;
     open.splice(at, 1);
     spares.splice(at, 1);
+    keeps.splice(at, 1);
     settle();
   }
 

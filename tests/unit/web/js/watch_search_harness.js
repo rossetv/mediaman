@@ -2188,6 +2188,86 @@ const scenarios = {
     return out;
   },
 
+  // A menu opened from a preview over the sheet takes the focus from the field: the sheet stays
+  // under it, in reach. Dropped from there with nowhere to go, the focus comes back to the field
+  // (with a finger, the sheet goes instead); gone to anything else, the sheet goes.
+  async sheetUnderPreviewMenu() {
+    const run = async (coarse, away) => {
+      const p = await ready(ADMIN);
+      const media = p.ctx.matchMedia;
+      p.ctx.matchMedia = (q) => (/coarse/.test(q) ? { matches: coarse } : media(q));
+      const layer = p.doc.body.appendChild(build(p.doc, ['div', { class: 'pv-layer' },
+        ['div', { class: 'watch-keep-menu pv-menu' }, ['button', { class: 'watch-keep-menu__item' }, 'Keep']]]));
+      const other = p.doc.body.appendChild(build(p.doc, ['button', {}, 'Elsewhere']));
+      const item = layer.querySelector('.watch-keep-menu__item');
+      const inert = (n) => { for (let a = n; a; a = a.parentNode) if (a.inert) return true; return false; };
+      const on = () => [p.doc.documentElement.classList.contains('has-sheet'), p.sheet.classList.contains('is-on'), p.doc.activeElement === p.input];
+      p.press();
+      p.input.focus();
+      item.focus();
+      p.input.listeners.blur.forEach((fn) => fn({}));
+      await settle();
+      const out = { menu: on().concat(inert(item)) };
+      if (away) other.focus(); else p.doc.body.focus();
+      (p.doc.listeners.focusout || []).forEach((fn) => fn({ target: item }));
+      await settle();
+      out.after = on();
+      return out;
+    };
+    return { nowhere: await run(false, false), finger: await run(true, false), elsewhere: await run(false, true) };
+  },
+
+  // As Safari has it: the pressed Keep item takes no focus, the field has it back, then hands it to
+  // the preview's Keep button, which the Keep takes away. The sheet stays, the focus back in the field.
+  async sheetAfterSafariKeep() {
+    const p = await ready(ADMIN);
+    const layer = p.doc.body.appendChild(build(p.doc, ['div', { class: 'pv-layer' }, ['button', { class: 'pv__keep' }, 'Keep']]));
+    const keep = layer.querySelector('.pv__keep');
+    p.press();
+    p.input.focus();
+    keep.focus();
+    p.input.listeners.blur.forEach((fn) => fn({ relatedTarget: keep }));
+    keep.remove();
+    p.doc.body.focus();
+    await settle();
+    return [p.doc.documentElement.classList.contains('has-sheet'), p.sheet.classList.contains('is-on'), p.doc.activeElement === p.input];
+  },
+
+  // With a finger, as WebKit has it: the pressed Keep item hands the focus back to the preview's Keep
+  // button, which the Keep takes away. The sheet stays, the focus on the sheet and not the field (that
+  // would raise the keyboard). A press outside, the focus dropped from the preview, still closes it.
+  async sheetAfterTouchKeep() {
+    const run = async (outside) => {
+      const p = await ready(ADMIN);
+      const media = p.ctx.matchMedia;
+      p.ctx.matchMedia = (q) => (/coarse/.test(q) ? { matches: true } : media(q));
+      const layer = p.doc.body.appendChild(build(p.doc, ['div', { class: 'pv-layer' },
+        ['button', { class: 'pv__keep' }, 'Keep'],
+        ['div', { class: 'watch-keep-menu pv-menu' }, ['button', { class: 'watch-keep-menu__item' }, '7 days']]]));
+      const other = p.doc.body.appendChild(build(p.doc, ['div', {}, 'Elsewhere']));
+      const keep = layer.querySelector('.pv__keep');
+      const item = layer.querySelector('.watch-keep-menu__item');
+      const focusout = (target) => (p.doc.listeners.focusout || []).forEach((fn) => fn({ target }));
+      p.press();
+      p.input.focus();
+      item.focus();
+      p.input.listeners.blur.forEach((fn) => fn({ relatedTarget: item }));
+      await settle();
+      (p.doc.listeners.pointerdown || []).forEach((fn) => fn({ target: outside ? other : item }));
+      if (!outside) {
+        keep.focus();
+        focusout(item);
+        keep.remove();
+      }
+      p.doc.body.focus();
+      focusout(outside ? item : keep);
+      await settle();
+      return [p.doc.documentElement.classList.contains('has-sheet'), p.sheet.classList.contains('is-on'),
+        p.doc.activeElement === p.input, p.doc.activeElement === p.sheet];
+    };
+    return { keep: await run(false), outside: await run(true) };
+  },
+
   // The field's words change by fading the old ones out, then the new ones in; words changed again
   // before they were seen are never faded out as if they had been.
   async hintSwap() {

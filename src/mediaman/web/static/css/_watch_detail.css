@@ -140,6 +140,14 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   min-height: min(calc((100vw - 48px) * .5625), 62vh, 552px); /* 16:9; grows for a long title */
   padding: 24px 32px 12px;
   overflow: hidden;
+}
+/* Its own fill, under the picture, fades out at the foot with it: left drawn there, a veil lighter
+   than the glass would end the hero on a light line. */
+.ttl__hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   background: linear-gradient(160deg, var(--s3), var(--s1));
 }
 .ttl__hero-skel { position: absolute; inset: 0; border-radius: 0; }
@@ -158,7 +166,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl.is-short .ttl__hero { padding-top: 72px; }
 .ttl.is-short:not(.is-trailer) .ttl__hero { min-height: 190px; }
 .ttl.is-short .ttl__poster { display: none; }
-.ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden]))) {
+.ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden])))::before {
   background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--s1) 80%);
 }
 /* With no wide picture the poster stands beside the title, whole and at its own shape. */
@@ -191,6 +199,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* The picture and its scrim fade out at the hero's foot, so the glass below carries up into it
    instead of meeting a dark edge. The blurred fill is scaled 1.2 from its middle: its foot lies
    past the hero's by a twelfth of its height. */
+.ttl__hero::before,
 .ttl__hero::after,
 .ttl__hero > :is(.ttl__hero-skel, .ttl__art) {
   -webkit-mask-image: linear-gradient(0deg, transparent, #000 var(--ttl-foot));
@@ -356,7 +365,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl.is-carried .ttl__sheet { overflow: visible; border-color: transparent; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; clip-path: var(--cry-clip); pointer-events: none; }
 .ttl.is-carried .ttl__sheet::before,
 .ttl.is-carried .ttl__hero > :is(.ttl__hero-skel, .ttl__art, .ttl__fill, .ttl__poster:not(.cry-move)) { visibility: hidden; }
-.ttl.is-carried .ttl__hero { overflow: visible; clip-path: none; background: none; }
+.ttl.is-carried .ttl__hero { overflow: visible; clip-path: none; }
+.ttl.is-carried .ttl__hero::before,
 .ttl.is-carried .ttl__hero::after,
 .ttl.is-carried .ttl__head::before { visibility: hidden; } /* at once, which their opacity is not */
 .ttl.is-carried .ttl__body { position: relative; z-index: 2; }
@@ -400,7 +410,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl.is-film .ttl__sheet { isolation: isolate; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .ttl.is-film .ttl__sheet::after { content: ""; position: absolute; z-index: -1; inset: calc(var(--ttl-hero) - var(--ttl-foot)) 0 0; -webkit-mask-image: linear-gradient(transparent, #000 var(--ttl-foot)); mask-image: linear-gradient(transparent, #000 var(--ttl-foot)); border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px); background: var(--g-regular); -webkit-backdrop-filter: var(--g-filter); backdrop-filter: var(--g-filter); pointer-events: none; }
 .ttl.is-film .ttl__sheet::before { visibility: hidden; }
-.ttl.is-film .ttl__hero { background: none; }
+.ttl.is-film .ttl__hero::before { background: none; }
 .ttl.is-film .ttl__hero > .ttl__hero-skel { visibility: hidden; }
 .ttl.is-film:not(.is-melting) .ttl__hero > :is(.ttl__art, .ttl__fill) { opacity: 0; transition: none; }
 

@@ -202,8 +202,10 @@
 .pv-menu .watch-keep-menu__item { min-height: 40px; }
 .pv-menu .watch-keep-menu__item[aria-checked="false"] > .ico { visibility: hidden; }
 .pv-menu__line { flex: none; height: 1px; margin: 4px 6px; border: 0; background: var(--hair); }
-/* On a phone, either way up, a preview over the search sheet is already glass on glass: its menu
-   is solid, never a third layer. */
+/* A menu opened from a preview over the search sheet (keep.js marks it) stands over that preview,
+   whether the sheet is still open or not. On a phone, either way up, the preview over the sheet is
+   already glass on glass: the menu is solid, never a third layer. */
+.pv-menu--over { z-index: calc(var(--z-nav) + 2); }
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
   .pv-menu--over { background: var(--g-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }

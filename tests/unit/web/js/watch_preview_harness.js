@@ -152,7 +152,7 @@ function load(opts = {}) {
   ctx.window = ctx;
   vm.createContext(ctx);
   if (opts.tvs) ctx.MM.playOn = { button(href, className) { const b = doc.createElement('button'); b.className = className; b.setAttribute('data-play-on', href); return b; } };
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/card-tools.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/carry.js', 'watch/preview.js'].forEach((f) => {
+  ['core/dom.js', ...(opts.modals ? ['modal-a11y.js'] : []), 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/card-tools.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/carry.js', 'watch/preview.js'].forEach((f) => {
     vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
     if (f === 'watch/core.js') {
       const html = doc.documentElement.classList;
@@ -782,7 +782,7 @@ const scenarios = {
     h.doc.querySelector('.pv-menu [data-act="like"]').click();
     return Object.assign(out, { asked, open: h.title() });
   },
-  /* The menu hangs on the page, outside the preview: it is marked while its preview is over the search sheet. */
+  /* The menu hangs beside the preview, outside it: it is marked while its preview is over the search sheet. */
   async menuOverSearch() {
     const h = load();
     const grid = h.doc.querySelector('#watch-browse');
@@ -800,6 +800,62 @@ const scenarios = {
     const over = await opened('film');
     grid.classList.remove('watch-sheet');
     return { over, page: await opened('other') };
+  },
+  /* The search sheet makes the page under it inert, as search.js does, the rows only hidden:
+     the menu of a preview over it is still in reach, and so are the shared Keep menu and the preview.
+     A dialog over the sheet takes the preview out of reach again. */
+  async menuUnderSheet() {
+    const h = load({ modals: true });
+    const bar = h.doc.body.insertBefore(h.doc.createElement('header'), h.doc.body.firstChild);
+    const grid = h.doc.querySelector('#watch-browse');
+    grid.classList.add('watch-sheet');
+    h.ctx.MM.inertPage.hold(bar, [grid], () => [h.doc.querySelector('.pv-layer')]);
+    await h.rest('film');
+    const more = h.pv().querySelector('[data-preview-more]');
+    more.click();
+    const inert = (n) => { for (let a = n; a; a = a.parentNode) if (a.inert) return true; return false; };
+    const menu = h.doc.querySelector('.pv-menu');
+    const out = { open: !menu.hidden, menu: inert(menu), keep: inert(h.doc.querySelector('#watch-keep-menu')), preview: inert(more) };
+    const dialog = h.doc.body.appendChild(h.doc.createElement('div'));
+    h.ctx.MM.inertPage.hold(dialog);
+    out.underDialog = [inert(menu), inert(more)];
+    h.ctx.MM.inertPage.release(dialog);
+    out.dialogGone = [inert(menu), inert(more)];
+    return out;
+  },
+  /* The Keep menu opened from a preview over the search sheet is marked to stand over it; opened
+     from a preview on the page, it is not. */
+  async keepMenuOverSearch() {
+    const h = load({ api: { 'movie-1': { ...FILM, keep_allowed: true, leaving: { keep_id: 5 } } } });
+    const keepMenu = h.doc.querySelector('#watch-keep-menu');
+    const opened = async () => {
+      await h.rest('film');
+      h.pv().querySelector('[data-preview-more]').click();
+      h.doc.querySelector('.pv-menu [data-act="keep"]').click();
+      const seen = [!keepMenu.hidden, keepMenu.classList.contains('pv-menu--over')];
+      h.key('Escape', h.doc.activeElement);
+      h.away();
+      await h.pass(1000);
+      return seen;
+    };
+    const grid = h.doc.querySelector('#watch-browse');
+    grid.classList.add('watch-sheet');
+    const over = await opened();
+    grid.classList.remove('watch-sheet');
+    return { over, page: await opened() };
+  },
+  /* The menu opened again after it was left scrolled down, as the ticked trailers item had it:
+     it starts at its top, where its first item is. */
+  async menuOpensAtTop() {
+    const h = load({ api: { 'movie-1': { ...FILM, keep_allowed: true, leaving: { keep_id: 5 } } } });
+    await h.rest('film');
+    const more = h.pv().querySelector('[data-preview-more]');
+    more.click();
+    const menu = h.doc.querySelector('.pv-menu');
+    menu.scrollTop = 15;
+    more.click();
+    more.click();
+    return [!menu.hidden, menu.scrollTop, h.doc.activeElement === menu.querySelector('.watch-keep-menu__item')];
   },
   async details() {
     const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2' } } });
