@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
+from mediaman.services.arr.fetcher import FetchResult
 from mediaman.services.arr.search_trigger import (
     _last_search_trigger,
     maybe_trigger_search,
@@ -294,8 +295,8 @@ class TestTriggerPendingSearches:
             },
         ]
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.fetch_arr_queue",
-            lambda c, _sk: items,
+            "mediaman.services.arr.search_trigger.fetch_arr_queue_result",
+            lambda c, _sk, steady: FetchResult(cards=items),
         )
         calls: list[tuple] = []
         monkeypatch.setattr(
@@ -311,10 +312,10 @@ class TestTriggerPendingSearches:
         """If fetching the arr queue blows up, the scheduler job does not propagate."""
         conn = MagicMock()
 
-        def boom(c, sk):
+        def boom(c, sk, steady):
             raise requests.ConnectionError("radarr down")
 
-        monkeypatch.setattr("mediaman.services.arr.search_trigger.fetch_arr_queue", boom)
+        monkeypatch.setattr("mediaman.services.arr.search_trigger.fetch_arr_queue_result", boom)
         # Sonarr pass still runs — stub it out so the test is deterministic.
         monkeypatch.setattr(
             "mediaman.services.arr.search_trigger.build_radarr_from_db",
@@ -350,8 +351,8 @@ class TestTriggerPendingSearches:
             },
         ]
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.fetch_arr_queue",
-            lambda c, _sk: arr_items,
+            "mediaman.services.arr.search_trigger.fetch_arr_queue_result",
+            lambda c, _sk, steady: FetchResult(cards=arr_items),
         )
 
         # Sonarr client returns id=1 (dup) and id=2 (partial missing, new).
@@ -383,8 +384,8 @@ class TestTriggerPendingSearches:
     def test_sonarr_partial_missing_skipped_when_client_missing(self, monkeypatch):
         conn = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.fetch_arr_queue",
-            lambda c, _sk: [],
+            "mediaman.services.arr.search_trigger.fetch_arr_queue_result",
+            lambda c, _sk, steady: FetchResult(),
         )
         monkeypatch.setattr(
             "mediaman.services.arr.search_trigger.build_radarr_from_db",
