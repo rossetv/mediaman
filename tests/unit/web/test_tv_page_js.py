@@ -23,7 +23,27 @@ def _run(scenario: str, *args: str):
 
 
 def test_what_the_tv_runs_is_es5() -> None:
-    assert _run("es5") == {"js/tv.js": "ES5", "vendor/hls/hls.min.js": "ES5", "let": "refused"}
+    assert _run("es5") == {
+        "js/tv.js": "ES5",
+        "js/watch/loudness.js": "ES5",
+        "vendor/hls/hls.min.js": "ES5",
+        "let": "refused",
+    }
+
+
+def test_reduce_loud_sounds_follows_whoever_started_each_title_on_the_tv() -> None:
+    compressed, as_it_comes = {"dry": 0, "compressed": 1}, {"dry": 1, "compressed": 0}
+    on = _run("loud", "chromium", "on")
+    assert (on["first"], on["next"], on["contexts"]) == (compressed, as_it_comes, 1)
+    off = _run("loud", "chromium", "off")
+    # Nothing is led through Web Audio for someone who never chose it.
+    assert (off["first"], off["next"]) == ("as it comes", compressed)
+    # WebKit's video goes silent once led through Web Audio: there it is left alone.
+    assert _run("loud", "apple", "on") == {
+        "first": "as it comes",
+        "next": "as it comes",
+        "contexts": 0,
+    }
 
 
 def test_the_tv_uses_nothing_its_old_browser_lacks() -> None:

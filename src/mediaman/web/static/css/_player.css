@@ -369,6 +369,26 @@
 .player.is-idle .player-skip.is-quiet,
 .player:has([aria-expanded="true"]) .player-skip,
 .player:has(.player-bubble:not([hidden], .is-leaving)) .player-skip { opacity: 0; visibility: hidden; }
+/* Counting down to a skip: the pill fills from its left as the seconds go, and is the Cancel, so
+   the skip glyph goes. Set from the video's own time, a pause holds it. */
+.player-skip-fill {
+  position: absolute;
+  inset: 4px 0;
+  z-index: -1;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.player-skip-fill::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 16%, transparent);
+  transform: scaleX(var(--skip-done, 0));
+  transform-origin: left;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.player-skip.is-counting { font-variant-numeric: tabular-nums; }
+.player-skip.is-counting .ico { display: none; }
 
 /* "Play now" fills as the next-episode countdown runs out. The clip keeps
    the pill's round ends while the bar inside it scales; light, over the glass of a quiet pill. */
@@ -545,7 +565,8 @@
   .player-bubble,
   .player-skip { animation: none; }
   /* No moving fill: the number counts down alone. */
-  .player-upnext-fill { display: none; }
+  .player-upnext-fill,
+  .player-skip-fill { display: none; }
   .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite !important; }
 }
 
@@ -1404,6 +1425,9 @@
     border-bottom: 0;
     border-radius: 20px 20px 0 0;
     box-shadow: var(--g-inset);
+    /* Near opaque whether or not the blur draws: low-power and WebKit show the video and the
+       controls through a thinner tint, over the sheet's own words. */
+    background: rgb(var(--g-tint) / max(var(--g-a), .94));
     animation: player-av-up var(--dur-slow) var(--ease-push);
   }
   .player-av::before { content: ""; flex: none; display: block; width: 36px; height: 5px; margin: 8px auto 2px; border-radius: var(--r-pill); background: var(--hair-hover); }
