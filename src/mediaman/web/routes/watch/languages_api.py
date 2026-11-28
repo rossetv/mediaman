@@ -21,6 +21,7 @@ import requests
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import Response
+from urllib3.exceptions import NewConnectionError
 
 from mediaman.core.audit import log_audit
 from mediaman.db import get_db
@@ -212,13 +213,19 @@ _ARR_FAILURES = (SafeHTTPError, requests.RequestException, ArrError, ValueError)
 # ── How copies asked for are getting on ──
 
 
-def _queued(client: ArrClient | None, copy: Asked) -> list[dict[str, Any]] | None:
-    """The copy's downloads in the service's queue; None where the queue could not be read."""
+def _queue(client: ArrClient | None) -> list[dict[str, Any]] | None:
+    """The service's whole queue; None where it could not be read."""
     if client is None:
         return None
     try:
-        queue = client.get_queue()
+        return [dict(entry) for entry in client.get_queue()]
     except _ARR_FAILURES:
+        return None
+
+
+def _ours(queue: list[dict[str, Any]] | None, copy: Asked) -> list[dict[str, Any]] | None:
+    """The copy's downloads in the queue; None where the queue could not be read."""
+    if queue is None:
         return None
     out = []
     for entry in queue:
@@ -233,8 +240,40 @@ def _queued(client: ArrClient | None, copy: Asked) -> list[dict[str, Any]] | Non
         else:
             ours = entry.get("episodeId") == copy.episode_id
         if ours:
-            out.append(dict(entry))
+            out.append(entry)
     return out
+
+
+#: A download the service gave up on, or one a person told it to leave: it will not come.
+_FAILED_STATES = frozenset({"failed", "failedpending", "ignored"})
+
+
+def _tracked(entry: dict[str, Any]) -> str:
+    return str(entry.get("trackedDownloadState") or "").lower()
+
+
+def _failed(entry: dict[str, Any]) -> bool:
+    return _tracked(entry) in _FAILED_STATES
+
+
+def _stuck(entry: dict[str, Any]) -> bool:
+    """Downloaded, but the service will not put it in place by itself."""
+    tracked = _tracked(entry)
+    warned = str(entry.get("trackedDownloadStatus") or "").lower() in ("warning", "error")
+    return tracked == "importblocked" or (tracked.startswith("import") and warned)
+
+
+def _status(entries: list[dict[str, Any]]) -> str:
+    """How the copy's downloads are getting on, the worst that is still coming first: "failed"
+    only where none of them is still coming."""
+    coming = [e for e in entries if not _failed(e)]
+    if not coming:
+        return "failed"
+    if any(_stuck(e) for e in coming):
+        return "stuck"
+    if any(_tracked(e).startswith("import") for e in coming):
+        return "importing"
+    return "downloading"
 
 
 def _progress(entries: list[dict[str, Any]]) -> int | None:
@@ -291,27 +330,21 @@ def _copies(
     have = _audio_languages(audio)
     part = item.media.part_id if item.media else None
     minutes: dict[int, int | None] = {}
-    client = _client(request, conn, item) if any(c.state == "asked" for c in asked) else None
-    queue_cache: dict[int, list[dict[str, Any]] | None] = {}
+    # One item, one service: its queue is read once for all the copies asked for.
+    queue = _queue(_client(request, conn, item)) if any(c.state == "asked" for c in asked) else None
     shown: list[dict[str, object]] = []
     for copy in asked:
         status, progress = "lacks", None
         if copy.state == "asked":
-            if copy.id not in queue_cache:
-                queue_cache[copy.id] = _queued(client, copy)
-            entries = queue_cache[copy.id]
+            entries = _ours(queue, copy)
             # Only a file of this item's that changed since the ask tells how the copy came.
             changed = part is not None and copy.parts.get(item.rating_key) not in (None, part)
             if entries:
-                status = (
-                    "importing"
-                    if any(
-                        str(e.get("trackedDownloadState", "")).startswith("import") for e in entries
-                    )
-                    else "downloading"
-                )
-                progress = _progress(entries)
-                minutes[copy.id] = _minutes_left(entries)
+                status = _status(entries)
+                if status != "failed":
+                    coming = [e for e in entries if not _failed(e)]
+                    progress = _progress(coming)
+                    minutes[copy.id] = _minutes_left(coming) if status == "downloading" else None
             elif copy.language in have and (changed or item.rating_key in copy.lacked):
                 language_copies.settle(conn, copy.id, "ready")
                 continue
@@ -526,6 +559,37 @@ def search_copies(
     )
 
 
+def _refused(exc: Exception) -> bool:
+    """Whether the grab surely did not happen: the service said no, or was never reached. A
+    late or broken answer may follow a grab the service did."""
+    if isinstance(exc, SafeHTTPError):
+        return 0 < exc.status_code < 500
+    if isinstance(exc, requests.ConnectTimeout):
+        return True
+    if isinstance(exc, requests.ConnectionError):
+        reason = getattr(exc.args[0], "reason", None) if exc.args else None
+        return isinstance(reason, NewConnectionError)
+    return False
+
+
+def _forget_failed(
+    conn: sqlite3.Connection, client: ArrClient, item: PlexItem, language: str
+) -> None:
+    """A copy in *language* whose downloads all failed no longer stands in the way of another."""
+    asked = [
+        c
+        for c in language_copies.for_item(conn, item.rating_key, item.parent_rating_key)
+        if c.state == "asked" and c.language == language
+    ]
+    if not asked:
+        return
+    queue = _queue(client)
+    for copy in asked:
+        entries = _ours(queue, copy)
+        if entries and _status(entries) == "failed":
+            language_copies.settle(conn, copy.id, "gone")
+
+
 @router.post("/api/watch/languages/{rating_key}/audio")
 def get_copy(
     request: Request, rating_key: str, body: _GetCopy, username: str = Depends(get_current_user)
@@ -540,6 +604,7 @@ def get_copy(
     if isinstance(title, Response):
         return title
     item, audio, client, target, wanted = title
+    _forget_failed(conn, client, item, body.language)
     if language_copies.asked_already(conn, item.rating_key, item.parent_rating_key, body.language):
         return respond_err("already_asked", status=409)
     key = (username, rating_key, "audio", body.language, wanted)
@@ -549,11 +614,20 @@ def get_copy(
     found, everything = taken
     try:
         parts = _parts(request, conn, item, wanted)
-        client.grab_release(found.guid, found.indexer_id)
-    except (*_ARR_FAILURES, PlexError):
+    except PlexError:
         _keep_found(key, everything)
-        logger.warning("watch.languages: the copy could not be asked for", exc_info=True)
+        logger.warning("watch.languages: Plex could not be read for the copy", exc_info=True)
         return respond_err("unreachable", status=502)
+    try:
+        client.grab_release(found.guid, found.indexer_id)
+    except _ARR_FAILURES as exc:
+        if _refused(exc):
+            _keep_found(key, everything)
+            logger.warning("watch.languages: the copy could not be asked for", exc_info=True)
+            return respond_err("unreachable", status=502)
+        # The service had the ask but no answer came back in time, as when it is still fetching
+        # the release from the indexer: kept as asked, so it is followed and not asked for twice.
+        logger.warning("watch.languages: the copy was asked for without an answer", exc_info=True)
     language_copies.add(
         conn,
         username=username,

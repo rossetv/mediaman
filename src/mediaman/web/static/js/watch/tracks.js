@@ -134,6 +134,7 @@
     var veil = null;
     var from = null;
     var stack = [];            // the views in the chooser, the one shown last
+    var first = null;          // over a page, the maker of its first view; in the player, the menu's
     var busy = false;
     var held = false;          // a change is under way: the control goes on saying what played
     var seen;
@@ -206,6 +207,21 @@
     function fadeEnds(list) {
       list.classList.toggle('has-more-above', list.scrollTop > 1);
       list.classList.toggle('has-more-below', list.scrollTop + list.clientHeight < list.scrollHeight - 1);
+    }
+
+    /* The row brought into sight within the list or columns that scroll, and nothing around them. */
+    function reveal(row) {
+      if (!row.getBoundingClientRect) return;
+      for (var s = row.parentNode; s && s !== box; s = s.parentNode) {
+        if (!s.classList || !(s.classList.contains('player-av-list') || s.classList.contains('player-av-cols'))) continue;
+        if (s.scrollHeight <= s.clientHeight) continue;
+        var r = row.getBoundingClientRect();
+        var b = s.getBoundingClientRect();
+        var pad = 28;
+        if (r.bottom > b.bottom - pad) s.scrollTop += Math.min(r.bottom - b.bottom + pad, r.top - b.top - pad);
+        else if (r.top < b.top + pad) s.scrollTop -= b.top + pad - r.top;
+        fadeEnds(s);
+      }
     }
 
     function column(group, title, rows, none, extra) {
@@ -327,12 +343,12 @@
         state: function () { return state; },
         push: push,
         back: back,
-        home: function () { fresh = null; home(menuView()); },
-        /* On from where it is, with only the menu to go back to. */
+        home: function () { fresh = null; home(firstView()); },
+        /* On from where it is, with only the first view to go back to. */
         ahead: function (v) {
           if (!box) return;
           stack.slice(1).forEach(function (x) { if (x.gone) x.gone(); });
-          stack = [menuView(), v];
+          stack = [firstView(), v];
           show(v, 'fwd');
           focusIn(v);
         },
@@ -341,7 +357,8 @@
         busy: function (on) { if (on === undefined) return busy; busy = on; return busy; },
         byKeys: function () { return byKeys; },
         isOpen: function () { return !!box; },
-        menuChanged: function () { if (box && stack.length === 1 && stack[0].menu) redrawMenu(); },
+        /* Over a title's page, where nothing plays yet. */
+        onPage: function () { return !!first; },
         /* A track already on the title: it only switches, as a pick in the menu does. */
         switchTo: function (change) { then(change); },
         /* Subtitles just added: they play, and the menu shows them lit. */
@@ -354,6 +371,8 @@
         },
       };
     }
+
+    function firstView() { return first ? first(context()) : menuView(); }
 
     /* Until the host's word on the title has the subtitles just added, they are drawn as on. */
     function withFresh(s) {
@@ -425,24 +444,42 @@
       v.appendChild(foot());
       return {
         el: v, menu: true, label: 'Audio and subtitles', remake: menuView,
-        after: function () { MM.dom.qa('.player-av-list, .player-av-cols', v).forEach(fadeEnds); },
+        after: function () {
+          MM.dom.qa('.player-av-list, .player-av-cols', v).forEach(fadeEnds);
+          /* Subtitles just added are seen ticked, where the list is too long to show them. */
+          var lit = v.querySelector('.lp-fresh.is-lit');
+          if (lit) reveal(lit);
+        },
       };
     }
 
+    /* What a control is, so that the same one is found again in a menu drawn anew. */
+    function keyOf(n) {
+      var names = ['data-audio', 'data-subtitle', 'data-copy', 'data-lp-get', 'data-av-close', 'data-av-reset', 'data-av-loud'];
+      for (var i = 0; i < names.length; i++) {
+        if (n.hasAttribute && n.hasAttribute(names[i])) return '[' + names[i] + '="' + n.getAttribute(names[i]) + '"]';
+      }
+      return null;
+    }
+
+    /* Drawn anew where it stands: each list scrolled as it was, the focus on the same control. */
     function redrawMenu() {
       var old = stack[0].el;
-      var had = box.contains(document.activeElement);
-      var onLoud = had && document.activeElement.hasAttribute('data-av-loud');
+      var at = document.activeElement;
+      var had = box.contains(at);
+      var was = keyOf(at);
+      var scrolled = MM.dom.qa('.player-av-list, .player-av-cols', old).map(function (n) { return n.scrollTop; });
       var v = menuView();
       v.el.classList.add('lp-view');
       stack[0] = v;
       old.parentNode.insertBefore(v.el, old);
       old.remove();
+      MM.dom.qa('.player-av-list, .player-av-cols', v.el).forEach(function (n, i) { if (scrolled[i]) n.scrollTop = scrolled[i]; });
       v.after();
-      if (had) (v.el.querySelector(onLoud ? '[data-av-loud]' : '[role="radio"][aria-checked="true"]') || box).focus({ preventScroll: true });
+      if (had) (was && v.el.querySelector(was) || v.el.querySelector('[role="radio"][aria-checked="true"]') || box).focus({ preventScroll: true });
     }
 
-    function open(trigger, byKey, first) {
+    function open(trigger, byKey, maker) {
       if (box || !state) return;
       if (opts.opening) opts.opening();
       from = trigger;
@@ -458,8 +495,8 @@
       box.tabIndex = -1;
       box.addEventListener('click', onClick);
       /* From a page, over all of it; from the player, up from its control. */
-      var host = first ? opts.host || document.body : trigger.parentNode;
-      if (first) {
+      var host = maker ? opts.host || document.body : trigger.parentNode;
+      if (maker) {
         box.classList.add('lp-dialog');
         veil.classList.add('lp-dialog-veil');
         /* No player hands it the keys here: it takes its own, before the page under it. */
@@ -467,7 +504,8 @@
       }
       host.appendChild(veil);
       host.appendChild(box);
-      var v = first ? first(context()) : menuView();
+      first = maker || null;
+      var v = firstView();
       stack = [v];
       show(v, 'none');
       trigger.setAttribute('aria-expanded', 'true');
@@ -498,7 +536,7 @@
       var b = box;
       var v = veil;
       var t = from;
-      box = veil = from = null;
+      box = veil = from = first = null;
       stack = [];
       fresh = null;
       if (langs) langs.closed();

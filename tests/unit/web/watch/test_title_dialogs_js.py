@@ -78,3 +78,13 @@ def test_add_a_language_speaks_of_a_film_as_a_film_and_looks_for_a_show_s_whole_
     assert film["search"] == ["/api/watch/languages/120/audio?language=pt&scope=movie"]
     assert show["foot"].startswith("Its next episode has")
     assert show["search"] == ["/api/watch/languages/41/audio?language=pt&scope=season"]
+
+
+def test_a_copy_asked_for_from_a_title_page_speaks_of_nothing_playing_and_goes_back_there() -> None:
+    out = _run("languagesAsked")
+    onway = out["back"]["onway"]
+    assert onway["back"] == "Back to Add a language"
+    assert "Keep watching" not in " ".join(onway["facts"])
+    assert onway["facts"][0] == "What you have plays until the new copy is in."
+    # Back, and Done, go to the page's first view, never to the player's menu.
+    assert out["back"]["after"] == out["done"]["after"] == "Add a language"

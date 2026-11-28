@@ -578,6 +578,22 @@ def test_where_the_bar_stood_the_card_has_its_play_controls_and_no_stop(media: s
         assert stop < order(".tv-rem .player-volume") < order(".tv-rem [data-back10]")
 
 
+@pytest.mark.parametrize("media", [None, PHONE])
+def test_the_title_page_s_language_sheet_is_the_chooser_s_glass_never_a_near_solid_fill(
+    media: str | None,
+) -> None:
+    # A fill of .96 alpha with no blur leaves the page's white words faintly under the sheet's.
+    for where, selectors, decls in rules(PLAYER):
+        if not any(s.startswith(".player-av.lp-dialog") and " " not in s for s in selectors):
+            continue
+        if media is not None and where and PHONE not in where:
+            continue
+        for prop in ("background", "backdrop-filter", "-webkit-backdrop-filter"):
+            assert prop not in decls, (selectors, prop)
+    drawn = style(".player-av", PLAYER)
+    assert drawn["backdrop-filter"] == "var(--g-filter)"
+
+
 def test_on_the_remote_s_picture_a_long_title_takes_two_lines_before_it_is_cut() -> None:
     title = style(".tv-rem .player-title", REMOTE)
     assert title["white-space"] == "normal"
