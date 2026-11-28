@@ -1799,11 +1799,11 @@
 
 /* ── Reduced motion: the views only fade, quickly (watch/tracks.js slides none) ── */
 @media (prefers-reduced-motion: reduce) {
-  .player-av-row.lp-fresh::before { animation: lp-fresh-rm 3s linear .1s both; }
+  .player-av-row.lp-fresh::before { animation: none; transition: none; }
+  .player-av-row.lp-fresh.is-lit::before { opacity: 1; }
   .lp-seg-thumb, .lp-pending-bar i { transition: none; }
   .lp-opt.is-picked > .player-menu-tick, .player-av-row.lp-fresh > .player-menu-tick { animation: none; }
 }
-@keyframes lp-fresh-rm { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
 
 @media (forced-colors: active) {
   .lp-ver, .lp-search, .lp-fallback { border: 1px solid CanvasText; }

@@ -2381,6 +2381,15 @@ class AddingPlex(FakePlex):
         self.selects_late = selects_late
         self.reads_since_add: int | None = None
         self.added_with: dict | None = None
+        #: The add's PUT gets no answer, though Plex goes on with it.
+        self.add_unanswered = False
+        #: Reads of the item after the add that cannot reach Plex.
+        self.failing_reads = 0
+
+    def finish_late(self) -> None:
+        """Plex ends the add on its own: the track shows, selected for everyone."""
+        self.shows_after = self.reads_since_add or 0
+        self.selection = (self.selection[0], "11")
 
     def _shown(self) -> bool:
         return (
@@ -2408,7 +2417,16 @@ class AddingPlex(FakePlex):
             self.calls.append({"method": method, "url": url, "params": dict(params or {})})
             self.added_with = dict(params or {})
             self.reads_since_add = 0
+            if self.add_unanswered:
+                raise requests.ReadTimeout("no answer")
             return FakeResponse(200)
+        if (
+            self.failing_reads
+            and self.reads_since_add is not None
+            and path.startswith("/library/metadata/")
+        ):
+            self.failing_reads -= 1
+            raise requests.ConnectionError("cannot connect")
         answer = super().request(method, url, params=params, headers=headers, **kwargs)
         if method == "PUT" and path == "/library/parts/55" and self.selects_late and self._shown():
             self.selects_late = False
@@ -2437,14 +2455,53 @@ def test_an_added_subtitle_is_given_back_and_plex_s_own_selection_put_back(
     assert manager._held == {}
 
 
-def test_a_subtitle_that_does_not_show_in_time_leaves_plex_s_own_selection_held(
+def _adder(plex: AddingPlex, clock: Clock, conn) -> StreamManager:
+    plex.selection = ("7", "9")
+    plex.on_call = lambda path: setattr(clock, "now", clock.now + 5)
+    return StreamManager(lambda: (PLEX_URL, TOKEN), session=plex, clock=clock, db=lambda: conn)
+
+
+HELD = "SELECT rating_key, part_id, subtitle_stream_id FROM plex_held_selections"
+
+
+@pytest.mark.parametrize("how", ["not shown in time", "add unanswered", "reads failing"])
+def test_an_add_that_ends_short_puts_plex_s_selection_back_and_again_once_plex_finishes(
+    no_poll_wait, clock, conn, how
+):
+    plex = AddingPlex(shows_after=None)
+    plex.add_unanswered = how == "add unanswered"
+    plex.failing_reads = 100 if how == "reads failing" else 0
+    manager = _adder(plex, clock, conn)
+
+    if how == "not shown in time":
+        assert manager.add_subtitle("123", "/sub/key/1") is None
+    else:
+        with pytest.raises(PlexUnavailable):
+            manager.add_subtitle("123", "/sub/key/1")
+
+    assert plex.selection == ("7", "9")
+    # Held meanwhile, so that a start or the next run puts it back too.
+    assert [tuple(r) for r in conn.execute(HELD)] == [("123", "55", "9")]
+
+    plex.failing_reads = 0
+    plex.finish_late()
+    assert manager.reap() == 0
+    assert plex.selection == ("7", "9")
+    assert conn.execute(HELD).fetchall() == []
+    assert manager._adding == {}
+
+
+def test_an_add_plex_never_finishes_is_put_back_and_let_go_when_its_watch_ends(
     no_poll_wait, clock, conn
 ):
     plex = AddingPlex(shows_after=None)
-    plex.on_call = lambda path: setattr(clock, "now", clock.now + 5)
-    manager = StreamManager(lambda: (PLEX_URL, TOKEN), session=plex, clock=clock, db=lambda: conn)
+    manager = _adder(plex, clock, conn)
+    manager.add_subtitle("123", "/sub/key/1")
 
-    assert manager.add_subtitle("123", "/sub/key/1") is None
+    manager.watch_adds()
+    assert "123" in manager._adding
 
-    held = "SELECT rating_key, part_id, subtitle_stream_id FROM plex_held_selections"
-    assert [tuple(r) for r in conn.execute(held)] == [("123", "55", "0")]
+    clock.now += plex_stream.ADD_WATCH_SECONDS
+    manager.watch_adds()
+    assert manager._adding == {}
+    assert conn.execute(HELD).fetchall() == []

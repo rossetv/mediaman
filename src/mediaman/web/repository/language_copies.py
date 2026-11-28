@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from mediaman.core.time import now_iso
 
@@ -21,7 +22,8 @@ class Asked:
     arr_id: int
     season_number: int | None
     episode_id: int | None
-    part_id: str | None
+    #: The file in Plex of the item, or of each episode of its season, when it was asked for.
+    parts: dict[str, str]
     release_languages: tuple[str, ...]
     quality: str
     size_bytes: int | None
@@ -41,7 +43,7 @@ def _asked(row: sqlite3.Row) -> Asked:
         arr_id=row["arr_id"],
         season_number=row["season_number"],
         episode_id=row["episode_id"],
-        part_id=row["part_id"],
+        parts=json.loads(row["parts"]),
         release_languages=tuple(json.loads(row["release_languages"])),
         quality=row["quality"],
         size_bytes=row["size_bytes"],
@@ -62,7 +64,7 @@ def add(
     arr_id: int,
     season_number: int | None,
     episode_id: int | None,
-    part_id: str | None,
+    parts: dict[str, str],
     release_languages: tuple[str, ...],
     quality: str,
     size_bytes: int | None,
@@ -77,7 +79,7 @@ def add(
         )
         conn.execute(
             "INSERT INTO language_copies (username, rating_key, season_key, scope, language,"
-            " service, arr_id, season_number, episode_id, part_id, release_languages, quality,"
+            " service, arr_id, season_number, episode_id, parts, release_languages, quality,"
             " size_bytes, asked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 username,
@@ -89,7 +91,7 @@ def add(
                 arr_id,
                 season_number,
                 episode_id,
-                part_id,
+                json.dumps(parts),
                 json.dumps(list(release_languages)),
                 quality,
                 size_bytes,
@@ -115,3 +117,31 @@ def settle(conn: sqlite3.Connection, copy_id: int, state: str) -> None:
             "UPDATE language_copies SET state = ?, done_at = ? WHERE id = ? AND state = 'asked'",
             (state, now_iso(), copy_id),
         )
+
+
+def asked_already(
+    conn: sqlite3.Connection, rating_key: str, season_key: str | None, language: str
+) -> bool:
+    """Whether a copy of the item, or of its whole season, in *language* is on its way."""
+    row = conn.execute(
+        "SELECT 1 FROM language_copies WHERE state = 'asked' AND language = ?"
+        " AND (rating_key = ? OR (scope = 'season' AND season_key = ?))",
+        (language, rating_key, season_key),
+    ).fetchone()
+    return row is not None
+
+
+#: How long a copy that came, or came without its language, is kept; and one never seen to come.
+SETTLED_KEEP = timedelta(days=14)
+ASKED_KEEP = timedelta(days=30)
+
+
+def prune(conn: sqlite3.Connection, now: datetime | None = None) -> int:
+    """Forget copies settled long enough ago, and ones asked for long ago; how many."""
+    now = now or datetime.now(UTC)
+    with conn:
+        cur = conn.execute(
+            "DELETE FROM language_copies WHERE (state != 'asked' AND done_at < ?) OR asked_at < ?",
+            ((now - SETTLED_KEEP).isoformat(), (now - ASKED_KEEP).isoformat()),
+        )
+    return cur.rowcount

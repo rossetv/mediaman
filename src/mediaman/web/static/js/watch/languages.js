@@ -134,8 +134,14 @@
           n.style.setProperty('--p', pct);
           MM.dom.qa('.lp-pct', n).forEach(function (p) { p.textContent = pct + '%'; });
           MM.dom.qa('.lp-state', n).forEach(function (p) { p.textContent = statusText(c); });
+          MM.dom.qa('.lp-left', n).forEach(function (p) { p.textContent = leftText(c); });
         });
       });
+    }
+
+    function leftText(c) {
+      if (c.status !== 'downloading' || c.minutes_left == null) return '';
+      return c.minutes_left < 1 ? ' · under a minute left' : ' · about ' + c.minutes_left + ' min left';
     }
 
     function statusText(c) {
@@ -170,6 +176,7 @@
       var sub = span('player-av-sub lp-pending-line');
       sub.appendChild(span('lp-state', statusText(c)));
       if (c.status === 'downloading' && c.progress != null) sub.appendChild(span('lp-pct', c.progress + '%'));
+      sub.appendChild(span('lp-left', leftText(c)));
       words.appendChild(sub);
       if (c.status !== 'lacks') {
         var bar = span('lp-pending-bar' + (c.progress == null ? ' is-waiting' : ''));
@@ -236,7 +243,7 @@
       if (acts && acts.length) {
         var a = el('div', 'lp-acts');
         acts.forEach(function (x, i) {
-          var p = button('player-pill' + (x[2] ? ' player-pill--primary' : ''), x[0]);
+          var p = button('player-pill lp-act' + (x[2] ? ' player-pill--primary' : ''), x[0]);
           if (i === 0) p.setAttribute('data-first', '');
           p.addEventListener('click', function (e) { e.stopPropagation(); x[1](); });
           a.appendChild(p);
@@ -407,7 +414,7 @@
             return;
           }
           if (subs) ctx.push(subResultsView(code));
-          else ctx.push(audioView(code, episode() ? 'episode' : 'movie'));
+          else ctx.push(audioView(code, !episode() ? 'movie' : st().wholeSeason ? 'season' : 'episode'));
         }, ms(PICKED_MS));
       }
 
@@ -557,8 +564,8 @@
         list.hidden = true;
         v.classList.add('lp-short');
         var busy = err && err.status === 429;
-        var e = emptyBox('i-triangle-exclamation', busy ? 'Too many searches just now' : 'Plex didn’t answer',
-          busy ? 'Wait a minute, then look again.' : 'Nothing was added and nothing changed. Try again in a moment.',
+        var e = emptyBox('i-triangle-exclamation', busy ? 'Too many searches just now' : 'Couldn’t search for ' + en(code) + ' subtitles',
+          busy ? 'Wait a minute, then look again.' : 'Plex didn’t manage the search this time. Nothing was added; try again in a moment.',
           [['Try again', search, true], ['Back', function () { ctx.back(); }]], 'lp-empty--error');
         e.setAttribute('role', 'alert');
         v.appendChild(e);
@@ -592,7 +599,9 @@
           done();
           lede.textContent = err && err.error === 'search_again'
             ? 'That search is too old. Go back and pick the language again.'
-            : 'Couldn’t add them: Plex didn’t answer. Try again.';
+            : err && err.status === 429
+              ? 'Subtitles you asked for are still being added. Try again once they’re in.'
+              : 'Couldn’t add them: Plex didn’t answer. Try again.';
           said.textContent = lede.textContent;
         });
         function done() {
@@ -797,7 +806,7 @@
           words.appendChild(el('span', 'lp-fallback-title', own(code) + ' subtitles are there now'));
           words.appendChild(el('span', 'lp-fallback-line', n + ' on OpenSubtitles · added in a few seconds'));
           f.appendChild(words);
-          var b = button('player-pill player-pill--primary', 'Add subtitles');
+          var b = button('player-pill player-pill--primary lp-act', 'Add subtitles');
           b.setAttribute('aria-label', 'Add ' + en(code) + ' subtitles');
           b.addEventListener('click', function (e) { e.stopPropagation(); ctx.push(subResultsView(code)); });
           f.appendChild(b);
@@ -846,9 +855,9 @@
       note.hidden = true;
       v.appendChild(note);
       var acts = el('div', 'lp-acts lp-acts--end');
-      var no = button('player-pill', 'Back');
+      var no = button('player-pill lp-act', 'Back');
       no.addEventListener('click', function (e) { e.stopPropagation(); ctx.back(); });
-      var yes = button('player-pill player-pill--primary', ver.season_pack ? 'Get the season' : 'Get this copy');
+      var yes = button('player-pill player-pill--primary lp-act', ver.season_pack ? 'Get the season' : 'Get this copy');
       yes.setAttribute('data-first', '');
       yes.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -870,6 +879,8 @@
             ? 'Too many downloads asked for just now. Try again in a minute.'
             : err && err.error === 'search_again'
               ? 'That search is too old. Go back and look again.'
+              : err && err.error === 'already_asked'
+                ? 'A copy with ' + shortName(code) + ' audio is already on its way for this ' + thing() + '.'
               : found.service + ' didn’t take it. Nothing was asked for; try again in a moment.';
         });
       });
@@ -902,6 +913,7 @@
       var line = span('dw__line');
       line.appendChild(span('lp-state', statusText(c)));
       if (c.status === 'downloading' && c.progress != null) line.appendChild(el('strong', 'lp-pct', c.progress + '%'));
+      line.appendChild(span('lp-left', leftText(c)));
       text.appendChild(line);
       text.appendChild(span('dw__fix', 'With ' + andList((c.release_languages || []).map(shortName)) + ' audio' + (c.quality ? ' · ' + c.quality : '')));
       a.appendChild(text);
@@ -916,7 +928,7 @@
       li('i-download', 'You’ll find it in Downloads too, and here under Audio until it’s done.');
       v.appendChild(ul);
       var acts = el('div', 'lp-acts lp-acts--end');
-      var done = button('player-pill player-pill--primary', 'Done');
+      var done = button('player-pill player-pill--primary lp-act', 'Done');
       done.setAttribute('data-first', '');
       done.addEventListener('click', function (e) { e.stopPropagation(); ctx.home(); });
       acts.appendChild(done);
@@ -940,7 +952,7 @@
       var subs = andList(uniq((s.subtitle_tracks || []).filter(function (t) { return !t.forced; }).map(function (t) { return en(t.language); })));
       var f = el('div', 'player-av-foot');
       f.appendChild(icon('i-circle-info'));
-      f.appendChild(span('player-av-foot-text', 'This ' + thing() + ' has ' + (audio ? audio + ' audio' : 'audio in no known language') + (subs ? ', and ' + subs + ' subtitles.' : ', and no subtitles.')));
+      f.appendChild(span('player-av-foot-text', (st().wholeSeason ? 'Its next episode has ' : 'This ' + thing() + ' has ') + (audio ? audio + ' audio' : 'audio in no known language') + (subs ? ', and ' + subs + ' subtitles.' : ', and no subtitles.')));
       v.appendChild(f);
       return { el: v, label: 'Add a language', sub: true, remake: kindView };
     }

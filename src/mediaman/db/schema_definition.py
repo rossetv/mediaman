@@ -69,8 +69,9 @@ CREATE TABLE IF NOT EXISTS track_languages (
 
 -- A copy of a movie, an episode or a season asked for from Watch for another audio language, by
 -- the item it was asked from (rating_key; season_key its season's), until Plex has it. service
--- is "radarr" or "sonarr", arr_id the movie or series there; part_id is the item's file in Plex
--- when it was asked for, so a new one is known. state is "asked", then "ready" where the new file
+-- is "radarr" or "sonarr", arr_id the movie or series there; parts is JSON {rating key: part id}
+-- of the file in Plex of the item, or of each episode of the season, when it was asked for, so a
+-- new one is known. state is "asked", then "ready" where the new file
 -- has the language, "lacks" where it does not, or "gone" where it never came.
 CREATE TABLE IF NOT EXISTS language_copies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,7 +84,7 @@ CREATE TABLE IF NOT EXISTS language_copies (
     arr_id INTEGER NOT NULL,
     season_number INTEGER,
     episode_id INTEGER,
-    part_id TEXT,
+    parts TEXT NOT NULL DEFAULT '{}',
     release_languages TEXT NOT NULL,
     quality TEXT NOT NULL,
     size_bytes INTEGER,

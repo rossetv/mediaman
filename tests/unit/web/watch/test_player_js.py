@@ -3487,3 +3487,28 @@ def test_a_file_plex_cannot_play_is_said_once_with_no_try_again(markup, error, r
 def test_plex_out_of_reach_is_still_said_with_try_again(markup):
     out = run(markup, "refused_unreachable", saved={"mediaman.watch.quality": "1080p-8000"})
     assert out["message"] == {"text": "Can't reach Plex right now.", "button": "Try again"}
+
+
+def test_subtitles_in_another_language_are_found_searched_for_and_added_to_play(markup):
+    out = run(markup, "languages_subtitles")
+    assert out["rows"] == ["Get another language…", "Add subtitles…"]
+    assert out["view"] == "Add subtitles"
+    # English first, then the household's.
+    assert out["first"] == ["en", "fr"]
+    assert out["search"] == ["pt"]
+    assert out["afterEscape"] == "Audio and subtitles"
+    assert out["found"] == 2
+    assert out["fresh"] == ["99"]
+    assert out["picked"] == [{"subtitle": "99"}]
+    assert out["asked"][-1].endswith('/subtitles {"language":"pt","index":0}')
+
+
+def test_a_copy_that_loses_audio_says_so_and_is_asked_for_once(markup):
+    out = run(markup, "languages_audio")
+    assert out["copies"] == 2
+    assert "English and German audio goes with the old copy" in out["warning"]
+    assert out["sending"] is True
+    assert out["onway"] == "Portuguese audio, on its way"
+    assert out["left"] == " · about 12 min left"
+    assert len(out["asked"]) == 1
+    assert "On its way" in out["pending"][0]

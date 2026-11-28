@@ -492,6 +492,17 @@ class PlexWatch:
                     return following[0]
         return None
 
+    def episode_parts(self, season_key: str) -> dict[str, str]:
+        """The file (part id) in Plex of each episode of the season, by the episode's key."""
+        _, nodes = self._children(_check_key(season_key))
+        out = {}
+        for node in nodes:
+            part = node.find("Media/Part")
+            part_id = part.get("id", "") if part is not None else ""
+            if node.get("ratingKey") and _RATING_KEY_RE.fullmatch(part_id):
+                out[node.get("ratingKey", "")] = part_id
+        return out
+
     def search_subtitles(self, rating_key: str, language: str) -> list[SubtitleFound]:
         """The subtitles in *language* (ISO 639-1) Plex finds for the item, best first."""
         if not _LANGUAGE_RE.fullmatch(language):

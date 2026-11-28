@@ -80,6 +80,8 @@ _QUIET_TIMEOUT: tuple[float, float] = (5.0, 5.0)
 START_DEADLINE_SECONDS = 45.0
 #: How long an added subtitle has to show among the item's tracks, and how often it is looked for.
 ADD_SUBTITLE_SECONDS = 30.0
+#: How long an add that had not settled is watched by the reaper, Plex finishing it late.
+ADD_WATCH_SECONDS = 600.0
 _ADD_POLL_SECONDS = 1.0
 # One reaper round stops pinging once it has run this long, so idle streams are stopped on time.
 REAP_PING_BUDGET_SECONDS = 60.0
@@ -414,6 +416,17 @@ class _Held:
     ids: dict[str, str]
 
 
+@dataclass(frozen=True)
+class _Adding:
+    """A subtitle Plex was asked to add whose selection had not settled: Plex's own *original*
+    ids on *part*, its subtitle tracks *had* before, watched until *until*."""
+
+    part: str
+    original: dict[str, str]
+    had: set[str]
+    until: float
+
+
 @dataclass
 class _CopyVerdict:
     """Whether Plex would copy a file's video; *known* is False while Plex has not answered."""
@@ -515,6 +528,8 @@ class StreamManager:
         self._deciding: dict[str, tuple[threading.Lock, list[int]]] = {}
         # rating key -> Plex's own selection of the fields a start changed, until put back.
         self._held: dict[str, _Held] = {}
+        # rating key -> a subtitle added whose selection the reaper still has to put back.
+        self._adding: dict[str, _Adding] = {}
         # Counts writes of selections begun and ended: a selection read while it stood still
         # was no start's temporary one.
         self._writes = 0
@@ -1048,6 +1063,7 @@ class StreamManager:
             if self._clock() - began > REAP_PING_BUDGET_SECONDS:
                 break
             self._call_quietly("ping", session_id)
+        self.watch_adds()
         return len(stopped)
 
     def stop_all(self, budget: float = SHUTDOWN_BUDGET_SECONDS) -> None:
@@ -1368,8 +1384,9 @@ class StreamManager:
 
         Plex selects what it adds for every client alike, which would make it everyone's
         default: the part's selection is held while it adds and put back once the new track
-        shows. Where it does not show in time the selection stays held, and the item's next
-        start, or the next run, puts it back.
+        shows. However the wait ends short of that, the selection is put back at once, stays
+        held, and is watched by ``reap`` until the track shows or ``ADD_WATCH_SECONDS`` pass,
+        since Plex may finish the add, and select it, later.
         """
         base, token = self._creds()
         deadline = self._clock() + ADD_SUBTITLE_SECONDS
@@ -1384,30 +1401,80 @@ class StreamManager:
                 held.ids if held is not None and held.part == part else {}
             )
             self._hold(rating_key, part, original, dict.fromkeys(original, ""))
+            settled = False
             try:
-                self._get(
-                    base,
-                    token,
-                    f"/library/metadata/{rating_key}/subtitles",
-                    method="PUT",
-                    op="add subtitle",
-                    params={"key": key},
-                    max_bytes=_PLAYLIST_MAX_BYTES,
-                    deadline=deadline,
-                )
-            except _Answered:
-                self._put_back(base, token, rating_key)
-                raise
-            while self._clock() < deadline:
-                time.sleep(_ADD_POLL_SECONDS)
-                now = self._part_subtitles(base, token, rating_key, deadline)
-                new = sorted(now[1] - had, key=int) if now is not None else []
-                if new:
+                try:
+                    self._get(
+                        base,
+                        token,
+                        f"/library/metadata/{rating_key}/subtitles",
+                        method="PUT",
+                        op="add subtitle",
+                        params={"key": key},
+                        max_bytes=_PLAYLIST_MAX_BYTES,
+                        deadline=deadline,
+                    )
+                except _Answered:
+                    # Plex did nothing it was asked.
+                    settled = self._put_back(base, token, rating_key)
+                    raise
+                while self._clock() < deadline:
+                    time.sleep(_ADD_POLL_SECONDS)
+                    now = self._part_subtitles(base, token, rating_key, deadline)
+                    new = sorted(now[1] - had, key=int) if now is not None else []
+                    if new:
+                        self._put_back(base, token, rating_key)
+                        settled = self._settle(base, token, rating_key, part, original, deadline)
+                        return new[-1]
+                logger.info("plex_stream: item %s's new subtitle had not shown in time", rating_key)
+                return None
+            finally:
+                if not settled:
                     self._put_back(base, token, rating_key)
-                    self._settle(base, token, rating_key, part, original, deadline)
-                    return new[-1]
-            logger.info("plex_stream: item %s's new subtitle had not shown in time", rating_key)
-            return None
+                    self._hold(rating_key, part, original, dict.fromkeys(original, ""))
+                    with self._lock:
+                        self._adding[rating_key] = _Adding(
+                            part, original, had, self._clock() + ADD_WATCH_SECONDS
+                        )
+
+    def watch_adds(self) -> int:
+        """Put Plex's own selection back on each item whose added subtitle had not settled, once
+        the track shows or the watch on it ends; return how many were put back.
+
+        One Plex cannot be asked about now is tried again on the next round, until its watch
+        ends: then its selection stays held for the item's next start, or the next run.
+        """
+        with self._lock:
+            adding = dict(self._adding)
+        if not adding:
+            return 0
+        put_back = 0
+        try:
+            base, token = self._creds()
+        except PlexError:
+            return 0
+        for rating_key, add in adding.items():
+            deadline = self._clock() + START_DEADLINE_SECONDS
+            over = self._clock() >= add.until
+            try:
+                with self._taking_turns(rating_key, deadline):
+                    now = self._part_subtitles(base, token, rating_key, deadline)
+                    shown = now is not None and bool(now[1] - add.had)
+                    if not (shown or over):
+                        continue
+                    self._hold(rating_key, add.part, add.original, dict.fromkeys(add.original, ""))
+                    if self._put_back(base, token, rating_key):
+                        put_back += 1
+            except PlexError as exc:
+                logger.warning(
+                    "plex_stream: could not look at item %s's new subtitle (%s)", rating_key, exc
+                )
+                if not over:
+                    continue
+            with self._lock:
+                if self._adding.get(rating_key) is add:
+                    del self._adding[rating_key]
+        return put_back
 
     def _settle(
         self,
@@ -1417,19 +1484,20 @@ class StreamManager:
         part: str,
         original: dict[str, str],
         deadline: float,
-    ) -> None:
+    ) -> bool:
         """Put Plex's own selection back once more where an add, which Plex finishes on its
-        own, selected its track after the first put-back."""
+        own, selected its track after the first put-back; whether it is known to be back."""
         time.sleep(_ADD_POLL_SECONDS)
         try:
             now = self._part_subtitles(base, token, rating_key, deadline)
         except PlexError:
-            return
+            return False
         if now is None or now[0][0] != part:
-            return
+            return False
         if any(_ids(*now[0][1:]).get(name) != id_ for name, id_ in original.items()):
             self._hold(rating_key, part, original, dict.fromkeys(original, ""))
-            self._put_back(base, token, rating_key)
+            return self._put_back(base, token, rating_key)
+        return True
 
     def _part_subtitles(
         self, base: str, token: str, rating_key: str, deadline: float

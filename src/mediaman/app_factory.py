@@ -242,7 +242,15 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
         name="watch-stream-tidy",
         daemon=True,
     ).start()
-    stop_reaper = _start_stream_reaper(manager.reap, _STREAM_REAP_INTERVAL_SECONDS)
+
+    def reap() -> int:
+        from mediaman.web.repository import language_copies
+
+        stopped = manager.reap()
+        language_copies.prune(get_db())
+        return stopped
+
+    stop_reaper = _start_stream_reaper(reap, _STREAM_REAP_INTERVAL_SECONDS)
 
     _notification_claims._ending.clear()
 

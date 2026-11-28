@@ -51,8 +51,15 @@ _LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 # A search for copies asks every indexer.
 _COPY_SEARCH_LIMITER = ActionRateLimiter(max_in_window=6, window_seconds=60, max_per_day=200)
 
-#: Plex's on-demand search takes ISO 639-1 codes.
+#: Plex's on-demand search takes ISO 639-1 codes alone: it answers a regional tag such as pt-BR as
+#: its language (pt), and a three-letter code with an error. A language added to ``LANGUAGES`` with
+#: a two-letter code is offered here as it is.
 SUBTITLE_LANGUAGES = [code for code in LANGUAGES if len(code) == 2]
+
+#: Subtitle adds one person may have under way: each holds a server thread while Plex adds.
+ADDS_AT_ONCE = 2
+_adding: dict[str, int] = {}
+_adding_lock = threading.Lock()
 
 _FOUND_TTL_S = 30 * 60.0
 _FOUND_MAX = 500
@@ -99,6 +106,26 @@ def _was_found(key: tuple[str, str, str, str, str], index: int) -> Any | None:
     if held is None or held[0] <= time.monotonic() or index >= len(held[1]):
         return None
     return held[1][index]
+
+
+def _take_found(key: tuple[str, str, str, str, str], index: int) -> tuple[Any, list[Any]] | None:
+    """What a search found at *index*, with all it found, taken so that it is downloaded once."""
+    with _found_lock:
+        held = _found.get(key)
+        if held is None or held[0] <= time.monotonic() or index >= len(held[1]):
+            return None
+        del _found[key]
+    return held[1][index], held[1]
+
+
+def _parts(
+    request: Request, conn: sqlite3.Connection, item: PlexItem, scope: str
+) -> dict[str, str]:
+    """The file in Plex of the item, or of each episode of its season, now."""
+    if scope == "season" and item.parent_rating_key:
+        return _open_plex(request, conn).episode_parts(item.parent_rating_key)
+    part = item.media.part_id if item.media else None
+    return {item.rating_key: part} if part else {}
 
 
 def _rate_limited() -> Response:
@@ -218,6 +245,27 @@ def _progress(entries: list[dict[str, Any]]) -> int | None:
     return max(0, min(99, round(100 * (size - left) / size)))
 
 
+def _minutes_left(entries: list[dict[str, Any]]) -> int | None:
+    """The longest time left the queue gives, in whole minutes; its form is "[d.]hh:mm:ss"."""
+    longest = None
+    for entry in entries:
+        left = entry.get("timeleft")
+        if not isinstance(left, str):
+            continue
+        days, _, clock = (
+            left.rpartition(".")
+            if left.count(":") == 2 and "." in left.split(":")[0]
+            else ("", "", left)
+        )
+        try:
+            h, m, sec = (int(x) for x in clock.split(":"))
+            total = int(days or 0) * 1440 + h * 60 + m + sec / 60
+        except ValueError:
+            continue
+        longest = total if longest is None else max(longest, total)
+    return None if longest is None else round(longest)
+
+
 def _asked_long_ago(copy: Asked) -> bool:
     try:
         asked = datetime.fromisoformat(copy.asked_at)
@@ -242,6 +290,7 @@ def _copies(
         return []
     have = _audio_languages(audio)
     part = item.media.part_id if item.media else None
+    minutes: dict[int, int | None] = {}
     client = _client(request, conn, item) if any(c.state == "asked" for c in asked) else None
     queue_cache: dict[int, list[dict[str, Any]] | None] = {}
     shown: list[dict[str, object]] = []
@@ -252,8 +301,7 @@ def _copies(
                 queue_cache[copy.id] = _queued(client, copy)
             entries = queue_cache[copy.id]
             if copy.language in have:
-                if copy.rating_key == item.rating_key:
-                    language_copies.settle(conn, copy.id, "ready")
+                language_copies.settle(conn, copy.id, "ready")
                 continue
             if entries:
                 status = (
@@ -264,12 +312,8 @@ def _copies(
                     else "downloading"
                 )
                 progress = _progress(entries)
-            elif (
-                copy.rating_key == item.rating_key
-                and copy.part_id
-                and part
-                and part != copy.part_id
-            ):
+                minutes[copy.id] = _minutes_left(entries)
+            elif part and copy.parts.get(item.rating_key) not in (None, part):
                 language_copies.settle(conn, copy.id, "lacks")
             elif _asked_long_ago(copy):
                 language_copies.settle(conn, copy.id, "gone")
@@ -285,6 +329,7 @@ def _copies(
                 "scope": copy.scope,
                 "status": status,
                 "progress": progress,
+                "minutes_left": minutes.get(copy.id),
                 "release_languages": list(copy.release_languages),
                 "quality": copy.quality,
                 "size_bytes": copy.size_bytes,
@@ -388,10 +433,19 @@ def add_subtitle(
     found = _was_found((username, rating_key, "subtitle", body.language, ""), body.index)
     if not isinstance(found, SubtitleFound):
         return respond_err("search_again", status=409)
+    with _adding_lock:
+        if _adding.get(username, 0) >= ADDS_AT_ONCE:
+            return respond_err("adding_already", status=429)
+        _adding[username] = _adding.get(username, 0) + 1
     try:
         subtitle = get_stream_manager().add_subtitle(rating_key, found.key)
     except PlexError as exc:
         return plex_failure(exc)
+    finally:
+        with _adding_lock:
+            _adding[username] -= 1
+            if not _adding[username]:
+                del _adding[username]
     return respond_ok({"subtitle": subtitle})
 
 
@@ -439,7 +493,7 @@ def search_copies(
     request: Request,
     rating_key: str,
     language: str,
-    scope: str,
+    scope: Scope,
     username: str = Depends(get_current_user),
 ) -> Response:
     """The copies of the episode, its season or the movie that Sonarr or Radarr find with
@@ -484,13 +538,19 @@ def get_copy(
     if isinstance(title, Response):
         return title
     item, audio, client, target, wanted = title
-    found = _was_found((username, rating_key, "audio", body.language, wanted), body.index)
-    if not isinstance(found, Copy):
+    if language_copies.asked_already(conn, item.rating_key, item.parent_rating_key, body.language):
+        return respond_err("already_asked", status=409)
+    key = (username, rating_key, "audio", body.language, wanted)
+    taken = _take_found(key, body.index)
+    if taken is None or not isinstance(taken[0], Copy):
         return respond_err("search_again", status=409)
+    found, everything = taken
     try:
+        parts = _parts(request, conn, item, wanted)
         client.grab_release(found.guid, found.indexer_id)
-    except _ARR_FAILURES:
-        logger.warning("watch.languages: the service did not take the release", exc_info=True)
+    except (*_ARR_FAILURES, PlexError):
+        _keep_found(key, everything)
+        logger.warning("watch.languages: the copy could not be asked for", exc_info=True)
         return respond_err("unreachable", status=502)
     language_copies.add(
         conn,
@@ -503,7 +563,7 @@ def get_copy(
         arr_id=target.arr_id,
         season_number=target.season_number,
         episode_id=target.episode_id,
-        part_id=item.media.part_id if item.media else None,
+        parts=parts,
         release_languages=found.languages,
         quality=found.quality,
         size_bytes=found.size_bytes,

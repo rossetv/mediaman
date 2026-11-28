@@ -29,7 +29,8 @@
   var PICKED_MS = 170;       // the tick is seen to land before the chooser goes
   var CLOSED_MS = 120;       // and the chooser is on its way before the picture is held
   var LEAVE_MS = 260;
-  var FADE_MS = 150;         // the control's words, from what played to what plays
+  var FADE_MS = 150;
+  var LIT_MS = 3000;         // subtitles just added stay lit, with less motion         // the control's words, from what played to what plays
   var DEFAULTS_HREF = '/?you=profile/audio';
   var TV_ICON = 'play-on-tv'; // of _play_on.html
 
@@ -362,7 +363,21 @@
       var rows = [row('subtitle', 'off', OFF, shown === 'off')].concat(subs.map(function (t) {
         var lit = fresh && fresh.id === t.id;
         var r = row('subtitle', t.id, subtitleText(t), t.id === shown, lit ? 'Just added' : '');
-        if (lit) r.classList.add('lp-fresh');
+        if (lit) {
+          r.classList.add('lp-fresh');
+          /* With less motion it is lit as a state for its time, not drawn as an animation. */
+          if (reduce && reduce.matches && fresh.litUntil !== 0) {
+            r.classList.add('is-lit');
+            if (!fresh.litUntil) {
+              var f = fresh;
+              f.litUntil = 1;
+              setTimeout(function () {
+                f.litUntil = 0;
+                MM.dom.qa('.lp-fresh.is-lit').forEach(function (n) { n.classList.remove('is-lit'); });
+              }, LIT_MS);
+            }
+          }
+        }
         return r;
       }));
       cols.appendChild(column('subtitle', 'Subtitles', rows, subs.length ? '' : 'This title has no subtitles.', more ? more.subtitleRows() : []));
@@ -462,7 +477,7 @@
        shrinks to the new view by a clip of its edge, never by a change of its size mid-flight;
        with less motion the new view only fades in. */
     function show(view, dir) {
-      var old = stack.length > 1 || dir !== 'none' ? box.querySelector('.lp-view:not(.is-out)') : null;
+      var old = stack.length > 1 || dir !== 'none' ? MM.dom.qa('.lp-view', box).filter(function (v) { return v.parentNode === box && !v.classList.contains('is-out'); })[0] || null : null;
       var top = edge();
       var h0 = box.offsetHeight;
       var oldTop = old ? old.offsetTop : 0;
@@ -601,7 +616,7 @@
       close(false);
     });
 
-    var STOPS = '[data-av-close], .player-av-row[tabindex="0"], .player-av-link, .lp-more, .lp-pending, .lp-back, .lp-x, .lp-input, .lp-clear, .lp-seg-btn[tabindex="0"], .lp-opt[tabindex="0"], .lp-ver[tabindex="0"], .lp-acts > .player-pill, .lp-fallback > .player-pill';
+    var STOPS = '[data-av-close], .player-av-row[tabindex="0"], .player-av-link, .lp-more, .lp-pending, .lp-back, .lp-x, .lp-input, .lp-clear, .lp-seg-btn[tabindex="0"], .lp-opt[tabindex="0"], .lp-ver[tabindex="0"], .lp-act';
 
     /* Keys while it is open; true where the key was its own. */
     function key(e) {

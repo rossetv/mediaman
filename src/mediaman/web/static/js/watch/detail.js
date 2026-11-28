@@ -1301,7 +1301,7 @@
   }
 
   /* ── Languages: what the film has, and a way to add one before it is played ── */
-  function languagesLine(key, title) {
+  function languagesLine(key, title, show) {
     var line = el('p', 'ttl__credit lp-langs');
     line.hidden = true;
     if (!window.MM.tracks || !window.MM.languages) return line;
@@ -1314,7 +1314,7 @@
     line.appendChild(add);
     var chooser = window.MM.tracks.create({ wraps: [], host: root, pick: pick });
     function show(data) {
-      var state = Object.assign({ key: key, title: title, series: false }, data);
+      var state = Object.assign({ key: key, title: title, series: show, wholeSeason: show }, data);
       chooser.set(state);
       var names = function (list, skip) {
         var out = [];
@@ -1523,7 +1523,10 @@
       credit.appendChild(d.director_id ? directorLink(d) : document.createTextNode(d.director));
       main.appendChild(credit);
     }
-    if (d.in_library && d.kind === 'movie' && /^movie-[0-9]+$/.test(cur.ref)) main.appendChild(languagesLine(cur.ref.slice(6), d.title));
+    if (d.in_library && d.kind === 'movie' && /^movie-[0-9]+$/.test(cur.ref)) main.appendChild(languagesLine(cur.ref.slice(6), d.title, false));
+    /* A show's, by the episode it plays next: subtitles for it, audio for its whole season. */
+    var next = d.in_library && d.kind !== 'movie' && d.play && /\/watch\/play\/([0-9]+)/.exec(d.play.href || '');
+    if (next) main.appendChild(languagesLine(next[1], d.title, true));
     body.appendChild(lead);
     if (d.draft) {
       if (hasFacts(cur)) renderFacts(false);
