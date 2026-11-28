@@ -2548,15 +2548,20 @@
     function overSheet() { return [document.querySelector('.pv-layer'), byId('watch-keep-menu')]; }
     function inOver(n) { return !!n && overSheet().some(function (o) { return !!o && o.contains(n); }); }
     function holdsSheet(n) { return !!n && (n === input || sheet.contains(n) || inOver(n)); }
+    // A finger's press outside the sheet and what stands over it drops the focus too, and that one closes it.
+    var pressedOut = false;
+    document.addEventListener('pointerdown', function (e) { pressedOut = !holdsSheet(e.target) && !box.contains(e.target); }, true);
+    document.addEventListener('keydown', function () { pressedOut = false; }, true);
     /* *fromOver*: the focus left a preview or its menu, or the field gave it to one. Dropped there with
-       nowhere to go, as when a Keep takes the card away, it comes back to the field, as
-       core.spareFocus would have it. */
+       nowhere to go, as when a Keep takes the card away, it comes back to the field, or with a finger
+       to the sheet itself, where it raises no keyboard. */
     function letGo(fromOver) {
       setTimeout(function () {
         var at = document.activeElement;
         if (holdsSheet(at)) return;
-        if (fromOver && (!at || at === document.body) && !core.coarsePointer()) {
-          input.focus({ preventScroll: true });
+        var finger = core.coarsePointer();
+        if (fromOver && (!at || at === document.body) && !(finger && pressedOut)) {
+          (finger ? sheet : input).focus({ preventScroll: true });
           return;
         }
         openSheet(false);

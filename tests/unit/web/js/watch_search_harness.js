@@ -2233,6 +2233,41 @@ const scenarios = {
     return [p.doc.documentElement.classList.contains('has-sheet'), p.sheet.classList.contains('is-on'), p.doc.activeElement === p.input];
   },
 
+  // With a finger, as WebKit has it: the pressed Keep item hands the focus back to the preview's Keep
+  // button, which the Keep takes away. The sheet stays, the focus on the sheet and not the field (that
+  // would raise the keyboard). A press outside, the focus dropped from the preview, still closes it.
+  async sheetAfterTouchKeep() {
+    const run = async (outside) => {
+      const p = await ready(ADMIN);
+      const media = p.ctx.matchMedia;
+      p.ctx.matchMedia = (q) => (/coarse/.test(q) ? { matches: true } : media(q));
+      const layer = p.doc.body.appendChild(build(p.doc, ['div', { class: 'pv-layer' },
+        ['button', { class: 'pv__keep' }, 'Keep'],
+        ['div', { class: 'watch-keep-menu pv-menu' }, ['button', { class: 'watch-keep-menu__item' }, '7 days']]]));
+      const other = p.doc.body.appendChild(build(p.doc, ['div', {}, 'Elsewhere']));
+      const keep = layer.querySelector('.pv__keep');
+      const item = layer.querySelector('.watch-keep-menu__item');
+      const focusout = (target) => (p.doc.listeners.focusout || []).forEach((fn) => fn({ target }));
+      p.press();
+      p.input.focus();
+      item.focus();
+      p.input.listeners.blur.forEach((fn) => fn({ relatedTarget: item }));
+      await settle();
+      (p.doc.listeners.pointerdown || []).forEach((fn) => fn({ target: outside ? other : item }));
+      if (!outside) {
+        keep.focus();
+        focusout(item);
+        keep.remove();
+      }
+      p.doc.body.focus();
+      focusout(outside ? item : keep);
+      await settle();
+      return [p.doc.documentElement.classList.contains('has-sheet'), p.sheet.classList.contains('is-on'),
+        p.doc.activeElement === p.input, p.doc.activeElement === p.sheet];
+    };
+    return { keep: await run(false), outside: await run(true) };
+  },
+
   // The field's words change by fading the old ones out, then the new ones in; words changed again
   // before they were seen are never faded out as if they had been.
   async hintSwap() {

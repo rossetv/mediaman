@@ -966,15 +966,24 @@ def test_the_sheet_stays_in_reach_under_a_menu_of_a_preview_over_it() -> None:
         assert case["menu"] == [True, True, False, False]
 
 
-def test_focus_dropped_from_a_preview_s_menu_comes_back_to_the_field_or_the_sheet_goes() -> None:
+def test_focus_dropped_from_a_preview_s_menu_stays_in_the_sheet_or_the_sheet_goes() -> None:
     out = _run("sheetUnderPreviewMenu")
     assert out["nowhere"]["after"] == [True, True, True]
-    assert out["finger"]["after"] == [False, False, False]
+    # With a finger the sheet stays too, the focus not in the field.
+    assert out["finger"]["after"] == [True, True, False]
     assert out["elsewhere"]["after"] == [False, False, False]
 
 
 def test_a_keep_over_the_sheet_leaves_it_open_where_a_press_takes_no_focus() -> None:
     assert _run("sheetAfterSafariKeep") == [True, True, True]
+
+
+def test_a_keep_over_the_sheet_with_a_finger_leaves_it_open_without_the_keyboard() -> None:
+    out = _run("sheetAfterTouchKeep")
+    # Open, the focus on the sheet itself: the field would raise the on-screen keyboard.
+    assert out["keep"] == [True, True, False, True]
+    # A press outside the sheet and the preview still closes it.
+    assert out["outside"][:2] == [False, False]
 
 
 def test_words_changed_again_before_they_were_seen_are_never_faded_out() -> None:
