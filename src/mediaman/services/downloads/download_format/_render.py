@@ -41,6 +41,7 @@ def build_item(
     attention: str = "",
     retry_key: str = "",
     attention_reasons: list[str] | None = None,
+    minutes_left: int | None = None,
 ) -> DownloadItem:
     """Build a simplified download item for the API response.
 
@@ -64,6 +65,7 @@ def build_item(
         else state_label(state),
         "progress": progress,
         "eta": eta,
+        "minutes_left": minutes_left,
         "size_done": size_done,
         "size_total": size_total,
         "episodes": episodes,

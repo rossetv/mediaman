@@ -43,6 +43,8 @@ class DownloadItem(TypedDict):
     state_label: str
     progress: int
     eta: str
+    # The time left of one downloading, in whole minutes (0 under a minute); None when not known.
+    minutes_left: int | None
     size_done: str
     size_total: str
     # rationale: ``episodes`` is a free-shape display dict built by

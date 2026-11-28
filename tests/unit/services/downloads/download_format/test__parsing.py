@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mediaman.services.downloads.download_format import (
     format_episode_label,
     format_eta,
@@ -136,17 +138,16 @@ class TestFormatEta:
     def test_zero_remaining_returns_empty(self):
         assert format_eta(remain_mb=0, download_rate=1_000_000) == ""
 
-    def test_under_one_minute(self):
-        # 1 MB remaining at 1 MB/s = 1 second
-        result = format_eta(remain_mb=1, download_rate=1_048_576)
-        assert "sec" in result
-
-    def test_over_one_minute(self):
-        # 60 MB at 1 MB/s = 60 s → ~1 min
-        result = format_eta(remain_mb=60, download_rate=1_048_576)
-        assert "min" in result
-
-    def test_over_one_hour(self):
-        # 3600 MB at 1 MB/s = 3600 s → ~1 hr
-        result = format_eta(remain_mb=3600, download_rate=1_048_576)
-        assert "hr" in result
+    # Worded as the rest of mediaman words a time left ("1 h 5 min left" on a card).
+    @pytest.mark.parametrize(
+        ("remain_mb", "said"),
+        [
+            (1, "under a minute left"),
+            (60, "1 min left"),
+            (3600, "1 h left"),
+            (3900, "1 h 5 min left"),
+        ],
+    )
+    def test_the_time_left_is_worded_as_everywhere_else(self, remain_mb, said):
+        # At 1 MiB/s, a MiB a second.
+        assert format_eta(remain_mb=remain_mb, download_rate=1_048_576) == said
