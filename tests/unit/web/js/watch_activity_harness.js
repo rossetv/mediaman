@@ -397,6 +397,24 @@ const scenarios = {
     return { head: timed.head, subs: timed.subs, under: under.head };
   },
 
+  // What the look at Radarr and Sonarr found, under All and under Needs you, and back.
+  async needsYou() {
+    const care = [{ line: 'Sonarr can’t reach any indexer, so nothing new will download.', needs_you: true },
+      { line: 'mediaman asked Radarr to look again.', needs_you: false }];
+    const p = await page({ live: { work: { searching: {}, fixing: 0, scanning: false, ai: null, care } } });
+    await p.open();
+    const rows = () => p.doc.querySelectorAll('#space-activity .act-work').map((li) => [li.querySelector('b').textContent, li.querySelector('small').textContent]);
+    const all = rows();
+    await p.click(p.one('#space-activity [data-show="needs"]'));
+    const needs = rows();
+    const checked = p.one('#space-activity [data-show="needs"]').getAttribute('aria-checked');
+    p.set({ work: { searching: {}, fixing: 0, scanning: false, ai: null, care: [care[1]] } });
+    await p.tick();
+    const calm = rows();
+    await p.key('ArrowLeft', p.one('#space-activity [data-show="needs"]'));
+    return { all, needs, checked, calm, back: rows().length, focused: p.doc.activeElement.getAttribute('data-show') };
+  },
+
   // The AI row's "Last asked", either side of the hour.
   async asked() {
     const out = {};

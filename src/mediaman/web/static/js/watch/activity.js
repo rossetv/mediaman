@@ -47,6 +47,8 @@
   var data = null; // the newest answer
   var failed = false;
   var period = PERIODS[0];
+  var SHOWS = [{ id: 'all', label: 'All' }, { id: 'needs', label: 'Needs you' }];
+  var showing = 'all'; // which of Working on's lines are on show
   var hist = {}; // by period id: { at, points, since }
   var timer = null;
   var histTimer = null;
@@ -573,15 +575,69 @@
         b.tabIndex = yes ? 0 : -1;
         if (yes) picked = b;
       });
-      var ink = box.querySelector('.act-periods__ink');
-      if (!picked || !picked.offsetWidth) return;
-      var to = 'translateX(' + picked.offsetLeft + 'px) scaleX(' + picked.offsetWidth / 100 + ')';
-      var was = ink.style.transform;
-      ink.style.transform = to;
-      if (move && was && was !== to && ink.animate && !reduce()) {
-        ink.animate([{ transform: was }, { transform: to }], { duration: 260, easing: 'cubic-bezier(.32,.72,0,1)' });
-      }
+      slideInk(box, picked, move);
     });
+  }
+
+  function slideInk(box, picked, move) {
+    var ink = box.querySelector('.act-periods__ink');
+    if (!picked || !picked.offsetWidth) return;
+    var to = 'translateX(' + picked.offsetLeft + 'px) scaleX(' + picked.offsetWidth / 100 + ')';
+    var was = ink.style.transform;
+    ink.style.transform = to;
+    if (move && was && was !== to && ink.animate && !reduce()) {
+      ink.animate([{ transform: was }, { transform: to }], { duration: 260, easing: 'cubic-bezier(.32,.72,0,1)' });
+    }
+  }
+
+  /* All of Working on, or only what needs an admin's hand: the period's control, by the same look. */
+  function showControl() {
+    var box = el('div', 'act-periods act-shows');
+    box.setAttribute('role', 'radiogroup');
+    box.setAttribute('aria-label', 'Show');
+    var ink = el('span', 'act-periods__ink');
+    ink.setAttribute('aria-hidden', 'true');
+    box.append(ink);
+    SHOWS.forEach(function (sh) {
+      var b = el('button', 'act-period', sh.label);
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('data-show', sh.id);
+      box.append(b);
+    });
+    function pick(id, focus) {
+      if (id === showing) return;
+      showing = id;
+      paintShows(true);
+      if (focus) box.querySelector('[data-show="' + id + '"]').focus({ preventScroll: true });
+      if (data) paintWork(data);
+    }
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-show]');
+      if (b) pick(b.getAttribute('data-show'));
+    });
+    box.addEventListener('keydown', function (e) {
+      var arrows = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1, Home: 0, End: 0 };
+      if (!(e.key in arrows)) return;
+      e.preventDefault();
+      var i = SHOWS.findIndex(function (sh) { return sh.id === showing; });
+      var to = e.key === 'Home' ? 0 : e.key === 'End' ? SHOWS.length - 1 : (i + arrows[e.key] + SHOWS.length) % SHOWS.length;
+      pick(SHOWS[to].id, true);
+    });
+    return box;
+  }
+
+  function paintShows(move) {
+    var box = N.shows;
+    if (!box) return;
+    var picked = null;
+    toArray(box.querySelectorAll('[data-show]')).forEach(function (b) {
+      var yes = b.getAttribute('data-show') === showing;
+      b.setAttribute('aria-checked', yes ? 'true' : 'false');
+      b.tabIndex = yes ? 0 : -1;
+      if (yes) picked = b;
+    });
+    slideInk(box, picked, move);
   }
 
   /* A graph that grows when it is pressed, or by Enter. */
@@ -678,9 +734,11 @@
     N.mem = resCard('Memory', 1);
 
     var work = heading('Working on', '');
+    N.shows = showControl();
     N.works = el('ul', 'act-works');
+    N.works.setAttribute('aria-live', 'polite');
 
-    var parts = [N.say, tiles, N.periods, net.node, netBox, rows, res.node, N.resSay, N.cpu.node, N.mem.node, work.node, N.works];
+    var parts = [N.say, tiles, N.periods, net.node, netBox, rows, res.node, N.resSay, N.cpu.node, N.mem.node, work.node, N.shows, N.works];
     parts.forEach(function (p, i) { p.style.setProperty('--i', Math.min(i, 8)); body.append(p); });
     pane.append(body);
     N.body = body;
@@ -963,8 +1021,14 @@
         state: Math.round(going.done / Math.max(1, going.size) * 100) + '%', stateCls: 'is-num', bar: going.done / Math.max(1, going.size) });
     }
     if (d.sources.nzbget === 'down') {
-      list.push({ key: 'nzbdown', icon: 'i-triangle-exclamation', cls: 'act-work--warn', name: 'Downloads', sub: 'Can’t see them while NZBGet isn’t answering.' });
+      list.push({ key: 'nzbdown', icon: 'i-triangle-exclamation', cls: 'act-work--warn', name: 'Downloads', sub: 'Can’t see them while NZBGet isn’t answering.', needs: true });
     }
+    // What the half-hourly look at Radarr and Sonarr found: what waits on an admin, and what mediaman did.
+    (wk.care || []).forEach(function (c) {
+      list.push(c.needs_you
+        ? { key: 'care:' + c.line, icon: 'i-triangle-exclamation', cls: 'act-work--warn', name: c.line, sub: 'Needs you', needs: true }
+        : { key: 'care:' + c.line, icon: 'i-rotate-right', name: c.line, sub: 'Done by mediaman' });
+    });
     if (wk.fixing) {
       // The step the soonest one is due, then taken on the next hourly check.
       var next = wk.fix_next || {};
@@ -985,6 +1049,10 @@
     if (wk.ai) {
       list.push({ key: 'ai', icon: 'i-sparkles', name: 'AI search', sub: wk.ai.running ? 'Answering a search now' : wk.ai.at ? 'Last asked ' + ago(wk.ai.at, d.at) : 'Not asked yet',
         state: wk.ai.running ? 'Thinking' : 'Idle', stateCls: wk.ai.running ? 'is-busy' : 'is-quiet' });
+    }
+    if (showing === 'needs') {
+      list = list.filter(function (o) { return o.needs; });
+      if (!list.length) list.push({ key: 'calm-needs', icon: 'i-circle-check', cls: 'act-work--calm', name: 'Nothing needs you', sub: 'What mediaman can’t sort out by itself shows here' });
     }
     var sig = JSON.stringify(list);
     if (N.works._sig === sig) return;
@@ -1057,6 +1125,7 @@
     paintRes(data);
     paintWork(data);
     paintPeriods(false);
+    paintShows(false);
     paintCharts(slide);
   }
 
@@ -1335,6 +1404,7 @@
     if (!on || !data) return;
     Object.keys(charts).forEach(function (k) { charts[k].w = 0; });
     paintPeriods(false);
+    paintShows(false);
     paintCharts(false);
   });
 

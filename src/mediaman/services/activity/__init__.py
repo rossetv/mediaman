@@ -21,8 +21,17 @@ _LISTED = 3
 
 def _work(conn: sqlite3.Connection) -> dict[str, object]:
     """What mediaman itself is busy with, from its own tables."""
-    work: dict[str, object] = {"searching": {}, "fixing": 0, "scanning": False, "ai": None}
+    from mediaman.services.arr.self_care import care_lines
+
+    work: dict[str, object] = {
+        "searching": {},
+        "fixing": 0,
+        "scanning": False,
+        "ai": None,
+        "care": [],
+    }
     try:
+        work["care"] = care_lines(conn)
         searching: dict[str, set[str]] = {}
         for (key,) in conn.execute("SELECT key FROM arr_searching_since"):
             service, _, rest = str(key).partition(":")

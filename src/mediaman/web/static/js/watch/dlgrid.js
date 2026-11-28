@@ -220,6 +220,7 @@
     var parts = [];
     if (item.episode_summary) parts.push(item.episode_summary);
     if (state === 'almost_ready') parts.push('Post-processing…');
+    if (item.unmonitored) parts.push('Not monitored in Sonarr');
     if (item.size_done && item.size_total) return [item.size_done, ' of ' + item.size_total, parts.length ? ' · ' + parts.join(' · ') : ''];
     return ['', parts.join(' · ') || item.state_label || 'Downloading'];
   }

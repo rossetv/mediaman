@@ -17,7 +17,7 @@ import logging
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -61,6 +61,7 @@ from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 if TYPE_CHECKING:
     from mediaman.services.arr._types import SonarrSeries
     from mediaman.services.arr.fetcher import ArrCard, FetchResult
+    from mediaman.services.downloads.download_format import DownloadItem
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +340,22 @@ def _mark_readiness(
         item["readiness"] = readiness.get(cast(str, item["title"]), "unknown")
 
 
+UNMONITORED_HINT = "Not monitored in Sonarr"
+
+
+def _mark_unmonitored(conn: sqlite3.Connection, items: Iterable[DownloadItem]) -> None:
+    """Mark each of Sonarr's shows its last half-hourly look found not monitored."""
+    from mediaman.services.arr.self_care import unmonitored_series
+
+    shows = [i for i in items if i["id"].startswith("sonarr:") and i["arr_id"]]
+    off = unmonitored_series(conn) if shows else set()
+    for item in shows:
+        if item["arr_id"] in off:
+            item["unmonitored"] = True
+            if item["state"] == "searching":
+                item["search_hint"] = UNMONITORED_HINT
+
+
 def downloads_subtitle(active: int, coming: int, outage: str = "") -> str:
     """Build the page-header subtitle of *active* downloads in progress and *coming* ones
     scheduled. While the page holds rows of a service that does not answer, downloads.js
@@ -461,6 +478,8 @@ def build_downloads_response(
 
     # 5. Add unmatched NZBGet items (manual additions with no Arr match).
     _add_unmatched_nzb_items(items, nzb_parsed, download_rate)
+
+    _mark_unmonitored(conn, [*items, *upcoming_items])
 
     # 6. Completion detection.
     # Cast through a plain-dict view because completion-detection helpers

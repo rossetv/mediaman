@@ -745,6 +745,19 @@ CREATE TABLE IF NOT EXISTS arr_import_retries (
     next_try_at TEXT
 );
 
+-- What the half-hourly look at Radarr and Sonarr found wrong, by what it is: since when it
+-- has been seen, what Activity says of it (NULL while nothing is said), whether it waits on an
+-- admin, when it was first said, and the commands sent for it with when the last went.
+CREATE TABLE IF NOT EXISTS arr_care (
+    key TEXT PRIMARY KEY,
+    first_seen TEXT NOT NULL,
+    line TEXT,
+    needs_you INTEGER NOT NULL DEFAULT 0,
+    told_at TEXT,
+    tries INTEGER NOT NULL DEFAULT 0,
+    tried_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS keep_tokens_used (
     token_hash TEXT PRIMARY KEY,
     used_at TEXT NOT NULL

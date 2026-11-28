@@ -225,6 +225,7 @@ def _register_maintenance_jobs(
     from mediaman.services.arr._throttle_persistence import reconcile_stranded_throttle
     from mediaman.services.arr.completion import cleanup_recent_downloads
     from mediaman.services.arr.search_trigger import trigger_pending_searches
+    from mediaman.services.arr.self_care import look_after_arrs
     from mediaman.services.plex_link.sync import read_plays
     from mediaman.services.watch_catalog import fill_title_meta
 
@@ -289,6 +290,17 @@ def _register_maintenance_jobs(
         coalesce=True,
         # A reading that comes late is of no use: the next one is due in seconds.
         misfire_grace_time=ACTIVITY_STEP,
+    )
+    # Radarr's and Sonarr's health, space, faults and failures, told in Activity.
+    scheduler.add_job(
+        lambda: look_after_arrs(_open_db_for_job(), secret_key),
+        IntervalTrigger(minutes=30),
+        id="arr_self_care",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        next_run_time=datetime.now(UTC) + _FIRST_SEARCHES_AFTER,
     )
     # Daily reaper for arr_search_throttle rows whose item has been
     # deleted. arr_search_throttle rows are keyed by media_item_id; when

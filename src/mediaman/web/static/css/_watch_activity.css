@@ -272,6 +272,7 @@
 .act-key__val { color: var(--t1); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ── Working on ── */
+.act-shows { justify-self: start; width: min(100%, 240px); margin-top: 10px; }
 .act-works { list-style: none; margin-top: 4px; }
 .act-work { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 0; }
 .act-work + .act-work { border-top: 1px solid var(--hair); }

@@ -210,3 +210,14 @@ def test_with_up_not_known_no_up_scale_is_shown():
     out = _read("noUp")
     assert out["small"] is True
     assert out["ticks"][3] == ""
+
+
+def test_needs_you_shows_only_what_waits_on_an_admin_and_says_when_nothing_does():
+    out = _run("needsYou")
+    indexer = "Sonarr can\u2019t reach any indexer, so nothing new will download."
+    assert [indexer, "Needs you"] in out["all"]
+    assert ["mediaman asked Radarr to look again.", "Done by mediaman"] in out["all"]
+    assert out["needs"] == [[indexer, "Needs you"]]
+    assert out["checked"] == "true"
+    assert out["calm"][0][0] == "Nothing needs you"
+    assert out["back"] > 1 and out["focused"] == "all"

@@ -115,3 +115,5 @@ class DownloadItem(TypedDict):
     # Of a show that needs attention, what each of its stuck episodes says is wrong, for the
     # server alone.
     attention_reasons: NotRequired[list[str]]
+    # Of a show Sonarr has as not monitored, which it will not download by itself.
+    unmonitored: NotRequired[bool]

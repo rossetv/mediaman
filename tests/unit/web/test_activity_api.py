@@ -53,6 +53,26 @@ def test_the_server_now_says_which_sources_are_set_up_and_what_mediaman_is_busy_
     assert body["live"][-1]["at"] == body["point"]["at"]
 
 
+def test_what_the_look_at_radarr_and_sonarr_found_is_said_once_a_line(
+    app_factory, authed_client, conn
+):
+    conn.executemany(
+        "INSERT INTO arr_care (key, first_seen, line, needs_you) VALUES (?, '2026-11-28', ?, ?)",
+        [
+            ("sonarr:health:DownloadClientCheck", "Sonarr can't reach the download client.", 1),
+            ("sonarr:queue:client", "Sonarr can't reach the download client.", 1),
+            ("radarr:missing:7", "mediaman asked Radarr to look again.", 0),
+            ("sonarr:unmonitored:4", None, 0),
+        ],
+    )
+    conn.commit()
+    body = authed_client(app_factory(router, conn=conn), conn).get("/api/activity").json()
+    assert body["work"]["care"] == [
+        {"line": "Sonarr can't reach the download client.", "needs_you": True},
+        {"line": "mediaman asked Radarr to look again.", "needs_you": False},
+    ]
+
+
 def test_a_tab_just_opened_gets_the_last_minute_from_the_history(app_factory, authed_client, conn):
     now = time.time()
     history.store(conn, {"down": 5.0}, now - 40)
