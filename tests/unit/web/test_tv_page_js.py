@@ -289,6 +289,18 @@ def test_a_film_dropped_while_the_tv_was_off_the_network_goes_on_too() -> None:
     assert "Picking up" in out["said"] and "restarted" not in out["said"]
 
 
+def test_a_page_opened_again_whose_ticket_ran_out_is_simply_ready() -> None:
+    out = _run("resumesReopened", "expired")
+    assert len(out["asks"]) == 1 and out["kept"] is None
+    assert "is ready" in out["said"] and "restarted" not in out["said"]
+
+
+def test_a_tv_that_wakes_from_standby_does_not_take_back_a_film_that_went_elsewhere() -> None:
+    out = _run("standby")
+    assert out["before"] and out["kept"] is None
+    assert out["asks"] == 0 and "is ready" in out["said"]
+
+
 def test_a_film_stopped_while_the_tv_answered_does_not_start_again() -> None:
     out = _run("resumes", "stopped")
     assert out["asks"] == [] and "is ready" in out["said"]
@@ -368,6 +380,8 @@ def test_controls_that_were_away_come_back_in_as_a_film_is_paused() -> None:
     assert out["before"] == "ov hide" and out["paused"]
     # Drawn hidden first, so that showing them is a fade and not a cut.
     assert out["classes"][0] == "ov hide" and out["classes"][-1] == "ov"
+    # Played on, the line that said it was paused stays a moment to fade.
+    assert out["line"] == "pz gone" and not out["said"]
 
 
 def _seconds(value: str) -> float:

@@ -90,6 +90,17 @@ video::-webkit-media-controls { display: none !important; }
 .pz { font-size: 44px; font-weight: 700; margin-bottom: 34px; -webkit-animation: rise .5s cubic-bezier(.2, .8, .2, 1) backwards; animation: rise .5s cubic-bezier(.2, .8, .2, 1) backwards; }
 .pz .i { width: 44px; height: 44px; vertical-align: -7px; }
 /* Glass where nothing blurs: the tint at its solid weight, its edge lit along the top. */
+/* What a film starts under: big and bright enough to read from the sofa, over a larger orbit. */
+.start .spin { width: 128px; height: 128px; border-width: 5px; margin: 0 0 52px; }
+.start .spin:before { left: -91px; top: -91px; width: 300px; height: 300px; }
+.start .spin:after { left: 48px; top: -13.5px; width: 22px; height: 22px; -webkit-transform-origin: 11px 72.5px; transform-origin: 11px 72.5px; }
+.start .t1 { font-size: 84px; line-height: 100px; }
+.start .t2 { font-size: 46px; line-height: 64px; margin-top: 8px; }
+.start .who { margin-top: 44px; font-size: 40px; color: #fff; }
+.start .l { font-size: 52px; line-height: 64px; color: #fff; }
+.start .av--s { width: 80px; height: 80px; }
+.start .av--s:before { width: 68px; height: 68px; line-height: 68px; font-size: 32px; }
+.start .av--s img { width: 68px; height: 68px; }
 .up { position: absolute; right: 110px; bottom: 90px; width: 800px; background: #1d1d1f; background: rgba(28, 28, 32, .94); border: 2px solid rgba(255, 255, 255, .14); border-top-color: rgba(255, 255, 255, .3); border-radius: 28px; padding: 44px 48px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 30px 80px rgba(0, 0, 0, .55); }
 .up .bs { margin-top: 34px; }
 .up .t1 { font-size: 48px; line-height: 64px; }
@@ -138,6 +149,10 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 @-webkit-keyframes dr { from { -webkit-transform: scaleX(1); } to { -webkit-transform: scaleX(0); } }
 @keyframes dr { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* As a film plays on, the line that said it was paused sinks away. */
+.pz.gone { -webkit-animation: sink .35s cubic-bezier(.2, .8, .2, 1) forwards; animation: sink .35s cubic-bezier(.2, .8, .2, 1) forwards; }
+@-webkit-keyframes sink { to { opacity: 0; -webkit-transform: translateY(16px); } }
+@keyframes sink { to { opacity: 0; transform: translateY(16px); } }
 @media (forced-colors: active) {
   .b.f, .bar .p { forced-color-adjust: none; background: Highlight; }
   .b.f { color: HighlightText; border-color: Highlight; }
@@ -186,5 +201,6 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
   .spin { animation: pu 1.6s ease-in-out infinite; }
   .spin:before, .spin:after { -webkit-animation: none; animation: none; }
   .spin:after { display: none; }
+  .pz.gone { display: none; -webkit-animation: none; animation: none; }
   .spin--mark, .mark path, .a1, .a2 { animation: none; }
 }

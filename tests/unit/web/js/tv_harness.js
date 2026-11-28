@@ -39,6 +39,7 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     removeAttribute(k) { delete this.attrs[k]; if (k === 'id') this.id = ''; if (k === 'src') this.gone = true; },
     addEventListener(k, fn) { (this.on[k] = this.on[k] || []).push(fn); },
     appendChild(n) { this.children.push(n); return n; },
+    insertBefore(n) { this.children.unshift(n); return n; },
     getElementsByTagName: () => [],
   });
   const video = Object.assign(element(), {
@@ -148,6 +149,8 @@ function tv({ kept = null, plays = true, full = false } = {}) {
   return {
     sent, answers, video, store, fullAsks, order,
     leaveFull() { document[inFull] = null; changed(); },
+    // The TV goes to standby, or comes back from it.
+    hide(hidden) { document.hidden = hidden; (document.on.visibilitychange || []).forEach((fn) => fn({})); },
     ov: () => (document.getElementById('ov') || {}).className,
     run() { vm.runInContext(SOURCE, vm.createContext(ctx)); return this; },
     qr: (text) => ctx.window.MMTv.qr(text),
@@ -969,15 +972,33 @@ const scenarios = {
     return { asks, at, said, then: t.says(), src: t.video.attrs.src || null, put: t.video.sets.pop(), playing: !t.video.paused };
   },
   // A page opened again while mediaman was away goes on from the place it kept.
-  async resumesReopened() {
+  async resumesReopened(how) {
     const t = tv({ kept: 'old' });
     t.store['mm-tv-resume'] = JSON.stringify({ ticket: 'ticket-p1', id: 'p1', boot: 'a', title: 'Glass Orchard', paused: true });
     t.store['mm-tv-place'] = 'p1 1500';
     t.answers.poll = () => ready({ boot: 'b' });
-    t.answers.ask = { ok: true };
+    // A ticket that ran out while the page was closed.
+    t.answers.ask = how === 'expired' ? [409, { ok: false, error: 'not_playing' }] : { ok: true };
     t.run();
     await t.step(1500);
-    return { asks: t.paths('ask').map((c) => c.body), said: t.says() };
+    return { asks: t.paths('ask').map((c) => c.body), said: t.says(), kept: t.store['mm-tv-resume'] || null };
+  },
+  // The TV goes to standby while its film plays, the film goes to a phone meanwhile, and the TV wakes.
+  async standby() {
+    const t = await playing();
+    t.now = film({ state: 'playing' });
+    t.answers.poll = () => ready({ play: t.now, boot: 'a', resume: t.now ? 'ticket-p1' : null });
+    await t.step(1500);
+    const before = Boolean(t.store['mm-tv-resume']);
+    t.hide(true);
+    t.answers.poll = [502, null];
+    await t.step(12000);
+    t.now = null;
+    t.answers.poll = () => ready({ play: null, boot: 'a' });
+    t.answers.ask = { ok: true };
+    t.hide(false);
+    await t.step(3000);
+    return { before, asks: t.paths('ask').length, kept: t.store['mm-tv-resume'] || null, said: t.says() };
   },
   // a page opened after the restart knew of no film, and one that shows nothing has nothing to say
   async restartsIdle() {
@@ -1019,7 +1040,10 @@ const scenarios = {
     const before = t.ov();
     t.answers.poll = () => ready({ play: t.now, commands: [{ id: 8, kind: 'pause' }] });
     for (let i = 0; i < 20 && !t.says().includes('Paused'); i += 1) await t.step(100);
-    return { before, classes: t.node('ov').classes, paused: t.says().includes('Paused') };
+    const classes = t.node('ov').classes, paused = t.says().includes('Paused');
+    t.key(OK);
+    const line = (t.node('bt').children[0] || {}).className;
+    return { before, classes, paused, line, said: t.says().includes('Paused') };
   },
   // Each status a film goes through, and the page after it, as the page before gives way to it.
   async everyChangeFades() {

@@ -514,7 +514,7 @@
     var at = lost && was && loaded === was.play_id ? position() : lastPlace({ play_id: lost && lost.id, start_s: null });
     var paused = was ? !wanted : lost && lost.paused;
     playing(got.play);
-    if (lost) resume(lost, at, paused, got.boot);
+    if (lost) resume(lost, at, paused, got.boot, Boolean(was));
     else if (was && !got.play && boot !== got.boot) restarted(was);
     if (!lost && resuming !== got.boot) keepResume(got.play && got.resume ? { ticket: got.resume, id: got.play.play_id, boot: got.boot, title: got.play.title } : null);
     boot = got.boot;
@@ -532,6 +532,7 @@
 
   function keepResume(kept) {
     var was = resumable, at = now();
+    if (document.hidden) kept = null;
     if (kept) kept.paused = !wanted;
     var changed = !was !== !kept || Boolean(kept) && (was.id !== kept.id || was.boot !== kept.boot || was.paused !== kept.paused);
     resumable = kept;
@@ -541,6 +542,16 @@
       remember(KEPT_RESUME, kept && JSON.stringify(kept));
     }
   }
+  function forgetResume() {
+    resumable = null;
+    remember(KEPT_RESUME, null);
+  }
+  /* A page put away, as the TV goes to standby or another app is opened, was left on purpose: what
+     played may have gone to a phone meanwhile, so it is not picked up as the TV comes back. A restart
+     or a dropped network while the page is on screen keeps it. */
+  document.addEventListener('visibilitychange', function () { if (document.hidden) forgetResume(); });
+  if (window.addEventListener) window.addEventListener('pagehide', forgetResume);
+
   function keptResume() {
     if (resumable) return resumable;
     try { return JSON.parse(remembered(KEPT_RESUME) || 'null'); } catch (e) { return null; }
@@ -555,7 +566,9 @@
     return kept.boot !== got.boot || (was && wasAway) ? kept : null;
   }
 
-  function resume(kept, at, paused, run) {
+  /* `seen`: whether this page was showing the film as it was lost. One opened afresh has nothing to
+     tell of a pick-up that was refused. */
+  function resume(kept, at, paused, run, seen) {
     endedWith = { title: kept.title, state: 'playing' };
     resuming = run;
     resumingFrom = kept.boot !== run;
@@ -565,9 +578,10 @@
     send('ask', token, wish, 110000, function (status) {
       if (mode !== 'resuming') return;
       if (status === 200) { tell(); return; }
-      keepResume(null);
+      // From the store too, where a page opened afresh found it: it is asked for once.
+      forgetResume();
       resuming = null;
-      if (resumingFrom) restarted(endedWith); else mode = 'idle';
+      if (resumingFrom && seen) restarted(endedWith); else mode = 'idle';
       show();
     });
   }
@@ -1207,8 +1221,8 @@
     }
   }
   function overlay(paused) {
-    return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot">' +
-      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by && me && me.people && me.people.length > 1 ? ' by ' + face(play.paused_by, true) + esc(play.paused_by) : '')) + '</div>' : '') +
+    return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot" id="bt">' +
+      (paused ? '<div class="pz" id="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by && me && me.people && me.people.length > 1 ? ' by ' + face(play.paused_by, true) + esc(play.paused_by) : '')) + '</div>' : '') +
       '<div class="bar"><div class="p" id="pr"></div>' + markNodes() + '</div><div class="tms"><span id="el"></span><span id="re"></span></div>' +
       offer([[glyph('back') + '10 s', 'b'], [glyph(paused ? 'play' : 'pause') + (paused ? 'Play' : 'Pause'), 'p'], [glyph('fwd') + '10 s', 'f'], [glyph('stop') + 'Stop', 's']]) +
       '</div></div>';
@@ -1266,9 +1280,9 @@
       return page(middle('This TV&rsquo;s browser can&rsquo;t play films', 'It is missing what mediaman needs.<br>Ask an admin to add this TV by its address.', [['Try anyway', 'a']]));
     },
     load: function () {
-      return art() + '<div class="shade"></div><div class="mid">' + SPIN + titles() + '<div class="sm who">' + face(starter(), true) + esc(starter()) + ' is starting it</div></div>' + offer([]);
+      return art() + '<div class="shade"></div><div class="mid start">' + SPIN + titles() + '<div class="sm who">' + face(starter(), true) + esc(starter()) + ' is starting it</div></div>' + offer([]);
     },
-    soon: function () { return art() + '<div class="shade"></div><div class="mid">' + SPIN + '<div class="l">Starting</div></div>' + offer([]); },
+    soon: function () { return art() + '<div class="shade"></div><div class="mid start">' + SPIN + '<div class="l">Starting</div></div>' + offer([]); },
     play: function () { return overlay(false); },
     pause: function () { return overlay(true); },
     buf: function () {
@@ -1328,11 +1342,13 @@
       if (FOCUS[name] && FOCUS[shown]) kept = focus;
       var before = document.getElementById('ov');
       var tucked = Boolean(before) && before.className === 'ov hide';
+      var pausedLine = name === 'play' && shown === 'pause' && document.getElementById('pz');
       swap(name !== shown && !(FOCUS[name] && FOCUS[shown]));
       stage.innerHTML = html;
       // Controls that were away come back in as a film is paused, rather than appear at once.
       var after = tucked && document.getElementById('ov');
       if (after) { after.className = 'ov hide'; void after.offsetWidth; }
+      if (pausedLine) fadeOut(pausedLine);
       watchFaces();
       drawn = html;
       dressed = '';
@@ -1348,6 +1364,17 @@
     if (pending) put('cd', codeLine());
     if (play) { if (endsAt) put('inn', String(nextLeft())); bar(); dress(); }
     hush();
+  }
+
+  /* The "Paused" line of a film that plays on stays a moment where it was, and fades. The controls
+     under it keep their place: the bar they sit in is held to the bottom. */
+  function fadeOut(line) {
+    var bot = document.getElementById('bt');
+    if (!bot) return;
+    line.removeAttribute('id');
+    line.className = 'pz gone';
+    bot.insertBefore(line, bot.firstChild);
+    setTimeout(function () { if (line.parentNode) line.parentNode.removeChild(line); }, LEAVE_MS);
   }
 
   /* The countdown's bar runs down over what is left of it as it is drawn. */
