@@ -1984,5 +1984,10 @@ def test_a_sheet_scrolled_down_pulled_short_or_on_a_wide_screen_stays_open_and_g
 
 def test_back_with_a_question_open_over_the_title_takes_only_the_question_away() -> None:
     out = _run("backOnConfirm")
-    assert out["first"] == {"answer": False, "asking": False, "hash": "#title=show-300", "open": True}
+    assert out["first"] == {
+        "answer": False,
+        "asking": False,
+        "hash": "#title=show-300",
+        "open": True,
+    }
     assert out["second"] == {"hash": "", "leaving": True}
