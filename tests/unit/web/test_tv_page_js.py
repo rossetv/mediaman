@@ -297,7 +297,9 @@ def test_a_film_dropped_while_the_tv_was_off_the_network_goes_on_too() -> None:
     assert "Picking up" in out["said"] and "restarted" not in out["said"]
 
 
-def test_an_update_while_a_film_plays_picks_it_up_and_loads_the_page_only_once_nothing_plays() -> None:
+def test_an_update_while_a_film_plays_picks_it_up_and_loads_the_page_only_once_nothing_plays() -> (
+    None
+):
     out = _run("resumesUpdated")
     assert (out["asks"], out["during"], out["playing"], out["idle"]) == (1, 0, 0, 1)
 
