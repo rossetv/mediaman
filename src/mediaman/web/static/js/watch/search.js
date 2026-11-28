@@ -933,10 +933,12 @@
     /* What the AI knows, as the sheet is drawn from it. */
     function assist() { return (ai && ai.state()) || null; }
 
-    function drawTonight() {
+    function drawTonight(knows) {
       if (!evening) {
         evening = window.MMWatch.tonight.make({
+          who: knows.account,
           option: option,
+          pick: pick,
           say: function (text) { status.textContent = text; },
           gone: function () { if (picked && !shows(picked)) pick(null); },
           open: function (item) {
@@ -949,7 +951,7 @@
           }
         });
       }
-      sheet.appendChild(evening.node);
+      evening.place().forEach(function (node) { sheet.appendChild(node); });
     }
 
     function shows(node) { return node.isConnected && node.getClientRects().length > 0; }
@@ -1102,14 +1104,14 @@
       sheet.textContent = '';
       if (!data.taste) {
         // Their history is not to be used: the sheet as it is for anyone.
-        if (knows && knows.tonight) drawTonight();
+        if (knows && knows.tonight) drawTonight(knows);
         if (knows) drawRecent(knows.recent, again);
         if (offers) drawTries(true, knows, again, 60);
       } else {
         if (mine()) drawForYou(knows, again);
         if (knows) drawRecent(knows.recent, again);
         if (!mine()) drawNewcomer(again);
-        if (knows && knows.tonight) drawTonight();
+        if (knows && knows.tonight) drawTonight(knows);
       }
       drawPart('Browse by category', 'watch-tiles', waiting ? times(FIRST.length, tileOutline) : first.map(genreTile),
         ownOrder() && !waiting ? el('small', '', 'Most watched first') : null);
@@ -1147,6 +1149,7 @@
       }
       sayList();
       pick(null);
+      if (!on && evening) evening.settle();
     }
 
     function leaveSheet() {
@@ -1834,7 +1837,8 @@
 
     function options() {
       var root = sheetOn ? sheet : live && live.kind === 'results' ? live.list : null;
-      return root ? core.toArray(root.querySelectorAll('.watch-option')).filter(function (n) { return n.getClientRects().length; }) : [];
+      // Not one folding away.
+      return root ? core.toArray(root.querySelectorAll('.watch-option')).filter(function (n) { return n.getClientRects().length && !n.closest('.is-gone'); }) : [];
     }
 
     /* What the arrow keys go through, in groups: the options; under an AI answer, the top match,

@@ -20,6 +20,7 @@
   ];
   var SET = 6; // outlines while the first set comes: the server says how many a set holds
   var COUNTS = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'];
+  var HIDDEN = 'mm.watch.no-tonight'; // stored, with the account's mark, while the person keeps Tonight hidden
 
   function dur(minutes) { return window.MMWatch.ask.dur(minutes); }
 
@@ -35,8 +36,9 @@
     return item.minutes ? kind + ' · ' + dur(item.minutes) + (item.kind === 'show' ? ' episodes' : '') : kind;
   }
 
-  /* *opts*: option(node, key) makes a node one of the panel's options, say(text) reads out,
-     open(item) opens a title, and gone() follows options that were taken away. */
+  /* *opts*: option(node, key) makes a node one of the panel's options, pick(node) highlights one,
+     say(text) reads out, open(item) opens a title, gone() follows options that were taken away,
+     and who is the account's mark, under which hiding it is remembered on this device. */
   function make(opts) {
     var search = window.MMWatch.search;
     var node = el('section', 'tn');
@@ -71,6 +73,77 @@
       return seg.appendChild(b);
     });
     more.addEventListener('click', function () { if (next !== null) choose(at, next); });
+    // After the times, so the first arrow down lands on a time; its place is beside the title.
+    var close = head.appendChild(opts.option(button('tn__x', ''), 'tonight-hide'));
+    close.setAttribute('aria-label', 'Hide this');
+    close.appendChild(MM.dom.icon('i-xmark'));
+    close.addEventListener('click', hide);
+
+    // Each in a box that folds shut, so the sheet closes the gap as it goes.
+    var box = folding(node);
+    var note = el('div', 'tn-note');
+    note.appendChild(el('span', '', 'Tonight is hidden'));
+    var undo = note.appendChild(opts.option(button('txt', 'Undo'), 'tonight-undo'));
+    undo.setAttribute('aria-label', 'Undo: show Tonight again');
+    undo.addEventListener('click', show);
+    var noteBox = folding(note);
+    var key = HIDDEN + (opts.who ? ':' + opts.who : '');
+    var hidden = stored();
+    var noted = false; // hidden while the sheet is open: Undo stands in its place till it closes
+
+    function folding(inner) {
+      var outer = el('div', 'tn-box');
+      outer.appendChild(el('div')).appendChild(inner);
+      return outer;
+    }
+
+    function stored() {
+      try { return !!window.localStorage.getItem(key); } catch (e) { return false; }
+    }
+
+    function remember(on) {
+      try {
+        if (on) window.localStorage.setItem(key, '1');
+        else window.localStorage.removeItem(key);
+      } catch (e) { /* storage blocked: it is hidden for this visit */ }
+    }
+
+    /* *from* folds shut and *to* opens in its place; what held the highlight or the focus
+       moves to *next*. */
+    function swap(from, to, next) {
+      var had = from.querySelector('.is-picked');
+      var held = from.contains(document.activeElement);
+      if (!to.isConnected) {
+        to.classList.add('is-gone');
+        from.parentNode.insertBefore(to, from === box ? from : from.nextSibling);
+        void to.offsetHeight;
+      }
+      to.classList.remove('is-gone');
+      to.inert = false;
+      from.classList.add('is-gone');
+      from.inert = true;
+      setTimeout(function () {
+        if (from.classList.contains('is-gone')) from.remove();
+      }, core.reduceMotion() ? 0 : core.tokenMs('--dur-slow', 250));
+      if (held) next.focus({ preventScroll: true });
+      if (had || held) opts.pick(next);
+    }
+
+    function hide() {
+      if (hidden) return;
+      hidden = noted = true;
+      remember(true);
+      swap(box, noteBox, undo);
+      opts.say('Tonight is hidden');
+    }
+
+    function show() {
+      if (!hidden) return;
+      hidden = noted = false;
+      remember(false);
+      swap(noteBox, box, close);
+      opts.say('Tonight is back');
+    }
 
     function button(className, text) {
       var b = el('button', className, text);
@@ -224,7 +297,18 @@
         function () { choose(at, skip); });
     }
 
-    return { node: node };
+    return {
+      /* What of it the sheet shows: the card, or where it was hidden while the sheet was open,
+         the line that brings it back. */
+      place: function () { return hidden ? (noted ? [noteBox] : []) : [box]; },
+      /* The sheet closed: hidden stays hidden, with nothing in its place. */
+      settle: function () {
+        if (!hidden) return;
+        noted = false;
+        noteBox.remove();
+        box.remove();
+      }
+    };
   }
 
   window.MMWatch.tonight = { make: make };
