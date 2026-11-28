@@ -175,10 +175,10 @@ def test_the_keyboard_s_ring_on_a_dialog_is_the_one_lifted_for_glass(ring: str, 
     assert style(ring, sheet)["outline-color"] == "var(--g-focus)"
 
 
-DISABLED = ':is(.ui-confirm-card, .modal-sheet, .keep-dialog, .play-on) .btn:is(:disabled, [aria-disabled="true"])'
+DISABLED = ':is(.ui-confirm-card, .modal-sheet, .keep-dialog, .play-on, .you__panel) .btn:is(:disabled, [aria-disabled="true"])'
 
 
-@pytest.mark.parametrize(("card", "sheet"), CARDS)
+@pytest.mark.parametrize(("card", "sheet"), [*CARDS, (".you__panel", "_you.css")])
 @pytest.mark.parametrize("page", [WHITE, BLACK])
 def test_a_button_that_cannot_be_pressed_yet_on_a_dialog_still_reads_4_5_to_1(
     card: str, sheet: str, page: tuple[float, ...]
@@ -194,6 +194,17 @@ def test_a_button_that_cannot_be_pressed_yet_on_a_dialog_still_reads_4_5_to_1(
     assert contrast(words, fill) >= 4.5
     # Quieter than what can be pressed, so it still reads as not yet.
     assert _colour(drawn["color"], scope)[3] < 1
+
+
+def test_a_button_that_cannot_be_pressed_yet_does_not_shrink_when_pressed() -> None:
+    press = style('.btn:active:not(:disabled, [aria-disabled="true"])', BUTTONS)
+    assert press["transform"] == "scale(.97)"
+
+
+def test_save_email_is_quiet_when_aria_disabled_as_when_disabled() -> None:
+    assert '.yo-foot .btn--primary:is(:disabled, [aria-disabled="true"])' in {
+        s for _, sels, _ in rules("_profile.css") for s in sels
+    }
 
 
 def test_a_button_that_cannot_be_pressed_yet_reads_so_in_forced_colours_too() -> None:

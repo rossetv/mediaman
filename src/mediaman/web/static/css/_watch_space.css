@@ -142,7 +142,6 @@ html.has-space .watch-keep-menu { z-index: calc(var(--z-modal) + 1); }
   --accent-hi: var(--g-accent-text);
   --accent-text: var(--g-accent-text);
   --danger-text: var(--g-danger-text);
-  --field-edge: var(--g-field-edge);
   position: absolute;
   top: max(12px, env(safe-area-inset-top, 0px));
   right: max(12px, env(safe-area-inset-right, 0px));

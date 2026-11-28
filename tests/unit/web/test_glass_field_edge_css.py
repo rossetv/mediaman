@@ -15,7 +15,6 @@ SURFACES = [
     (".keep-dialog", "_modal.css"),
     (".play-on", "_play_on.css"),
     (".you__panel", "_you.css"),
-    (".space__panel", "_watch_space.css"),
 ]
 
 
