@@ -59,6 +59,13 @@ def test_the_page_says_signed_out_only_after_a_log_out(client):
         assert _SIGNED_OUT not in plain and "is-out" not in plain
 
 
+def test_the_page_says_a_session_was_dropped_for_safety_only_when_it_was(client):
+    line = "You were signed out for safety. Please sign in again."
+    assert line in client.get("/login?out=safety").text
+    for plain in (client.get("/login").text, client.get("/login?out=1").text):
+        assert line not in plain
+
+
 def test_a_rate_limited_sign_in_is_drawn_as_a_wait_and_not_as_a_wrong_password(client):
     for name in ("a", "b", "c", "d", "e"):
         wrong = client.post("/login", data={"username": name, "password": "wrong"})

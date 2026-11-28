@@ -42,6 +42,7 @@ import logging
 import re
 import secrets
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Literal, TypedDict, cast
 
@@ -159,10 +160,13 @@ def validate_session(
     client_ip: str | None = None,
     request_supplied: bool | None = None,
     extend: bool = True,
+    on_fingerprint_drop: Callable[[], None] | None = None,
 ) -> str | None:
     """Return the username for a valid, non-expired session token.
 
     *extend* False leaves ``last_used_at`` as it is: nobody did anything.
+    *on_fingerprint_drop* is called when the session is deleted because
+    its client binding no longer holds, so the caller can say why.
 
     Ordinary requests must not take a SQLite writer lock.
     Validation is a read-only SELECT by default; write transactions are
@@ -226,6 +230,8 @@ def validate_session(
         client_ip,
         request_supplied=request_supplied,
     ):
+        if on_fingerprint_drop is not None:
+            on_fingerprint_drop()
         return None
 
     if extend:

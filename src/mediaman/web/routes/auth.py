@@ -80,7 +80,9 @@ def _ua_hash(user_agent: str) -> str:
 def login_page(request: Request, out: str = Query(default="")) -> HTMLResponse:
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
-        request, "login.html", {"error": None, "signed_out": out == "1"}
+        request,
+        "login.html",
+        {"error": None, "signed_out": out == "1", "dropped": out == "safety"},
     )
 
 

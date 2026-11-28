@@ -272,6 +272,68 @@ class TestFingerprintFailsClosedWithoutRequest:
         )
 
 
+_CHROME_MAC_120 = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.6099.71 Safari/537.36"
+)
+_CHROME_MAC_121 = _CHROME_MAC_120.replace("120.0.6099.71", "121.0.6167.85")
+_FIREFOX_MAC = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0"
+)
+_SAFARI_IPHONE = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1"
+)
+_SAFARI_WINDOWS = _SAFARI_IPHONE.replace(
+    "iPhone; CPU iPhone OS 17_1 like Mac OS X", "Windows NT 10.0"
+)
+
+
+class TestLooseFingerprintKeepsOnlyStableParts:
+    def _validate(self, conn, token, ua):
+        return validate_session(conn, token, user_agent=ua, client_ip="1.1.1.20")
+
+    def test_a_ua_that_changes_only_its_version_keeps_the_session(self, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "loose")
+        token = create_session(conn, "alice", user_agent=_CHROME_MAC_120, client_ip="1.1.1.10")
+        assert self._validate(conn, token, _CHROME_MAC_121) == "alice"
+
+    @pytest.mark.parametrize(
+        ("issued", "replayed"),
+        [(_FIREFOX_MAC, _CHROME_MAC_121), (_SAFARI_IPHONE, _SAFARI_WINDOWS)],
+        ids=["firefox-to-chrome", "iphone-to-windows"],
+    )
+    def test_another_browser_or_system_is_still_refused(self, conn, monkeypatch, issued, replayed):
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "loose")
+        token = create_session(conn, "alice", user_agent=issued, client_ip="1.1.1.10")
+        assert self._validate(conn, token, replayed) is None
+        assert self._validate(conn, token, issued) is None
+
+    def test_an_unknown_client_must_send_the_same_ua(self, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "loose")
+        token = create_session(conn, "alice", user_agent="curl/8.0", client_ip="1.1.1.10")
+        assert self._validate(conn, token, "curl/8.1") is None
+
+    def test_strict_mode_still_refuses_a_version_change(self, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "strict")
+        token = create_session(conn, "alice", user_agent=_CHROME_MAC_120, client_ip="1.1.1.10")
+        ok = validate_session(conn, token, user_agent=_CHROME_MAC_120, client_ip="1.1.1.10")
+        assert ok == "alice"
+        bumped = validate_session(conn, token, user_agent=_CHROME_MAC_121, client_ip="1.1.1.10")
+        assert bumped is None
+
+    def test_a_session_stored_with_the_whole_ua_hash_is_kept_and_upgraded(self, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "loose")
+        token = create_session(conn, "alice", user_agent=_CHROME_MAC_120, client_ip="1.1.1.10")
+        whole_ua = hashlib.sha256(_CHROME_MAC_120.encode()).hexdigest()[:16]
+        conn.execute("UPDATE admin_sessions SET fingerprint = ?", (f"{whole_ua}:1.1.1.0",))
+        conn.commit()
+
+        assert self._validate(conn, token, _CHROME_MAC_120) == "alice"
+        # Upgraded: a version bump, which the whole-UA hash would refuse, now keeps it.
+        assert self._validate(conn, token, _CHROME_MAC_121) == "alice"
+
+
 class TestDestroySession:
     def test_destroys_existing_session(self, conn):
         token = create_session(conn, "alice")
