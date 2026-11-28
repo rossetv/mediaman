@@ -89,3 +89,26 @@ def test_what_plays_on_the_tv_carries_the_setting_of_whoever_started_it(tv, home
     assert _play(amy, home, rating_key="102").status_code == 200
     assert tv.poll()["play"]["auto_skip"] is False
     assert _tv_of(amy, home)["play"]["auto_skip"] is False
+
+
+def test_an_end_the_tv_counted_down_to_over_the_credits_goes_on_at_once(tv, home, amy):  # noqa: F811
+    _play(amy, home, "501")
+    playing = tv.poll()["play"]["play_id"]
+    report = {"play_id": playing, "state": "ended", "position_s": 2880, "counted": True}
+    play = tv.poll(report=report)["play"]
+    assert (play["state"], play["upnext_in_s"]) == ("upnext", 0)
+    assert tv.ask("auto").status_code == 200
+    assert _tv_of(amy, home)["play"]["rating_key"] == "502"
+
+
+def test_what_plays_on_the_tv_carries_reduce_loud_sounds_of_whoever_started_it(
+    tv,  # noqa: F811
+    home,  # noqa: F811
+    amy,  # noqa: F811
+    conn,
+):
+    assert _play(amy, home).status_code == 200
+    assert tv.poll()["play"]["reduce_loud"] is False
+    track_choices.set_reduces_loud(conn, "amy", True)
+    assert _play(amy, home, rating_key="102").status_code == 200
+    assert tv.poll()["play"]["reduce_loud"] is True

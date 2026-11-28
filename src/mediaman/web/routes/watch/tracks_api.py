@@ -151,6 +151,7 @@ def _answer(
                 "audio_lang": defaults.audio_lang,
                 "subtitle_lang": defaults.subtitle_lang,
                 "reduce_loud": track_choices.reduces_loud(conn, username),
+                "auto_skip": track_choices.skips_on_tv(conn, username),
             },
         }
     )

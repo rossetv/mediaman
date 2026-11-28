@@ -3,7 +3,7 @@
  * remote's keys. Talks to /api/tv/device with the TV's token alone; no session, no account.
  *
  * ES5 and XMLHttpRequest only: the browsers of TVs from 2016 run it, so nothing of the app's
- * other scripts is used and nothing is loaded from elsewhere.
+ * other scripts is used but watch/loudness.js, ES5 too, and nothing is loaded from elsewhere.
  */
 (function () {
   'use strict';
@@ -645,11 +645,15 @@
       counted = next.played_s || 0;
       breaks = 0;
       skipped = {};
+      upCard = null;
+      if (loud && (next.reduce_loud || loud.on())) loud.set(Boolean(next.reduce_loud));
     }
     endsAt = next.upnext_in_s === null || next.upnext_in_s === undefined ? 0 : now() + next.upnext_in_s * 1000;
     if (next.url && loaded !== next.play_id) load(lastPlace(next));
     else if (!next.url && loaded) unload();
     else if (reloadDue) { reloadDue = false; load(position()); }
+    // The countdown over the credits ran out: mediaman's own is not shown again.
+    if (ranOut === next.play_id && next.state === 'upnext' && endsAt && asked !== next.play_id && now() >= autoAt) ask('auto');
     if (next.state === 'failed' && next.error === 'gone' && triedPlay !== next.play_id && tries < 2) {
       triedPlay = next.play_id;
       tries += 1;
@@ -679,7 +683,8 @@
     if (what === 'again') wish.paused = Boolean(byItself) && !wanted;
     send('ask', token, wish, stop ? 10000 : 110000, function (status, got) {
       var same = play && play.play_id === id;
-      if (asked === id) asked = null;
+      // Gone on from credits counted down here, it waits for the next episode, not their card.
+      if (asked === id && !(status === 200 && ranOut === id)) asked = null;
       // Until a poll says what came of it.
       if (what === 'auto') autoAt = now() + 5000;
       if (same && status !== 200 && got.error !== 'stale') {
@@ -732,6 +737,8 @@
   var breaks = 0, reloadDue = false, broken = false, overAt = null;
   var falteredAt = 0;
   var canVolume = null;
+  // Reduce loud sounds, as whoever started what plays chose; none where the browser cannot.
+  var loud = window.MM && window.MM.loudness ? window.MM.loudness.create(video) : null;
 
   function native() {
     return Boolean(video.canPlayType && (video.canPlayType('application/vnd.apple.mpegurl') || video.canPlayType('application/x-mpegURL')));
@@ -872,10 +879,12 @@
       setVolume(was === 1 ? 0.99 : 1);
       video.volume = was;
     }
-    return {
+    var out = {
       play_id: play.play_id, state: stateNow(), position_s: position() || 0, played_s: counted,
       volume: video.volume, muted: Boolean(video.muted), can_volume: canVolume,
     };
+    if (overAt !== null && ranOut === play.play_id) out.counted = true;
+    return out;
   }
 
   /* The stream stopped. Try once more when the server next answers, and say so if that fails. */
@@ -937,7 +946,7 @@
     if (loaded && !video.seeking) begun();
   });
   video.addEventListener('pause', function () {
-    if (!loaded || !ready || video.ended || reloadDue || broken) return;
+    if (!loaded || !ready || video.ended || reloadDue || broken || overAt !== null) return;
     wanted = false;
     if (there) keepPlace(video.currentTime);
     show();
@@ -1000,8 +1009,9 @@
     }
     if (play && play.state === 'upnext' && endsAt && asked !== play.play_id) {
       if (at >= endsAt && at >= autoAt) ask('auto');
-      else put('inn', String(nextLeft()));
+      else put('inn', String(nextLeft(endsAt)));
     }
+    if (shown === 'credits' && upCard && upCard.until) put('inn', String(nextLeft(upCard.until)));
     if (play) bar();
     if ((stalled || reloadDue) && which() !== shown) show();
     skipMarks();
@@ -1017,14 +1027,18 @@
   var entered = null;        // {play, m, last, at, land, count}: the marker the TV plays in, where in it the TV began it, and its timing
   var LAND_S = { intro: 3, credits: 4 };
   var COUNT_S = 5;
+  var NEXT_S = 10;           // the next episode's countdown, as long as mediaman's own
+  var upCard = null;         // {play, until}: the next episode, offered over the last credits; until is 0 where it waits for a press
+  var ranOut = null;         // the play whose countdown over its credits ran out
 
   /* Where its person wants it, the TV plays on past an intro or credits: a TV's remote may have no
      key to skip with. It lands a few seconds in, so nothing is cut off at its first frame, and an
-     intro or credits a scene follows count down on screen first, which Back or OK stops. Credits that end the title are skipped only where a next episode follows, to the end,
-     where the TV's own next episode, with its own countdown, and "still watching" take over. */
+     intro or credits a scene follows count down on screen first, which Back or OK stops. Credits
+     that end the title, where a next episode follows, play on under the next episode's card. */
   function skipMarks() {
-    // A seek, a stop or another play ends a count.
+    // A seek, a stop or another play ends a count; a pause, the card, which comes again as it plays.
     if (entered && (!play || entered.play !== play.play_id || !there || video.seeking)) leaveMark();
+    if (upCard && !wanted) dropCard();
     if (!play || !play.auto_skip || !loaded || !ready || !there || !wanted || video.seeking || overAt !== null || broken || reloadDue) return;
     var t = video.currentTime, list = play.markers || [];
     var end = video.duration || play.duration_s || 0;
@@ -1041,7 +1055,8 @@
         if (left <= entered.count) countNote(name, left);
         return;
       }
-      jumpPast(m, last, name);
+      if (last) offerNext();
+      else jumpPast(m, name);
       return;
     }
     if (entered) leaveMark();
@@ -1058,12 +1073,38 @@
     return { play: play.play_id, m: m, last: last, at: t, land: land, count: count };
   }
 
-  function jumpPast(m, last, name) {
+  function jumpPast(m, name) {
     entered = null;
     skipped[m.start_s] = true;
     seek(m.end_s);
     tell();
-    if (!last) note(name === 'intro' ? 'Skipped intro' : 'Skipped credits');
+    note(name === 'intro' ? 'Skipped intro' : 'Skipped credits');
+  }
+
+  /* The card counts down as mediaman's does at the end. Where it runs out, the episode ends where
+     it is: a jump to its end would have the stream fill again, for nothing. */
+  function offerNext() {
+    if (!upCard) {
+      upCard = { play: play.play_id, until: play.autoplay === false ? 0 : now() + NEXT_S * 1000 };
+      show();
+    }
+    if (upCard.until && now() >= upCard.until) endEarly();
+  }
+  function endEarly() {
+    upCard = entered = null;
+    ranOut = play.play_id;
+    finish();
+    video.pause();
+  }
+  function dropCard() {
+    upCard = null;
+    show();
+  }
+  /* Watch credits: the card goes, and the credits play on to the end. */
+  function watchCredits() {
+    if (entered) skipped[entered.m.start_s] = true;
+    entered = null;
+    dropCard();
   }
 
   /* Its number ticks where a reader is not read; the seconds are said once, as the note comes.
@@ -1105,6 +1146,7 @@
   function leaveMark() {
     entered = null;
     if (noteText.indexOf('Skipping') === 0) hideNote();
+    if (upCard) dropCard();
   }
 
   /* Back or OK during a countdown keeps the intro or credits playing. */
@@ -1236,15 +1278,15 @@
     if (s > 60) return Math.ceil(s / 60) + ' minutes';
     return Math.max(5, Math.ceil(s / 5) * 5) + ' seconds';
   }
-  function nextLeft() { return Math.max(0, Math.ceil((endsAt - now()) / 1000)); }
+  function nextLeft(until) { return Math.max(0, Math.ceil((until - now()) / 1000)); }
   /* As the skip's count is: drawn once, so that a reader says it once; only its number ticks. */
   var upLine = { of: '', html: '' };
-  function nextLine() {
+  function nextLine(until, of) {
     if (askNote) return 'Next episode couldn’t start';
-    if (!endsAt) return 'Next episode';
-    var of = play.play_id + ' ' + play.state;
+    if (!until) return 'Next episode';
+    of = play.play_id + ' ' + of;
     if (upLine.of !== of) {
-      var n = nextLeft();
+      var n = nextLeft(until);
       upLine = { of: of, html: '<span aria-hidden="true">Next episode in <span id="inn">' + n + '</span> &middot; Press to cancel</span>' +
         '<span class="sr">Next episode in ' + n + (n === 1 ? ' second' : ' seconds') + '. Press to cancel.</span><i class="dr" id="ndr"></i>', left: n };
     }
@@ -1354,8 +1396,14 @@
     next: function () {
       var after = play.next || {};
       // Cancel comes first and has the focus: whoever wants the next episode need only wait.
-      return art() + '<div class="up"><div class="t2" id="in">' + nextLine() + '</div><div class="t1">' + (episode(after, after.title) || esc(play.title)) + '</div>' +
+      return art() + '<div class="up"><div class="t2" id="in">' + nextLine(endsAt, play.state) + '</div><div class="t1">' + (episode(after, after.title) || esc(play.title)) + '</div>' +
         (askNote && '<div class="t2">' + askNote + '</div>') + offer([['Cancel', 'c'], ['Play now', 'k']]) + '</div>';
+    },
+    /* Over the last credits, which play on under it: no picture of its own. */
+    credits: function () {
+      var after = play.next || {};
+      return '<div class="up"><div class="t2" id="in">' + nextLine(upCard.until, 'credits') + '</div><div class="t1">' + episode(after, after.title) + '</div>' +
+        (askNote && '<div class="t2">' + askNote + '</div>') + offer([['Watch credits', 'w'], ['Play now', 'k']]) + '</div>';
     },
     still: function () {
       var minutes = Math.max(1, Math.ceil((play.still_in_s || 0) / 60));
@@ -1388,7 +1436,8 @@
       if (!loaded || !ready) return (reloadDue && faltering()) || pickingUp || shown === 'buf' ? 'buf' : 'load';
       if (!wanted) return 'pause';
       // A stream given up on and loaded again goes on with the wait already shown.
-      return stalled && (faltering() || shown === 'buf') ? 'buf' : 'play';
+      if (stalled && (faltering() || shown === 'buf')) return 'buf';
+      return upCard && upCard.play === play.play_id ? 'credits' : 'play';
     }
     if (mode === 'resuming' && pickingUp) return 'buf';
     if (away && mode !== 'old') return 'lost';
@@ -1404,7 +1453,7 @@
     var html = PAGES[name]();
     if (html !== drawn) {
       // With no countdown, nothing comes by itself: Play now is the press to make.
-      var kept = name === shown ? focus : name === 'next' && !endsAt ? 1 : FOCUS[name] || 0;
+      var kept = name === shown ? focus : (name === 'next' && !endsAt) || (name === 'credits' && !upCard.until) ? 1 : FOCUS[name] || 0;
       // The overlay of a film that pauses or plays on is the same place.
       if (FOCUS[name] && FOCUS[shown]) kept = focus;
       var before = document.getElementById('ov');
@@ -1422,7 +1471,7 @@
       dressed = '';
       focus = Math.min(kept, Math.max(0, buttons.length - 1));
       paint();
-      if (name === 'next') drain();
+      if (name === 'next' || name === 'credits') drain();
     }
     waiting(name);
     if (name !== shown) {
@@ -1433,7 +1482,12 @@
       else if (name === 'play' || name === 'pause') wake();
     }
     if (pending) put('cd', codeLine());
-    if (play) { if (endsAt) put('inn', String(nextLeft())); bar(); dress(); }
+    if (play) {
+      var until = name === 'credits' ? upCard.until : endsAt;
+      if (until) put('inn', String(nextLeft(until)));
+      bar();
+      dress();
+    }
     hush();
   }
 
@@ -1547,7 +1601,7 @@
   }
 
   // What plays, waits for a film or counts down; the rest are still pictures.
-  var BRIGHT = { play: 1, buf: 1, load: 1, soon: 1, next: 1, still: 1, resuming: 1 };
+  var BRIGHT = { play: 1, buf: 1, load: 1, soon: 1, next: 1, credits: 1, still: 1, resuming: 1 };
   // Where a press meant for the light would start a film, ask for a code, unpair or leave the page.
   var LIGHT_FIRST = { idle: 1, code: 1, unpair: 1, ended: 1, err: 1, out: 1, press: 1, old: 1, conn: 1 };
   var stirredAt = now();
@@ -1620,7 +1674,8 @@
         if (status !== 200) setTimeout(function () { send('unpair', old, {}, 15000, function () {}); }, 5000);
       });
     }
-    else if (what === 'k') ask('next');
+    else if (what === 'k') { if (upCard) upCard.until = 0; ask('next'); }
+    else if (what === 'w') watchCredits();
     else if (what === 'c') ask('cancel');
     else if (what === 'r') { tries = 0; ask('again'); }
     else if (what === 's') ask('stop');
@@ -1647,6 +1702,7 @@
     if (shown === 'play') { wake(); return true; }
     if (shown === 'unpair' || (token && (shown === 'code' || shown === 'press' || shown === 'slow'))) { act('i'); return true; }
     if (shown === 'next') { act('c'); return true; }
+    if (shown === 'credits') { act('w'); return true; }
     if (shown === 'err' || shown === 'ended') { act('s'); return true; }
     return shown === 'pause' || shown === 'buf' || shown === 'load' || shown === 'soon' || shown === 'still';
   }
@@ -1654,7 +1710,7 @@
   var MEDIA = { 415: 'play', 19: 'pause', 10252: 'both', 179: 'both', 413: 'stop', 178: 'stop', 412: 'b', 417: 'f' };
 
   function media(key) {
-    if (!play || !loaded || !ready || (shown !== 'play' && shown !== 'pause' && shown !== 'buf')) return;
+    if (!play || !loaded || !ready || (shown !== 'play' && shown !== 'pause' && shown !== 'buf' && shown !== 'credits')) return;
     if (key === 'stop') act('s');
     else if (key === 'b' || key === 'f') act(key);
     else if (key === 'both' || (key === 'play') !== wanted) act('p');

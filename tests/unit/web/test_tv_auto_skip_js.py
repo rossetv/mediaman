@@ -10,6 +10,7 @@ from functools import cache
 from pathlib import Path
 
 import jinja2
+import pytest
 
 from tests.helpers.node_batch import run_node
 
@@ -17,14 +18,14 @@ JS = Path(__file__).parent / "js"
 TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
 
 
-def _run(harness: str, name: str, **kwargs) -> dict:
-    result = run_node(JS / harness, "skip", name, timeout=60, **kwargs)
+def _run(harness: str, name: str, *args: str, **kwargs) -> dict:
+    result = run_node(JS / harness, "skip", name, *args, timeout=60, **kwargs)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
 
-def _tv(name: str) -> dict:
-    return _run("tv_harness.js", name, node_args=("--expose-internals",))
+def _tv(name: str, *args: str) -> dict:
+    return _run("tv_harness.js", name, *args, node_args=("--expose-internals",))
 
 
 @cache
@@ -114,12 +115,62 @@ def test_an_intro_skipped_once_plays_when_the_person_goes_back_into_it() -> None
     assert _tv("back") == {"at": 75}
 
 
-def test_the_last_credits_run_to_the_end_where_the_tv_s_own_next_episode_follows() -> None:
-    # The end, not a start of the next: the countdown, autoplay off and "still watching" hold.
-    assert _tv("credits") == {"to": 2879, "note": False, "asked": []}
+def test_the_last_credits_play_on_under_the_next_episode_s_card_and_its_countdown() -> None:
+    out = _tv("credits")
+    assert "Next episode in" not in out["before"]
+    assert re.search(
+        r"Next episode in 10 .* Press to cancel .* E5 .* Windfall Watch credits Play now",
+        out["says"],
+    )
+    # Watch credits has the focus: whoever wants the next episode need only wait.
+    assert (out["held"], out["playing"], out["jumped"], out["note"], out["asked"]) == (
+        "b0",
+        True,
+        [],
+        False,
+        [],
+    )
 
 
-def test_the_last_credits_play_4_s_before_the_jump_to_the_end() -> None:
+def test_the_card_over_the_last_credits_ends_the_episode_where_it_is_and_goes_straight_on() -> None:
+    out = _tv("creditsRunOut")
+    # No jump to the end, so no stream to fill again before the next episode.
+    assert (out["jumped"], out["paused"]) == ([], True)
+    assert (out["ended"]["state"], out["ended"]["position_s"], out["ended"]["counted"]) == (
+        "ended",
+        2880,
+        True,
+    )
+    # mediaman's own countdown is not shown a second time.
+    assert (out["asked"], out["cardAgain"]) == (["auto"], False)
+
+
+@pytest.mark.parametrize("key", ["ok", "back"])
+def test_watch_credits_keeps_the_last_credits_playing_to_the_end(key: str) -> None:
+    out = _tv("watchCredits", key)
+    assert (out["gone"], out["again"], out["paused"], out["ended"], out["asked"]) == (
+        True,
+        False,
+        False,
+        False,
+        0,
+    )
+    assert out["at"] == 2725
+
+
+def test_where_nothing_follows_by_itself_the_card_over_the_credits_waits_for_play_now() -> None:
+    out = _tv("creditsNoAutoplay")
+    assert "Next episode in" not in out["says"] and "Watch credits Play now" in out["says"]
+    assert (out["held"], out["at"], out["paused"], out["asked"]) == ("b1", 2720, False, ["next"])
+
+
+def test_a_pause_takes_the_card_away_and_it_counts_afresh_as_the_credits_play_on() -> None:
+    out = _tv("creditsPaused")
+    assert (out["paused"], out["ended"]) == (False, False)
+    assert "Next episode in 10 " in out["again"]
+
+
+def test_the_last_credits_play_4_s_before_the_card_comes() -> None:
     assert 2703.5 <= _tv("lastHeld") <= 2705
 
 
@@ -157,8 +208,8 @@ def test_the_credits_of_a_film_or_a_last_episode_play() -> None:
 
 
 def test_credits_that_run_to_the_end_count_as_the_last_ones() -> None:
-    # Skipped silently only where a next episode follows; otherwise they play.
-    assert _tv("creditsToTheEnd") == {"to": 2879, "note": False, "plays": 2705}
+    # The card comes over them only where a next episode follows; otherwise they play.
+    assert _tv("creditsToTheEnd") == {"card": True, "note": False, "plays": 2705, "offCard": False}
 
 
 def test_a_paused_tv_skips_nothing() -> None:
