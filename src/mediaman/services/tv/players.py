@@ -25,6 +25,10 @@ ASK_AFTER_EPISODES = 3
 ASK_AFTER_SECONDS = 2 * 3600.0
 STILL_SECONDS = 600.0
 SAVE_SECONDS = 10.0
+#: How often where a play got to is kept where a restart finds it.
+NOTE_SECONDS = 5.0
+#: Starts of a lost play, by itself, that may fail before it is given up.
+RESUME_TRIES = 3
 #: How long someone whose TV was taken over or unpaired while it played is told so.
 GONE_KEEP_SECONDS = 600.0
 _FORGET_SECONDS = 3600.0
@@ -155,6 +159,15 @@ class _Tv:
     #: Episodes that began by themselves, and the last sign of anybody.
     sitting: int = 0
     active_at: float = 0.0
+    #: The play last kept where a restart finds it, and when.
+    noted: str | None = None
+    noted_at: float = 0.0
+    noted_placed: bool = False
+    #: The lost play that is starting again by itself, whether a start of it is under way, and
+    #: how many there were.
+    resuming: str | None = None
+    resume_held: bool = False
+    resume_tries: int = 0
 
 
 class Players:
@@ -397,6 +410,42 @@ class Players:
                 user,
                 rating_key,
             )
+
+    def due_note(self, token_hash: str) -> Play | None:
+        """What plays on the TV, where it is time to keep where it got to; counts as kept."""
+        with self._lock:
+            tv, now = self._tv(token_hash), self._clock()
+            play = tv.play
+            if play is None or play.state in _OVER:
+                return None
+            # The TV's first word of where it is is kept at once: until then, only where it began.
+            first = play.placed and not tv.noted_placed
+            if tv.noted == play.id and not first and now - tv.noted_at < NOTE_SECONDS:
+                return None
+            tv.noted, tv.noted_at, tv.noted_placed = play.id, now, play.placed
+            return play
+
+    def claim_resume(self, token_hash: str, play_id: str) -> bool:
+        """Whether the lost *play_id* may be started again now: by one asker at a time, while
+        nothing plays, and only so many times."""
+        with self._lock:
+            tv = self._tv(token_hash)
+            if tv.play is not None:
+                return False
+            if tv.resuming != play_id:
+                tv.resuming, tv.resume_held, tv.resume_tries = play_id, False, 0
+            if tv.resume_held or tv.resume_tries >= RESUME_TRIES:
+                return False
+            tv.resume_held = True
+            tv.resume_tries += 1
+            return True
+
+    def release_resume(self, token_hash: str, play_id: str) -> None:
+        """The start of the lost play failed: another may be tried."""
+        with self._lock:
+            tv = self._tv(token_hash)
+            if tv.resuming == play_id:
+                tv.resume_held = False
 
     # ── what plays ──
 

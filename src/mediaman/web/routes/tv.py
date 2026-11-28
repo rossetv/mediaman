@@ -94,6 +94,12 @@ _LOOKUP_WAIT_S = 4.0
 _RESUME_SECONDS = 1800
 # How far past where it last said it was the TV may ask to go on from: it plays on while it is away.
 _RESUME_AHEAD_S = 60.0
+# How long after the TV last told mediaman of it what it played starts again on it, by mediaman's
+# own doing, after a restart.
+_SERVER_RESUME_SECONDS = 600.0
+# How far behind the place saved last a phone may start a title on a TV: one further back was
+# heard of the TV before the phone slept, not chosen.
+_BEHIND_SAVED_S = 15.0
 
 # A container is killed some seconds after it is told to stop, and more is to be done in them.
 _SAVE_BUDGET_S = 2.0
@@ -395,6 +401,11 @@ def device_poll(request: Request, body: _PollBody, x_tv_token: _Token = "") -> R
     report = Report(**body.report.model_dump()) if body.report is not None else None
     play, commands = players.poll(key, ack=body.ack, active=body.active, report=report)
     _carry_out(players)
+    if play is None and report is not None and _server_resume(request, held, report):
+        play, commands = players.poll(key, ack=body.ack, active=False, report=None)
+    noted = players.due_note(key)
+    if noted is not None:
+        repo.note_resume(get_db(), key, noted.id, _resume_state(players, noted))
     return respond_ok(
         {
             "state": "ready",
@@ -454,13 +465,9 @@ def device_ask(request: Request, body: _AskBody, x_tv_token: _Token = "") -> Res
     return done if isinstance(done, Response) else respond_ok()
 
 
-def _resume_ticket(request: Request, players: Players, held: repo.Tv) -> str | None:
-    """What the TV is to show to have what plays started again, should it be lost."""
-    play = players.to_resume(held.token_hash or "")
-    if play is None:
-        return None
-    state = {
-        "key": held.token_hash,
+def _resume_state(players: Players, play: Play) -> dict[str, Any]:
+    """What it takes to start *play* again as it was, and where it had got to."""
+    return {
         "user": play.user,
         "user_id": play.user_id,
         "rating_key": play.rating_key,
@@ -469,12 +476,79 @@ def _resume_ticket(request: Request, players: Players, held: repo.Tv) -> str | N
         "quality": play.choice.quality,
         "subtitle": play.choice.subtitle,
         "autoplay": play.choice.autoplay,
+        "paused": play.state == "paused" or (play.paused and play.state in ("starting", "loading")),
         "boot": players.boot,
         "at": now_utc().timestamp(),
     }
+
+
+def _resume_ticket(request: Request, players: Players, held: repo.Tv) -> str | None:
+    """What the TV is to show to have what plays started again, should it be lost."""
+    play = players.to_resume(held.token_hash or "")
+    if play is None:
+        return None
+    state = {"key": held.token_hash, **_resume_state(players, play)}
     return generate_tv_resume_ticket(
         state=state, ttl_s=_RESUME_SECONDS, secret_key=request.app.state.config.secret_key
     )
+
+
+def _server_resume(request: Request, held: repo.Tv, report: Report) -> bool:
+    """Start again what played on the TV as mediaman restarted, as the TV still shows it.
+
+    A TV whose page is from before it could ask for this itself is told of what plays in the
+    poll's answer alone: the play started here is what it loads. Whether it started.
+    """
+    key, conn, players = held.token_hash or "", get_db(), get_players()
+    state = repo.resume_state(conn, key)
+    if state is None or state["play_id"] != report.play_id:
+        return False
+    user, user_id, rating_key = state.get("user"), state.get("user_id"), state.get("rating_key")
+    if not (isinstance(user, str) and isinstance(rating_key, str)):
+        logger.info("tv %d: no server resume: what played is not known", held.id)
+        return False
+    away = now_utc().timestamp() - float(state.get("at") or 0)
+    why = None
+    if state.get("boot") == players.boot:
+        why = "mediaman did not restart"
+    elif report.state == "ended":
+        why = "the title ended"
+    elif away > _SERVER_RESUME_SECONDS:
+        why = f"it last played {away:.0f}s ago"
+    elif find_user_id(conn, user) != user_id or not repo.is_paired(conn, key, user):
+        why = "its person is no longer paired"
+    elif not players.may_resume(key, str(state.get("boot")), user, rating_key, latest=True):
+        why = "something else has played since"
+    elif not players.claim_resume(key, report.play_id):
+        why = "it is starting again already"
+    if why is not None:
+        logger.info("tv %d: no server resume: %s", held.id, why)
+        return False
+    place = float(state.get("place") or 0)
+    # The TV played on from its last word until mediaman stopped answering.
+    start_s = min(report.position_s, place + _RESUME_AHEAD_S) if report.position_s else place
+    logger.info("tv %d: server resume of %s at %.0fs for %s", held.id, rating_key, start_s, user)
+    choice = Choice(
+        quality=str(state.get("quality") or "auto"),
+        subtitle=state.get("subtitle"),
+        autoplay=bool(state.get("autoplay", True)),
+    )
+    done = _start_on(
+        request,
+        replace(held, owner=user, owner_id=user_id),
+        rating_key,
+        choice,
+        start_s=start_s,
+        asked_s=min(max(0.0, away), _SERVER_RESUME_SECONDS),
+        paused=report.state == "paused"
+        or (report.state == "loading" and bool(state.get("paused"))),
+        pressed=False,
+    )
+    if isinstance(done, Response):
+        players.release_resume(key, report.play_id)
+        logger.info("tv %d: server resume of %s failed: %s", held.id, rating_key, done.status_code)
+        return False
+    return True
 
 
 def _resume(request: Request, held: repo.Tv, body: _Ask) -> int | Response:
@@ -505,6 +579,8 @@ def _resume(request: Request, held: repo.Tv, body: _Ask) -> int | Response:
         and state.get("play_id") == repo.resume_play(conn, key),
     ):
         why = "something else has played since"
+    elif not get_players().claim_resume(key, str(state.get("play_id"))):
+        why = "it is starting again already"
     if why is not None:
         logger.info("tv: a pick-up was refused: %s", why)
         return _refusal(NotPlaying())
@@ -518,7 +594,7 @@ def _resume(request: Request, held: repo.Tv, body: _Ask) -> int | Response:
     start_s = body.position_s
     if start_s is not None:
         start_s = min(start_s, float(state.get("place") or 0) + _RESUME_AHEAD_S)
-    return _start_on(
+    done = _start_on(
         request,
         replace(held, owner=user, owner_id=user_id),
         rating_key,
@@ -529,6 +605,9 @@ def _resume(request: Request, held: repo.Tv, body: _Ask) -> int | Response:
         paused=body.paused,
         pressed=False,
     )
+    if isinstance(done, Response):
+        get_players().release_resume(key, str(state.get("play_id")))
+    return done
 
 
 @router.post("/api/tv/device/unpair")
@@ -713,7 +792,7 @@ def _start_on(
         )
         command.append(players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed))
         begun.append(play)
-        repo.set_resume_play(conn, key, play.id)
+        repo.set_resume_play(conn, key, play.id, _resume_state(players, play))
         # Not before: signing out everywhere ends what has begun by then.
         if asked_by is not None and not repo.has_session(conn, asker or user, asked_by):
             with contextlib.suppress(NotPlaying, Stale):
@@ -1193,7 +1272,7 @@ def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Usern
         held,
         body.rating_key,
         choice,
-        start_s=body.position_s,
+        start_s=_not_behind_saved(held, username, body.rating_key, body.position_s),
         asked_s=body.asked_s,
         asked_by=session_hash,
         asker=username,
@@ -1209,6 +1288,29 @@ def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Usern
             detail={"device": held.name, "user": theirs["by"]},
         )
     return respond_ok({"tv": _shown(held)})
+
+
+def _not_behind_saved(
+    held: repo.Tv, username: str, rating_key: str, start_s: float | None
+) -> float | None:
+    """Where a phone's start goes on from: never far behind the place saved last.
+
+    A phone that slept through what the TV played asks for where it last heard the TV was; 0, from
+    the start, and None, the saved place, are chosen.
+    """
+    if not start_s:
+        return start_s
+    saved = get_progress(get_db(), username, [rating_key]).get(rating_key)
+    if saved is None or not resumable(saved) or saved.position_s - start_s <= _BEHIND_SAVED_S:
+        return start_s
+    logger.info(
+        "tv %d: a start of %s at %.0fs goes on from the saved %.0fs",
+        held.id,
+        rating_key,
+        start_s,
+        saved.position_s,
+    )
+    return saved.position_s
 
 
 def _others_play(held: repo.Tv, username: str) -> dict[str, Any] | None:

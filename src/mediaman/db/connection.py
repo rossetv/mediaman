@@ -164,6 +164,7 @@ _ADDED_COLUMNS = (
     ("admin_users", "subtitle_lang", "TEXT"),
     ("admin_users", "tv_auto_skip", "INTEGER NOT NULL DEFAULT 1"),
     ("admin_users", "reduce_loud", "INTEGER NOT NULL DEFAULT 0"),
+    ("tvs", "resume_state", "TEXT"),
     ("admin_users", "search_tonight", "INTEGER NOT NULL DEFAULT 1"),
 )
 
