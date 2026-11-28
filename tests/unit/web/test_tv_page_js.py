@@ -297,6 +297,21 @@ def test_a_film_dropped_while_the_tv_was_off_the_network_goes_on_too() -> None:
     assert "Picking up" in out["said"] and "restarted" not in out["said"]
 
 
+def test_an_update_while_a_film_plays_picks_it_up_and_loads_the_page_only_once_nothing_plays() -> (
+    None
+):
+    out = _run("resumesUpdated")
+    assert (out["asks"], out["during"], out["playing"], out["idle"]) == (1, 0, 0, 1)
+
+
+@pytest.mark.parametrize("how", ["flaky", "flakyNetwork"])
+def test_a_pick_up_mediaman_did_not_answer_is_asked_again_until_it_does(how: str) -> None:
+    out = _run("resumes", how)
+    assert [(a["what"], a["ticket"]) for a in out["asks"]] == [("resume", "ticket-p1")] * 3
+    assert "is ready" not in out["said"] and "is ready" not in out["then"]
+    assert out["src"] and out["playing"]
+
+
 def test_a_page_opened_again_whose_ticket_ran_out_is_simply_ready() -> None:
     out = _run("resumesReopened", "expired")
     assert len(out["asks"]) == 1 and out["kept"] is None
