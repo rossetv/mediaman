@@ -207,7 +207,12 @@ def manual_import_files(
 
 
 def manual_import_query(service: str, download_id: str, arr_id: int) -> str:
-    """The path that lists the files of *download_id* as the service would import them."""
-    owner = "movieId" if service == "radarr" else "seriesId"
-    query = urlencode({"downloadId": download_id, owner: arr_id, "filterExistingFiles": "true"})
-    return f"/api/v3/manualimport?{query}"
+    """The path that lists the files of *download_id* as the service would import them, read
+    from the download's own folder. Sonarr 4 is not given the series: with a ``seriesId`` it
+    lists the series' folder instead, and fails where that does not exist yet; it finds the
+    series through the download's grab, and ``manual_import_files`` checks it is *arr_id*."""
+    asked: dict[str, object] = {"downloadId": download_id}
+    if service == "radarr":
+        asked["movieId"] = arr_id
+    asked["filterExistingFiles"] = "true"
+    return f"/api/v3/manualimport?{urlencode(asked)}"

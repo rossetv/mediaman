@@ -28,9 +28,20 @@ def _work(conn: sqlite3.Connection) -> dict[str, object]:
             service, _, rest = str(key).partition(":")
             searching.setdefault(service, set()).add(rest.partition(":")[0])
         work["searching"] = {k: len(v) for k, v in sorted(searching.items())}
-        work["fixing"] = conn.execute(
-            "SELECT COUNT(*) FROM arr_import_retries WHERE stuck_since IS NOT NULL"
-        ).fetchone()[0]
+        # A download left for an admin, or given up on, is not being fixed.
+        fixing = conn.execute(
+            "SELECT fix_plan, next_try_at FROM arr_import_retries WHERE stuck_since IS NOT NULL"
+            " AND stopped_at IS NULL AND COALESCE(fix_plan, 'replace') != ''"
+            " ORDER BY next_try_at IS NULL, next_try_at"
+        ).fetchall()
+        work["fixing"] = len(fixing)
+        if fixing:
+            # What is done next, and when, of the one acted on soonest.
+            at = parse_iso_utc(fixing[0][1]) if fixing[0][1] else None
+            work["fix_next"] = {
+                "plan": fixing[0][0] or "replace",
+                "at": at.timestamp() if at else None,
+            }
         work["scanning"] = is_scan_running(conn)
         row = conn.execute(
             "SELECT status, started_at FROM user_ai_runs ORDER BY id DESC LIMIT 1"
