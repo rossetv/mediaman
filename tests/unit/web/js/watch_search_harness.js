@@ -2658,6 +2658,19 @@ scenarios.askOffered = async () => {
   return out;
 };
 
+scenarios.askStatusWithNoMatches = async () => {
+  const p = await asking();
+  const status = () => [p.$('watch-search-status').textContent, p.said()];
+  await p.ask(Q);
+  await p.answer('/api/watch/search?', { items: [] });
+  await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+  const out = { sent: status() };
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  await p.poll(ANSWER);
+  out.answered = status();
+  return out;
+};
+
 scenarios.askAnswered = async () => {
   const p = await asking();
   await p.ask(Q);

@@ -2016,7 +2016,8 @@
         if (notSetUp) live.node.appendChild(hint(data));
         quietWhileAsked();
         rise(live.node);
-        status.textContent = ['No matches for “' + c.q + '”', askHint()].filter(Boolean).join('. ');
+        // While the AI looks or has answered, its own line is the one read out.
+        if (!(asked && /^(thinking|answer)$/.test(asking.item.state))) status.textContent = ['No matches for “' + c.q + '”', askHint()].filter(Boolean).join('. ');
         return;
       }
       var block = nothing(c.q, true);

@@ -113,3 +113,9 @@ def test_no_step_or_line_a_viewer_reads_names_tmdb() -> None:
         _run("similarErrors")["keyViewer"]["head"],
     ]
     assert not [line for line in said if "TMDB" in line]
+
+
+def test_only_the_ai_s_own_line_is_read_out_while_its_picks_stand_over_no_matches() -> None:
+    out = _run("askStatusWithNoMatches")
+    assert out["sent"] == ["", "Reading what you watch…"]
+    assert out["answered"] == ["", "2 titles · 1 ready to watch, 1 to download"]
