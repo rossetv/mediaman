@@ -49,6 +49,10 @@ _MARKER_KINDS: dict[str, Literal["intro", "credits"]] = {
     "credits": "credits",
 }
 _HDR_TRANSFERS = frozenset({"smpte2084", "arib-std-b67"})
+_LANGUAGE_RE = re.compile(r"[a-z]{2,3}")
+_SUBTITLE_KEY_MAX = 512
+_SUBTITLE_TEXT_MAX = 200
+_SUBTITLES_FOUND_MAX = 40
 
 
 class PlexError(Exception):
@@ -132,6 +136,18 @@ class PlexItem:
 
 
 @dataclass(frozen=True)
+class SubtitleFound:
+    """A subtitle Plex's on-demand search found, which a PUT of its *key* adds to the item."""
+
+    key: str
+    file: str
+    provider: str
+    score: float
+    hearing_impaired: bool
+    forced: bool
+
+
+@dataclass(frozen=True)
 class PlexSeason:
     rating_key: str
     index: int
@@ -177,6 +193,13 @@ def _int(value: str | None) -> int | None:
         return int(value) if value not in (None, "") else None
     except ValueError:
         return None
+
+
+def _score(value: str | None) -> float:
+    try:
+        return float(value or 0)
+    except ValueError:
+        return 0.0
 
 
 def _seconds(ms: str | None) -> int:
@@ -468,6 +491,39 @@ class PlexWatch:
                 if following:
                     return following[0]
         return None
+
+    def episode_parts(self, season_key: str) -> dict[str, str]:
+        """The file (part id) in Plex of each episode of the season, by the episode's key."""
+        _, nodes = self._children(_check_key(season_key))
+        out = {}
+        for node in nodes:
+            part = node.find("Media/Part")
+            part_id = part.get("id", "") if part is not None else ""
+            if node.get("ratingKey") and _RATING_KEY_RE.fullmatch(part_id):
+                out[node.get("ratingKey", "")] = part_id
+        return out
+
+    def search_subtitles(self, rating_key: str, language: str) -> list[SubtitleFound]:
+        """The subtitles in *language* (ISO 639-1) Plex finds for the item, best first."""
+        if not _LANGUAGE_RE.fullmatch(language):
+            return []
+        container = self._xml(
+            f"/library/metadata/{_check_key(rating_key)}/subtitles?language={language}"
+        )
+        found = [
+            SubtitleFound(
+                key=key,
+                file=(n.get("title") or n.get("displayTitle") or "")[:_SUBTITLE_TEXT_MAX],
+                provider=(n.get("providerTitle") or "")[:_SUBTITLE_TEXT_MAX],
+                score=_score(n.get("score")),
+                hearing_impaired=n.get("hearingImpaired") in ("1", "true"),
+                forced=n.get("forced") in ("1", "true"),
+            )
+            for n in container.iter("Stream")
+            if 0 < len(key := n.get("key") or "") <= _SUBTITLE_KEY_MAX
+        ]
+        found.sort(key=lambda f: -f.score)
+        return found[:_SUBTITLES_FOUND_MAX]
 
     def fetch_image(self, thumb_path: str) -> tuple[bytes, str]:
         """Fetch a Plex-relative image (``/library/...``); returns (bytes, content_type)."""
