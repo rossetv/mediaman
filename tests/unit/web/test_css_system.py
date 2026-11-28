@@ -224,8 +224,7 @@ def test_no_control_is_sized_to_44px_only_up_to_640() -> None:
             )
 
 
-def test_download_links_and_settings_fields_are_44px_below_700px() -> None:
-    assert _phone_sets(".dl-arr-link", "min-height", "44px")
+def test_settings_fields_are_44px_below_700px() -> None:
     assert _phone_sets(".setg-pg .inp", "min-height", "44px")
 
 

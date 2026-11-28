@@ -340,16 +340,12 @@ def test_every_page_uses_default_container():
     """Every authed page composes inside the default .container so headings
     and content rails line up across screens. Using `--narrow` or
     `--wide` modifiers is forbidden after the width-consistency pass."""
-    for name in (
-        "downloads.html",
-        "panes/_history.html",
-    ):
-        tpl = _tpl(name)
-        # Every page must mount its content inside .container (no modifier).
-        assert 'class="container"' in tpl, f"{name}: missing default .container"
-        # And must not silently re-introduce the legacy modifiers.
-        for legacy in ("container--narrow", "container--wide"):
-            assert legacy not in tpl, f"{name}: legacy {legacy} re-introduced"
+    history = _tpl("panes/_history.html")
+    # Every page must mount its content inside .container (no modifier).
+    assert 'class="container"' in history, "panes/_history.html: missing default .container"
+    # And must not silently re-introduce the legacy modifiers.
+    for legacy in ("container--narrow", "container--wide"):
+        assert legacy not in history, f"panes/_history.html: legacy {legacy} re-introduced"
 
     # The Settings pane lays its list and sections out on its own .stx rail, full width in its view.
     settings = _tpl("panes/_settings.html")

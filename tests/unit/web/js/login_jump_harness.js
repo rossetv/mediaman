@@ -1,17 +1,14 @@
 'use strict';
-/* Runs the downloads poll or the Watch rows against a refused call on the page at the given
-   location; prints where the browser goes. Usage: node login_jump_harness.js <poll|browse> <json> [unsaved] */
+/* Runs the Watch rows against a refused call on the page at the given location; prints where
+   the browser goes. Usage: node login_jump_harness.js <json> [unsaved] */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { makeDocument, build, settle } = require('./fake_dom');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
-const location = JSON.parse(process.argv[3]);
-const FILES = {
-  poll: ['downloads/poll.js'],
-  browse: ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/browse.js'],
-}[process.argv[2]];
+const location = JSON.parse(process.argv[2]);
+const FILES = ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/browse.js'];
 
 const doc = makeDocument();
 doc.hidden = false;
@@ -31,10 +28,6 @@ ctx.window = ctx;
 vm.createContext(ctx);
 // The real api.js, for the sign-in address it builds; its calls are refused.
 vm.runInContext(fs.readFileSync(path.join(JS, 'core/api.js'), 'utf8'), ctx);
-Object.assign(ctx.MM.api, { get: refuse, post: refuse, messageOf: (_e, m) => m, hasUnsavedChanges: () => process.argv[4] === 'unsaved' });
+Object.assign(ctx.MM.api, { get: refuse, post: refuse, messageOf: (_e, m) => m, hasUnsavedChanges: () => process.argv[3] === 'unsaved' });
 FILES.forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
-if (ctx.MM.downloads) {
-  ctx.MM.downloads.poll.start(() => {}, () => {});
-  timers.shift().fn();
-}
 settle().then(() => process.stdout.write(JSON.stringify({ href: location.href })));

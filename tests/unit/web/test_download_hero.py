@@ -126,21 +126,6 @@ def test_a_long_word_wraps_inside_the_page_body() -> None:
     assert rule and "overflow-wrap: anywhere" in rule[1]
 
 
-def _queued_card(**context: object) -> str:
-    item = {"id": "radarr:Ember Coast", "title": "Ember Coast", "media_type": "movie"}
-    item.update(state="searching", state_label="Searching", progress=0, **context.pop("item", {}))
-    return _ENV.get_template("_dl_hero_card.html").render(item=item, **context)
-
-
-def test_the_queued_card_is_filled_with_the_wide_backdrop_when_there_is_one() -> None:
-    wide = _queued_card(item={"poster_url": POSTER}, hero_backdrop=BACKDROP)
-    poster_only = _queued_card(item={"poster_url": POSTER})
-
-    assert f'class="dl-hero-bg" data-bg-url="{BACKDROP}"' in wide
-    assert f'<img src="{POSTER}"' in wide
-    assert f'class="dl-hero-bg" data-bg-url="{POSTER}"' in poster_only
-
-
 def test_a_title_pill_never_wraps_its_count() -> None:
     css = _css("_dl.css")
     rule = re.search(r"\.dl-hero-episodes-toggle,\s*\.dl-compact-episodes-toggle \{([^}]*)\}", css)

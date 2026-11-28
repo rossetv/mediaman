@@ -341,8 +341,7 @@ def _mark_readiness(
 
 def downloads_subtitle(active: int, coming: int, outage: str = "") -> str:
     """Build the page-header subtitle of *active* downloads in progress and *coming* ones
-    scheduled. While the page holds rows of a service that does not answer, downloads.js
-    counts them in itself, in the same words.
+    scheduled.
 
     Something downloading gives "2 items in progress" (plus " · 3 coming soon" when
     releases are scheduled). Nothing downloading gives "Nothing downloading · 3 coming

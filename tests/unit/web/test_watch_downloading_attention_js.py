@@ -64,12 +64,8 @@ def test_a_card_that_is_stuck_has_no_full_bar_that_reads_as_done() -> None:
 
 
 def test_where_to_fix_it_is_plain_text_not_the_colour_of_a_link() -> None:
-    for selector, sheet in (
-        (".dl-attention-hint", "_dl.css"),
-        (".dw__fix", "_watch_downloading.css"),
-    ):
-        colour = style(selector, sheet)["color"]
-        assert "--warning" not in colour and "--accent" not in colour, selector
+    colour = style(".dw__fix", "_watch_downloading.css")["color"]
+    assert "--warning" not in colour and "--accent" not in colour
 
 
 def test_a_stuck_card_gives_what_happens_next_two_lines_and_grows_to_hold_them() -> None:

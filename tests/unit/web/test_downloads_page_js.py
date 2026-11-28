@@ -1,13 +1,13 @@
-"""The /downloads page scripts keep the page in step with each poll.
+"""The abandon dialog, the shared modal and the re-authenticate dialog, with the downloads API
+and the download rows' sheet.
 
 The real scripts run under node against a small fake DOM, so these check what
-the page ends up showing, not how the scripts are written.
+a person ends up seeing, not how the scripts are written.
 """
 
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -18,39 +18,9 @@ from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
 from tests.helpers.factories import insert_admin_user
 from tests.unit.web._css import style
-from tests.unit.web._css import text as sheet_text
 
 HARNESS = Path(__file__).parent / "js" / "downloads_harness.js"
 SHEET = "_dl.css"
-
-
-def _times(animation: str) -> list[str]:
-    """The duration and delay tokens an animation or transition names, in order."""
-    return re.findall(r"var\((--dur[-\w]*)\)", animation)
-
-
-def _part(transition: str, prop: str) -> str:
-    """What *transition* says of *prop*: its timing, after the property's name."""
-    for part in transition.split(","):
-        name, _, timing = part.strip().partition(" ")
-        if name == prop:
-            return timing
-    raise AssertionError(f"no {prop} in {transition}")
-
-
-def _end_frame(keyframes: str) -> dict[str, str]:
-    """What the `to` (or 100%) frame of `@keyframes *keyframes*` declares; {} when it has none."""
-    found = re.search(
-        rf"@keyframes {re.escape(keyframes)}\s*{{((?:[^{{}}]*{{[^{{}}]*}})*)\s*}}",
-        sheet_text(SHEET),
-    )
-    assert found, f"no @keyframes {keyframes} in {SHEET}"
-    for head, body in re.findall(r"([^{}]+){([^{}]*)}", found[1]):
-        if {"to", "100%"} & {h.strip() for h in head.split(",")}:
-            return {
-                k.strip(): v.strip() for k, _, v in (d.partition(":") for d in body.split(";")) if v
-            }
-    return {}
 
 
 def _run(scenario: str) -> dict:
@@ -59,127 +29,6 @@ def _run(scenario: str) -> dict:
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
-
-
-def test_page_follows_the_poll_payload() -> None:
-    out = _run("page")
-    # hero and queue come back after the page went empty; a new item gets a row
-    assert out["afterRefill"] == {"hero": 1, "rows": ["q2"]}
-    assert out["withNew"] == ["q2", "q3"]
-    # the abandon button appears with the payload, carries stuck seasons, and goes again
-    assert out["shown"]["hero"] == 1
-    assert out["shown"]["row"] == 1
-    assert json.loads(out["shown"]["stuck"]) == [{"number": 2, "missing_episodes": 3}]
-    assert out["hidden"] == {"hero": 0, "row": 0}
-    # a departed row is removed even when no animation event arrives
-    assert out["afterExit"] == ["q3"]
-
-
-def test_a_departed_row_stays_until_its_height_has_closed() -> None:
-    out = _run("rowLeave")
-    assert out["during"]["rows"] == ["q1", "q2"]
-    assert "is-folded" in out["during"]["q1"]["cls"]
-    assert out["during"]["q1"]["height"] == "0px"
-    assert out["afterFade"] == ["q1", "q2"]
-    assert out["afterHeight"] == ["q2"]
-
-
-def test_a_row_that_comes_back_while_closing_stays() -> None:
-    out = _run("rowReturns")
-    assert out["rows"] == ["q1", "q2"]
-    assert out["q1"] == {"cls": "dl-compact", "height": ""}
-
-
-def test_with_reduced_motion_a_departed_row_goes_at_once() -> None:
-    assert _run("rowLeaveReduced")["rows"] == ["q2"]
-
-
-def test_hero_and_queue_close_in_place_while_the_empty_state_opens() -> None:
-    out = _run("emptyState")
-    # the old sections keep their content while they close
-    assert out["during"]["hero"] == 1
-    assert out["during"]["queue"] == 2
-    assert "is-folded" in out["during"]["heroFold"]["cls"]
-    # the empty state grows in rather than appearing at full height
-    assert out["during"]["empty"] == 1
-    assert out["during"]["emptyFold"] == {"cls": "dl-fold", "height": "50px"}
-    assert out["after"] == {
-        "hero": 0,
-        "queue": 0,
-        "empty": 1,
-        "emptyFold": {"cls": "", "height": ""},
-    }
-
-
-def test_in_an_outage_the_page_shows_what_the_server_lists_and_never_reads_as_all_caught_up() -> (
-    None
-):
-    out = _run("outage")
-    # what the answer leaves out goes, as any row does; the card says why
-    assert out["gone"] == {
-        "hero": 0,
-        "queue": 0,
-        "upcoming": 0,
-        "cards": ["Downloads can't be checked right now"],
-    }
-    # and comes back as a new row does when the service answers
-    assert out["back"] == {"hero": 1, "queue": 1, "upcoming": 1}
-    assert [len(c) for c in out["cards"]] == [1, 1, 1]
-    assert out["cards"][0] == out["cards"][2] == ["All caught up"]
-    assert out["cards"][1] != ["All caught up"]
-
-
-def test_an_admin_and_a_viewer_are_shown_the_same_rows_in_an_outage() -> None:
-    out = _run("outageRows")
-    assert out["admin"] == out["viewer"]
-    assert out["viewer"]["during"] == {
-        "hero": ["sonarr:h1"],
-        "queue": ["sonarr:q2"],
-        "upcoming": ["sonarr:u2"],
-    }
-    assert sorted(out["viewer"]["back"]["queue"]) == ["radarr:q1", "sonarr:q2", "sonarr:q3"]
-
-
-def test_through_an_outage_rows_stay_in_order_of_state() -> None:
-    # a new row takes its place in the server's list, within its state
-    assert _run("outageOrder")["rows"] == ["Other.2024", "sonarr:q4", "sonarr:q2"]
-
-
-def test_what_a_service_answers_in_part_is_drawn_from_the_answer() -> None:
-    out = _run("outagePart")
-    assert out["rows"] == ["radarr:h1", "radarr:u1"]
-    assert out["pct"] == "50%"
-    assert out["upcoming"] == []
-
-
-def test_a_poll_update_keeps_the_size_of_the_state_pill() -> None:
-    out = _run("pillSize")
-    assert "dl-state-pill--xs" in out["before"]
-    assert out["after"].split() == ["dl-state-pill", "dl-state-pill--xs", "dl-state-almost_ready"]
-
-
-def test_the_recent_section_folds_out_when_it_empties() -> None:
-    out = _run("recentLeaves")
-    assert "is-folded" in out["during"]["cls"]
-    assert out["during"]["height"] == "0px"
-    # coming back while it closes opens it again
-    assert "is-folded" not in out["back"]["cls"]
-    assert out["gone"] is True
-
-
-def test_with_reduced_motion_the_recent_section_goes_at_once() -> None:
-    out = _run("recentLeavesReduced")
-    assert out["during"] is None
-    assert out["boxEmpty"] is True
-
-
-def test_an_episode_list_folds_open_and_shut() -> None:
-    out = _run("episodes")
-    assert out["opening"]["hidden"] is False
-    assert "dl-fold" in out["opening"]["cls"]
-    assert "dl-fold" not in out["open"]["cls"]
-    assert out["closing"] is False
-    assert out["closed"] is True
 
 
 def test_the_shared_modal_plays_its_exit_before_it_hides() -> None:
@@ -228,24 +77,6 @@ def test_the_watch_admin_dialogs_fade_out_before_they_hide() -> None:
     assert out["reduced"] == {"active": False, "closing": False, "timers": 0}
 
 
-def test_poll_now_during_a_poll_runs_another_straight_after() -> None:
-    assert _run("poll")["calls"] == 2
-
-
-def test_recent_grid_is_rebuilt_only_when_it_changes() -> None:
-    out = _run("recent")
-    assert out["kept"] is True
-    assert out["count"] == 3
-
-
-def test_a_show_is_called_ready_only_while_it_is_known_to_be() -> None:
-    out = _run("recent")
-    ready = ["Ready to watch", True]
-    assert out["part"] == [["Some episodes ready", False], ready]
-    assert out["unknown"] == [["In your library soon", False], ready]
-    assert out["whole"] == [ready, ready]
-
-
 def test_confirm_says_it_is_working_and_recovers_on_failure() -> None:
     out = _run("abandon")
     assert out["idle"] == "Abandon search"
@@ -265,13 +96,6 @@ def test_the_confirm_shows_only_a_poster_of_mediamans_own() -> None:
     }
 
 
-def test_rebuilt_hero_shows_the_same_stats_as_the_server_rendered_one() -> None:
-    out = _run("hero")
-    assert out["full"] == ["30% complete", "1 GB of 3 GB", "5 min"]
-    assert out["noEta"] == ["30% complete", "1 GB of 3 GB"]
-    assert out["noSize"] == ["30% complete", " of ", "5 min"]
-
-
 def test_a_successful_abandon_closes_the_dialog_and_refreshes_the_page() -> None:
     out = _run("abandonSuccess")
     assert out["url"] == "/api/downloads/m1/abandon"
@@ -280,11 +104,8 @@ def test_a_successful_abandon_closes_the_dialog_and_refreshes_the_page() -> None
     assert out["errors"] == 0
 
 
-def test_an_abandon_names_the_very_title_its_button_is_of() -> None:
-    out = _run("abandonNamesTheTitle")
-    assert out["built"] == ["h 10", "q 11", "u 12"]
-    assert out["updated"] == ["h 20", "q 21", "u 22"]
-    assert out["sent"] == {"seasons": [], "arr_id": 21}
+def test_an_abandon_sends_the_arr_id_of_the_button_that_opened_it() -> None:
+    assert _run("abandonSendsTheArrId") == {"seasons": [], "arr_id": 21}
 
 
 def test_abandoning_a_title_already_gone_closes_the_dialog_and_refreshes_the_page() -> None:
@@ -334,18 +155,6 @@ def test_season_switches_are_locked_while_abandoning_and_failure_shows_the_curre
     assert out["oneLeft"] == "Abandon 1 season"
     assert out["during"] == {"label": "Abandoning…", "on": [False, True]}
     assert out["after"] == {"label": "Abandon 1 season", "disabled": "false"}
-
-
-def test_the_subtitle_folds_away_and_grows_back_in_place() -> None:
-    out = _run("subtitle")
-    assert out["shown"] == {"text": "2 downloading", "cls": "", "height": ""}
-    # it stays attached, folding, so what sits below slides instead of jumping
-    assert out["folding"]["attached"] is True
-    assert "is-folded" in out["folding"]["cls"]
-    # coming back while it folds grows it again with the new text
-    assert out["back"]["text"] == "1 downloading"
-    assert "is-folded" not in out["back"]["cls"]
-    assert out["removed"] is True
 
 
 def test_escape_closes_a_modal_every_time_it_is_opened() -> None:
@@ -425,78 +234,6 @@ def test_a_failed_stop_tracking_says_stop_tracking_and_keeps_the_servers_words()
     ]
 
 
-def test_with_no_radarr_and_no_sonarr_the_page_says_downloads_are_not_set_up() -> None:
-    out = _run("notSetUp")
-    assert out["admin"] == {
-        "h3": "Downloads aren’t set up",
-        "p": "Connect Radarr or Sonarr in Settings.",
-        "link": "/settings#setg-integrations",
-    }
-    assert out["viewer"] == {
-        "h3": "Downloads aren’t set up",
-        "p": "Ask whoever runs mediaman to set it up.",
-        "link": None,
-    }
-    # one service set up, or no answer about it: the page is as it was
-    for key in ("films", "shows", "missing"):
-        assert out[key]["h3"] == "All caught up"
-
-
-def test_the_top_cards_fading_copy_is_laid_out_in_the_cards_own_box() -> None:
-    out = _run("heroSwap")
-    assert out["moving"]["ghosts"] == [""]
-    assert out["reduced"]["ghosts"] == []
-    card = style(".dl-hero-ghost__card", SHEET)
-    assert card["inset"] == "0" and "min-height" not in card and "height" not in card
-
-
-def test_the_new_content_of_the_top_card_waits_for_the_old_to_fade() -> None:
-    out = _run("heroSwap")
-    assert out["moving"]["swapping"] and not out["moving"]["later"]
-    assert not out["reduced"]["swapping"]
-    ghost = style(".dl-hero-ghost", SHEET)["animation"]
-    fade = _times(ghost)[0]
-    delay = _times(style(".dl-hero.is-swapping .dl-hero-content", SHEET)["animation"])[1]
-    assert fade == delay == "--dur-fast", "it begins as the old has gone, at the quick pace"
-    assert _end_frame(ghost.split()[0]).get("opacity") == "0", "the old card fades all the way out"
-
-
-def test_a_row_that_changes_place_slides_with_those_it_passes_unless_motion_is_off() -> None:
-    out = _run("rowSlide")
-    assert out["moving"]["order"] == ["q3", "q1", "q2"]
-    assert out["moving"]["sliding"] == [True, True, False]
-    # a row put back in the list would play its entrance again, over the slide
-    assert out["moving"]["entering"] == [False, False, False]
-    assert out["reduced"]["sliding"] == [False, False, False]
-    # a row slides as long as a leaving row takes to close
-    fold = _part(style(".dl-fold", SHEET)["transition"], "height")
-    assert _part(style(".dl-compact.is-sliding", SHEET)["transition"], "transform") == fold
-
-
-def test_rows_below_a_row_that_grows_slide_down_unless_motion_is_off() -> None:
-    out = _run("rowGrows")
-    assert out["moving"]["sliding"] == [False, True]
-    assert out["moving"]["from"] == ["", "translateY(-43px)"]
-    assert out["reduced"]["sliding"] == [False, False]
-
-
-def test_a_row_that_moves_again_mid_slide_starts_from_where_it_is_seen() -> None:
-    assert _run("slideAgain") == [["q2", "translateY(40px)"], ["q1", "translateY(-100px)"]]
-
-
-def test_rows_that_come_back_take_the_servers_order() -> None:
-    out = _run("returnOrder")
-    assert out["upcoming"] == ["u1", "u2", "u3"]
-    assert out["queue"] == ["q1", "q2", "q3"]
-
-
-def test_a_viewers_outage_with_nothing_in_progress_is_said_once() -> None:
-    out = _run("viewerOutageLine")
-    assert out["viewer"] == []
-    assert out["viewerSoon"] == ["1 coming soon"]
-    assert out["admin"] == ["Can't reach Radarr"]
-
-
 def test_the_downloads_api_says_a_viewers_outage_once(app_factory, conn) -> None:
     insert_admin_user(conn, username="person", role="viewer")
     app = app_factory(downloads_router, conn=conn)
@@ -528,35 +265,6 @@ def test_in_forced_colours_a_row_has_the_edge_the_top_card_has() -> None:
     assert style(".dl-row", SHEET, forced).get("border") == edge
 
 
-def test_a_poster_that_is_missing_or_does_not_load_is_stood_for_by_a_mark() -> None:
-    out = _run("posterMark")
-    assert out["hero"] == [["IMG.", "SPAN.dl-poster-mark"]]
-    assert out["rows"] == [["SPAN.dl-poster-mark"], ["IMG.", "SPAN.dl-poster-mark"]]
-    assert style("img:not([data-broken]) ~ .dl-poster-mark", SHEET)["visibility"] == "hidden"
-
-
-def test_the_queues_heading_is_true_of_its_rows() -> None:
-    assert _run("queueHeading") == {"queued": "Up next", "mixed": "Also in progress"}
-
-
-def test_a_refused_key_sends_an_admin_to_settings_and_does_not_say_it_keeps_trying() -> None:
-    out = _run("refusedKey")
-    link = "/settings#setg-integrations"
-    assert out["admin"] == {"p": "Check the details for Sonarr in Settings.", "link": link}
-    assert out["two"]["p"] == "Check the details for Radarr and Sonarr in Settings."
-    assert out["down"] == out["viewer"] == {"p": "This page keeps trying.", "link": None}
-
-
-def test_a_viewer_is_told_rows_may_be_missing_not_which_service_is_down() -> None:
-    out = _run("viewerLine")
-    assert out["viewer"] == "2 items in progress · 1 coming soon · some may be missing"
-    assert out["admin"] == "server words"
-
-
-def test_only_an_admins_rows_hold_a_link_into_radarr_or_sonarr() -> None:
-    assert _run("arrLink") == {"admin": 2, "viewer": 0}
-
-
 def test_a_queued_episode_reads_as_a_queued_row_does() -> None:
     # a queued row's pill has no state of its own and is drawn as the plain pill
     episode, row = style(".dl-ep-status-pill.queued", SHEET), style(".dl-state-pill", SHEET)
@@ -566,14 +274,3 @@ def test_a_queued_episode_reads_as_a_queued_row_does() -> None:
 def test_a_long_title_wraps_on_a_narrow_phone() -> None:
     title = ".dl-compact > .dl-row .dl-row-title"
     assert style(title, SHEET, "(max-width: 374.98px)")["white-space"] == "normal"
-
-
-def test_a_redrawn_abandon_button_is_named_by_its_title_and_follows_a_new_one() -> None:
-    out = _run("abandonNames")
-    assert out["built"] == [
-        "Abandon search: Hero A | Abandon search",
-        "Abandon search: Queue A | Abandon search",
-        "Stop tracking: Soon A | Stop tracking",
-    ]
-    assert [n.replace(" B", " A") for n in out["updated"]] == out["built"]
-    assert all(" B |" in n for n in out["updated"])

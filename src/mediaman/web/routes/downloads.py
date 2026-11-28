@@ -193,7 +193,7 @@ def _page_payload(
             item["readiness"] = "unknown"
     if not admin and data["outage"]:
         page["outage"], page["unreachable"], page["refused"] = VIEWER_OUTAGE, [], []
-        # In the words downloads.js keeps the line in, so what is drawn and what is polled agree.
+        # In the words of downloads_subtitle, with no word of which service is down.
         rows, coming = (1 if page["hero"] else 0) + len(page["queue"]), len(page["upcoming"])
         soon = f"{coming} coming soon" if coming else ""
         page["subtitle"] = (
