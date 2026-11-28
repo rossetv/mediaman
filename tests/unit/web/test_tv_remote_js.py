@@ -981,3 +981,15 @@ def test_closed_with_the_mouse_still_on_the_bar_the_bar_swells_again() -> None:
     out = _run("rearmed")
     assert out["still"] == ["scale(1.016, 1.08)"]
     assert out["gone"] == []
+
+
+def test_a_card_that_follows_the_next_episode_leaves_no_old_countdown_in_the_status() -> None:
+    out = _run("statusFollows")
+    assert out["still"]["card"] == "Are you still watching?"
+    assert out["failed"]["card"].startswith("This can’t play on")
+    assert "Next episode" not in out["still"]["status"]
+    assert "Next episode" not in out["failed"]["status"]
+
+
+def test_the_remote_s_title_can_be_read_whole_where_it_is_cut_short() -> None:
+    assert _run("titleWhole") == "A Very Long Title That Runs On and On Past Two Lines of the Card"

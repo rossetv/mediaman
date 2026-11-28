@@ -889,6 +889,7 @@
     var isEnd = !bad && !coming && !!p && p.state === 'ended';
     var loading = coming || !bad && !!p && isLoading(p);
     MM.dom.setText(els.title, what.title);
+    attr(els.title, 'title', what.title || '');
     MM.dom.setText(els.subtitle, episode(what) ? code(what, ' · ') + (what.episode_title ? ' · ' + what.episode_title : '') : '');
     setHidden(els.subtitle, !episode(what));
     root.classList.toggle('is-gone', bad);
@@ -1204,9 +1205,10 @@
     if (asks) enter(els.dim);
     else leave(els.dim);
     reach();
-    // A card that waits for nobody does not take the focus: a press meant to pause would start it.
+    // A card that waits for nobody does not take the focus: a press meant to pause would start it,
+    // so it is said; one that asks is read out as it takes the focus, and the old word goes.
+    els.status.textContent = card.upnext ? card.title + ': ' + card.line : '';
     if (!card.upnext || refocus) els.cardActions.firstElementChild.focus({ preventScroll: true });
-    else els.status.textContent = card.title + ': ' + card.line;
   }
 
   /* What is under a card or a menu is out of reach; the way out only under a menu. */

@@ -576,3 +576,10 @@ def test_where_the_bar_stood_the_card_has_its_play_controls_and_no_stop(media: s
         # On its side the volume shares the play controls' row, left of them, as the bar stood
         # on the right.
         assert stop < order(".tv-rem .player-volume") < order(".tv-rem [data-back10]")
+
+
+def test_on_the_remote_s_picture_a_long_title_takes_two_lines_before_it_is_cut() -> None:
+    title = style(".tv-rem .player-title", REMOTE)
+    assert title["white-space"] == "normal"
+    assert title["-webkit-line-clamp"] == "2"
+    assert title["display"] == "-webkit-box" and title["-webkit-box-orient"] == "vertical"

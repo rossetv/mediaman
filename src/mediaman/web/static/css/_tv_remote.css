@@ -127,7 +127,9 @@ html.has-tv-remote { overflow: hidden; }
   backdrop-filter: none;
 }
 .tv-rem .player-back:hover { background: rgb(0 0 0 / .6); }
-.tv-rem .player-title { font-size: 22px; font-weight: 700; letter-spacing: -.015em; line-height: 1.25; }
+/* A long title takes a second line before it is cut, at the end of that line; its whole text is its
+   tooltip (tv-remote.js). */
+.tv-rem .player-title { font-size: 22px; font-weight: 700; letter-spacing: -.015em; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; text-wrap: balance; overflow-wrap: anywhere; }
 .tv-rem .player-subtitle { margin-top: 2px; font-size: 14px; }
 .tv-rem__play-on .ico--tv { width: 1.35em; height: 1.35em; }
 .tv-rem__play-on.is-on { color: var(--accent-hi); }
@@ -243,7 +245,8 @@ html.has-tv-remote { overflow: hidden; }
   .tv-rem__art, .tv-rem__grab { display: none; }
   .tv-rem .player-top { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 0; }
   .tv-rem .player-titles { flex: 1 1 0; min-width: 0; padding: 0; text-shadow: none; }
-  .tv-rem .player-title { font-size: 17px; }
+  /* Beside the buttons, one line, so that the whole card stays on the screen. */
+  .tv-rem .player-title { font-size: 17px; display: block; white-space: nowrap; }
   .tv-rem .player-subtitle { margin-top: 0; font-size: 13px; }
   .tv-rem .player-back { background: var(--s3); }
   .tv-rem .player-back:hover { background: var(--s5); }

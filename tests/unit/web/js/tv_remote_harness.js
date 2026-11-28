@@ -1523,6 +1523,26 @@ const scenarios = {
     await p.pass(1100);
     return { said, left: p.$('[data-status]').textContent };
   },
+  // After the next-episode card, each card that follows leaves no word of its countdown behind.
+  async statusFollows() {
+    const out = {};
+    for (const [name, play] of [['still', { state: 'still', still_since_s: 60, still_in_s: 540 }], ['failed', { state: 'failed', error: 'tv' }]]) {
+      const p = await page();
+      await p.open();
+      p.api.tvs[0].play = aPlay({ state: 'upnext', upnext_in_s: 8 });
+      await p.pass(1100);
+      p.api.tvs[0].play = aPlay(play);
+      await p.pass(1100);
+      out[name] = { card: p.card(), status: p.$('[data-status]').textContent };
+    }
+    return out;
+  },
+  // The card's title carries its whole text where its lines cut it short.
+  async titleWhole() {
+    const p = await page({ tvs: [aTv({ play: aPlay({ title: 'A Very Long Title That Runs On and On Past Two Lines of the Card' }) })] });
+    await p.open();
+    return p.$('[data-title]').getAttribute('title');
+  },
   async two() {
     const p = await page({ tvs: [aTv(), aTv({ id: 8, name: 'Bedroom TV' })] });
     const out = [p.bar().says];
