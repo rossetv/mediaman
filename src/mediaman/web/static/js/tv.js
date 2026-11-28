@@ -32,7 +32,6 @@
   // A wait shown this long darkens the film and takes its middle. Until then the pill alone says
   // so: a dropped Wi-Fi or a stream filling again is over long before, and is not worth more.
   var WAIT_LONG_MS = 60000;
-  var BACK_MS = 2500;        // the word that the film is back stays this long
 
   var body = document.body;
   var stage = document.getElementById('s');
@@ -1368,7 +1367,8 @@
     },
     taken: function () { return page(middle('Someone else has this TV now', 'The film stopped. Its place is kept.', [], SPIN)); },
     resuming: function () {
-      return page(middle(resumingFrom ? 'mediaman restarted' : 'Back online', 'Picking up ' + esc(endedWith.title) + ' where you were.', [], SPIN));
+      return page(resumingFrom ? middle('mediaman restarted', 'Picking up ' + esc(endedWith.title) + ' where you were.', [], SPIN)
+        : middle('Picking up ' + esc(endedWith.title) + ' where you were.', '', [], SPIN));
     },
     restarted: function () {
       var over = /^(ended|upnext|still)$/.test(endedWith.state);
@@ -1493,10 +1493,10 @@
 
   /* A wait grows only as it lasts. A falter of a moment shows nothing; then a pill in the corner
      says so over the film's own picture; only a long wait darkens the picture. As the film comes
-     back, the pill says so and goes. */
-  var waitFrom = 0, waitLong = false, waitTimer = null, backTimer = null, pillSaid = '';
+     back, the pill fades away without a word. */
+  var waitFrom = 0, waitLong = false, waitTimer = null, pillSaid = '';
   function waitWords() {
-    if (pickingUp && !away) return [resumingFrom ? 'mediaman restarted' : 'Back online', 'Picking up ' + esc(endedWith.title) + ' where you were.'];
+    if (pickingUp && !away) return resumingFrom ? ['mediaman restarted', 'Picking up ' + esc(endedWith.title) + ' where you were.'] : ['Picking up ' + esc(endedWith.title) + ' where you were.', ''];
     return ['Waiting for the network', away ? 'mediaman isn&rsquo;t answering yet. Trying again by itself.' : ''];
   }
   function waiting(name) {
@@ -1506,7 +1506,6 @@
     if (name === 'buf') {
       if (shown !== 'buf') {
         waitFrom = now();
-        clearTimeout(backTimer);
         if (!frame || frame.className !== 'on') still();
       }
       var left = waitFrom + WAIT_LONG_MS - now();
@@ -1524,11 +1523,8 @@
     if (shown !== 'buf') return;
     waitLong = false;
     if (frame) frame.className = '';
-    var back = name === 'play' || (name === 'pause' && pickingUp);
     pickingUp = false;
-    if (!back) { tellPill(pill, null, 'nw'); return; }
-    tellPill(pill, ['Back online', ''], 'nw on ok');
-    backTimer = setTimeout(function () { if (pill && shown !== 'buf') pill.className = 'nw ok'; }, BACK_MS);
+    tellPill(pill, null, 'nw');
   }
   function tellPill(pill, words, look) {
     if (!pill) return;

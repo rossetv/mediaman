@@ -173,9 +173,6 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .ec:before { content: ''; position: absolute; left: -26px; top: -26px; width: 104px; height: 104px; border-radius: 50%; background: radial-gradient(closest-side, rgba(41, 151, 255, 0) 48%, rgba(80, 170, 255, .65) 52%, rgba(41, 151, 255, .16) 72%, rgba(41, 151, 255, 0)); -webkit-animation: cor 4s ease-in-out infinite alternate; animation: cor 4s ease-in-out infinite alternate; }
 .ec i { position: absolute; left: -6px; top: -6px; width: 64px; height: 64px; border-radius: 50%; background: radial-gradient(ellipse 60% 16% at 50% 6%, rgba(255, 255, 255, .95), rgba(170, 215, 255, .7) 34%, rgba(41, 151, 255, 0)); -webkit-transition: opacity .6s; transition: opacity .6s; -webkit-animation: sp 4s linear infinite; animation: sp 4s linear infinite; }
 .ec:after { content: ''; position: absolute; left: 0; top: 0; width: 52px; height: 52px; border-radius: 50%; background: #05070d; background: radial-gradient(circle at 50% 35%, #0e1422, #04060b 70%); box-shadow: inset 0 0 0 1px rgba(166, 210, 255, .22), 0 0 0 2px rgba(120, 190, 255, .35), 0 0 14px rgba(41, 151, 255, .4); }
-/* Back: the light that went round settles into the whole ring. */
-.nw.ok .ec i { opacity: 0; }
-.nw.ok .ec:before { opacity: 1; -webkit-animation: none; animation: none; }
 /* Darkest behind the words, and the film still there at the edges. Hidden while clear, so that
    the eclipse in it is not drawn for nothing. */
 .wl { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: rgba(0, 0, 0, .6); background: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, .74), rgba(0, 0, 0, .46) 80%); text-shadow: 0 2px 12px rgba(0, 0, 0, .6); visibility: hidden; opacity: 0; -webkit-transition: opacity 1.2s ease-in-out, visibility 1.2s; transition: opacity 1.2s ease-in-out, visibility 1.2s; }
@@ -232,7 +229,7 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 @media (prefers-reduced-motion: reduce) {
   .b, .ov, .sk, body:after, .dim:after { -webkit-transition: none; transition: none; }
   .nw, .ec i, .wl, .wl .mid { -webkit-transition: none; transition: none; }
-  .ec:before, .ec i, .nw.ok .ec:before { -webkit-animation: none; animation: none; }
+  .ec:before, .ec i { -webkit-animation: none; animation: none; }
   .ov .top, .ov .bot { -webkit-transition: none; transition: none; }
   .b.f { -webkit-transform: none; transform: none; }
   .sk .dr, .up .dr { display: none; -webkit-animation: none; animation: none; }
