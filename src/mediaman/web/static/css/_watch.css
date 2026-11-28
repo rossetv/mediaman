@@ -240,18 +240,19 @@
 
 /* With no backdrop (none given, or it failed) the poster stands in: blurred as the fill and
    sharp at 2:3 on the right. The title keeps clear of that place at every width, so nothing
-   moves when the backdrop fails. Hidden, the lazy images are not fetched. */
-.watch-banner { --banner-poster-w: min(clamp(150px, 19vw, 320px), calc((clamp(420px, 27vw, 600px) - 72px) / 1.5)); }
+   moves when the backdrop fails. Hidden, the lazy images are not fetched. The poster stands in
+   the banner below the bar (--banner-lift), centred in what is left. */
+.watch-banner { --banner-poster-w: min(clamp(150px, 19vw, 320px), calc((clamp(420px, 27vw, 600px) - var(--banner-lift, 0px) - 72px) / 1.5)); }
 .watch-banner__bg--fill { filter: blur(40px) brightness(.7); transform: scale(1.2); object-position: center; }
 .watch-banner__poster {
   position: absolute;
   z-index: 2;
   right: var(--pad);
-  top: 50%;
+  top: calc(50% + var(--banner-lift, 0px) / 2);
   width: var(--banner-poster-w);
   height: auto;
   aspect-ratio: auto 2 / 3; /* its own shape, once known */
-  max-height: calc(100% - 72px);
+  max-height: calc(100% - var(--banner-lift, 0px) - 72px);
   object-fit: contain;
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-card);
@@ -842,9 +843,11 @@
 
 /* Phone */
 @media (max-width: 599.98px) {
-  .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 168px var(--pad) 20px; }
+  .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: var(--banner-head, 168px) var(--pad) 20px; }
   /* Above the title, in the room the padding keeps for it. */
-  .watch-banner__poster { --banner-poster-w: 88px; right: auto; left: var(--pad); top: 22px; max-height: 132px; transform: none; border-radius: var(--r-sm); }
+  .watch-banner__poster { --banner-poster-w: 88px; right: auto; left: var(--pad); top: calc(var(--banner-lift, 0px) + 22px); max-height: 132px; transform: none; border-radius: var(--r-sm); }
+  /* Under the bar the poster has no room above the title: the title steps down, as on the share page. */
+  .watch-banner:not(:has(> .watch-banner__bg--art:not([data-broken]))):has(> .watch-banner__poster:not([data-broken])) { --banner-head: calc(var(--banner-lift, 0px) + 168px); }
   /* The picture is clear only above the text, whatever height the text takes. */
   .watch-banner::after { background: linear-gradient(0deg, var(--bg), transparent 90px); }
   .watch-banner__body::before {
@@ -892,13 +895,13 @@
 
 /* A phone held sideways: a shorter banner that leaves its buttons on screen. */
 @media (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
-  .watch-banner { --banner-poster-w: 124px; min-height: 260px; margin-top: 8px; padding: calc(var(--banner-lift, 0px) + 16px) var(--pad) 18px; }
+  .watch-banner { --banner-poster-w: min(124px, calc((260px - var(--banner-lift, 0px) - 40px) / 1.5)); min-height: 260px; margin-top: 8px; padding: calc(var(--banner-lift, 0px) + 16px) var(--pad) 18px; }
   .watch-banner__body { width: auto; max-width: min(560px, calc(100% - var(--banner-poster-w) - 28px)); gap: 8px; }
   .watch-banner__title { --title-lines: 3; font-size: 28px; }
   .watch-banner__title--long { --title-lines: 4; font-size: 24px; }
   .watch-banner__title--longest { --title-lines: 5; font-size: 20px; }
   .watch-banner__line { font-size: 13px; }
-  .watch-banner__poster { --banner-poster-w: 124px; right: var(--pad); left: auto; top: 50%; max-height: calc(100% - 72px); transform: translateY(-50%); }
+  .watch-banner__poster { right: var(--pad); left: auto; top: calc(50% + var(--banner-lift, 0px) / 2); max-height: calc(100% - var(--banner-lift, 0px) - 40px); transform: translateY(-50%); }
 }
 /* A short landscape phone: the dark beside the text, not above it. */
 @media (max-width: 699.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
