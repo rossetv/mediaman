@@ -153,8 +153,9 @@ def _state_of(item: Mapping[str, object]) -> State:
         return "needs_attention"
     if state == "finding_copy":
         return "finding_copy"
-    # Only an item NZBGet does not hold names where it comes from.
-    if state == "queued" or not item.get("arr_source"):
+    # Only an item NZBGet does not hold names where it comes from. One paused waits as one
+    # queued does, and its line says why.
+    if state in ("queued", "paused") or not item.get("arr_source"):
         return "queued"
     return "stuck" if _int(item.get("search_count")) >= STUCK_AFTER_SEARCHES else "searching"
 
@@ -203,6 +204,10 @@ def _current(item: Mapping[str, object]) -> StripItem:
     # "Searched 12x · next attempt in ~4h"
     hint = _text(item.get("search_hint")).partition(" · ")[2] if state == "stuck" else ""
     waits = item.get("state_label") == WAITING_TO_IMPORT
+    if item.get("state") == "paused":
+        hint = _text(item.get("state_label"))
+    elif state == "needs_attention":
+        hint = _text(item.get("stopped"))
     return StripItem(
         key=_key_of(dl_id, tmdb_id),
         dl_id=dl_id,

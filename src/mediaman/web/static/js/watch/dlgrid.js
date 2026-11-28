@@ -153,7 +153,9 @@
      attention is said on the line under it, whole in its menu. */
   function topOf(item, items) {
     var row = rowItemOf(item, items);
-    var state = TOP_STATES.indexOf(item.state) >= 0 ? item.state : 'searching';
+    var paused = item.state === 'paused';
+    // One paused waits as one queued does, and its line says why.
+    var state = paused ? 'queued' : TOP_STATES.indexOf(item.state) >= 0 ? item.state : 'searching';
     var active = state === 'downloading' || state === 'almost_ready';
     var percent = Math.max(0, Math.min(100, Number(item.progress) || 0));
     var ref = refOf(item, row);
@@ -162,7 +164,8 @@
       key: String(item.id), title: String(item.title || ''), kind: item.media_type === 'movie' ? 'movie' : 'show', state: state,
       percent: active ? percent : 0,
       minutes_left: state === 'downloading' ? minutesLeft(item.minutes_left) : null,
-      line: state === 'almost_ready' && item.state_label === 'Waiting to import' ? item.state_label : '',
+      line: (state === 'almost_ready' && item.state_label === 'Waiting to import') || paused ? String(item.state_label || '')
+        : state === 'needs_attention' ? String(item.stopped || '') : '',
       held: false, ready_seconds: null, playable: false,
       ref: ref, href: row && row.ref === ref ? row.href : ref ? '/#title=' + ref : '',
       poster_url: item.poster_url || (row && row.poster_url) || '', art_url: row ? row.art_url : '',
@@ -198,7 +201,7 @@
   function linksOut(state) { return admin && state !== 'downloading' && state !== 'almost_ready'; }
 
   function fixWords(item) {
-    return item.fixing || (item.retrying ? 'mediaman will look for another copy'
+    return item.fixing || item.stopped || (item.retrying ? 'mediaman will look for another copy'
       : (admin && item.attention_hint) || 'Won’t finish until an admin sorts it out');
   }
 
@@ -207,7 +210,9 @@
   function sayOf(item) {
     var state = item.state;
     /* Of one mediaman is mending, its line says so. */
+    if (state === 'needs_attention' && item.stopped) return [item.stopped, admin && item.attention ? ' · ' + item.attention : ''];
     if (state === 'needs_attention') return ['', (admin && item.attention) || (item.fixing ? 'Nothing for you to do' : fixWords(item))];
+    if (state === 'paused') return ['', [item.state_label || 'Paused', item.size_total].filter(Boolean).join(' · ')];
     if (state === 'finding_copy') return ['', 'Finding another copy'];
     if (state === 'searching') return ['', item.search_hint || 'Waiting for its first search'];
     if (state === 'queued') return ['', ['Waiting its turn', item.size_total].filter(Boolean).join(' · ')];
@@ -303,7 +308,13 @@
   /* What the server lets go of, but never once it has a copy coming. */
   function canAbandon(item) { return !!item.abandon_visible && item.state !== 'downloading' && item.state !== 'almost_ready'; }
 
-  function menuHolds(item) { return admin && !!(whyOf(item) || linkOf(item) || canAbandon(item)); }
+  /* One paused in NZBGet by itself, which an admin may resume: never all of NZBGet. */
+  function canResume(item) { return item.state === 'paused' && !!(item.paused_ids && item.paused_ids.length); }
+
+  /* One mediaman stopped replacing, which an admin may have it try again. */
+  function canTryAgain(item) { return item.state === 'needs_attention' && !!item.stopped; }
+
+  function menuHolds(item) { return admin && !!(whyOf(item) || linkOf(item) || canAbandon(item) || canResume(item) || canTryAgain(item)); }
 
   function fillFoot(card, item) {
     var foot = footOf(card);
@@ -334,7 +345,7 @@
       more.setAttribute('aria-label', 'More for ' + (item.title || 'this download'));
       arm(more, item, false);
       // A menu open on what a poll has changed holds what is no longer so.
-      var holds = JSON.stringify([item.state, canAbandon(item), linkOf(item), whyOf(item)]);
+      var holds = JSON.stringify([item.state, canAbandon(item), linkOf(item), whyOf(item), canResume(item), canTryAgain(item)]);
       if (more.getAttribute('data-holds') !== holds) {
         if (menu && menu.trigger() === more) menu.close(false);
         more.setAttribute('data-holds', holds);
@@ -523,6 +534,8 @@
       words.appendChild(el('span', 'dwx-menu__why', (item.arr_source ? item.arr_source + ' says: ' : '') + why));
       words.appendChild(el('span', 'dwx-menu__fix', fixWords(item)));
     }
+    if (canResume(item)) menuItem('button', 'i-play', 'Resume download').setAttribute('data-dl-resume', '');
+    if (canTryAgain(item)) menuItem('button', 'i-rotate-right', 'Try again').setAttribute('data-dl-try-again', '');
     var link = linkOf(item);
     if (link) {
       var a = menuItem('a', 'i-arrow-up-right-from-square', 'Open in ' + (item.arr_source || 'Radarr/Sonarr'));
@@ -536,6 +549,21 @@
     }
   }
 
+  /* Resume a download paused in NZBGet, or have mediaman try a stopped one again. */
+  function act(trigger, resume) {
+    var card = trigger.isConnected && trigger.closest('[data-dl-card]:not(.is-going)');
+    var item = card && known[card.getAttribute('data-dl-id')];
+    if (!item || !(resume ? canResume(item) : canTryAgain(item))) return;
+    var title = item.title || 'this download';
+    var path = '/api/downloads/' + encodeURIComponent(String(item.id)) + (resume ? '/resume' : '/try-again');
+    window.MM.api.post(path, { arr_id: item.arr_id || null }).then(function () {
+      window.UIFeedback.toast(resume ? 'Resumed ' + title : 'mediaman will try ' + title + ' again within the hour', { variant: 'success' });
+      document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
+    }, function (err) {
+      window.UIFeedback.error(window.MM.api.messageOf(err, resume ? 'Couldn’t resume it. Try again.' : 'Couldn’t try it again. Try again.'));
+    });
+  }
+
   function startMenu() {
     if (menu || !admin || !watch.keep || !watch.keep.menu) return;
     var node = el('div', 'watch-keep-menu watch-more-menu dwx-menu');
@@ -547,6 +575,10 @@
       trigger: '[data-dl-more]',
       fill: fillMenu,
       choose: function (trigger, item) {
+        if (item.hasAttribute('data-dl-resume') || item.hasAttribute('data-dl-try-again')) {
+          act(trigger, item.hasAttribute('data-dl-resume'));
+          return;
+        }
         if (!item.hasAttribute('data-dl-abandon') || !window.MM.dlAbandon) return;
         // Only what the last answer still lets go of, on a card still here.
         var card = trigger.isConnected && trigger.closest('[data-dl-card]:not(.is-going)');

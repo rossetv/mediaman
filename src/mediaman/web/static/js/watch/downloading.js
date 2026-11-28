@@ -79,9 +79,10 @@
     if (item.state === 'ready') return ['', item.line || 'Ready to watch'];
     if (item.state === 'almost_ready') return item.line ? ['', item.line] : ['Almost ready', ''];
     /* What Radarr or Sonarr says is wrong is told to an admin alone. */
-    if (item.state === 'needs_attention') return [item.fixing || 'Needs attention', item.attention ? ' · ' + item.attention : ''];
+    if (item.state === 'needs_attention') return [item.fixing || item.line || 'Needs attention', item.attention ? ' · ' + item.attention : ''];
     if (item.state === 'finding_copy') return ['', 'Finding another copy'];
-    if (item.state === 'queued') return ['', 'Queued'];
+    // One paused in NZBGet says so on its line.
+    if (item.state === 'queued') return ['', item.line || 'Queued'];
     if (item.state === 'stuck') return ['', 'Nothing found yet' + (item.line ? ' · ' + item.line : '')];
     if (item.state === 'searching') return ['', 'Looking for a copy'];
     return [item.percent + '%', typeof item.minutes_left === 'number' ? ' · ' + left(item.minutes_left) : ''];
