@@ -558,6 +558,18 @@ def test_the_settings_tile_says_how_settings_last_found_the_services_set_up() ->
     assert out["own"][0]["settings"] is None
 
 
+def test_the_settings_tile_counts_a_refused_key_apart_from_a_service_not_answering() -> None:
+    out = _run("tiles")
+    text, bad = out["refused"]["settings"]
+    assert bad is True
+    assert "1 not answering" in text
+    assert "2 keys refused" in text
+    text, bad = out["oneRefused"]["settings"]
+    assert bad is True
+    assert "not answering" not in text
+    assert "refused" in text
+
+
 def test_a_service_not_known_to_answer_never_reads_as_everything_connected() -> None:
     out = _run("tiles")
     neutral = ["Libraries and more", False]

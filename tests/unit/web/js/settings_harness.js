@@ -650,6 +650,36 @@ const scenarios = {
     out.one = await press();
     edit(url, 'http://b'); edit(model, 'other');
     out.two = await press();
+    edit(days, '30.5');
+    out.fraction = await press();
+    return out;
+  },
+
+  // A Scan time cleared and saved is refused in the bar, not sent: the server keeps the stored one for a blank.
+  async blankScanTime() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save', textContent: 'Save Settings' }, bar);
+    const status = h.add('span', { id: 'save-status' }, bar);
+    const row = h.add('div', { className: 'setg-row' }, page);
+    const time = h.add('input', { id: 'scan_time', value: '10:00', type: 'time', required: true }, row);
+    time.setAttribute('required', '');
+    time.setAttribute('aria-label', 'Scan time');
+    const url = h.add('input', { id: 'base_url', value: 'http://a', type: 'text' }, page);
+    const sent = [];
+    h.ctx.MM.api = { put: (u, b) => { sent.push(JSON.parse(JSON.stringify(b))); return Promise.resolve({ status: 'saved' }); }, messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    ['savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
+    h.ctx.MM.settings.savebar.init({ getPayload: h.ctx.MM.settings.general.collectSettings });
+    const edit = (el, v) => { el.value = v; el.fire('input'); };
+    const press = async () => { save.fire('click'); await h.flush(); h.drain(); };
+    edit(time, ''); edit(url, 'http://b');
+    await press();
+    const out = { refused: { sent: sent.length, status: status.textContent, error: bar.classList.contains('is-error'), button: save.textContent } };
+    edit(time, '11:30');
+    await press();
+    out.fixed = sent[sent.length - 1];
     return out;
   },
 
@@ -1072,10 +1102,12 @@ const scenarios = {
     const status = h.add('span', { id: 'save-status' }, bar);
     const url = h.add('input', { id: 'base_url', type: 'text' });
     url.setAttribute('aria-label', 'Base URL');
+    h.add('input', { id: 'min_age_days', type: 'number' }).setAttribute('aria-label', 'Minimum age in days');
     h.ctx.MM.api = {
       put: () => Promise.reject({ status: 422, data: { detail: [
         { loc: ['body', 'base_url'], msg: "Value error, URL scheme must be http or https, got ''" },
         { loc: ['body', 'grace_days'], msg: 'Value error, Grace period must be between 1 and 365 days' },
+        { loc: ['body', 'min_age_days'], msg: 'Value error, Minimum age must be between 1 and 365 days' },
         { loc: ['body', 'mystery_key'], msg: 'Extra inputs are not permitted' },
       ] } }),
       messageOf: () => 'x',
@@ -2429,6 +2461,40 @@ const scenarios = {
       out[plex] = { text: line.textContent, bad: line.classList.contains('is-bad') };
     }
     return out;
+  },
+
+  // A service that answered but refused the key: its pill and the list say so, apart from one not answering.
+  async refusedKey() {
+    const h = build();
+    h.load('settings/integrations.js');
+    const item = h.add('a', { className: 'stx-link' });
+    item.setAttribute('data-sec', 'integrations');
+    const line = h.add('span', { className: 'stx-link__sub', textContent: 'Plex, the *arrs, mail, AI' }, item);
+    const pills = {};
+    ['plex', 'sonarr', 'openai'].forEach((svc) => {
+      const pill = h.add('span', { className: 'conn untested' });
+      pill.setAttribute('data-conn', svc);
+      const lbl = h.add('span', {}, pill);
+      lbl.setAttribute('data-conn-label', '');
+      pills[svc] = pill;
+    });
+    const fail = (code) => Promise.reject({ status: 200, error: code });
+    h.ctx.MM.api = {
+      post: (u) => (u.includes('/plex') ? fail('connection_refused')
+        : u.includes('/sonarr') ? fail('auth_failed')
+        : fail('auth_failed: API key contains invalid characters')),
+      messageOf: () => 'x',
+    };
+    ['plex_url', 'plex_token', 'sonarr_url', 'sonarr_api_key', 'openai_api_key'].forEach((id) => h.add('input', { id, value: 'v' }));
+    h.ctx.MM.settings.integrations.init();
+    h.timers.forEach((t) => t.fn());
+    await h.flush();
+    const read = (svc) => ({ label: pills[svc].textContent, refused: pills[svc].classList.contains('is-refused'), err: pills[svc].classList.contains('err') });
+    const badge = item.querySelector('.stx-badge');
+    const first = { plex: read('plex'), sonarr: read('sonarr'), openai: read('openai'), line: line.textContent, badge: badge ? badge.textContent : null };
+    // A later check that cannot reach the service takes the refusal away.
+    h.ctx.MM.settings.integrations.setConnStatus('sonarr', 'err', 'Down');
+    return { first, after: read('sonarr') };
   },
 
   // A pressed Test that gets a 429 shows the warning tone and leaves the badge alone.

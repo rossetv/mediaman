@@ -80,6 +80,20 @@ class TestPatchOwnEmail:
         assert resp.json()["error"] == "invalid_email"
         assert get_user_email(conn, "admin") == "ops@example.com"
 
+    @pytest.mark.parametrize(
+        ("typed", "says"),
+        [("not-an-address", "isn't an email address"), ("é" * 200 + "@x.com", "too long")],
+        ids=["no at sign", "over 320 octets"],
+    )
+    def test_a_refused_address_is_answered_in_plain_words(
+        self, app_factory, authed_client, conn, typed, says
+    ):
+        client = _ticketed_client(app_factory, authed_client, conn)
+        message = client.patch("/api/users/me/email", json={"email": typed}).json()["message"]
+        assert says in message
+        # never the text typed echoed back, nor the octet count
+        assert typed not in message and "octets" not in message
+
     def test_without_reauth_returns_403_reauth_required(self, app_factory, authed_client, conn):
         app = _app(app_factory, conn)
         client = authed_client(app, conn, with_reauth=False)
@@ -262,6 +276,11 @@ class TestAnAdminSetsSomeoneElses:
 
         assert (resp.status_code, resp.json()["error"]) == (409, "email_taken")
         assert get_user_email(conn, "vic") is None
+
+    def test_an_address_refused_for_another_user_is_answered_in_plain_words(self, client, vic):
+        message = self._set(client, vic, "not-an-address").json()["message"]
+        assert "isn't an email address" in message
+        assert "not-an-address" not in message
 
     def test_an_address_that_is_none_is_refused_and_the_old_one_stays(self, client, vic, conn):
         set_user_email(conn, "vic", "vic@example.com")

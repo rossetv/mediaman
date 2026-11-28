@@ -43,8 +43,27 @@
     { service: 'omdb',    fields: ['omdb_api_key'] },
   ];
 
-  /* How a service stands, in a word, on its pill; an open card says a longer answer above its fields. */
-  var SHORT = { ok: 'Connected', err: 'Not answering', warn: 'Rate limited', off: 'Not set up' };
+  /* How a service stands, in a word, on its pill; an open card says a longer answer above its fields.
+     `refused` is a service that answered but turned the key, token or login away: drawn as `err`, marked apart. */
+  var SHORT = { ok: 'Connected', err: 'Not answering', refused: 'Key refused', warn: 'Rate limited', off: 'Not set up' };
+
+  /* The failures of the pills in the page: those not answering and those that refused the key. */
+  function failures() {
+    var out = { down: 0, refused: 0 };
+    document.querySelectorAll('[data-conn]').forEach(function (pill) {
+      if (!pill.classList.contains('err')) return;
+      if (pill.classList.contains('is-refused')) out.refused += 1; else out.down += 1;
+    });
+    return out;
+  }
+
+  /* "1 service is not answering", "2 keys refused", or "1 not answering, 2 keys refused". */
+  function failureWords(f) {
+    var keys = f.refused + (f.refused === 1 ? ' key refused' : ' keys refused');
+    if (f.down && f.refused) return f.down + ' not answering, ' + keys;
+    if (f.refused) return keys;
+    return f.down + (f.down === 1 ? ' service is' : ' services are') + ' not answering';
+  }
 
   /* The line at the top of a card's fields that says why a check failed; hidden while there is no more to say. */
   function drawWhy(service, tone, label, short) {
@@ -52,7 +71,7 @@
     var body = card && card.querySelector('.intg-card-bd');
     if (!body) return;
     var why = body.querySelector('.intg-why');
-    var say = (tone === 'err' || tone === 'warn') && label !== short;
+    var say = (tone === 'err' || tone === 'refused' || tone === 'warn') && label !== short;
     if (!why) {
       if (!say) return;
       why = document.createElement('p');
@@ -103,12 +122,13 @@
   }
 
   // A throttled service is not a disconnected one, so a 429 gets the
-  // warning tone, which the list's badge does not count. Returns the label.
+  // warning tone, which the list's badge does not count. One that answered and
+  // turned the credentials away is told apart from one not answering. Returns the label.
   function setFailedStatus(service, err) {
-    var label = (err && err.status === 429)
-      ? 'Rate limited'
-      : MM.api.messageOf(err, 'Connection failed');
-    MM.settings.integrations.setConnStatus(service, (err && err.status === 429) ? 'warn' : 'err', label);
+    var limited = !!err && err.status === 429;
+    var refused = !!err && typeof err.error === 'string' && /^auth_failed\b/.test(err.error);
+    var label = limited ? 'Rate limited' : MM.api.messageOf(err, 'Connection failed');
+    MM.settings.integrations.setConnStatus(service, limited ? 'warn' : refused ? 'refused' : 'err', label);
     return label;
   }
 
@@ -325,14 +345,15 @@
   }
 
   /* The list's Integrations line says how the services stand once every check has answered. */
-  function paintListLine(item, failed) {
+  function paintListLine(item, f) {
     var line = item.querySelector('.stx-link__sub');
     if (!line) return;
     if (line.getAttribute('data-idle') === null) line.setAttribute('data-idle', line.textContent);
+    var failed = f.down + f.refused;
     var all = document.querySelectorAll('[data-conn]').length;
     var ok = document.querySelectorAll('[data-conn].ok').length;
     var waiting = document.querySelectorAll('[data-conn].untested').length;
-    var text = failed ? failed + (failed === 1 ? ' service is' : ' services are') + ' not answering'
+    var text = failed ? failureWords(f)
       : waiting ? line.getAttribute('data-idle')
       : ok ? ok + ' of ' + all + ' connected'
       : 'None set up yet';
@@ -344,8 +365,9 @@
 
     setConnStatus: function (service, tone, label) {
       document.querySelectorAll('[data-conn="' + service + '"]').forEach(function (el) {
-        el.classList.remove('ok', 'warn', 'err', 'off', 'untested');
-        el.classList.add(tone);
+        el.classList.remove('ok', 'warn', 'err', 'off', 'untested', 'is-refused');
+        if (tone === 'refused') el.classList.add('err', 'is-refused');
+        else el.classList.add(tone);
         var word = SHORT[tone] || label;
         el.querySelectorAll('[data-conn-label]').forEach(function (span) { span.textContent = word; });
       });
@@ -356,7 +378,8 @@
           /* Toggle CSS modifier classes instead of writing inline styles.
              Classes .ok/.err/.warn are defined in _base.css; .off is already there. */
           dot.classList.remove('ok', 'err', 'warn', 'off');
-          if (tone === 'ok' || tone === 'err' || tone === 'warn' || tone === 'off') {
+          if (tone === 'refused') dot.classList.add('err');
+          else if (tone === 'ok' || tone === 'err' || tone === 'warn' || tone === 'off') {
             dot.classList.add(tone);
           }
         }
@@ -374,8 +397,9 @@
     paintListCount: function () {
       var item = document.querySelector('.stx-link[data-sec="integrations"]');
       if (!item) return;
-      var failed = document.querySelectorAll('[data-conn].err').length;
-      paintListLine(item, failed);
+      var f = failures();
+      var failed = f.down + f.refused;
+      paintListLine(item, f);
       var badge = item.querySelector('.stx-badge');
       if (!failed) {
         if (badge) badge.remove();
@@ -388,7 +412,7 @@
         item.insertBefore(badge, item.querySelector('.stx-link__chev'));
       }
       badge.textContent = String(failed);
-      item.setAttribute('aria-label', 'Integrations, ' + failed + ' not connected');
+      item.setAttribute('aria-label', 'Integrations, ' + failureWords(f));
     },
 
     /* A test reads the saved settings, so its button says so while its card holds other values. */

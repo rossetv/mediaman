@@ -294,6 +294,16 @@ class TestSettingsUpdateDayRanges:
             with pytest.raises(ValidationError, match=f"between {low} and {high}"):
                 SettingsUpdate(**{field: value})
 
+    @pytest.mark.parametrize(("field", "low", "high"), _DAY_RANGES)
+    def test_a_day_count_with_a_fraction_is_refused_not_cut_down(self, field, low, high):
+        with pytest.raises(ValidationError, match="integer"):
+            SettingsUpdate(**{field: "30.5"})
+
+    @pytest.mark.parametrize(("field", "low", "high"), _DAY_RANGES)
+    def test_an_emptied_day_count_is_refused_with_the_range(self, field, low, high):
+        with pytest.raises(ValidationError, match=f"between {low} and {high} days"):
+            SettingsUpdate(**{field: "  "})
+
 
 @pytest.mark.parametrize(
     "folder",

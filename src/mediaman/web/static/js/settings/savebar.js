@@ -430,7 +430,11 @@
       var m = msg.match(FIELD_ERROR_WORDS[i][0]);
       if (m) {
         var words = FIELD_ERROR_WORDS[i][1].replace(/\$(\d)/g, function (_, n) { return m[n] || ''; });
-        return fieldLabel(key) + ' ' + words;
+        var label = fieldLabel(key);
+        // "Minimum age in days" ends in the unit the words end in: it is said once, at the end.
+        var unit = / (\w+)\.$/.exec(words);
+        var named = unit && label.match(new RegExp('^(.+) in ' + unit[1] + '$', 'i'));
+        return (named ? named[1] : label) + ' ' + words;
       }
     }
     return fieldLabel(key) + ' is not valid.';
@@ -628,8 +632,22 @@
       });
     }
 
+    // A field the page marks required, emptied since it was saved: the server would keep what it has and
+    // say it saved. One whose stored value it could not show is left alone.
+    function emptiedRequired() {
+      return settingsControls().filter(function (el) {
+        return el.getAttribute('required') !== null && valueOf(el) === '' && saved.values[el.id] !== '';
+      });
+    }
+
     function runSave(fromKeyboard) {
       if (!saveBtn) return;
+      var emptied = emptiedRequired();
+      if (emptied.length) {
+        setSaveError(inWords(emptied.map(function (el) { return fieldLabel(el.id); })) + ' can’t be left empty.');
+        showRefused({ detail: [{ loc: ['body', emptied[0].id] }] });
+        return;
+      }
       if (putBackMasks()) {
         markDirty();
         if (!savebar.classList.contains('on')) { settleAfterHide(fromKeyboard); return; }

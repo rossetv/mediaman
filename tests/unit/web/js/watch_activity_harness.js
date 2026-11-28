@@ -378,6 +378,78 @@ const scenarios = {
     return { sub: row.querySelector('small').textContent, cls: row.querySelector('.act-sub__val').className };
   },
 
+  // The queue's "to go" and each download's time left, from the figures the write-up met.
+  async queue() {
+    const GIB = 1024 * MB;
+    const item = (title, left) => ({ title, state: 'downloading', done: 10 * GIB - left, size: 10 * GIB, by: 'sonarr' });
+    const rows = async (over) => {
+      const p = await page({ live: over });
+      await p.open();
+      return {
+        head: p.text('.act-row.act-c--dl .act-row__sub'),
+        subs: p.doc.querySelectorAll('.act-row.act-c--dl .act-sub small').map((s) => s.textContent),
+      };
+    };
+    // 1 MB/s: 7190 s, 3590 s, 3500 s, 7200 s, none and less than none left.
+    const timed = await rows({ downloads: { rate: MB, left: 1992294400, count: 6, items: [
+      item('a', 7190 * MB), item('b', 3590 * MB), item('c', 3500 * MB), item('d', 7200 * MB), item('e', 0), item('f', -MB)] } });
+    const under = await rows({ downloads: { rate: MB, left: GIB - 1, count: 1, items: [] } });
+    return { head: timed.head, subs: timed.subs, under: under.head };
+  },
+
+  // The AI row's "Last asked", either side of the hour.
+  async asked() {
+    const out = {};
+    for (const s of [3560, 3580, 5400]) {
+      const p = await page({ live: { work: { searching: {}, fixing: 0, scanning: false, ai: { running: false, at: NOW - s } } } });
+      await p.open();
+      out[s] = (/Last asked [^A-Z]*ago/.exec(p.$('space-activity').textContent) || [null])[0];
+    }
+    return out;
+  },
+
+  // mediaman's CPU key for a small share, and figures that round up to a whole one.
+  async smallCpu() {
+    const out = {};
+    for (const v of [0.02, 0.06, 0.97, 0.5]) {
+      const pts = [];
+      for (let i = 0; i < 31; i++) { const x = point(NOW - 60 + i * 2, 100 * MB, 50); x.apps.mediaman = [v, 140 * MB]; pts.push(x); }
+      const p = await page({ live: { point: pts[30], live: pts } });
+      await p.open();
+      const card = p.doc.querySelectorAll('#space-activity .act-res')[0];
+      out[v] = card.querySelectorAll('.act-key').map((k) => [k.querySelector('.act-key__name').textContent, k.querySelector('.act-key__val').textContent]).find((k) => k[0] === 'mediaman')[1];
+    }
+    return out;
+  },
+
+  // Every scale the network graph can pick, read from the small graph and the grown one.
+  async scales() {
+    const seen = [];
+    const peaks = [0, 0.03, 0.08, 0.2, 0.4, 0.8, 1.5, 4, 9, 20, 40, 80, 120, 160, 210, 260, 350, 420, 600, 850, 1200, 1700, 2500, 5000];
+    for (const peak of peaks) {
+      const pts = [];
+      for (let i = 0; i < 31; i++) { const x = point(NOW - 60 + i * 2, peak * MB, 50); x.up = peak * MB; pts.push(x); }
+      const p = await page({ live: { point: pts[30], live: pts } });
+      await p.open();
+      p.one('#space-activity .act-net .act-grow').focus();
+      await p.key('Enter');
+      seen.push({ top: p.text('.act-scale--top'), up: p.text('.act-scale--up'), ticks: p.doc.querySelectorAll('.act-big__tick').map((t) => t.textContent) });
+    }
+    return seen;
+  },
+
+  // With Up not known, no Up scale is shown.
+  async noUp() {
+    const pts = [];
+    for (let i = 0; i < 31; i++) { const x = point(NOW - 60 + i * 2, 100 * MB, 50); x.up = null; pts.push(x); }
+    const p = await page({ live: { point: pts[30], live: pts } });
+    await p.open();
+    const small = !!p.one('.act-scale--up').hidden;
+    p.one('#space-activity .act-net .act-grow').focus();
+    await p.key('Enter');
+    return { small, ticks: p.doc.querySelectorAll('.act-big__tick').map((t) => t.textContent) };
+  },
+
   async edge() {
     const p = await page();
     const s = p.ctx.MMWatch.activity.slots;

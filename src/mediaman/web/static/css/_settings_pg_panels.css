@@ -1,7 +1,7 @@
 /* SETTINGS v2 PANELS — page-specific composed components scoped
    under `.setg-pg`. Owns the overview hero (`.ov-*`), brand glyph
    tints (`.gy-*`), the integration config card (`.intg-card`),
-   library pills, the library path card (`.lp-*`), subscribers
+   library pills, the library path card (`.dt-*`), subscribers
    (`.sub-*`), the recipient picker (`.recipient-*`), the users
    list (`.usr-*`), the inline forms (add user / change password /
    delete confirm), the password strength meter scoped to the
@@ -224,7 +224,7 @@
   }
 }
 
-.setg-pg .lp-card {
+.setg-pg .dt-card {
   border: 1px solid var(--hair);
   border-radius: var(--r-md);
   padding: 0;
@@ -232,71 +232,72 @@
   background: var(--s1);
   overflow: hidden;
 }
-.setg-pg .lp-card:first-of-type { margin-top: 0; }
-.setg-pg .lp-head {
+.setg-pg .dt-card:first-of-type { margin-top: 0; }
+.setg-pg .dt-head {
   display: flex; align-items: center; gap: 14px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--hair);
 }
-.setg-pg .lp-head .lp-glyph {
+.setg-pg .dt-head .dt-glyph {
   width: 34px; height: 34px; border-radius: var(--r-sm);
   display: grid; place-items: center;
   font-size: 13px; font-weight: 700;
   font-family: var(--font-display); flex-shrink: 0;
   background: var(--rgba-accent-bg); color: var(--accent-text); box-shadow: var(--g-chip-floor);
 }
-.setg-pg .lp-head .lp-title { flex: 1; min-width: 0; }
-.setg-pg .lp-head .lp-name-txt { font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; }
-.setg-pg .lp-head .lp-kind { font-size: 12px; color: var(--t3); margin-top: 2px; }
-.setg-pg .lp-head .lp-usage {
+.setg-pg .dt-head .dt-title { flex: 1; min-width: 0; }
+/* A long library name wraps: the card holds it nowhere else. */
+.setg-pg .dt-head .dt-name { font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; overflow-wrap: anywhere; }
+.setg-pg .dt-head .dt-kind { font-size: 12px; color: var(--t3); margin-top: 2px; }
+.setg-pg .dt-head .dt-usage {
   display: flex; flex-direction: column; align-items: flex-end;
   gap: 5px; flex-shrink: 0;
 }
-.setg-pg .lp-head .lp-usage .pct {
+.setg-pg .dt-head .dt-usage .pct {
   font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums;
   color: var(--t1); letter-spacing: -.02em; line-height: 1;
 }
-.setg-pg .lp-head .lp-usage .pct.warn { color: var(--warning); }
-.setg-pg .lp-head .lp-usage .pct.crit { color: var(--danger-text); }
-.setg-pg .lp-head .lp-usage .bytes { font-size: 12px; color: var(--t3); font-variant-numeric: tabular-nums; }
-.setg-pg .lp-bar2 { height: 4px; background: var(--s3); position: relative; overflow: hidden; }
-.setg-pg .lp-bar2 .fill { position: absolute; top: 0; left: 0; bottom: 0; background: var(--accent); transition: width var(--dur-slow) var(--ease-out); }
-.setg-pg .lp-bar2 .fill.warn { background: var(--warning); }
-.setg-pg .lp-bar2 .fill.crit { background: var(--danger); }
-.setg-pg .lp-bar2 .thresh-mark {
+.setg-pg .dt-head .dt-usage .pct.warn { color: var(--warning); }
+.setg-pg .dt-head .dt-usage .pct.crit { color: var(--danger-text); }
+.setg-pg .dt-head .dt-usage .bytes { font-size: 12px; color: var(--t3); font-variant-numeric: tabular-nums; }
+.setg-pg .dt-bar { height: 4px; background: var(--s3); position: relative; overflow: hidden; }
+.setg-pg .dt-bar .fill { position: absolute; top: 0; left: 0; bottom: 0; background: var(--accent); transition: width var(--dur-slow) var(--ease-out); }
+.setg-pg .dt-bar .fill.warn { background: var(--warning); }
+.setg-pg .dt-bar .fill.crit { background: var(--danger); }
+.setg-pg .dt-bar .thresh-mark {
   position: absolute; top: -3px; bottom: -3px; width: 2px;
   background: var(--t3); opacity: .55;
 }
-.setg-pg .lp-body {
+.setg-pg .dt-body {
   display: grid; gap: 18px;
   grid-template-columns: 1fr 220px;
   padding: 18px 20px;
   align-items: start;
 }
-@media (max-width: 680px) { .setg-pg .lp-body { grid-template-columns: 1fr; } }
+@media (max-width: 680px) { .setg-pg .dt-body { grid-template-columns: 1fr; } }
 /* The path's mono is a smaller size: both boxes are as tall on one line height. */
-.setg-pg .lp-body .inp { line-height: 20px; }
-.setg-pg .lp-body .thresh-field { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
-.setg-pg .lp-body .thresh-field .inp {
+.setg-pg .dt-body .inp { line-height: 20px; }
+.setg-pg .dt-body .thresh-field { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.setg-pg .dt-body .thresh-field .inp {
   max-width: 64px; width: 64px; min-width: 0;
   text-align: right; font-variant-numeric: tabular-nums; flex: 0 0 auto;
 }
-.setg-pg .lp-body .thresh-field .unit { font-size: 13px; color: var(--t3); white-space: nowrap; flex-shrink: 0; }
-.setg-pg .lp-foot {
+.setg-pg .dt-body .thresh-field .unit { font-size: 13px; color: var(--t3); white-space: nowrap; flex-shrink: 0; }
+.setg-pg .dt-foot {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 20px;
   border-top: 1px solid var(--hair);
   background: var(--s2);
   font-size: 12px; color: var(--t3);
 }
-.setg-pg .lp-foot .ok   { color: color-mix(in srgb, var(--success) 70%, var(--t1)); }
-.setg-pg .lp-foot .ok::before   { content: "●"; margin-right: 6px; }
-.setg-pg .lp-foot .warn { color: var(--warning); }
-.setg-pg .lp-foot .warn::before { content: "▲"; margin-right: 6px; font-size: 10px; }
-.setg-pg .lp-foot .crit { color: var(--danger-text); }
-.setg-pg .lp-foot .crit::before { content: "●"; margin-right: 6px; }
-.setg-pg .lp-foot .untested { color: var(--t3); }
-.setg-pg .lp-foot .untested::before { content: "○"; margin-right: 6px; }
+.setg-pg .dt-foot .ok   { color: color-mix(in srgb, var(--success) 70%, var(--t1)); }
+.setg-pg .dt-foot .ok::before   { content: "●"; margin-right: 6px; }
+.setg-pg .dt-foot .warn { color: var(--warning); }
+.setg-pg .dt-foot .warn::before { content: "▲"; margin-right: 6px; font-size: 10px; }
+.setg-pg .dt-foot .crit { color: var(--danger-text); }
+.setg-pg .dt-foot .crit::before { content: "●"; margin-right: 6px; }
+.setg-pg .dt-foot .untested { color: var(--t3); }
+.setg-pg .dt-foot .untested::before { content: "○"; margin-right: 6px; }
 
 .setg-pg .sub-list { display: flex; flex-direction: column; gap: 6px; }
 .setg-pg .sub-row {

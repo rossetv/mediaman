@@ -65,7 +65,8 @@
 .stx-link__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .stx-link__name { font-size: 15px; }
 .stx-link__sub { font-size: 12.5px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stx-link__sub.is-bad { color: var(--danger-text); }
+/* What is wrong is read whole: it takes a second line where it needs one. */
+.stx-link__sub.is-bad { color: var(--danger-text); white-space: normal; }
 .stx-link__chev { flex: none; font-size: 11px; color: var(--t4); }
 .stx-badge {
   flex: none; display: grid; place-items: center;
@@ -392,8 +393,8 @@
   .setg-pg .conn-dot, .stx-save__dot, .setg-pg .chip-dot {
     forced-color-adjust: none; border: 1px solid CanvasText;
   }
-  .setg-pg .ov-storage .bar, .setg-pg .lp-bar2 { border: 1px solid CanvasText; }
-  .setg-pg .ov-storage .bar span, .setg-pg .lp-bar2 span { forced-color-adjust: none; }
+  .setg-pg .ov-storage .bar, .setg-pg .dt-bar { border: 1px solid CanvasText; }
+  .setg-pg .ov-storage .bar span, .setg-pg .dt-bar span { forced-color-adjust: none; }
   .stx-link[aria-current] {
     forced-color-adjust: none; background: Highlight; color: HighlightText;
   }

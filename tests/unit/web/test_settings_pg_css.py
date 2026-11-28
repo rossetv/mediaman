@@ -109,6 +109,11 @@ def test_a_save_error_or_what_a_save_left_out_wraps_whole_and_is_never_hidden() 
             assert "display: none" not in body, head
 
 
+def test_a_list_line_that_says_what_is_wrong_wraps_rather_than_being_cut() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    assert "white-space: normal" in _declarations(".stx-link__sub.is-bad", css)
+
+
 def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
     (block,) = re.findall(r"@media \(forced-colors: active\) \{((?:[^{}]*\{[^{}]*\})*)", css)
@@ -119,7 +124,7 @@ def test_dots_bars_and_the_current_choice_show_in_forced_colours() -> None:
     for dot in (".setg-pg .conn-dot", ".stx-save__dot", ".setg-pg .chip-dot"):
         assert "forced-color-adjust: none" in rules[dot]
         assert "solid CanvasText" in rules[dot]
-    for bar in (".ov-storage .bar span", ".lp-bar2 span"):
+    for bar in (".ov-storage .bar span", ".dt-bar span"):
         assert "forced-color-adjust: none" in rules[f".setg-pg {bar}"]
     assert "background: Highlight" in rules[".stx-link[aria-current]"]
 
@@ -274,3 +279,19 @@ def test_on_reduced_motion_a_section_arriving_beside_the_list_fades_in_150ms() -
     assert name and "animation-duration: var(--dur-fast) !important" in arriving, arriving
     frames = re.search(r"@keyframes " + name.group(1) + r" \{([^}]*)\}", css)
     assert frames and re.fullmatch(r"\s*from \{ opacity: 0;?\s*", frames.group(1) + " "), frames
+
+
+def test_no_class_of_a_library_card_is_styled_by_the_players_unscoped_rules() -> None:
+    # The player's rules are global; one sharing a class with the card cut its library name off unseen.
+    js = (CSS.parent / "js" / "settings" / "disk_thresholds.js").read_text()
+    card = set(re.findall(r"className = '([\w-]+)'", js))
+    player = re.sub(r"/\*.*?\*/", "", (CSS / "_player.css").read_text(), flags=re.S)
+    styled = set(re.findall(r"\.([a-zA-Z][\w-]*)", "".join(re.findall(r"([^{}]+)\{", player))))
+    assert card, "no card classes found"
+    assert not card & styled
+
+
+def test_a_long_library_name_wraps_in_its_card_rather_than_being_cut() -> None:
+    name = _declarations(".setg-pg .dt-head .dt-name")
+    assert "overflow-wrap: anywhere" in name
+    assert "nowrap" not in name

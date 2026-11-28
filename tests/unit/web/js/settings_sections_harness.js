@@ -61,7 +61,7 @@ async function libraries(opts, usage, answer) {
   const disk = p.ctx.MM.settings.diskThresholds;
   disk.init(Object.assign({ selectedLibs: ['1'], diskThresholds: {} }, opts));
   await settle();
-  const card = (n) => p.doc.querySelector('.lp-card[data-lib-id="' + n + '"]');
+  const card = (n) => p.doc.querySelector('.dt-card[data-lib-id="' + n + '"]');
   const input = (n, f) => card(n).querySelector('[data-field="' + f + '"]');
   return Object.assign(p, {
     disk, dirty, card, input,
