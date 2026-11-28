@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from time import monotonic
+from types import SimpleNamespace
 
 import pytest
 import requests
@@ -666,6 +667,55 @@ class TestRuns:
 
         assert amy.get(f"{BASE}/runs/{run}").json()["status"] == "failed"
         assert self._start(amy, "quite another question").status_code == 202
+
+    def test_a_run_of_a_process_since_restarted_is_failed_at_once_and_frees_the_person(
+        self, amy, monkeypatch
+    ):
+        monkeypatch.setattr(assist.threading, "Thread", HeldThread)
+        run = self._start(amy).json()["run_id"]
+        monkeypatch.setattr(assist, "_asked", {})
+
+        assert amy.get(f"{BASE}/runs/{run}").json()["status"] == "failed"
+        assert self._start(amy, "quite another question").status_code == 202
+
+    def test_startup_closes_the_runs_an_earlier_process_left_open(self, conn, monkeypatch):
+        from mediaman import app_factory
+
+        # The delete-intent sweep, on a thread of its own, is not this test's.
+        monkeypatch.setattr(
+            app_factory.threading, "Thread", lambda **_k: SimpleNamespace(start=lambda: None)
+        )
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at, role)"
+            " VALUES ('cat', 'x', '2020', 'viewer')"
+        )
+        user = _id(conn, "cat")
+        conn.executemany(
+            "INSERT INTO user_ai_runs (id, user_id, kind, status, started_at, finished_at)"
+            " VALUES (?, ?, 'ask', ?, ?, ?)",
+            [
+                (1, user, "running", now_utc().isoformat(), None),
+                (2, user, "cancelled", now_utc().isoformat(), None),
+                (3, user, "done", "2026-01-01", "2026-01-01"),
+            ],
+        )
+        conn.commit()
+        app = SimpleNamespace(
+            state=SimpleNamespace(db=conn, config=SimpleNamespace(secret_key="k"))
+        )
+
+        app_factory._run_startup_reconciliation(app)
+
+        rows = conn.execute(
+            "SELECT id, status, finished_at IS NOT NULL AS closed, finished_at FROM user_ai_runs"
+            " ORDER BY id"
+        ).fetchall()
+        assert [(r["id"], r["status"], r["closed"]) for r in rows] == [
+            (1, "failed", 1),
+            (2, "cancelled", 1),
+            (3, "done", 1),
+        ]
+        assert rows[2]["finished_at"] == "2026-01-01"
 
     def test_a_stopped_run_keeps_no_answer_and_frees_the_person(self, amy, model, conn):
         model.items = [_title("Alibi")]

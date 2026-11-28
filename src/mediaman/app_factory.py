@@ -161,7 +161,7 @@ def _reconcile_delete_intents_in_background(secret_key: str, started_before: str
 def _run_startup_reconciliation(app: FastAPI) -> None:
     """Reconcile state stranded by a crash on a previous run.
 
-    Two idempotent, best-effort sweeps, run after the scheduler has
+    Three idempotent, best-effort sweeps, run after the scheduler has
     started:
 
     1. In-flight manual delete operations that crashed between the
@@ -169,8 +169,9 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
        a background thread).
     2. ``download_notifications`` rows stranded at ``notified=2`` by a
        crashed worker.
+    3. ``user_ai_runs`` rows a previous process left open.
 
-    Neither failure aborts startup — the web UI must still come up so an
+    No failure aborts startup — the web UI must still come up so an
     operator can investigate.
     """
     # Runs off the startup path: verifying an item against Radarr/Sonarr
@@ -196,6 +197,17 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
     # don't block startup if the DB query path is briefly unhappy.
     except Exception:
         logger.exception("download-notification reconciliation failed at startup; continuing")
+
+    # An AI search run left open holds the person's place until it is stale: no call of it is left.
+    try:
+        from mediaman.web.repository.search_assist import close_open_runs
+
+        closed = close_open_runs(app.state.db, now_utc())
+        if closed:
+            logger.info("Closed %s AI search run(s) left open at startup", closed)
+    # rationale: best-effort reconciliation, as above.
+    except Exception:
+        logger.exception("AI search run reconciliation failed at startup; continuing")
 
 
 def _start_watch_streams(secret_key: str) -> Callable[[], None]:
