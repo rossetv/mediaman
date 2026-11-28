@@ -911,4 +911,8 @@ def test_the_wait_for_a_code_counts_down_and_says_seconds_under_a_minute() -> No
 
 def test_a_long_name_under_a_face_ends_in_an_ellipsis_within_two_lines() -> None:
     pn = _declared(".pn")
-    assert (pn["-webkit-line-clamp"], pn["display"], pn["max-height"]) == ("2", "-webkit-box", "80px")
+    assert (pn["-webkit-line-clamp"], pn["display"], pn["max-height"]) == (
+        "2",
+        "-webkit-box",
+        "80px",
+    )

@@ -1909,7 +1909,9 @@ def test_the_tv_is_told_who_started_what_plays_not_whose_tv_it_is(tv, home, amy,
     assert (ready["owner"], ready["play"]["by"]) == ("amy", "bob")
 
 
-@pytest.mark.parametrize("how", ["confirmed", "restart", "subtitles", "next", "tv_again", "tv_next"])
+@pytest.mark.parametrize(
+    "how", ["confirmed", "restart", "subtitles", "next", "tv_again", "tv_next"]
+)
 def test_on_every_way_a_film_goes_on_the_tv_names_who_started_it_not_its_owner(
     tv, shared, amy, bob, how
 ):
