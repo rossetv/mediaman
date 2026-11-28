@@ -687,6 +687,17 @@ def test_a_scroll_opens_a_preview_by_itself_at_140_pixels() -> None:
     assert _run("scrollOpens") == {"139": False, "140": True, "byItself": True}
 
 
+def test_a_downloading_card_opens_its_preview_and_a_scroll_down_opens_its_title() -> None:
+    opened = {"title": "Orbit", "gets": ["movie-2"], "opened": ["draw movie-2", "open"]}
+    assert _run("downloadingCards") == {
+        "row": opened,
+        "grid": opened,
+        "soon": opened,
+        "noTitle": {"title": None, "gets": [], "opened": []},
+        "foot": None,
+    }
+
+
 def test_a_scroll_up_too_soon_under_way_beside_it_or_with_a_menu_open_is_the_pages() -> None:
     assert set(map(tuple, _run("pagesScroll").values())) == {(False, False)}
 
