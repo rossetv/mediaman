@@ -41,7 +41,7 @@ from mediaman.web.repository.watch_progress import (
     undismiss,
     unmark_watched,
 )
-from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.responses import not_found, rate_limited, respond_err, respond_ok
 from mediaman.web.routes.ratings import UserId, Username
 from mediaman.web.routes.watch import mark_undo
 from mediaman.web.routes.watch.pages import is_valid_key, open_plex, plex_error_code
@@ -56,16 +56,6 @@ _DISMISS_REF_RE = re.compile(r"(movie|show)-([0-9]{1,18})")
 
 # Per-person cap on marks and dismissals together; a show's mark costs a Plex call a season.
 _MARK_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
-
-
-def _not_found() -> JSONResponse:
-    return respond_err("not_found", status=404)
-
-
-def _rate_limited() -> JSONResponse:
-    return respond_err(
-        "too_many_requests", status=429, message="Too many changes at once — slow down"
-    )
 
 
 def _episode_targets(
@@ -223,9 +213,9 @@ def api_watch_mark(
     """Mark a movie, episode, season or show watched; with undo=1, take back marking it not
     watched."""
     if not _MARK_LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited("Too many changes at once — slow down")
     if kind not in _KINDS or not is_valid_key(key):
-        return _not_found()
+        return not_found()
     if undo == "1":
         return undone((user_id, kind, key), username, watched=True)
     conn = get_db()
@@ -233,7 +223,7 @@ def api_watch_mark(
     try:
         targets, numbers = _targets(request, conn, libraries, kind, key)
     except PlexItemNotFound:
-        return _not_found()
+        return not_found()
     except PlexError as exc:
         return respond_err(plex_error_code(exc), status=503)
     now = now_utc()
@@ -263,15 +253,15 @@ def api_watch_unmark(
     """Mark a movie, episode, season or show not watched; with undo=1, take back marking it
     watched."""
     if not _MARK_LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited("Too many changes at once — slow down")
     if kind not in _KINDS or not is_valid_key(key):
-        return _not_found()
+        return not_found()
     if undo == "1":
         return undone((user_id, kind, key), username, watched=False)
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
     if not _may_unmark(conn, username, libraries, kind, key):
-        return _not_found()
+        return not_found()
     marked = _marked(conn, libraries, kind, key)
     with write_transaction(conn):
         title = _unmark_title(conn, user_id, marked) if marked else None
@@ -308,10 +298,10 @@ def _dismissable(ref: str) -> str | None:
 def api_watch_dismiss(ref: str, username: str = Depends(get_current_user)) -> JSONResponse:
     """Hide a title from this person's Continue watching until they play it again."""
     if not _MARK_LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited("Too many changes at once — slow down")
     key = _dismissable(ref)
     if key is None:
-        return _not_found()
+        return not_found()
     dismiss(get_db(), username, key, now_utc())
     return respond_ok()
 
@@ -319,10 +309,10 @@ def api_watch_dismiss(ref: str, username: str = Depends(get_current_user)) -> JS
 @router.delete("/api/watch/dismissed/{ref}")
 def api_watch_undismiss(ref: str, username: str = Depends(get_current_user)) -> JSONResponse:
     if not _MARK_LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited("Too many changes at once — slow down")
     key = _dismissable(ref)
     if key is None:
-        return _not_found()
+        return not_found()
     undismiss(get_db(), username, key)
     return respond_ok()
 

@@ -28,7 +28,7 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import track_choices
 from mediaman.web.repository.track_choices import Defaults
-from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.responses import rate_limited, respond_err, respond_ok
 from mediaman.web.routes.watch.stream_api import (
     _open_plex,
     _scanned_library_ids,
@@ -162,7 +162,7 @@ def get_tracks(
     request: Request, rating_key: str, username: str = Depends(get_current_user)
 ) -> Response:
     if not _LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     if not _valid_key(rating_key):
         return respond_err("not_found", status=404)
     conn = get_db()
@@ -180,7 +180,7 @@ def set_tracks(
     username: str = Depends(get_current_user),
 ) -> Response:
     if not _LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     if not _valid_key(rating_key):
         return respond_err("not_found", status=404)
     conn = get_db()
@@ -251,7 +251,7 @@ def clear_tracks(
 ) -> Response:
     """Go back to the person's defaults for the whole title."""
     if not _LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     if not _valid_key(rating_key):
         return respond_err("not_found", status=404)
     conn = get_db()
@@ -261,10 +261,6 @@ def clear_tracks(
     item, audio, subtitles = title
     track_choices.clear_choice(conn, username, title_key(item))
     return _answer(conn, username, item, audio, subtitles)
-
-
-def _rate_limited() -> Response:
-    return respond_err("too_many_requests", status=429)
 
 
 def _valid_key(rating_key: str) -> bool:
@@ -296,7 +292,7 @@ def get_playback(username: str = Depends(get_current_user)) -> Response:
 @router.put("/api/account/playback")
 def set_playback(body: _Defaults, username: str = Depends(get_current_user)) -> Response:
     if not _LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     conn = get_db()
     held = track_choices.get_defaults(conn, username)
     sent = body.model_fields_set

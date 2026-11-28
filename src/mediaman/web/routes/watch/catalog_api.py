@@ -68,7 +68,7 @@ from mediaman.web.repository.library_query import (
 )
 from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
 from mediaman.web.repository.watch_progress import WatchProgress, get_progress, show_progress
-from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.responses import not_found, respond_err, respond_ok
 from mediaman.web.routes.download.confirm import validate_youtube_id
 from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search._enrichment import _QUERY_LIMITER
@@ -149,10 +149,6 @@ _outage_until = 0.0
 
 class _OutsideLibraries(Exception):
     """Plex places a title the sync listed outside the scanned libraries."""
-
-
-def _not_found() -> JSONResponse:
-    return respond_err("not_found", status=404)
 
 
 def _tmdb_client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
@@ -385,7 +381,7 @@ def api_watch_discover(
     library holds it; with *row*, a later page of that one row instead. ``next_page`` is
     the page to go on with, or None at the end of the list."""
     if row is not None and row not in _SHELF_IDS:
-        return _not_found()
+        return not_found()
     conn = get_db()
     client = _tmdb_client(request, conn)
     if client is None:
@@ -1149,7 +1145,7 @@ def api_watch_title(
     ref: str, request: Request, ahead: bool = False, username: str = Depends(get_current_user)
 ) -> JSONResponse:
     if not REF_RE.fullmatch(ref):
-        return _not_found()
+        return not_found()
     if ahead and not _AHEAD_LIMITER.check(username):
         return respond_err("too_many_requests", status=429)
     conn = get_db()
@@ -1172,7 +1168,7 @@ def api_watch_title(
 
     if kind in ("movie", "show"):
         title = held(ref)
-        return _not_found() if title is None else respond_ok(title)
+        return not_found() if title is None else respond_ok(title)
 
     client = _tmdb_client(request, conn)
     day_used_up = False
@@ -1187,7 +1183,7 @@ def api_watch_title(
         if kind != "tmdb":
             rec = _recommended(conn, username, kind, rest)
             if rec is None:
-                return _not_found()
+                return not_found()
             return respond_ok(_recommended_title(request, conn, username, client, ref, kind, rec))
         if client is None:
             return without_tmdb(respond_err("tmdb_not_configured", status=503))
@@ -1217,7 +1213,7 @@ def api_watch_title(
     except catalog.TmdbBusy:
         return without_tmdb(respond_err("too_many_requests", status=429))
     except catalog.TitleNotFound:
-        return _not_found()
+        return not_found()
     except catalog.TmdbUnavailable:
         return without_tmdb(respond_err("tmdb_request_failed", status=502))
 
@@ -1312,14 +1308,14 @@ def api_watch_title_ratings(
     """A title's ratings, with OMDb asked for those not held: what the title leaves to be asked
     after it, as OMDb can be slow to answer."""
     if not REF_RE.fullmatch(ref):
-        return _not_found()
+        return not_found()
     conn = get_db()
     client = _tmdb_client(request, conn)
     if client is None:
         return respond_err("tmdb_not_configured", status=503)
     found = _rated(request, conn, username, client, ref)
     if found is None:
-        return _not_found()
+        return not_found()
     media_type, tmdb_id, listed = found
     # Counted once, whatever TMDB and OMDb must be asked; what is held is free.
     allowed: list[bool] = []
@@ -1334,7 +1330,7 @@ def api_watch_title_ratings(
     except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
     except catalog.TitleNotFound:
-        return _not_found()
+        return not_found()
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
     ratings = _ratings(
@@ -1392,7 +1388,7 @@ def api_watch_title_collection(
     """The films of the collection that film *ref* is part of, ``here`` marking its own, and
     why one is not to be asked for; null when there is nothing to show."""
     if not REF_RE.fullmatch(ref):
-        return _not_found()
+        return not_found()
     nothing = JSONResponse(None)
     if ref.startswith(("show-", "tmdb-tv-")):
         return nothing
@@ -1471,24 +1467,24 @@ def api_watch_title_season(
     """The episodes of one season of a library show, with this person's progress. TMDB is waited
     for only when asked for its *words* too; else ``words_pending`` says that it may have some."""
     if not REF_RE.fullmatch(ref) or not ref.startswith("show-") or not 0 <= number <= 9999:
-        return _not_found()
+        return not_found()
     key = ref.removeprefix("show-")
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
     listed = lib.find_show(conn, libraries, key)
     if listed is None:
-        return _not_found()
+        return not_found()
     try:
         plex = open_plex(request, conn)
         show = plex.get_show(key)
         if not is_in_libraries(show, libraries):
-            return _not_found()
+            return not_found()
         season = next((s for s in show.seasons if s.index == number), None)
         if season is None:
-            return _not_found()
+            return not_found()
         episodes = plex.get_season_episodes(season.rating_key)
     except PlexItemNotFound:
-        return _not_found()
+        return not_found()
     except PlexError as exc:
         return respond_err(plex_error_code(exc), status=503)
     origin = f"/#title={ref}"
@@ -1564,7 +1560,7 @@ def api_watch_admin_title(ref: str, admin: str = Depends(get_current_admin)) -> 
     """Size, dates, deletion and keeps of a library title, and what its Keep and Delete
     controls act on."""
     if not REF_RE.fullmatch(ref) or not ref.startswith(("movie-", "show-")):
-        return _not_found()
+        return not_found()
     kind, _, key = ref.partition("-")
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
@@ -1573,7 +1569,7 @@ def api_watch_admin_title(ref: str, admin: str = Depends(get_current_admin)) -> 
     read = fetch_keep(conn, key) if kind == "movie" else None
     facts = lib.title_facts(conn, libraries, kind, key, now)
     if facts is None:
-        return _not_found()
+        return not_found()
     keep = _keep(facts)
     deletions = _deletions(conn, libraries, facts, now)
     is_show = kind == "show"

@@ -41,7 +41,7 @@ from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.recommended import fetch_recommendations, group_into_batches
 from mediaman.web.repository.seen_titles import PersonMarks, person_marks
 from mediaman.web.repository.watch_progress import continue_watching
-from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.responses import not_found, rate_limited, respond_err, respond_ok
 from mediaman.web.routes._ids import RowId
 from mediaman.web.routes.watch.card_marks import CardMarks, card_marks, marked, scored, tmdb_ref
 from mediaman.web.routes.watch.catalog_api import _arr, held_fields
@@ -269,14 +269,6 @@ def _unavailable(request: Request, conn: sqlite3.Connection, username: str) -> J
     return respond_err("unavailable", status=409, **({"why": why} if why else {}))
 
 
-def _not_found() -> JSONResponse:
-    return respond_err("not_found", status=404)
-
-
-def _too_many() -> JSONResponse:
-    return respond_err("too_many_requests", status=429)
-
-
 def _refused(refused: repo.Refused) -> JSONResponse:
     if refused.reason in ("running", "stopping"):
         return respond_err(refused.reason, status=409, run_id=refused.run_id)
@@ -299,7 +291,7 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
     phrases are made in the background when they are due."""
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     repo.drop_expired(conn, now_utc())
     available = _client(request, conn) is not None
     phrases = repo.stored_phrases(conn, user_id) if available else []
@@ -331,12 +323,12 @@ def api_record_search(
 ) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     refused = _of_another(request, user_id, username)
     if refused is not None:
         return refused
     if not _WRITE_LIMITER.check(username):
-        return _too_many()
+        return rate_limited()
     recorded = _records(request, conn, user_id) and repo.record_search(
         conn, user_id, body.q, now_utc()
     )
@@ -347,7 +339,7 @@ def api_record_search(
 def api_clear_searches(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     refused = _of_another(request, user_id, username)
     if refused is not None:
         return refused
@@ -360,7 +352,7 @@ def api_clear_searches(request: Request, username: str = Depends(get_current_use
 def api_history(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     return respond_ok(
         {
             "enabled": repo.uses_history(conn, user_id),
@@ -376,7 +368,7 @@ def api_history(request: Request, username: str = Depends(get_current_user)) -> 
 def api_set_history(body: _HistoryBody, username: str = Depends(get_current_user)) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     if body.enabled is not None:
         repo.set_uses_history(conn, user_id, body.enabled)
         if not body.enabled:
@@ -476,7 +468,7 @@ def api_ask(
     text = repo.tidy(body.q)
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     refused = _of_another(request, user_id, username)
     if refused is not None:
         return refused
@@ -495,9 +487,9 @@ def api_ask(
         try:
             found = _named(conn, client, body.like, lambda: _ASK_LIMITER.check(username))
         except disk_cache.Refused:
-            return _too_many()
+            return rate_limited()
         if found is None:
-            return _not_found()
+            return not_found()
         named = found
         key += f"\nlike {named.like_key}"
     skip: frozenset[tuple[str, int]] = frozenset()
@@ -533,7 +525,7 @@ def api_like(
     """As ``ask``, for titles like one of the library or of TMDB."""
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     refused = _of_another(request, user_id, username)
     if refused is not None:
         return refused
@@ -544,11 +536,11 @@ def api_like(
         # Only a title TMDB is asked for counts against the limit; a cached one is free.
         question = _like_question(conn, client, body.ref, lambda: _ASK_LIMITER.check(username))
     except disk_cache.Refused:
-        return _too_many()
+        return rate_limited()
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
     if question is None:
-        return _not_found()
+        return not_found()
     return _answer(
         request,
         conn,
@@ -641,7 +633,7 @@ def _answer(
         # Only a chip that was offered: it is words of the server's own answer.
         base = _fetch(conn, user_id, kind, key)
         if base is None or refine not in [*base["chips"], _OWNED_CHIP]:
-            return _not_found()
+            return not_found()
         if refine == _OWNED_CHIP:
             return _done(request, conn, client, user_id, username, base, base, owned_only=True)
         # The titles narrowed are part of the key: after other picks, a chip narrows those.
@@ -662,7 +654,7 @@ def _answer(
         )
     reserved = _ASK_LIMITER.reserve(username)
     if reserved is None:
-        return _too_many()
+        return rate_limited()
     run_id = repo.start_run(conn, user_id, kind, now_utc())
     if isinstance(run_id, repo.Refused):
         going_id = run_id.run_id
@@ -722,7 +714,7 @@ def api_run(
 ) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     client = _client(request, conn)
     if client is None:
         return _unavailable(request, conn, username)
@@ -733,7 +725,7 @@ def api_run(
         repo.close_orphan(conn, user_id, run_id, now_utc())
         status = repo.run_status(conn, user_id, run_id, now_utc())
     if status is None or (status == "done" and asked is None):
-        return _not_found()
+        return not_found()
     if status == "failed" and asked is not None and asked.key_refused:
         return respond_ok(
             {
@@ -758,7 +750,7 @@ def api_run(
         return respond_ok({"status": status, "run_id": run_id, **stage, **_left(conn, user_id)})
     stored = _fetch(conn, user_id, asked.kind, asked.key)
     if stored is None:
-        return _not_found()
+        return not_found()
     base = _fetch(conn, user_id, asked.kind, asked.base)
     return _done(request, conn, client, user_id, username, stored, base or stored)
 
@@ -769,7 +761,7 @@ def api_stop(run_id: RowId, username: str = Depends(get_current_user)) -> JSONRe
     place of everyone's until it has ended, though the person may ask again at once."""
     conn, user_id = _person(username)
     if user_id is None or repo.run_status(conn, user_id, run_id, now_utc()) is None:
-        return _not_found()
+        return not_found()
     repo.stop_run(conn, user_id, run_id)
     with _asked_lock:
         _asked.pop(run_id, None)
@@ -886,12 +878,12 @@ def api_tonight(
     began; with *skip*, the set after those."""
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     client = _tmdb(request, conn)
     if client is None:
         return respond_err("unavailable", status=409)
     if not _TONIGHT_LIMITER.check(username):
-        return _too_many()
+        return rate_limited()
     index = _index(conn, client)
     own = person_marks(conn, username)
     plays = person_plays(conn, username)
@@ -933,12 +925,12 @@ def api_tonight_elsewhere(
     played or rated a strong no. Each says whether it can be downloaded here."""
     conn, user_id = _person(username)
     if user_id is None:
-        return _not_found()
+        return not_found()
     client = _tmdb(request, conn)
     if client is None:
         return respond_err("unavailable", status=409)
     if not _ELSEWHERE_LIMITER.check(username):
-        return _too_many()
+        return rate_limited()
     own = person_marks(conn, username)
     plays = person_plays(conn, username)
     done = {(p.kind, p.tmdb_id) for p in plays} | set(own.seen)

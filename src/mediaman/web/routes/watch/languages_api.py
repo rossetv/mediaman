@@ -38,7 +38,7 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import language_copies, track_choices
 from mediaman.web.repository.language_copies import Asked
-from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.responses import rate_limited, respond_err, respond_ok
 from mediaman.web.routes.search.download import _check_rate_limits
 from mediaman.web.routes.watch.stream_api import _open_plex, plex_failure
 from mediaman.web.routes.watch.tracks_api import _title, _valid_key
@@ -127,10 +127,6 @@ def _parts(
         return _open_plex(request, conn).episode_parts(item.parent_rating_key)
     part = item.media.part_id if item.media else None
     return {item.rating_key: part} if part else {}
-
-
-def _rate_limited() -> Response:
-    return respond_err("too_many_requests", status=429)
 
 
 def _scope_of(item: PlexItem, scope: str) -> Scope | None:
@@ -395,7 +391,7 @@ def get_languages(
     """The languages to offer for the title, the household's first, and the copies of it asked
     for with another audio language."""
     if not _LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     if not _valid_key(rating_key):
         return respond_err("not_found", status=404)
     conn = get_db()
@@ -434,7 +430,7 @@ def search_subtitles(
 ) -> Response:
     """The subtitles in *language* Plex can add to the title, best first."""
     if not _LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     if not _valid_key(rating_key):
         return respond_err("not_found", status=404)
     if language not in SUBTITLE_LANGUAGES:
@@ -458,7 +454,7 @@ def add_subtitle(
     """Add to the title the subtitle at *index* of what this person's last search in the
     language found; the id of its track, or null while Plex is still adding it."""
     if not _LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     if not _valid_key(rating_key):
         return respond_err("not_found", status=404)
     conn = get_db()
@@ -534,7 +530,7 @@ def search_copies(
     """The copies of the episode, its season or the movie that Sonarr or Radarr find with
     *language* among their audio, best first, and what each would lose of what plays now."""
     if not _COPY_SEARCH_LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     conn = get_db()
     title = _arr_title(request, conn, rating_key, language, scope)
     if isinstance(title, Response):

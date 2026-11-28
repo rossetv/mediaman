@@ -46,7 +46,7 @@ from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import seen_titles
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.watch_progress import get_progress, show_progress
-from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.responses import not_found, respond_err, respond_ok
 from mediaman.web.routes.watch.catalog_api import (
     REF_RE,
     _arr,
@@ -122,10 +122,6 @@ class _Ask:
             raise disk_cache.Refused(self._username)
         self._counted = True
         return True
-
-
-def _not_found() -> JSONResponse:
-    return respond_err("not_found", status=404)
 
 
 def _open_plex(request: Request, conn: sqlite3.Connection) -> PlexWatch:
@@ -380,7 +376,7 @@ def api_watch_preview(
     """The preview of the title *ref* names. One the library holds is its library title's,
     whatever *ref* named it, with a pick's own reason."""
     if not REF_RE.fullmatch(ref):
-        return _not_found()
+        return not_found()
     conn = get_db()
     ask = _Ask(username)
     kind, _, rest = ref.partition("-")
@@ -396,12 +392,12 @@ def api_watch_preview(
     except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
     except catalog.TitleNotFound:
-        return _not_found()
+        return not_found()
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
     except _OutsideLibraries:
-        return _not_found()
-    return respond_ok(_trimmed(out)) if out is not None else _not_found()
+        return not_found()
+    return respond_ok(_trimmed(out)) if out is not None else not_found()
 
 
 def _other_title(

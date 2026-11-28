@@ -81,6 +81,16 @@ def respond_err(
     return JSONResponse(body, status_code=status)
 
 
+def not_found() -> JSONResponse:
+    """Return the ``not_found`` error envelope with a 404."""
+    return respond_err("not_found", status=404)
+
+
+def rate_limited(message: str | None = None) -> JSONResponse:
+    """Return the ``too_many_requests`` error envelope with a 429."""
+    return respond_err("too_many_requests", status=429, message=message)
+
+
 def respond_failure(message: str, *, status: int, **extra: object) -> JSONResponse:
     """Return a failure envelope whose ``error`` is a sentence for people.
 
