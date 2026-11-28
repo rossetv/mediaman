@@ -447,9 +447,14 @@ def test_the_keyboard_reaching_a_tucked_pill_brings_the_tools_back() -> None:
 def test_the_day_whose_head_is_stuck_under_the_tools_is_marked_and_takes_the_tools_hairline() -> (
     None
 ):
-    stuck, none = _run("dayStuck")
-    assert stuck == {"stuck": [False, True, False], "tools": True}
-    assert none == {"stuck": [False, False, False], "tools": False}
+    stuck, none, _ = _run("dayStuck")
+    assert stuck == {"stuck": [False, True, False], "pushed": [False] * 3, "tools": True}
+    assert none == {"stuck": [False, False, False], "pushed": [False] * 3, "tools": False}
+
+
+def test_a_stuck_head_pushed_up_by_the_next_day_s_is_marked_as_pushed() -> None:
+    pushed = _run("dayStuck")[2]
+    assert pushed == {"stuck": [False, True, False], "pushed": [False, True, False], "tools": True}
 
 
 def test_the_count_sits_on_the_first_days_line_and_survives_a_reload_of_the_list() -> None:

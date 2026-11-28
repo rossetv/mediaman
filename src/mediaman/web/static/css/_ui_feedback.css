@@ -86,6 +86,8 @@
   letter-spacing: -.01em;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
+/* The keyboard's ring, light enough to stand out on the glass. */
+.ui-toast :focus-visible { outline-color: var(--g-focus); }
 /* White on the lit veil: the blue word would drop below 4.5:1 on it over a white page. */
 .ui-toast__action:hover,
 .ui-toast__action:active { background: var(--s4); color: var(--t1); }

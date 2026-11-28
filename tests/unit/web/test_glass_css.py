@@ -1,10 +1,12 @@
 """Glass: one material named once in the tokens, drawn by the top bar's islands, the profile menu,
-toasts, the sign-in card and the pages that stand in it, and a download page's bar and episodes,
-legible over a white page, and solid wherever glass cannot or should not be drawn."""
+toasts, the side panels (the pane over Watch, Space and the keep menu), the sign-in card and the pages that
+stand in it, and a download page's bar and episodes, legible over a white page, and solid wherever glass
+cannot or should not be drawn."""
 
 from __future__ import annotations
 
 import colorsys
+import math
 import re
 
 import pytest
@@ -18,11 +20,20 @@ from tests.unit.web._css import (
     rgb,
     rules,
     style,
+    text,
     token,
 )
 
 NAV = "_nav.css"
 TOASTS = "_ui_feedback.css"
+YOU = "_you.css"
+PROFILE = "_profile.css"
+HISTORY = "_history.css"
+SETTINGS = "_settings_pg.css"
+PANELS = "_settings_pg_panels.css"
+SPACE = "_watch_space.css"
+KEEP = "_watch.css"
+PHONE = "(max-width: 699.98px)"
 LOGIN = "_login.css"
 SHARE = "_share.css"
 DL_PAGE = "_download_page.css"
@@ -31,11 +42,16 @@ DL_GRID = "_watch_dlgrid.css"
 EPISODES = ".share-eps .dl-hero-episodes"
 NO_BLUR = "@supports not"
 WHITE = (255.0, 255.0, 255.0)
+BLACK = (0.0, 0.0, 0.0)
 
 # Each surface, the sheet that draws it, and the custom properties it draws its glass with.
 SURFACES = [
     (".profile-panel", NAV, "background"),
     (".ui-toast", TOASTS, "background-color"),
+    (".you__panel::before", YOU, "background"),
+    (".space__panel", SPACE, "background"),
+    (".watch-keep-menu", KEEP, "background"),
+    (".hx-menu", HISTORY, "background"),
     (".login-card", LOGIN, "background"),
     (".share-bar .btn", SHARE, "background"),
     (EPISODES, DL_PAGE, "background"),
@@ -47,6 +63,9 @@ ON_GLASS = [
     (".nav-glass .watch-search", NAV),
     (".profile-panel", NAV),
     (".ui-toast", TOASTS),
+    (".you__panel", YOU),
+    (".space__panel", SPACE),
+    (".watch-keep-menu", KEEP),
     (".login-card", LOGIN),
     (EPISODES, DL_PAGE),
 ]
@@ -307,12 +326,49 @@ def test_a_control_s_words_on_glass_keep_4_5_to_1_over_a_white_page_in_every_sta
 
 
 def test_the_name_s_blue_on_its_island_keeps_4_5_to_1_and_stays_the_brand_s_blue() -> None:
-    blue = _colour(style(".nav-glass.is-scrolled .brand .wm-man", NAV)["stroke"], {})
+    blue = _colour(style(".nav-glass .brand .wm-man", NAV)["stroke"], {})
     glass = _glass_over(WHITE, float(token("--g-a")), filtered=True)
     assert contrast(_over(blue, glass), glass) >= 4.5
     hue = colorsys.rgb_to_hsv(*(c / 255 for c in blue[:3]))[0]
     brand = colorsys.rgb_to_hsv(*(c / 255 for c in rgb(token("--accent"))))[0]
     assert abs(hue - brand) * 360 < 10
+
+
+def test_the_name_is_on_its_island_s_glass_before_the_page_moves_under_it() -> None:
+    # A white page or a pale poster under the bar at the top would take the name's white, so no
+    # rule but the one that draws the island may touch its glass, however it is spelled.
+    glass_keys = {
+        "background",
+        "backdrop-filter",
+        "-webkit-backdrop-filter",
+        "opacity",
+        "visibility",
+        "display",
+        "filter",
+        "content",
+        "mask",
+        "clip-path",
+    }
+    for where, sels, decls in rules(NAV):
+        if any("forced-colors" in w for w in where) or not any("brand" in s for s in sels):
+            continue
+        assert not {k for k in decls if k.startswith("--isle")}, (where, sels)
+        if any("::before" in s for s in sels) and sels != [".nav-glass .brand::before"]:
+            assert not glass_keys & set(decls), (where, sels)
+    assert style(".nav-glass .brand::before", NAV)["background"] == "var(--isle)"
+    assert style(".nav-glass .brand::before", NAV)["backdrop-filter"] == "var(--isle-blur)"
+    # At rest it keeps its rim, like the islands beside it; only the shadow waits for the page.
+    rest = style(".nav-glass:not(.is-scrolled) .brand::before", NAV)
+    assert rest == {"box-shadow": "var(--g-inset)"}, rest
+
+
+def test_the_name_s_blue_is_the_lifted_blue_in_every_rule_that_colours_it() -> None:
+    strokes = [
+        decls["stroke"]
+        for where, sels, decls in rules(NAV)
+        if "stroke" in decls and any(".wm-man" in s for s in sels)
+    ]
+    assert strokes == ["var(--g-accent-text)"]
 
 
 @pytest.mark.parametrize("variant", [".ui-toast--success", ".ui-toast--error", ".ui-toast--info"])
@@ -394,6 +450,633 @@ def test_a_pointer_over_the_way_back_lights_its_glass_and_keeps_the_tint_under_i
     assert lit["background-color"].startswith("color-mix(in srgb, var(--isle),"), lit
 
 
+def _side_glass() -> tuple[float, ...]:
+    """A side panel's glass over a white page, the page under the panel's veil."""
+    return _glass_over(_on(token("--g-veil"), WHITE), float(token("--g-a")), filtered=True)
+
+
+def _fill(value: str) -> str:
+    """A fill of the side panels, as their glass resolves it."""
+    found = re.fullmatch(r"var\(--(s\d)\)", value.strip())
+    assert found, value
+    return token(f"--g-{found[1]}")
+
+
+@pytest.mark.parametrize(("veil", "sheet"), [(".you__veil", YOU), (".space__veil", SPACE)])
+def test_a_side_panel_dims_the_page_with_a_plain_veil(veil: str, sheet: str) -> None:
+    drawn = style(veil, sheet)
+    assert drawn["background"] == "var(--g-veil)"
+    # Blurred, it would be one more layer of glass under the panel's.
+    assert "backdrop-filter" not in drawn and "-webkit-backdrop-filter" not in drawn
+
+
+def test_the_pane_s_glass_is_a_layer_of_its_own_that_fades_and_the_pane_does_not() -> None:
+    # Blur or a fade on the pane itself would leave every blur inside it (the History tools) nothing
+    # of the page to show, and would make the pane the box its fixed menus are placed in.
+    for state in (".you__panel", ".you.is-open .you__panel"):
+        drawn = style(state, YOU)
+        for prop in ("backdrop-filter", "-webkit-backdrop-filter", "opacity", "filter"):
+            assert prop not in drawn, (state, prop)
+    assert style(".you__panel::before", YOU)["opacity"] == "0"
+    assert style(".you.is-open .you__panel::before", YOU)["opacity"] == "1"
+    # On a phone the sheet slides in whole.
+    assert style(".you__panel::before", YOU, PHONE)["opacity"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("glass", "shown", "sheet"),
+    [
+        (".space__panel", ".space.is-open .space__panel", SPACE),
+        (".watch-keep-menu", ".watch-keep-menu.is-open", KEEP),
+    ],
+)
+def test_a_panel_and_the_keep_menu_fade_their_own_glass(glass: str, shown: str, sheet: str) -> None:
+    assert style(glass, sheet)["opacity"] == "0"
+    assert style(shown, sheet)["opacity"] == "1"
+
+
+def test_while_the_pane_changes_width_its_frame_carries_the_glass_once() -> None:
+    assert style(".you.is-sizing .you__panel::before", YOU)["visibility"] == "hidden"
+    fill = style(".you__frame-fill", YOU)
+    assert fill["background"] == "var(--g-regular)"
+    assert fill["backdrop-filter"] == fill["-webkit-backdrop-filter"] == "var(--g-filter)"
+    # The shadow is the shade's alone, outside the glass's clip, scaled from the side that stays:
+    # on the fill it would be clipped and drawn twice, and scaled from the left it would part from
+    # the glass mid-step.
+    shade = style(".you__frame-shade", YOU)
+    assert shade["box-shadow"] == "var(--g-shadow)"
+    assert shade["transform-origin"] == "100% 0"
+    assert "--g-shadow" not in fill["box-shadow"]
+    # Its ends lie over the fill: glass of their own there would be laid twice, and darker.
+    ends = style(".you__frame-end", YOU)
+    assert "background" not in ends and "backdrop-filter" not in ends
+
+
+@pytest.mark.parametrize(
+    ("menu", "sheet", "media"),
+    [
+        # As a sheet it covers History's stuck tools, which blur too.
+        (".hx-menu", HISTORY, PHONE),
+        ("html:is(.has-space, .has-ttl) .watch-keep-menu", KEEP, PHONE),
+    ],
+)
+def test_a_menu_that_opens_on_a_panel_s_glass_is_solid(menu: str, sheet: str, media: str) -> None:
+    drawn = style(menu, sheet, media)
+    assert drawn["background"] == "var(--g-solid)"
+    assert drawn.get("backdrop-filter", "none") == "none"
+
+
+# A row lit on a card of the side panels, and what is laid open under one: the card's veil and the
+# row's, one over the other; or a tile, whose fill is its own card, lit on the glass alone.
+LIT = [
+    (".hist[open] > .hist-sum", HISTORY, None, True),
+    (".hist-sum:active", HISTORY, None, True),
+    (".hist-body", HISTORY, None, True),
+    (".stx-link:hover", SETTINGS, None, True),
+    (".stx-link[aria-current]", SETTINGS, "(min-width: 1000px)", True),
+    (":is(a, button).yo-row:hover", PROFILE, "(hover: hover)", True),
+    (":is(a, button).yo-row:active", PROFILE, None, True),
+    (".yo-pick-row:active", PROFILE, None, True),
+    (".setg-pg .intg-card-hd:hover", PANELS, None, True),
+    (".dev .btn--danger", PROFILE, None, True),
+    (".yo-tile:hover", PROFILE, "(hover: hover)", False),
+    (".yo-tile:active", PROFILE, None, False),
+    (".yo-wide-btn:not([disabled]):hover", PROFILE, "(hover: hover)", False),
+]
+
+
+@pytest.mark.parametrize(("selector", "sheet", "media", "on_card"), LIT)
+def test_a_row_lit_on_a_card_keeps_its_quiet_blue_and_red_words_over_a_white_page(
+    selector: str, sheet: str, media: str | None, on_card: bool
+) -> None:
+    card = _on(token("--g-s2"), _side_glass()) if on_card else _side_glass()
+    lit = _on(_fill(style(selector, sheet, media)["background"]), card)
+    for words in ("--g-t3", "--g-accent-text", "--g-danger-text"):
+        assert contrast(_on(token(words), lit), lit) >= 4.5, words
+
+
+# A chip tinted with a see-through colour, on a panel's glass.
+FLOORED = [
+    (".yo-role__pill", PROFILE),
+    (".dev-here", PROFILE),
+    (".setg-pg .glyph", PANELS),
+    (".setg-pg .intg-card-hd .conn", PANELS),
+    (".setg-pg .lp-head .lp-glyph", PANELS),
+    (".setg-pg .usr-row .you-pill", PANELS),
+    (".space-item .watch-keep::before", SPACE),
+]
+
+
+@pytest.mark.parametrize(("chip", "sheet"), FLOORED)
+def test_a_tinted_chip_on_a_panel_has_a_floor_under_its_tint(chip: str, sheet: str) -> None:
+    assert style(chip, sheet)["box-shadow"] == "var(--g-chip-floor)"
+
+
+@pytest.mark.parametrize("brand", ["plex", "sonarr", "radarr", "mailgun", "openai", "tmdb", "omdb"])
+def test_a_service_s_letters_hold_on_the_lit_head_of_its_open_card(brand: str) -> None:
+    letters = re.fullmatch(
+        r"color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, var\(--t1\)\)",
+        style(f".setg-pg .gy-{brand}", PANELS)["color"],
+    )
+    assert letters, brand
+    share = int(letters[2]) / 100
+    colour = tuple(
+        share * c + (1 - share) * w
+        for c, w in zip(rgb(token(letters[1])), rgb(token("--t1")), strict=True)
+    )
+    head = _fill(style(".setg-pg .intg-card-hd:hover", PANELS)["background"])
+    row = _on(head, _on(token("--g-s2"), _side_glass()))
+    floor = _on(re.search(r"rgb\([^)]*\)", token("--g-chip-floor"))[0], row)
+    chip = _on(token(f"--brand-{brand}-bg"), floor)
+    assert contrast(colour, chip) >= 4.5
+
+
+@pytest.mark.parametrize("sheet", [YOU, PROFILE, HISTORY, SETTINGS, PANELS, SPACE])
+def test_no_word_or_tick_in_the_side_panels_is_in_the_blue_kept_for_fills_and_rings(
+    sheet: str,
+) -> None:
+    # On glass the fills' blue is under 4.5:1 over a white page; words and ticks take --accent-text.
+    for where, selectors, decls in rules(sheet):
+        assert decls.get("color") != "var(--accent)", (sheet, where, selectors)
+
+
+@pytest.mark.parametrize(
+    "sheet",
+    [KEEP, "_watch_browse.css", "_watch_dlgrid.css", "_watch_grid.css", "_watch_detail.css"],
+)
+def test_no_word_or_tick_inside_the_keep_menu_is_in_the_blue_kept_for_fills_and_rings(
+    sheet: str,
+) -> None:
+    # Every menu built on the keep menu (picks, all titles, a download's) is its glass.
+    inside = [
+        (where, sels, decls)
+        for where, sels, decls in rules(sheet)
+        if any("watch-keep-menu" in sel for sel in sels)
+    ]
+    assert inside
+    for where, selectors, decls in inside:
+        assert decls.get("color") != "var(--accent)", (sheet, where, selectors)
+
+
+def test_every_backdrop_filter_has_an_equal_webkit_one_in_the_same_rule() -> None:
+    # Safari reads only the prefixed one: one half alone is no glass there, or no glass elsewhere.
+    seen = 0
+    for sheet in sorted(path.name for path in CSS_DIR.glob("*.css")):
+        for where, selectors, decls in rules(sheet):
+            if "backdrop-filter" in decls or "-webkit-backdrop-filter" in decls:
+                seen += 1
+                assert decls.get("backdrop-filter") == decls.get("-webkit-backdrop-filter"), (
+                    sheet,
+                    where,
+                    selectors,
+                )
+    assert seen > 20
+
+
+def test_the_pane_s_glass_paints_over_its_veil_and_under_what_it_holds() -> None:
+    # The pane is a layer of its own, so its glass, a layer below what it holds, stays above the
+    # veil, which comes before it: without, the veil would darken the glass.
+    assert style(".you__panel", YOU)["z-index"] == "0"
+    assert style(".you__panel::before", YOU)["z-index"] == "-1"
+
+
+def test_what_the_pane_holds_fades_with_its_glass_and_never_before_it() -> None:
+    for state, shown in ((".you__panel", "0"), (".you.is-open .you__panel", "1")):
+        glass = style(state + "::before", YOU)
+        held = style(state + " > *", YOU)
+        assert glass["opacity"] == held["opacity"] == shown, state
+        assert glass["transition"] == held["transition"], state
+
+
+def test_the_pane_s_views_are_clipped_to_it_so_a_step_never_draws_outside_its_glass() -> None:
+    assert style(".you__views", YOU)["overflow"] in ("hidden", "clip")
+
+
+def test_on_a_phone_the_glass_below_the_sheet_is_the_sheet_s_own_glass() -> None:
+    below = style(".you__panel::after", YOU, PHONE)
+    sheet = style(".you__panel::before", YOU)
+    assert below["background"] == sheet["background"]
+    assert below["backdrop-filter"] == sheet["backdrop-filter"] == "var(--g-filter)"
+
+
+def test_nothing_round_the_space_panel_fades_or_it_would_have_nothing_to_blur() -> None:
+    checked = 0
+    for where, selectors, decls in rules(SPACE):
+        for sel in selectors:
+            if re.fullmatch(r"(?:html\S*\s+)?\.space(?:\.[\w-]+|\[[^\]]*\])*", sel):
+                checked += 1
+                assert "opacity" not in decls and "filter" not in decls, (where, sel)
+    assert checked
+
+
+def test_the_space_list_fades_into_its_foot_where_scroll_timelines_run_and_where_they_do_not() -> (
+    None
+):
+    live = style(".space-pane", SPACE, "@supports (animation-timeline: scroll())")
+    assert "var(--space-fade)" in live["mask-image"]
+    assert live["animation-timeline"] == "scroll(self)"
+    still = style(".space-pane", SPACE, "@supports not (animation-timeline: scroll())")
+    assert still["-webkit-mask-image"] == still["mask-image"]
+    fade = px(
+        re.fullmatch(r"linear-gradient\(to top, transparent, #000 (\S+)\)", still["mask-image"])[1]
+    )
+    # The list's end is clear of the fade, so its last words are never faded out.
+    assert px(still["padding-bottom"]) >= fade >= 32
+
+
+def _keyframes(sheet: str, name: str) -> str:
+    found = re.search(rf"@keyframes {name}\s*\{{(.*?)\}}\s*\}}", text(sheet), flags=re.S)
+    assert found, name
+    return found[1]
+
+
+def test_a_space_row_that_goes_is_cut_away_as_the_rows_below_slide_over_it() -> None:
+    # The rows below draw no fill: the row that goes is cut from its foot up on their own timing
+    # (watch/core.js flip), so their words never lie over its words.
+    core = (CSS_DIR.parent / "js" / "watch" / "core.js").read_text(encoding="utf-8")
+    flip = re.search(
+        r"function flip.*?duration: tokenMs\('(--[\w-]+)'.*?easing: token\('(--[\w-]+)'", core, re.S
+    )
+    name, duration, easing, *_ = style(".space-item.is-gone", SPACE)["animation"].split()
+    assert (duration, easing) == (f"var({flip[1]})", f"var({flip[2]})")
+    assert "clip-path: inset(0 0 100% 0)" in _keyframes(SPACE, name)
+
+
+def test_an_opening_row_s_details_are_uncovered_level_with_the_rows_that_slide_down() -> None:
+    # history.js slides the rows below by the details' height on the details' own animation: the
+    # details show from their top down as the rows go, and a shift would move their foot off them.
+    js = (CSS_DIR.parent / "js" / "history.js").read_text(encoding="utf-8")
+    assert "style.animationDuration" in js and "style.animationTimingFunction" in js
+    shut, whole = "clip-path: inset(0 0 100% 0)", "clip-path: inset(0)"
+    for name, first, last in (("hist-open", shut, whole), ("hist-close", whole, shut)):
+        frames = _keyframes(HISTORY, name)
+        assert re.search(r"from \{[^}]*" + re.escape(first), frames), name
+        assert re.search(r"to \{[^}]*" + re.escape(last), frames), name
+        assert "transform" not in frames, name
+
+
+@pytest.mark.parametrize("head", [".hx-tools", ".hx-day__top"])
+def test_a_stuck_history_head_only_blurs_the_pane_s_glass_and_eases_in(head: str) -> None:
+    stuck = style(head + ".is-stuck", HISTORY)
+    # The pane's glass is already darkened once: a tint or the glass's filter again is a dark band.
+    assert re.fullmatch(r"blur\(var\(--g-blur\)\)", stuck["backdrop-filter"])
+    assert _colour(stuck["background-color"], {})[3] == 0
+    # Where glass is not drawn, nothing blurs: the glass's own fill covers what passes under.
+    for where in (NO_BLUR, "(prefers-reduced-transparency: reduce)", "(prefers-contrast: more)"):
+        assert _root(where)["--g-stuck"] == "var(--g-regular)", where
+    assert _root("(forced-colors: active)")["--g-stuck"] == "Canvas"
+    for media in (None, PHONE):
+        try:
+            rest = style(head, HISTORY, media)
+        except AssertionError:
+            continue
+        if "transition" in rest:
+            for prop in ("backdrop-filter", "-webkit-backdrop-filter"):
+                assert re.search(rf"(?<![\w-]){prop} var\(--dur", rest["transition"]), (media, prop)
+
+
+def test_a_form_s_foot_blurs_what_scrolls_under_it_and_fades_in_before_its_button() -> None:
+    foot = style(".yo-foot", PROFILE)
+    assert foot["backdrop-filter"] == foot["-webkit-backdrop-filter"] == "blur(var(--g-blur))"
+    assert foot["background"] == "var(--g-stuck)"
+    assert foot["-webkit-mask-image"] == foot["mask-image"]
+    fade = re.fullmatch(r"linear-gradient\(transparent, #000 (\S+)\)", foot["mask-image"])
+    assert fade and px(fade[1]) <= px(foot["padding"].split()[0])
+    # A phone on its side: the foot follows the form, so it neither blurs nor fades what it covers.
+    flat = style(".yo-foot", PROFILE, "(max-height: 500px)")
+    for prop in ("backdrop-filter", "-webkit-backdrop-filter", "mask-image", "-webkit-mask-image"):
+        assert flat[prop] == "none", prop
+
+
+@pytest.mark.parametrize(("badge", "sheet"), [(".yo-pic__badge", PROFILE), (".hx-act", HISTORY)])
+def test_a_badge_on_a_picture_is_solid_and_edged_with_a_hairline(badge: str, sheet: str) -> None:
+    drawn = style(badge, sheet)
+    # Read as the pane's glass reads it, where the fills are veils.
+    assert _colour(drawn["background"], style(".you__panel", YOU))[3] == 1
+    # Its edge is the glass's own hairline, never a ring in the tint, which reads black there.
+    assert drawn["box-shadow"] == "0 0 0 1px var(--g-edge)"
+
+
+@pytest.mark.parametrize("sheet", [YOU, PROFILE, HISTORY, SETTINGS, PANELS, SPACE, KEEP])
+def test_the_glass_s_tint_is_never_drawn_whole_as_a_ring(sheet: str) -> None:
+    # Alone it is far darker than the glass it tints: a black ring there.
+    for where, selectors, decls in rules(sheet):
+        for prop in ("border", "border-color", "outline", "outline-color", "box-shadow"):
+            assert "rgb(var(--g-tint))" not in decls.get(prop, ""), (where, selectors, prop)
+
+
+def test_the_way_back_s_blue_word_keeps_4_5_to_1_at_rest_under_the_pointer_and_pressed() -> None:
+    glass = _side_glass()
+    for state, media in (
+        (".you__back", None),
+        (".you__back:hover", "(hover: hover)"),
+        (".you__back:active", None),
+    ):
+        fill = style(state, YOU, media).get("background")
+        under = _on(_fill(fill), glass) if fill else glass
+        assert contrast(_on(token("--g-accent-text"), under), under) >= 4.5, state
+
+
+def _open_body() -> tuple[float, ...]:
+    card = _on(token("--g-s2"), _side_glass())
+    return _on(_fill(style(".hist-body", HISTORY)["background"]), card)
+
+
+def test_an_open_row_s_buttons_keep_their_words_over_a_white_page_under_the_pointer() -> None:
+    for state in (".hx-acts .btn", ".hx-acts .btn:hover"):
+        lit = _on(_fill(style(state, HISTORY)["background"]), _open_body())
+        assert contrast(_on(token("--t1"), lit), lit) >= 4.5, state
+
+
+@pytest.mark.parametrize(
+    ("mark", "media", "lit"),
+    [
+        (".hx mark", None, False),
+        (".hist[open] mark", None, True),
+        (".hist-sum:active mark", None, True),
+        (".hist-sum:hover mark", "(hover: hover)", True),
+    ],
+)
+def test_a_found_word_keeps_4_5_to_1_on_its_mark_over_a_white_page(
+    mark: str, media: str | None, lit: bool
+) -> None:
+    # A lit row and an open row's details lie one veil over the card: the mark there is fainter.
+    under = _open_body() if lit else _on(token("--g-s2"), _side_glass())
+    marked = _over(_colour(style(mark, HISTORY, media)["background"], {}), under)
+    assert contrast(_on(token("--t1"), marked), marked) >= 4.5
+
+
+def test_a_pressed_keep_menu_item_keeps_its_red_word_over_a_white_page() -> None:
+    glass = _glass_over(WHITE, float(token("--g-a")), filtered=True)
+    pressed = _on(_fill(style(".watch-keep-menu__item:active", KEEP)["background"]), glass)
+    assert contrast(_on(token("--g-danger-text"), pressed), pressed) >= 4.5
+
+
+@pytest.mark.parametrize(
+    ("scope", "sheet"),
+    [
+        (".you__panel :focus-visible", YOU),
+        (".space__panel :focus-visible", SPACE),
+        (".profile-panel :focus-visible", NAV),
+        (".nav-end :focus-visible", NAV),
+        (".nav-glass .brand:focus-visible", NAV),
+        (".ui-toast :focus-visible", TOASTS),
+        (".login-card :focus-visible", LOGIN),
+    ],
+)
+def test_the_keyboard_s_ring_on_a_glass_surface_takes_the_glass_s_ring_colour(
+    scope: str, sheet: str
+) -> None:
+    assert style(scope, sheet)["outline-color"] == "var(--g-focus)"
+
+
+def test_the_glass_s_ring_colour_stands_3_to_1_off_glass_over_a_white_and_a_black_page() -> None:
+    ring = _colour("var(--g-focus)", {})
+    assert ring[3] == 1
+    alpha = float(token("--g-a"))
+    for page in (WHITE, BLACK):
+        for glass in (
+            _glass_over(page, alpha, filtered=True),
+            _glass_over(_on(token("--g-veil"), page), alpha, filtered=True),
+        ):
+            assert contrast(ring[:3], glass) >= 3, page
+
+
+@pytest.mark.parametrize("sheet", [YOU, PROFILE, HISTORY, SETTINGS, PANELS, SPACE])
+def test_every_ring_the_side_panels_draw_stands_3_to_1_off_their_glass_over_a_white_page(
+    sheet: str,
+) -> None:
+    glass = _side_glass()
+    for where, selectors, decls in rules(sheet):
+        if any("forced-colors" in w for w in where) or not any(":focus" in s for s in selectors):
+            continue
+        for prop in ("outline", "outline-color"):
+            colour = re.search(r"var\(--[\w-]+\)", decls.get(prop, ""))
+            if colour:
+                ring = _colour(colour[0], {})
+                assert contrast(_over(ring, glass), glass) >= 3, (where, selectors, prop)
+
+
+@pytest.mark.parametrize("kind", ["movies", "tv", "anime", "other", "free"])
+def test_each_kind_s_mark_in_the_space_key_stands_3_to_1_off_the_panel_s_glass(kind: str) -> None:
+    scope = style(".space__panel", SPACE)
+    glass = _side_glass()
+    fill = _over(_colour(style(f".space-c--{kind}", SPACE)["--c"], scope), glass)
+    mark = fill
+    for where, selectors, decls in rules(SPACE):
+        if f".space-c--{kind} .space-dot" in selectors and not where:
+            edge = re.fullmatch(r"inset 0 0 0 [\d.]+px (.+)", decls["box-shadow"])
+            mark = _over(_colour(edge[1], scope), fill)
+    assert contrast(mark, glass) >= 3
+
+
+def test_the_bar_s_free_part_has_the_same_edge_as_its_key() -> None:
+    edge = style(".space-seg--free::before", SPACE)["box-shadow"]
+    assert edge == style(".space-c--free .space-dot", SPACE)["box-shadow"]
+    assert float(re.search(r"([\d.]+)px", edge)[1]) >= 1.5
+
+
+def test_stuck_tools_hold_their_field_s_and_pills_words_over_the_cards_passing_under() -> None:
+    # The band only blurs: what lies under the field and the pills is a card, lighter than the glass.
+    floored = style(
+        '.hx-tools.is-stuck :is(.hx-search input, .hx-group:not([aria-pressed="true"]), .hx-chip)',
+        HISTORY,
+    )
+    assert floored["box-shadow"] == "var(--g-chip-floor)"
+    card = _on(token("--g-s2"), _side_glass())
+    floor = _on(re.search(r"rgb\([^)]*\)", token("--g-chip-floor"))[0], card)
+    for control, words in ((".hx-search input", "--g-t3"), (".hx-group", "--g-t2")):
+        veil = _on(_fill(style(control, HISTORY)["background"]), floor)
+        assert contrast(_on(token(words), veil), veil) >= 4.5, control
+
+
+def test_the_bar_island_s_controls_draw_their_ring_on_its_glass_in_the_glass_s_ring_colour() -> (
+    None
+):
+    meter = style(".space-meter:focus-visible", SPACE)
+    width, _, colour = meter["outline"].split()
+    assert colour == "var(--g-focus)"
+    # The island ends at the controls' edges: a ring outside them would lie on the page.
+    for offset in (
+        meter["outline-offset"],
+        style(".profile-btn:focus-visible", NAV)["outline-offset"],
+    ):
+        assert px(offset) + px(width) <= 0, offset
+
+
+def test_below_900px_the_profile_button_s_ring_and_its_download_ring_keep_glass_between() -> None:
+    narrow = "(max-width: 899.98px)"
+    # Below 900px the button is a disc round the picture, its ring inside its edge.
+    edge = px(style(".profile-btn", NAV)["min-width"]) / 2
+    width = px(style(".space-meter:focus-visible", SPACE)["outline"].split()[0])
+    ring_in = edge + px(style(".profile-btn:focus-visible", NAV)["outline-offset"])
+    assert ring_in + width <= edge
+    # The download ring, drawn round the picture, draws in while the keyboard's ring shows.
+    picture = px(style(".avatar", NAV)["width"]) / 2
+    band = float(re.search(r"calc\(100% - ([\d.]+)px\)", style(".profile-ring", NAV)["mask"])[1])
+    assert style(".profile-btn:focus-visible .profile-ava", NAV, narrow)["transform"] == "none"
+    drawn = style(".profile-btn:focus-visible .profile-ring", NAV, narrow)
+    assert "transform" not in drawn
+    outer = picture - px(drawn["inset"])
+    assert outer + 1.5 <= ring_in
+    # Not onto the picture.
+    assert outer - band >= picture
+
+
+def test_a_stuck_day_head_holds_its_words_over_a_white_picture_blurred_under_it() -> None:
+    # The worst a row can pass under the head: a white picture filling an avatar's disc, as much of
+    # it as the head's blur gathers at the disc's middle, which is most where the blur is least.
+    radius = px(style(".hx-who .avatar", HISTORY)["width"]) / 2
+    sigma = min(px(_root()["--g-blur"]), px(_root(PHONE)["--g-blur"]))
+    share = 1 - math.exp(-(radius**2) / (2 * sigma**2))
+    card = _on(token("--g-s2"), _side_glass())
+    bright = tuple(share * w + (1 - share) * c for w, c in zip(WHITE, card, strict=True))
+    floor = re.fullmatch(
+        r"var\((--[\w-]+)\)", style(".hx-day__top.is-stuck", HISTORY)["box-shadow"]
+    )
+    under = _on(re.search(r"rgb\([^)]*\)", token(floor[1]))[0], bright)
+    for words in ("--t1", "--g-t3"):
+        assert contrast(_on(token(words), under), under) >= 4.5, words
+
+
+def test_a_phone_never_stacks_a_third_blur_in_history() -> None:
+    # Unfolded, the tools lie over a stuck day head: one of the two blurs, the other is under it.
+    # Pushed up by the next day's head, the stuck one slides under the tucked tools: the same.
+    for head in (
+        ".hx-tools.has-day:not(.is-tucked) ~ .hx-list .hx-day__top.is-stuck",
+        ".hx-day__top.is-pushed",
+    ):
+        covered = style(head, HISTORY, PHONE)
+        assert covered["backdrop-filter"] == covered["-webkit-backdrop-filter"] == "none", head
+        # At once: a blur easing out would be a third layer while it lasts.
+        assert "backdrop-filter" not in covered["transition-property"], head
+    # What shows of a pushed head is solid, at once: the rows under it would show sharp through it.
+    pushed = style(".hx-day__top.is-pushed", HISTORY, PHONE)
+    assert pushed["background-color"] == "var(--g-solid)"
+    assert "background-color" not in pushed["transition-property"]
+    # The kinds' arrows sit on the stuck tools: solid, never a blur of their own.
+    for where, selectors, decls in rules(HISTORY):
+        if any(".hx-kinds-arrow" in s for s in selectors):
+            assert decls.get("backdrop-filter", "none") == "none", (where, selectors)
+            assert decls.get("-webkit-backdrop-filter", "none") == "none", (where, selectors)
+    for arrow in (".hx-kinds-arrow", ".hx-kinds-arrow:hover"):
+        drawn = style(arrow, HISTORY, "(hover: hover) and (pointer: fine)")
+        assert _colour(drawn["background"], {})[3] == 1, arrow
+
+
+def _matches(condition: str, w: int, h: int) -> bool:
+    """Whether a screen of *w* by *h* meets an @media condition of widths and heights alone."""
+    limits = {
+        "min-width": lambda v: w >= v,
+        "max-width": lambda v: w <= v,
+        "max-height": lambda v: h <= v,
+    }
+    for alternative in _top_level(condition, ","):
+        parts = re.findall(r"\(([\w-]+):\s*([\d.]+)px\)", alternative)
+        if (
+            parts
+            and len(parts) == alternative.count("(")
+            and all(limits[f](float(v)) for f, v in parts)
+        ):
+            return True
+    return False
+
+
+def _at(selector: str, sheet: str, w: int, h: int) -> dict[str, str]:
+    """What the rules headed by *selector* declare on a screen of *w* by *h*, later winning."""
+    merged: dict[str, str] = {}
+    for where, selectors, decls in rules(sheet):
+        if selector in selectors and all(
+            not c.startswith("@") and _matches(c, w, h) for c in where
+        ):
+            merged.update(decls)
+    return merged
+
+
+def _length(value: str, w: int, scope: dict[str, str]) -> float:
+    """A length in px on a screen *w* wide with no safe areas, *scope* giving the custom properties."""
+    for _ in range(4):
+        value = re.sub(r"env\([^()]*\)", "0px", value)
+        value = re.sub(
+            r"var\((--[\w-]+)(?:,\s*([^()]*(?:\([^()]*\))?[^()]*))?\)",
+            lambda m: scope.get(m[1], m[2] or ""),
+            value,
+        )
+    value = value.replace("100vw", f"{w}px").replace("100%", f"{w}px").replace("calc", "")
+    value = value.replace("px", "")
+    # Numbers, signs, brackets and min/max alone are left by now: anything else is not a length.
+    assert re.fullmatch(r"(?:[\d.\s+\-*/(),]|min|max)+", value), value
+    return float(eval(value, {"__builtins__": {}, "min": min, "max": max}))
+
+
+# Phones upright and on their side, a small window, a desktop, and the edges of their rules.
+SCREENS = [(402, 874), (440, 956), (667, 375), (700, 420), (874, 402), (1024, 560), (1440, 900)]
+
+
+@pytest.mark.parametrize(("w", "h"), SCREENS)
+def test_a_toast_over_a_form_never_lies_on_its_controls_whatever_its_scroll(w: int, h: int) -> None:
+    toast = _at("html.has-you-form body .ui-toast-host", PROFILE, w, h)
+    foot = style(".yo-foot", PROFILE)
+    pinned = _at(".yo-foot", PROFILE, w, h)["position"] != "static"
+    if w >= 700:
+        # A side panel: the form scrolls under any spot on it, so the toast stands off it.
+        pane = {**style(".you", YOU), **_at(".you__panel", YOU, w, h)}
+        left = w - _length(pane["right"], w, {}) - _length(pane["width"], w, pane)
+        assert toast["right"] == "auto"
+        assert _length(toast["left"], w, {}) + _length(toast["max-width"], w, {}) <= left
+    elif pinned:
+        # A sheet with its foot held in sight: the toast stands above it, over what never scrolls.
+        top, _, bottom = _top_level(foot["padding"], " ")
+        button = px(style(".yo-foot .btn", PROFILE)["min-height"])
+        tall = _length(top, w, {}) + button + _length(bottom, w, {})
+        assert toast["top"] == "auto" and _length(toast["bottom"], w, {}) > tall
+    else:
+        # The foot follows the form: the toast stands on the sheet's bar, under its handle and
+        # between Back and Close, which take the bar's two equal sides.
+        sheet_top = re.search(
+            r"max\([^()]*(?:\([^()]*\))?[^()]*\)", style(".you__panel", YOU, PHONE)["height"]
+        )[0]
+        grab = px(style(".you__grab", YOU, PHONE)["height"])
+        assert toast["bottom"] == "auto"
+        assert _length(toast["top"], w, {}) >= _length(sheet_top, w, {}) + grab
+        assert _length(toast["left"], w, {}) == _length(toast["right"], w, {}) > 44
+
+
+def test_the_pane_s_glass_reaches_to_its_edge_so_what_it_holds_sits_inside_it_evenly() -> None:
+    glass = style(".you__panel::before", YOU)
+    assert style(".you__panel", YOU)["padding"] == re.match(r"(\S+) solid", glass["border"])[1]
+    phone = style(".you__panel::before", YOU, PHONE)["border-width"]
+    assert style(".you__panel", YOU, PHONE)["padding"] == phone
+
+
+def test_while_the_pane_changes_width_its_glass_keeps_the_pane_s_rounded_corners() -> None:
+    radius = style(".you__panel", YOU)["border-radius"]
+    clip = style(".you__frame-glass", YOU)
+    # The fill slides under this clip, which rounds its right corners as the pane's.
+    assert clip["overflow"] == "hidden" and clip["border-radius"] == radius
+    assert style(".you__frame-fill", YOU)["border-radius"] == f"{radius} 0 0 {radius}"
+    assert style(".you__frame-shade", YOU)["border-radius"] == radius
+
+
+def test_an_open_row_s_button_lights_under_the_pointer() -> None:
+    rest = _colour(_fill(style(".hx-acts .btn", HISTORY)["background"]), {})
+    lit = _colour(_fill(style(".hx-acts .btn:hover", HISTORY)["background"]), {})
+    assert lit[3] > rest[3]
+
+
+def test_a_filter_menu_option_under_the_pointer_keeps_its_quiet_count_over_a_white_page() -> None:
+    assert style(".hx-menu", HISTORY)["backdrop-filter"] == "var(--g-filter)"
+    glass = _glass_over(WHITE, float(token("--g-a")), filtered=True)
+    lit = _on(_fill(style(".hx-opt:hover", HISTORY)["background"]), glass)
+    assert contrast(_on(token("--g-t3"), lit), lit) >= 4.5
+
+
+def test_no_view_s_fade_is_forced_over_the_step_s_own() -> None:
+    for where, selectors, decls in rules(YOU):
+        if any(".you-view" in s for s in selectors):
+            assert "!important" not in decls.get("opacity", ""), (where, selectors)
+
+
 def _on_tint_over_white_glass(tint: str) -> tuple[float, ...]:
     return _on(_resolve(tint), _glass_over(WHITE, float(token("--g-a")), filtered=True))
 
@@ -431,8 +1114,32 @@ def test_rings_on_glass_take_the_lifted_blue_and_keep_3_to_1_over_a_white_page(
     assert contrast(_over(blue, glass), glass) >= 3
 
 
-def test_the_page_s_own_ring_takes_the_card_s_blue_on_the_card() -> None:
-    assert style(".login-card :focus-visible", LOGIN)["outline-color"] == "var(--accent)"
+def test_every_ring_the_error_card_draws_is_the_glass_s_ring_colour() -> None:
+    checked = 0
+    for where, selectors, decls in rules("_error.css"):
+        if any("forced-colors" in w for w in where) or not any(":focus" in s for s in selectors):
+            continue
+        for prop in ("outline", "outline-color"):
+            colour = re.search(r"var\(--[\w-]+\)", decls.get(prop, ""))
+            if colour:
+                checked += 1
+                assert colour[0] == "var(--g-focus)", (selectors, prop)
+    assert checked
+
+
+def test_the_sign_in_field_s_drawn_ring_is_the_glass_s_ring_colour() -> None:
+    # The field's ring is drawn by its box, over an outline made transparent.
+    ring = style(".login-box::after", LOGIN)["box-shadow"]
+    assert ring.startswith("inset 0 0 0 2px var(--g-focus),"), ring
+
+
+def test_a_new_password_s_field_on_the_card_takes_the_glass_s_ring_and_a_wrong_one_its_red() -> (
+    None
+):
+    # The password form's own sheet rings its field in the page's blue, stronger than the card's
+    # every-ring rule.
+    field = '.login-card .pwd .inp:not([aria-invalid="true"]):focus-visible'
+    assert style(field, LOGIN)["outline-color"] == "var(--g-focus)"
 
 
 @pytest.mark.parametrize(("state", "veil"), [("", "--g-s2"), (":focus", "--g-s3")])

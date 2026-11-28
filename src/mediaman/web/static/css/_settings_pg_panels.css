@@ -96,14 +96,17 @@
 .setg-pg .ov-status-item .st { font-size: 11px; color: var(--t3); margin-top: 1px; }
 .setg-pg .ov-status-item .conn-dot { flex-shrink: 0; }
 
-.setg-pg .gy-plex    { background: var(--brand-plex-bg);    color: var(--brand-plex); }
-.setg-pg .gy-sonarr  { background: var(--brand-sonarr-bg);  color: var(--brand-sonarr); }
-.setg-pg .gy-radarr  { background: var(--brand-radarr-bg);  color: var(--brand-radarr); }
+/* On glass a brand's letters are lifted toward white and its tint gets a floor, so each holds 4.5:1
+   over a white page on the lit row of an open card. */
+.setg-pg .glyph { box-shadow: var(--g-chip-floor); }
+.setg-pg .gy-plex    { background: var(--brand-plex-bg);    color: color-mix(in srgb, var(--brand-plex) 65%, var(--t1)); }
+.setg-pg .gy-sonarr  { background: var(--brand-sonarr-bg);  color: color-mix(in srgb, var(--brand-sonarr) 65%, var(--t1)); }
+.setg-pg .gy-radarr  { background: var(--brand-radarr-bg);  color: color-mix(in srgb, var(--brand-radarr) 65%, var(--t1)); }
 .setg-pg .gy-nzbget  { background: var(--rgba-overlay-sm); color: var(--t2); }
-.setg-pg .gy-mailgun { background: var(--brand-mailgun-bg); color: var(--brand-mailgun); }
-.setg-pg .gy-openai  { background: var(--brand-openai-bg);  color: var(--brand-openai); }
-.setg-pg .gy-tmdb    { background: var(--brand-tmdb-bg);    color: var(--brand-tmdb); }
-.setg-pg .gy-omdb    { background: var(--brand-omdb-bg);    color: var(--brand-omdb); }
+.setg-pg .gy-mailgun { background: var(--brand-mailgun-bg); color: color-mix(in srgb, var(--brand-mailgun) 65%, var(--t1)); }
+.setg-pg .gy-openai  { background: var(--brand-openai-bg);  color: color-mix(in srgb, var(--brand-openai) 65%, var(--t1)); }
+.setg-pg .gy-tmdb    { background: var(--brand-tmdb-bg);    color: color-mix(in srgb, var(--brand-tmdb) 65%, var(--t1)); }
+.setg-pg .gy-omdb    { background: var(--brand-omdb-bg);    color: color-mix(in srgb, var(--brand-omdb) 65%, var(--t1)); }
 
 /* The services are one list: a row each, with its answer as a pill, that opens into its card.
    The badge, the dividers, every field, Save and Test start on one gutter, and the fields, the
@@ -123,12 +126,12 @@
   padding: 10px var(--intg-gutter);
   cursor: pointer;
 }
-.setg-pg .intg-card-hd:hover, .setg-pg .intg-card:not(.is-collapsed) > .intg-card-hd { background: var(--s3); }
+.setg-pg .intg-card-hd:hover, .setg-pg .intg-card:not(.is-collapsed) > .intg-card-hd { background: var(--s2); }
 /* The title is the fold's button; its ring goes round the whole header, which a click also folds. */
 .setg-pg .intg-fold { text-align: inherit; letter-spacing: inherit; }
 .setg-pg .intg-fold:focus-visible { outline: 0; }
 .setg-pg .intg-card-hd:has(.intg-fold:focus-visible) {
-  outline: 2px solid var(--accent-cta);
+  outline: 2px solid var(--g-focus);
   outline-offset: -2px;
 }
 @media (forced-colors: active) {
@@ -153,6 +156,7 @@
 .setg-pg .intg-card-hd .conn {
   min-width: 0; padding: 3px 10px; border-radius: 11px;
   font-size: 12px; font-weight: 600; line-height: 1.35; color: var(--t2); background: var(--s4);
+  box-shadow: var(--g-chip-floor);
 }
 .setg-pg .intg-card-hd .conn .conn-dot { display: none; }
 .setg-pg .intg-card-hd .conn.ok { color: var(--success); background: var(--rgba-success-bg); }
@@ -167,7 +171,8 @@
 .setg-pg .intg-card:not(.is-collapsed) .intg-card-hd .intg-chev {
   transform: rotate(180deg);
 }
-.setg-pg .intg-card-bd { background: var(--s3); }
+/* No fill of its own: over the card's and its fields', a third veil of glass is too light for quiet words. */
+.setg-pg .intg-card-bd { background: none; }
 .setg-pg .intg-card-bd > .setg-fold-inner { padding: 4px var(--intg-gutter) 16px; }
 .setg-pg .intg-card-bd .inp { background-color: var(--s2); }
 .setg-pg .intg-card-bd > .setg-fold-inner > .fld-row + .fld-row,
@@ -180,7 +185,7 @@
 .setg-pg .intg-card .intg-why {
   margin-bottom: 14px; padding: 10px 12px; border-radius: 10px;
   font-size: 13px; line-height: 1.4; overflow-wrap: anywhere;
-  color: var(--danger-text); background: var(--rgba-danger-bg);
+  color: var(--danger-text); background: var(--rgba-danger-bg); box-shadow: var(--g-chip-floor);
 }
 .setg-pg .intg-card .intg-why.is-warn { color: var(--warning); background: var(--rgba-warning-bg); }
 .setg-pg .intg-card .intg-acts { align-items: center; }
@@ -209,8 +214,9 @@
 .setg-pg .lib-pill:active { background: var(--s4); color: var(--t1); transform: scale(.97); }
 @media (prefers-reduced-motion: reduce) { .setg-pg .lib-pill:active { transform: none; } }
 .setg-pg .lib-pill.on {
-  background: rgba(41,151,255,.12); color: var(--accent);
+  background: rgba(41,151,255,.12); color: var(--accent-text);
   border-color: rgba(41,151,255,.4);
+  box-shadow: var(--g-chip-floor);
 }
 @media (forced-colors: active) {
   .setg-pg .lib-pill.on {
@@ -237,7 +243,7 @@
   display: grid; place-items: center;
   font-size: 13px; font-weight: 700;
   font-family: var(--font-display); flex-shrink: 0;
-  background: var(--rgba-accent-bg); color: var(--accent);
+  background: var(--rgba-accent-bg); color: var(--accent-text); box-shadow: var(--g-chip-floor);
 }
 .setg-pg .lp-head .lp-title { flex: 1; min-width: 0; }
 .setg-pg .lp-head .lp-name-txt { font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; }
@@ -283,7 +289,7 @@
   background: var(--s2);
   font-size: 12px; color: var(--t3);
 }
-.setg-pg .lp-foot .ok   { color: var(--success); }
+.setg-pg .lp-foot .ok   { color: color-mix(in srgb, var(--success) 70%, var(--t1)); }
 .setg-pg .lp-foot .ok::before   { content: "●"; margin-right: 6px; }
 .setg-pg .lp-foot .warn { color: var(--warning); }
 .setg-pg .lp-foot .warn::before { content: "▲"; margin-right: 6px; font-size: 10px; }
@@ -311,12 +317,12 @@
 .setg-pg .sub-row .em { flex: 1; min-width: 0; font-size: 13.5px; overflow-wrap: anywhere; }
 .setg-pg .sub-row .em small { display: block; color: var(--t3); font-size: 11px; margin-top: 2px; }
 .setg-pg .sub-row .sub-stat {
-  font-size: 10.5px; font-weight: 600; color: var(--t3);
+  font-size: 10.5px; font-weight: 600; color: var(--t2);
   padding: 3px 10px; border-radius: var(--r-pill);
   background: var(--s3); text-transform: uppercase; letter-spacing: .04em;
   flex-shrink: 0; white-space: nowrap;
 }
-.setg-pg .sub-row .sub-stat.active  { color: var(--success); background: var(--rgba-success-bg); }
+.setg-pg .sub-row .sub-stat.active  { color: var(--success); background: var(--rgba-success-bg); box-shadow: var(--g-chip-floor); }
 .setg-pg .sub-row .link-danger {
   font-size: 11px; color: var(--danger-text); padding: 0 8px;
   border-radius: var(--r-pill); background: transparent;
@@ -393,7 +399,7 @@
 .setg-pg .usr-row .you-pill {
   font-size: 10px; font-weight: 600;
   padding: 2px 8px; border-radius: var(--r-pill);
-  background: var(--rgba-accent-bg); color: var(--accent);
+  background: var(--rgba-accent-bg); color: var(--accent-text); box-shadow: var(--g-chip-floor);
   letter-spacing: -.01em;
 }
 
@@ -410,7 +416,7 @@
 .setg-pg .inline-form-msg { scroll-margin-bottom: 20px; }
 .setg-pg .setg-fold { scroll-margin-block: 12px; }
 .setg-pg .inline-form-actions .inline-form-msg { margin-top: 0; }
-.setg-pg .inline-form-msg.ok  { color: var(--success); }
+.setg-pg .inline-form-msg.ok  { color: color-mix(in srgb, var(--success) 70%, var(--t1)); }
 .setg-pg .inline-form-msg.err { color: var(--danger-text); }
 .setg-pg .inline-form-msg ul { margin: 6px 0 0 16px; padding: 0; font-size: 12px; color: var(--danger-text); }
 /* Red is all that marks a note as an error; forced colours drop it, so a bar stands in. */

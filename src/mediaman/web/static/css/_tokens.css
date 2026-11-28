@@ -216,6 +216,11 @@
   --g-accent-text: #a6d2ff;
   --g-accent:    color-mix(in srgb, var(--g-accent-text) 70%, var(--accent));
   --g-danger-text: #ffc2bc;
+  /* The keyboard's ring where it lies on glass: the page's blue is near the glass's own tone there. */
+  --g-focus:     var(--g-accent-text);
+  /* Under a layer that only blurs the glass it lies on (a stuck head): nothing, as long as glass is
+     drawn; where it is not, the glass's own fill, so what passes under is still covered. */
+  --g-stuck:     transparent;
   --g-warning-text: #ffc46a;     /* amber words: what waits, which is nobody's fault */
   /* What the page goes under: plain dims, never blurred, so the glass over them has a page to show. */
   --g-dim:       rgb(0 0 0 / .42);           /* behind a dialog, and behind a title */
@@ -240,14 +245,15 @@
 }
 /* Where glass cannot be drawn: solid enough for 4.5:1 with nothing halving the page behind. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --g-a: .94; --g-a-thick: .94; --g-a-player: .94; --g-a-player-hover: .94; --g-filter: none; --g-dim-blur: none; }
+  :root { --g-a: .94; --g-a-thick: .94; --g-a-player: .94; --g-a-player-hover: .94; --g-filter: none; --g-dim-blur: none; --g-stuck: var(--g-regular); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root { --g-a: 1; --g-a-thick: 1; --g-a-player: 1; --g-a-player-hover: 1; --g-filter: none; --g-dim-blur: none; }
+  :root { --g-a: 1; --g-a-thick: 1; --g-a-player: 1; --g-a-player-hover: 1; --g-filter: none; --g-dim-blur: none; --g-stuck: var(--g-regular); }
 }
 @media (prefers-contrast: more) {
   :root {
     --g-a: 1; --g-a-thick: 1; --g-a-player: 1; --g-a-player-hover: 1; --g-filter: none; --g-dim-blur: none;
+    --g-stuck: var(--g-regular);
     --g-edge: rgb(255 255 255 / .4);
     --g-lit: rgb(255 255 255 / .4);
   }
@@ -255,7 +261,7 @@
 @media (forced-colors: active) {
   :root {
     --g-thin: Canvas; --g-regular: Canvas; --g-thick: Canvas; --g-player: Canvas; --g-player-hover: Canvas; --g-solid: Canvas;
-    --g-filter: none; --g-dim-blur: none;
+    --g-filter: none; --g-dim-blur: none; --g-stuck: Canvas;
     --g-edge: CanvasText; --g-lit: CanvasText;
     --g-inset: 0 0 0 transparent; --g-shadow: 0 0 0 transparent;
   }

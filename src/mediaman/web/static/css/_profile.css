@@ -37,12 +37,14 @@
 .yo-pic { position: relative; flex: none; border-radius: 50%; }
 .yo-pic > .avatar { width: 76px; height: 76px; }
 .yo-pic:focus-visible { outline-offset: 4px; }
-.yo-pic__badge { position: absolute; right: -2px; bottom: -2px; display: grid; place-items: center; width: 28px; height: 28px; border: 3px solid var(--s1); border-radius: 50%; font-size: 11px; color: var(--t1); background: var(--s4); transition: background-color var(--dur-fast) var(--ease-out); }
+/* Solid, as a label over a picture: a veil would let the picture show through under the camera. */
+.yo-pic__badge { position: absolute; right: -2px; bottom: -2px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; font-size: 11px; color: #fff; background: var(--g-tip); box-shadow: 0 0 0 1px var(--g-edge); transition: background-color var(--dur-fast) var(--ease-out); }
 .yo-head__text { min-width: 0; }
 /* A long name shrinks a little, then stops at two lines; its whole self is in its title. */
 .yo-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 0; font: 700 clamp(20px, 6cqi, 26px)/1.15 var(--font-display); letter-spacing: -.02em; overflow-wrap: anywhere; }
 .yo-role { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; margin: 6px 0 0; font-size: 13px; color: var(--t3); }
-.yo-role__pill { padding: 2px 9px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; color: var(--accent-text); background: var(--rgba-accent-bg); }
+/* A tinted chip on glass takes a floor under its tint, so its coloured word holds over a white page. */
+.yo-role__pill { padding: 2px 9px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; color: var(--accent-text); background: var(--rgba-accent-bg); box-shadow: var(--g-chip-floor); }
 .yo-role__pill.is-admin { color: var(--orange); background: var(--rgba-orange-bg); }
 .yo-mail { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .yo-dl, .yo-hist { margin-top: 20px; }
@@ -56,17 +58,24 @@
 .yo-tile__sub.is-bad { color: var(--danger-text); }
 .yo-out { margin-top: 24px; }
 .yo-out__btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 50px; border-radius: 14px; font-size: 15px; font-weight: 500; color: var(--danger-text); background: var(--s2); transition: background-color var(--dur-fast) var(--ease-out); }
+/* A row lights one step over its card's glass, pointed at or pressed: a second step would be too
+   light for its quiet words over a white page. */
 @media (hover: hover) {
-  :is(a, button).yo-row:hover, .yo-tile:hover, .yo-fold > summary:hover { background: var(--s3); }
+  :is(a, button).yo-row:hover, .yo-fold > summary:hover { background: var(--s2); }
+  .yo-tile:hover { background: var(--s3); }
   .yo-mini:hover { background: var(--s5); }
   .yo-pic:hover .yo-pic__badge { background: var(--accent-cta); }
   .yo-out__btn:hover { background: var(--rgba-danger-bg); }
+  /* White on its card's veil, or red on the glass alone: one step lighter holds either. */
+  .dev .btn--ghost:hover, .yo-wide-btn:not([disabled]):hover { background: var(--s3); }
 }
-/* A press lights at once and eases off when let go; after the hover rules, so it lights under the mouse too. */
-:is(a, button).yo-row:active { background: var(--s4); transition-duration: 0s; }
+/* A press lights at once and eases off when let go, after the hover rules so they never undo it. Under
+   a mouse a row or a tile is already lit as far as its words allow: there the press shows only on a
+   touch, or as a tile's shrink. */
+:is(a, button).yo-row:active { background: var(--s2); transition-duration: 0s; }
 .yo-mini:active { background: var(--s5); transform: scale(.96); transition-duration: 0s; }
 .yo-pic:active .yo-pic__badge { background: var(--accent-cta-hover); transition-duration: 0s; }
-.yo-tile:active { background: var(--s4); transform: scale(.98); transition-duration: 0s; }
+.yo-tile:active { background: var(--s3); transform: scale(.98); transition-duration: 0s; }
 .yo-out__btn:active { background: var(--rgba-danger-bg-hover); transition-duration: 0s; }
 
 /* A view that saves: its fields, and the button at its foot that stays in sight. */
@@ -75,7 +84,9 @@
 .yo-field { display: flex; flex-direction: column; gap: 6px; }
 .yo-field__label { font-size: 13px; font-weight: 500; color: var(--t2); }
 .yo-form .inp[aria-invalid="true"] { border-color: var(--danger-text); }
-.yo-foot { position: sticky; bottom: calc(-24px - var(--sa-bottom, env(safe-area-inset-bottom, 0px))); z-index: 1; margin: auto -20px calc(-24px - var(--sa-bottom, env(safe-area-inset-bottom, 0px))); padding: 14px 20px calc(14px + var(--sa-bottom, env(safe-area-inset-bottom, 0px))); background: linear-gradient(to bottom, transparent, var(--s1) 18px); }
+/* What scrolls under the foot is blurred, its top edge fading in over its padding, so words that
+   reach the button are a haze, never sharp against it. */
+.yo-foot { position: sticky; bottom: calc(-24px - var(--sa-bottom, env(safe-area-inset-bottom, 0px))); z-index: 1; margin: auto -20px calc(-24px - var(--sa-bottom, env(safe-area-inset-bottom, 0px))); padding: 14px 20px calc(14px + var(--sa-bottom, env(safe-area-inset-bottom, 0px))); background: var(--g-stuck); -webkit-backdrop-filter: blur(var(--g-blur)); backdrop-filter: blur(var(--g-blur)); -webkit-mask-image: linear-gradient(transparent, #000 14px); mask-image: linear-gradient(transparent, #000 14px); }
 .yo-foot .btn { width: 100%; min-height: 48px; font-size: 16px; }
 /* Not yet to be pressed: grey, not a dimmed blue that still looks pressable. */
 .yo-foot .btn--primary:disabled { background: var(--s3); color: var(--t3); opacity: 1; }
@@ -83,9 +94,24 @@
 .yo-foot--two .btn { flex: 1; }
 /* What is brought into view stops above the foot: its button of 48px and its padding of 28px. */
 .you-view:has(.yo-foot) { scroll-padding-bottom: 88px; }
+/* A toast stands where no control of a form is: over one it would hide what a failed save is tried
+   again with, and on a phone lay a third blur over the foot's and the sheet's. A form scrolls, so
+   from 700px it stands beside the pane (440px wide, 12px off the edge), 16px clear of it. */
+@media (min-width: 700px) {
+  html.has-you-form body .ui-toast-host { right: auto; left: max(24px, env(safe-area-inset-left, 0px)); max-width: min(360px, calc(100vw - 492px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))); }
+}
+/* The sheet is the whole width: above its foot, which stays in sight with nothing under it. */
+@media (max-width: 699.98px) {
+  html.has-you-form body .ui-toast-host { top: auto; bottom: calc(88px + var(--sa-bottom, env(safe-area-inset-bottom, 0px))); }
+}
+/* On its side the foot follows the form, so the screen's foot is no clearer: over the sheet's bar,
+   under its handle (18px) and between Back, labelled Profile, and Close. */
+@media (max-width: 699.98px) and (max-height: 500px) {
+  html.has-you-form body .ui-toast-host { top: calc(max(16px, env(safe-area-inset-top, 0px) + 8px) + 18px); right: calc(112px + env(safe-area-inset-right, 0px)); bottom: auto; left: calc(112px + env(safe-area-inset-left, 0px)); max-width: none; justify-content: flex-start; }
+}
 /* A phone on its side: the foot follows the form, so it covers none of it. */
 @media (max-height: 500px) {
-  .yo-foot { position: static; margin-top: 8px; margin-bottom: 0; padding-bottom: 0; background: none; }
+  .yo-foot { position: static; margin-top: 8px; margin-bottom: 0; padding-bottom: 0; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; -webkit-mask-image: none; mask-image: none; }
   .you-view:has(.yo-foot) { scroll-padding-bottom: 0; }
 }
 @media (max-width: 699.98px) {
@@ -100,7 +126,8 @@
 .me-msg:empty { position: absolute; }
 /* When it was changed is there before and after, and does not move. */
 #account-password-sub.is-new > span:not(.is-fresh) { animation: fade-in var(--dur) var(--ease-out); }
-#account-password-sub .is-fresh { color: var(--success); }
+/* Lifted toward white: on the card's glass the plain green is under 4.5:1 over a white page. */
+#account-password-sub .is-fresh { color: color-mix(in srgb, var(--success) 70%, var(--t1)); }
 #account-password-sub .is-fresh .ico { margin-right: 4px; font-size: 11px; }
 .pwd-stage.yo-form { padding-top: 0; }
 
@@ -117,12 +144,13 @@
 .me-txt { flex: 1 1 8.5em; min-width: 0; }
 .me-lbl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 15px; overflow-wrap: anywhere; }
 .me-sub { margin-top: 2px; font-size: 13px; line-height: 1.35; color: var(--t3); overflow-wrap: anywhere; }
-.dev-here { padding: 1px 8px; border-radius: var(--r-pill); font-size: 11px; font-weight: 600; color: var(--accent-text); background: var(--rgba-accent-bg); white-space: nowrap; }
+.dev-here { padding: 1px 8px; border-radius: var(--r-pill); font-size: 11px; font-weight: 600; color: var(--accent-text); background: var(--rgba-accent-bg); box-shadow: var(--g-chip-floor); white-space: nowrap; }
 .dev-sub { display: flex; flex-wrap: wrap; gap: 0 12px; }
 .dev-date { white-space: nowrap; }
 .dev .btn { flex: none; min-height: 32px; padding: 0 12px; border-radius: var(--r-pill); font-size: 13px; }
-.dev .btn--ghost { background: var(--s4); color: var(--t1); }
-.dev .btn--danger { background: var(--s4); color: var(--danger-text); }
+/* One step over the card, as a red word on a lighter veil would not hold over a white page. */
+.dev .btn--ghost { background: var(--s2); color: var(--t1); }
+.dev .btn--danger { background: var(--s2); color: var(--danger-text); }
 .dev .btn-spinner { margin-right: 0; }
 .dev-acts { flex: none; display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .dev-edit { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
@@ -154,12 +182,12 @@
 /* Watching: the language heard first and the subtitles, chosen as radios. */
 .yo-pick-row { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 14px 8px 16px; color: var(--t1); text-align: left; transition: background-color var(--dur-fast) var(--ease-out); }
 .yo-pick-row + .yo-pick-row::before { content: ""; position: absolute; top: 0; right: 0; left: 16px; border-top: 1px solid var(--hair); }
-@media (hover: hover) { .yo-pick-row:hover { background: var(--s3); } }
-.yo-pick-row:active { background: var(--s4); transition-duration: 0s; }
-.yo-pick-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 14px; }
+@media (hover: hover) { .yo-pick-row:hover { background: var(--s2); } }
+.yo-pick-row:active { background: var(--s2); transition-duration: 0s; }
+.yo-pick-row:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; border-radius: 14px; }
 .yo-pick-row__text { flex: 1; min-width: 0; font-size: 15px; }
 .yo-pick-row__text > small { display: block; margin-top: 2px; font-size: 13px; line-height: 1.35; color: var(--t3); }
-.yo-pick-row__tick { flex: none; width: 16px; height: 16px; color: var(--accent); visibility: hidden; }
+.yo-pick-row__tick { flex: none; width: 16px; height: 16px; color: var(--accent-text); visibility: hidden; }
 .yo-pick-row[aria-checked="true"] .yo-pick-row__tick { visibility: visible; }
 /* The tick lands as the row is pressed, so the press is seen to take. */
 .yo-pick-row.is-picked .yo-pick-row__tick { animation: player-av-tick var(--dur-fast) var(--ease-out); }
