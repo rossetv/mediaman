@@ -704,6 +704,12 @@
     if (more) MM.dom.fold(more, document.getElementById('account-history-more-toggle'));
     var HISTORY = '/api/search/assist/history';
     var on = false;
+    var tonight = document.getElementById('account-tonight');
+
+    function drawTonight(shown) {
+      tonight.classList.toggle('on', shown);
+      tonight.setAttribute('aria-checked', String(shown));
+    }
 
     function draw(enabled) {
       toggle.classList.toggle('on', enabled);
@@ -721,6 +727,7 @@
 
     MM.api.get(HISTORY).then(function (data) {
       take(Boolean(data.enabled));
+      if (tonight) drawTonight(data.tonight !== false);
       section.hidden = !data.available;
     }, function () { /* Stays hidden. */ });
 
@@ -763,6 +770,23 @@
           drawAuto(was);
           UIFeedback.error(MM.api.messageOf(err, 'Could not save. Try again.'));
         }).then(function () { auto.removeAttribute('aria-disabled'); });
+      });
+    }
+
+    if (tonight) {
+      tonight.addEventListener('click', function () {
+        if (isBusy(tonight)) return;
+        var was = tonight.getAttribute('aria-checked') === 'true';
+        tonight.setAttribute('aria-disabled', 'true');
+        drawTonight(!was);
+        MM.api.put(HISTORY, { tonight: !was }).then(function () {
+          // An open search shows, or leaves out, Tonight as the new setting says.
+          var ask = window.MMWatch && window.MMWatch.ask;
+          if (ask && ask.load) ask.load();
+        }, function (err) {
+          drawTonight(was);
+          UIFeedback.error(MM.api.messageOf(err, 'Could not save. Try again.'));
+        }).then(function () { tonight.removeAttribute('aria-disabled'); });
       });
     }
 

@@ -273,6 +273,17 @@ def test_the_ask_as_i_type_switch_shows_how_the_person_left_it(
     assert (label, 'aria-labelledby="account-auto-lbl"' in switch) == ("Ask AI as I type", True)
 
 
+def test_the_ai_section_has_a_switch_to_show_tonight_in_search(app_factory, authed_client, conn):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    html = authed_client(app, conn).get("/account?pane=1").text
+
+    ai = html.split('id="account-ai"')[1].split("</section>")[0]
+    switch = re.search(r'<button[^>]*id="account-tonight"[^>]*>', ai).group(0)
+    label = re.search(r'id="account-tonight-lbl">(.*?)<', ai).group(1)
+    assert 'role="switch"' in switch and 'aria-labelledby="account-tonight-lbl"' in switch
+    assert label == "Show Tonight in search"
+
+
 # Each fact: the part of the fold it belongs to, and words that must all be in one line of it.
 _SENT = [
     ("always", "played", "marked as watched"),
