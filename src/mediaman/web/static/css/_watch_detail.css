@@ -64,6 +64,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   transform-origin: 50% 0;
   transition: transform var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out);
 }
+/* A ring that takes the page's own colour (the rating thumbs' does) is under 3:1 on the glass. */
+.ttl__sheet :focus-visible { outline-color: var(--g-focus); }
 .ttl[hidden] + .ttl__dim { display: none; }
 .ttl.is-entering + .ttl__dim { animation: ttl-fade-in var(--dur) var(--ease-out) both; }
 .ttl.is-entering .ttl__sheet { animation: ttl-sheet-in var(--dur-slow) var(--ease-out) both; }

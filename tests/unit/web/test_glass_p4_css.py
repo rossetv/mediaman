@@ -8,7 +8,7 @@ import re
 
 import pytest
 
-from tests.unit.web._css import contrast, rules, style, token
+from tests.unit.web._css import contrast, rules, style, text, token
 from tests.unit.web.test_glass_css import WHITE, _colour, _glass_over, _on, _over, _resolve
 
 DETAIL = "_watch_detail.css"
@@ -303,3 +303,58 @@ def test_opening_search_fades_the_name_s_logo_and_its_glass_never_the_name_itsel
     assert not {sel for sel in faded if re.search(r"\.brand\)?$", sel) or ":is(.brand" in sel}
     shown = ".wbar:has(> .watch-search.is-focus) > .brand"
     assert {f"{shown} > *", f"{shown}::before"} <= faded
+
+
+_HELD = "html.has-ttl :is(.nav-glass[inert], [inert] .nav-glass)"
+
+
+def test_on_a_phone_the_bar_s_islands_take_no_blur_under_a_title_s_sheet_in_place() -> None:
+    # The dim and the sheet over the whole screen blur already; the islands under them would be a
+    # third layer. They keep it while the sheet rises over them, and from when it starts to fall:
+    # the title holds the page inert from its opening to the start of its closing.
+    calm = {
+        where: (sel, decls["animation"])
+        for where, sels, decls in rules("_nav.css")
+        if "isle-calm" in decls.get("animation", "")
+        for sel in sels
+    }
+    reduced = (
+        "(prefers-reduced-motion: reduce) and (max-width: 699.98px), "
+        "(prefers-reduced-motion: reduce) and (max-height: 500px) and (pointer: coarse)",
+    )
+    # The flip waits out the sheet's rise; where motion is reduced, its fade, which the rule that
+    # cuts every animation short would otherwise make a flip at once.
+    assert calm == {
+        (PHONES,): (_HELD, "isle-calm var(--dur-slow) step-end forwards"),
+        reduced: (_HELD, "isle-calm var(--dur) step-end forwards !important"),
+    }
+    assert re.search(
+        r"@keyframes isle-calm\s*\{\s*to\s*\{\s*--isle-blur:\s*none;", text("_nav.css")
+    )
+
+
+@pytest.mark.parametrize(
+    ("island", "sheet"),
+    [
+        (".nav-back", "_nav.css"),
+        (".nav-end", "_nav.css"),
+        (".nav-glass .brand::before", "_nav.css"),
+        (".wbar .watch-search::before", SEARCH),
+    ],
+    ids=lambda v: v,
+)
+def test_every_island_of_the_bar_blurs_by_the_bar_s_one_switch(island: str, sheet: str) -> None:
+    drawn = style(island, sheet)
+    assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "var(--isle-blur)"
+
+
+def test_the_name_s_rim_still_eases_in_where_search_sets_how_its_glass_fades() -> None:
+    # The search sheet's rule comes later and would otherwise drop the rim's own easing.
+    assert "box-shadow" in style(".nav-glass .brand::before", "_nav.css")["transition"]
+    assert "box-shadow" in style(".wbar .brand::before", SEARCH)["transition"]
+
+
+def test_a_ring_on_the_title_s_sheet_without_its_own_colour_takes_the_glass_ring() -> None:
+    # The page's own ring (the rating thumbs keep it) is a dark blue, under 3:1 on the glass.
+    assert style(":focus-visible", "_base.css")["outline"].endswith("var(--accent-cta)")
+    assert style(".ttl__sheet :focus-visible", DETAIL)["outline-color"] == "var(--g-focus)"

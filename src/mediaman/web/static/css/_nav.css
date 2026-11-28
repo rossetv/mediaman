@@ -513,6 +513,17 @@
   /* Clear of the home bar, where the page runs under it. */
   .container { padding-bottom: env(safe-area-inset-bottom, 0px); }
 }
+/* A phone, either way up, with a title's sheet over the whole screen: the sheet and its dim are
+   two blurred layers over the islands already, so they take none of their own. Not until the
+   sheet has risen over them, or faded in where motion is reduced, and only while the title holds
+   the page inert (watch/detail.js): it lets go as the sheet starts to fall. */
+@keyframes isle-calm { to { --isle-blur: none; } }
+@media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
+  html.has-ttl :is(.nav-glass[inert], [inert] .nav-glass) { animation: isle-calm var(--dur-slow) step-end forwards; }
+}
+@media (prefers-reduced-motion: reduce) and (max-width: 699.98px), (prefers-reduced-motion: reduce) and (max-height: 500px) and (pointer: coarse) {
+  html.has-ttl :is(.nav-glass[inert], [inert] .nav-glass) { animation: isle-calm var(--dur) step-end forwards !important; }
+}
 /* A phone zoomed in: the profile button, the only way to the other pages, keeps its place. The
    logo goes first, then the word beside the way back (still read out), then the meter. */
 @media (max-width: 319.98px) {
