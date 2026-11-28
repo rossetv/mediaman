@@ -354,10 +354,12 @@ def test_a_film_that_takes_the_place_of_another_of_its_title_is_not_taken_for_it
     radarr.get_movies.return_value = [old]
     _get(client)
 
-    # the queue is read, then the ids are not, nor whether the other arrived
+    # the queue and the library are read, the ids taken from what was held, and whether the
+    # other arrived is not read
     _hold_over(hold)
-    radarr.get_movies.side_effect = [[new], _DOWN, _DOWN]
+    radarr.get_movies.side_effect = [[new], _DOWN]
     assert _get(client)["hero"]["arr_id"] == 2
+    assert radarr.get_movies.call_count == 3
 
     _hold_over(hold)
     radarr.get_movies.side_effect = None

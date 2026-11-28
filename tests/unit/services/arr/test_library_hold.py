@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections import Counter
 from urllib.parse import urlsplit
 
@@ -60,6 +61,12 @@ def library(arrs, fake_http, monkeypatch):  # noqa: F811  (the fixture of that n
             return _fake_response(json_data=[_SEARCHING_SHOW])
         if path == "/api/v3/episode" and "seriesId=7" in url:
             return _fake_response(json_data=[])
+        if path == "/api/v3/movie":
+            # Copies, as over the wire: what is held is never changed under it.
+            return _fake_response(json_data=copy.deepcopy(arrs.movies))
+        if method == "PUT" and path == "/api/v3/movie/9":
+            arrs.movies = [kwargs["json"]]
+            return _fake_response(json_data=kwargs["json"])
         return inner(method, url, **kwargs)
 
     fake_http.handler(answer)
@@ -104,6 +111,14 @@ def test_a_write_to_the_service_reads_the_library_again(library):
 
     assert library.library_reads["/api/v3/movie"] == 2
     assert "Dune" not in titles
+
+
+def test_a_film_abandoned_here_is_gone_from_the_next_poll(library):
+    _poll(library)
+
+    ArrClient(RADARR_SPEC, "http://radarr.test:7878", "k").unmonitor_movie(9)
+
+    assert "Dune" not in _shown(_poll(library))
 
 
 def test_the_library_is_read_again_once_the_hold_is_over(library):
