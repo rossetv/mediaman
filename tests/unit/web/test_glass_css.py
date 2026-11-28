@@ -335,14 +335,40 @@ def test_the_name_s_blue_on_its_island_keeps_4_5_to_1_and_stays_the_brand_s_blue
 
 
 def test_the_name_is_on_its_island_s_glass_before_the_page_moves_under_it() -> None:
-    # A white page or a pale poster under the bar at the top would take the name's white.
+    # A white page or a pale poster under the bar at the top would take the name's white, so no
+    # rule but the one that draws the island may touch its glass, however it is spelled.
+    glass_keys = {
+        "background",
+        "backdrop-filter",
+        "-webkit-backdrop-filter",
+        "opacity",
+        "visibility",
+        "display",
+        "filter",
+        "content",
+        "mask",
+        "clip-path",
+    }
     for where, sels, decls in rules(NAV):
-        if ".nav-glass .brand::before" in sels and not any("forced-colors" in w for w in where):
-            assert decls.get("opacity", "1") != "0", where
+        if any("forced-colors" in w for w in where) or not any("brand" in s for s in sels):
+            continue
+        assert not {k for k in decls if k.startswith("--isle")}, (where, sels)
+        if any("::before" in s for s in sels) and sels != [".nav-glass .brand::before"]:
+            assert not glass_keys & set(decls), (where, sels)
     assert style(".nav-glass .brand::before", NAV)["background"] == "var(--isle)"
-    # At rest only its edges and shadow wait for the page to move.
+    assert style(".nav-glass .brand::before", NAV)["backdrop-filter"] == "var(--isle-blur)"
+    # At rest it keeps its rim, like the islands beside it; only the shadow waits for the page.
     rest = style(".nav-glass:not(.is-scrolled) .brand::before", NAV)
-    assert set(rest) == {"border-color", "box-shadow"}, rest
+    assert rest == {"box-shadow": "var(--g-inset)"}, rest
+
+
+def test_the_name_s_blue_is_the_lifted_blue_in_every_rule_that_colours_it() -> None:
+    strokes = [
+        decls["stroke"]
+        for where, sels, decls in rules(NAV)
+        if "stroke" in decls and any(".wm-man" in s for s in sels)
+    ]
+    assert strokes == ["var(--g-accent-text)"]
 
 
 @pytest.mark.parametrize("variant", [".ui-toast--success", ".ui-toast--error", ".ui-toast--info"])
@@ -793,6 +819,7 @@ def test_a_pressed_keep_menu_item_keeps_its_red_word_over_a_white_page() -> None
         (".space__panel :focus-visible", SPACE),
         (".profile-panel :focus-visible", NAV),
         (".nav-end :focus-visible", NAV),
+        (".nav-glass .brand:focus-visible", NAV),
         (".ui-toast :focus-visible", TOASTS),
         (".login-card :focus-visible", LOGIN),
     ],
@@ -846,6 +873,7 @@ def test_each_kind_s_mark_in_the_space_key_stands_3_to_1_off_the_panel_s_glass(k
 def test_the_bar_s_free_part_has_the_same_edge_as_its_key() -> None:
     edge = style(".space-seg--free::before", SPACE)["box-shadow"]
     assert edge == style(".space-c--free .space-dot", SPACE)["box-shadow"]
+    assert float(re.search(r"([\d.]+)px", edge)[1]) >= 1.5
 
 
 def test_stuck_tools_hold_their_field_s_and_pills_words_over_the_cards_passing_under() -> None:
