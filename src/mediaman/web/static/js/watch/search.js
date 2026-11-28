@@ -937,6 +937,7 @@
       if (!evening) {
         evening = window.MMWatch.tonight.make({
           who: knows.account,
+          hidden: knows.tonightHidden,
           option: option,
           pick: pick,
           say: function (text) { status.textContent = text; },
@@ -951,6 +952,7 @@
           }
         });
       }
+      evening.follow(!!knows.tonightHidden);
       evening.place().forEach(function (node) { sheet.appendChild(node); });
     }
 

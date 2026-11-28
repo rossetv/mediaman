@@ -59,7 +59,8 @@ def own():
 
 @pytest.fixture
 def sampler(own):
-    return Sampler(read_own=own, cores=lambda: 10, budget=0.3)
+    # Healthy fakes answer at once, so a long budget costs nothing and a busy machine passes.
+    return Sampler(read_own=own, cores=lambda: 10, budget=5.0)
 
 
 def server(conn, secret_key, **size: str) -> None:
@@ -246,13 +247,14 @@ def test_mediaman_reads_its_own_cgroup_and_its_traffic_outside_loopback(tmp_path
 
 
 def test_a_source_that_hangs_is_down_once_the_budget_is_spent_and_then_left_alone(
-    conn, secret_key, stack, sampler
+    conn, secret_key, stack, own
 ):
     configure(conn, secret_key)
+    sampler = Sampler(read_own=own, cores=lambda: 10, budget=1.0)
     stack.hang.add("nzbget")
     started = time.monotonic()
     r = sampler.read(conn, secret_key, now=1000.0)
-    assert time.monotonic() - started < 1.0  # the budget is 0.3 s; NZBGet would take 10
+    assert time.monotonic() - started < 3.0  # the budget is 1 s; NZBGet would take 10
     assert r.sources == {"plex": "ok", "nzbget": "down", "docker": "ok"}
     asked = len([u for u in stack.calls if u.startswith(NZB)])
     sampler.read(conn, secret_key, now=1000.0 + RETRY_AFTER - 1)

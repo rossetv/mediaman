@@ -66,6 +66,11 @@
           <button type="button" class="tog{% if auto_ask %} on{% endif %}" id="account-auto" role="switch" aria-checked="{{ 'true' if auto_ask else 'false' }}" aria-labelledby="account-auto-lbl" aria-describedby="account-auto-sub"></button>
         </div>
         <div class="yo-row">
+          <span class="yo-row__ico">{{ c.icon("i-clock") }}</span>
+          <div class="yo-row__label"><span id="account-tonight-lbl">Show Tonight in search</span><small id="account-tonight-sub">What fits the time you have.</small></div>
+          <button type="button" class="tog" id="account-tonight" role="switch" aria-checked="false" aria-labelledby="account-tonight-lbl" aria-describedby="account-tonight-sub"></button>
+        </div>
+        <div class="yo-row">
           <span class="yo-row__ico">{{ c.icon("i-magnifying-glass") }}</span>
           <div class="yo-row__label">Recent searches<small id="account-clear-sub">Shown only to you.</small></div>
           <button class="yo-mini" type="button" id="account-clear-searches" aria-label="Clear recent searches" aria-describedby="account-clear-sub">Clear</button>

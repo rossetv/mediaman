@@ -422,6 +422,14 @@ def test_an_ask_as_i_type_switch_that_could_not_be_saved_goes_back_and_says_so()
     assert len(out["sent"]) == 2
 
 
+def test_the_show_tonight_switch_says_what_the_account_keeps_and_saves_a_press() -> None:
+    out = _run("tonightSwitch")
+    assert (out["drawn"], out["after"]) == ("false", "true")
+    assert out["sent"] == [["/api/search/assist/history", {"tonight": True}]]
+    # an open search follows it
+    assert out["loads"] == 1
+
+
 def test_nothing_about_the_ai_is_shown_without_a_key() -> None:
     assert _run("historyHidden") == [True, True]
 
