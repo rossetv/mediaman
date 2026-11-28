@@ -1533,7 +1533,7 @@
 .lp-pending .player-av-main { color: var(--t2); }
 .lp-pending-line { color: var(--g-accent-text); font-variant-numeric: tabular-nums; }
 .lp-pending-bar { display: block; position: relative; height: 3px; margin-top: 6px; border-radius: var(--r-pill); overflow: hidden; background: var(--rgba-overlay-lg); }
-.lp-pending-bar i { position: absolute; inset: 0; background: var(--g-accent); transform-origin: 0 50%; transform: scaleX(calc(var(--p) / 100)); transition: transform 1s var(--ease-out); }
+.lp-pending-bar i { position: absolute; inset: 0; background: var(--g-accent); transform-origin: 0 50%; transform: scaleX(calc(var(--p) / 100)); transition: transform var(--dur-draw) var(--ease-out); }
 .lp-pending-ico { flex: none; font-size: 14px; color: var(--g-accent-text); }
 @media (prefers-reduced-motion: no-preference) {
   .lp-pending:not(.lp-pending--lacks) .lp-pending-ico { animation: lp-nudge 1.8s var(--ease-out) infinite; }
@@ -1552,11 +1552,12 @@
   background: color-mix(in srgb, var(--g-accent) 24%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-accent-text) 45%, transparent);
   opacity: 0;
-  animation: lp-fresh 2.6s var(--ease-out) .15s;
+  transition: opacity var(--dur-draw) var(--ease-out);
 }
-@keyframes lp-fresh { 0% { opacity: 0; } 12%, 55% { opacity: 1; } 100% { opacity: 0; } }
+/* Lit by watch/tracks.js for its time, then faded. */
+.player-av-row.lp-fresh.is-lit::before { opacity: 1; }
 .player-av-row.lp-fresh .player-av-tag { background: var(--rgba-accent-chip); box-shadow: var(--g-chip-floor); color: var(--g-accent-text); }
-.player-av-row.lp-fresh > .player-menu-tick { animation: player-av-tick var(--dur-slow) var(--ease-out) .2s backwards; }
+.player-av-row.lp-fresh > .player-menu-tick { animation: player-av-tick var(--dur-slow) var(--ease-out) var(--dur) backwards; }
 .lp-ok { color: var(--success); }
 .player-av-foot > .ico.lp-ok { color: color-mix(in srgb, var(--success) 70%, var(--t1)); }
 
@@ -1664,7 +1665,7 @@
   width: calc(50% - 3px);
   border-radius: var(--r-pill);
   background: var(--s5);
-  box-shadow: 0 1px 4px rgb(0 0 0 / .25);
+  box-shadow: var(--shadow-card);
   transition: transform var(--dur-slow) var(--ease-push);
 }
 .lp-seg.is-second .lp-seg-thumb { transform: translateX(100%); }
@@ -1799,8 +1800,7 @@
 
 /* ── Reduced motion: the views only fade, quickly (watch/tracks.js slides none) ── */
 @media (prefers-reduced-motion: reduce) {
-  .player-av-row.lp-fresh::before { animation: none; transition: none; }
-  .player-av-row.lp-fresh.is-lit::before { opacity: 1; }
+  .player-av-row.lp-fresh::before { transition: none; }
   .lp-seg-thumb, .lp-pending-bar i { transition: none; }
   .lp-opt.is-picked > .player-menu-tick, .player-av-row.lp-fresh > .player-menu-tick { animation: none; }
 }

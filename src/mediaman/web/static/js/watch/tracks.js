@@ -30,7 +30,7 @@
   var CLOSED_MS = 120;       // and the chooser is on its way before the picture is held
   var LEAVE_MS = 260;
   var FADE_MS = 150;
-  var LIT_MS = 3000;         // subtitles just added stay lit, with less motion         // the control's words, from what played to what plays
+  var LIT_MS = 3000;         // subtitles just added stay lit         // the control's words, from what played to what plays
   var DEFAULTS_HREF = '/?you=profile/audio';
   var TV_ICON = 'play-on-tv'; // of _play_on.html
 
@@ -365,8 +365,8 @@
         var r = row('subtitle', t.id, subtitleText(t), t.id === shown, lit ? 'Just added' : '');
         if (lit) {
           r.classList.add('lp-fresh');
-          /* With less motion it is lit as a state for its time, not drawn as an animation. */
-          if (reduce && reduce.matches && fresh.litUntil !== 0) {
+          /* Lit as a state for its time, which less motion leaves as it is, then faded. */
+          if (fresh.litUntil !== 0) {
             r.classList.add('is-lit');
             if (!fresh.litUntil) {
               var f = fresh;

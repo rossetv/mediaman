@@ -111,7 +111,7 @@ RINGS = {
     "_pair.css": 1,
     "_password.css": 2,
     "_play_on.css": 2,
-    "_player.css": 9,
+    "_player.css": 17,
     "_profile.css": 1,
     "_settings_pg_panels.css": 1,
     "_tv_remote.css": 3,
