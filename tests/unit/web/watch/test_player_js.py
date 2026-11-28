@@ -1215,6 +1215,16 @@ def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
     assert out["still"] == "Next episode: S2 · E5 — High Tide"
 
 
+def test_the_countdowns_card_draws_cancel_as_the_strong_button_and_play_now_as_the_quiet_one(
+    markup,
+):
+    html = markup.read_text()
+    found = re.findall(r'<button[^>]*class="([^"]*)"[^>]*(data-upnext-\w+)', html)
+    buttons = {attr: cls for cls, attr in found}
+    assert "player-pill--primary" in buttons["data-upnext-cancel"]
+    assert "player-pill--primary" not in buttons["data-upnext-play"]
+
+
 @pytest.mark.parametrize(("how", "went"), [("enter", False), ("click", True)])
 def test_the_countdowns_card_has_cancel_focused_so_enter_stays_and_play_now_still_plays(
     markup, season, how, went
