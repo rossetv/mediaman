@@ -336,7 +336,107 @@ const SKIPS = {
   filmCredits: async () => (await skipping({ position_s: 2710, season: null, episode: null, episode_title: null })).pressSkip(),
 };
 
+
+/* Moves recorded rather than run: each element's animations, with their keyframes, and a way to end
+   them all. The bar and the card stand where they would on a laptop; what is moved reads as
+   half-way where it is asked mid-move. */
+const BAR = { left: 340, top: 822, width: 760, height: 62 };
+const CARD = { left: 450, top: 214, width: 540, height: 670 };
+function moving(p) {
+  const moves = [];
+  const proto = Object.getPrototypeOf(p.$('#tv-remote'));
+  proto.animate = function (frames, how) {
+    const a = { el: this, frames, how, onfinish: null, cancelled: false, cancel() { a.cancelled = true; } };
+    moves.push(a);
+    return a;
+  };
+  const box = (r) => () => ({ ...r, right: r.left + r.width, bottom: r.top + r.height });
+  p.$('#tv-mini').getBoundingClientRect = box(BAR);
+  p.$('[data-sheet]').getBoundingClientRect = box(CARD);
+  p.$('[data-hero]').setPointerCapture = () => {};
+  p.win.getComputedStyle = () => ({ getPropertyValue: () => '', transform: 'matrix(0.5, 0, 0, 0.5, 10, 20)', opacity: '0.5' });
+  const name = (el) => ['data-glass', 'data-veil', 'data-sheet', 'data-morph-art', 'data-title', 'data-mid', 'data-hero', 'id'].map((k) => el.hasAttribute(k) && (k === 'id' ? el.getAttribute('id') : k)).find(Boolean) || el.className;
+  return {
+    live: () => moves.filter((a) => !a.cancelled),
+    of: (sel) => moves.filter((a) => !a.cancelled && a.el === p.$(sel)),
+    moved: () => [...new Set(moves.filter((a) => !a.cancelled).map((a) => name(a.el)))],
+    props: () => [...new Set(moves.flatMap((a) => a.frames.flatMap(Object.keys)))].sort(),
+    async end() { moves.filter((a) => !a.cancelled).forEach((a) => a.onfinish && a.onfinish()); await settle(); },
+  };
+}
+
 const scenarios = {
+  // The card grows out of the bar: its glass from the bar's box, its picture, title and line from theirs.
+  async grows() {
+    const p = await page();
+    const mv = moving(p);
+    await p.open();
+    const glass = mv.of('[data-glass]').find((a) => 'transform' in a.frames[0]);
+    return { from: glass.frames[0].transform, to: glass.frames[1].transform, moved: mv.moved(), props: mv.props(), bar: mv.of('#tv-mini').map((a) => a.frames.map((f) => f.opacity)) };
+  },
+  // Closed, it shrinks back into the bar and is hidden only once that has ended; the bar has the focus.
+  async shrinks() {
+    const p = await page();
+    const mv = moving(p);
+    await p.open();
+    await mv.end();
+    await p.press('[data-close]');
+    const glass = mv.of('[data-glass]').find((a) => 'transform' in a.frames[0]);
+    const out = { to: glass.frames[1].transform, shownMeanwhile: !p.$('#tv-remote').hidden, focus: p.doc.activeElement.hasAttribute('data-open') };
+    await mv.end();
+    out.hiddenAfter = p.$('#tv-remote').hidden;
+    out.left = mv.live().length;
+    return out;
+  },
+  // Closed as it opens, each part turns round from where it is.
+  async turnsRound() {
+    const p = await page();
+    const mv = moving(p);
+    await p.open();
+    await p.press('[data-close]');
+    const glass = mv.of('[data-glass]').find((a) => 'transform' in a.frames[0]);
+    return { from: glass.frames[0].transform, to: glass.frames[1].transform };
+  },
+  // With less motion asked for, the card only fades in.
+  async growsCalm() {
+    const p = await page({ still: true });
+    const mv = moving(p);
+    await p.open();
+    return { moved: mv.moved(), props: mv.props() };
+  },
+  // Opened on the player, where there is no bar, the card rises from the foot of the window.
+  async rises() {
+    const p = await page({ player: true });
+    const mv = moving(p);
+    p.win.MM.tvRemote.open(p.api.tvs[0]);
+    await settle();
+    return { moved: mv.moved(), from: mv.of('[data-sheet]').map((a) => a.frames[0].transform).filter(Boolean) };
+  },
+  // A tap on the dimmed page beside the card closes it.
+  async veil() {
+    const p = await page();
+    await p.open();
+    await p.press('[data-veil]');
+    await p.pass(400);
+    return { open: p.isOpen(), focus: p.doc.activeElement.hasAttribute('data-open') };
+  },
+  // A sheet pulled down far enough by a finger closes, going on down from where it was let go; a
+  // short pull springs back.
+  async pulled() {
+    const out = {};
+    for (const by of [40, 160]) {
+      const p = await page();
+      const mv = moving(p);
+      await p.open();
+      await mv.end();
+      await p.on('[data-hero]', 'pointerdown', { clientY: 300, timeStamp: 0 });
+      await p.on('[data-hero]', 'pointermove', { clientY: 300 + by, timeStamp: 1000 });
+      const held = p.$('[data-sheet]').style.transform;
+      await p.on('[data-hero]', 'pointerup', { type: 'pointerup', clientY: 300 + by, timeStamp: 1000 });
+      out[by] = { held, open: p.isOpen(), from: mv.of('[data-sheet]').map((a) => a.frames[0].transform) };
+    }
+    return out;
+  },
   async skip(name) { return SKIPS[name](); },
   async idle() {
     const p = await page({ tvs: [aTv({ play: null })] });

@@ -827,3 +827,53 @@ def test_a_tv_that_cannot_start_a_file_plex_cannot_play_offers_no_try_again() ->
     assert "Dolby Vision Profile 5" in out["unplayable_dolby_vision_5"]
     assert "Try again" not in out["unplayable_dolby_vision_5"]
     assert "Try again" in out["unreachable"]
+
+
+# The bar's box and the card's, as the harness lays them out.
+BAR_TO_CARD = "translate(-110px, 608px) scale(1.4074074074074074, 0.09253731343283582)"
+
+
+def test_the_card_grows_out_of_the_bar_moving_only_transform_and_opacity() -> None:
+    out = _run("grows")
+    assert out["from"] == BAR_TO_CARD and out["to"] == "none"
+    # The picture, title and line travel from the bar's; the bar itself fades as the card grows.
+    for part in ("data-morph-art", "data-title", "player-seek-track", "data-veil"):
+        assert part in out["moved"], part
+    assert out["bar"] == [["1", "0"]]
+    assert out["props"] == ["opacity", "transform"]
+
+
+def test_a_closed_card_shrinks_into_the_bar_and_is_hidden_only_once_it_has() -> None:
+    assert _run("shrinks") == {
+        "to": BAR_TO_CARD,
+        "shownMeanwhile": True,
+        "focus": True,
+        "hiddenAfter": True,
+        "left": 0,
+    }
+
+
+def test_a_card_closed_as_it_opens_turns_round_from_where_it_is() -> None:
+    assert _run("turnsRound") == {"from": "matrix(0.5, 0, 0, 0.5, 10, 20)", "to": BAR_TO_CARD}
+
+
+def test_with_less_motion_the_card_only_fades() -> None:
+    out = _run("growsCalm")
+    assert out["props"] == ["opacity"]
+    assert {"data-veil", "data-glass"} <= set(out["moved"])
+    assert "data-morph-art" not in out["moved"]
+
+
+def test_on_the_player_with_no_bar_the_card_rises_from_the_foot() -> None:
+    assert _run("rises") == {"moved": ["data-veil", "data-sheet"], "from": ["translateY(48px)"]}
+
+
+def test_a_tap_beside_the_card_closes_it_and_gives_the_bar_the_focus() -> None:
+    assert _run("veil") == {"open": False, "focus": True}
+
+
+def test_a_sheet_pulled_down_far_closes_and_a_short_pull_springs_back() -> None:
+    out = _run("pulled")
+    assert out["40"] == {"held": "translateY(40px)", "open": True, "from": ["translateY(40px)"]}
+    assert out["160"]["open"] is False
+    assert out["160"]["from"] == ["translateY(160px)"]

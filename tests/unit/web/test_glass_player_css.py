@@ -95,7 +95,7 @@ def test_the_player_and_the_remote_draw_their_controls_in_the_player_s_glass(
 
 
 def test_the_remote_is_thick_glass_and_its_bar_thin() -> None:
-    remote = style(".tv-rem", REMOTE)
+    remote = style(".tv-rem__glass", REMOTE)
     assert remote["background"] == "var(--g-thick)"
     assert remote["backdrop-filter"] == remote["-webkit-backdrop-filter"] == "var(--g-filter)"
     bar = style(".tv-mini", REMOTE)
@@ -295,10 +295,15 @@ def test_the_chapters_pill_goes_by_its_own_glass_and_words(hidden: str) -> None:
     assert style(hidden + " .player-pill::before", PLAYER, media)["opacity"] == "0"
 
 
-def test_the_remote_s_row_of_controls_rises_without_a_fade_of_its_own() -> None:
-    name = style(".tv-rem .player-bottom", REMOTE)["animation"].split()[0]
-    frames = re.search(rf"@keyframes {name} \{{(.*?)\}}\n", text(REMOTE))[1]
-    assert "opacity" not in frames
+def test_on_the_remote_s_card_a_control_is_a_veil_that_blurs_nothing() -> None:
+    # The card fades its controls in as it opens: a blur of their own under a fading parent would
+    # blur nothing, and over the card's glass it would be a second layer.
+    for control in (
+        ".tv-rem .player-back",
+        ".tv-rem .player-pill:not(.player-pill--primary)::before",
+    ):
+        drawn = style(control, REMOTE)
+        assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none", control
 
 
 @pytest.mark.parametrize(("veil", "sheet"), [(".player-av-veil", PLAYER), (".tv-po-veil", REMOTE)])
@@ -326,22 +331,11 @@ def test_on_a_phone_a_sheet_over_the_remote_is_opaque_so_no_control_shows_throug
     assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none"
 
 
-@pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
-def test_on_a_phone_the_remote_s_controls_blur_nothing_of_their_own(media: str) -> None:
-    # With the remote's glass and the page's glass under it as it fades in and out, a control's
-    # own blur would be a third layer. A dark veil halves what is under it, as its filter would.
-    for control in (".tv-rem .player-back", ".tv-rem .player-pill::before"):
-        drawn = style(control, REMOTE, media)
-        assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none", control
-    remote = style(".tv-rem", REMOTE, media)
-    assert "brightness(.5)" in token("--g-filter")
-    for name, tint in (
-        ("--player-glass", "--g-player"),
-        ("--player-glass-hover", "--g-player-hover"),
-    ):
-        layers = _top_level(remote[name], ",")
-        assert f"var({tint})" in layers[0], name
-        assert rgb(layers[-1]) == (0, 0, 0, 0.5), name
+def test_on_a_phone_the_remote_s_sheet_is_solid_so_the_page_s_glass_stays_under_it() -> None:
+    # The sheet leaves the page in sight above it: blurring, it would be a layer over the page's.
+    drawn = style(".tv-rem__glass", REMOTE, PHONE)
+    assert drawn["background"] == "rgb(var(--g-tint))"
+    assert drawn["backdrop-filter"] == drawn["-webkit-backdrop-filter"] == "none"
 
 
 def test_the_ask_card_dims_the_picture_plainly() -> None:
@@ -414,36 +408,25 @@ def test_the_chosen_thumb_s_see_through_wash_has_a_floor_on_the_card() -> None:
     assert style(".player-rate .rate__hl", PLAYER)["box-shadow"] == "var(--g-chip-floor)"
 
 
-PAGE_GLASS = "html.has-tv-remote :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet)"
+def test_the_bar_the_card_grew_out_of_is_out_of_sight_yet_can_take_the_focus_back() -> None:
+    # Hidden by visibility it could not be given the focus as the card closes.
+    assert style("html.has-tv-remote .tv-mini", REMOTE)["opacity"] == "0"
+    assert not any(
+        decls.get("visibility") == "hidden"
+        for _, selectors, decls in rules(REMOTE)
+        for sel in selectors
+        if "has-tv-rem" in sel
+    )
 
 
-@pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
-def test_on_a_phone_the_page_s_glass_goes_only_once_the_remote_has_faded_in_over_it(
-    media: str,
-) -> None:
-    hidden = style(PAGE_GLASS, REMOTE, media)
-    assert hidden["visibility"] == "hidden"
-    # Hidden at once, the bar the person tapped would vanish under a remote still nearly clear.
-    fade_in = style(".tv-rem", REMOTE)["animation"].split()[1]
-    assert hidden["transition"].split()[:2] == ["visibility", "0s"]
-    assert hidden["transition"].split()[-1] == fade_in
-
-
-def test_closing_the_remote_shows_the_page_s_glass_before_it_gives_the_focus_back() -> None:
-    # Focus cannot land on what is visibility:hidden. The class the rule hangs on goes first in
-    # close(); the one that stays through the remote's fade out must not hide the page.
+def test_closing_the_remote_shows_the_bar_before_it_gives_it_the_focus() -> None:
+    # The class that keeps the bar out of sight goes first in close().
     js = (CSS_DIR.parent / "js" / "tv-remote.js").read_text(encoding="utf-8")
-    close = js[js.index("function close()") :]
+    close = js[js.index("function close(") :]
     close = close[: close.index("\n  }\n")]
     shown = close.index("classList.remove('has-tv-remote')")
     assert shown < close.index("ModalA11y.onClosed")
     assert shown < close.index(".focus(")
-    assert not any(
-        "has-tv-rem " in sel or "has-tv-rem:" in sel or sel.endswith("has-tv-rem")
-        for _, selectors, decls in rules(REMOTE)
-        if decls.get("visibility") == "hidden"
-        for sel in selectors
-    )
 
 
 # What holds a pill's glass among what is faded when it cannot be used.
@@ -510,11 +493,16 @@ def test_a_dead_stop_fades_its_red_rather_than_turning_white() -> None:
 
 
 @pytest.mark.parametrize(
-    ("disc", "sheet"), [(".tv-rem [data-play]", REMOTE), (".player.is-away [data-play]", PLAYER)]
+    ("disc", "sheet", "media"),
+    [
+        (".tv-rem [data-play]", REMOTE, None),
+        (".player.is-away [data-play]", PLAYER, "(max-width: 899.98px)"),
+    ],
 )
-def test_the_ring_of_a_white_disc_lies_outside_it_on_the_glass(disc: str, sheet: str) -> None:
+def test_the_ring_of_a_white_disc_lies_outside_it_on_the_glass(
+    disc: str, sheet: str, media: str | None
+) -> None:
     # Inside, the light ring on white is about 1.6:1.
-    media = "(max-width: 899.98px)"
     assert style(disc, sheet, media)["background"] == "var(--t1)"
     offset = style(disc + ":focus-visible", sheet, media)["outline-offset"]
     assert float(offset.removesuffix("px")) > 0
@@ -522,19 +510,29 @@ def test_the_ring_of_a_white_disc_lies_outside_it_on_the_glass(disc: str, sheet:
 
 
 @pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
-def test_with_reduced_motion_the_page_s_glass_is_back_at_once_for_the_focus(media: str) -> None:
-    # The base sheet gives every element a near-instant transition of everything under reduced
-    # motion; a transition of visibility keeps the page hidden as close() gives the focus back.
-    assert "transition-duration: .01ms !important" in text("_base.css")
-    page = "html.has-tv-rem :is(.nav-glass, .tv-mini, .ttl, .space, .you, .watch-sheet)"
-    # The glass, and what is in it: a button inherits its visibility, and so transitions it too.
-    for drawn in (page, page + " *"):
-        rule = style(drawn, REMOTE, (media, "(prefers-reduced-motion: reduce)"))
-        assert rule["transition"] == "none !important", drawn
-
-
-@pytest.mark.parametrize("media", [PHONE, SHORT_TOUCH])
 def test_over_a_title_the_remote_and_the_title_s_sheet_are_the_only_layers(media: str) -> None:
     # The title's dim lies under its sheet, beside the title, and stays drawn under the remote.
     assert "backdrop-filter: var(--g-dim-blur)" in text("_watch_detail.css")
     assert style("html.has-tv-rem", REMOTE, media)["--g-dim-blur"] == "none"
+
+
+def test_the_bar_leans_towards_its_card_only_under_a_mouse_and_not_with_less_motion() -> None:
+    # A finger has no hover to end the lean, and less motion asks for none.
+    leans = [
+        where
+        for where, selectors, decls in rules(REMOTE)
+        if "transform" in decls and any(".tv-mini__open:hover" in sel for sel in selectors)
+    ]
+    assert leans
+    for where in leans:
+        query = " ".join(where)
+        for condition in (
+            "(hover: hover)",
+            "(pointer: fine)",
+            "(prefers-reduced-motion: no-preference)",
+        ):
+            assert condition in query, (where, condition)
+    # Every other move of the bar is kept from those who ask for less motion, too.
+    for where, selectors, decls in rules(REMOTE):
+        if "transform" in decls and any(sel.startswith(".tv-mini:has(") for sel in selectors):
+            assert "(prefers-reduced-motion: no-preference)" in " ".join(where), selectors

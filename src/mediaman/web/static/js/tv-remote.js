@@ -106,6 +106,7 @@
     cardTitle: $('[data-card-title]'), cardLine: $('[data-card-line]'), cardActions: $('[data-card-actions]'),
     status: $('[data-status]'), po: $('[data-po]'), poVeil: $('[data-po-veil]'), poTitle: $('[data-po-title]'),
     poList: $('[data-po-list]'), poNote: $('[data-po-note]'), skip: $('[data-skip]'), skipText: $('[data-skip-text]'),
+    sheet: $('[data-sheet]'), glass: $('[data-glass]'), veil: $('[data-veil]'), hero: $('[data-hero]'), art: $('[data-morph-art]'),
   };
   var live = MM.dom.qa('[data-live]', root);
   var arts = MM.dom.qa('[data-art]', root);
@@ -1391,7 +1392,9 @@
     style.left = style.bottom = '';
     if (global.matchMedia('(max-width: 699.98px)').matches) return;
     var r = menuOpen.from.getBoundingClientRect();
-    style.left = Math.max(12, Math.min(global.innerWidth - els.po.offsetWidth - 12, r.right - els.po.offsetWidth)) + 'px';
+    // Under its pill's right edge, or its left where that would run off the window.
+    var left = r.right - els.po.offsetWidth < 12 ? r.left : r.right - els.po.offsetWidth;
+    style.left = Math.max(12, Math.min(global.innerWidth - els.po.offsetWidth - 12, left)) + 'px';
     style.bottom = Math.max(12, Math.min(global.innerHeight - r.top + 6, global.innerHeight - els.po.offsetHeight - 12)) + 'px';
   }
   global.addEventListener('resize', placeMenu);
@@ -1470,7 +1473,7 @@
   root.addEventListener('click', function (e) {
     function hit(sel) { return e.target.closest(sel); }
     var pill = hit('[data-menu]');
-    if (hit('[data-close]')) close();
+    if (hit('[data-close]') || e.target === els.veil) close();
     else if (hit('[data-po-close]') || hit('[data-po-veil]')) closeMenu();
     else if (hit('[data-play]')) toggle();
     else if (hit('[data-back10]')) skip(-SKIP_S);
@@ -1631,9 +1634,181 @@
     });
   }
 
+  /* ── the card growing out of the bar, and back into it ── */
+
+  /* The card is laid out where it ends; what moves is drawn from where it starts, by transform and
+     opacity alone. Its glass is stretched from the bar's box to its own, the bar's picture, title and
+     line travel to theirs, and the rest comes in on the glass once it is most of the way. Each part
+     is moved over a stretch of the whole, as parts of it: opening (`span`), from how it looks at the
+     bar (`shut`) to how it is drawn; closing (`back`), the other way, where what came in last goes
+     first. A move turned round starts from where it is. */
+  var GROW_MS = 420;
+  var SHRINK_MS = 300;
+  var FADE_MS = 150;
+  var PULL_PX = 110; // a sheet pulled down this far closes as it is let go
+  var FLICK_PX_MS = 0.5; // and so does one flicked down faster than this
+  var moves = [];
+  var moveId = 0;
+  var spring = null;
+
+  function calm() { return global.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  function box(el) {
+    var r = el && el.getBoundingClientRect();
+    return r && r.width && r.height ? r : null;
+  }
+  /* The bar where it can be seen, which the card grows out of. */
+  function barBox() { return hasBar && !mini.hidden && !miniLeaving ? box(mini) : null; }
+  function curve(name) { return global.getComputedStyle(root).getPropertyValue(name).trim(); }
+  function springCurve() {
+    if (spring === null) {
+      var s = curve('--rem-spring');
+      spring = s && global.CSS && global.CSS.supports && global.CSS.supports('transition-timing-function', s) ? s : curve('--ease-push') || 'ease-out';
+    }
+    return spring;
+  }
+  /* The transform that draws box *to* in the place of box *from*: stretched, or (`even`) as large
+     as its height says, as words are. */
+  function fit(from, to, even) {
+    var sx = from.width / to.width;
+    var sy = from.height / to.height;
+    return 'translate(' + (from.left - to.left) + 'px, ' + (from.top - to.top) + 'px) scale(' + (even ? sy : sx) + ', ' + sy + ')';
+  }
+
+  function tracksFrom(bar, dropBy) {
+    // With less motion it only fades, part by part: glass under a fading parent would blur nothing.
+    if (calm()) {
+      return [els.veil, els.glass, els.hero, els.mid, els.bottom].map(function (el) { return { el: el, k: 'opacity', shut: '0', open: '1', span: [0, 1] }; });
+    }
+    var veil = { el: els.veil, k: 'opacity', shut: '0', open: '1', span: [0, 1] };
+    var sheet = box(els.sheet);
+    if (dropBy !== undefined && sheet) {
+      // Let go of, the sheet goes on down from where the finger left it, and the bar comes back.
+      return [
+        { el: els.sheet, k: 'transform', shut: 'translateY(' + Math.ceil(global.innerHeight - sheet.top + dropBy) + 'px)', open: 'translateY(' + dropBy + 'px)', span: [0, 1] },
+        veil, { el: mini, k: 'opacity', shut: '1', open: '0', span: [0, 0.6] },
+      ];
+    }
+    if (!bar || !sheet) {
+      return [veil,
+        { el: els.sheet, k: 'transform', shut: 'translateY(48px)', open: 'none', span: [0, 1], spring: true },
+        { el: els.sheet, k: 'opacity', shut: '0', open: '1', span: [0, 0.5] }];
+    }
+    var t = [veil,
+      { el: els.glass, k: 'transform', shut: fit(bar, sheet), open: 'none', span: [0, 1], spring: true },
+      { el: els.glass, k: 'opacity', shut: '0', open: '1', span: [0, 0.3], back: [0.65, 1] },
+      { el: mini, k: 'opacity', shut: '1', open: '0', span: [0, 0.3], back: [0.6, 1] }];
+    function travel(from, to, even) {
+      var a = box(from);
+      var b = box(to);
+      if (a && b) t.push({ el: to, k: 'transform', shut: fit(a, b, even), open: 'none', span: [0, 1], spring: true });
+      return a && b;
+    }
+    var shared = [];
+    var art = box(els.art);
+    var pic = box(m('.tv-mini__pic'));
+    if (travel(m('.tv-mini__pic'), els.art)) {
+      shared.push(els.art);
+      t.push({ el: $('.tv-rem__shade'), k: 'opacity', shut: '0', open: '1', span: [0.2, 1], back: [0, 0.5] });
+      // What stands on the picture rides on it, as if drawn on it, and comes in as it lands.
+      [$('.tv-rem__grab'), $('[data-close]'), els.playOn, els.subtitle].forEach(function (el) {
+        var r = box(el);
+        if (!r) return;
+        t.push({ el: el, k: 'transform', shut: fit(pic, art), open: 'none', span: [0, 1], spring: true, origin: (art.left - r.left) + 'px ' + (art.top - r.top) + 'px' });
+        t.push({ el: el, k: 'opacity', shut: '0', open: '1', span: [0.45, 1], back: [0, 0.3] });
+        shared.push(el);
+      });
+    }
+    if (travel(m('[data-mini-title]'), els.title, true)) shared.push(els.title);
+    var track = els.seek.querySelector('.player-seek-track');
+    if (travel(m('.tv-mini__bar'), track)) {
+      shared.push(track);
+      t.push({ el: els.thumb, k: 'opacity', shut: '0', open: '1', span: [0.5, 1], back: [0, 0.2] });
+    }
+    // The rest is not stretched: it comes in on the glass, rising a little.
+    [els.art, $('[data-close]'), els.playOn, els.subtitle, els.title, els.mid, els.elapsed, els.remaining, track, $('.player-controls')].forEach(function (el) {
+      if (!el || el.hidden || shared.indexOf(el) !== -1) return;
+      t.push({ el: el, k: 'opacity', shut: '0', open: '1', span: [0.3, 1], back: [0, 0.3] });
+      if (el !== track) t.push({ el: el, k: 'transform', shut: 'translateY(14px)', open: 'none', span: [0.2, 1], back: [0, 0.5], spring: true });
+    });
+    return t;
+  }
+
+  function stopMoves() {
+    moves.splice(0).forEach(function (a) {
+      a.onfinish = null;
+      a.cancel();
+      if (a.effect && a.effect.target) a.effect.target.style.transformOrigin = '';
+    });
+  }
+  /* Opens (*opening*) or closes the card, then calls *done*. */
+  function move(opening, done, opts) {
+    opts = opts || {};
+    var id = ++moveId;
+    var turned = moves.length > 0;
+    // Without animations the card still takes the time a move would.
+    if (typeof root.animate !== 'function') { setTimeout(function () { if (id === moveId) done(); }, opening ? 0 : SHRINK_MS); return; }
+    var tracks = tracksFrom(opts.bar, opts.dropBy);
+    // Where a move is turned round, each part starts from where it is now.
+    var now = turned ? tracks.map(function (tr) { return global.getComputedStyle(tr.el)[tr.k]; }) : [];
+    stopMoves();
+    var whole = calm() ? FADE_MS : opening ? GROW_MS : SHRINK_MS;
+    var left = tracks.length;
+    tracks.forEach(function (tr, i) {
+      var span = opening ? tr.span : tr.back || [1 - tr.span[1], 1 - tr.span[0]];
+      var a = {};
+      var b = {};
+      a[tr.k] = turned ? now[i] : opening ? tr.shut : tr.open;
+      b[tr.k] = opening ? tr.open : tr.shut;
+      if (tr.origin) tr.el.style.transformOrigin = tr.origin;
+      var anim = tr.el.animate([a, b], {
+        duration: whole * (span[1] - span[0]),
+        delay: whole * span[0],
+        easing: tr.spring ? (opening ? springCurve() : curve('--ease-push') || 'ease-out') : 'ease-out',
+        fill: 'both',
+      });
+      anim.onfinish = function () { if (id === moveId && --left === 0) finish(); };
+      moves.push(anim);
+    });
+    function finish() {
+      done();
+      stopMoves();
+    }
+  }
+
+  /* A sheet pulled down by a finger on its picture or title closes as it is let go far enough down,
+     or flicked; else it springs back. */
+  var pull = null;
+  function pulled(by) {
+    pull.by = by;
+    // Pulled up, it gives a little, as a rubber band.
+    var give = by < 0 ? -12 * (1 - 1 / (1 - by / 40)) : by;
+    els.sheet.style.transform = 'translateY(' + Math.round(give) + 'px)';
+    els.veil.style.opacity = String(Math.max(0, Math.min(1, 1 - by / (els.sheet.offsetHeight || 1))));
+  }
+  function letGoOf(e) {
+    if (!pull || e.pointerId !== pull.id) return;
+    var by = pull.by;
+    var fast = by > 30 && by / Math.max(1, e.timeStamp - pull.t) > FLICK_PX_MS;
+    pull = null;
+    els.sheet.style.transform = '';
+    els.veil.style.opacity = '';
+    if (!isOpen) return;
+    if (e.type === 'pointerup' && (by > PULL_PX || fast)) { close({ dropBy: Math.max(0, by) }); return; }
+    if (by && els.sheet.animate) {
+      els.sheet.animate([{ transform: 'translateY(' + Math.max(0, by) + 'px)' }, { transform: 'none' }], { duration: SHRINK_MS, easing: springCurve() });
+    }
+  }
+  els.hero.addEventListener('pointerdown', function (e) {
+    if (!isOpen || e.pointerType !== 'touch' || moves.length || (e.target.closest && e.target.closest('button'))) return;
+    pull = { id: e.pointerId, y: e.clientY, t: e.timeStamp, by: 0 };
+    if (els.hero.setPointerCapture) els.hero.setPointerCapture(e.pointerId);
+  });
+  els.hero.addEventListener('pointermove', function (e) { if (pull && e.pointerId === pull.id) pulled(e.clientY - pull.y); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (type) { els.hero.addEventListener(type, letGoOf); });
+
   /* ── opening and closing ── */
 
-  var exit = null;
+  var exit = null; // the card on its way out
   function open(which) {
     var id = typeof which === 'object' ? which.id : which;
     if (!tv || tv.id !== id) {
@@ -1651,10 +1826,12 @@
     }
     if (!play() && !gone) { sayGone('Nothing is playing on ' + name() + ' now.'); return; }
     ended = false;
-    if (!isOpen) {
+    var opening = !isOpen;
+    // Measured before this draws the bar: one that was not in sight has nothing to grow out of.
+    var bar = opening && barBox();
+    if (opening) {
       isOpen = true;
       follow();
-      if (exit) clearTimeout(exit);
       exit = null;
       sayHeld();
       root.classList.remove('is-leaving');
@@ -1666,12 +1843,15 @@
       global.ModalA11y.onOpened('tv-remote'); // before a card takes the focus, so that it goes back where it was
     }
     render();
+    if (opening) move(true, function () {}, { bar: bar });
     if (play()) tick();
   }
   function refuseOpen(err) { global.UIFeedback.error(MM.api.messageOf(err, 'That TV can’t be reached now.')); }
 
-  function close() {
+  /* opts.dropBy: how far down a finger has pulled the sheet. */
+  function close(opts) {
     if (!isOpen) return;
+    opts = opts && typeof opts === 'object' ? opts : {};
     if (chooser) chooser.close(false);
     isOpen = false;
     if (MM.playOn && MM.playOn.isOpen()) MM.playOn.close();
@@ -1686,12 +1866,14 @@
     document.documentElement.classList.remove('has-tv-remote');
     letGo();
     render();
+    var bar = barBox();
     root.classList.add('is-leaving');
     global.ModalA11y.onClosed('tv-remote');
     root.inert = true;
     // A button clicked in Safari takes no focus, so there was none to give back.
     if ((document.activeElement === document.body || root.contains(document.activeElement)) && !mini.hidden && !miniLeaving) m('[data-open]').focus({ preventScroll: true });
-    exit = setTimeout(function () { exit = null; showRemote(false); sayHeld(); }, EXIT_MS);
+    exit = true;
+    move(false, function () { exit = null; showRemote(false); sayHeld(); }, { bar: bar, dropBy: opts.dropBy });
     schedule();
   }
   global.ModalA11y.register('tv-remote', close);
