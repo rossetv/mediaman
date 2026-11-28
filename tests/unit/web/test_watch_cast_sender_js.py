@@ -656,6 +656,7 @@ def test_a_play_that_is_left_shows_at_once_with_all_a_remote_needs() -> None:
         "next": {"rating_key": "102", "label": "S1 · E5 — Windfall"},
         "upnext_in_s": None,
         "still_in_s": None,
+        "skip_in_s": None,
     }
     assert out["films"] == {
         "2021": [None, None, None],
