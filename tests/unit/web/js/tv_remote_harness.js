@@ -356,13 +356,14 @@ function moving(p) {
   p.$('#tv-mini').getBoundingClientRect = box(BAR);
   p.$('[data-sheet]').getBoundingClientRect = box(CARD);
   p.$('[data-hero]').setPointerCapture = () => {};
-  p.win.getComputedStyle = () => ({ getPropertyValue: (k) => ({ '--mini-lean': 'scale(1.016, 1.08)', '--mini-lean-part': 'scale(0.984, 0.926)' }[k] || ''), transform: 'matrix(0.5, 0, 0, 0.5, 10, 20)', opacity: '0.5' });
+  p.win.getComputedStyle = () => ({ getPropertyValue: (k) => ({ '--mini-lean': 'scale(1.016, 1.08)', '--mini-lean-part': 'scale(0.984, 0.926)' }[k] || ''), transform: 'matrix(0.5, 0, 0, 0.5, 10, 20)', opacity: '0.5', top: '300px' });
   const name = (el) => ['data-glass', 'data-veil', 'data-sheet', 'data-morph-art', 'data-title', 'data-mid', 'data-hero', 'id'].map((k) => el.hasAttribute(k) && (k === 'id' ? el.getAttribute('id') : k)).find(Boolean) || el.className;
   return {
     live: () => moves.filter((a) => !a.cancelled),
     of: (sel) => moves.filter((a) => !a.cancelled && a.el === p.$(sel)),
     moved: () => [...new Set(moves.filter((a) => !a.cancelled).map((a) => name(a.el)))],
-    props: () => [...new Set(moves.flatMap((a) => a.frames.flatMap(Object.keys)))].sort(),
+    props: (el) => [...new Set(moves.filter((a) => !el || a.el === el).flatMap((a) => a.frames.flatMap(Object.keys)))].sort(),
+    others: (el) => [...new Set(moves.filter((a) => a.el !== el).flatMap((a) => a.frames.flatMap(Object.keys)))].sort(),
     async end() { moves.filter((a) => !a.cancelled).forEach((a) => a.onfinish && a.onfinish()); await settle(); },
   };
 }
@@ -415,12 +416,15 @@ const scenarios = {
       const a = mv.of(sel).find((x) => prop in x.frames[0]);
       return [a.how.delay, a.how.delay + a.how.duration];
     };
+    const spans = () => ({
+      glass: span('[data-glass]', 'opacity'), grows: span('[data-glass]', 'height'), bar: span('#tv-mini', 'opacity'),
+      title: span('[data-title]', 'opacity'), travels: span('[data-title]', 'transform'), barTravels: span('[data-mini-title]', 'transform'),
+    });
     await p.open();
-    const open = { glass: span('[data-glass]', 'opacity'), bar: span('#tv-mini', 'opacity'), barTitle: span('[data-mini-title]', 'opacity'), title: span('[data-title]', 'opacity') };
+    const open = spans();
     await mv.end();
     await p.press('[data-close]');
-    const close = { glass: span('[data-glass]', 'opacity'), bar: span('#tv-mini', 'opacity'), barTitle: span('[data-mini-title]', 'opacity'), title: span('[data-title]', 'opacity') };
-    return { open, close };
+    return { open, close: spans() };
   },
   // A press that began on the card before it settled does nothing, however late it ends; one begun
   // after acts, and a key at once.
@@ -503,13 +507,26 @@ const scenarios = {
     out.after = bar.style.transform;
     return out;
   },
+  // The rest of the card comes in row by row once the glass is most of the way, and goes first.
+  async rows() {
+    const p = await page();
+    const mv = moving(p);
+    const at = (sel, prop) => { const a = mv.of(sel).find((x) => prop in x.frames[0]); return a && [a.how.delay, a.how.delay + a.how.duration]; };
+    const order = ['[data-mid]', '[data-elapsed]', '.player-volume', '[data-menu="quality"]', '.tv-rem__end', '[data-play]'];
+    await p.open();
+    const open = { grows: at('[data-glass]', 'height'), rows: order.map((sel) => at(sel, 'opacity')), drawn: mv.of('[data-play]').find((x) => 'opacity' in x.frames[0]).frames[1].opacity };
+    await mv.end();
+    await p.press('[data-close]');
+    return { open, close: { grows: at('[data-glass]', 'height'), glass: at('[data-glass]', 'opacity'), rows: order.map((sel) => at(sel, 'opacity')) } };
+  },
   // The card grows out of the bar: its glass from the bar's box, its picture, title and line from theirs.
   async grows() {
     const p = await page();
     const mv = moving(p);
     await p.open();
-    const glass = mv.of('[data-glass]').find((a) => 'transform' in a.frames[0]);
-    return { from: glass.frames[0].transform, to: glass.frames[1].transform, moved: mv.moved(), props: mv.props(), bar: mv.of('#tv-mini').map((a) => a.frames.map((f) => f.opacity)) };
+    const glass = p.$('[data-glass]');
+    const box = (i) => Object.assign({}, ...mv.of('[data-glass]').filter((a) => !('opacity' in a.frames[0])).map((a) => a.frames[i]));
+    return { from: box(0), to: box(1), moved: mv.moved(), glass: mv.props(glass), others: mv.others(glass), bar: mv.of('#tv-mini').map((a) => a.frames.map((f) => f.opacity)) };
   },
   // Closed, it shrinks back into the bar and is hidden only once that has ended; the bar has the focus.
   async shrinks() {
@@ -518,8 +535,8 @@ const scenarios = {
     await p.open();
     await mv.end();
     await p.press('[data-close]');
-    const glass = mv.of('[data-glass]').find((a) => 'transform' in a.frames[0]);
-    const out = { to: glass.frames[1].transform, shownMeanwhile: !p.$('#tv-remote').hidden, focus: p.doc.activeElement.hasAttribute('data-open') };
+    const to = Object.assign({}, ...mv.of('[data-glass]').filter((a) => !('opacity' in a.frames[0])).map((a) => a.frames[1]));
+    const out = { to, shownMeanwhile: !p.$('#tv-remote').hidden, focus: p.doc.activeElement.hasAttribute('data-open') };
     await mv.end();
     out.hiddenAfter = p.$('#tv-remote').hidden;
     out.left = mv.live().length;
@@ -531,8 +548,8 @@ const scenarios = {
     const mv = moving(p);
     await p.open();
     await p.press('[data-close]');
-    const glass = mv.of('[data-glass]').find((a) => 'transform' in a.frames[0]);
-    return { from: glass.frames[0].transform, to: glass.frames[1].transform };
+    const glass = mv.of('[data-glass]').find((a) => 'top' in a.frames[0]);
+    return { from: glass.frames[0].top, to: glass.frames[1].top };
   },
   // With less motion asked for, the card only fades in.
   async growsCalm() {
@@ -2001,7 +2018,7 @@ const scenarios = {
       p.win.MM.tvRemote.open(aTv({ play: null }));
       await settle();
       const early = p.toasts.length;
-      await p.pass(300);
+      await p.pass(400);
       out[still ? 'still' : 'moves'] = { early, toasts: p.toasts, over: p.overRemote };
     }
     return out;

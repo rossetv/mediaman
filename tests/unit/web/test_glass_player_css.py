@@ -514,6 +514,19 @@ def test_over_a_title_the_remote_and_the_title_s_sheet_are_the_only_layers(media
     # The title's dim lies under its sheet, beside the title, and stays drawn under the remote.
     assert "backdrop-filter: var(--g-dim-blur)" in text("_watch_detail.css")
     assert style("html.has-tv-rem", REMOTE, media)["--g-dim-blur"] == "none"
+    # Nor does the remote's own veil blur the page under it there.
+    assert style("html.has-ttl .tv-rem__veil", REMOTE, media)["backdrop-filter"] == "none"
+
+
+def test_the_card_s_spring_runs_a_little_past_and_settles_with_no_second_wobble() -> None:
+    curve = style(".tv-rem", REMOTE)["--rem-spring"]
+    points = [float(x) for x in re.fullmatch(r"linear\((.*)\)", curve)[1].split(",")]
+    peak = points.index(max(points))
+    assert points[0] == 0 and points[-1] == 1
+    assert 1.01 <= points[peak] <= 1.05
+    # Up to the peak and down from it, never back under where it ends.
+    assert points[: peak + 1] == sorted(points[: peak + 1])
+    assert points[peak:] == sorted(points[peak:], reverse=True)
 
 
 def test_words_on_the_remote_s_picture_keep_4_5_to_1_over_a_white_frame() -> None:

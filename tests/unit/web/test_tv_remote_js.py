@@ -836,22 +836,26 @@ def test_a_tv_that_cannot_start_a_file_plex_cannot_play_offers_no_try_again() ->
 
 
 # The bar's box and the card's, as the harness lays them out.
-BAR_TO_CARD = "translate(-110px, 608px) scale(1.4074074074074074, 0.09253731343283582)"
+# The bar on a laptop (left 340, top 822, 760 x 62) as it stands in the card (450, 214, 540 x 670).
+ON_BAR = {"top": "608px", "left": "-110px", "width": "760px", "height": "62px"}
 
 
-def test_the_card_grows_out_of_the_bar_moving_only_transform_and_opacity() -> None:
+def test_the_card_grows_out_of_the_bar_its_glass_alone_laid_out_as_it_goes() -> None:
     out = _run("grows")
-    assert out["from"] == BAR_TO_CARD and out["to"] == "none"
+    assert out["from"] == ON_BAR
+    assert out["to"] == {"top": "0px", "left": "0px", "width": "540px", "height": "670px"}
     # The picture, title and line travel from the bar's; the bar itself fades as the card grows.
     for part in ("data-morph-art", "data-title", "player-seek-track", "data-veil"):
         assert part in out["moved"], part
     assert out["bar"] == [["1", "0"]]
-    assert out["props"] == ["opacity", "transform"]
+    # The glass holds nothing, so its box can move; all else moves by transform and opacity alone.
+    assert out["glass"] == ["height", "left", "opacity", "top", "width"]
+    assert out["others"] == ["opacity", "transform"]
 
 
 def test_a_closed_card_shrinks_into_the_bar_and_is_hidden_only_once_it_has() -> None:
     assert _run("shrinks") == {
-        "to": BAR_TO_CARD,
+        "to": ON_BAR,
         "shownMeanwhile": True,
         "focus": True,
         "hiddenAfter": True,
@@ -860,7 +864,7 @@ def test_a_closed_card_shrinks_into_the_bar_and_is_hidden_only_once_it_has() -> 
 
 
 def test_a_card_closed_as_it_opens_turns_round_from_where_it_is() -> None:
-    assert _run("turnsRound") == {"from": "matrix(0.5, 0, 0, 0.5, 10, 20)", "to": BAR_TO_CARD}
+    assert _run("turnsRound") == {"from": "300px", "to": ON_BAR["top"]}
 
 
 def test_with_less_motion_the_card_only_fades() -> None:
@@ -934,17 +938,33 @@ def test_opened_from_the_lean_the_bar_is_held_there_until_the_card_is_back_in_it
 def test_the_glass_is_drawn_before_the_bar_goes_and_one_title_is_always_there() -> None:
     out = _run("spans")
     opening, closing = out["open"], out["close"]
-    # Opening: the glass is whole before the bar starts to fade; the bar's title is gone before
-    # the card's comes, as their letters differ.
+    # Opening: the glass is whole before the bar starts to fade, and the bar's title goes along with
+    # the card's as the card's comes, so the one fades into the other in one place.
     assert opening["glass"][1] <= opening["bar"][0]
-    assert opening["barTitle"][1] <= opening["title"][0]
-    # Closing: the bar comes back before the glass goes. "Glass Orchard" and the bar's
-    # "Glass Orchard · S1 E4" would show through each other: the card's goes first.
+    assert opening["barTravels"] == opening["travels"]
+    assert opening["title"][0] == 0 and opening["title"][1] <= opening["bar"][1]
+    # Closing: all is home, or nearly, before the bar comes back; the bar is back before the glass
+    # goes, and the card's title goes as the bar's comes, so a title is always there.
+    assert closing["barTravels"] == closing["travels"]
+    assert closing["bar"][0] < closing["travels"][1] <= closing["glass"][1]
     assert closing["bar"][0] < closing["glass"][0]
-    assert closing["title"][1] <= closing["barTitle"][0]
-    # A film's title is the same on both, and they cross, so a title is always there.
+    assert closing["bar"][0] < closing["title"][1] and closing["title"][0] < closing["bar"][1]
     film = _run("spans", "film")["close"]
-    assert film["barTitle"][0] < film["title"][1] and film["title"][0] < film["barTitle"][1]
+    assert film["bar"][0] < film["title"][1] and film["title"][0] < film["bar"][1]
+
+
+def test_the_rest_comes_in_row_by_row_once_the_glass_is_most_of_the_way_and_goes_first() -> None:
+    out = _run("rows")
+    opening, closing = out["open"], out["close"]
+    starts = [row[0] for row in opening["rows"]]
+    # Top to bottom, each after the last, none before a quarter of the glass's own growing.
+    assert starts == sorted(set(starts))
+    assert starts[0] >= opening["grows"][1] / 4
+    # Each comes in to how the page draws it (here half-faint), never to full and then back.
+    assert opening["drawn"] == "0.5"
+    # Closing, every row is gone within the first eighth of the glass's going, long before it fades.
+    assert all(row[1] <= closing["grows"][1] / 8 for row in closing["rows"])
+    assert max(row[1] for row in closing["rows"]) < closing["glass"][0]
 
 
 def test_a_click_with_no_press_before_it_acts_once_the_card_has_settled() -> None:
