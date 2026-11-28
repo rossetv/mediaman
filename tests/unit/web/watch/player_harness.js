@@ -4693,6 +4693,20 @@ const scenarios = {
     return out;
   },
 
+  /* The countdown's card holds the focus on Cancel; Enter there stays, or Play now is clicked. */
+  async upnext_default(p) {
+    const how = p.win.serverPlays;
+    await streamPlays(p, 0);
+    endsNow(p);
+    const card = p.q('[data-upnext]');
+    const out = { focused: doc.activeElement === p.q('[data-upnext-cancel]') };
+    if (how === 'enter') key('Enter');
+    if (how === 'click') click(p.q('[data-upnext-play]'));
+    p.tick(how === 'wait' ? 0 : 12000);
+    await settle();
+    return Object.assign(out, { open: !gone(card), went: p.calls.some((c) => c.page) });
+  },
+
   /* On a touch screen, until a key is pressed. */
   async upnext_spoken_touch(p) {
     const status = p.q('[data-upnext-status]');

@@ -98,7 +98,7 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .sk.on { opacity: 1; -webkit-transform: none; transform: none; }
 .sk .i { fill: #2997ff; }
 /* White: over a white frame the note's box is #666, where blue would not show. */
-.sk .dr { display: block; height: 4px; margin-top: 10px; border-radius: 2px; background: #fff; -webkit-transform-origin: 0 0; transform-origin: 0 0; -webkit-animation: dr linear forwards; animation: dr linear forwards; }
+.sk .dr, .up .dr { display: block; height: 4px; margin-top: 10px; border-radius: 2px; background: #fff; -webkit-transform-origin: 0 0; transform-origin: 0 0; -webkit-animation: dr linear forwards; animation: dr linear forwards; }
 @-webkit-keyframes dr { from { -webkit-transform: scaleX(1); } to { -webkit-transform: scaleX(0); } }
 @keyframes dr { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -138,7 +138,7 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .who { line-height: 68px; color: #dedee0; }
 @media (prefers-reduced-motion: reduce) {
   .b, .ov, .sk, body:after, .dim:after { transition: none; }
-  .sk .dr { display: none; -webkit-animation: none; animation: none; }
+  .sk .dr, .up .dr { display: none; -webkit-animation: none; animation: none; }
   .in > div, #o > div { -webkit-animation: none; animation: none; }
   .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
   #o { display: none; }

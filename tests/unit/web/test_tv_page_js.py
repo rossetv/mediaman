@@ -436,13 +436,37 @@ def test_a_key_first_brings_the_controls_back_and_then_works_them() -> None:
 def test_the_next_episode_is_asked_for_when_the_countdown_has_run_out() -> None:
     out = _run("upnext")
     assert out["reported"] == ["ended", 2880]
-    assert "E5" in out["said"] and "Next episode in 7 s" in out["said"]
+    assert "E5" in out["said"] and out["said"].endswith("|7")
     assert out["asks"] == [{"play_id": "p1", "what": "auto"}]
+
+
+def test_the_countdown_to_the_next_episode_has_cancel_first_and_focused() -> None:
+    out = _run("upnextKeys", "wait")
+    assert out["focused"] == "b0" and out["line"].endswith("Cancel Play now")
+    assert out["asks"] == ["auto"]
+
+
+@pytest.mark.parametrize(("how", "asked"), [("ok", "cancel"), ("back", "cancel"), ("right", "next")])
+def test_ok_and_back_cancel_the_countdown_and_play_now_is_a_move_away(how: str, asked: str) -> None:
+    assert _run("upnextKeys", how)["asks"] == [asked]
+
+
+def test_the_countdown_says_press_to_cancel_once_and_ticks_only_its_number() -> None:
+    out = _run("upnextKeys", "wait")
+    assert "Next episode in 9 · Press to cancel" in out["line"].replace("&middot;", "·")
+    assert "Next episode in 9 seconds. Press to cancel." in out["line"]
+    assert (out["written"], out["count"], out["drain"]) == (0, "7", "9s")
+
+
+def test_the_countdowns_bar_does_not_drain_under_reduced_motion() -> None:
+    css = (STATIC / "css/tv.css").read_text()
+    reduced = css[css.index("prefers-reduced-motion") :]
+    assert re.search(r"\.up \.dr[^{]*\{[^}]*display: none", reduced)
 
 
 def test_with_no_countdown_only_a_key_starts_the_next_episode_and_only_once() -> None:
     out = _run("noCountdown")
-    assert out["said"] == "Next episode"
+    assert "Next episode" in out["said"] and "cancel" not in out["said"]
     assert out["asks"] == [{"play_id": "p1", "what": "next"}]
 
 

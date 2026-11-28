@@ -1207,7 +1207,7 @@ def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
     out = run(markup, "upnext_spoken")
     # In full screen the browser keeps Escape for itself.
     said = (
-        "Next episode in 10 seconds: S2 · E5 — High Tide. S plays it now; Space or Escape cancels."
+        "Next episode in 10 seconds: S2 · E5 — High Tide. Enter or Escape cancels; S plays it now."
     )
     assert (out["polite"], out["before"], out["cancelled"]) == ("status", "", "")
     assert (out["counting"], out["later"], out["again"]) == (said, said, said)
@@ -1215,10 +1215,19 @@ def test_the_card_is_said_once_and_its_countdown_never_ticks_aloud(markup):
     assert out["still"] == "Next episode: S2 · E5 — High Tide"
 
 
+@pytest.mark.parametrize(("how", "went"), [("enter", False), ("click", True)])
+def test_the_countdowns_card_has_cancel_focused_so_enter_stays_and_play_now_still_plays(
+    markup, season, how, went
+):
+    out = run(markup, "upnext_default", plays=how, pages=season)
+    assert out["focused"] is True
+    assert (out["open"], out["went"]) == (False, went)
+
+
 def test_on_a_touch_screen_the_card_names_no_keys_until_one_is_pressed(markup):
     out = run(markup, "upnext_spoken_touch")
     assert out["touch"] == "Next episode in 10 seconds: S2 · E5 — High Tide. Tap Cancel to stay."
-    assert out["keyed"].endswith("S plays it now; Space or Escape cancels.")
+    assert out["keyed"].endswith("Enter or Escape cancels; S plays it now.")
 
 
 def test_autoplay_off_shows_the_next_episode_and_waits(markup):

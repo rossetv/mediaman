@@ -3209,11 +3209,13 @@
     showSkip();
     els.upnextStatus.textContent = counts
       ? 'Next episode in ' + COUNTDOWN_S + ' seconds: ' + next.label + '. ' +
-        (keysUsed || finePointer.matches ? 'S plays it now; Space or Escape cancels.' : creditsPlayOn() ? 'Tap Watch credits to keep watching.' : 'Tap Cancel to stay.')
+        (keysUsed || finePointer.matches ? 'Enter or Escape cancels; S plays it now.' : creditsPlayOn() ? 'Tap Watch credits to keep watching.' : 'Tap Cancel to stay.')
       : 'Next episode: ' + next.label;
     paintAway();
     showControls();
     if (!counts) return;
+    // Whoever wants the next episode need only wait: a press is for staying.
+    if (!(els.rate && els.rate.contains(document.activeElement))) els.upnextCancel.focus({ preventScroll: true });
     var until = Date.now() + COUNTDOWN_S * 1000;
     var count = function () {
       var left = Math.max(0, Math.ceil((until - Date.now()) / 1000));

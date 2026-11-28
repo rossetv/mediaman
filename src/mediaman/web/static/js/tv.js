@@ -952,7 +952,7 @@
     }
     if (play && play.state === 'upnext' && endsAt && asked !== play.play_id) {
       if (at >= endsAt && at >= autoAt) ask('auto');
-      else put('in', nextLine());
+      else put('inn', String(nextLeft()));
     }
     if (play) bar();
     if ((stalled || reloadDue) && which() !== shown) show();
@@ -1164,8 +1164,18 @@
     var left = clock((pending.until - now()) / 1000);
     return pending.ranOut ? 'The last code ran out. This one works for ' + left + '.' : 'This code works for ' + left + '.';
   }
+  function nextLeft() { return Math.max(0, Math.ceil((endsAt - now()) / 1000)); }
+  /* As the skip's count is: drawn once, so that a reader says it once; only its number ticks. */
+  var upLine = { of: '', html: '' };
   function nextLine() {
-    return endsAt ? 'Next episode in ' + Math.max(0, Math.ceil((endsAt - now()) / 1000)) + ' s' : 'Next episode';
+    if (!endsAt) return 'Next episode';
+    var of = play.play_id + ' ' + play.state;
+    if (upLine.of !== of) {
+      var n = nextLeft();
+      upLine = { of: of, html: '<span aria-hidden="true">Next episode in <span id="inn">' + n + '</span> &middot; Press to cancel</span>' +
+        '<span class="sr">Next episode in ' + n + (n === 1 ? ' second' : ' seconds') + '. Press to cancel.</span><i class="dr" id="ndr"></i>', left: n };
+    }
+    return upLine.html;
   }
   function marks() {
     var total = play.duration_s, at = [], left = [], i;
@@ -1265,8 +1275,9 @@
     },
     next: function () {
       var after = play.next || {};
-      return art() + '<div class="up"><div class="t2" id="in"></div><div class="t1">' + (episode(after, after.title) || esc(play.title)) + '</div>' +
-        (askNote && '<div class="t2">' + askNote + '</div>') + offer([['Play now', 'k'], ['Cancel', 'c']]) + '</div>';
+      // Cancel comes first and has the focus: whoever wants the next episode need only wait.
+      return art() + '<div class="up"><div class="t2" id="in">' + nextLine() + '</div><div class="t1">' + (episode(after, after.title) || esc(play.title)) + '</div>' +
+        (askNote && '<div class="t2">' + askNote + '</div>') + offer([['Cancel', 'c'], ['Play now', 'k']]) + '</div>';
     },
     still: function () {
       var minutes = Math.max(1, Math.ceil((play.still_in_s || 0) / 60));
@@ -1310,7 +1321,8 @@
     var name = which();
     var html = PAGES[name]();
     if (html !== drawn) {
-      var kept = name === shown ? focus : FOCUS[name] || 0;
+      // With no countdown, nothing comes by itself: Play now is the press to make.
+      var kept = name === shown ? focus : name === 'next' && !endsAt ? 1 : FOCUS[name] || 0;
       // The overlay of a film that pauses or plays on is the same place.
       if (FOCUS[name] && FOCUS[shown]) kept = focus;
       swap(name !== shown && !(FOCUS[name] && FOCUS[shown]));
@@ -1320,6 +1332,7 @@
       dressed = '';
       focus = Math.min(kept, Math.max(0, buttons.length - 1));
       paint();
+      if (name === 'next') drain();
     }
     if (name !== shown) {
       shown = name;
@@ -1327,8 +1340,14 @@
       if (name === 'play' || name === 'pause') wake();
     }
     if (pending) put('cd', codeLine());
-    if (play) { put('in', nextLine()); bar(); dress(); }
+    if (play) { if (endsAt) put('inn', String(nextLeft())); bar(); dress(); }
     hush();
+  }
+
+  /* The countdown's bar runs down over what is left of it as it is drawn. */
+  function drain() {
+    var node = document.getElementById('ndr');
+    if (node) node.style.webkitAnimationDuration = node.style.animationDuration = upLine.left + 's';
   }
 
   /* The page before fades out under the new one, which fades in. */

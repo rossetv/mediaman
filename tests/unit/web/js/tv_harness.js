@@ -1365,16 +1365,35 @@ const scenarios = {
     let left = 10;
     t.answers.poll = () => ready({ play: film({ state: 'upnext', url: null, upnext_in_s: (left = Math.max(0, left - 1)), next: { season: 1, episode: 5, title: 'Windfall' } }) });
     await t.step(2200);
-    const said = t.says() + '|' + t.text('in');
+    const said = t.says() + '|' + t.text('inn');
     t.answers.ask = [409, { ok: false, error: 'no_next' }];
     await t.step(11000);
     return { reported: [reported.state, reported.position_s], said, asks: t.paths('ask').map((c) => c.body) };
+  },
+  // The countdown to the next episode, answered by `how`: nothing, OK, Back, or OK on Play now.
+  async upnextKeys(how) {
+    const t = await playing();
+    let left = 10;
+    t.answers.poll = () => ready({ play: film({ state: 'upnext', url: null, upnext_in_s: (left = Math.max(0, left - 1)), next: { season: 1, episode: 5, title: 'Windfall' } }) });
+    const written = [];
+    await t.step(1100);
+    const line = t.node('in');
+    let html = line.innerHTML;
+    Object.defineProperty(line, 'innerHTML', { get: () => html, set(v) { html = v; written.push(v); } });
+    await t.step(2000);
+    const out = { focused: t.held(), line: t.says(), drain: (t.style('ndr') || {}).animationDuration, count: t.text('inn') };
+    t.answers.ask = { ok: true };
+    if (how === 'ok') t.key(OK);
+    if (how === 'back') t.key(BACK);
+    if (how === 'right') { t.key(RIGHT); t.key(OK); }
+    await t.step(how === 'wait' ? 11000 : 100);
+    return Object.assign(out, { written: written.length, asks: t.paths('ask').map((c) => c.body.what) });
   },
   async noCountdown() {
     const t = await playing();
     t.now = film({ state: 'upnext', url: null, next: { season: null, episode: null, title: null } });
     await t.step(30000);
-    const said = t.text('in');
+    const said = t.says();
     t.answers.ask = { ok: true };
     t.key(OK); t.key(OK);
     await t.step(500);
