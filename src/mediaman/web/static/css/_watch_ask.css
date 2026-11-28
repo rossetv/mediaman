@@ -47,14 +47,14 @@
 /* What a begun one has left stays whole, on the one line: the episode's number gives way first. */
 .tn__card .watch-card__sub:has(> .watch-card__left) { flex-wrap: nowrap; }
 .tn__card .watch-card__sub > :is(.watch-card__tail, .watch-card__left) { flex: none; }
-:is(.tn, .ask) .watch-card__link.is-picked > .watch-card__poster { outline: 2px solid var(--accent); outline-offset: 2px; }
+:is(.tn, .ask) .watch-card__link.is-picked > .watch-card__poster { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .tn__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0 4px; font-size: 13px; color: var(--t3); }
 /* What clips the list cuts whatever reaches out of its line. */
 .tn__foot > .txt { align-self: stretch; }
 .tn__foot > .txt::after { inset: 0 -8px; }
 .tn__none { padding: 16px 4px 2px; font-size: 14px; line-height: 1.45; color: var(--t2); }
 .tn__none > button { margin-top: 10px; }
-:is(.tn__seg > button, .txt, .tn__none > .chip).is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+:is(.tn__seg > button, .txt, .tn__none > .chip).is-picked { outline: 2px solid var(--g-focus); outline-offset: -2px; }
 .txt.is-picked { outline-offset: 4px; }
 @keyframes watch-ask-rise { from { opacity: 0; transform: translateY(10px); } }
 
@@ -66,7 +66,7 @@
 /* The title all that is typed names, before what the AI makes of it. */
 .ask-top { display: flex; align-items: center; gap: 16px; max-width: 640px; padding: 10px 16px 10px 10px; border-radius: var(--r-lg); background: var(--s1); color: inherit; text-decoration: none; transition: background-color var(--dur-fast) var(--ease-out); animation: watch-ask-rise var(--dur-slow) var(--ease-out) backwards; }
 .ask-top:is(:hover, .is-picked) { background: var(--s3); }
-.ask-top.is-picked { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+.ask-top.is-picked { outline: 1.5px solid var(--g-focus); outline-offset: -1.5px; }
 .ask-top > .watch-mini { flex: none; width: 64px; height: 96px; border-radius: var(--r-sm); }
 .ask-top__words { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
 .ask-top__words > small { font-size: 12.5px; font-weight: 600; color: var(--t3); }
@@ -136,7 +136,7 @@
 a.chip { text-decoration: none; }
 .chip:hover { background: var(--s4); color: var(--t1); }
 .chip:active { transform: scale(.97); }
-.chip.is-picked { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chip.is-picked { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .chip[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--rgba-accent-bg); color: var(--t1); }
 .chip > .ico { font-size: 12px; color: var(--t3); }
 .chip[aria-pressed="true"] > .ico { color: var(--accent-text); }

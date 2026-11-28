@@ -61,7 +61,7 @@
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out);
 }
-.coll-item:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.coll-item:has(input:focus-visible) { outline: 2px solid var(--g-focus); outline-offset: -2px; }
 .coll-item input {
   appearance: none;
   -webkit-appearance: none;

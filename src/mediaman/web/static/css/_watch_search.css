@@ -360,7 +360,7 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
 .watch-tile:active,
 .watch-try:active { transform: scale(.97); }
 .watch-tile.is-picked,
-.watch-try.is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+.watch-try.is-picked { outline: 2px solid var(--g-focus); outline-offset: -2px; }
 .watch-tries { display: flex; flex-wrap: wrap; gap: 8px; }
 .watch-try { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px 0 13px; border-radius: 22px; background: var(--s3); color: var(--t2); font-size: 14px; transition: transform var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .watch-try > .ico { font-size: 13px; color: var(--t3); }
@@ -374,7 +374,7 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
 .watch-person:is(:hover, .is-picked) { color: var(--t1); }
 .watch-person:is(:hover, .is-picked) .watch-face { transform: scale(1.07); }
 .watch-person:active .watch-face { transform: scale(.97); }
-.watch-person.is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+.watch-person.is-picked { outline: 2px solid var(--g-focus); outline-offset: -2px; }
 .watch-tile--skel { height: 56px; border-radius: var(--r-lg); }
 .watch-person--skel .skel--line { width: 70%; height: 10px; margin: 2.5px 0; }
 .watch-person--skel .skel--line:last-child { width: 40%; margin: 4px 0 1.75px; }
@@ -402,7 +402,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 
 .watch-suggestions { position: relative; display: flex; flex-direction: column; margin: 0 -10px; }
 /* One highlight, which glides from row to row. */
-.watch-suggestions__bar { position: absolute; left: 0; right: 0; top: 0; height: 56px; border-radius: var(--r-lg); background: var(--s3); outline: 1.5px solid var(--accent); outline-offset: -1.5px; opacity: 0; pointer-events: none; transition: transform var(--dur) var(--ease-spring), opacity var(--dur-fast) var(--ease-out); }
+.watch-suggestions__bar { position: absolute; left: 0; right: 0; top: 0; height: 56px; border-radius: var(--r-lg); background: var(--s3); outline: 1.5px solid var(--g-focus); outline-offset: -1.5px; opacity: 0; pointer-events: none; transition: transform var(--dur) var(--ease-spring), opacity var(--dur-fast) var(--ease-out); }
 .watch-suggestions__bar.is-on { opacity: 1; }
 .watch-suggestion { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; height: 56px; padding: 0 10px; border-radius: var(--r-lg); color: inherit; text-align: left; }
 .watch-suggestion::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--rgba-overlay-sm); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
@@ -445,7 +445,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   .watch-suggestion .watch-face { width: 38px; height: 38px; }
   .watch-suggestion__tag { border-radius: 50%; }
   .watch-suggestion__text b { font-size: 14px; }
-  .watch-suggestion.is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .watch-suggestion.is-picked { outline: 2px solid var(--g-focus); outline-offset: -2px; }
 }
 /* Found alone, the people are the results: large, above the line that no title matches. */
 .results-page--results.is-people { grid-template-columns: minmax(0, 1fr); gap: 20px; }
@@ -458,7 +458,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .is-people .watch-suggestion--person small { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; margin-top: 4px; font-size: 14px; line-height: 1.35; white-space: normal; color: var(--t2); }
 .is-people .watch-suggestion > .watch-suggestion__go { display: block; }
 .is-people .watch-suggestions__bar { display: none; }
-.is-people .watch-suggestion.is-picked { background: var(--s3); outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+.is-people .watch-suggestion.is-picked { background: var(--s3); outline: 1.5px solid var(--g-focus); outline-offset: -1.5px; }
 .is-people .results-none { color: var(--t3); }
 
 .results-grid { align-content: start; }
@@ -487,7 +487,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 /* On the plain row the scores need none of the shade that lifts them off a poster, and sit a step under the title. */
 .results-dl__text > .watch-card__scores { flex: none; margin-bottom: 4px; color: var(--t2); font-weight: 600; text-shadow: none; }
 .results-dl__text .watch-score > .ico { filter: none; }
-.results-dl:focus-visible { background: var(--s3); outline: 2px solid var(--accent); outline-offset: -2px; }
+.results-dl:focus-visible { background: var(--s3); outline: 2px solid var(--g-focus); outline-offset: -2px; }
 .results-dl:active { background: var(--s3); }
 @media (hover: hover) { .results-dl:hover { background: var(--s3); } }
 
@@ -669,7 +669,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 }
 .watch-search.is-ai .watch-search__ai { max-width: 120px; margin: 0; padding: 0 11px 0 10px; opacity: 1; visibility: visible; transform: none; pointer-events: auto; transition-delay: 0s; }
 .watch-search.is-ai .watch-search__ai:hover { filter: brightness(1.15); }
-.watch-search.is-ai .watch-search__ai:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.watch-search.is-ai .watch-search__ai:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .watch-search.is-ai .watch-search__ai.is-twinkle > .ico { --ai-twinkle-lg: ai-twinkle-big .9s ease-in-out 1; --ai-twinkle-sm: ai-twinkle-small .9s ease-in-out 1; }
 /* Thinking: its stars twinkle in turn, and no key is to be pressed. */
 .watch-search .watch-search__ai.is-thinking { cursor: default; }
@@ -681,7 +681,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 .watch-search.is-ai-plain .watch-search__ai { max-width: 120px; margin: 0; padding: 0 11px 0 10px; background: var(--s3); color: var(--t2); opacity: 1; visibility: visible; transform: none; pointer-events: auto; transition-delay: 0s; }
 .watch-search.is-ai-plain .watch-search__ai > kbd { display: none; }
 .watch-search.is-ai-plain .watch-search__ai:hover { background: var(--s4); color: var(--t1); }
-.watch-search.is-ai-plain .watch-search__ai:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.watch-search.is-ai-plain .watch-search__ai:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 /* On a phone, upright or on its side, the pill is its sparkle alone: the words typed keep the room.
    Its name is read out from its aria-label. */
 @media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {

@@ -85,7 +85,7 @@
   border: 1px solid var(--hair);
   pointer-events: none;
 }
-.dw__link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dw__link:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .dw__link:active { transform: scale(.985); }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .dw__link:hover:not(:active) { transform: scale(1.015); box-shadow: var(--shadow-card); }

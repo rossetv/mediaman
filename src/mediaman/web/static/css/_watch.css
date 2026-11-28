@@ -22,7 +22,7 @@
 .watch-pill:focus-visible,
 .watch-back:focus-visible,
 .watch-card__link:focus-visible,
-.watch-ep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.watch-ep:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .watch-btn--play .ico { font-size: 13px; }
 
 .watch-actions { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
@@ -96,7 +96,7 @@
   height: 44px;
   border-radius: 50%;
 }
-.watch-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
+.watch-search__clear:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -6px; }
 
 /* Dividers between groups of rows ("Discover", "Your library"). */
 .watch-group-label {
@@ -319,7 +319,7 @@
 }
 .watch-row__scroll::-webkit-scrollbar { display: none; }
 /* The fades would hide the focus ring's ends, so a focused row drops them. */
-.watch-row__scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-md); -webkit-mask-image: none; mask-image: none; }
+.watch-row__scroll:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; border-radius: var(--r-md); -webkit-mask-image: none; mask-image: none; }
 .has-prev > .watch-row__scroll { --watch-fade-l: var(--pad); }
 .has-next > .watch-row__scroll { --watch-fade-r: var(--pad); }
 .watch-row__scroll > .watch-card { flex: 0 0 var(--watch-card-w); scroll-snap-align: start; }
@@ -618,7 +618,7 @@
 .watch-mark[aria-pressed="true"]::before { background: color-mix(in srgb, var(--t1) 60%, transparent); border-color: transparent; }
 .watch-mark[aria-pressed="true"]:hover::before { background: color-mix(in srgb, var(--t1) 76%, transparent); }
 .watch-mark:active::before { transform: scale(.94); }
-.watch-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: var(--r-pill); }
+.watch-mark:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -4px; border-radius: var(--r-pill); }
 .watch-mark[aria-busy="true"],
 .watch-mark-btn[aria-busy="true"] { opacity: .55; cursor: progress; }
 
@@ -659,7 +659,7 @@
 }
 .watch-keep::after { content: ""; position: absolute; inset: -6px -4px; }
 .watch-keep:hover::before { background: color-mix(in srgb, var(--success) 22%, transparent); }
-.watch-keep:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.watch-keep:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .watch-keep__chev { font-size: 9px; transition: transform var(--dur-fast) var(--ease-out); }
 .watch-keep[aria-expanded="true"] .watch-keep__chev { transform: rotate(180deg); }
 .watch-keep[disabled],

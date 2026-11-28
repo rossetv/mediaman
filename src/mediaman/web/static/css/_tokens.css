@@ -24,7 +24,7 @@
   /* Accents — interactive only.
      Note: the Apple design language names Apple Blue (#0071e3) the "accent" and Bright Blue
      (#2997ff) the "link" colour. Mediaman's tokens flip those names — `--accent`
-     is the dark-bg link blue (#2997ff) and `--accent-cta` is the CTA / focus blue
+     is the dark-bg link blue (#2997ff) and `--accent-cta` is the CTA blue
      (#0071e3). Renaming the tokens would cascade through every CSS file and
      template; the inversion is intentional and documented here. */
   --accent:     #2997ff;
@@ -219,7 +219,7 @@
   --g-accent-text: #a6d2ff;
   --g-accent:    color-mix(in srgb, var(--g-accent-text) 70%, var(--accent));
   --g-danger-text: #ffc2bc;
-  /* The keyboard's ring where it lies on glass: the page's blue is near the glass's own tone there. */
+  /* The keyboard's ring, on glass and on the page: the page's blues are near the glass's own tone. */
   --g-focus:     var(--g-accent-text);
   /* Under a layer that only blurs the glass it lies on (a stuck head): nothing, as long as glass is
      drawn; where it is not, the glass's own fill, so what passes under is still covered. */

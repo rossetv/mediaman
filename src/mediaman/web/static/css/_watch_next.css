@@ -14,7 +14,7 @@
 }
 /* A finger's target is taller than the pill. */
 .wn__filter .fpill::before { content: ""; position: absolute; inset: -10px -1px; }
-.wn__filter .fpill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wn__filter .fpill:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .wn__note { margin: 10px var(--pad) 0; font-size: 13px; color: var(--t3); text-wrap: pretty; }
 .wn__body { padding: 18px var(--pad) 0; }
 /* What a switch of the filter replaces dims, once the wait is long enough to notice. */
@@ -94,7 +94,7 @@
 .wn-top.is-on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 .wn-top:hover { background: color-mix(in srgb, var(--s4) 88%, transparent); }
 .wn-top:active { transform: translate(-50%, 0) scale(.96); }
-.wn-top:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.wn-top:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 3px; }
 @media (max-width: 599.98px) { .wn-top { height: 44px; padding: 0 18px 0 15px; } }
 @media (prefers-reduced-motion: reduce) {
   .wn-top, .wn-top.is-on, .wn-top:active { transform: translate(-50%, 0); }
