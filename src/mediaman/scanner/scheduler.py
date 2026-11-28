@@ -13,7 +13,7 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -53,6 +53,8 @@ _scheduler_connections_lock = threading.Lock()
 # routine restart, so a planned deploy never silently loses work; the
 # operator has to be down for >60 minutes before a fire is dropped.
 _DEFAULT_MISFIRE_GRACE_SECONDS = 3600
+# How soon after a start the hourly searches and import mends first run.
+_FIRST_SEARCHES_AFTER = timedelta(minutes=2)
 
 
 def _track_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
@@ -242,6 +244,8 @@ def _register_maintenance_jobs(
         max_instances=1,
         coalesce=True,
         misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        # Soon after a start, not an hour on: a deploy must not hold back stuck imports' mends.
+        next_run_time=datetime.now(UTC) + _FIRST_SEARCHES_AFTER,
     )
     scheduler.add_job(
         lambda: fill_title_meta(

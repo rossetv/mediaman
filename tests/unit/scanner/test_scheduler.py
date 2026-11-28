@@ -469,3 +469,20 @@ def test_the_ratings_warm_runs_with_a_job_connection_while_the_scheduler_runs(mo
     job.func()
 
     assert runs == [(conn, False), (conn, True)]
+
+
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
+def test_the_hourly_searches_first_run_minutes_after_a_start_not_an_hour(mock_cls):
+    from datetime import UTC, datetime, timedelta
+
+    mock_instance = MagicMock()
+    mock_cls.return_value = mock_instance
+    start_scheduler(scan_fn=lambda: None, secret_key="test")
+    (call,) = [
+        c
+        for c in mock_instance.add_job.call_args_list
+        if c.kwargs.get("id") == "trigger_pending_searches"
+    ]
+    first = call.kwargs["next_run_time"] - datetime.now(UTC)
+    assert timedelta(minutes=1) < first <= timedelta(minutes=3)
+    assert call.kwargs["max_instances"] == 1 and call.kwargs["coalesce"] is True
