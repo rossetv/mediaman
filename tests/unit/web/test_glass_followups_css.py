@@ -79,6 +79,29 @@ def test_a_grid_s_stuck_head_rings_only_in_the_glass_s_ring(
     assert seen >= len(head)
 
 
+def test_every_ring_in_a_grid_s_glass_layer_is_the_glass_s_ring() -> None:
+    # The layers set --accent to the glass's blue for fills; a ring in it is a second blue.
+    # The home page's "All n titles" link lies on the page, not on a layer.
+    seen = 0
+    for sheet in ("_watch_grid.css", "_watch_dlgrid.css"):
+        for where, sels, decls in rules(sheet):
+            if any("forced-colors" in w for w in where):
+                continue
+            ringed = [s for s in sels if ":focus-visible" in s and ".watch-all-link" not in s]
+            if not ringed:
+                continue
+            for prop in ("outline", "outline-color", "box-shadow"):
+                value = decls.get(prop, "none")
+                if value == "none":
+                    continue
+                if prop == "box-shadow" and not re.search(r"0 0 0 \d+px", value):
+                    continue
+                seen += 1
+                assert "var(--g-focus)" in value, (sheet, ringed, prop, value)
+                assert not re.search(r"var\(--(g-)?accent\)", value), (sheet, ringed, prop, value)
+    assert seen >= 8
+
+
 def test_a_rows_menu_ticks_in_a_blue_that_keeps_4_5_to_1_on_its_glass() -> None:
     tick = style(".rec-menu .watch-keep-menu__item > .ico", "_watch_browse.css")["color"]
     assert _on_glass(tick, style(".watch-keep-menu", KEEP)) >= 4.5

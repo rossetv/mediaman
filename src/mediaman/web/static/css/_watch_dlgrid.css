@@ -150,13 +150,13 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
   .dwx--small:has([data-title-ref]):hover .dwx__pic { filter: brightness(1.1); }
   .dwx:not(:has([data-title-ref])):hover { outline-color: var(--hair-strong); }
   .dwx:has([data-title-ref]):has(> .dw__link:focus-visible, > .dwx__open:focus-visible):is(:hover, :has([data-dl-more][aria-expanded="true"])) {
-    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent), var(--shadow-card);
+    box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--g-focus), var(--shadow-card);
   }
 }
 /* A press anywhere but on one of its controls. */
 .dwx:has([data-title-ref]):active:not(:has(button:active, .dwx__play:active)) { transform: scale(.985); transition-duration: var(--dur-fast); }
 /* Its link is its one tab stop, and the ring goes round the whole card. */
-.dwx:has(> .dw__link:focus-visible, > .dwx__open:focus-visible) { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.dwx:has(> .dw__link:focus-visible, > .dwx__open:focus-visible) { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--g-focus); }
 .dwx > .dw__link:focus-visible, .dwx > .dwx__open:focus-visible { outline: none; }
 .dwx .dw__line { white-space: nowrap; }
 /* Play on a ready card: a control of its own, over the picture where the row draws it. */
@@ -180,7 +180,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 @keyframes dwx-play-in { from { opacity: 0; } }
 .dwx__play::after { content: ""; position: absolute; inset: -2px; }
 .dwx__play:active { transform: scale(.9); }
-.dwx__play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dwx__play:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 @media (hover: hover) { .dwx__play:hover { background: color-mix(in srgb, var(--t1) 85%, transparent); } }
 /* Held from the first draw: Play comes once the library has the title, and moves nothing. */
 .dwx--ready .dw__text { padding-right: 52px; }
@@ -235,7 +235,7 @@ html.is-dl-moving .watch-page { overflow-anchor: none; }
 .dwx__eps:active { transform: scale(.96); }
 .dwx__eps .ico { font-size: 10px; color: var(--t2); transition: transform var(--dur) var(--ease-out); }
 .dwx__eps[aria-expanded="true"] .ico { transform: rotate(180deg); }
-.dwx__tool:focus-visible, .dwx__eps:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dwx__tool:focus-visible, .dwx__eps:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 @media (hover: hover) {
   .dwx__tool:hover { background: var(--rgba-overlay-lg); color: var(--t1); }
   .dwx__eps:hover { background: var(--rgba-overlay-lg); }
