@@ -1437,6 +1437,160 @@ def test_in_the_same_run_only_the_dropped_persons_dropped_title_goes_on(
     assert _resume(tv, other_title).status_code == 409
 
 
+def _still_showing(tv, play_id, state="playing", position_s=0.0) -> dict:
+    """A poll of a page that shows the play, which mediaman may have lost, as a page of any age
+    sends it."""
+    report = {"play_id": play_id, "state": state, "position_s": position_s, "played_s": 60}
+    resp = tv.post("poll", {"ack": tv.ack, "report": report})
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _playing_then_restart(tv, home, amy, monkeypatch, plex, clock, at=900.0, **body) -> str:
+    _play(amy, home, **body)
+    play_id = tv.poll("playing", at)["play"]["play_id"]
+    _restart(monkeypatch, plex, clock)
+    return play_id
+
+
+def test_after_a_restart_the_server_starts_the_tv_again_as_it_was_with_nothing_pressed(
+    tv, shared, amy, bob, monkeypatch, plex, clock, caplog
+):
+    caplog.set_level(logging.INFO, logger=tv_routes.__name__)
+    lost = _playing_then_restart(
+        tv, shared, bob, monkeypatch, plex, clock, quality="low", subtitle="31"
+    )
+    play = _still_showing(tv, lost, position_s=905)["play"]
+    assert (play["by"], play["start_s"], play["paused"]) == ("bob", 905, False)
+    assert play["url"] and play["play_id"] != lost
+    shown = _tv_of(amy, shared)["play"]
+    assert (shown["rating_key"], shown["quality"], shown["subtitle"]) == ("101", "low", "31")
+    assert f"tv {shared}: server resume of 101 at 905s for bob" in caplog.text
+
+
+def test_a_tv_paused_as_mediaman_restarted_is_started_again_paused(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    lost = _playing_then_restart(tv, home, amy, monkeypatch, plex, clock)
+    assert _still_showing(tv, lost, "paused", 900)["play"]["paused"] is True
+
+
+def test_with_no_place_from_the_tv_the_server_goes_on_from_where_it_was_last_told(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    lost = tv.poll("playing", 900)["play"]["play_id"]
+    clock.now += 6
+    _still_showing(tv, lost, position_s=1500)
+    _restart(monkeypatch, plex, clock)
+    assert _still_showing(tv, lost, "loading", 0)["play"]["start_s"] == 1500
+
+
+def test_the_server_starts_the_tv_no_further_than_a_minute_past_its_last_word(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    lost = _playing_then_restart(tv, home, amy, monkeypatch, plex, clock)
+    assert _still_showing(tv, lost, position_s=5000)["play"]["start_s"] == 960
+
+
+def _kept(tv, conn) -> dict | None:
+    return repo.resume_state(conn, tv_routes.hash_token(tv.token))
+
+
+def test_the_server_starts_nothing_again_that_was_stopped_before_the_restart(
+    tv, home, amy, conn, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    lost = tv.poll("playing", 900)["play"]["play_id"]
+    assert _kept(tv, conn)["place"] == 900
+    _command(amy, home, "stop")
+    assert _kept(tv, conn) is None
+    _restart(monkeypatch, plex, clock)
+    assert _still_showing(tv, lost, position_s=905)["play"] is None
+
+
+def test_the_server_starts_nothing_again_that_ended(tv, home, amy, conn, monkeypatch, plex, clock):
+    _play(amy, home)
+    lost = tv.poll("playing", 5990)["play"]["play_id"]
+    assert _kept(tv, conn)["place"] == 5990
+    tv.poll("ended", 6000)
+    assert _kept(tv, conn) is None
+    _restart(monkeypatch, plex, clock)
+    assert _still_showing(tv, lost, "ended", 6000)["play"] is None
+
+
+def test_the_title_ending_as_mediaman_restarted_starts_nothing_again(
+    tv, home, amy, monkeypatch, plex, clock, caplog
+):
+    caplog.set_level(logging.INFO, logger=tv_routes.__name__)
+    lost = _playing_then_restart(tv, home, amy, monkeypatch, plex, clock, at=5990)
+    assert _still_showing(tv, lost, "ended", 6000)["play"] is None
+    assert f"tv {home}: no server resume: the title ended" in caplog.text
+
+
+def test_the_server_starts_nothing_over_what_someone_started_since_the_restart(
+    tv, shared, amy, bob, conn, monkeypatch, plex, clock
+):
+    lost = _playing_then_restart(tv, shared, bob, monkeypatch, plex, clock)
+    tv.poll()
+    assert _play(amy, shared, "102").status_code == 200
+    assert (_kept(tv, conn)["user"], _kept(tv, conn)["rating_key"]) == ("amy", "102")
+    assert _still_showing(tv, lost, position_s=905)["play"]["by"] == "amy"
+    _command(amy, shared, "stop")
+    assert _still_showing(tv, lost, position_s=905)["play"] is None
+
+
+def test_the_server_starts_nothing_again_long_after_the_tv_last_told_of_it(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    monkeypatch.setattr(tv_routes, "_SERVER_RESUME_SECONDS", -1)
+    lost = _playing_then_restart(tv, home, amy, monkeypatch, plex, clock)
+    assert _still_showing(tv, lost, position_s=905)["play"] is None
+
+
+def test_the_server_starts_a_lost_play_once_and_the_tvs_own_pick_up_then_starts_nothing(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    ticket = tv.poll("playing", 900)["resume"]
+    lost = tv.poll()["play"]["play_id"]
+    _restart(monkeypatch, plex, clock)
+    started = _still_showing(tv, lost, position_s=905)["play"]["play_id"]
+    assert _resume(tv, ticket, position_s=905).status_code == 409
+    assert _still_showing(tv, lost, position_s=905)["play"]["play_id"] == started
+
+
+def test_a_server_resume_that_plex_refuses_is_tried_again_and_then_given_up(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    lost = _playing_then_restart(tv, home, amy, monkeypatch, plex, clock)
+
+    working = PlexWatch._metadata
+
+    def down(self, key, query=""):
+        raise PlexUnavailable("down")
+
+    monkeypatch.setattr(PlexWatch, "_metadata", down)
+    for _ in range(players.RESUME_TRIES):
+        assert _still_showing(tv, lost, position_s=905)["play"] is None
+    monkeypatch.setattr(PlexWatch, "_metadata", working)
+    assert _still_showing(tv, lost, position_s=905)["play"] is None
+
+
+def test_a_phone_that_slept_through_the_film_starts_it_on_the_tv_from_the_saved_place(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home, position_s=300)
+    clock.now += 11
+    tv.poll("playing", 1500, 1200)
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    assert _play(amy, home, position_s=310).status_code == 200
+    assert tv.poll()["play"]["start_s"] == 1500
+    assert _play(amy, home, position_s=0).status_code == 200
+    assert tv.poll()["play"]["start_s"] == 0
+
+
 def test_no_ticket_is_given_for_a_title_that_is_over(tv, home, amy):
     _play(amy, home)
     assert tv.poll("playing", 300)["resume"]

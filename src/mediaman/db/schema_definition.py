@@ -153,6 +153,8 @@ CREATE TABLE IF NOT EXISTS tvs (
     last_seen_at TEXT,
     -- The play a restart may let it go on with: the last begun on it, until it ended.
     resume_play_id TEXT,
+    -- That play as the TV last told of it, as JSON: whose, which title, where, which tracks, when.
+    resume_state TEXT,
     CHECK ((kind = 'page' AND owner_id IS NOT NULL AND token_hash IS NOT NULL)
         OR (kind = 'older' AND owner_id IS NULL AND token_hash IS NULL AND address IS NOT NULL))
 );
