@@ -69,6 +69,7 @@ class Stack:
         self.down: set[str] = set()
         self.hang: set[str] = set()
         self.odd: dict[str, object] = {}
+        self.resources = RESOURCES
         self.released = threading.Event()
         self.calls: list[str] = []
         # Each container's CPU and the host's, in nanoseconds, as Docker counts them ever.
@@ -94,7 +95,7 @@ class Stack:
             return self.odd[service]
         if service == "plex":
             if "/statistics/resources" in url:
-                return r(content=RESOURCES.encode())
+                return r(content=self.resources.encode())
             return r(content=SESSIONS.encode())
         if service == "nzbget":
             return r(json_data=nzb_reply(kwargs["json"]["method"]))

@@ -129,6 +129,14 @@ def test_without_it_the_server_and_plex_are_shares_and_nothing_is_turned_into_gb
     assert out["keys"] == [["Plex", "6%"], ["Everything else", "44%"], ["Free", "50%"]]
 
 
+def test_a_cpu_figure_plex_left_out_reads_as_a_dash_and_plex_is_not_said_to_be_down():
+    out = _run("unknown")
+    assert "Plex isn’t answering" not in out["say"]
+    assert (out["tile"], out["fig"]) == ("—", "—")
+    assert dict(out["keys"])["Plex"] == "—"
+    assert out["nan"] is False
+
+
 def test_a_download_being_unpacked_says_which_app_takes_it_and_is_not_drawn_as_busy():
     out = _run("unpacking")
     assert out["sub"].endswith("Sonarr imports it next")

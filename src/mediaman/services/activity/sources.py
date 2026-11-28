@@ -71,12 +71,21 @@ def _text(value: str | None) -> str:
 # ── Plex ──
 
 
+_PLEX_FIGURES = (
+    "hostCpuUtilization",
+    "hostMemoryUtilization",
+    "processCpuUtilization",
+    "processMemoryUtilization",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class PlexResources:
-    host_cpu: float  # % of the whole host
-    host_mem: float  # % of the host's memory
-    plex_cpu: float
-    plex_mem: float
+    # Each in percent, None when Plex did not give it.
+    host_cpu: float | None  # of the whole host
+    host_mem: float | None  # of the host's memory
+    plex_cpu: float | None
+    plex_mem: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,19 +138,16 @@ class PlexActivity(PlexWatch):
         rows = self._xml("/statistics/resources?timespan=6").findall("StatisticsResources")
         if not rows:
             raise PlexUnavailable("Plex sent no resource figures")
-        newest = max(rows, key=lambda r: _num(r.get("at")) or 0)
-        values = [
-            _num(newest.get(k))
-            for k in (
-                "hostCpuUtilization",
-                "hostMemoryUtilization",
-                "processCpuUtilization",
-                "processMemoryUtilization",
-            )
+        # Plex often leaves a figure out of its newest rows for a few seconds at a time: the
+        # newest row that has them all is read, else the newest with what it lacks unknown.
+        readings = [
+            [_num(row.get(k)) for k in _PLEX_FIGURES]
+            for row in sorted(rows, key=lambda r: _num(r.get("at")) or 0, reverse=True)
         ]
-        if any(v is None for v in values):
-            raise PlexUnavailable("Plex sent unreadable resource figures")
-        host_cpu, host_mem, plex_cpu, plex_mem = (min(100.0, max(0.0, v or 0)) for v in values)
+        values = next((v for v in readings if None not in v), readings[0])
+        host_cpu, host_mem, plex_cpu, plex_mem = (
+            None if v is None else min(100.0, max(0.0, v)) for v in values
+        )
         return PlexResources(host_cpu, host_mem, plex_cpu, plex_mem)
 
     def sessions(self) -> list[PlexSession]:
