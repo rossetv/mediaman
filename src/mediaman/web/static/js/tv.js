@@ -26,6 +26,7 @@
   var MOVE_MS = 60000;
   var LIT_MS = 500;
   var SKIPPED_MS = 3000;
+  var LEAVE_MS = 450;        // the page before fades out for as long as tv.css takes, and a little more
 
   var body = document.body;
   var stage = document.getElementById('s');
@@ -1325,8 +1326,13 @@
       var kept = name === shown ? focus : name === 'next' && !endsAt ? 1 : FOCUS[name] || 0;
       // The overlay of a film that pauses or plays on is the same place.
       if (FOCUS[name] && FOCUS[shown]) kept = focus;
+      var before = document.getElementById('ov');
+      var tucked = Boolean(before) && before.className === 'ov hide';
       swap(name !== shown && !(FOCUS[name] && FOCUS[shown]));
       stage.innerHTML = html;
+      // Controls that were away come back in as a film is paused, rather than appear at once.
+      var after = tucked && document.getElementById('ov');
+      if (after) { after.className = 'ov hide'; void after.offsetWidth; }
       watchFaces();
       drawn = html;
       dressed = '';
@@ -1361,7 +1367,7 @@
     while (stage.firstChild) leaving.appendChild(stage.firstChild);
     var nodes = leaving.getElementsByTagName('*');
     for (var i = 0; i < nodes.length; i++) nodes[i].removeAttribute('id');
-    leftTimer = setTimeout(function () { leftTimer = null; leaving.innerHTML = ''; }, 250);
+    leftTimer = setTimeout(function () { leftTimer = null; leaving.innerHTML = ''; }, LEAVE_MS);
   }
 
   function paint() {

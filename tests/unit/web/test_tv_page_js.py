@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.node_batch import run_node
+from tests.unit.web._css import rules
 
 HARNESS = Path(__file__).parent / "js" / "tv_harness.js"
 STATIC = Path(__file__).resolve().parents[3] / "src/mediaman/web/static"
@@ -354,6 +355,50 @@ def test_the_motion_is_off_under_reduced_motion_and_colours_forced_keep_the_focu
     assert re.search(
         r"\.b\.f, \.bar \.p \{ forced-color-adjust: none; background: Highlight", forced
     )
+
+
+def test_each_status_of_a_film_fades_into_the_next_and_none_cuts() -> None:
+    for name, there, entering, left in _run("everyChangeFades"):
+        assert there, name
+        assert (entering, left) == ("in", True), name
+
+
+def test_controls_that_were_away_come_back_in_as_a_film_is_paused() -> None:
+    out = _run("pausedWhileHidden")
+    assert out["before"] == "ov hide" and out["paused"]
+    # Drawn hidden first, so that showing them is a fade and not a cut.
+    assert out["classes"][0] == "ov hide" and out["classes"][-1] == "ov"
+
+
+def _seconds(value: str) -> float:
+    times = re.findall(r"(?<![\w.])(\d*\.?\d+)(ms|s)\b", value)
+    return sum(float(n) / (1000 if unit == "ms" else 1) for n, unit in times[:2])
+
+
+def test_the_page_before_stays_until_its_fade_is_over() -> None:
+    """tv.js empties the page before after LEAVE_MS: a fade longer than that would be cut off."""
+    leave = int(re.search(r"var LEAVE_MS = (\d+);", (STATIC / "js/tv.js").read_text())[1])
+    longest = max(
+        _seconds(decls["animation"])
+        for where, selectors, decls in rules("tv.css")
+        if "animation" in decls
+        and not where
+        and any(s.startswith("#o") for s in selectors)
+        and decls["animation"] != "none"
+    )
+    assert longest > 0 and leave >= longest * 1000
+
+
+def test_what_moves_on_the_tv_moves_by_opacity_and_transform_alone() -> None:
+    """A TV's browser hands these to its GPU; anything else repaints each frame."""
+    css = re.sub(r"/\*.*?\*/", "", (STATIC / "css/tv.css").read_text(), flags=re.S)
+    frames = re.findall(r"@(?:-webkit-)?keyframes\s+([\w-]+)\s*\{((?:[^{}]*\{[^}]*\})*)\s*\}", css)
+    assert len(frames) > 10
+    for name, body in frames:
+        # The icon drawing itself along its stroke, a small picture of its own.
+        if name in ("a1", "a2"):
+            continue
+        assert set(re.findall(r"([\w-]+)\s*:", body)) <= {"opacity", "transform", "-webkit-transform"}, name
 
 
 def test_a_code_shown_before_counts_for_as_long_as_it_is_good() -> None:

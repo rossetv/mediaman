@@ -26,6 +26,13 @@ function tv({ kept = null, plays = true, full = false } = {}) {
   const sent = [];
   const answers = {};
   const nodes = {};
+  // Each class a node was given, in turn.
+  const classed = (node) => {
+    let now = '';
+    node.classes = [];
+    Object.defineProperty(node, 'className', { get: () => now, set(v) { now = v; node.classes.push(v); } });
+    return node;
+  };
   const element = () => ({
     innerHTML: '', className: '', style: {}, attrs: {}, children: [], on: {},
     setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; },
@@ -91,7 +98,7 @@ function tv({ kept = null, plays = true, full = false } = {}) {
     getElementById(id) {
       if (FIXED.includes(id)) return nodes[id];
       if (!nodes.s.innerHTML.includes('id="' + id + '"')) return null;
-      return (nodes[id] = nodes[id] || Object.assign(element(), { id, nodeType: 1, focus() { if (document.activeElement === this) return; document.activeElement = this; (document.on.focus || []).forEach((fn) => fn({ target: this })); } }));
+      return (nodes[id] = nodes[id] || Object.assign(classed(element()), { id, nodeType: 1, focus() { if (document.activeElement === this) return; document.activeElement = this; (document.on.focus || []).forEach((fn) => fn({ target: this })); } }));
     },
   };
   const fullAsks = [];
@@ -1005,6 +1012,40 @@ const scenarios = {
     return out;
   },
   // the controls of a film as its page leaves
+  // The controls of a film paused while they were away come back in from where they went.
+  async pausedWhileHidden() {
+    const t = await playing();
+    await t.step(4500);
+    const before = t.ov();
+    t.answers.poll = () => ready({ play: t.now, commands: [{ id: 8, kind: 'pause' }] });
+    for (let i = 0; i < 20 && !t.says().includes('Paused'); i += 1) await t.step(100);
+    return { before, classes: t.node('ov').classes, paused: t.says().includes('Paused') };
+  },
+  // Each status a film goes through, and the page after it, as the page before gives way to it.
+  async everyChangeFades() {
+    const t = await playing();
+    const seen = [];
+    const next = async (name, words, gone) => {
+      const there = () => (gone ? !t.says().includes(words) : t.says().includes(words));
+      for (let i = 0; i < 60 && !there(); i += 1) await t.step(100);
+      seen.push([name, there(), t.entering(), t.left() !== '']);
+    };
+    t.video.stuck = true;
+    await next('waiting', 'Waiting for the network');
+    t.video.stuck = false;
+    await next('playing', 'Waiting for the network', true);
+    t.now = film({ state: 'upnext', url: null, upnext_in_s: 9, next: { season: 1, episode: 5, title: 'Windfall' } });
+    await next('next episode', 'Windfall');
+    t.now = film({ state: 'ended', url: null });
+    await next('ended', 'the end');
+    t.now = film({ state: 'failed', url: null, error: 'tv' });
+    await next('error', 'play here');
+    t.now = film({ state: 'still', url: null, still_in_s: 120 });
+    await next('still watching', 'still watching');
+    t.now = null;
+    await next('ready', 'is ready');
+    return seen;
+  },
   async barLeaves() {
     const t = await playing({ chapters: [{ start_s: 720 }, { start_s: 1440 }] });
     t.now = film({ chapters: t.now.chapters, state: 'upnext', url: null });
