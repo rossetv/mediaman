@@ -174,6 +174,7 @@ html.page-bar { scrollbar-gutter: stable; }
   --accent-hi: var(--g-accent-text);
   --accent-text: var(--g-accent-text);
   --danger-text: var(--g-danger-text);
+  --field-edge: var(--g-field-edge);
   background: var(--g-regular);
   -webkit-backdrop-filter: var(--g-filter);
   backdrop-filter: var(--g-filter);
@@ -194,9 +195,9 @@ html.page-bar { scrollbar-gutter: stable; }
   opacity: 1;
   transform: translateY(0) scale(1);
 }
-/* A phone shows no third layer of glass: over a title's sheet, the storage sheet or the pane over
-   Watch, each with glass of its own on it, the card is solid. */
-@media (max-width: 699.98px) {
+/* A phone, upright or on its side, shows no third layer of glass: over a title's sheet, the storage
+   sheet or the pane over Watch, each with glass of its own on it, the card is solid. */
+@media (max-width: 699.98px), (max-height: 500px) and (pointer: coarse) {
   html:is(.has-ttl, .has-space) .ui-confirm-card,
   .you.is-open ~ .ui-confirm-overlay .ui-confirm-card {
     background: var(--g-solid);

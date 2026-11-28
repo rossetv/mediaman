@@ -125,7 +125,8 @@
 .watch-card__spark { display: inline-block; margin-right: 5px; color: color-mix(in srgb, var(--purple) 35%, var(--t1)); font-size: .9em; vertical-align: -.05em; animation: watch-ask-spark var(--dur-slow) var(--ease-out) .12s backwards; }
 @keyframes watch-ask-spark { from { opacity: 0; transform: scale(.4); } }
 /* To download: a solid chip, so its words hold over a white poster and a grid of them blurs nothing. */
-.watch-badge--get { background: var(--g-tip); color: var(--t1); font-weight: 600; }
+/* The tip's edge without its lift: a badge lies on its poster. */
+.watch-badge--get { background: var(--g-tip); color: var(--t1); font-weight: 600; box-shadow: 0 0 0 1px rgb(255 255 255 / .12); }
 
 .refine { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -2px 0 18px; }
 .refine > small { margin-right: 4px; font-size: 13px; color: var(--t3); }
