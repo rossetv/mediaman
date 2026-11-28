@@ -449,3 +449,146 @@ def test_a_copy_put_in_place_under_the_same_file_id_is_in_once_it_has_the_langua
     assert copies == []
     _search(alice)
     assert alice.post("/api/watch/languages/201/audio", json=body).status_code == 200
+
+
+def _ask_episode(client):
+    _search(client)
+    body = {"language": "en", "scope": "episode", "index": 0}
+    return client.post("/api/watch/languages/201/audio", json=body)
+
+
+@pytest.mark.parametrize(
+    ("tracked", "warned", "shown"),
+    [
+        ("failedPending", "warning", ("failed", None)),
+        ("failed", "error", ("failed", None)),
+        ("ignored", "warning", ("failed", None)),
+        ("importBlocked", "warning", ("stuck", 99)),
+        ("importPending", "warning", ("stuck", 99)),
+        ("importing", "ok", ("importing", 99)),
+    ],
+)
+def test_a_copy_that_failed_or_will_not_be_put_in_place_says_so(
+    alice, sonarr, tracked, warned, shown
+):
+    _ask_episode(alice)
+    sonarr.queue = [
+        {
+            "episodeId": 9001,
+            "size": 1000,
+            "sizeleft": 0,
+            "trackedDownloadState": tracked,
+            "trackedDownloadStatus": warned,
+        }
+    ]
+
+    (copy,) = alice.get("/api/watch/languages/201").json()["copies"]
+
+    assert (copy["status"], copy["progress"]) == shown
+
+
+def test_a_season_copy_with_one_download_failed_is_still_on_its_way_by_the_others(alice, sonarr):
+    _search(alice, scope="season")
+    alice.post(
+        "/api/watch/languages/201/audio", json={"language": "en", "scope": "season", "index": 0}
+    )
+    season = {"seriesId": 77, "episode": {"seasonNumber": 1}}
+    sonarr.queue = [
+        {**season, "size": 10, "sizeleft": 0, "trackedDownloadState": "failed"},
+        {**season, "size": 10, "sizeleft": 6, "trackedDownloadState": "downloading"},
+    ]
+
+    (copy,) = alice.get("/api/watch/languages/201").json()["copies"]
+
+    assert (copy["status"], copy["progress"]) == ("downloading", 40)
+
+
+def test_a_copy_whose_download_failed_can_be_asked_for_again(alice, sonarr):
+    _ask_episode(alice)
+    sonarr.queue = [
+        {"episodeId": 9001, "size": 10, "sizeleft": 0, "trackedDownloadState": "failed"}
+    ]
+
+    again = _ask_episode(alice)
+
+    assert again.status_code == 200, again.text
+    assert len(sonarr.grabbed) == 2
+
+
+def test_a_copy_still_downloading_is_not_asked_for_again(alice, sonarr):
+    _ask_episode(alice)
+    sonarr.queue = [
+        {"episodeId": 9001, "size": 10, "sizeleft": 5, "trackedDownloadState": "downloading"}
+    ]
+
+    assert _ask_episode(alice).json()["error"] == "already_asked"
+    assert len(sonarr.grabbed) == 1
+
+
+def test_a_grab_answered_late_is_followed_and_not_downloaded_twice(alice, sonarr, monkeypatch):
+    import requests
+
+    took = sonarr.grab_release
+
+    def late(guid, indexer_id):
+        took(guid, indexer_id)
+        raise requests.ReadTimeout("read timed out")
+
+    monkeypatch.setattr(sonarr, "grab_release", late)
+
+    first = _ask_episode(alice)
+
+    assert first.status_code == 200, first.text
+    assert [c["language"] for c in first.json()["copies"]] == ["en"]
+    assert _ask_episode(alice).json()["error"] == "already_asked"
+    assert len(sonarr.grabbed) == 1
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        lambda: languages_api.SafeHTTPError(400, "{}", "http://sonarr.example.test/api/v3/release"),
+        lambda: __import__("requests").ConnectTimeout("connect timed out"),
+    ],
+)
+def test_a_grab_the_service_refused_or_never_had_is_not_kept(alice, sonarr, monkeypatch, refusal):
+    took = sonarr.grab_release
+    tries = []
+
+    def refused_once(guid, indexer_id):
+        tries.append(guid)
+        if len(tries) == 1:
+            raise refusal()
+        took(guid, indexer_id)
+
+    monkeypatch.setattr(sonarr, "grab_release", refused_once)
+
+    resp = _ask_episode(alice)
+
+    assert resp.status_code == 502
+    assert alice.get("/api/watch/languages/201").json()["copies"] == []
+    # What the search found is kept, so the same copy can be tried again.
+    retry = alice.post(
+        "/api/watch/languages/201/audio", json={"language": "en", "scope": "episode", "index": 0}
+    )
+    assert retry.status_code == 200, retry.text
+
+
+def test_the_queue_is_read_once_however_many_copies_are_followed(alice, sonarr, conn):
+    from mediaman.web.repository import language_copies
+
+    for language in ("en", "fr", "es"):
+        language_copies.add(
+            conn, username="alice", rating_key="201", season_key="210", scope="episode",
+            language=language, service="sonarr", arr_id=77, season_number=1, episode_id=9001,
+            parts={"201": "501"}, lacked=["201"], release_languages=(language,), quality="",
+            size_bytes=None,
+        )  # fmt: skip
+    reads = []
+    queue = sonarr.get_queue
+    sonarr.get_queue = lambda: reads.append(1) or queue()
+
+    copies = alice.get("/api/watch/languages/201").json()["copies"]
+
+    assert len(copies) == 3
+    assert len(reads) == 1
