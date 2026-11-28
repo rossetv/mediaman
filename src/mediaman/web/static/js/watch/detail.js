@@ -1301,7 +1301,7 @@
   }
 
   /* ── Languages: what the film has, and a way to add one before it is played ── */
-  function languagesLine(key, title, show) {
+  function languagesLine(key, title, ofShow) {
     var line = el('p', 'ttl__credit lp-langs');
     line.hidden = true;
     if (!window.MM.tracks || !window.MM.languages) return line;
@@ -1314,7 +1314,7 @@
     line.appendChild(add);
     var chooser = window.MM.tracks.create({ wraps: [], host: root, pick: pick });
     function show(data) {
-      var state = Object.assign({ key: key, title: title, series: show, wholeSeason: show }, data);
+      var state = Object.assign({ key: key, title: title, series: ofShow, wholeSeason: ofShow }, data);
       chooser.set(state);
       var names = function (list, skip) {
         var out = [];

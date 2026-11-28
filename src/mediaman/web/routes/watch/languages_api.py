@@ -300,9 +300,8 @@ def _copies(
             if copy.id not in queue_cache:
                 queue_cache[copy.id] = _queued(client, copy)
             entries = queue_cache[copy.id]
-            if copy.language in have:
-                language_copies.settle(conn, copy.id, "ready")
-                continue
+            # Only a file of this item's that changed since the ask tells how the copy came.
+            changed = part is not None and copy.parts.get(item.rating_key) not in (None, part)
             if entries:
                 status = (
                     "importing"
@@ -313,7 +312,10 @@ def _copies(
                 )
                 progress = _progress(entries)
                 minutes[copy.id] = _minutes_left(entries)
-            elif part and copy.parts.get(item.rating_key) not in (None, part):
+            elif changed and copy.language in have:
+                language_copies.settle(conn, copy.id, "ready")
+                continue
+            elif changed:
                 language_copies.settle(conn, copy.id, "lacks")
             elif _asked_long_ago(copy):
                 language_copies.settle(conn, copy.id, "gone")

@@ -2385,6 +2385,8 @@ class AddingPlex(FakePlex):
         self.add_unanswered = False
         #: Reads of the item after the add that cannot reach Plex.
         self.failing_reads = 0
+        #: Plex shows and selects the track before the add's PUT is answered.
+        self.selects_at_once = False
 
     def finish_late(self) -> None:
         """Plex ends the add on its own: the track shows, selected for everyone."""
@@ -2417,6 +2419,8 @@ class AddingPlex(FakePlex):
             self.calls.append({"method": method, "url": url, "params": dict(params or {})})
             self.added_with = dict(params or {})
             self.reads_since_add = 0
+            if self.selects_at_once:
+                self.finish_late()
             if self.add_unanswered:
                 raise requests.ReadTimeout("no answer")
             return FakeResponse(200)
@@ -2505,3 +2509,31 @@ def test_an_add_plex_never_finishes_is_put_back_and_let_go_when_its_watch_ends(
     manager.watch_adds()
     assert manager._adding == {}
     assert conn.execute(HELD).fetchall() == []
+
+
+def test_a_track_plex_selected_before_an_add_ended_short_is_put_back_at_once(
+    no_poll_wait, clock, conn
+):
+    plex = AddingPlex(shows_after=None)
+    plex.add_unanswered = plex.selects_at_once = True
+    manager = _adder(plex, clock, conn)
+
+    with pytest.raises(PlexUnavailable):
+        manager.add_subtitle("123", "/sub/key/1")
+
+    assert plex.selection == ("7", "9")
+
+
+def test_the_reaper_puts_the_selection_back_again_when_plex_selects_its_track_once_more(
+    no_poll_wait, clock, conn
+):
+    plex = AddingPlex(shows_after=None)
+    manager = _adder(plex, clock, conn)
+    assert manager.add_subtitle("123", "/sub/key/1") is None
+    plex.finish_late()
+    plex.selects_late = True
+
+    manager.watch_adds()
+
+    assert plex.selection == ("7", "9")
+    assert manager._adding == {}

@@ -1465,6 +1465,12 @@ class StreamManager:
                     self._hold(rating_key, add.part, add.original, dict.fromkeys(add.original, ""))
                     if self._put_back(base, token, rating_key):
                         put_back += 1
+                        # Plex may select its track once more, late, as it may during an add.
+                        settled = self._settle(
+                            base, token, rating_key, add.part, add.original, deadline
+                        )
+                        if not (settled or over):
+                            continue
             except PlexError as exc:
                 logger.warning(
                     "plex_stream: could not look at item %s's new subtitle (%s)", rating_key, exc

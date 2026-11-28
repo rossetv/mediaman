@@ -23,6 +23,8 @@ PLEX_URL = "http://plex-lan.example.test:32400"
 # Episode 7 of season 1 (key 210) of a show, in Japanese and German, and a film in a library that
 # is not scanned.
 AUDIO = '<Stream id="11" streamType="2" languageCode="jpn" selected="1"/><Stream id="12" streamType="2" languageCode="ger"/>'
+# Episodes with English audio besides.
+ENGLISH: dict[str, str] = {}
 # Episodes 7 and 8 of season 1, by the file each has in Plex.
 PART = {"201": "501", "202": "502"}
 
@@ -128,7 +130,7 @@ def app(app_factory, conn, monkeypatch, sonarr, manager):
         lambda self, key, query="": (
             None,
             ET.fromstring(
-                f"<Video><Media><Part>{AUDIO if key in PART else ''}</Part></Media></Video>"
+                f"<Video><Media><Part>{AUDIO + ENGLISH.get(key, '') if key in PART else ''}</Part></Media></Video>"
             ),
         ),
     )
@@ -397,3 +399,37 @@ def test_only_two_letter_codes_plex_takes_are_searched():
     codes = languages_api.SUBTITLE_LANGUAGES
     assert all(len(c) == 2 and c.islower() and c not in bad for c in codes)
     assert {"he", "pt", "en"} <= set(codes)
+
+
+def test_a_season_copy_is_not_taken_as_in_by_an_episode_that_already_had_the_language(
+    alice, sonarr
+):
+    _search(alice, scope="season")
+    body = {"language": "en", "scope": "season", "index": 0}
+    alice.post("/api/watch/languages/201/audio", json=body)
+    # Not yet in the queue, viewed from an episode whose own file already had English.
+    ENGLISH["202"] = '<Stream id="13" streamType="2" languageCode="eng"/>'
+    try:
+        alice.get("/api/watch/languages/202")
+    finally:
+        ENGLISH.clear()
+    sonarr.queue = [{"seriesId": 77, "episode": {"seasonNumber": 1}, "size": 10, "sizeleft": 5}]
+
+    copies = alice.get("/api/watch/languages/201").json()["copies"]
+    assert [c["status"] for c in copies] == ["downloading"]
+    _search(alice, scope="season")
+    assert (
+        alice.post("/api/watch/languages/201/audio", json=body).json()["error"] == "already_asked"
+    )
+
+
+def test_a_search_result_is_taken_once(alice, sonarr, monkeypatch):
+    _search(alice)
+    monkeypatch.setattr(languages_api.language_copies, "asked_already", lambda *a: False)
+    body = {"language": "en", "scope": "episode", "index": 0}
+    assert alice.post("/api/watch/languages/201/audio", json=body).status_code == 200
+
+    again = alice.post("/api/watch/languages/201/audio", json=body)
+
+    assert again.json()["error"] == "search_again"
+    assert len(sonarr.grabbed) == 1
