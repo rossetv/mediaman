@@ -15,8 +15,8 @@ const STAGE = template('tv.html').match(/<main id="s">(.*?)<\/main>/s)[1]
 // `full`: the browser has the Fullscreen API and goes full screen a moment after it is asked;
 // 'refuse' is one that rejects the request, 'webkit' one with only the prefixed API and
 // 'webkitOld' one with only the older prefixed API, whose S is a capital. `version`: of the
-// scripts the page was loaded with.
-function tv({ kept = null, plays = true, full = false, version } = {}) {
+// scripts the page was loaded with; `base`: the address it is told to show.
+function tv({ kept = null, plays = true, full = false, version, base = 'https://mediaman.example' } = {}) {
   const order = [];
   let time = 1e12;
   let timers = [];
@@ -87,7 +87,7 @@ function tv({ kept = null, plays = true, full = false, version } = {}) {
   Object.defineProperty(nodes.s, 'firstChild', {
     get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !FIXED.includes(id)).map((id) => nodes[id]) } : null),
   });
-  const body = Object.assign(element(), { attrs: { 'data-base': 'https://mediaman.example', 'data-hls': '/hls.js' } });
+  const body = Object.assign(element(), { attrs: { 'data-base': base, 'data-hls': '/hls.js' } });
   if (version) body.attrs['data-v'] = version;
   const reloads = [];
   // What is drawn on the page is found by its id while it is drawn.
@@ -205,7 +205,7 @@ function tv({ kept = null, plays = true, full = false, version } = {}) {
     look: () => body.className,
     html: () => nodes.s.innerHTML,
     pictures: () => pictures,
-    says: () => nodes.s.innerHTML.replace(/<svg[^>]* aria-label="([^"]*)"[^>]*>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    says: () => nodes.s.innerHTML.replace(/<wbr>/g, '').replace(/<svg[^>]* aria-label="([^"]*)"[^>]*>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     text: (id) => document.getElementById(id).innerHTML,
     paths: (p) => sent.filter((c) => c.path === p),
     last: (p) => sent.filter((c) => c.path === p).pop(),
@@ -599,12 +599,14 @@ const scenarios = {
     const t = tv();
     t.answers.code = [429, { ok: false, error: 'rate_limited' }, '240'];
     t.run();
-    await t.step(200000);
+    await t.step(1000);
+    const first = t.says();
+    await t.step(199000);
     const said = t.says();
     const asked = t.paths('code').length;
     t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
     await t.step(50000);
-    return { said, asked, now: t.says() };
+    return { first, said, asked, now: t.says() };
   },
   async unpairedElsewhere() {
     const t = await playing();
@@ -890,6 +892,71 @@ const scenarios = {
     t.key(415);
     await t.step(600);
     return { first, still: t.video.currentTime - at < 1, then, asks, plays: !t.video.paused, last: t.says() };
+  },
+  // mediaman answers, and refuses: the TV says why, and never that it could not reach Plex.
+  async refusals() {
+    const upnext = film({ state: 'upnext', url: null, upnext_in_s: 9, next: { season: 1, episode: 5, title: 'Windfall' } });
+    const t = await playing();
+    t.answers.poll = () => ready({ play: upnext });
+    await t.step(1100);
+    t.answers.ask = [409, { ok: false, error: 'no_next' }];
+    t.key(RIGHT); t.key(OK);
+    await t.step(100);
+    const next = t.says();
+    const u = await playing();
+    u.answers.poll = () => ready({ play: film({ state: 'ended', url: null }) });
+    await u.step(1100);
+    u.answers.ask = [409, { ok: false, error: 'not_playing' }];
+    u.key(OK);
+    await u.step(100);
+    const again = u.says();
+    const v = await playing();
+    v.answers.ask = [429, { ok: false, error: 'rate_limited' }];
+    v.answers.poll = undefined;
+    v.key(413);
+    await v.step(100);
+    return { next, again, stop: v.says() };
+  },
+  // The countdown runs out and the next episode cannot start: the card says so, and tries again.
+  async autoFails() {
+    const t = await playing();
+    let left = 3;
+    t.answers.poll = () => ready({ play: film({ state: 'upnext', url: null, upnext_in_s: (left = Math.max(0, left - 1)), next: { season: 1, episode: 5, title: 'Windfall' } }) });
+    t.answers.ask = [502, { ok: false, error: 'unreachable' }];
+    await t.step(4000);
+    const failed = t.says();
+    await t.step(5500);
+    return { failed, retried: t.says(), asks: t.paths('ask').length };
+  },
+  // The address to type breaks only after a dot or a slash.
+  async longAddress() {
+    const t = tv({ base: 'https://mediaman.vilmar-family-home.duckdns.org:8443' });
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.answers.poll = { ok: true, state: 'pairing', expires_in_s: 290, poll_ms: 2000 };
+    t.run();
+    await t.step(3000);
+    return (t.html().match(/<div class="addr[^"]*">(.*?)<\/div>/) || [])[1];
+  },
+  // The title keeps clear of a skip note while the note is up, and has the room back after.
+  async noteRoom() {
+    const t = await skipping({}, 12000);
+    t.key(LEFT);
+    await t.step(2500);
+    const counting = { note: note(t).shown, top: t.node('tp').className };
+    t.key(BACK);
+    return { counting, after: t.node('tp').className };
+  },
+  // The wait for a code after too many counts down as it goes.
+  async slowCounts() {
+    const t = tv();
+    t.answers.code = [429, { ok: false, error: 'rate_limited' }, '125'];
+    t.run();
+    await t.step(1000);
+    const first = t.says();
+    await t.step(71000);
+    const later = t.says();
+    await t.step(40000);
+    return { first, later, last: t.says() };
   },
   async noInlineStyle() {
     const play = film({ art_url: '/api/tv/device/art/a"b', chapters: [{ start_s: 720 }], markers: [{ start_s: 60, end_s: 144 }] });

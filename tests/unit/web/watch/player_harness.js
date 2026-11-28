@@ -6091,6 +6091,20 @@ const scenarios = {
     return out;
   },
 
+  /* A TV paired from the sheet is offered a name none of the person's TVs has, and told of a repeat. */
+  async away_pair_naming(p) {
+    await streamPlays(p, 30);
+    await openSheet(p);
+    await pickRow(p, 'pair');
+    p.elsewhere.pairs.push(() => Promise.resolve({ tv: { id: 9, name: 'TV' } }));
+    rowOf('code').value = '123456'; fire(rowOf('code'), 'input'); await settle();
+    const why = () => sheet().querySelector('.play-on__why').textContent;
+    const out = { offered: rowOf('name').value, first: why() };
+    click(rowOf('name-Living room')); await settle();
+    out.repeated = why();
+    return out;
+  },
+
   /* Full screen is left as it begins elsewhere: its button is not there then. */
   async away_fullscreen(p) {
     await streamPlays(p, 30);

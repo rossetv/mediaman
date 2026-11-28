@@ -652,7 +652,8 @@
     var stop = what === 'stop';
     // What starts something has the page wait for it.
     asked = stop || what === 'cancel' ? null : id;
-    askNote = '';
+    // A countdown's tries again keep the word on why the last could not start.
+    if (what !== 'auto') askNote = '';
     if (stop) {
       stopping = 'Stopping';
       if (loaded) hold();
@@ -664,9 +665,9 @@
       if (asked === id) asked = null;
       // Until a poll says what came of it.
       if (what === 'auto') autoAt = now() + 5000;
-      if (same && status !== 200 && got.error !== 'stale' && what !== 'auto') {
-        askNote = WHY[got.error] || (status ? WHY.unreachable : WHY.silent);
-        if (stopping) stopping = 'mediaman isn’t answering. Press Stop again.';
+      if (same && status !== 200 && got.error !== 'stale') {
+        askNote = status ? WHY[got.error] || WHY.refused : WHY.silent;
+        if (stopping && !status) stopping = 'mediaman isn’t answering. Press Stop again.';
       }
       tell();
       show();
@@ -975,6 +976,7 @@
       lastTime = time;
       if (there && ready && at - keptAt > STORE_MS) keepPlace(time);
     }
+    if (shown === 'slow') show();
     if (pending && mode === 'code') {
       if (now() >= pending.until) codeGone();
       else put('cd', codeLine());
@@ -1069,6 +1071,17 @@
     clearTimeout(noteTimer);
     noteText = '';
     if (node) node.className = 'sk';
+    room();
+  }
+
+  /* The title keeps clear of a note up beside it. */
+  function topClass() {
+    var node = document.getElementById('sk');
+    return node && node.className === 'sk on' ? 'top noted' : 'top';
+  }
+  function room() {
+    var top = document.getElementById('tp');
+    if (top && top.className !== topClass()) top.className = topClass();
   }
 
   /* Out of the marker before its jump, its count goes with it. */
@@ -1098,8 +1111,9 @@
     noteText = key;
     if (n !== undefined) node.getElementsByTagName('span')[0].textContent = String(n);
     node.className = 'sk on';
+    room();
     clearTimeout(noteTimer);
-    noteTimer = setTimeout(function () { node.className = 'sk'; }, SKIPPED_MS);
+    noteTimer = setTimeout(function () { node.className = 'sk'; room(); }, SKIPPED_MS);
     return wrote;
   }
 
@@ -1123,6 +1137,9 @@
     gone: 'It stopped on the server. Your place is kept.<br>Try again, or watch it on your phone or computer.',
     silent: 'mediaman isn’t answering.<br>Try again in a moment.',
     unreachable: 'mediaman couldn’t reach Plex. Your place is kept.<br>Try again in a moment.',
+    refused: 'mediaman couldn’t do that just now.<br>Try again in a moment.',
+    no_next: 'There is no next episode.',
+    not_playing: 'This isn’t playing on the TV any more.<br>Start it again on your phone or computer.',
     not_found: 'Plex doesn’t have this one any more.<br>Choose something else.',
     too_many_streams: 'You’re watching on three screens, the most at once.<br>Stop one, then try again.',
     track_unavailable: 'The subtitles chosen aren’t there any more.<br>Choose others on your phone or computer.',
@@ -1195,10 +1212,18 @@
     var left = clock((pending.until - now()) / 1000);
     return pending.ranOut ? 'The last code ran out. This one works for ' + left + '.' : 'This code works for ' + left + '.';
   }
+  /* Minutes while there are more than one, then seconds by fives: the page is drawn anew only as
+     the words change. */
+  function waitLeft() {
+    var s = Math.max(0, Math.ceil((waitUntil - now()) / 1000));
+    if (s > 60) return Math.ceil(s / 60) + ' minutes';
+    return Math.max(5, Math.ceil(s / 5) * 5) + ' seconds';
+  }
   function nextLeft() { return Math.max(0, Math.ceil((endsAt - now()) / 1000)); }
   /* As the skip's count is: drawn once, so that a reader says it once; only its number ticks. */
   var upLine = { of: '', html: '' };
   function nextLine() {
+    if (askNote) return 'Next episode couldn’t start';
     if (!endsAt) return 'Next episode';
     var of = play.play_id + ' ' + play.state;
     if (upLine.of !== of) {
@@ -1237,7 +1262,7 @@
     }
   }
   function overlay(paused) {
-    return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot" id="bt">' +
+    return '<div class="ov" id="ov"><div class="top" id="tp">' + titles() + '</div><div class="bot" id="bt">' +
       (paused ? '<div class="pz" id="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by && me && me.people && me.people.length > 1 ? ' by ' + face(play.paused_by, true) + esc(play.paused_by) : '')) + '</div>' : '') +
       '<div class="bar"><div class="p" id="pr"></div>' + markNodes() + '</div><div class="tms"><span id="el"></span><span id="re"></span></div>' +
       offer([[glyph('back') + '10 s', 'b'], [glyph(paused ? 'play' : 'pause') + (paused ? 'Play' : 'Pause'), 'p'], [glyph('fwd') + '10 s', 'f'], [glyph('stop') + 'Stop', 's']]) +
@@ -1254,13 +1279,13 @@
       var address = base.replace(/^https?:\/\//, '') + '/pair';
       var picture = qrPicture(base + '/pair#' + pending.code);
       return page('<div class="code"><div class="lc">' + BRAND + '<div class="h">' + codeHead() + '</div>' +
-        '<div class="n"><u>1</u><div>On your phone or computer, go to<div class="addr' + (address.length > 30 ? ' addr--long' : '') + '">' + esc(address) + '</div></div></div>' +
+        '<div class="n"><u>1</u><div>On your phone or computer, go to<div class="addr' + (address.length > 30 ? ' addr--long' : '') + '">' + esc(address).replace(/([.\/])/g, '$1<wbr>') + '</div></div></div>' +
         '<div class="n"><u>2</u><div>Type this code<div class="big">' + esc(pending.code.substr(0, 3) + ' ' + pending.code.substr(3)) + '</div></div></div>' +
         '<div class="sm" id="cd"></div>' + offer([['New code', 'n']].concat(leave())) + '</div>' +
         '<div class="rc">' + (picture && picture + '<div class="cap">Or point your phone&rsquo;s camera here.<br>Check the code matches.</div>') + '</div></div>');
     },
     press: function () { return page(middle(codeHead(), 'The last code ran out.<br>Press OK for another.', [['New code', 'n']].concat(leave()))); },
-    slow: function () { return page(middle('Too many codes', 'A new one comes by itself in ' + (waitUntil - now() > 90000 ? Math.ceil((waitUntil - now()) / 60000) + ' minutes' : 'a minute') + '.', leave(), SPIN)); },
+    slow: function () { return page(middle('Too many codes', 'A new one comes by itself in ' + waitLeft() + '.', leave(), SPIN)); },
     conn: function () {
       var all = everyone().map(esc);
       // Past two, the names under the faces say who.
@@ -1365,6 +1390,7 @@
       var after = tucked && document.getElementById('ov');
       if (after) { after.className = 'ov hide'; void after.offsetWidth; }
       if (pausedLine) fadeOut(pausedLine);
+      room();
       watchFaces();
       drawn = html;
       dressed = '';
