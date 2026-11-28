@@ -392,8 +392,8 @@
   .setg-pg .conn-dot, .stx-save__dot, .setg-pg .chip-dot {
     forced-color-adjust: none; border: 1px solid CanvasText;
   }
-  .setg-pg .ov-storage .bar, .setg-pg .lp-bar2 { border: 1px solid CanvasText; }
-  .setg-pg .ov-storage .bar span, .setg-pg .lp-bar2 span { forced-color-adjust: none; }
+  .setg-pg .ov-storage .bar, .setg-pg .dt-bar { border: 1px solid CanvasText; }
+  .setg-pg .ov-storage .bar span, .setg-pg .dt-bar span { forced-color-adjust: none; }
   .stx-link[aria-current] {
     forced-color-adjust: none; background: Highlight; color: HighlightText;
   }
