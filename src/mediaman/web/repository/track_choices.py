@@ -1,5 +1,6 @@
 """Each person's audio and subtitle languages, what they chose for a show or movie, the
-languages the library's tracks are in, and whether their TV skips intros and credits."""
+languages the library's tracks are in, whether their TV skips intros and credits, and whether
+the player reduces loud sounds for them."""
 
 from __future__ import annotations
 
@@ -48,6 +49,20 @@ def set_skips_on_tv(conn: sqlite3.Connection, username: str, on: bool) -> None:
     with conn:
         conn.execute(
             "UPDATE admin_users SET tv_auto_skip = ? WHERE username = ?", (int(on), username)
+        )
+
+
+def reduces_loud(conn: sqlite3.Connection, username: str) -> bool:
+    row = conn.execute(
+        "SELECT reduce_loud FROM admin_users WHERE username = ?", (username,)
+    ).fetchone()
+    return row is not None and bool(row["reduce_loud"])
+
+
+def set_reduces_loud(conn: sqlite3.Connection, username: str, on: bool) -> None:
+    with conn:
+        conn.execute(
+            "UPDATE admin_users SET reduce_loud = ? WHERE username = ?", (int(on), username)
         )
 
 

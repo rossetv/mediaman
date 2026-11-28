@@ -20,6 +20,8 @@ const VOID = { input: 1, br: 1, img: 1, meta: 1, link: 1, source: 1 };
 let doc = null;
 /* Scripts a scenario loads besides the player's own. */
 let more = [];
+/* What a scenario gives the page of Web Audio, before its scripts run. */
+let audioOf = null;
 
 function decode(s) {
   return s.replace(/&#(\d+);/g, (m, n) => String.fromCharCode(+n))
@@ -538,6 +540,7 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
   };
   win.window = win;
   win.navigator = win.navigator;
+  if (audioOf) audioOf(win);
   const ctx = vm.createContext(win);
   if (elsewhere) elsewhere.setup(win);
   const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
@@ -1238,6 +1241,41 @@ const scenarios = {
     await streamPlays(p, 30);
     click(p.q('[data-tracks]').querySelector('[data-av-btn]'));
     return chooserState(p);
+  },
+
+  /* Reduce loud sounds, turned on, off and on again by presses, in a browser with Web Audio or
+     (by `serverPlays`) without it, or WebKit's. */
+  async loud_switch(p) {
+    const sw = await loudPlays(p, false);
+    const out = { shown: !!sw };
+    if (!sw) return out;
+    out.before = { checked: sw.getAttribute('aria-checked'), heard: p.win.audio.heard() };
+    const flip = async () => {
+      p.win.audio.pressed = true;
+      click(box(p).querySelector('[data-av-loud]'));
+      p.win.audio.pressed = false;
+      await settle();
+      return { checked: box(p).querySelector('[data-av-loud]').getAttribute('aria-checked'), heard: p.win.audio.heard(), open: chooserState(p).open };
+    };
+    out.on = await flip();
+    out.off = await flip();
+    out.again = await flip();
+    out.contexts = p.win.audio.contexts.length;
+    out.sources = p.win.audio.sources;
+    out.kept = p.calls.filter((c) => c.url === '/api/account/playback').map((c) => c.body);
+    return out;
+  },
+
+  /* Kept on: before any press the video plays as it comes, and the first press anywhere leads it
+     through the compressor. */
+  async loud_saved(p) {
+    await loudPlays(p, true);
+    const out = { checked: box(p).querySelector('[data-av-loud]').getAttribute('aria-checked'), beforePress: p.win.audio.heard() };
+    p.win.audio.pressed = true;
+    fire(p.win.document, 'pointerdown', {});
+    await settle();
+    out.afterPress = p.win.audio.heard();
+    return out;
   },
 
   /* Switch quality while playing; the new stream starts and plays. */
@@ -7107,6 +7145,65 @@ const scenarios = {
   },
 };
 
+/* Web Audio, as a browser has it (`how` 'none' has none, 'apple' is WebKit's): a context runs
+   only when resumed while `audio.pressed`, the way a press lets it. */
+function fakeAudio(how) {
+  const log = { contexts: [], sources: 0, pressed: false };
+  class Param {
+    constructor(v) { this.value = v; }
+    cancelScheduledValues() {}
+    setValueAtTime(v) { this.value = v; }
+    linearRampToValueAtTime(v) { this.value = v; }
+  }
+  class AudioNode {
+    constructor(ctx) { this.context = ctx; this.to = []; }
+    connect(n) { this.to.push(n); return n; }
+  }
+  class AudioContext {
+    constructor() { this.state = 'suspended'; this.currentTime = 0; this.destination = new AudioNode(this); this.listeners = {}; log.contexts.push(this); }
+    addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
+    resume() {
+      if (log.pressed && this.state !== 'running') {
+        this.state = 'running';
+        (this.listeners.statechange || []).forEach((fn) => fn());
+      }
+      return Promise.resolve();
+    }
+    close() { this.state = 'closed'; return Promise.resolve(); }
+    createMediaElementSource(media) { log.sources++; const n = new AudioNode(this); n.media = media; this.source = n; return n; }
+    createDynamicsCompressor() {
+      const n = new AudioNode(this);
+      ['threshold', 'knee', 'ratio', 'attack', 'release'].forEach((k) => { n[k] = new Param(0); });
+      return n;
+    }
+    createGain() { const n = new AudioNode(this); n.gain = new Param(1); return n; }
+  }
+  /* What reaches the speakers, as gains: of the sound as it comes, and of it compressed. */
+  log.heard = () => {
+    const c = log.contexts[0];
+    if (!c || !c.source) return 'as it comes, untouched';
+    const [dry, comp] = c.source.to;
+    return { dry: dry.gain.value, compressed: comp.to[0].to[0].gain.value };
+  };
+  return (win) => {
+    win.audio = log;
+    if (how === 'none') return;
+    win.AudioContext = AudioContext;
+    if (how === 'apple') win.navigator.vendor = 'Apple Computer, Inc.';
+  };
+}
+
+/* The switch in Audio & subtitles, opened from the row, while a title plays with the person's
+   setting as `saved`. */
+async function loudPlays(p, saved) {
+  p.replies[0] = answer('best', TRACKS);
+  p.held.tracks = { remembered: false, remembered_subtitle_choice: null, defaults: { audio_lang: null, subtitle_lang: null, reduce_loud: saved } };
+  await streamPlays(p, 30);
+  await settle();
+  click(p.q('[data-tracks]').querySelector('[data-av-btn]'));
+  return box(p).querySelector('[data-av-loud]');
+}
+
 /* Opens Audio & subtitles from the row and picks the row *sel*, as a press does: the tick, then the
    chooser goes, then the change. */
 async function pickTrack(p, sel) {
@@ -7183,7 +7280,8 @@ function introState(p) {
   const [file, name, reduced, serverPlays] = process.argv.slice(2);
   const saved = reduced && reduced[0] === '{' ? JSON.parse(reduced) : null;
   const elsewhere = /^away_/.test(name) ? elsewhereOf(serverPlays) : null;
-  more = /^languages_/.test(name) ? ['watch/languages.js'] : [];
+  more = /^languages_/.test(name) ? ['watch/languages.js'] : /^loud_/.test(name) ? ['watch/loudness.js'] : [];
+  audioOf = /^loud_/.test(name) ? fakeAudio(serverPlays) : null;
   const p = boot(fs.readFileSync(file, 'utf8'), reduced === 'reduced', saved, serverPlays, null, elsewhere);
   p.elsewhere = elsewhere;
   if (elsewhere) {

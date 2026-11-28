@@ -1,6 +1,6 @@
 """Audio and subtitles: a title's tracks with those that play for the signed-in person, their
-choice for the title, the languages they want by default, and whether their TV skips intros
-and credits.
+choice for the title, the languages they want by default, whether their TV skips intros
+and credits, and whether the player reduces loud sounds for them.
 
 Each acts on the signed-in person alone. A choice holds for the whole show, and for the item it
 was made on, its exact tracks; it plays from the next start of a stream.
@@ -98,6 +98,8 @@ class _Defaults(BaseModel):
     subtitle_lang: str | None = Field(default=None, pattern=rf"(^off$)|{_LANGUAGE}")
     #: Whether a paired TV skips intros and credits by itself; null is refused.
     auto_skip: StrictBool = True
+    #: Whether the player evens out loud and quiet sounds; null is refused.
+    reduce_loud: StrictBool = False
 
 
 def _title(
@@ -148,6 +150,7 @@ def _answer(
             "defaults": {
                 "audio_lang": defaults.audio_lang,
                 "subtitle_lang": defaults.subtitle_lang,
+                "reduce_loud": track_choices.reduces_loud(conn, username),
             },
         }
     )
@@ -273,6 +276,7 @@ def _defaults_answer(conn: sqlite3.Connection, username: str, defaults: Defaults
             "audio_lang": defaults.audio_lang,
             "subtitle_lang": defaults.subtitle_lang,
             "auto_skip": track_choices.skips_on_tv(conn, username),
+            "reduce_loud": track_choices.reduces_loud(conn, username),
             "languages": [
                 {"code": code, "name": name, "native": NATIVE_NAMES[code]}
                 for code, name in LANGUAGES.items()
@@ -311,4 +315,6 @@ def set_playback(body: _Defaults, username: str = Depends(get_current_user)) -> 
         track_choices.set_defaults(conn, username, defaults)
     if "auto_skip" in sent:
         track_choices.set_skips_on_tv(conn, username, body.auto_skip)
+    if "reduce_loud" in sent:
+        track_choices.set_reduces_loud(conn, username, body.reduce_loud)
     return _defaults_answer(conn, username, defaults)
