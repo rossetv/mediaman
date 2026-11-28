@@ -277,7 +277,21 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
 
 /* ── The sheet ── */
 
+/* Glass, which fades and moves itself. What sits on it takes veils for its fills, quiet words and
+   coloured ones lifted, and rings in the lifted blue. */
 .watch-sheet {
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent: var(--g-accent);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   --sheet-w: min(680px, 100cqw);
   position: absolute;
   z-index: 1;
@@ -289,10 +303,13 @@ html[data-page="watch"].is-bar-focus { scroll-padding-top: 0; }
   overscroll-behavior: contain;
   scrollbar-width: none;
   padding: 17px;
-  border: 1px solid var(--hair-strong);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
   border-radius: 20px;
-  background: var(--s1);
-  box-shadow: var(--shadow-card);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  box-shadow: var(--g-inset), var(--g-shadow);
   transform-origin: 50% 0;
   opacity: 0;
   visibility: hidden;

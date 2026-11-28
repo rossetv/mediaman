@@ -144,20 +144,44 @@ def _frames(name: str) -> str:
     return re.search(r"@keyframes " + name + r" \{([^\n]*)\}\n", css)[1]
 
 
-def test_under_reduced_motion_the_move_is_a_150ms_fade_and_nothing_moves() -> None:
+def _calm_fades() -> dict[str, str]:
     base = (CSS / "_base.css").read_text()
     calm = re.findall(r"@media \(prefers-reduced-motion: reduce\) \{\n(.*?)\n\}", base, flags=re.S)
     fades = [block for block in calm if "is-arriving" in block]
     assert len(fades) == 1
-    rules = {
+    return {
         sel.strip(): body.strip() for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", fades[0])
     }
-    assert set(rules) == {
-        "html.is-arriving :is(#main-content, header.nav-glass)",
-        "html.is-arriving .mm-sky",
-        "html.is-leaving body",
-    }
+
+
+def test_under_reduced_motion_the_move_is_a_150ms_fade_and_nothing_moves() -> None:
+    rules = _calm_fades()
+    assert len(rules) == 3 and "html.is-arriving .mm-sky" in rules
     for body in rules.values():
         assert "var(--dur-fast) linear" in body and body.endswith("!important;")
         frames = _frames(re.search(r"animation: ([\w-]+)", body)[1])
         assert "opacity" in frames and "transform" not in frames
+
+
+# What holds glass below it: the page, the bar, and the two islands whose glass is their ::before.
+_HOLDS_GLASS = re.compile(r"body|header\.nav-glass|\.nav-glass|(.* )?\.(brand|watch-search)")
+
+
+def test_under_reduced_motion_signing_in_fades_no_element_that_holds_glass() -> None:
+    # Glass under a fading parent sees none of the page while it fades, then snaps to its blur.
+    (arriving,) = (sel for sel in _calm_fades() if sel.startswith("html.is-arriving :is("))
+    faded = re.split(r",(?![^()]*\))", arriving[len("html.is-arriving :is(") : -1])
+    assert "#main-content" in faded
+    for one in faded:
+        assert not _HOLDS_GLASS.fullmatch(one.strip()), one
+
+
+def test_under_reduced_motion_log_out_covers_the_page_in_its_own_black_instead_of_fading_it() -> (
+    None
+):
+    rules = _calm_fades()
+    assert not any(sel.startswith("html.is-leaving body") and "::" not in sel for sel in rules)
+    cover = rules["html.is-leaving body::after"]
+    # Over everything, in the colour the page went out to when it faded.
+    assert "position: fixed" in cover and "inset: 0" in cover and "z-index: 2147483647" in cover
+    assert "background: var(--bg)" in cover and "animation: mm-in " in cover

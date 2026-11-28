@@ -28,16 +28,33 @@
   position: absolute;
   inset: 0;
   border-radius: var(--r-lg);
-  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card), 0 0 70px 10px color-mix(in srgb, var(--scrim) 65%, transparent);
+  box-shadow: 0 0 0 1px var(--g-edge), var(--shadow-card), 0 0 70px 10px color-mix(in srgb, var(--scrim) 65%, transparent);
   opacity: 0;
   transition: opacity calc(var(--dur-fast) * .8) var(--ease-out);
 }
 .pv.is-open > .pv__shadow { opacity: 1; transition: opacity var(--dur) var(--ease-out) .1s; }
+/* Glass. What fades the preview fades this and its neighbours, never the parent they share: glass
+   under a fading parent has nothing to blur. What sits on it takes veils for its fills, quiet words
+   and coloured ones lifted, and rings in the lifted blue. */
 .pv__shell {
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent: var(--g-accent);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   position: relative;
   overflow: hidden;
   border-radius: var(--r-lg);
-  background: var(--s1);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
   clip-path: inset(var(--pv-iy) var(--pv-ix) round var(--pv-r));
   transition: clip-path var(--dur) var(--ease-out);
   will-change: clip-path;
@@ -157,7 +174,7 @@
 
 /* Scrolled open: its picture alone is left of it, under the page's words (watch/carry.js). */
 .pv:is(.is-carried, .is-held) { z-index: calc(var(--z-modal-backdrop) + 1); transform: var(--pv-to); pointer-events: none; }
-.pv:is(.is-carried, .is-held) > .pv__shell { overflow: visible; background: none; clip-path: none; transition: none; }
+.pv:is(.is-carried, .is-held) > .pv__shell { overflow: visible; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; clip-path: none; transition: none; }
 .pv:is(.is-carried, .is-held) :is(.pv__body, .pv__poster, .pv__hint),
 .pv:is(.is-carried, .is-held) > :is(.pv__shadow, .pv__lift) { visibility: hidden; }
 .pv:is(.is-carried, .is-held) .pv__media { transform-origin: 0 0; will-change: transform; }
@@ -166,13 +183,15 @@
 .pv.is-placing,
 .pv.is-placing * { transition: none; }
 /* The page or its row moved under it: it goes where it stands, not back to a box that is not there. */
-.pv.is-fading { opacity: 0; transform: var(--pv-to); transition: opacity .12s linear; pointer-events: none; }
-/* Into the detail, over the sheet that starts at its place: only its words are still to go. */
+.pv.is-fading { transform: var(--pv-to); pointer-events: none; }
+.pv.is-fading > :is(.pv__shadow, .pv__shell, .pv__lift) { opacity: 0; transition: opacity .12s linear; }
+/* Into the detail, over the sheet that starts at its place: only its words are still to go, with no
+   glass left to fade. */
 .pv.is-handed { z-index: calc(var(--z-modal-backdrop) + 3); opacity: 0; transform: var(--pv-to); transition: opacity calc(var(--dur-fast) * .5) linear; pointer-events: none; }
 .pv.is-handed .pv__media,
 .pv.is-handed .pv__progress,
 .pv.is-handed > .pv__shadow { visibility: hidden; }
-.pv.is-handed > .pv__shell { background: none; }
+.pv.is-handed > .pv__shell { background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .pv__held { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 25%; }
 
 .watch-more-menu { width: 258px; }
@@ -187,13 +206,13 @@
 /* No growing: a short fade in place. It carries its own !important, since the app's rule for
    reduced motion takes every transition away. */
 @media (prefers-reduced-motion: reduce) {
-  .pv { transform: var(--pv-to); opacity: 0; transition: opacity var(--dur-fast) linear !important; }
-  .pv.is-open:not(.is-fading, .is-handed) { opacity: 1; }
+  .pv { transform: var(--pv-to); transition: opacity var(--dur-fast) linear !important; }
+  .pv > :is(.pv__shadow, .pv__shell, .pv__lift) { opacity: 0; transition: opacity var(--dur-fast) linear !important; }
+  .pv.is-open:not(.is-fading) > :is(.pv__shadow, .pv__shell, .pv__lift) { opacity: 1; }
   .pv > .pv__shell,
   .pv.is-open > .pv__shell { clip-path: inset(0 0 round var(--r-lg)); }
   .pv__poster { display: none; }
   .pv .pv__body { opacity: 1; transform: none; }
-  .pv > .pv__shadow { opacity: 1; }
   .watch-card__link.is-previewed .watch-card__poster { transform: none; }
   .pv__head > * { transition-delay: 0s; }
 }
