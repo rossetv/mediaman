@@ -353,6 +353,24 @@ const scenarios = {
     };
   },
 
+  // Plex answers but leaves out the host's CPU and its own, in the newest points.
+  async unknown() {
+    const pts = [];
+    for (let i = 0; i < 31; i++) pts.push(point(NOW - 60 + i * 2, 100 * MB, 50));
+    for (let i = 25; i < 31; i++) { pts[i].cpu = null; pts[i].apps.plex = [null, null]; }
+    const p = await page({ live: { point: pts[30], live: pts } });
+    await p.open();
+    const card = p.doc.querySelectorAll('#space-activity .act-res')[0];
+    const paths = p.doc.querySelectorAll('#space-activity .act-chart--stack path').map((x) => x.getAttribute('d'));
+    return {
+      say: p.text('.act-say'),
+      tile: p.doc.querySelectorAll('#space-activity .act-tile__n')[1].textContent,
+      fig: card.querySelector('.act-res__n').textContent,
+      keys: card.querySelectorAll('.act-key').map((k) => [k.querySelector('.act-key__name').textContent, k.querySelector('.act-key__val').textContent]),
+      nan: /NaN/.test(p.$('space-activity').textContent) || paths.some((d) => /NaN/.test(d)),
+    };
+  },
+
   async unpacking() {
     const p = await page();
     await p.open();

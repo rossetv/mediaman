@@ -302,6 +302,7 @@ class Sampler:
         self._own = (at, own)
         _add(apps, "mediaman", own_cpu, own.mem)
 
+        plex_gave_cpu = resources is not None and resources.plex_cpu is not None
         if resources is not None:
             # Plex gives its memory only as a share of the server: it is kept as one.
             _add(apps, "plex", resources.plex_cpu, None)
@@ -317,8 +318,8 @@ class Sampler:
                     if system > 0:
                         cpu = max(0.0, (stats.cpu_total - was_stats.cpu_total) / system * 100)
                         cpu *= scale
-                # Plex is read from Plex itself while it answers.
-                if stats.app and not (stats.app == "plex" and resources is not None):
+                # Plex is read from Plex itself while it gives its own CPU.
+                if stats.app and not (stats.app == "plex" and plex_gave_cpu):
                     _add(apps, stats.app, cpu, stats.mem)
             self._containers = seen
         elif docker_url:

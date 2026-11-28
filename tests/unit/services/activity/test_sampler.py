@@ -22,6 +22,7 @@ from tests.unit.services.activity.fakes import (
     DOCKER,
     NZB,
     PLEX,
+    PLEX_ID,
     SONARR_ID,
     Stack,
     configure,
@@ -154,6 +155,52 @@ def test_plex_down_leaves_the_host_unknown_and_docker_stands_in_for_plex(
     assert r.point["apps"]["plex"][1] == 600 * MB  # its container's memory
 
 
+def _resources(*rows: str) -> str:
+    return (
+        "<MediaContainer>"
+        + "".join(f"<StatisticsResources {r}/>" for r in rows)
+        + "</MediaContainer>"
+    )
+
+
+FULL = 'at="100" hostCpuUtilization="10.0" hostMemoryUtilization="20.0" processCpuUtilization="1.0" processMemoryUtilization="2.0"'
+NO_PLEX_CPU = 'at="106" hostCpuUtilization="79.5" hostMemoryUtilization="50.0" processMemoryUtilization="10.0"'
+
+
+def test_when_plexs_newest_figures_lack_one_the_newest_full_row_is_read(
+    conn, secret_key, stack, sampler
+):
+    configure(conn, secret_key, docker=False)
+    stack.resources = _resources(NO_PLEX_CPU, FULL)
+    r = sampler.read(conn, secret_key, now=1000.0)
+    assert r.sources["plex"] == "ok"
+    assert r.point["cpu"] == 10.0
+    assert r.point["apps"]["plex"][0] == 1.0
+
+
+def test_a_figure_plex_never_gives_is_unknown_and_plex_and_who_watches_stay(
+    conn, secret_key, stack, sampler
+):
+    configure(conn, secret_key, docker=False)
+    stack.resources = _resources(NO_PLEX_CPU, NO_PLEX_CPU.replace('at="106"', 'at="100"'))
+    r = sampler.read(conn, secret_key, now=1000.0)
+    assert r.sources["plex"] == "ok"
+    assert len(r.sessions) == 2
+    assert (r.point["cpu"], r.point["plex_mem_pct"]) == (79.5, 10.0)
+    assert r.point["apps"]["plex"][0] is None
+    assert not sampler._resting_now("plex", 1001.0)
+
+
+def test_when_plex_leaves_out_its_own_cpu_its_container_stands_in(conn, secret_key, stack, sampler):
+    configure(conn, secret_key)
+    stack.resources = _resources(NO_PLEX_CPU)
+    sampler.read(conn, secret_key, now=1000.0)
+    stack.cpu[PLEX_ID] += 20_000
+    stack.system += 100_000
+    r = sampler.read(conn, secret_key, now=1002.0)
+    assert r.point["apps"]["plex"][0] == pytest.approx(20.0)
+
+
 def test_without_a_docker_proxy_set_nothing_is_asked_of_docker(conn, secret_key, stack, sampler):
     configure(conn, secret_key, docker=False)
     r = sampler.read(conn, secret_key, now=1000.0)
@@ -242,6 +289,7 @@ def test_whoever_asks_while_a_reading_is_taken_gets_the_one_before_at_once(
     [
         ("docker", "[" * 200_000),  # nested too deep for the JSON reader
         ("plex", 404),  # a server without /statistics/resources
+        ("plex", "<MediaContainer/>"),  # no resource figures at all
         ("plex", '<!DOCTYPE x [<!ENTITY a "b">]><MediaContainer>&a;</MediaContainer>'),
     ],
 )
