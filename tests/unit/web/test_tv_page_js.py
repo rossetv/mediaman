@@ -262,6 +262,49 @@ def test_any_key_goes_on_from_the_page_that_says_mediaman_restarted(how: str) ->
     assert "is ready" in out["then"]
 
 
+def test_after_a_restart_the_tv_picks_the_film_up_where_it_got_to_by_itself() -> None:
+    out = _run("resumes", "restart")
+    (wish,) = out["asks"]
+    assert (wish["what"], wish["ticket"], wish["play_id"], wish["paused"]) == (
+        "resume",
+        "ticket-p1",
+        "p1",
+        False,
+    )
+    assert abs(wish["position_s"] - out["at"]) < 2
+    assert "mediaman restarted" in out["said"] and "Picking up Glass Orchard" in out["said"]
+    assert "is ready" not in out["then"] and out["src"] and out["playing"]
+    assert abs(out["put"] - out["at"]) < 2
+
+
+def test_a_film_paused_as_mediaman_restarted_comes_back_paused() -> None:
+    out = _run("resumes", "paused")
+    assert out["asks"][0]["paused"] is True and not out["playing"]
+
+
+def test_a_film_dropped_while_the_tv_was_off_the_network_goes_on_too() -> None:
+    out = _run("resumes", "network")
+    assert [a["what"] for a in out["asks"]] == ["resume"]
+    assert "Picking up" in out["said"] and "restarted" not in out["said"]
+
+
+def test_a_film_stopped_while_the_tv_answered_does_not_start_again() -> None:
+    out = _run("resumes", "stopped")
+    assert out["asks"] == [] and "is ready" in out["said"]
+
+
+def test_a_refused_pick_up_says_the_place_is_kept_and_asks_once() -> None:
+    out = _run("resumes", "refused")
+    assert len(out["asks"]) == 1 and "is kept" in out["said"] and not out["src"]
+
+
+def test_a_page_opened_again_while_mediaman_was_away_picks_up_from_its_own_place() -> None:
+    out = _run("resumesReopened")
+    (wish,) = out["asks"]
+    assert (wish["ticket"], wish["position_s"], wish["paused"]) == ("ticket-p1", 1500, True)
+    assert "Picking up Glass Orchard" in out["said"]
+
+
 def test_no_place_is_promised_in_a_film_that_was_over() -> None:
     out = _run("restarts", "over")
     assert "mediaman restarted" in out["said"] and "place" not in out["said"]

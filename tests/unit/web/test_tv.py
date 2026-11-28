@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -1217,6 +1218,119 @@ def test_both_screens_can_tell_that_mediaman_restarted(tv, home, amy, monkeypatc
     after = tv.poll()
     assert (after["play"], after["boot"] != before) == (None, True)
     assert _tv_of(amy, home)["boot"] == after["boot"]
+
+
+def _restart(monkeypatch, plex, clock) -> None:
+    """mediaman starts anew: what plays and the streams are gone, the database stays."""
+    monkeypatch.setattr(players, "_players", Players(clock=clock))
+    fresh = StreamManager(lambda: (PLEX_URL, TOKEN), session=plex, clock=clock)
+    monkeypatch.setattr(plex_stream, "_manager", fresh)
+
+
+def _resume(tv, ticket, **body):
+    return tv.post("ask", {"play_id": "gone", "what": "resume", "ticket": ticket, **body})
+
+
+def test_after_a_restart_the_tv_goes_on_with_the_same_title_where_it_got_to(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home, position_s=200)
+    ticket = tv.poll("playing", 900, 700)["resume"]
+    _restart(monkeypatch, plex, clock)
+    assert tv.poll()["play"] is None
+    assert _resume(tv, ticket, position_s=903).status_code == 200
+    play = tv.poll()["play"]
+    assert (play["by"], play["start_s"], play["paused"]) == ("amy", 903, False)
+    assert play["url"] and _tv_of(amy, home)["play"]["rating_key"] == "101"
+
+
+def test_a_tv_paused_as_mediaman_restarted_comes_back_paused(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    ticket = tv.poll("paused", 500)["resume"]
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    assert _resume(tv, ticket, position_s=500, paused=True).status_code == 200
+    assert tv.poll()["play"]["paused"] is True
+
+
+def test_with_no_place_from_the_tv_it_goes_on_from_the_place_saved_at_the_stop(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home, position_s=200)
+    ticket = tv.poll("playing", 640, 440)["resume"]
+    tv_routes.save_places()
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    assert _resume(tv, ticket).status_code == 200
+    assert tv.poll()["play"]["start_s"] == 640
+
+
+def test_nothing_starts_again_over_what_was_started_since_the_restart(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    ticket = tv.poll("playing", 300)["resume"]
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    _play(amy, home, "102")
+    assert _resume(tv, ticket).status_code == 409
+    assert _tv_of(amy, home)["play"]["rating_key"] == "102"
+    _command(amy, home, "stop")
+    assert _resume(tv, ticket).status_code == 409
+    assert tv.poll()["play"] is None
+
+
+def test_a_ticket_past_its_time_starts_nothing(tv, home, amy, monkeypatch, plex, clock):
+    monkeypatch.setattr(tv_routes, "_RESUME_SECONDS", -1)
+    _play(amy, home)
+    ticket = tv.poll("playing", 300)["resume"]
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    assert _resume(tv, ticket).status_code == 409
+    assert tv.poll()["play"] is None
+
+
+def test_a_tv_can_have_only_what_a_person_still_paired_started_on_it_again(
+    tv, shared, amy, bob, app, person, monkeypatch, plex, clock
+):
+    _play(bob, shared)
+    ticket = tv.poll("playing", 300)["resume"]
+    other = Tv(app)
+    other.pair(bob)
+    body, sig = ticket.split(".")
+    state = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    state["st"]["rating_key"] = "102"
+    forged = base64.urlsafe_b64encode(json.dumps(state).encode()).decode().rstrip("=")
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    other.poll()
+    assert _resume(tv, f"{forged}.{sig}").status_code == 409
+    assert _resume(other, ticket).status_code == 409
+    assert _resume(tv, "").status_code == 409
+    person("root", role="admin").delete(f"/api/tvs/{shared}/people/bob")
+    assert _resume(tv, ticket).status_code == 409
+    assert tv.poll()["play"] is None and other.poll()["play"] is None
+
+
+def test_a_tv_that_answers_again_after_its_play_was_dropped_goes_on_and_one_stopped_does_not(
+    tv, home, amy, clock
+):
+    _play(amy, home)
+    ticket = tv.poll("playing", 300)["resume"]
+    clock.now += HOLD_SECONDS + 1
+    assert tv.poll()["play"] is None
+    assert _resume(tv, ticket, position_s=310).status_code == 200
+    ticket = tv.poll("playing", 320)["resume"]
+    _command(amy, home, "stop")
+    assert _resume(tv, ticket).status_code == 409
+
+
+def test_no_ticket_is_given_for_a_title_that_is_over(tv, home, amy):
+    _play(amy, home)
+    assert tv.poll("playing", 300)["resume"]
+    assert tv.poll("ended", 6000)["resume"] is None
 
 
 def test_a_tv_cannot_claim_to_have_played_for_longer_than_it_has(tv, home, amy, conn, clock):

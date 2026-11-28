@@ -30,6 +30,7 @@ from .tokens import (
     generate_poll_token,
     generate_poster_token,
     generate_session_token,
+    generate_tv_resume_ticket,
     generate_unsubscribe_token,
     generate_watch_next_cursor,
     mail_tmdb_image_url,
@@ -41,6 +42,7 @@ from .tokens import (
     validate_poll_token,
     validate_poster_token,
     validate_tmdb_image_token,
+    validate_tv_resume_ticket,
     validate_unsubscribe_token,
     validate_watch_next_cursor,
 )
@@ -55,6 +57,7 @@ __all__ = [
     "generate_poll_token",
     "generate_poster_token",
     "generate_session_token",
+    "generate_tv_resume_ticket",
     "generate_unsubscribe_token",
     "generate_watch_next_cursor",
     "is_canary_valid",
@@ -67,6 +70,7 @@ __all__ = [
     "validate_poll_token",
     "validate_poster_token",
     "validate_tmdb_image_token",
+    "validate_tv_resume_ticket",
     "validate_unsubscribe_token",
     "validate_watch_next_cursor",
 ]

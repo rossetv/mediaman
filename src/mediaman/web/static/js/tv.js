@@ -11,6 +11,7 @@
   var API = '/api/tv/device/';
   var KEPT = 'mm-tv';
   var KEPT_PLACE = 'mm-tv-place';
+  var KEPT_RESUME = 'mm-tv-resume';
   var MAX_CODES = 12;        // shown by themselves, with no key pressed
   var RESTARTED_MS = 8000;
   var LOST_AFTER = 8000;
@@ -398,6 +399,7 @@
     token = mine.token;
     remember(KEPT, token);
     remember(KEPT_PLACE, null);
+    keepResume(null);
     codes = 0;
     lastDone = 0;
     play = null;
@@ -462,11 +464,12 @@
         if (status === 429) heard(); else missed(false);
         return;
       }
+      var wasAway = now() - heardAt > LOST_AFTER;
       heard();
       // First, so that nothing a TV's browser throws below ends the polling.
       pollSoon(again ? 500 : got.poll_ms || 3000);
       again = false;
-      take(got);
+      take(got, wasAway);
     });
   }
 
@@ -486,6 +489,7 @@
     me = null;
     remember(KEPT, null);
     remember(KEPT_PLACE, null);
+    keepResume(null);
     mode = 'out';
   }
 
@@ -500,15 +504,71 @@
     }, RESTARTED_MS);
   }
 
-  function take(got) {
+  function take(got, wasAway) {
     me = { name: got.name, owner: got.owner, people: got.people || [], avatars: got.avatars || {} };
     if (mode === 'boot') mode = 'idle';
     var was = play;
+    var lost = lostPlay(was, got, wasAway);
+    // Where it was, before the page lets the film go.
+    var at = lost && was && loaded === was.play_id ? position() : lastPlace({ play_id: lost && lost.id, start_s: null });
+    var paused = was ? !wanted : lost && lost.paused;
     playing(got.play);
-    if (was && !got.play && boot !== got.boot) restarted(was);
+    if (lost) resume(lost, at, paused, got.boot);
+    else if (was && !got.play && boot !== got.boot) restarted(was);
+    if (!lost && resuming !== got.boot) keepResume(got.play && got.resume ? { ticket: got.resume, id: got.play.play_id, boot: got.boot, title: got.play.title } : null);
     boot = got.boot;
     obey(got.commands || []);
     show();
+  }
+
+  /* ── going on after mediaman, or the TV's network, dropped out ── */
+
+  var resumable = null;      // {ticket, id, boot, title, paused}: the server's word that what plays may go on
+  var resuming = null;       // the run of mediaman asked to go on, until it answers
+  var resumingFrom = false;  // whether mediaman restarted, rather than the network dropped out
+
+  var storedAt = 0;
+
+  function keepResume(kept) {
+    var was = resumable, at = now();
+    if (kept) kept.paused = !wanted;
+    var changed = !was !== !kept || Boolean(kept) && (was.id !== kept.id || was.boot !== kept.boot || was.paused !== kept.paused);
+    resumable = kept;
+    // A TV's storage is slow to write: as what it holds changes, and its ticket once a minute.
+    if (changed || (kept && at - storedAt > 60000)) {
+      storedAt = at;
+      remember(KEPT_RESUME, kept && JSON.stringify(kept));
+    }
+  }
+  function keptResume() {
+    if (resumable) return resumable;
+    try { return JSON.parse(remembered(KEPT_RESUME) || 'null'); } catch (e) { return null; }
+  }
+
+  /* What played and was lost, where it is to go on: mediaman restarted, or the network dropped out
+     for longer than mediaman holds a play. A page opened again knows only of a restart. */
+  function lostPlay(was, got, wasAway) {
+    var kept = keptResume();
+    if (got.play || !kept || !kept.ticket || resuming === got.boot) return null;
+    if (was && was.play_id !== kept.id) return null;
+    return kept.boot !== got.boot || (was && wasAway) ? kept : null;
+  }
+
+  function resume(kept, at, paused, run) {
+    endedWith = { title: kept.title, state: 'playing' };
+    resuming = run;
+    resumingFrom = kept.boot !== run;
+    mode = 'resuming';
+    var wish = { play_id: kept.id, what: 'resume', ticket: kept.ticket, paused: Boolean(paused) };
+    if (at) wish.position_s = Math.max(0, at);
+    send('ask', token, wish, 110000, function (status) {
+      if (mode !== 'resuming') return;
+      if (status === 200) { tell(); return; }
+      keepResume(null);
+      resuming = null;
+      if (resumingFrom) restarted(endedWith); else mode = 'idle';
+      show();
+    });
   }
 
   /* ── what is to play ── */
@@ -528,7 +588,8 @@
       asked = null;
       return;
     }
-    if (mode === 'conn' || mode === 'unpair' || mode === 'taken' || mode === 'code' || mode === 'restarted') mode = 'idle';
+    if (mode === 'conn' || mode === 'unpair' || mode === 'taken' || mode === 'code' || mode === 'restarted' || mode === 'resuming') mode = 'idle';
+    resuming = null;
     if (!was || was.play_id !== next.play_id) {
       unload();
       rouse();
@@ -831,6 +892,7 @@
   video.addEventListener('pause', function () {
     if (!loaded || !ready || video.ended || reloadDue || broken) return;
     wanted = false;
+    if (there) keepPlace(video.currentTime);
     show();
     tell();
   });
@@ -847,6 +909,12 @@
   video.addEventListener('error', function () {
     if (!hls && video.getAttribute('src')) broke();
   });
+
+  /* Where the film is, kept on the TV itself: mediaman may be away when it is wanted. */
+  function keepPlace(time) {
+    keptAt = now();
+    remember(KEPT_PLACE, play.play_id + ' ' + Math.floor(time));
+  }
 
   function tick() {
     var at = now(), since = Math.min(2000, Math.max(0, at - lastTick));
@@ -876,7 +944,7 @@
       if (counted - (play.played_s || 0) > 60) { breaks = 0; }
       if (ready && wanted && there && time - play.start_s > 60) tries = 0;
       lastTime = time;
-      if (there && ready && at - keptAt > 5000) { keptAt = at; remember(KEPT_PLACE, play.play_id + ' ' + Math.floor(time)); }
+      if (there && ready && at - keptAt > 2000) keepPlace(time);
     }
     if (pending && mode === 'code') {
       if (now() >= pending.until) codeGone();
@@ -1173,6 +1241,9 @@
       return page(middle('Signed out', 'This TV was unpaired. Nothing of yours is left on it.<br>Pair it again to watch.', [['Pair this TV', 'n']]));
     },
     taken: function () { return page(middle('Someone else has this TV now', 'The film stopped. Its place is kept.', [], SPIN)); },
+    resuming: function () {
+      return page(middle(resumingFrom ? 'mediaman restarted' : 'Back online', 'Picking up ' + esc(endedWith.title) + ' where you were.', [], SPIN));
+    },
     restarted: function () {
       var over = /^(ended|upnext|still)$/.test(endedWith.state);
       return page(middle('mediaman restarted', over ? 'The TV is ready for something else.' : 'Your place in ' + esc(endedWith.title) + ' is kept.', [['OK', 'i']]));
@@ -1297,7 +1368,7 @@
   }
 
   // What plays, waits for a film or counts down; the rest are still pictures.
-  var BRIGHT = { play: 1, buf: 1, load: 1, soon: 1, next: 1, still: 1 };
+  var BRIGHT = { play: 1, buf: 1, load: 1, soon: 1, next: 1, still: 1, resuming: 1 };
   // Where a press meant for the light would start a film, ask for a code, unpair or leave the page.
   var LIGHT_FIRST = { idle: 1, code: 1, unpair: 1, ended: 1, err: 1, out: 1, press: 1, old: 1, conn: 1 };
   var stirredAt = now();

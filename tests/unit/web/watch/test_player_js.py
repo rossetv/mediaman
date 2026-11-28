@@ -2359,6 +2359,21 @@ def test_a_tv_that_is_over_leaves_the_place_here_and_waits_for_a_press(markup, w
         )
 
 
+def test_a_tv_that_picks_up_again_after_a_restart_is_followed_on(markup):
+    out = elsewhere(markup, "away_tv_restarted", "back")
+    assert (out["during"], out["away"], out["says"]) == (True, True, "Playing on Living room")
+
+
+def test_a_tv_that_never_picks_up_after_a_restart_leaves_where_it_had_got_to(markup):
+    out = elsewhere(markup, "away_tv_restarted", "gone")
+    assert (out["during"], out["says"], out["hint"]) == (
+        True,
+        "Was playing on Living room",
+        "Your place is saved at 6:40.",
+    )
+    assert out["from"] == 400
+
+
 @pytest.mark.parametrize("how", ["again", "limit", "closed"])
 def test_a_tv_that_does_not_start_says_so_and_it_plays_on_here(markup, how):
     out = elsewhere(markup, "away_tv_refused", how)
@@ -3120,9 +3135,10 @@ def test_a_way_that_lets_go_of_a_silent_tv_says_it_may_still_play(markup):
 def test_a_tv_that_does_not_answer_has_the_remotes_card(markup, how):
     out = elsewhere(markup, "away_lost_tv", how)
     lost = out["lost"]
+    # Where the TV last said it was, not where it was started from.
     assert (lost["says"], lost["hint"]) == (
         "Was playing on Living room",
-        "Your place is saved at 0:30.",
+        "Your place is saved at 0:40.",
     )
     assert lost["message"]["text"] == "Living room stopped answering"
     assert "away from its browser" in lost["message"]["line"]

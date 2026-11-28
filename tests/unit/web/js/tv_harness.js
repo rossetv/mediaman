@@ -934,6 +934,44 @@ const scenarios = {
     await t.step(8000);
     return { said, src, pressed, still, then: t.says(), raw: html.includes('<b>Orchard') };
   },
+  // A film that was lost goes on by itself: after a restart, paused, after the network dropped out,
+  // refused, or not after a stop with nothing gone wrong.
+  async resumes(how) {
+    const t = await playing();
+    let boot = 'a';
+    const answer = () => ready({ play: t.now, boot, resume: t.now ? 'ticket-' + t.now.play_id : null });
+    t.now = film({ state: 'playing' });
+    t.answers.poll = answer;
+    await t.step(1500);
+    if (how === 'paused') { t.video.pause(); t.video.fire('pause'); }
+    await t.step(1500);
+    if (how !== 'stopped') t.answers.poll = [502, null];
+    await t.step(how === 'network' ? 9000 : 3000);
+    const at = t.video.currentTime;
+    if (how !== 'network' && how !== 'stopped') boot = 'b';
+    t.now = null;
+    t.answers.ask = how === 'refused' ? [409, { ok: false, error: 'not_playing' }] : { ok: true };
+    t.answers.poll = answer;
+    await t.step(2500);
+    const said = t.says();
+    const asks = t.paths('ask').map((c) => c.body);
+    if (asks.length && how !== 'refused') t.now = film({ play_id: 'p2', state: 'loading', start_s: asks[0].position_s, paused: asks[0].paused });
+    await t.step(1500);
+    t.video.fire('loadedmetadata');
+    await t.step(500);
+    return { asks, at, said, then: t.says(), src: t.video.attrs.src || null, put: t.video.sets.pop(), playing: !t.video.paused };
+  },
+  // A page opened again while mediaman was away goes on from the place it kept.
+  async resumesReopened() {
+    const t = tv({ kept: 'old' });
+    t.store['mm-tv-resume'] = JSON.stringify({ ticket: 'ticket-p1', id: 'p1', boot: 'a', title: 'Glass Orchard', paused: true });
+    t.store['mm-tv-place'] = 'p1 1500';
+    t.answers.poll = () => ready({ boot: 'b' });
+    t.answers.ask = { ok: true };
+    t.run();
+    await t.step(1500);
+    return { asks: t.paths('ask').map((c) => c.body), said: t.says() };
+  },
   // a page opened after the restart knew of no film, and one that shows nothing has nothing to say
   async restartsIdle() {
     const t = tv({ kept: 'old' });

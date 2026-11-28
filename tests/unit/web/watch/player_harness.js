@@ -5137,6 +5137,31 @@ const scenarios = {
     return out;
   },
 
+  /* mediaman restarts while a TV plays: the TV picks it up again, or never does. */
+  async away_tv_restarted(p) {
+    const how = p.win.serverPlays;
+    await streamPlays(p, 30);
+    await openSheet(p);
+    await pickRow(p, 'tv-5');
+    let tv = Object.assign({}, LIVING, { boot: 'a', play: { play_id: 'p1', rating_key: '501', state: 'playing', position_s: 400 } });
+    p.elsewhere.tv = () => Promise.resolve({ tv: tv });
+    p.tick(6000);
+    await settle();
+    tv = Object.assign({}, LIVING, { boot: 'b' });
+    p.tick(6000);
+    await settle();
+    const out = { during: awayState(p).away };
+    if (how === 'back') tv = Object.assign({}, LIVING, { boot: 'b', play: { play_id: 'p2', rating_key: '501', state: 'playing', position_s: 405 } });
+    for (let i = 0; i < 8; i += 1) { p.tick(6000); await settle(); }
+    Object.assign(out, awayState(p));
+    if (how === 'gone') {
+      click(p.q('[data-play]'));
+      await settle();
+      out.from = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    }
+    return out;
+  },
+
   /* The TV does not start it. */
   async away_tv_refused(p) {
     const how = p.win.serverPlays;

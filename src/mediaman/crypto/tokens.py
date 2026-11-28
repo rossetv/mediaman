@@ -97,6 +97,13 @@ class WatchNextCursorPayload(TypedDict):
     """UNIX timestamp at which the token expires."""
 
 
+class TvResumeTicketPayload(TypedDict):
+    st: dict[str, object]
+    """What played on one TV, and for whom, as the TV may ask for it back."""
+    exp: int | float
+    """UNIX timestamp at which the token expires."""
+
+
 class PollTokenPayload(TypedDict):
     """Payload carried by a short-lived polling-capability token."""
 
@@ -171,6 +178,7 @@ _TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
 _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
 _TOKEN_PURPOSE_TMDB_IMAGE = b"mediaman-token-tmdb-image-v1"
 _TOKEN_PURPOSE_WATCH_NEXT = b"mediaman-token-watch-next-v1"
+_TOKEN_PURPOSE_TV_RESUME = b"mediaman-token-tv-resume-v1"
 
 # As long as a mailed poster's signature (generate_poster_token's default) lasts.
 _MAIL_PICTURE_TTL_DAYS = 180
@@ -564,6 +572,21 @@ def validate_watch_next_cursor(token: str, secret_key: str) -> WatchNextCursorPa
     if result is None or not isinstance(cast(dict[str, object], result).get("st"), dict):
         return None
     return cast(WatchNextCursorPayload, result)
+
+
+def generate_tv_resume_ticket(*, state: Mapping[str, object], ttl_s: int, secret_key: str) -> str:
+    """Issue the ticket a TV holds to have what it played started again after a restart."""
+    payload = {"st": dict(state), "exp": int(time.time()) + ttl_s}
+    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_TV_RESUME)
+
+
+def validate_tv_resume_ticket(token: str, secret_key: str) -> TvResumeTicketPayload | None:
+    """Validate and decode a ticket of generate_tv_resume_ticket; ``None`` when it is invalid,
+    expired or tampered. The shape of ``st`` is the caller's to check."""
+    result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_TV_RESUME)
+    if result is None or not isinstance(cast(dict[str, object], result).get("st"), dict):
+        return None
+    return cast(TvResumeTicketPayload, result)
 
 
 def generate_poll_token(

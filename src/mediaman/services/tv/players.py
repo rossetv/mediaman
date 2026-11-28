@@ -29,6 +29,9 @@ SAVE_SECONDS = 10.0
 GONE_KEEP_SECONDS = 600.0
 _FORGET_SECONDS = 3600.0
 
+#: A play in these states has nothing left to go on with.
+_OVER = frozenset({"ended", "upnext", "still", "failed"})
+
 NextState = Literal["next", "end", "unknown"]
 #: The TV's own word on what it does.
 Reported = Literal["loading", "playing", "paused", "buffering", "ended", "error"]
@@ -341,6 +344,33 @@ class Players:
             plays = [tv.play for tv in self._tvs.values()]
         found = next((p for p in plays if p is not None and p.id == play_id), None)
         return (found.user, found.rating_key) if found is not None else None
+
+    def to_resume(self, token_hash: str) -> Play | None:
+        """What plays on the TV, where it is to go on should mediaman or the TV drop out."""
+        with self._lock:
+            play = self._tv(token_hash).play
+            if play is None or play.state in _OVER:
+                return None
+            return play
+
+    def may_resume(self, token_hash: str, boot: str, user: str, rating_key: str) -> bool:
+        """Whether *user*'s *rating_key*, playing on the TV in run *boot*, may start again by itself.
+
+        Only where nothing else has played on it since: after a restart, nothing at all; in the same
+        run, only where the play was dropped because the TV stopped answering.
+        """
+        with self._lock:
+            tv = self._tv(token_hash)
+            if tv.play is not None:
+                return False
+            if boot != self.boot:
+                return tv.last is None
+            last = tv.last or {}
+            return (last.get("reason"), last.get("by"), last.get("rating_key")) == (
+                "lost",
+                user,
+                rating_key,
+            )
 
     # ── what plays ──
 
