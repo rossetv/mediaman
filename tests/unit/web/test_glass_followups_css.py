@@ -101,3 +101,11 @@ def test_the_space_bar_s_parts_grow_without_stretching_free_s_edge() -> None:
             seen += 1
             assert "transform" not in decls and "will-change" not in decls, sels
     assert seen >= 4
+    # The bar is resized from its middle by --k: the chosen part grows, the others shrink.
+    inset = style(".space-seg::before", "_watch_space.css")["inset"]
+    assert re.fullmatch(r"calc\(50% - 11px \* var\(--k, 1\)\) 0", inset), inset
+    chosen = style(".space-bar.has-active .space-seg.is-active::before", "_watch_space.css")
+    others = style(".space-bar.has-active .space-seg::before", "_watch_space.css")
+    pressed = style(".space-bar:not(.has-active) .space-seg:active::before", "_watch_space.css")
+    assert float(chosen["--k"]) > 1 > float(others["--k"])
+    assert float(pressed["--k"]) > 1
