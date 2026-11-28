@@ -14,6 +14,7 @@ from typing import Any
 
 import requests
 
+from mediaman.services.arr import _library_hold
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,9 @@ class _TransportMixin:
             # preserve-and-rethrow — see _get.
             self.last_error = str(exc)
             raise
+        finally:
+            # Even one that failed may have been carried out.
+            _library_hold.forget(self._url)
 
     # Any: raw resp.json() of an arbitrary *arr endpoint; callers cast() to the right _types TypedDict.
     def _post(self, path: str, data: Mapping[str, Any]) -> dict[Any, Any] | list[Any]:
@@ -192,6 +196,8 @@ class _TransportMixin:
             # preserve-and-rethrow — see _get.
             self.last_error = str(exc)
             raise
+        finally:
+            _library_hold.forget(self._url)
 
     def _start_search(self, command: Mapping[str, Any]) -> None:
         """Post a search command; one that got no answer has started if the *arr lists it.
@@ -242,6 +248,8 @@ class _TransportMixin:
             # preserve-and-rethrow — see _get.
             self.last_error = str(exc)
             raise
+        finally:
+            _library_hold.forget(self._url)
 
     # rationale: the retry loop carries the ``last_observed`` /
     # ``attempt`` state through every branch (already-unmonitored, success,

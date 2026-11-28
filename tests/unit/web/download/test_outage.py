@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from mediaman.services.arr import fetcher
+from mediaman.services.arr import _library_hold, fetcher
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
 from mediaman.services.downloads.download_queue import _reset_previous_queue
@@ -48,6 +48,19 @@ def client(app_factory, authed_client, conn, templates_stub):
 
 def _get(client) -> dict:
     return client.get("/api/downloads").json()
+
+
+@pytest.fixture
+def hold(monkeypatch):
+    """The clock the libraries a poll reads are held by."""
+    clock = [1000.0]
+    monkeypatch.setattr(_library_hold, "clock", lambda: clock[0])
+    return clock
+
+
+def _hold_over(hold: list[float]) -> None:
+    """Let the libraries held run out, as a change made outside mediaman is seen by then."""
+    hold[0] += _library_hold.HOLD_SECONDS
 
 
 def test_nothing_is_unreachable_while_all_answer(services, client):
@@ -170,13 +183,16 @@ def test_what_finishes_while_its_service_is_down_is_recorded_once_it_is_back(
     assert [r["id"] for r in _get(client)["recent"]] == [f"{name}:Dune"]
 
 
-def test_an_item_its_service_left_out_of_half_an_answer_is_not_taken_for_finished(services, client):
+def test_an_item_its_service_left_out_of_half_an_answer_is_not_taken_for_finished(
+    services, client, hold
+):
     radarr = services[0]
     radarr.get_movies.return_value = [
         {"id": 1, "title": "Dune", "monitored": True, "isAvailable": True}
     ]
     _get(client)
 
+    _hold_over(hold)
     radarr.get_movies.side_effect = _DOWN
     _get(client)
 
@@ -245,7 +261,9 @@ def test_a_film_is_recorded_for_a_file_no_older_than_its_download(
     assert [r["id"] for r in _get(client)["recent"]] == recorded
 
 
-def test_a_film_seen_through_an_outage_is_still_told_from_another_of_its_title(services, client):
+def test_a_film_seen_through_an_outage_is_still_told_from_another_of_its_title(
+    services, client, hold
+):
     radarr, _, nzbget = services
     nzbget.get_queue.return_value = [_loading("Dune.2021.1080p")]
     radarr.get_movies.return_value = [
@@ -257,6 +275,7 @@ def test_a_film_seen_through_an_outage_is_still_told_from_another_of_its_title(s
 
     radarr.get_queue.side_effect = radarr.get_movies.side_effect = None
     nzbget.get_queue.return_value = []
+    _hold_over(hold)
     radarr.get_movies.return_value = [
         {"id": 1, "tmdbId": 10, "title": "Dune", "hasFile": True, "movieFile": _NEW_FILE},
         {"id": 2, "tmdbId": 20, "title": "Dune", "monitored": False},
@@ -326,17 +345,23 @@ def test_a_queued_title_that_takes_the_place_of_another_is_not_taken_for_it(
     ]
 
 
-def test_a_film_that_takes_the_place_of_another_of_its_title_is_not_taken_for_it(services, client):
+def test_a_film_that_takes_the_place_of_another_of_its_title_is_not_taken_for_it(
+    services, client, hold
+):
     radarr = services[0]
     old = {"id": 1, "tmdbId": 10, "title": "Dune", "monitored": True, "isAvailable": True}
     new = {**old, "id": 2, "tmdbId": 20}
     radarr.get_movies.return_value = [old]
     _get(client)
 
-    # the queue is read, then the ids are not, nor whether the other arrived
-    radarr.get_movies.side_effect = [[new], _DOWN, _DOWN]
+    # the queue and the library are read, the ids taken from what was held, and whether the
+    # other arrived is not read
+    _hold_over(hold)
+    radarr.get_movies.side_effect = [[new], _DOWN]
     assert _get(client)["hero"]["arr_id"] == 2
+    assert radarr.get_movies.call_count == 3
 
+    _hold_over(hold)
     radarr.get_movies.side_effect = None
     radarr.get_movies.return_value = [
         {"id": 1, "tmdbId": 10, "title": "Dune", "monitored": False},
@@ -449,10 +474,11 @@ def test_a_recent_show_is_not_called_ready_before_sonarr_has_told(
 
     # what the queue takes answers, what the shows are read from does not
     sonarr.get_queue.side_effect = None
-    sonarr.get_series.side_effect = [[], _DOWN, [], [_show("Half", 8, 0)]]
+    # The queue's shows are read once and held; the recent ones after them.
+    sonarr.get_series.side_effect = [[], _DOWN, [_show("Half", 8, 0)]]
     assert readiness() == ["unknown"]
     assert readiness() == ["unknown"]
-    assert sonarr.get_series.call_count == 3, "a read that failed is not asked again at once"
+    assert sonarr.get_series.call_count == 2, "a read that failed is not asked again at once"
 
     clock[0] += 31
     sonarr.get_series.side_effect = None
@@ -525,12 +551,12 @@ def test_a_read_of_the_shows_that_failed_is_asked_again_sooner_than_one_that_ans
     def readiness() -> str:
         return _get(client)["recent"][0]["readiness"]
 
-    # Each request reads the queue's shows first, then, when it is due, the recent ones.
-    sonarr.get_series.side_effect = [[], _DOWN, [], [_show("Half", 8, 0)]]
+    # The first request reads the queue's shows, held after it, then, when due, the recent ones.
+    sonarr.get_series.side_effect = [[], _DOWN, [_show("Half", 8, 0)]]
     assert readiness() == "unknown"
     clock[0] += 6
     assert readiness() == "part", "a failed read is not held for the half minute"
 
-    sonarr.get_series.side_effect = [[], [_show("Half", 8, 8)]]
+    sonarr.get_series.side_effect = [[_show("Half", 8, 8)]]
     clock[0] += 20
     assert readiness() == "part", "one that answered is"

@@ -33,6 +33,7 @@ from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
 from mediaman.web.repository.avatars import avatar_urls
 from mediaman.web.responses import respond_err, respond_failure, respond_ok
+from mediaman.web.routes._ids import RowId
 from mediaman.web.routes.tv import end_plays_of
 from mediaman.web.routes.users.passwords import rules_of
 from mediaman.web.routes.users.rate_limits import (
@@ -210,7 +211,7 @@ def api_create_user(
 
 @router.delete("/api/users/{user_id}")
 def api_delete_user(
-    user_id: int,
+    user_id: RowId,
     request: Request,
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
@@ -263,7 +264,7 @@ def api_delete_user(
 
 @router.patch("/api/users/{user_id}/role")
 def api_set_user_role(
-    user_id: int,
+    user_id: RowId,
     body: _UpdateRoleBody,
     request: Request,
     admin: str = Depends(get_current_admin),
@@ -350,7 +351,7 @@ def api_set_my_email(
 
 @router.patch("/api/users/{user_id}/email")
 def api_set_user_email(
-    user_id: int,
+    user_id: RowId,
     body: UpdateEmailBody,
     request: Request,
     admin: str = Depends(get_current_admin),
@@ -414,7 +415,7 @@ def api_set_user_email(
 
 @router.post("/api/users/{user_id}/unlock")
 def api_unlock_user(
-    user_id: int,
+    user_id: RowId,
     request: Request,
     admin: str = Depends(get_current_admin),
     session_token: str | None = Cookie(default=None),
