@@ -239,9 +239,10 @@
 }
 
 /* With no backdrop (none given, or it failed) the poster stands in: blurred as the fill and
-   sharp at 2:3 on the right. The title keeps clear of that place at every width, so nothing
-   moves when the backdrop fails. Hidden, the lazy images are not fetched. The poster stands in
-   the banner below the bar (--banner-lift), centred in what is left. */
+   sharp at 2:3 on the right. The title keeps clear of that place, so on a wider screen nothing
+   moves when the backdrop fails; on a phone, where the poster stands above the title, the title
+   steps down under the hero's bar to make room for it. Hidden, the lazy images are not fetched.
+   The poster stands in the banner below the bar (--banner-lift), centred in what is left. */
 .watch-banner { --banner-poster-w: min(clamp(150px, 19vw, 320px), calc((clamp(420px, 27vw, 600px) - var(--banner-lift, 0px) - 72px) / 1.5)); }
 .watch-banner__bg--fill { filter: blur(40px) brightness(.7); transform: scale(1.2); object-position: center; }
 .watch-banner__poster {
