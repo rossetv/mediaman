@@ -19,7 +19,8 @@ from tests.unit.services.activity.fakes import DOCKER, Stack, configure
 
 @pytest.fixture(autouse=True)
 def fresh_sampler(monkeypatch):
-    monkeypatch.setattr("mediaman.web.routes.activity.SAMPLER", Sampler(budget=0.3))
+    # Healthy fakes answer at once, so a long budget costs nothing and a busy machine passes.
+    monkeypatch.setattr("mediaman.web.routes.activity.SAMPLER", Sampler(budget=5.0))
 
 
 @pytest.fixture
@@ -80,14 +81,15 @@ def test_the_docker_proxy_setting_must_be_a_web_address():
 
 
 def test_a_source_that_hangs_does_not_hold_the_answer_past_the_budget(
-    app_factory, authed_client, conn, secret_key, stack
+    app_factory, authed_client, conn, secret_key, stack, monkeypatch
 ):
+    monkeypatch.setattr("mediaman.web.routes.activity.SAMPLER", Sampler(budget=1.0))
     configure(conn, secret_key)
     stack.hang.add("nzbget")
     client = authed_client(app_factory(router, conn=conn), conn)
     started = time.monotonic()
     body = client.get("/api/activity").json()
-    assert time.monotonic() - started < 1.5  # the budget is 0.3 s; NZBGet would take 10
+    assert time.monotonic() - started < 3.0  # the budget is 1 s; NZBGet would take 10
     assert body["sources"] == {"plex": "ok", "nzbget": "down", "docker": "ok"}
 
 

@@ -17,11 +17,6 @@
       </div>
     </div>
 
-    {# Shown while something downloads (account.js): on a phone the ring round the picture is too thin to tap. #}
-    <div class="yo-group yo-dl" id="account-dl" hidden>
-      <a class="yo-row" href="/?dl=1"><span class="yo-row__ico yo-ico--blue">{{ c.icon("i-download") }}</span><span class="yo-row__label">Downloading</span><span class="yo-row__value" data-row-value></span>{{ c.icon("i-chevron-right", "yo-row__chev") }}</a>
-    </div>
-
     {% if role == "admin" %}
     <div class="yo-tiles">
       <button type="button" class="yo-tile" data-you-go="history"><span class="yo-tile__ico yo-ico--blue">{{ c.icon("i-clock-rotate-left") }}</span><span class="yo-tile__name">History</span><span class="yo-tile__sub" id="account-tile-history" data-me="{{ username }}">What was played, downloaded and kept</span></button>
@@ -69,6 +64,11 @@
           <span class="yo-row__ico yo-ico--purple">{{ c.icon("i-sparkles") }}</span>
           <div class="yo-row__label"><span id="account-auto-lbl">Ask AI as I type</span><small id="account-auto-sub">Asks when you pause typing.</small></div>
           <button type="button" class="tog{% if auto_ask %} on{% endif %}" id="account-auto" role="switch" aria-checked="{{ 'true' if auto_ask else 'false' }}" aria-labelledby="account-auto-lbl" aria-describedby="account-auto-sub"></button>
+        </div>
+        <div class="yo-row">
+          <span class="yo-row__ico">{{ c.icon("i-clock") }}</span>
+          <div class="yo-row__label"><span id="account-tonight-lbl">Show Tonight in search</span><small id="account-tonight-sub">What fits the time you have.</small></div>
+          <button type="button" class="tog" id="account-tonight" role="switch" aria-checked="false" aria-labelledby="account-tonight-lbl" aria-describedby="account-tonight-sub"></button>
         </div>
         <div class="yo-row">
           <span class="yo-row__ico">{{ c.icon("i-magnifying-glass") }}</span>

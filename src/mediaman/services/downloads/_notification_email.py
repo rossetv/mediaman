@@ -242,12 +242,18 @@ def gather_email_meta(
     return meta
 
 
+def _site(base_url: str) -> str:
+    """The site's address with no trailing slash, or "" when it is not a web address."""
+    site = base_url.strip().rstrip("/")
+    return site if site.lower().startswith(("http://", "https://")) else ""
+
+
 def _watch_url(row: ClaimedNotificationRow, base_url: str) -> str:
     """The address that opens the title on Watch, or "" (no button) with no usable site
     address. A title with no TMDB id is searched for by name.
     """
-    site = base_url.strip().rstrip("/")
-    if not site.lower().startswith(("http://", "https://")):
+    site = _site(base_url)
+    if not site:
         return ""
     if not row.tmdb_id:
         return f"{site}/watch?q={quote(row.title, safe='')}"
@@ -323,5 +329,6 @@ def build_email_payload(
         ratings=ratings_ctx,
         description=meta["description"],
         watch_url=_watch_url(row, base_url),
+        site=_site(base_url),
     )
     return subject, html

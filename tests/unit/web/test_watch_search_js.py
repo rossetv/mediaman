@@ -1416,26 +1416,28 @@ def test_tonight_shows_what_fits_the_time_pressed_last() -> None:
     assert out["opened"] == [["movie-1"], True]
 
 
-def test_tonight_can_be_hidden_for_the_account_on_this_device_and_brought_back() -> None:
+def test_tonight_is_hidden_for_the_account_on_every_device_and_brought_back() -> None:
     out = _run("tonightHidden")
+    put = "/api/search/assist/history"
     assert out["button"] == ["Hide this", "option"]
     assert out["first"] == "watch-option-tonight-0"
-    hidden, kept = out["hidden"]
+    hidden, saved = out["hidden"]
     assert hidden["card"] is False
     assert hidden["note"] == "Tonight is hiddenUndo"
     # the focus and the highlight go to Undo, where the card was, not to the page
     assert hidden["picked"] == hidden["active"] == "watch-option-tonight-undo"
-    assert kept == {"mm.watch.no-tonight:a1": "1"}
-    undone, kept = out["undone"]
+    assert saved == [[put, {"tonight": False}]]
+    undone, saved = out["undone"]
     assert undone["card"] is True
     assert undone["note"] is None
     assert undone["picked"] == undone["active"] == "watch-option-tonight-hide"
-    assert kept == {}
+    assert saved == [[put, {"tonight": False}], [put, {"tonight": True}]]
     assert out["reopened"]["card"] is False
     assert out["reopened"]["note"] is None
     assert out["reloaded"]["card"] is False
     assert out["reloaded"]["note"] is None
-    assert out["otherAccount"] is True
+    assert out["switchedBack"] is True
+    assert out["carried"] == [False, [[put, {"tonight": False}]], {}]
 
 
 def test_tonight_names_its_longest_time_the_same_in_its_long_short_and_spoken_words() -> None:

@@ -31,15 +31,15 @@ When the credits start, it asks how it was, and the next episode is one press aw
 
 ## Find
 
-Say how long you have tonight, and it offers what fits and you have not seen.
+Say how long you have tonight, and it offers what fits: what you are partway through, the next episode, then what you have not seen.
 
-<img src="docs/images/search.webp" alt="The open search: How long have you got tonight, with 2 h chosen and three unseen films that fit, each with its length, when it would end and why. Below are recent searches and phrases to try.">
+<img src="docs/images/search.webp" alt="The open search: How long have you got tonight, with 2 h chosen and six titles ready to play that fit, each with its year and how long it runs or has left.">
 
 Or ask in your own words. What you have comes first, then what you could ask for.
 
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/ask-still.webp">
-  <img src="docs/images/ask.webp" alt="Something kind and funny for a tired evening is typed and asked. Six titles come back, each with one line on why it fits: four in the library, with Play, and two that are not, with Download.">
+  <img src="docs/images/ask.webp" alt="Something kind and funny for a tired evening is typed and asked. Six titles come back, each with one line on why it fits: four ready to watch, and two that are not in the library, marked Download.">
 </picture>
 
 ## Picks and ratings
@@ -52,11 +52,11 @@ Each person gets picks of their own, each with its reason. Your ratings are your
 
 Open one film of a series to see the others, and fetch the missing ones together.
 
-<img src="docs/images/collection.webp" width="680" alt="Part of a film's page: its cast, and its collection of four films, three of them in the library, with a button to download the missing one.">
+<img src="docs/images/collection.webp" width="680" alt="Part of a film's page: its collection of four films, three of them in the library, with a button to download the missing one.">
 
 ## On the TV
 
-Open `/tv` in the TV's browser and type the code it shows into your phone. That TV is then yours: press Play on, on a film's page or in the player, and choose it. While that TV plays, the phone is its remote, and you can lock it or put it away.
+Open `/tv` in the TV's browser and type the code it shows into your phone. That TV is then yours: press Play on a TV, on a film's page or in the player, and choose it. While that TV plays, the phone is its remote, and you can lock it or put it away.
 
 Play on also lists AirPlay and Chromecast, which need no pairing:
 
@@ -84,13 +84,13 @@ The meter in the bar shows admins what fills the disks, what is about to go and 
 
 Admins see who watched, asked for and kept what, and what mediaman deleted and scanned. Everyone else sees only what they did themselves.
 
-<img src="docs/images/history.webp" width="680" alt="History: a day's events, such as a film started, one finished, one kept and one downloaded, each with who and when. Above are a search and filters by user, action, title and date.">
+<img src="docs/images/history.webp" width="680" alt="History: a day's events, such as a film started, one finished, one kept and one downloaded, each with who and when. Above are a search, a chip for each kind of event, and filters by person, title and day.">
 
 ## Profile
 
 Choose a picture, change your own email and password, link your Plex account (what you play in Plex apps then shapes your picks), see where you are signed in and sign out your other devices, rename or unpair your TVs, and say whether the AI may use your searches, ratings and requests and how your plays went.
 
-<img src="docs/images/profile.webp" width="400" alt="The picture dialog of a profile: Upload a photo, or pick one of ten drawn portraits.">
+<img src="docs/images/profile.webp" width="400" alt="The Picture panel of a profile: Upload a photo, or pick one of ten drawn portraits.">
 
 ## Run it
 

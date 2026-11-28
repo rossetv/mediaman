@@ -64,6 +64,29 @@ def test_start_scheduler_registers_fixed_background_jobs(mock_cls):
 
 
 @patch("apscheduler.schedulers.background.BackgroundScheduler")
+def test_linked_peoples_plex_plays_are_read_every_half_hour(mock_cls, monkeypatch):
+    from datetime import timedelta
+
+    from mediaman.services.plex_link import sync
+
+    mock_instance = MagicMock()
+    mock_cls.return_value = mock_instance
+    job_conn = MagicMock()
+    calls = []
+    monkeypatch.setattr(_sched_module, "_open_db_for_job", lambda: job_conn)
+    monkeypatch.setattr(sync, "read_plays", lambda conn, key, **kw: calls.append((conn, key, kw)))
+
+    start_scheduler(scan_fn=lambda: None, secret_key="the-key")
+
+    (job,) = [
+        c for c in mock_instance.add_job.call_args_list if c.kwargs.get("id") == "read_plex_plays"
+    ]
+    assert job.args[1].interval == timedelta(minutes=30)
+    job.args[0]()
+    assert calls == [(job_conn, "the-key", {})]
+
+
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_no_sync_fn_skips_library_sync(mock_cls):
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance

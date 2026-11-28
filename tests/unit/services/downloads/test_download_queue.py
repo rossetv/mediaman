@@ -12,11 +12,11 @@ class TestNzbMatchesArr:
     def test_exact_match(self):
         assert nzb_matches_arr("dune", ["dune"]) is True
 
-    def test_nzb_is_substring_of_candidate(self):
-        assert nzb_matches_arr("dune", ["dune part one 2021"]) is True
+    def test_nzb_inside_a_longer_candidate_is_another_title(self):
+        assert nzb_matches_arr("alone", ["home alone"]) is False
 
-    def test_candidate_is_substring_of_nzb(self):
-        assert nzb_matches_arr("dune part one 2021 bluray", ["dune"]) is True
+    def test_candidate_inside_a_longer_nzb_is_another_title(self):
+        assert nzb_matches_arr("home alone", ["alone"]) is False
 
     def test_no_match(self):
         assert nzb_matches_arr("the batman", ["dune"]) is False

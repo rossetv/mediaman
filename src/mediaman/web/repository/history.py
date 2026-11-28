@@ -31,6 +31,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "import_retried",
         "import_renamed",
         "import_imported",
+        "import_stopped",
         "sec:auto_abandon.",
     ),
     "keeps": (*_FILTER_MAP["kept"], *_FILTER_MAP["unkept"]),

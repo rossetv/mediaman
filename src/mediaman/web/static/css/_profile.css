@@ -52,9 +52,8 @@
 .yo-role__pill { padding: 2px 9px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; color: var(--accent-text); background: var(--rgba-accent-bg); box-shadow: var(--g-chip-floor); }
 .yo-role__pill.is-admin { color: var(--orange); background: var(--rgba-orange-bg); }
 .yo-mail { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.yo-dl, .yo-hist { margin-top: 20px; }
+.yo-hist { margin-top: 20px; }
 .yo-row__sub--one { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.yo-dl[hidden] { display: none; }
 .yo-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
 .yo-tile { display: grid; grid-template-columns: auto 1fr; align-content: start; align-items: center; gap: 8px 10px; min-height: 96px; padding: 14px; border-radius: 14px; background: var(--s2); color: var(--t1); text-align: left; transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .yo-tile__ico { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; font-size: 16px; color: #fff; background: var(--tone); }

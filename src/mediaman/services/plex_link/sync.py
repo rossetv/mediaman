@@ -7,6 +7,7 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from mediaman.core.format import log_snippet
 from mediaman.core.time import now_iso, now_utc, parse_iso_strict_utc
@@ -21,6 +22,9 @@ from mediaman.services.plex_link import repository
 from mediaman.services.plex_link.bounded import PLEX_SERVER, TooBusy, TookTooLong
 from mediaman.services.plex_link.history import PlexHistory
 
+if TYPE_CHECKING:
+    from starlette.datastructures import State
+
 logger = logging.getLogger(__name__)
 
 KEEP_FOR = timedelta(days=730)
@@ -29,9 +33,12 @@ _OVERLAP = timedelta(hours=24)
 _RUN_SECONDS = 300.0
 _PERSON_SECONDS = 60.0
 _SERVER_ID_SECONDS = 20.0
+_OPENED_EVERY = 300.0
 
 _reading: set[str] = set()
 _reading_lock = threading.Lock()
+# When each person's page last started a read, by the monotonic clock.
+_opened: dict[str, float] = {}
 
 
 def open_history(conn: sqlite3.Connection, secret_key: str) -> PlexHistory:
@@ -188,3 +195,18 @@ def read_in_background(db_path: str, secret_key: str, username: str) -> None:
                 _reading.discard(username)
 
     threading.Thread(target=run, name="plex-link-read", daemon=True).start()
+
+
+def read_when_opened(conn: sqlite3.Connection, state: State, username: str) -> None:
+    """Read *username*'s new plays behind a page they opened, at most once in five minutes.
+
+    *state* is the app's, which holds the database path and the secret key.
+    """
+    if repository.get_link(conn, username) is None:
+        return
+    now = time.monotonic()
+    with _reading_lock:
+        if now - _opened.get(username, -_OPENED_EVERY) < _OPENED_EVERY:
+            return
+        _opened[username] = now
+    read_in_background(state.db_path, state.config.secret_key, username)

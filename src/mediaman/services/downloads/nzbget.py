@@ -104,7 +104,7 @@ class NzbgetClient:
                 host,
             )
 
-    def _call[T](self, method: str, expected: type[T]) -> T:
+    def _call[T](self, method: str, expected: type[T], params: list[object] | None = None) -> T:
         """Invoke *method* and return its result. Raises NzbgetError when the response
         carries a JSON-RPC error field, is not JSON, or is not an object whose result is an
         *expected*, so an idle queue can be told from a broken connection or a reply
@@ -112,7 +112,7 @@ class NzbgetClient:
         """
         resp = self._http.post(
             "/jsonrpc",
-            json={"method": method},
+            json={"method": method, "params": params or []},
             auth=self._auth,
             max_bytes=_NZBGET_MAX_BYTES,
         )
@@ -141,6 +141,12 @@ class NzbgetClient:
         if not all(isinstance(group, dict) for group in groups):
             raise NzbgetError("NZBGet reply for method 'listgroups' is not a list of objects")
         return groups
+
+    def resume_groups(self, nzb_ids: list[int]) -> None:
+        """Resume the downloads of *nzb_ids* alone, never the whole queue. Raises NzbgetError
+        when NZBGet does not take it."""
+        if not self._call("editqueue", bool, ["GroupResume", "", nzb_ids]):
+            raise NzbgetError("NZBGet did not resume the download")
 
     def check_reachable(self) -> None:
         """Probe NZBGet; raise ``SafeHTTPError``, ``requests.RequestException`` or

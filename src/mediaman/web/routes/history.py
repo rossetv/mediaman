@@ -21,6 +21,7 @@ from mediaman.scanner.repository.audit import (
     count_audit_rows,
     fetch_security_audit_rows,
 )
+from mediaman.services.plex_link import sync
 from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.history_text import (
     DELETE_ROOT_PREFIX,
@@ -112,6 +113,7 @@ ACTION_BADGE_CLASS = {
     "import_retried": "badge-action-redownloaded",
     "import_renamed": "badge-action-redownloaded",
     "import_imported": "badge-action-redownloaded",
+    "import_stopped": "badge-action-deleted",
     "unkept": "badge-action-unprotected",
     "unprotected": "badge-action-unprotected",
     "kept_show": "badge-action-protected",
@@ -155,6 +157,7 @@ ACTION_LABELS = {
     "import_retried": "blocklisted and searched again for",
     "import_renamed": "renamed files so it could import",
     "import_imported": "imported by hand",
+    "import_stopped": "stopped trying to download",
 }
 
 # What a waiting deletion waits for, by the first of these its stored text has.
@@ -444,6 +447,7 @@ def history_page(request: Request) -> Response:
     params = request.query_params
     if params.get("pane") != "1" or request.headers.get("sec-fetch-mode") == "navigate":
         return RedirectResponse(_pane_address(params), status_code=302)
+    sync.read_when_opened(conn, request.app.state, username)
     filters = _filters(viewer, **{k: params.get(k, "") for k in _FILTER_NAMES})
     try:
         page = min(max(1, int(params.get("page", 1))), _PAGE_MAX)

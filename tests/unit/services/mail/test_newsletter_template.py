@@ -263,7 +263,7 @@ def test_the_plain_text_part_has_every_link_of_the_mail(env: Environment) -> Non
 def test_every_poster_image_declares_its_size(env: Environment) -> None:
     """Mail clients that drop the stylesheet still need a width and height."""
     html = env.get_template("newsletter.html").render(**_full_context())
-    imgs = re.findall(r"<img\b[^>]*>", html)
+    imgs = re.findall(r'<img class="pic"[^>]*>', html)
     assert len(imgs) == 6
     for tag in imgs:
         assert re.search(r'\swidth="\d+"', tag), tag
@@ -273,7 +273,7 @@ def test_every_poster_image_declares_its_size(env: Environment) -> None:
 def test_fluid_posters_scale_with_their_cell_without_distortion(env: Environment) -> None:
     """The height attribute would otherwise beat the width and crop posters wide."""
     html = env.get_template("newsletter.html").render(**_full_context())
-    imgs = re.findall(r"<img\b[^>]*>", html)
+    imgs = re.findall(r'<img class="pic"[^>]*>', html)
     assert imgs
     for tag in imgs:
         assert re.search(r"width:100%;max-width:\d+px;height:auto", tag), tag
@@ -373,7 +373,11 @@ def test_poster_grids_are_tables_not_css_grids(env: Environment) -> None:
 def test_every_poster_has_the_title_as_alt_text(env: Environment) -> None:
     html = env.get_template("newsletter.html").render(**_full_context())
 
-    alts = {re.search(r'alt="([^"]*)"', tag).group(1) for tag in _tags(html, "img")}
+    alts = {
+        re.search(r'alt="([^"]*)"', tag).group(1)
+        for tag in _tags(html, "img")
+        if 'class="pic"' in tag
+    }
     assert alts == {
         "Ad Astra",
         "Westworld S4",

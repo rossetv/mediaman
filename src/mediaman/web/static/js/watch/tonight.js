@@ -20,7 +20,7 @@
   ];
   var SET = 6; // outlines while the first set comes: the server says how many a set holds
   var COUNTS = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'];
-  var HIDDEN = 'mm.watch.no-tonight'; // stored, with the account's mark, while the person keeps Tonight hidden
+  var HIDDEN = 'mm.watch.no-tonight'; // where a device once kept, with the account's mark, that Tonight was hidden
 
   function dur(minutes) { return window.MMWatch.ask.dur(minutes); }
 
@@ -38,7 +38,8 @@
 
   /* *opts*: option(node, key) makes a node one of the panel's options, pick(node) highlights one,
      say(text) reads out, open(item) opens a title, gone() follows options that were taken away,
-     and who is the account's mark, under which hiding it is remembered on this device. */
+     hidden is whether the person keeps it hidden, as their account says, and who is the
+     account's mark, under which a device once kept that. */
   function make(opts) {
     var search = window.MMWatch.search;
     var node = el('section', 'tn');
@@ -88,8 +89,15 @@
     undo.addEventListener('click', show);
     var noteBox = folding(note);
     var key = HIDDEN + (opts.who ? ':' + opts.who : '');
-    var hidden = stored();
+    var known = !!opts.hidden; // what the account last said, or was told
+    var saving = 0; // saves not yet answered: what the account says till then is from before
+    var hidden = known;
     var noted = false; // hidden while the sheet is open: Undo stands in its place till it closes
+    if (!hidden && stored()) {
+      hidden = true;
+      remember(true);
+    }
+    try { window.localStorage.removeItem(key); } catch (e) { /* storage blocked */ }
 
     function folding(inner) {
       var outer = el('div', 'tn-box');
@@ -102,10 +110,11 @@
     }
 
     function remember(on) {
-      try {
-        if (on) window.localStorage.setItem(key, '1');
-        else window.localStorage.removeItem(key);
-      } catch (e) { /* storage blocked: it is hidden for this visit */ }
+      known = on;
+      saving++;
+      MM.api.put('/api/search/assist/history', { tonight: !on }).catch(function () {
+        known = !on; // not saved: it stays as it is for this visit
+      }).then(function () { saving--; });
     }
 
     /* *from* folds shut and *to* opens in its place; what held the highlight or the focus
@@ -301,6 +310,15 @@
       /* What of it the sheet shows: the card, or where it was hidden while the sheet was open,
          the line that brings it back. */
       place: function () { return hidden ? (noted ? [noteBox] : []) : [box]; },
+      /* The account says *on*, as the Profile's switch may have set it meanwhile. */
+      follow: function (on) {
+        if (saving || on === known) return;
+        known = hidden = on;
+        noted = false;
+        noteBox.remove();
+        box.classList.remove('is-gone');
+        box.inert = false;
+      },
       /* The sheet closed: hidden stays hidden, with nothing in its place. */
       settle: function () {
         if (!hidden) return;

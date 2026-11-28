@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 from fastapi.templating import Jinja2Templates
@@ -89,7 +90,10 @@ def test_the_tvs_page_loads_nothing_but_its_own_files(app):
         "/static/js/tv.js",
     ]
     assert page.count("<script") == 2
-    assert page.count("<link") == 2
+    assert page.count("<link") == 4
+    assert all(
+        href.startswith("/static/") for href in re.findall(r'<link [^>]*href="([^"]+)', page)
+    )
 
 
 def test_a_code_is_entered_signed_in_and_a_viewer_may(app, conn, viewer_client):
@@ -103,3 +107,14 @@ def test_a_code_is_entered_signed_in_and_a_viewer_may(app, conn, viewer_client):
 def test_the_address_to_open_on_the_tv_follows_the_base_url(app, conn, viewer_client):
     _set_base(conn, "https://mediaman.example")
     assert "<b>mediaman.example/tv</b>" in viewer_client(app, conn).get("/pair").text
+
+
+def test_the_tvs_page_names_every_icon_the_other_pages_name(app):
+    def icons(html: str) -> set[str]:
+        found = re.findall(r'<link rel="(?:icon|apple-touch-icon)"[^>]* href="([^"?]+)', html)
+        return set(found)
+
+    base = (Path(_TEMPLATE_DIR) / "base.html").read_text()
+
+    assert len(icons(base)) == 3
+    assert icons(TestClient(app).get("/tv").text) == icons(base)

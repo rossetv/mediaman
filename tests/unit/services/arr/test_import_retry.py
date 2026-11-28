@@ -15,7 +15,7 @@ from mediaman.db import init_db
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.fetcher import _forget_answers, fetch_arr_queue
 from mediaman.services.arr.finding_copy import fixing_words, is_finding_copy
-from mediaman.services.arr.import_retry import _mark_fixed
+from mediaman.services.arr.import_retry import _mark_fixed, stopped_words, try_again
 from mediaman.services.arr.search_trigger import reset_search_triggers, trigger_pending_searches
 from mediaman.services.arr.seasons import queued_seasons
 from mediaman.services.arr.spec import RADARR_SPEC, SONARR_SPEC
@@ -267,10 +267,10 @@ def arrs(tmp_path, fake_http, monkeypatch):
     _forget_answers()
 
 
-def _season_stuck(arrs: Arrs, first_id: int, download: str = "pack-1") -> None:
+def _season_stuck(arrs: Arrs, first_id: int, download: str = "pack-1", **overrides) -> None:
     arrs.queues["sonarr"] = [
-        _stuck_episode(first_id, 1, download=download),
-        _stuck_episode(first_id + 1, 2, download=download),
+        _stuck_episode(first_id, 1, download=download, **overrides),
+        _stuck_episode(first_id + 1, 2, download=download, **overrides),
     ]
 
 
@@ -346,9 +346,13 @@ def test_a_new_grab_ends_finding_another_copy_and_a_stuck_one_is_tried_again(arr
     assert arrs.history()[-1].endswith("(try 2)")
 
 
-def test_each_next_copy_is_left_longer_and_the_tries_never_stop(arrs):
+def _changing_reason(n: int) -> dict:
+    return {"statusMessages": [{"title": "x", "messages": [f"{_REASON} ({n})"]}]}
+
+
+def test_each_next_copy_is_left_longer_and_the_tries_never_stop_while_the_reason_changes(arrs):
     for n, hours in enumerate((1, 3, 12, 24, 24)):
-        _season_stuck(arrs, 10 + 20 * n, download=f"pack-{n}")
+        _season_stuck(arrs, 10 + 20 * n, download=f"pack-{n}", **_changing_reason(n))
         arrs.poll(timedelta(minutes=5))
         arrs.changes()
         arrs.poll(timedelta(hours=hours, minutes=-10))
@@ -1057,7 +1061,8 @@ def test_a_copy_stuck_for_a_month_keeps_its_count_of_tries(arrs):
     arrs.movies = [_dune()]
     arrs.keeping = True
     arrs.poll()
-    for _ in range(4 * 40):
+    for n in range(4 * 40):
+        arrs.queues["radarr"] = [_stuck_film(40, **_changing_reason(n))]
         arrs.poll(timedelta(hours=6))
 
     tries = [int(re.search(r"\(try (\d+)\)", line)[1]) for line in arrs.history()]
@@ -1567,7 +1572,8 @@ def test_a_title_stuck_for_a_week_says_so_in_history_on_each_daily_try(arrs):
     arrs.movies = [_dune()]
     arrs.keeping = True
     arrs.poll()
-    for _ in range(4 * 12):
+    for n in range(4 * 12):
+        arrs.queues["radarr"] = [_stuck_film(40, **_changing_reason(n))]
         arrs.poll(timedelta(hours=6))
 
     lines = arrs.history()
@@ -1797,3 +1803,103 @@ def test_the_card_of_a_download_whose_client_is_unreachable_claims_no_fix(arrs):
     arrs.poll()
 
     assert _words(arrs) == ""
+
+
+def _same_fault_again(arrs: Arrs, n: int) -> None:
+    """A new copy of Dune that Radarr will not take for the same reason as the last."""
+    arrs.queues["radarr"] = [
+        _stuck_film(
+            40 + n,
+            statusMessages=[{"title": "x", "messages": ["Not an upgrade for existing file"]}],
+        )
+    ]
+
+
+def test_the_same_fault_three_copies_in_a_row_stops_the_replacing_and_says_so(arrs):
+    arrs.movies = [_dune()]
+    for n in range(3):
+        _same_fault_again(arrs, n)
+        arrs.poll()
+        arrs.poll(timedelta(days=1))
+    assert len(arrs.history()) == 3
+
+    _same_fault_again(arrs, 3)
+    arrs.changes()
+    arrs.poll()
+    for _ in range(3):
+        arrs.poll(timedelta(days=1))
+
+    assert [c for c in arrs.changes() if c[0] == "DELETE"] == []
+    assert len(arrs.history()) == 3
+    (line,) = _history_of(arrs, "import_stopped")
+    assert "Not an upgrade for existing file" in line
+    assert "3 copies" in stopped_words(arrs.conn, "radarr:9")
+    assert fixing_words(arrs.conn, "radarr:9", ["Not an upgrade for existing file"]) == ""
+
+
+def test_an_admin_trying_again_has_the_stopped_download_replaced_on_the_next_run(arrs):
+    arrs.movies = [_dune()]
+    for n in range(4):
+        _same_fault_again(arrs, n)
+        arrs.poll()
+        arrs.poll(timedelta(days=1))
+    arrs.changes()
+
+    assert try_again(arrs.conn, "radarr:9") is True
+    arrs.poll(timedelta(hours=1))
+
+    assert [c[2] for c in arrs.changes() if c[0] == "DELETE"] == ["/api/v3/queue/43"]
+    assert stopped_words(arrs.conn, "radarr:9") == ""
+
+
+def _coming_in(arrs: Arrs, sizeleft: int, status: str = "downloading") -> None:
+    arrs.queues["sonarr"] = [
+        _stuck_episode(
+            10,
+            1,
+            status=status,
+            trackedDownloadState="downloading",
+            trackedDownloadStatus="ok",
+            statusMessages=[],
+            sizeleft=sizeleft,
+        )
+    ]
+
+
+def test_a_download_that_brings_nothing_for_hours_is_called_stalled_and_replaced(arrs):
+    _coming_in(arrs, 600)
+    arrs.poll()
+    arrs.poll(timedelta(hours=2, minutes=50))
+    assert arrs.states() == {"Alone": "downloading"}
+
+    arrs.poll(timedelta(minutes=10))
+    assert arrs.states() == {"Alone": "needs_attention"}
+    arrs.poll(timedelta(hours=6))
+
+    assert [c[0] for c in arrs.changes()] == ["DELETE", "POST"]
+    assert "Stalled: no progress for" in arrs.history()[0]
+
+
+def _film_coming_in(movie_id: int, sizeleft: int, status: str = "downloading") -> dict:
+    return _stuck_film(
+        movie_id,
+        movieId=movie_id,
+        movie={"id": movie_id, "title": f"Film {movie_id}", "tmdbId": movie_id, "images": []},
+        status=status,
+        trackedDownloadState="downloading",
+        trackedDownloadStatus="ok",
+        statusMessages=[],
+        sizeleft=sizeleft,
+    )
+
+
+def test_only_a_download_that_brings_nothing_while_not_paused_is_replaced_as_stalled(arrs):
+    for n in range(10):
+        arrs.queues["radarr"] = [
+            _film_coming_in(20, 600),
+            _film_coming_in(21, 600 - n),
+            _film_coming_in(22, 600, status="paused"),
+        ]
+        arrs.poll(timedelta(hours=1))
+
+    assert [c[2] for c in arrs.changes() if c[0] == "DELETE"] == ["/api/v3/queue/20"]
