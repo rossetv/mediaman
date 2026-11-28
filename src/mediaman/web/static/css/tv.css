@@ -97,6 +97,11 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .sk { position: absolute; right: 110px; top: 74px; font-size: 34px; line-height: 40px; color: #fff; background: #000; background: rgba(0, 0, 0, .6); border-radius: 12px; padding: 14px 24px; opacity: 0; -webkit-transform: translateY(-16px); transform: translateY(-16px); transition: opacity .3s, -webkit-transform .3s; transition: opacity .3s, transform .3s; }
 .sk.on { opacity: 1; -webkit-transform: none; transform: none; }
 .sk .i { fill: #2997ff; }
+/* White: over a white frame the note's box is #666, where blue would not show. */
+.sk .dr { display: block; height: 4px; margin-top: 10px; border-radius: 2px; background: #fff; -webkit-transform-origin: 0 0; transform-origin: 0 0; -webkit-animation: dr linear forwards; animation: dr linear forwards; }
+@-webkit-keyframes dr { from { -webkit-transform: scaleX(1); } to { -webkit-transform: scaleX(0); } }
+@keyframes dr { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (forced-colors: active) {
   .b.f, .bar .p { forced-color-adjust: none; background: Highlight; }
   .b.f { color: HighlightText; border-color: Highlight; }
@@ -133,6 +138,7 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 .who { line-height: 68px; color: #dedee0; }
 @media (prefers-reduced-motion: reduce) {
   .b, .ov, .sk, body:after, .dim:after { transition: none; }
+  .sk .dr { display: none; -webkit-animation: none; animation: none; }
   .in > div, #o > div { -webkit-animation: none; animation: none; }
   .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
   #o { display: none; }

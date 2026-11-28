@@ -512,7 +512,7 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
     MediaMetadata: function MediaMetadata(init) { Object.assign(this, init); },
     location: { href: '/watch/play/1', origin: 'http://mm', host: 'mm' },
     navigator: { mediaSession: {}, sendBeacon(url, blob) { beacons.push({ url: url, body: blob && JSON.parse(blob.parts[0]) }); return true; } },
-    matchMedia: (q) => ({ get matches() { return /prefers-reduced-motion:\s*reduce/.test(q) ? !!reduced : /max-height: 599/.test(q) && !!held.tight; } }),
+    matchMedia: (q) => ({ get matches() { return /prefers-reduced-motion:\s*reduce/.test(q) ? !!reduced : /pointer: fine/.test(q) ? !!held.fine : /max-height: 599/.test(q) && !!held.tight; } }),
     setTimeout: (fn, ms) => addTimer(fn, ms, false),
     clearTimeout: clearTimer,
     setInterval: (fn, ms) => addTimer(fn, ms, true),
@@ -3453,6 +3453,18 @@ const scenarios = {
       out.later = look();
       return out;
     }
+    /* The first seconds of the credits, second by second, and S once the card counts. */
+    if (how === 'land') {
+      playFor(10);
+      const out = { seconds: [] };
+      for (let i = 0; i < 5; i++) { playFor(1); out.seconds.push(look()); }
+      p.q('[data-mute]').focus();
+      const from = p.calls.length;
+      key('s');
+      await settle();
+      out.sWent = p.calls.slice(from).some((c) => c.page && /502/.test(c.url));
+      return out;
+    }
     /* In the system's own full screen player, as on an iPhone. */
     if (how === 'native') {
       p.video.webkitPresentationMode = 'fullscreen';
@@ -4663,6 +4675,7 @@ const scenarios = {
 
   /* What a screen reader hears of the next-episode card. */
   async upnext_spoken(p) {
+    p.held.fine = true;
     const status = p.q('[data-upnext-status]');
     const out = { polite: status.getAttribute('role'), before: status.textContent };
     await streamPlays(p, 0);
@@ -4677,6 +4690,18 @@ const scenarios = {
     press(p.q('[data-quality-btn]'));
     click(p.q('[data-autoplay]'));
     out.still = status.textContent;
+    return out;
+  },
+
+  /* On a touch screen, until a key is pressed. */
+  async upnext_spoken_touch(p) {
+    const status = p.q('[data-upnext-status]');
+    await streamPlays(p, 0);
+    endsNow(p);
+    const out = { touch: status.textContent };
+    key('Escape');
+    endsNow(p);
+    out.keyed = status.textContent;
     return out;
   },
 
@@ -5311,7 +5336,7 @@ const scenarios = {
     out.introTo = media.currentTime;
     media.currentTime = 2690;
     fire(media, 'timeupdate');
-    await playFor(12);
+    await playFor(14);
     const card = p.q('[data-upnext]');
     out.card = !gone(card) && card.classList.contains('is-counting');
     const from = p.calls.length;
