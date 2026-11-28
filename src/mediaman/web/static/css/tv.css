@@ -92,10 +92,7 @@ video::-webkit-media-controls { display: none !important; }
 .pz .i { width: 44px; height: 44px; vertical-align: -7px; }
 /* Glass where nothing blurs: the tint at its solid weight, its edge lit along the top. */
 /* What a film starts under: big and bright enough to read from the sofa, over a larger orbit. */
-.start .spin { width: 144px; height: 144px; border-width: 6px; margin: 0 0 52px; }
-.start .spin:before { left: -104px; top: -104px; width: 340px; height: 340px; }
-.start .spin:after { left: -6px; top: -6px; width: 144px; height: 144px; }
-.start .spin i { left: 54px; top: -15px; width: 24px; height: 24px; -webkit-transform-origin: 12px 81px; transform-origin: 12px 81px; }
+.start .spin { margin-bottom: 76px; }
 .start .t1 { font-size: 84px; line-height: 100px; }
 .start .t2 { font-size: 46px; line-height: 64px; margin-top: 8px; }
 .start .who { margin-top: 44px; font-size: 40px; color: #fff; }
@@ -106,36 +103,42 @@ video::-webkit-media-controls { display: none !important; }
 .up { position: absolute; right: 110px; bottom: 90px; width: 800px; background: #1d1d1f; background: rgba(28, 28, 32, .94); border: 2px solid rgba(255, 255, 255, .14); border-top-color: rgba(255, 255, 255, .3); border-radius: 28px; padding: 44px 48px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 30px 80px rgba(0, 0, 0, .55); }
 .up .bs { margin-top: 34px; }
 .up .t1 { font-size: 48px; line-height: 64px; }
-/* A wait: a light that orbits a faint ring, over a blue glow that breathes. Both move by
-   transform and opacity alone, so a weak TV keeps them smooth. */
-.spin { position: relative; width: 112px; height: 112px; border: 5px solid rgba(255, 255, 255, .14); border-radius: 50%; margin: 30px 0 40px; -webkit-flex: none; flex: none; }
-.spin:before { content: ''; position: absolute; left: -79px; top: -79px; width: 260px; height: 260px; border-radius: 50%; background: -webkit-radial-gradient(center, circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); background: radial-gradient(circle, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0) 70%); -webkit-animation: glow 3.2s ease-in-out infinite alternate; animation: glow 3.2s ease-in-out infinite alternate; }
-/* A comet on the ring's line: a light, and a tail that brightens without a seam from nothing to
-   the light, the two turned together about the ring's middle. A browser that cannot draw the tail
-   has the light alone. */
-.spin:after { content: ''; position: absolute; left: -5px; top: -5px; width: 112px; height: 112px; border-radius: 50%; -webkit-animation: sp 2s linear infinite; animation: sp 2s linear infinite; }
-.spin i { position: absolute; z-index: 1; left: 41px; top: -12.5px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 0 16px 3px rgba(41, 151, 255, .9); -webkit-transform-origin: 10px 63.5px; transform-origin: 10px 63.5px; -webkit-animation: sp 2s linear infinite; animation: sp 2s linear infinite; }
+/* A wait: an eclipse. A dark disc, its corona breathing, two lights going round its rim at their
+   own speeds, over an aurora of the app's blue that sways. Every layer is a gradient drawn once and
+   moved by transform and opacity alone, so a weak TV keeps it smooth; where a gradient is not
+   drawn, the disc's own glow is left. */
+.spin { position: relative; width: 200px; height: 200px; margin: 50px 0 84px; -webkit-flex: none; flex: none; }
+.spin:before { content: ''; position: absolute; left: -500px; top: -170px; width: 1200px; height: 540px; border-radius: 50%; background: radial-gradient(closest-side at 40% 50%, rgba(41, 151, 255, .34), rgba(41, 151, 255, 0)), radial-gradient(closest-side at 62% 52%, rgba(110, 96, 255, .26), rgba(110, 96, 255, 0)); -webkit-animation: au 8s ease-in-out infinite alternate; animation: au 8s ease-in-out infinite alternate; }
+.spin i { position: absolute; left: -100px; top: -100px; width: 400px; height: 400px; border-radius: 50%; background: radial-gradient(closest-side, rgba(41, 151, 255, 0) 48%, rgba(80, 170, 255, .55) 52%, rgba(41, 151, 255, .14) 72%, rgba(41, 151, 255, 0)); -webkit-animation: cor 4s ease-in-out infinite alternate; animation: cor 4s ease-in-out infinite alternate; }
+.spin i:before, .spin i:after { content: ''; position: absolute; left: 80px; top: 80px; width: 240px; height: 240px; border-radius: 50%; }
+.spin i:before { background: radial-gradient(ellipse 56% 14% at 50% 6%, rgba(255, 255, 255, .95), rgba(170, 215, 255, .7) 30%, rgba(80, 170, 255, .3) 62%, rgba(41, 151, 255, 0)), radial-gradient(ellipse 60% 30% at 50% 4%, rgba(80, 170, 255, .45), rgba(41, 151, 255, 0)); -webkit-animation: sp 5s linear infinite; animation: sp 5s linear infinite; }
+.spin i:after { background: radial-gradient(ellipse 50% 12% at 50% 94%, rgba(215, 205, 255, .85), rgba(150, 130, 255, .45) 40%, rgba(124, 104, 255, 0)), radial-gradient(ellipse 56% 28% at 50% 96%, rgba(124, 104, 255, .4), rgba(124, 104, 255, 0)); -webkit-animation: sp 8s linear infinite reverse; animation: sp 8s linear infinite reverse; }
+.spin:after { content: ''; position: absolute; left: 0; top: 0; width: 200px; height: 200px; border-radius: 50%; background: #05070d; background: radial-gradient(circle at 50% 35%, #0e1422, #04060b 70%); box-shadow: inset 0 0 0 1.5px rgba(166, 210, 255, .22), inset 0 6px 24px rgba(120, 190, 255, .16), 0 0 0 2px rgba(120, 190, 255, .35), 0 0 40px rgba(41, 151, 255, .35); }
+/* From one wait to the next the eclipse is there at once, under the last one as it swells away. */
+.in .mid > .spin { -webkit-animation: none; animation: none; }
+/* The one line a wait says, read from the sofa. */
+.spin + .l { font-size: 60px; line-height: 72px; font-weight: 700; color: #fff; }
+.start .spin + .l { font-size: 68px; line-height: 80px; }
 @-webkit-keyframes sp { to { -webkit-transform: rotate(360deg); } }
 @keyframes sp { to { transform: rotate(360deg); } }
-@-webkit-keyframes glow { from { opacity: .4; -webkit-transform: scale(.8); } to { opacity: 1; -webkit-transform: scale(1.06); } }
-@keyframes glow { from { opacity: .4; transform: scale(.8); } to { opacity: 1; transform: scale(1.06); } }
+@-webkit-keyframes au { from { opacity: .6; -webkit-transform: rotate(-8deg) scale(.9); } to { opacity: 1; -webkit-transform: rotate(8deg) scale(1.06); } }
+@keyframes au { from { opacity: .6; transform: rotate(-8deg) scale(.9); } to { opacity: 1; transform: rotate(8deg) scale(1.06); } }
+@-webkit-keyframes cor { from { opacity: .55; } to { opacity: 1; } }
+@keyframes cor { from { opacity: .55; } to { opacity: 1; } }
 /* The icon drawn over and over, where the browser can: each dash is as long as its arch. Others have the ring. */
 .mark { display: none; }
 @supports (stroke-dashoffset: 1px) and (animation-name: a1) {
   .spin--mark { width: 120px; height: 96px; border: 0; border-radius: 0; animation: none; }
-  .spin--mark:before { left: -70px; top: -82px; }
+  .spin--mark:before { left: -540px; top: -222px; }
   .spin--mark:after { display: none; }
   .mark { display: block; position: relative; width: 120px; height: 96px; }
   .a1 { stroke-dasharray: 57.2px 114.4px; animation: a1 1.8s linear infinite both; }
   .a2 { stroke-dasharray: 43.9px 87.8px; animation: a2 1.8s .3s linear infinite both; }
 }
-@supports (background: conic-gradient(#000, #fff)) {
-  .spin:after { background: conic-gradient(rgba(166, 210, 255, 0) 100deg, rgba(166, 210, 255, .2) 260deg, rgba(166, 210, 255, .85)); -webkit-mask-image: radial-gradient(circle, transparent 50.5px, #000 51px, #000 55.5px, transparent 56px); mask-image: radial-gradient(circle, transparent 50.5px, #000 51px, #000 55.5px, transparent 56px); }
-  .start .spin:after { -webkit-mask-image: radial-gradient(circle, transparent 65.5px, #000 66px, #000 71.5px, transparent 72px); mask-image: radial-gradient(circle, transparent 65.5px, #000 66px, #000 71.5px, transparent 72px); }
-}
 @keyframes a1 { 0% { stroke-dashoffset: 57.2px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -57.2px; opacity: 1; } 100% { stroke-dashoffset: -57.2px; opacity: 0; } }
 @keyframes a2 { 0% { stroke-dashoffset: 43.9px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -43.9px; opacity: 1; } 100% { stroke-dashoffset: -43.9px; opacity: 0; } }
-@keyframes pu { 50% { opacity: .4; } }
+@-webkit-keyframes pu { 50% { opacity: .7; } }
+@keyframes pu { 50% { opacity: .7; } }
 .idle .brand { opacity: .9; }
 
 /* Over all, and not there at all while a film plays. Light comes back at once. */
@@ -208,8 +211,8 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
   .mid, .code, .top > div, .bot > div, .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: none; }
   #o { display: none; }
   .spin, .in .mid > .spin { -webkit-animation: pu 1.6s ease-in-out infinite; animation: pu 1.6s ease-in-out infinite; }
-  .spin:before, .spin:after, .spin i { -webkit-animation: none; animation: none; }
-  .spin:after, .spin i { display: none; }
+  /* The eclipse holds still, its lights at the top and foot of the rim, and breathes. */
+  .spin:before, .spin i, .spin i:before, .spin i:after { -webkit-animation: none; animation: none; }
   .pz.gone { display: none; -webkit-animation: none; animation: none; }
   .spin--mark, .in .mid > .spin--mark, .mark path, .a1, .a2 { animation: none; }
 }
