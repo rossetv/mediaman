@@ -5,6 +5,8 @@ const Module = require('module');
 const path = require('path');
 const vm = require('vm');
 
+const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
+
 /* The other harness's page and helpers, without the run of a scenario of its own. */
 const file = path.resolve(__dirname, '../js/watch_detail_harness.js');
 const shared = new Module(file);
@@ -36,7 +38,43 @@ async function asked() {
   return p;
 }
 
+/* Add a language from a film's page and from a show's: what it says each has, and what its
+   audio first looks for. */
+async function addLanguage(ref, key) {
+  const tracks = { audio: '1', subtitle: null, remembered: false, defaults: {},
+    audio_tracks: [{ id: '1', language: 'en', commentary: false }], subtitle_tracks: [{ id: '2', language: 'es', forced: false }] };
+  const langs = [{ code: 'en', name: 'English', native: 'English' }, { code: 'pt', name: 'Portuguese', native: 'Português' }];
+  const p = load({ routes: {
+    '/api/watch/title/show-300': LIB_SHOW, '/api/watch/title/movie-120': LIB_MOVIE,
+    ['/api/watch/tracks/' + key]: tracks,
+    ['/api/watch/languages/' + key]: { languages: langs, recent: [], household_subtitles: [], household_audio: [], copies: [], season: 2 },
+  } });
+  p.run();
+  ['watch/tracks.js', 'watch/languages.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), p.ctx));
+  if (!p.doc.querySelector('[data-title-ref="' + ref + '"]')) {
+    p.doc.body.appendChild(build(p.doc, ['article', { class: 'watch-card' }, ['a', { class: 'watch-card__link', href: '/watch/movie/120', 'data-title-ref': ref }]]));
+  }
+  await openCard(p, ref);
+  await settle();
+  const add = p.q('.lp-langs-add');
+  click(p.doc, add);
+  await settle();
+  const box = p.ttl().querySelector('.player-av');
+  const out = { foot: box.querySelector('.player-av-foot-text').textContent };
+  click(p.doc, box.querySelectorAll('.lp-more')[1]);
+  await settle();
+  out.lede = box.querySelector('.lp-lede').textContent;
+  click(p.doc, box.querySelector('.lp-opt[data-code="pt"]'));
+  p.tick();
+  await settle();
+  out.search = p.gets.filter((u) => /\/audio\?/.test(u));
+  return out;
+}
+
 const scenarios = {
+  async languages() {
+    return { film: await addLanguage('movie-120', '120'), show: await addLanguage('show-300', '41') };
+  },
   async back() {
     const p = await asked();
     p.ask();

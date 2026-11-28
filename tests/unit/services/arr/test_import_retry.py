@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
@@ -1363,6 +1364,17 @@ def test_an_obfuscated_download_is_renamed_and_imported_again_before_any_other_c
     assert line.startswith("'Alone' S13 couldn't be imported (No files found are eligible")
     assert line.endswith("; renamed 1 file so Sonarr could import it")
     assert arrs.history() == []
+
+
+def test_a_rename_in_place_says_so_in_the_log_with_the_title_the_files_and_the_mode(
+    arrs, obfuscated, caplog
+):
+    with caplog.at_level(logging.INFO, logger="mediaman.services.arr.import_retry"):
+        arrs.poll()
+        arrs.poll(timedelta(hours=1))
+    (line,) = [r.getMessage() for r in caplog.records if "import_retry.renamed" in r.getMessage()]
+    assert "title='Alone' S13" in line and "files=1" in line and "mode=no_files" in line
+    assert str(obfuscated) not in line
 
 
 def test_each_episode_downloaded_on_its_own_is_renamed_in_its_own_folder(arrs, tmp_path):

@@ -4455,7 +4455,7 @@
   function tracksUrl(key) { return '/api/watch/tracks/' + encodeURIComponent(key); }
 
   function trackState() {
-    return Object.assign({ title: item.title, series: !!showHref, on: away && away.play ? awayName() : null }, tracks);
+    return Object.assign({ title: item.title, series: !!showHref, on: away && away.play ? awayName() : null, art: pictureUrl() }, tracks);
   }
 
   /* The chooser, where it may change what plays: not while a TV with a remote of its own plays it,

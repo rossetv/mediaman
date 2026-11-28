@@ -69,3 +69,12 @@ def test_a_deleted_title_s_banner_above_the_screen_goes_without_moving_what_is_o
         "closed": True,
         "there": False,
     }
+
+
+def test_add_a_language_speaks_of_a_film_as_a_film_and_looks_for_a_show_s_whole_season() -> None:
+    out = _run("languages")
+    film, show = out["film"], out["show"]
+    assert "episode" not in film["foot"] + film["lede"]
+    assert film["search"] == ["/api/watch/languages/120/audio?language=pt&scope=movie"]
+    assert show["foot"].startswith("Its next episode has")
+    assert show["search"] == ["/api/watch/languages/41/audio?language=pt&scope=season"]

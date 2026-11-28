@@ -18,6 +18,8 @@ const VOID = { input: 1, br: 1, img: 1, meta: 1, link: 1, source: 1 };
 /* ---- fake DOM ------------------------------------------------------------ */
 
 let doc = null;
+/* Scripts a scenario loads besides the player's own. */
+let more = [];
 
 function decode(s) {
   return s.replace(/&#(\d+);/g, (m, n) => String.fromCharCode(+n))
@@ -539,7 +541,7 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
   const ctx = vm.createContext(win);
   if (elsewhere) elsewhere.setup(win);
   const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
-  ['core/dom.js', 'ratings.js', 'watch/tracks.js'].concat(elsewhere ? elsewhere.scripts : []).forEach(run);
+  ['core/dom.js', 'ratings.js', 'watch/tracks.js'].concat(more, elsewhere ? elsewhere.scripts : []).forEach(run);
   if (elsewhere && elsewhere.ready) elsewhere.ready(win);
   run('player.js');
 
@@ -996,7 +998,107 @@ async function awayNoSubtitle(p) {
   return p.elsewhere.starts().slice(1).map((b) => [b.audio || null, 'subtitle' in b ? b.subtitle : 'none named']);
 }
 
+/* Another language, as watch/languages.js asks for it: the server's answers, and what was asked. */
+const LANGS = [['de', 'German', 'Deutsch'], ['en', 'English', 'English'], ['fr', 'French', 'Français'], ['pt', 'Portuguese', 'Português']]
+  .map((l) => ({ code: l[0], name: l[1], native: l[2] }));
+function languagesServer(p) {
+  const api = p.win.MM.api;
+  const get = api.get;
+  const post = api.post;
+  const asked = [];
+  api.get = (url) => {
+    if (!/\/api\/watch\/languages\//.test(url)) return get(url);
+    asked.push('GET ' + url);
+    if (/\/subtitles\?/.test(url)) return Promise.resolve({ found: [{ file: 'Coast.S01E01.srt', forced: false, hearing_impaired: false }, { file: 'Coast.SDH.srt', forced: false, hearing_impaired: true }] });
+    if (/\/audio\?/.test(url)) {
+      return Promise.resolve({ service: 'Sonarr', have: { languages: ['en', 'de'], quality: '1080p', size_bytes: 1e9 }, found: [
+        { languages: ['pt', 'en', 'de'], quality: 'Bluray-1080p', size_bytes: 2.4e9, age_days: 30, indexer: 'Nyaa', season_pack: false, loses: [] },
+        { languages: ['pt'], quality: 'WEBDL-720p', size_bytes: 5e8, age_days: 900, indexer: 'Nyaa', season_pack: false, loses: ['en', 'de'] },
+      ] });
+    }
+    return Promise.resolve({ kind: 'episode', season: 1, languages: LANGS, subtitle_default: null, recent: [], household_subtitles: ['fr'], household_audio: [], have: { languages: ['en', 'de'] }, copies: [] });
+  };
+  api.post = (url, body) => {
+    if (!/\/api\/watch\/languages\//.test(url)) return post(url, body);
+    asked.push('POST ' + url + ' ' + JSON.stringify(body));
+    if (/\/subtitles$/.test(url)) return Promise.resolve({ subtitle: '99' });
+    return new Promise((r) => { p.grabbed = () => r({ copies: [{ id: 1, language: 'pt', scope: 'episode', status: 'downloading', progress: 34, minutes_left: 12, release_languages: ['pt'], quality: 'WEBDL-720p' }] }); });
+  };
+  return asked;
+}
+
+async function languagesOpen(p) {
+  p.replies[0] = answer('best', TRACKS);
+  p.held.tracks = { remembered: false, defaults: { audio_lang: 'en', subtitle_lang: null } };
+  const asked = languagesServer(p);
+  await streamPlays(p, 30);
+  await settle();
+  click(p.q('[data-tracks]').querySelector('[data-av-btn]'));
+  await settle();
+  return asked;
+}
+
+const box = (p) => p.q('[data-tracks]').querySelector('.player-av');
+const codes = (p) => box(p).querySelectorAll('.lp-opt').map((o) => o.getAttribute('data-code'));
+async function onward(p) { p.tick(400); await settle(); }
+
 const scenarios = {
+  /* Subtitles in another language: the list, its search, Escape back, and an add that plays. */
+  async languages_subtitles(p) {
+    const asked = await languagesOpen(p);
+    const out = { rows: box(p).querySelectorAll('.lp-more').map((r) => r.querySelector('.player-av-main').textContent) };
+    click(box(p).querySelectorAll('.lp-more')[1]);
+    await settle();
+    out.view = box(p).getAttribute('aria-label');
+    out.first = codes(p).slice(0, 2);
+    const input = box(p).querySelector('.lp-input');
+    input.value = 'portu';
+    fire(input, 'input', { bubbles: true });
+    out.search = codes(p);
+    input.value = '';
+    fire(input, 'input', { bubbles: true });
+    keyIn(p, input, 'Escape');
+    await onward(p);
+    out.afterEscape = box(p).getAttribute('aria-label');
+    click(box(p).querySelectorAll('.lp-more')[1]);
+    await settle();
+    click(box(p).querySelector('.lp-opt[data-code="pt"]'));
+    await onward(p);
+    out.found = box(p).querySelectorAll('.lp-res').length;
+    click(box(p).querySelector('.lp-res'));
+    await onward(p);
+    out.fresh = box(p).querySelectorAll('.lp-fresh').map((r) => r.getAttribute('data-subtitle'));
+    out.picked = p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).map((c) => c.body);
+    out.asked = asked;
+    return out;
+  },
+
+  /* Another copy with the audio: what it would lose is said before it is asked for, once. */
+  async languages_audio(p) {
+    const asked = await languagesOpen(p);
+    click(box(p).querySelectorAll('.lp-more')[0]);
+    await settle();
+    click(box(p).querySelector('.lp-opt[data-code="pt"]'));
+    await onward(p);
+    const out = { copies: box(p).querySelectorAll('.lp-ver').length };
+    click(box(p).querySelectorAll('.lp-ver')[1]);
+    await settle();
+    out.warning = box(p).querySelector('.lp-warn').textContent;
+    const yes = box(p).querySelector('.lp-act.player-pill--primary');
+    click(yes);
+    click(yes);
+    out.sending = yes.disabled;
+    p.grabbed();
+    await onward(p);
+    out.onway = box(p).getAttribute('aria-label');
+    out.left = box(p).querySelector('.lp-left').textContent;
+    keyIn(p, box(p).querySelector('.lp-act'), 'Escape');
+    await onward(p);
+    out.pending = box(p).querySelectorAll('.lp-pending').map((r) => r.textContent);
+    out.asked = asked.filter((a) => /^POST/.test(a));
+    return out;
+  },
+
   /* A pick in Audio & subtitles is kept for the title and the stream starts again where it was, the
      last frame held; by `serverPlays` the keeping fails, Plex plays other tracks, or the start fails. */
   async tracks_switch(p) {
@@ -7081,6 +7183,7 @@ function introState(p) {
   const [file, name, reduced, serverPlays] = process.argv.slice(2);
   const saved = reduced && reduced[0] === '{' ? JSON.parse(reduced) : null;
   const elsewhere = /^away_/.test(name) ? elsewhereOf(serverPlays) : null;
+  more = /^languages_/.test(name) ? ['watch/languages.js'] : [];
   const p = boot(fs.readFileSync(file, 'utf8'), reduced === 'reduced', saved, serverPlays, null, elsewhere);
   p.elsewhere = elsewhere;
   if (elsewhere) {

@@ -77,6 +77,7 @@ SERVICE_TESTER_KEYS: dict[str, set[str]] = {
     "sonarr": {"sonarr_url", "sonarr_api_key"},
     "radarr": {"radarr_url", "radarr_api_key"},
     "nzbget": {"nzbget_url", "nzbget_username", "nzbget_password"},
+    "docker": {"docker_proxy_url"},
     "mailgun": {"mailgun_domain", "mailgun_api_key", "mailgun_from_address"},
     "openai": {"openai_api_key"},
     "tmdb": {"tmdb_read_token"},
@@ -285,6 +286,28 @@ def test_nzbget(settings: dict[str, object]) -> JSONResponse:
         optional_keys={"username": "nzbget_username", "password": "nzbget_password"},
         make_client=lambda v: NzbgetClient(v["url"], v["username"], v["password"]),
     )
+
+
+@_register("docker")
+def test_docker(settings: dict[str, object]) -> JSONResponse:
+    from mediaman.services.activity.sources import DockerProxy, DockerUnavailable
+
+    url = str(settings.get("docker_proxy_url") or "")
+    if not url:
+        return respond_failure("Docker proxy URL is required", status=200)
+    try:
+        DockerProxy(url).check_reachable()
+    except DockerUnavailable as exc:
+        cause = exc.__cause__
+        if isinstance(cause, SafeHTTPError):
+            return _safe_http_error_to_response(cause)
+        if isinstance(cause, _requests.Timeout):
+            return _failure("timeout", _TIMED_OUT)
+        # requests' JSONDecodeError is a RequestException too: a reply that is not JSON came.
+        if isinstance(cause, _requests.RequestException) and not isinstance(cause, ValueError):
+            return _failure("connection_refused", _UNREACHABLE)
+        return _failure("bad_reply", _BAD_REPLY)
+    return JSONResponse({"ok": True})
 
 
 @_register("mailgun")

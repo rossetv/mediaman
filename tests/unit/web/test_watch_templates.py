@@ -702,6 +702,7 @@ def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
     scripts.remove(
         "watch/tracks"
     )  # every page's own too: it reaches MM.dom only when a chooser opens
+    scripts.remove("watch/languages")  # with tracks, whose chooser alone calls it
     scripts.remove("watch/arrive")  # in the head, before the first paint, and needs none of them
     place = {name: n for n, name in enumerate(scripts)}
 

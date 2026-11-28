@@ -21,8 +21,8 @@ def _template() -> str:
     return env.get_template("_tv_remote.html").render()
 
 
-def _run(scenario: str):
-    result = run_node(HARNESS, scenario, input=_template())
+def _run(scenario: str, *args: str):
+    result = run_node(HARNESS, scenario, *args, input=_template())
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
@@ -228,6 +228,9 @@ def test_nothing_is_asked_for_after_signing_out() -> None:
 def test_the_next_episode_is_offered_without_taking_the_focus_and_starts_once() -> None:
     out = _run("upnext")
     assert out["card"].startswith("Next episode in ")
+    assert out["card"].endswith(" · Press to cancel")
+    # Cancel is first and the main one: to watch on, the person need only wait.
+    assert out["acts"] == [["Cancel", True], ["Play now", False]]
     assert out["line"] == "S1 · E5 · Windfall"
     assert out["focusKept"] is True
     assert out["status"] is True
@@ -512,7 +515,10 @@ def test_a_refused_change_on_a_chromecast_is_said_and_leaves_what_plays() -> Non
 
 def test_the_next_episode_on_a_chromecast_is_offered_and_the_question_after_three() -> None:
     out = _run("castUpnext")
-    assert (out["card"], out["line"]) == ("Next episode in 8 s", "S1 · E5 — Windfall")
+    assert (out["card"], out["line"]) == (
+        "Next episode in 8 s · Press to cancel",
+        "S1 · E5 — Windfall",
+    )
     assert out["waits"] == "Next episode"
     assert out["playing"] == "Playing on Den"
     assert out["still"] == ["Are you still watching?", True, True]
@@ -827,3 +833,131 @@ def test_a_tv_that_cannot_start_a_file_plex_cannot_play_offers_no_try_again() ->
     assert "Dolby Vision Profile 5" in out["unplayable_dolby_vision_5"]
     assert "Try again" not in out["unplayable_dolby_vision_5"]
     assert "Try again" in out["unreachable"]
+
+
+# The bar's box and the card's, as the harness lays them out.
+BAR_TO_CARD = "translate(-110px, 608px) scale(1.4074074074074074, 0.09253731343283582)"
+
+
+def test_the_card_grows_out_of_the_bar_moving_only_transform_and_opacity() -> None:
+    out = _run("grows")
+    assert out["from"] == BAR_TO_CARD and out["to"] == "none"
+    # The picture, title and line travel from the bar's; the bar itself fades as the card grows.
+    for part in ("data-morph-art", "data-title", "player-seek-track", "data-veil"):
+        assert part in out["moved"], part
+    assert out["bar"] == [["1", "0"]]
+    assert out["props"] == ["opacity", "transform"]
+
+
+def test_a_closed_card_shrinks_into_the_bar_and_is_hidden_only_once_it_has() -> None:
+    assert _run("shrinks") == {
+        "to": BAR_TO_CARD,
+        "shownMeanwhile": True,
+        "focus": True,
+        "hiddenAfter": True,
+        "left": 0,
+    }
+
+
+def test_a_card_closed_as_it_opens_turns_round_from_where_it_is() -> None:
+    assert _run("turnsRound") == {"from": "matrix(0.5, 0, 0, 0.5, 10, 20)", "to": BAR_TO_CARD}
+
+
+def test_with_less_motion_the_card_only_fades() -> None:
+    out = _run("growsCalm")
+    assert out["props"] == ["opacity"]
+    assert {"data-veil", "data-glass"} <= set(out["moved"])
+    assert "data-morph-art" not in out["moved"]
+
+
+def test_on_the_player_with_no_bar_the_card_rises_from_the_foot() -> None:
+    out = _run("rises")
+    assert out["from"] == ["translateY(48px)"]
+    # Its glass fades on its own, never under a fading sheet, where it would blur nothing.
+    assert {"data-veil", "data-sheet", "data-glass", "data-hero"} <= set(out["moved"])
+
+
+def test_a_tap_beside_the_card_closes_it_and_gives_the_bar_the_focus() -> None:
+    assert _run("veil") == {"open": False, "focus": True}
+
+
+def test_a_sheet_pulled_down_far_closes_and_a_short_pull_springs_back() -> None:
+    out = _run("pulled")
+    assert out["40"] == {"held": "translateY(40px)", "open": True, "from": ["translateY(40px)"]}
+    assert out["160"]["open"] is False
+    assert out["160"]["from"] == ["translateY(160px)"]
+    # A mouse does not pull.
+    assert out["mouse"] == {"held": "", "open": True, "from": []}
+
+
+def test_a_press_begun_before_the_card_settled_stops_nothing_and_a_later_one_does() -> None:
+    assert _run("doublePress") == {
+        "at600": [],
+        "late": ["stop"],
+        "at1s": ["stop"],
+        "keyed": ["stop"],
+    }
+
+
+def test_as_the_card_grows_a_tap_beside_it_closes_it_but_not_one_where_the_bar_stood() -> None:
+    out = _run("tapBeside")
+    assert out["onBar"] == {"growing": True, "open": True, "grown": True}
+    assert out["beside"]["open"] is False
+
+
+def test_a_card_closed_as_it_opens_is_measured_with_the_opening_stopped() -> None:
+    assert _run("measuredStopped")[-1] == 0
+
+
+def test_the_bar_leans_under_a_mouse_and_back_but_not_under_a_finger_nor_with_less_motion() -> None:
+    out = _run("leans")
+    # The glass swells; the words on it are drawn back to their size.
+    assert out["mouse"] == {
+        "to": ["scale(1.016, 1.08)"],
+        "words": ["scale(0.984, 0.926)"],
+        "back": ["none"],
+    }
+    for still in ("finger", "still", "noHover"):
+        assert out[still] == {"to": [], "words": [], "back": []}, still
+
+
+def test_opened_from_the_lean_the_bar_is_held_there_until_the_card_is_back_in_it() -> None:
+    assert _run("heldBar") == {
+        "held": "matrix(0.5, 0, 0, 0.5, 10, 20)",
+        "still": "none",
+        "leaning": 0,
+        "closing": "matrix(0.5, 0, 0, 0.5, 10, 20)",
+        "after": "",
+    }
+
+
+def test_the_glass_is_drawn_before_the_bar_goes_and_one_title_is_always_there() -> None:
+    out = _run("spans")
+    opening, closing = out["open"], out["close"]
+    # Opening: the glass is whole before the bar starts to fade; the bar's title is gone before
+    # the card's comes, as their letters differ.
+    assert opening["glass"][1] <= opening["bar"][0]
+    assert opening["barTitle"][1] <= opening["title"][0]
+    # Closing: the bar comes back before the glass goes. "Glass Orchard" and the bar's
+    # "Glass Orchard · S1 E4" would show through each other: the card's goes first.
+    assert closing["bar"][0] < closing["glass"][0]
+    assert closing["title"][1] <= closing["barTitle"][0]
+    # A film's title is the same on both, and they cross, so a title is always there.
+    film = _run("spans", "film")["close"]
+    assert film["barTitle"][0] < film["title"][1] and film["title"][0] < film["barTitle"][1]
+
+
+def test_a_click_with_no_press_before_it_acts_once_the_card_has_settled() -> None:
+    assert _run("unpressed") == ["stop"]
+
+
+def test_a_title_too_long_for_the_bar_s_room_does_not_travel_into_it() -> None:
+    out = _run("longTitle")
+    assert any(t.startswith("translate(") and "scale(" in t for t in out["short"])
+    assert out["long"] == ["translateY(14px)"]
+
+
+def test_closed_with_the_mouse_still_on_the_bar_the_bar_swells_again() -> None:
+    out = _run("rearmed")
+    assert out["still"] == ["scale(1.016, 1.08)"]
+    assert out["gone"] == []
