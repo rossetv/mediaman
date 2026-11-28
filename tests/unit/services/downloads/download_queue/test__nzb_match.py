@@ -15,13 +15,13 @@ class TestNzbMatchesArr:
     def test_exact_match(self):
         assert nzb_matches_arr("dune", ["dune"]) is True
 
-    def test_nzb_is_substring_of_candidate(self):
-        """NZB title contained within a longer candidate string → match."""
-        assert nzb_matches_arr("dune", ["dune part one 2021 bluray"]) is True
+    def test_nzb_inside_a_longer_candidate_is_another_title(self):
+        """The title "alone" held in "home alone" is another title → no match."""
+        assert nzb_matches_arr("alone", ["home alone"]) is False
 
-    def test_candidate_is_substring_of_nzb(self):
-        """Candidate title contained within a longer NZB string → match."""
-        assert nzb_matches_arr("dune part one 2021 bluray", ["dune"]) is True
+    def test_candidate_inside_a_longer_nzb_is_another_title(self):
+        """A candidate held in a longer NZB title is another title → no match."""
+        assert nzb_matches_arr("home alone", ["alone"]) is False
 
     def test_no_match(self):
         assert nzb_matches_arr("the batman", ["dune"]) is False
@@ -40,11 +40,9 @@ class TestNzbMatchesArr:
         # The candidate 'escape' is not in 'the great' and vice versa — no match.
         assert nzb_matches_arr("escape", ["the great"]) is False
 
-    def test_bidirectional_match_title_with_parentheses(self):
-        """Normalised title 'married at first sight au' ↔ longer NZB string."""
-        nzb = "married at first sight au 2024 hdtv"
-        cand = "married at first sight au"
-        assert nzb_matches_arr(nzb, [cand]) is True
+    def test_title_with_parentheses_matches_once_normalised(self):
+        """Normalised title 'married at first sight au' matches the NZB's clean title."""
+        assert nzb_matches_arr("married at first sight au", ["married at first sight au"]) is True
 
     def test_multiple_candidates_none_match(self):
         assert nzb_matches_arr("dune", ["batman", "inception"]) is False
@@ -58,8 +56,8 @@ class TestNzbMatchesArrWholeWords:
     def test_tokens_must_be_contiguous(self):
         assert nzb_matches_arr("the great big escape", ["great escape"]) is False
 
-    def test_whole_word_run_inside_release_name_matches(self):
-        assert nzb_matches_arr("up 2009 1080p bluray", ["up"]) is True
+    def test_whole_release_name_matches(self):
+        assert nzb_matches_arr("up 2009 1080p bluray", ["up", "up 2009 1080p bluray"]) is True
 
 
 @pytest.mark.parametrize(

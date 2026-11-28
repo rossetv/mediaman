@@ -768,3 +768,28 @@ def test_escape_with_the_sheet_over_the_grid_shuts_confirm_sheet_menu_episodes_i
 
 def test_coming_soon_draws_its_scores_where_the_server_sends_them(out) -> None:
     assert out["soonScores"] == ["Rotten Tomatoes 88%IMDb 7.4", None]
+
+
+def test_a_download_paused_in_nzbget_says_so_and_only_one_paused_alone_offers_a_resume(
+    out,
+) -> None:
+    run = out["nzbActions"]
+    assert run["cards"]["Harrow"]["line"] == "Paused in NZBGet"
+    assert run["cards"]["Harrow"]["say"] == "Waiting to be resumed · 8 GB"
+    assert run["cards"]["Lowmoor"]["line"] == "NZBGet is paused"
+    assert [i[0] for i in run["menus"]["Harrow"]["items"]] == ["Resume download"]
+    assert run["menus"]["Lowmoor"] is None, "never all of NZBGet"
+
+
+def test_a_title_mediaman_stopped_replacing_says_so_and_an_admin_may_have_it_try_again(
+    out,
+) -> None:
+    run = out["nzbActions"]
+    stopped = "Stopped trying after 3 copies failed the same way"
+    assert run["cards"]["Saltings"]["line"].startswith(stopped)
+    assert run["cards"]["Saltings"]["say"] == "Not an upgrade"
+    assert "Try again" in [i[0] for i in run["menus"]["Saltings"]["items"]]
+    assert [path for path, _ in run["posted"]] == [
+        "/api/downloads/radarr%3AHarrow/resume",
+        "/api/downloads/radarr%3ASaltings/try-again",
+    ]

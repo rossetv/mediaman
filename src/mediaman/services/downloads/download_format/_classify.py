@@ -196,6 +196,9 @@ def map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
     """The state of a download NZBGet holds, by its NZBGet status."""
     if not has_nzbget_match or nzbget_status is None:
         return "searching"
+    # NZBGet's own pause, which unlike a turn not yet come never ends by itself.
+    if nzbget_status.upper() == "PAUSED":
+        return "paused"
     return map_arr_status(nzbget_status)
 
 
@@ -213,19 +216,25 @@ def map_arr_status(
     versions populate them differently. One waiting its turn or paused is "queued"; one that
     came in but that Radarr or Sonarr will not take without a person, by its
     trackedDownloadStatus, "needs_attention", unless the *attention* it gives is a hold that
-    passes by itself, which is "almost_ready": it imports once that passes.
+    passes by itself, which is "almost_ready": it imports once that passes. So is one whose
+    download client the service cannot reach, and one stalled, which bring nothing in.
     """
     lower = (status or "").lower()
     tracked = (tracked_state or "").lower()
+    warned = (tracked_status or "").lower() in ("warning", "error")
 
-    if (tracked_status or "").lower() in ("warning", "error") and tracked in _HELD_BACK:
+    if warned and tracked in _HELD_BACK:
         return "almost_ready" if is_passing_hold(attention) else "needs_attention"
+    if lower == "downloadclientunavailable":
+        return "needs_attention"
+    if warned and tracked == "downloading" and "stalled" in attention.lower():
+        return "needs_attention"
     if tracked in ("importing", "importpending", "imported"):
         return "almost_ready"
     if lower == "completed" or any(stage.lower() in lower for stage in _NZBGET_POST_PROCESSING):
         return "almost_ready"
-    # Failed, or held by no download client: nothing is coming in, whatever is tracked.
-    if lower in ("failed", "downloadclientunavailable"):
+    # Failed: nothing is coming in, whatever is tracked.
+    if lower == "failed":
         return "searching"
     # Radarr and Sonarr track as downloading what their download client holds but has not begun.
     if lower in ("queued", "paused", "delay"):
@@ -295,6 +304,10 @@ SETUP_PROBLEMS = (
 PASSING_HOLDS = ("recently aired", "try again later")
 
 
+# What a download whose client the service cannot reach says, where the service says nothing.
+CLIENT_UNAVAILABLE = "Can't reach the download client"
+
+
 def _not_the_release_at(text: str) -> int:
     lower = text.lower()
     return min(
@@ -336,7 +349,8 @@ def attention_reason(item: _ArrLike) -> str:
     texts = [" ".join(line.split()) for line in said if isinstance(line, str)]
     texts = [text for text in texts if text]
     if not texts:
-        return ""
+        unreachable = str(item.get("status") or "").lower() == "downloadclientunavailable"
+        return CLIENT_UNAVAILABLE if unreachable else ""
     text = next((text for text in texts if not_the_release(text)), texts[0])
     if len(text) > _REASON_MAX and (at := _not_the_release_at(text)) > _REASON_MAX // 2:
         # A long path before the words that name the fault would cut them off.
@@ -361,9 +375,12 @@ def map_episode_state(ep: _ArrLike) -> str:
     status_raw = ep.get("status") or ""
     status = status_raw.lower() if isinstance(status_raw, str) else ""
 
+    # One no download client holds brings nothing, whatever its card says of why.
+    if status == "downloadclientunavailable":
+        return "searching"
     if _entry_state(ep) == "needs_attention":
         return "needs_attention"
-    if status in ("failed", "downloadclientunavailable"):
+    if status == "failed":
         return "searching"
     # A completed entry may report no size at all.
     if status == "completed" or progress == 100 or (sizeleft == 0 and size > 0):

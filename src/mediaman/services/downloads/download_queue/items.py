@@ -39,26 +39,12 @@ class DownloadsResponse(TypedDict):
     downloads_set_up: dict[str, bool]
 
 
-def _contains_word_run(haystack: list[str], needle: list[str]) -> bool:
-    n = len(needle)
-    return any(haystack[i : i + n] == needle for i in range(len(haystack) - n + 1))
-
-
 def nzb_matches_arr(nzb_t_norm: str, arr_candidates: list[str]) -> bool:
-    """Return True if *nzb_t_norm* matches any of *arr_candidates*: one side's words
-    must appear as a contiguous run of whole words in the other (normalised strings from
-    the arr item's title and recorded release names), so "up" never matches "superman".
+    """Return True if *nzb_t_norm* is, whole, one of *arr_candidates* (normalised strings
+    from the arr item's title and recorded release names): a title held inside another, as
+    "alone" in "home alone", is another title.
     """
-    nzb_words = nzb_t_norm.split()
-    if not nzb_words:
-        return False
-    for cand in arr_candidates:
-        cand_words = cand.split()
-        if cand_words and (
-            _contains_word_run(cand_words, nzb_words) or _contains_word_run(nzb_words, cand_words)
-        ):
-            return True
-    return False
+    return bool(nzb_t_norm) and nzb_t_norm in arr_candidates
 
 
 def _stuck_seasons_from_episodes(

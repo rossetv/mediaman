@@ -98,7 +98,7 @@ def _queued(status: str) -> dict[str, object]:
     }
 
 
-@pytest.mark.parametrize("status", ["queued", "paused"])
+@pytest.mark.parametrize("status", ["queued"])
 def test_a_download_waiting_its_turn_reads_queued_with_no_time_left_everywhere(
     services, client, status
 ):
@@ -122,6 +122,52 @@ def test_a_download_waiting_its_turn_reads_queued_with_no_time_left_everywhere(
     assert (item["state"], item["minutes_left"]) == ("queued", None)
     assert mailed is not None
     assert (mailed["state"], mailed["eta"]) == ("queued", "")
+
+
+def test_a_download_paused_in_nzbget_says_so_and_offers_its_own_resume(services, client):
+    radarr, _, nzbget, _ = services
+    radarr.get_queue.return_value = [_queued("paused")]
+    nzbget.get_status.return_value = {"DownloadRate": 1_000_000}
+    nzbget.get_queue.return_value = [
+        {
+            "NZBID": 11,
+            "NZBName": "Ember.Coast.2024.1080p",
+            "Status": "PAUSED",
+            "FileSizeMB": 100,
+            "RemainingSizeMB": 100,
+        }
+    ]
+
+    hero = client.get("/api/downloads").json()["hero"]
+    (item,) = client.get("/api/downloads/strip").json()["items"]
+
+    assert (hero["state"], hero["state_label"], hero["eta"]) == ("paused", "Paused in NZBGet", "")
+    assert hero["paused_ids"] == [11]
+    assert (item["state"], item["line"], item["minutes_left"]) == (
+        "queued",
+        "Paused in NZBGet",
+        None,
+    )
+
+
+def test_while_all_of_nzbget_is_paused_no_one_download_offers_a_resume(services, client):
+    radarr, _, nzbget, _ = services
+    radarr.get_queue.return_value = [_queued("paused")]
+    nzbget.get_status.return_value = {"DownloadRate": 0, "DownloadPaused": True}
+    nzbget.get_queue.return_value = [
+        {
+            "NZBID": 11,
+            "NZBName": "Ember.Coast.2024.1080p",
+            "Status": "QUEUED",
+            "FileSizeMB": 100,
+            "RemainingSizeMB": 100,
+        }
+    ]
+
+    hero = client.get("/api/downloads").json()["hero"]
+
+    assert (hero["state"], hero["state_label"]) == ("paused", "NZBGet is paused")
+    assert "paused_ids" not in hero
 
 
 def test_a_refused_key_is_named_to_an_admin_and_not_taken_for_the_network(services, client):
@@ -357,7 +403,7 @@ def test_a_show_whose_own_poster_is_another_service_s_gets_the_one_the_app_holds
         ("paused", "downloading", 500, "queued"),
         ("delay", "", 1000, "queued"),
         ("warning", "downloading", 1000, "downloading"),
-        ("downloadClientUnavailable", "downloading", 50, "searching"),
+        ("downloadClientUnavailable", "downloading", 50, "needs_attention"),
     ],
 )
 def test_a_film_nzbget_does_not_hold_reads_on_the_page_as_on_the_mailed_page(
@@ -585,3 +631,78 @@ def test_stop_tracking_while_a_key_is_refused_does_not_say_to_try_again(services
 
     assert resp.status_code == 503
     assert resp.json()["message"] == "Can't sign in to Radarr. Check its details in Settings."
+
+
+def _paused_in_nzbget(services, monkeypatch, status: str = "PAUSED"):
+    radarr, _, nzbget, _ = services
+    radarr.get_queue.return_value = [_queued("paused")]
+    nzbget.get_queue.return_value = [
+        {"NZBID": 11, "NZBName": "Ember.Coast.2024.1080p", "Status": status, "FileSizeMB": 100}
+    ]
+    monkeypatch.setattr("mediaman.web.routes.downloads.build_nzbget_from_db", lambda *a: nzbget)
+    return nzbget
+
+
+def test_an_admin_resumes_one_download_paused_in_nzbget_and_no_other(services, client, monkeypatch):
+    nzbget = _paused_in_nzbget(services, monkeypatch)
+
+    answer = client.post("/api/downloads/radarr:Ember%20Coast%2311/resume", json={"arr_id": None})
+
+    assert answer.status_code == 200
+    nzbget.resume_groups.assert_called_once_with([11])
+
+
+def test_a_download_not_paused_by_itself_is_not_resumed(services, client, monkeypatch):
+    nzbget = _paused_in_nzbget(services, monkeypatch, status="QUEUED")
+
+    answer = client.post("/api/downloads/radarr:Ember%20Coast%2311/resume", json={})
+
+    assert answer.status_code == 409
+    nzbget.resume_groups.assert_not_called()
+
+
+def _held_for_the_same_fault(services, conn, stopped: bool):
+    entry = {
+        **_queued("completed"),
+        "movieId": 11,
+        "trackedDownloadState": "importBlocked",
+        "trackedDownloadStatus": "warning",
+        "statusMessages": [{"title": "x", "messages": ["Not an upgrade for existing file"]}],
+        "sizeleft": 0,
+    }
+    services[0].get_queue.return_value = [entry]
+    conn.execute(
+        "INSERT INTO arr_import_retries (key, stuck_since, tries, fix_plan, last_reason,"
+        " reason_tries, stopped_at) VALUES ('radarr:11', ?, 3, 'replace',"
+        " 'Not an upgrade for existing file', 3, ?)",
+        (now_utc().isoformat(), now_utc().isoformat() if stopped else None),
+    )
+    conn.commit()
+
+
+def test_a_title_mediaman_stopped_replacing_says_so_on_the_row_and_the_page(services, client, conn):
+    _held_for_the_same_fault(services, conn, stopped=True)
+
+    (item,) = client.get("/api/downloads/strip").json()["items"]
+
+    assert item["state"] == "needs_attention"
+    assert item["fixing"] == ""
+    assert item["line"].startswith("Stopped trying after 3 copies")
+
+
+def test_an_admin_has_mediaman_try_a_stopped_title_again(services, client, conn):
+    _held_for_the_same_fault(services, conn, stopped=True)
+
+    answer = client.post("/api/downloads/radarr:Ember%20Coast%2311/try-again", json={})
+
+    assert answer.status_code == 200
+    (stopped,) = conn.execute("SELECT stopped_at FROM arr_import_retries").fetchone()
+    assert stopped is None
+
+
+def test_trying_again_a_title_mediaman_still_tries_is_refused(services, client, conn):
+    _held_for_the_same_fault(services, conn, stopped=False)
+
+    answer = client.post("/api/downloads/radarr:Ember%20Coast%2311/try-again", json={})
+
+    assert answer.status_code == 409

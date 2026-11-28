@@ -889,34 +889,6 @@
     };
   }
 
-  // While something downloads the hub leads to it, as the ring round the picture does: on a phone
-  // the ring is too thin to tap. The pane closes first; the ring's own link then opens it.
-  function initDownloading() {
-    var row = document.getElementById('account-dl');
-    if (!row || !MM.downloading) return;
-    var link = row.querySelector('a');
-    MM.downloading.subscribe(function (state) {
-      var sum = state.summary;
-      row.hidden = !sum.total;
-      if (!sum.total) return;
-      // What can be watched now matters more than how far the rest has come.
-      rowSays(link, state.lost ? 'Not updating' : sum.ready ? sum.ready + ' ready to watch'
-        : sum.active ? sum.percent + '%' : sum.waiting + ' waiting');
-    });
-    link.addEventListener('click', function (e) {
-      var ring = document.querySelector('.profile-dl');
-      if (!ring || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      e.preventDefault();
-      function closed() {
-        document.removeEventListener('mm:you-hidden', closed);
-        // Once the step back that closed the pane is over.
-        setTimeout(function () { ring.click(); }, 0);
-      }
-      document.addEventListener('mm:you-hidden', closed);
-      MM.you.close();
-    });
-  }
-
   // Marks the pane's root as wired by `name`; false where it already was.
   function mount(root, name) {
     var on = (root.getAttribute('data-mounted') || '').split(' ').filter(Boolean);
@@ -947,7 +919,6 @@
     var tiles = initTiles();
     initAi();
     initLogout();
-    initDownloading();
 
     document.addEventListener('mm:you-shown', function (e) {
       if (!e.detail || e.detail.group !== 'profile') return;
