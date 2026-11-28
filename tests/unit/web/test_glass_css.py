@@ -326,12 +326,23 @@ def test_a_control_s_words_on_glass_keep_4_5_to_1_over_a_white_page_in_every_sta
 
 
 def test_the_name_s_blue_on_its_island_keeps_4_5_to_1_and_stays_the_brand_s_blue() -> None:
-    blue = _colour(style(".nav-glass.is-scrolled .brand .wm-man", NAV)["stroke"], {})
+    blue = _colour(style(".nav-glass .brand .wm-man", NAV)["stroke"], {})
     glass = _glass_over(WHITE, float(token("--g-a")), filtered=True)
     assert contrast(_over(blue, glass), glass) >= 4.5
     hue = colorsys.rgb_to_hsv(*(c / 255 for c in blue[:3]))[0]
     brand = colorsys.rgb_to_hsv(*(c / 255 for c in rgb(token("--accent"))))[0]
     assert abs(hue - brand) * 360 < 10
+
+
+def test_the_name_is_on_its_island_s_glass_before_the_page_moves_under_it() -> None:
+    # A white page or a pale poster under the bar at the top would take the name's white.
+    for where, sels, decls in rules(NAV):
+        if ".nav-glass .brand::before" in sels and not any("forced-colors" in w for w in where):
+            assert decls.get("opacity", "1") != "0", where
+    assert style(".nav-glass .brand::before", NAV)["background"] == "var(--isle)"
+    # At rest only its edges and shadow wait for the page to move.
+    rest = style(".nav-glass:not(.is-scrolled) .brand::before", NAV)
+    assert set(rest) == {"border-color", "box-shadow"}, rest
 
 
 @pytest.mark.parametrize("variant", [".ui-toast--success", ".ui-toast--error", ".ui-toast--info"])
@@ -783,6 +794,7 @@ def test_a_pressed_keep_menu_item_keeps_its_red_word_over_a_white_page() -> None
         (".profile-panel :focus-visible", NAV),
         (".nav-end :focus-visible", NAV),
         (".ui-toast :focus-visible", TOASTS),
+        (".login-card :focus-visible", LOGIN),
     ],
 )
 def test_the_keyboard_s_ring_on_a_glass_surface_takes_the_glass_s_ring_colour(
@@ -816,6 +828,24 @@ def test_every_ring_the_side_panels_draw_stands_3_to_1_off_their_glass_over_a_wh
             if colour:
                 ring = _colour(colour[0], {})
                 assert contrast(_over(ring, glass), glass) >= 3, (where, selectors, prop)
+
+
+@pytest.mark.parametrize("kind", ["movies", "tv", "anime", "other", "free"])
+def test_each_kind_s_mark_in_the_space_key_stands_3_to_1_off_the_panel_s_glass(kind: str) -> None:
+    scope = style(".space__panel", SPACE)
+    glass = _side_glass()
+    fill = _over(_colour(style(f".space-c--{kind}", SPACE)["--c"], scope), glass)
+    mark = fill
+    for where, selectors, decls in rules(SPACE):
+        if f".space-c--{kind} .space-dot" in selectors and not where:
+            edge = re.fullmatch(r"inset 0 0 0 [\d.]+px (.+)", decls["box-shadow"])
+            mark = _over(_colour(edge[1], scope), fill)
+    assert contrast(mark, glass) >= 3
+
+
+def test_the_bar_s_free_part_has_the_same_edge_as_its_key() -> None:
+    edge = style(".space-seg--free::before", SPACE)["box-shadow"]
+    assert edge == style(".space-c--free .space-dot", SPACE)["box-shadow"]
 
 
 def test_stuck_tools_hold_their_field_s_and_pills_words_over_the_cards_passing_under() -> None:
@@ -1056,8 +1086,32 @@ def test_rings_on_glass_take_the_lifted_blue_and_keep_3_to_1_over_a_white_page(
     assert contrast(_over(blue, glass), glass) >= 3
 
 
-def test_the_page_s_own_ring_takes_the_card_s_blue_on_the_card() -> None:
-    assert style(".login-card :focus-visible", LOGIN)["outline-color"] == "var(--accent)"
+def test_every_ring_the_error_card_draws_is_the_glass_s_ring_colour() -> None:
+    checked = 0
+    for where, selectors, decls in rules("_error.css"):
+        if any("forced-colors" in w for w in where) or not any(":focus" in s for s in selectors):
+            continue
+        for prop in ("outline", "outline-color"):
+            colour = re.search(r"var\(--[\w-]+\)", decls.get(prop, ""))
+            if colour:
+                checked += 1
+                assert colour[0] == "var(--g-focus)", (selectors, prop)
+    assert checked
+
+
+def test_the_sign_in_field_s_drawn_ring_is_the_glass_s_ring_colour() -> None:
+    # The field's ring is drawn by its box, over an outline made transparent.
+    ring = style(".login-box::after", LOGIN)["box-shadow"]
+    assert ring.startswith("inset 0 0 0 2px var(--g-focus),"), ring
+
+
+def test_a_new_password_s_field_on_the_card_takes_the_glass_s_ring_and_a_wrong_one_its_red() -> (
+    None
+):
+    # The password form's own sheet rings its field in the page's blue, stronger than the card's
+    # every-ring rule.
+    field = '.login-card .pwd .inp:not([aria-invalid="true"]):focus-visible'
+    assert style(field, LOGIN)["outline-color"] == "var(--g-focus)"
 
 
 @pytest.mark.parametrize(("state", "veil"), [("", "--g-s2"), (":focus", "--g-s3")])

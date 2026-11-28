@@ -73,7 +73,9 @@
 @media (hover: hover) { .nav-glass .brand:hover { color: color-mix(in srgb, var(--t1) 85%, transparent); } }
 .nav-glass .brand:active { color: color-mix(in srgb, var(--t1) 65%, transparent); }
 .nav-glass .brand > .ico { filter: drop-shadow(0 1px 6px color-mix(in srgb, var(--scrim) 60%, transparent)); }
-/* Its own island once the page has moved under it, where a poster could take its words. */
+/* Its own island, whatever is under it: a white page or a pale poster would take the name's white.
+   Before the page moves the island is its glass alone, which over a dark page shows as nothing; its
+   edges and its shadow come in once the page has moved under it. */
 .nav-glass .brand::before {
   content: "";
   position: absolute;
@@ -86,14 +88,11 @@
   border: 1px solid var(--isle-edge);
   border-top-color: var(--isle-lit);
   box-shadow: var(--g-inset), var(--g-shadow);
-  opacity: 0;
-  transition: opacity var(--dur-slow) var(--ease-out);
+  transition: border-color var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow) var(--ease-out);
 }
-.nav-glass.is-scrolled .brand::before { opacity: 1; }
-/* On its island the name's blue is lifted with it: the brand's own blue is under 3:1 on glass over
-   a white page. */
-.nav-glass .brand .wm-man { transition: stroke var(--dur-slow) var(--ease-out); }
-.nav-glass.is-scrolled .brand .wm-man { stroke: var(--g-accent-text); }
+.nav-glass:not(.is-scrolled) .brand::before { border-color: transparent; box-shadow: none; }
+/* The name's blue is lifted on its glass: the brand's own blue is under 3:1 there over a white page. */
+.nav-glass .brand .wm-man { stroke: var(--g-accent-text); }
 .nav-glass .brand:focus-visible { outline-offset: 2px; border-radius: var(--r-pill); }
 
 .nav-back,
