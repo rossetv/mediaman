@@ -51,8 +51,11 @@
 {%- macro ghost(url,label,full=false) -%}
 <table role="presentation" cellpadding="0" cellspacing="0"{% if full %} width="100%"{% endif %}><tr><td class="ghost" align="center" style="border:1px solid #c9ccd3;border-radius:23px;{{ ff }}"><a class="link" href="{{ url }}" style="display:block;padding:12px {{ 8 if full else 22 }}px;color:#0060c7;font-size:14px;font-weight:600;line-height:20px;text-decoration:none;white-space:nowrap">{{ label }}</a></td></tr></table>
 {%- endmacro -%}
-{%- macro brand(line="") -%}
-<tr><td class="pad" style="padding:30px 32px 22px;{{ ff }}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td class="t1" style="font-size:22px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f;{{ ff }}">media<span class="man" style="color:#0071e3">man</span></td><td class="t2" align="right" style="font-size:13px;color:#5f5f66;{{ ff }}">{{ line }}</td></tr></table></td></tr>
+{#- The name as the app draws it, from the site's address, since mail clients block SVG and data:
+    pictures. Its dark letters have a white edge, for the mail apps that darken the page and not
+    the picture. Kept short, as every byte counts against Gmail's cut. With no site, the name in text. -#}
+{%- macro brand(line="",site="") -%}
+<tr><td class="pad" style="padding:30px 32px 22px;{{ ff }}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{% if site %}<td class="t1" style="font-size:22px;color:#1d1d1f;{{ ff }}"><img src="{{ site }}/static/mail/wordmark.png" alt="mediaman" width="139" height="32" style="display:block">{% else %}<td class="t1" style="font-size:22px;font-weight:600;letter-spacing:-.3px;color:#1d1d1f;{{ ff }}">media<span class="man" style="color:#0071e3">man</span>{% endif %}</td><td class="t2" align="right" style="font-size:13px;color:#5f5f66;{{ ff }}">{{ line }}</td></tr></table></td></tr>
 {%- endmacro -%}
 {%- macro pic(src,title,w,h) -%}
 {%- if src -%}<img class="pic" src="{{ src }}" alt="{{ title }}" width="{{ w }}" height="{{ h }}" style="display:block;width:100%;max-width:{{ w }}px;height:auto;border-radius:8px;background:#e3e3e8;color:#1d1d1f;font-size:14px;font-weight:600;line-height:18px;text-align:center">
