@@ -112,6 +112,17 @@ def test_the_wait_ring_still_pulses_under_reduced_motion_on_a_page_coming_in() -
         assert held and held[-1].startswith("pu "), ring
 
 
+def test_the_wait_s_disc_and_corona_stay_drawn_under_reduced_motion() -> None:
+    """Held still, the wait is a picture; hidden, it leaves the words alone on a blank screen."""
+    for part in (".spin:after", ".spin i", ".spin i:before", ".spin i:after"):
+        hidden = [
+            d
+            for w, sels, d in rules(TV)
+            if _within(w, REDUCED) and part in sels and d.get("display") == "none"
+        ]
+        assert not hidden, part
+
+
 def test_on_the_pages_a_letter_lies_under_its_picture_and_shows_where_it_fails() -> None:
     picture = style(".avatar--pic img", "_nav.css")
     assert (picture["position"], picture["inset"]) == ("absolute", "0")

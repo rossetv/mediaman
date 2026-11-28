@@ -622,6 +622,68 @@ def test_a_film_that_waits_says_so_and_goes_on() -> None:
     assert "Waiting for the network" in out["said"]
 
 
+def test_a_film_that_stops_for_a_moment_shows_nothing_new_over_it() -> None:
+    early = _run("waits", "3000")["early"]
+    assert early["pill"] != "nw on" and early["dim"] is None
+    assert "Waiting" not in early["screen"]
+
+
+def test_a_short_wait_is_a_pill_over_the_films_own_picture_and_ends_saying_it_is_back() -> None:
+    out = _run("waits", "3000")
+    assert (out["pill"]["pill"], out["pill"]["says"]) == ("nw on", "Waiting for the network")
+    # The picture stays, held as it was, and nothing darkens it.
+    assert out["pill"]["dim"] == "wl" and out["pill"]["frame"] == "on"
+    assert (out["back"]["pill"], out["back"]["says"]) == ("nw on ok", "Back online")
+    # The film plays on as it was: its controls stay away, and the held picture gives way to it.
+    assert out["back"]["ov"] == "ov hide" and out["back"]["frame"] == ""
+    assert out["after"]["pill"] == "nw ok"
+
+
+def test_only_a_long_wait_darkens_the_film_and_it_clears_as_the_film_comes_back() -> None:
+    out = _run("waits", "66000")
+    assert out["pill"]["dim"] == "wl"
+    # Half a minute in, it is still the pill alone over the film.
+    assert (out["mid"]["dim"], out["mid"]["pill"]) == ("wl", "nw on")
+    assert out["long"]["dim"] == "wl on" and out["long"]["pill"] == "nw"
+    assert out["back"]["dim"] is None and 'id="wl"' in out["back"]["left"]
+    assert out["back"]["pill"] == "nw on ok" and out["after"]["pill"] == "nw ok"
+
+
+@pytest.mark.parametrize("how", ["network", "restart"])
+def test_a_film_picked_up_again_waits_over_its_own_last_picture(how: str) -> None:
+    out = _run("resumes", how)
+    assert out["held"] == "on" and "Picking up" in out["said"]
+    assert out["freed"] == "" and out["pill"] == "nw on ok" and "Picking up" not in out["now"]
+
+
+def test_the_wait_over_a_film_moves_only_what_a_weak_tv_draws_smoothly_and_stills_for_reduced_motion() -> (
+    None
+):
+    all_rules = rules("tv.css")
+    reduced: dict[str, dict[str, str]] = {}
+    for w, sels, d in all_rules:
+        if w and "reduce" in w[0]:
+            for s in sels:
+                reduced.setdefault(s, {}).update(d)
+    movers = [
+        (s, d)
+        for w, sels, d in all_rules
+        if not w
+        for s in sels
+        if re.match(r"\.(nw|ec|wl)\b", s) and ("transition" in d or "animation" in d)
+    ]
+    assert movers
+    for selector, decls in movers:
+        assert "filter" not in " ".join(decls), selector
+        for kind in ("transition", "animation"):
+            if kind not in decls:
+                continue
+            if kind == "transition":
+                moved = re.findall(r"(?:^|,\s*)([a-z-]+)", decls[kind])
+                assert set(moved) <= {"opacity", "transform", "visibility"}, selector
+            assert reduced.get(selector, {}).get(kind) == "none", (selector, kind)
+
+
 def test_a_server_that_does_not_answer_shows_only_where_nothing_plays() -> None:
     out = _run("lost")
     assert "answering" not in out["whilePlaying"]
