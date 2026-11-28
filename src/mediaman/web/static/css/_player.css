@@ -3,9 +3,16 @@
    background inside that box. */
 
 .player {
-  /* Dark enough that pill text keeps 4.5:1 even over a white frame. */
-  --player-glass: color-mix(in srgb, var(--s2) 80%, transparent);
-  --player-glass-hover: color-mix(in srgb, var(--s3) 85%, transparent);
+  /* The controls' glass: halved and tinted, so white words keep 4.5:1 even over a white frame. */
+  --player-glass: var(--g-player);
+  --player-glass-hover: var(--g-player-hover);
+  /* What is quieter, blue or red on the glass here is lifted to hold its contrast there. */
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
   /* The quieter text over the picture. */
   --player-t2: color-mix(in srgb, var(--t1) 90%, transparent);
   --player-top: max(26px, env(safe-area-inset-top));
@@ -33,9 +40,15 @@
 }
 .player-hold { pointer-events: none; --pop-y: 0; }
 
-/* Controls fade out while playing and nobody touches anything. */
-.player-chrome { transition: opacity var(--dur-slow) var(--ease-out); }
-.player.is-idle .player-chrome { opacity: 0; }
+/* Controls fade out while playing and nobody touches anything. Each piece fades itself, and a bar
+   only its shade: glass under a fading parent blurs none of the picture while it fades. */
+@property --player-shade { syntax: "<number>"; inherits: true; initial-value: 1; }
+.player-chrome { --scrim: rgb(0 0 0 / var(--player-shade, 1)); transition: --player-shade var(--dur-slow) var(--ease-out); }
+.player.is-idle .player-chrome { --player-shade: 0; }
+.player-chrome :is(.player-titles, .player-seek-row, .player-volume) { transition: opacity var(--dur-slow) var(--ease-out); }
+.player.is-idle .player-chrome :is(.player-back, .player-titles, .player-seek-row, .player-volume, .player-btn:not(.player-volume > *)) { opacity: 0; }
+.player.is-idle .player-chrome .player-pill { color: transparent; }
+.player.is-idle .player-chrome .player-pill::before { opacity: 0; }
 /* The bars shade more of the picture than they hold; only what they hold takes a press. */
 .player-chrome,
 .player.is-idle .player-chrome > * { pointer-events: none; }
@@ -62,10 +75,11 @@
   height: 44px;
   border-radius: var(--r-pill);
   background: var(--player-glass);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  box-shadow: var(--g-inset);
   font-size: 18px;
-  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), opacity var(--dur-slow) var(--ease-out);
 }
 .player-back:hover { background: var(--player-glass-hover); }
 .player-titles {
@@ -93,7 +107,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.player-keep-btn { color: var(--danger-soft); }
+.player-keep-btn { color: var(--danger-text); }
 
 /* Bottom bar: seek row over the control row. */
 .player-bottom {
@@ -246,7 +260,9 @@
   max-width: 224px;
   padding: 3px 10px;
   border-radius: var(--r-md);
-  background: var(--player-glass);
+  /* A label over the picture: solid, as no glass is under so small a thing. */
+  background: var(--g-tip);
+  box-shadow: 0 0 0 1px var(--g-edge), var(--shadow-card);
   font-size: 13px;
   line-height: 1.35;
   color: var(--t1);
@@ -276,6 +292,7 @@
   font-size: 20px;
   transition: transform var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
+.player-chrome .player-btn { transition: transform var(--dur-fast) var(--ease-out), opacity var(--dur-slow) var(--ease-out); }
 .player-btn:disabled { opacity: .4; cursor: default; }
 .player-btn--skip { font-size: 26px; }
 
@@ -303,7 +320,7 @@
   padding: 0 14px;
   font-size: 13px;
   white-space: nowrap;
-  transition: transform var(--dur-fast) var(--ease-out);
+  transition: transform var(--dur-fast) var(--ease-out), color var(--dur-slow) var(--ease-out);
 }
 .player-pill::before {
   content: '';
@@ -312,25 +329,30 @@
   z-index: -1;
   border-radius: var(--r-pill);
   background: var(--player-glass);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  transition: background var(--dur-fast) var(--ease-out);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  box-shadow: var(--g-inset);
+  transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-slow) var(--ease-out);
 }
 .player-pill:hover::before { background: var(--player-glass-hover); }
 .player-pill--primary { color: var(--bg); font-weight: 600; }
+/* White all through: nothing of the picture shows, so nothing is blurred. */
 .player-pill--primary::before,
-.player-pill--primary:hover::before { background: var(--t1); }
+.player-pill--primary:hover::before { background: var(--t1); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
 
-/* Focus rings have the shape of what is drawn: the pill, the round button, the bar's thumb. */
+/* Focus rings have the shape of what is drawn: the pill, the round button, the bar's thumb. They
+   are the glass's blue, which holds over a white frame where the page's blue does not. */
 .player-pill:focus-visible { outline: none; }
-.player-pill:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 2px; }
+.player-pill:focus-visible::before { outline: 2px solid var(--g-focus); outline-offset: 2px; }
 .player-back:focus-visible,
-.player-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-pill); }
+.player-btn:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; border-radius: var(--r-pill); }
 .player-seek:focus-visible { outline: none; }
-.player-seek:focus-visible .player-seek-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+.player-seek:focus-visible .player-seek-thumb { outline: 2px solid var(--g-focus); outline-offset: 3px; }
 .player-volume-slider:focus-visible { outline: none; }
-.player-volume-slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
-.player-volume-slider:focus-visible::-moz-range-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+.player-volume-slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--g-focus); outline-offset: 3px; }
+.player-volume-slider:focus-visible::-moz-range-thumb { outline: 2px solid var(--g-focus); outline-offset: 3px; }
+/* And every other control that takes the keyboard here, as the cards' buttons. */
+.player :focus-visible { outline-color: var(--g-focus); }
 
 /* Skip intro, Skip credits, Next episode: there without the controls at first. */
 .player-skip {
@@ -409,6 +431,30 @@
 
 /* Small menus: quality (opens up) and keep (opens down). */
 .player-menu-wrap { position: relative; }
+/* What opens over the picture is glass, and so is the remote's own menu: inside it a step of grey
+   is a light veil of it. */
+.player-menu,
+.player-av,
+.player-card,
+.tv-po {
+  --s1: var(--g-s1);
+  --s2: var(--g-s2);
+  --s3: var(--g-s3);
+  --s4: var(--g-s4);
+  --s5: var(--g-s5);
+  --t2: var(--g-t2);
+  --t3: var(--g-t3);
+  --t4: var(--g-t3);
+  --accent-hi: var(--g-accent-text);
+  --accent-text: var(--g-accent-text);
+  --danger-text: var(--g-danger-text);
+  background: var(--g-regular);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  border: 1px solid var(--g-edge);
+  border-top-color: var(--g-lit);
+  box-shadow: var(--g-inset), var(--g-shadow);
+}
 .player-menu {
   position: absolute;
   right: 0;
@@ -424,8 +470,6 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   border-radius: var(--r-lg);
-  background: var(--s2);
-  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
 }
 .player-menu--up { bottom: calc(100% + 4px); }
 .player-menu--down { top: calc(100% + 4px); }
@@ -441,7 +485,7 @@
 }
 .player-menu-item:hover,
 .player-menu-item:focus-visible { background: var(--hair-strong); }
-.player-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm); }
+.player-menu-item:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; border-radius: var(--r-sm); }
 /* The list scrolls between what stays of its menu, fading at an end that has more. */
 .player-menu-list {
   display: flex;
@@ -459,7 +503,7 @@
 .player-menu-item--split { display: flex; align-items: center; gap: 12px; }
 .player-menu-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .player-menu-side { flex: none; font-size: 13px; color: var(--t2); font-variant-numeric: tabular-nums; }
-.player-menu-tick { flex: none; width: 12px; height: 12px; color: var(--accent); visibility: hidden; }
+.player-menu-tick { flex: none; width: 12px; height: 12px; color: var(--accent-text); visibility: hidden; }
 .player-menu-item[aria-checked="true"] > .player-menu-tick { visibility: visible; }
 
 .player-menu-rule { flex: none; height: 1px; margin: 6px 12px; background: var(--hair-strong); }
@@ -610,8 +654,9 @@
   padding: 6px 14px;
   border-radius: var(--r-pill);
   background: var(--player-glass);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: var(--g-filter);
+  backdrop-filter: var(--g-filter);
+  box-shadow: var(--g-inset);
   font-size: 14px;
 }
 
@@ -625,13 +670,12 @@
   gap: 6px;
   padding: var(--card-y) var(--card-x) 14px;
   border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--s2) 94%, transparent);
-  box-shadow: var(--shadow-card);
   max-width: calc(100% - 32px);
 }
-/* A pill in the card's own colour would look like bare text. */
-.player-card .player-pill:not(.player-pill--primary)::before { background: var(--s5); }
-.player-card .player-pill:not(.player-pill--primary):is(:hover, :active)::before { background: color-mix(in srgb, var(--t1) 12%, var(--s5)); }
+/* A pill in the card's own colour would look like bare text. It lies on the card's glass, so it is
+   a veil of it and blurs nothing of its own. */
+.player-card .player-pill:not(.player-pill--primary)::before { background: var(--s4); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.player-card .player-pill:not(.player-pill--primary):is(:hover, :active)::before { background: var(--s5); }
 .player-card-title { font-size: 17px; font-weight: 600; }
 .player-card-line {
   display: -webkit-box;
@@ -672,7 +716,6 @@
   width: 480px;
   margin-inline: auto;
   gap: 12px;
-  border: 1px solid var(--hair);
   border-radius: 18px;
   animation-duration: var(--dur-slow);
 }
@@ -705,6 +748,16 @@
 .player .player-rate .rate__set { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .player .player-rate .rate__b { height: auto; min-height: var(--rate-h, 72px); padding: 4px 0; }
 .player-rate .rate__lab { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: center; }
+/* Once rated, the other thumbs' hands step back only as far as glass over a white frame lets them
+   keep 3:1; their names stay, as any step back takes them near 4.5:1. */
+.player-rate .rate.has .rate__b:not(.is-on) > .rate__lab { opacity: 1; }
+/* The chosen thumb's wash is see-through: a floor under it keeps its coloured name. */
+.player-rate .rate__hl { box-shadow: var(--g-chip-floor); }
+.player-rate .rate.has .rate__b:not(.is-on) > .rate-th { opacity: .7; }
+.player-rate .rate.has .rate__b:not(.is-on):focus-visible > .rate-th { opacity: 1; }
+@media (hover: hover) {
+  .player-rate .rate.has .rate__b:not(.is-on):hover > .rate-th { opacity: 1; }
+}
 /* Where it stands clear of subtitles, above where it stands by the other card. */
 .player-rate--beside {
   --rate-up: max(0px, 18vh - var(--player-foot) - 118px);
@@ -736,7 +789,6 @@
   --card-x: 28px;
   --card-y: 28px;
   padding-bottom: 20px;
-  border: 0;
   color: inherit;
   text-align: center;
   align-items: center;
@@ -748,7 +800,8 @@
   .player-ask { transition: opacity var(--dur-fast) var(--ease-out), translate var(--dur-fast) var(--ease-out), overlay var(--dur-fast) var(--ease-out) allow-discrete, display var(--dur-fast) var(--ease-out) allow-discrete; }
   .player-ask::backdrop { transition: opacity var(--dur-fast) var(--ease-out), overlay var(--dur-fast) var(--ease-out) allow-discrete, display var(--dur-fast) var(--ease-out) allow-discrete; }
 }
-.player-ask::backdrop { background: color-mix(in srgb, var(--scrim) 60%, transparent); animation: player-dim var(--dur) var(--ease-out); }
+/* A plain dim, never blurred: the card's glass has the picture to show. */
+.player-ask::backdrop { background: var(--g-dim); animation: player-dim var(--dur) var(--ease-out); }
 .player-ask .player-card-title { font-size: 20px; }
 .player-ask .player-card-actions { justify-content: center; gap: 12px; margin-top: 14px; }
 @keyframes player-dim { from { opacity: 0; } }
@@ -789,9 +842,13 @@
   .player-bubble-text { max-width: 220px; }
   /* No room in the row of controls: above the bar. */
   .player-chapters { position: absolute; left: 12px; bottom: calc(var(--player-foot) + 88px); }
-  .player-chapters { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) var(--ease-out); }
+  /* It goes as its pill's glass and words fade, never by a fade of its own: glass in a fading
+     parent blurs nothing. */
+  .player-chapters { transition: visibility var(--dur-slow) var(--ease-out); }
   /* Where the frame preview and the next-episode card come. */
-  .player:not(.is-away):has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving), .player-rate:not([hidden], .is-leaving, .player-rate--beside)) .player-chapters { opacity: 0; visibility: hidden; }
+  .player:not(.is-away):has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving), .player-rate:not([hidden], .is-leaving, .player-rate--beside)) .player-chapters { visibility: hidden; }
+  .player:not(.is-away):has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving), .player-rate:not([hidden], .is-leaving, .player-rate--beside)) .player-chapters .player-pill { color: transparent; }
+  .player:not(.is-away):has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving), .player-rate:not([hidden], .is-leaving, .player-rate--beside)) .player-chapters .player-pill::before { opacity: 0; }
   .player-chapter-name { display: inline; max-width: min(200px, calc(100vw - 250px)); }
   .player-skip { right: 12px; bottom: calc(var(--player-foot) + 88px); padding: 0 14px; font-size: 14px; }
   .player-chapters .player-menu {
@@ -872,7 +929,9 @@
 /* No room for both cards: it waits for the other to go, beside the skip button. */
 @media (max-width: 659.98px) and (max-height: 599.98px) {
   .player-rate--beside { max-width: calc(100% - 200px); }
-  .player:not(.is-away):has(.player-rate--beside:not([hidden], .is-leaving)) .player-chapters { opacity: 0; visibility: hidden; }
+  .player:not(.is-away):has(.player-rate--beside:not([hidden], .is-leaving)) .player-chapters { visibility: hidden; }
+  .player:not(.is-away):has(.player-rate--beside:not([hidden], .is-leaving)) .player-chapters .player-pill { color: transparent; }
+  .player:not(.is-away):has(.player-rate--beside:not([hidden], .is-leaving)) .player-chapters .player-pill::before { opacity: 0; }
   .player:has(.player-upnext:not([hidden], .is-leaving)) .player-rate--beside { visibility: hidden; }
 }
 @media (max-width: 659.98px) and (max-height: 599.98px) and (orientation: portrait) {
@@ -942,7 +1001,7 @@
 .player-brk,
 .player:not(.is-away) .player-away-end { display: none; }
 .player-away-end { display: flex; gap: 8px; }
-.player-away-stop { color: var(--danger-soft); }
+.player-away-stop { color: var(--danger-text); }
 .player-menu-note { flex: none; padding: 8px 12px 10px; font-size: 13px; line-height: 1.45; color: var(--t2); white-space: normal; }
 .player-no-volume { padding: 0 8px; font-size: 13px; line-height: 1.35; color: var(--t2); }
 .player.has-no-volume :is([data-mute], .player-volume-slider) { display: none; }
@@ -981,7 +1040,7 @@
 .player.is-away .player-dim { position: fixed; z-index: 4; }
 .player:is(.is-lost, .is-gone) .player-dim { opacity: .6; }
 .player.is-away :is(.player-top, .player-message) { z-index: 5; }
-.player.is-away .player-message { position: fixed; background: var(--s2); }
+.player.is-away .player-message { position: fixed; }
 .player.is-away .player-message:focus { outline: 0; }
 .player.is-away .player-message .player-card-line { -webkit-line-clamp: 4; }
 /* Its cards stand between the bar and the words, as player.js measures them. */
@@ -997,7 +1056,7 @@
 /* The end of it leaves what may be done next alone. */
 .player.is-ended .player-seek-row,
 .player.is-ended .player-controls > :not(.player-away-end) { visibility: hidden; }
-.player.is-away [data-next-btn] { order: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: var(--r-pill); background: var(--player-glass); font-size: 13px; }
+.player.is-away [data-next-btn] { order: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: var(--r-pill); background: var(--player-glass); -webkit-backdrop-filter: var(--g-filter); backdrop-filter: var(--g-filter); box-shadow: var(--g-inset); font-size: 13px; }
 .player.is-away [data-next-btn]:hover { background: var(--player-glass-hover); }
 .player.is-away [data-next-btn] .ico { font-size: 14px; }
 .player.is-away [data-next-btn]::after { content: 'Next'; }
@@ -1010,7 +1069,10 @@
 .player-away-on { font-size: 15px; font-weight: 500; color: var(--accent-hi); text-wrap: balance; overflow-wrap: anywhere; }
 .player-away-on .ico { width: 20px; height: 20px; margin-right: 8px; vertical-align: -.3em; }
 .player-away-hint { margin-top: 6px; font-size: 14px; line-height: 1.45; color: var(--t2); text-wrap: balance; }
-.player.is-away [data-away-idle][inert] { opacity: .4; }
+/* A pill fades its glass and its words, never a parent of them: glass in a fading parent blurs nothing. */
+.player.is-away [data-away-idle][inert]:not(.player-menu-wrap) { opacity: .4; }
+.player.is-away .player-menu-wrap[data-away-idle][inert] .player-pill { color: color-mix(in srgb, var(--t1) 40%, transparent); }
+.player.is-away .player-menu-wrap[data-away-idle][inert] .player-pill::before { opacity: .4; }
 .player.is-away.is-wordless .player-away-say { visibility: hidden; }
 @media (max-width: 1199.98px) {
   .player.is-away .player-upnext.is-under { top: var(--away-under); bottom: auto; max-height: none; }
@@ -1052,6 +1114,8 @@
   .player.is-away .player-btn { min-width: 56px; height: 56px; font-size: 24px; }
   .player.is-away .player-btn--skip { min-width: 72px; font-size: 32px; }
   .player.is-away [data-play] { width: 72px; height: 72px; border-radius: 50%; background: var(--t1); color: var(--bg); font-size: 26px; }
+  /* Around the white disc, on the glass: inside it the ring would be light on white. */
+  .player.is-away [data-play]:focus-visible { outline-offset: 3px; }
   .player.is-away [data-play] .player-btn-ring { width: 26px; height: 26px; border-color: color-mix(in srgb, var(--bg) 25%, transparent); border-top-color: var(--bg); }
   .player.is-away .player-volume .player-btn { min-width: 44px; height: 44px; font-size: 18px; }
   .player.is-away [data-next-btn] { min-width: 44px; height: 36px; margin: 4px 0; font-size: 13px; }
@@ -1162,6 +1226,9 @@
   .player-bubble-text { border: 1px solid CanvasText; }
   .player-pill::before,
   .player-bubble-text { background: Canvas; }
+  /* Words are drawn in a system colour here, never clear: a resting pill fades whole, as its glass
+     blurs nothing in this mode. */
+  .player.is-idle .player-chrome .player-pill { opacity: 0; }
   .player-menu-item:hover,
   .player-menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 }
@@ -1198,8 +1265,6 @@
   flex-direction: column;
   padding: 6px;
   border-radius: var(--r-lg);
-  background: var(--s2);
-  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
   text-align: left;
   white-space: normal;
   user-select: none;
@@ -1239,11 +1304,12 @@
   .player-av-row:disabled:hover { background: none; }
   .player-av-link:hover { background: var(--hair-strong); text-decoration: none; }
 }
-.player-av-row:focus-visible { background: var(--hair-strong); outline: 2px solid var(--accent); outline-offset: -2px; }
+.player-av-row:focus-visible { background: var(--hair-strong); outline: 2px solid var(--g-focus); outline-offset: -2px; }
 .player-av-row:active { background: var(--hair-strong); }
 .player-av-text { flex: 1; min-width: 0; }
 .player-av-main { display: block; font-size: 15px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.player-av-sub { display: block; margin-top: 2px; font-size: 13px; line-height: 1.3; color: var(--t3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Under a lit row's veil the quietest grey of glass would no longer hold. */
+.player-av-sub { display: block; margin-top: 2px; font-size: 13px; line-height: 1.3; color: var(--t2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-av-tag { flex: none; padding: 2px 8px; border-radius: var(--r-pill); background: var(--rgba-overlay-md); font-size: 12px; color: var(--t2); }
 .player-av-row .player-menu-tick { width: 14px; height: 14px; }
 .player-av-row[aria-checked="true"] > .player-menu-tick { visibility: visible; }
@@ -1278,24 +1344,23 @@
   border-radius: var(--r-pill);
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   transition: background-color var(--dur-fast) var(--ease-out);
 }
-.player-av-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.player-av-link:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; }
 .player-av-titles { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; }
 .player-av-titles > .player-menu-title + .player-menu-title { padding-left: 18px; }
 .player-av-col > .player-menu-title { display: none; }
 
-/* Phones held upright: a sheet from the foot, as the remote's menus are. */
+/* Phones held upright: a sheet from the foot, as the remote's menus are. Its dim is plain: blurred,
+   it would be a layer of glass more under the sheet's. */
 @media (max-width: 699.98px) {
   .player-av-veil {
     display: block;
     position: fixed;
     inset: 0;
     z-index: 6;
-    background: color-mix(in srgb, var(--scrim) 55%, transparent);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
+    background: var(--g-dim);
     animation: tv-fade var(--dur-slow) var(--ease-out);
   }
   .player-av {
@@ -1309,8 +1374,9 @@
     max-width: none;
     max-height: calc(100% - max(48px, env(safe-area-inset-top, 0px) + 24px));
     padding: 0 12px max(16px, env(safe-area-inset-bottom, 0px));
+    border-bottom: 0;
     border-radius: 20px 20px 0 0;
-    box-shadow: 0 0 0 1px var(--hair-strong);
+    box-shadow: var(--g-inset);
     animation: player-av-up var(--dur-slow) var(--ease-push);
   }
   .player-av::before { content: ""; flex: none; display: block; width: 36px; height: 5px; margin: 8px auto 2px; border-radius: var(--r-pill); background: var(--hair-hover); }
@@ -1338,7 +1404,7 @@
 /* A phone on its side: a sheet from the right edge, clear of the middle of the picture.
    Nothing dims the picture; a tap beside the sheet closes it. */
 @media (max-height: 520px) and (orientation: landscape) {
-  .player-av-veil { display: block; position: fixed; inset: 0; z-index: 6; background: linear-gradient(90deg, transparent 40%, color-mix(in srgb, var(--scrim) 45%, transparent)); -webkit-backdrop-filter: none; backdrop-filter: none; animation: tv-fade var(--dur-slow) var(--ease-out); }
+  .player-av-veil { display: block; position: fixed; inset: 0; z-index: 6; background: linear-gradient(90deg, transparent 40%, color-mix(in srgb, var(--scrim) 45%, transparent)); animation: tv-fade var(--dur-slow) var(--ease-out); }
   .player-av {
     position: fixed;
     top: 0;
@@ -1350,8 +1416,8 @@
     max-width: none;
     max-height: none;
     padding: max(14px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) max(10px, env(safe-area-inset-bottom, 0px)) 8px;
+    border-right: 0;
     border-radius: 20px 0 0 20px;
-    box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
     animation: player-av-in var(--dur-slow) var(--ease-push);
   }
   .player-av::before { display: none; }
