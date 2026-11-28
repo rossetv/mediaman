@@ -163,7 +163,7 @@ async function page(opts = {}) {
     listeners: {}, history,
     location: { href: '', pathname: opts.pathname || '/watch', search: '?q=1', hash: '', replace(to) { history.entries[history.index] = null; win.location.href = to; } }, innerWidth: 1000, innerHeight: 800, navigator: { onLine: true },
     sessionStorage: { getItem: (k) => session[k] || null, setItem: (k, v) => { session[k] = v; } },
-    matchMedia: (q) => ({ matches: !!opts.still && /reduced-motion/.test(q) }),
+    matchMedia: (q) => ({ matches: (!!opts.still && /reduced-motion/.test(q)) || (!!opts.mouse && /hover: hover/.test(q)) }),
     addEventListener(t, fn) { win.listeners[t] = fn; },
     UIFeedback: { toast: (t) => { toasts.push(t); overRemote.push(doc.documentElement.classList.contains('has-tv-rem')); }, error: (t) => toasts.push('! ' + t) },
     ModalA11y: { register() {}, onOpened() {}, onClosed() {} },
@@ -273,7 +273,7 @@ async function page(opts = {}) {
       }
       clock = end;
     },
-    async press(sel) { click(doc, $(sel)); await settle(); },
+    async press(sel, how) { click(doc, $(sel), how); await settle(); },
     /* Audio & subtitles opened from the keyboard, and the row with *text* picked in it. */
     async openTracks() { click(doc, $('[data-av-btn]'), { detail: 0 }); await settle(); },
     async pickTrack(text) {
@@ -354,7 +354,7 @@ function moving(p) {
   p.$('#tv-mini').getBoundingClientRect = box(BAR);
   p.$('[data-sheet]').getBoundingClientRect = box(CARD);
   p.$('[data-hero]').setPointerCapture = () => {};
-  p.win.getComputedStyle = () => ({ getPropertyValue: () => '', transform: 'matrix(0.5, 0, 0, 0.5, 10, 20)', opacity: '0.5' });
+  p.win.getComputedStyle = () => ({ getPropertyValue: (k) => ({ '--mini-lean': 'translateY(-4px) scale(1.01)' }[k] || ''), transform: 'matrix(0.5, 0, 0, 0.5, 10, 20)', opacity: '0.5' });
   const name = (el) => ['data-glass', 'data-veil', 'data-sheet', 'data-morph-art', 'data-title', 'data-mid', 'data-hero', 'id'].map((k) => el.hasAttribute(k) && (k === 'id' ? el.getAttribute('id') : k)).find(Boolean) || el.className;
   return {
     live: () => moves.filter((a) => !a.cancelled),
@@ -366,6 +366,57 @@ function moving(p) {
 }
 
 const scenarios = {
+  // The second press of a double click lands on the card's foot: Stop and bring it here, and Stop,
+  // wait a moment after it opens; a key, and a press after that, go through.
+  async doublePress() {
+    const p = await page();
+    await p.open();
+    await p.press('[data-bring]', { detail: 2 });
+    await p.press('[data-stop]', { detail: 2 });
+    const soon = p.sent();
+    await p.pass(600);
+    await p.press('[data-stop]', { detail: 1 });
+    return { soon, later: p.sent().map((b) => b.kind), growing: p.$('#tv-remote').classList.contains('is-growing') };
+  },
+  // Closed as it opens, the parts are measured where they are laid out, with the opening stopped.
+  async measuredStopped() {
+    const p = await page();
+    const mv = moving(p);
+    const box = p.$('[data-sheet]').getBoundingClientRect;
+    const live = [];
+    p.$('[data-sheet]').getBoundingClientRect = () => { live.push(mv.live().length); return box(); };
+    await p.open();
+    await p.press('[data-close]');
+    return live;
+  },
+  // Under a mouse the bar leans, and back; not under a finger, nor with less motion.
+  async leans() {
+    const out = {};
+    for (const [name, opts, pointerType] of [['mouse', { mouse: true }, 'mouse'], ['finger', { mouse: true }, 'touch'], ['still', { mouse: true, still: true }, 'mouse'], ['noHover', {}, 'mouse']]) {
+      const p = await page(opts);
+      const mv = moving(p);
+      await p.on('[data-open]', 'pointerenter', { pointerType });
+      const to = mv.of('#tv-mini').map((a) => a.frames[1].transform);
+      await p.on('[data-open]', 'pointerleave', { pointerType });
+      out[name] = { to, back: mv.of('#tv-mini').map((a) => a.frames[1].transform) };
+    }
+    return out;
+  },
+  // Opened from the lean, the bar is held where it leaned until the card has shrunk back into it.
+  async heldBar() {
+    const p = await page({ mouse: true });
+    const mv = moving(p);
+    await p.on('[data-open]', 'pointerenter', { pointerType: 'mouse' });
+    await p.open();
+    const bar = p.$('#tv-mini');
+    const out = { held: bar.style.transform, still: bar.style.transition, leaning: mv.of('#tv-mini').filter((a) => a.frames[1].transform).length };
+    await mv.end();
+    await p.press('[data-close]');
+    out.closing = bar.style.transform;
+    await mv.end();
+    out.after = bar.style.transform;
+    return out;
+  },
   // The card grows out of the bar: its glass from the bar's box, its picture, title and line from theirs.
   async grows() {
     const p = await page();
@@ -424,15 +475,16 @@ const scenarios = {
   // short pull springs back.
   async pulled() {
     const out = {};
-    for (const by of [40, 160]) {
+    for (const by of [40, 160, 'mouse']) {
       const p = await page();
       const mv = moving(p);
       await p.open();
       await mv.end();
-      await p.on('[data-hero]', 'pointerdown', { clientY: 300, timeStamp: 0 });
-      await p.on('[data-hero]', 'pointermove', { clientY: 300 + by, timeStamp: 1000 });
-      const held = p.$('[data-sheet]').style.transform;
-      await p.on('[data-hero]', 'pointerup', { type: 'pointerup', clientY: 300 + by, timeStamp: 1000 });
+      await p.on('[data-hero]', 'pointerdown', { clientY: 300, timeStamp: 0, pointerType: by === 'mouse' ? 'mouse' : 'touch' });
+      const down = typeof by === 'number' ? by : 160;
+      await p.on('[data-hero]', 'pointermove', { clientY: 300 + down, timeStamp: 1000 });
+      const held = p.$('[data-sheet]').style.transform || '';
+      await p.on('[data-hero]', 'pointerup', { type: 'pointerup', clientY: 300 + down, timeStamp: 1000 });
       out[by] = { held, open: p.isOpen(), from: mv.of('[data-sheet]').map((a) => a.frames[0].transform) };
     }
     return out;

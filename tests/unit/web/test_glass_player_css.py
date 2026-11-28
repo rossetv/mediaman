@@ -516,23 +516,10 @@ def test_over_a_title_the_remote_and_the_title_s_sheet_are_the_only_layers(media
     assert style("html.has-tv-rem", REMOTE, media)["--g-dim-blur"] == "none"
 
 
-def test_the_bar_leans_towards_its_card_only_under_a_mouse_and_not_with_less_motion() -> None:
-    # A finger has no hover to end the lean, and less motion asks for none.
-    leans = [
-        where
-        for where, selectors, decls in rules(REMOTE)
-        if "transform" in decls and any(".tv-mini__open:hover" in sel for sel in selectors)
-    ]
-    assert leans
-    for where in leans:
-        query = " ".join(where)
-        for condition in (
-            "(hover: hover)",
-            "(pointer: fine)",
-            "(prefers-reduced-motion: no-preference)",
-        ):
-            assert condition in query, (where, condition)
-    # Every other move of the bar is kept from those who ask for less motion, too.
-    for where, selectors, decls in rules(REMOTE):
-        if "transform" in decls and any(sel.startswith(".tv-mini:has(") for sel in selectors):
-            assert "(prefers-reduced-motion: no-preference)" in " ".join(where), selectors
+def test_words_on_the_remote_s_picture_keep_4_5_to_1_over_a_white_frame() -> None:
+    # The title and episode lie at the foot of the picture, on the darkest of its shade.
+    foot = _top_level(style(".tv-rem__shade", REMOTE)["background"], ",")[-1]
+    shade = rgb(re.search(r"rgb\([^)]*\)", foot)[0])
+    assert shade[:3] == (0, 0, 0)
+    behind = tuple(255 * (1 - shade[3]) for _ in range(3))
+    assert contrast(WHITE, behind) >= 4.5

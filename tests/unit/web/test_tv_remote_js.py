@@ -865,7 +865,10 @@ def test_with_less_motion_the_card_only_fades() -> None:
 
 
 def test_on_the_player_with_no_bar_the_card_rises_from_the_foot() -> None:
-    assert _run("rises") == {"moved": ["data-veil", "data-sheet"], "from": ["translateY(48px)"]}
+    out = _run("rises")
+    assert out["from"] == ["translateY(48px)"]
+    # Its glass fades on its own, never under a fading sheet, where it would blur nothing.
+    assert {"data-veil", "data-sheet", "data-glass", "data-hero"} <= set(out["moved"])
 
 
 def test_a_tap_beside_the_card_closes_it_and_gives_the_bar_the_focus() -> None:
@@ -877,3 +880,33 @@ def test_a_sheet_pulled_down_far_closes_and_a_short_pull_springs_back() -> None:
     assert out["40"] == {"held": "translateY(40px)", "open": True, "from": ["translateY(40px)"]}
     assert out["160"]["open"] is False
     assert out["160"]["from"] == ["translateY(160px)"]
+    # A mouse does not pull.
+    assert out["mouse"] == {"held": "", "open": True, "from": []}
+
+
+def test_a_second_press_of_a_double_click_stops_nothing_and_a_later_press_does() -> None:
+    out = _run("doublePress")
+    assert out["soon"] == []
+    assert out["later"] == ["stop"]
+    assert out["growing"] is False
+
+
+def test_a_card_closed_as_it_opens_is_measured_with_the_opening_stopped() -> None:
+    assert _run("measuredStopped")[-1] == 0
+
+
+def test_the_bar_leans_under_a_mouse_and_back_but_not_under_a_finger_nor_with_less_motion() -> None:
+    out = _run("leans")
+    assert out["mouse"] == {"to": ["translateY(-4px) scale(1.01)"], "back": ["none"]}
+    for still in ("finger", "still", "noHover"):
+        assert out[still] == {"to": [], "back": []}, still
+
+
+def test_opened_from_the_lean_the_bar_is_held_there_until_the_card_is_back_in_it() -> None:
+    assert _run("heldBar") == {
+        "held": "matrix(0.5, 0, 0, 0.5, 10, 20)",
+        "still": "none",
+        "leaning": 0,
+        "closing": "matrix(0.5, 0, 0, 0.5, 10, 20)",
+        "after": "",
+    }
