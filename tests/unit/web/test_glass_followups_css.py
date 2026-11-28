@@ -51,8 +51,11 @@ def test_a_profile_field_rings_in_the_glass_s_ring_and_a_wrong_one_in_red() -> N
     ring = style('.yo-form .inp.inp:not([aria-invalid="true"]):focus-visible', PASSWORD)
     assert ring["outline-color"] == "var(--g-focus)"
     assert _on_glass(ring["outline-color"], {}) >= 3
-    wrong = style('.pwd .inp.inp[aria-invalid="true"]:focus-visible', PASSWORD)
-    assert wrong["outline-color"] == "var(--danger-text)"
+    for field in (".pwd", ".yo-form"):
+        wrong = style(f'{field} .inp.inp[aria-invalid="true"]:focus-visible', PASSWORD)
+        assert wrong["outline-color"] == "var(--danger-text)", field
+    # The Profile pane is glass, whose red is its own.
+    assert _on_glass("var(--danger-text)", {"--danger-text": "var(--g-danger-text)"}) >= 3
 
 
 @pytest.mark.parametrize(
