@@ -487,22 +487,28 @@ def _resume(request: Request, held: repo.Tv, body: _Ask) -> int | Response:
     state: dict[str, Any] = dict(got["st"]) if got is not None else {}
     key, conn = held.token_hash or "", get_db()
     user, user_id, rating_key = state.get("user"), state.get("user_id"), state.get("rating_key")
-    if (
-        not hmac.compare_digest(str(state.get("key")), key)
-        or not isinstance(user, str)
-        or not isinstance(rating_key, str)
-        or find_user_id(conn, user) != user_id
-        or not repo.is_paired(conn, key, user)
-        or not get_players().may_resume(
-            key,
-            str(state.get("boot")),
-            user,
-            rating_key,
-            latest=isinstance(state.get("play_id"), str)
-            and state.get("play_id") == repo.resume_play(conn, key),
-        )
+    if not hmac.compare_digest(str(state.get("key")), key) or not (
+        isinstance(user, str) and isinstance(rating_key, str)
     ):
+        # Said, as a TV that comes back to ready after a restart leaves nothing else to go by.
+        logger.info("tv: a pick-up was refused: no good ticket for this TV")
         return _refusal(NotPlaying())
+    why = None
+    if find_user_id(conn, user) != user_id or not repo.is_paired(conn, key, user):
+        why = "its person is no longer paired"
+    elif not get_players().may_resume(
+        key,
+        str(state.get("boot")),
+        user,
+        rating_key,
+        latest=isinstance(state.get("play_id"), str)
+        and state.get("play_id") == repo.resume_play(conn, key),
+    ):
+        why = "something else has played since"
+    if why is not None:
+        logger.info("tv: a pick-up was refused: %s", why)
+        return _refusal(NotPlaying())
+    logger.info("tv: a pick-up after a restart or a dropped network goes on")
     choice = Choice(
         quality=str(state.get("quality") or "auto"),
         subtitle=state.get("subtitle"),

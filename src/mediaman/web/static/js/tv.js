@@ -545,6 +545,7 @@
   var resumable = null;      // {ticket, id, boot, title, paused}: the server's word that what plays may go on
   var resuming = null;       // the run of mediaman asked to go on, until it answers
   var resumingFrom = false;  // whether mediaman restarted, rather than the network dropped out
+  var askAgain = null;       // the pick-up mediaman did not answer, asked again as it next answers
   var pickingUp = false;     // the film that was lost goes on over its own last picture, until it plays
 
   var storedAt = 0;
@@ -583,6 +584,7 @@
     var kept = keptResume();
     if (got.play || !kept || !kept.ticket || resuming === got.boot) return null;
     if (was && was.play_id !== kept.id) return null;
+    if (askAgain === kept) return kept;
     return kept.boot !== got.boot || (was && wasAway) ? kept : null;
   }
 
@@ -592,14 +594,22 @@
     endedWith = { title: kept.title, state: 'playing' };
     resuming = run;
     resumingFrom = kept.boot !== run;
-    pickingUp = seen;
+    // Asked again, it goes on over the same last picture.
+    pickingUp = seen || (pickingUp && askAgain === kept);
     mode = 'resuming';
     var wish = { play_id: kept.id, what: 'resume', ticket: kept.ticket, paused: Boolean(paused) };
     if (at) wish.position_s = Math.max(0, at);
     send('ask', token, wish, 110000, function (status) {
       if (mode !== 'resuming') return;
+      askAgain = null;
       if (status === 200) { tell(); return; }
-      // From the store too, where a page opened afresh found it: it is asked for once.
+      // Only mediaman's own no ends the pick-up: a proxy's error, a lost answer or a busy Plex do not.
+      if (!status || status === 429 || status >= 500) {
+        resuming = null;
+        resumable = askAgain = kept;
+        return;
+      }
+      // From the store too, where a page opened afresh found it: it is refused once.
       forgetResume();
       resuming = null;
       pickingUp = false;
@@ -626,7 +636,7 @@
       return;
     }
     if (mode === 'conn' || mode === 'unpair' || mode === 'taken' || mode === 'code' || mode === 'restarted' || mode === 'resuming') mode = 'idle';
-    resuming = null;
+    resuming = askAgain = null;
     if (!was || was.play_id !== next.play_id) {
       unload();
       rouse();
