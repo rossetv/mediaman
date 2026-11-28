@@ -240,6 +240,8 @@
       openTrigger = trigger;
       if (opts.fill) opts.fill(trigger);
       node.hidden = false;
+      // Opened from a preview over the search sheet, it stands over that preview, sheet or none.
+      node.classList.toggle('pv-menu--over', !!trigger.closest('.pv--over'));
       trigger.setAttribute('aria-expanded', 'true');
       place(trigger);
       void node.offsetWidth; // start the entrance from the closed look

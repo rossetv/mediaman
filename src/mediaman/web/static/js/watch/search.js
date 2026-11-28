@@ -1137,7 +1137,8 @@
       // Hidden from assistive tech, not made inert: that would restyle every card on the page. The
       // veil stays to be pressed: it closes the sheet, where a press through it would open what is under it.
       if (window.MM.inertPage) {
-        if (on) window.MM.inertPage.hold(bar, [browse, byId('watch-all'), veil].filter(Boolean));
+        // A preview of one of its cards, and the menu opened from that, stand over it and stay in reach.
+        if (on) window.MM.inertPage.hold(bar, [browse, byId('watch-all'), veil].filter(Boolean), overSheet);
         else window.MM.inertPage.release(bar);
       }
       sayList();
@@ -2539,14 +2540,32 @@
       sync();
       if (tabbed) openSheet(true);
     });
-    input.addEventListener('blur', function () {
-      sync();
+    // A menu opened from a preview over the sheet takes the focus: the sheet stays under it.
+    function overSheet() { return [document.querySelector('.pv-layer'), byId('watch-keep-menu')]; }
+    function holdsSheet(n) {
+      return !!n && (n === input || sheet.contains(n) || overSheet().some(function (o) { return !!o && o.contains(n); }));
+    }
+    /* *fromOver*: the focus left a preview or its menu. Dropped there with nowhere to go, as when a
+       Keep takes the card away, it comes back to the field, as core.spareFocus would have it. */
+    function letGo(fromOver) {
       setTimeout(function () {
-        if (focused() || sheet.contains(document.activeElement)) return;
+        var at = document.activeElement;
+        if (holdsSheet(at)) return;
+        if (fromOver && (!at || at === document.body) && !core.coarsePointer()) {
+          input.focus({ preventScroll: true });
+          return;
+        }
         openSheet(false);
         pick(null);
         if (!input.value) restHint();
       });
+    }
+    input.addEventListener('blur', function () {
+      sync();
+      letGo(false);
+    });
+    document.addEventListener('focusout', function (e) {
+      if (sheetOn && e.target !== input && !sheet.contains(e.target) && holdsSheet(e.target)) letGo(true);
     });
     box.addEventListener('mousedown', function (e) {
       if (clear.contains(e.target)) { e.preventDefault(); return; } // the caret stays

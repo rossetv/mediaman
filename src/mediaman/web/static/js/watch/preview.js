@@ -1139,8 +1139,6 @@
     menuNode.textContent = '';
     if (!live) return;
     var card = cardOf(live.link);
-    // The menu hangs beside the preview, outside it, so it carries the preview's place itself.
-    menuNode.classList.toggle('pv-menu--over', live.n.classList.contains('pv--over'));
     menuNode.setAttribute('aria-label', 'More for ' + live.card.title);
     if (watch.marks && watch.marks.likeRef(live.card.ref, live.link)) item('like', 'i-sparkles', 'Find more like this');
     if (card && card.hasAttribute('data-dismiss-ref')) item('dismiss', 'i-xmark', 'Dismiss');

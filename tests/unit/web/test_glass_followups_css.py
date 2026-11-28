@@ -26,15 +26,16 @@ def _z(value: str) -> int:
     return int(token(found[1])) + (step if found[2] == "+" else -step)
 
 
-def test_a_menu_opened_over_the_search_sheet_stands_over_the_bar_and_the_preview() -> None:
-    menu = _z(style("html.has-sheet .watch-keep-menu", KEEP)["z-index"])
+def test_a_menu_of_a_preview_over_the_search_sheet_stands_over_the_preview_sheet_or_none() -> None:
+    # The menu takes the focus, which can close the sheet: its place must not hang on has-sheet.
+    menu = _z(style(".pv-menu--over", PREVIEW)["z-index"])
     assert menu > int(token("--z-nav"))
     assert menu > _z(style(".pv--over", PREVIEW)["z-index"])
 
 
 def test_on_a_phone_a_menu_over_the_search_sheet_is_solid_never_a_third_glass() -> None:
     for media in PHONES.split(", "):
-        menu = style("html.has-sheet .watch-keep-menu", KEEP, media)
+        menu = style(".pv-menu--over", PREVIEW, media)
         assert menu["background"] == "var(--g-solid)", media
         assert menu["backdrop-filter"] == menu["-webkit-backdrop-filter"] == "none", media
 

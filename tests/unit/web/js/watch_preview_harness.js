@@ -802,19 +802,47 @@ const scenarios = {
     return { over, page: await opened('other') };
   },
   /* The search sheet makes the page under it inert, as search.js does, the rows only hidden:
-     the menu of a preview over it is still in reach, and so are the shared Keep menu and the preview. */
+     the menu of a preview over it is still in reach, and so are the shared Keep menu and the preview.
+     A dialog over the sheet takes the preview out of reach again. */
   async menuUnderSheet() {
     const h = load({ modals: true });
     const bar = h.doc.body.insertBefore(h.doc.createElement('header'), h.doc.body.firstChild);
     const grid = h.doc.querySelector('#watch-browse');
     grid.classList.add('watch-sheet');
-    h.ctx.MM.inertPage.hold(bar, [grid]);
+    h.ctx.MM.inertPage.hold(bar, [grid], () => [h.doc.querySelector('.pv-layer')]);
     await h.rest('film');
     const more = h.pv().querySelector('[data-preview-more]');
     more.click();
     const inert = (n) => { for (let a = n; a; a = a.parentNode) if (a.inert) return true; return false; };
     const menu = h.doc.querySelector('.pv-menu');
-    return { open: !menu.hidden, menu: inert(menu), keep: inert(h.doc.querySelector('#watch-keep-menu')), preview: inert(more) };
+    const out = { open: !menu.hidden, menu: inert(menu), keep: inert(h.doc.querySelector('#watch-keep-menu')), preview: inert(more) };
+    const dialog = h.doc.body.appendChild(h.doc.createElement('div'));
+    h.ctx.MM.inertPage.hold(dialog);
+    out.underDialog = [inert(menu), inert(more)];
+    h.ctx.MM.inertPage.release(dialog);
+    out.dialogGone = [inert(menu), inert(more)];
+    return out;
+  },
+  /* The Keep menu opened from a preview over the search sheet is marked to stand over it; opened
+     from a preview on the page, it is not. */
+  async keepMenuOverSearch() {
+    const h = load({ api: { 'movie-1': { ...FILM, keep_allowed: true, leaving: { keep_id: 5 } } } });
+    const keepMenu = h.doc.querySelector('#watch-keep-menu');
+    const opened = async () => {
+      await h.rest('film');
+      h.pv().querySelector('[data-preview-more]').click();
+      h.doc.querySelector('.pv-menu [data-act="keep"]').click();
+      const seen = [!keepMenu.hidden, keepMenu.classList.contains('pv-menu--over')];
+      h.key('Escape', h.doc.activeElement);
+      h.away();
+      await h.pass(1000);
+      return seen;
+    };
+    const grid = h.doc.querySelector('#watch-browse');
+    grid.classList.add('watch-sheet');
+    const over = await opened();
+    grid.classList.remove('watch-sheet');
+    return { over, page: await opened() };
   },
   async details() {
     const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2' } } });

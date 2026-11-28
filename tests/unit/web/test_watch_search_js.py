@@ -956,6 +956,20 @@ def test_the_page_holds_still_behind_the_sheet_and_the_cross_shuts_it() -> None:
     assert _run("sheetHolds") == [shut, opened, [*shut, False], shut, opened]
 
 
+def test_the_sheet_stays_in_reach_under_a_menu_of_a_preview_over_it() -> None:
+    out = _run("sheetUnderPreviewMenu")
+    # Open, the focus in the menu, not the field, and the menu not inert.
+    for case in out.values():
+        assert case["menu"] == [True, True, False, False]
+
+
+def test_focus_dropped_from_a_preview_s_menu_comes_back_to_the_field_or_the_sheet_goes() -> None:
+    out = _run("sheetUnderPreviewMenu")
+    assert out["nowhere"]["after"] == [True, True, True]
+    assert out["finger"]["after"] == [False, False, False]
+    assert out["elsewhere"]["after"] == [False, False, False]
+
+
 def test_words_changed_again_before_they_were_seen_are_never_faded_out() -> None:
     out = _run("hintSwap")
     label, first, second = (

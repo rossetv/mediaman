@@ -303,7 +303,18 @@ def test_a_previews_menu_is_marked_over_the_search_sheet_and_unmarked_on_the_pag
 
 def test_a_preview_and_both_its_menus_stay_in_reach_under_the_search_sheet() -> None:
     out = _run("menuUnderSheet")
-    assert out == {"open": True, "menu": False, "keep": False, "preview": False}
+    assert [out["open"], out["menu"], out["keep"], out["preview"]] == [True, False, False, False]
+    assert out["dialogGone"] == [False, False]
+
+
+def test_a_dialog_over_the_search_sheet_takes_the_preview_and_its_menu_out_of_reach() -> None:
+    assert _run("menuUnderSheet")["underDialog"] == [True, True]
+
+
+def test_the_keep_menu_from_a_preview_over_the_search_sheet_is_marked_to_stand_over_it() -> None:
+    out = _run("keepMenuOverSearch")
+    assert out["over"] == [True, True]
+    assert out["page"] == [True, False]
 
 
 def test_escape_closes_the_previews_menu_then_the_preview_then_goes_back() -> None:
