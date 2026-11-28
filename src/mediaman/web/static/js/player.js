@@ -87,6 +87,9 @@
   var STOP_WAIT_MS = 5000;
   /* Reached other than by playing into them, the last credits have played this long first. */
   var CREDITS_PLAYED_S = 10;
+  /* Played into, they run this long before the next episode's countdown, so that the first
+     names are seen and the episode is not cut off at their first frame. */
+  var CREDITS_LAND_S = 4;
   /* Ones that begin earlier in the runtime than this are not believed, as on the server. */
   var CREDITS_FROM = 0.7;
   /* Where the server counts a title watched from, unless its final credits begin before. */
@@ -2923,9 +2926,12 @@
       e.preventDefault();
       toggleFullscreen();
     } else if (e.key === 's' || e.key === 'S') {
-      if (!skipMarker || menuOpen()) return;
+      /* The next episode's card stands where the skip button was: S goes on now. */
+      var goesOn = upnextOpen();
+      if ((!skipMarker && !goesOn) || menuOpen()) return;
       e.preventDefault();
-      skipOn();
+      if (goesOn) goOnFromHere(false);
+      else skipOn();
     } else {
       return;
     }
@@ -3196,8 +3202,9 @@
     els.upnext.classList.toggle('is-counting', counts);
     els.upnextCancel.textContent = creditsPlayOn() ? 'Watch credits' : 'Cancel';
     show(els.upnext);
+    showSkip();
     els.upnextStatus.textContent = counts
-      ? 'Next episode in ' + COUNTDOWN_S + ' seconds: ' + next.label + '. Space or Escape cancels.'
+      ? 'Next episode in ' + COUNTDOWN_S + ' seconds: ' + next.label + '. S plays it now; Space or Escape cancels.'
       : 'Next episode: ' + next.label;
     paintAway();
     showControls();
@@ -3260,12 +3267,13 @@
     }
   }
 
-  /* Played into the last credits, the card comes at once; reached by a jump, after they have
-     played a while, as the question does. */
+  /* Played into the last credits, the card comes once their first names have been seen; reached
+     by a jump, after they have played a while, as the question does. */
   function playedInCredits(from, to) {
     if (!inLastCredits(to)) return;
-    creditsRun.s += to - from;
-    if (!inLastCredits(from) || creditsRun.s >= CREDITS_PLAYED_S) creditsRun.due = true;
+    if (!inLastCredits(from)) creditsRun.playedInto = true;
+    creditsRun.s += to - Math.max(from, creditsLeadOn().start_s);
+    if (creditsRun.s >= (creditsRun.playedInto ? CREDITS_LAND_S : CREDITS_PLAYED_S)) creditsRun.due = true;
   }
 
   function toggleAutoplay() {

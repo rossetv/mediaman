@@ -3453,6 +3453,18 @@ const scenarios = {
       out.later = look();
       return out;
     }
+    /* The first seconds of the credits, second by second, and S once the card counts. */
+    if (how === 'land') {
+      playFor(10);
+      const out = { seconds: [] };
+      for (let i = 0; i < 5; i++) { playFor(1); out.seconds.push(look()); }
+      p.q('[data-mute]').focus();
+      const from = p.calls.length;
+      key('s');
+      await settle();
+      out.sWent = p.calls.slice(from).some((c) => c.page && /502/.test(c.url));
+      return out;
+    }
     /* In the system's own full screen player, as on an iPhone. */
     if (how === 'native') {
       p.video.webkitPresentationMode = 'fullscreen';
@@ -5311,7 +5323,7 @@ const scenarios = {
     out.introTo = media.currentTime;
     media.currentTime = 2690;
     fire(media, 'timeupdate');
-    await playFor(12);
+    await playFor(14);
     const card = p.q('[data-upnext]');
     out.card = !gone(card) && card.classList.contains('is-counting');
     const from = p.calls.length;
