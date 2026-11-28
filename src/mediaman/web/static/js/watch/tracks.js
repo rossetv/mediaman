@@ -14,6 +14,11 @@
  * where `on` is the name of the TV that plays it, or null for this device. With no tracks the
  * control is hidden.
  *
+ * Where the state names the title's `key` and watch/languages.js is there, a row under each column
+ * leads on to another language: views pushed inside the same glass, which slide (or, with less
+ * motion, only fade) and grow it by a clip of its edge. Escape goes back a view, then closes.
+ * openLanguages(trigger) opens it from a page instead, over that page's `host`, at its first view.
+ *
  * MM.tracks.said(...) words what changed, and a change that failed, alike for both.
  */
 (function (global) {
@@ -122,9 +127,12 @@
     var box = null;
     var veil = null;
     var from = null;
+    var stack = [];            // the views in the chooser, the one shown last
     var busy = false;
     var held = false;          // a change is under way: the control goes on saying what played
     var seen;
+    var fresh = null;          // subtitles just added: {id, language}, lit in the menu
+    var byKeys = false;
 
     var triggers = opts.wraps.map(function (wrap) {
       var b = document.createElement('button');
@@ -194,7 +202,7 @@
       list.classList.toggle('has-more-below', list.scrollTop + list.clientHeight < list.scrollHeight - 1);
     }
 
-    function column(group, title, rows, none) {
+    function column(group, title, rows, none, extra) {
       var col = document.createElement('div');
       col.className = 'player-av-col';
       var head = document.createElement('p');
@@ -215,6 +223,7 @@
         p.textContent = none;
         col.appendChild(p);
       }
+      (extra || []).forEach(function (x) { col.appendChild(x); });
       return col;
     }
 
@@ -223,7 +232,12 @@
       f.className = 'player-av-foot';
       var words = span('player-av-foot-text');
       var link = null;
-      if (state.on) {
+      if (fresh && !state.on) {
+        f.appendChild(MM.dom.icon('i-circle-check', 'lp-ok'));
+        words.appendChild(document.createTextNode(langWords(fresh.language) + ' subtitles added from OpenSubtitles, for everyone who watches '));
+        words.appendChild(document.createElement('b')).textContent = state.title;
+        words.appendChild(document.createTextNode('.'));
+      } else if (state.on) {
         f.appendChild(MM.dom.icon(TV_ICON, 'ico--tv'));
         words.appendChild(document.createTextNode('Changes play on '));
         words.appendChild(document.createElement('b')).textContent = state.on;
@@ -244,7 +258,7 @@
         link.setAttribute('aria-label', 'Change your defaults, in a new tab');
         link.textContent = 'Change';
       }
-      if (state.remembered) {
+      if (state.remembered && !fresh) {
         link = document.createElement('button');
         link.type = 'button';
         link.setAttribute('data-av-reset', '');
@@ -258,12 +272,57 @@
       return f;
     }
 
-    function build() {
-      var b = document.createElement('div');
-      b.className = 'player-av';
-      b.setAttribute('role', 'dialog');
-      b.setAttribute('aria-label', 'Audio and subtitles');
-      b.tabIndex = -1;
+    /* Another language, where the title can be asked about: watch/languages.js. */
+    var langs = null;
+    function languages() {
+      if (!state || !state.key || !MM.languages) return null;
+      if (!langs || langs.key !== state.key) langs = MM.languages.create(context());
+      return langs;
+    }
+
+    function context() {
+      return {
+        key: state.key,
+        state: function () { return state; },
+        push: push,
+        back: back,
+        home: function () { fresh = null; home(menuView()); },
+        /* On from where it is, with only the menu to go back to. */
+        ahead: function (v) {
+          if (!box) return;
+          stack.slice(1).forEach(function (x) { if (x.gone) x.gone(); });
+          stack = [menuView(), v];
+          show(v, 'fwd');
+          focusIn(v);
+        },
+        close: close,
+        settle: settle,
+        busy: function (on) { if (on === undefined) return busy; busy = on; return busy; },
+        byKeys: function () { return byKeys; },
+        isOpen: function () { return !!box; },
+        menuChanged: function () { if (box && stack.length === 1 && stack[0].menu) redrawMenu(); },
+        /* A track already on the title: it only switches, as a pick in the menu does. */
+        switchTo: function (change) { then(change); },
+        /* Subtitles just added: they play, and the menu shows them lit. */
+        added: function (track) {
+          fresh = { id: track.id, language: track.language, track: track };
+          state = withFresh(state);
+          seen = null;
+          home(menuView());
+          if (opts.pick) opts.pick({ subtitle: track.id, added: true });
+        },
+      };
+    }
+
+    /* Until the host's word on the title has the subtitles just added, they are drawn as on. */
+    function withFresh(s) {
+      if (!s || find(s.subtitle_tracks, fresh.id)) return s;
+      return Object.assign({}, s, { subtitle_tracks: (s.subtitle_tracks || []).concat([fresh.track]), subtitle: fresh.id });
+    }
+
+    function menuView() {
+      var v = document.createElement('div');
+      v.className = 'lp-menu';
       var head = document.createElement('div');
       head.className = 'player-av-head';
       head.appendChild(span('', 'Audio & subtitles'));
@@ -274,7 +333,7 @@
       x.setAttribute('aria-label', 'Close');
       x.appendChild(MM.dom.icon('i-xmark'));
       head.appendChild(x);
-      b.appendChild(head);
+      v.appendChild(head);
       var titles = document.createElement('div');
       titles.className = 'player-av-titles';
       titles.setAttribute('aria-hidden', 'true');
@@ -284,48 +343,84 @@
         p.textContent = t;
         titles.appendChild(p);
       });
-      b.appendChild(titles);
+      v.appendChild(titles);
       var cols = document.createElement('div');
       cols.className = 'player-av-cols';
       cols.addEventListener('scroll', function () { fadeEnds(cols); });
 
+      var more = languages();
       var audio = state.audio_tracks || [];
       var playing = find(audio, state.audio) || audio[0];
       var mine = (state.defaults || {}).audio_lang;
       var tagged = mine && audio.filter(function (t) { return t.language === mine && !t.commentary; })[0];
       cols.appendChild(column('audio', 'Audio', audio.map(function (t) {
         return row('audio', t.id, audioText(t), t === playing, t === tagged ? 'Your default' : '');
-      }), audio.length === 1 ? 'This title has one audio track.' : ''));
+      }), audio.length === 1 ? 'This title has one audio track.' : '', more ? more.audioRows() : []));
 
       var subs = state.subtitle_tracks || [];
       var shown = state.subtitle && find(subs, state.subtitle) ? state.subtitle : 'off';
       var rows = [row('subtitle', 'off', OFF, shown === 'off')].concat(subs.map(function (t) {
-        return row('subtitle', t.id, subtitleText(t), t.id === shown);
+        var lit = fresh && fresh.id === t.id;
+        var r = row('subtitle', t.id, subtitleText(t), t.id === shown, lit ? 'Just added' : '');
+        if (lit) r.classList.add('lp-fresh');
+        return r;
       }));
-      cols.appendChild(column('subtitle', 'Subtitles', rows, subs.length ? '' : 'This title has no subtitles.'));
-      b.appendChild(cols);
-      b.appendChild(foot());
-      b.addEventListener('click', onClick);
-      return b;
+      cols.appendChild(column('subtitle', 'Subtitles', rows, subs.length ? '' : 'This title has no subtitles.', more ? more.subtitleRows() : []));
+      v.appendChild(cols);
+      v.appendChild(foot());
+      return {
+        el: v, menu: true, label: 'Audio and subtitles', remake: menuView,
+        after: function () { MM.dom.qa('.player-av-list, .player-av-cols', v).forEach(fadeEnds); },
+      };
     }
 
-    function open(trigger, byKey) {
+    function redrawMenu() {
+      var old = stack[0].el;
+      var had = box.contains(document.activeElement);
+      var v = menuView();
+      v.el.classList.add('lp-view');
+      stack[0] = v;
+      old.parentNode.insertBefore(v.el, old);
+      old.remove();
+      v.after();
+      if (had) (v.el.querySelector('[role="radio"][aria-checked="true"]') || box).focus({ preventScroll: true });
+    }
+
+    function open(trigger, byKey, first) {
       if (box || !state) return;
       if (opts.opening) opts.opening();
       from = trigger;
+      byKeys = !!byKey;
       veil = document.createElement('div');
       veil.className = 'player-av-veil';
       veil.setAttribute('data-av-close', '');
       veil.addEventListener('click', function () { close(true); });
-      box = build();
-      trigger.parentNode.appendChild(veil);
-      trigger.parentNode.appendChild(box);
-      box.querySelectorAll('.player-av-list, .player-av-cols').forEach(fadeEnds);
+      box = document.createElement('div');
+      box.className = 'player-av';
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-label', 'Audio and subtitles');
+      box.tabIndex = -1;
+      box.addEventListener('click', onClick);
+      /* From a page, over all of it; from the player, up from its control. */
+      var host = first ? opts.host || document.body : trigger.parentNode;
+      if (first) {
+        box.classList.add('lp-dialog');
+        veil.classList.add('lp-dialog-veil');
+        /* No player hands it the keys here: it takes its own, before the page under it. */
+        box.addEventListener('keydown', function (e) { if (key(e)) e.stopPropagation(); });
+      }
+      host.appendChild(veil);
+      host.appendChild(box);
+      var v = first ? first(context()) : menuView();
+      stack = [v];
+      show(v, 'none');
       trigger.setAttribute('aria-expanded', 'true');
       if (opts.root) opts.root.classList.add('has-av-open');
+      var more = languages();
+      if (more) more.opened();
       /* From the keyboard to the track that plays; from a press, to the chooser itself. */
-      var first = box.querySelector('[role="radio"][aria-checked="true"]');
-      (byKey && first ? first : box).focus({ preventScroll: true });
+      var to = box.querySelector('[data-first]') || box.querySelector('[role="radio"][aria-checked="true"]');
+      (byKey && to ? to : box).focus({ preventScroll: true });
     }
 
     function leave(el) {
@@ -348,12 +443,123 @@
       var v = veil;
       var t = from;
       box = veil = from = null;
+      stack = [];
+      fresh = null;
+      if (langs) langs.closed();
       t.setAttribute('aria-expanded', 'false');
       leave(b);
       leave(v);
       if (opts.root) opts.root.classList.remove('has-av-open');
       if (opts.closed) opts.closed();
-      if (refocus) t.focus({ preventScroll: true });
+      if (refocus && t.isConnected !== false) t.focus({ preventScroll: true });
+    }
+
+    function phone() { return !!(global.matchMedia && global.matchMedia('(max-width: 699.98px)').matches); }
+    function moving() { return !(reduce && reduce.matches) && typeof box.animate === 'function'; }
+    function edge() { return box.classList.contains('lp-dialog') && !phone(); }
+
+    /* A view in, the last one out: forward slides left, back slides right. The glass grows or
+       shrinks to the new view by a clip of its edge, never by a change of its size mid-flight;
+       with less motion the new view only fades in. */
+    function show(view, dir) {
+      var old = stack.length > 1 || dir !== 'none' ? box.querySelector('.lp-view:not(.is-out)') : null;
+      var top = edge();
+      var h0 = box.offsetHeight;
+      var oldTop = old ? old.offsetTop : 0;
+      box.classList.toggle('lp-deep', !!view.deep);
+      box.classList.toggle('lp-sub', stack.length > 1 || !!view.sub);
+      box.setAttribute('aria-label', view.label || 'Audio and subtitles');
+      /* A view shown again, as one gone back to is, comes back as it was before it went. */
+      if (view.el.getAnimations) view.el.getAnimations().forEach(function (a) { a.cancel(); });
+      view.el.classList.remove('is-out');
+      view.el.inert = false;
+      if (view.el.style) view.el.style.top = '';
+      view.el.classList.add('lp-view');
+      if (!old || dir === 'none' || !moving()) {
+        if (old) old.remove();
+        box.appendChild(view.el);
+        if (old && typeof view.el.animate === 'function') view.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' });
+        if (view.after) view.after();
+        return;
+      }
+      old.classList.add('is-out');
+      old.inert = true;
+      box.appendChild(view.el);
+      var h1 = box.offsetHeight;
+      var dx = dir === 'back' ? -1 : 1;
+      var r = global.getComputedStyle(box).borderTopLeftRadius;
+      var d = 320;
+      var ease = 'cubic-bezier(.32,.72,0,1)';
+      old.style.top = (top ? oldTop : oldTop + (h1 - h0)) + 'px';
+      if (h1 >= h0) {
+        var grow = h1 - h0;
+        box.animate([{ clipPath: top ? 'inset(0 0 ' + grow + 'px 0 round ' + r + ')' : 'inset(' + grow + 'px 0 0 0 round ' + r + ')' },
+          { clipPath: 'inset(0 0 0 0 round ' + r + ')' }], { duration: d, easing: ease });
+      } else {
+        var shrink = h0 - h1;
+        var b = box;
+        b.style.height = h0 + 'px';
+        b.classList.add(top ? 'lp-pin-top' : 'lp-pin-foot');
+        old.style.top = oldTop + 'px';
+        b.animate([{ clipPath: 'inset(0 0 0 0 round ' + r + ')' },
+          { clipPath: top ? 'inset(0 0 ' + shrink + 'px 0 round ' + r + ')' : 'inset(' + shrink + 'px 0 0 0 round ' + r + ')' }],
+          { duration: d, easing: ease }).onfinish = function () { b.style.height = ''; b.classList.remove('lp-pin-top', 'lp-pin-foot'); };
+      }
+      old.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateX(' + (-20 * dx) + 'px)', opacity: 0, offset: 0.6 }, { transform: 'translateX(' + (-28 * dx) + 'px)', opacity: 0 }],
+        { duration: 220, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' }).onfinish = function () { old.remove(); };
+      view.el.animate([{ transform: 'translateX(' + (28 * dx) + 'px)', opacity: 0 }, { transform: 'none', opacity: 1 }],
+        { duration: d, easing: ease, delay: 70, fill: 'backwards' });
+      if (view.after) view.after();
+    }
+
+    /* What changes inside a view, such as a search's answer, grows the glass by the same clip. */
+    function settle(change) {
+      if (!box || !moving()) { change(); return; }
+      var h0 = box.offsetHeight;
+      change();
+      if (!box) return;
+      var h1 = box.offsetHeight;
+      if (h1 > h0 + 1) {
+        var r = global.getComputedStyle(box).borderTopLeftRadius;
+        var g = h1 - h0;
+        box.animate([{ clipPath: edge() ? 'inset(0 0 ' + g + 'px 0 round ' + r + ')' : 'inset(' + g + 'px 0 0 0 round ' + r + ')' },
+          { clipPath: 'inset(0 0 0 0 round ' + r + ')' }], { duration: 300, easing: 'cubic-bezier(.32,.72,0,1)' });
+      }
+    }
+
+    function push(v) {
+      if (!box) return;
+      stack.push(v);
+      show(v, 'fwd');
+      focusIn(v);
+    }
+    function back() {
+      if (!box) return;
+      if (stack.length < 2) { close(true); return; }
+      if (stack[stack.length - 1].gone) stack[stack.length - 1].gone();
+      stack.pop();
+      var prev = stack[stack.length - 1];
+      var v = prev.remake ? prev.remake() : prev;
+      stack[stack.length - 1] = v;
+      show(v, 'back');
+      focusIn(v);
+    }
+    function home(v) {
+      if (!box) return;
+      stack.slice(1).forEach(function (x) { if (x.gone) x.gone(); });
+      stack = [v];
+      show(v, 'back');
+      focusIn(v);
+    }
+    /* On a laptop a search takes the keyboard; elsewhere the focus goes in only from the keys. */
+    function focusIn(v) {
+      var f = v.el.querySelector('[data-first]');
+      if (!byKeys && !(f && f.tagName === 'INPUT' && !phone())) f = null;
+      setTimeout(function () {
+        if (!box) return;
+        if (f && box.contains(f)) f.focus({ preventScroll: true });
+        else box.focus({ preventScroll: true });
+      }, 0);
     }
 
     function choose(row) {
@@ -383,25 +589,29 @@
       var t = e.target;
       if (t.closest('[data-av-close]')) { close(true); return; }
       if (t.closest('[data-av-reset]')) { if (!busy) then({ reset: true }); return; }
-      var r = t.closest('.player-av-row');
+      var r = t.closest('.player-av-row[role="radio"]');
       if (r) choose(r);
     }
 
     document.addEventListener('click', function (e) {
       if (!box || !e.target.closest) return;
-      if (box.contains(e.target) || (veil && veil.contains(e.target)) || triggers.some(function (b) { return b.contains(e.target); })) return;
+      /* A press that changed the view took its own target away. */
+      if (e.target.isConnected === false) return;
+      if (box.contains(e.target) || (veil && veil.contains(e.target)) || (from && from.contains(e.target)) || triggers.some(function (b) { return b.contains(e.target); })) return;
       close(false);
     });
+
+    var STOPS = '[data-av-close], .player-av-row[tabindex="0"], .player-av-link, .lp-more, .lp-pending, .lp-back, .lp-x, .lp-input, .lp-clear, .lp-seg-btn[tabindex="0"], .lp-opt[tabindex="0"], .lp-ver[tabindex="0"], .lp-acts > .player-pill, .lp-fallback > .player-pill';
 
     /* Keys while it is open; true where the key was its own. */
     function key(e) {
       if (!box) return false;
       if (e.key === 'Escape') {
         e.preventDefault();
-        close(true);
+        back();
         return true;
       }
-      var r = e.target.closest && e.target.closest('.player-av-row');
+      var r = e.target.closest && e.target.closest('.player-av-row[role="radio"]');
       if (r && /^(ArrowDown|ArrowUp|Home|End)$/.test(e.key)) {
         e.preventDefault();
         var rows = Array.prototype.slice.call(r.parentNode.querySelectorAll('.player-av-row'));
@@ -413,14 +623,15 @@
         return true;
       }
       if (e.key === 'Tab') {
-        /* Within the chooser: the close, the track that plays in each group, the link. */
-        var stops = Array.prototype.slice.call(box.querySelectorAll('[data-av-close], .player-av-row[tabindex="0"], .player-av-link'))
-          .filter(function (x) { return !x.getClientRects || x.getClientRects().length; });
+        /* Within the view shown: its close, the track that plays in each group, its ways on. */
+        var view = stack.length ? stack[stack.length - 1].el : box;
+        var stops = Array.prototype.slice.call(view.querySelectorAll(STOPS))
+          .filter(function (x) { return !x.disabled && !x.hidden && (!x.getClientRects || x.getClientRects().length); });
         if (!stops.length) return false;
         e.preventDefault();
         var i = stops.indexOf(document.activeElement);
-        var to = i < 0 ? (e.shiftKey ? stops.length - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + stops.length) % stops.length;
-        stops[to].focus();
+        var next = i < 0 ? (e.shiftKey ? stops.length - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + stops.length) % stops.length;
+        stops[next].focus();
         return true;
       }
       /* The arrows seek, Space plays, and the rest is the page's, except within the chooser. */
@@ -433,18 +644,12 @@
         var said = JSON.stringify(next);
         if (said === seen) return;
         seen = said;
-        state = next;
+        state = fresh ? withFresh(next) : next;
         showState();
-        if (box) {
-          /* What it offers changed under it: drawn again in place, the focus still in it. */
-          var had = box.contains(document.activeElement);
-          var old = box;
-          box = build();
-          box.classList.add('is-redrawn');
-          old.parentNode.insertBefore(box, old);
-          old.remove();
-          box.querySelectorAll('.player-av-list, .player-av-cols').forEach(fadeEnds);
-          if (had) (box.querySelector('[role="radio"][aria-checked="true"]') || box).focus({ preventScroll: true });
+        /* What it offers changed under it: the menu is drawn again in place, the focus still in it. */
+        if (box && stack.length && stack[0].menu) {
+          if (stack.length === 1) redrawMenu();
+          else stack[0] = menuView();
         }
       },
       state: function () { return state; },
@@ -452,7 +657,7 @@
       changing: function (on) {
         if (on === held) return;
         held = on;
-        if (on || !state || triggers[0].getAttribute('aria-label') === spokenOf(describe(state))) return;
+        if (on || !state || !triggers.length || triggers[0].getAttribute('aria-label') === spokenOf(describe(state))) return;
         triggers.forEach(function (b) { b.classList.add('is-changing'); });
         setTimeout(function () {
           if (held || !state) return;
@@ -461,10 +666,15 @@
         }, ms(FADE_MS));
       },
       isOpen: function () { return !!box; },
+      /* From a title's page: Add a language, which kind first, over the page. */
+      openLanguages: function (trigger, byKey) {
+        if (box || !languages()) return;
+        open(trigger, byKey, function () { return languages().kindView(); });
+      },
       close: close,
       key: key,
     };
   }
 
-  MM.tracks = { create: create, said: said, describe: describe };
+  MM.tracks = { create: create, said: said, describe: describe, nameIn: nameIn, langWords: langWords };
 })(window);

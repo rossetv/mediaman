@@ -1449,3 +1449,371 @@
   .player-av-row[aria-checked="true"] { outline: 1px solid Highlight; }
 }
 .player.is-away .player-av-btn > .ico { font-size: 15px; }
+
+/* ── Another language: views pushed inside the chooser (watch/languages.js) ── */
+
+/* ── Views inside the one glass ── */
+.player-av { overflow: hidden; }
+.player-av.lp-pin-foot { justify-content: flex-end; }
+.lp-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.lp-view.is-out { position: absolute; left: 6px; right: 6px; pointer-events: none; }
+.lp-menu { flex: 0 1 auto; }
+/* A view with a list keeps one height, so the list, not the glass, moves as it narrows. */
+.player-av.lp-deep { height: min(560px, calc(100vh - 136px)); height: min(560px, calc(100dvh - 136px)); }
+
+.lp-head { flex: none; display: flex; align-items: center; gap: 2px; min-height: 48px; padding: 0 0 0 0; }
+.lp-back {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--t1);
+  font-size: 15px;
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) { .lp-back:hover { background: var(--hair-strong); } }
+.lp-back:active { background: var(--hair-strong); transform: scale(.94); }
+.lp-back:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; }
+.lp-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-x { display: none; }
+.lp-kind-view .lp-head { padding-left: 12px; }
+.lp-dialog .lp-x { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; color: var(--t2); font-size: 13px; background: radial-gradient(circle, var(--rgba-overlay-lg) 15px, transparent 15.5px); }
+.lp-lede { flex: none; padding: 0 12px 10px; font-size: 13px; line-height: 1.45; color: var(--t2); text-wrap: pretty; }
+
+/* ── The two ways on, under each column ── */
+.lp-more {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 4px;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.player-av-col .lp-more { margin-top: auto; border-top: 1px solid var(--hair); border-radius: 0 0 var(--r-sm) var(--r-sm); padding-top: 8px; }
+.player-av-col > .player-av-list + .lp-more, .player-av-col > .player-av-none + .lp-more, .player-av-col > .lp-pending + .lp-more { margin-top: auto; }
+.player-av-col > .player-av-list { flex: 0 1 auto; }
+.player-av-col:has(.lp-more) > .player-av-list { margin-bottom: 6px; }
+@media (hover: hover) { .lp-more:hover { background: var(--hair-strong); } }
+.lp-more:active { background: var(--hair-strong); }
+.lp-more:focus-visible { background: var(--hair-strong); outline: 2px solid var(--g-focus); outline-offset: -2px; border-radius: var(--r-sm); }
+.lp-more-dot {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--s4);
+  color: var(--t1);
+  font-size: 13px;
+}
+.lp-more .player-av-main { font-weight: 500; }
+.lp-more-go { flex: none; font-size: 12px; color: var(--t3); }
+
+/* ── A copy on its way, in the audio column ── */
+.lp-pending {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) { .lp-pending:hover { background: var(--hair-strong); } }
+.lp-pending:focus-visible { background: var(--hair-strong); outline: 2px solid var(--g-focus); outline-offset: -2px; }
+.lp-pending .player-av-main { color: var(--t2); }
+.lp-pending-line { color: var(--g-accent-text); font-variant-numeric: tabular-nums; }
+.lp-pending-bar { display: block; position: relative; height: 3px; margin-top: 6px; border-radius: var(--r-pill); overflow: hidden; background: var(--rgba-overlay-lg); }
+.lp-pending-bar i { position: absolute; inset: 0; background: var(--g-accent); transform-origin: 0 50%; transform: scaleX(calc(var(--p) / 100)); transition: transform 1s var(--ease-out); }
+.lp-pending-ico { flex: none; font-size: 14px; color: var(--g-accent-text); }
+@media (prefers-reduced-motion: no-preference) {
+  .lp-pending:not(.lp-pending--lacks) .lp-pending-ico { animation: lp-nudge 1.8s var(--ease-out) infinite; }
+  .lp-pending-bar.is-waiting i { animation: lp-wait 1.6s ease-in-out infinite; }
+}
+@keyframes lp-nudge { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(2px); } }
+
+/* ── The new track: lit for a moment, then a row like the rest ── */
+.player-av-row.lp-fresh { position: relative; isolation: isolate; }
+.player-av-row.lp-fresh::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--g-accent) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-accent-text) 45%, transparent);
+  opacity: 0;
+  animation: lp-fresh 2.6s var(--ease-out) .15s;
+}
+@keyframes lp-fresh { 0% { opacity: 0; } 12%, 55% { opacity: 1; } 100% { opacity: 0; } }
+.player-av-row.lp-fresh .player-av-tag { background: var(--rgba-accent-chip); box-shadow: var(--g-chip-floor); color: var(--g-accent-text); }
+.player-av-row.lp-fresh > .player-menu-tick { animation: player-av-tick var(--dur-slow) var(--ease-out) .2s backwards; }
+.lp-ok { color: var(--success); }
+.player-av-foot > .ico.lp-ok { color: color-mix(in srgb, var(--success) 70%, var(--t1)); }
+
+/* ── Search ── */
+.lp-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  margin: 0 6px 6px;
+  padding: 0 4px 0 14px;
+  border-radius: var(--r-pill);
+  background: var(--s2);
+  box-shadow: inset 0 0 0 1px var(--hair-strong);
+  color: var(--t3);
+  font-size: 14px;
+  transition: box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.lp-search:focus-within { background: var(--s3); box-shadow: inset 0 0 0 2px var(--g-focus); }
+.lp-search > .ico { flex: none; }
+.lp-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: var(--t1);
+  font: inherit;
+  font-size: 15px;
+  /* The field's ring shows the focus; in forced colours this one does. */
+  outline: 2px solid transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.lp-search .lp-input:focus-visible { outline-color: transparent; }
+.lp-search input::placeholder { color: var(--t2); opacity: 1; }
+.lp-search input::-webkit-search-cancel-button { display: none; }
+.lp-clear { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: var(--t2); font-size: 12px; background: radial-gradient(circle, var(--rgba-overlay-lg) 12px, transparent 12.5px); }
+.lp-clear:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -2px; }
+.lp-clear[hidden] { display: none; }
+
+/* ── Lists: they scroll inside the glass and fade at an end that has more, as the menu's do ── */
+.lp-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scroll-padding-block: 28px;
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+  mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+}
+.lp-list.has-more-above { --above: 28px; }
+.lp-list.has-more-below { --below: 28px; }
+@media (prefers-reduced-motion: reduce) { .lp-list { scroll-behavior: auto; } }
+.lp-group { padding-top: 14px; }
+.lp-list > .lp-group:first-child { padding-top: 6px; }
+.lp-opt { flex: none; min-height: 52px; }
+.lp-opt[aria-selected="true"] > .player-menu-tick { visibility: visible; }
+.lp-opt.is-picked > .player-menu-tick { animation: player-av-tick var(--dur-fast) var(--ease-out); }
+.lp-here { color: var(--t2); }
+.lp-hit { background: none; color: var(--t1); font-weight: 700; text-decoration: underline 2px color-mix(in srgb, var(--g-accent-text) 70%, transparent); text-underline-offset: 3px; }
+.player-av-sub .lp-hit { color: var(--t1); }
+
+.lp-nomatch { padding: 28px 18px; text-align: center; }
+.lp-nomatch-title { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.lp-nomatch-line { max-width: 44ch; text-wrap: balance; margin: 6px auto 0; font-size: 13px; line-height: 1.5; color: var(--t2); text-wrap: pretty; }
+
+/* ── Subtitle results ── */
+.lp-res { min-height: 60px; }
+.lp-file { font-size: 12px; color: var(--t2); }
+.lp-best { background: var(--rgba-accent-chip); box-shadow: var(--g-chip-floor); color: var(--g-accent-text); font-weight: 600; }
+.lp-add { flex: none; display: inline-flex; align-items: center; gap: 8px; min-width: 56px; justify-content: flex-end; font-size: 13px; font-weight: 600; color: var(--g-accent-text); }
+.lp-res:disabled { opacity: .45; }
+.lp-results.is-adding .lp-res.is-adding { background: var(--hair-strong); }
+.lp-results.is-adding .lp-add { color: var(--t1); font-weight: 500; }
+.lp-ring { display: inline-block; width: 16px; height: 16px; flex: none; }
+
+.lp-skel-row { flex: none; display: flex; flex-direction: column; justify-content: center; gap: 8px; min-height: 60px; padding: 6px 12px; }
+.lp-skel-row .skel, .lp-skel-ver .skel { background: var(--s3); }
+.lp-skel-ver { flex: none; display: flex; flex-direction: column; gap: 10px; margin: 0 6px 6px; padding: 14px; border-radius: var(--r-md); background: var(--s2); box-shadow: inset 0 0 0 1px var(--hair); }
+@media (max-width: 699.98px) { .lp-skel-ver { margin-inline: 0; } }
+.lp-skel-a { width: 46%; height: 11px; }
+.lp-skel-b { width: 78%; height: 9px; }
+.lp-skel-c { width: 34%; height: 22px; }
+
+/* ── Another copy: the scope, what you have, the copies ── */
+.lp-seg {
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0 6px 10px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--s2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.lp-seg-thumb {
+  position: absolute;
+  top: 3px; bottom: 3px; left: 3px;
+  width: calc(50% - 3px);
+  border-radius: var(--r-pill);
+  background: var(--s5);
+  box-shadow: 0 1px 4px rgb(0 0 0 / .25);
+  transition: transform var(--dur-slow) var(--ease-push);
+}
+.lp-seg.is-second .lp-seg-thumb { transform: translateX(100%); }
+.lp-seg-btn { position: relative; min-height: 38px; border-radius: var(--r-pill); font-size: 14px; color: var(--t2); transition: color var(--dur-fast) var(--ease-out); }
+.lp-seg-btn[aria-checked="true"] { color: var(--t1); font-weight: 600; }
+.lp-seg-btn:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 1px; }
+
+.lp-have { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 12px 10px; font-size: 13px; color: var(--t2); }
+.lp-have-label { color: var(--t2); }
+.lp-have .lp-chip { background: var(--s3); }
+.lp-have-meta { font-variant-numeric: tabular-nums; }
+
+.lp-audio-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.lp-looking, .lp-found { flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 12px 10px; font-size: 13px; color: var(--t2); }
+.lp-vers { gap: 6px; padding: 0 6px 6px; }
+.lp-ver {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 40px 12px 14px;
+  border-radius: var(--r-md);
+  /* On the glass itself, ringed: a veil under it would take the amber and blue words below 4.5:1. */
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--hair-strong);
+  text-align: left;
+  transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) { .lp-ver:not(.is-still):hover { background: var(--rgba-overlay-sm); box-shadow: inset 0 0 0 1px var(--hair-hover); } }
+.lp-ver:not(.is-still):active { transform: scale(.985); background: var(--rgba-overlay-sm); }
+.lp-ver:focus-visible { outline: 2px solid var(--g-focus); outline-offset: 2px; }
+.lp-ver:disabled { opacity: 1; }
+.lp-ver.is-still { cursor: default; margin: 0 6px; width: auto; padding-right: 14px; }
+.lp-ver-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+.lp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lp-chip { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: var(--r-pill); background: var(--s4); font-size: 13px; font-weight: 500; color: var(--t1); white-space: nowrap; }
+.lp-chip--want { background: var(--rgba-accent-chip); box-shadow: var(--g-chip-floor), inset 0 0 0 1px color-mix(in srgb, var(--g-accent-text) 50%, transparent); color: var(--g-accent-text); font-weight: 600; }
+.lp-ver-meta { font-size: 13px; color: var(--t2); font-variant-numeric: tabular-nums; }
+.lp-ver-line { font-size: 13px; line-height: 1.4; color: var(--t1); }
+.lp-lose { color: var(--g-warning-text); }
+.lp-ver-go { position: absolute; right: 14px; top: 50%; margin-top: -6px; font-size: 12px; color: var(--t3); }
+
+/* ── Confirm, on its way ── */
+.lp-facts { flex: none; list-style: none; margin: 12px 0 0; padding: 0 12px; display: grid; gap: 10px; font-size: 14px; line-height: 1.45; color: var(--t2); }
+.lp-facts li { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: baseline; text-wrap: pretty; }
+.lp-facts .ico { font-size: 13px; color: var(--t3); }
+.lp-facts .lp-warn { color: var(--g-warning-text); }
+.lp-facts .lp-warn .ico { color: var(--g-warning-text); }
+.lp-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.lp-acts--end { flex: none; justify-content: flex-end; padding: 2px 6px 4px; margin-top: 16px; }
+/* A pill on the glass is a veil of it, as the cards' are: no blur of its own. */
+.player-av .player-pill:not(.player-pill--primary)::before { background: var(--s4); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.player-av .player-pill:not(.player-pill--primary):is(:hover, :active)::before { background: var(--s5); }
+.player-av .player-pill { font-size: 14px; padding: 0 18px; }
+.lp-dw { flex: none; margin: 4px 6px 0; }
+.lp-dw .dw__link { min-height: 92px; padding-left: 16px; }
+.lp-dw .dw__line strong { font-variant-numeric: tabular-nums; }
+
+/* ── Nothing found, an error, a viewer ── */
+.lp-empty { flex: none; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 18px 18px 8px; }
+.lp-empty-dot { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 12px; border-radius: 50%; background: var(--s3); color: var(--t1); font-size: 19px; }
+.lp-empty--error .lp-empty-dot { background: var(--rgba-danger-chip); box-shadow: var(--g-chip-floor); color: var(--g-danger-text); }
+.lp-empty-title { font-size: 17px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+.lp-empty-line { max-width: 44ch; margin-top: 6px; font-size: 14px; line-height: 1.5; color: var(--t2); text-wrap: pretty; }
+.lp-empty .lp-acts { justify-content: center; }
+.lp-fallback {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 6px 6px;
+  padding: 12px 12px 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--s2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.lp-fallback-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lp-fallback-title { font-size: 15px; font-weight: 600; }
+.lp-fallback-line { font-size: 13px; color: var(--t2); }
+.lp-short { flex: 0 1 auto; }
+
+/* ── The title page's way in ── */
+.ttl__credit.lp-langs { flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.ttl__credit.lp-langs[hidden] { display: none; }
+.lp-langs-words { color: var(--t1); }
+.lp-langs-add { min-height: 44px; margin: -12px 0; padding: 0 6px; border-radius: var(--r-sm); font-size: 14px; font-weight: 600; color: var(--g-accent-text); }
+.lp-langs-add:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -4px; }
+/* Over the title's glass it is solid, so no more than two blurred layers stack. */
+.player-av.lp-dialog {
+  position: fixed;
+  top: 14vh;
+  bottom: auto;
+  left: 50%;
+  right: auto;
+  z-index: calc(var(--z-modal) + 10);
+  width: 520px;
+  margin-left: -260px;
+  background: var(--g-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  --pop-y: 10px;
+}
+.player-av-veil.lp-dialog-veil { display: block; position: fixed; inset: 0; z-index: calc(var(--z-modal) + 9); background: var(--g-dim); animation: tv-fade var(--dur-slow) var(--ease-out); }
+.player-av.lp-dialog.is-leaving { animation: player-drop var(--dur-fast) var(--ease-out) forwards; }
+.player-av-veil.lp-dialog-veil.is-leaving { animation: tv-fade-out var(--dur) var(--ease-exit) forwards; }
+.lp-kind { display: flex; flex-direction: column; padding: 0 0 4px; }
+.lp-kind .lp-more { margin-top: 0; min-height: 60px; }
+
+/* ── Phones held upright: the chooser's sheet, and its views as tall as it allows ── */
+@media (max-width: 699.98px) {
+  .lp-view.is-out { left: 12px; right: 12px; }
+  .player-av.lp-deep { height: calc(100% - 64px); }
+  .player-av.lp-sub > .lp-view > .player-av-head { display: none; }
+  .lp-x { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; color: var(--t2); font-size: 13px; background: radial-gradient(circle, var(--rgba-overlay-lg) 15px, transparent 15.5px); }
+  .lp-title { font-size: 17px; }
+  .lp-head { min-height: 52px; }
+  .lp-search { margin-inline: 0; }
+  .lp-seg { margin-inline: 0; }
+  .lp-opt { min-height: 56px; }
+  .lp-vers { padding-inline: 0; }
+  .lp-ver.is-still, .lp-dw, .lp-fallback { margin-inline: 0; }
+  .lp-acts--end { padding-inline: 0; }
+  .lp-acts--end .player-pill { flex: 1; height: 52px; }
+  .lp-fallback { flex-wrap: wrap; }
+  .lp-fallback .player-pill { flex: 1 1 100%; height: 48px; }
+  .player-av.lp-dialog { top: auto; bottom: 0; left: 0; right: 0; width: auto; margin-left: 0; }
+  .player-av.lp-dialog.is-leaving { animation: player-av-down var(--dur) var(--ease-exit) forwards; }
+}
+
+/* ── Reduced motion: the views only fade, quickly (watch/tracks.js slides none) ── */
+@media (prefers-reduced-motion: reduce) {
+  .player-av-row.lp-fresh::before { animation: lp-fresh-rm 3s linear .1s both; }
+  .lp-seg-thumb, .lp-pending-bar i { transition: none; }
+  .lp-opt.is-picked > .player-menu-tick, .player-av-row.lp-fresh > .player-menu-tick { animation: none; }
+}
+@keyframes lp-fresh-rm { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+
+@media (forced-colors: active) {
+  .lp-ver, .lp-search, .lp-fallback { border: 1px solid CanvasText; }
+  .lp-chip--want { outline: 1px solid Highlight; }
+}
+
+/* ── A copy on its way that is not yet moving, one that came without its language ── */
+.lp-pending-bar.is-waiting i { transform: scaleX(.18); }
+@keyframes lp-wait { from { translate: -20% 0; } to { translate: 470% 0; } }
+.lp-pending--lacks .lp-pending-line { color: var(--g-warning-text); }
+.lp-confirm-note { flex: none; margin: 12px 12px 0; font-size: 13px; line-height: 1.45; color: var(--g-warning-text); }
+.lp-confirm-note[hidden] { display: none; }
+.lp-results[hidden] { display: none; }

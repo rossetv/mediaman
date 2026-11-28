@@ -1300,6 +1300,52 @@
     });
   }
 
+  /* ── Languages: what the film has, and a way to add one before it is played ── */
+  function languagesLine(key, title) {
+    var line = el('p', 'ttl__credit lp-langs');
+    line.hidden = true;
+    if (!window.MM.tracks || !window.MM.languages) return line;
+    var url = '/api/watch/tracks/' + encodeURIComponent(key);
+    var words = el('span', 'lp-langs-words');
+    var add = button('ttl__retry lp-langs-add', 'Add a language');
+    add.setAttribute('aria-haspopup', 'dialog');
+    line.appendChild(el('span', 'ttl__credit-label', 'Languages'));
+    line.appendChild(words);
+    line.appendChild(add);
+    var chooser = window.MM.tracks.create({ wraps: [], host: root, pick: pick });
+    function show(data) {
+      var state = Object.assign({ key: key, title: title, series: false }, data);
+      chooser.set(state);
+      var names = function (list, skip) {
+        var out = [];
+        (list || []).forEach(function (t) { var n = !t[skip] && window.MM.tracks.langWords(t.language); if (n && out.indexOf(n) < 0) out.push(n); });
+        return window.MM.languages.andList(out);
+      };
+      var audio = names(data.audio_tracks, 'commentary');
+      var subs = names(data.subtitle_tracks, 'forced');
+      words.textContent = (audio ? audio + ' audio' : 'Audio') + ' · ' + (subs ? subs + ' subtitles' : 'no subtitles');
+      line.hidden = false;
+    }
+    function read() { window.MM.api.get(url).then(show, function () { /* the page stands without it */ }); }
+    /* A language already on the film, or subtitles just added: kept as this person's choice. */
+    function pick(change) {
+      var body = change.audio !== undefined ? { audio: change.audio } : { subtitle: change.subtitle };
+      if (change.reset) { window.MM.api.delete(url).then(show, function () {}); return; }
+      window.MM.api.put(url, body).then(function (data) {
+        show(data);
+        if (window.UIFeedback && !change.added) window.UIFeedback.success(window.MM.tracks.said(change.audio !== undefined ? 'audio' : 'subtitle', Object.assign({ title: title }, data)));
+      }, function () {
+        if (window.UIFeedback) window.UIFeedback.error('Couldn’t keep that choice. Try again.');
+      });
+    }
+    add.addEventListener('click', function (e) {
+      e.stopPropagation();
+      chooser.openLanguages(add, e.detail === 0);
+    });
+    read();
+    return line;
+  }
+
   function directorLink(d) {
     return exploreLink('ttl__director', d.director, 'person=' + encodeURIComponent(d.director_id), 'director', function (explore) {
       explore.openPerson({ person_id: d.director_id, name: d.director, job: 'Director', profile_url: null }, null);
@@ -1477,6 +1523,7 @@
       credit.appendChild(d.director_id ? directorLink(d) : document.createTextNode(d.director));
       main.appendChild(credit);
     }
+    if (d.in_library && d.kind === 'movie' && /^movie-[0-9]+$/.test(cur.ref)) main.appendChild(languagesLine(cur.ref.slice(6), d.title));
     body.appendChild(lead);
     if (d.draft) {
       if (hasFacts(cur)) renderFacts(false);
