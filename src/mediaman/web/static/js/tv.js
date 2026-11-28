@@ -1076,7 +1076,8 @@
     slow: function () { return page(middle('Too many codes', 'A new one comes by itself in ' + (waitUntil - now() > 90000 ? Math.ceil((waitUntil - now()) / 60000) + ' minutes' : 'a minute') + '.', leave(), SPIN)); },
     conn: function () {
       var all = everyone().map(esc);
-      var head = all.length > 1 ? all.slice(0, -1).join(', ') + ' and ' + all[all.length - 1] + ' can play here' : 'Connected to ' + all[0];
+      // Past two, the names under the faces say who.
+      var head = all.length > 2 ? 'You can all play here' : all.length > 1 ? all[0] + ' and ' + all[1] + ' can play here' : 'Connected to ' + all[0];
       return page('<div class="hello">' + middle(head, (all.length > 1 ? 'Each of you can start, pause and stop what plays on ' + esc(me.name) + '.' : 'This TV is now called ' + esc(me.name) + '.') + '<br>Press OK on the TV&rsquo;s remote once, so films can start with sound.',
         [['OK', 'i']], faces()) + '</div>');
     },

@@ -106,6 +106,9 @@ body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; heig
 }
 /* The heading names one person already. */
 .hello .pp:only-child .pn { display: none; }
+/* Where the people stand, the column hangs from a fixed line, so their row keeps its place
+   from one screen to the next. */
+.idle .mid, .hello .mid { padding-top: 150px; -webkit-justify-content: flex-start; justify-content: flex-start; }
 
 /* Each person the TV is paired with: their picture in a ring, over their letter, which shows
    where there is none or it fails to load. Seven fit in a row, the last of them for any more. */

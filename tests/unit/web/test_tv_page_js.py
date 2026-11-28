@@ -159,6 +159,28 @@ def test_the_people_stand_above_the_heading_alike_on_both_screens_and_seven_at_m
         assert 'data-l="+' not in out["idle"] and "lena" in out["idle"]
 
 
+@pytest.mark.parametrize(
+    ("n", "head"),
+    [
+        ("1", "Connected to maren"),
+        ("2", "maren and tobias can play here"),
+        ("3", "You can all play here"),
+        ("9", "You can all play here"),
+    ],
+)
+def test_a_just_paired_tv_names_two_people_and_past_that_leaves_the_names_to_their_faces(
+    n: str, head: str
+) -> None:
+    conn = _run("crowd", n)["conn"]
+    assert f'<div class="h">{head}</div>' in conn
+
+
+def test_the_people_hang_from_one_line_on_both_screens() -> None:
+    css = (STATIC / "css/tv.css").read_text()
+    rule = re.search(r"\.idle \.mid, \.hello \.mid \{([^}]*)\}", css)
+    assert rule and "padding-top: 150px" in rule[1] and "justify-content: flex-start" in rule[1]
+
+
 def test_a_film_that_falters_as_it_starts_is_still_starting_not_waiting_for_the_network() -> None:
     out = _run("faltersAtStart")
     assert not [said for said in out["seen"] if "Waiting for the network" in said]

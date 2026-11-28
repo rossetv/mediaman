@@ -599,7 +599,7 @@ const scenarios = {
     let conn = '';
     for (let i = 0; i < 60 && !conn; i += 1) {
       await t.step(100);
-      if (t.says().includes('can play here')) conn = t.html();
+      if (t.says().includes('so films can start with sound')) conn = t.html();
     }
     return { idle, conn };
   },
