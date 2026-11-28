@@ -9,6 +9,9 @@ const { Node, makeDocument, build, click, settle } = require('./fake_dom');
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 const MB = 1024 * 1024;
 const NOW = 1795867200; // noon on a set day
+// Times are written in one locale and zone, whatever the machine's.
+const LOCALE = 'en-GB';
+const ZONE = { timeZone: 'UTC' };
 
 Object.defineProperty(Node.prototype, 'inert', {
   get() { return this.hasAttribute('inert'); },
@@ -103,7 +106,14 @@ async function page(opts = {}) {
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
     // Today is the made-up server's day.
-    Date: class extends Date { constructor(...a) { super(...(a.length ? a : [NOW * 1000])); } static now() { return NOW * 1000; } },
+    Date: class extends Date {
+      constructor(...a) { super(...(a.length ? a : [NOW * 1000])); }
+      static now() { return NOW * 1000; }
+      toLocaleDateString(l, o) { return super.toLocaleDateString(l && l.length ? l : LOCALE, { ...ZONE, ...o }); }
+      toLocaleTimeString(l, o) { return super.toLocaleTimeString(l && l.length ? l : LOCALE, { ...ZONE, ...o }); }
+      toDateString() { return this.toISOString().slice(0, 10); }
+      toLocaleString(l, o) { return super.toLocaleString(l && l.length ? l : LOCALE, { ...ZONE, ...o }); }
+    },
     CustomEvent: class { constructor(type, init) { Object.assign(this, { type, ...init }); } },
     getComputedStyle: () => ({ getPropertyValue: () => '', transform: 'none' }),
     matchMedia: (q) => ({ matches: /reduce/.test(q) ? !opts.motion : false }),
@@ -289,7 +299,6 @@ const scenarios = {
 
   // Away from today, a 24 h tooltip says the day as well as the time.
   async day() {
-    process.env.TZ = 'UTC';
     const p = await page();
     await p.open();
     await p.click(p.one('#space-activity [data-period="24h"]'));

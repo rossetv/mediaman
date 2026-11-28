@@ -98,7 +98,7 @@ def test_before_the_first_point_a_graph_holds_its_value_and_never_goes_below_zer
 
 def test_a_24_hour_tooltip_says_the_day_of_a_point_that_is_not_today():
     out = _run("day")
-    assert out["before"] == "Fri, 27 Nov, 12:45"
+    assert out["before"] == "Fri 27 Nov, 12:45"  # en-GB in UTC, as the harness writes dates
     assert out["today"] == "12:00"
 
 
