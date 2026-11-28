@@ -88,7 +88,7 @@ def test_each_fold_button_is_described_by_its_cards_subtitle() -> None:
     assert len(ids) == len(set(ids))
     subs = {el["id"]: el for el in els if el.get("id") and "sub" in _classes(el)}
     folds = [el for el in els if "intg-fold" in _classes(el)]
-    assert len(folds) == 9
+    assert len(folds) == 10
     for fold in folds:
         assert fold["aria-describedby"] in subs
 

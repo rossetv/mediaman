@@ -263,8 +263,12 @@ class Sampler:
         elif self._resting_now("docker", at):
             sources["docker"] = "down"
         else:
-            proxy = DockerProxy(docker_url, allowed_hosts=hosts, session=cutoff.session())
-            jobs["docker"] = lambda: _read_docker(proxy, cut, deadline)
+            # Built in the job: an address it cannot read is that source down, as any failure.
+            jobs["docker"] = lambda: _read_docker(
+                DockerProxy(docker_url, allowed_hosts=hosts, session=cutoff.session()),
+                cut,
+                deadline,
+            )
 
         got = self._gather(jobs, cut, deadline, sources, at)
 

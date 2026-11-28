@@ -1,4 +1,4 @@
-{# Integrations — 9 external services, one card each, all via c.service_card.
+{# Integrations — 9 external services and the server's size, one card each, all via c.service_card.
    `fields` is a list-of-lists describing the form rows; see _components.html
    for the schema. Secret fields use inp_secret (masked with "****" server-side).
    `sub` strings may contain inline HTML (e.g. links) — never feed user input. #}
@@ -76,22 +76,29 @@
       settings=settings) }}
 
   {{ c.service_card("docker", "D", "nzbget", "Docker",
-      "Optional. Each app's CPU and memory on Activity, through a read-only socket proxy, and the server's size.",
+      "Optional. Each app's CPU and memory on Activity, through a read-only socket proxy.",
       fields=[
         [
           {"kind": "text", "id": "docker_proxy_url", "label": "Docker proxy URL",
            "sub": "A socket proxy that allows only GET of the containers and their stats. Leave it empty to show the server as a whole.",
            "placeholder": "http://docker-proxy:2375"},
         ],
+      ],
+      settings=settings) }}
+
+  {{ c.service_card("server", "S", "nzbget", "Server",
+      "Optional. The size of the machine Plex and the apps run on, for Activity.",
+      fields=[
         [
           {"kind": "text", "id": "server_memory_gb", "label": "Server memory in GB",
            "sub": "Plex gives the memory in use only as a share. With the server's size, Activity shows it in GB, with each app's.",
            "placeholder": "16"},
           {"kind": "text", "id": "server_cores", "label": "Server cores",
-           "sub": "Shown beside the size on Activity.",
+           "sub": "Shown beside the size on Activity, and each app's CPU is then counted as a share of the server's cores.",
            "placeholder": "10"},
         ],
       ],
+      include_test=false,
       settings=settings) }}
 
   {{ c.service_card("mailgun", "M", "mailgun", "Email (Mailgun)",

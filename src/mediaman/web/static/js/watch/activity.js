@@ -864,7 +864,7 @@
     else if (s.plex === 'off') quiet.push({ text: 'Set up Plex to see the server’s CPU and memory.' });
     if (s.docker === 'down') quiet.push({ warn: true, text: 'The Docker proxy isn’t answering, so apps in containers count as everything else.' });
     else if (s.docker === 'off') quiet.push({ text: 'Add a read-only Docker proxy in Settings to tell Sonarr, Radarr and others apart.' });
-    if (s.plex === 'ok' && !total) quiet.push({ text: 'Plex gives memory as a share. Set the server’s memory in Settings to see it, and each app’s, in GB.' });
+    if (s.plex !== 'off' && !total) quiet.push({ text: 'Plex gives memory as a share. Set the server’s memory in Settings to see it, and each app’s, in GB.' });
     N.resSay.textContent = '';
     quiet.forEach(function (q) {
       var line = el('span', 'act-quiet__line' + (q.warn ? ' is-warn' : ''));

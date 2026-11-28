@@ -298,3 +298,11 @@ def test_mediamans_own_memory_leaves_out_the_inactive_page_cache(tmp_path):
     (tmp_path / "memory.current").write_text("151000000\n")
     (tmp_path / "memory.stat").write_text("anon 1\ninactive_file 51000000\n")
     assert read_self(tmp_path, tmp_path / "none").mem == 100_000_000
+
+
+def test_a_docker_address_that_cannot_be_read_is_docker_down(conn, secret_key, stack, sampler):
+    configure(conn, secret_key, docker=False)
+    body = {"docker_proxy_url": "http://docker.test:99999"}  # no such port
+    write_settings(conn, body_dict=body, allowed_keys=list(body), secret_key=secret_key, now="x")
+    r = sampler.read(conn, secret_key, now=1000.0)
+    assert r.sources == {"plex": "ok", "nzbget": "ok", "docker": "down"}
