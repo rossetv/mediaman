@@ -549,21 +549,43 @@
   .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite !important; }
 }
 
-/* Spinner while a stream starts or the buffer runs dry. */
+/* While a stream starts or the buffer runs dry: a light that orbits a faint ring over a blue glow
+   that breathes, as the TV waits. Each moves by transform and opacity alone. */
 .player-spinner {
   position: absolute;
   top: 50%; left: 50%;
   width: 48px;
   height: 48px;
   margin: -24px 0 0 -24px;
-  border: 3px solid color-mix(in srgb, var(--t1) 20%, transparent);
-  border-top-color: var(--t1);
+  border: 2px solid color-mix(in srgb, var(--t1) 18%, transparent);
   border-radius: 50%;
-  animation: player-spin .9s linear infinite;
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--dur) var(--ease-out);
 }
+.player-spinner::before {
+  content: "";
+  position: absolute;
+  left: -38px; top: -38px;
+  width: 120px; height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%);
+  opacity: .7;
+  animation: player-glow 3.2s ease-in-out infinite alternate;
+}
+/* On the ring's line, turning about the ring's middle. */
+.player-spinner::after {
+  content: "";
+  position: absolute;
+  left: 17px; top: -6px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--t1);
+  box-shadow: 0 0 10px 2px color-mix(in srgb, var(--accent) 90%, transparent);
+  transform-origin: 5px 28px;
+  animation: player-spin 2s linear infinite;
+}
+@keyframes player-glow { from { opacity: .4; transform: scale(.8); } to { opacity: 1; transform: scale(1.06); } }
 .player.is-loading .player-spinner { opacity: 1; }
 /* A held frame says nothing of the wait: a new quality is mostly quick, another video is not. */
 @media (prefers-reduced-motion: no-preference) {
