@@ -375,6 +375,8 @@
         audio: c.audio_id, audio_tracks: c.audio_tracks, next: c.next,
         upnext_in_s: c.upnext_in_s, still_in_s: c.still_in_s,
         still_since_s: c.still_in_s == null ? null : STILL_S - c.still_in_s,
+        // Its screen shows nothing of mediaman's: a count to a skip is the card's.
+        auto_skip: false, skip_in_s: c.skip_in_s,
       },
     };
   }
@@ -968,7 +970,7 @@
   /* The intro or credits on the TV's screen, where it does not skip them itself; as the
      player's own button, from a second before their end it is gone. */
   function markerNow(p) {
-    if (!p || p.auto_skip !== false || isCast() || !canSteer()) return null;
+    if (!p || p.auto_skip !== false || !canSteer()) return null;
     var t = position();
     var m = (p.markers || []).filter(function (x) { return x.start_s <= t; }).pop();
     return m && t < m.end_s - 1 ? m : null;
@@ -976,10 +978,16 @@
   /* Only the last credits lead on; a scene may follow the others. */
   function leadsOn(p, m) { return m.kind === 'credits' && m.final && !!p.next && p.next.season != null; }
 
+  /* The Chromecast's count to a skip, with no player to show it. */
+  function skipCount(p, m) { return m && p.skip_in_s != null && !leadsOn(p, m) ? p.skip_in_s : null; }
+
   var skipShown = '';
   function showSkip(p) {
     var m = markerNow(p);
-    var label = !m ? '' : leadsOn(p, m) ? 'Next episode' : m.kind === 'intro' ? 'Skip intro' : 'Skip credits';
+    var n = skipCount(p, m);
+    var label = !m ? '' : n != null ? 'Skipping ' + (m.kind === 'intro' ? 'intro' : 'credits') + ' in ' + n + ' · Cancel'
+      : leadsOn(p, m) ? 'Next episode' : m.kind === 'intro' ? 'Skip intro' : 'Skip credits';
+    els.skip.classList.toggle('is-counting', n != null);
     if (label === skipShown) return;
     skipShown = label;
     if (!m) { leave(els.skip); return; }
@@ -990,7 +998,10 @@
     var p = play();
     var m = markerNow(p);
     if (!m) return;
-    if (leadsOn(p, m)) start({ kind: 'next' });
+    if (skipCount(p, m) != null) {
+      sender.keepSkip();
+      hearCast();
+    } else if (leadsOn(p, m)) start({ kind: 'next' });
     else seekTo(m.end_s);
   }
 

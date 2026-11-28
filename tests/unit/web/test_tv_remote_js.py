@@ -993,3 +993,11 @@ def test_a_card_that_follows_the_next_episode_leaves_no_old_countdown_in_the_sta
 
 def test_the_remote_s_title_can_be_read_whole_where_it_is_cut_short() -> None:
     assert _run("titleWhole") == "A Very Long Title That Runs On and On Past Two Lines of the Card"
+
+
+def test_a_chromecast_in_an_intro_is_offered_skip_and_its_own_count_can_be_cancelled():
+    out = _run("castSkip")
+    assert out["offered"] == "Skip intro"
+    assert out["pressed"] == [["seek", 150]]
+    assert out["counting"] == ["Skipping intro in 4 · Cancel", True]
+    assert out["kept"] == ["Skip intro", ["keepSkip"]]
