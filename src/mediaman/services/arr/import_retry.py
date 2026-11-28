@@ -1,14 +1,20 @@
-"""Downloads Radarr or Sonarr will not import, removed and searched for again unasked.
+"""Downloads Radarr or Sonarr will not import, mended or replaced unasked.
 
-A film's download, or a Sonarr season's, that has needed attention for an hour is removed
-from the download client with its release blocklisted, and the same film or episodes are
-searched for again. Each film or season is given ``MAX_TRIES`` copies until Radarr or Sonarr
-adds a file of it after a try; one that will not import after that is left as it is, for an
-admin, as is one held by the service's own setup rather than by its release, or one whose
-removal the service refuses; one the service holds for a while and imports by itself is waited
-for. While another copy is looked for, its card says so. Library files and Plex are never
-touched, nor a download still coming in or one importing as it should. Where the service
-searches again by itself on a removal, as older ones do, mediaman sends no search of its own.
+A film's download, or a Sonarr season's, that has been stuck for an hour is first mended where
+it lies when it can be: its video files given the extension they lack, or the files the service
+matched by id alone imported by hand (see ``import_fix``). Otherwise, or when it is still stuck
+an hour after that, it is removed from the download client with its release blocklisted, and the
+same film or episodes are searched for again. A stalled download is replaced the same way once
+it has gone nowhere for a while. A download is mended in place once for each copy, so one that
+comes and goes is not mended over and over. Each next copy is left longer before it is replaced,
+by ``stuck_modes.wait_for``, and then once a day, for as long as the title does not import; no
+more than ``_REPLACED_PER_RUN`` downloads of a service are replaced in a run, those stuck longest
+first. One held by the service's own setup rather than by its release is left for an admin; one
+the service holds for a while and imports by itself, one paused, and one whose download client the
+service cannot reach are waited for. While another copy is looked for,
+its card says so. Library files and Plex are never touched, nor a download still coming in or
+one importing as it should. Where the service searches again by itself on a removal, as older
+ones do, mediaman sends no search of its own.
 
 ``note_stuck_imports`` runs on every fetch of a queue and keeps the clock; ``retry_stuck_imports``
 runs from the hourly poller and acts.
@@ -20,14 +26,16 @@ import json
 import logging
 import sqlite3
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import requests
 
 from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc, parse_iso_utc
+from mediaman.services.arr import import_fix, stuck_modes
 from mediaman.services.arr._transport import ArrError
 from mediaman.services.arr.fetcher._base import ArrCard, make_arr_card
 from mediaman.services.downloads.download_format import (
@@ -35,14 +43,14 @@ from mediaman.services.downloads.download_format import (
     map_arr_status,
     map_queue_state,
 )
-from mediaman.services.downloads.download_format._classify import not_the_release
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError, get_bool_setting
 
 logger = logging.getLogger(__name__)
 
 SETTING = "import_retry_enabled"
-MAX_TRIES = 2
 AUDIT_ACTION = "import_retried"
+RENAMED_ACTION = "import_renamed"
+IMPORTED_ACTION = "import_imported"
 
 _STUCK_FOR = timedelta(hours=1)
 # The poller runs hourly, so one first seen stuck on a run has been stuck an hour on the next
@@ -52,6 +60,15 @@ _POLL_SLACK = timedelta(minutes=2)
 _FINDING_FOR = timedelta(hours=24)
 # A title out of the queue, last tried this long ago, is forgotten with its tries.
 _KEPT_FOR = timedelta(days=30)
+# A title that has gone this long without importing is told of as stuck, though still tried.
+LONG_STUCK = timedelta(days=7)
+# The most downloads of one service replaced in a run, so many stuck at once are not all
+# blocklisted and searched for at the same moment.
+_REPLACED_PER_RUN = 2
+# What mediaman will next do about a stuck title, as its card says.
+PLAN_RENAME = "rename"
+PLAN_IMPORT = "import"
+PLAN_REPLACE = "replace"
 
 _ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ConfigDecryptError, ValueError)
 
@@ -72,23 +89,42 @@ class _Unit:
     label: str
     reason: str
     search: dict[str, Any]
-    # Held by the service's own setup, or by a hold it lifts by itself, not by its release.
-    not_the_release: bool
+    # What keeps the records that need attention, as ``stuck_modes`` names it.
+    mode: str = stuck_modes.OTHER
+    # Of each download of the records that need attention, by its client id: the folder it is in
+    # as the service sees it and its release's name, and the episodes of its records.
+    places: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    download_episodes: Mapping[str, frozenset[int]] = field(default_factory=dict)
 
 
 def _int(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-def _held(entry: Mapping[str, object]) -> bool:
-    return (
-        map_arr_status(
-            str(entry.get("status") or ""),
-            str(entry.get("tracked_state") or ""),
-            str(entry.get("tracked_status") or ""),
-        )
-        == "needs_attention"
+def _mode(entry: Mapping[str, object]) -> str:
+    return stuck_modes.classify(
+        str(entry.get("status") or ""),
+        str(entry.get("tracked_state") or ""),
+        str(entry.get("tracked_status") or ""),
+        str(entry.get("attention") or ""),
     )
+
+
+def _held(entry: Mapping[str, object]) -> bool:
+    """Whether *entry* needs attention, or is a download that stalled."""
+    state = map_arr_status(
+        str(entry.get("status") or ""),
+        str(entry.get("tracked_state") or ""),
+        str(entry.get("tracked_status") or ""),
+    )
+    return state == "needs_attention" or _mode(entry) == stuck_modes.STALLED
+
+
+def _unit_mode(modes: set[str]) -> str:
+    """The mode of records held for *modes*: one that keeps any from being acted on keeps all."""
+    if waiting := sorted(modes - stuck_modes.ACTIONABLE):
+        return waiting[0]
+    return modes.pop() if len(modes) == 1 else stuck_modes.OTHER
 
 
 def _unit(
@@ -96,9 +132,20 @@ def _unit(
 ) -> _Unit:
     held = [e for e in entries if _held(e)]
     reasons = [str(e.get("attention") or "") for e in held]
+    modes = {_mode(e) for e in held}
+    # One still coming in as it should holds the rest back, as another copy may be on its way.
+    coming = any(not _held(e) and map_queue_state([e]) == "downloading" for e in entries)
+    places: dict[str, tuple[str, str]] = {}
+    episodes: dict[str, set[int]] = {}
+    for e in held:
+        if download := str(e.get("download_id") or ""):
+            places.setdefault(
+                download, (str(e.get("output_path") or ""), str(e.get("release") or ""))
+            )
+            episodes.setdefault(download, set()).add(_int(e.get("episode_id")))
     return _Unit(
         key=key,
-        stuck=map_queue_state(entries) == "needs_attention" and bool(held),
+        stuck=bool(held) and not coming,
         held_ids=frozenset(_int(e.get("queue_id")) for e in held),
         downloads={_int(e.get("queue_id")): str(e.get("download_id") or "") for e in held},
         episodes=frozenset(_int(e.get("episode_id")) for e in held) - {0},
@@ -106,7 +153,9 @@ def _unit(
         label=label,
         reason=next((r for r in reasons if r), ""),
         search=search,
-        not_the_release=any(not_the_release(r) for r in reasons),
+        mode=_unit_mode(modes),
+        places=places,
+        download_episodes={d: frozenset(ids - {0}) for d, ids in episodes.items()},
     )
 
 
@@ -138,6 +187,11 @@ def _season_units(card: Mapping[str, object]) -> list[_Unit]:
     return units
 
 
+def _release_of(card: Mapping[str, object]) -> str:
+    names = card.get("release_names")
+    return str(names[0]) if isinstance(names, list) and names else ""
+
+
 def _units(cards: Sequence[Mapping[str, object]]) -> list[tuple[Mapping[str, object], _Unit]]:
     """Each film's or season's unit of *cards*, with a card of its title; Radarr gives a card
     for each queue record, so a film's are one unit."""
@@ -150,7 +204,8 @@ def _units(cards: Sequence[Mapping[str, object]]) -> list[tuple[Mapping[str, obj
             films.setdefault(movie_id, []).append(card)
     for movie_id, records in films.items():
         search = {"name": "MoviesSearch", "movieIds": [movie_id]}
-        units.append((records[0], _unit(f"radarr:{movie_id}", records, "", search)))
+        named = [{**r, "release": _release_of(r)} for r in records]
+        units.append((records[0], _unit(f"radarr:{movie_id}", named, "", search)))
     return units
 
 
@@ -217,6 +272,38 @@ def _show_finding(service: str, key: str, shown: Mapping[str, Any], cards: list[
     cards.append(card)
 
 
+class _Planner:
+    """What mediaman will next do about each stuck unit, reading the downloads folder once."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._root: Path | bool | None = False
+
+    def _folder(self) -> Path | None:
+        if self._root is False:
+            self._root = import_fix.downloads_folder(self._conn)
+        return self._root if isinstance(self._root, Path) else None
+
+    def renamable(self, unit: _Unit) -> bool:
+        """Whether a folder of *unit*'s downloads lies where mediaman may rename in it."""
+        root = self._folder()
+        return root is not None and any(
+            import_fix.release_folder(root, output_path, release)
+            for output_path, release in unit.places.values()
+        )
+
+    def plan(self, unit: _Unit, *, may_fix: bool) -> str:
+        """Its next step: mended in place while *may_fix* and its mode allows, else replaced; ""
+        when it is left as it is."""
+        if unit.mode not in stuck_modes.ACTIONABLE:
+            return ""
+        if may_fix and unit.mode == stuck_modes.NO_FILES and self.renamable(unit):
+            return PLAN_RENAME
+        if may_fix and unit.mode == stuck_modes.WRONG_MATCH and unit.places:
+            return PLAN_IMPORT
+        return PLAN_REPLACE
+
+
 def note_stuck_imports(
     conn: sqlite3.Connection, service: str, cards: list[ArrCard], *, complete: bool
 ) -> None:
@@ -233,8 +320,8 @@ def note_stuck_imports(
         rows = {
             row[0]: row
             for row in conn.execute(
-                "SELECT key, stuck_since, retried_at, removed, shown, tries, search"
-                " FROM arr_import_retries WHERE key LIKE ?",
+                "SELECT key, stuck_since, retried_at, removed, shown, tries, search, first_stuck_at,"
+                " fix_plan, fixed_tries FROM arr_import_retries WHERE key LIKE ?",
                 (f"{service}:%",),
             )
         }
@@ -244,6 +331,7 @@ def note_stuck_imports(
             "UPDATE arr_import_retries SET stuck_since=?, retried_at=NULL, removed=NULL,"
             " search=NULL, shown=NULL WHERE key=?"
         )
+        planner = _Planner(conn)
         for _card, unit in _units(cards):
             row = rows.get(unit.key)
             if row is not None and row[2] and unit.queue_ids <= _ids(row[3]):
@@ -256,11 +344,27 @@ def note_stuck_imports(
             if unit.stuck and row is None:
                 writes.append(
                     (
-                        "INSERT INTO arr_import_retries (key, stuck_since) VALUES (?, ?)",
-                        (unit.key, now),
+                        "INSERT INTO arr_import_retries (key, stuck_since, first_stuck_at, fix_plan)"
+                        " VALUES (?, ?, ?, ?)",
+                        (unit.key, now, now, planner.plan(unit, may_fix=True)),
                     )
                 )
-            elif row is not None and unit.stuck and row[1] is None:
+                continue
+            if row is not None and unit.stuck:
+                plan = planner.plan(unit, may_fix=row[9] is None or row[9] != row[5])
+                if plan != row[8]:
+                    writes.append(
+                        ("UPDATE arr_import_retries SET fix_plan=? WHERE key=?", (plan, unit.key))
+                    )
+            if row is not None and unit.stuck and row[7] is None:
+                # Since when it has gone without importing, of one noted before that was kept.
+                writes.append(
+                    (
+                        "UPDATE arr_import_retries SET first_stuck_at=? WHERE key=?",
+                        (row[1] or now, unit.key),
+                    )
+                )
+            if row is not None and unit.stuck and row[1] is None:
                 writes.append((reset, (now, unit.key)))
             elif row is not None and not unit.stuck and (row[1] or row[2]):
                 writes.append((reset, (None, unit.key)))
@@ -309,15 +413,35 @@ def _client(conn: sqlite3.Connection, secret_key: str, service: str) -> Any:
     return build(conn, secret_key)
 
 
-def _history_line(shown: Mapping[str, Any], tries: int) -> str:
+def _name(shown: Mapping[str, Any]) -> str:
     name = f"'{shown.get('title') or 'A download'}'"
-    if shown.get("label"):
-        name += f" {shown['label']}"
+    return f"{name} {shown['label']}" if shown.get("label") else name
+
+
+def _history_line(shown: Mapping[str, Any], tries: int) -> str:
     reason = f" ({shown['reason']})" if shown.get("reason") else ""
-    return (
-        f"{name} couldn't be imported{reason}; removed and searching for another copy"
-        f" (try {tries} of {MAX_TRIES})"
+    line = (
+        f"{_name(shown)} couldn't be imported{reason}; blocklisted that copy and searching for"
+        f" another (try {tries})"
     )
+    days = shown.get("stuck_days")
+    if isinstance(days, int) and days >= LONG_STUCK.days:
+        line += f". It has not imported for {days} days; mediaman keeps trying once a day"
+    return line
+
+
+def _shown_of(card: Mapping[str, object], unit: _Unit, **more: object) -> dict[str, Any]:
+    """What History and the card say of *unit*'s title while it is mended or replaced."""
+    return {
+        "dl_id": card.get("dl_id"),
+        "title": card.get("title"),
+        "year": card.get("year"),
+        "poster_url": card.get("poster_url"),
+        "tmdb_id": card.get("tmdb_id"),
+        "label": unit.label,
+        "reason": unit.reason,
+        **more,
+    }
 
 
 def _no_answer(exc: Exception) -> bool:
@@ -379,34 +503,165 @@ def _search(
     return False
 
 
+def _mark_fixed(conn: sqlite3.Connection, key: str, stuck_since: str, now: datetime) -> bool:
+    """Take *key*'s one mend in place for the copy it is on, as one run alone."""
+    with conn:
+        return (
+            conn.execute(
+                "UPDATE arr_import_retries SET fixed_at=?, fixed_tries=tries, fix_plan=? WHERE key=?"
+                " AND stuck_since=? AND retried_at IS NULL"
+                " AND (fixed_tries IS NULL OR fixed_tries != tries)",
+                (now.isoformat(), PLAN_REPLACE, key, stuck_since),
+            ).rowcount
+            == 1
+        )
+
+
+def _unmark_fixed(conn: sqlite3.Connection, key: str, row: Any) -> None:
+    """Give *key* back the mend a send that surely failed did not make."""
+    with conn:
+        conn.execute(
+            "UPDATE arr_import_retries SET fixed_at=?, fixed_tries=? WHERE key=?",
+            (row[2], row[4], key),
+        )
+
+
+def _rename_in_place(
+    conn: sqlite3.Connection, client: Any, card: Mapping[str, object], unit: _Unit, row: Any
+) -> bool:
+    """Give the video files of each of *unit*'s downloads the extension they lack and have the
+    service import the folders of those renamed again. Whether any file was renamed."""
+    root = import_fix.downloads_folder(conn)
+    if root is None:
+        return False
+    renamed: list[str] = []
+    rescans: list[tuple[str, str]] = []
+    for download, (output_path, release) in sorted(unit.places.items()):
+        folder = import_fix.release_folder(root, output_path, release)
+        if folder and (names := import_fix.rename_videos(folder)):
+            renamed += names
+            rescans.append((output_path, download))
+    if not renamed or not _mark_fixed(conn, unit.key, row[0], now_utc()):
+        return bool(renamed)
+    service = unit.key.partition(":")[0]
+    plural = "file" if len(renamed) == 1 else "files"
+    title = _name(_shown_of(card, unit))
+    logger.info(
+        "import_retry.renamed title=%s files=%d mode=%s service=%s",
+        title,
+        len(renamed),
+        unit.mode,
+        service,
+    )
+    log_audit(
+        conn,
+        unit.key,
+        RENAMED_ACTION,
+        f"{title} couldn't be imported ({unit.reason}); renamed"
+        f" {len(renamed)} {plural} so {service.capitalize()} could import"
+        f" {'it' if len(renamed) == 1 else 'them'}",
+    )
+    try:
+        for output_path, download in rescans:
+            client.send_command(import_fix.scan_command(service, output_path, download))
+    except _ERRORS:
+        # The service tries a pending import again by itself.
+        logger.warning("Could not ask %s to import %s again", service, unit.key, exc_info=True)
+    return True
+
+
+def _import_by_hand(
+    conn: sqlite3.Connection, client: Any, card: Mapping[str, object], unit: _Unit, row: Any
+) -> bool:
+    """Import the files of *unit*'s downloads by hand, of each download whose files the
+    service's own reading names its title and episodes it waits for beyond doubt. Whether any
+    were sent."""
+    service = unit.key.partition(":")[0]
+    arr_id = _key_id(unit.key)
+    files: list[dict[str, Any]] = []
+    for download in sorted(unit.places):
+        listed = client._get_list(import_fix.manual_import_query(service, download, arr_id))
+        episodes = unit.download_episodes.get(download, frozenset())
+        files += import_fix.manual_import_files(service, listed, arr_id, episodes)
+    if not files or not _mark_fixed(conn, unit.key, row[0], now_utc()):
+        return False
+    try:
+        client.send_command({"name": "ManualImport", "files": files, "importMode": "auto"})
+    except _ERRORS as exc:
+        if _may_have_acted(exc):
+            # It may be importing: nothing more is done to it before the next run.
+            logger.warning("%s's import by hand got no answer", unit.key, exc_info=True)
+            return True
+        _unmark_fixed(conn, unit.key, row)
+        raise
+    plural = "file" if len(files) == 1 else "files"
+    log_audit(
+        conn,
+        unit.key,
+        IMPORTED_ACTION,
+        f"{_name(_shown_of(card, unit))} couldn't be imported ({unit.reason}); imported its"
+        f" {len(files)} {plural} by hand in {service.capitalize()}",
+    )
+    return True
+
+
+def _fix_in_place(
+    conn: sqlite3.Connection, secret_key: str, card: Mapping[str, object], unit: _Unit, row: Any
+) -> bool | None:
+    """Mend *unit*'s download where it lies, when its mode allows; True when it was, None when
+    its service gave no answer, False when nothing was done."""
+    fixes = {stuck_modes.NO_FILES: _rename_in_place, stuck_modes.WRONG_MATCH: _import_by_hand}
+    fix = fixes.get(unit.mode)
+    if fix is None or not unit.places:
+        return False
+    try:
+        client = _client(conn, secret_key, unit.key.partition(":")[0])
+        if client is None:
+            return False
+        return fix(conn, client, card, unit, row)
+    except _ERRORS as exc:
+        logger.warning("Could not mend %s where it lies", unit.key, exc_info=True)
+        return None if _no_answer(exc) else False
+
+
+# What came of a unit's turn in a run.
+_SILENT = "silent"
+_REPLACED = "replaced"
+
+
 def _retry(
     conn: sqlite3.Connection,
     secret_key: str,
     card: Mapping[str, object],
     unit: _Unit,
     now: datetime,
-) -> bool:
-    """Remove *unit*'s records and search again, once it has been stuck long enough and has
-    tries left. Whether its service gave no answer."""
+    *,
+    may_replace: bool = True,
+) -> str:
+    """Mend *unit*'s download where it lies, or else, while *may_replace*, remove its records and
+    search again, once it has been stuck long enough; one of them in a run. ``_SILENT`` when its
+    service gave no answer, ``_REPLACED`` when it was replaced, else ""."""
     row = conn.execute(
-        "SELECT stuck_since, tries FROM arr_import_retries WHERE key=? AND retried_at IS NULL",
+        "SELECT stuck_since, tries, fixed_at, first_stuck_at, fixed_tries FROM arr_import_retries"
+        " WHERE key=? AND retried_at IS NULL",
         (unit.key,),
     ).fetchone()
     since = parse_iso_utc(row[0]) if row is not None and row[0] else None
-    if since is None or row[1] >= MAX_TRIES or now - since < _STUCK_FOR - _POLL_SLACK:
-        return False
+    if since is None or now - since < _STUCK_FOR - _POLL_SLACK:
+        return ""
+    if row[4] is None or row[4] != row[1]:
+        mended = _fix_in_place(conn, secret_key, card, unit, row)
+        if mended is None or mended:
+            return _SILENT if mended is None else ""
+    fixed = parse_iso_utc(row[2]) if row[2] else None
+    if fixed is not None and row[4] == row[1] and now - fixed < _STUCK_FOR - _POLL_SLACK:
+        return ""
+    if not may_replace or now - since < stuck_modes.wait_for(row[1], unit.mode) - _POLL_SLACK:
+        return ""
     service = unit.key.partition(":")[0]
-    shown = json.dumps(
-        {
-            "dl_id": card.get("dl_id"),
-            "title": card.get("title"),
-            "year": card.get("year"),
-            "poster_url": card.get("poster_url"),
-            "tmdb_id": card.get("tmdb_id"),
-            "label": unit.label,
-            "reason": unit.reason,
-        }
-    )
+    first = parse_iso_utc(row[3]) if row[3] else None
+    stuck_days = (now - first).days if first is not None else 0
+    shown = json.dumps(_shown_of(card, unit, stuck_days=stuck_days))
     search = json.dumps(unit.search)
     with conn:
         # Taken by the one run that changes the row, should two ever run at once; the try counts
@@ -428,7 +683,7 @@ def _retry(
             ),
         ).rowcount
     if claimed != 1:
-        return False
+        return ""
     removed_any = False
     # A record already gone was failed by nobody here, so no search of the service's own
     # follows unless it went with a download this run removed.
@@ -456,9 +711,9 @@ def _retry(
                 exc_info=True,
             )
             _search(conn, client, unit.key, search, shown, now)
-            return silent
-        # Refused outright, it would be refused again: its tries are spent, for an admin.
-        then = "leaving it as it is" if refused else "trying again on the next run"
+            return _SILENT if silent else _REPLACED
+        # Refused outright, it is asked again after the next, longer wait.
+        then = "trying again later" if refused else "trying again on the next run"
         logger.warning(
             "Could not remove %s's download that would not import; %s",
             unit.key,
@@ -469,14 +724,19 @@ def _retry(
             conn.execute(
                 "UPDATE arr_import_retries SET stuck_since=?, tries=?, retried_at=NULL,"
                 " removed=NULL, search=NULL, shown=NULL WHERE key=?",
-                (row[0], MAX_TRIES if refused else row[1], unit.key),
+                (
+                    now.isoformat() if refused else row[0],
+                    row[1] + 1 if refused else row[1],
+                    unit.key,
+                ),
             )
-        return silent
+        return _SILENT if silent else ""
     every_removed = all(
         queue_id in removed_ids or unit.downloads.get(queue_id, "") in removed_downloads - {""}
         for queue_id in unit.held_ids
     )
-    return _search(conn, client, unit.key, search, shown, now, every_removed)
+    silent = _search(conn, client, unit.key, search, shown, now, every_removed)
+    return _SILENT if silent else _REPLACED
 
 
 def _may_have_acted(exc: Exception) -> bool:
@@ -640,8 +900,27 @@ def retry_stuck_imports(
     if not get_bool_setting(conn, SETTING, default=True):
         return
     now = now_utc()
-    for card, unit in _units(cards):
+    replaced: dict[str, int] = {}
+    for card, unit in _oldest_first(conn, _units(cards)):
         service = unit.key.partition(":")[0]
-        stuck = unit.stuck and not unit.not_the_release and service not in down
-        if stuck and _retry(conn, secret_key, card, unit, now):
+        # One held by the service's own setup, or by a hold that passes, is not acted on.
+        if not unit.stuck or unit.mode not in stuck_modes.ACTIONABLE or service in down:
+            continue
+        may_replace = replaced.get(service, 0) < _REPLACED_PER_RUN
+        came = _retry(conn, secret_key, card, unit, now, may_replace=may_replace)
+        if came == _SILENT:
             down.add(service)
+        elif came == _REPLACED:
+            replaced[service] = replaced.get(service, 0) + 1
+
+
+def _oldest_first(
+    conn: sqlite3.Connection, units: list[tuple[Mapping[str, object], _Unit]]
+) -> list[tuple[Mapping[str, object], _Unit]]:
+    """*units*, those that have gone longest without importing first."""
+    since = dict(
+        conn.execute(
+            "SELECT key, COALESCE(first_stuck_at, stuck_since, '') FROM arr_import_retries"
+        ).fetchall()
+    )
+    return sorted(units, key=lambda pair: since.get(pair[1].key) or "\uffff")

@@ -16,6 +16,7 @@
   var LOST_AFTER = 8000;
   var OVERLAY_MS = 4000;
   var STALL_MS = 1500;
+  var NET_GRACE_MS = 1500;   // a falter as a film starts or goes on is not yet worth a word
   var PUT_AGAIN_MS = 1500;
   var GIVE_UP_MS = 4000;
   var BROKEN_MS = 45000;
@@ -304,7 +305,7 @@
 
   var token = null;          // the paired TV's
   var pending = null;        // the code shown: {token, code, until, ranOut}
-  var me = null;             // {name, owner}
+  var me = null;             // {name, owner, people, avatars}
   var play = null;           // as the last poll gave it
   var cutOff = null;         // whose film ended as this TV's token was refused
   var mode = 'boot';         // what the page shows while nothing plays
@@ -389,7 +390,7 @@
   }
 
   function paired(mine, got) {
-    var from = cutOff || (play && me.owner);
+    var from = cutOff || starter();
     var other = Boolean(from) && from !== got.owner;
     cutOff = null;
     pending = null;
@@ -472,7 +473,7 @@
   function refused() {
     token = null;
     loop += 1;
-    cutOff = play && me.owner;
+    cutOff = starter();
     play = null;
     unload();
     // Someone may have entered the code: what it answers decides.
@@ -500,7 +501,7 @@
   }
 
   function take(got) {
-    me = { name: got.name, owner: got.owner, people: got.people || [] };
+    me = { name: got.name, owner: got.owner, people: got.people || [], avatars: got.avatars || {} };
     if (mode === 'boot') mode = 'idle';
     var was = play;
     playing(got.play);
@@ -621,6 +622,7 @@
   var keptAt = 0;
   var movedAt = 0, lastTime = 0, lastTick = now();
   var breaks = 0, reloadDue = false, broken = false, overAt = null;
+  var falteredAt = 0;
   var canVolume = null;
 
   function native() {
@@ -779,6 +781,7 @@
     there = false;
     stalled = true;
     reloadDue = true;
+    falteredAt = now();
     show();
   }
 
@@ -862,6 +865,7 @@
         if (!ready && moving && there) begun();
       } else if (ready && at - movedAt > STALL_MS && !stalled) {
         stalled = true;
+        falteredAt = at;
         tell();
         show();
       }
@@ -883,6 +887,7 @@
       else put('in', nextLine());
     }
     if (play) bar();
+    if ((stalled || reloadDue) && which() !== shown) show();
     skipMarks();
     rest();
   }
@@ -892,11 +897,18 @@
 
   var skipped = {};          // of the play, by where each starts: a marker is skipped once
   var noteTimer = null;
+  var noteText = '';
+  var entered = null;        // {play, m, last, at, land, count}: the marker the TV plays in, where in it the TV began it, and its timing
+  var LAND_S = { intro: 3, credits: 4 };
+  var COUNT_S = 5;
 
-  /* Where its person wants it, the TV plays on past an intro or credits as they start: a TV's
-     remote may have no key to skip with. Credits that end the title are skipped only where a next
-     episode follows, to the end, where the TV's own next episode and "still watching" take over. */
+  /* Where its person wants it, the TV plays on past an intro or credits: a TV's remote may have no
+     key to skip with. It lands a few seconds in, so nothing is cut off at its first frame, and an
+     intro or credits a scene follows count down on screen first, which Back or OK stops. Credits that end the title are skipped only where a next episode follows, to the end,
+     where the TV's own next episode, with its own countdown, and "still watching" take over. */
   function skipMarks() {
+    // A seek, a stop or another play ends a count.
+    if (entered && (!play || entered.play !== play.play_id || !there || video.seeking)) leaveMark();
     if (!play || !play.auto_skip || !loaded || !ready || !there || !wanted || video.seeking || overAt !== null || broken || reloadDue) return;
     var t = video.currentTime, list = play.markers || [];
     var end = video.duration || play.duration_s || 0;
@@ -906,21 +918,92 @@
       if (t < m.start_s || t >= m.end_s - 1 || skipped[m.start_s]) continue;
       var last = m.kind === 'credits' && (m.final || (end && m.end_s >= end - 1));
       if (last && !goesOn) continue;
-      skipped[m.start_s] = true;
-      seek(m.end_s);
-      tell();
-      if (!last) note(m.kind === 'intro' ? 'Skipped intro' : 'Skipped credits');
+      var name = m.kind === 'intro' ? 'intro' : 'credits';
+      if (!entered || entered.m.start_s !== m.start_s || t < entered.at) entered = timed(m, last, name, t);
+      var left = entered.land + entered.count - (t - entered.at);
+      if (left > 0) {
+        if (left <= entered.count) countNote(name, left);
+        return;
+      }
+      jumpPast(m, last, name);
       return;
     }
+    if (entered) leaveMark();
   }
 
-  function note(text) {
+  /* The jump comes before the marker's last second, where nothing is skipped: a short one counts
+     less, and one with no room for a count of 2 is jumped past without one. */
+  function timed(m, last, name, t) {
+    var room = m.end_s - 1.5 - t, land = LAND_S[name], count = last ? 0 : COUNT_S;
+    if (!last && land + count > room) {
+      count = Math.floor(room - land);
+      if (count < 2) { count = 0; land = Math.max(0, Math.min(land, room)); }
+    }
+    return { play: play.play_id, m: m, last: last, at: t, land: land, count: count };
+  }
+
+  function jumpPast(m, last, name) {
+    entered = null;
+    skipped[m.start_s] = true;
+    seek(m.end_s);
+    tell();
+    if (!last) note(name === 'intro' ? 'Skipped intro' : 'Skipped credits');
+  }
+
+  /* Its number ticks where a reader is not read; the seconds are said once, as the note comes.
+     "Press" is any key a remote has for it: Back, or OK with the controls hidden. */
+  function countNote(name, left) {
+    var n = Math.ceil(left);
+    var spoken = n + (n === 1 ? ' second' : ' seconds');
+    if (!note('Skipping ' + name + ' in <span aria-hidden="true"></span><span class="sr">' + spoken + '. Press to cancel.</span><span aria-hidden="true"> · Press to cancel</span><i class="dr"></i>', n, 'Skipping ' + name)) return;
+    var bar = document.getElementById('sk').getElementsByTagName('i')[0];
+    if (!bar) return;
+    bar.style.webkitAnimationDuration = bar.style.animationDuration = entered.count + 's';
+    bar.style.webkitAnimationDelay = bar.style.animationDelay = (left - entered.count) + 's';
+  }
+
+  function counting() {
     var node = document.getElementById('sk');
-    if (!node) return;
-    node.innerHTML = glyph('step') + text;
+    return !!(entered && play && entered.play === play.play_id && node && node.className === 'sk on' && noteText.indexOf('Skipping') === 0);
+  }
+
+  function hideNote() {
+    var node = document.getElementById('sk');
+    clearTimeout(noteTimer);
+    noteText = '';
+    if (node) node.className = 'sk';
+  }
+
+  /* Out of the marker before its jump, its count goes with it. */
+  function leaveMark() {
+    entered = null;
+    if (noteText.indexOf('Skipping') === 0) hideNote();
+  }
+
+  /* Back or OK during a countdown keeps the intro or credits playing. */
+  function keepMark() {
+    if (!counting()) return false;
+    skipped[entered.m.start_s] = true;
+    entered = null;
+    hideNote();
+    return true;
+  }
+
+  /* A note is written once, as it comes: a reader of the status hears it once. Its `key` says
+     which note it is where its text changes as it is shown; a count, `n`, ticks in its first span.
+     Whether it was written. */
+  function note(text, n, key) {
+    var node = document.getElementById('sk');
+    if (!node) return false;
+    key = key || text;
+    var wrote = noteText !== key || node.className !== 'sk on';
+    if (wrote) node.innerHTML = glyph('step') + text;
+    noteText = key;
+    if (n !== undefined) node.getElementsByTagName('span')[0].textContent = String(n);
     node.className = 'sk on';
     clearTimeout(noteTimer);
     noteTimer = setTimeout(function () { node.className = 'sk'; }, SKIPPED_MS);
+    return wrote;
   }
 
   function put(id, text) {
@@ -956,7 +1039,7 @@
   var FOR_GOOD = { unplayable: 1, unplayable_dolby_vision_5: 1 };
   var ICONS = {
     play: 'M7 4l13 8-13 8z', pause: 'M6 4h4v16H6zM14 4h4v16h-4z', back: 'M11 5v14l-9-7zM22 5v14l-9-7z',
-    fwd: 'M2 5v14l9-7zM13 5v14l9-7z', step: 'M4 4v16l12-8zM17 4h3v16h-3z', stop: 'M5 5h14v14H5z', ok: 'M9 17l-5-5-2 2 7 7L22 8l-2-2z',
+    fwd: 'M2 5v14l9-7zM13 5v14l9-7z', step: 'M4 4v16l12-8zM17 4h3v16h-3z', stop: 'M5 5h14v14H5z',
   };
   function glyph(name) { return '<svg class="i" viewBox="0 0 24 24"><path d="' + ICONS[name] + '"/></svg>'; }
 
@@ -974,6 +1057,31 @@
   }
   function middle(head, lines, list, extra) {
     return '<div class="mid">' + BRAND + (extra || '') + '<div class="h">' + head + '</div><div class="l">' + lines + '</div>' + offer(list) + '</div>';
+  }
+  /* Whose film plays: who started it, not whose TV it is. */
+  function starter() { return play ? play.by || me.owner : null; }
+  function everyone() { return (me.people && me.people.length ? me.people : [me.owner]); }
+  /* A person's picture over their letter, which shows where there is none or it fails to load.
+     The letter is drawn from an attribute, so the words of the page stay the person's name. */
+  function face(name, small) {
+    var url = me && me.avatars && me.avatars[name];
+    return '<span class="av' + (small ? ' av--s' : '') + '" data-l="' + esc(String(name).charAt(0).toUpperCase()) + '">' +
+      (url ? '<img src="' + esc(url) + '" alt="">' : '') + '</span>';
+  }
+  var FACES_MAX = 7;         // in a row on the TV, the last of them standing for any more
+  function faces() {
+    var all = everyone();
+    var listed = all.length > FACES_MAX ? all.slice(0, FACES_MAX - 1) : all;
+    return '<div class="ppl">' + listed.map(function (w) {
+      // A long name breaks after a dot or a dash before it breaks inside a word.
+      return '<div class="pp">' + face(w) + '<div class="pn">' + esc(w).replace(/([._-])/g, '$1<wbr>') + '</div></div>';
+    }).join('') + (listed.length < all.length ? '<div class="pp"><span class="av" data-l="+' + (all.length - listed.length) + '"></span></div>' : '') + '</div>';
+  }
+  /* A picture that fails to load leaves its letter. */
+  function gone() { this.className = 'gone'; }
+  function watchFaces() {
+    var pictures = stage.getElementsByTagName('img');
+    for (var i = 0; i < pictures.length; i++) pictures[i].onerror = gone;
   }
   // A TV that is paired need not pair anew.
   function leave() { return token ? [['Back', 'i']] : []; }
@@ -1021,7 +1129,7 @@
   }
   function overlay(paused) {
     return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot">' +
-      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by && me && me.people && me.people.length > 1 ? ' by ' + esc(play.paused_by) : '')) + '</div>' : '') +
+      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused' + (play && play.paused_by && me && me.people && me.people.length > 1 ? ' by ' + face(play.paused_by, true) + esc(play.paused_by) : '')) + '</div>' : '') +
       '<div class="bar"><div class="p" id="pr"></div>' + markNodes() + '</div><div class="tms"><span id="el"></span><span id="re"></span></div>' +
       offer([[glyph('back') + '10 s', 'b'], [glyph(paused ? 'play' : 'pause') + (paused ? 'Play' : 'Pause'), 'p'], [glyph('fwd') + '10 s', 'f'], [glyph('stop') + 'Stop', 's']]) +
       '</div></div>';
@@ -1045,19 +1153,18 @@
     press: function () { return page(middle(codeHead(), 'The last code ran out.<br>Press OK for another.', [['New code', 'n']].concat(leave()))); },
     slow: function () { return page(middle('Too many codes', 'A new one comes by itself in ' + (waitUntil - now() > 90000 ? Math.ceil((waitUntil - now()) / 60000) + ' minutes' : 'a minute') + '.', leave(), SPIN)); },
     conn: function () {
-      var all = (me.people && me.people.length ? me.people : [me.owner]).map(esc);
-      var head = all.length > 1 ? all.slice(0, -1).join(', ') + ' and ' + all[all.length - 1] + ' can play here' : 'Connected to ' + all[0];
-      return page(middle(head, (all.length > 1 ? 'Each of you can start, pause and stop what plays on ' + esc(me.name) + '.' : 'This TV is now called ' + esc(me.name) + '.') + '<br>Press OK on the TV&rsquo;s remote once, so films can start with sound.',
-        [['OK', 'i']], '<div class="tick">' + glyph('ok') + '</div>'));
+      var all = everyone().map(esc);
+      // Past two, the names under the faces say who.
+      var head = all.length > 2 ? 'You can all play here' : all.length > 1 ? all[0] + ' and ' + all[1] + ' can play here' : 'Connected to ' + all[0];
+      return page('<div class="hello">' + middle(head, (all.length > 1 ? 'Each of you can start, pause and stop what plays on ' + esc(me.name) + '.' : 'This TV is now called ' + esc(me.name) + '.') + '<br>Press OK on the TV&rsquo;s remote once, so films can start with sound.',
+        [['OK', 'i']], faces()) + '</div>');
     },
     idle: function () {
-      var who = (me.people && me.people.length ? me.people : [me.owner]).map(esc);
-      var paired = '<span class="ppl">' + who.map(function (w) { return '<i><b>' + w.charAt(0).toUpperCase() + '</b>' + w + '</i>'; }).join('') + '</span>';
-      return page('<div class="idle">' + middle(esc(me.name) + ' is ready', 'On your phone or computer, open a film,<br>press the TV button and choose ' + esc(me.name) + '.' + paired,
-        [['Pair another person', 'n'], ['Unpair this TV', 'u']]) + '</div>');
+      return page('<div class="idle">' + middle(esc(me.name) + ' is ready', 'On your phone or computer, open a film,<br>press the TV button and choose ' + esc(me.name) + '.',
+        [['Pair another person', 'n'], ['Unpair this TV', 'u']], faces()) + '</div>');
     },
     unpair: function () {
-      var all = (me.people && me.people.length ? me.people : [me.owner]).map(esc);
+      var all = everyone().map(esc);
       var who = all.length > 1 ? all.slice(0, -1).join(', ') + ' and ' + all[all.length - 1] + ' won&rsquo;t be able to play here<br>until it is paired again.'
         : all[0] + ' won&rsquo;t be able to play here<br>until they pair it again.';
       return page(middle('Unpair this TV?', who, [['Keep it', 'i'], ['Unpair', 'o']]));
@@ -1077,7 +1184,7 @@
       return page(middle('This TV&rsquo;s browser can&rsquo;t play films', 'It is missing what mediaman needs.<br>Ask an admin to add this TV by its address.', [['Try anyway', 'a']]));
     },
     load: function () {
-      return art() + '<div class="shade"></div><div class="mid">' + SPIN + titles() + '<div class="sm">' + esc(me.owner) + ' is starting it</div></div>' + offer([]);
+      return art() + '<div class="shade"></div><div class="mid">' + SPIN + titles() + '<div class="sm who">' + face(starter(), true) + esc(starter()) + ' is starting it</div></div>' + offer([]);
     },
     soon: function () { return art() + '<div class="shade"></div><div class="mid">' + SPIN + '<div class="l">Starting</div></div>' + offer([]); },
     play: function () { return overlay(false); },
@@ -1105,6 +1212,8 @@
   };
   var FOCUS = { play: 1, pause: 1 };
 
+  function faltering() { return now() - falteredAt >= NET_GRACE_MS; }
+
   function which() {
     if (play && token && mode !== 'taken') {
       var state = play.state;
@@ -1114,9 +1223,9 @@
       if (state === 'upnext') return 'next';
       if (state === 'still' || state === 'ended') return state;
       if (broken || overAt !== null) return 'soon';
-      if (!loaded || !ready) return reloadDue ? 'buf' : 'load';
+      if (!loaded || !ready) return reloadDue && faltering() ? 'buf' : 'load';
       if (!wanted) return 'pause';
-      return stalled ? 'buf' : 'play';
+      return stalled && faltering() ? 'buf' : 'play';
     }
     if (away && mode !== 'old') return 'lost';
     if ((mode === 'idle' || mode === 'conn' || mode === 'unpair') && !me) return 'boot';
@@ -1135,6 +1244,7 @@
       if (FOCUS[name] && FOCUS[shown]) kept = focus;
       swap(name !== shown && !(FOCUS[name] && FOCUS[shown]));
       stage.innerHTML = html;
+      watchFaces();
       drawn = html;
       dressed = '';
       focus = Math.min(kept, Math.max(0, buttons.length - 1));
@@ -1282,6 +1392,7 @@
   }
 
   function back() {
+    if (shown === 'play' && keepMark()) return true;
     if (shown === 'play' && !hidden) { hidden = true; hush(); return true; }
     if (shown === 'play') { wake(); return true; }
     if (shown === 'unpair' || (token && (shown === 'code' || shown === 'press' || shown === 'slow'))) { act('i'); return true; }
@@ -1313,6 +1424,8 @@
     if (shown === 'restarted') act('i');
     else if (MEDIA[key]) media(MEDIA[key]);
     else if (isBack) used = back();
+    // With the controls up, OK is for the button it is on.
+    else if (key === 13 && shown === 'play' && hidden && keepMark()) used = true;
     else if (shown === 'play' && hidden && (key === 9 || (key >= 13 && key <= 40))) wake();
     else if (key === 37 || key === 39) {
       if (buttons.length) focus = Math.max(0, Math.min(buttons.length - 1, focus + (key === 39 ? 1 : -1)));

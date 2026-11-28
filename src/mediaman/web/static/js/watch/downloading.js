@@ -74,7 +74,7 @@
     if (item.state === 'ready') return ['', item.line || 'Ready to watch'];
     if (item.state === 'almost_ready') return item.line ? ['', item.line] : ['Almost ready', ''];
     /* What Radarr or Sonarr says is wrong is told to an admin alone. */
-    if (item.state === 'needs_attention') return ['Needs attention', item.attention ? ' · ' + item.attention : ''];
+    if (item.state === 'needs_attention') return [item.fixing || 'Needs attention', item.attention ? ' · ' + item.attention : ''];
     if (item.state === 'finding_copy') return ['', 'Finding another copy'];
     if (item.state === 'queued') return ['', 'Queued'];
     if (item.state === 'stuck') return ['', 'Nothing found yet' + (item.line ? ' · ' + item.line : '')];
@@ -82,10 +82,10 @@
     return [item.percent + '%', typeof item.minutes_left === 'number' ? ' · ' + left(item.minutes_left) : ''];
   }
 
-  /* What comes of a download that needs attention: that mediaman retries it, else where an admin
-     fixes it; a viewer is told only that it waits for one. */
+  /* What comes of a download that needs attention: that mediaman mends it, said on its line, else
+     where an admin fixes it; a viewer is told only that it waits for one. */
   function hintOf(item) {
-    if (item.state !== 'needs_attention') return '';
+    if (item.state !== 'needs_attention' || item.fixing) return '';
     return item.retrying ? 'mediaman will look for another copy' : item.attention_hint || 'Won’t finish until an admin sorts it out';
   }
 

@@ -6,6 +6,7 @@ import logging
 import sqlite3
 from collections.abc import Sequence
 
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.downloads.download_format._classify import not_the_release
 from mediaman.services.infra import get_bool_setting
 
@@ -47,24 +48,41 @@ def is_finding_copy(
 
 def will_retry(conn: sqlite3.Connection, key: str, reasons: Sequence[str]) -> bool:
     """Whether a download of *key*, as ``import_retry`` keys it, that needs attention for
-    *reasons* will be removed and another copy looked for unasked. A *key* that ends in ":" is
-    any season of a series."""
+    *reasons* will be mended or replaced unasked. A *key* that ends in ":" is any season of a
+    series."""
+    return bool(fixing_words(conn, key, reasons))
+
+
+def fixing_words(conn: sqlite3.Connection, key: str, reasons: Sequence[str]) -> str:
+    """What mediaman is doing about a download of *key*, as ``import_retry`` keys it, that needs
+    attention for *reasons*, in a few words; "" when it leaves it for an admin. A *key* that ends
+    in ":" is any season of a series."""
     # Not at the top: import_retry needs the fetcher, which needs import_retry.
     from mediaman.services.arr import import_retry
 
     if any(not_the_release(r) for r in reasons):
-        return False
+        return ""
     try:
         if not get_bool_setting(conn, import_retry.SETTING, default=True):
-            return False
-        # Of a series, the fewest tries of a season stuck now, as that one is tried; while none
-        # is noted stuck yet, the most of any.
-        (tries,) = conn.execute(
-            "SELECT COALESCE(MIN(CASE WHEN stuck_since IS NOT NULL THEN tries END), MAX(tries))"
-            " FROM arr_import_retries WHERE key LIKE ?",
+            return ""
+        # Of a series, the season stuck now, as that one is acted on.
+        row = conn.execute(
+            "SELECT fix_plan, first_stuck_at FROM arr_import_retries"
+            " WHERE key LIKE ? ORDER BY stuck_since IS NULL, first_stuck_at LIMIT 1",
             (f"{key}%" if key.endswith(":") else key,),
         ).fetchone()
     except sqlite3.DatabaseError:
         logger.warning("Failed to read whether %s is tried again", key, exc_info=True)
-        return False
-    return (tries or 0) < import_retry.MAX_TRIES
+        return ""
+    # As the queue's last fetch planned it; one not noted yet will be replaced.
+    plan, first_stuck_at = row if row is not None else (None, None)
+    if plan == "":
+        return ""
+    first = parse_iso_utc(first_stuck_at) if first_stuck_at else None
+    if first is not None and (days := (now_utc() - first).days) >= import_retry.LONG_STUCK.days:
+        return f"Stuck for {days} days — still trying daily"
+    if plan == import_retry.PLAN_RENAME:
+        return "Fixing — renaming files"
+    if plan == import_retry.PLAN_IMPORT:
+        return "Fixing — importing the files"
+    return "Fixing — finding another copy"

@@ -105,6 +105,8 @@ class StripItem:
     attention_hint: str = ""
     #: Of one that needs attention: whether mediaman will look for another copy unasked.
     retrying: bool = False
+    #: Of one that needs attention: what mediaman is doing about it, in a few words.
+    fixing: str = ""
     #: Of one that is done: when, in epoch seconds, and how many bytes its file holds; None
     #: when not known.
     finished_at: float | None = None
@@ -216,6 +218,7 @@ def _current(item: Mapping[str, object]) -> StripItem:
         attention=_text(item.get("attention")),
         attention_hint=_text(item.get("attention_hint")),
         retrying=item.get("retrying") is True and state == "needs_attention",
+        fixing=_text(item.get("fixing")) if state == "needs_attention" else "",
     )
 
 
@@ -325,6 +328,7 @@ def _shown(item: StripItem, *, admin: bool) -> dict[str, Any]:
         "attention": item.attention if told else "",
         "attention_hint": item.attention_hint if told else "",
         "retrying": item.retrying,
+        "fixing": item.fixing,
         "finished_at": item.finished_at,
         "size_bytes": item.size_bytes,
     }

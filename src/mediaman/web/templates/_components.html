@@ -251,7 +251,7 @@
         {% if sub %}<div class="sub" id="intg-sub-{{ service }}">{{ sub|safe }}</div>{% endif %}
       </div>
       <div class="hd-actions">
-        {{ conn_pill(service) }}
+        {% if include_test %}{{ conn_pill(service) }}{% endif %}
         <div class="hd-btns">
           {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}" aria-label="Test {{ title }}">Test</button>{% endif %}
           {{ icon("i-chevron-down", "intg-chev") }}

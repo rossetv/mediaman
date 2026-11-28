@@ -72,11 +72,23 @@ class NzbgetClient:
     and not obviously on the LAN — credentials travel in the clear otherwise.
     """
 
-    def __init__(self, url: str, username: str, password: str) -> None:
+    def __init__(
+        self,
+        url: str,
+        username: str,
+        password: str,
+        *,
+        timeout: tuple[float, float] | None = None,
+        session: requests.Session | None = None,
+    ) -> None:
         self._url = url.rstrip("/")
         self._auth: tuple[str, str] = (username, password)
-        self._session = requests.Session()
-        self._http = SafeHTTPClient(self._url, session=self._session)
+        self._session = session or requests.Session()
+        self._http = (
+            SafeHTTPClient(self._url, session=self._session, default_timeout=timeout)
+            if timeout
+            else SafeHTTPClient(self._url, session=self._session)
+        )
 
         # Warn if credentials will travel over plain HTTP to a non-LAN host.
         # Log only the hostname, not ``self._url``, which may embed a

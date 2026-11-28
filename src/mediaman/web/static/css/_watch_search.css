@@ -704,7 +704,7 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   .watch-search.is-ai .watch-search__ai:focus-visible { outline-color: Highlight; }
 }
 
-.watch-sheet > .tn:not(:first-child) { margin-top: 22px; }
+.watch-sheet > .tn-box:not(:first-child, .is-gone) { margin-top: 22px; }
 
 /* The last suggestion: ask the AI about what is typed. */
 .watch-suggestion--ai .watch-suggestion__tag { background: var(--rgba-purple-bg); color: color-mix(in srgb, var(--purple) 45%, var(--t1)); }

@@ -67,6 +67,9 @@
       nzbget_url:            v('nzbget_url'),
       nzbget_username:       v('nzbget_username'),
       nzbget_password:       v('nzbget_password'),
+      docker_proxy_url:      v('docker_proxy_url'),
+      server_memory_gb:      v('server_memory_gb'),
+      server_cores:          v('server_cores'),
       mailgun_domain:        v('mailgun_domain'),
       mailgun_from_address:  v('mailgun_from_address'),
       mailgun_api_key:       v('mailgun_api_key'),
@@ -88,6 +91,7 @@
       suggestions_enabled:   v('suggestions_enabled'),
       auto_abandon_enabled:  v('auto_abandon_enabled'),
       import_retry_enabled:  v('import_retry_enabled'),
+      import_fix_folder:     v('import_fix_folder'),
       google_cast_enabled:   v('google_cast_enabled'),
     };
     if (diskMap !== null) payload.disk_thresholds = diskMap;

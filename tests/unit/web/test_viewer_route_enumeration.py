@@ -63,6 +63,7 @@ _VIEWER_MAY_REACH = {
     ("POST", "/api/tv/device/ask"),
     ("POST", "/api/tv/device/unpair"),
     ("GET", "/api/tv/device/art/{play_id}"),
+    ("GET", "/api/tv/device/avatar/{tv_id}/{user_id}"),
     ("GET", "/api/cast/{ticket}/index.m3u8"),
     ("HEAD", "/api/cast/{ticket}/index.m3u8"),
     ("OPTIONS", "/api/cast/{ticket}/index.m3u8"),

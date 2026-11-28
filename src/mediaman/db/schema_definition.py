@@ -682,7 +682,9 @@ CREATE TABLE IF NOT EXISTS arr_searching_since (
 -- mediaman removed for another: since when it has been held back (NULL while it is not),
 -- the tries made, and while one runs when it began, the queue ids removed, the search
 -- still to be sent and what the card shows meanwhile; and when the last try began, with the
--- episodes it was for, kept after it ends to tell a later import from a file held before.
+-- episodes it was for, kept after it ends to tell a later import from a file held before;
+-- since when the title has gone without importing, when its download was last mended in place
+-- rather than replaced and on which try, and what mediaman will next do about it.
 CREATE TABLE IF NOT EXISTS arr_import_retries (
     key TEXT PRIMARY KEY,
     stuck_since TEXT,
@@ -692,7 +694,11 @@ CREATE TABLE IF NOT EXISTS arr_import_retries (
     search TEXT,
     shown TEXT,
     tried_at TEXT,
-    tried_episodes TEXT
+    tried_episodes TEXT,
+    first_stuck_at TEXT,
+    fixed_at TEXT,
+    fixed_tries INTEGER,
+    fix_plan TEXT
 );
 
 CREATE TABLE IF NOT EXISTS keep_tokens_used (
@@ -752,6 +758,16 @@ CREATE TABLE IF NOT EXISTS delete_intents (
     last_error TEXT,
     confirmed_at TEXT
 );
+
+-- === Activity: the server's figures over time ===
+-- tier 0 holds a point every 15 s for an hour, 1 a minute for a day, 2 ten minutes for a week
+-- and 3 an hour for 30 days; data is the point's figures as JSON.
+CREATE TABLE IF NOT EXISTS activity_samples (
+    tier INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (tier, at)
+) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_actions_media ON scheduled_actions(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_scheduled_actions_execute ON scheduled_actions(execute_at);

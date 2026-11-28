@@ -193,6 +193,8 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
                 "season_number": int(season_num) if season_num is not None else 0,
                 "queue_id": q.get("id") or 0,
                 "episode_id": q.get("episodeId") or episode.get("id") or 0,
+                "release": q.get("title") or "",
+                "output_path": q.get("outputPath") or "",
             },
         )
 

@@ -2,7 +2,7 @@
  * Pair a TV: the six numbers the TV shows, typed or from its QR code, then the TV's name.
  * A code from a QR code is only filled in; the person agrees to it.
  *
- * Requires: core/api.js (MM.api), ui-feedback.js (UIFeedback).
+ * Requires: core/api.js (MM.api), core/dom.js (MM.dom), ui-feedback.js (UIFeedback).
  */
 (function () {
   'use strict';
@@ -138,17 +138,14 @@
     return pick;
   }
 
-  function initial(name) { return name.charAt(0).toUpperCase(); }
-
   function sayPeople(got) {
     var list = document.getElementById('pair-people');
     var people = Array.isArray(got.people) ? got.people : [];
+    var faces = got.avatars || {};
     list.textContent = '';
     people.forEach(function (who) {
       var li = document.createElement('li');
-      var face = document.createElement('span');
-      face.className = 'pair__face';
-      face.textContent = initial(who);
+      var face = MM.dom.avatar(who, faces[who]);
       var words = document.createElement('span');
       words.textContent = who;
       li.appendChild(face);
@@ -236,7 +233,7 @@
     save.setAttribute('aria-disabled', 'true');
     MM.api.patch('/api/tvs/' + tv.id, { name: wanted }).then(function (data) {
       clearTimeout(nameWhy.pending);
-      ready({ name: data.tv.name, people: tv.people });
+      ready({ name: data.tv.name, people: tv.people, avatars: tv.avatars });
     }, function (err) {
       if (!sentAway(err)) say(nameWhy, MM.api.messageOf(err, LATER), true, true);
     }).then(function () {

@@ -133,6 +133,9 @@ class ArrEpisodeEntry(_ArrEpisodeRequired, total=False):
     # Sonarr's ids of the queue record and of its episode.
     queue_id: int
     episode_id: int
+    # The release's name, and the folder its download is in as Sonarr sees it.
+    release: str
+    output_path: str
 
 
 class BaseArrCard(TypedDict):
@@ -171,6 +174,8 @@ class ArrCard(BaseArrCard, total=False):
     movie_id: int
     series_id: int
     download_id: str
+    # The folder a film's download is in, as Radarr sees it.
+    output_path: str
     is_upcoming: bool
     release_label: str
     arr_id: int

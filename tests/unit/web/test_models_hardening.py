@@ -293,3 +293,19 @@ class TestSettingsUpdateDayRanges:
         for value in (low - 1, high + 1):
             with pytest.raises(ValidationError, match=f"between {low} and {high}"):
                 SettingsUpdate(**{field: value})
+
+
+@pytest.mark.parametrize(
+    "folder",
+    ["/", "///", "downloads/completed", "/downloads/../etc", "/downloads/\x00x", "/a\r\nb"],
+)
+def test_a_downloads_folder_that_is_not_an_absolute_folder_below_the_root_is_refused(folder):
+    with pytest.raises(ValidationError):
+        SettingsUpdate(import_fix_folder=folder)
+
+
+@pytest.mark.parametrize(
+    ("folder", "kept"), [("/downloads/completed/", "/downloads/completed"), ("  ", "")]
+)
+def test_a_downloads_folder_is_kept_without_its_trailing_slash_or_emptied(folder, kept):
+    assert SettingsUpdate(import_fix_folder=folder).import_fix_folder == kept

@@ -31,6 +31,9 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
         "nzbget_url",
         "nzbget_public_url",
         "nzbget_username",
+        "docker_proxy_url",
+        "server_memory_gb",
+        "server_cores",
         "mailgun_domain",
         "mailgun_from_address",
         "base_url",
@@ -50,6 +53,7 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
         "ai_everyone_per_day",
         "auto_abandon_enabled",
         "import_retry_enabled",
+        "import_fix_folder",
         "google_cast_enabled",
     }
 )
@@ -69,6 +73,9 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "nzbget_url",
         "nzbget_public_url",
         "nzbget_username",
+        "docker_proxy_url",
+        "server_memory_gb",
+        "server_cores",
         "mailgun_domain",
         "mailgun_from_address",
         "base_url",
@@ -79,6 +86,8 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "plex_libraries",
         "disk_thresholds",
         "google_cast_enabled",
+        # mediaman renames files in it.
+        "import_fix_folder",
     }
     | SECRET_FIELDS
 )

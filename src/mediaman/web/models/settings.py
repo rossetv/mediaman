@@ -132,6 +132,13 @@ class SettingsUpdate(BaseModel):
     nzbget_username: Annotated[str | None, Field(max_length=128)] = None
     nzbget_password: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
+    # A read-only Docker socket proxy, for each app's CPU and memory on Activity. Optional.
+    docker_proxy_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    # The server's size, for Activity: Plex gives its memory only as a share. Optional; empty
+    # leaves it unset.
+    server_memory_gb: Annotated[str | None, Field(max_length=16)] = None
+    server_cores: Annotated[str | None, Field(max_length=16)] = None
+
     mailgun_domain: Annotated[str | None, Field(max_length=_HOST_MAX)] = None
     mailgun_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
     mailgun_from_address: Annotated[str | None, Field(max_length=_MAX_EMAIL_LEN)] = None
@@ -178,6 +185,9 @@ class SettingsUpdate(BaseModel):
 
     auto_abandon_enabled: bool | None = None
     import_retry_enabled: bool | None = None
+    # The downloads folder as Radarr and Sonarr name it, which mediaman sees at the same path;
+    # "" leaves downloads untouched on disk.
+    import_fix_folder: Annotated[str | None, Field(max_length=512)] = None
 
     # Never stored or read: a settings page left open from an earlier version still sends them.
     older_tvs_enabled: bool | None = None
@@ -194,6 +204,7 @@ class SettingsUpdate(BaseModel):
         "radarr_public_url",
         "nzbget_url",
         "nzbget_public_url",
+        "docker_proxy_url",
         "base_url",
         mode="before",
     )
@@ -202,6 +213,27 @@ class SettingsUpdate(BaseModel):
         if isinstance(v, str):
             return _validate_url(v)
         return v
+
+    @field_validator("server_memory_gb", "server_cores", mode="before")
+    @classmethod
+    def validate_server_size(cls, v: object, info: ValidationInfo) -> object:
+        """A whole number of cores from 1 to 1024, or GB of memory from 1 to 4096; empty
+        unsets it."""
+        if v is None:
+            return v
+        text = str(v).strip()
+        if not text:
+            return ""
+        cores = info.field_name == "server_cores"
+        try:
+            n = int(text) if cores else float(text)
+        except ValueError:
+            n = 0
+        high = 1024 if cores else 4096
+        if not (1 <= n <= high):
+            what = "Server cores must be a whole number" if cores else "Server memory must be GB"
+            raise ValueError(f"{what} from 1 to {high}")
+        return str(n if cores else round(n, 1)).removesuffix(".0")
 
     @field_validator(
         "plex_token",
@@ -282,6 +314,23 @@ class SettingsUpdate(BaseModel):
         if v not in OPENAI_MODELS:
             raise ValueError(f"openai_model must be one of {list(OPENAI_MODELS)}")
         return v
+
+    @field_validator("import_fix_folder", mode="before")
+    @classmethod
+    def validate_import_fix_folder(cls, v: object) -> object:
+        """An absolute folder other than the root, without ".." in it, or "" for none."""
+        if v is None:
+            return v
+        if not isinstance(v, str):
+            raise ValueError("import_fix_folder must be a string")
+        v = v.strip()
+        if not v:
+            return ""
+        _reject_crlf(v)
+        parts = v.split("/")
+        if not v.startswith("/") or "\x00" in v or ".." in parts or not v.strip("/"):
+            raise ValueError("import_fix_folder must be an absolute folder path, not /")
+        return v.rstrip("/")
 
     @field_validator("scan_timezone", mode="before")
     @classmethod

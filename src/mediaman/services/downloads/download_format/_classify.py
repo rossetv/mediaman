@@ -279,7 +279,7 @@ def queue_attention(entries: Sequence[_ArrLike]) -> str:
 
 
 # What Sonarr and Radarr say of a download their own setup keeps from importing (paths, remote
-# path mappings, permissions, the root folder, disk space, a file that needs a manual import): another copy would not import either.
+# path mappings, permissions, the root folder, disk space): another copy would not import either.
 SETUP_PROBLEMS = (
     "remote path mapping",
     "not a valid local path",
@@ -289,8 +289,6 @@ SETUP_PROBLEMS = (
     "access to the path",
     "root folder missing",
     "not enough free space",
-    # A whole-season file in a single episode's place: only a person can import it by hand.
-    "contains all episodes",
 )
 # What Sonarr says of one it holds for a while and imports by itself once that passes: an episode
 # still to be named, or a file still in use.

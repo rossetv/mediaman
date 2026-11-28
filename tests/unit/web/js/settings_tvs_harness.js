@@ -54,6 +54,10 @@ async function page(answers, all = [PAIRED, DEN], reduced = true) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
+  // The shared helpers, under the stubs above.
+  const stubs = ctx.MM.dom;
+  vm.runInContext(fs.readFileSync(path.join(JS, 'core', 'dom.js'), 'utf8'), ctx);
+  Object.assign(ctx.MM.dom, stubs);
   vm.runInContext(fs.readFileSync(path.join(JS, 'settings', 'tvs.js'), 'utf8'), ctx);
   ctx.MM.settings.tvs.init();
   await settle();
@@ -116,6 +120,13 @@ const scenarios = {
     return { asked, kept, deleted: p.calls.filter((c) => c[0] === 'DELETE').map((c) => c[1]), left: p.list.textContent, dropped: p.dropped };
   },
   // A TV paired with two people: each can be unpaired alone, or the TV for both.
+  async faces() {
+    const p = await page({}, [{ ...PAIRED, people: ['maren', 'tobias'], avatars: { maren: '/api/avatars/3?v=ab' } }]);
+    return p.row(0).querySelectorAll('.tv-ppl li').map((li) => {
+      const img = li.querySelector('.avatar img');
+      return [li.querySelector('.avatar__letter').textContent, img ? img.getAttribute('src') : null, img ? img.hasAttribute('data-broken-on-error') : null];
+    });
+  },
   async people() {
     const p = await page({ 'DELETE /api/tvs/1/people/tobias': {}, 'DELETE /api/tvs/1?everyone=1': {} },
       [{ ...PAIRED, people: ['maren', 'tobias'] }]);

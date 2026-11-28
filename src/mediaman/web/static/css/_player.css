@@ -383,7 +383,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--bg) 18%, transparent);
+  background: color-mix(in srgb, var(--bg) 30%, transparent);
   transform: scaleX(0);
   transform-origin: left;
 }
