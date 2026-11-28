@@ -3566,6 +3566,7 @@ def test_a_copy_on_its_way_moves_on_in_the_open_menu_without_taking_the_focus_or
     ]
     assert [s["waiting"] for s in steps] == [True, False, False, False]
     assert steps[2]["label"] == "Portuguese audio, On its way, 61 percent. Show progress."
+    assert out["rowKeeps"] is True
     assert out["swapped"] == {"rows": ["2"], "focus": True, "scroll": 173}
     assert out["failed"] == {
         "line": "Didn’t download · look for another",

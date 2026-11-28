@@ -157,9 +157,12 @@
         }
         r.remove();
       });
-      copies().forEach(function (c) {
+      /* A row already where it belongs is not moved: moving it would take the focus off it. */
+      var anchor = get;
+      copies().slice().reverse().forEach(function (c) {
         var r = col.querySelector('.lp-pending[data-copy="' + c.id + '"]') || pendingRow(c);
-        col.insertBefore(r, get);
+        if (r.nextSibling !== anchor) col.insertBefore(r, anchor);
+        anchor = r;
       });
     }
 

@@ -26,13 +26,19 @@ function decode(s) {
     .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
+/* As in a browser, a node taken out of the page, even to be put back at once, takes the focus
+   with it. */
+function dropFocusIn(node) {
+  if (doc && doc.activeElement && node.contains(doc.activeElement)) doc.activeElement = doc.body;
+}
+
 class Node {
   constructor() { this.parentNode = null; this.childNodes = []; this.listeners = {}; }
   get firstChild() { return this.childNodes[0] || null; }
   get children() { return this.childNodes.filter((n) => n instanceof Element); }
   appendChild(child) {
     if (child.isFragment) { child.childNodes.slice().forEach((c) => this.appendChild(c)); return child; }
-    if (child.parentNode) child.parentNode.childNodes.splice(child.parentNode.childNodes.indexOf(child), 1);
+    if (child.parentNode) { child.parentNode.childNodes.splice(child.parentNode.childNodes.indexOf(child), 1); dropFocusIn(child); }
     child.parentNode = this;
     this.childNodes.push(child);
     return child;
@@ -43,8 +49,8 @@ class Node {
     this.childNodes.splice(at ? this.childNodes.indexOf(at) : this.childNodes.length, 0, child);
     return child;
   }
-  get nextSibling() { const all = this.parentNode.childNodes; return all[all.indexOf(this) + 1] || null; }
-  remove() { if (this.parentNode) { this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1); this.parentNode = null; } }
+  get nextSibling() { if (!this.parentNode) return null; const all = this.parentNode.childNodes; return all[all.indexOf(this) + 1] || null; }
+  remove() { if (this.parentNode) { this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1); this.parentNode = null; dropFocusIn(this); } }
   get isConnected() { return doc.contains(this); }
   get children() { return this.childNodes.filter((c) => c instanceof Element); }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
@@ -1072,6 +1078,12 @@ const scenarios = {
       await settle();
       out.steps.push(seen());
     }
+    // The copy's own row focused keeps the focus as its words move on.
+    row().focus();
+    p.copies = [copyAt('importing', 100)];
+    p.tick(5000);
+    await settle();
+    out.rowKeeps = doc.activeElement === first;
     // Another copy in its place: the row that had the focus goes, and the focus goes on, not out.
     row().focus();
     p.copies = [copyAt('downloading', 10, 2)];
