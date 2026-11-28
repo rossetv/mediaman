@@ -92,6 +92,8 @@ _LOOKUP_WAIT_S = 4.0
 
 # How long after it last heard of mediaman a TV may have what it played start again by itself.
 _RESUME_SECONDS = 1800
+# How far past where it last said it was the TV may ask to go on from: it plays on while it is away.
+_RESUME_AHEAD_S = 60.0
 
 # A container is killed some seconds after it is told to stop, and more is to be done in them.
 _SAVE_BUDGET_S = 2.0
@@ -263,6 +265,12 @@ def _refused(request: Request) -> Response:
 
 def _carry_out(players: Players) -> None:
     """Save the places and end the streams that what plays on the TVs has left."""
+    ended = players.drain_ended()
+    if ended:
+        try:
+            repo.end_resume_plays(get_db(), ended)
+        except Exception:
+            logger.exception("tv: could not forget the plays that ended")
     for left in players.drain():
         manager = get_stream_manager()
         # rationale: whatever goes wrong with one, its stream must not go on running, nor the other
@@ -443,6 +451,8 @@ def _resume_ticket(request: Request, players: Players, held: repo.Tv) -> str | N
         "user": play.user,
         "user_id": play.user_id,
         "rating_key": play.rating_key,
+        "play_id": play.id,
+        "place": play.position_s,
         "quality": play.choice.quality,
         "subtitle": play.choice.subtitle,
         "autoplay": play.choice.autoplay,
@@ -470,7 +480,13 @@ def _resume(request: Request, held: repo.Tv, body: _Ask) -> int | Response:
         or not isinstance(rating_key, str)
         or find_user_id(conn, user) != user_id
         or not repo.is_paired(conn, key, user)
-        or not get_players().may_resume(key, str(state.get("boot")), user, rating_key)
+        or not get_players().may_resume(
+            key,
+            str(state.get("boot")),
+            user,
+            rating_key,
+            latest=state.get("play_id") == repo.resume_play(conn, key),
+        )
     ):
         return _refusal(NotPlaying())
     choice = Choice(
@@ -479,12 +495,15 @@ def _resume(request: Request, held: repo.Tv, body: _Ask) -> int | Response:
         autoplay=bool(state.get("autoplay", True)),
     )
     away = max(0.0, now_utc().timestamp() - float(state.get("at") or 0))
+    start_s = body.position_s
+    if start_s is not None:
+        start_s = min(start_s, float(state.get("place") or 0) + _RESUME_AHEAD_S)
     return _start_on(
         request,
         replace(held, owner=user, owner_id=user_id),
         rating_key,
         choice,
-        start_s=body.position_s,
+        start_s=start_s,
         # Anything its person started elsewhere while the TV was away is newer.
         asked_s=min(away, _RESUME_SECONDS),
         paused=body.paused,
@@ -673,6 +692,7 @@ def _start_on(
         )
         command.append(players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed))
         begun.append(play)
+        repo.set_resume_play(conn, key, play.id)
         # Not before: signing out everywhere ends what has begun by then.
         if asked_by is not None and not repo.has_session(conn, asker or user, asked_by):
             with contextlib.suppress(NotPlaying, Stale):

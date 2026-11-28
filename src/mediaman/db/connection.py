@@ -133,6 +133,7 @@ _ADDED_COLUMNS = (
     ("pruned_show_seasons", "tvdb_id", "INTEGER"),
     ("pruned_show_seasons", "plex_library_id", "INTEGER"),
     ("pruned_show_seasons", "given_libraries", "TEXT"),
+    ("tvs", "resume_play_id", "TEXT"),
     ("pruned_progress", "tmdb_id", "INTEGER"),
     ("pruned_progress", "tvdb_id", "INTEGER"),
     ("pruned_watches", "last_tmdb_id", "INTEGER"),

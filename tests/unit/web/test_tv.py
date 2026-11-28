@@ -1327,6 +1327,86 @@ def test_a_tv_that_answers_again_after_its_play_was_dropped_goes_on_and_one_stop
     assert _resume(tv, ticket).status_code == 409
 
 
+def test_only_the_last_play_begun_on_the_tv_and_never_ended_goes_on_after_a_restart(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    stopped = tv.poll("playing", 300)["resume"]
+    _command(amy, home, "stop")
+    _play(amy, home, "102")
+    replaced = tv.poll("playing", 400)["resume"]
+    _play(amy, home, "103")
+    latest = tv.poll("playing", 500)["resume"]
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    assert _resume(tv, stopped).status_code == 409
+    assert _resume(tv, replaced).status_code == 409
+    assert _resume(tv, latest).status_code == 200
+
+
+def test_a_play_stopped_before_the_restart_does_not_go_on(tv, home, amy, monkeypatch, plex, clock):
+    _play(amy, home)
+    ticket = tv.poll("playing", 300)["resume"]
+    _command(amy, home, "stop")
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    assert _resume(tv, ticket).status_code == 409
+
+
+def test_the_tv_goes_on_no_further_than_a_minute_past_where_it_last_said_it_was(
+    tv, home, amy, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    ticket = tv.poll("playing", 300)["resume"]
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    assert _resume(tv, ticket, position_s=5000).status_code == 200
+    assert tv.poll()["play"]["start_s"] == 360
+
+
+def test_nothing_goes_on_where_its_person_now_plays_it_on_another_tv(
+    tv, home, amy, app, monkeypatch, plex, clock
+):
+    _play(amy, home)
+    ticket = tv.poll("playing", 300)["resume"]
+    _restart(monkeypatch, plex, clock)
+    tv.poll()
+    other = Tv(app)
+    den = other.pair(amy)
+    other.poll()
+    assert _play(amy, den).status_code == 200
+    assert _resume(tv, ticket).status_code == 409
+
+
+def test_a_person_removed_and_made_anew_under_the_same_name_has_nothing_go_on(
+    tv, shared, bob, person, conn, monkeypatch, plex, clock
+):
+    _play(bob, shared)
+    ticket = tv.poll("playing", 300)["resume"]
+    _restart(monkeypatch, plex, clock)
+    create_user(conn, "root", "password1234", enforce_policy=False)
+    (old,) = conn.execute("SELECT id FROM admin_users WHERE username='bob'").fetchone()
+    assert delete_user(conn, old, "root")
+    tv.pair(person("bob"))
+    tv.poll()
+    assert _resume(tv, ticket).status_code == 409
+
+
+def test_in_the_same_run_only_the_dropped_persons_dropped_title_goes_on(
+    tv, shared, amy, bob, clock
+):
+    _play(bob, shared)
+    bobs = tv.poll("playing", 300)["resume"]
+    assert _play(amy, shared, "102", confirm=True).status_code == 200
+    other_title = tv.poll("playing", 300)["resume"]
+    assert _play(amy, shared).status_code == 200
+    tv.poll("playing", 300)
+    clock.now += HOLD_SECONDS + 1
+    assert tv.poll()["play"] is None
+    assert _resume(tv, bobs).status_code == 409
+    assert _resume(tv, other_title).status_code == 409
+
+
 def test_no_ticket_is_given_for_a_title_that_is_over(tv, home, amy):
     _play(amy, home)
     assert tv.poll("playing", 300)["resume"]

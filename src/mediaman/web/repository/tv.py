@@ -6,6 +6,7 @@ Only paired TVs count: a row of any other kind in the table is passed over every
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -251,6 +252,33 @@ def leave(conn: sqlite3.Connection, tv: Tv, username: str, *, actor: str, ip: st
             conn, event="tv.left", actor=actor, ip=ip, detail=_which(tv.name, username)
         )
     return True
+
+
+def set_resume_play(conn: sqlite3.Connection, token_hash: str, play_id: str) -> None:
+    """Note *play_id* as what the TV holding the token may go on with after a restart."""
+    with conn:
+        conn.execute(
+            "UPDATE tvs SET resume_play_id = ? WHERE token_hash = ?", (play_id, token_hash)
+        )
+
+
+def end_resume_plays(conn: sqlite3.Connection, play_ids: Sequence[str]) -> None:
+    """Forget the plays, which ended: no restart lets them go on."""
+    if not play_ids:
+        return
+    with conn:
+        conn.executemany(
+            "UPDATE tvs SET resume_play_id = NULL WHERE resume_play_id = ?",
+            [(play_id,) for play_id in play_ids],
+        )
+
+
+def resume_play(conn: sqlite3.Connection, token_hash: str) -> str | None:
+    """The play the TV holding the token may go on with after a restart."""
+    row = conn.execute(
+        "SELECT resume_play_id FROM tvs WHERE token_hash = ?", (token_hash,)
+    ).fetchone()
+    return row[0] if row is not None else None
 
 
 def mark_seen(conn: sqlite3.Connection, tv_id: int, now: datetime) -> None:
