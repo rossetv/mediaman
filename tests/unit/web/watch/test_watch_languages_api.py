@@ -433,3 +433,19 @@ def test_a_search_result_is_taken_once(alice, sonarr, monkeypatch):
 
     assert again.json()["error"] == "search_again"
     assert len(sonarr.grabbed) == 1
+
+
+def test_a_copy_put_in_place_under_the_same_file_id_is_in_once_it_has_the_language(alice, sonarr):
+    _search(alice)
+    body = {"language": "en", "scope": "episode", "index": 0}
+    alice.post("/api/watch/languages/201/audio", json=body)
+    # Replaced at the same path: Plex keeps the file's id, and now has English.
+    ENGLISH["201"] = '<Stream id="13" streamType="2" languageCode="eng"/>'
+    try:
+        copies = alice.get("/api/watch/languages/201").json()["copies"]
+    finally:
+        ENGLISH.clear()
+
+    assert copies == []
+    _search(alice)
+    assert alice.post("/api/watch/languages/201/audio", json=body).status_code == 200

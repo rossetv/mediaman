@@ -312,7 +312,7 @@ def _copies(
                 )
                 progress = _progress(entries)
                 minutes[copy.id] = _minutes_left(entries)
-            elif changed and copy.language in have:
+            elif copy.language in have and (changed or item.rating_key in copy.lacked):
                 language_copies.settle(conn, copy.id, "ready")
                 continue
             elif changed:
@@ -566,6 +566,8 @@ def get_copy(
         season_number=target.season_number,
         episode_id=target.episode_id,
         parts=parts,
+        # Known of the item it was asked from alone: the others' tracks are not read.
+        lacked=[] if body.language in _audio_languages(audio) else [item.rating_key],
         release_languages=found.languages,
         quality=found.quality,
         size_bytes=found.size_bytes,

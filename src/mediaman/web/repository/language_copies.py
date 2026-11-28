@@ -24,6 +24,8 @@ class Asked:
     episode_id: int | None
     #: The file in Plex of the item, or of each episode of its season, when it was asked for.
     parts: dict[str, str]
+    #: Those of them that lacked the language when it was asked for.
+    lacked: frozenset[str]
     release_languages: tuple[str, ...]
     quality: str
     size_bytes: int | None
@@ -44,6 +46,7 @@ def _asked(row: sqlite3.Row) -> Asked:
         season_number=row["season_number"],
         episode_id=row["episode_id"],
         parts=json.loads(row["parts"]),
+        lacked=frozenset(json.loads(row["lacked"])),
         release_languages=tuple(json.loads(row["release_languages"])),
         quality=row["quality"],
         size_bytes=row["size_bytes"],
@@ -65,6 +68,7 @@ def add(
     season_number: int | None,
     episode_id: int | None,
     parts: dict[str, str],
+    lacked: list[str],
     release_languages: tuple[str, ...],
     quality: str,
     size_bytes: int | None,
@@ -79,8 +83,8 @@ def add(
         )
         conn.execute(
             "INSERT INTO language_copies (username, rating_key, season_key, scope, language,"
-            " service, arr_id, season_number, episode_id, parts, release_languages, quality,"
-            " size_bytes, asked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " service, arr_id, season_number, episode_id, parts, lacked, release_languages, quality,"
+            " size_bytes, asked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 username,
                 rating_key,
@@ -92,6 +96,7 @@ def add(
                 season_number,
                 episode_id,
                 json.dumps(parts),
+                json.dumps(lacked),
                 json.dumps(list(release_languages)),
                 quality,
                 size_bytes,
