@@ -788,7 +788,7 @@
     ok.setAttribute('role', 'status');
     box.appendChild(ok);
     box.appendChild(el('p', '', 'What do you call this TV?'));
-    if (p.name === undefined) p.name = p.tv.name === 'TV' ? NAMES[0] : p.tv.name;
+    if (p.name === undefined) p.name = p.tv.name === 'TV' ? firstFree(p.tv) : p.tv.name;
     var pills = el('div', 'pill-row');
     var input = el('input', 'inp');
     function paint() {
@@ -797,6 +797,7 @@
         b.classList.toggle('on', on);
         b.setAttribute('aria-pressed', String(on));
       });
+      if (why && !p.why) why.textContent = repeats(p);
     }
     NAMES.forEach(function (n) {
       var b = button('fpill', n, function () { input.value = p.name = n; paint(); });
@@ -808,13 +809,30 @@
     input.setAttribute('maxlength', '40');
     input.setAttribute('data-key', 'name');
     input.value = p.name;
-    input.addEventListener('input', function () { p.name = input.value; paint(); });
     box.appendChild(input);
-    var why = el('p', 'play-on__why' + (p.bad ? ' is-bad' : ''), p.why || '');
+    var why = el('p', 'play-on__why' + (p.bad ? ' is-bad' : ''), p.why || repeats(p));
     why.setAttribute('role', 'status');
     box.appendChild(why);
+    input.addEventListener('input', function () { p.name = input.value; paint(); });
     addKeyed(box, 'play', 'btn btn--primary', 'Play on this TV', function () { playOnPaired(p); });
     paint();
+  }
+
+  function sameName(a, b) {
+    // The server keeps a name with its runs of spaces made one.
+    return a.split(/\s+/).join(' ').trim().toLowerCase() === b.split(/\s+/).join(' ').trim().toLowerCase();
+  }
+  /* Whether another of the person's TVs has the name already. */
+  function nameTaken(tv, name) {
+    return (tvs || []).some(function (other) { return other.id !== tv.id && sameName(other.name, name); });
+  }
+  function firstFree(tv) {
+    var pick = NAMES[0];
+    for (var n = 2; nameTaken(tv, pick); n++) pick = NAMES[0] + ' ' + n;
+    return pick;
+  }
+  function repeats(p) {
+    return nameTaken(p.tv, p.name) ? 'You already have a TV with this name. You can still use it.' : '';
   }
 
   function playOnPaired(p) {
