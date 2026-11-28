@@ -643,15 +643,22 @@ def test_a_film_that_stops_for_a_moment_shows_nothing_new_over_it() -> None:
     assert "Waiting" not in early["screen"]
 
 
-def test_a_short_wait_is_a_pill_over_the_films_own_picture_and_ends_saying_it_is_back() -> None:
+def test_a_short_wait_is_a_pill_over_the_films_own_picture_and_goes_quietly_when_it_ends() -> None:
     out = _run("waits", "3000")
     assert (out["pill"]["pill"], out["pill"]["says"]) == ("nw on", "Waiting for the network")
     # The picture stays, held as it was, and nothing darkens it.
     assert out["pill"]["dim"] == "wl" and out["pill"]["frame"] == "on"
-    assert (out["back"]["pill"], out["back"]["says"]) == ("nw on ok", "Back online")
+    assert out["back"]["pill"] == "nw" and "Back online" not in out["back"]["says"]
     # The film plays on as it was: its controls stay away, and the held picture gives way to it.
     assert out["back"]["ov"] == "ov hide" and out["back"]["frame"] == ""
-    assert out["after"]["pill"] == "nw ok"
+    assert out["after"]["pill"] == "nw" and "Back online" not in out["after"]["says"]
+
+
+def test_no_back_online_word_shows_once_the_network_is_back() -> None:
+    out = _run("waits", "3000")
+    for moment in ("back", "after"):
+        assert "online" not in out[moment]["says"].lower()
+        assert not out[moment]["pill"].startswith("nw on")
 
 
 def test_only_a_long_wait_darkens_the_film_and_it_clears_as_the_film_comes_back() -> None:
@@ -661,14 +668,14 @@ def test_only_a_long_wait_darkens_the_film_and_it_clears_as_the_film_comes_back(
     assert (out["mid"]["dim"], out["mid"]["pill"]) == ("wl", "nw on")
     assert out["long"]["dim"] == "wl on" and out["long"]["pill"] == "nw"
     assert out["back"]["dim"] is None and 'id="wl"' in out["back"]["left"]
-    assert out["back"]["pill"] == "nw on ok" and out["after"]["pill"] == "nw ok"
+    assert out["back"]["pill"] == "nw" and out["after"]["pill"] == "nw"
 
 
 @pytest.mark.parametrize("how", ["network", "restart"])
 def test_a_film_picked_up_again_waits_over_its_own_last_picture(how: str) -> None:
     out = _run("resumes", how)
     assert out["held"] == "on" and "Picking up" in out["said"]
-    assert out["freed"] == "" and out["pill"] == "nw on ok" and "Picking up" not in out["now"]
+    assert out["freed"] == "" and out["pill"] == "nw" and "Picking up" not in out["now"]
 
 
 def test_the_wait_over_a_film_moves_only_what_a_weak_tv_draws_smoothly_and_stills_for_reduced_motion() -> (
