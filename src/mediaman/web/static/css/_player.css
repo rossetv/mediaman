@@ -1739,6 +1739,21 @@
 .lp-ver-go { position: absolute; right: 14px; top: 50%; margin-top: -6px; font-size: 12px; color: var(--t3); }
 
 /* ── Confirm, on its way ── */
+/* Its middle scrolls where the glass is too short for it, as on a phone on its side; the answer
+   below it stays in reach at the foot. */
+.lp-scroll {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+  mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+}
+.lp-scroll.has-more-above { --above: 20px; }
+.lp-scroll.has-more-below { --below: 20px; }
+.lp-scroll > .lp-facts:last-child, .lp-scroll > .lp-confirm-note:last-child { padding-bottom: 4px; }
 .lp-facts { flex: none; list-style: none; margin: 12px 0 0; padding: 0 12px; display: grid; gap: 10px; font-size: 14px; line-height: 1.45; color: var(--t2); }
 .lp-facts li { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: baseline; text-wrap: pretty; }
 .lp-facts .ico { font-size: 13px; color: var(--t3); }
@@ -1783,7 +1798,8 @@
 .lp-langs-words { color: var(--t1); }
 .lp-langs-add { min-height: 44px; margin: -12px 0; padding: 0 6px; border-radius: var(--r-sm); font-size: 14px; font-weight: 600; color: var(--g-accent-text); }
 .lp-langs-add:focus-visible { outline: 2px solid var(--g-focus); outline-offset: -4px; }
-/* Over the title's glass it is solid, so no more than two blurred layers stack. */
+/* Glass, as the chooser is in the player and as the title's other sheets are: what is on the page
+   under it is blurred away, never left to show through its words. */
 .player-av.lp-dialog {
   position: fixed;
   top: 14vh;
@@ -1793,9 +1809,6 @@
   z-index: calc(var(--z-modal) + 10);
   width: 520px;
   margin-left: -260px;
-  background: var(--g-solid);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
   --pop-y: 10px;
 }
 .player-av-veil.lp-dialog-veil { display: block; position: fixed; inset: 0; z-index: calc(var(--z-modal) + 9); background: var(--g-dim); animation: tv-fade var(--dur-slow) var(--ease-out); }
@@ -1840,7 +1853,10 @@
 /* ── A copy on its way that is not yet moving, one that came without its language ── */
 .lp-pending-bar.is-waiting i { transform: scaleX(.18); }
 @keyframes lp-wait { from { translate: -20% 0; } to { translate: 470% 0; } }
-.lp-pending--lacks .lp-pending-line { color: var(--g-warning-text); }
+.lp-pending--lacks .lp-pending-line, .lp-pending--stuck .lp-pending-line { color: var(--g-warning-text); }
+.lp-pending--stuck .lp-pending-bar i { background: var(--g-warning-text); }
+.lp-pending.lp-pending--stuck .lp-pending-ico { color: var(--g-warning-text); animation: none; }
+.lp-pending-bar[hidden], .lp-pct[hidden] { display: none; }
 .lp-confirm-note { flex: none; margin: 12px 12px 0; font-size: 13px; line-height: 1.45; color: var(--g-warning-text); }
 .lp-confirm-note[hidden] { display: none; }
 .lp-results[hidden] { display: none; }

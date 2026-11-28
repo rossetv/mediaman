@@ -43,6 +43,23 @@
     list.classList.toggle('has-more-below', list.scrollTop + list.clientHeight < list.scrollHeight - 1);
   }
 
+  /* The middle of a view, which scrolls where the glass is too short for it. */
+  function scroller(v) {
+    var body = el('div', 'lp-scroll');
+    body.addEventListener('scroll', function () { fadeEnds(body); });
+    v.appendChild(body);
+    return body;
+  }
+
+  /* Scrolls *within* so that *what* is in sight, and nothing around it. */
+  function reveal(what, within) {
+    if (!what.getBoundingClientRect || !within.getBoundingClientRect) return;
+    var r = what.getBoundingClientRect();
+    var s = within.getBoundingClientRect();
+    if (r.bottom > s.bottom) within.scrollTop += Math.min(r.bottom - s.bottom, r.top - s.top);
+    else if (r.top < s.top) within.scrollTop -= s.top - r.top;
+  }
+
   function sizeText(bytes) {
     if (!bytes) return '';
     if (bytes >= 1e9) return (bytes / 1e9).toFixed(bytes >= 1e10 ? 0 : 1) + ' GB';
@@ -107,17 +124,47 @@
       return asking;
     }
 
+    /* Each answer is drawn into what is shown, in place: the focus and the scroll stay where they
+       are while a copy comes. */
     function take(data) {
-      var before = info ? JSON.stringify(info.copies) : null;
       info = data;
       BY = {};
       all().forEach(function (l) { BY[l.code] = l; });
-      if (before !== JSON.stringify(info.copies)) ctx.menuChanged();
+      placeRows();
       tick();
       keepFollowing();
     }
 
-    function onTheWay() { return ((info && info.copies) || []).filter(function (c) { return c.status !== 'lacks'; }); }
+    function copies() { return (info && info.copies) || []; }
+    function copyOf(id) { return copies().filter(function (c) { return c.id === id; })[0] || null; }
+    /* One that will not come as it is: looked for again from its row. */
+    function again(c) { return c.status === 'lacks' || c.status === 'failed'; }
+    function onTheWay() { return copies().filter(function (c) { return !again(c); }); }
+
+    /* The menu's rows of copies, one a copy, in the order given: a new one put in before Get
+       another language, one gone taken out, the focus it had passed to the row after it. */
+    function placeRows() {
+      var get = MM.dom.qa('[data-lp-get]')[0];
+      if (!get || !get.parentNode) return;
+      var col = get.parentNode;
+      var ids = copies().map(function (c) { return String(c.id); });
+      MM.dom.qa('.lp-pending[data-copy]', col).forEach(function (r) {
+        if (ids.indexOf(r.getAttribute('data-copy')) >= 0) return;
+        if (r === document.activeElement) {
+          var next = r.nextSibling;
+          while (next && next.classList.contains('lp-pending') && ids.indexOf(next.getAttribute('data-copy')) < 0) next = next.nextSibling;
+          (next || get).focus({ preventScroll: true });
+        }
+        r.remove();
+      });
+      /* A row already where it belongs is not moved: moving it would take the focus off it. */
+      var anchor = get;
+      copies().slice().reverse().forEach(function (c) {
+        var r = col.querySelector('.lp-pending[data-copy="' + c.id + '"]') || pendingRow(c);
+        if (r.nextSibling !== anchor) col.insertBefore(r, anchor);
+        anchor = r;
+      });
+    }
 
     function keepFollowing() {
       clearTimeout(follow);
@@ -126,17 +173,36 @@
       follow = setTimeout(function () { ask().catch(function () { keepFollowing(); }); }, FOLLOW_MS);
     }
 
-    /* The numbers of each copy on its way, where they are drawn. */
+    /* How each copy is getting on, wherever it is drawn: its row in the menu, its card. */
     function tick() {
-      ((info && info.copies) || []).forEach(function (c) {
+      copies().forEach(function (c) {
         MM.dom.qa('[data-copy="' + c.id + '"]').forEach(function (n) {
-          var pct = c.progress == null ? 0 : c.progress;
-          n.style.setProperty('--p', pct);
-          MM.dom.qa('.lp-pct', n).forEach(function (p) { p.textContent = pct + '%'; });
-          MM.dom.qa('.lp-state', n).forEach(function (p) { p.textContent = statusText(c); });
-          MM.dom.qa('.lp-left', n).forEach(function (p) { p.textContent = leftText(c); });
+          n.style.setProperty('--p', c.progress == null ? 0 : c.progress);
+          MM.dom.qa('.lp-line', n).forEach(function (line) { writeLine(line, c); });
+          if (n.classList.contains('lp-pending')) fillRow(n, c);
         });
       });
+    }
+
+    function showsPct(c) { return c.status === 'downloading' && c.progress != null; }
+
+    /* The words of a copy's line: how it is, how far, how long it has left. */
+    function writeLine(line, c) {
+      line.querySelector('.lp-state').textContent = statusText(c) + (showsPct(c) ? ' · ' : '');
+      var pct = line.querySelector('.lp-pct');
+      pct.textContent = showsPct(c) ? c.progress + '%' : '';
+      pct.hidden = !showsPct(c);
+      line.querySelector('.lp-left').textContent = leftText(c);
+    }
+
+    function lineOf(cls, pctTag) {
+      var line = span(cls + ' lp-line');
+      line.appendChild(span('lp-state'));
+      var pct = el(pctTag || 'span', 'lp-pct');
+      pct.hidden = true;
+      line.appendChild(pct);
+      line.appendChild(span('lp-left'));
+      return line;
     }
 
     function leftText(c) {
@@ -144,11 +210,21 @@
       return c.minutes_left < 1 ? ' · under a minute left' : ' · about ' + c.minutes_left + ' min left';
     }
 
+    function service() { return episode() ? 'Sonarr' : 'Radarr'; }
+
     function statusText(c) {
-      if (c.status === 'downloading') return c.progress == null ? 'On its way' : 'On its way · ';
+      if (c.status === 'downloading') return 'On its way';
       if (c.status === 'importing') return 'Almost in · being put in place';
+      if (c.status === 'stuck') return 'Stuck · ' + service() + ' won’t put it in place';
+      if (c.status === 'failed') return 'Didn’t download · look for another';
       if (c.status === 'lacks') return 'Came without it · look again';
       return 'Asked for · waiting to start';
+    }
+
+    function spoken(c) {
+      if (c.status === 'lacks') return en(c.language) + ' audio: the new copy came without it. Look for another.';
+      if (c.status === 'failed') return en(c.language) + ' audio: the new copy didn’t download. Look for another.';
+      return en(c.language) + ' audio, ' + statusText(c).replace(' · ', ', ') + (showsPct(c) ? ', ' + c.progress + ' percent' : '') + '. Show progress.';
     }
 
     /* ── The menu's rows ── */
@@ -168,37 +244,53 @@
     }
 
     function pendingRow(c) {
-      var b = button('lp-pending' + (c.status === 'lacks' ? ' lp-pending--lacks' : ''));
-      b.setAttribute('data-copy', c.id);
-      b.style.setProperty('--p', c.progress || 0);
+      var b = button('lp-pending');
+      var id = c.id;
+      b.setAttribute('data-copy', id);
       var words = span('player-av-text');
       words.appendChild(span('player-av-main', own(c.language)));
-      var sub = span('player-av-sub lp-pending-line');
-      sub.appendChild(span('lp-state', statusText(c)));
-      if (c.status === 'downloading' && c.progress != null) sub.appendChild(span('lp-pct', c.progress + '%'));
-      sub.appendChild(span('lp-left', leftText(c)));
-      words.appendChild(sub);
-      if (c.status !== 'lacks') {
-        var bar = span('lp-pending-bar' + (c.progress == null ? ' is-waiting' : ''));
-        bar.appendChild(el('i'));
-        words.appendChild(bar);
-      }
+      var line = lineOf('player-av-sub lp-pending-line');
+      words.appendChild(line);
+      var bar = span('lp-pending-bar');
+      bar.appendChild(el('i'));
+      words.appendChild(bar);
       b.appendChild(words);
-      b.appendChild(icon(c.status === 'lacks' ? 'i-chevron-right' : 'i-arrow-down', 'lp-pending-ico'));
-      b.setAttribute('aria-label', c.status === 'lacks'
-        ? en(c.language) + ' audio: the new copy came without it. Look for another.'
-        : en(c.language) + ' audio, ' + statusText(c).replace(' · ', ', ') + (c.progress != null && c.status === 'downloading' ? c.progress + ' percent' : '') + '. Show progress.');
+      b.style.setProperty('--p', c.progress == null ? 0 : c.progress);
+      writeLine(line, c);
+      fillRow(b, c);
+      /* What the copy is when it is pressed, not when the row was made. */
       b.addEventListener('click', function (e) {
         e.stopPropagation();
-        if (c.status === 'lacks') ctx.push(audioView(c.language, c.scope === 'season' ? 'season' : episode() ? 'episode' : 'movie'));
-        else ctx.push(onwayView(c));
+        var now = copyOf(id) || c;
+        if (again(now)) ctx.push(audioView(now.language, now.scope === 'season' ? 'season' : episode() ? 'episode' : 'movie'));
+        else ctx.push(onwayView(now));
       });
       return b;
     }
 
+    /* The row's look by how the copy is: one to look for again, or one stuck, says so in amber. */
+    function fillRow(b, c) {
+      b.classList.toggle('lp-pending--lacks', again(c));
+      b.classList.toggle('lp-pending--stuck', c.status === 'stuck');
+      var bar = b.querySelector('.lp-pending-bar');
+      bar.hidden = again(c);
+      bar.classList.toggle('is-waiting', c.progress == null && c.status !== 'stuck');
+      var want = again(c) ? 'i-chevron-right' : 'i-arrow-down';
+      var ico = b.querySelector('.lp-pending-ico');
+      if (!ico || ico.getAttribute('data-ico') !== want) {
+        var next = icon(want, 'lp-pending-ico');
+        next.setAttribute('data-ico', want);
+        b.insertBefore(next, ico);
+        if (ico) ico.remove();
+      }
+      b.setAttribute('aria-label', spoken(c));
+    }
+
     function audioRows() {
-      var rows = ((info && info.copies) || []).map(pendingRow);
-      rows.push(more('Get another language…', 'A new copy · can take hours', 'i-plus', function () { ctx.push(langsView('audio')); }));
+      var rows = copies().map(pendingRow);
+      var get = more('Get another language…', 'A new copy · can take hours', 'i-plus', function () { ctx.push(langsView('audio')); });
+      get.setAttribute('data-lp-get', '');
+      rows.push(get);
       return rows;
     }
 
@@ -842,18 +934,20 @@
       var v = el('div', 'lp-confirm-view');
       var alive = true;
       v.appendChild(head('Get ' + shortName(code) + ' audio?', 'Back to the copies'));
-      v.appendChild(copyCard(ver, code, 0, found.have || {}, true));
+      /* What it says scrolls, and the answer stays at the foot of the glass however short it is. */
+      var body = scroller(v);
+      body.appendChild(copyCard(ver, code, 0, found.have || {}, true));
       var ul = el('ul', 'lp-facts');
       function li(ic, text, cls) { var x = el('li', cls || ''); x.appendChild(icon(ic)); x.appendChild(span('', text)); ul.appendChild(x); }
       li('i-download', 'Downloads ' + (sizeText(ver.size_bytes) || 'it') + (ver.indexer ? ' from ' + ver.indexer : '') + '. That takes minutes to hours.');
       li('i-play', 'What you have keeps playing until the new copy is in. Then it takes its place, for everyone here.');
       var gone = (ver.loses || []).map(shortName);
       if (gone.length) li('i-triangle-exclamation', andList(gone) + ' audio goes with the old copy. ' + found.service + ' keeps one copy of each ' + thing() + '.', 'lp-warn');
-      v.appendChild(ul);
+      body.appendChild(ul);
       var note = el('p', 'lp-confirm-note');
       note.setAttribute('role', 'alert');
       note.hidden = true;
-      v.appendChild(note);
+      body.appendChild(note);
       var acts = el('div', 'lp-acts lp-acts--end');
       var no = button('player-pill lp-act', 'Back');
       no.addEventListener('click', function (e) { e.stopPropagation(); ctx.back(); });
@@ -875,6 +969,7 @@
           yes.disabled = no.disabled = false;
           yes.textContent = ver.season_pack ? 'Get the season' : 'Get this copy';
           note.hidden = false;
+          requestAnimationFrame(function () { reveal(note, body); });
           note.textContent = err && err.status === 429
             ? 'Too many downloads asked for just now. Try again in a minute.'
             : err && err.error === 'search_again'
@@ -887,13 +982,15 @@
       acts.appendChild(no);
       acts.appendChild(yes);
       v.appendChild(acts);
-      return { el: v, label: 'Get ' + shortName(code) + ' audio?', gone: function () { alive = false; } };
+      return { el: v, label: 'Get ' + shortName(code) + ' audio?', gone: function () { alive = false; }, after: function () { fadeEnds(body); } };
     }
 
     function onwayView(c) {
       var s = st();
       var v = el('div', 'lp-onway-view');
-      v.appendChild(head(shortName(c.language) + ' audio', 'Back to Audio & subtitles'));
+      var page = ctx.onPage();
+      v.appendChild(head(shortName(c.language) + ' audio', page ? 'Back to Add a language' : 'Back to Audio & subtitles'));
+      var body = scroller(v);
       var dw = el('div', 'dw lp-dw');
       dw.setAttribute('data-copy', c.id);
       dw.style.setProperty('--p', c.progress || 0);
@@ -910,10 +1007,8 @@
       }
       var text = span('dw__text');
       text.appendChild(span('dw__title', s.title + (c.scope === 'season' ? ' · ' + seasonName() : '')));
-      var line = span('dw__line');
-      line.appendChild(span('lp-state', statusText(c)));
-      if (c.status === 'downloading' && c.progress != null) line.appendChild(el('strong', 'lp-pct', c.progress + '%'));
-      line.appendChild(span('lp-left', leftText(c)));
+      var line = lineOf('dw__line', 'strong');
+      writeLine(line, c);
       text.appendChild(line);
       text.appendChild(span('dw__fix', 'With ' + andList((c.release_languages || []).map(shortName)) + ' audio' + (c.quality ? ' · ' + c.quality : '')));
       a.appendChild(text);
@@ -921,19 +1016,20 @@
       bar.appendChild(el('i'));
       a.appendChild(bar);
       dw.appendChild(a);
-      v.appendChild(dw);
+      body.appendChild(dw);
       var ul = el('ul', 'lp-facts');
       function li(ic, t) { var x = el('li'); x.appendChild(icon(ic)); x.appendChild(span('', t)); ul.appendChild(x); }
-      li('i-play', 'Keep watching. This copy plays until the new one is in.');
-      li('i-download', 'You’ll find it in Downloads too, and here under Audio until it’s done.');
-      v.appendChild(ul);
+      /* Over the title's page nothing plays yet, and its menu of copies is the player's. */
+      li('i-play', page ? 'What you have plays until the new copy is in.' : 'Keep watching. This copy plays until the new one is in.');
+      li('i-download', page ? 'You’ll find it in Downloads too, and in the player under Audio until it’s done.' : 'You’ll find it in Downloads too, and here under Audio until it’s done.');
+      body.appendChild(ul);
       var acts = el('div', 'lp-acts lp-acts--end');
       var done = button('player-pill player-pill--primary lp-act', 'Done');
       done.setAttribute('data-first', '');
       done.addEventListener('click', function (e) { e.stopPropagation(); ctx.home(); });
       acts.appendChild(done);
       v.appendChild(acts);
-      return { el: v, label: shortName(c.language) + ' audio, on its way' };
+      return { el: v, label: shortName(c.language) + ' audio, on its way', after: function () { fadeEnds(body); } };
     }
 
     /* ── From the title page: which kind first ── */

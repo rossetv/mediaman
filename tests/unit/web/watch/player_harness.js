@@ -28,13 +28,19 @@ function decode(s) {
     .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
+/* As in a browser, a node taken out of the page, even to be put back at once, takes the focus
+   with it. */
+function dropFocusIn(node) {
+  if (doc && doc.activeElement && node.contains(doc.activeElement)) doc.activeElement = doc.body;
+}
+
 class Node {
   constructor() { this.parentNode = null; this.childNodes = []; this.listeners = {}; }
   get firstChild() { return this.childNodes[0] || null; }
   get children() { return this.childNodes.filter((n) => n instanceof Element); }
   appendChild(child) {
     if (child.isFragment) { child.childNodes.slice().forEach((c) => this.appendChild(c)); return child; }
-    if (child.parentNode) child.parentNode.childNodes.splice(child.parentNode.childNodes.indexOf(child), 1);
+    if (child.parentNode) { child.parentNode.childNodes.splice(child.parentNode.childNodes.indexOf(child), 1); dropFocusIn(child); }
     child.parentNode = this;
     this.childNodes.push(child);
     return child;
@@ -45,8 +51,8 @@ class Node {
     this.childNodes.splice(at ? this.childNodes.indexOf(at) : this.childNodes.length, 0, child);
     return child;
   }
-  get nextSibling() { const all = this.parentNode.childNodes; return all[all.indexOf(this) + 1] || null; }
-  remove() { if (this.parentNode) { this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1); this.parentNode = null; } }
+  get nextSibling() { if (!this.parentNode) return null; const all = this.parentNode.childNodes; return all[all.indexOf(this) + 1] || null; }
+  remove() { if (this.parentNode) { this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1); this.parentNode = null; dropFocusIn(this); } }
   get isConnected() { return doc.contains(this); }
   get children() { return this.childNodes.filter((c) => c instanceof Element); }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
@@ -1019,13 +1025,13 @@ function languagesServer(p) {
         { languages: ['pt'], quality: 'WEBDL-720p', size_bytes: 5e8, age_days: 900, indexer: 'Nyaa', season_pack: false, loses: ['en', 'de'] },
       ] });
     }
-    return Promise.resolve({ kind: 'episode', season: 1, languages: LANGS, subtitle_default: null, recent: [], household_subtitles: ['fr'], household_audio: [], have: { languages: ['en', 'de'] }, copies: [] });
+    return Promise.resolve({ kind: 'episode', season: 1, languages: LANGS, subtitle_default: null, recent: [], household_subtitles: ['fr'], household_audio: [], have: { languages: ['en', 'de'] }, copies: JSON.parse(JSON.stringify(p.copies || [])) });
   };
   api.post = (url, body) => {
     if (!/\/api\/watch\/languages\//.test(url)) return post(url, body);
     asked.push('POST ' + url + ' ' + JSON.stringify(body));
     if (/\/subtitles$/.test(url)) return Promise.resolve({ subtitle: '99' });
-    return new Promise((r) => { p.grabbed = () => r({ copies: [{ id: 1, language: 'pt', scope: 'episode', status: 'downloading', progress: 34, minutes_left: 12, release_languages: ['pt'], quality: 'WEBDL-720p' }] }); });
+    return new Promise((r) => { p.grabbed = () => r({ copies: p.copies || [{ id: 1, language: 'pt', scope: 'episode', status: 'downloading', progress: 34, minutes_left: 12, release_languages: ['pt'], quality: 'WEBDL-720p' }] }); });
   };
   return asked;
 }
@@ -1045,7 +1051,112 @@ const box = (p) => p.q('[data-tracks]').querySelector('.player-av');
 const codes = (p) => box(p).querySelectorAll('.lp-opt').map((o) => o.getAttribute('data-code'));
 async function onward(p) { p.tick(400); await settle(); }
 
+/* A Portuguese copy on its way, as each answer of the server has it. */
+function copyAt(status, progress, id) {
+  return { id: id || 1, language: 'pt', scope: 'episode', status: status, progress: progress == null ? null : progress, minutes_left: status === 'downloading' ? 12 : null, release_languages: ['pt'], quality: 'WEBDL-720p' };
+}
+
 const scenarios = {
+  /* While a copy comes, each answer of the server is drawn into the open menu in place: the row,
+     the focus and the scroll are those the person left, and only the words move on. */
+  async languages_follow(p) {
+    p.copies = [copyAt('waiting')];
+    await languagesOpen(p);
+    const doc = p.win.document;
+    const row = () => box(p).querySelector('.lp-pending');
+    const cols = box(p).querySelector('.player-av-cols');
+    const french = box(p).querySelector('[data-subtitle]');
+    french.focus();
+    cols.scrollTop = 173;
+    const first = row();
+    const seen = () => ({
+      same: row() === first, focus: doc.activeElement === french, scroll: cols.scrollTop,
+      line: row().querySelector('.lp-pending-line').textContent, label: row().getAttribute('aria-label'),
+      waiting: row().querySelector('.lp-pending-bar').classList.contains('is-waiting'),
+    });
+    const out = { steps: [seen()] };
+    for (const next of [[copyAt('downloading', 34)], [copyAt('downloading', 61)], [copyAt('importing', 99)]]) {
+      p.copies = next;
+      p.tick(5000);
+      await settle();
+      out.steps.push(seen());
+    }
+    // The copy's own row focused keeps the focus as its words move on.
+    row().focus();
+    p.copies = [copyAt('importing', 100)];
+    p.tick(5000);
+    await settle();
+    out.rowKeeps = doc.activeElement === first;
+    // Another copy in its place: the row that had the focus goes, and the focus goes on, not out.
+    row().focus();
+    p.copies = [copyAt('downloading', 10, 2)];
+    p.tick(5000);
+    await settle();
+    out.swapped = { rows: box(p).querySelectorAll('.lp-pending').map((r) => r.getAttribute('data-copy')), focus: doc.activeElement.hasAttribute('data-lp-get'), scroll: cols.scrollTop };
+    p.copies = [copyAt('failed', null, 2)];
+    p.tick(5000);
+    await settle();
+    out.failed = { line: row().querySelector('.lp-pending-line').textContent, again: row().classList.contains('lp-pending--lacks'), bar: row().querySelector('.lp-pending-bar').hidden };
+    click(row());
+    await onward(p);
+    out.failedOpens = box(p).getAttribute('aria-label');
+    return out;
+  },
+
+  /* A copy asked for that starts once its card is up: its percentage comes in beside how it is. */
+  async languages_onway_starts(p) {
+    p.copies = [copyAt('waiting')];
+    await languagesOpen(p);
+    click(box(p).querySelectorAll('.lp-more')[0]);
+    await settle();
+    click(box(p).querySelector('.lp-opt[data-code="pt"]'));
+    await onward(p);
+    click(box(p).querySelectorAll('.lp-ver')[0]);
+    await settle();
+    click(box(p).querySelector('.lp-act.player-pill--primary'));
+    p.grabbed();
+    await onward(p);
+    const line = () => box(p).querySelector('.dw__line').textContent;
+    const out = { before: line() };
+    p.copies = [copyAt('downloading', 34)];
+    p.tick(5000);
+    await settle();
+    out.after = line();
+    return out;
+  },
+
+  /* Subtitles just added at the end of a long list: the list is scrolled to show them ticked, and
+     stays so once the player is told of them. */
+  async languages_added_seen(p) {
+    const proto = Object.getPrototypeOf(p.q('[data-tracks]'));
+    Object.defineProperty(proto, 'scrollTop', { configurable: true, get() { return this.scrolled || 0; }, set(v) { this.scrolled = v; } });
+    const isList = (e) => e.classList.contains('player-av-list');
+    const list = (e) => { while (e && !isList(e)) e = e.parentNode; return e; };
+    Object.defineProperty(proto, 'scrollHeight', { configurable: true, get() { return isList(this) ? 800 : 0; } });
+    Object.defineProperty(proto, 'clientHeight', { configurable: true, get() { return isList(this) ? 400 : 0; } });
+    const rect = proto.getBoundingClientRect;
+    proto.getBoundingClientRect = function () {
+      if (isList(this)) return { top: 0, bottom: 400, left: 0, width: 1000, height: 400 };
+      if (this.classList.contains('lp-fresh')) { const at = 700 - (list(this).scrollTop || 0); return { top: at, bottom: at + 52, left: 0, width: 1000, height: 52 }; }
+      return rect.call(this);
+    };
+    await languagesOpen(p);
+    // Kept or not, the player's word on the title comes back and the menu is drawn anew.
+    p.held.put = 'fails';
+    click(box(p).querySelectorAll('.lp-more')[1]);
+    await settle();
+    click(box(p).querySelector('.lp-opt[data-code="pt"]'));
+    await onward(p);
+    click(box(p).querySelector('.lp-res'));
+    await onward(p);
+    const fresh = () => box(p).querySelector('.lp-fresh');
+    const out = { added: list(fresh()).scrollTop, redrawn: p.calls.filter((c) => /\/api\/watch\/tracks\//.test(c.url)).length };
+    p.tick(2000);
+    await settle();
+    out.later = fresh() ? list(fresh()).scrollTop : null;
+    return out;
+  },
+
   /* Subtitles in another language: the list, its search, Escape back, and an add that plays. */
   async languages_subtitles(p) {
     const asked = await languagesOpen(p);
@@ -1088,6 +1199,9 @@ const scenarios = {
     await settle();
     out.warning = box(p).querySelector('.lp-warn').textContent;
     const yes = box(p).querySelector('.lp-act.player-pill--primary');
+    const scroll = box(p).querySelector('.lp-scroll');
+    out.scrolls = scroll ? scroll.children.map((c) => c.className.split(' ')[0]) : [];
+    out.answerScrolls = !!yes.closest('.lp-scroll');
     click(yes);
     click(yes);
     out.sending = yes.disabled;
