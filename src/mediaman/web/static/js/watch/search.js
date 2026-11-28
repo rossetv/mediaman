@@ -837,7 +837,7 @@
       var b = option(el('button', 'watch-tile' + (fav ? ' watch-tile--fav' : '')), 'genre-' + genre.id);
       b.type = 'button';
       b.appendChild(explore.icon(genre.id));
-      var name = el('b', '', genre.name);
+      var name = el('b', '', genre.short || genre.name);
       if (fav) {
         var text = b.appendChild(el('span', 'watch-tile__text'));
         text.appendChild(name);
@@ -845,6 +845,7 @@
         b.setAttribute('aria-label', genre.name + ', one of your favourites');
       } else {
         b.appendChild(name);
+        b.setAttribute('aria-label', genre.name);
       }
       b.addEventListener('click', function () { explore.openGenre(genre.id, {}, name); });
       return staged(b, 40 + (i % 4 + Math.floor(i / 4)) * 24);

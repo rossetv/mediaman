@@ -7,7 +7,10 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from tests.helpers.node_batch import run_node
+from tests.unit.web._css import style
 
 HARNESS = Path(__file__).parent / "js" / "watch_search_harness.js"
 
@@ -1673,6 +1676,24 @@ def test_categories_stand_in_the_person_s_order_and_none_is_left_out() -> None:
         ["comedy", "You watch a lot", "Comedy, one of your favourites"],
         ["anime", "You watch a lot", "Anime, one of your favourites"],
     ]
+
+
+def test_a_category_tile_shows_its_short_name_and_is_still_called_by_its_full_one() -> None:
+    tiles = _run("forYou")["withAi"]["tiles"]
+    assert tiles["science-fiction"] == ["Sci-fi", "Science Fiction"]
+    assert tiles["drama"] == ["Drama", "Drama"]
+    assert tiles["comedy"] == ["Comedy", "Comedy, one of your favourites"]
+
+
+@pytest.mark.parametrize("name", [".watch-tile > b", ".watch-tile__text > b"])
+def test_a_category_tile_s_name_never_wraps_and_trails_off_when_it_must(name: str) -> None:
+    rule = style(name, "_watch_search.css")
+    assert (rule["white-space"], rule["overflow"], rule["text-overflow"]) == (
+        "nowrap",
+        "hidden",
+        "ellipsis",
+    )
+    assert "overflow-wrap" not in rule
 
 
 def test_a_new_person_is_given_plain_searches_and_told_why_with_the_usual_order() -> None:

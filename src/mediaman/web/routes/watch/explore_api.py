@@ -162,6 +162,7 @@ def _genres(conn: sqlite3.Connection, client: TmdbClient | None) -> JSONResponse
                 {
                     "id": g.id,
                     "name": g.name,
+                    "short": g.short or g.name,
                     "aliases": list(g.aliases),
                     "types": g.types,
                     "poster_urls": posters.get(g.id, []),

@@ -265,6 +265,15 @@ class TestGenres:
         assert len(body["genres"]) == len(catalog.GENRES)
         assert not body["tmdb_configured"]
 
+    def test_a_long_category_has_a_short_name_for_its_tile(self, viewer, no_tmdb):
+        genres = {g["id"]: g for g in viewer.get(EXPLORE).json()["genres"]}
+
+        assert (genres["science-fiction"]["name"], genres["science-fiction"]["short"]) == (
+            "Science Fiction",
+            "Sci-fi",
+        )
+        assert (genres["drama"]["name"], genres["drama"]["short"]) == ("Drama", "Drama")
+
 
 def _person(*cast, **fields):
     return {

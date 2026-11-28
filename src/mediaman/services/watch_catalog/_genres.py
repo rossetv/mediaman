@@ -10,13 +10,15 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class Genre:
     """*movie* and *tv* are TMDB's genre ids, None where it has no such genre; *aliases*
-    are other words people type for it."""
+    are other words people type for it; *short* is what a category tile shows where the name
+    is too wide for one line of it."""
 
     id: str
     name: str
     movie: int | None
     tv: int | None
     aliases: tuple[str, ...] = ()
+    short: str = ""
 
     def tmdb_id(self, media_type: str) -> int | None:
         return self.movie if media_type == "movie" else self.tv
@@ -30,7 +32,14 @@ _LIST = (
     Genre("action", "Action", 28, 10759, ("fighting", "martial arts")),
     Genre("comedy", "Comedy", 35, 35, ("comedies", "funny", "sitcom", "romcom")),
     Genre("drama", "Drama", 18, 18, ("dramas",)),
-    Genre("science-fiction", "Science Fiction", 878, 10765, ("sci-fi", "scifi", "sf", "space")),
+    Genre(
+        "science-fiction",
+        "Science Fiction",
+        878,
+        10765,
+        ("sci-fi", "scifi", "sf", "space"),
+        "Sci-fi",
+    ),
     Genre("thriller", "Thriller", 53, None, ("thrillers", "suspense")),
     Genre("horror", "Horror", 27, None, ("scary", "frightening")),
     Genre("crime", "Crime", 80, 80, ("gangster", "detective", "police")),
