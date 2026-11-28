@@ -512,6 +512,102 @@ def test_the_button_f_and_a_double_click_ask_for_full_screen_but_a_double_tap_do
     assert (out["asked"], out["askedAfterTouch"]) == (3, 3)
 
 
+PIP_OFF = {
+    "hidden": False,
+    "icon": "#i-pip",
+    "label": "Picture in picture",
+    "title": "Picture in picture (P)",
+    "listed": True,
+}
+PIP_ON = {
+    **PIP_OFF,
+    "icon": "#i-pip-exit",
+    "label": "Exit picture in picture",
+    "title": "Exit picture in picture (P)",
+}
+
+
+def test_picture_in_picture_is_asked_by_button_and_by_p_and_its_icon_follows(markup):
+    out = run(markup, "pip_standard")
+    assert out["start"] == out["left"] == PIP_OFF
+    assert out["entered"] == PIP_ON
+    assert (out["asked"], out["exits"]) == (2, 1)
+
+
+def test_on_an_iphone_picture_in_picture_is_the_video_s_presentation_mode(markup):
+    out = run(markup, "webkitpip_mode")
+    assert out["start"] == out["left"] == PIP_OFF
+    assert (out["mode"], out["back"]) == ("picture-in-picture", "inline")
+    assert out["entered"] == PIP_ON
+
+
+def test_a_browser_that_cannot_float_the_video_shows_no_picture_in_picture(markup):
+    out = run(markup, "no_pip")
+    assert (out["hidden"], out["listed"]) == (True, False)
+
+
+def test_m_mutes_and_the_arrows_step_the_volume_and_show_it_on_the_slider(markup):
+    out = run(markup, "volume_keys")
+    assert out["title"] == "Mute (M)"
+    assert out["down"] == {"volume": 0.85, "muted": False, "text": "85%", "nudged": True}
+    assert out["later"]["nudged"] is False
+    assert out["muted"]["muted"] is True
+    assert out["mutedTitle"] == "Unmute (M)"
+    # Muted, the slider stands at nothing: up is a step from there.
+    assert out["upFromMuted"] == {"volume": 0.05, "muted": False, "text": "5%", "nudged": True}
+    assert out["mutedAgain"] is True
+    assert out["top"] == 1
+
+
+def test_the_arrows_up_and_down_stay_the_seek_bar_s_and_the_menu_s_own(markup):
+    out = run(markup, "volume_keys")
+    assert out["onSeek"] == {"volume": 1, "moved": -10}
+    assert out["inMenu"] == 1
+
+
+@pytest.mark.parametrize("reduced", [False, True])
+def test_a_question_mark_opens_the_list_of_keys_and_it_closes_by_key_and_button(markup, reduced):
+    out = run(markup, "keys_sheet", reduced=reduced)
+    assert out["before"]["shown"] is False
+    assert out["open"] == {"shown": True, "hidden": False, "focus": "Close"}
+    for closed in ("closed", "escaped", "clicked"):
+        assert out[closed]["shown"] is False
+        assert out[closed]["focus"] == "Forward 10 seconds"
+        # With less motion it goes at once, without an exit to play.
+        assert out[closed]["hidden"] is reduced
+
+
+def test_the_lock_screen_shows_the_show_s_poster_and_its_buttons_steer_the_player(markup):
+    out = run(markup, "session_actions")
+    assert out["meta"]["artwork"] == [{"src": "/api/poster/77"}]
+    assert out["actions"] == [
+        "nexttrack",
+        "pause",
+        "play",
+        "seekbackward",
+        "seekforward",
+        "seekto",
+    ]
+    assert (out["paused"], out["played"]) == (True, True)
+    assert (out["forward"], out["backward"]) == (110, 80)
+    # A scrub moves the video once, where it stops; a single place at once.
+    assert out["seeks"] == [720, 1500]
+    assert out["opened"] == ["/watch/play/502"]
+
+
+def test_the_lock_screen_s_bar_is_told_the_length_place_and_rate(markup):
+    out = run(markup, "session_actions")
+    assert out["atStart"] == {"duration": 3000, "playbackRate": 1, "position": 100}
+    assert out["afterSeek"] == {"duration": 3000, "playbackRate": 1, "position": 1500}
+    assert out["rate"] == 2
+
+
+def test_a_film_s_lock_screen_has_no_next_track_and_shows_its_own_poster(film):
+    out = run(film, "session_actions")
+    assert out["meta"]["artwork"] == [{"src": "/api/poster/501"}]
+    assert out["next"] is False
+
+
 def test_the_volume_slider_says_its_level_in_a_whole_percentage(markup):
     out = run(
         markup, "volume", saved={"mediaman.watch.volume": "0.666", "mediaman.watch.muted": "false"}
@@ -897,7 +993,11 @@ def test_the_page_shows_what_the_next_episode_s_own_page_says(in_place):
         "The Long Coast",
         "S2 · E2",
     )
-    assert in_place["media"] == {"title": "S2 · E2", "artist": "The Long Coast"}
+    assert in_place["media"] == {
+        "title": "S2 · E2",
+        "artist": "The Long Coast",
+        "artwork": [{"src": "/api/poster/77"}],
+    }
     assert (in_place["nextHref"], in_place["max"]) == ("/watch/play/503", "2702")
     assert in_place["back"] == "/watch/show/77?season=2"
 

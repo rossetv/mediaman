@@ -126,7 +126,7 @@
       </button>
       <span class="player-brk player-brk--1"></span>
       <div class="player-volume" data-away-idle>
-        <button type="button" class="player-btn" data-mute aria-label="Mute" title="Mute">
+        <button type="button" class="player-btn" data-mute aria-label="Mute" title="Mute (M)">
           {{ icon("i-volume-high") }}
         </button>
         <input type="range" class="player-volume-slider" data-volume min="0" max="1" step="0.05" value="1" aria-label="Volume">
@@ -167,6 +167,11 @@
       <button type="button" class="player-btn player-play-on" data-play-on
               aria-haspopup="dialog" aria-expanded="false" aria-label="Play on a TV" title="Play on a TV" hidden>
         <svg class="ico ico--tv" aria-hidden="true" focusable="false"><use href="#play-on-tv"/></svg>
+      </button>
+
+      {# Shown by player.js where the browser can float the video. #}
+      <button type="button" class="player-btn" data-pip aria-label="Picture in picture" title="Picture in picture (P)" hidden>
+        {{ icon("i-pip") }}
       </button>
 
       <button type="button" class="player-btn" data-fullscreen aria-label="Full screen" title="Full screen (F)">
@@ -215,6 +220,23 @@
     </button>
   </div>
   <p class="sr-only" role="status" data-rate-status></p>
+
+  <div class="player-card player-keys" data-keys role="dialog" aria-labelledby="player-keys-title" hidden>
+    <h2 class="player-card-title" id="player-keys-title">Keyboard shortcuts</h2>
+    <dl class="player-keys-list">
+      <div><dt><kbd>Space</kbd></dt><dd>Play or pause</dd></div>
+      <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Back or forward 10 seconds</dd></div>
+      <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Volume</dd></div>
+      <div><dt><kbd>M</kbd></dt><dd>Mute</dd></div>
+      <div><dt><kbd>F</kbd></dt><dd>Full screen</dd></div>
+      <div data-keys-pip hidden><dt><kbd>P</kbd></dt><dd>Picture in picture</dd></div>
+      <div><dt><kbd>S</kbd></dt><dd>Skip the intro or credits</dd></div>
+      <div><dt><kbd>?</kbd></dt><dd>These shortcuts</dd></div>
+    </dl>
+    <button type="button" class="player-rate-close" data-keys-close aria-label="Close" title="Close (Esc)">
+      {{ icon("i-xmark") }}
+    </button>
+  </div>
 
   <div class="player-lost" role="status"><p class="player-lost-text" data-lost hidden></p></div>
 

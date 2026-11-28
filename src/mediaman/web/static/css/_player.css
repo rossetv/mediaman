@@ -823,6 +823,39 @@
   align-items: center;
 }
 .player-message .player-card-actions { justify-content: center; }
+/* The keyboard's shortcuts, over the middle of the picture. */
+.player-keys {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 340px;
+  gap: 12px;
+  padding-bottom: var(--card-y);
+}
+.player-keys-list { display: flex; flex-direction: column; gap: 8px; margin: 0; font-size: 14px; }
+.player-keys-list > div { display: flex; align-items: center; gap: 12px; }
+.player-keys-list > div[hidden] { display: none; }
+.player-keys .player-rate-close { position: absolute; }
+/* A phone on its side: two columns, so the list clears the controls. */
+@media (max-height: 520px) {
+  .player-keys { --card-y: 14px; width: 560px; gap: 8px; }
+  .player-keys-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 13px; }
+  .player-keys-list dt { width: 60px; }
+}
+.player-keys-list dt { flex: none; width: 76px; display: flex; gap: 4px; }
+.player-keys-list dd { margin: 0; color: var(--t2); }
+.player-keys kbd {
+  min-width: 26px;
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+  background: var(--s4);
+  border: 1px solid var(--hair-strong);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
 .player-ask {
   position: fixed;
   inset: 0;
@@ -866,6 +899,8 @@
 @media (max-width: 767px), (pointer: coarse) {
   .player-volume-slider { display: none; }
 }
+/* A key that changes the volume shows the slider for a moment, even where it has no room of its own. */
+.player .player-volume.is-nudged .player-volume-slider { display: block; }
 
 @media (max-width: 900px) {
   .player-chapter-name { display: none; }
@@ -1050,7 +1085,7 @@
 .player.has-no-volume :is([data-mute], .player-volume-slider) { display: none; }
 .player-air { z-index: -1; }
 .player.is-away { display: flex; flex-direction: column; overflow-y: auto; }
-.player.is-away :is(.player-video:not(.player-air), .player-spinner, .player-intro, .player-hold, [data-fullscreen], .player-controls .player-play-on) { display: none !important; }
+.player.is-away :is(.player-video:not(.player-air), .player-spinner, .player-intro, .player-hold, [data-fullscreen], [data-pip], .player-keys, .player-controls .player-play-on) { display: none !important; }
 /* Out of sight but there: Safari sends to a TV only what the page shows. */
 .player.is-away .player-air { display: block !important; opacity: 0; pointer-events: none; }
 .player.is-away .player-top { position: relative; flex: none; padding-bottom: 12px; background: none; }

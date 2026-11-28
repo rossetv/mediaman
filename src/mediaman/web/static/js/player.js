@@ -75,6 +75,8 @@
   /* The video goes where presses in quick succession lead this long after the last. */
   var LAND_MS = 250;
   var PAGE_S = 60;
+  var VOLUME_STEP = 0.05;
+  var NUDGE_MS = 1500;
   var AUTOPLAY_KEY = 'mediaman.watch.autoplay';
   var COUNTDOWN_S = 10;
   var DAY_MS = 24 * 60 * 60 * 1000;
@@ -303,6 +305,8 @@
     qualityBtn: q('[data-quality-btn]'),
     qualityMenu: q('[data-quality-menu]'),
     fullscreen: q('[data-fullscreen]'),
+    pip: q('[data-pip]'),
+    keys: q('[data-keys]'),
     upnextStatus: q('[data-upnext-status]'),
     rate: q('[data-rate]'),
     rateTitle: q('[data-rate-title]'),
@@ -2668,7 +2672,7 @@
   function showVolume() {
     var silent = video.muted || video.volume === 0;
     var there = away && away.play ? ' the TV' : '';
-    setName(els.mute, (silent ? 'Unmute' : 'Mute') + there);
+    setName(els.mute, (silent ? 'Unmute' : 'Mute') + there, 'M');
     els.volume.setAttribute('aria-label', there ? 'TV volume' : 'Volume');
     MM.dom.setIcon(els.mute.querySelector('.ico'), silent ? 'i-volume-xmark' : 'i-volume-high');
     var level = video.muted ? 0 : video.volume;
@@ -2676,10 +2680,26 @@
     els.volume.setAttribute('aria-valuetext', video.muted ? 'Muted' : Math.round(level * 100) + '%');
     els.volume.style.setProperty('--fill', level * 100 + '%');
   }
-  els.mute.addEventListener('click', function () {
+  function toggleMute() {
     video.muted = !video.muted;
     if (!video.muted && video.volume === 0) video.volume = 1;
-  });
+  }
+  els.mute.addEventListener('click', toggleMute);
+
+  /* Where it plays, the volume is the TV's own remote's. */
+  function noVolume() { return root.classList.contains('has-no-volume'); }
+
+  /* A step of the volume from the keys, shown on the slider for a moment even where it has no room. */
+  var nudgeTimer = null;
+  function stepVolume(delta) {
+    var level = Math.round(((video.muted ? 0 : video.volume) + delta) * 100) / 100;
+    video.volume = Math.min(1, Math.max(0, level));
+    video.muted = false;
+    var control = els.volume.parentNode;
+    control.classList.add('is-nudged');
+    clearTimeout(nudgeTimer);
+    nudgeTimer = setTimeout(function () { control.classList.remove('is-nudged'); }, NUDGE_MS);
+  }
   /* Dragged to nothing it mutes, at the volume there was before the drag. */
   var volumeBefore = null;
   els.volume.addEventListener('input', function () {
@@ -2862,6 +2882,41 @@
     });
   });
 
+  /* ---- picture in picture -------------------------------------------- */
+
+  function pipWorks() {
+    if (document.pictureInPictureEnabled && local.requestPictureInPicture) return true;
+    return typeof local.webkitSupportsPresentationMode === 'function' &&
+      local.webkitSupportsPresentationMode('picture-in-picture');
+  }
+
+  function inPip() {
+    return document.pictureInPictureElement === local || local.webkitPresentationMode === 'picture-in-picture';
+  }
+
+  function togglePip() {
+    var p = null;
+    if (document.pictureInPictureElement === local) p = document.exitPictureInPicture();
+    else if (inPip()) local.webkitSetPresentationMode('inline');
+    else if (document.pictureInPictureEnabled && local.requestPictureInPicture) p = local.requestPictureInPicture();
+    else local.webkitSetPresentationMode('picture-in-picture');
+    if (p && p.catch) p.catch(function () {});
+  }
+
+  function showPip() {
+    var on = inPip();
+    setName(els.pip, on ? 'Exit picture in picture' : 'Picture in picture', 'P');
+    MM.dom.setIcon(els.pip.querySelector('.ico'), on ? 'i-pip-exit' : 'i-pip');
+  }
+
+  var hasPip = pipWorks();
+  els.pip.hidden = !hasPip;
+  q('[data-keys-pip]').hidden = !hasPip;
+  els.pip.addEventListener('click', togglePip);
+  ['enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged'].forEach(function (name) {
+    local.addEventListener(name, showPip);
+  });
+
   /* ---- controls hiding ------------------------------------------------ */
 
   var idleTimer = null;
@@ -2978,6 +3033,7 @@
     if (menuOpen()) focusByPointer = false;
     if (e.key === 'Escape') {
       if (menuOpen()) closeMenus(true);
+      else if (shown(els.keys)) hideKeys();
       else if (skipCount) keepSkip();
       else if (shown(els.rate) && (!upnextOpen() || els.rate.contains(document.activeElement))) endRating();
       else hideUpnext();
@@ -3010,9 +3066,25 @@
       e.preventDefault();
       skip(e.key === 'ArrowLeft' ? -SKIP_S : SKIP_S);
       if (e.target === els.seek) peekBubble();
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      /* The seek bar's and the slider's own, where the keyboard is on them. */
+      if (e.target === els.seek || (tag === 'INPUT' && !focusByPointer) || noVolume()) return;
+      e.preventDefault();
+      stepVolume(e.key === 'ArrowUp' ? VOLUME_STEP : -VOLUME_STEP);
+    } else if (e.key === 'm' || e.key === 'M') {
+      if (noVolume()) return;
+      e.preventDefault();
+      toggleMute();
     } else if ((e.key === 'f' || e.key === 'F') && !isAway()) {
       e.preventDefault();
       toggleFullscreen();
+    } else if ((e.key === 'p' || e.key === 'P') && hasPip && !isAway()) {
+      e.preventDefault();
+      togglePip();
+    } else if (e.key === '?') {
+      e.preventDefault();
+      if (shown(els.keys)) hideKeys();
+      else showKeys();
     } else if (e.key === 's' || e.key === 'S') {
       /* The next episode's card stands where the skip button was: S goes on now. */
       var goesOn = upnextOpen();
@@ -3025,6 +3097,24 @@
     }
     showControls();
   });
+
+  /* ---- the list of keys ------------------------------------------------ */
+
+  var keysFrom = null;       // what had the focus as the list opened
+
+  function showKeys() {
+    keysFrom = document.activeElement;
+    show(els.keys);
+    q('[data-keys-close]').focus();
+  }
+
+  function hideKeys() {
+    var hadFocus = els.keys.contains(document.activeElement);
+    leave(els.keys);
+    if (hadFocus) (keysFrom && keysFrom !== document.body && root.contains(keysFrom) ? keysFrom : els.play).focus();
+  }
+
+  q('[data-keys-close]').addEventListener('click', hideKeys);
 
   /* ---- next episode --------------------------------------------------- */
 
@@ -3243,12 +3333,57 @@
     render();
   }
 
-  /* What the system's own media controls call the video. */
+  /* What the system's own media controls call the video, and what their buttons do here. */
   function showMedia() {
-    if (!navigator.mediaSession || !window.MediaMetadata) return;
-    navigator.mediaSession.metadata = new MediaMetadata(
-      showHref ? { title: item.subtitle, artist: item.title } : { title: item.title });
+    var media = navigator.mediaSession;
+    if (!media) return;
+    if (window.MediaMetadata) {
+      var meta = showHref ? { title: item.subtitle, artist: item.title } : { title: item.title };
+      meta.artwork = [{ src: posterSrc() }];
+      media.metadata = new MediaMetadata(meta);
+    }
+    onMediaAction('nexttrack', next ? function () { goNext(false); } : null);
+    showMediaPlace();
   }
+
+  /* An episode shows its show's poster. */
+  function posterSrc() {
+    var key = showHref ? showHref.split('?')[0].split('/').pop() : item.rating_key;
+    return '/api/poster/' + encodeURIComponent(key);
+  }
+
+  function onMediaAction(name, fn) {
+    var media = navigator.mediaSession;
+    if (!media || typeof media.setActionHandler !== 'function') return;
+    try { media.setActionHandler(name, fn); } catch (e) { /* an action this browser does not know */ }
+  }
+
+  function playingNow() { return swapping ? wantPlaying : !(video.paused || video.ended); }
+
+  onMediaAction('play', function () { if (!playingNow()) togglePlay(true); });
+  onMediaAction('pause', function () { if (playingNow()) togglePlay(true); });
+  onMediaAction('seekbackward', function (d) { skip(-((d && d.seekOffset) || SKIP_S)); });
+  onMediaAction('seekforward', function (d) { skip((d && d.seekOffset) || SKIP_S); });
+  onMediaAction('seekto', function (d) {
+    if (!d || !isFinite(d.seekTime)) return;
+    /* A scrub sends a place at every step: only where it stops is the video sent. */
+    if (d.fastSeek) aimAt(d.seekTime);
+    else seekTo(d.seekTime);
+  });
+
+  /* Where the lock screen's bar stands; it runs on by itself at the rate it is told. */
+  function showMediaPlace() {
+    var media = navigator.mediaSession;
+    if (!media || typeof media.setPositionState !== 'function') return;
+    var d = duration();
+    if (!(d > 0) || !isFinite(d)) return;
+    try {
+      media.setPositionState({ duration: d, playbackRate: video.playbackRate || 1, position: Math.min(d, Math.max(0, position())) });
+    } catch (e) { /* a state this browser refuses */ }
+  }
+  ['durationchange', 'ratechange', 'seeked', 'loadedmetadata', 'playing'].forEach(function (name) {
+    onVideo(name, showMediaPlace);
+  });
 
   function upnextOpen() {
     return !!els.upnext && shown(els.upnext);

@@ -22,6 +22,8 @@ let doc = null;
 let more = [];
 /* What a scenario gives the page of Web Audio, before its scripts run. */
 let audioOf = null;
+/* What a scenario gives the browser, before the player's script runs. */
+let browserOf = null;
 
 function decode(s) {
   return s.replace(/&#(\d+);/g, (m, n) => String.fromCharCode(+n))
@@ -547,6 +549,7 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
   win.window = win;
   win.navigator = win.navigator;
   if (audioOf) audioOf(win);
+  if (browserOf) browserOf(win, doc.querySelector('video'));
   const ctx = vm.createContext(win);
   if (elsewhere) elsewhere.setup(win);
   const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
@@ -1056,7 +1059,170 @@ function copyAt(status, progress, id) {
   return { id: id || 1, language: 'pt', scope: 'episode', status: status, progress: progress == null ? null : progress, minutes_left: status === 'downloading' ? 12 : null, release_languages: ['pt'], quality: 'WEBDL-720p' };
 }
 
+/* Browsers that can float the video, and that have the system's media controls, by the
+   first word of a scenario's name. */
+const BROWSERS = {
+  pip(win, video) {
+    win.document.pictureInPictureEnabled = true;
+    video.pipAsks = 0;
+    video.requestPictureInPicture = () => { video.pipAsks++; return Promise.resolve(); };
+    win.document.pipExits = 0;
+    win.document.exitPictureInPicture = () => { win.document.pipExits++; return Promise.resolve(); };
+  },
+  webkitpip(win, video) {
+    video.webkitSupportsPresentationMode = (m) => m === 'picture-in-picture';
+    video.webkitPresentationMode = 'inline';
+    video.webkitSetPresentationMode = (m) => { video.webkitPresentationMode = m; };
+  },
+  session(win) {
+    win.navigator.mediaSession = {
+      handlers: {}, states: [],
+      setActionHandler(name, fn) {
+        this.handlers[name] = fn;
+      },
+      setPositionState(state) { this.states.push(state); },
+    };
+  },
+};
+
+/* The PiP button as the person sees it. */
+function pipLook(p) {
+  const btn = p.q('[data-pip]');
+  return { hidden: btn.hidden, icon: btn.querySelector('use').getAttribute('href'), label: btn.getAttribute('aria-label'), title: btn.getAttribute('title'), listed: !p.q('[data-keys-pip]').hidden };
+}
+
 const scenarios = {
+  /* PiP where the browser has the standard API: the button, the P key and the icon that follows. */
+  async pip_standard(p) {
+    await streamPlays(p, 100);
+    const out = { start: pipLook(p) };
+    click(p.q('[data-pip]'));
+    key('p');
+    out.asked = p.video.pipAsks;
+    doc.pictureInPictureElement = p.video;
+    fire(p.video, 'enterpictureinpicture', { bubbles: true });
+    out.entered = pipLook(p);
+    key('P');
+    out.exits = doc.pipExits;
+    doc.pictureInPictureElement = null;
+    fire(p.video, 'leavepictureinpicture', { bubbles: true });
+    out.left = pipLook(p);
+    return out;
+  },
+
+  /* PiP in Safari on an iPhone: the presentation mode. */
+  async webkitpip_mode(p) {
+    await streamPlays(p, 100);
+    const out = { start: pipLook(p) };
+    click(p.q('[data-pip]'));
+    out.mode = p.video.webkitPresentationMode;
+    fire(p.video, 'webkitpresentationmodechanged');
+    out.entered = pipLook(p);
+    key('p');
+    out.back = p.video.webkitPresentationMode;
+    fire(p.video, 'webkitpresentationmodechanged');
+    out.left = pipLook(p);
+    return out;
+  },
+
+  /* A browser that cannot float the video. */
+  async no_pip(p) {
+    await streamPlays(p, 100);
+    key('p');
+    return pipLook(p);
+  },
+
+  /* M, and the arrows up and down, on the page, on the seek bar and in a menu. */
+  async volume_keys(p) {
+    await streamPlays(p, 100);
+    const vol = p.q('.player-volume');
+    const look = () => {
+      fire(p.video, 'volumechange');
+      return { volume: p.video.volume, muted: p.video.muted, text: p.q('[data-volume]').getAttribute('aria-valuetext'), nudged: vol.classList.contains('is-nudged') };
+    };
+    const out = { title: p.q('[data-mute]').getAttribute('title') };
+    key('ArrowDown'); key('ArrowDown'); key('ArrowDown');
+    out.down = look();
+    p.tick(2000);
+    out.later = look();
+    key('m');
+    out.muted = look();
+    out.mutedTitle = p.q('[data-mute]').getAttribute('title');
+    key('ArrowUp');
+    out.upFromMuted = look();
+    key('M');
+    out.mutedAgain = look().muted;
+    key('m');
+    p.video.volume = 0.98;
+    key('ArrowUp'); key('ArrowUp');
+    out.top = look().volume;
+    tabTo(p.q('[data-seek]'));
+    const at = p.video.currentTime;
+    key('ArrowDown');
+    p.tick(300);
+    out.onSeek = { volume: look().volume, moved: p.video.currentTime - at };
+    tabTo(p.q('[data-quality-btn]'));
+    key('Enter');
+    key('ArrowDown');
+    out.inMenu = look().volume;
+    return out;
+  },
+
+  /* The list of keys, opened by ? and closed by ? and by Escape. */
+  async keys_sheet(p) {
+    await streamPlays(p, 100);
+    const sheet = p.q('[data-keys]');
+    const look = () => ({ shown: !gone(sheet), hidden: sheet.hidden, focus: doc.activeElement.getAttribute('aria-label') });
+    tabTo(p.q('[data-fwd10]'));
+    const out = { before: look() };
+    key('?');
+    out.open = look();
+    key('?');
+    out.closed = look();
+    key('?');
+    key('Escape');
+    out.escaped = look();
+    key('?');
+    click(p.q('[data-keys-close]'));
+    out.clicked = look();
+    return out;
+  },
+
+  /* The lock screen and Control Center: what they show and what their buttons do. */
+  async session_actions(p) {
+    const media = p.win.navigator.mediaSession;
+    await streamPlays(p, 100);
+    const out = { meta: media.metadata, actions: Object.keys(media.handlers).filter((n) => media.handlers[n]).sort() };
+    out.atStart = media.states.slice(-1)[0];
+    media.handlers.pause({ action: 'pause' });
+    out.paused = p.video.paused;
+    media.handlers.play({ action: 'play' });
+    out.played = !p.video.paused;
+    media.handlers.seekforward({ action: 'seekforward' });
+    p.tick(300);
+    out.forward = p.video.currentTime;
+    media.handlers.seekbackward({ action: 'seekbackward', seekOffset: 30 });
+    p.tick(300);
+    out.backward = p.video.currentTime;
+    const seeks = countSeeks(p.video);
+    [700, 710, 720].forEach((t) => media.handlers.seekto({ action: 'seekto', seekTime: t, fastSeek: true }));
+    p.tick(300);
+    media.handlers.seekto({ action: 'seekto', seekTime: 1500 });
+    out.seeks = seeks.slice();
+    fire(p.video, 'seeked');
+    out.afterSeek = media.states.slice(-1)[0];
+    p.video.playbackRate = 2;
+    fire(p.video, 'ratechange');
+    out.rate = media.states.slice(-1)[0].playbackRate;
+    out.next = !!media.handlers.nexttrack;
+    if (media.handlers.nexttrack) {
+      media.handlers.nexttrack({ action: 'nexttrack' });
+      await settle();
+      out.opened = p.calls.filter((c) => c.page).map((c) => c.url);
+    }
+    return out;
+  },
+
   /* While a copy comes, each answer of the server is drawn into the open menu in place: the row,
      the focus and the scroll are those the person left, and only the words move on. */
   async languages_follow(p) {
@@ -7533,6 +7699,7 @@ function introState(p) {
   const elsewhere = /^away_/.test(name) ? elsewhereOf(serverPlays) : null;
   more = /^languages_/.test(name) ? ['watch/languages.js'] : /^loud_/.test(name) ? ['watch/loudness.js'] : [];
   audioOf = /^loud_/.test(name) ? fakeAudio(serverPlays) : null;
+  browserOf = BROWSERS[name.split('_')[0]] || null;
   const p = boot(fs.readFileSync(file, 'utf8'), reduced === 'reduced', saved, serverPlays, null, elsewhere);
   p.elsewhere = elsewhere;
   if (elsewhere) {
