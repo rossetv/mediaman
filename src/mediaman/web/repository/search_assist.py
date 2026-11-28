@@ -368,6 +368,29 @@ def call_ended(conn: sqlite3.Connection, run_id: int, now: datetime) -> None:
         )
 
 
+def close_open_runs(conn: sqlite3.Connection, now: datetime) -> int:
+    """At startup: free the place of every run an earlier process left open, since its call
+    died with it. One still running failed; one stopped keeps its status. How many were open."""
+    with conn:
+        cursor = conn.execute(
+            "UPDATE user_ai_runs SET finished_at = ?,"
+            " status = CASE status WHEN 'running' THEN 'failed' ELSE status END"
+            " WHERE finished_at IS NULL",
+            (now.isoformat(),),
+        )
+    return cursor.rowcount
+
+
+def close_orphan(conn: sqlite3.Connection, user_id: int, run_id: int, now: datetime) -> None:
+    """End, as failed, a question's run that is running with no call of this process behind it."""
+    with conn:
+        conn.execute(
+            "UPDATE user_ai_runs SET status = 'failed', finished_at = ?"
+            " WHERE id = ? AND user_id = ? AND status = 'running' AND kind <> ?",
+            (now.isoformat(), run_id, user_id, PHRASES),
+        )
+
+
 def runs_there(conn: sqlite3.Connection) -> set[int]:
     return {r["id"] for r in conn.execute("SELECT id FROM user_ai_runs")}
 

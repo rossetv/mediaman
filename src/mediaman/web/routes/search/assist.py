@@ -717,6 +717,10 @@ def api_run(
         return _unavailable(request, conn, username)
     status = repo.run_status(conn, user_id, run_id, now_utc())
     asked = _asked.get(run_id)
+    if status == "running" and asked is None:
+        # Begun by a process that has since ended: nothing will finish it, nor free its place.
+        repo.close_orphan(conn, user_id, run_id, now_utc())
+        status = repo.run_status(conn, user_id, run_id, now_utc())
     if status is None or (status == "done" and asked is None):
         return _not_found()
     if status == "failed" and asked is not None and asked.key_refused:
